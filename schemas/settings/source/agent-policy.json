@@ -117,6 +117,7 @@
         "sidebar.side",
         "sidebar.look",
         "sidebar.style",
+        "appearance.metrics.spaceButtonSpacing",
         "sidebar.drawnMenus",
         "sidebar.spacesPosition",
         "sidebar.spacesVisibility",

@@ -51,8 +51,14 @@ public final class InputLatencyTrace {
     static let windowTail = 0.3
 
     private let watch: MainThreadWatch
-    private let writer = DispatchQueue(label: "dev.cmux.mobile.input-latency",
-                                       qos: InputLatencyTrace.samplesTouches ? .userInitiated : .utility)
+    /// Appends lines to the file, and does nothing else, so a line is written as soon as it is
+    /// made. Slow work (symbolizing a hitch's stacks, a touch's 0.45 s stack sampling) runs on
+    /// `symbolizer` and hands its finished line here: when the two shared one serial utility
+    /// queue, a burst of hitches under duress=heavy queued every key sample behind seconds of
+    /// dladdr, and a run's trace came out with none (or part) of its keys.
+    nonisolated private let writer = DispatchQueue(label: "dev.cmux.mobile.input-latency", qos: .userInitiated)
+    private let symbolizer = DispatchQueue(label: "dev.cmux.mobile.input-latency.symbols",
+                                           qos: InputLatencyTrace.samplesTouches ? .userInitiated : .utility)
     nonisolated private let handle: FileHandle?
     private var observer: CFRunLoopObserver?
     private var observers: [NSObjectProtocol] = []
@@ -101,7 +107,7 @@ public final class InputLatencyTrace {
     public func sampleTouch() {
         let began = CACurrentMediaTime()
         let watch = watch
-        writer.async { [weak self] in
+        symbolizer.async { [weak self] in
             var observations: [(start: Double, end: Double, frames: [UInt])] = []
             while CACurrentMediaTime() < began + 0.45 {
                 let start = CACurrentMediaTime()
@@ -125,7 +131,8 @@ public final class InputLatencyTrace {
             let record: [String: Any] = ["type": "touch-stacks", "start": began,
                                          "symbols": symbols, "samples": samples]
             if let data = try? JSONSerialization.data(withJSONObject: record) {
-                self?.writeNow(String(decoding: data, as: UTF8.self))
+                let line = String(decoding: data, as: UTF8.self)
+                self?.writer.async { [weak self] in self?.writeNow(line) }
             }
         }
     }
@@ -231,11 +238,11 @@ public final class InputLatencyTrace {
         let start = iteration.start
         let stacks = iteration.stacks
         Self.signposter.emitEvent("hitch", "\(ms, format: .fixed(precision: 1))ms \(label, privacy: .public)")
-        writer.async { [weak self] in
+        symbolizer.async { [weak self] in
             let symbols = stacks.map { $0.map(Self.symbol(for:)) }
             let body = symbols.map { "[" + $0.map(Self.quoted).joined(separator: ",") + "]" }.joined(separator: ",")
             let line = #"{"type":"hitch","ms":\#(Self.f(ms)),"t":\#(Self.f(start * 1000)),"window":"\#(label)","samples":\#(stacks.count),"stacks":[\#(body)]}"#
-            self?.writeNow(line)
+            self?.writer.async { [weak self] in self?.writeNow(line) }
         }
         InputLatencyBoard.shared?.update(summary)
     }
