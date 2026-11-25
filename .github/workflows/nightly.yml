@@ -2966,38 +2966,44 @@ jobs:
           name: cmux-nightly-remote-daemon
           path: remote-daemon-assets
 
-      # Provenance is for `gh attestation verify`; no nightly step reads it. Persisting it spends the shared
-      # installation API budget (spent Oct 25-26: six runs threw a finished build away), so wait (bounded)
-      # for 200 calls, try, wait once more, retry, and on a second refusal ship with a warning.
-      - name: Wait for API budget before the daemon attestation
+      # Provenance is for `gh attestation verify`; no nightly step reads it. Signed here with no GitHub REST call
+      # (sign.mjs: OIDC, Fulcio, Rekor) and kept as an artifact, so the shared installation budget never holds
+      # this job: its --reserve 200 wait took 17.6 minutes in run 45562645699. The attestations API gets one try;
+      # a refusal is a warning, and the kept bundle still verifies with `gh attestation verify FILE --bundle`.
+      - name: Put the pinned Node on PATH
+        run: bash scripts/ci/ensure-setup-node.sh 24.22.1
+
+      - name: Sign the SSH daemon provenance offline
+        id: sign_daemon
+        continue-on-error: true
+        env:
+          SIGSTORE: ${{ github.event.repository.visibility == 'public' && 'public-good' || 'github' }}
+        run: |
+          npm ci --prefix scripts/ci/attest-offline --ignore-scripts --no-audit --no-fund
+          node scripts/ci/attest-offline/sign.mjs "$RUNNER_TEMP/cmuxd-remote.sigstore.json" remote-daemon-assets/cmuxd-remote-*
+
+      - name: Keep the SSH daemon provenance bundle
+        if: steps.sign_daemon.outcome == 'success'
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: cmux-nightly-remote-daemon-provenance
+          path: ${{ runner.temp }}/cmuxd-remote.sigstore.json
+          if-no-files-found: error
+          retention-days: 90
+          overwrite: true
+
+      - name: Store the daemon attestation (one try, no budget wait)
+        id: store_daemon
+        if: steps.sign_daemon.outcome == 'success'
+        continue-on-error: true
         env:
           GH_TOKEN: ${{ github.token }}
-        run: if [ -f scripts/ci/gh_budget_wait.sh ]; then bash scripts/ci/gh_budget_wait.sh --reserve 200; fi
-
-      - name: Attest immutable SSH daemon assets
-        id: attest_daemon
-        continue-on-error: true
-        uses: actions/attest-build-provenance@a2bbfa25375fe432b6a289bc6b6cd05ecd0c4c32 # v4.1.0
-        with:
-          subject-path: remote-daemon-assets/cmuxd-remote-*
-
-      - name: Wait for the API budget before retrying the daemon attestation
-        if: steps.attest_daemon.outcome == 'failure'
-        env:
-          GH_TOKEN: ${{ github.token }}
-        # One bounded wait, only under 200 calls left; with the pre-step's, at most an hour.
-        run: if [ -f scripts/ci/gh_budget_wait.sh ]; then bash scripts/ci/gh_budget_wait.sh --reserve 200; fi
-
-      - name: Retry the daemon attestation
-        id: attest_daemon_retry
-        if: steps.attest_daemon.outcome == 'failure'
-        continue-on-error: true
-        uses: actions/attest-build-provenance@a2bbfa25375fe432b6a289bc6b6cd05ecd0c4c32 # v4.1.0
-        with:
-          subject-path: remote-daemon-assets/cmuxd-remote-*
+        run: bash scripts/ci/nightly-steps/attest-store.sh "$RUNNER_TEMP/cmuxd-remote.sigstore.json"
 
       - name: Report a missing daemon attestation
-        if: steps.attest_daemon.outcome == 'failure' && steps.attest_daemon_retry.outcome == 'failure'
+        if: steps.sign_daemon.outcome == 'failure' || steps.store_daemon.outcome == 'failure'
+        env:
+          SIGNED: ${{ steps.sign_daemon.outcome }}
         run: bash -e scripts/ci/nightly-steps/attest-report-missing.sh
 
   # Runs beside build-nightly-app. Deepening the shallow clone to find the
