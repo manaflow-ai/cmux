@@ -82,7 +82,7 @@ pub struct LogMarks {
 struct Listing {
     log: String,
     stamp: u64,
-    segments: Vec<(u32, PathBuf)>,
+    segments: SegmentList,
 }
 
 impl LogMarks {
@@ -174,14 +174,14 @@ pub struct LogPart {
 /// A segment file opened for a read, with the bytes taken from it counted.
 struct Segment {
     index: u32,
-    file: File,
+    file: super::cold_segments::SegmentFile,
     id: u64,
     read: u64,
 }
 
 impl Segment {
     fn open(index: u32, path: &Path) -> Result<Self> {
-        let file = crate::config::private_state_file(path)?;
+        let file = super::cold_segments::open_segment(path)?;
         let id = file_id(&file.metadata()?);
         Ok(Self { index, file, id, read: 0 })
     }
@@ -429,7 +429,7 @@ impl LocalStore {
         }
         drop(carry);
         let mut position =
-            listing.segments.iter().position(|(i, _)| *i == segment.index).unwrap_or(0);
+            listing.segments.binary_search_by_key(&segment.index, |(i, _)| *i).unwrap_or(0);
         // Listed again at most once a read, at the end of a full last segment.
         let mut relisted = false;
         let mut last: Option<u64> = None;
@@ -449,8 +449,7 @@ impl LocalStore {
                 // A line larger than a chunk: the buffer doubles, never past what is left of
                 // the segment, so a line of n chunks costs O(n) copying and not O(n²).
                 (0, waiting) if waiting >= CHUNK_BYTES => {
-                    let left =
-                        segment.file.metadata()?.len().saturating_sub(offset + waiting as u64);
+                    let left = segment.file.len()?.saturating_sub(offset + waiting as u64);
                     waiting.min(usize::try_from(left).unwrap_or(usize::MAX)).max(1)
                 }
                 (kept, waiting) => CHUNK_BYTES.saturating_sub(kept + waiting),
@@ -534,8 +533,7 @@ impl LocalStore {
                 listing.segments = self.segments(id)?;
                 position = listing
                     .segments
-                    .iter()
-                    .position(|(i, _)| *i == segment.index)
+                    .binary_search_by_key(&segment.index, |(i, _)| *i)
                     .unwrap_or(listing.segments.len());
             }
             let Some((index, path)) = listing.segments.get(position + 1) else {
@@ -595,7 +593,7 @@ impl LocalStore {
             .filter(|m| m.log == id && m.stamp == stamp && m.seq <= from)
             .max_by_key(|m| m.seq);
         if let Some(mark) = usable
-            && let Some(position) = segments.iter().position(|(i, _)| *i == mark.segment)
+            && let Ok(position) = segments.binary_search_by_key(&mark.segment, |(i, _)| *i)
             && let Some((index, path)) = segments.get(position)
         {
             let segment = Segment::open(*index, path)?;
@@ -659,7 +657,7 @@ impl LocalStore {
 fn scan_to(segment: &mut Segment, start: u64, from: u64) -> Result<u64> {
     segment.file.seek(SeekFrom::Start(start))?;
     let found = {
-        let mut reader = BufReader::with_capacity(64 * 1024, &segment.file);
+        let mut reader = BufReader::with_capacity(64 * 1024, &mut segment.file);
         let mut offset = start;
         let mut head = Vec::with_capacity(HEAD);
         let mut length = 0u64;

@@ -87,7 +87,7 @@ final class ThemeCoordinator {
         let store = services.themeStore
         // `applied`: a live preview (a theme picker's highlighted row) shows too.
         chromeTheme = settings.applied.chromeTheme
-        store.setAccent(settings.applied.accent)
+        _ = (store.setAccent(settings.applied.accent), store.setSelection(settings.applied.selection))
         store.setAccentFollowsArt(AccentSetting.followsArt(settings.applied.root))
         applyChromeTheme()
         artAccentObservation = Task { [weak self] in
@@ -96,10 +96,10 @@ final class ThemeCoordinator {
                 self?.applyChromeTheme()
             }
         }
-        // `appearance.accent` re-derives the terminal-theme tokens (the store) and the app theme.
+        // `appearance.accent` and `.selection` re-derive the terminal-theme tokens (the store) and the app theme.
         accentObservation = Task { [weak self] in
-            for await accent in ObservationStream({ settings.applied.accent }) {
-                guard let self, store.setAccent(accent) else { continue }
+            for await (accent, selection) in ObservationStream({ (settings.applied.accent, settings.applied.selection) }) {
+                guard let self, (store.setAccent(accent), store.setSelection(selection)) != (false, false) else { continue }
                 self.applyChromeTheme()
             }
         }

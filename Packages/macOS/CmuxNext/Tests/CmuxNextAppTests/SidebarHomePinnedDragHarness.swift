@@ -6,8 +6,8 @@ import Testing
 /// The sidebar as Lawrence's NIGHTLY drew it on 2026-10-30 ("i tried to drag home around and now it's stuck in this
 /// state"): the list's top block holds Home alone, the Pinned block three pinned workspace rows, and a machine list
 /// three workspace rows under them. The document half (`SidebarDocDrag`) takes a drop as the reducer does: beside or
-/// into any row except the dragged ones, and Pinned only for what is pinned already (`keepingPinned`). It records
-/// every drop it is sent instead of moving anything.
+/// into any row except the dragged ones, Pinned included (a drop there pins). It records every drop it is sent
+/// instead of moving anything.
 @MainActor final class SidebarHomePinnedDragHarness {
     static let home = LayoutItem(id: LayoutItemID("itm_home"), ref: SidebarLayoutDocument.homeRef)
     static let pins = ["perf", "chromium", "chief"].map { LayoutItem(id: LayoutItemID("itm_pin_\($0)"), ref: .workspace("local:ws-pin-\($0)")) }
@@ -52,13 +52,10 @@ import Testing
             if case .machine = id { return Self.machineSection }
             return nil
         }, begin: { dragged in
-            let draggingPinned = dragged.allSatisfy(pinnedKeys.contains)
             var table: [String: SidebarDocAcceptance] = [:]
             for key in keys {
                 if dragged.contains(key) {
                     table[key] = SidebarDocAcceptance(before: false, into: false, after: false, refusal: "self")
-                } else if pinnedKeys.contains(key), !draggingPinned {
-                    table[key] = SidebarDocAcceptance(before: false, into: false, after: false, refusal: "pinned_area")
                 } else {
                     table[key] = SidebarDocAcceptance(before: true, into: true, after: true)
                 }

@@ -198,6 +198,90 @@ class MainFixEvidenceTests(unittest.TestCase):
         with self.assertRaisesRegex(module.Refused, "Build package and tests"):
             self.validate()
 
+    def test_a_red_check_hidden_behind_a_newer_green_sibling_of_its_name_still_refuses(self):
+        """hq#17005's class in the reader that grants the exception. GitHub names a check run by its job name, so two
+        workflows each with a job of one name are two check runs of that name at one head. While this sweep read only
+        the newest of each name, a red whose same-named sibling in another workflow finished later and green was
+        invisible to it -- and this sweep exists so that no failed check goes unexplained."""
+        for conclusion in ("failure", "timed_out"):  # spelled out, not read from the module: a test that imports the
+            # set it checks would follow a wrong edit to that set instead of catching it
+            with self.subTest(conclusion=conclusion):
+                self.gh = FakeGitHub()
+                self.sibling_pair(conclusion)
+                with self.assertRaisesRegex(module.Refused,
+                                            "lane tests: failed check has no same-base test match") as caught:
+                    self.validate()
+                # Naming the sibling, not only the name: the newest check run of that name is green, so a reader
+                # given the name alone would go looking at a green check and find nothing to fix.
+                self.assertIn("check run 90", str(caught.exception))
+                self.assertIn("sibling of the newest 91", str(caught.exception))
+
+    def test_a_superseded_siblings_cancel_is_not_a_red_anyone_must_explain(self):
+        """What the refusal above must not swallow. Concurrency cancels the earlier runs of a workflow at a head, and
+        every one of their check runs is a candidate of its name, so holding a sibling to the newest's standard
+        refuses ordinary heads: 8375182a4233 carried three runs of each workflow and three names whose newest was
+        green over a `cancelled` sibling (`language-boundaries` 136911939180 over 136911786510, `pr-capture-check,
+        design spec, perf section, cloud backend` 136911938901 over 136911787830, and `risk evidence`). A sibling
+        refuses only on a verdict a job reached; `startup_failure` is here too because such an attempt ran no job at
+        all, which is check_runs_at's own reading of it."""
+        for conclusion in ("cancelled", "stale", "startup_failure", "action_required"):
+            with self.subTest(conclusion=conclusion):
+                self.gh = FakeGitHub()
+                self.sibling_pair(conclusion)
+                self.assertIn(HEAD, self.validate())
+
+    def test_the_newest_of_a_name_still_refuses_on_every_red_including_a_cancel(self):
+        """The sibling carve-out is about siblings only: for the newest check run of a name nothing else speaks for
+        the name, so a cancel there is still unexplained and still refuses."""
+        for conclusion in ("failure", "timed_out", "cancelled", "stale", "startup_failure", "action_required"):
+            with self.subTest(conclusion=conclusion):
+                self.gh = FakeGitHub()
+                self.sibling_pair("success", newest=conclusion)
+                with self.assertRaises(module.Refused) as caught:
+                    self.validate()
+                self.assertIn("lane tests: failed check has no same-base test match", str(caught.exception))
+                # The newest check run's refusal says the name and stops. An implementation that always appended the
+                # sibling clause would satisfy the message above, and would then name a sibling of a check that has
+                # none.
+                self.assertNotIn("sibling of the newest", str(caught.exception))
+
+    def test_the_base_match_waiver_does_not_reach_a_sibling_it_never_examined(self):
+        """The waiver `cmux-next swift test` earns by failing the same way on the base was read from one check run,
+        the newest of that name; a sibling of it is another workflow's job, whose own failure nobody compared with
+        anything. Letting the waiver cover the name rather than the check run would excuse exactly the red this sweep
+        is for. The same holds for `ci-status`, below."""
+        for name in (module.SWIFT, "ci-status"):
+            with self.subTest(name=name):
+                self.gh = FakeGitHub()
+                self.gh.fail_test()
+                # Older than the matched check run (ids 3 and 4), so the matched one stays the name's newest. The id
+                # repeats one the fake already uses for another name, which nothing here reads: this check run is
+                # never fetched as a job, only swept.
+                self.gh.head_checks.append({"id": 2 if name == module.SWIFT else 3, "name": name,
+                                            "status": "completed", "conclusion": "failure",
+                                            "app": {"slug": "github-actions"}, "check_suite": {"id": 9100},
+                                            "details_url": "https://github.com/manaflow-ai/cmux/actions/runs/91/job/91"})
+                with self.assertRaises(module.Refused) as caught:
+                    self.validate()
+                self.assertIn(f"{name}: failed check has no same-base", str(caught.exception))
+
+    def sibling_pair(self, older, newest="success"):
+        """One job name in two workflows: two check runs of 'lane tests' at the head, the older one with conclusion
+        OLDER and the newer with NEWEST."""
+        for ident, suite, conclusion in ((90, 9000, older), (91, 9001, newest)):
+            self.gh.head_checks.append({"id": ident, "name": "lane tests", "status": "completed",
+                                        "app": {"slug": "github-actions"}, "check_suite": {"id": suite},
+                                        "conclusion": conclusion,
+                                        "details_url": f"https://github.com/manaflow-ai/cmux/actions/runs/{ident}/job/{ident}"})
+
+    def test_two_check_runs_of_one_name_that_are_both_green_still_pass(self):
+        """The other half: keeping every candidate must not invent a refusal where nothing is red."""
+        for suite, ident in ((9000, 90), (9001, 91)):
+            self.gh.head_checks.append({"id": ident, "name": "lane tests", "status": "completed", "conclusion": "success",
+                                        "app": {"slug": "github-actions"}, "check_suite": {"id": suite},
+                                        "details_url": f"https://github.com/manaflow-ai/cmux/actions/runs/{ident}/job/{ident}"})
+        self.assertIn(HEAD, self.validate())
+
     def test_same_base_failure_is_named_in_audit(self):
         self.gh.fail_test()
         evidence = self.validate()

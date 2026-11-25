@@ -9,6 +9,7 @@ import {
   timeSpanPage,
   turnTokenForSpan,
 } from "./timeBreakdownModel";
+import { intl } from "../../../ui/intl";
 
 const COLORS: Record<string, string> = {
   read: "color-mix(in srgb, var(--agent-text) 72%, var(--agent-muted))",
@@ -34,7 +35,7 @@ function duration(ms: number): string {
 }
 
 function tokens(value: number): string {
-  return new Intl.NumberFormat(undefined, { notation: "compact", maximumFractionDigits: 1 }).format(value);
+  return intl.NumberFormat(undefined, { notation: "compact", maximumFractionDigits: 1 }).format(value);
 }
 
 export type TimeBreakdownLook = "stacked" | "lanes" | "totals";

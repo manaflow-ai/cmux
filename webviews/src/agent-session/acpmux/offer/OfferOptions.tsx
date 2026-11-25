@@ -12,6 +12,7 @@ import { Icon } from "../icons/Icon";
 import { useT } from "../i18n";
 import type { AcpmuxSessionOffer } from "../model";
 import { folderParts, sameAgent, type OfferChoice, type OfferDefaults, type OfferPick } from "./offerChoice";
+import { WithFacts } from "../chips/FactsHoverCard";
 
 export function OfferOptions({
   offer,
@@ -89,7 +90,14 @@ export function OfferOptionRows({
   onDismiss(): void;
 }) {
   const t = useT();
-  const ids = { env: useId(), folder: useId(), worktree: useId(), model: useId(), effort: useId(), mode: useId() };
+  const ids = {
+    env: useId(),
+    folder: useId(),
+    worktree: useId(),
+    model: useId(),
+    effort: useId(),
+    mode: useId(),
+  };
   const folder = folderParts(offer.cwd);
   const same = sameAgent(offer, defaults);
   // A value the list does not hold (the agent's model id) still shows as picked.
@@ -111,10 +119,14 @@ export function OfferOptionRows({
       </div>
       <div className="acpmux-task-option acpmux-task-option--folder">
         <Icon name="folder" size={14} />
-        <span className="acpmux-task-folder" id={ids.folder} title={offer.cwd}>
-          <span className="acpmux-task-folder-name">{folder.name}</span>
-          {folder.parent && <span className="acpmux-task-folder-path">{folder.parent}</span>}
-        </span>
+        <WithFacts facts={[{ value: offer.cwd, code: true }]}>
+          {(facts) => (
+            <span {...facts} className="acpmux-task-folder" id={ids.folder}>
+              <span className="acpmux-task-folder-name">{folder.name}</span>
+              {folder.parent && <span className="acpmux-task-folder-path">{folder.parent}</span>}
+            </span>
+          )}
+        </WithFacts>
       </div>
       <label className="acpmux-task-option" htmlFor={ids.worktree}>
         <span className="acpmux-task-option-label">{t("offer.options.worktree")}</span>

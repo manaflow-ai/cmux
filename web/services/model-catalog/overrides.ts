@@ -99,9 +99,11 @@ export const HARNESS_OVERRIDES: HarnessOverride[] = [
     sources: [
       { provider: "openai", include: ["gpt-"], exclude: ["gpt-oss", "gpt-realtime", "gpt-image", "gpt-audio", "*-latest", "*-nano", "*-pro"], minReleaseDate: "2026-04-01" },
     ],
-    // New Codex chats start on GPT-6.1 Sol at medium effort (Lawrence 2026-10-13).
-    defaultModel: "gpt-6.1-sol",
+    // New Codex chats start on GPT-6.2 Sol at high effort, what `codex` in a terminal runs
+    // (cmux#48354, 2026-11-20); other Codex models still start at medium.
+    defaultModel: "gpt-6.2-sol",
     defaultEffort: "medium",
+    models: { "gpt-6.2-sol": { defaultEffort: "high" } },
     dropEfforts: ["none"],
     familyNames: {
       "gpt-sol": "Sol",

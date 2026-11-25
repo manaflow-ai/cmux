@@ -42,7 +42,6 @@ const REFERENCE_TOKENS: Record<string, number> = {
   tabTitleSize: 14,
   sidebarTitleSize: 14,
   chatEditorMin: 35,
-  sidebarRowInset: 6,
   sidebarContentInset: 7,
   sidebarLineBoxBaseline: 1,
   sidebarIconColumn: 16.5,
@@ -79,6 +78,8 @@ const REFERENCE_TOKENS: Record<string, number> = {
 };
 
 const CHROME_OMNIBAR_HEIGHT = 34;
+const CHROME_TOOLBAR_GAP = 6;
+const DEFAULT_STRIP_PADDING = 5;
 const DEFAULT_OMNIBAR_CAP_HEIGHT = 11;
 const DEFAULT_STAR_PLATE_SIZE = 28;
 /** Swift `DensityPreset.starGlyphSides`: the half-point star sides that draw whole rows at 2x. */
@@ -109,6 +110,15 @@ function preset(id: string, name: string, nameKey: string, factor: number, row: 
   tokens.sidebarRowHeight = row - half(2 * factor);
   tokens.browserRowHeight = row;
   tokens.tabStripHeight = row + 2 * half(3 * factor);
+  // Default and the densities above it take Default's Chrome spacing times their factor (Swift `DensityPreset`): the strip
+  // padding (Default's 5 pt) and the omnibar row's gap (Chrome's 6 pt). Ultra-compact and Compact keep 3 pt times theirs.
+  if (factor >= 1) {
+    // Spacious's half-point bar takes half-point gaps (Swift `DensityPreset.spaciousGapNudge`).
+    const nudge = id === "spacious" ? 0.5 : 0;
+    tokens.browserRowGap = half(DEFAULT_STRIP_PADDING * factor) + nudge;
+    tokens.tabStripHeight = row + 2 * tokens.browserRowGap;
+    tokens.omnibarRowGap = half(CHROME_TOOLBAR_GAP * factor) + nudge;
+  }
   // Compact's tabs sit a point further from the omnibar than their strip padding (Swift `DensityPreset`, `tabToOmnibarGap`).
   if (id === "compact") tokens.tabToOmnibarGap = half(3 * factor) + 1;
   // Default's omnibar is Compact's (Swift `DensityPreset.omnibarScaleFactor`), on Chrome's 34 pt bar

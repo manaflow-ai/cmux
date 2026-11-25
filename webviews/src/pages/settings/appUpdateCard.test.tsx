@@ -3,7 +3,7 @@
 // with no updater shows no card.
 import { act } from "react";
 import { afterAll, expect, test } from "bun:test";
-import type { AppUpdateState } from "./ops";
+import type { AppUpdateState, PreviousBuild } from "./ops";
 import { installDom } from "./testDom";
 
 const restore = installDom();
@@ -63,5 +63,95 @@ test("the staged update offers one Restart to Update, which sends install", asyn
   await act(async () => restart.click());
   await settle();
   expect(page.provider.log).toContainEqual({ op: "cmux.settings.app_update.run", params: { action: "install" } });
+  page.unmount();
+});
+
+const previous: PreviousBuild = {
+  build: "3418",
+  version: "1.0.0-nightly.3418",
+  date: "2026-11-20",
+  commit: "d7ce54c2",
+  commit_url: "https://github.com/manaflow-ai/cmux/commit/d7ce54c2",
+  title: "Go Back to Previous Build",
+  action: "Go Back",
+  detail: "Restarts once into 1.0.0-nightly.3418, kept on this Mac. Settings and sessions stay.",
+  build_label: "Build 3418",
+  refusal: null,
+};
+
+async function showPrevious(kept: PreviousBuild | null, refusal?: string, on = true) {
+  const page = await renderPage({
+    path: "/settings/updates",
+    mock: { previousBuild: kept, previousBuildRefusal: refusal, values: { "labs.previousBuild": on } },
+  });
+  await act(async () => page.provider.setHost({ ...page.provider.host, app_update: ready }));
+  await settle();
+  return page;
+}
+
+test("Go Back to Previous Build names the kept build and sends rollback with its number", async () => {
+  const page = await showPrevious(previous);
+  const row = card(page.container)!.querySelector<HTMLElement>('[data-previous-build="3418"]')!;
+  expect(row.textContent).toContain("Build 3418");
+  expect(row.textContent).toContain("2026-11-20");
+  expect(row.querySelector<HTMLAnchorElement>("[data-previous-build-commit]")!.href).toContain("d7ce54c2");
+  const go = row.querySelector<HTMLButtonElement>("[data-previous-build-go]")!;
+  expect(go.disabled).toBe(false);
+  await act(async () => go.click());
+  await settle();
+  expect(page.provider.log).toContainEqual({ op: "cmux.settings.app_update.rollback", params: { build: "3418" } });
+  page.unmount();
+});
+
+test("a rollback the host would refuse: Go Back is off and the reason shows", async () => {
+  const page = await showPrevious({ ...previous, refusal: "1.0.0-nightly.3418 cannot read the sessions store." });
+  const row = card(page.container)!.querySelector<HTMLElement>("[data-previous-build]")!;
+  expect(row.querySelector<HTMLButtonElement>("[data-previous-build-go]")!.disabled).toBe(true);
+  expect(row.querySelector("[data-previous-build-refusal]")!.textContent).toContain("cannot read the sessions store");
+  page.unmount();
+});
+
+test("a refusal at click time shows under the row and the button comes back", async () => {
+  const page = await showPrevious(previous, "Another switch is already running.");
+  const row = card(page.container)!.querySelector<HTMLElement>("[data-previous-build]")!;
+  await act(async () => row.querySelector<HTMLButtonElement>("[data-previous-build-go]")!.click());
+  await settle();
+  expect(row.querySelector("[data-previous-build-refusal]")!.textContent).toContain(
+    "Another switch is already running.",
+  );
+  expect(row.querySelector<HTMLButtonElement>("[data-previous-build-go]")!.disabled).toBe(false);
+  page.unmount();
+});
+
+test("nothing kept: no Go Back row", async () => {
+  const page = await showPrevious(null);
+  expect(card(page.container)!.querySelector("[data-previous-build]")).toBeNull();
+  page.unmount();
+});
+
+test("the schedule shows Last Updated and Next Check under the status", async () => {
+  const page = await show({
+    ...ready,
+    schedule: [
+      { id: "lastUpdated", label: "Last Updated", value: "Today at 9:12 PM" },
+      { id: "nextCheck", label: "Next Check", value: "Soon" },
+    ],
+  });
+  const element = card(page.container)!;
+  expect(element.querySelector('[data-app-update-schedule="lastUpdated"]')?.textContent).toBe("Today at 9:12 PM");
+  expect(element.querySelector('[data-app-update-schedule="nextCheck"]')?.textContent).toBe("Soon");
+  expect(element.textContent).toContain("Last Updated");
+  page.unmount();
+});
+
+test("no schedule: no schedule rows", async () => {
+  const page = await show(ready);
+  expect(card(page.container)!.querySelector("[data-app-update-schedule]")).toBeNull();
+  page.unmount();
+});
+
+test("labs.previousBuild off (the default): no Go Back row even with a kept build", async () => {
+  const page = await showPrevious(previous, undefined, false);
+  expect(card(page.container)!.querySelector("[data-previous-build]")).toBeNull();
   page.unmount();
 });

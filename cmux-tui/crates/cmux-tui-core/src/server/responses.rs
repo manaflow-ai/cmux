@@ -133,6 +133,7 @@ pub(super) fn response_error_code(error: &anyhow::Error) -> Option<String> {
         .or_else(|| super::conversations::error_code(error))
         .or_else(|| super::cloud_conversations::error_code(error))
         .or_else(|| super::new_screen::error_code(error))
+        .or_else(|| super::stop_if_idle::error_code(error))
         .or_else(|| crate::state::home_error_code(error))
         .or_else(|| crate::mux::workspace_not_empty_code(error))
         .or_else(|| crate::state::frontend_browser_keys::error_code(error))

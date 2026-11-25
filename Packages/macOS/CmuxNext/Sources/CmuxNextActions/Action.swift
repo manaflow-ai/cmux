@@ -1,4 +1,7 @@
+import Foundation
+#if canImport(AppKit)
 public import AppKit
+#endif
 
 /// Stable identifier for an action, e.g. `view.toggleSidebar`.
 ///
@@ -34,10 +37,11 @@ public nonisolated struct Shortcut: Hashable, Sendable {
     static let relevantModifiers: NSEvent.ModifierFlags = [.command, .shift, .option, .control]
 
     /// Whether a key-down event triggers this shortcut.
-    public func matches(_ event: NSEvent) -> Bool {
+    public func matches(_ event: NSEvent, qwerty: Bool = false) -> Bool {
         guard event.type == .keyDown else { return false }
         let flags = event.modifierFlags.intersection(Self.relevantModifiers)
         guard flags == modifiers else { return false }
+        if let position = Self.qwertyKey(for: event, qwerty: qwerty) { return position == key }
         // `charactersIgnoringModifiers` keeps shift applied for letters on
         // some layouts, so compare lowercased.
         return event.charactersIgnoringModifiers?.lowercased() == key
@@ -110,6 +114,10 @@ public struct Action: Identifiable {
     /// menu (Remove Icon on an object without an icon). The palette, the
     /// CLI and MCP still offer the action.
     public var targetHidden: (@MainActor (ActionInvocation) -> Bool)?
+    /// Whether every menu leaves this row out now: the menu bar and right-click menus (the space
+    /// rows while the person has one space, ``ActionTargetVisibility/hideFromMenus(_:in:when:)``).
+    /// The palette, keys, the CLI and MCP still offer the action.
+    public var menuHidden: (@MainActor () -> Bool)?
     /// The index the registry's run timing records this action's runs under, interned when it was
     /// registered (``ActionRunTiming/intern(_:)``); 0 before.
     public internal(set) var timingIndex: UInt32 = 0

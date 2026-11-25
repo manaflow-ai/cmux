@@ -30,13 +30,20 @@ extension ChatController {
             return nil
         }
         let items = pictures.enumerated().map { i, a in
-            HomePictureGallery.Item(source: HomeMapping.tableAttachmentScheme + a.id, url: URL(fileURLWithPath: a.fileName),
-                                    title: a.fileName.isEmpty ? CmuxStrings.pictureUntitled : a.fileName, row: 0, column: i)
+            let title = a.fileName.isEmpty ? CmuxStrings.pictureUntitled : a.fileName
+            // A picture the Markdown names (the Chief's screenshot): its own file or web address, its thumbnail.
+            if let source = HomeMapping.pictureSource(a.id), let url = HomeTablePictures.original(source) {
+                return HomePictureGallery.Item(source: source, url: url, title: title, row: 0, column: i,
+                                               thumbnail: a.asset.flatMap(URL.init(string:)))
+            }
+            return HomePictureGallery.Item(source: HomeMapping.tableAttachmentScheme + a.id, url: URL(fileURLWithPath: a.fileName),
+                                           title: title, row: 0, column: i)
         }
         let at = pictures.firstIndex { $0.id == attachment } ?? 0
         guard !items.isEmpty else { intents?.openAttachment(message, attachment); return }
         let intents = intents
         presentPictures(HomePictureGallery(items: items, index: at)) { item in
+            guard item.source.hasPrefix(HomeMapping.tableAttachmentScheme) else { return await Self.decode(item) }
             let id = String(item.source.dropFirst(HomeMapping.tableAttachmentScheme.count))
             guard let file = await intents?.attachmentFile(message, id) else { return nil }
             var local = item
