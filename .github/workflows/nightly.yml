@@ -379,7 +379,7 @@ jobs:
             ) {
               try {
                 const seen = new Set();
-                for (const status of ['in_progress', 'queued', 'waiting', 'pending']) {
+                for (const status of ['in_progress', 'queued', 'requested', 'waiting', 'pending']) {
                   const runs = await github.paginate(github.rest.actions.listWorkflowRuns, {
                     owner, repo, workflow_id: 'nightly.yml', branch: 'main', status, per_page: 100,
                   });

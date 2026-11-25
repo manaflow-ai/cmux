@@ -569,6 +569,18 @@ def test_a_burst_of_ten_pushes_in_five_minutes_starts_exactly_one_run() -> None:
     assert summary_values(tick)["main app builds in flight"] == "0 (at most 3)"
 
 
+def test_a_requested_main_run_counts_toward_the_in_flight_cap() -> None:
+    runs = in_flight((1, "c" * 40))
+    # GitHub exposes a newly accepted scheduled run as `requested` before it
+    # becomes queued. It still owns a future app build and must reserve one
+    # of the cap's slots.
+    runs["runs"][0]["status"] = "requested"
+    result = run_decide(event="schedule", schedule=TICK, now_ms=AT_0917,
+                        max_in_flight="1", **runs)
+    assert not should_build(result)
+    assert "1 main app builds are already in flight" in summary_values(result)["reason"]
+
+
 def test_a_tick_builds_nothing_while_three_main_builds_are_in_flight() -> None:
     full = run_decide(event="schedule", schedule=TICK, now_ms=AT_0917,
                       **in_flight((1, "c" * 40), (2, "d" * 40), (3, "e" * 40)))
