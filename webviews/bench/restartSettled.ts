@@ -20,7 +20,35 @@ export type RestartSettled = {
   shiftPxMax: number;
   /// The sum of those moves over every shift frame, in CSS px.
   shiftPxSum: number;
+  /// Rows that were in view in some frame and are not in view in the last one: drawn, then folded away,
+  /// replaced or pushed out (Leo, 2026-11-22: "this rush and barrage of tool calls and message on a sort of
+  /// renewed-load of chats. but they get folded/hidden anyways").
+  goneRows: number;
+  /// Frames that showed at least one of those rows.
+  goneFrames: number;
 };
+
+/// The rows in view in some frame and not in the last one, and the frames that showed any of them. A row
+/// whose words a last-frame row shows is that row under another id (the copy's v1 rows before the row
+/// store's), not a gone one.
+export function goneRows(frames: FrameRecord[]): { rows: number; frames: number } {
+  const last = frames.at(-1);
+  if (!last) return { rows: 0, frames: 0 };
+  const final = new Set(last.rows.map((row) => row.id));
+  const finalText = new Set(last.rows.map((row) => row.text).filter((text) => !!text));
+  const gone = new Set<string>();
+  let shown = 0;
+  for (const frame of frames) {
+    let any = false;
+    for (const row of frame.rows)
+      if (!final.has(row.id) && !(row.text && finalText.has(row.text))) {
+        gone.add(row.id);
+        any = true;
+      }
+    if (any) shown += 1;
+  }
+  return { rows: gone.size, frames: shown };
+}
 
 /// How far anything in view moved from `before` to `after`: rows by id, the composer's top and height.
 export function movedPx(before: FrameRecord, after: FrameRecord): number {
@@ -51,6 +79,7 @@ export function restartSettled(
     shiftPxMax = Math.max(shiftPxMax, px);
     shiftPxSum += px;
   }
+  const gone = goneRows(frames);
   const settledMs = liveLatestMs === null ? null : Math.max(liveLatestMs, metrics.finalFirstPaintMs ?? liveLatestMs);
   return {
     firstContentMs: metrics.firstContentMs,
@@ -58,5 +87,7 @@ export function restartSettled(
     shifts: metrics.shiftFrames,
     shiftPxMax: Math.round(shiftPxMax * 10) / 10,
     shiftPxSum: Math.round(shiftPxSum * 10) / 10,
+    goneRows: gone.rows,
+    goneFrames: gone.frames,
   };
 }
