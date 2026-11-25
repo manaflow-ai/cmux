@@ -3681,7 +3681,9 @@ class BuildFleetGatewayJobsFallBack(unittest.TestCase):
     # fleet's own compile of the same sha (2026-11-02: every gateway runner busy from 09:39Z sent pushes 622a6b75
     # and 0fa148c5 to the Mac Release queue for over two hours while cmux-next/compile had passed both). Their
     # Mac fallback runs only when that read gives no verdict.
-    LINUX_ROUTE = {"release-compile-fast": ("cmux-linux",)}
+    # app-compile-fleet reads the controller's verdict on cmux-linux (note-557), so it runs on a busy gateway too
+    # (note-371): skipping it sent about 950 Mac minutes a day to the Mac Release compile.
+    LINUX_ROUTE = {"release-compile-fast": ("cmux-linux",), "app-compile-fleet": ("cmux-linux",)}
     # Gateway-guarded jobs that, on this event, run on cmux-linux and only read the compile the controller submits
     # for them (note-557): the guard and fallback stay, the runner no longer waits on the gateway.
     READS_ELSEWHERE = {"app-compile-fleet": "pull_request", "swift-canary-fleet": "pull_request"}
@@ -3750,8 +3752,8 @@ class BuildFleetGatewayJobsFallBack(unittest.TestCase):
                         continue
                     if name in self.LINUX_ROUTE:
                         # Never the gateway (busy, or judged in another attempt): a Linux runner.
-                        self.assertIn(evaluate(one_runs_on(job), context), self.LINUX_ROUTE[name])
-                        self.assertIn(evaluate(one_runs_on(job), {**context, "vars.CI_CLOUD_OVERFLOW_SAVED": "1"}),
+                        self.assertIn(route_of(job, context), self.LINUX_ROUTE[name])
+                        self.assertIn(route_of(job, {**context, "vars.CI_CLOUD_OVERFLOW_SAVED": "1"}),
                                       self.LINUX_ROUTE[name])
                         unavailable = {**context, f"needs.{name}.result": "success",
                                        f"needs.{name}.outputs.verdict": "unavailable",

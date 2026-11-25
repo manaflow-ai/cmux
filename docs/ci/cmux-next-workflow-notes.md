@@ -3517,10 +3517,13 @@ Release after the merge, and push-attribution names the PR on a red.
 
 Above `app-compile-fleet.if` in `.github/workflows/cmux-next.yml`.
 
-It takes the gateway, or a wider class of it, only while app-compile-placement saw a runner idle
-(gateway_runner). With none idle it does not run: release-compile then runs, and
-macos-placement puts it in the cascade (CASCADE_RUNS), so it takes a free Blacksmith
-slot rather than the queue PR #24155's compile sat in three times on 2026-10-26.
+It runs on cmux-linux whether or not app-compile-placement saw a gateway runner idle: since note-557 its
+runner only reads the verdict the controller posts, so a busy gateway is no reason to skip it. It used to
+run only on an idle reading, and the skip sent the PR to the Mac Release compile: in the 24 h before
+2026-11-25 ~02:00Z, 50 of 114 PR Release compiles (about 950 Mac minutes) were PRs whose only Mac
+reason was this skip. release-compile still runs when this job gives no verdict (unavailable, or skipped
+on a later attempt), and macos-placement still lists it in the cascade (CASCADE_RUNS) when no gateway was
+idle, so that fallback takes a free slot rather than the queue PR #24155's compile sat in three times on 2026-10-26.
 It does not wait for the PR quiet period: its runner only hands the head to the build fleet's
 Linux compile, and the run's group cancels it on a newer push, as does its own group below.
 
