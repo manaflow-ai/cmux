@@ -29,6 +29,7 @@ import {
   layoutConversation,
   type PlacedLayout,
   type RowHeights,
+  layoutGeometry,
   placedFromEstimate,
   placedWithOrigin,
   placeRowsIndexed,
@@ -47,7 +48,6 @@ import {
   restRoom,
   rowFrameKey,
   SINCE_DIVIDER,
-  layoutGeometry,
 } from "./model";
 import { RowFrameCache } from "./conversation/rowFrameCache";
 import { railOwnsWheel } from "./threadMinimap/railWheel";
@@ -112,11 +112,11 @@ import { keepTabOnScreen } from "../../ui/tabReach";
 import { type TrailingTimer, trailingTimer } from "../../ui/trailingTimer";
 import { useRowRepositories } from "./conversation/useRowRepositories";
 import {
-  type ReferenceScope,
-  type ReferenceScopeCache,
   newReferenceScopeCache,
   referenceScopes,
   turnOpener,
+  type ReferenceScope,
+  type ReferenceScopeCache,
 } from "./conversation/bareReferences";
 import { stopReadingAloud } from "./conversation/readAloud";
 import { heightFoldInFlight, heightFoldPlaying, settleFoldsIn } from "./conversation/fold";
@@ -155,9 +155,9 @@ import {
   playTurnEnd,
   settleTurnEnd,
   TURN_END_ATTR,
-  turnEndRecap,
   type TurnEndCapture,
   type TurnEndFold,
+  turnEndRecap,
 } from "./conversation/turnEndFold";
 import { installGutterSelect, type HeldRow } from "./conversation/gutterSelect";
 import {
@@ -169,7 +169,7 @@ import {
   type ChatFind,
   rowHolds,
 } from "./conversation/chatFind";
-import { LIVE_THINKING, NEXT_STEP, THINKING, foldCovers, turnFooterFrom, retryTargetIn } from "./conversation/turns";
+import { LIVE_THINKING, THINKING, foldCovers, turnFooterFrom, retryTargetIn, NEXT_STEP } from "./conversation/turns";
 import { createLiveLinePulse } from "./conversation/liveLinePulse";
 import { installWheelGlide } from "./wheelGlide";
 import { installDockWheelHold, installWheelPassThrough } from "./wheelPassThrough";
@@ -222,6 +222,8 @@ import { NO_ROWS, rowKind, FOLLOW_BOTTOM_DEADBAND_PX, SCROLL_ANCHOR_SETTLE_MS } 
 import { focusRoute } from "../../ui/focusRoute";
 import { continuesLiveResize, LIVE_RESIZE_MS, stepLiveResize } from "./conversation/liveResizeStep";
 import { DOCK_NOTICE } from "./noticeSlotModel";
+import { ThinkingGlyph } from "./conversation/ThinkingGlyph";
+import { useLiveGlyphTrigger } from "./conversation/thinkingGlyphModel";
 import {
   type DrawnHeight,
   type ReportDrawn,
@@ -242,8 +244,8 @@ import {
   arrivedAtTail,
   TokenRows,
   newestPromptId,
-  noReplyCame,
   broughtSentPrompt,
+  noReplyCame,
 } from "./transcript/arrivals";
 import {
   scrollRangeIn,
@@ -6186,6 +6188,11 @@ function TranscriptView({
         setJumpBackHeld(false);
       }
     }
+    // The reader's own scroll down that brings following back is a move toward the latest row, as a wheel down while
+    // following is (`cancelProgrammatic`) and a wheel at the end is (`reader-end`): it asks to follow through the input
+    // hold it leaves. Without the ask, what landed at the end inside that hold (the turn's last rows as the reader got
+    // back) stayed below the view's foot until the hold ran out, the view following 23 px short of its end.
+    if (readerReachedBottom && !followingRef.current) followRequest.current = userScrollIntent(node).request();
     queueScroll(next, scrolledTo.current.atLatest, immediate, "reader-scroll", down?.input ?? null);
     if (onAnchor) {
       clearTimeout(anchorTimer.current);
@@ -6918,6 +6925,11 @@ function TranscriptView({
     keptFrom.current = id;
     onKeepFrom(id, row?.at);
   };
+  // Set in render, as `followRef` and `motionScroll` are: the placement pass and the send effect run before any layout
+  // effect declared here and turn following on (`follow(true, "session" | "send")`), so a ref set in a layout effect
+  // still held the last render's rows and layout there (a row of the chat switched away from, or none on a first
+  // open) when the client was told the row to keep from.
+  keepFromNow.current = () => keepFromInView(ref.current);
   const checkOlder = () => {
     const node = ref.current;
     keepFromInView(node);
@@ -6971,7 +6983,6 @@ function TranscriptView({
   };
   useLayoutEffect(() => {
     checkOlderNow.current = checkOlder;
-    keepFromNow.current = () => keepFromInView(ref.current);
   });
   useLayoutEffect(() => {
     olderScrollTarget.current = undefined;
