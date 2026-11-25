@@ -395,6 +395,10 @@ pub struct OutboxState {
     /// Fired when a peer's link is ready again (`hub/peers.rs`): a message waiting out a retry
     /// delay tries again at once instead of minutes later.
     pub peer_ready: Notify,
+    /// How many times each peer's link was ready or listed ([`Self::note_peer_ready`]): a
+    /// delivery waiting on `peer_ready` ends its wait only when its own peer's count moved, so
+    /// another peer's link coming back does not wake it ([`Self::peer_ready_count`]).
+    ready_counts: StdMutex<HashMap<String, u64>>,
     /// For each peer, the open delivery its last link's redelivery reached last
     /// (`server/outbox.rs` `redeliver_open`): the next link goes on after it, so none waits
     /// behind the others for good.
@@ -442,6 +446,23 @@ struct Disk {
 }
 
 impl OutboxState {
+    /// Peer `peer`'s link is ready again or listed its sessions: its count moves, then every
+    /// waiting delivery looks (`server/outbox.rs` `deliver`), and only those to `peer` go.
+    pub fn note_peer_ready(&self, peer: &str) {
+        *self
+            .ready_counts
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .entry(peer.to_owned())
+            .or_default() += 1;
+        self.peer_ready.notify_waiters();
+    }
+
+    /// How many times `peer`'s link was ready or listed in this launch (0 for one never seen).
+    pub fn peer_ready_count(&self, peer: &str) -> u64 {
+        self.ready_counts.lock().unwrap_or_else(|e| e.into_inner()).get(peer).copied().unwrap_or(0)
+    }
+
     /// Reads the saved deliveries at `path` and saves there from now on. Returns the ones not
     /// settled, to deliver again. A file that cannot be read starts empty (and is replaced).
     pub fn open(&self, path: &Path) -> Vec<Delivery> {

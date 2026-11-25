@@ -651,3 +651,64 @@ fn every_test_reading_warm_state_dials_on_its_own_pool() {
          trim; give each a `WarmPool::new()`: {offenders:?}"
     );
 }
+
+/// A Mac whose ad outlived its network (the phone left the Wi-Fi; the hub socket opens and then
+/// says nothing, or the WireGuard dial over host candidates stalls) costs the service dial
+/// nothing: the hub races it instead of going first, and the service link wins.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_stale_local_ad_does_not_delay_the_service_dial() {
+    use cmux_mobile_link_ffi::local_link::{
+        LocalEndpoint, LocalTxt, local_link_nearby, local_link_observe, local_link_pair, local_link_remove,
+    };
+
+    let server = FakeSignaling::start(FakeOptions::default()).await;
+    let mac_id = uuid::Uuid::new_v4().to_string();
+    spawn_echo_mac(SignalingClient::connect(&server.base_url, "user:alice", "team", &mac_id).await.unwrap());
+    let device = uuid::Uuid::new_v4().to_string();
+    let pool = WarmPool::new();
+
+    // The baseline: the same dial with no ad.
+    let started = std::time::Instant::now();
+    let plain = pool.connect(request(&server, &device, &mac_id), None).await.expect("connect");
+    let baseline = started.elapsed();
+    plain.close();
+    drop(plain);
+
+    // A hub that accepts and never answers: its connect alone would wait HUB_CONNECT_WAIT.
+    let silent = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let port = silent.local_addr().unwrap().port();
+    tokio::spawn(async move {
+        let mut held = Vec::new();
+        while let Ok((stream, _)) = silent.accept().await {
+            held.push(stream);
+        }
+    });
+    let instance = format!("stale-{mac_id}");
+    // A paired Mac's ad with its key's tag: the one kind of ad a dial trusts.
+    let key = b"stale-mac-key".to_vec();
+    local_link_pair(mac_id.clone(), Some(key.clone()));
+    assert!(local_link_observe(
+        instance.clone(),
+        vec![
+            LocalTxt { key: "id".into(), value: mac_id.clone() },
+            LocalTxt { key: "v".into(), value: "1".into() },
+            LocalTxt { key: "k".into(), value: cmux_mobile_link::local::key_tag(&key) },
+        ],
+        vec![LocalEndpoint { host: "127.0.0.1".into(), port }],
+    ));
+    assert!(local_link_nearby(mac_id.clone()), "the dial below must race the stale hub");
+
+    let started = std::time::Instant::now();
+    let raced = pool.connect(request(&server, &device, &mac_id), None).await.expect("connect");
+    let elapsed = started.elapsed();
+    let marks = raced.timings();
+    assert!(!names(&marks).contains(&"local_link"), "{marks:?}");
+    assert!(
+        elapsed < baseline + Duration::from_millis(500),
+        "the stale ad delayed the service dial: {elapsed:?} against {baseline:?} with no ad"
+    );
+    raced.close();
+    local_link_remove(instance);
+    local_link_pair(mac_id, None);
+    pool.reset().await;
+}

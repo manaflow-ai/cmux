@@ -66,6 +66,10 @@ impl Hub {
         if let Some(o) = msg.as_object_mut() {
             o.extend(git);
             super::verify::stamp(&session.id, o);
+            // What this turn's prefetch attached and how much of it was read anyway (`prefetch.rs`).
+            if let Some(turn) = o.get("turnId").and_then(Value::as_str).map(str::to_owned) {
+                o.extend(self.take_prefetch_counters(session, &turn));
+            }
             let trigger = o.get("trigger") == Some(&Value::Bool(true));
             o.insert("unread".into(), Value::Bool(!trigger && !self.attended(session)));
         }
