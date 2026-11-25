@@ -10,7 +10,7 @@ test("probe", async () => {
   const browser = await chromium.launch({ headless: true });
   const entry = "agent-pane.composer-hat-groups";
   await warmGalleryFrame(server, entry, { browser, params: { variant: "two-subagents" } });
-  for (const v of ["two-subagents-before"]) for (const width of [900]) { const page = await browser.newPage({ viewport: { width, height: 360 } }); const port0 = (server.httpServer!.address() as { port: number }).port; await page.goto(`http://127.0.0.1:${port0}${galleryFrame(entry, { variant: v, width })}`); await page.waitForSelector(".acpmux-running-tray__head", { timeout: 60000 }); await page.waitForTimeout(1500); await page.screenshot({ path: `/tmp/hatprobe/${v}.png` }); }
+  for (const v of ["two-subagents-tally"]) for (const width of [900]) { const page = await browser.newPage({ viewport: { width, height: 360 } }); const port0 = (server.httpServer!.address() as { port: number }).port; await page.goto(`http://127.0.0.1:${port0}${galleryFrame(entry, { variant: v, width })}`); await page.waitForSelector(".acpmux-running-tray__head", { timeout: 60000 }); await page.waitForTimeout(1500); await page.screenshot({ path: `/tmp/hatprobe/${v}.png` }); }
   const port = (server.httpServer!.address() as { port: number }).port;
   for (const width of [400, 900]) {
     const page = await browser.newPage({ viewport: { width, height: 360 } });

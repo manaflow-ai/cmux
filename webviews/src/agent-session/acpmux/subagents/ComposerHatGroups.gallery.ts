@@ -90,10 +90,7 @@ const twoAgents = chat(
   [
     user("Fix the composer hat and the sidebar rows", 6),
     row(SUBAGENTS, 6, {
-      subagents: [
-        agent("Fix the composer hat", 5, "running"),
-        agent("Remove the sidebar child rows", 4, "running"),
-      ],
+      subagents: [agent("Fix the composer hat", 5, "running"), agent("Remove the sidebar child rows", 4, "running")],
     }),
   ],
   { isWorking: true },
@@ -162,6 +159,13 @@ function groupsHold(ctx: PlayContext, kinds: readonly string[]): void {
     if (!kinds.includes(kind)) throw new Error(`the header draws ${kind}, only ${kinds.join(", ")} expected`);
   const time = header.querySelector<HTMLElement>(".acpmux-running-tray__time");
   if (time && time.scrollWidth > time.clientWidth + 0.5) throw new Error("the time is clipped");
+}
+
+/// The header never reads a mark and a bare number alone (Leo, 2026-11-25: "did we fix this yet? can
+/// you fix this?", on a hat that read the Claude mark and "2").
+function neverBare(ctx: PlayContext): void {
+  const text = (summary(ctx)?.textContent ?? "").trim();
+  if (/^\+?\d+$/.test(text)) throw new Error(`the header reads a bare number: ${text}`);
 }
 
 /// The header's first mark centres on the + button, its words start at the prompt's (cmux#56151).
@@ -252,13 +256,17 @@ export default agentPaneEntry({
       play: async (ctx) => {
         await show(ctx);
         groupsHold(ctx, ["agents"]);
+        neverBare(ctx);
         columnHolds(ctx);
       },
       snapshot: twoAgents,
     },
-    "two-subagents-before": {
-      note: "Before, on the same work: the `tally` arm (the Composer Hat: Two Groups switch off), the mark and a bare 2.",
-      play: show,
+    "two-subagents-tally": {
+      note: "The `tally` arm (Composer Hat: Two Groups off) on the same work: one kind says it in words too, 2 subagents; before, the mark and a bare 2.",
+      play: async (ctx) => {
+        await show(ctx);
+        neverBare(ctx);
+      },
       snapshot: twoAgents,
       experiments: { "subagent-tray-fold-head": "tally" },
     },
