@@ -13,11 +13,18 @@ pub const AGENT: &str = "Chief";
 pub const MIDRUN: &str = "A message the user sends while you work reaches you between your tool
 calls; take it into account and go on.";
 
-/// The spec's one system prompt for turns and compactions (gist 3c190e0,
-/// section 5; `optchat_core::TAELIN_PROMPT`), the agent named Chief, with
-/// one Chief-only change: its "Turns" paragraph says to delegate
-/// (`CHIEF_TURNS`). The spec text itself stays as written in optchat-core.
+const COMPACTIONS_HEADER: &str = "# Compactions\n";
+const TURNS_HEADER: &str = "# Turns\n";
+
+/// The Chief turn's base prompt from the spec (gist 3c190e0, section 5;
+/// `optchat_core::TAELIN_PROMPT`), with the compactor-only section removed
+/// and its "Turns" paragraph replaced by `CHIEF_TURNS`.
 pub fn base_prompt() -> String {
+    without_compactions(full_base_prompt())
+}
+
+/// The complete shared prompt before the placement-specific cmux section.
+fn full_base_prompt() -> String {
     let spec = optchat_core::system_prompt(AGENT, MIDRUN);
     // Spec 5a: the turn's input is a frozen view and the log after it.
     let spec = if spec.contains(VIEW_END) {
@@ -31,6 +38,28 @@ pub fn base_prompt() -> String {
         // The spec text moved: keep it, and add the rule after it.
         format!("{spec}\n\n{CHIEF_TURNS}")
     }
+}
+
+/// Remove the compactor-only section from a Chief turn's base prompt.
+fn without_compactions(prompt: String) -> String {
+    match prompt.split_once(COMPACTIONS_HEADER) {
+        Some((before, _)) => before.trim_end().to_owned(),
+        None => prompt,
+    }
+}
+
+/// The compactor's system prompt. It keeps the identity and view description
+/// needed to interpret the input, then gives only the compaction contract. The
+/// Chief's turn rules and cmux instructions do not apply to a compaction.
+pub fn compactor_system_text() -> String {
+    let prompt = full_base_prompt();
+    let (before_compactions, compactions) = prompt
+        .split_once(COMPACTIONS_HEADER)
+        .expect("the shared prompt has a compactions section");
+    let view = before_compactions
+        .split_once(TURNS_HEADER)
+        .map_or(before_compactions, |(view, _)| view);
+    format!("{view}{COMPACTIONS_HEADER}{compactions}")
 }
 
 /// The spec's paragraph on background reports (optchat-core TAELIN_PROMPT).
@@ -59,11 +88,12 @@ fn cloud_base_prompt(offered: &[String]) -> String {
         spec.replacen(SPEC_BACKGROUND, "", 1)
     };
     let turns = cloud_turns(&has);
-    if spec.contains(SPEC_TURNS) {
+    let spec = if spec.contains(SPEC_TURNS) {
         spec.replacen(SPEC_TURNS, &turns, 1)
     } else {
         format!("{spec}\n\n{turns}")
-    }
+    };
+    without_compactions(spec)
 }
 
 /// `CHIEF_TURNS` with each sentence that names a tool kept only when the
@@ -98,16 +128,17 @@ send(text) and keep any closing text short{}.",
     }
     let mut replies = String::from(
         "Replies: short, like a colleague texting. Most replies are one line of at
-most 25 words. A status or a report is one line per task, at most 15 words
-each: its state, its links (PR, run, sha range) and what is still open.
+most 25 words. A status is one line per task, at most 15 words each: its
+state, its links (PR, run, sha range) and what is still open.
 Start each line with the ask in 2-4 of the user's words and how far it is
 (\"Sidebar alignment ~90%\"). Never nest bullets.
-A report of findings: its answer in at most 3 lines.
+A finished report or a tool's findings (not work just started): one line of the plan (what you do next),
+then the result itself, not a paraphrase: findings, numbers, error lines or
+diff summary, word for word when short.
 Short never drops a link or a step the user must take.
 No intro line, no closing line, no offer of more help, no caveat about what
 you could not check or link unless it changes what the user does, and never
-what you have not looked at yet (\"I haven't checked\", \"I don't know X
-yet\"): give what you know in one line.
+what you have not looked at yet: give what you know in one line.
 Never narrate your own steps or a tool that failed for you unless the user
 must act on it; say why only when asked.",
     );
@@ -286,19 +317,18 @@ task before that line. When several messages arrive at once, answer the quick
 ones first, each in its own send, and only then start the slow ones.
 
 Replies: short, like a colleague texting. Most replies are one line of at
-most 25 words. A status or a report is one line per task or agent, at most
-15 words each: its state, its links (workspace, PR, run, sha range) and what
-is still open. The user switches between many tasks: start each line with
+most 25 words. A status is one line per task or agent, at most 15 words
+each: its state, its links (workspace, PR, run, sha range) and what is
+still open. The user switches between many tasks: start each line with
 the ask in 2-4 of the user's words and how far it is (\"Sidebar alignment
 ~90%: chips share one right edge\"), never the agent id alone. For what is
 left, say it will get done and do what gets it done in that turn, unless the
-user says otherwise. Link everything that has a link. Never nest bullets;
-never repeat a report's list. Starting work: who does it (the first line, before the
+user says otherwise. Link everything that has a link. Never nest bullets.
+Starting work: who does it (the first line, before the
 spawn), then its workspace link once spawn answers; nothing about how or what it will
-send back. Relaying a report: the outcome and its
-links; leave out the cause, the fix and the tests unless the user asked why.
-A report of findings: its answer in at most 3 lines; the rest stays in the
-agent's chat. Passing the user's words on to an agent: one line that you did,
+send back. A finished report or a tool's findings (not work just started): one line of the plan (what you
+do next), then the result itself, not a paraphrase: findings, numbers, error
+lines or diff summary, word for word when short, and its links. Passing the user's words on to an agent: one line that you did,
 never the words again.
 Short never drops a link or a step the user must take.
 No intro line, no closing line, no offer of more help, no caveat about what
@@ -757,10 +787,10 @@ cmux Home, and your final reply of each turn is posted there.
   and the last turn's stats; `chief engine set --harness H --model M
   --effort E` changes them from the next turn (only when the user asks).
   `chief engine set --preset opus|hybrid|codex` switches the whole Chief:
-  Opus 5.5 at medium everywhere, Opus 5.5 medium turns with every
+  Opus at medium everywhere, Opus medium turns with every
   subagent on codex, or codex everywhere (turns, compactor, subagents).
 - Reactions: a user's tapback on your message reaches you as a `reaction`
-  note; a cheap classifier (Claude Haiku) first decides whether it wakes
+  note; a cheap classifier (a small Claude model) first decides whether it wakes
   you. Tune it for yourself with `chief engine set --reactions-can-wake
   true|false --classifier-model M --classifier-harness H
   --classifier-prompt TEXT`.
@@ -777,10 +807,9 @@ cmux Home, and your final reply of each turn is posted there.
     home_rule!()
 );
 
-/// The system prompt (the session's CLAUDE.md): the spec's prompt, the cmux
-/// section, then the user's own instructions file (spec 5), read once per
-/// host start so every turn's prompt stays byte-identical. Compactions send
-/// the same text (host.rs), so they read it from the turns' cache entry.
+/// The system prompt (the session's CLAUDE.md): the Chief turn's base prompt,
+/// the cmux section, then the user's own instructions file (spec 5), read once
+/// per host start so every turn's prompt stays byte-identical.
 pub fn claude_md(user: Option<&str>) -> String {
     system_text(user, &Tools::Mcp)
 }
@@ -895,8 +924,8 @@ change; `{chief} profile '{{\"role\": \"...\"}}'` changes those fields, and\n  \
         Tools::Cloud(offered) => cloud_instructions(offered),
     };
     match user.map(str::trim).filter(|u| !u.is_empty()) {
-        Some(user) => format!("{base}\n\n{cmux}\n\n{user}\n"),
-        None => format!("{base}\n\n{cmux}\n"),
+        Some(user) => format!("{base}\n{cmux}\n\n{user}\n"),
+        None => format!("{base}\n{cmux}\n"),
     }
 }
 
@@ -992,10 +1021,10 @@ cmux Home, and your final reply of each turn is posted there.
   and the last turn's stats; `{chief} engine set --harness H --model M
   --effort E` changes them from the next turn (only when the user asks).
   `{chief} engine set --preset opus|hybrid|codex` switches the whole Chief:
-  Opus 5.5 at medium everywhere, Opus 5.5 medium turns with every
+  Opus at medium everywhere, Opus medium turns with every
   subagent on codex, or codex everywhere (turns, compactor, subagents).
 - Reactions: a user's tapback on your message reaches you as a `reaction`
-  note; a cheap classifier (Claude Haiku) first decides whether it wakes
+  note; a cheap classifier (a small Claude model) first decides whether it wakes
   you. Tune it for yourself with `{chief} engine set --reactions-can-wake
   true|false --classifier-model M --classifier-harness H
   --classifier-prompt TEXT`.
@@ -1132,6 +1161,11 @@ report.
   `--no-verify`, unless the hook fails only on files you did not touch;
   then say so in your report.
 {github}
+- Skills: Chief's skills, the ones cmux ships among them, are in
+  `~/.cmux/chief/skills/<name>/SKILL.md` when that folder exists.
+  `head -4 ~/.cmux/chief/skills/*/SKILL.md` lists them; read a
+  skill's SKILL.md before you do what its description names, instead of
+  working it out again.
 - Decisions: pick the sensible default yourself, act on it and name it in
   your report (\"Default picked: ...\"); never stop to ask which one. Ask
   only before money, legal, destructive (deleting data, force pushes) or

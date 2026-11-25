@@ -105,27 +105,35 @@ pub fn wrapped(
 ) -> Map<String, Value> {
     let real = cwd.canonicalize();
     let cwd = real.as_deref().unwrap_or(cwd);
-    let mut out = Map::new();
     let folders: Vec<&Path> = cwd.ancestors().take_while(|folder| filling(folder)).collect();
+    let mut out = Map::new();
+    for (name, server, line) in started(cwd, claude, &folders) {
+        let mut wrapper = vec!["repo".to_owned(), "mcp-lazy".to_owned()];
+        wrapper.push(cwd.to_string_lossy().into_owned());
+        wrapper.push("--".to_owned());
+        wrapper.extend(line);
+        let env = server.get("env").cloned().unwrap_or_else(|| json!({}));
+        out.insert(name, json!({"type": "stdio", "command": cmux, "args": wrapper, "env": env}));
+    }
+    out
+}
+
+/// The stdio servers of the `.mcp.json` files in `folders` (closest first, each `cwd` or a
+/// parent, `cwd` with its links resolved) that Claude would start in `cwd`, each with its entry
+/// and command line: the ones no disabled list, local-scope server or managed policy keeps
+/// Claude from starting (the rules of [`wrapped`]), closer folder first per name. None while a
+/// `managed-mcp.json` or a policy this does not model holds.
+pub fn started(
+    cwd: &Path,
+    claude: &Claude,
+    folders: &[&Path],
+) -> Vec<(String, Value, Vec<String>)> {
+    let mut out = Vec::new();
     if folders.is_empty() || claude.managed_mcp.exists() {
         return out;
     }
+    let Some(managed) = managed_policies(claude) else { return out };
     let settings: Vec<Value> = claude.settings.iter().filter_map(|file| read(file)).collect();
-    let mut managed = Vec::new();
-    for file in &claude.managed {
-        let Ok(data) = std::fs::read(file) else { continue };
-        match serde_json::from_slice::<Value>(&data) {
-            // A policy this does not model (only managed servers, say) may stop what Claude starts:
-            // nothing is wrapped.
-            Ok(policy) if unmodeled_mcp_policy(&policy) => return out,
-            Ok(policy) => managed.push(policy),
-            // A policy that is not JSON (a property list) and names MCP at all: nothing is wrapped.
-            Err(_) if data.windows(3).any(|window| window.eq_ignore_ascii_case(b"mcp")) => {
-                return out;
-            }
-            Err(_) => {}
-        }
-    }
     let mut disabled: BTreeSet<String> = settings.iter().flat_map(disabled_in).collect();
     // Every parent's project settings too, also above the checkout, whether Claude reads them in
     // a chat below or not: a server any of them disables is never wrapped.
@@ -157,31 +165,53 @@ pub fn wrapped(
             if !declared.insert(name.clone()) || disabled.contains(name) {
                 continue;
             }
-            let Some(command) = server.get("command").and_then(Value::as_str) else { continue };
-            if server.get("type").and_then(Value::as_str).is_some_and(|kind| kind != "stdio") {
+            let Some(line) = stdio_line(server) else { continue };
+            if !permitted(&managed, name, &line) {
                 continue;
             }
-            let args: Vec<&str> = server
-                .get("args")
-                .and_then(Value::as_array)
-                .map(|args| args.iter().filter_map(Value::as_str).collect())
-                .unwrap_or_default();
-            let line: Vec<&str> = std::iter::once(command).chain(args.iter().copied()).collect();
-            if !managed.iter().all(|policy| permits(policy, name, &line)) {
-                continue;
-            }
-            let mut wrapper = vec!["repo".to_owned(), "mcp-lazy".to_owned()];
-            wrapper.push(cwd.to_string_lossy().into_owned());
-            wrapper.push("--".to_owned());
-            wrapper.extend(line.iter().map(|word| (*word).to_owned()));
-            let env = server.get("env").cloned().unwrap_or_else(|| json!({}));
-            out.insert(
-                name.clone(),
-                json!({"type": "stdio", "command": cmux, "args": wrapper, "env": env}),
-            );
+            out.push((name.clone(), server.clone(), line));
         }
     }
     out
+}
+
+/// A stdio entry's command line: `command` then `args`. `None` for another type (`http`, `sse`).
+pub fn stdio_line(server: &Value) -> Option<Vec<String>> {
+    let command = server.get("command").and_then(Value::as_str)?;
+    if server.get("type").and_then(Value::as_str).is_some_and(|kind| kind != "stdio") {
+        return None;
+    }
+    let args = server.get("args").and_then(Value::as_array);
+    let args = args.into_iter().flatten().filter_map(Value::as_str);
+    Some(std::iter::once(command).chain(args).map(str::to_owned).collect())
+}
+
+/// The managed policies Claude reads, as JSON. `None` when one holds a rule this does not model
+/// (only managed servers, say), or cannot be read as JSON and names MCP at all.
+pub fn managed_policies(claude: &Claude) -> Option<Vec<Value>> {
+    let mut managed = Vec::new();
+    for file in &claude.managed {
+        let Ok(data) = std::fs::read(file) else { continue };
+        match serde_json::from_slice::<Value>(&data) {
+            Ok(policy) if unmodeled_mcp_policy(&policy) => return None,
+            Ok(policy) => managed.push(policy),
+            Err(_) if data.windows(3).any(|window| window.eq_ignore_ascii_case(b"mcp")) => {
+                return None;
+            }
+            Err(_) => {}
+        }
+    }
+    Some(managed)
+}
+
+/// Every one of `managed` lets server `name` with command line `line` run ([`permits`]).
+pub fn permitted(managed: &[Value], name: &str, line: &[String]) -> bool {
+    let line: Vec<&str> = line.iter().map(String::as_str).collect();
+    managed.iter().all(|policy| permits(policy, name, &line))
+}
+
+pub(crate) fn read_json(file: &Path) -> Option<Value> {
+    read(file)
 }
 
 /// The program that runs `cmux-tui repo mcp-lazy`: this binary when it is the multicall

@@ -700,12 +700,15 @@ where
         answer.set("reply", session.get("reply").cloned().unwrap_or(Value::Null));
         if let Some(error) = session.get("error").filter(|error| !error.is_null()) {
             answer.set("error", error.clone());
-            return Outcome::Failed {
-                error: json!({"code": "chat.turn_failed",
-                              "message": format!("the turn on {target} ended with an error"),
-                              "details": answer, "retryable": false}),
-                exit: 1,
-            };
+            let said =
+                error.as_str().or_else(|| error.get_str("message")).unwrap_or_default().to_owned();
+            let harness = session.get_str("harness").unwrap_or_default().to_owned();
+            let mut error = json!({"code": "chat.turn_failed",
+                                   "message": format!("the turn on {target} ended with an error"),
+                                   "details": answer, "retryable": false});
+            // An account out of usage says so, with the way on (cmux#55066).
+            super::super::account_limit::explain(&mut error, &said, &harness);
+            return Outcome::Failed { error, exit: 1 };
         }
         return Outcome::Done(answer);
     }

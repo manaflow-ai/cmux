@@ -55,7 +55,7 @@ public struct HostBudgetOverride: Decodable, Equatable, Sendable {
 }
 
 /// The optional host-budget file: `$ACPMUX_HOST_BUDGET`, else
-/// `~/.config/cmux/host-budget.json` (the contract's order).
+/// `~/.config/cmux-next/host-budget.json` (the contract's order).
 public struct HostBudgetFile: Decodable, Equatable, Sendable {
     public var formula: HostBudgetOverride?
     public var hosts: [String: HostBudgetOverride]?
@@ -81,7 +81,7 @@ public struct HostBudgetFile: Decodable, Equatable, Sendable {
         if let explicit = environment["ACPMUX_HOST_BUDGET"], !explicit.isEmpty {
             return URL(fileURLWithPath: (explicit as NSString).expandingTildeInPath)
         }
-        return home.appending(path: ".config/cmux/host-budget.json")
+        return home.appending(path: ".config/cmux-next/host-budget.json")
     }
 
     /// The formula from the configured file, or the defaults when there is

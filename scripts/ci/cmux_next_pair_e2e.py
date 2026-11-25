@@ -287,6 +287,13 @@ def main():
     ap = argparse.ArgumentParser()
     for flag in ("--mac-app", "--ios-app", "--sims", "--udid", "--bundle-id", "--work", "--out", "--summary"):
         ap.add_argument(flag, required=True)
+    # The upload leg's shape (cmux-next-ios-sim.sh pair-e2e's upload words): a size other than the gate's
+    # sparse ~150 MB, random bytes (a real video's), the phone's relay-only or UDP-blocked link, a longer wait.
+    ap.add_argument("--upload-bytes", type=int, default=UPLOAD_BYTES)
+    ap.add_argument("--upload-random", action="store_true")
+    ap.add_argument("--upload-relay-only", action="store_true")
+    ap.add_argument("--upload-block-udp", action="store_true")
+    ap.add_argument("--upload-wait", type=int, default=300)
     a = ap.parse_args()
     proof_path = os.environ.get("CMUX_IOS_CLOUD_PROOF_FILE")
     proof = read_proof(proof_path, artifact_root=a.out) if proof_path else None
@@ -599,7 +606,9 @@ def main():
             if paired and probe and not connect_runs:
                 # The phone lists this Mac by the rig's device name (CMUX_NEXT_MOBILE_DEVICE_NAME), not the
                 # page's MacName: the probe waits for a link to that name (since 2026-10-29 it never matched).
-                uploaded, line = upload_leg(simctl, a.udid, a.bundle_id, phone_env, upload_root, RIG_MAC_NAME)
+                uploaded, line = upload_leg(simctl, a.udid, a.bundle_id, phone_env, upload_root, RIG_MAC_NAME,
+                                            size=a.upload_bytes, random_bytes=a.upload_random, wait=a.upload_wait,
+                                            relay_only=a.upload_relay_only, block_udp=a.upload_block_udp)
                 note(f"- upload: {line}")
             if discovery and paired and not connect_runs:  # last: it quits and restarts the Mac
                 app, restart_ok = discovery_restart(app, exe, env, a.out, support, status, phone_log, streams,
@@ -1064,9 +1073,20 @@ def discovery_restart(app, exe, env, out, support, status, phone_log, streams, p
     return restarted.proc, ok
 
 
-def upload_leg(simctl, udid, bundle_id, phone_env, root, mac_name):
-    """The phone streams a sparse ~150 MB file to the Mac with its own LinkUpload (UploadProbe, a DEBUG
-    launch argument); (passed, summary line). The stored file must match byte for byte."""
+def random_file(path, size):
+    """`size` random bytes (incompressible, as a video is), written 1 MiB at a time."""
+    with open(path, "wb") as f:
+        left = size
+        while left:
+            f.write(os.urandom(min(left, 1 << 20)))
+            left -= min(left, 1 << 20)
+
+
+def upload_leg(simctl, udid, bundle_id, phone_env, root, mac_name, size=UPLOAD_BYTES, random_bytes=False, wait=300,
+               relay_only=False, block_udp=False):
+    """The phone streams a sparse ~150 MB file (or `size` random bytes) to the Mac with its own LinkUpload
+    (UploadProbe, a DEBUG launch argument), over a relay-only or UDP-blocked link when asked (the app's
+    developer options, as launch arguments); (passed, summary line). The stored file must match byte for byte."""
     data = subprocess.run(simctl + ["get_app_container", udid, bundle_id, "data"],
                           check=True, capture_output=True, text=True).stdout.strip()
     source = os.path.join(data, "tmp", UPLOAD_NAME)
@@ -1074,17 +1094,25 @@ def upload_leg(simctl, udid, bundle_id, phone_env, root, mac_name):
     os.makedirs(os.path.dirname(source), exist_ok=True)
     if os.path.exists(result_path):
         os.unlink(result_path)
-    sparse_file(source, UPLOAD_BYTES)
+    (random_file if random_bytes else sparse_file)(source, size)
     try:
         want = sha256(source)
         args = ["-CmuxMobileUploadProbe", source, "-CmuxMobileUploadProbeCwd", root]
         if mac_name:
             args += ["-CmuxMobileUploadProbeMac", mac_name]
+        if relay_only:
+            args += ["-cmuxMobile.dev.relayOnly", "YES"]
+        if block_udp:
+            args += ["-cmuxMobile.dev.blockUDP", "YES"]
         subprocess.run(simctl + ["terminate", udid, bundle_id], capture_output=True)
         subprocess.run(simctl + ["launch", udid, bundle_id] + args, env=phone_env, check=True, capture_output=True)
         # Bounded wait on the app's own result file (no event reaches this script for it).
-        if not wait_for(lambda: os.path.exists(result_path), 300, every=2):
-            return False, f"FAIL: no upload-probe.json in 300 s (the probe waits for a served link to {mac_name!r})"
+        if not wait_for(lambda: os.path.exists(result_path), wait, every=2):
+            # How far it got: the bytes the Mac holds under the attachments folder (a partial file included).
+            held = sum(os.path.getsize(p) for p in glob.glob(os.path.join(root, ".cmux", "**"), recursive=True)
+                       if os.path.isfile(p))
+            return False, (f"FAIL: no upload-probe.json in {wait} s (the probe waits for a served link to {mac_name!r}); "
+                           f"the Mac holds {held:,} of {size:,} bytes under .cmux")
         result = json.load(open(result_path))
     finally:
         os.unlink(source)
@@ -1097,11 +1125,12 @@ def upload_leg(simctl, udid, bundle_id, phone_env, root, mac_name):
         "in <cwd>/.cmux/attachments/phone-<session>/": os.path.dirname(folder) == os.path.join(root, ".cmux", "attachments")
         and os.path.basename(folder).startswith("phone-"),
         "same size and SHA-256": os.path.isfile(stored) and sha256(stored) == want,
-        "footprint grew < 1/5 of the file": grew < UPLOAD_BYTES // 5,
+        "footprint grew < 1/5 of the file": grew < size // 5,
     }
     failed = [name for name, ok in checks.items() if not ok]
-    return not failed, (f"{'PASSED' if not failed else 'FAIL: ' + ', '.join(failed)}; {UPLOAD_BYTES:,} bytes, sha256 "
-                        f"{want[1][:16]}..., in {took:.1f} s; stored at .../{os.path.relpath(stored, root)}; app footprint "
+    return not failed, (f"{'PASSED' if not failed else 'FAIL: ' + ', '.join(failed)}; {size:,} {'random' if random_bytes else 'sparse'} bytes"
+                        f"{', relay only' if relay_only else ''}{', UDP blocked' if block_udp else ''}, sha256 "
+                        f"{want[1][:16]}..., in {took:.1f} s ({size / max(took, 1e-9) / 1e6:.2f} MB/s); stored at .../{os.path.relpath(stored, root)}; app footprint "
                         f"{result.get('footprintBefore', 0) >> 20} MiB before, +{grew >> 20} MiB at its peak")
 
 
@@ -1455,7 +1484,7 @@ def collect(support, out, note):
     lines = []
     for path in glob.glob(os.path.join(support, "**/cmux-mobile-host.log"), recursive=True):
         lines += [redact(l) for l in open(path, errors="replace")
-                  if re.search(r"pair|auth|link (up|down)|registered|signaling connected", l)]
+                  if re.search(r"pair|auth|link (up|down|path)|registered|signaling connected|upload", l)]
     open(os.path.join(out, "hostd-pairing.log"), "w").writelines(lines)
     def scrub(value, key=""):
         if isinstance(value, dict):
