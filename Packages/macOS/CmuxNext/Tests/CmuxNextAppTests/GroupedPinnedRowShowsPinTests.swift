@@ -122,7 +122,7 @@ import Testing
         return row
     }
 
-    @Test(arguments: DensityPreset.allCases, [Metrics.sidebarMinWidth, 260])
+    @Test(arguments: DensityPreset.allCases, [160, 260] as [CGFloat])
     func aPinnedGroupMemberDrawsItsPinBesideItsIconAndStatus(_ preset: DensityPreset, width: CGFloat) throws {
         try autoreleasepool {
             Motion.reduceMotionOverride = true
