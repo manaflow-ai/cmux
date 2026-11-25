@@ -1,4 +1,4 @@
-import { FreestyleProvider } from "./freestyle";
+import { FreestyleProvider, normalizeFreestyleExecTimeout } from "./freestyle";
 import {
   isProviderId,
   type AttachTransport,
@@ -37,6 +37,14 @@ export function volumeCapableProviderId(): ProviderId | null {
     if (typeof provider.listVolumes === "function") return id;
   }
   return null;
+}
+
+/**
+ * The command timeout the provider actually applies to an exec that asked for
+ * `timeoutMs` (Freestyle caps each exec at 5 minutes).
+ */
+export function providerExecTimeoutMs(_id: ProviderId, timeoutMs: number): number {
+  return normalizeFreestyleExecTimeout(timeoutMs);
 }
 
 export function defaultProviderId(): ProviderId {

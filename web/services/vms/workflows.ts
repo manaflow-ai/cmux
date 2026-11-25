@@ -39,7 +39,7 @@ import type {
   VMStats,
   VMStatus,
 } from "./drivers";
-import { isProviderId, vmCapabilitiesFor } from "./drivers";
+import { isProviderId, providerExecTimeoutMs, vmCapabilitiesFor } from "./drivers";
 import {
   VmBillingGateway,
   VmBillingGatewayLive,
@@ -4898,10 +4898,13 @@ export function execVm(input: {
       { maxActiveVms: input.maxActiveVms, entitlementOverride: input.entitlementOverride, callerPlanId: input.callerPlanId, modelPlane: input.modelPlane },
     );
     const execStartedAtMs = yield* Clock.currentTimeMillis;
+    // The provider may cap the command below what the caller asked for; that
+    // cap is the command's real timeout.
+    const commandTimeoutMs = providerExecTimeoutMs(vm.provider, input.timeoutMs);
     // A dispatched command always gets its own timeout window, so a slow
     // resume can never turn into a 124 for a command that had no time to run;
     // in the normal case the request deadline is the later of the two.
-    const answerWithinMs = Math.max(input.timeoutMs, deadlineAtMs - execStartedAtMs);
+    const answerWithinMs = Math.max(commandTimeoutMs, deadlineAtMs - execStartedAtMs);
     const result = yield* providers.exec(vm.provider, input.providerVmId, input.command, {
       timeoutMs: input.timeoutMs,
       providerMetadata: vm.providerMetadata,
@@ -4909,16 +4912,16 @@ export function execVm(input: {
       // A provider failure after the command's own timeout has elapsed says
       // nothing about the machine: the command ran out of time, and that is
       // the answer. Earlier failures stay provider errors.
-      Effect.catchAll((err) => Effect.flatMap(Clock.currentTimeMillis, (nowMs) => nowMs - execStartedAtMs >= input.timeoutMs
+      Effect.catchAll((err) => Effect.flatMap(Clock.currentTimeMillis, (nowMs) => nowMs - execStartedAtMs >= commandTimeoutMs
         ? Effect.sync(() => {
           // Kept for operators: the answer is the timeout, the cause is the provider's.
           console.error(`[vm] exec failed after its command timeout for ${input.providerVmId}`, errorMessage("cause" in err ? err.cause : err));
-          return execTimedOutResult(input.timeoutMs);
+          return execTimedOutResult(commandTimeoutMs);
         })
         : Effect.fail(err))),
       (dispatched) => withVmAnswerDeadline(dispatched, {
         answerWithinMs,
-        onDeadline: () => Effect.succeed(execTimedOutResult(input.timeoutMs)),
+        onDeadline: () => Effect.succeed(execTimedOutResult(commandTimeoutMs)),
         // The answer is the timeout and nothing is recorded later, so a hung
         // provider call is not kept alive up to the route's maxDuration.
         continueForMs: 0,
