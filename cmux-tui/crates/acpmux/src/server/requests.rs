@@ -2529,8 +2529,6 @@ async fn dispatch_request_with_identity(
                     }
                 };
             }
-            // From here the prompt's own uploads go only if the session refuses it.
-            let saved = crate::attach::Saved::with_owned(saved, &s.id, owned.take());
             // Where the send came from, as its harness says and the daemon checked: a record of
             // its own beside the prompt, written once the prompt is kept, never part of who sent
             // it (`sender_harness.rs`). Not from the app or a Web client, which name no harness.
@@ -2594,10 +2592,7 @@ async fn dispatch_request_with_identity(
                 prompt_id,
                 message_id,
                 message_sender,
-                on_accepted: match &saved {
-                    Some(saved) => saved.watch(on_accepted),
-                    None => on_accepted,
-                },
+                on_accepted,
                 resend: flag("resend") == Some(true),
                 control: super::remote_guard::control_of(conn.origin, conn.auth, &params),
                 cloud_mobile: params.pointer("/_meta/acpmux/via").and_then(Value::as_str)
@@ -2667,11 +2662,18 @@ async fn dispatch_request_with_identity(
             )
             .await
             {
-                // `saved` owns inline attachments and the prompt's upload references. Keep both
-                // for a retry instead of letting the RPC timeout erase files the caller sent.
-                std::mem::forget(saved);
+                // The inline attachment guard is not installed until this preparation finishes.
+                // Keep prompt-owned uploads for the caller's retry, while the received inline
+                // folder (if any) is cleaned up by its own guard.
+                preserve_owned_uploads_for_retry(&mut owned);
                 return Err(error);
             }
+            // From here the prompt's own uploads go only if the session refuses it.
+            let saved = crate::attach::Saved::with_owned(saved, &s.id, owned.take());
+            opts.on_accepted = match &saved {
+                Some(saved) => saved.watch(opts.on_accepted.take()),
+                None => opts.on_accepted.take(),
+            };
             // The person's own `acpmux send` names the machine it ran on (`cli/sender.rs`): the
             // recorded client says it (`acpmux-cli#…@big-red`), and the transcript shows "via CLI on
             // big-red" under their prompt. An agent's message names its sender instead.
