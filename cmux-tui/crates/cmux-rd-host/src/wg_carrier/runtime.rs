@@ -178,6 +178,15 @@ impl Session {
     }
 }
 
+impl Drop for Session {
+    fn drop(&mut self) {
+        self.stop.notify_one();
+        if let Some(join) = self.join.take() {
+            let _ = join.join();
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -196,13 +205,5 @@ mod tests {
         assert!(expires_at_media_handoff(Priority::Media));
         assert!(!expires_at_media_handoff(Priority::Interactive));
         assert!(!expires_at_media_handoff(Priority::Bulk));
-    }
-}
-impl Drop for Session {
-    fn drop(&mut self) {
-        self.stop.notify_one();
-        if let Some(join) = self.join.take() {
-            let _ = join.join();
-        }
     }
 }
