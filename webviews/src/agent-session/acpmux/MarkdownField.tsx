@@ -44,6 +44,7 @@ import { subscribeIconFamily } from "./icons/iconPack";
 import { cmuxLinkLook } from "./chips/cmuxLinkLook.experiment";
 import { experimentArm } from "../../experiments/experiment";
 import type { SlashNames, SlashTrigger } from "./slashCommands";
+import { instrumentView } from "./typingSplit";
 import {
   MINIMAL_SCROLLER_ATTRIBUTE,
   SETTLING_SCROLLER_ATTRIBUTE,
@@ -1642,6 +1643,7 @@ const MarkdownFieldImpl = React.forwardRef<MarkdownFieldHandle, MarkdownFieldPro
           }
           editor.current = made;
           view.current = made.ctx.get(editorViewCtx);
+          instrumentView(view.current);
           richPlugins.current = view.current.state.plugins;
           configureLiteral();
           remark.current = made.ctx.get(remarkCtx);
