@@ -243,8 +243,11 @@ impl StartParams {
         if wire.carry.is_some() {
             return Err(SeedRefusal::bad_request("carry needs a seed bundle"));
         }
-        if wire.mirror.is_some() || !wire.promisors.is_empty() {
-            return Err(SeedRefusal::bad_request("mirror and promisors need a seed bundle"));
+        if !wire.promisors.is_empty() {
+            return Err(SeedRefusal::bad_request("promisors need a seed bundle"));
+        }
+        if let Some(mirror) = &wire.mirror {
+            check_local_path("mirror", mirror)?;
         }
         Ok(Self {
             folder: wire.folder,
@@ -262,7 +265,7 @@ impl StartParams {
             clone_only: Some(wire.git_ref),
             head_first: None,
             carry: None,
-            mirror: None,
+            mirror: wire.mirror,
             promisors: Vec::new(),
         })
     }

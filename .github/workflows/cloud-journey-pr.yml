@@ -232,6 +232,18 @@ jobs:
         with:
           bun-version: "1.4.4"
           no-cache: ${{ !startsWith(github.workspace, '/home/runner/work/') }}
+      # A pull request that changes the repo-seed probe (or carries the `repo-seed` label) runs it three times.
+      - name: Does this pull request time a folder chat's repo seed?
+        id: repo-seed
+        if: github.event_name == 'pull_request'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR: ${{ github.event.pull_request.number }}
+          LABELED: ${{ contains(github.event.pull_request.labels.*.name, 'repo-seed') }}
+        run: |
+          if [ "$LABELED" = true ] || gh api "repos/$GITHUB_REPOSITORY/pulls/$PR/files" --paginate --jq '.[].filename' 2>/dev/null | grep -qx 'scripts/cmux-next/cloud-journey-repo-seed.ts'; then
+            echo runs=3 >> "$GITHUB_OUTPUT"
+          fi
       - name: Cloud journey (staging, this pull request's CLI)
         env:
           CMUX_DOGFOOD_STACK_EMAIL: ${{ secrets.CMUX_DOGFOOD_STACK_EMAIL }}
@@ -240,8 +252,7 @@ jobs:
           CMUX_PATH: ${{ steps.build-cmux-tui.outputs.path }}
           JOURNEY_MODEL: stub
           TARGET: staging
-          # The `repo-seed` label times a folder chat's repository three times on the chat machine (clone vs warm mirror).
-          CMUX_JOURNEY_REPO_SEED_RUNS: ${{ contains(github.event.pull_request.labels.*.name, 'repo-seed') && '3' || '0' }}
+          CMUX_JOURNEY_REPO_SEED_RUNS: ${{ steps.repo-seed.outputs.runs || '0' }}
         # An empty pair (a misnamed or missing secret) is this check's red in cloud-journey-ci.sh, never a skip.
         run: bash scripts/cmux-next/cloud-journey-ci.sh
       # cmux#55501: `cmux cloud start-chat` with no app (the direct route lane VMs take), on staging.
