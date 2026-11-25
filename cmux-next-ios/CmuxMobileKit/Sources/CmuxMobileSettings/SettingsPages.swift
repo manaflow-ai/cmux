@@ -339,6 +339,15 @@ struct TerminalPage: View {
                 Text("On a slow connection, what you type shows at once, underlined until the remote confirms it.")
             }
             Section {
+                Toggle(isOn: $settings.predictiveEchoFullScreen) {
+                    SettingsLabel("Predictive Echo in Full-Screen Apps", symbol: "bolt.horizontal.circle")
+                }
+                .accessibilityIdentifier("settings.predictiveEchoFullScreen")
+                .disabled(!settings.predictiveEcho)
+            } footer: {
+                Text("Also predicts typing into full-screen apps such as Claude Code and Codex. A key shows only after the app printed the two before it where they were typed.")
+            }
+            Section {
                 Toggle(isOn: $settings.terminalJumpToBottom) {
                     SettingsLabel("Jump to Bottom Button", symbol: "arrow.down.to.line")
                 }
