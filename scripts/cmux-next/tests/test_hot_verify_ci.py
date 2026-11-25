@@ -573,6 +573,46 @@ class Workflow(unittest.TestCase):
         self.assertEqual(done.returncode, 0, done.stderr)
         self.assertIn("kind=merge", argv)
 
+    def test_one_more_look_never_waits_for_budget_and_never_turns_red(self) -> None:
+        # Job 139144453097 (2026-11-25): a look cancelled at the controller's 3 h queue bound, then this dispatch
+        # slept 1,008 s for the rate limit and failed "HTTP 500" with exit 1; most of the job's 40 reds that hour.
+        again = "Dispatch one more look"
+        block = "\n".join(self.job_block("publish"))
+        self.assertIn("GH_BUDGET_WAIT_MAX_SECONDS: 0", block.split(again, 1)[1].split("- name:", 1)[0])
+        env = {"PR": "7", "HEAD_SHA": HEAD, "LAYERS": "web", "EVENT_AT": ""}
+        done, _, argv = self.run_block("publish", "", {**env, "LOST": "queue"}, again)
+        self.assertEqual((done.returncode, argv), (0, []), done.stderr)
+        scratch = Path(self.enterContext(tempfile.TemporaryDirectory(prefix="hot-verify-refused-")))
+        refused = scratch / "gh"
+        refused.write_text('#!/bin/bash\necho "HTTP 500: Failed to run workflow dispatch" >&2\nexit 1\n')
+        refused.chmod(0o755)
+        done, _, _ = self.run_block("publish", "", {**env, "PATH": f"{scratch}:{os.environ['PATH']}"}, again)
+        self.assertEqual(done.returncode, 0, done.stderr)
+        self.assertIn("::warning title=hot verify::could not start one more look", done.stdout)
+
+    def test_the_layer_dispatches_and_the_plan_dispatch_never_turn_red_on_a_spent_hour(self) -> None:
+        # 2026-11-25 07-11Z: 22 of 28 red jobs sampled were the rust layer's pull request read (made even when no
+        # dispatch follows), 6 the web layer's dispatch, both refused for the GITHUB_TOKEN hour.
+        rust = "\n".join(self.job_block("rust"))
+        ask = rust.split("- name: Ask for the head's tree when it is not published", 1)[1]
+        self.assertLess(ask.index('if [[ "${LOOK_DISPATCH:-}" != 1 ]]; then'), ask.index('gh api "repos/$GITHUB_REPOSITORY/pulls/$PR"'))
+        scratch = Path(self.enterContext(tempfile.TemporaryDirectory(prefix="hot-verify-refused-")))
+        refused = scratch / "gh"
+        refused.write_text('#!/bin/bash\necho "HTTP 403: API rate limit exceeded for installation" >&2\nexit 1\n')
+        refused.chmod(0o755)
+        path = f"{scratch}:{os.environ['PATH']}"
+        done, _, _ = self.run_block("web", "", {"PR": "7", "PATH": path}, "Start the web layer")
+        self.assertEqual(done.returncode, 0, done.stderr)
+        self.assertIn("::warning title=hot verify::web layer of #7 not started", done.stdout)
+        plan = "\n".join(self.job_block("plan"))
+        dispatch = plan.split("- name: Dispatch the look", 1)[1]
+        self.assertIn("GH_BUDGET_WAIT_MAX_SECONDS: 0", dispatch)
+        self.assertNotIn("exit 1", dispatch)
+        done, _, _ = self.run_block("plan", "", {"PR": "7", "HEAD_SHA": HEAD, "KIND": "head", "LAYERS": "web",
+                                                 "EVENT_AT": "", "PATH": path, "RUNNER_TEMP": str(scratch)}, "Dispatch the look")
+        self.assertEqual(done.returncode, 0, done.stderr)
+        self.assertIn("::warning title=hot verify::could not start the look", done.stdout)
+
     def test_a_tar_with_no_receipt_marks_the_publish_job_to_look_again_once(self) -> None:
         # Run 44455465520 (#45972): stage exits 3 for an out.tar with no receipt; the stage step turns that into
         # again=true (the dispatch step above runs on it) on the first look, and fails on the retry (attempt 1).
@@ -707,6 +747,10 @@ class Workflow(unittest.TestCase):
         self.assertIn("after 4620 s in the queue", done["reason"])
         lost = hv.look_result(json.dumps({"pr": 7, "head": HEAD, "state": "cancelled", "error": "no fleet Mac took the look within 3h0m0s"}), 7, HEAD)
         self.assertEqual(lost["url"], "")
+        self.assertEqual(lost["lost"], "queue")
+        self.assertEqual(done["lost"], "")
+        declined = hv.look_result(json.dumps({"pr": 7, "head": HEAD, "state": "failed", "error": "disk declined"}), 7, HEAD)
+        self.assertEqual(declined["lost"], "")
         for bad in ({"pr": 8, "head": HEAD, "state": "done"}, {"pr": 7, "head": OTHER, "state": "done"},
                     {"pr": 7, "head": HEAD, "state": "maybe"}, {"pr": 7, "head": HEAD, "state": "done", "artifact_url": "http://x"}):
             with self.subTest(bad=bad), self.assertRaises(hv.Refused):

@@ -515,7 +515,7 @@ RESULT_STATES = ("done", "failed", "cancelled", "unsubmitted")
 
 def look_result(text: str, pr: int, head: str) -> dict:
     """The controller's look_result (cmuxterm-hq build-fleet/cmd/controller/hot_verify_look.go) for PR at HEAD:
-    {state, step, url (the signed out.tar GET, or ""), reason}. Refused when it names another PR or head."""
+    {state, step, url (the signed out.tar GET, or ""), lost ("queue" or ""), reason}. Refused when it names another PR or head."""
     try:
         data = json.loads(text)
     except ValueError:
@@ -533,7 +533,12 @@ def look_result(text: str, pr: int, head: str) -> dict:
     code = data.get("exit_code")
     reason = " ".join(str(data.get("error") or "").split())[:300]
     waited = data.get("queued_s")
-    return {"state": state, "step": step, "url": url,
+    # queue: the controller cancelled the step because no fleet Mac started it within its queue bound
+    # (hot_verify_look.go hotLookQueueFor). The pool the look waits for was full the whole time; a second look
+    # queues behind the same backlog (2026-11-25 10Z: 211 looks queued, 9 of 19 GUI Macs claim-paused by runner
+    # jobs), so the result run starts none.
+    capped = state == "cancelled" and reason.startswith("no fleet Mac took the look within")
+    return {"state": state, "step": step, "url": url, "lost": "queue" if capped else "",
             "reason": f"step {step or 'none'} {state}" + (f" (exit {code})" if isinstance(code, int) else "")
                       + (f" after {waited} s in the queue" if isinstance(waited, int) and waited > 0 else "")
                       + (f": {reason}" if reason else "")}
@@ -594,7 +599,7 @@ def main(argv: list[str] | None = None) -> int:
             print(nightly_commit(a.feed.read_text(errors="replace") if a.feed.is_file() else ""))
         elif a.command == "result":
             found = look_result(os.environ.get("LOOK_RESULT", ""), a.pr, a.head)
-            print("".join(f"{key}={found[key]}\n" for key in ("state", "step", "url", "reason")), end="")
+            print("".join(f"{key}={found[key]}\n" for key in ("state", "step", "url", "lost", "reason")), end="")
         elif a.command == "stage":
             print(json.dumps(stage(a.path, a.pr, a.head, a.stage, a.text)))
         elif a.command == "render":
