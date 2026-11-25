@@ -86,6 +86,15 @@ cmux ext dev --once --json   # one round, for an agent's loop
 | `cmux.time.zone(name, at?)` | Another time zone: `{zone, offsetMinutes, abbreviation}` for an IANA name at `at` (epoch ms, default now); throws `zone.unknown`. The sandbox has no `Intl`, and `toLocaleString` ignores `timeZone`, so a world clock reads the offset here and formats `new Date(now + offsetMinutes * 60000)` with the `getUTC*` methods. |
 | `signal`, `computed`, `effect`, `onCleanup`, `untrack` | Reactive state: a view that reads a signal redraws only what changed. |
 | `VStack`, `HStack`, `Row`, `Text`, `Panel`, `ForEach`, `Button`, `Toggle`, ... | The scene DSL cmux draws natively. Colors are theme tones (`cmux.theme.success`), never raw values. |
+| `.animation(m)` | Animates the node's animatable props (opacity, rotation, scale, offset, blur, trim, frame size, colors, glow, ProgressView value) from the value on screen when they change: `"smooth"` (the default), `"snappy"`, `"none"` (the motion scale's steps: opacity, colors, rotation), `"move"`, `"appear"`, `"disappear"`, `"fade"`, `"bouncy"`, `{ spring: { response, dampingFraction } }` or `{ duration, curve? }` (`Motion`). |
+| `.scale(n)`, `.offset({x, y})`, `.blur(r)` | Scale about the center, move without changing layout, blur radius (points). |
+| `.glow({color, radius, opacity?})`, `.gradient({colors, angle?})` | A colored zero-offset shadow around the shape; a linear gradient fill or background (angle 0 = left to right, 90 = top to bottom; `LinearGradient`). |
+| `.trim({from?, to})` | Draws that fraction of a stroked shape's outline (ring gauges; a circle starts at 12 o'clock, clockwise). |
+| `.loop({effect, period?, amount?})` | `pulse`, `breathe`, `spin`, `float`, `wiggle`, `bounce`, `shimmer`, run forever by cmux with no JS (`Loop`). |
+| `.transition(t)` | `opacity`, `slide`, `scale`, `move`, `pop`: how the node enters when a render adds it and leaves when one removes it (`Transition`). |
+| `.clipped()` | Clip the node's content (children, a sliding transition) to its frame and corner radius. |
+| `Particles({preset, colors?, rate?, burst?})` | `confetti`, `sparkles`, `rain`, `snow`, `embers`, `stars`, filling its frame; each increase of `burst` fires one burst. Loops, particles and springs stop or go instant under Reduce Motion and `ui.animationSpeed: off`. |
+| `Particles({choreography, trigger?, phase?, size?})` | A glyph of dots that plays a `cmux.particles/1` document frame by frame (`ParticleChoreography`; app-host `js/ABI.md` "Particles choreography"): `trigger` is an acpmux tool kind or session state (`ChoreographyTrigger`) that picks the phases, `phase` loops one phase. cmux validates the document and draws nothing for one it refuses (the app log says why). |
 | `SDK_VERSION`, `API_VERSION`, `RUNTIME_VERSION` | Versions (below). |
 
 Events (from `cmux-app-host/schema/v2/events.json`; each is an invalidation with no payload):

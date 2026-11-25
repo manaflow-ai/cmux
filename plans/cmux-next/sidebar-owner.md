@@ -1,5 +1,14 @@
 # cmux-next sidebar: owner note
 
+- 2026-11-19 (lane/look-glyph-settings): Sidebar-Look: Leo, 2026-11-19: "the dots and the way it moves changes a
+  lot". A `cmux.sidebar.rows/1` row's `indicator` may be a particles glyph: `{choreography: <cmux.particles/1
+  document>, trigger}`, or `"glyph"` / `{choreography: "glyph", trigger}` for the look's
+  `agentPane.display.thinking.glyph`. While the row is busy or working, `StatusIndicatorView` hides its loading glyph
+  and plays the document in the same cell (`SidebarRowChoreographyView`, the scene renderer's native player on the
+  motion clock, at the document's own size, held when the indicator would not animate). Rows with no such indicator
+  draw as before; nothing changes without a look or a customize app that asks for it. The player and the look's glyph
+  reader are instance members of `StatusIndicatorAppearance`. Regression: `SidebarRowGlyphTests` (CmuxNextAppTests).
+
 - 2026-11-24 (ui/updated-card-slot): Sidebar-Look: Lucas, 2026-11-24: "we also want to fix this interim state after
   you press "Install update" and the old card still shows and overlaps". When another card takes the bottom slot, the
   card that leaves goes in the same frame, also mid-exit (`SidebarCardPresence.hideAtOnce`). Before, the download's
