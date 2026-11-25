@@ -973,7 +973,8 @@ public final class AcpmuxSessionSource: AgentSessionSource {
             let previous = promptChain
             // The files already uploading since their pick go with this prompt; emptying the
             // composer after Send does not cancel them.
-            let prestaged = prestager.claim(attachments)
+            let directory = baseDirectory
+            let prestaged = prestager.claim(attachments, directory: directory)
             let task = Task { [weak self] in
                 await previous?.value
                 guard let self else { return }
@@ -982,7 +983,7 @@ public final class AcpmuxSessionSource: AgentSessionSource {
                 do {
                     try Task.checkCancellation()
                     blocks = try await self.promptBlocks(text: text, attachments: attachments, promptID: promptID, hub: hub,
-                                                         prestaged: prestaged)
+                                                         directory: directory, prestaged: prestaged)
                     try Task.checkCancellation()
                 } catch {
                     // Stopped or failed before every early upload was linked: none of them is wanted now.
@@ -1316,7 +1317,7 @@ public final class AcpmuxSessionSource: AgentSessionSource {
                 try await AcpmuxSessionSource.upload(payload, name: name, cwd: cwd, link: link, macName: macName)
             }
         }
-        prestager.sync(attachments, upload: upload)
+        prestager.sync(attachments, directory: cwd, upload: upload)
     }
 
     /// ACP prompt content: the text, then per attachment
@@ -1330,11 +1331,11 @@ public final class AcpmuxSessionSource: AgentSessionSource {
     /// Its bounds, resume and byte progress are the upload engine's (`AttachmentUploadClient`,
     /// lane/ios-attachment-send).
     func promptBlocks(text: String, attachments: [AgentAttachment], promptID: String, hub: AcpmuxHub,
-                      prestaged: [String: AttachmentPrestager.Entry] = [:]) async throws -> [JSONValue] {
+                      directory: String, prestaged: [String: AttachmentPrestager.Entry] = [:]) async throws -> [JSONValue] {
         let progress: @Sendable (AgentUploadProgress) -> Void = { [weak self] step in
             Task { @MainActor in self?.emit(.promptUploading(promptID: promptID, step)) }
         }
-        return try await Self.promptBlocks(text: text, attachments: attachments, link: hub.macLink, cwd: baseDirectory,
+        return try await Self.promptBlocks(text: text, attachments: attachments, link: hub.macLink, cwd: directory,
                                            macName: summary.macName, progress: progress, prestaged: prestaged)
     }
 

@@ -129,7 +129,7 @@ struct ChatComposer: View {
         }
         // Files start for the Mac the moment they are picked, not at Send (AttachmentPrestager).
         .onChange(of: attachments.map(\.id), initial: true) { _, _ in
-            store.composerAttachmentsChanged(attachments)
+            syncPreparedAttachments()
         }
         .onChange(of: photoItems) { _, items in
             guard !items.isEmpty else { return }
@@ -252,21 +252,25 @@ struct ChatComposer: View {
         }
     }
 
+    private func syncPreparedAttachments() {
+        store.composerAttachmentsChanged(attachments.filter { !optimizingImageIDs.contains($0.id) })
+    }
+
     private func appendOptimizedImage(_ data: Data, name: String, fileURL: URL? = nil, byteCount: Int? = nil) {
         let id = UUID().uuidString
         attachments.append(AgentAttachment(id: id, kind: .image, name: name, data: data,
                                            fileURL: fileURL, byteCount: byteCount ?? data.count))
         optimizingImageIDs.insert(id)
         Task {
-            defer { optimizingImageIDs.remove(id) }
             let optimized = await AgentImageOptimizer.optimizeAsync(data)
+            optimizingImageIDs.remove(id)
             guard let index = attachments.firstIndex(where: { $0.id == id }) else { return }
             attachments[index].data = optimized
             attachments[index].byteCount = optimized.count
             attachments[index].name = AgentImageOptimizer.filename(attachments[index].name, for: optimized)
             // Optimization mutates an attachment in place, so the ID-based change
             // observer does not fire. Reconcile the prestager after the MIME changes.
-            store.composerAttachmentsChanged(attachments)
+            syncPreparedAttachments()
         }
     }
 

@@ -103,6 +103,19 @@ import Testing
         await mac.release()
     }
 
+    @Test func sendInAnotherDirectoryDiscardsTheEarlierPath() async throws {
+        let mac = FakeMac()
+        let prestager = AttachmentPrestager()
+        let attachment = file("a", "a.zip")
+        await mac.hold()
+        prestager.sync([attachment], directory: "/first", upload: { _, name in try await mac.upload(name) })
+        await mac.waitForUploadStart()
+        let original = try #require(prestager.entries[attachment.id])
+        #expect(prestager.claim([attachment], directory: "/second").isEmpty)
+        #expect(original.task.isCancelled)
+        await mac.release()
+    }
+
     @Test func sameIDImageOptimizationCancelsTheOriginalUpload() async throws {
         let prestager = AttachmentPrestager()
         let mac = FakeMac()

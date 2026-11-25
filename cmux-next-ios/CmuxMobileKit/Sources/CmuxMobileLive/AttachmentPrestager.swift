@@ -22,6 +22,7 @@ final class AttachmentPrestager {
     struct Entry {
         let task: Task<String, any Error>
         let started: ContinuousClock.Instant
+        let directory: String?
     }
 
     private(set) var entries: [String: Entry] = [:]
@@ -39,9 +40,9 @@ final class AttachmentPrestager {
 
     /// The composer's attachments now: starts an upload for each new one that would upload at
     /// send, cancels the uploads of those taken off. `upload` nil (no link): nothing starts.
-    func sync(_ attachments: [AgentAttachment], upload: Upload?) {
+    func sync(_ attachments: [AgentAttachment], directory: String? = nil, upload: Upload?) {
         let wanted = Set(attachments.filter(Self.uploadsAtSend).map(\.id))
-        for (id, entry) in entries where !wanted.contains(id) {
+        for (id, entry) in entries where !wanted.contains(id) || entry.directory != directory {
             entry.task.cancel()
             entries[id] = nil
         }
@@ -65,16 +66,21 @@ final class AttachmentPrestager {
                     throw error
                 }
             }
-            entries[attachment.id] = Entry(task: task, started: started)
+            entries[attachment.id] = Entry(task: task, started: started, directory: directory)
         }
     }
 
     /// Hands the early uploads of a sent prompt's attachments to it: no later ``sync(_:upload:)``
     /// (the composer emptied by Send) cancels them.
-    func claim(_ attachments: [AgentAttachment]) -> [String: Entry] {
+    func claim(_ attachments: [AgentAttachment], directory: String? = nil) -> [String: Entry] {
         var claimed: [String: Entry] = [:]
         for attachment in attachments {
-            if let entry = entries.removeValue(forKey: attachment.id) { claimed[attachment.id] = entry }
+            guard let entry = entries.removeValue(forKey: attachment.id) else { continue }
+            if entry.directory == directory {
+                claimed[attachment.id] = entry
+            } else {
+                entry.task.cancel()
+            }
         }
         return claimed
     }
