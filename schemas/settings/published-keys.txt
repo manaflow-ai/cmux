@@ -301,6 +301,7 @@ chief.subagentSidebarMinWords
 chief.subagentSidebarShowWords
 cloud.agentMemory.follow
 cloud.agentsStartWithoutAsking
+cloud.defaultImage
 cloud.newWorkspaceFolder
 cloud.newWorkspacesInCloud
 cloud.turnCheckpoints
