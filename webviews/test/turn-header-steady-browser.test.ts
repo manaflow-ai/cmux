@@ -205,7 +205,12 @@ await requireBrowserLane("turn-header-steady-browser.test.ts", async () => {
         }
         await page.evaluate(async () => {
           const root = document.documentElement.style;
-          for (const name of ["--cmux-interface-scale", "--cmux-density-text-scale", "--cmux-chat-text-scale", "--cv-font-size"])
+          for (const name of [
+            "--cmux-interface-scale",
+            "--cmux-density-text-scale",
+            "--cmux-chat-text-scale",
+            "--cv-font-size",
+          ])
             root.removeProperty(name);
           window.dispatchEvent(new Event("cmux-ui-scale-change"));
           await window.cmuxPaintFrame();
