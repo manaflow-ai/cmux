@@ -59,6 +59,7 @@ mod claude_cloud_auth;
 pub mod claude_inbox_relay;
 pub mod claude_peers;
 pub mod claude_stdio;
+pub mod claude_token;
 pub mod cli;
 pub mod cli_caller;
 pub mod client;
@@ -128,6 +129,7 @@ pub mod github_rest_op;
 #[cfg(unix)]
 pub mod github_session_env;
 pub mod god_fixture;
+pub mod hypervisor;
 pub mod install_share;
 pub mod key_check;
 pub mod memory_follow;
