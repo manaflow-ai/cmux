@@ -83,14 +83,17 @@ fn run(args: &[String]) -> Result<(), (u8, String)> {
             }
         }
         Some("rendezvous") => {
-            rendezvous(&flag("--listen").unwrap_or_else(|| "0.0.0.0:47391".into()))
-                .map_err(|why| (1, why))?;
+            rendezvous(
+                &flag("--listen").unwrap_or_else(|| "0.0.0.0:47391".into()),
+                args.iter().any(|a| a == "--answer"),
+            )
+            .map_err(|why| (1, why))?;
         }
         _ => {
             return Err((
                 2,
                 "usage: cmux-nat-probe stun | pair --role a|b --token HEX [--duration-ms N] \
-                 [--pings N] [--rendezvous HOST:PORT] | rendezvous [--listen ADDR]"
+                 [--pings N] [--rendezvous HOST:PORT] | rendezvous [--listen ADDR] [--answer]"
                     .into(),
             ));
         }
@@ -495,7 +498,11 @@ fn emit(tag: &str, v: &Value) {
 /// Pairs the two connections that say `HELLO TOKEN ROLE` with one token and relays lines
 /// between them; prints every RESULT line it relays, tagged with the token and the side's
 /// address, so the runner reads both sides' results from here.
-fn rendezvous(listen: &str) -> Result<(), String> {
+///
+/// With `answer`, a side a whose token nobody waits on gets this host's own side b: the
+/// rendezvous starts `cmux-nat-probe pair --role b` for that token, so any remote host can
+/// measure its path to this one whenever its job runs, with no side b started by hand.
+fn rendezvous(listen: &str, answer: bool) -> Result<(), String> {
     use std::collections::HashMap;
     use std::net::TcpStream;
     use std::sync::{Arc, Mutex};
@@ -503,8 +510,10 @@ fn rendezvous(listen: &str) -> Result<(), String> {
         .map_err(|err| format!("rendezvous: bind {listen}: {err}"))?;
     eprintln!("rendezvous: listening on {listen}");
     let waiting: Arc<Mutex<HashMap<String, TcpStream>>> = Arc::default();
+    let listen = listen.to_string();
     for conn in listener.incoming().map_while(Result::ok) {
         let waiting = Arc::clone(&waiting);
+        let listen = listen.clone();
         std::thread::spawn(move || {
             let _ = conn.set_nodelay(true);
             let peer_addr = conn.peer_addr().map(|a| a.to_string()).unwrap_or_default();
@@ -517,12 +526,16 @@ fn rendezvous(listen: &str) -> Result<(), String> {
             let mut parts = hello.split_whitespace();
             let (Some("HELLO"), Some(token)) = (parts.next(), parts.next()) else { return };
             let token = token.to_string();
+            let role_a = parts.next() == Some("a");
             let other = {
                 let mut w = waiting.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
                 match w.remove(&token) {
                     Some(other) => other,
                     None => {
                         w.insert(token.clone(), conn);
+                        if answer && role_a {
+                            answer_side_b(&listen, &token);
+                        }
                         // The second side's thread relays for both.
                         return;
                     }
@@ -567,4 +580,22 @@ fn rendezvous(listen: &str) -> Result<(), String> {
         });
     }
     Ok(())
+}
+
+/// Starts this host's side b for `token` against the rendezvous at `listen` (0.0.0.0 dials
+/// loopback). Its RESULT reaches the runner through the rendezvous like any side's.
+fn answer_side_b(listen: &str, token: &str) {
+    let dial = listen.replace("0.0.0.0", "127.0.0.1");
+    let spawned = std::env::current_exe().and_then(|exe| {
+        std::process::Command::new(exe)
+            .args(["pair", "--role", "b", "--token", token, "--rendezvous", &dial])
+            .stdout(std::process::Stdio::null())
+            .spawn()
+    });
+    match spawned {
+        Ok(mut child) => {
+            std::thread::spawn(move || child.wait());
+        }
+        Err(err) => eprintln!("rendezvous: answer {token}: {err}"),
+    }
 }
