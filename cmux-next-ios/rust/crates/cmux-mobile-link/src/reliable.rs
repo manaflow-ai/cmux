@@ -201,7 +201,7 @@ pub(crate) fn open_seq(mut payload: Bytes) -> Option<(u64, FrameType, Bytes)> {
         kind,
         FrameType::Open | FrameType::Data | FrameType::DeflatedData | FrameType::Sequenced | FrameType::Close
     )
-        .then_some((sequence, kind, payload))
+    .then_some((sequence, kind, payload))
 }
 
 pub(crate) fn ack_payload(acks: &[(u32, u64)]) -> Bytes {
