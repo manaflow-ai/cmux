@@ -2646,7 +2646,8 @@ struct WorkspaceTabPage: View {
                                   isInteractive: context.isInteractive,
                                   isZoomGestureActive: context.isZoomGestureActive,
                                   reportScroll: { context.reportScroll(fingerDelta: $0) },
-                                  openLink: { [weak source] url in Task { await source?.openLink(url, fromTab: tabID) } })
+                                  openLink: { [weak source] url in Task { await source?.openLink(url, fromTab: tabID) } },
+                                  isOnPage: context.isOnPage)
     }
 }
 
@@ -2716,6 +2717,7 @@ struct WorkspaceTabCard: View {
     @Environment(\.tabsKitCardPageSize) private var kitPageSize
     let tabID: String
     let insets: EdgeInsets
+    @AppStorage(CmuxMobilePreferences.Key.tabCardMonograms) private var monograms = CmuxMobilePreferences.defaultTabCardMonograms
 
     var body: some View {
         // Its last-known picture read from disk as it appears: a tab past the list's first warm,
@@ -2785,13 +2787,20 @@ struct WorkspaceTabCard: View {
                 // A page not shown in this launch has no snapshot of its own: its last-known picture stands in.
                 let lastKnown = source.snapshotEntry(tab.id)?.image
                 if let model = source.nativeBrowser(tab) {
-                    BrowserCard(model: model, insets: insets, lastKnown: lastKnown, tabID: tab.id)
+                    BrowserCard(model: model, insets: insets, lastKnown: lastKnown, tabID: tab.id, host: (model.url ?? tab.url)?.host())
                 } else if let model = source.streamedBrowser(tab) {
-                    // Laid out as its page is: the card covers an opening page (`isContentReady`).
-                    StreamedBrowserCard(model: model, insets: insets, lastKnown: lastKnown?.cgImage)
+                    // Site monograms (off by default) stand in for the globe until the first frame.
+                    if model.snapshot == nil, lastKnown == nil,
+                       monograms, SiteMonogram.letter(tab.url?.host()) != nil {
+                        SiteMonogramFace(host: tab.url?.host())
+                    } else {
+                        // Laid out as its page is: the card covers an opening page (`isContentReady`).
+                        StreamedBrowserCard(model: model, insets: insets, lastKnown: lastKnown?.cgImage)
+                    }
                 } else {
                     // The tab's model only if its page was shown: a card never makes a web view.
-                    BrowserCard(model: source.existingBrowser(tab.id), insets: insets, lastKnown: lastKnown, tabID: tab.id)
+                    let model = source.existingBrowser(tab.id)
+                    BrowserCard(model: model, insets: insets, lastKnown: lastKnown, tabID: tab.id, host: (model?.url ?? tab.url)?.host())
                 }
             case .simulator:
                 if let model = source.simulator(tab) {
