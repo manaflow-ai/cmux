@@ -278,6 +278,20 @@ pub static ACTIONS: &[Action] = &[
         ..Action::DEFAULT
     },
     Action {
+        id: "chatPriority.set",
+        group: GROUP,
+        title: t("ActionCatalog", "action.chatPriority.set", "Set Keep Running"),
+        keywords: &["vm", "cloud", "priority", "keep", "running", "hybrid", "chat", "agent"],
+        category: "cloud",
+        symbol: "icloud",
+        surface_plan: SurfacePlan { cli: Some(Decision::Exempt("guiOnly")), context_menu_exemption: Some("guiOnly"), ..SurfacePlan::DEFAULT },
+        arguments: &[Argument { name: "priority", title: t("Localizable", "argument.chatPriority", "Priority"), kind: ArgKind::String, required: true, suggestions: None, is_target_name: false, is_target_description: false, is_supplied_by_target: false, asked_in_palette: false }],
+        targets: &["tab"],
+        cli_name: "action chat-priority-set",
+        is_person_only: true,
+        ..Action::DEFAULT
+    },
+    Action {
         id: "chatMove.cancel",
         group: GROUP,
         title: t("ActionCatalog", "action.chatMove.cancel", "Cancel Chat Move"),
