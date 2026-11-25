@@ -13,6 +13,8 @@
 use serde::Serialize;
 use serde_json::{Map, Value};
 
+#[path = "host_op_host.rs"]
+pub mod host;
 #[path = "host_op_pane.rs"]
 pub mod pane;
 
@@ -57,6 +59,7 @@ pub fn methods() -> Vec<&'static str> {
         .chain(CLOUD_REPOSITORY_METHODS.iter())
         .chain(GITHUB_METHODS.iter())
         .chain(pane::PANE_METHODS.iter())
+        .chain(host::HOST_METHODS.iter())
         .copied()
         .collect();
     all.sort_unstable();
@@ -117,6 +120,8 @@ pub enum HostOp {
     GitHub { github: GitHubRequest },
     /// One of the pane's own messages ([`pane::PaneOp`]).
     Pane { pane: pane::PaneOp },
+    /// One of the host's own small asks ([`host::HostCall`]).
+    Host { host: host::HostCall },
 }
 
 /// Decodes one page message (`WKScriptMessage.body` as JSON): an object with
@@ -144,6 +149,8 @@ pub fn decode_method(method: &str, params: Option<&Map<String, Value>>) -> HostO
         github(method, params).map(|github| HostOp::GitHub { github })
     } else if pane::PANE_METHODS.contains(&method) {
         pane::decode(method, params).map(|pane| HostOp::Pane { pane })
+    } else if host::HOST_METHODS.contains(&method) {
+        host::decode(method, params).map(|host| HostOp::Host { host })
     } else {
         return HostOp::Swift;
     };

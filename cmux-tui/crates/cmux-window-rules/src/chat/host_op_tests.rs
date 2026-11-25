@@ -30,7 +30,7 @@ fn a_method_outside_the_table_stays_the_hosts() {
 #[test]
 fn the_method_list_holds_every_family_once() {
     let all = methods();
-    assert_eq!(all.len(), 18 + 35);
+    assert_eq!(all.len(), 18 + 35 + 42);
     let mut unique = all.clone();
     unique.dedup();
     assert_eq!(unique, all);
