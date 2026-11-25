@@ -11,7 +11,7 @@ nonisolated extension AcpmuxPaneMethods {
         // no chat connects at all (the pane reconnects every few seconds, ask-0e0d5a479b). An
         // acpmux key missing here is stripped, not refused (``strippingInitializeOptIns``); still
         // list each one the page sends, or the daemon never sees the opt-in.
-        "initialize": (["protocolVersion", "clientInfo", "clientCapabilities", "_meta"], ["peerRowBatches"]),
+        "initialize": (["protocolVersion", "clientInfo", "clientCapabilities", "_meta"], ["peerRowBatches", "chunkDeltas", "sessionChangedDelta"]),
         // `noProject` is the pane's own (Do not work in a project): AcpmuxPathPolicy reads and strips it.
         // Never `workspaceId`: the host adds the pane's own after this rule (AcpmuxPathPolicy+Workspace).
         // `model`: a chat on another machine starts on the model the page showed (direct.ts
@@ -135,6 +135,8 @@ nonisolated extension AcpmuxPaneMethods {
         // page's measurements: `page`, `windowMs`, `spans`, `renders`, `frames`, `layoutShifts`, `bytes`), frames, or tally (frameTally.ts: `bucketMs`, `gaps`).
         "_acpmux/perf": (["op", "after", "limit", "waitMs", "page", "windowMs", "spans", "renders", "frames", "layoutShifts", "bytes", "bucketMs", "gaps"], []),
         "_acpmux/host_overload": ([], []),
+        "_acpmux/trace/spans": (["process", "pid", "spans"], []),
+        "_acpmux/trace/status": ([], []),
         // Placement names are local display labels; the optional source lets the page filter
         // targets for a chat without exposing a host URL or session identity.
         "_acpmux/move_targets": (["source", "sourceKind"], []),
@@ -292,7 +294,7 @@ nonisolated extension AcpmuxPaneMethods {
         let ticketOnly = method == "_acpmux/permission_respond" || method == "_acpmux/plan/build" || method == "chat.fix_from_link"
         if var meta = params["_meta"] as? [String: Any], !ticketOnly, !(setting && meta[gestureTicketKey] != nil) {
             let prompt = method == "session/prompt"
-            for key in meta.keys where key != "acpmux" && !(prompt && key == gestureTicketKey) {
+            for key in meta.keys where key != "acpmux" && key != traceparentKey && !(prompt && key == gestureTicketKey) {
                 meta.removeValue(forKey: key)
                 dropped.append("_meta.\(key)")
             }
@@ -354,9 +356,10 @@ nonisolated extension AcpmuxPaneMethods {
             return Set(meta.keys) == [gestureTicketKey] ? nil : "_meta holds more than the gesture ticket"
         }
         // A prompt held for the folder trust answer redeems its ticket beside its acpmux.promptId.
-        if let key = meta.keys.sorted().first(where: { $0 != "acpmux" && !(method == "session/prompt" && $0 == gestureTicketKey) }) {
+        if let key = meta.keys.sorted().first(where: { $0 != "acpmux" && $0 != traceparentKey && !(method == "session/prompt" && $0 == gestureTicketKey) }) {
             return "unknown _meta key \(quoted(key))"
         }
+        if let traceparent = meta[traceparentKey], !isTraceparent(traceparent) { return "_meta.traceparent is not a W3C traceparent" }
         guard let rawAcpmux = meta["acpmux"] else { return nil }
         guard let acpmux = rawAcpmux as? [String: Any] else { return "_meta.acpmux is not an object" }
         if let key = acpmux.keys.sorted().first(where: denied.contains) { return "mode field \(quoted(key)) in _meta.acpmux" }
@@ -370,6 +373,19 @@ nonisolated extension AcpmuxPaneMethods {
         // argv or env): one model id, never a flag or anything else.
         if method == "session/new", let model = acpmux["model"], !isModelID(model) { return "_meta.acpmux.model is not a model id" }
         return nil
+    }
+
+    /// The one `_meta` key besides `acpmux` any request may carry: the W3C trace context of the
+    /// user action that sent it (one trace id per action, cmux#55505), which acpmux writes into its
+    /// `CMUX_TRACE_FILE` trace. Mirrors cmux-agent-pane-policy `TRACEPARENT_KEY`.
+    static let traceparentKey = "traceparent"
+
+    /// `00-<32 hex trace id>-<16 hex parent id>-<2 hex flags>`, lowercase, nothing else.
+    static func isTraceparent(_ value: Any) -> Bool {
+        guard let text = value as? String, text.utf8.count == 55 else { return false }
+        let parts = text.split(separator: "-", omittingEmptySubsequences: false)
+        guard parts.map(\.count) == [2, 32, 16, 2] else { return false }
+        return parts.allSatisfy { $0.utf8.allSatisfy { (48...57).contains($0) || (97...102).contains($0) } }
     }
 
     /// The `_meta.acpmux` keys an `initialize` may never carry, even as an opt-in the relay does not
