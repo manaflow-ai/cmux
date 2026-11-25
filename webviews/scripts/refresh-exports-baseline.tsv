@@ -80,6 +80,7 @@ src/pages/onboarding/AgentsStep.tsx	1
 src/pages/onboarding/parts.tsx	3
 src/pages/server-cards/server/ServerSurfaceHost.tsx	1
 src/pages/server-cards/server/ServerViews.tsx	2
+src/pages/settings/components/AllConnections.tsx	2
 src/pages/settings/components/AgentHarnesses.tsx	1
 src/pages/settings/components/AgentMcpServers.tsx	3
 src/pages/settings/components/BackdropLink.tsx	1
