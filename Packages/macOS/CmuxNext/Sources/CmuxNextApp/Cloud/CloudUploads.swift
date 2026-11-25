@@ -58,7 +58,7 @@ final class CloudUploads {
         }
     }
 
-    /// Where chat tab `tab`'s files go on its Cloud machine (also Sources > Add Folder, ``CloudFolderAdd``).
+    /// Where chat tab `tab`'s files go on its Cloud machine (also Sources > Add Folder, ``addFolder(tab:session:services:)``).
     static func target(tab: String, services: AppServices) -> Target? {
         guard !services.machines.isFeatureDisabled(.cloud), let binary = services.cloud.move.cli, pastes != nil else { return nil }
         for chat in services.cloud.movedChats.all() where chat.broughtBack == nil {
@@ -196,28 +196,21 @@ enum CloudUploadStrings {
 /// `_acpmux/set_directories`, between turns). The chat draws the line ("Added ~/x as /vm/path")
 /// from acpmux's record; a failure comes back as the reply's reason, which the page shows in the
 /// chat, and nothing is added.
-@MainActor
-enum CloudFolderAdd {
-    /// Whether chat tab `tab` offers Add Folder now: the setting is on and the tab is a Cloud chat on
-    /// a connected machine.
-    static func offered(tab: String, services: AppServices) -> Bool {
-        isOn(services) && CloudUploads.target(tab: tab, services: services) != nil
-    }
-
-    static func isOn(_ services: AppServices) -> Bool {
+extension CloudUploads {
+    static func addFolderIsOn(_ services: AppServices) -> Bool {
         CloudNewWorkspaceSetting().addFolderLive(in: services.settings?.snapshot.root ?? .object([:]))
     }
 
     /// The person's Add Folder click on chat tab `tab` showing `session`: `{applied, path, from}`,
     /// `applied` "cancelled" when no folder was picked.
-    static func run(tab: String, session: String, services: AppServices) async throws -> [String: Any] {
-        guard isOn(services) else { throw failure(CloudFolderAddStrings.off) }
-        guard let target = CloudUploads.target(tab: tab, services: services), target.session == session else {
-            throw failure(CloudFolderAddStrings.unavailable)
+    static func addFolder(tab: String, session: String, services: AppServices) async throws -> [String: Any] {
+        guard addFolderIsOn(services) else { throw addFolderFailure(addFolderOff) }
+        guard let target = target(tab: tab, services: services), target.session == session else {
+            throw addFolderFailure(addFolderUnavailable)
         }
         guard let folder = await NewTabPage.chooseFolder(in: NSApp.keyWindow) else { return ["applied": "cancelled"] }
         let started = ContinuousClock.now
-        guard let socket = await target.machine.daemon.connection?.endpoint?.socketPath else { throw failure(CloudFolderAddStrings.unavailable) }
+        guard let socket = await target.machine.daemon.connection?.endpoint?.socketPath else { throw addFolderFailure(addFolderUnavailable) }
         let answer: CloudAccessCLI.Answer
         do {
             answer = try await CloudAccessCLI(binary: target.binary).grantAttached(
@@ -229,7 +222,7 @@ enum CloudFolderAdd {
         guard answer.ok, let path = answer.attachedPath else {
             logger.error("cloud folder add: session \(session, privacy: .public) failed \(answer.errorCode ?? "", privacy: .public)")
             // The CLI's reason names what was refused and why ("… cannot be shared: credential folders are never shared").
-            throw failure(answer.error ?? CloudFolderAddStrings.failed)
+            throw addFolderFailure(answer.error ?? addFolderFailed)
         }
         let applied = answer.attachedApplied ?? "now"
         let took = started.duration(to: .now).components
@@ -238,20 +231,18 @@ enum CloudFolderAdd {
         return ["applied": applied, "path": path, "from": folder.path]
     }
 
-    private static func failure(_ message: String) -> NSError {
+    private static func addFolderFailure(_ message: String) -> NSError {
         NSError(domain: "cloud.folder.add", code: 1, userInfo: [NSLocalizedDescriptionKey: message])
     }
-}
 
-/// Add Folder's failure texts, shown in the chat.
-enum CloudFolderAddStrings {
-    static var off: String {
+    // Add Folder's failure texts, shown in the chat.
+    private static var addFolderOff: String {
         String(localized: "cloud.folderAdd.off", defaultValue: "Adding folders to Cloud chats is turned off in Settings.", table: "Cloud", bundle: .module.inAppLanguage)
     }
-    static var unavailable: String {
+    private static var addFolderUnavailable: String {
         String(localized: "cloud.folderAdd.unavailable", defaultValue: "This chat's Cloud machine isn't connected.", table: "Cloud", bundle: .module.inAppLanguage)
     }
-    static var failed: String {
+    private static var addFolderFailed: String {
         String(localized: "cloud.folderAdd.failed", defaultValue: "The folder couldn't be added.", table: "Cloud", bundle: .module.inAppLanguage)
     }
 }

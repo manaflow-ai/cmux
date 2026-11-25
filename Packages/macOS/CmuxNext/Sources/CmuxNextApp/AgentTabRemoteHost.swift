@@ -30,7 +30,7 @@ nonisolated struct AgentTabRemoteHost: AgentPaneHostProviding {
     /// The prompt rows of session `session` with a turn checkpoint (``AgentPaneHandshake/cloudTurnRewind``);
     /// nil unless `cloud.turnCheckpoints` is on for this signed-in Cloud chat.
     var cloudTurnRewind: (@MainActor @Sendable (_ session: String) async -> [String])?
-    /// Sources offers Add Folder (``AgentPaneHandshake/cloudFolderAdd``, ``CloudFolderAdd``).
+    /// Sources offers Add Folder (``AgentPaneHandshake/cloudFolderAdd``, ``CloudUploads/addFolder(tab:session:services:)``).
     var cloudFolderAdd = false
     /// The machine's daemon answers the folder trust question (`agent-session-trust-v1`).
     var servesTrust = false

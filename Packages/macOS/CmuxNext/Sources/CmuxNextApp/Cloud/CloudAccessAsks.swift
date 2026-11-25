@@ -72,8 +72,18 @@ final class CloudAccessAsks {
         // task-owner: one revoke round; CloudAccessRevokes keeps what is left for the poll loop
         Task { @MainActor [weak services] in
             guard let services else { return }
-            await revokes.run(CloudAccessCLI(binary: binary), services: services)
+            await Self.revoke(revokes, CloudAccessCLI(binary: binary), services: services)
         }
+    }
+
+    /// One round of `revokes` (``CloudAccessRevokes``) over this app's machines.
+    private static func revoke(_ revokes: CloudAccessRevokes, _ cli: CloudAccessCLI, services: AppServices) async {
+        let logger = services.cloud.logger
+        await revokes.run(cli, socket: { id in
+            guard let machine = services.machines.session(id) else { return nil }
+            let path = await machine.daemon.connection?.endpoint?.socketPath
+            return .some(path)
+        }, log: { logger.error("cloud access revoke: \($0, privacy: .public)") })
     }
 
     /// One round over the machines; how long to wait before the next, nil to stop.
@@ -84,7 +94,7 @@ final class CloudAccessAsks {
         for entry in services.cloud.movedChats.all() where entry.broughtBack != nil {
             revokes.add(CloudAccessRevokes.Chat(machineID: entry.machineID, session: entry.session))
         }
-        await revokes.run(cli, services: services)
+        await Self.revoke(revokes, cli, services: services)
         // Read after the await, with no await before a stop: a move recorded meanwhile keeps the loop going.
         let chats = Self.chats(services)
         // Turned off by the organization: no request goes out, and the cards go.
@@ -169,7 +179,7 @@ final class CloudAccessAsks {
         if let entry = services.cloud.movedChats.entry(host: ask.host, session: ask.session) {
             return entry.broughtBack == nil && entry.machineID == ask.machineID
         }
-        guard CloudFolderAdd.isOn(services) else { return false }
+        guard CloudUploads.addFolderIsOn(services) else { return false }
         return chats(services).contains { $0.machineID == ask.machineID && $0.host == ask.host && $0.session == ask.session }
     }
 
@@ -191,7 +201,7 @@ final class CloudAccessAsks {
         let setup = services.cloud.move
         let moved = services.cloud.movedChats.all().filter { $0.broughtBack == nil }
         var chats = moved.map { Chat(host: $0.host, session: $0.session, machineID: $0.machineID, remoteRoot: setup.workRoot(of: $0.remoteFolder), moved: $0) }
-        guard CloudFolderAdd.isOn(services), let root = setup.workRoots.first else { return chats }
+        guard CloudUploads.addFolderIsOn(services), let root = setup.workRoots.first else { return chats }
         let known = Set(chats.map { "\($0.host)\n\($0.session)" })
         let tabs = services.agentTabs
         for machine in services.machines.cloud where machine.daemon.connection != nil {
@@ -241,7 +251,7 @@ final class CloudAccessAsks {
         revokes.answerStarted(chat)
         asks[tab]?.removeAll { $0.card == card }
         render(services: services)
-        let logger = services.cloud.logger, attach = CloudFolderAdd.isOn(services)
+        let logger = services.cloud.logger, attach = CloudUploads.addFolderIsOn(services)
         // task-owner: one person's answer, bounded by the CLI's timeout; `answering` tracks it
         Task { @MainActor [weak self, weak services] in
             let answer: CloudAccessCLI.Answer

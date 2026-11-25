@@ -120,7 +120,7 @@ extension AgentTabStore {
             guard let services else { return }
             // A moved chat's cards, and with `cloud.addFolderLive` every Cloud chat's (CloudAccessAsks).
             let moved = services.cloud.movedChats.started(host: host, session: session, remoteChat: cwd, harness: harness)
-            guard moved || CloudFolderAdd.isOn(services) else { return }
+            guard moved || CloudUploads.addFolderIsOn(services) else { return }
             services.cloud.accessAsks.start(services: services)
         }
         tabs.cloudRepositoryLocal = { [weak services] in
@@ -466,7 +466,7 @@ extension AgentTabStore {
                 host.cloudTurnRewind = { [weak services] session in await services?.cloudTurnRewindHost.rows(chat: key.key, session: session) ?? [] }
             }
             // Sources > Add Folder (`cloud.addFolderLive`, on by default; the click checks it again).
-            host.cloudFolderAdd = host.cloudMachineID != nil && CloudFolderAdd.isOn(services)
+            host.cloudFolderAdd = host.cloudMachineID != nil && CloudUploads.addFolderIsOn(services)
             // A Cloud chat shown again (a restored tab) gets its access cards too.
             if host.cloudFolderAdd { services.cloud.accessAsks.start(services: services) }
             // A Cloud machine (the app's own record, never the guest's) starts a chat or asks folder
@@ -684,7 +684,7 @@ extension AgentTabStore {
         cloudTurnRewind = services.cloudTurnRewindHost
         cloudFolderAdd = { [weak services] chat, session in
             guard let services else { throw CancellationError() }
-            return try await CloudFolderAdd.run(tab: chat, session: session, services: services)
+            return try await CloudUploads.addFolder(tab: chat, session: session, services: services)
         }
     }
 }

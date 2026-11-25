@@ -368,7 +368,7 @@ final class AgentTabStore {
     var tryAnotherApproach: (@MainActor (_ chat: String, _ session: String, _ throughSeq: Int) async throws -> [String: Any])?
     /// A Cloud chat's turn checkpoints and rewinds (``AppServices/cloudTurnRewindHost``).
     var cloudTurnRewind: AgentPaneCloudTurnRewindHost?
-    /// Sources > Add Folder on a Cloud chat (``CloudFolderAdd``); nil: never.
+    /// Sources > Add Folder on a Cloud chat (``CloudUploads/addFolder(tab:session:services:)``); nil: never.
     var cloudFolderAdd: (@MainActor (_ chat: String, _ session: String) async throws -> [String: Any])?
     /// Session `session` (of acpmux `host`, nil: this Mac's) on tab `chat`'s right as a link opens (``LinkOpener``,
     /// `layout.linkPlacement`): a tab in the pane there, else a new split, focused; false when nothing opened.
