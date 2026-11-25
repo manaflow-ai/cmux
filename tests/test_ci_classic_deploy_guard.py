@@ -395,6 +395,70 @@ class CancelTests(unittest.TestCase):
         self.assertIn("already stopped", lines[-1])
 
 
+class RequestTests(unittest.TestCase):
+    """A 403 or 429 from GitHub's rate limit waits for its reset; any other refusal names GitHub's own message."""
+
+    def setUp(self) -> None:
+        self.sleeps: list[float] = []
+        self.answers: list[object] = []
+        self.saved = (guard.urllib.request.urlopen, guard.time.sleep, guard.time.time)
+        guard.urllib.request.urlopen = self.urlopen
+        guard.time.sleep = self.sleeps.append
+        guard.time.time = lambda: 1_000_000.0
+        guard._rate_waited = 0.0
+
+    def tearDown(self) -> None:
+        guard.urllib.request.urlopen, guard.time.sleep, guard.time.time = self.saved
+
+    def urlopen(self, _request, timeout: float = 30):
+        answer = self.answers.pop(0)
+        if isinstance(answer, Exception):
+            raise answer
+        return contextlib.closing(io.BytesIO(json.dumps(answer).encode()))
+
+    @staticmethod
+    def refused(code: int, message: str, headers: dict[str, str]):
+        import email.message
+        msg = email.message.Message()
+        for key, value in headers.items():
+            msg[key] = value
+        body = io.BytesIO(json.dumps({"message": message}).encode())
+        return guard.urllib.error.HTTPError("https://api.github.com/x", code, "Forbidden", msg, body)
+
+    def test_a_spent_rate_limit_waits_for_its_reset_and_retries(self) -> None:
+        self.answers = [self.refused(403, "API rate limit exceeded for installation ID 1.",
+                                     {"x-ratelimit-remaining": "0", "x-ratelimit-reset": "1000120"}), {"ok": 1}]
+        self.assertEqual(guard._request("https://api.github.com/repos/o/r/x", "t"), {"ok": 1})
+        self.assertEqual(len(self.sleeps), 1)
+        self.assertGreaterEqual(self.sleeps[0], 120)
+
+    def test_a_secondary_limit_waits_for_retry_after(self) -> None:
+        self.answers = [self.refused(429, "You have exceeded a secondary rate limit.", {"retry-after": "30"}), [1]]
+        self.assertEqual(guard._request("https://api.github.com/repos/o/r/x", "t"), [1])
+        self.assertEqual(self.sleeps, [30.0])
+
+    def test_a_reset_past_the_bound_refuses_with_githubs_message(self) -> None:
+        self.answers = [self.refused(403, "API rate limit exceeded for installation ID 1.",
+                                     {"x-ratelimit-remaining": "0", "x-ratelimit-reset": str(1_000_000 + 3600)})]
+        with self.assertRaises(guard.Unreadable) as caught:
+            guard._request("https://api.github.com/repos/o/r/x", "t")
+        self.assertIn("API rate limit exceeded", str(caught.exception))
+        self.assertIn("resets", str(caught.exception))
+        self.assertEqual(self.sleeps, [])
+
+    def test_a_permission_403_does_not_wait_and_names_the_message(self) -> None:
+        self.answers = [self.refused(403, "Resource not accessible by integration", {"x-ratelimit-remaining": "4000"})]
+        with self.assertRaises(guard.Unreadable) as caught:
+            guard._request("https://api.github.com/repos/o/r/x", "t")
+        self.assertIn("403", str(caught.exception))
+        self.assertIn("Resource not accessible by integration", str(caught.exception))
+        self.assertEqual(self.sleeps, [])
+
+    def test_the_job_outlasts_the_longest_wait(self) -> None:
+        minutes = int(re.search(r"timeout-minutes: (\d+)", WORKFLOW.read_text()).group(1))
+        self.assertGreater(minutes * 60, guard.RATE_WAIT_BOUND + 300 + 120)
+
+
 class WiringTests(unittest.TestCase):
     def test_config_names_known_deploys_and_teammates_with_ids(self) -> None:
         g = CFG["deploy_guard"]
