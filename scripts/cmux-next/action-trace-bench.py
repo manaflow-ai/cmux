@@ -18,6 +18,9 @@ Then prints the trace between ACTION-TRACE-BEGIN and ACTION-TRACE-END, and one l
 
 (floor_us and gap_us `-` for a span with no floor). --burn=N runs N busy loops at default priority for the
 whole run (the duress run: an agent-like load on every core). --json writes the spans and the run's facts.
+
+NOW's "Speed of light" page reads that --json artifact: hq tools/measure-on-leo-mac/speed_of_light.py folds it into
+p50/p95, floor, gap and top cuts per action (reconciler-state/speed-of-light).
 """
 import argparse
 import json
