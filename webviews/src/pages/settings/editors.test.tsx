@@ -51,6 +51,8 @@ function editorProblem(row: SchemaRow, control: Element): string | null {
       return has("select") && has("button.icon-button") ? null : "no menu + play button";
     case "url":
     case "text":
+      // Settings > Cloud > Default Image is a menu of Auto and the account's environments.
+      if (row.key === "cloud.defaultImage") return has("select") && has("input.text", 0) ? null : "no image menu";
       return has("input.text") ? null : "no text field";
     case "host_list":
       return has("input.token-input") ? null : "no token field";
