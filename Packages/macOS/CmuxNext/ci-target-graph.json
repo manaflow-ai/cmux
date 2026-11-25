@@ -8,6 +8,7 @@
     "CmuxAppAttest": "Packages/Shared/CmuxAppAttest",
     "CmuxAuthRuntime": "Packages/Shared/CmuxAuthRuntime",
     "CmuxChiefList": "Packages/Shared/CmuxChiefList",
+    "CmuxEgress": "Packages/Shared/CmuxEgress",
     "CmuxFeedPushCore": "Packages/Shared/CmuxFeedPushCore",
     "CmuxGhosttyKit": "Packages/Shared/CmuxGhosttyKit",
     "CmuxHomeCore": "Packages/Shared/CmuxHomeCore",
@@ -194,7 +195,8 @@
         "CmuxNextWindowRules"
       ],
       "packages": [
-        "CmuxAppAttest"
+        "CmuxAppAttest",
+        "CmuxEgress"
       ]
     },
     "CmuxNextAgentPaneTests": {
@@ -229,6 +231,7 @@
         "schemas/agent-bridge/contract.json",
         "schemas/agent-pane/attach-params.json",
         "schemas/agent-pane/initialize-params.json",
+        "schemas/agent-pane/methods.json",
         "schemas/agent-pane/session-new-params.json",
         "scripts/cmux-next/pin-cmux-tui.sh",
         "webviews/src/agent-session/acpmux/flickerLog.ts",
@@ -306,6 +309,7 @@
         "CmuxNextChromiumWarmup",
         "CmuxNextCloud",
         "CmuxNextCloudCredentials",
+        "CmuxNextCloudPlace",
         "CmuxNextCloudUI",
         "CmuxNextCodeRouter",
         "CmuxNextCompat",
@@ -398,6 +402,7 @@
         "CmuxAgentCursor",
         "CmuxAgentQuestion",
         "CmuxAppAttest",
+        "CmuxEgress",
         "CmuxFeedPushCore",
         "CmuxHomeCore",
         "CmuxHomeRender",
@@ -474,6 +479,7 @@
         "CmuxNextChiefPetWiring",
         "CmuxNextChromiumRuntime",
         "CmuxNextCloudCredentials",
+        "CmuxNextCloudPlace",
         "CmuxNextCloudUI",
         "CmuxNextCompat",
         "CmuxNextComputerUse",
@@ -629,7 +635,8 @@
         "CmuxNextPagesTestSupport",
         "CmuxNextSettings",
         "CmuxNextSidebar",
-        "CmuxNextWakeups"
+        "CmuxNextWakeups",
+        "CmuxNextWakeupsTestSupport"
       ],
       "packages": [
         "CmuxHomeRender"
@@ -683,7 +690,9 @@
         "CmuxNextRemoteLayer",
         "CmuxNextWakeups"
       ],
-      "packages": []
+      "packages": [
+        "CmuxEgress"
+      ]
     },
     "CmuxNextBrowserAutomation": {
       "kind": "regular",
@@ -711,7 +720,9 @@
         "CmuxNextCompat",
         "CmuxNextWakeups"
       ],
-      "packages": []
+      "packages": [
+        "CmuxEgress"
+      ]
     },
     "CmuxNextBrowserHistory": {
       "kind": "regular",
@@ -863,7 +874,9 @@
         "CmuxNextPages",
         "CmuxNextSettings"
       ],
-      "packages": []
+      "packages": [
+        "CmuxEgress"
+      ]
     },
     "CmuxNextChiefViewsTests": {
       "kind": "test",
@@ -883,7 +896,9 @@
       "kind": "regular",
       "path": "Packages/macOS/CmuxNext/Sources/CmuxNextChromiumRuntime",
       "targets": [],
-      "packages": []
+      "packages": [
+        "CmuxEgress"
+      ]
     },
     "CmuxNextChromiumRuntimeTests": {
       "kind": "test",
@@ -928,6 +943,7 @@
       "packages": [
         "CMUXAuthCore",
         "CmuxAuthRuntime",
+        "CmuxEgress",
         "CmuxInstallAuthCore"
       ]
     },
@@ -945,11 +961,23 @@
         "CMUXAuthCore"
       ]
     },
+    "CmuxNextCloudPlace": {
+      "kind": "regular",
+      "path": "Packages/macOS/CmuxNext/Sources/CmuxNextCloudPlace",
+      "targets": [
+        "CmuxNextCloud",
+        "CmuxNextCompat",
+        "CmuxNextDaemon",
+        "CmuxNextWakeups"
+      ],
+      "packages": []
+    },
     "CmuxNextCloudTests": {
       "kind": "test",
       "path": "Packages/macOS/CmuxNext/Tests/CmuxNextCloudTests",
       "targets": [
         "CmuxNextCloud",
+        "CmuxNextCompat",
         "CmuxNextDaemon",
         "CmuxNextWakeups",
         "CmuxNextWakeupsTestSupport"
@@ -1002,7 +1030,9 @@
         "CmuxNextCloud",
         "CmuxNextCompat"
       ],
-      "packages": []
+      "packages": [
+        "CmuxEgress"
+      ]
     },
     "CmuxNextCodeRouterTests": {
       "kind": "test",
@@ -1185,6 +1215,7 @@
       ],
       "packages": [
         "CmuxAgentBrands",
+        "CmuxEgress",
         "CmuxTheme"
       ]
     },
@@ -1225,6 +1256,7 @@
         "CmuxNextWakeups"
       ],
       "packages": [
+        "CmuxEgress",
         "CmuxTheme"
       ]
     },
@@ -1236,7 +1268,9 @@
         "CmuxNextCompat",
         "CmuxNextWakeups"
       ],
-      "packages": []
+      "packages": [
+        "CmuxEgress"
+      ]
     },
     "CmuxNextDevicesTests": {
       "kind": "test",
@@ -1256,7 +1290,9 @@
         "CmuxNextCompat",
         "CmuxNextWakeups"
       ],
-      "packages": []
+      "packages": [
+        "CmuxEgress"
+      ]
     },
     "CmuxNextDiff": {
       "kind": "regular",
@@ -1417,7 +1453,9 @@
       "targets": [
         "CmuxNextCompat"
       ],
-      "packages": []
+      "packages": [
+        "CmuxEgress"
+      ]
     },
     "CmuxNextHangReportsTests": {
       "kind": "test",
@@ -1566,7 +1604,9 @@
     "CmuxNextHostPressure": {
       "kind": "regular",
       "path": "Packages/macOS/CmuxNext/Sources/CmuxNextHostPressure",
-      "targets": [],
+      "targets": [
+        "CmuxNextDesignTokens"
+      ],
       "packages": []
     },
     "CmuxNextHostPressureTests": {
@@ -1590,7 +1630,8 @@
         "CmuxNextRemote"
       ],
       "packages": [
-        "CmuxChiefList"
+        "CmuxChiefList",
+        "CmuxEgress"
       ]
     },
     "CmuxNextIcons": {
@@ -1748,6 +1789,7 @@
         "CmuxNextWakeups"
       ],
       "packages": [
+        "CmuxEgress",
         "CmuxScreenKit"
       ]
     },
@@ -1787,7 +1829,8 @@
         "CmuxNextWakeups"
       ],
       "packages": [
-        "CMUXAuthCore"
+        "CMUXAuthCore",
+        "CmuxEgress"
       ]
     },
     "CmuxNextMobileHost": {
@@ -1904,7 +1947,9 @@
         "CmuxNextSettings",
         "CmuxNextWakeups"
       ],
-      "packages": []
+      "packages": [
+        "CmuxEgress"
+      ]
     },
     "CmuxNextPagesTestSupport": {
       "kind": "regular",
@@ -2037,7 +2082,9 @@
         "CmuxNextCloud",
         "CmuxNextCompat"
       ],
-      "packages": []
+      "packages": [
+        "CmuxEgress"
+      ]
     },
     "CmuxNextRemoteBrowser": {
       "kind": "regular",
@@ -2057,7 +2104,9 @@
       "targets": [
         "CmuxNextCompat"
       ],
-      "packages": []
+      "packages": [
+        "CmuxEgress"
+      ]
     },
     "CmuxNextRemoteLayer": {
       "kind": "regular",
@@ -2072,7 +2121,9 @@
         "CmuxNextCompat",
         "CmuxNextWakeups"
       ],
-      "packages": []
+      "packages": [
+        "CmuxEgress"
+      ]
     },
     "CmuxNextRemoteLocalhostService": {
       "kind": "regular",
@@ -2099,7 +2150,9 @@
         "CmuxNextIcons",
         "CmuxNextWakeups"
       ],
-      "packages": []
+      "packages": [
+        "CmuxEgress"
+      ]
     },
     "CmuxNextRemoteViewSessions": {
       "kind": "regular",
@@ -2177,7 +2230,8 @@
         "CmuxNextWakeups"
       ],
       "packages": [
-        "CMUXAuthCore"
+        "CMUXAuthCore",
+        "CmuxEgress"
       ]
     },
     "CmuxNextServerHelper": {
@@ -2447,6 +2501,7 @@
         "CmuxNextWakeups"
       ],
       "packages": [
+        "CmuxEgress",
         "CmuxUpdater"
       ]
     },

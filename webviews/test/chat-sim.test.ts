@@ -22,9 +22,10 @@ const broken = (result: SimResult, prefix: string) =>
 
 // Rules (a) and (b) hold in every scenario: a turn's first rows keep their gaps, and nothing folds
 // before its turn ends.
+// Rule i (one message is one whole bubble) runs under the same describe, so the a and b tests keep their names.
 describe("chat simulator: (a) a turn's first rows keep their gaps, (b) nothing folds before its turn ends", () => {
   for (const [name, make] of Object.entries(SCENARIOS)) {
-    for (const rule of ["a-", "b-"]) {
+    for (const rule of ["a-", "b-", "i-"]) {
       test(`${name}: rule ${rule.slice(0, 1)}`, () => {
         expect(broken(runSimulation(make()), rule)).toEqual([]);
       });
