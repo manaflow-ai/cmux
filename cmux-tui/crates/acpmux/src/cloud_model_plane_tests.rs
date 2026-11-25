@@ -117,3 +117,11 @@ fn a_spawn_gets_the_route_only_where_nothing_else_set_it() {
         "an empty value is none"
     );
 }
+
+/// A resumed machine's resolver is not up for its first moments (cmux-platform#2128): a "no" must
+/// not outlive them, a "yes" may be reused for a burst.
+#[test]
+fn a_no_answer_is_reused_briefly_so_a_resumed_machine_gets_its_route_back() {
+    assert!(reuse_for(false) <= Duration::from_secs(5), "a no is retried within seconds");
+    assert!(reuse_for(true) > reuse_for(false), "a yes is reused longer");
+}

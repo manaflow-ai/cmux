@@ -169,11 +169,19 @@ fn origin_host(url: &str) -> &str {
 
 /// How long one spawn waits for the resolver before it starts without the route.
 const RESOLVE_WAIT: Duration = Duration::from_secs(5);
-/// How long an answer is reused, so a burst of spawns asks the resolver once.
+/// How long a "resolves" answer is reused, so a burst of spawns asks the resolver once.
 const ANSWER_REUSE: Duration = Duration::from_secs(60);
-/// How long "the resolver did not answer" is reused: a hung resolver costs one wait per burst of
-/// spawns, not one per spawn.
-const NO_ANSWER_REUSE: Duration = Duration::from_secs(10);
+/// How long "does not resolve" (or "the resolver did not answer") is reused. Short on purpose: a
+/// machine resumed from a pause asks before its network and resolver are back, and a 60 s "no"
+/// there left the next turn without the route ("Claude is not signed in here", cmux-platform#2128).
+/// Where the host never resolves (staging, production) the lookup is a fast NXDOMAIN, so asking
+/// again every few seconds costs little.
+const NO_ANSWER_REUSE: Duration = Duration::from_secs(2);
+
+/// The cache's rule: the reuse time for an answer.
+fn reuse_for(ok: bool) -> Duration {
+    if ok { ANSWER_REUSE } else { NO_ANSWER_REUSE }
+}
 
 /// Whether `host` resolves here, from a short cache. The lookup asks for the same target as
 /// `codex_cloud_auth::host_resolves`; this one is blocking (spawns fill their env synchronously),
@@ -196,11 +204,8 @@ pub(crate) fn plane_host_resolves(host: &str) -> bool {
     if lookup.is_err() {
         return false;
     }
-    let (ok, reuse) = match rx.recv_timeout(RESOLVE_WAIT) {
-        Ok(ok) => (ok, ANSWER_REUSE),
-        Err(_) => (false, NO_ANSWER_REUSE),
-    };
-    *cache() = Some((host.to_owned(), Instant::now() + reuse, ok));
+    let ok = rx.recv_timeout(RESOLVE_WAIT).unwrap_or(false);
+    *cache() = Some((host.to_owned(), Instant::now() + reuse_for(ok), ok));
     ok
 }
 
