@@ -14,7 +14,7 @@ struct NewColumnLeftTests {
         func json(_ request: NewColumnRequest) throws -> [String: Any] {
             try #require(JSONSerialization.jsonObject(with: JSONEncoder().encode(request)) as? [String: Any])
         }
-        #expect(try json(NewColumnRequest(pane: Self.pane, width: 0.5, left: true))["side"] as? String == "left")
+        #expect(try json(NewColumnRequest(pane: Self.pane, width: 0.5, side: .left))["side"] as? String == "left")
         #expect(try json(NewColumnRequest(pane: Self.pane, width: 0.5))["side"] == nil)
     }
 
