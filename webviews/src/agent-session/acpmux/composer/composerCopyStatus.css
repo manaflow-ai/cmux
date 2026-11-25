@@ -1,0 +1,27 @@
+.acpmux-composer-copy-status {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding-inline: var(--acpmux-composer-inset, 8px);
+  color: var(--agent-muted);
+  font-size: var(--text-detail);
+  letter-spacing: var(--text-detail--letter-spacing);
+  font-variant-numeric: tabular-nums;
+}
+.acpmux-composer-copy-status > button {
+  flex: none;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--agent-text);
+  font: inherit;
+  cursor: default;
+}
+.acpmux-composer-copy-status > button:hover {
+  text-decoration: underline;
+}
+.acpmux-composer-copy-status > button:focus-visible {
+  outline: 1.5px solid var(--agent-text);
+  outline-offset: 2px;
+}

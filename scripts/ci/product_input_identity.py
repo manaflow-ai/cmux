@@ -80,11 +80,9 @@ NON_PRODUCT_TOOLING_PREFIXES = (
     "scripts/git-hooks/",
 )
 NON_PRODUCT_TOOLING = frozenset({
-    "scripts/benchmark-dev-fleet-warm-slots.py",
     "scripts/check-pbxproj-group-membership.py",
     "scripts/check-pbxproj.sh",
     "scripts/check-test-determinism.py",
-    "scripts/dev-fleet-warm-slot.py",
     "scripts/install-git-hooks.sh",
     "scripts/merge-pbxproj.py",
     "scripts/merge-xcstrings.py",
