@@ -260,8 +260,7 @@ public final class ChiefCloudBackend: ConversationBackend, ConversationFileBacke
                 let start = index * size
                 let piece = data[start..<min(data.count, start + size)]
                 let hop = String(format: String(localized: "PUT part %1$d of %2$d"), number, count)
-                var partHeaders = headers
-                partHeaders["x-cmux-part-number"] = String(number)
+                let partHeaders = headers.merging(["x-cmux-part-number": String(number)]) { _, part in part }
                 let report: @Sendable (Int64) -> Void = { ConversationUploadProgress.send((Double(start) + Double($0)) / total) }
                 let http = http
                 let reply: ChiefCloudHTTP.Reply
