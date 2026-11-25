@@ -17212,6 +17212,17 @@ public func classicCleanupVersion() -> Int64  {
 })
 }
 /**
+ * The folder (in the app's own container) where the LAN direct path keeps
+ * this phone's key and what each Mac told it; `None` turns the path off.
+ * Call once at launch, before `connect`.
+ */
+public func setLanMemoryDir(dir: String?)  {try! rustCall() {
+    uniffi_cmux_mobile_link_ffi_fn_func_set_lan_memory_dir(
+        FfiConverterOptionString.lower(dir),$0
+    )
+}
+}
+/**
  * Keys held for a detached terminal, typed `typed_ages_ms` ago: why they go now, or none while
  * they wait. `offline_age_ms`: how long the Mac has been called offline, while it is;
  * `progress_age_ms`: how long since the link's last progress (`LinkProgressClock`), if it made
@@ -17229,17 +17240,6 @@ public func heldKeysExpiry(typedAgesMs: [UInt64], gaveUp: Bool, offlineAgeMs: UI
         FfiConverterUInt64.lower(ceilingMs),$0
     )
 })
-}
-/**
- * The folder (in the app's own container) where the LAN direct path keeps
- * this phone's key and what each Mac told it; `None` turns the path off.
- * Call once at launch, before `connect`.
- */
-public func setLanMemoryDir(dir: String?)  {try! rustCall() {
-    uniffi_cmux_mobile_link_ffi_fn_func_set_lan_memory_dir(
-        FfiConverterOptionString.lower(dir),$0
-    )
-}
 }
 /**
  * Which device opens `url`, a link the person opened on the phone.
@@ -17795,10 +17795,10 @@ private let initializationResult: InitializationResult = {
     if (uniffi_cmux_mobile_link_ffi_checksum_func_classic_cleanup_version() != 33020) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_cmux_mobile_link_ffi_checksum_func_held_keys_expiry() != 25051) {
+    if (uniffi_cmux_mobile_link_ffi_checksum_func_set_lan_memory_dir() != 45946) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_cmux_mobile_link_ffi_checksum_func_set_lan_memory_dir() != 45946) {
+    if (uniffi_cmux_mobile_link_ffi_checksum_func_held_keys_expiry() != 25051) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_cmux_mobile_link_ffi_checksum_func_link_open_side() != 2441) {
