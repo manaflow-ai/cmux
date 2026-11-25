@@ -92,6 +92,7 @@ import { MEMORY_OFFER } from "./memoryInbox";
 import { PROMPT_COACH } from "./promptCoach";
 import { PRESET_APPROVAL } from "./presetApproval";
 import { githubConnectNeed } from "./githubConnect";
+import { planStepTitle } from "./planStepText";
 
 /// A row added by this pass: the "Worked for" disclosure of the turn opened by `turnId`.
 export const WORKED = "worked";
@@ -2002,18 +2003,30 @@ function foldedAgentMessages(rows: readonly AcpmuxRow[]): { sent: number; receiv
   for (const row of rows) {
     if (isReceivedLine(row) && row.kind === "user")
       received += row.incoming?.kind === "inbox" ? Math.max(1, inboxCounts(row.incoming.notice).messages) : 1;
-    else if (row.kind === "activity" && row.items?.length)
-      for (const group of toolGroups(row.items))
-        sent +=
-          group.type === "sendGroup"
-            ? group.entries.length
-            : group.type === "message" ||
-                group.type === "send" ||
-                (group.type === "subsession" && group.call.tool === "send")
-              ? 1
-              : 0;
+    else if (row.kind === "activity" && row.items?.length) sent += sentMessages(row.items);
   }
   return { sent, received };
+}
+
+/// The messages one step's calls sent, by its immutable items array: a running turn's "Worked for"
+/// is shaped again on every record the pane draws, and grouping each earlier step's calls again
+/// (toolGroups.ts) was most of that (bench/replay-under-load.bench.ts --profile).
+const sentCounts = new WeakMap<readonly AcpmuxActivity[], number>();
+function sentMessages(items: readonly AcpmuxActivity[]): number {
+  const kept = sentCounts.get(items);
+  if (kept !== undefined) return kept;
+  let sent = 0;
+  for (const group of toolGroups(items))
+    sent +=
+      group.type === "sendGroup"
+        ? group.entries.length
+        : group.type === "message" ||
+            group.type === "send" ||
+            (group.type === "subsession" && group.call.tool === "send")
+          ? 1
+          : 0;
+  sentCounts.set(items, sent);
+  return sent;
 }
 
 /// The calls of a step that edited, other than its edits, which the turn's edits card draws: they stay
@@ -4072,7 +4085,7 @@ function activityLine(
         .find((item) => item.tool?.status === "pending" || item.tool?.status === "in_progress");
   const label = running?.tool
     ? runningLabel(running.tool, running.text)
-    : (plan.plan?.find((entry) => entry.status === "in_progress")?.content ?? "");
+    : planStepTitle(plan.plan?.find((entry) => entry.status === "in_progress")?.content ?? "");
   // A started command offers ⌃B here, as on the turn's other live lines (ActivityLine.tsx).
   const command =
     running?.tool?.kind === "execute" && !isDraftCall(running.tool) && running.tool.background === undefined;
