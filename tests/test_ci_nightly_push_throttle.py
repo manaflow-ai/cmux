@@ -141,10 +141,12 @@ def run_decide(
     tag_age_hours: float = 0.5,
     interval: str = "2",
     get_commit_fails: bool = False,
-    schedule: str = "47 8 * * *",
+    schedule: str = "17 * * * *",
     extra_env=None,
     comparison=None,
     classifier=None,
+    now_ms: int = 1700000000000,
+    main_push_builds: str = "1",
 ):
     env = {
         "PATH": "/usr/bin:/bin:/usr/local/bin:/opt/homebrew/bin",
@@ -154,10 +156,11 @@ def run_decide(
         "SEED_ONLY": "false",
         "COLD_CACHE": "false",
         "PUSH_MIN_INTERVAL_HOURS": interval,
+        "MAIN_PUSH_BUILDS": main_push_builds,
         "SCENARIO": json.dumps(
             {
                 "script": decide_script(),
-                "nowMs": 1700000000000,
+                "nowMs": now_ms,
                 "ref": ref,
                 "headSha": HEAD_SHA,
                 "eventName": event,
@@ -244,7 +247,7 @@ def test_cache_only_modes_explain_why_no_app_is_built() -> None:
     assert summary_values(warm)["app build selected"] == "false"
     assert summary_values(warm)["publish app this run"] == "false"
     assert "cache warmup" in summary_values(warm)["reason"]
-    daily = run_decide(event="schedule", schedule="47 8 * * *")
+    daily = run_decide(event="schedule", schedule="17 * * * *")
     assert summary_values(daily)["app build selected"] == "true"
 
 
@@ -313,14 +316,19 @@ def test_force_and_manual_dispatch_bypass_the_input_check() -> None:
     assert summary_values(manual)["app build inputs changed"] == "(not checked)"
 
 
+# 2026-11-25T08:17:00Z and 09:17:00Z.
+AT_0817 = 1795594620000
+AT_0917 = 1795598220000
+
+
 def test_the_daily_catch_up_still_builds_as_a_backstop() -> None:
-    """One build a day bounds the cost of a path this check gets wrong."""
-    daily = run_decide(event="schedule", schedule="47 8 * * *", interval="0",
-                       comparison=NEUTRAL_CHANGE)
+    """One build a day (the 08:17 UTC tick) bounds the cost of a path this check gets wrong."""
+    daily = run_decide(event="schedule", schedule="17 * * * *", interval="0",
+                       comparison=NEUTRAL_CHANGE, now_ms=AT_0817)
     assert should_build(daily)
     assert summary_values(daily)["app build inputs changed"] == "(not checked)"
     # Nothing at all changed: the published-commit check skips it as before.
-    idle = run_decide(event="schedule", schedule="47 8 * * *", interval="0",
+    idle = run_decide(event="schedule", schedule="17 * * * *", interval="0",
                       tag_sha=HEAD_SHA)
     assert not should_build(idle)
     assert "already published" in summary_values(idle)["reason"]
@@ -454,6 +462,36 @@ def test_schedule_dispatch_and_rc_are_not_throttled() -> None:
     assert should_build(
         run_decide(event="push", ref="refs/heads/rc/v1.2.3", tag_age_hours=0.1)
     )
+
+
+def test_main_push_builds_nothing_and_the_hourly_tick_publishes() -> None:
+    """Leo, 2026-11-25: NIGHTLY should move at evenly spaced cutovers, not bunch up after a stall."""
+    assert env_value("MAIN_PUSH_BUILDS") == "${{ vars.NIGHTLY_MAIN_PUSH_BUILDS || '0' }}"
+    push = run_decide(event="push", interval="0", tag_age_hours=5, main_push_builds="0")
+    assert not should_build(push)
+    assert push["outputs"]["should_publish"] == "true"
+    assert "hourly :17" in summary_values(push)["reason"]
+    # RC pushes still publish every push; force and manual dispatch still build.
+    assert should_build(run_decide(event="push", ref="refs/heads/rc/v1.2.3", main_push_builds="0"))
+    assert should_build(run_decide(event="push", interval="0", main_push_builds="0",
+                                   extra_env={"FORCE_BUILD": "true"}))
+    assert should_build(run_decide(event="workflow_dispatch", main_push_builds="0"))
+    tick = run_decide(event="schedule", schedule="17 * * * *", main_push_builds="0", now_ms=AT_0917)
+    assert should_build(tick)
+    assert summary_values(tick)["app build selected"] == "true"
+
+
+def test_the_hourly_tick_skips_when_no_app_input_changed() -> None:
+    tick = run_decide(event="schedule", schedule="17 * * * *", interval="0",
+                      comparison=NEUTRAL_CHANGE, now_ms=AT_0917)
+    assert not should_build(tick)
+    assert "nothing that reaches the app changed" in summary_values(tick)["reason"]
+
+
+def test_the_workflow_runs_main_app_builds_on_the_hourly_tick() -> None:
+    text = WORKFLOW.read_text(encoding="utf-8")
+    assert 'cron: "17 * * * *"' in text
+    assert "47 8 * * *" not in text
 
 
 def main() -> None:
