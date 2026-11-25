@@ -555,6 +555,7 @@
         "experiments.menuStyleV2",
         "experiments.menuRowStates",
         "experiments.toastsV2",
+        "experiments.findPillGlass",
         "experiments.foldSummaryCounts",
         "experiments.terminalHistoryFind",
         "experiments.terminalHistory",

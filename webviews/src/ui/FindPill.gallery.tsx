@@ -10,7 +10,19 @@ type Props = {
   replace?: boolean;
   /** Terminal history find: whole-word and regex toggles, a streaming count, an inline pattern error. */
   terminal?: "idle" | "streaming" | "invalid" | "toggles";
+  /** The pill's glass (hq RFD "Native or our own web view, per surface", build item 5; the find-pill-glass
+   * experiment, ui/findPillGlass.experiment.ts). Shipped: `page`, the pill's own tint and blur. `host`,
+   * behind `experiments.findPillGlass` (off by default): the App's tooltip glass under the page where the
+   * App draws it. A browser gallery has no App, so the two look alike here: the App's capture shows them. */
+  glass?: "page" | "host";
+  /** Transcript-like text under the pill: the glass has to keep the query and count legible over it. */
+  busy?: boolean;
 };
+
+const BUSY_TEXT =
+  "Read 14 files in webviews/src/ui. The find pill floats over the transcript, so a search never pushes the " +
+  "messages or the composer when it opens. Ran the gallery capture for ui.find-pill in light and dark; every " +
+  "variant matched its last approved image except the pills the change is about. ".repeat(3);
 const icons = {
   search: "search",
   previous: "chevronUp",
@@ -18,7 +30,7 @@ const icons = {
   close: "close",
 } as const satisfies Record<FindPillIconRole, IconName>;
 
-function FindFixture({ noMatches = false, selected = false, replace = false, terminal }: Props) {
+function FindFixture({ noMatches = false, selected = false, replace = false, terminal, glass, busy = false }: Props) {
   const [query, setQuery] = useState("needle");
   const [matchCase, setMatchCase] = useState(selected);
   const [replacement, setReplacement] = useState("replacement");
@@ -37,47 +49,68 @@ function FindFixture({ noMatches = false, selected = false, replace = false, ter
           : noMatches
             ? "No matches"
             : `${index} of 3`;
+  const pill = (
+    <FindPill
+      hostGlass={glass === undefined ? undefined : glass === "host"}
+      query={terminal === "idle" ? "" : invalid ? "(unclosed" : query}
+      onQueryChange={setQuery}
+      status={status}
+      noMatches={noMatches || invalid}
+      canStep={!noMatches && !invalid && terminal !== "idle"}
+      onNext={() => setIndex((value) => (value % 3) + 1)}
+      onPrevious={() => setIndex((value) => ((value + 1) % 3) + 1)}
+      onClose={() => setQuery("")}
+      matchCase={matchCase}
+      onMatchCaseChange={setMatchCase}
+      wholeWord={wholeWord}
+      onWholeWordChange={terminal ? setWholeWord : undefined}
+      regex={regex}
+      onRegexChange={terminal ? setRegex : undefined}
+      labels={{
+        placeholder: "Find",
+        previous: "Previous",
+        next: "Next",
+        close: "Close",
+        matchCase: "Match case",
+        wholeWord: "Match whole word",
+        regex: "Use regular expression",
+      }}
+      icon={(role) => <Icon name={icons[role]} />}
+      replace={
+        replace
+          ? {
+              open: replaceOpen,
+              value: replacement,
+              onChange: setReplacement,
+              onReplace: () => setIndex((value) => (value % 3) + 1),
+              onReplaceAll: () => setQuery(""),
+              onToggle: () => setReplaceOpen((value) => !value),
+              labels: { field: "Replace", replace: "Replace", replaceAll: "All", toggle: "Toggle Replace" },
+            }
+          : undefined
+      }
+    />
+  );
   return (
-    <div style={{ padding: 24 }}>
-      <FindPill
-        query={terminal === "idle" ? "" : invalid ? "(unclosed" : query}
-        onQueryChange={setQuery}
-        status={status}
-        noMatches={noMatches || invalid}
-        canStep={!noMatches && !invalid && terminal !== "idle"}
-        onNext={() => setIndex((value) => (value % 3) + 1)}
-        onPrevious={() => setIndex((value) => ((value + 1) % 3) + 1)}
-        onClose={() => setQuery("")}
-        matchCase={matchCase}
-        onMatchCaseChange={setMatchCase}
-        wholeWord={wholeWord}
-        onWholeWordChange={terminal ? setWholeWord : undefined}
-        regex={regex}
-        onRegexChange={terminal ? setRegex : undefined}
-        labels={{
-          placeholder: "Find",
-          previous: "Previous",
-          next: "Next",
-          close: "Close",
-          matchCase: "Match case",
-          wholeWord: "Match whole word",
-          regex: "Use regular expression",
-        }}
-        icon={(role) => <Icon name={icons[role]} />}
-        replace={
-          replace
-            ? {
-                open: replaceOpen,
-                value: replacement,
-                onChange: setReplacement,
-                onReplace: () => setIndex((value) => (value % 3) + 1),
-                onReplaceAll: () => setQuery(""),
-                onToggle: () => setReplaceOpen((value) => !value),
-                labels: { field: "Replace", replace: "Replace", replaceAll: "All", toggle: "Toggle Replace" },
-              }
-            : undefined
-        }
-      />
+    <div style={{ padding: 24, position: "relative" }}>
+      {busy && (
+        <p
+          aria-hidden="true"
+          style={{
+            position: "absolute",
+            inset: 0,
+            margin: 0,
+            padding: 12,
+            overflow: "hidden",
+            color: "var(--cmux-text-secondary, GrayText)",
+            font: "var(--weight-regular) var(--text-body) / var(--text-body--line-height) var(--font-ui)",
+          }}
+        >
+          {BUSY_TEXT}
+        </p>
+      )}
+      {/* The busy text is positioned: the pill's wrapper is too, so it paints over the text. */}
+      {busy ? <div style={{ position: "relative" }}>{pill}</div> : pill}
     </div>
   );
 }
@@ -104,6 +137,18 @@ export default componentEntry<Props>({
       note: "A bad regex shows Invalid pattern in the danger ink instead of a count.",
     },
     terminalToggles: { props: { terminal: "toggles", selected: true }, note: "Case, whole word and regex all on." },
+    "glass-page": {
+      props: { glass: "page" },
+      note: "Shipped (the default): the pill on its own tooltip tint and blur, today's pill.",
+    },
+    "glass-host": {
+      props: { glass: "host" },
+      note: "experiments.findPillGlass (off by default): the pill on the App's own tooltip glass under the page (data-host-glass chip).",
+    },
+    "glass-host-busy": {
+      props: { glass: "host", busy: true },
+      note: "experiments.findPillGlass, over busy transcript text: the glass keeps the query and count legible.",
+    },
     empty: {
       props: { noMatches: true, replace: true },
       note: "No matches uses the theme danger ink; disabled actions stay still.",

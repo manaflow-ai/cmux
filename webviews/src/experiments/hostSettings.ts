@@ -13,6 +13,7 @@ import { experimentSwitchOn, setExperimentSwitches } from "./switches";
 
 /** `experiments.<name>` switch name to the experiment id and the arm it runs while on. */
 export const SETTING_ARMS: Readonly<Record<string, { experiment: string; arm: string }>> = {
+  findPillGlass: { experiment: "find-pill-glass", arm: "host" },
   menuStyleV2: { experiment: "menu-style-v2", arm: "v2" },
   menuRowStates: { experiment: "menu-row-states", arm: "on" },
 };

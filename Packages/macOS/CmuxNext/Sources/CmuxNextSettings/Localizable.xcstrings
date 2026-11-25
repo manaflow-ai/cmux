@@ -237779,6 +237779,270 @@
         }
       }
     },
+    "settings.experiments.findPillGlass": {
+      "comment": "Settings > Experimental row title: the find bar (Cmd-F pill) in chats drawn on the app's own glass.",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "زجاج شريط البحث"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Staklo trake za pretragu"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Søgelinjeglas"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Suchleistenglas"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Find Pill Glass"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cristal de la barra de búsqueda"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Verre de la barre de recherche"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vetro della barra di ricerca"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "検索バーのガラス"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "កញ្ចក់របារស្វែងរក"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "찾기 막대 글래스"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Søkefeltglass"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Szkło paska wyszukiwania"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vidro da barra de busca"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Стекло панели поиска"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "กระจกของแถบค้นหา"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Arama Çubuğu Camı"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Скло панелі пошуку"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kính của thanh tìm kiếm"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "查找栏玻璃"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "尋找列玻璃"
+          }
+        }
+      }
+    },
+    "settings.experiments.findPillGlass.help": {
+      "comment": "Settings > Experimental > Find Pill Glass help: the find bar in chats uses the same glass material as the app's native find bar.",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يظهر شريط البحث في المحادثات على الزجاج نفسه الذي يستخدمه شريط البحث في التطبيق."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Traka za pretragu u razgovorima stoji na istom staklu kao i traka za pretragu same aplikacije."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Søgelinjen i chats ligger på det samme glas som appens egen søgelinje."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Die Suchleiste in Chats liegt auf demselben Glas wie die Suchleiste der App."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The find bar in chats sits on the same glass as the app's own find bar."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La barra de búsqueda de los chats se muestra sobre el mismo cristal que la de la propia app."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La barre de recherche des discussions repose sur le même verre que celle de l'app."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La barra di ricerca nelle chat poggia sullo stesso vetro di quella dell'app."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "チャット内の検索バーが、アプリ自身の検索バーと同じガラスの上に表示されます。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "របារស្វែងរកក្នុងការជជែក ស្ថិតនៅលើកញ្ចក់ដូចគ្នានឹងរបារស្វែងរករបស់កម្មវិធីផ្ទាល់។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "채팅의 찾기 막대가 앱 자체 찾기 막대와 같은 글래스 위에 표시됩니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Søkefeltet i chatter ligger på det samme glasset som appens eget søkefelt."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pasek wyszukiwania w czatach leży na tym samym szkle co pasek wyszukiwania aplikacji."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A barra de busca nos chats fica sobre o mesmo vidro da barra de busca do próprio app."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Панель поиска в чатах лежит на том же стекле, что и панель поиска самого приложения."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "แถบค้นหาในแชทวางอยู่บนกระจกเดียวกับแถบค้นหาของแอปเอง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sohbetlerdeki arama çubuğu, uygulamanın kendi arama çubuğuyla aynı camın üzerinde durur."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Панель пошуку в чатах лежить на тому самому склі, що й панель пошуку самої програми."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Thanh tìm kiếm trong cuộc trò chuyện nằm trên cùng lớp kính với thanh tìm kiếm của chính ứng dụng."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "聊天中的查找栏与应用自身的查找栏使用同一层玻璃。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "聊天中的尋找列與應用程式本身的尋找列使用同一層玻璃。"
+          }
+        }
+      }
+    },
     "settings.experiments.menuRowStates": {
       "comment": "Settings > Experimental row title: menu rows show why they are unavailable and the progress of work they start.",
       "extractionState": "manual",

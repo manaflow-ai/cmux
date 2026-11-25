@@ -62,6 +62,34 @@
   }
 }
 
+/* HOST GLASS (FindPill hostGlass, the find-pill-glass experiment, `experiments.findPillGlass`, off by
+   default; hq RFD "Native or our own web view, per surface", build item 5). A pill marked
+   data-host-glass="chip" has the App's own tooltip glass under the page where the App draws it
+   (glass/hostGlass.ts; the agent pane), so once the App has drawn it (data-host-glass-drawn="1") it lays
+   only its content: no tint, blur, rim or drop of its own, as glass.css HOST GLASS does for a .ui-glass
+   surface (the pill is not one, so it carries the same rules here). Until it is drawn glass.css hides it
+   (filter: opacity(0)) for the frame the App needs; one the App does not draw ("0": past the deadline, an
+   older App) or one over another surface's App glass (data-host-glass-own) keeps the pill's glass above.
+   A page with no App glass (no data-host-glass-on, Reduce Transparency included) never matches. */
+@media not (prefers-reduced-transparency: reduce) {
+  @supports not (-webkit-backdrop-filter: none) {
+    :root[data-host-glass-on][data-cmux-see-through]
+      [data-host-glass][data-host-glass-drawn="1"]:not([data-glass-keeps-underlay], [data-host-glass-own]).find-pill.find-pill {
+      background: var(--host-glass-fill, transparent);
+      -webkit-backdrop-filter: none;
+      backdrop-filter: none;
+      box-shadow: var(--host-glass-edge, none);
+    }
+  }
+}
+:root[data-host-glass-engines="all"][data-host-glass-on][data-cmux-see-through]
+  [data-host-glass][data-host-glass-drawn="1"]:not([data-glass-keeps-underlay], [data-host-glass-own]).find-pill.find-pill {
+  background: var(--host-glass-fill, transparent);
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+  box-shadow: var(--host-glass-edge, none);
+}
+
 /* Reduce Transparency: the opaque popup surface, no blur and no material rim (desktop.css also swaps the tint tokens). */
 @media (prefers-reduced-transparency: reduce) {
   .find-pill {

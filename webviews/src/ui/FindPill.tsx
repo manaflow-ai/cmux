@@ -5,6 +5,8 @@
 // Shift-Cmd-G to the previous one, Escape closes; an IME composition keeps its own keys.
 import type { KeyboardEvent, PointerEvent as ReactPointerEvent, ReactNode, Ref } from "react";
 import "./findPill.css";
+import { findPillGlass } from "./findPillGlass.experiment";
+import { useExperimentArm } from "../experiments/useExperimentArm";
 
 /** The icons a pill draws, from the host's icon set (the native pill's four). */
 export type FindPillIconRole = "search" | "previous" | "next" | "close";
@@ -64,6 +66,11 @@ export type FindPillProps = {
   /** Ids kept for callers that address the parts (tests, keyboard scopes). */
   ids?: { root?: string; field?: string; count?: string };
   className?: string;
+  /** The pill's glass is the App's tooltip glass under the page (glass/hostGlass.ts, level `chip`), where
+   * the App draws it (the agent pane); false keeps the pill's own tint and blur (findPill.css). Default
+   * the find-pill-glass experiment's arm (`experiments.findPillGlass`, off by default: the pill's own). A
+   * page with no App glass under it (no data-host-glass-on) keeps the pill's own glass either way. */
+  hostGlass?: boolean;
 };
 
 function markPress(event: ReactPointerEvent<HTMLButtonElement>) {
@@ -83,6 +90,11 @@ const pressFeedback = {
 
 export function FindPill(props: FindPillProps) {
   const { labels, icon, ids } = props;
+  const glassArm = useExperimentArm(findPillGlass);
+  // The pill on the App's glass (hq RFD "Native or our own web view, per surface", build item 5): the
+  // App's tooltip glass, the tint the pill already draws, under the page where the App draws it.
+  // findPill.css (HOST GLASS) drops the pill's own tint, blur and rim once the App has drawn it.
+  const floats = props.hostGlass ?? glassArm === "host";
   const onKeyDown = (event: KeyboardEvent<HTMLInputElement>) => {
     // Candidate acceptance/cancellation belongs to the IME. WebKit can report only 229 on commit.
     if (event.nativeEvent.isComposing || event.keyCode === 229) return;
@@ -233,7 +245,12 @@ export function FindPill(props: FindPillProps) {
     .filter(Boolean)
     .join(" ");
   return (
-    <search id={ids?.root} className={rootClass} aria-label={labels.placeholder}>
+    <search
+      id={ids?.root}
+      className={rootClass}
+      aria-label={labels.placeholder}
+      data-host-glass={floats ? "chip" : undefined}
+    >
       {replace ? (
         <>
           <div className="find-pill__row">
