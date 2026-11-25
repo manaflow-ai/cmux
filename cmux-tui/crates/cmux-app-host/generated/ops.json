@@ -16,6 +16,7 @@
     "app.storage.get",
     "app.storage.keys",
     "app.storage.set",
+    "app.view.state",
     "automation.audit.list",
     "automation.create",
     "automation.deploy",
