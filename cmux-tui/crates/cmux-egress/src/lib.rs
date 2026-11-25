@@ -27,6 +27,9 @@
 
 #![forbid(unsafe_code)]
 
+#[cfg(feature = "capture")]
+pub mod capture;
+
 use std::collections::BTreeSet;
 use std::error::Error;
 use std::fmt;
@@ -256,38 +259,175 @@ pub fn unlisted() -> Vec<(String, &'static str)> {
     unlisted_log().lock().map(|seen| seen.iter().cloned().collect()).unwrap_or_default()
 }
 
-/// The resolver every gated client uses: [`check`], then the system's lookup.
-#[derive(Clone, Copy, Debug)]
+/// The resolver every gated client uses: [`check`], then the inner resolver's
+/// lookup (the system's, unless [`client_builder_with`] names another).
+#[derive(Clone)]
 pub struct Gate {
     site: &'static str,
+    inner: Option<Arc<dyn Resolve>>,
+}
+
+impl fmt::Debug for Gate {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("Gate").field("site", &self.site).finish_non_exhaustive()
+    }
 }
 
 impl Gate {
     pub fn new(site: &'static str) -> Gate {
-        Gate { site }
+        Gate { site, inner: None }
+    }
+
+    /// The gate in front of `inner` (acpmux's IPv6-first resolver).
+    pub fn wrapping(site: &'static str, inner: impl Resolve + 'static) -> Gate {
+        Gate { site, inner: Some(Arc::new(inner)) }
     }
 }
 
 impl Resolve for Gate {
     fn resolve(&self, name: Name) -> Resolving {
+        if let Err(refused) = check(name.as_str(), self.site) {
+            return Box::pin(async move { Err(Box::new(refused) as Box<dyn Error + Send + Sync>) });
+        }
+        #[cfg(feature = "capture")]
+        if let Some(addr) = capture::redirect(name.as_str()) {
+            return Box::pin(async move { Ok(Box::new(std::iter::once(addr)) as Addrs) });
+        }
+        if let Some(inner) = &self.inner {
+            return inner.resolve(name);
+        }
         let host = name.as_str().to_owned();
-        let site = self.site;
         Box::pin(async move {
-            check(&host, site)
-                .map_err(|refused| Box::new(refused) as Box<dyn Error + Send + Sync>)?;
             let addrs: Vec<_> = tokio::net::lookup_host((host.as_str(), 0)).await?.collect();
             Ok(Box::new(addrs.into_iter()) as Addrs)
         })
     }
 }
 
+/// A builder with the capture CA trusted when capture is on (feature `capture`).
+fn trusting_capture(builder: reqwest::ClientBuilder) -> reqwest::ClientBuilder {
+    #[cfg(feature = "capture")]
+    if let Some(root) = capture::root() {
+        return builder.add_root_certificate(root);
+    }
+    builder
+}
+
+fn install_crypto_provider() {
+    // reqwest is built without a default rustls provider; a client built before one is installed panics.
+    let _ = rustls::crypto::ring::default_provider().install_default();
+}
+
 /// A reqwest client builder whose every connection passes the gate. `site`
 /// names the caller (`"cmux_cloud_api::http"`) for the refusal line. A proxy
 /// set on the builder is resolved (and checked) in place of the target.
 pub fn client_builder(site: &'static str) -> reqwest::ClientBuilder {
-    // reqwest is built without a default rustls provider; a client built before one is installed panics.
-    let _ = rustls::crypto::ring::default_provider().install_default();
-    reqwest::Client::builder().dns_resolver(Arc::new(Gate::new(site)))
+    install_crypto_provider();
+    trusting_capture(reqwest::Client::builder().dns_resolver(Arc::new(Gate::new(site))))
+}
+
+/// [`client_builder`] with the gate in front of `resolver` instead of the
+/// system's lookup.
+pub fn client_builder_with(
+    site: &'static str,
+    resolver: impl Resolve + 'static,
+) -> reqwest::ClientBuilder {
+    install_crypto_provider();
+    trusting_capture(
+        reqwest::Client::builder().dns_resolver(Arc::new(Gate::wrapping(site, resolver))),
+    )
+}
+
+/// [`client_builder`] for reqwest's blocking client (feature `blocking`).
+#[cfg(feature = "blocking")]
+pub fn blocking_client_builder(site: &'static str) -> reqwest::blocking::ClientBuilder {
+    install_crypto_provider();
+    let builder = reqwest::blocking::Client::builder().dns_resolver(Arc::new(Gate::new(site)));
+    #[cfg(feature = "capture")]
+    if let Some(root) = capture::root() {
+        return builder.add_root_certificate(root);
+    }
+    builder
+}
+
+/// A gated `reqwest::Client::new()`: a client with reqwest's defaults whose
+/// every connection passes the gate. Err where `Client::new()` would panic
+/// (no TLS backend).
+pub fn client(site: &'static str) -> reqwest::Result<reqwest::Client> {
+    client_builder(site).build()
+}
+
+/// A gated `reqwest::get(url)`.
+pub async fn get<U: reqwest::IntoUrl>(
+    url: U,
+    site: &'static str,
+) -> reqwest::Result<reqwest::Response> {
+    client(site)?.get(url).send().await
+}
+
+/// The WebSocket half of the gate: tokio-tungstenite's connects, the request's
+/// host checked first. A WebSocket handshake follows no redirect, so checking
+/// the request's own host covers the whole connection.
+pub mod ws {
+    use super::check;
+    use tokio::net::TcpStream;
+    use tokio_tungstenite::tungstenite::Error as WsError;
+    use tokio_tungstenite::tungstenite::client::IntoClientRequest;
+    use tokio_tungstenite::tungstenite::handshake::client::{Request, Response};
+    use tokio_tungstenite::tungstenite::protocol::WebSocketConfig;
+    use tokio_tungstenite::{Connector, MaybeTlsStream, WebSocketStream};
+
+    /// What a connect returns, as tokio-tungstenite's do.
+    pub type Connected = Result<(WebSocketStream<MaybeTlsStream<TcpStream>>, Response), WsError>;
+
+    /// Turns `request` into a handshake request and checks its host.
+    pub fn checked<R: IntoClientRequest>(
+        request: R,
+        site: &'static str,
+    ) -> Result<Request, WsError> {
+        let request = request.into_client_request()?;
+        let host = request.uri().host().unwrap_or_default().to_owned();
+        check(&host, site).map_err(|refused| {
+            WsError::Io(std::io::Error::new(std::io::ErrorKind::PermissionDenied, refused))
+        })?;
+        Ok(request)
+    }
+
+    /// A gated `tokio_tungstenite::connect_async`.
+    pub async fn connect_async<R: IntoClientRequest + Unpin>(
+        request: R,
+        site: &'static str,
+    ) -> Connected {
+        tokio_tungstenite::connect_async(checked(request, site)?).await
+    }
+
+    /// A gated `tokio_tungstenite::connect_async_with_config`.
+    pub async fn connect_async_with_config<R: IntoClientRequest + Unpin>(
+        request: R,
+        config: Option<WebSocketConfig>,
+        disable_nagle: bool,
+        site: &'static str,
+    ) -> Connected {
+        tokio_tungstenite::connect_async_with_config(checked(request, site)?, config, disable_nagle)
+            .await
+    }
+
+    /// A gated `tokio_tungstenite::connect_async_tls_with_config`.
+    pub async fn connect_async_tls_with_config<R: IntoClientRequest + Unpin>(
+        request: R,
+        config: Option<WebSocketConfig>,
+        disable_nagle: bool,
+        connector: Option<Connector>,
+        site: &'static str,
+    ) -> Connected {
+        tokio_tungstenite::connect_async_tls_with_config(
+            checked(request, site)?,
+            config,
+            disable_nagle,
+            connector,
+        )
+        .await
+    }
 }
 
 #[cfg(test)]
@@ -355,5 +495,37 @@ mod tests {
             source = e.source();
         }
         assert!(found, "{err:?}");
+    }
+
+    #[tokio::test]
+    async fn a_wrapped_resolver_is_asked_only_for_passing_hosts() {
+        use std::sync::atomic::AtomicUsize;
+        #[derive(Clone)]
+        struct Counting(Arc<AtomicUsize>);
+        impl Resolve for Counting {
+            fn resolve(&self, _: Name) -> Resolving {
+                self.0.fetch_add(1, Ordering::SeqCst);
+                Box::pin(async { Ok(Box::new(Vec::new().into_iter()) as Addrs) })
+            }
+        }
+        set_mode(Mode::Enforce);
+        let asked = Arc::new(AtomicUsize::new(0));
+        let client =
+            client_builder_with("cmux_egress::tests", Counting(asked.clone())).build().unwrap();
+        assert!(client.get("https://refused-wrap-test.org/").send().await.is_err());
+        assert_eq!(asked.load(Ordering::SeqCst), 0);
+        let _ = client.get("https://cloud-api.cmux.dev/").send().await;
+        assert_eq!(asked.load(Ordering::SeqCst), 1);
+    }
+
+    #[tokio::test]
+    async fn a_websocket_to_an_unlisted_host_is_refused_before_connecting() {
+        set_mode(Mode::Enforce);
+        let err = ws::connect_async("wss://refused-ws-test.org/socket", "cmux_egress::tests")
+            .await
+            .unwrap_err();
+        let text = err.to_string();
+        assert!(text.contains("refused-ws-test.org"), "{text}");
+        assert!(ws::checked("ws://127.0.0.1:9/x", "cmux_egress::tests").is_ok());
     }
 }
