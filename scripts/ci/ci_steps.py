@@ -75,6 +75,9 @@ SETUP_TIMEOUT = 600
 TOOL_TIMEOUT = 180
 # The pipeline's own definition: a change to any of them routes every step, so the change runs what it moved.
 CONTROLLER = "http://100.89.225.106:18765"
+PUBLIC_CONTROLLER = "https://gh-events.cmux.com"  # the controller's public listener (hq build-fleet/cmd/controller)
+OIDC_AUDIENCE = "cmux-ci-step-results"
+USER_AGENT = "cmux-ci-steps/1"
 STEP_KEY_VERSION = 1
 AUDIT_PERCENT = 5
 # A run that reads one of these depends on the event, not only on the tree: it is never reused.
@@ -313,11 +316,41 @@ def step_key(step: Step, table: Table, files: list[tuple[str, str, str]], tree: 
 class StepResults:
     """The fleet controller's step-result store. Every error is a miss and a write that did not happen."""
 
-    def __init__(self, url: str, write: bool, meta: dict[str, str], timeout: float = 4.0) -> None:
-        self.url = url.rstrip("/") + "/v1/ci/step-results"
+    def __init__(self, url: str, write: bool, meta: dict[str, str], timeout: float = 4.0,
+                 oidc: tuple[str, str] | None = None) -> None:
+        # With oidc (the job's ACTIONS_ID_TOKEN_REQUEST_URL and _TOKEN) the store is the controller's public route,
+        # which takes a GitHub Actions OIDC token: the Linux runner pool is off the tailnet, so the tailnet route
+        # timed out there and nothing was ever stored (2026-11-25).
+        self.oidc = oidc
+        self.url = url.rstrip("/") + ("/github/step-results" if oidc else "/v1/ci/step-results")
         self.write = write
         self.meta = meta
         self.timeout = timeout
+        self.error = ""  # the first failed call, for the job's summary line: a silent miss hides a refusal
+        self.down = False  # an unreachable store costs one timeout, not one per step and write
+
+    def failed(self, what: str, err: Exception) -> None:
+        if not self.error:
+            code = getattr(err, "code", None)
+            reason = getattr(err, "reason", None) or err
+            self.error = f"{what} {'HTTP ' + str(code) if code else 'failed'}: {str(reason)[:160]}"
+
+    def headers(self) -> dict[str, str]:
+        """A fresh OIDC token per call: one lives minutes, and a job's writes come at its end.
+
+        Always a named User-Agent: Cloudflare in front of gh-events.cmux.com refuses Python's default
+        one ("Python-urllib/3.x") with 403, error code 1010, before the controller sees the request."""
+        if not self.oidc:
+            return {"User-Agent": USER_AGENT}
+        url, bearer = self.oidc
+        sep = "&" if "?" in url else "?"
+        req = urllib.request.Request(f"{url}{sep}audience={OIDC_AUDIENCE}", headers={"Authorization": f"bearer {bearer}"})
+        # user-agent: GitHub's OIDC token URL, no CDN of ours
+        with urllib.request.urlopen(req, timeout=self.timeout) as resp:
+            token = json.loads(resp.read()).get("value") or ""
+        if not token:
+            raise ValueError("the OIDC token request returned no token")
+        return {"Authorization": f"Bearer {token}", "User-Agent": USER_AGENT}
 
     @classmethod
     def from_env(cls, env: dict[str, str]) -> "StepResults | None":
@@ -339,28 +372,43 @@ class StepResults:
             run_url += f"/attempts/{env['GITHUB_RUN_ATTEMPT']}"
         meta = {"repo": env.get("GITHUB_REPOSITORY", ""), "sha": env.get("GITHUB_SHA", ""), "run_url": run_url,
                 "runner": env.get("RUNNER_NAME", "")}
+        oidc = (env.get("ACTIONS_ID_TOKEN_REQUEST_URL", ""), env.get("ACTIONS_ID_TOKEN_REQUEST_TOKEN", ""))
+        if all(oidc):
+            return cls(env.get("CI_STEP_RESULTS_PUBLIC_URL") or PUBLIC_CONTROLLER, write, meta, oidc=oidc)
         return cls(env.get("CI_STEP_RESULTS_URL") or CONTROLLER, write, meta)
 
     def lookup(self, key: str, step: str, audit: bool = False) -> dict | None:
+        if self.down:
+            return None
         query = urllib.parse.urlencode({"key": key, "step": step, **({"audit": "1"} if audit else {})})
         try:
-            with urllib.request.urlopen(f"{self.url}?{query}", timeout=self.timeout) as resp:
+            req = urllib.request.Request(f"{self.url}?{query}", headers=self.headers())
+            with urllib.request.urlopen(req, timeout=self.timeout) as resp:
                 found = json.loads(resp.read())
-        except (OSError, ValueError, urllib.error.URLError):
+        except urllib.error.HTTPError as err:
+            if err.code != 404:  # 404 is the store's plain miss
+                self.failed("lookup", err)
+            return None
+        except (OSError, ValueError) as err:
+            self.failed("lookup", err)
+            self.down = isinstance(err, OSError)
             return None
         return found if isinstance(found, dict) and found.get("key") == key else None
 
     def post(self, key: str, step: str, outcome: str, seconds: float, audit: bool = False) -> None:
-        if not self.write:
+        if not self.write or self.down:
             return
         body = json.dumps({"key": key, "step": step, "outcome": outcome, "seconds": round(seconds, 1),
                            "audit": audit, **self.meta}).encode()
-        req = urllib.request.Request(self.url, data=body, method="POST",
-                                     headers={"Content-Type": "application/json"})
         try:
+            req = urllib.request.Request(self.url, data=body, method="POST",
+                                         headers={"Content-Type": "application/json", **self.headers()})
             urllib.request.urlopen(req, timeout=self.timeout).close()
-        except (OSError, urllib.error.URLError):
-            pass
+        except urllib.error.HTTPError as err:
+            self.failed("write", err)
+        except (OSError, ValueError) as err:
+            self.failed("write", err)
+            self.down = isinstance(err, OSError)
 
 
 def audited(key: str, env: dict[str, str]) -> bool:
@@ -528,6 +576,8 @@ def run_job(table: Table, job: str, paths: list[str] | None, label: str | None =
             if r.step.name in audit and not r.ok:
                 print(f"::error title=Step results::step {r.step.name} failed its audit: a stored pass of the same "
                       f"inputs did not hold (the key is evicted)", file=out)
+        if store.error:
+            print(f"::warning title=Step results::{store.url} {store.error}; nothing reused or stored", file=out)
     return finish(results, job, out)
 
 

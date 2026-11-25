@@ -20,8 +20,11 @@ workspace = true
 
 [dependencies]
 anyhow.workspace = true
-clap = { version = "4.5", features = ["derive"] }
+clap = { version = "4.5", features = ["derive", "env"] }
+cmux-cloud-client.workspace = true
 cmux-cloud-config.workspace = true
+cmux-cloud-environment.workspace = true
+cmux-cloud-wire.workspace = true
 cmux-egress.workspace = true
 cmux-process.workspace = true
 cmux-scope.workspace = true
