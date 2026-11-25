@@ -683,8 +683,12 @@ export function VirtualTranscript(props: VirtualTranscriptProps) {
 }
 
 /// A cold open at the chat's end (layoutConversation `roughAbove`): the px above the end measured
-/// whole, the view and the history mounted above it (HISTORY_VIEWPORTS) with a viewport of margin
-/// either side. Undefined when anything is already measured or kept, the box has no height yet, or
+/// whole, the view and a viewport of margin. The first commit mounts only the view (`deferHistory`),
+/// and the rough estimate is laid out whole a frame after it paints, before the history mounts two
+/// frames after it, so the history above never mounts at a rough place. Measuring the history in the
+/// first pass too was ~5 ms of text layout per chat switch before its first paint (goal
+/// settled-page-ceiling; Leo, 2026-11-21: "chat switch and restart reach a settled page ... within
+/// 2x of a derived bound"). Undefined when anything is already measured or kept, the box has no height yet, or
 /// the chat opens at a saved place in its rows.
 function coldOpenRoughAbove(
   cache: ReadonlyMap<string, unknown>,
@@ -696,7 +700,7 @@ function coldOpenRoughAbove(
   if (cache.size > 0 || kept || resizing || view.height <= 0) return undefined;
   const openAt = view.openAt;
   if (openAt && rows.some((row) => row.id === openAt.rowId)) return undefined;
-  return (HISTORY_VIEWPORTS + 2) * view.height;
+  return 2 * view.height;
 }
 
 /// The layouts of the chats this page's transcripts showed (conversation/keptLayouts.ts).
