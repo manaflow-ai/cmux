@@ -118,7 +118,7 @@ pub struct Session {
     pub(super) protected_hold: AtomicBool,
     /// A retry task may outlive an imported replacement with the same durable id. Its mark
     /// belongs to this instance, so its wake and cleanup cannot consume the replacement's.
-    pub(super) auto_resume: auto_resume::Pending,
+    pub(super) auto_resume: OnFirstUse<auto_resume::Pending>,
     /// The account's rate limit holds every turn until its reset (`rate_hold.rs`).
     pub(super) rate_hold: rate_hold::RateHold,
     /// A continuation folded into the queue's next turn at a reset leaves its words here
@@ -186,10 +186,8 @@ pub struct Session {
     pub(super) turn: StdMutex<Option<TurnInfo>>,
     /// When the person left it and the recap made meanwhile (`away_recap.rs`).
     pub(super) away: StdMutex<super::away_recap::Away>,
-    /// Whether a person started the running turn, and the summary request (`rolling_summary.rs`).
-    pub(super) rolling: StdMutex<super::rolling_summary::Rolling>,
     /// The person's corrections and the prompt coach's offer (`prompt_coach.rs`).
-    pub(super) coach: StdMutex<crate::prompt_coach::Coach>,
+    pub(super) coach: OnFirstUse<StdMutex<crate::prompt_coach::Coach>>,
     /// The turn `finish_turn` took and has not ended yet: a shutdown settles it if its end does
     /// not land within the grace (`shutdown.rs` `settle_ends`).
     pub(super) ending: StdMutex<Option<TurnInfo>>,
@@ -204,7 +202,7 @@ pub struct Session {
     pub(super) prepared_done: StdMutex<std::collections::VecDeque<PreparedTurn>>,
     pub(super) cloud_generation: AtomicU64,
     /// Durable team notices, indexed once per session; receiving one never queues a turn.
-    pub(super) team_information: StdMutex<Option<super::team_information::State>>,
+    pub(super) team_information: OnFirstUse<StdMutex<Option<super::team_information::State>>>,
     /// Fired when the queue's head may have changed (a prompt left the queue,
     /// a turn ended): queued prompts wait on it for their turn (`queue.rs`).
     pub(super) queue_moved: Notify,
@@ -231,8 +229,8 @@ pub struct Session {
     /// section that moves the messages, so a new prompt always sees them in one place or the
     /// other (`DigestTurn::charge`, `DigestTurn::release`).
     pub(super) digest_bytes: AtomicU64,
-    pub(super) stream: StdMutex<StreamState>,
-    pub(super) permissions: StdMutex<permission_groups::PermissionState>,
+    pub(super) stream: OnFirstUse<StdMutex<StreamState>>,
+    pub(super) permissions: OnFirstUse<StdMutex<permission_groups::PermissionState>>,
     /// Bumped (under the `permissions` lock) whenever pending
     /// permissions are cancelled; a request that started before the bump
     /// is answered `cancelled` instead of being registered.
@@ -315,8 +313,9 @@ pub struct Session {
     /// period instead of the idle one; its next prompt starts it on what is installed then.
     /// Cleared with `profile_respawn`, when its agent ends or starts.
     pub(super) respawn_when_quiet: AtomicBool,
-    pub(super) inbound_tx: mpsc::Sender<Inbound>,
-    pub(super) inbound_rx: Mutex<Option<mpsc::Receiver<Inbound>>>,
+    /// The chat's inbound channel, made at its first use ([`Session::inbound_channel`]): a chat
+    /// loaded from the store that no agent ever started holds none (goals/infinite-items-flat).
+    pub(super) inbound: std::sync::OnceLock<InboundChannel>,
     /// True while the chat is closed: its inbound loop hands `inbound_rx` back and ends once
     /// it closes, and the start that reopens it starts the loop again (`permissions.rs`).
     pub(super) closed: tokio::sync::watch::Sender<bool>,
@@ -336,7 +335,7 @@ pub struct Session {
     pub(super) wait_start: AtomicBool,
     /// Steers into the running turn by prompt id (`steer_end.rs`): Send now stops the agent's
     /// step for one that waits (`queue_edit.rs`).
-    pub(super) steer_now: StdMutex<SteerNow>,
+    pub(super) steer_now: OnFirstUse<StdMutex<SteerNow>>,
     /// The answer of a steer that ended its turn, with the turn's id: the
     /// turn's other prompts take it (`steer_end.rs`, codex-acp).
     pub(super) steer_end: tokio::sync::watch::Sender<Option<(String, Value)>>,
@@ -346,7 +345,7 @@ pub struct Session {
     /// The model and the effort acpmux last set on this session (its own
     /// start values or a client's set), so a repeated set is no new pick
     /// (`start_defaults.rs`).
-    pub(super) applied: StdMutex<Applied>,
+    pub(super) applied: OnFirstUse<StdMutex<Applied>>,
     /// Set once the session is purged, so late events do not recreate its
     /// files while the directory is being removed. Shared with the audit writer, which drops an
     /// entry of this copy that reaches it after the purge, even once a new chat took the id.
@@ -515,10 +514,12 @@ pub struct Session {
     pub(super) unclosed_tools: StdMutex<std::collections::HashSet<String>>,
     /// Bounded completed tool attempts used to identify a repeated failing call
     /// (`loop_detector.rs`).
-    pub(super) loop_detector: StdMutex<super::loop_detector::LoopDetector>,
+    pub(super) loop_detector: OnFirstUse<StdMutex<super::loop_detector::LoopDetector>>,
     /// The running turn's finished command calls, bounded, that its last reply's claims are
     /// checked against when it ends (`claim_check.rs`).
     pub(super) claim_runs: StdMutex<super::claim_check::ClaimRuns>,
+    /// The running turn's prefetched files and the reads of them since (`prefetch.rs`).
+    pub(super) prefetch: StdMutex<Option<super::prefetch::PrefetchTurn>>,
     /// Its command calls while its harness's sandbox refuses them, newest last and bounded
     /// (`harness_sandbox.rs`): one that completes ends the failure. Empty otherwise.
     pub(super) harness_sandbox_calls: StdMutex<std::collections::VecDeque<String>>,
@@ -541,7 +542,7 @@ pub struct Session {
     /// Other agents' messages to this chat, in threads (`inbox.rs`). Read through
     /// [`Session::inbox`], which restores it from the log on first use: a chat's log load no
     /// longer reads its whole inbox history ahead of its first prompt (`restore_point.rs`).
-    pub(super) inbox_state: StdMutex<super::inbox::Inbox>,
+    pub(super) inbox_state: OnFirstUse<StdMutex<super::inbox::Inbox>>,
     /// Whether [`Self::inbox_state`] holds what the log says (`Hub::restore_inbox`).
     pub(super) inbox_loaded: AtomicBool,
     /// Held while the inbox is restored, so it is read once.
@@ -575,7 +576,10 @@ pub struct Session {
     /// The remote floor's per-session marks (`remote_floor.rs`).
     pub(super) floor: remote_floor::FloorState,
     /// The subagents the agent reported, for attributing their updates.
-    pub(super) subagents: StdMutex<crate::subagents::SubagentTree>,
+    pub(super) subagents: OnFirstUse<StdMutex<crate::subagents::SubagentTree>>,
+    /// Its agent's `session/fork` requests, whose new sessions' updates are never its own
+    /// (`fork_replay.rs`).
+    pub(super) fork_replay: super::fork_replay::ForkReplay,
     /// The other sessions' messages its Claude Code holds now, oldest first
     /// (`native_messaging.rs`): in memory only.
     pub(super) held_messages: StdMutex<std::collections::VecDeque<Value>>,
@@ -588,9 +592,9 @@ pub struct Session {
     /// The state update sections its log last kept (`update_repeats.rs`).
     pub(super) update_repeats: StdMutex<super::update_repeats::UpdateRepeats>,
     /// The turns Claude Code runs that the person did not start (`background_turn.rs`).
-    pub(super) background_turns: StdMutex<super::background_turn::BackgroundTurns>,
+    pub(super) background_turns: OnFirstUse<StdMutex<super::background_turn::BackgroundTurns>>,
     /// The commands its harness runs in the background (`processes.rs`).
-    pub(super) processes: StdMutex<processes::ProcessTable>,
+    pub(super) processes: OnFirstUse<StdMutex<processes::ProcessTable>>,
     /// Tool calls that run `gh pr create`, and the URL each printed so far, until they end
     /// (`pull_requests.rs`).
     pub(super) pr_creates: StdMutex<std::collections::HashMap<String, Option<String>>>,
@@ -608,7 +612,53 @@ pub struct Session {
     pub(super) composers: StdMutex<super::composers::Composers>,
 }
 
+/// A chat's inbound channel ([`Session::inbound`]).
+pub(super) struct InboundChannel {
+    pub(super) tx: mpsc::Sender<Inbound>,
+    pub(super) rx: Mutex<Option<mpsc::Receiver<Inbound>>>,
+}
+
+/// How many items a chat's inbound channel holds before its producers wait.
+const INBOUND_CAPACITY: usize = 1024;
+
+/// A chat's state that only a running turn writes, made at its first use. A chat that is only
+/// loaded from the store and listed holds one pointer for it instead of the whole value: at
+/// 1,000 idle chats the `Session` inline size is most of `make_session`'s heap
+/// (goals/infinite-items-flat). Reads and writes go through `Deref`, so call sites are unchanged.
+pub(super) struct OnFirstUse<T>(std::sync::OnceLock<Box<T>>);
+
+impl<T> Default for OnFirstUse<T> {
+    fn default() -> Self {
+        Self(std::sync::OnceLock::new())
+    }
+}
+
+impl<T: Default> std::ops::Deref for OnFirstUse<T> {
+    type Target = T;
+    fn deref(&self) -> &T {
+        self.0.get_or_init(|| Box::new(T::default()))
+    }
+}
+
 impl Session {
+    /// The chat's inbound channel, made now when this is its first use.
+    pub(super) fn inbound_channel(&self) -> &InboundChannel {
+        self.inbound.get_or_init(|| {
+            let (tx, rx) = mpsc::channel(INBOUND_CAPACITY);
+            InboundChannel { tx, rx: Mutex::new(Some(rx)) }
+        })
+    }
+
+    /// The chat's own sender ([`Session::inbound_channel`]).
+    pub(super) fn inbound_tx(&self) -> &mpsc::Sender<Inbound> {
+        &self.inbound_channel().tx
+    }
+
+    /// The receiver, while no inbound loop holds it ([`Session::inbound_channel`]).
+    pub(super) fn inbound_rx(&self) -> &Mutex<Option<mpsc::Receiver<Inbound>>> {
+        &self.inbound_channel().rx
+    }
+
     /// The chat's inbox, restored from its log first when its log is read and nothing has read
     /// the inbox yet. The log load warms it in the background (`log_load.rs`); a reader that comes
     /// first reads it here, once. Before its log is read a chat's inbox holds what came since, as
