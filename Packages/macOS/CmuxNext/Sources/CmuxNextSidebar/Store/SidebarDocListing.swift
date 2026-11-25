@@ -132,11 +132,20 @@ extension SidebarDocProjection {
     }
 
     /// `sections` with each group's url, tab and app members (`SidebarGroup.items`): a member follows the
-    /// workspace member it follows in the document, else the nearest one before it that lists here.
+    /// workspace member it follows in the document, else the nearest one before it that lists here. A band group's
+    /// member that stores its group's space draws only in that space (`Listed.lists(inRoom:groupRoom:)`), as the same
+    /// link at Pinned's top level does (`scopedToWindow`).
     @MainActor private static func withMemberItems(_ sections: [SidebarSection], _ projection: SidebarDocProjection,
                                                    drag: SidebarDocDrag) -> [SidebarSection] {
         var byGroup: [String: Group] = [:]
-        for group in projection.bandGroups where !group.listed.isEmpty { byGroup[group.id] = group }
+        let bands = Dictionary(projection.bandGroups.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
+        for var group in projection.bandGroups where !group.listed.isEmpty {
+            // A nested group's space is its top-level group's (`Group.followsParent`); the count stops a parent cycle.
+            var top = group
+            for _ in 0..<bands.count { guard let parent = top.parent.flatMap({ bands[$0] }) else { break }; top = parent }
+            group.listed.removeAll { !$0.lists(inRoom: drag.room, groupRoom: top.room, spaces: drag.spaces) }
+            byGroup[group.id] = group
+        }
         for nodes in projection.machines.values {
             for case .group(let group) in nodes where !group.listed.isEmpty { byGroup[group.id] = group }
         }
