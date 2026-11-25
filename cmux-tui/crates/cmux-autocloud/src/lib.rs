@@ -102,9 +102,34 @@ pub fn install_tls() {
     let _ = rustls::crypto::ring::default_provider().install_default();
 }
 
-#[tokio::main]
-async fn main() -> Result<()> {
-    let cli = Cli::parse();
+/// Runs `cmux-autocloud` with these arguments (the first names the program, as `args_os` gives)
+/// and returns its exit code. The `cmux` binary runs it as `cmux autocloud …`, so every cmux
+/// install (Leo's NIGHTLY included) carries it; `cmux-autocloud` is the standalone build.
+pub fn run(args: Vec<std::ffi::OsString>) -> i32 {
+    let cli = match Cli::try_parse_from(args) {
+        Ok(cli) => cli,
+        Err(error) => {
+            let _ = error.print();
+            return if error.use_stderr() { 2 } else { 0 };
+        }
+    };
+    let runtime = match tokio::runtime::Builder::new_multi_thread().enable_all().build() {
+        Ok(runtime) => runtime,
+        Err(error) => {
+            eprintln!("cmux autocloud: cannot start its runtime: {error}");
+            return 1;
+        }
+    };
+    match runtime.block_on(main_with(cli)) {
+        Ok(()) => 0,
+        Err(error) => {
+            eprintln!("cmux autocloud: {error:#}");
+            1
+        }
+    }
+}
+
+async fn main_with(cli: Cli) -> Result<()> {
     match cli.command {
         Some(Cmd::Login { config_url }) => login::run(&config_url).await,
         Some(Cmd::Logout) => {
