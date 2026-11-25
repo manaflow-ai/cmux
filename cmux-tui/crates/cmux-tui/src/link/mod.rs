@@ -33,6 +33,22 @@ mod process_exit;
 #[cfg_attr(not(test), allow(dead_code))]
 mod seed;
 mod seed_cli;
+
+/// `cmux ssh --repo` (`remote_cli.rs`): seed `local` into `remote` over the link
+/// `socket` serves, as `cmux link seed push --since-last` and then a full push when
+/// there is no previous push. The answer is `link seed push`'s JSON line.
+pub(crate) fn seed_repo(socket: &Path, local: &Path, remote: &str) -> serde_json::Value {
+    let pushed = match seed_cli::push_since_last(socket, local, remote) {
+        Err(error) if seed_cli::failure_code(&error) == "seed.no_previous" => {
+            seed_cli::push(socket, local, remote, None)
+        }
+        other => other,
+    };
+    match pushed {
+        Ok(pushed) => pushed.json(),
+        Err(error) => seed_cli::failure(&error),
+    }
+}
 mod spans;
 mod start_chat_cli;
 mod state;
@@ -608,7 +624,7 @@ fn serve_lock(state: &LinkState) -> anyhow::Result<std::fs::File> {
 /// The `server.json` a link reads its owner session from: `--server-config
 /// PATH`, else the user-mode `~/.config/cmux/server.json` (on macOS
 /// `~/.config/cmux-next/server.json`, unless an older install keeps
-/// `~/.config/cmux`: cmux_server_core::layout::macos_user_keeps_legacy_layout);
+/// `~/.config/cmux`: cmux_server_core::layout::macos_user_dir, the layout's own answer);
 /// none without HOME.
 pub(super) fn server_config_path(flags: &Flags) -> Option<PathBuf> {
     match flags.get("--server-config") {
@@ -618,10 +634,8 @@ pub(super) fn server_config_path(flags: &Flags) -> Option<PathBuf> {
         // (bead cx-uu3).
         None => std::env::var_os("HOME").map(|home| {
             let home = PathBuf::from(home);
-            let dir = if cfg!(target_os = "macos")
-                && !cmux_server_core::layout::macos_user_keeps_legacy_layout(&home)
-            {
-                cmux_server_core::layout::MACOS_USER_DIR
+            let dir = if cfg!(target_os = "macos") {
+                cmux_server_core::layout::macos_user_dir(&home, false)
             } else {
                 cmux_server_core::layout::MACOS_USER_LEGACY_DIR
             };
