@@ -1936,7 +1936,9 @@ public final class AcpmuxSessionSource: AgentSessionSource {
                 pipelined?.drop()
                 out.result = try await request("_acpmux/attach", params)
             }
-            return try await readRest(hub, read, out, request)
+            // `out` keeps what was read before a failed page: the chat applies it and reads on
+            // from its last record, not again from the cursor.
+            try await readRest(hub, read, &out, request)
         } catch {
             out.failure = error
         }
@@ -1986,10 +1988,10 @@ public final class AcpmuxSessionSource: AgentSessionSource {
         return through >= last
     }
 
-    /// The rest of a catch-up after its attach reply (`out.result`).
-    private static func readRest(_ hub: AcpmuxHub, _ read: CatchUpRead, _ start: CatchUpPages,
-                                 _ request: (String, [String: JSONValue]) async throws -> JSONValue) async throws -> CatchUpPages {
-        var out = start
+    /// The rest of a catch-up after its attach reply (`out.result`), into `out` as it reads, so
+    /// a page that fails leaves the pages before it in place.
+    private static func readRest(_ hub: AcpmuxHub, _ read: CatchUpRead, _ out: inout CatchUpPages,
+                                 _ request: (String, [String: JSONValue]) async throws -> JSONValue) async throws {
         let page = out.result["events"]?.arrayValue ?? []
         // A reattach (the link came back, or the Mac said this connection lagged) needs
         // every record after the last one applied, in order. Otherwise the next live record
@@ -2005,7 +2007,7 @@ public final class AcpmuxSessionSource: AgentSessionSource {
             // (``dropKept()``), not on a gap after an old copy.
             out.page = page
             out.keptTooOld = true
-            return out
+            return
         }
         if !read.firstAttach {
             var more = out.result["hasMore"] == .bool(true)
@@ -2077,7 +2079,6 @@ public final class AcpmuxSessionSource: AgentSessionSource {
                 out.earlier = start.map { $0 > 0 || opener["hasMore"] == .bool(true) } ?? false
             }
         }
-        return out
     }
 
     /// Applies a catch-up's pages. False when it caught up or ended (failed: a retry is
