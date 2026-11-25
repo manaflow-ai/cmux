@@ -62,6 +62,10 @@ struct TerminalKeyBar: View {
         .contentMargins(.vertical, KeyRowGlass.liftRoom, for: .scrollContent)
         .frame(height: TerminalDockMetrics.keyRowHeight + 2 * KeyRowGlass.liftRoom)
         .padding(.vertical, -KeyRowGlass.liftRoom)
+        // The glass lift is visual only. Keep the row's hit region inside its
+        // 28 pt layout so taps in the composer gap belong to the composer.
+        .frame(height: TerminalDockMetrics.keyRowHeight)
+        .contentShape(Rectangle())
         // The strip style: one glass bar behind every key, like the system
         // keyboard's own suggestion bar, instead of a cap per key.
         .background {
