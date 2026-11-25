@@ -369,6 +369,8 @@ pub const CAPABILITIES: &[Capability] = &[
     // Chat titles and read marks through the sync engine, pulled and pushed by version vector
     // (`hub/synced.rs`).
     Capability { id: "state-sync-v1", wire: &[method::MUX_SYNC_PULL, method::MUX_SYNC_PUSH] },
+    // A chat pinned or unpinned, kept in its record and synced as `pin/<id>` (`hub/synced.rs`).
+    Capability { id: "chat-pin-v1", wire: &[method::MUX_PIN] },
     // Edit or remove a queued prompt, and send a steer now (`hub/queue_edit.rs`).
     Capability { id: "queue-edit-v1", wire: &[method::MUX_QUEUE_EDIT, method::MUX_QUEUE_REMOVE] },
     // A person's prompt waits for the owner, who approves or declines it (`hub/queue_approve.rs`).
