@@ -70,8 +70,26 @@ checkout. --keep leaves the machine running at the end (its id is in the
 delete step) instead of deleting it.
 ";
 
-/// The shipped app's chat start size (cloud-journey.ts `CHAT_START_SIZE`, the platform's CHAT_START_SHAPE).
-pub(super) const CHAT_START_SIZE: (i64, i64, i64) = (4, 16_384, 65_536);
+/// The shipped app's chat start size (cloud-journey.ts `CHAT_START_SIZE`, the app's `Machine.named`, the platform's
+/// CHAT_START_SHAPE, cmux-platform#1756): 2 vCPU, 4 GiB, 20 GiB disk. The platform's Scaler hands out a warm spare
+/// only to a create of exactly this shape; any other size skips the spare and makes a fresh machine.
+pub(super) const CHAT_START_SIZE: (i64, i64, i64) = (2, 4_096, 20_480);
+/// The size before the spare shape: the kill switch `CMUX_CLOUD_SPARE_CLAIM=0` creates at it, never claiming a spare.
+const NO_SPARE_SIZE: (i64, i64, i64) = (4, 16_384, 65_536);
+
+/// The create size: the spare shape (on by default; with no spare left the platform makes a fresh machine of it),
+/// or [`NO_SPARE_SIZE`] when `CMUX_CLOUD_SPARE_CLAIM` is `0`, `false` or `off`.
+pub(super) fn start_size(kill: Option<&str>) -> (i64, i64, i64) {
+    match kill.map(|v| v.trim().to_ascii_lowercase()) {
+        Some(v) if matches!(v.as_str(), "0" | "false" | "off") => NO_SPARE_SIZE,
+        _ => CHAT_START_SIZE,
+    }
+}
+
+/// [`start_size`] read from `CMUX_CLOUD_SPARE_CLAIM` (the journey's and the headless direct start's create).
+pub(super) fn start_size_from_env() -> (i64, i64, i64) {
+    start_size(std::env::var("CMUX_CLOUD_SPARE_CLAIM").ok().as_deref())
+}
 const RUNNING_BUDGET: Duration = Duration::from_secs(300);
 const DEFAULT_CHAT_BUDGET: Duration = Duration::from_secs(300);
 const DEFAULT_PROMPT: &str = "Reply with one short sentence that names the planet you are on.";
@@ -339,6 +357,7 @@ pub(super) fn shq(text: &str) -> String {
 /// `acpmux.service` listens (cmux-host `cloud/role.rs` `acpmux_home`). Without the last the start
 /// answered "no acpmux socket" on staging machines the TypeScript journey started agents on
 /// (backend runs 45306859441, 45310842160, 45312889044).
+#[cfg(test)]
 pub(super) fn launch_credential_program(
     session: &str,
     harness: &str,
@@ -692,12 +711,13 @@ async fn journey(global: &GlobalArgs, args: &Args) -> Result<i32, String> {
         None => format!("cloud journey auto {tag}"),
     };
     let create_key = cmux_cloud_client::client_key();
+    let size = start_size_from_env();
     let params = CloudMachineCreateParams {
         name: Some(machine_name.clone()),
         size: CloudMachineSize {
-            cpu: Some(CHAT_START_SIZE.0),
-            memory_mb: Some(CHAT_START_SIZE.1),
-            disk_mb: Some(CHAT_START_SIZE.2),
+            cpu: Some(size.0),
+            memory_mb: Some(size.1),
+            disk_mb: Some(size.2),
         },
         image: None,
         from_snapshot: None,

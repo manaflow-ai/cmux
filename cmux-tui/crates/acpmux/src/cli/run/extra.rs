@@ -792,6 +792,31 @@ pub(super) async fn run(cmd: Command, json_out: bool, _suppress_reads: bool) -> 
             answer_permission(&session, None, Answer::Deny, json_out).await
         }
         Command::Answer { session, answer } => answer_question(&session, &answer, json_out).await,
+        Command::Place { session, on, reason } => {
+            let client = connect(true).await?;
+            let id = resolve_id(&client, &session).await?;
+            let mut p = json!({"sessionId": id, "on": on});
+            if let Some(r) = reason {
+                p["reason"] = json!(r);
+            }
+            let v = client.request(method::MUX_CHAT_MOVE, p).await?;
+            if json_out {
+                print_json(&v);
+            } else {
+                let to = v["to"].as_str().unwrap_or("?");
+                match v["status"].as_str() {
+                    Some("moved") => println!("moved {id} to {to}"),
+                    Some("moving") => println!("moving {id} to {to}"),
+                    Some("already") => println!("{id} already runs {to}"),
+                    _ => println!(
+                        "not moved: {}\nthe person runs: {}",
+                        v["why"].as_str().unwrap_or_default(),
+                        v["command"].as_str().unwrap_or_default()
+                    ),
+                }
+            }
+            Ok(())
+        }
         Command::Export { session, dest } => {
             let client = connect(true).await?;
             let id = resolve_id(&client, &session).await?;
@@ -860,9 +885,10 @@ pub(super) async fn run(cmd: Command, json_out: bool, _suppress_reads: bool) -> 
             max_moves,
             timeout,
             undo,
+            machine,
         }) => {
             super::rebalance::run(
-                super::rebalance::Args { dry_run, force, max_moves, timeout, undo },
+                super::rebalance::Args { dry_run, force, max_moves, timeout, undo, machine },
                 json_out,
             )
             .await
@@ -1056,6 +1082,10 @@ pub(super) async fn run(cmd: Command, json_out: bool, _suppress_reads: bool) -> 
                     println!("web:      {}", web_line(url, show_token));
                     if let Some(line) = host_pressure_line(&v["host_pressure"]) {
                         println!("host:     {line}");
+                    }
+                    if let Some(line) = crate::gauges::carrier::status_line(&v["gauges"]["carrier"])
+                    {
+                        println!("carrier:  {line}");
                     }
                     if let Some(fleet) = v.get("fleetHold").filter(|f| !f.is_null())
                         && let Ok(hold) = serde_json::from_value::<
@@ -1391,6 +1421,9 @@ pub(super) async fn run(cmd: Command, json_out: bool, _suppress_reads: bool) -> 
             }
         },
         Command::Host(PeerCmd::Deps { cmd }) => crate::cli::machine_deps::run(cmd, json_out).await,
+        Command::Host(PeerCmd::Hypervisor { cmd }) => {
+            crate::cli::machine_hypervisor::run(cmd, json_out).await
+        }
         Command::Host(PeerCmd::Consent { cmd }) => {
             let (screen, control, signed_in_machines, granted) = match cmd {
                 crate::cli::command_host::ConsentCmd::Grant {
@@ -1491,6 +1524,8 @@ pub(super) async fn run(cmd: Command, json_out: bool, _suppress_reads: bool) -> 
         }
         // Reads the home directory and writes one file; no daemon (`disk_usage.rs`).
         Command::Host(PeerCmd::DiskWalk) => crate::disk_usage::walk_and_store(),
+        // Reads the fleet listing and the registry; changes nothing (`cell_report.rs`).
+        Command::Host(PeerCmd::Cells) => super::ls::cells(json_out).await,
         // Pure: judges the readings on stdin, no daemon (`cli/host_budget.rs`).
         Command::Host(PeerCmd::Verdict) => crate::cli::host_budget::verdict_stdin(),
         // Only a running daemon's chats: no daemon, no chats to tell.
@@ -1634,11 +1669,12 @@ pub(super) async fn run(cmd: Command, json_out: bool, _suppress_reads: bool) -> 
                     return Ok(());
                 }
                 PeerCmd::Load { .. }
+                | PeerCmd::Cells
                 | PeerCmd::DiskWalk
                 | PeerCmd::Verdict
                 | PeerCmd::Notice { .. } => {
                     return Err(anyhow!(
-                        "machine load, disk-walk, verdict and notice are handled before connecting"
+                        "machine load, cells, disk-walk, verdict and notice are handled before connecting"
                     ));
                 }
                 PeerCmd::Rm { name } => {
@@ -1761,6 +1797,7 @@ pub(super) async fn run(cmd: Command, json_out: bool, _suppress_reads: bool) -> 
                 | PeerCmd::Tunnel { .. }
                 | PeerCmd::Vault { .. }
                 | PeerCmd::Deps { .. }
+                | PeerCmd::Hypervisor { .. }
                 | PeerCmd::Key { .. }
                 | PeerCmd::BrokerForward { .. } => {
                     return Err(anyhow!(
