@@ -3,14 +3,9 @@
 enum PlaceholderKnownOverBound {
     /// Placeholder id -> the item and pull request that removes it.
     static let ids: [String: String] = [
-        "agentChats.connection.chip": "item 3 (conn-chip-ios-surfaces), cmux#54994",
-        "browser.connection.chip": "item 3 (conn-chip-ios-surfaces), cmux#54994",
-        "chat.connection.chip": "item 3 (conn-chip-ios-surfaces), cmux#54994",
         "chat.user.empty": "item 1b (ios-optimistic-send), cmux#54993",
         "cloud.chat.connecting": "item 3 (conn-chip-ios-surfaces), cmux#54994",
         "feed.connecting": "item 3 (conn-chip-ios-surfaces), cmux#54994",
-        "simulator.connection.chip": "item 3 (conn-chip-ios-surfaces), cmux#54994",
-        "status.connection.chip": "item 3 (conn-chip-ios-surfaces), cmux#54994",
         "tabgrid.browser.globe": "item 1a (mobile-open-fast), cmux#54985",
         "tabgrid.stream.icon": "item 1a (mobile-open-fast), cmux#54985",
         "tabgrid.terminal.connecting": "item 1a (mobile-open-fast), cmux#54985",
