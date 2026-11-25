@@ -987,7 +987,10 @@ fn remembered_place(doc: &Doc, item: &Item, machine: &str) -> Option<Target> {
         None => None,
         Some(group) => {
             let group = doc.item(group)?;
-            if !group.body.is_group() || group.section != section {
+            if !group.body.is_group()
+                || group.section != section
+                || doc.item_machine(doc.root(group)).is_some_and(|owner| owner != machine)
+            {
                 return None;
             }
             Some(group.id.clone())
