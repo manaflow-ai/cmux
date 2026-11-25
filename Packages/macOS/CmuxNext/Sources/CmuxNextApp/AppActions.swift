@@ -9,7 +9,6 @@ import CmuxNextDesign
 import CmuxNextSettings
 import CmuxNextSidebarActions
 import CmuxNextWorkspaceNaming
-import os
 
 /// Binds catalog actions to handlers. Menus, shortcuts, the palette, and
 /// context menus all resolve through the registry (REWRITE.md "Action
@@ -50,6 +49,7 @@ enum AppActions {
         WorkspaceNotesHandlers.bind(into: registry, context: context)
         WorkspaceChecklistHandlers.bind(into: registry, context: context)
         WorkspaceGroupHandlers.bind(into: registry, context: context)
+        DebugTimings.markLaunch("bind.pages_workspaces")
         SidebarActionSet(host: services, autoArchive: services.autoArchive, settings: { [weak services] in services?.settings }, sidebar: { [weak services] in services?.windows.active?.sidebar.container.sidebarView }, themeColors: { [weak services] in services?.themes.catalog.colors ?? [:] }, playgroundSections: { [HomeFilterPlaygroundSection().section()] }).bind(into: registry)
         NotificationSoundActions(host: services, gate: services.notifications.soundGate).bind(into: registry)
         RoomHandlers.bind(into: registry, context: context)
@@ -74,6 +74,7 @@ enum AppActions {
         DensityHandlers.bind(into: registry, context: context)
         FocusRingHandlers.bind(into: registry, context: context)
         HibernationHandlers.bind(into: registry, context: context)
+        DebugTimings.markLaunch("bind.sidebar_settings")
         TabHandlers.bind(into: registry, context: context)
         TabIconHandlers.bind(into: registry, context: context)
         TabGroupHandlers.bind(into: registry, context: context)
@@ -99,6 +100,7 @@ enum AppActions {
         VoiceRoomHandlers.bind(into: registry, context: context)
         NowPlayingCardHandlers.bind(into: registry, context: context)
         PictureInPictureHandlers.bind(into: registry, context: context)
+        DebugTimings.markLaunch("bind.tabs_terminal_browser")
         StatsPageTab.bind(into: registry, context: context)
         ChiefUsagePageTab.bind(into: registry, context: context)
         ChiefViewsPageTab.bind(into: registry, context: context)
@@ -149,11 +151,7 @@ enum AppActions {
         ActionRouting.install(services)
         ActionRouting.installUserIntentObservers(services)
         WindowKeyTable.install(services)
-        // One owner per action, and every bound id in the catalog: tests check both (noActionIsBoundTwice,
-        // everyBoundActionIsInTheCatalog); at runtime a Debug dogfood build must not crash, so only a fault.
-        for (problem, ids) in [("bound twice", registry.duplicateBindings), ("not in the catalog, left unbound", registry.uncataloguedBindings)] where !ids.isEmpty {
-            Logger(subsystem: "com.cmuxterm.app.next", category: "actions").fault("actions \(problem, privacy: .public): \(ids.map(\.rawValue).joined(separator: ", "), privacy: .public)")
-        }
+        registry.logBindingProblems()
     }
 
     static func scope(_ services: AppServices, _ invocation: ActionInvocation = ActionInvocation()) -> ActionScope {
