@@ -71,7 +71,7 @@ extension AgentPaneModel {
     /// (``AgentPaneActionRun/refused(_:)``); one that ran and then stopped reports itself in the app
     /// (its own toast).
     func runAction(_ id: String, session: String? = nil, environment: String? = nil, handoff: String? = nil, app: String? = nil,
-                   repo: String? = nil, returnTo: String? = nil, mode: String? = nil,
+                   repo: String? = nil, returnTo: String? = nil, org: String? = nil, mode: String? = nil,
                    queued: Int? = nil, hasDraft: Bool? = nil, sessions: [String]? = nil) -> [String: Any] {
         let screenShare = id == "session.screenShare"
         let gated = Self.connectActions.contains(id) || Self.accessActions.contains(id) || Self.cloudStartActions.contains(id)
@@ -99,6 +99,8 @@ extension AgentPaneModel {
         if let sessions, Self.placeActions.contains(id) { arguments["sessions"] = sessions.joined(separator: ",") }
         if Self.githubActions.contains(id) {
             if let repo { arguments["repo"] = repo }
+            // `settings_ask`'s card for an org (connection:github:ORG): GitHub's page opens for it.
+            if let org, repo == nil { arguments["org"] = org }
             // Only a link this build opens, carrying nothing it would ignore: GitHub's return comes
             // back to this chat, nowhere else.
             if let returnTo, let scheme = linkScheme, let url = URL(string: returnTo),
