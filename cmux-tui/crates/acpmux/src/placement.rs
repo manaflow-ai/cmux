@@ -46,6 +46,7 @@
 pub(crate) mod command_sampler;
 pub(crate) mod command_shadow;
 pub(crate) mod move_targets;
+pub mod run_vm;
 pub mod sub_fork;
 pub mod sub_fork_run;
 
