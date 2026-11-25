@@ -677,6 +677,7 @@ mod tests {
         // never sent in this test.
         let browser = |i: usize, title: &str, thumb_rev: u32| Observation {
             tab_id: format!("{}", 1000 + i),
+            tab_key: String::new(),
             title: title.to_owned(),
             kind: Kind::Browser,
             favicon: Some(FaviconInput {
@@ -695,6 +696,7 @@ mod tests {
         };
         let terminal = |i: usize, title: &str| Observation {
             tab_id: format!("{}", 1000 + i),
+            tab_key: String::new(),
             title: title.to_owned(),
             kind: if i.is_multiple_of(2) { Kind::Terminal } else { Kind::Agent },
             favicon: None,
