@@ -72,6 +72,13 @@ fn idle(session: &str) -> cmux_chief::acp::SessionSummary {
     .unwrap()
 }
 
+fn running(session: &str) -> cmux_chief::acp::SessionSummary {
+    serde_json::from_value(json!({
+        "sessionId": session, "name": "a1", "status": "running", "harness": "claude",
+    }))
+    .unwrap()
+}
+
 fn prompts(h: &Harness) -> Vec<String> {
     h.agents
         .inner
@@ -189,6 +196,40 @@ fn a_report_turn_that_names_the_subagent_needs_no_retry() {
         !prompts(&h).iter().any(|t| t.contains(UNTOLD_TAG)),
         "no retry turn"
     );
+}
+
+#[test]
+fn a_late_empty_report_after_a_told_outcome_does_not_reopen_it() {
+    let mut h = Harness::new(script(|_, prompt| {
+        prompt
+            .contains("[a1]")
+            .then_some("a1 landed the sidebar fix.")
+    }));
+    report_and_settle(&mut h);
+    assert!(h.brain.untold_outcomes().is_empty(), "the first outcome was told");
+    let session = sub_session(&h).expect("the subagent session");
+    let before = h.brain.state().sub("a1").unwrap().1.clone();
+
+    h.agents.append_events(
+        &session,
+        vec![
+            json!({"dir": "mux", "kind": "turn_started", "msg": {}}),
+            json!({"dir": "mux", "kind": "turn_end", "msg": {"stopReason": "end_turn"}}),
+        ],
+    );
+    h.brain
+        .step(Input::from(AgentEvent::SessionChanged(running(&session))));
+    h.brain
+        .step(Input::from(AgentEvent::SessionChanged(idle(&session))));
+
+    assert!(
+        h.brain.untold_outcomes().is_empty(),
+        "an empty late report is not a new outcome"
+    );
+    let after = h.brain.state().sub("a1").unwrap().1;
+    assert_eq!(after.report, before.report, "keep the told report");
+    assert_eq!(after.reported_ms, before.reported_ms, "keep its report time");
+    assert!(after.told_ms >= after.reported_ms, "the outcome stays told");
 }
 
 #[test]
