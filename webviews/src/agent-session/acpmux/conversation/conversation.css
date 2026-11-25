@@ -2471,6 +2471,8 @@ pre.cv-math-source {
   /* Transcript arrivals follow Claude Code's softer standard step. Reuse the host-scaled move token
      so speed, minimal-motion and reduced-motion gates still apply to the shared arrival clock. */
   --agent-motion-arrive: var(--agent-motion-move, var(--cmux-motion-standard, 180ms));
+  /* Its width is what a row's 100cqw reads: an opened edited-files card spans it (EditedFilesCard.css). */
+  container-type: inline-size;
 }
 /* Where Session Info lies over the chat, the transcript leaves its box out (session-info/chatCut.ts):
    nothing scrolls behind its glass, so it never flickers under a scroll (Leo, 2026-11-03). Only the
@@ -4174,7 +4176,7 @@ button.cv-tool:not(.cv-sent, :disabled):is(:hover, :focus-visible):not(:has(.cv-
 :root[data-transcript-tool-font] .cv-tool {
   font-family: var(--cv-tool-font, var(--cv-font));
 }
-:root[data-transcript-tool-command-font] .cv-tool :is(.cv-command__line, .cv-tool-label__subject, .cv-tool__file) {
+:root[data-transcript-tool-command-font] .cv-tool :is(.cv-command__line, .cv-tool__file) {
   font-family: var(--cv-tool-command-font, inherit);
 }
 /* A tool run's or group's summary line (ToolRun.tsx, ToolGroupRow.tsx) lights its words to the
@@ -6833,6 +6835,66 @@ a.cv-sha:focus-visible {
   flex: 1;
   min-width: 0;
 }
+/* The settings-ask-card experiment's `popover` arm: a chip under the turn with the Needs you mark
+   (needsYou.css .acpmux-needs-you-dot), and anchored to it the Needs you popover's own surface
+   (.acpmux-needs-you) holding the one setting's row. */
+.cv-settings-ask-anchor {
+  display: flex;
+  min-width: 0;
+}
+.cv-settings-ask-chip {
+  all: unset;
+  box-sizing: border-box;
+  display: inline-flex;
+  align-items: center;
+  gap: var(--ds-space-2);
+  min-width: 0;
+  max-width: 100%;
+  height: 24px;
+  padding: 0 8px;
+  border-radius: var(--ds-radius-full, 999px);
+  background: var(--ds-color-elevated);
+  box-shadow: var(--elevation-1);
+  color: var(--agent-text);
+  font-size: var(--text-detail);
+  cursor: default;
+}
+:root:not([data-borders="none"]) .cv-settings-ask-chip {
+  outline: 1px solid var(--ds-color-separator);
+  outline-offset: -1px;
+}
+.cv-settings-ask-chip:hover,
+.cv-settings-ask-chip[data-open] {
+  background: var(--ds-surface-hover, var(--ds-color-elevated));
+}
+.cv-settings-ask-chip:focus-visible {
+  outline: 2px solid var(--agent-accent, currentColor);
+  outline-offset: 1px;
+}
+.cv-settings-ask-chip__dot {
+  flex: none;
+  width: 8px;
+  aspect-ratio: 1;
+  border-radius: 50%;
+  background: var(--acpmux-needs-you-mark);
+}
+.cv-settings-ask-chip__label {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.cv-settings-ask-popover.acpmux-needs-you {
+  max-height: none;
+}
+.cv-settings-ask-popover__panel {
+  display: flex;
+  flex-direction: column;
+  padding-bottom: 4px;
+}
+.cv-settings-ask-popover__panel .cv-settings-ask__row {
+  padding: 4px 8px 4px 12px;
+}
 /* The Connect GitHub card (GitHubConnectCard.tsx) is a next step, not a failure: GitHub's mark in
    the prose's ink, never the failure red. */
 .cv-github-connect .cv-turn-error__icon {
@@ -7441,31 +7503,19 @@ a.cv-sha:focus-visible {
   margin-inline: 0;
   display: flex;
   flex-direction: column;
-  /* Mixed from the opaque surface (the page color is clear in a translucent window), light enough that
-     the pane reads behind it as a backdrop under the blur (Leo, 2026-11-05: "this screenshot preview has
-     too much opacity"). The popover glass level. */
-  background: color-mix(in srgb, var(--cmux-surface-solid, var(--agent-page-bg)) var(--ds-glass-popover-tint), transparent);
-  -webkit-backdrop-filter: var(--ds-glass-popover-blur);
-  backdrop-filter: var(--ds-glass-popover-blur);
+  /* .ui-glass with the popover level's tint and blur (ImageViewer.tsx; the Dialog takes no data-glass-level): light enough that the pane reads behind it as a
+     backdrop under the blur (Leo, 2026-11-05: "this screenshot preview has too much opacity"). The page
+     color is clear in a translucent window, so Reduce Transparency's solid fill is the opaque surface. */
+  /* glass-opaque-allow: Reduce Transparency's fill only (glass.css applies it under that setting) */
+  --glass-opaque: var(--cmux-surface-solid, var(--agent-page-bg));
+  --glass-tint: color-mix(in srgb, var(--cmux-surface-solid, var(--agent-page-bg)) var(--ds-glass-popover-tint), transparent);
+  --glass-backdrop: var(--ds-glass-popover-blur);
   color: var(--agent-text);
   outline: none;
   /* Image viewing is a direct response to a click: show the already decoded image in its final
    * stage immediately. The dialog's close transition still uses its own token. */
   --ui-popup-open: 0s;
   --ui-dialog-open: 0s;
-}
-/* Reduce Transparency: the opaque surface with no blur, never the lighter mix above. */
-@media (prefers-reduced-transparency: reduce) {
-  .acpmux-image-viewer {
-    background: var(--cmux-surface-solid, var(--agent-page-bg));
-    -webkit-backdrop-filter: none;
-    backdrop-filter: none;
-  }
-}
-:root:is([data-reduce-transparency], [data-glass="off"]) .acpmux-image-viewer {
-  background: var(--cmux-surface-solid, var(--agent-page-bg));
-  -webkit-backdrop-filter: none;
-  backdrop-filter: none;
 }
 .acpmux-image-viewer-backdrop {
   position: fixed;
@@ -9220,10 +9270,10 @@ article.acpmux-row--before-indicator .cv-user:is(:not(:has(.cv-user__pending)), 
   padding-inline: calc(8 * var(--ui-px, 1px)) calc(12 * var(--ui-px, 1px));
   border: var(--cmux-hairline, 0.5px) solid var(--acpmux-composer-edge);
   border-radius: 8px;
-  background: color-mix(in srgb, var(--glass-surface) var(--cv-selection-reply-veil), transparent);
-  -webkit-backdrop-filter: blur(var(--glass-frost)) saturate(var(--ds-glass-saturation));
-  backdrop-filter: blur(var(--glass-frost)) saturate(var(--ds-glass-saturation));
-  box-shadow: var(--elevation-2);
+  /* .ui-glass (SelectionReply.tsx) paints these tokens; Reduce Transparency is its solid surface. */
+  --glass-tint: color-mix(in srgb, var(--glass-surface) var(--cv-selection-reply-veil), transparent);
+  --glass-backdrop: blur(var(--glass-frost)) saturate(var(--ds-glass-saturation));
+  --glass-elevation: var(--elevation-2);
   color: var(--agent-text);
   font-family: var(--cv-font);
   font-size: var(--text-control);
@@ -9242,14 +9292,7 @@ article.acpmux-row--before-indicator .cv-user:is(:not(:has(.cv-user__pending)), 
       color-mix(in srgb, var(--agent-text) 8%, transparent),
       color-mix(in srgb, var(--agent-text) 8%, transparent)
     ),
-    color-mix(in srgb, var(--glass-surface) var(--cv-selection-reply-veil), transparent);
-}
-@media (prefers-reduced-transparency: reduce) {
-  .cv-selection-reply {
-    background: var(--glass-surface);
-    -webkit-backdrop-filter: none;
-    backdrop-filter: none;
-  }
+    var(--glass-tint);
 }
 /* Liquid Glass off (appearance.liquidGlass): the same solid surface, through its veil, so the hover
    wash above still draws over a solid fill. */
@@ -9347,12 +9390,6 @@ button.cv-worked.is-toggle:is(:hover, :focus-visible) * {
   padding-bottom: var(--grid-gap-foot);
   margin-bottom: var(--grid-gap);
 }
-/* The command line after a named action, in the dim tone (commandLabel.experiment.ts
-   "verbs-command"): what ran, under what it did. */
-.cv-command__dim {
-  color: var(--cv-text-dim);
-}
-
 /* Where a prompt was sent from (SentFromLine.tsx): the sender chip, then "self-reported" when acpmux
    could not confirm it. */
 .cv-user__sent-from {
