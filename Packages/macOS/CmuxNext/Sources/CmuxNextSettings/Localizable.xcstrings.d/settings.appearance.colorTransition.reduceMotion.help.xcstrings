@@ -1,0 +1,137 @@
+{
+  "sourceLanguage" : "en",
+  "strings" : {
+    "settings.appearance.colorTransition.reduceMotion.help" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "What color changes do while Reduce Motion is on in macOS."
+          }
+        },
+        "ar" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ما تفعله تغييرات الألوان عند تشغيل تقليل الحركة في macOS."
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Šta promjene boja rade dok je u macOS-u uključeno smanjenje pokreta."
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Hvad farveskift gør, mens Reducer bevægelse er slået til i macOS."
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Was Farbwechsel tun, während „Bewegung reduzieren“ in macOS aktiv ist."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Qué hacen los cambios de color con Reducir movimiento activado en macOS."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Comportement des changements de couleur quand Réduire les animations est activé dans macOS."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Cosa fanno i cambi di colore quando Riduci movimento è attivo in macOS."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "macOS の「視差効果を減らす」がオンのときの色の変化。"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "អ្វីដែលការប្ដូរពណ៌ធ្វើ ពេលបើកបន្ថយចលនាក្នុង macOS។"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "macOS에서 동작 줄이기가 켜져 있을 때 색상 변경 방식입니다."
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Hva fargeendringer gjør når Reduser bevegelse er på i macOS."
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Co robią zmiany kolorów, gdy w macOS włączone jest ograniczenie ruchu."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "O que as mudanças de cor fazem com Reduzir movimento ativado no macOS."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Что делает смена цветов, когда в macOS включено «Уменьшение движения»."
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "การเปลี่ยนสีทำงานอย่างไรเมื่อเปิดลดการเคลื่อนไหวใน macOS"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "macOS'ta Hareketi Azalt açıkken renk değişikliklerinin davranışı."
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Що робить зміна кольорів, коли в macOS увімкнено «Зменшення руху»."
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Đổi màu hoạt động thế nào khi bật Giảm chuyển động trong macOS."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "macOS 中开启减弱动态效果时颜色变化的方式。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "macOS 中開啟減少動態效果時顏色變化的方式。"
+          }
+        }
+      }
+    }
+  },
+  "version" : "1.0"
+}

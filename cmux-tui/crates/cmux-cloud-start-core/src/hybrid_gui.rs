@@ -211,7 +211,8 @@ mod tests {
 
     #[test]
     fn every_shape_the_move_cannot_carry_skips() {
-        let cases: [(fn(&mut Send), Skip); 8] = [
+        type Case = (fn(&mut Send), Skip);
+        let cases: [Case; 8] = [
             (|send| send.killed = true, Skip::KillSwitch),
             (|send| send.replaces_chat = true, Skip::Repick),
             (|send| send.team = true, Skip::Team),
