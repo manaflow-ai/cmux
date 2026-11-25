@@ -50,6 +50,7 @@ enum AgentPaneHandshakeReply {
                 if seed.showsHarnesses { handshake.harnesses = true }
                 if seed.picksCloud { handshake.pickCloud = true }
                 handshake.cloudStartHandoff = seed.cloudStartHandoff
+                handshake.autoCloudStartKey = seed.autoCloudStartKey
                 (handshake.adopt, handshake.pastTurns) = (seed.adopt, await AgentPanePastTurn.turns(of: seed.pastChat))
             }
             // The surface holds after the chat has a session (a reload

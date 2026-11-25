@@ -5,6 +5,8 @@ import { type HostRestoring, hostRecoveryLine } from "./hostRetry";
 import { useNow } from "./subagents/subagentGroupModel";
 import { useT } from "./i18n";
 import { waitedText } from "./hostErrorModel";
+import { Icon } from "./icons/Icon";
+import "./conversation/cardFit.css";
 
 /// A chat acpmux would not start (a folder harness without its Enable or Trust): the reason above
 /// the composer as the shared notice (ui/Notice.tsx), with its own `hint` (null: none) and button
@@ -78,39 +80,53 @@ export function HostUnavailableLine({
   const [open, setOpen] = useState(false);
   const detailId = useId();
   if (selfRetrying && !onRestart) return <ReconnectingLine />;
+  const restartLabel = t(restarting ? "host.restarting" : "host.restart");
+  const retryLabel = t(retrying ? "host.retryQueued" : "host.retry");
+  // Its own width decides the layout (cardFit.css): a narrow pane puts the buttons under the reason,
+  // and a narrower one shows Restart and Retry as their icons.
   return (
-    <div className="acpmux-host-line-group" role="alert">
-      <div className="acpmux-host-line">
+    <div className="acpmux-host-line-group cv-fit" role="alert">
+      <div className="acpmux-host-line cv-fit-row">
         <p
-          className="acpmux-host-line-message selectable"
+          className="acpmux-host-line-message cv-fit-text selectable"
           // tooltip-allow: a long reason is cut to the line; its whole text is the tooltip
           title={message}
         >
           {message}
         </p>
-        {onRestart ? (
-          // A queued Retry holds Restart acpmux until its handshake settles (#27646).
-          <button type="button" onClick={onRestart} disabled={restarting || retrying}>
-            {t(restarting ? "host.restarting" : "host.restart")}
-          </button>
-        ) : (
-          onRetry && (
-            <button type="button" onClick={onRetry} disabled={retrying}>
-              {t(retrying ? "host.retryQueued" : "host.retry")}
+        <span className="acpmux-host-line-actions cv-fit-actions">
+          {onRestart ? (
+            // A queued Retry holds Restart acpmux until its handshake settles (#27646).
+            <button
+              type="button"
+              title={restartLabel}
+              aria-label={restartLabel}
+              onClick={onRestart}
+              disabled={restarting || retrying}
+            >
+              <Icon name="action.restart" size={12} />
+              <span className="cv-fit-label">{restartLabel}</span>
             </button>
-          )
-        )}
-        {detail && (
-          <button
-            type="button"
-            className="acpmux-host-line-details"
-            aria-expanded={open}
-            aria-controls={detailId}
-            onClick={() => setOpen((was) => !was)}
-          >
-            {t("host.details")}
-          </button>
-        )}
+          ) : (
+            onRetry && (
+              <button type="button" title={retryLabel} aria-label={retryLabel} onClick={onRetry} disabled={retrying}>
+                <Icon name="action.retry" size={12} />
+                <span className="cv-fit-label">{retryLabel}</span>
+              </button>
+            )
+          )}
+          {detail && (
+            <button
+              type="button"
+              className="acpmux-host-line-details"
+              aria-expanded={open}
+              aria-controls={detailId}
+              onClick={() => setOpen((was) => !was)}
+            >
+              {t("host.details")}
+            </button>
+          )}
+        </span>
       </div>
       {detail && open && (
         <p id={detailId} className="acpmux-host-line-detail selectable">

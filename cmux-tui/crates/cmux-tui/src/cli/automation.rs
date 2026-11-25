@@ -28,6 +28,8 @@ use crate::localization::AutomationMessages;
 mod automation_secret;
 #[path = "automation_webhook.rs"]
 mod automation_webhook;
+#[path = "automation_webhook_fire.rs"]
+mod automation_webhook_fire;
 mod events;
 mod local_webhook;
 mod teleport;
