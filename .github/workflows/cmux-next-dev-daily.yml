@@ -374,7 +374,7 @@ jobs:
     needs: sign
     # A candidate (pr_head_sha) publishes nothing, so it supersedes nothing.
     if: needs.sign.outputs.signed == 'true' && inputs.pr_head_sha == ''
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'cmux-linux' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_OVERFLOW_LINUX || 'cmux-linux' }}
     timeout-minutes: 5
     continue-on-error: true
     permissions:
@@ -1173,7 +1173,7 @@ jobs:
     # after checking its sha256 against this job's output.
     if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main'
     name: Build the signer
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'cmux-linux' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_OVERFLOW_LINUX || 'cmux-linux' }}
     timeout-minutes: 20
     permissions:
       contents: read
@@ -1784,7 +1784,7 @@ jobs:
     name: Delete the signed app handoff once its readers are done
     needs: [sign, supersede, runner, verify, publish, tip-dmg-build, rcodesign, tip-dmg, tip, tip-deltas]
     if: ${{ always() && needs.sign.outputs.signed == 'true' && !contains(needs.*.result, 'failure') && !contains(needs.*.result, 'cancelled') }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'cmux-linux' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_OVERFLOW_LINUX || 'cmux-linux' }}
     timeout-minutes: 5
     continue-on-error: true
     permissions:
