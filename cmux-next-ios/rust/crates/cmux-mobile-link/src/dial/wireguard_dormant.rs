@@ -198,6 +198,15 @@ impl Keeper {
         })
     }
 
+    /// The overlay a resumed link rides: this tunnel's, as the first link's
+    /// (`wireguard.rs` builds it from the same session and peer address), so
+    /// its datagram ports (viewport sync) work after a resume too. `None` when
+    /// the session's netstack is gone.
+    fn overlay(&self) -> Option<super::super::Overlay> {
+        let net = self.session.net().ok()?;
+        Some(super::super::Overlay { net, peer_ip: IpAddr::V4(self.peer_ip) })
+    }
+
     fn hold(&self) -> Duration {
         let bound = match HOLD_FOR_TESTS.load(Ordering::Relaxed) {
             0 => DORMANT_HOLD,
@@ -364,6 +373,7 @@ impl Keeper {
             on_link: Some(on_link),
             reliable: self.reliable,
             tunnel_keys: Some(self.tunnel_keys.clone()),
+            overlay: self.overlay(),
         };
         lock(waiting()).insert(ticket, dialed);
         let signaling = self.session.signaling_client();
@@ -589,6 +599,7 @@ pub async fn try_resume(
         webrtc_media: false,
         resumed: false,
         tunnel_keys: Some(keeper.tunnel_keys.clone()),
+        overlay: keeper.overlay(),
     })
 }
 
