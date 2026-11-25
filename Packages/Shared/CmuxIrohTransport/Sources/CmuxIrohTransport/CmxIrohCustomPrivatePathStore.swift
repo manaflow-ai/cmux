@@ -1,5 +1,9 @@
 public import CMUXMobileCore
+#if canImport(CryptoKit)
 import CryptoKit
+#else
+import Crypto
+#endif
 import Foundation
 
 /// Validated device-local settings for one authenticated Mac.
