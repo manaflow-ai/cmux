@@ -241,8 +241,13 @@ fn the_thinking_dots_document_holds_together() {
     let dir = examples().join("gallery/thinking-dots");
     let read = setup::read_dir(&dir).unwrap();
     let setting = &read.manifest.settings["agentPane.display.thinking.glyph"];
-    let file = setting["$file"].as_str().expect("the glyph is a {\"$file\": PATH} reference");
-    let doc = cmux_config::jsonc::parse(&fs::read_to_string(dir.join(file)).unwrap()).unwrap();
+    // read_dir puts each `{"$file": PATH}` setting's document in place; a manifest read without it still names the file.
+    let doc = match setting.get("$file").and_then(|f| f.as_str()) {
+        Some(file) => {
+            cmux_config::jsonc::parse(&fs::read_to_string(dir.join(file)).unwrap()).unwrap()
+        }
+        None => setting.clone(),
+    };
     assert_eq!(doc["$schema"], "cmux.particles/1");
     let max = doc["particle"]["max"].as_u64().unwrap() as usize;
     let phases = doc["phases"].as_object().unwrap();
