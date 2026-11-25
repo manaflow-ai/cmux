@@ -98,20 +98,24 @@ public struct TerminalTabPage: View {
     let host: TerminalTabHost
     /// Status bar (top) and toolbar (bottom) over the page.
     let insets: EdgeInsets
+    /// Where the chrome's cover ends this frame (a collapsed top bar's is above `insets.top`):
+    /// the status scrim's height. Nil: `insets.top`.
+    let chromeTop: CGFloat?
     /// The page is settled full screen (no zoom, swipe or open menu).
     let isInteractive: Bool
     /// This page's own identity for the host's size-claim ownership.
     @State private var pageID = UUID()
 
-    public init(host: TerminalTabHost, insets: EdgeInsets, isInteractive: Bool) {
+    public init(host: TerminalTabHost, insets: EdgeInsets, chromeTop: CGFloat? = nil, isInteractive: Bool) {
         self.host = host
         self.insets = insets
+        self.chromeTop = chromeTop
         self.isInteractive = isInteractive
     }
 
     public var body: some View {
         @Bindable var model = host.model
-        EmbeddedTerminalControllerView(host: host, insets: insets, isInteractive: isInteractive)
+        EmbeddedTerminalControllerView(host: host, insets: insets, chromeTop: chromeTop, isInteractive: isInteractive)
             // Zoomed into the grid or mid-swipe, the page is a picture: its
             // composer and key bar are not controls then (R4-3).
             .accessibilityHidden(!isInteractive)
@@ -296,6 +300,7 @@ struct TerminalCardScreenText: View {
 struct EmbeddedTerminalControllerView: UIViewControllerRepresentable {
     let host: TerminalTabHost
     let insets: EdgeInsets
+    var chromeTop: CGFloat?
     let isInteractive: Bool
 
     func makeUIViewController(context: Context) -> EmbeddedTerminalContainer {
@@ -307,6 +312,15 @@ struct EmbeddedTerminalControllerView: UIViewControllerRepresentable {
         let controller = container.terminal
         guard controller.parent === container else { return }
         controller.setEmbeddedInsets(UIEdgeInsets(top: insets.top, left: 0, bottom: insets.bottom, right: 0))
+        // The scrim rides the top bar's collapse inside the same SwiftUI animation, so the
+        // band the bar gave back shows the rows under it instead of a solid strip.
+        let scrimTop = chromeTop ?? insets.top
+        if controller.needsChromeTop(scrimTop) {
+            context.animate {
+                controller.setChromeTop(scrimTop)
+                controller.view.layoutIfNeeded()
+            }
+        }
         // Zoomed into the grid or mid-swipe the page is a picture: SwiftUI's
         // `accessibilityHidden` does not reach a representable's UIKit views,
         // so its composer, Return and Scroll to bottom stayed exposed and took
