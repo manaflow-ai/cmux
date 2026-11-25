@@ -67,7 +67,13 @@ pub(crate) fn unified(cgroup: &str) -> Option<&str> {
 
 /// Whether `cgroup` text places a process in the host scope `unit`.
 pub(crate) fn names_scope(cgroup: &str, unit: &str) -> bool {
-    unified(cgroup).is_some_and(|path| path.ends_with(&format!("/{HOST_SLICE}/{unit}")))
+    names_scope_in(cgroup, HOST_SLICE, unit)
+}
+
+/// Whether `cgroup` text places a process in the scope `unit` of `slice` (a session's slice
+/// `acpmuxsessions-<id>.slice` sits under `acpmuxsessions.slice`, so only its last part is named).
+pub(crate) fn names_scope_in(cgroup: &str, slice: &str, unit: &str) -> bool {
+    unified(cgroup).is_some_and(|path| path.ends_with(&format!("/{slice}/{unit}")))
 }
 
 /// The `busctl` arguments that create the scope `unit` holding `pid`, with the scope `limits`
@@ -79,6 +85,17 @@ pub(crate) fn names_scope(cgroup: &str, unit: &str) -> bool {
 /// session's harness too when that harness got no scope of its own (no `systemd-run`, a remote
 /// profile), so a runaway stops there as it would in a session scope.
 pub(crate) fn busctl_args(unit: &str, pid: u32, limits: &[[String; 3]]) -> Vec<String> {
+    busctl_args_in(unit, pid, HOST_SLICE, limits)
+}
+
+/// [`busctl_args`] into `slice`: a background task's scope joins its session's slice
+/// (`session_total.rs`), so the session's harness and tasks share one total.
+pub(crate) fn busctl_args_in(
+    unit: &str,
+    pid: u32,
+    slice: &str,
+    limits: &[[String; 3]],
+) -> Vec<String> {
     let mut args: Vec<String> = [
         "--user",
         "--quiet",
@@ -94,7 +111,7 @@ pub(crate) fn busctl_args(unit: &str, pid: u32, limits: &[[String; 3]]) -> Vec<S
     .collect();
     args.extend([unit.to_owned(), "fail".into(), (3 + limits.len()).to_string()]);
     args.extend(["PIDs".into(), "au".into(), "1".into(), pid.to_string()]);
-    args.extend(["Slice".into(), "s".into(), HOST_SLICE.into()]);
+    args.extend(["Slice".into(), "s".into(), slice.into()]);
     args.extend(["CollectMode".into(), "s".into(), "inactive-or-failed".into()]);
     for property in limits {
         args.extend(property.iter().cloned());
@@ -163,6 +180,10 @@ mod linux {
             .as_deref()
     }
 
+    pub(super) fn moves() -> bool {
+        daemon_cgroup().is_some()
+    }
+
     fn enabled() -> bool {
         daemon_cgroup().is_some() && !backing_off(*FAILED_AT.lock_or_recover(), Instant::now())
     }
@@ -176,9 +197,15 @@ mod linux {
     /// Move the host `pid` this process just started, and has not reaped
     /// (its pid cannot be reused), into its own scope. Never fails the spawn.
     pub(crate) async fn place(pid: u32) {
+        place_in(pid, None).await;
+    }
+
+    /// [`place`] into `slice` (a session's, `session_total.rs`); None: [`HOST_SLICE`].
+    pub(crate) async fn place_in(pid: u32, slice: Option<String>) {
         if enabled() {
+            let slice = slice.as_deref().unwrap_or(HOST_SLICE);
             let placed = match tag() {
-                Ok(tag) => try_place(&scope_unit(pid, &tag), pid).await,
+                Ok(tag) => try_place(&scope_unit(pid, &tag), pid, slice).await,
                 Err(e) => Err(e),
             };
             report(pid, placed);
@@ -195,7 +222,7 @@ mod linux {
         );
     }
 
-    async fn try_place(unit: &str, host: u32) -> Result<(), String> {
+    async fn try_place(unit: &str, host: u32, slice: &str) -> Result<(), String> {
         let busctl = BUSCTL
             .iter()
             .find(|p| std::path::Path::new(p).is_file())
@@ -209,7 +236,7 @@ mod linux {
         );
         let call = |limits: Vec<[String; 3]>| {
             tokio::process::Command::new(busctl)
-                .args(busctl_args(unit, host, &limits))
+                .args(busctl_args_in(unit, host, slice, &limits))
                 .env_clear()
                 .envs(env.clone())
                 .stdin(Stdio::null())
@@ -251,7 +278,7 @@ mod linux {
         loop {
             let cgroup =
                 tokio::fs::read_to_string(format!("/proc/{host}/cgroup")).await.unwrap_or_default();
-            if names_scope(&cgroup, unit) {
+            if names_scope_in(&cgroup, slice, unit) {
                 return Ok(());
             }
             if Instant::now() >= deadline {
@@ -263,11 +290,27 @@ mod linux {
 }
 
 #[cfg(target_os = "linux")]
-pub(crate) use linux::place;
+pub(crate) use linux::{place, place_in};
 
 /// Hosts move into scopes only under a Linux user manager.
 #[cfg(not(target_os = "linux"))]
 pub(crate) async fn place(_pid: u32) {}
+
+/// Hosts move into scopes only under a Linux user manager.
+#[cfg(not(target_os = "linux"))]
+pub(crate) async fn place_in(_pid: u32, _slice: Option<String>) {}
+
+/// Whether hosts and tasks move into scopes here (a user manager's service unit, moves on).
+#[cfg(target_os = "linux")]
+pub(crate) fn moves() -> bool {
+    linux::moves()
+}
+
+/// Hosts move into scopes only under a Linux user manager.
+#[cfg(not(target_os = "linux"))]
+pub(crate) fn moves() -> bool {
+    false
+}
 
 #[cfg(test)]
 mod tests {
