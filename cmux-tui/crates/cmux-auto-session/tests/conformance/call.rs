@@ -61,7 +61,11 @@ pub fn call(cloud: &FakeAutoCloud, step: &Step, id: &str) -> Result<CloudResult<
             as_json(ready(cloud.set_machine(&setting))?)
         }
         "put" => session(ready(cloud.put(id, &body(step)?))?),
-        "create" => session(ready(cloud.create(&body(step)?))?),
+        "create" => {
+            // `keepInCloud` is the one field of the request the trait's `create` does not send.
+            let kept = step.body.as_ref().and_then(|body| body.get("keepInCloud"));
+            session(cloud.create_kept(&body(step)?, kept == Some(&Value::Bool(true))))
+        }
         "list" => as_json(ready(cloud.list(query.limit, None))?),
         "get" => session(ready(cloud.get(id))?),
         "wait" => {
@@ -100,6 +104,8 @@ pub fn call(cloud: &FakeAutoCloud, step: &Step, id: &str) -> Result<CloudResult<
             let keep: KeepRequest = body(step)?;
             session(ready(cloud.keep(id, keep.keep_in_cloud))?)
         }
+        "move" => session(ready(cloud.move_(id, &body(step)?))?),
+        "give" => session(ready(cloud.give(id, &body(step)?))?),
         "assignments" => {
             let assignments = ready(cloud.assignments(query.timeout_ms.unwrap_or(0)))?;
             as_json(assignments.map(|assignments| json!({ "assignments": assignments })))

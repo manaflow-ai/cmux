@@ -1,7 +1,12 @@
-# Auto mode: a session keeps running when the laptop goes away
+# AutoCloud: a chat keeps running when the laptop goes away
+
+Named AutoCloud since 2026-11-24 (Austin): this is the keep-running half of the feature whose other half is
+the place picker's Auto (where a new chat starts). One name, one switch (`cloud.autoCloud`). In the code the
+parts keep the names they were built under: `auto_session`, `cmux-auto-session`, `/v1/auto-sessions`, and this
+folder. "Auto mode" below means AutoCloud's keep-running half.
 
 Status: building on branch `cloud-cmux-mode`, one integration PR into `feat-cmux-next`. Off by default
-(setting `cloud.autoMode`); the store is unbound in production until it ships there, as hand-offs are.
+(the hidden switch `cloud.autoCloud`); the store is unbound in production until it ships there, as hand-offs are.
 
 Builds on cloud work mode (`backend/apps/api/src/handoffs`, Leo 2026-10-27): there the person sends a chat to a
 Cloud machine by hand. Auto mode makes the same move happen by itself when the laptop goes away, and back when
@@ -13,10 +18,8 @@ is the decision of where a new chat starts (This Mac, a joined machine or Cloud)
 move, and it moves a chat while the Mac is still there to carry the move out (it hears `willSleep`). This work
 is what holds when the Mac is not there to do anything: the Cloud keeps a lease and a copy, so a chat goes on
 after a closed lid, a dead battery or a lost network, and the phone reaches it with no Mac. Neither needs the
-other to land, and nothing here reads `placement` tags or calls `_acpmux/place_chat`. Both use the word Auto in
-the UI for now (`agentPane.newChatsIn: "auto"` there, `cloud.autoMode` and the chat menu's Auto row here): one
-name for both is an open product decision, and the natural end state is that a chat placed on Auto is also kept
-running by this store.
+other to land, and nothing here reads `placement` tags or calls `_acpmux/place_chat`. Both are AutoCloud now: one switch (`cloud.autoCloud`) turns on the picker's Auto and this store's
+keep-running, so a chat placed on Auto is also kept running.
 
 ## What the person sees
 
@@ -161,7 +164,8 @@ patch, standby.
   `too_large` or `offline`. A change goes out as the row's ordinary change notice.
 - An Auto chat this laptop does not have (started on the phone, or on another laptop) is a row read from
   `GET /v1/auto-sessions`; opening it reads its events and waits on `/wait`; a send goes to its inbox.
-- The setting `cloud.autoMode` (default off) is the default for new chats.
+- AutoCloud's switch `cloud.autoCloud` (hidden, default off) is the default for new chats: with it on, a chat
+  that starts on this Mac has Auto on.
 
 ## Cloud API
 
@@ -337,6 +341,55 @@ Rules added after the correctness review (2026-11-23):
 - The alarm's look reads at most 3 teams with a chat that waits, by their oldest such chat, counting only teams
   the owner may still use: a team they left takes no place, and with no other team waiting the look ends.
 
+Moving a chat by hand, as built (2026-11-24):
+
+The store's side of "Modes and moving a chat by hand" below. The pure rules are `move.ts` (`move`, `give`); the
+Rust mirror is `cmux-auto-session/src/fake/moves.rs`, and the conformance vectors replay both.
+
+- `POST :id/move` (owner; a machine is answered 403) `{to: "cloud" | "local", device?: "device:<id>"}` ->
+  `{session}`. `device` is taken only with `to: "local"` (400 `validation.invalid` otherwise). A chat with Auto
+  off is refused `auto.off`.
+  - To the Cloud. A machine holds it already (any of the owner's): the wish is dropped, `keepInCloud: true`, no
+    machine is looked up. No Auto machine: `auto.no_machine`. Parked: `auto.not_copied` with no snapshot, else a
+    `takeover` for the Auto machine at the next epoch with `keepInCloud: true`. A laptop holds it: the wish and
+    `keepInCloud: true` in one write, and the Auto machine is started now so it is up at the give.
+  - To a laptop. A laptop holds it and none is named, or the holder is named: the wish is dropped,
+    `keepInCloud: false`. Otherwise the target is the named laptop when it stands by, or with none named the
+    standby that renewed last; without one, `auto.no_laptop`. Parked: the target holds it at the next epoch with
+    `needsRun: false`, owing an import unless it is the laptop the chat was parked from. A machine or another
+    laptop holds it: the wish and `keepInCloud: false` in one write; a machine that holds it is started, since
+    it may be paused and has to read the wish.
+  - Asked again while it waits, a wish's time starts again. A move that changes nothing writes nothing.
+- The wish is `session.move: {to, device?, at}` in the view (left out when there is none). The lease answer
+  carries `move: "cloud" | "local"` only to the holder (`role: "holder"`), never to a standby or a `lost` caller.
+- `POST :id/give` (the holder, laptop or machine) `{holder, epoch}` -> `{session}`. The checks, in order: the
+  fence (`auto.closed`, `auto.not_holder`, `auto.stale_epoch`); `auto.no_move` with no wish; `auto.not_copied`
+  unless a snapshot exists and `snapshotSeq >= lastSeq`. To the Cloud the Auto machine is looked up at the give
+  (`auto.no_machine`) and gets a `takeover`. To a laptop the target is found again at the give (the named
+  standby, else the newest; `auto.no_laptop` when it stopped standing by): it holds the chat at the next epoch,
+  owing an import, with `needsRun` as the giver last said it, so work the giver stopped still counts as work if
+  that laptop never renews.
+- All four new codes answer 409: `auto.off`, `auto.no_laptop`, `auto.no_move`, `auto.not_copied`.
+- The wish goes at every change of holder (a give, a takeover, parking, a hand-back, a standby taking the chat)
+  and at the alarm once `at + MOVE_MS` (120 s) has passed. `keepInCloud` stays as the move set it: a wish that
+  runs out leaves the chat where it is, in the mode the person chose.
+- A wish that names a laptop also steers a hand-back that happens before the give: the machine's idle renewal
+  and `release` go to the named laptop when it stands by, else to the newest standby, and a paused machine's
+  chat goes only to the named laptop's renewal.
+- Parked take-back: the laptop a chat was parked from does not take it back, by `PUT` or by renewal, when the
+  chat is kept in the Cloud and has a snapshot. A `PUT` is judged with `keepInCloud` as that `PUT` leaves it, so
+  a `PUT` that stops keeping the chat takes it back. With no snapshot the laptop has the only chat there is and
+  takes it back whatever the chat is kept as.
+- `POST /v1/auto-sessions` takes `keepInCloud` (a chat made in Cloud mode). The Rust `CreateRequest` has no
+  such field yet; the fake store takes it through `FakeAutoCloud::create_kept`.
+- Storage: the wish is one added column (`move_wish`, JSON) on the chat's record, and the machine a wish waits
+  on is one added column (`wake_machine`) on the owner's index, which starts it once per wish. Both are added
+  with `ALTER TABLE` when an older object starts.
+- Rust: the wire types are in `cmux-auto-session/src/wire/moves.rs` (`MoveTo`, `MoveRequest`, `MoveWish`,
+  `MoveRefusal`), `SessionView.moving` and `LeaseAnswer.move_to` read the two `move` fields, and `AutoCloud`
+  has `move_` and `give`. The four new codes are not in `ErrorCode`: an error carries one as its raw code and
+  `AutoCloudError::move_refusal()` reads it (`code()` is None for them).
+
 Known limits of the store's rules:
 
 - A chat whose machine cannot run it has a way back only when the machine was never heard from: the owner sets
@@ -429,25 +482,44 @@ Asked for by Austin after the demo (`cloud-cmux-mode-demo`, `plans/cmux-next/aut
 Claude Code chat between a Mac and a VM and back. This section is the contract for that work; where it differs
 from the sections above, it wins.
 
-### One mode per chat
+### One picker: the place mode decides where a chat starts and where it runs
 
-A chat has one mode with three values. It is read from fields the record already has, never stored twice.
+Revised 2026-11-24 (later the same day). The base landed a place mode for new chats
+(`cmux-tui/crates/acpmux/src/place_mode.rs`, https://github.com/manaflow-ai/cmux/pull/53459): each chat has one
+of Auto, Cloud or one machine, picked in the composer's place picker (`_acpmux/chat_place_set`) or with
+`cmux chat --on`, and a chat nobody picked for is Auto. It decides where a new chat starts. This branch does
+not add a second picker, a second set of words or a setting beside it. The same pick also decides where the
+chat runs after it started:
 
-| Mode | Record | What the person gets |
-|---|---|---|
-| `local` | `auto: false` | The chat runs on this device only. Nothing is copied to the Cloud. |
-| `auto` | `auto: true`, `keepInCloud: false` | On the laptop while it is there, on the Cloud machine when it is not, home again at a turn end. |
-| `cloud` | `auto: true`, `keepInCloud: true` | The chat runs on the Cloud machine. A laptop that opens it follows it and sends to it; it never comes home by itself. |
+| Place mode (the picker row) | Where it starts (the base, unchanged) | Where it runs afterwards (this branch) | Auto record |
+|---|---|---|---|
+| Auto | This Mac when it has room, else a new Cloud VM | Started on this Mac: on the Mac while it is there, on the Cloud machine when it is not, home again at a turn end. Started in a Cloud VM: it stays there, as today. | `auto: true`, `keepInCloud: false` |
+| Cloud | A new Cloud VM | In the Cloud, always. Picked for a chat that already runs on this Mac: the chat is moved to the Cloud machine now and never comes home by itself. | `auto: true`, `keepInCloud: true` |
+| This Mac (machine = this Mac) | This Mac | This Mac only. Nothing is copied to the Cloud. | `auto: false` |
+| Another machine | That machine | That machine only (the Auto rules do not apply to it). | none |
 
-- Setting a chat to `cloud` is `keepInCloud: true` and a move to the Cloud in one store write. Setting it to
-  `auto` from `cloud` is `keepInCloud: false`; the chat then comes home by the handback rule. Setting it to
-  `local` while a machine holds it is a move to the laptop, and Auto goes off once the laptop has stored its
-  own snapshot (the `owesImport` rule already refuses it earlier).
-- A new chat takes the default mode from the setting `cloud.chatMode` (`local`, `auto`, `cloud`; default
-  `local`). It replaces `cloud.autoMode`, which this branch added and nothing released reads. A chat made in
-  `cloud` mode on a laptop is registered there, copied once, and moved: the same path as a move by hand.
-- Any surface shows the mode and where the chat runs now as two facts: "Auto, on this Mac", "Auto, in the
-  Cloud", "Cloud", "Local". No surface says lease, epoch, give or wish.
+- The record's fields stay the truth for a started chat (`auto`, `keepInCloud`); the place mode is read from
+  them, never stored twice. The daemon's in-memory pick (`server/chat_place.rs`) stays what it is: the pick of
+  a chat that has not started yet. For a started chat that has an Auto record, `_acpmux/chat_place` answers the
+  mode from the record, and `_acpmux/chat_place_set` applies it: Auto is `auto: true, keepInCloud: false` (the
+  chat then comes home by the handback rule), Cloud is `keepInCloud: true` and a move to the Cloud in one store
+  write, This Mac is a move to the laptop when a machine holds the chat, and Auto goes off once the laptop has
+  stored its own snapshot (the `owesImport` rule already refuses it earlier).
+- AutoCloud's switch `cloud.autoCloud` (the base's, hidden until it ships) is the switch for the whole
+  feature: while it is off, a chat that started on this Mac runs here and is not copied, exactly as on the
+  base. This branch's own `cloud.autoMode` setting is gone, and there is no `cloud.chatMode`. With the switch on
+  and no store to reach (production until the store is bound there), a chat runs here as before: the laptop
+  keeps asking to register and never stops the agent for it (`holder/laptop.rs` `registering`).
+- The switch is one an agent may set (`schemas/settings/source/agent-policy.json`, the base's choice for the
+  picker). Keep-running copies a chat and its folder to the person's Cloud machine, which this branch's own
+  setting kept for the person alone to turn on. Whether the one switch should be the person's alone is an open
+  decision for Leo.
+- A chat started in a new Cloud VM (the base's Cloud, or Auto with a busy Mac) lives on that VM and needs no
+  Auto record. The Cloud machine an Auto chat is taken over by is the team's one Auto machine
+  (`machine-pick.ts`), not a new VM per chat. Both are "Cloud" to the person; making them one machine policy is
+  not part of this pull request.
+- Any surface shows the mode and where the chat runs now as two facts, in the picker's own words: "Auto · This
+  Mac", "Auto · Cloud", "Cloud", "This Mac". No surface says lease, epoch, give or wish.
 
 ### Move now
 
@@ -498,20 +570,36 @@ The manual move carries those files (`hub/transfer.rs`, `native::locate`); the A
 ### Daemon surface
 
 - `_acpmux/auto_session/set` takes `mode: "local" | "auto" | "cloud"` (`auto` and `keepInCloud` stay accepted).
+  These are the record's three states; the place picker's rows map to them as in the table above
+  (This Mac = `local`).
 - `_acpmux/auto_session/move` `{sessionId, to: "cloud" | "local"}`: the wish, sent to the store.
 - A chat's row gains `autoSession.mode` and `autoSession.moving` (`"cloud" | "local"`, absent when not moving).
+- `_acpmux/chat_place` and `_acpmux/chat_place_set` (the base's) read and apply the mode of a started chat
+  through the two requests above; for a chat that has not started they are unchanged.
 
-### CLI and chat commands
+### Surfaces: none of its own (the place picker's work owns them)
 
-Modelled on the demo's `auto` command, inside the commands people already have:
+What exists on the base and in open pull requests (read 2026-11-24), so this branch builds no control beside it:
 
-- `cmux chat mode [SESSION] [local|auto|cloud]`: print a chat's mode and where it runs, or set it.
-- `cmux chat move SESSION cloud|local`: move it now (an Auto chat; a Local chat is told to set a mode first).
-- `cmux chats list` names where each Auto or Cloud chat runs.
-- In a chat's composer: `/local`, `/auto`, `/cloud` set the mode; `/mode` prints it.
-- The chat menu shows one three-way choice (Local, Auto, Cloud) in place of the Auto and Keep in Cloud rows.
-- `cmux chat --on cloud` and `cmux move --to cloud` keep their meaning (the move with no lease); their help
-  names `cmux chat mode` for a chat that should follow the laptop.
+- The web composer's Where menu (`webviews/src/agent-session/acpmux/EnvironmentPicker.tsx`): the Auto row opens
+  Auto, Cloud only, Machine. New chats only, behind the hidden key `cloud.autoCloud`.
+- The setting `agentPane.newChatsIn` (This Mac or Cloud) is already the default place of new chats: "everything
+  in the Cloud" and "everything on this Mac" for new chats are that setting, not a new one.
+- `cmux chat --on auto|here|cloud|vm:new` for a new chat.
+- Open: https://github.com/manaflow-ai/cmux/pull/53449 (the pick moves an existing chat and is kept on disk),
+  https://github.com/manaflow-ai/cmux/pull/52230 (a three-state control: Hybrid, Only in Cloud, Only on This
+  Mac), https://github.com/manaflow-ai/cmux/pull/52043 (a Cloud button per chat),
+  https://github.com/manaflow-ai/cmux/pull/51824 (move progress). Whichever control lands is the one control.
+
+What this branch gives that control:
+
+- The two daemon requests above are the seam: a control that sets a started chat to Auto, Cloud only or This
+  Mac calls `_acpmux/auto_session/set {mode}`; "move it now" is `_acpmux/auto_session/move`. The row's
+  `autoSession.mode`, `autoSession.moving` and holder are what it draws.
+- Until such a control lands, the chat menu keeps this branch's two rows (Auto, Keep in Cloud), which set the
+  same fields. They are removed when the picker covers started chats.
+- No new CLI verb here: `cmux chat place` or the like belongs to the pull request that makes the pick apply to
+  a started chat. The journey test drives the daemon requests directly.
 
 ### Known gaps this section does not close
 

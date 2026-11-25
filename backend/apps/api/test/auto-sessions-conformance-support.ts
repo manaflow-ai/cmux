@@ -98,6 +98,10 @@ const requestOf = (s: Step, id: string, team: string): { readonly method: string
       return { method: "POST", path: `/${id}/inbox/ack`, json: s.body }
     case "keep":
       return { method: "POST", path: `/${id}/keep`, json: s.body }
+    case "move":
+      return { method: "POST", path: `/${id}/move`, json: s.body }
+    case "give":
+      return { method: "POST", path: `/${id}/give`, json: s.body }
     case "assignments":
       return { method: "GET", path: `/assignments${query(s.query)}` }
     case "ack_assignment":

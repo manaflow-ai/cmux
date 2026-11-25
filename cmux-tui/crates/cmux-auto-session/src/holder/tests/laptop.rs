@@ -10,7 +10,7 @@ use crate::consts::{
 use crate::wire::{Blocked, ErrorCode, Holder};
 
 /// A laptop that switched Auto on at `now`, holds the chat at epoch 1 and stored snapshot 1.
-fn holding(now: u64) -> Chat {
+pub(super) fn holding(now: u64) -> Chat {
     let (chat, effects) = step(Chat::new(Side::Laptop, now), Event::AutoOn, now);
     let registered =
         Event::Answered { request: request(&effects), answer: answer(Verdict::Holder, 1, 0) };

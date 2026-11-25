@@ -10,17 +10,19 @@ mod error;
 mod holder;
 mod inbox;
 mod lease;
+mod moves;
 mod owner;
 mod session;
 
 pub use copy::{
-    Cwd, EventsAppend, EventsAppended, EventsPage, Manifest, OpenTool, OpenTurn, QueuedPrompt,
-    SeqRecord, SnapshotAnswer, SnapshotPost, SnapshotPosted,
+    Cwd, EventsAppend, EventsAppended, EventsPage, Manifest, NativeFile, OpenTool, OpenTurn,
+    QueuedPrompt, SeqRecord, SnapshotAnswer, SnapshotPost, SnapshotPosted,
 };
 pub use error::{ErrorBody, ErrorCode, ErrorEnvelope};
 pub use holder::{Holder, HolderParseError};
 pub use inbox::{Delivery, InboxAck, InboxMessage, InboxPage, InboxPost, InboxPosted};
 pub use lease::{Fence, LeaseAnswer, LeaseRequest, Role};
+pub use moves::{MoveRefusal, MoveRequest, MoveTo, MoveWish};
 pub use owner::{
     Assignment, AssignmentKind, Assignments, CreateRequest, FirstMessage, KeepRequest,
     MachineSetting, PutRequest,

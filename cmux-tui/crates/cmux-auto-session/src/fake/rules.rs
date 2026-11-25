@@ -6,27 +6,66 @@
 //!
 //! One rule holds across all of them: the epoch grows by exactly one when the holder changes,
 //! and never otherwise.
+//!
+//! Moving a chat by hand is in `moves.rs` (the real store's `move.ts`): a wish on the record,
+//! which the holder answers by giving the chat. Every change of holder here drops the wish, and
+//! the alarm drops one its holder did not act on for `MOVE_MS`.
 
 use super::record::{MAX_STANDBY, Record, Standby, live_standby, pending_inbox};
 use super::store::Caller;
-use crate::consts::LEASE_MS;
+use crate::consts::{LEASE_MS, MOVE_MS};
 use crate::wire::{
     AssignmentKind, Blocked, CreateRequest, Delivery, ErrorCode, Holder, LeaseRequest,
-    MachineSetting, PutRequest, Role,
+    MachineSetting, MoveRefusal, MoveTo, PutRequest, Role,
 };
+
+/// The code a rule refuses with: one of the store's own, or one only `move` and `give` use.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) enum Code {
+    Auto(ErrorCode),
+    Move(MoveRefusal),
+}
+
+impl Code {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Code::Auto(code) => code.as_str(),
+            Code::Move(code) => code.as_str(),
+        }
+    }
+
+    pub fn status(self) -> u16 {
+        match self {
+            Code::Auto(code) => code.status(),
+            Code::Move(code) => code.status(),
+        }
+    }
+}
+
+impl From<ErrorCode> for Code {
+    fn from(code: ErrorCode) -> Code {
+        Code::Auto(code)
+    }
+}
+
+impl From<MoveRefusal> for Code {
+    fn from(code: MoveRefusal) -> Code {
+        Code::Move(code)
+    }
+}
 
 /// A refusal: the code, and what the code promises beside it.
 #[derive(Debug)]
 pub(super) struct Refuse {
-    pub code: ErrorCode,
+    pub code: Code,
     pub message: String,
     pub last_seq: Option<u64>,
     pub missing: Vec<String>,
 }
 
 impl Refuse {
-    pub fn new(code: ErrorCode, message: impl Into<String>) -> Refuse {
-        Refuse { code, message: message.into(), last_seq: None, missing: Vec::new() }
+    pub fn new(code: impl Into<Code>, message: impl Into<String>) -> Refuse {
+        Refuse { code: code.into(), message: message.into(), last_seq: None, missing: Vec::new() }
     }
 }
 
@@ -100,6 +139,7 @@ fn park(r: &Record, from: Option<Holder>) -> Record {
         parked_from: from,
         resumed_epoch: 0,
         owes_import: false,
+        wish: None,
         assignment: None,
         needs_run: false,
         lease_expires_at: 0,
@@ -109,7 +149,7 @@ fn park(r: &Record, from: Option<Holder>) -> Record {
 
 /// The chat goes to a Cloud machine, which has to pick it up (`kind`) before it shows as
 /// running there.
-fn assign(r: &Record, m: &MachineSetting, kind: AssignmentKind) -> Record {
+pub(super) fn assign(r: &Record, m: &MachineSetting, kind: AssignmentKind) -> Record {
     Record {
         holder: Holder::vm(m.machine.clone()),
         epoch: r.epoch.saturating_add(1),
@@ -120,6 +160,7 @@ fn assign(r: &Record, m: &MachineSetting, kind: AssignmentKind) -> Record {
         parked_from: None,
         resumed_epoch: 0,
         owes_import: false,
+        wish: None,
         needs_run: true,
         lease_expires_at: 0,
         ..r.clone()
@@ -129,8 +170,16 @@ fn assign(r: &Record, m: &MachineSetting, kind: AssignmentKind) -> Record {
 /// Whether a message alone may send the chat to a machine: the store has a snapshot to import.
 /// A machine given a chat with events and no snapshot cannot import it, and one given an empty
 /// copy would start a chat the laptop already has.
-fn has_copy(r: &Record) -> bool {
+pub(super) fn has_copy(r: &Record) -> bool {
     r.snapshot > 0
+}
+
+/// Whether the laptop a parked chat was parked from may take it back as it is. Not a chat kept
+/// in the Cloud that has a snapshot: it stays parked until work arrives, which goes to the Auto
+/// machine. Without a snapshot the laptop has the only chat there is, so it takes it back
+/// whatever the chat is kept as.
+fn takes_back(r: &Record, keep_in_cloud: bool) -> bool {
+    !(keep_in_cloud && has_copy(r))
 }
 
 /// A parked chat with a message waiting goes to the Auto machine, or is marked as waiting for
@@ -147,7 +196,13 @@ fn settle(r: Record, machine: Option<&MachineSetting>) -> Record {
 
 /// A laptop takes the chat. `owes`: it did not hold the chat last, so it has to import the
 /// Cloud copy (`owes_import`).
-fn taken_by(r: &Record, holder: &Holder, needs_run: bool, now: u64, owes: bool) -> Record {
+pub(super) fn taken_by(
+    r: &Record,
+    holder: &Holder,
+    needs_run: bool,
+    now: u64,
+    owes: bool,
+) -> Record {
     Record {
         holder: holder.clone(),
         epoch: r.epoch.saturating_add(1),
@@ -157,17 +212,20 @@ fn taken_by(r: &Record, holder: &Holder, needs_run: bool, now: u64, owes: bool) 
         parked_from: None,
         resumed_epoch: 0,
         owes_import: owes,
+        wish: None,
         lease_expires_at: now.saturating_add(LEASE_MS),
         standby: r.standby.iter().filter(|standby| standby.holder != *holder).cloned().collect(),
         ..r.clone()
     }
 }
 
-/// The laptop a machine's chat goes home to: the standby that renewed last, unless the chat is
-/// kept in the Cloud.
-fn handback_to(r: &Record, now: u64) -> Option<Holder> {
-    if r.keep_in_cloud {
-        return None;
+/// The laptop a move to a laptop goes to: the one named, when it stands by; with none named,
+/// the standby that renewed last.
+pub(super) fn laptop_for(r: &Record, device: Option<&Holder>, now: u64) -> Option<Holder> {
+    if let Some(device) = device {
+        return live_standby(r, now)
+            .find(|standby| standby.holder == *device)
+            .map(|standby| standby.holder.clone());
     }
     let mut best: Option<&Standby> = None;
     for standby in live_standby(r, now) {
@@ -176,6 +234,22 @@ fn handback_to(r: &Record, now: u64) -> Option<Holder> {
         }
     }
     best.map(|standby| standby.holder.clone())
+}
+
+/// The laptop a wish to move the chat to a laptop names, if it names one.
+fn wished(r: &Record) -> Option<&Holder> {
+    let wish = r.wish.as_ref()?;
+    if wish.to == MoveTo::Local { wish.device.as_ref() } else { None }
+}
+
+/// The laptop a machine's chat goes home to, unless the chat is kept in the Cloud: the one a
+/// wish names when it stands by, else the standby that renewed last.
+fn handback_to(r: &Record, now: u64) -> Option<Holder> {
+    if r.keep_in_cloud {
+        return None;
+    }
+    let named = wished(r).and_then(|named| laptop_for(r, Some(named), now));
+    named.or_else(|| laptop_for(r, None, now))
 }
 
 /// Whether a machine's renewal ends its hold: nothing left to run, nothing unread, its
@@ -211,6 +285,7 @@ pub(super) fn open_record(
         parked_from: None,
         resumed_epoch: 0,
         owes_import: false,
+        wish: None,
         last_seq: 0,
         snapshot: 0,
         snapshot_seq: 0,
@@ -226,12 +301,13 @@ pub(super) fn open_record(
 }
 
 /// A chat started with no laptop: the Auto machine holds it from the start and has to create
-/// it. Its first message is inbox message 1.
+/// it. Its first message is inbox message 1. `keep_in_cloud`: the chat is made in Cloud mode.
 pub(super) fn cloud_record(
     id: &str,
     owner: &str,
     machine: &MachineSetting,
     input: &CreateRequest,
+    keep_in_cloud: bool,
     now: u64,
 ) -> Record {
     let made = PutRequest {
@@ -239,7 +315,7 @@ pub(super) fn cloud_record(
         title: input.title.clone().unwrap_or_default(),
         harness: input.harness.clone(),
         device: String::new(),
-        keep_in_cloud: None,
+        keep_in_cloud: Some(keep_in_cloud),
         repo: Some(input.repo.clone()),
     };
     Record {
@@ -258,8 +334,9 @@ pub(super) fn cloud_record(
 /// parked from, it also takes the chat back as it is (nobody ran it since): a registration
 /// whose first answer was lost, sent again after the lease ran out, still answers that laptop
 /// as the holder. Its renewal at the epoch it held is then that renewal (`resumed_epoch`).
-/// From the holder it is also a renewal: the laptop reads the answer as the lease's, so the
-/// lease runs from it.
+/// A chat that is kept in the Cloud after this `PUT` and has a snapshot is not taken back
+/// ([`takes_back`]). From the holder it is also a renewal: the laptop reads the answer as the
+/// lease's, so the lease runs from it.
 pub(super) fn edit(r: &Record, input: &PutRequest, now: u64) -> Decision<()> {
     let title = input.title.trim().to_owned();
     let harness = input.harness.clone();
@@ -274,7 +351,8 @@ pub(super) fn edit(r: &Record, input: &PutRequest, now: u64) -> Decision<()> {
         ));
     }
     let keep_in_cloud = input.keep_in_cloud.unwrap_or(r.keep_in_cloud);
-    if r.holder.is_parked() && r.parked_from.as_ref() == Some(&me) {
+    let mine = r.holder.is_parked() && r.parked_from.as_ref() == Some(&me);
+    if mine && takes_back(r, keep_in_cloud) {
         let taken = taken_by(r, &me, false, now, false);
         let resumed_epoch = r.epoch.saturating_sub(1);
         return Ok(Step::loud(
@@ -407,9 +485,11 @@ pub(super) fn renew(r: &Record, by: &Caller, input: &LeaseRequest, now: u64) -> 
         return Ok(Step::same(Role::Lost));
     }
     if r.holder.is_parked() {
-        // Nobody ran the chat since this laptop's own lease ran out: it goes on as it is.
+        // Nobody ran the chat since this laptop's own lease ran out: it goes on as it is, unless
+        // the chat is kept in the Cloud and has a snapshot (`takes_back`).
         let mine = r.parked_from.as_ref() == Some(holder);
-        if !as_standby && mine && epoch.checked_add(1) == Some(r.epoch) {
+        let held = epoch.checked_add(1) == Some(r.epoch);
+        if !as_standby && mine && held && takes_back(r, r.keep_in_cloud) {
             let taken = taken_by(r, holder, needs_run, now, false);
             return Ok(Step::loud(Role::Holder, Record { resumed_epoch: epoch, ..taken }));
         }
@@ -425,9 +505,11 @@ pub(super) fn renew(r: &Record, by: &Caller, input: &LeaseRequest, now: u64) -> 
     // A machine that said it had nothing left to run, has all it did in the Cloud copy and
     // then stopped renewing is paused. It has no turn end left to hand the chat back at, so
     // the chat goes home to this laptop now. A machine at work renews, and one that is idle
-    // and awake hands the chat back at its own next renewal.
+    // and awake hands the chat back at its own next renewal. A wish that names a laptop keeps
+    // the chat for that laptop.
     let paused = r.lease_expires_at > 0 && r.lease_expires_at <= now;
-    if r.holder.is_vm() && !r.keep_in_cloud && paused && idle_for_handback(r) {
+    let for_me = wished(r).is_none_or(|named| named == holder);
+    if r.holder.is_vm() && !r.keep_in_cloud && paused && idle_for_handback(r) && for_me {
         return Ok(Step::loud(Role::Holder, taken_by(r, holder, false, now, true)));
     }
     let mut standby: Vec<Standby> = live_standby(r, now).cloned().collect();
@@ -552,25 +634,34 @@ pub(super) fn lease_due(r: &Record, now: u64) -> bool {
 /// The alarm's move: a laptop's lease that ran out gives the chat to the Auto machine when
 /// work waits, parks it otherwise; standbys that stopped renewing are dropped. None when
 /// nothing is due. A message is work for a machine only with a snapshot to import
-/// ([`has_copy`]); without one the chat is parked and the message waits for the laptop.
+/// ([`has_copy`]); without one the chat is parked and the message waits for the laptop. A wish
+/// to move the chat that its holder did not act on for `MOVE_MS` is dropped: the chat stays
+/// where it is.
 pub(super) fn tick(r: &Record, machine: Option<&MachineSetting>, now: u64) -> Option<Record> {
-    let moved = lease_due(r, now).then(|| {
+    let mut next = r.clone();
+    let mut changed = false;
+    if lease_due(r, now) {
         let work = r.needs_run || (pending_inbox(r) && has_copy(r));
-        match machine {
+        next = match machine {
             Some(m) if work => assign(r, m, AssignmentKind::Takeover),
             Some(_) | None => Record {
                 needs_run: work,
                 blocked: work.then_some(Blocked::NoMachine),
                 ..park(r, (!r.owes_import).then(|| r.holder.clone()))
             },
-        }
-    });
-    let current = moved.as_ref().unwrap_or(r);
-    let live: Vec<Standby> = live_standby(current, now).cloned().collect();
-    if live.len() == current.standby.len() {
-        return moved;
+        };
+        changed = true;
     }
-    Some(Record { standby: live, ..current.clone() })
+    if next.wish.as_ref().is_some_and(|wish| wish.at.saturating_add(MOVE_MS) <= now) {
+        next.wish = None;
+        changed = true;
+    }
+    let live: Vec<Standby> = live_standby(&next, now).cloned().collect();
+    if live.len() != next.standby.len() {
+        next.standby = live;
+        changed = true;
+    }
+    changed.then_some(next)
 }
 
 /// The owner set their Auto machine: a chat that was waiting for one goes to it. So does a
@@ -594,8 +685,10 @@ pub(super) fn machine_set(r: &Record, machine: &MachineSetting) -> Option<Record
     }
 }
 
-/// When the alarm has to look again: a laptop's lease end, or the first standby to lapse.
+/// When the alarm has to look again: a laptop's lease end, the first standby to lapse, or the
+/// end of a wish to move the chat.
 pub(super) fn next_due(r: &Record) -> Option<u64> {
     let lease = (r.auto && r.holder.is_device()).then_some(r.lease_expires_at);
-    r.standby.iter().map(|standby| standby.expires_at).chain(lease).min()
+    let wish = r.wish.as_ref().map(|wish| wish.at.saturating_add(MOVE_MS));
+    r.standby.iter().map(|standby| standby.expires_at).chain(lease).chain(wish).min()
 }

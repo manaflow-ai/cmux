@@ -120,9 +120,9 @@ public struct SettingsScreen<Leading: ToolbarContent>: View {
                         }
                         .accessibilityIdentifier("settings.automations")
                         cloudPages.connectGitHub()
-                        // The Mac's Settings > Machines > Auto (`cloud.autoMode`), this phone's own choice.
+                        // AutoCloud (the Mac's `cloud.autoCloud`), this phone's own choice.
                         Toggle(isOn: $settings.cloudAutoMode) {
-                            SettingsLabel(verbatim: String(localized: "mobile.settings.cloudAutoMode", defaultValue: "Auto", bundle: .module),
+                            SettingsLabel(verbatim: String(localized: "mobile.settings.cloudAutoMode", defaultValue: "AutoCloud", bundle: .module),
                                           symbol: "arrow.triangle.2.circlepath")
                         }
                         .accessibilityIdentifier("settings.cloudAutoMode")
@@ -130,7 +130,7 @@ public struct SettingsScreen<Leading: ToolbarContent>: View {
                         Text("Cloud")
                     } footer: {
                         Text(String(localized: "mobile.settings.cloudAutoMode.footer",
-                                    defaultValue: "Auto shows the chats that keep running in the Cloud when your Mac sleeps or goes offline.",
+                                    defaultValue: "AutoCloud shows the chats that keep running in the Cloud when your Mac sleeps or goes offline.",
                                     bundle: .module))
                     }
                 }

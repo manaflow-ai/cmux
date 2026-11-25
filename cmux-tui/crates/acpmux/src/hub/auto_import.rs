@@ -35,11 +35,14 @@ impl Hub {
             }
             self.kill(&old, true).await?;
         }
-        // Not `live`: its queue stays empty, so nothing runs when the import publishes it.
-        // Published frozen and kept so (`hold`): it is only prepared until the holder loop
-        // accepts it (`auto_activate`), so a copy that lost the chat meanwhile runs nothing.
-        let session =
-            self.import_into_held(bundle, None, false, None, false, false, None, true).await?;
+        // Not `live`: its queue stays empty, so nothing runs when the import publishes it. The
+        // copy is the chat: its agent's own files replace any that are here (`the_chat`), and
+        // so does cmux-harness's journal (`replace_durable`), which a chat that ran here
+        // before left behind. Published frozen and kept so (`hold`): it is only prepared until
+        // the holder loop accepts it (`auto_activate`), so a copy that lost the chat meanwhile
+        // runs nothing.
+        let plain = (false, None, true, false, None);
+        let session = self.import_placing(bundle, None, plain, true, true).await?;
         if arrival.settle {
             self.settle_takeover(&session, arrival.in_flight.as_ref());
         }

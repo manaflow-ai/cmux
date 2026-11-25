@@ -9,7 +9,7 @@ use cmux_auto_session::consts::{EPOCH_HEADER, HOLDER_HEADER, WAIT_MAX_MS};
 use cmux_auto_session::wire::{
     Assignment, Assignments, CreateRequest, EventsAppend, EventsAppended, EventsPage, Fence,
     InboxAck, InboxMessage, InboxPage, InboxPost, InboxPosted, KeepRequest, LeaseAnswer,
-    LeaseRequest, MachineSetting, PutRequest, SessionAnswer, SessionList, SessionView,
+    LeaseRequest, MachineSetting, MoveRequest, PutRequest, SessionAnswer, SessionList, SessionView,
     SnapshotAnswer, SnapshotPost, SnapshotPosted,
 };
 use reqwest::Method;
@@ -157,6 +157,17 @@ impl<S: OwnerSignIn> AutoCloud for OwnerAutoCloud<S> {
     async fn keep(&self, id: &str, keep_in_cloud: bool) -> CloudResult<SessionView> {
         let body = KeepRequest { keep_in_cloud };
         let answer: SessionAnswer = self.json(Call::post(&[chat(id)?, "keep"], &body)?).await?;
+        Ok(answer.session)
+    }
+
+    async fn move_(&self, id: &str, request: &MoveRequest) -> CloudResult<SessionView> {
+        let answer: SessionAnswer = self.json(Call::post(&[chat(id)?, "move"], request)?).await?;
+        Ok(answer.session)
+    }
+
+    /// The laptop that holds the chat hands it over as the person asked.
+    async fn give(&self, id: &str, fence: &Fence) -> CloudResult<SessionView> {
+        let answer: SessionAnswer = self.json(Call::post(&[chat(id)?, "give"], fence)?).await?;
         Ok(answer.session)
     }
 

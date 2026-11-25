@@ -181,7 +181,7 @@ public final class SettingsStore {
     public var predictiveEcho: Bool { didSet { save(predictiveEcho, "predictiveEcho") } }
     /// Read by the terminal (`CmuxMobilePreferences.terminalFitToPhone`) when a page opens.
     public var terminalFitToPhone: Bool { didSet { save(terminalFitToPhone, "terminalFitToPhone") } }
-    /// Settings → Cloud → Auto (the Mac's `cloud.autoMode`; off by default): Cloud chats lists the
+    /// Settings → Cloud → AutoCloud (the Mac's `cloud.autoCloud`; off by default): Cloud chats lists the
     /// account's Auto chats, read and sent to through the Cloud service with no Mac
     /// (`plans/cmux-next/auto-mode/DESIGN.md`). This phone's own choice: it does not follow a Mac's.
     public var cloudAutoMode: Bool { didSet { save(cloudAutoMode, "cloudAutoMode") } }

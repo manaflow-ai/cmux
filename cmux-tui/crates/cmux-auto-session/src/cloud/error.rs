@@ -2,7 +2,7 @@
 
 use std::fmt;
 
-use crate::wire::{ErrorCode, ErrorEnvelope, SessionView};
+use crate::wire::{ErrorCode, ErrorEnvelope, MoveRefusal, SessionView};
 
 /// A failed call. It keeps the `auto.*` code, tells an answer from no answer, and says whether
 /// the same call can be sent again.
@@ -110,6 +110,16 @@ impl AutoCloudError {
     pub fn code(&self) -> Option<ErrorCode> {
         match self {
             AutoCloudError::Http { code, .. } => *code,
+            AutoCloudError::Transport { .. } | AutoCloudError::Decoding { .. } => None,
+        }
+    }
+
+    /// The code of a refusal only `move` and `give` answer (`auto.off`, `auto.no_laptop`,
+    /// `auto.no_move`, `auto.not_copied`). [`code`](Self::code) is None for these; the two
+    /// routes also refuse with its codes (`auto.no_machine`, `auto.stale_epoch`, ...).
+    pub fn move_refusal(&self) -> Option<MoveRefusal> {
+        match self {
+            AutoCloudError::Http { raw_code, .. } => MoveRefusal::parse(raw_code),
             AutoCloudError::Transport { .. } | AutoCloudError::Decoding { .. } => None,
         }
     }

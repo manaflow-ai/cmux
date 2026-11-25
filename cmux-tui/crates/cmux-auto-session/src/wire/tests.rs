@@ -101,6 +101,26 @@ fn a_folder_manifest_carries_a_tar() {
     assert_eq!(manifest.cwd, Cwd::Folder { tar: vec!["a".into(), "b".into(), "c".into()] });
     assert_eq!(manifest.chunks().collect::<Vec<_>>(), ["a", "b", "c"]);
     assert_eq!(manifest.open_turn, None);
+    // A manifest from a build that carried no agent files reads, and writes back without them.
+    assert!(manifest.native.is_empty());
+}
+
+#[test]
+fn a_manifest_names_the_agents_own_session_files() {
+    let manifest: Manifest = round_trip(
+        r#"{ "v": 1, "at": 5, "lastSeq": 12, "harness": "claude", "harnessSessionId": "h",
+  "cwd": { "kind": "folder", "tar": ["a"] }, "queue": [], "draft": "",
+  "native": [
+    { "label": "claude-project", "path": "claude-project/.claude/projects/-w/h.jsonl",
+      "chunks": ["b", "c"] },
+    { "label": "codex-rollout", "path": "codex-rollout/.codex/sessions/r-h.jsonl", "chunks": [] }
+  ] }"#,
+    );
+    assert_eq!(manifest.native.len(), 2);
+    assert_eq!(manifest.native[0].label, "claude-project");
+    assert_eq!(manifest.native[1].chunks, Vec::<String>::new(), "an empty file");
+    // The folder's chunks, then the files'.
+    assert_eq!(manifest.chunks().collect::<Vec<_>>(), ["a", "b", "c"]);
 }
 
 #[test]
@@ -251,6 +271,71 @@ fn every_auto_code_reads_from_the_error_envelope() {
         r#"{ "error": { "code": "validation.invalid", "message": "epoch: a number" } }"#,
     );
     assert_eq!(other.code(), None);
+}
+
+#[test]
+fn a_move_names_where_to_and_the_laptop_only_when_one_is_named() {
+    let to_cloud: MoveRequest = round_trip(r#"{ "to": "cloud" }"#);
+    assert_eq!(to_cloud, MoveRequest::cloud());
+    let anywhere: MoveRequest = round_trip(r#"{ "to": "local" }"#);
+    assert_eq!(anywhere, MoveRequest::local());
+    let named: MoveRequest = round_trip(r#"{ "to": "local", "device": "device:mac-2" }"#);
+    assert_eq!(named, MoveRequest::laptop(Holder::device("mac-2")));
+    for to in MoveTo::ALL {
+        assert_eq!(serde_json::to_value(to).expect("writes"), json!(to.as_str()));
+        assert_eq!(to.to_string(), to.as_str());
+    }
+    assert!(serde_json::from_value::<MoveRequest>(json!({ "to": "parked" })).is_err());
+}
+
+#[test]
+fn a_wish_shows_in_the_chats_view_and_in_its_holders_lease_answer() {
+    let moving = session_text("device:mac-1", "local").replacen(
+        r#""lastSeq": 0"#,
+        r#""move": { "to": "cloud", "at": 12 }, "lastSeq": 0"#,
+        1,
+    );
+    let session: SessionView = round_trip(&moving);
+    assert_eq!(session.moving, Some(MoveWish { to: MoveTo::Cloud, device: None, at: 12 }));
+    let text = format!(
+        r#"{{ "session": {moving}, "role": "holder", "leaseMs": 45000, "move": "cloud" }}"#
+    );
+    let answer: LeaseAnswer = round_trip(&text);
+    assert_eq!(answer.move_to, Some(MoveTo::Cloud));
+    let named: MoveWish = round_trip(r#"{ "to": "local", "device": "device:mac-2", "at": 12 }"#);
+    assert_eq!(named.device, Some(Holder::device("mac-2")));
+
+    // With no wish neither says anything, and an older store's answers read the same.
+    let still: SessionView = round_trip(&session_text("device:mac-1", "local"));
+    assert_eq!(still.moving, None);
+    let text = format!(
+        r#"{{ "session": {}, "role": "holder", "leaseMs": 45000 }}"#,
+        session_text("device:mac-1", "local")
+    );
+    assert_eq!(round_trip::<LeaseAnswer>(&text).move_to, None);
+}
+
+#[test]
+fn the_codes_only_move_and_give_refuse_with_read_from_an_error() {
+    let codes = ["auto.off", "auto.no_laptop", "auto.no_move", "auto.not_copied"];
+    assert_eq!(codes.len(), MoveRefusal::ALL.len());
+    for (text, code) in codes.into_iter().zip(MoveRefusal::ALL) {
+        assert_eq!((code.as_str(), code.to_string().as_str(), code.status()), (text, text, 409));
+        assert_eq!(serde_json::to_value(code).expect("writes"), json!(text));
+        assert_eq!(MoveRefusal::parse(text), Some(code));
+        // It is not one of the store's own codes: an error keeps it as its raw code.
+        assert_eq!(ErrorCode::parse(text), None);
+        let body = format!(r#"{{ "error": {{ "code": "{text}", "message": "why" }} }}"#);
+        let error = crate::cloud::AutoCloudError::from_response(409, body.as_bytes());
+        assert_eq!((error.move_refusal(), error.code()), (Some(code), None));
+        assert!(!error.retryable());
+    }
+    for other in ["auto.stale_epoch", "auto.no_machine", "not_found", ""] {
+        assert_eq!(MoveRefusal::parse(other), None);
+    }
+    let stale = crate::cloud::AutoCloudError::refused(ErrorCode::StaleEpoch, "over");
+    assert_eq!(stale.move_refusal(), None);
+    assert_eq!(crate::cloud::AutoCloudError::transport("down").move_refusal(), None);
 }
 
 #[test]

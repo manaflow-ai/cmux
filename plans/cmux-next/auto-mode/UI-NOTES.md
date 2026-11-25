@@ -15,7 +15,7 @@ is described under [Alternatives](#alternatives) for Leo to pick from.
 | The chat list's place for a chat the Cloud runs | `sessionList.ts` `sessionPlace` | |
 | The requests | `direct.ts` `setAutoSession`, `autoLeftover` | |
 | The host's allowlist for them | `Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/AcpmuxPaneMethods.swift`, `cmux-tui/crates/cmux-agent-pane-policy/policy.json` | |
-| The setting | `schemas/settings/source/machines.json` `cloud.autoMode` | |
+| The setting | `schemas/settings/source/machines.json` `cloud.autoCloud` (AutoCloud's one switch; this branch's own `cloud.autoMode` is gone) | |
 | The wake notice | `CmuxNextAgentPane/AcpmuxEnvironment+AutoWake.swift`, called from `CmuxNextApp/Cloud/CloudService.swift` | |
 
 ## Decisions

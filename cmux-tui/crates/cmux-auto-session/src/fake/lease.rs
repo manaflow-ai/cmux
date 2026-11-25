@@ -1,12 +1,13 @@
-//! The lease and a machine's assignments: renew, release, read the assignments, ack one. What
-//! each decides is in `rules.rs`.
+//! The lease and a machine's assignments: renew, release, give, read the assignments, ack one.
+//! What each decides is in `rules.rs`, and for `give` in `moves.rs`.
 
+use super::moves;
 use super::record::view_of;
 use super::rules;
 use super::store::{Caller, Chat, Store, named, writer};
 use crate::cloud::CloudResult;
 use crate::consts::LEASE_MS;
-use crate::wire::{Assignment, Fence, Holder, LeaseAnswer, LeaseRequest, SessionView};
+use crate::wire::{Assignment, Fence, Holder, LeaseAnswer, LeaseRequest, Role, SessionView};
 
 /// The most assignments one read answers.
 const ASSIGNMENTS_MAX: usize = 100;
@@ -23,7 +24,23 @@ impl Store {
         self.admitted(caller, id, true)?;
         let (role, session) =
             self.apply(id, |chat, now| rules::renew(&chat.rec, caller, request, now))?;
-        Ok(LeaseAnswer { session, role, lease_ms: LEASE_MS })
+        // The holder learns here that the person asked to move the chat: it stops, stores its
+        // copy and gives.
+        let wish = session.moving.as_ref().filter(|_| role == Role::Holder);
+        let move_to = wish.map(|wish| wish.to);
+        Ok(LeaseAnswer { session, role, lease_ms: LEASE_MS, move_to })
+    }
+
+    /// The holder hands the chat over as the person asked (`moves::give`).
+    pub fn give(&mut self, caller: &Caller, id: &str, fence: &Fence) -> CloudResult<SessionView> {
+        writer(&fence.holder)?;
+        self.admitted(caller, id, true)?;
+        let machine = self.machine.clone();
+        let (holder, epoch) = (&fence.holder, fence.epoch);
+        let given = self.apply(id, |chat, now| {
+            moves::give(&chat.rec, caller, holder, epoch, machine.as_ref(), now)
+        });
+        given.map(|((), view)| view)
     }
 
     /// The holder gives the chat up (`rules::release`).

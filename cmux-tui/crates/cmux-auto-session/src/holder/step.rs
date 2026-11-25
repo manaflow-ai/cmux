@@ -55,21 +55,47 @@ fn apply(out: &mut Out, event: Event, now: u64) {
         State::Stopped { epoch, .. } => laptop::stopped(out, epoch, event, now),
         State::Standby { epoch } => laptop::standby(out, epoch, event, now),
         State::ComingHome { epoch, failed } => laptop::coming_home(out, epoch, failed, event, now),
+        State::Giving { epoch, step, to } => laptop::giving(out, epoch, step, to, event, now),
         State::Away => machine::away(out, event, now),
         State::Taking { epoch, reason, failed } => {
             machine::taking(out, epoch, reason, failed, event, now);
         }
         State::Serving { epoch } => machine::serving(out, epoch, event, now),
+        State::Returning { epoch, step, to } => {
+            machine::returning(out, epoch, step, to, event, now);
+        }
     }
 }
 
 /// A laptop that cannot reach the Cloud stops by itself, before the Cloud's lease runs out. The
 /// stop goes first among the step's effects. Renewals go on at their pace, and the next one
-/// answered decides.
+/// answered decides. A laptop in the middle of a give holds the chat too: its give is over, and
+/// the turn it stopped for it is continued here once the chat may run again.
 fn stop_when_unanswered(out: &mut Out, now: u64) {
-    let State::Holding { epoch } = out.chat.state else { return };
+    let (epoch, giving) = match out.chat.state {
+        State::Holding { epoch } => (epoch, false),
+        State::Giving { epoch, .. } => (epoch, true),
+        State::Off
+        | State::Registering
+        | State::Stopped { .. }
+        | State::Standby { .. }
+        | State::ComingHome { .. }
+        | State::Away
+        | State::Taking { .. }
+        | State::Serving { .. }
+        | State::Returning { .. } => return,
+    };
     if out.chat.self_stop_at().is_some_and(|at| now >= at) {
         out.to(State::Stopped { epoch, why: Stop::Offline });
         out.effects.insert(0, Effect::StopTree);
+        if giving {
+            // A give begun in this very step stopped no turn yet, and a stopped chat is not
+            // asked for: the store's next answer comes first.
+            let begun = out.effects.contains(&Effect::StopTurn);
+            out.effects.retain(|effect| !matches!(effect, Effect::StopTurn | Effect::Give { .. }));
+            if !begun {
+                out.push(Effect::Stay);
+            }
+        }
     }
 }

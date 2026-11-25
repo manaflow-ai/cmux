@@ -60,13 +60,34 @@ pub struct Manifest {
     /// The turn that was running; a takeover runs it again from its last user message.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub open_turn: Option<OpenTurn>,
+    /// The agent's own session files (Claude Code's project file, Codex's rollout), so the new
+    /// holder's agent resumes `harness_session_id` with its whole memory. Empty in a manifest
+    /// from a build that did not carry them, and for an agent that keeps none.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub native: Vec<NativeFile>,
 }
 
 impl Manifest {
-    /// Every chunk the manifest names, in order.
+    /// Every chunk the manifest names, in order: the folder's, then the agent's files'.
     pub fn chunks(&self) -> impl Iterator<Item = &str> {
-        self.cwd.chunks()
+        let native = self.native.iter().flat_map(|file| file.chunks.iter().map(String::as_str));
+        self.cwd.chunks().chain(native)
     }
+}
+
+/// One file of the agent's own session store, as a manual move carries it
+/// (`acpmux.bundle.v1`'s `native` list).
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct NativeFile {
+    /// Which store the file is of: `claude-project`, `codex-rollout`, `pi-session`,
+    /// `opencode-export`, `cmux-harness`.
+    pub label: String,
+    /// Where the file sits in a moved chat's bundle, under its `native` folder (its `harness`
+    /// folder for `cmux-harness`). The holder that imports it works out where its own agent
+    /// looks.
+    pub path: String,
+    /// The file's chunks, in order. None: the file is empty.
+    pub chunks: Vec<String>,
 }
 
 /// The chat's folder, as chunk lists.

@@ -8,7 +8,7 @@ use cmux_auto_session::AutoCloud;
 use cmux_auto_session::cloud::AutoCloudError;
 use cmux_auto_session::wire::{
     ErrorCode, EventsAppend, Fence, Holder, InboxAck, InboxPost, LeaseRequest, MachineSetting,
-    PutRequest, Role, SeqRecord, State,
+    MoveRefusal, MoveRequest, MoveTo, MoveWish, PutRequest, Role, SeqRecord, State,
 };
 use serde_json::{Value, json};
 
@@ -228,6 +228,72 @@ fn a_wait_is_held_no_longer_than_the_store_holds_it() {
         seen.lock().unwrap()[0].target(),
         format!("GET /v1/auto-sessions/{CHAT}/wait?after=9&timeoutMs=25000")
     );
+}
+
+#[test]
+fn a_move_posts_where_to_and_reads_the_wish_and_a_renewal_reads_it_too() {
+    let mut moving = session(4);
+    moving["keepInCloud"] = json!(true);
+    moving["move"] = json!({ "to": "cloud", "at": 12 });
+    let moved = json!({ "session": moving });
+    let renewed = json!({
+        "session": moved["session"], "role": "holder", "leaseMs": 45_000, "move": "cloud",
+    });
+    let (origin, seen) = fake(move |seen: &Seen| match seen.target().as_str() {
+        t if t.ends_with("/lease") => ok(&renewed.to_string()),
+        _ => ok(&moved.to_string()),
+    });
+    let cloud = cloud(&origin);
+    let laptop = MoveRequest::laptop(Holder::device("mac-2"));
+    let request =
+        LeaseRequest { holder: Holder::device("mac-1"), epoch: 4, needs_run: true, standby: None };
+    let (to_cloud, to_laptop, lease) = run(async {
+        (
+            cloud.move_(CHAT, &MoveRequest::cloud()).await,
+            cloud.move_(CHAT, &laptop).await,
+            cloud.lease(CHAT, &request).await,
+        )
+    });
+    let view = to_cloud.unwrap();
+    assert!(view.keep_in_cloud);
+    assert_eq!(view.moving, Some(MoveWish { to: MoveTo::Cloud, device: None, at: 12 }));
+    assert!(to_laptop.is_ok());
+    assert_eq!(lease.unwrap().move_to, Some(MoveTo::Cloud));
+    let seen = seen.lock().unwrap();
+    assert_eq!(seen[0].target(), format!("POST /v1/auto-sessions/{CHAT}/move"));
+    assert_eq!(seen[0].json(), json!({ "to": "cloud" }));
+    assert_eq!(seen[1].json(), json!({ "to": "local", "device": "device:mac-2" }));
+}
+
+#[test]
+fn a_give_posts_the_fence_and_a_copy_that_is_behind_is_its_own_refusal() {
+    let refusal = json!({
+        "error": { "code": "auto.not_copied", "message": "the Cloud copy is behind the chat" },
+        "session": session(4),
+    });
+    let given = AtomicBool::new(false);
+    let (origin, seen) = fake(move |_| {
+        if given.swap(true, Ordering::SeqCst) {
+            let mut taken = session(5);
+            taken["holder"] = json!("vm:vm_1");
+            return ok(&json!({ "session": taken }).to_string());
+        }
+        Some((409, refusal.to_string()))
+    });
+    let cloud = cloud(&origin);
+    let fence = Fence::new(Holder::device("mac-1"), 4);
+    let (first, second) =
+        run(async { (cloud.give(CHAT, &fence).await, cloud.give(CHAT, &fence).await) });
+    let error = first.unwrap_err();
+    assert_eq!(error.move_refusal(), Some(MoveRefusal::NotCopied));
+    assert_eq!((error.status(), error.code()), (Some(409), None));
+    assert_eq!(error.session().map(|s| s.epoch), Some(4));
+    assert!(!error.retryable());
+    let view = second.unwrap();
+    assert_eq!((view.holder, view.epoch, view.moving), (Holder::vm("vm_1"), 5, None));
+    let seen = seen.lock().unwrap();
+    assert_eq!(seen[0].target(), format!("POST /v1/auto-sessions/{CHAT}/give"));
+    assert_eq!(seen[0].json(), json!({ "holder": "device:mac-1", "epoch": 4 }));
 }
 
 #[test]

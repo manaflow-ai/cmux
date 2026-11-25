@@ -61,6 +61,69 @@ impl Verdict {
     }
 }
 
+/// Where the person wants the chat to run now (the store's `move`).
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum MoveTo {
+    /// On the Cloud machine.
+    Cloud,
+    /// On a laptop.
+    Local,
+}
+
+impl MoveTo {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            MoveTo::Cloud => "cloud",
+            MoveTo::Local => "local",
+        }
+    }
+
+    /// The store's word for it; None for any other.
+    pub fn parse(text: &str) -> Option<MoveTo> {
+        match text {
+            "cloud" => Some(MoveTo::Cloud),
+            "local" => Some(MoveTo::Local),
+            _ => None,
+        }
+    }
+}
+
+/// Why the store did not take a give (`POST /:id/give`).
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum GiveFailure {
+    /// `auto.not_copied`: the store's newest snapshot does not cover its last event. Copy
+    /// again and ask again.
+    NotCopied,
+    /// `auto.no_move`: the person no longer wants the chat moved. It goes on here.
+    NoMove,
+    /// Any other refusal that names a reason (no laptop stands by, no machine to be found):
+    /// the chat goes on here, and the same wish is not tried again.
+    Refused,
+    /// `auto.stale_epoch` or `auto.not_holder`: what runs here may not be the chat any more.
+    /// The next renewal's answer says.
+    Lost,
+    /// The store did not answer. The next tick asks again.
+    Unanswered,
+    /// The daemon's own word, not the store's: the turn that runs here did not stop (a
+    /// `StopTurn` that failed). The chat goes on here, and the same wish is not tried again.
+    Stuck,
+}
+
+impl GiveFailure {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            GiveFailure::NotCopied => "not_copied",
+            GiveFailure::NoMove => "no_move",
+            GiveFailure::Refused => "refused",
+            GiveFailure::Lost => "lost",
+            GiveFailure::Unanswered => "unanswered",
+            GiveFailure::Stuck => "stuck",
+        }
+    }
+}
+
 /// The store's answer to a renewal or a registration, reduced to what the machine decides on.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -75,6 +138,9 @@ pub struct Answer {
     /// A machine holds the chat, a laptop stands by and the chat is not kept in the Cloud. A
     /// machine that reads it in a "holder" answer was not relieved by its renewal.
     pub handback_due: bool,
+    /// The person asked for the chat to be moved, and this holder has not given it yet (the
+    /// lease answer's `move`). The store tells a wish only to the holder that must give.
+    pub wish: Option<MoveTo>,
 }
 
 impl Answer {
@@ -85,11 +151,24 @@ impl Answer {
             snapshot: session.snapshot,
             inbox_pending: session.inbox_pending(),
             handback_due: session.handback_due(),
+            wish: None,
         }
     }
 
     fn bare(verdict: Verdict) -> Answer {
-        Answer { verdict, epoch: 0, snapshot: 0, inbox_pending: false, handback_due: false }
+        Answer {
+            verdict,
+            epoch: 0,
+            snapshot: 0,
+            inbox_pending: false,
+            handback_due: false,
+            wish: None,
+        }
+    }
+
+    /// The same answer with the store's wish for the chat.
+    pub fn wishing(self, wish: Option<MoveTo>) -> Answer {
+        Answer { wish, ..self }
     }
 
     /// A lease's answer.
@@ -190,6 +269,17 @@ pub enum Event {
     /// The store closed the chat on this machine's word: Auto is off. `epoch` is the chat's
     /// epoch in the store's answer, 0 when the answer named none.
     Closed { epoch: u64 },
+    /// The store's view of the chat says the person wants it moved (`session.move`), heard
+    /// outside a renewal: this daemon just asked for the move, or a view came with another
+    /// answer. The holder gives the chat as on a renewal's wish.
+    Wished { to: MoveTo },
+    /// A `StopTurn` is done: no turn of the chat runs here. One that failed is a
+    /// [`GiveFailure::Stuck`].
+    TurnStopped,
+    /// The store took the give: the chat is another holder's, at `epoch`.
+    Gave { epoch: u64 },
+    /// The store did not take the give.
+    GiveFailed { why: GiveFailure },
 }
 
 impl Event {
@@ -229,8 +319,27 @@ impl Event {
         }
     }
 
+    /// The event for a give's result (`POST /:id/give`). The store names its refusals by code;
+    /// `auto.not_copied` and `auto.no_move` are read from the answer's own text, so a build
+    /// whose code list is older still reads them.
+    pub fn from_give(result: &Result<SessionView, AutoCloudError>) -> Event {
+        let error = match result {
+            Ok(session) => return Event::Gave { epoch: session.epoch },
+            Err(error) => error,
+        };
+        let named = error.envelope().map(|(_, envelope)| envelope.error.code);
+        let why = match named.as_deref() {
+            Some("auto.not_copied") => GiveFailure::NotCopied,
+            Some("auto.no_move") => GiveFailure::NoMove,
+            Some("auto.stale_epoch" | "auto.not_holder") => GiveFailure::Lost,
+            Some(code) if code.starts_with("auto.") => GiveFailure::Refused,
+            Some(_) | None => GiveFailure::Unanswered,
+        };
+        Event::GiveFailed { why }
+    }
+
     /// Every event's name, in the order of the enum.
-    pub const KINDS: [&'static str; 13] = [
+    pub const KINDS: [&'static str; 17] = [
         "auto_on",
         "auto_off",
         "tick",
@@ -244,6 +353,10 @@ impl Event {
         "snapshot_stored",
         "snapshot_failed",
         "closed",
+        "wished",
+        "turn_stopped",
+        "gave",
+        "give_failed",
     ];
 
     /// The event's name, without its data.
@@ -262,6 +375,10 @@ impl Event {
             Event::SnapshotStored { .. } => "snapshot_stored",
             Event::SnapshotFailed { .. } => "snapshot_failed",
             Event::Closed { .. } => "closed",
+            Event::Wished { .. } => "wished",
+            Event::TurnStopped => "turn_stopped",
+            Event::Gave { .. } => "gave",
+            Event::GiveFailed { .. } => "give_failed",
         }
     }
 }

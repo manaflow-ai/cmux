@@ -123,12 +123,15 @@ pub(super) fn frozen(chat: &Chat) -> bool {
 /// chat that is elsewhere.
 fn stands(chat: &Chat, view: Option<&SessionView>) -> wire::State {
     match chat.state {
-        State::Off | State::Registering | State::Holding { .. } | State::Stopped { .. } => {
-            wire::State::Local
-        }
+        // A chat its holder is giving away is still where it was until the store took it.
+        State::Off
+        | State::Registering
+        | State::Holding { .. }
+        | State::Stopped { .. }
+        | State::Giving { .. } => wire::State::Local,
         State::ComingHome { .. } => wire::State::ComingBack,
         State::Taking { .. } => wire::State::Resuming,
-        State::Serving { .. } => wire::State::Cloud,
+        State::Serving { .. } | State::Returning { .. } => wire::State::Cloud,
         State::Standby { .. } | State::Away => view.map_or(wire::State::Cloud, |view| view.state),
     }
 }
