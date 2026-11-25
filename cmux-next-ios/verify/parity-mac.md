@@ -1,4 +1,4 @@
-# Phone parity with the cmux-next Mac app
+# Phone parity with the cmux-next Mac app (frozen table: a new row is its own file in [`cmux-next-ios/verify/parity-mac/`](parity-mac/README.md))
 
 Branch `feat-cnx-ios-parity`, 2026-10-14. The person's report: "I can't create
 browser tabs or GUI sessions on iOS. GUI sessions should open model-agnostic,
