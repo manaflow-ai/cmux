@@ -127,10 +127,21 @@
               "key" : "settings.group.announcements",
               "text" : "Announcements"
             }
+          },
+          {
+            "key" : "settings.group.customizeChecklist",
+            "rows" : [
+              "customize.checklist.enabled"
+            ],
+            "title" : {
+              "key" : "settings.group.customizeChecklist",
+              "text" : "Customize cmux"
+            }
           }
         ],
         "id" : "general",
         "lead" : [
+          "customizeProgress",
           "textSize"
         ],
         "symbol" : "gearshape",
@@ -242,6 +253,7 @@
               "appearance.customDensities",
               "appearance.metrics.chromeFontSize",
               "appearance.fontSmoothing",
+              "appearance.appFont",
               "appearance.metrics.sidebarRowHeight",
               "appearance.borders",
               "appearance.liquidGlass",
@@ -631,7 +643,8 @@
           "text" : "Sidebar"
         },
         "trail" : [
-          "spaces"
+          "spaces",
+          "archivedWorkspaces"
         ]
       },
       {
@@ -1315,6 +1328,7 @@
               "agentPane.dictationSource",
               "agentPane.dictationShortcut",
               "agentPane.spellChecking",
+              "agentPane.composerVimKeys",
               "agentPane.composerLook",
               "agentPane.emptyChatComposerPosition",
               "agentPane.attachmentView",
@@ -1648,6 +1662,29 @@
         "title" : {
           "key" : "settings.category.models",
           "text" : "Models"
+        },
+        "trail" : [
+
+        ]
+      },
+      {
+        "actions" : [
+
+        ],
+        "aliases" : [
+
+        ],
+        "groups" : [
+
+        ],
+        "id" : "automations",
+        "lead" : [
+          "automationsCloud"
+        ],
+        "symbol" : "bolt",
+        "title" : {
+          "key" : "settings.category.automations",
+          "text" : "Automations"
         },
         "trail" : [
 
@@ -2377,6 +2414,7 @@
           {
             "key" : "settings.group.experiments",
             "rows" : [
+              "experiments.appFontChrome",
               "experiments.glassToolbarGroups",
               "experiments.composerV2",
               "experiments.agentBadges",
@@ -2508,7 +2546,8 @@
           "chat",
           "agents",
           "chief",
-          "models"
+          "models",
+          "automations"
         ],
         "id" : "ai",
         "title" : {
@@ -17993,7 +18032,7 @@
       "consumers" : [
         "cmux-next"
       ],
-      "default" : false,
+      "default" : true,
       "default_label" : null,
       "group" : {
         "key" : "settings.group.agentCache",
@@ -18129,7 +18168,7 @@
       "consumers" : [
         "cmux-next"
       ],
-      "default" : 50,
+      "default" : 30,
       "default_label" : null,
       "group" : {
         "key" : "settings.group.agentCache",
@@ -24199,6 +24238,288 @@
       "title" : {
         "key" : "settings.palette.searchHistory",
         "text" : "Remember Palette Searches"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        true,
+        false
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : true,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.customizeChecklist",
+        "text" : "Customize cmux"
+      },
+      "help" : {
+        "key" : "settings.customizeChecklist.enabled.help",
+        "text" : "Shows the steps for making cmux your own at the top of Settings, with how many are done."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "customize.checklist.enabled",
+      "keywords" : [
+        "customize",
+        "checklist",
+        "getting started",
+        "onboarding",
+        "progress",
+        "setup"
+      ],
+      "kind" : "toggle",
+      "page_hidden" : false,
+      "path" : [
+        "customize",
+        "checklist",
+        "enabled"
+      ],
+      "placeholder" : null,
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "general",
+      "summary" : null,
+      "surfaces" : {
+        "cli" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "mcp" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "palette" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : "toggle",
+          "offered" : true,
+          "operations" : [
+            "palette.toggleSetting"
+          ],
+          "reason" : null,
+          "row" : "setting:customize.checklist.enabled"
+        },
+        "socket" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+            "settings.unset"
+          ],
+          "app_operations" : [
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        }
+      },
+      "title" : {
+        "key" : "settings.customizeChecklist.enabled",
+        "text" : "Show the Customize cmux Checklist"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        [
+
+        ],
+        [
+          "ws-1",
+          "2B7F0C3A-workspace"
+        ]
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : [
+
+      ],
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.customizeChecklist",
+        "text" : "Customize cmux"
+      },
+      "help" : {
+        "key" : "settings.customizeChecklist.done.help",
+        "text" : "The checklist steps you marked done yourself."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "customize.checklist.done",
+      "keywords" : [
+        "customize",
+        "checklist"
+      ],
+      "kind" : "string_list",
+      "page_hidden" : true,
+      "path" : [
+        "customize",
+        "checklist",
+        "done"
+      ],
+      "placeholder" : null,
+      "refuses" : [
+        "ws-1",
+        [
+          1
+        ],
+        [
+          ""
+        ],
+        {
+
+        }
+      ],
+      "section" : "general",
+      "summary" : null,
+      "surfaces" : {
+        "cli" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "mcp" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "palette" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : false,
+          "operations" : [
+
+          ],
+          "reason" : "The checklist card checks steps off; the ids are not for typing.",
+          "row" : null
+        },
+        "socket" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+            "settings.unset"
+          ],
+          "app_operations" : [
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        }
+      },
+      "title" : {
+        "key" : "settings.customizeChecklist.done",
+        "text" : "Checked Off Customize Steps"
       },
       "validation" : "portable"
     },
@@ -39198,6 +39519,145 @@
         "text" : "Text Smoothing"
       },
       "validation" : "portable"
+    },
+    {
+      "accepts" : [
+
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : null,
+      "default_label" : {
+        "key" : "settings.appearance.appFont.system",
+        "text" : "System"
+      },
+      "group" : {
+        "key" : "settings.group.densityMotion",
+        "text" : "Density and Motion"
+      },
+      "help" : {
+        "key" : "settings.appearance.appFont.help",
+        "text" : "The font of cmux's interface: chat, Settings and every page. Terminals keep their own."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "appearance.appFont",
+      "keywords" : [
+        "font",
+        "app font",
+        "interface font",
+        "ui font",
+        "typeface",
+        "family",
+        "whole app",
+        "text"
+      ],
+      "kind" : "font_family",
+      "page_hidden" : false,
+      "path" : [
+        "appearance",
+        "appFont"
+      ],
+      "placeholder" : null,
+      "refuses" : [
+        1,
+        true,
+        null
+      ],
+      "section" : "appearance",
+      "summary" : null,
+      "surfaces" : {
+        "cli" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "mcp" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "palette" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : "options",
+          "offered" : true,
+          "operations" : [
+
+          ],
+          "reason" : null,
+          "row" : "setting:appearance.appFont"
+        },
+        "socket" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+            "settings.unset"
+          ],
+          "app_operations" : [
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        }
+      },
+      "title" : {
+        "key" : "settings.appearance.appFont",
+        "text" : "App Font"
+      },
+      "validation" : "domain:ui_font_family"
     },
     {
       "accepts" : [
@@ -92029,15 +92489,7 @@
         "cmux-next"
       ],
       "default" : {
-        "amazon.com/gp/video" : "webkit",
-        "disneyplus.com" : "webkit",
-        "hulu.com" : "webkit",
-        "max.com" : "webkit",
-        "music.apple.com" : "webkit",
-        "netflix.com" : "webkit",
-        "primevideo.com" : "webkit",
-        "spotify.com" : "webkit",
-        "tv.apple.com" : "webkit"
+
       },
       "default_label" : null,
       "group" : {
@@ -112035,6 +112487,143 @@
         "text" : "Experiments"
       },
       "help" : {
+        "key" : "settings.experiments.appFontChrome.help",
+        "text" : "The sidebar, tabs and titlebar draw in the App Font too. Some text changes after cmux restarts."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "experiments.appFontChrome",
+      "keywords" : [
+        "experiments",
+        "experimental",
+        "prototype",
+        "font",
+        "app font",
+        "sidebar",
+        "tabs",
+        "chrome"
+      ],
+      "kind" : "toggle",
+      "page_hidden" : false,
+      "path" : [
+        "experiments",
+        "appFontChrome"
+      ],
+      "placeholder" : null,
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "advanced",
+      "summary" : null,
+      "surfaces" : {
+        "cli" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "mcp" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "palette" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : "toggle",
+          "offered" : true,
+          "operations" : [
+            "palette.toggleSetting"
+          ],
+          "reason" : null,
+          "row" : "setting:experiments.appFontChrome"
+        },
+        "socket" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+            "settings.unset"
+          ],
+          "app_operations" : [
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        }
+      },
+      "title" : {
+        "key" : "settings.experiments.appFontChrome",
+        "text" : "App Font in Native Chrome"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        true,
+        false
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : false,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.experiments",
+        "text" : "Experiments"
+      },
+      "help" : {
         "key" : "settings.experiments.glassToolbarGroups.help",
         "text" : "The chat header's buttons become round glass buttons, with related actions sharing one glass capsule, a search chip and shortcut keycaps."
       },
@@ -115060,6 +115649,144 @@
       "title" : {
         "key" : "settings.agentPane.spellChecking",
         "text" : "Check Spelling While Typing"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        true,
+        false
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : false,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.agentChat",
+        "text" : "Agent Chat"
+      },
+      "help" : {
+        "key" : "settings.agentPane.composerVimKeys.help",
+        "text" : "Esc for normal mode, i to type again; h j k l, w b e, 0 $, x, dd and u edit. Return still sends."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "agentPane.composerVimKeys",
+      "keywords" : [
+        "vim",
+        "modal",
+        "normal mode",
+        "insert mode",
+        "keyboard",
+        "hjkl",
+        "composer",
+        "message box",
+        "prompt"
+      ],
+      "kind" : "toggle",
+      "page_hidden" : false,
+      "path" : [
+        "agentPane",
+        "composerVimKeys"
+      ],
+      "placeholder" : null,
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "general",
+      "summary" : null,
+      "surfaces" : {
+        "cli" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "mcp" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "palette" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : "toggle",
+          "offered" : true,
+          "operations" : [
+            "palette.toggleSetting"
+          ],
+          "reason" : null,
+          "row" : "setting:agentPane.composerVimKeys"
+        },
+        "socket" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+            "settings.unset"
+          ],
+          "app_operations" : [
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        }
+      },
+      "title" : {
+        "key" : "settings.agentPane.composerVimKeys",
+        "text" : "Vim Keys in the Composer"
       },
       "validation" : "portable"
     },
