@@ -395,6 +395,34 @@ final class AppReviewGateUITests: XCTestCase {
         }
     }
 
+    /// TEMPORARY (lane/ios-signin-xxxl-diag, never merged): each sign-in row's
+    /// accessibility frame at the largest text size, against the window, the
+    /// next row and the row's drawn position; fails when a row's frame is not
+    /// in the window's coordinates.
+    @MainActor
+    func testDiagSignInRowFrames() throws {
+        let xxxl = ["-UIPreferredContentSizeCategoryName", "UICTContentSizeCategoryAccessibilityXXXL"]
+        let app = launch(signedIn: false, arguments: xxxl)
+        XCTAssertTrue(app.buttons["Continue with email"].waitForExistence(timeout: 20))
+        let window = app.windows.firstMatch.frame
+        var frames: [CGRect] = []
+        for label in ["Continue with Apple", "Continue with Google", "Continue with GitHub", "Continue with email"] {
+            let frame = app.buttons[label].frame
+            frames.append(frame)
+            print("DIAG-FRAME \(label) \(frame) window \(window)")
+        }
+        print("DIAG-TREE \(app.debugDescription)")
+        // Rows are stacked top to bottom, one width, in the window.
+        for (a, b) in zip(frames, frames.dropFirst()) {
+            XCTAssertEqual(a.minX, b.minX, accuracy: 1, "rows share x: \(a) vs \(b)")
+            XCTAssertEqual(a.width, b.width, accuracy: 1, "rows share width: \(a) vs \(b)")
+            XCTAssertLessThanOrEqual(a.maxY, b.minY + 1, "rows stack: \(a) above \(b)")
+        }
+        XCTAssertGreaterThanOrEqual(frames[0].minY, window.minY - 1, "first row in the window: \(frames[0]) vs \(window)")
+        XCTAssertGreaterThanOrEqual(frames[0].minX, window.minX - 1, "first row in the window: \(frames[0]) vs \(window)")
+        app.terminate()
+    }
+
     /// The largest accessibility text size: sign-in and Settings keep every
     /// control on screen and reachable. (Leo, 2026-11-10: anticipate Dynamic
     /// Type sizes and dark mode.)
