@@ -128,8 +128,10 @@ export class SimBuilder {
     return this.record("mux", "turn_started", { turnId: this.turnId, promptId: this.promptId }, 0, "turn_started");
   }
 
-  /** The person's prompt, and the turn it starts. */
-  prompt(value: string, after = 1_000, extra: Record<string, unknown> = {}): this {
+  /** The person's prompt, and the turn it starts. `wake`: the chat's agent host had hibernated, so it
+   * starts and resumes between the prompt and its turn (`host_started`, `resumed`, `status: ready`), as a
+   * real chat records it. */
+  prompt(value: string, after = 1_000, extra: Record<string, unknown> = {}, { wake = false } = {}): this {
     this.newTurn();
     this.record(
       "mux",
@@ -145,6 +147,12 @@ export class SimBuilder {
       after,
       `prompt: ${value.slice(0, 40)}`,
     );
+    if (wake) {
+      this.record("mux", "host_started", { hostBuild: "sim", hostPid: 1, incarnation: "sim" }, 120, "host_started");
+      this.record("mux", "resumed", { level: "exact", wake: true }, 380, "resumed");
+      this.record("mux", "status", { status: "ready" }, 0, "status ready");
+      return this.started(6);
+    }
     return this.started(300);
   }
 

@@ -387,6 +387,26 @@
     },
     {
       "kind": "request",
+      "name": "_acpmux/sync/pull",
+      "params": {
+        "$ref": "#/types/SyncPullParams"
+      },
+      "result": {
+        "$ref": "#/types/SyncPullResult"
+      }
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/sync/push",
+      "params": {
+        "$ref": "#/types/SyncPushParams"
+      },
+      "result": {
+        "$ref": "#/types/SyncPushDone"
+      }
+    },
+    {
+      "kind": "request",
       "name": "_acpmux/markUnread",
       "params": {
         "$ref": "#/types/MarkUnreadParams"
@@ -2971,6 +2991,11 @@
     {
       "kind": "notification",
       "name": "_acpmux/start_mode_changed",
+      "params": true
+    },
+    {
+      "kind": "notification",
+      "name": "_acpmux/fill",
       "params": true
     },
     {
@@ -6337,6 +6362,7 @@
         "model": true,
         "release": true,
         "reserveHome": true,
+        "shapes": true,
         "wait": true,
         "workspaceId": true
       },
@@ -9244,6 +9270,69 @@
         "sessionId": true,
         "workspaceId": true
       },
+      "type": "object"
+    },
+    "SyncPullParams": {
+      "additionalProperties": false,
+      "description": "`_acpmux/sync/pull`: send the version vector you hold (an object of actor to sequence; none\nor `{}` for everything). The answer holds only the edits you lack, so a replica ten edits\nbehind gets about ten entries however many chats there are.",
+      "properties": {
+        "vv": true
+      },
+      "type": "object"
+    },
+    "SyncPullResult": {
+      "properties": {
+        "actor": {
+          "description": "This daemon's replica id: the actor its own edits carry.",
+          "type": "string"
+        },
+        "delta": {
+          "description": "The edits the caller lacks (`{since, covers, entries}`)."
+        },
+        "vv": {
+          "description": "What this daemon covers after them: send it back as `vv` next time."
+        }
+      },
+      "required": [
+        "actor",
+        "delta",
+        "vv"
+      ],
+      "type": "object"
+    },
+    "SyncPushDone": {
+      "properties": {
+        "changed": {
+          "description": "The keys whose value changed here.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "gap": {
+          "description": "This daemon did not cover the delta's `since`: entries merged, but pull to fill the rest.",
+          "type": "boolean"
+        },
+        "vv": {
+          "description": "What this daemon covers now: the pusher's edits it covers are acked."
+        }
+      },
+      "required": [
+        "changed",
+        "gap",
+        "vv"
+      ],
+      "type": "object"
+    },
+    "SyncPushParams": {
+      "additionalProperties": false,
+      "description": "`_acpmux/sync/push`: a delta from another replica (a phone, the Mac, a VM), merged here in any\norder, any number of times. A title or read mark that wins is applied to the chat as a rename\nor a mark would be.",
+      "properties": {
+        "delta": true
+      },
+      "required": [
+        "delta"
+      ],
       "type": "object"
     },
     "TimeBreakdown": {

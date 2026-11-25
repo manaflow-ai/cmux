@@ -360,6 +360,8 @@ await requireBrowserLane("hat-composer-icon-grid.test.ts", async () => {
               off.push(`${what}: ${a} vs ${b}`);
           };
           near("goal dot on the hat's mark", m.goalMark?.cx, m.hatMark?.cx);
+          // The Goal mark is 12 of the header glyph's 14 px (2026-11-24).
+          near("goal mark size", m.goalMark?.w, (m.hatMark?.w ?? 0) * (12 / 14), 0.25);
           near("goal dot on +", m.goalMark?.cx, m.plus?.cx);
           near("goal words at the hat's", m.goalText?.left, m.hatText?.left);
           near("goal chevron over the hat's", m.goalChevron?.cx, m.hatChevron?.cx);
