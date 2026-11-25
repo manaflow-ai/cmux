@@ -36,6 +36,11 @@ The gates, each the same invocation as its push-time job:
                   ci-web's webview suite, which runs them too). A merger
                   dispatches when a check path (scripts/ci/check-paths.txt) changed on the base after the
                   pull request's last fast-gates base, so a check that landed since runs before the merge.
+  protocol skew   scripts/ci/protocol_skew_check.py --base BASE --head MERGE: the merge's chat page, relay and
+                  decoders against the base's and the shipped nightly's, both directions; fails on a refusal
+                  that would stop a chat from opening (cmux#46563) and on a new decoder that refuses unknown fields
+  entry logs      scripts/ci/entry_logs.py check --base BASE --head MERGE: a frozen append-only log
+                  (ENTRY_LOGS) grows only as one new file per entry in its directory, so two PRs never conflict on it
 
 The panic ratchet is the workflow's own job (panic-ratchet: it needs Rust and a cmux-tui build, so it is
 not a gate here). cmux-tui-spec.yml's clippy job judges a pull request's Rust against the
@@ -79,6 +84,11 @@ DEEPEN_STEPS = (32, 200, 1000, 5000)
 # the tip spent 835 s in one --deepen=1000 with blob:none (every commit's trees came along) and the job then sat to
 # its cancel (8 such jobs at 25 min, 74% of the Merge step's 7,237 runner minutes a day; run 45236775245).
 DEEPEN_FILTER = "--filter=tree:0"
+# GitHub's pack-objects can abort a tree:0 deepen ("BUG: builtin/pack-objects.c: should_include_obj should only be
+# called on existing objects", signal 6): on 2026-11-25 it failed #52583's fast gates on two runs in a row (jobs
+# 138890366419, 138894346038). The same deepen with blob:none brings more trees but gets through, so it is the
+# fallback for that one failure.
+DEEPEN_FALLBACK_FILTER = "--filter=blob:none"
 
 
 def log(message: str) -> None:
@@ -215,20 +225,60 @@ def deep_enough(repo: Path, head: str, base: str) -> bool:
     return not cuts.intersection(git(repo, "rev-list", head, base, *behind).stdout.split())
 
 
+def deepen_fetch(repo: Path, remote: str, how: str, wants: list[str]) -> None:
+    """One deepen fetch, commits only; when the server's pack-objects aborts on it, the same fetch with blob:none."""
+    result = git(repo, "fetch", "--no-tags", "--quiet", DEEPEN_FILTER, how, remote, *wants, check=False)
+    if result.returncode == 0:
+        return
+    if "pack-objects" not in result.stderr:
+        raise SystemExit(f"fast-gates: git fetch {DEEPEN_FILTER} {how} failed: {result.stderr.strip()}")
+    log(f"fast-gates: {DEEPEN_FILTER} {how} aborted in the server's pack-objects; again with {DEEPEN_FALLBACK_FILTER}")
+    git(repo, "fetch", "--no-tags", "--quiet", DEEPEN_FALLBACK_FILTER, how, remote, *wants)
+
+
+def unshallow_from_alternates(repo: Path, head: str, base: str) -> bool:
+    """Drop the shallow cut when the borrowed object stores already hold every commit both sides reach.
+
+    A cmux-runner-pool VM checks out at depth 2 with the pool's full git mirror as its alternate
+    (cmux-next-fast-gates.yml's pool checkout), so the history a deepen would fetch is already on disk: the
+    deepens to GitHub were ~2.8 min of this step on the NOW verdict wall's heads (2026-11-25). Without the cut,
+    one local walk of both sides proves no commit is missing; a commit newer than the mirror's last sync whose
+    parent it lacks fails that walk, and the cut goes back for the deepen fetches."""
+    alternates = Path(git(repo, "rev-parse", "--path-format=absolute", "--git-path",
+                          "objects/info/alternates").stdout.strip())
+    if not alternates.exists() or not alternates.read_text().strip():
+        return False
+    shallow = Path(git(repo, "rev-parse", "--path-format=absolute", "--git-path", "shallow").stdout.strip())
+    if not shallow.exists():
+        return True
+    cut = shallow.read_bytes()
+    shallow.unlink()
+    started = time.monotonic()
+    if git(repo, "rev-list", "--quiet", head, base, check=False).returncode == 0:
+        log(f"fast-gates: the alternate object store holds the whole history; unshallowed locally in "
+            f"{time.monotonic() - started:.1f}s")
+        return True
+    shallow.write_bytes(cut)
+    log("fast-gates: the alternate object store lacks some history; deepening from the remote")
+    return False
+
+
 def deepen(repo: Path, remote: str, wants: list[str], head: str, base: str) -> None:
     """Deepen a shallow checkout until `deep_enough`; a full clone is left alone (a depth flag there would make
     every worktree sharing it shallow: tests/test_ci_no_shallow_dev_fetch.py)."""
     if git(repo, "rev-parse", "--is-shallow-repository").stdout.strip() != "true":
         return
+    if unshallow_from_alternates(repo, head, base):
+        return
     for depth in DEEPEN_STEPS:
         if deep_enough(repo, head, base):
             return
         started = time.monotonic()
-        git(repo, "fetch", "--no-tags", "--quiet", DEEPEN_FILTER, f"--deepen={depth}", remote, *wants)
+        deepen_fetch(repo, remote, f"--deepen={depth}", wants)
         log(f"fast-gates: deepened by {depth} in {time.monotonic() - started:.1f}s")
     if not deep_enough(repo, head, base):
         started = time.monotonic()
-        git(repo, "fetch", "--no-tags", "--quiet", DEEPEN_FILTER, "--unshallow", remote, *wants)
+        deepen_fetch(repo, remote, "--unshallow", wants)
         log(f"fast-gates: unshallowed in {time.monotonic() - started:.1f}s")
 
 
@@ -341,6 +391,10 @@ def gates(repo: Path, base: str, merge: str, base_tree: Path, web: bool,
         ("prepush gate", [py, "-I", "scripts/cmux-next/prepush-gate.py", "--base", base, "--head", merge, "--advisory"]),
         ("crash-class rules", [py, "scripts/ci/crash_class_fast_gate.py", "--base", str(base_tree), "--base-rev", base]),
         ("webviews checks", [py, "scripts/ci/fast_gate_webviews_checks.py", "--base", base] if checks else None),
+        # Every pull request: a page-only change can refuse an older relay as surely as a relay change (cmux#46563).
+        ("protocol skew", [py, "scripts/ci/protocol_skew_check.py", "--base", base, "--head", merge]),
+        # Every pull request, git objects only: a frozen append-only log grows only as files in its entry directory.
+        ("entry logs", [py, "-I", "scripts/ci/entry_logs.py", "check", "--base", base, "--head", merge]),
     ]
 
 
