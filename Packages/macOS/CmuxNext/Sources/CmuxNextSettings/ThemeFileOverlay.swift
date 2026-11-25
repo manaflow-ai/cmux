@@ -92,6 +92,7 @@ public nonisolated struct ThemeFileOverlay: Sendable, Equatable {
         "agentPane.display.font.size", "agentPane.display.font.lineHeight", "agentPane.display.code.scale",
         "agentPane.display.senderIcon.lead", "agentPane.display.senderIcon.badge", "agentPane.display.senderIcon.corner",
         "agentPane.display.trayHandle", "agentPane.display.transcriptLook", "agentPane.display.transcriptTokens",
+        "agentPane.display.streaming",
     ]
     /// The workspace row's own keys (`sidebar.workspaceRow.<name>`), one segment only: the per-kind overrides
     /// (`sidebar.workspaceRow.<kind>.<name>`) stay in cmux-next.json.

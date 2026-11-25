@@ -51,6 +51,7 @@ import { configureStatusVerbs } from "./statusVerbs";
 import { configureKeyStyle } from "../../ui/keyStyle";
 import { configureChatLayout } from "./chatLayout";
 import { configureThinkingLook } from "./conversation/thinkingLook";
+import { configureStreamingStyle } from "./conversation/streamingStyle";
 import { isUnreadBannerMode, type UnreadBannerMode } from "./conversation/unreadState";
 import {
   DEFAULT_RESOLVED_TRANSCRIPT_LOOK,
@@ -625,6 +626,7 @@ export function setChatDisplay(value: unknown): void {
   configureStatusVerbs(raw);
   configureChatLayout(raw);
   configureThinkingLook(raw);
+  configureStreamingStyle(raw);
   configureSenderIconLook(raw);
   // `app.keyStyle` and `app.shortcutLayout` (Swift AgentPaneDisplaySetting.followedAppPaths): every list here.
   configureKeyStyle(raw);

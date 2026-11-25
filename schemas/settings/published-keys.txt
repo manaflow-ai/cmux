@@ -35,6 +35,7 @@ agentPane.display.senderIcon.lead
 agentPane.display.sessionInfo.placement
 agentPane.display.statusVerbs.custom
 agentPane.display.statusVerbs.mode
+agentPane.display.streaming
 agentPane.display.thinking.jumpButton
 agentPane.display.thinking.shimmer
 agentPane.display.thinking.shimmerBand

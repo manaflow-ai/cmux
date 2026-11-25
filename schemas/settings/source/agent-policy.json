@@ -908,6 +908,7 @@
         "agentPane.display.promptCoach",
         "agentPane.display.statusVerbs.mode",
         "agentPane.display.statusVerbs.custom",
+        "agentPane.display.streaming",
         "agentPane.display.thinking.shimmer",
         "agentPane.display.thinking.shimmerPeriod",
         "agentPane.display.thinking.shimmerBand",

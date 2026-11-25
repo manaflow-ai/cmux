@@ -20,7 +20,7 @@ the profiles lane goes here first, then into a PR.
 | Particles and choreographed glyphs | Yes: `Particles({preset})`, `cmux.particles/1` (validated in Rust) | None found |
 | Named motion presets shared by an app's nodes | Partly: a JS constant passed to `.animation()` | No manifest- or theme-level preset table, so a profile cannot retime its extensions in one place |
 | Chrome motion (tab reflow, sidebar, palette, hover card) | No: only `ui.animationSpeed`, `ui.animation`, `ui.paneAnimations` | The design-token springs and fades (`design-tokens.json` `motion`) are compiled in. A profile cannot set its own timings, so codex-app and t3-code cannot match their apps' feel |
-| Streaming style of agent text (reveal, cursor, chunk fade) | No: only `agentPane.display.thinking.glyph` and `transcriptLook` | No `agentPane.display.streaming` setting (reveal per token, per line or instant, and its fade). Every web-coding-app profile needs one |
+| Streaming style of agent text (reveal, cursor, chunk fade) | Yes: `agentPane.display.streaming`, `words` (the default: whole words, the newest fading in), `lines` (whole lines) or `instant` (as it arrives, no fade); a theme or profile file may set it | No fade timing of its own: the fade follows the host's `--agent-motion-in` |
 | Scroll and gesture motion inside a pane scene | No | No scroll-linked props: an extension cannot pin a header or fade content against its scroll position |
 
 ## Behavior
@@ -46,7 +46,7 @@ not written its gaps down. When the lane that adopts it finds one, it adds a row
 ## Order
 
 1. `cmux.motion/1`: one typed and versioned motion contract in Rust (landed with this page).
-2. `agentPane.display.streaming`: the streaming style setting.
+2. Done: `agentPane.display.streaming` (`words`, `lines`, `instant`), the streaming style setting.
 3. `contributes.keybindings` with `onKeybinding` activation.
 4. Profile-level motion tokens: a `motion` block in a theme or look, bounded like `cmux.motion/1`.
 5. `cmux.pane/1` open arguments and results, so a pane can return a value (panel flows).

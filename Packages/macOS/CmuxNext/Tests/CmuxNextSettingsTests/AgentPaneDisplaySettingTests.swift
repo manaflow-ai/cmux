@@ -123,6 +123,20 @@ struct AgentPaneDisplaySettingTests {
         #expect(AgentPaneDisplaySetting(fileRoot: bad).values[look] == nil)
     }
 
+    /// The reply streaming style (`agentPane.display.streaming`, webviews streamingStyle.ts): a theme
+    /// or profile file's value reaches the page, and a value outside words, lines and instant does not.
+    @Test func theStreamingStyleComesFromTheEffectiveRootAndTakesItsThreeValues() {
+        let key = "agentPane.display.streaming"
+        let themed: JSONValue = ["agentPane": ["display": ["streaming": .string("instant")]]]
+        #expect(AgentPaneDisplaySetting(fileRoot: ["agentPane": ["display": ["width": .number(900)]]], lookRoot: themed).values[key] == .string("instant"))
+        #expect(ThemeFileOverlay.lookKeys.contains(key))
+        let lines: JSONValue = ["agentPane": ["display": ["streaming": .string("lines")]]]
+        #expect(AgentPaneDisplaySetting(fileRoot: lines).values[key] == .string("lines"))
+        let bad: JSONValue = ["agentPane": ["display": ["streaming": .string("typewriter")]]]
+        #expect(AgentPaneDisplaySetting(fileRoot: bad).values[key] == nil)
+        #expect(SettingsSchema.descriptor(for: ["agentPane", "display", "streaming"])?.defaultValue == .string("words"))
+    }
+
     @Test(arguments: rows)
     func eachRowHasThePageDefaultAndRange(_ row: Row) throws {
         let path = row.key.split(separator: ".").map(String.init)
