@@ -88,7 +88,7 @@ import Testing
 
     /// Helium keeps the active tab's x visible at rest. Inactive tabs use the
     /// same close-button geometry when hovered, without reserving a second size.
-    @Test func tabsTakeHeliumsCloseButtonThreshold() {
+    @Test func activeTabsKeepHeliumsCloseButtonAtRest() {
         DensityTokens.$scoped.withValue(DensityPreset.cozy.tokens) {
             let metrics = TabStripMetrics.standard
             let width = metrics.contentLeadingInset + metrics.contentTrailingInset + 60

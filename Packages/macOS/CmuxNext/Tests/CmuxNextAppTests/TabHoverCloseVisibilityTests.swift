@@ -88,9 +88,18 @@ import Testing
             let hovered = TabChromeVisibility.resolve(
                 width: roomyWidth, isPinned: false, isSelected: false, isHovered: true,
                 style: style, metrics: metrics)
-            #expect(active.showsClose, "the active (style) tab hides its close button")
-            #expect(!inactive.showsClose, "the inactive (style) tab shows its close button at rest")
-            #expect(hovered.showsClose, "the hovered (style) tab hides its close button")
+            #expect(active.showsClose, "the active \(style) tab hides its close button")
+            #expect(!inactive.showsClose, "the inactive \(style) tab shows its close button at rest")
+            #expect(hovered.showsClose, "the hovered \(style) tab hides its close button")
+
+            let activeWithStatus = TabChromeVisibility.resolve(
+                width: roomyWidth, isPinned: false, isSelected: true, isHovered: false,
+                hasStatus: true, style: style, metrics: metrics)
+            let hoveredActiveWithStatus = TabChromeVisibility.resolve(
+                width: roomyWidth, isPinned: false, isSelected: true, isHovered: true,
+                hasStatus: true, style: style, metrics: metrics)
+            #expect(activeWithStatus == hoveredActiveWithStatus,
+                    "hover changes the active \(style) tab's close/status layout")
 
             let pill = metrics.pillFrame(slotWidth: roomyWidth, height: metrics.tabHeight)
             #expect(active.closeButtonOriginX(pillWidth: pill.width, metrics: metrics)

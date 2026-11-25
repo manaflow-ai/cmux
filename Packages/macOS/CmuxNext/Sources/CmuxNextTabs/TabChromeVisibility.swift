@@ -17,8 +17,8 @@ public import CoreGraphics
 /// right click"; takes back HQ #4743's hover swap). A crowded inactive tab
 /// swaps its centered icon for the x on hover until both the icon and the x
 /// fit; the icon stays put when both fit (nxdog9, Lawrence 2026-10-20).
-/// A selected tab keeps its existing close once it is narrower than Chromium's
-/// close-button threshold, where the x costs no title text.
+/// The active tab keeps its close button at rest. An inactive tab reveals the
+/// same button only while hovered; both states use one close geometry.
 /// A hovered tab that shows a status (its spinner, a status mark or the unread dot) shows only the x,
 /// in the status's slot: never the status and the x side by side, as the sidebar's workspace rows
 /// (Leo 2026-11-05: "the button replaces the spinner on the top when you hover over it, like just like
@@ -54,14 +54,11 @@ public struct TabChromeVisibility: Hashable, Sendable {
         // shows. Not the strip's crowding minimum, which keeps a title (cx-kp9b4) and in Scroll mode is 140.
         if width + 0.5 < min(metrics.minInactiveTabWidth, metrics.chrome.minInactiveWidth) { return .hidden }
         let contents = width - metrics.contentLeadingInset - metrics.contentTrailingInset
-        let roomy = contents >= metrics.closeMinContentsWidth
         let wantsClose: Bool
         switch style {
-        // Inactive crowded tabs put the close in the icon's center on hover.
-        // Once there is room for both, the icon keeps its original position.
-        // The selected tab's existing at-rest narrow close is preserved.
-        case .chrome: wantsClose = isSelected ? (isHovered || !roomy) : isHovered
-        case .compact: wantsClose = isHovered
+        // Inactive tabs reveal the close on hover. The selected tab keeps it
+        // visible at rest, so hover never changes its content form.
+        case .chrome, .compact: wantsClose = isSelected || isHovered
         }
         // A tab that cannot close (Home's tab, `pinned-dock-v1`) never shows its x.
         let showsClose = wantsClose && isClosable
@@ -73,9 +70,8 @@ public struct TabChromeVisibility: Hashable, Sendable {
         let showsIcon = iconFits || !showsClose
         let titleWidth = available - metrics.iconSize - metrics.iconTitleSpacing
         let showsTitle = iconFits && titleWidth >= metrics.titleMinVisibleWidth
-        // An x the tab shows at rest (a narrow selected tab) already sits beside the status: hover keeps that
-        // form, so the status stays (the x only replaces a status where hover brings the x).
-        let closeAtRest = style == .chrome && isSelected && !roomy && isClosable
+        // An active tab shows its x at rest, so hovering it keeps the status beside the same close button.
+        let closeAtRest = isSelected && isClosable
         return TabChromeVisibility(showsIcon: showsIcon, showsTitle: showsTitle, showsClose: showsClose, centersContent: !showsTitle)
             .yieldingStatus(isHovered && hasStatus && !closeAtRest)
     }
