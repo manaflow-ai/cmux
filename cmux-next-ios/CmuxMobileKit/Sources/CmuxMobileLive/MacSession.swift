@@ -25,6 +25,10 @@ final class MacSession {
     var cloudChats: [String: CloudChatRelay] = [:]
     let feed: LiveFeed
     let terminalFeed: TerminalFeed
+    #if canImport(CmuxMobileLinkFFI)
+    /// Keys typed from the Feed, held until the Mac has them (``TerminalKeyOutbox``).
+    let terminalKeys = TerminalKeyOutbox()
+    #endif
     /// The Mac app's own Feed requests (held PRs, sign-ins, consent cards).
     let needsYou: MacNeedsYouFeed
     /// Workspace and tab changes on this Mac.

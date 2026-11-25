@@ -1540,56 +1540,6 @@ pub fn set_cellular_path(cellular: bool) {
     cmux_mobile_link::dial::wireguard::set_cellular_path(cellular);
 }
 
-/// What a network interface is (mirror of `cmux_mobile_link::dial::wireguard::InterfaceKind`).
-#[derive(Debug, Clone, Copy, PartialEq, Eq, uniffi::Enum)]
-pub enum InterfaceKind {
-    Wifi,
-    Cellular,
-    Wired,
-    Other,
-}
-
-/// One interface that is up, as iOS `NWPath.availableInterfaces` says
-/// (mirror of `cmux_mobile_link::dial::wireguard::NetInterface`).
-#[derive(Debug, Clone, PartialEq, Eq, uniffi::Record)]
-pub struct NetInterface {
-    pub name: String,
-    pub kind: InterfaceKind,
-    pub expensive: bool,
-    pub constrained: bool,
-    pub primary: bool,
-}
-
-/// The interfaces that are up now (every path update). Rust decides what to
-/// do with them (a second socket on cell beside Wi-Fi, roaming).
-#[uniffi::export]
-pub fn set_network_interfaces(interfaces: Vec<NetInterface>) {
-    use cmux_mobile_link::dial::wireguard as wg;
-    wg::set_interfaces(
-        interfaces
-            .into_iter()
-            .map(|i| wg::NetInterface {
-                name: i.name,
-                kind: match i.kind {
-                    InterfaceKind::Wifi => wg::InterfaceKind::Wifi,
-                    InterfaceKind::Cellular => wg::InterfaceKind::Cellular,
-                    InterfaceKind::Wired => wg::InterfaceKind::Wired,
-                    InterfaceKind::Other => wg::InterfaceKind::Other,
-                },
-                expensive: i.expensive,
-                constrained: i.constrained,
-                primary: i.primary,
-            })
-            .collect(),
-    );
-}
-
-/// The person allows cell beside Wi-Fi (on unless they turn it off).
-#[uniffi::export]
-pub fn set_cellular_assist(allowed: bool) {
-    cmux_mobile_link::dial::wireguard::set_cellular_assist(allowed);
-}
-
 /// The Mac answered a typed batch's `send` `ack_ms` after its first key's tap
 /// (`DaemonTerminalSession`). The next `link_stat` carries it (PROTOCOL.md "Link stats").
 #[uniffi::export]
