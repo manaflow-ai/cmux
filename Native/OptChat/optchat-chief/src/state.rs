@@ -483,12 +483,6 @@ pub struct SubRecord {
     /// The waiting report is of a run the user stopped: it starts no turn.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub stopped: bool,
-    /// The host posted this report to the chat itself (Lucas's latency
-    /// plan, item 3): it is queued quiet, read by the Chief's next turn and
-    /// starting none, even when the spawn's other reports deliver again.
-    /// Holds the report text it posted, so a newer report wakes as usual.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub host_posted: Option<String>,
     /// The session's event seq at its last read turn end.
     #[serde(default)]
     pub floor: u64,
