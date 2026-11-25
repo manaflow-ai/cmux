@@ -410,7 +410,7 @@ public final class CEFEngine: BrowserEngine {
     /// `timeout` passes, commits the cookie stores, awaits `beforeEngineStop`
     /// right before the main thread blocks in CefShutdown, then calls it. The
     /// App awaits this from `applicationShouldTerminate`. No-op when CEF never started.
-    public func shutdown(timeout: Duration = .seconds(3), beforeEngineStop: @MainActor () async -> Void) async {
-        await CEFRuntime.shared.shutdown(timeout: timeout, beforeEngineStop: beforeEngineStop)
+    public func shutdown(timeout: Duration = .seconds(3), stopsEngine: Bool = true, beforeEngineStop: @MainActor () async -> Void) async {
+        await CEFRuntime.shared.shutdown(timeout: timeout, stopsEngine: stopsEngine, beforeEngineStop: beforeEngineStop)
     }
 }

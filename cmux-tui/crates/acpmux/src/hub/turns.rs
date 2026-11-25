@@ -1938,6 +1938,10 @@ impl Hub {
             _ => None,
         };
         self.schedule_auto_resume(session, &turn_id, cut);
+        // A turn that ended well says the pool answers again (`auto_resume/capacity_gate.rs`).
+        if result.is_ok() && !detached {
+            self.capacity_gate_answered(session);
+        }
         // A turn that ended well on a capacity fallback puts the chat's own model back
         // (`auto_resume/capacity_failover.rs`).
         if !detached
