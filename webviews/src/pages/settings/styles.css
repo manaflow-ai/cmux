@@ -3050,6 +3050,18 @@ button.menu-disclosure {
   color: var(--ds-color-attention);
 }
 
+/* A PR entry's lines (`cmux customize use pr:N`): what it cannot carry wraps as one muted sentence
+   each, and the last refresh's note keeps the attention color while the entry is off (it says why
+   it turned off) and reads muted while it is on. */
+.library-needs-build,
+.library-note {
+  overflow-wrap: anywhere;
+}
+
+[data-library-code]:not([data-on]) .library-note {
+  color: var(--ds-color-attention);
+}
+
 .library-position {
   flex: none;
   min-width: var(--ds-space-4);
