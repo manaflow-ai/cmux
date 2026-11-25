@@ -32,6 +32,8 @@ pub const STATUS_FILE: &str = "/run/cmux-host/status.json";
 /// The session host's files on the supervisor contract (`cmux-supervise-core`): its owner record
 /// and its per-day restart budget with the causes, kept across reboots (the record's boot id
 /// tells a record of an earlier boot from a live host).
+/// Written once by the first agent on a VM disk; its presence later means the VM was reused.
+pub const MACHINE_MARKER: &str = "/var/lib/cmux/host/first-agent-start";
 pub const SUPERVISE_DIR: &str = "/var/lib/cmux/host";
 /// The session host's name in [`SUPERVISE_DIR`].
 pub const SESSION_HOST_NAME: &str = "session-host";
