@@ -131,6 +131,7 @@ async fn fixture(initial: SessionExposure) -> Fixture {
         uploads_dir: uploads.path().to_path_buf(),
         browser: cmux_mobile_host::browser::BrowserConfig::default(),
         surface: cmux_mobile_host::surface::SurfaceConfig::default(),
+        viewport_sync: None,
     };
     let (exposure, session_exposure) = watch::channel(initial);
     let mac_id = uuid::Uuid::new_v4().to_string();

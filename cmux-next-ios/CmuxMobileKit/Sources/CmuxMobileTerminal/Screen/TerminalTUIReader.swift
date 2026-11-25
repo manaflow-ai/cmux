@@ -178,7 +178,7 @@ final class TerminalTUIReader: NSObject, UIScrollViewDelegate {
         scrollView.contentOffset.y = maxOffset
         var bytes = Data("\u{1b}c".utf8)
         bytes.append(transcript.bytes)
-        surface.feed(bytes) { [weak self] in self?.updateViewport() }
+        surface.feed(bytes, completion: { [weak self] in self?.updateViewport() })
     }
 
     /// Leaves the reader: the app's screen shows again.

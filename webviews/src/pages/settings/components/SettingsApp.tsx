@@ -1,6 +1,6 @@
 import { Outlet, useRouterState } from "@tanstack/react-router";
 import { useCallback, useDeferredValue, useEffect, useRef, useState } from "react";
-import { useRowState, useSettingsRouter, useSettingsState, useStore } from "../context";
+import { useSettingsRouter, useSettingsState, useStore, useRowState } from "../context";
 import { installKeyboard, runPageCommand } from "../keyboard";
 import { parseLocation, sectionHref } from "../router";
 import { homes, shownSection } from "../categories";
@@ -15,6 +15,7 @@ import { SearchResults } from "./SearchResults";
 import { SectionList } from "./SectionList";
 import { ScrollArea } from "../../../ui/ScrollArea";
 import { whenPageShown } from "../../shared/paintGate";
+import { glassControlsOn } from "../glassControls";
 import { configureKeyStyle, KEY_STYLE_KEY, SHORTCUT_LAYOUT_KEY } from "../../../ui/keyStyle";
 
 /**
@@ -146,6 +147,7 @@ export function SettingsApp() {
       ref={keyboardRef}
       data-section-switched={switched ? "" : undefined}
       data-page-shown={pageShown ? "" : undefined}
+      data-glass-controls={glassControlsOn(state) ? "" : undefined}
     >
       <aside className="sidebar">
         <SearchField query={query} onQuery={setQuery} onSubmit={submit} />
