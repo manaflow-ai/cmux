@@ -41,17 +41,16 @@ final class AppsService {
     private var machineCatalog: MachineCatalogPublisher?
     init(services: AppServices) {
         self.services = services
-        transport = DaemonAppsTransport(daemon: services.daemon, feeds: [.agentChats(), .systemCalendar(SystemCalendarChanges())], inventoryRoutes: { [weak machines = services.machines] in
+        transport = DaemonAppsTransport(daemon: services.daemon, feeds: [.agentChats(), .systemCalendar(SystemCalendarChanges()), .media { [weak services] in services?.cache.pageRequests.sidebarSources.nowPlaying }], inventoryRoutes: { [weak machines = services.machines] in
             machines?.agentInventoryWatchRoutes() ?? []
         })
         client = AppsClient(transport: transport)
         overlays = AppOverlayPresenter(client: client)
     }
 
-    /// Turning apps off (DisabledFeatures) makes the supervisor unreachable
-    /// from this Mac: every mount ends on the supervisor, nothing mounts,
-    /// every change is refused, and open app sections and pages show
-    /// "Turned off by your organization".
+    /// Turning apps off (DisabledFeatures) makes the supervisor unreachable from this Mac: every mount ends on the
+    /// supervisor, nothing mounts, every change is refused, and open app sections and pages show "Turned off by
+    /// your organization".
     func applyPolicy(disabled: Bool) {
         // The mounts end on the supervisor first (in order on the client's chain); a reconnect remounts them.
         if disabled, transport.turnedOff == nil { client.suspendMounts() }
@@ -60,6 +59,7 @@ final class AppsService {
 
     func start() {
         client.start()
+        client.followKeyBindings(in: services.registry) // the apps' catalog shortcuts, the binding table's app layer
         // task-owner: one off-main load of the bundled package directories and the scope table at launch
         Task { [client] in client.useBundledDirectories(await AppPlatformResources.bundledDirectories()) }
     }
@@ -75,7 +75,7 @@ final class AppsService {
         let memory = AgentMemorySearchHandler(enabled: { [weak services] in
             services?.settings?.snapshot.agentMemoryEnabled ?? false
         }, index: BundledAgentMemoryIndex.bundled())
-        transport.provider.attach(AppHostCapabilities([CodeRouterAppOps(control: control), ActionAppOps(control: actionControl), inventory, memory, ToastAppOps.inMainWindow(), AgentChatAppOps.sidebarChats(), PageAppOps(control: control, appControl: actionControl), CalendarAppOps()]))
+        transport.provider.attach(AppHostCapabilities([CodeRouterAppOps(control: control), ActionAppOps(control: actionControl), inventory, memory, ToastAppOps.inMainWindow(), AgentChatAppOps.sidebarChats(), PageAppOps(control: control, appControl: actionControl), CalendarAppOps(), MediaAppOps.card({ [weak services] in services?.cache.pageRequests.sidebarSources.nowPlaying }, perform: { [weak services] in services?.cache.pageRequests.sidebarSources.perform($0) })]))
         if machineCatalog == nil {
             machineCatalog = MachineCatalogPublisher { [weak machines = services.machines] in
                 machines?.catalogSource()

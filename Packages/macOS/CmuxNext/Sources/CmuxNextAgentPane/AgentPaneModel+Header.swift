@@ -308,12 +308,19 @@ extension AgentPaneModel {
                 return AgentPaneReply.failure(code: "unavailable", message: "Could not copy text")
             }
             return AgentPaneReply.success()
-        case .tabRowTools(let width):
-            tabRow.report(width: CGFloat(width)) // used only while the pane offered the row
+        case .tabRowTools(let width, let need):
+            tabRow.report(width: CGFloat(width), need: need.map { CGFloat($0) }) // used only while the pane offered the row
             return AgentPaneReply.success()
         case .tabRowToolsSet(let tools):
             guard tabRow.nativeToolsEnabled else { return AgentPaneReply.success() }
             setTabRowTools(tools)
+            return AgentPaneReply.success()
+        case .customizationsMenu(let x, let y):
+            // Only a click of the person's opens it: a page cannot pop a menu on its own.
+            guard transport.gestures.consume() else { return Self.transportFailure(.gestureRequired) }
+            guard onCustomizationsMenuRequested?(CGPoint(x: x, y: y)) == true else {
+                return AgentPaneReply.failure(code: "unavailable", message: "No customizations menu")
+            }
             return AgentPaneReply.success()
         case .tabRowToolsOpenMenu(let id, let menuItemID):
             guard tabRow.nativeToolsEnabled else { return AgentPaneReply.success() }

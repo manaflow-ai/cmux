@@ -122,3 +122,25 @@ fn an_edited_plan_goes_back_as_the_agents_input() {
         "_meta": {"claude": {"tool": "ExitPlanMode"}}}));
     assert!(edit_plan(&mut no_input, "q").is_err());
 }
+
+#[test]
+fn an_allowed_plan_is_kept_as_approved_with_its_edit() {
+    let mut exit_plan = ask(json!({"kind": "switch_mode",
+        "rawInput": {"plan": "1. Old step"},
+        "_meta": {"claude": {"tool": "ExitPlanMode"}}}));
+    let kept = approved_plan(&exit_plan, "p1").unwrap();
+    assert_eq!(
+        (kept.markdown.as_str(), kept.edited, kept.permission_id.as_str()),
+        ("1. Old step", false, "p1")
+    );
+    edit_plan(&mut exit_plan, "1. New step").unwrap();
+    let kept = approved_plan(&exit_plan, "p1").unwrap();
+    assert_eq!((kept.markdown.as_str(), kept.edited), ("1. New step", true));
+    // Grok's plan is kept too; an ask that approves no plan is not.
+    let grok = ask(json!({"kind": "switch_mode", "rawInput": {"plan": "p"}}));
+    assert_eq!(approved_plan(&grok, "g").map(|p| p.markdown).as_deref(), Some("p"));
+    assert_eq!(
+        approved_plan(&ask(json!({"kind": "execute", "rawInput": {"command": "ls"}})), "x"),
+        None
+    );
+}
