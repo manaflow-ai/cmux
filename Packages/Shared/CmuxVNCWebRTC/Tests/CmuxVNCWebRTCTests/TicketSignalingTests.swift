@@ -216,6 +216,24 @@ struct TicketSignalingTests {
         #expect(try await messages.next() == nil)
     }
 
+    /// The share host of a Mac whose app is closed (or a Linux desktop) serves cmux.rd/1 only: it
+    /// answers a WebRTC offer with a `transport` frame, which the owner hears and no signal carries.
+    @Test(.timeLimit(.minutes(1))) func aTransportFrameIsHeardByTheOwnerNotTheStream() async throws {
+        let socket = FakeSignalSocket()
+        let signaling = try TicketSignaling(ticket: Self.jws(role: "viewer", peerKey: SoftwareTicketSigner().publicKey),
+                                            signalURL: URL(string: "wss://hub.example/v1/sessions/s1/ws")!,
+                                            signer: SoftwareTicketSigner(), iceServers: []) { _ in socket }
+        let (transports, continuation) = AsyncStream<String>.makeStream()
+        signaling.onHostTransport { continuation.yield($0) }
+        var messages = signaling.messages().makeAsyncIterator()
+        #expect(try await messages.next() == .hello(peerPresent: true))
+        socket.deliver(#"{"type":"transport","transport":"cmux.rd/1"}"#)
+        socket.deliver(#"{"type":"bye"}"#)
+        #expect(try await messages.next() == .bye, "the transport frame is no signal")
+        var heardTransports = transports.makeAsyncIterator()
+        #expect(await heardTransports.next() == TicketSignaling.rdTransport)
+    }
+
     /// A viewer that leaves says bye on the data channel: the host ends at once (view-only too).
     @Test func aByeEndsTheHostsSession() {
         #expect(ScreenStreamHost.endsSession(ScreenInput(t: "bye")))

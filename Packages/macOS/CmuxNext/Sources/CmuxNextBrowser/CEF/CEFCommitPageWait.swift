@@ -23,18 +23,11 @@ final class CEFCommitPageWait {
     /// Display frames until a size taken ahead for a commit that has not shown goes (the commit shows at most 4 frames
     /// after its change).
     static let releaseFrames = 8
-    /// Display frames a focus ask kept for this page's commit waits for the page's answer (``whenPageAnswered(_:)``):
-    /// 100 ms at 120 Hz. A page answers in about 50 ms (6 frames) when nothing stalls it.
-    static let keyFrames = 12
 
     private var ready: (@MainActor () -> Void)?
     private var release: (@MainActor () -> Void)?
     private var stopFrames: (@MainActor () -> Void)?
     private var answer: Task<Void, Never>?
-    /// The page answered, laid out or not (or will never: no page).
-    private var answered = false
-    /// Work that waits for the page's answer, or ``keyFrames`` (``whenPageAnswered(_:)``).
-    private var afterAnswer: (@MainActor () -> Void)?
     private var frames = 0
     /// In a frame's tick: the tick's own answer stops the frames, not a call back into the frame source.
     private var inFrame = false
@@ -55,11 +48,7 @@ final class CEFCommitPageWait {
         let laidOut = wait.laidOut
         let asked = CEFTrackerStats.now()
         answer = Task { [weak self, weak tab] in
-            let laid = if let tab { await laidOut(tab, pixels) } else { false }
-            guard let self, !Task.isCancelled else { return }
-            self.answered = true
-            defer { self.runAfterAnswer() }
-            guard laid else { return }
+            guard let tab, await laidOut(tab, pixels), let self, !Task.isCancelled else { return }
             guard self.owesReport else {
                 // The wait reported at its bound before the page answered: late, not lost.
                 CEFHostView.trackerStats.commitAnswersLate += 1
@@ -77,24 +66,7 @@ final class CEFCommitPageWait {
     /// frames stop once the report is made.
     func holdEnded() {
         release = nil
-        if ready == nil, afterAnswer == nil, !inFrame { stop() }
-    }
-
-    /// Runs `work` once the page answered (laid out at the size or not), or at ``keyFrames`` display frames of the wait,
-    /// whichever comes first; at once when it answered already. For a focus ask the page kept while it laid out ahead
-    /// (`CEFTab.grantFocus`): a grant before the page's first frame at its new size stalled that frame (cmux20-bench, a
-    /// page that takes 30 ms per resize: an answer at 107 to 136 ms, and 9 to 15 gap refreshes in the commit, against
-    /// about 50 ms and none with no grant before it). A later wait that replaces this one (``cancel()``) runs it at once.
-    func whenPageAnswered(_ work: @escaping @MainActor () -> Void) {
-        guard !answered else { return work() }
-        afterAnswer = work
-    }
-
-    private func runAfterAnswer() {
-        guard let work = afterAnswer else { return }
-        afterAnswer = nil
-        if ready == nil, release == nil, !inFrame { stop() }
-        work()
+        if ready == nil, !inFrame { stop() }
     }
 
     /// Why a wait reported (`debug.cef` `tracker`: `commit_answered`, `commit_at_bound`, `commit_left`).
@@ -116,20 +88,17 @@ final class CEFCommitPageWait {
         case .atBound: CEFHostView.trackerStats.commitWaitsAtBound += 1
         case .left: CEFHostView.trackerStats.commitWaitsLeft += 1
         }
-        if release == nil, afterAnswer == nil, !inFrame { stop() }
+        if release == nil, !inFrame { stop() }
         ready()
     }
 
-    /// Ends the wait with no report and no release (a later change replaced it); work waiting for the page's answer runs now.
+    /// Ends the wait with no report and no release (a later change replaced it).
     func cancel() {
         ready = nil
         release = nil
         answer?.cancel()
         answer = nil
         stop()
-        let work = afterAnswer
-        afterAnswer = nil
-        work?()
     }
 
     private func frame(last: Bool) -> Bool {
@@ -141,8 +110,7 @@ final class CEFCommitPageWait {
             self.release = nil
             release()
         }
-        if last || frames >= Self.keyFrames { runAfterAnswer() }
-        let ticking = ready != nil || release != nil || afterAnswer != nil
+        let ticking = ready != nil || release != nil
         if !ticking { stopFrames = nil }
         return ticking
     }
