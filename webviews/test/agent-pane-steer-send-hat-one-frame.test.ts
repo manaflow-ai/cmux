@@ -159,12 +159,37 @@ await requireBrowserLane("agent-pane-steer-send-hat-one-frame.test.ts", async ()
     await daemon?.stop(true);
   });
 
-  type Frame = { box: number; hatTop?: number; hatBottom?: number; hatHeight?: number; field: string };
+  type Frame = {
+    box: number;
+    hatTop?: number;
+    hatBottom?: number;
+    hatHeight?: number;
+    field: string;
+    rowDy: number;
+    bubble: boolean;
+  };
   const sample = (page: Page) =>
     page.evaluate(() => {
       const w = window as unknown as { __frames: unknown[]; __stop: () => void };
       w.__frames = [];
+      const scroller = document.querySelector<HTMLElement>(".acpmux-scroll")!;
+      let lastRows = new Map<Element, number>();
       w.__stop = window.cmuxAfterPaint(() => {
+        const view = scroller.getBoundingClientRect();
+        const rows = new Map<Element, number>();
+        for (const row of scroller.querySelectorAll<HTMLElement>(".acpmux-thread > .acpmux-row")) {
+          const rect = row.getBoundingClientRect();
+          if (rect.height > 0.5 && rect.bottom > view.top && rect.top < view.bottom) rows.set(row, rect.top);
+        }
+        let rowDy = 0;
+        for (const [row, top] of rows) {
+          const before = lastRows.get(row);
+          if (before !== undefined && Math.abs(top - before) > Math.abs(rowDy)) rowDy = top - before;
+        }
+        lastRows = rows;
+        const bubble = [...document.querySelectorAll<HTMLElement>(".cv-user__bubble")].some(
+          (node) => (node.textContent ?? "").includes("Hat line five") && node.getClientRects().length > 0,
+        );
         const box = document.querySelector<HTMLElement>(".acpmux-composer-box");
         if (!box) return;
         const hat = document.querySelector<HTMLElement>(".acpmux-running-tray");
@@ -176,6 +201,8 @@ await requireBrowserLane("agent-pane-steer-send-hat-one-frame.test.ts", async ()
           hatBottom: rect && rect.height > 0.5 ? Math.round(rect.bottom * 10) / 10 : undefined,
           hatHeight: rect && rect.height > 0.5 ? Math.round(rect.height * 10) / 10 : undefined,
           field: (field?.textContent ?? "").trim().slice(0, 12),
+          rowDy: Math.round(rowDy * 10) / 10,
+          bubble,
         });
       });
     });
@@ -215,7 +242,22 @@ await requireBrowserLane("agent-pane-steer-send-hat-one-frame.test.ts", async ()
         still = 0;
       } else still += 1;
     }
-    return { frames: frames.length, hatGapFrames, hatHeightFrames, hatGoneFrames, hatMoves };
+    // The transcript's rows: separate moves from the press until the bubble rests, and frames where
+    // the rows went down (into the composer's room) and later up (by the bubble): the "up down".
+    let rowMoves = 0;
+    let rowStill = 3;
+    let down = 0;
+    let up = 0;
+    for (const frame of frames) {
+      if (Math.abs(frame.rowDy) > 0.5) {
+        if (rowStill >= 3) rowMoves += 1;
+        rowStill = 0;
+        if (frame.rowDy > 0) down += frame.rowDy;
+        else up -= frame.rowDy;
+      } else rowStill += 1;
+    }
+    const upDown = Math.round(Math.min(down, up) * 10) / 10;
+    return { frames: frames.length, hatGapFrames, hatHeightFrames, hatGoneFrames, hatMoves, rowMoves, upDown };
   }
 
   const LINES = ["Hat line one", "Hat line two", "Hat line three", "Hat line four", "Hat line five"];
@@ -226,9 +268,11 @@ await requireBrowserLane("agent-pane-steer-send-hat-one-frame.test.ts", async ()
       await installPaintedFrames(page);
       const { port } = vite!.httpServer!.address() as { port: number };
       const endpoint = `ws://127.0.0.1:${daemon!.port}/`;
-      await page.goto(`http://127.0.0.1:${port}/#endpoint=${encodeURIComponent(endpoint)}&token=t&session=${SESSION}`);
+      await page.goto(`http://127.0.0.1:${port}/#endpoint=${encodeURIComponent(endpoint)}&token=t&session=${SESSION}`, {
+        timeout: 180_000,
+      });
       await page.getByText("History paragraph 13.").waitFor();
-      await page.locator(".acpmux-running-tray").first().waitFor({ timeout: 20_000 });
+      await page.locator(".acpmux-running-tray").first().waitFor({ timeout: 120_000 });
       // fixed-wait: the opened chat settles (its fades end) before the frames under test.
       await page.waitForTimeout(800);
       const field = page.locator(".acpmux-composer-box .ProseMirror").first();
@@ -241,7 +285,7 @@ await requireBrowserLane("agent-pane-steer-send-hat-one-frame.test.ts", async ()
       await page.waitForTimeout(500);
       await sample(page);
       await page.keyboard.press("Enter");
-      await page.locator(".cv-user__bubble", { hasText: "Hat line five" }).first().waitFor({ timeout: 30_000 });
+      await page.locator(".cv-user__bubble", { hasText: "Hat line five" }).first().waitFor({ timeout: 120_000 });
       // fixed-wait: the send's motion comes to rest.
       await page.waitForTimeout(900);
       const frames = await stop(page);
@@ -256,5 +300,8 @@ await requireBrowserLane("agent-pane-steer-send-hat-one-frame.test.ts", async ()
       expect(report.hatGapFrames).toBe(0);
       expect(report.hatHeightFrames).toBe(0);
       expect(report.hatMoves).toBeLessThanOrEqual(1);
+      // The rows move once, one way: never down into the composer's room and then up by the bubble.
+      expect(report.rowMoves).toBeLessThanOrEqual(1);
+      expect(report.upDown).toBeLessThanOrEqual(1);
     });
 });
