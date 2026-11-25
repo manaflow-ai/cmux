@@ -126,7 +126,7 @@ public struct WorkspacesList: View {
         self.open = open
     }
 
-    /// The listed Macs: one per computer, whatever builds run on it (`MacRoster`).
+    /// The listed Macs: every cmux build as its own Mac (`MacRoster`).
     private var macs: [MacDevice] { macText.roster(store.activeTeam).visible }
     /// A remembered Mac that is no longer listed reads as All Macs.
     var scope: MacScope { MacFilter.resolve(filter.scope(in: store.activeTeam), macs: macs) }
@@ -426,6 +426,7 @@ public struct WorkspacesList: View {
         ScrollView { SkeletonList(rows: 6, leadingSquare: nil, caption: caption, style: .plainList, captionPlacement: .spoken) }
             .scrollDisabled(true)
             .accessibilityIdentifier("workspaces.loading")
+            .loadProbePlaceholder()
             .placeholderBound("workspaces.skeleton", .milliseconds(2000))
     }
 
@@ -654,6 +655,7 @@ public struct WorkspacesList: View {
                                  style: .plainList, captionPlacement: .spoken)
                 .allowsHitTesting(false)
                 .accessibilityIdentifier("workspaces.loading")
+                .loadProbePlaceholder()
                 .placeholderBound("workspaces.page.skeleton", .milliseconds(2000)))
         }
     }

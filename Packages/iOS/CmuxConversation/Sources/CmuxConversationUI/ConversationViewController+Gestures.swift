@@ -251,7 +251,7 @@ extension ConversationViewController: UIGestureRecognizerDelegate {
         // growing bubble stops.
         collectionView.panGestureRecognizer.isEnabled = false
         collectionView.panGestureRecognizer.isEnabled = true
-        UIImpactFeedbackGenerator(style: .medium).impactOccurred()
+        ConversationHaptics.impact(.medium)
         showActions(overlay)
     }
 
