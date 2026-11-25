@@ -318,6 +318,16 @@ impl Resolve for Gate {
     }
 }
 
+/// Whether the seeded-secret capture is on (feature `capture`): a caller that
+/// sets its own TLS configuration keeps the builder's capture CA instead.
+pub fn capturing() -> bool {
+    #[cfg(feature = "capture")]
+    if capture::root().is_some() {
+        return true;
+    }
+    false
+}
+
 /// A builder with the capture CA trusted when capture is on (feature `capture`).
 fn trusting_capture(builder: reqwest::ClientBuilder) -> reqwest::ClientBuilder {
     #[cfg(feature = "capture")]
