@@ -1,5 +1,5 @@
 {
-  "comment": "The web host's first load (scripts/cmux-next/build-web-host.sh; first-load-size.mjs): gzip -9 bytes of index.html and every script, modulepreload and stylesheet it loads up front. Measured 2547963 bytes (72 files: pane.js 952779, its preloaded chunks, pane.css 223812, locales/en.js) on 2026-11-24 at feat-cmux-next c2b7ec92a37; the budget is that plus 3%. Raise it only with a reason in the pull request; the chat path's split from the rest is the planned way down (cmuxterm-hq docs/rfd/0083-cmux-web-client.md).",
-  "measuredGzipBytes": 2547963,
-  "gzipBytes": 2624402
+  "comment": "The web host's first load (scripts/cmux-next/build-web-host.sh; first-load-size.mjs): gzip -9 bytes of index.html and every script, modulepreload and stylesheet it loads up front. Measured 2655334 bytes (85 files: pane.js, its preloaded chunks, pane.css, locales/en.js) on 2026-11-25 in CI at feat-cmux-next 01575143a16 (up from 2547963 bytes, 72 files, on 2026-11-24: base's own growth); the budget is that plus 3%. Raise it only with a reason in the pull request; the chat path's split from the rest is the planned way down (cmuxterm-hq docs/rfd/0083-cmux-web-client.md).",
+  "measuredGzipBytes": 2655334,
+  "gzipBytes": 2734994
 }

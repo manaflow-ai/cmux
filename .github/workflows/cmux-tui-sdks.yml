@@ -20,6 +20,7 @@ on:
     paths:
       - "Packages/macOS/CmuxNext/Sources/CmuxNextSettingsWindow/Localizable.xcstrings"
       - "schemas/agent-pane/stylesheet-guard.json"
+      - "schemas/deeplinks/web-routes.json"
       - "schemas/settings/source/general.json"
       - "webviews/src/apps/scene/extTemplateScenes.json"
       - "schemas/type-scale/scene-type.json"
@@ -201,6 +202,7 @@ on:
     types: [opened, synchronize, reopened, ready_for_review]
     paths:
       - "schemas/agent-pane/stylesheet-guard.json"
+      - "schemas/deeplinks/web-routes.json"
       - "Packages/macOS/CmuxNext/Sources/CmuxNextSettingsWindow/Localizable.xcstrings"
       - "schemas/settings/source/general.json"
       - "webviews/src/apps/scene/extTemplateScenes.json"

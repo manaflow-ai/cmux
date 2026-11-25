@@ -29,6 +29,7 @@ on:
   pull_request:
     branches: [feat-cmux-next]
     paths:
+      - "schemas/deeplinks/web-routes.json"
       - "Packages/macOS/CmuxNext/Sources/CmuxNextSettingsWindow/Localizable.xcstrings"
       - "schemas/settings/source/general.json"
       - "schemas/type-scale/scene-type.json"
