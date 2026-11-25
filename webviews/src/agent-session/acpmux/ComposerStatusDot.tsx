@@ -14,7 +14,7 @@
 // it never blocks a send. design/composer-status-dot.md.
 import { useCallback, useEffect, useId, useState, type PointerEvent as ReactPointerEvent } from "react";
 import { experimentArm } from "../../experiments/experiment";
-import { HOVER_INTENT, HoverBridge, StatusCard, Keycap, focusAfterEscape, tooltipsWarm } from "./composerStatusCard";
+import { HOVER_INTENT, HoverBridge, StatusCard, KeyHint, focusAfterEscape, tooltipsWarm } from "./composerStatusCard";
 import { composerFooterFacts } from "./composerFooterFacts.experiment";
 import { composerMachineAtRest } from "./composerMachineAtRest.experiment";
 import {
@@ -557,7 +557,7 @@ export function ComposerStatusDot({
             </dl>
           ) : null}
           <div className="acpmux-status-hint" data-shown={state === "pinned" ? "" : undefined}>
-            <Keycap>{ESC}</Keycap>
+            <KeyHint keys={ESC} aria-hidden="true" />
             {t("contextScreen.close")}
           </div>
         </div>
