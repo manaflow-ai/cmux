@@ -570,7 +570,8 @@
         "experiments.terminalHistory",
         "experiments.quietConnect",
         "experiments.threadMinimapRestReveal",
-        "experiments.forum"
+        "experiments.forum",
+        "experiments.browserProfileCard"
       ]
     },
     {
