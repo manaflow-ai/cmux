@@ -9107,7 +9107,7 @@ button.cv-worked.is-toggle:is(:hover, :focus-visible) * {
 }
 /* The label and its chevron, hugging (#55615), and an unseen copy of them at the widest time in the
    same cell: the cell is as wide as the wider, so the slack while the seconds tick sits after the
-   chevron. test: WorkingForChevron.test.tsx, test/working-for-chevron-hug.test.ts. */
+   chevron. test: WorkingForChevron.test.tsx, test/turn-header-steady-browser.test.ts. */
 .cv-worked__hug,
 .cv-worked__toggle-sizer {
   grid-area: 1 / 1;
