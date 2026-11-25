@@ -29,7 +29,9 @@ GLOBAL_INPUTS = (
     "scripts/ci/ci_process_tree.py",
     "scripts/ci/compile_test_plan.py",
     "scripts/ci/ensure-web-bundles.sh",
+    "scripts/ci/fleet-test-products.py",
     "scripts/ci/hung_test_watchdog.py",
+    "scripts/ci/ios_ffi_cache.py",
     "scripts/ci/owned_spm_scratch.py",
     "scripts/ci/package_input_key.py",
     "scripts/ci/package_interface_fingerprint.py",
@@ -57,6 +59,7 @@ GLOBAL_INPUTS = (
     "scripts/select-ci-xcode.sh",
     "scripts/ci/xcode-pins.txt",
     ".xcode-version",
+    "cmux-next-ios/rust/scripts/build-xcframework.sh",
     "ghostty",
 )
 
