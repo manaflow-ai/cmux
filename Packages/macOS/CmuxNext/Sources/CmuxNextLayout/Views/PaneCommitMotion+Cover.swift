@@ -143,6 +143,7 @@ extension PaneCommitMotion {
     /// the pane under.
     func cover(_ hosts: [PaneHostView], under changes: [Change], _ token: MotionSpring) {
         let several = changes.count > 1
+        if !several, let change = changes.first { carryMoves(of: change, toTheMasksOf: hosts) }
         let bare = changes.filter { change in !sheets.contains { $0.host === change.host } }
         var stale = covers.filter { entry in
             let had = entry.value
@@ -191,6 +192,60 @@ extension PaneCommitMotion {
             window(layer, token, from: start, to: end, over: base)
             covers[id] = (host: host, frame: frame, window: end, acts: acts)
             stale[id] = nil
+        }
+    }
+
+    /// The one pane that moves (`change`) can still have the moves of acts before on its layer: a second key in a
+    /// move. The hole of a mask that ``cut(_:by:_:)`` made in this act goes with this act's move alone, so it was
+    /// ahead of the pane by what is left of those moves, and a pane of `hosts` (the panes under it) was cut in a band
+    /// outside the pane over it. Each part of such a mask gets a copy of each of those moves, with the part's own
+    /// distance. A copy is the move's own animation with other values: its spring, its duration, its start time and
+    /// its key are the move's, and none of them is from this act's clock. So the hole is the pane's rect at each time.
+    /// A pane that moves from rest has no such move: it gets no animation and no layer here. The pane's own window
+    /// of an act before (``cover(_:under:_:)``) is no move, and is not copied.
+    ///
+    /// The limit that stays: a mask whose parts have moves of that act gets nothing. A mask that the same pane cut in
+    /// that act has them from there (a zoom, then its unzoom). A mask that an act before made under ANOTHER pane keeps
+    /// the moves of that pane's hole, as before: its hole is not at this pane's rect until those moves end.
+    private func carryMoves(of change: Change, toTheMasksOf hosts: [PaneHostView]) {
+        guard let layer = change.host.layer else { return }
+        let own = ((covers[ObjectIdentifier(change.host)]?.acts ?? []) + [serial]).map { "pane.commit.\($0)." }
+        var before: [String: (point: CGPoint, size: CGSize, like: CABasicAnimation)] = [:]
+        for key in layer.animationKeys() ?? [] where key.hasPrefix("pane.commit.") && !own.contains(where: { key.hasPrefix($0) }) {
+            guard let path = ["position", "bounds.size"].first(where: { key.hasSuffix("." + $0) }),
+                  let animation = layer.animation(forKey: key) as? CABasicAnimation, animation.isAdditive,
+                  let from = animation.fromValue as? NSValue else { continue }
+            let act = String(key.dropLast(path.count))
+            var had = before[act] ?? (point: CGPoint.zero, size: CGSize.zero, like: animation)
+            if path == "position" { had.point = from.pointValue } else { had.size = from.sizeValue }
+            before[act] = had
+        }
+        let anchor = layer.anchorPoint
+        for (act, had) in before {
+            // The pane with that move alone is `far` from its place and `had.size` larger. A part's distance does not
+            // depend on where the hole is or on the extent: a hole with room for that change gives it.
+            let far = CGPoint(x: had.point.x - anchor.x * had.size.width, y: had.point.y - anchor.y * had.size.height)
+            let hole = CGRect(x: 0, y: 0, width: abs(had.size.width) + 1, height: abs(had.size.height) + 1)
+            let then = CGRect(x: far.x, y: far.y, width: hole.width + had.size.width, height: hole.height + had.size.height)
+            let starts = PaneHoleMaskLayer.rects(around: then, in: hole.union(then)), ends = PaneHoleMaskLayer.rects(around: hole, in: hole.union(then))
+            for host in hosts {
+                guard let parts = (host.clipView.layer?.mask as? PaneHoleMaskLayer)?.sublayers, parts.count == ends.count,
+                      !parts.contains(where: { part in (part.animationKeys() ?? []).contains { $0.hasPrefix(act) } }) else { continue }
+                for (part, (start, end)) in zip(parts, zip(starts, ends)) {
+                    let size = CGSize(width: start.width - end.width, height: start.height - end.height), spot = part.anchorPoint
+                    let point = CGPoint(x: start.minX - end.minX + spot.x * size.width, y: start.minY - end.minY + spot.y * size.height)
+                    let values = [("position", point != .zero, NSValue(point: point), NSValue(point: .zero)),
+                                  ("bounds.size", size != .zero, NSValue(size: size), NSValue(size: .zero))]
+                    for (path, isFar, from, to) in values where isFar {
+                        guard let copy = had.like.copy() as? CABasicAnimation else { continue }
+                        copy.keyPath = path
+                        copy.fromValue = from
+                        copy.toValue = to
+                        part.add(copy, forKey: act + path)
+                        moved.append((layer: part, key: act + path))
+                    }
+                }
+            }
         }
     }
 
