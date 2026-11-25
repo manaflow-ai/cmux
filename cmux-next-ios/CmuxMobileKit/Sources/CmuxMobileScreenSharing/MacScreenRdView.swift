@@ -36,6 +36,7 @@ struct MacScreenRdView: View {
         switch model.phase {
         case .connecting:
             label(String(localized: "Connecting to \(title)…"))
+                .placeholderBound("screenSharing.rd.connecting", .milliseconds(2000))
         case let .waiting(reason):
             label(reason)
         case .live, .unavailable:
