@@ -679,6 +679,11 @@ fn the_check_of_a_file_that_is_no_store_answers_as_before() {
 /// writes those rows itself: the store then holds the number 15.
 const ROWS_DUE: i64 = 16;
 
+/// Words of the error that the check gives when its look at the 2 names (the
+/// session's folder and the store) finds a link, before it asks a guard. No
+/// other error of the check has these words.
+const THE_WORDS_OF_THE_LOOK: &str = "the store or its session folder is reached through a link";
+
 /// A name that the reset command gives the folder of a session before it
 /// deletes it: the exact form, with the kind and a UUID of version 4.
 const LEFT_BY_A_RESET: &str =
@@ -740,6 +745,11 @@ fn the_time_and_the_folder_of(file: &Path) -> ((i64, i64), Vec<(String, u64)>) {
 /// The times of the other files are not compared: the check reads the
 /// number of a store whose name is a link with a plain read, and a plain
 /// read writes the `-shm` file again.
+///
+/// The error must be the error of the check's look at the 2 names
+/// ([`THE_WORDS_OF_THE_LOOK`]). An error of the guard question or of the
+/// write names the session's folder too and writes nothing, so without these
+/// words such an error passes the row.
 fn the_check_is_an_error_and_writes_nothing_through_the_link(
     folder: &Path,
     state: &Path,
@@ -763,6 +773,10 @@ fn the_check_is_an_error_and_writes_nothing_through_the_link(
     );
     let session = name.parent().unwrap().file_name().unwrap().to_string_lossy().into_owned();
     assert!(stderr.contains(&session), "the error does not name the session's folder: {stderr}");
+    assert!(
+        stderr.contains(THE_WORDS_OF_THE_LOOK),
+        "the error is not the error of the look at the 2 names: {stderr}"
+    );
 }
 
 /// The registry's name in the session's folder is a link to a store file at

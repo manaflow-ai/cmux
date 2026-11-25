@@ -388,13 +388,15 @@ fn in_reset(session: &Path) -> bool {
 /// second call of the reset command that comes after it refuses one time,
 /// and the first call gives a new text then.
 ///
-/// A registry at 16 that is reached through a link gets no guard question
-/// and no write, and the check ends with an error ([`reached_with_no_link`]).
+/// A registry at 16 whose name is a link or whose session folder is a link,
+/// in a folder that is not a reset's folder, gets no guard question and no
+/// write, and the check ends with an error ([`reached_with_no_link`]).
 /// The guard has the name of the session folder, and SQLite's open for the
 /// write follows a link: the write would go into a file of another folder,
 /// under a guard that is not the guard of that file. The limit: the look at
 /// the 2 names and the open for the write are 2 steps, and a name that
-/// becomes a link between them is followed.
+/// becomes a link between them is followed. The look also does not see a
+/// store file that has 2 names (a hard link): the write goes into that file.
 ///
 /// A folder whose name is exactly a name that the reset command gives
 /// ([`is_pending_reset_dir_name`]: the kind and the canonical id) has no
