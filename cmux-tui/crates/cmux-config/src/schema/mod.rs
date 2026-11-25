@@ -153,6 +153,10 @@ pub enum Validation {
 pub enum DomainKind {
     Theme,
     FontFamily,
+    /// `appearance.appFont`: any installed font family, proportional ones too
+    /// (the terminal rows' `font_family` domain is the fixed-pitch families);
+    /// the app does not publish this list, so the owner checks the shape only.
+    UiFontFamily,
     Sound,
     /// `appearance.background`: a listed choice or `system:<absolute path>`
     /// (Swift `BackdropSelectionSetting.accepts`; each Mac has its own
@@ -190,6 +194,9 @@ pub enum DomainKind {
     /// `agentPane.display.commandLabels`: a list of preset names and command
     /// label rules (Swift `CommandLabelsSetting.accepts`).
     CommandLabels,
+    /// `agentPane.display.thinking.glyph`: a `cmux.particles/1` document, checked by the one
+    /// validator (cmux-app-host `particles::validate`) that also checks scene `choreography` props.
+    ParticlesDocument,
     /// `agentPane.display.transcriptTokens`: an object of transcript look
     /// tokens, each in its range (`crate::transcript_look`; Swift
     /// `TranscriptTokensSetting.accepts` checks the shape only).
@@ -519,6 +526,7 @@ fn row(raw: Value, text: RowText) -> Result<Row, String> {
         "portable" => Validation::Portable,
         "domain:theme" => Validation::Domain(DomainKind::Theme),
         "domain:font_family" => Validation::Domain(DomainKind::FontFamily),
+        "domain:ui_font_family" => Validation::Domain(DomainKind::UiFontFamily),
         "domain:sound" => Validation::Domain(DomainKind::Sound),
         "domain:backdrop_selection" => Validation::Domain(DomainKind::BackdropSelection),
         "domain:backdrop_picture" => Validation::Domain(DomainKind::BackdropPicture),
@@ -532,6 +540,7 @@ fn row(raw: Value, text: RowText) -> Result<Row, String> {
         "domain:custom_densities" => Validation::Domain(DomainKind::CustomDensities),
         "domain:command_labels" => Validation::Domain(DomainKind::CommandLabels),
         "domain:app_id" => Validation::Domain(DomainKind::AppId),
+        "domain:particles_document" => Validation::Domain(DomainKind::ParticlesDocument),
         "domain:sidebar_row_lines" => Validation::Domain(DomainKind::SidebarRowLines),
         "domain:sidebar_row_lines_by_kind" => Validation::Domain(DomainKind::SidebarRowLinesByKind),
         "domain:sidebar_row_lines_by_agent" => {

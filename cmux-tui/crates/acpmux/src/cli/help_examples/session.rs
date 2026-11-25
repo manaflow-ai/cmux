@@ -166,6 +166,17 @@ pub(super) const EXAMPLES: &[(&str, &[Example])] = &[
         ],
     ),
     (
+        "session rebalance",
+        &[
+            (
+                "Say which chats would leave this over-full machine, and where",
+                "acpmux session rebalance --dry-run",
+            ),
+            ("Move them, at most two this pass", "acpmux session rebalance --max-moves 2"),
+            ("Move one back", "acpmux session rebalance --undo rb-1790000000000-0"),
+        ],
+    ),
+    (
         "session move",
         &[
             (
