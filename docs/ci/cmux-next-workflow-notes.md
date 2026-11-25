@@ -5087,3 +5087,28 @@ So placement reads the controller's `/v1/status` (`step_queue_wait_p90_seconds.l
 cmux-next-tab-switch.yml's admission. Past 1200 s it lists no fleet job: fast-tier-fleet is skipped and
 `cmux-next fast tier` keeps the route the cascade gave it, with the reason in placement's summary. The
 gateway job still runs nothing but the client. An unreadable status lists the job as before (fail open).
+
+## note-559
+
+Above the fast-tier-cargo job's env in `.github/workflows/cmux-next.yml`, its "List the changed paths" and run
+steps, and `scope()` in `scripts/cmux-next/fast-tier.py`.
+
+Leo, 2026-11-21: "de facto, im asking for 99% fewer minutes of ci time, period." A pull request into
+feat-cmux-next runs only the fast tier entries, and the compiles, its change reaches; the full run moved into
+the post-merge batch (suite `fast-tier`, cmux-next-fast-tier-batch.yml), where the judge bisects a red to its
+commit.
+
+`fast-tier.py --changed-files` picks the entries: a cargo entry when the change reaches its crate's inputs in
+affected_jobs.py's crate graph (or the workspace inputs, or fast_tier_cargo_route.py's LINKED); a CmuxNext
+suite when cmux_next_route.py routes the change to it (full, all tests, the fast registry, a priority suite or
+its test targets); another swift package when the change is under it or a local `.package(path:)` it depends
+on; a script entry when the change is under its folder. A cargo compile still runs when the change reaches the
+job's inputs, so a broken build is still caught on the pull request. An unreadable list, the `full-ci` label, a
+change to fast-tier.py, its registry or its quarantine, or a routing error runs every entry.
+
+fast-tier-cargo writes the merge commit's first-parent diff and adds its hash to the job-reuse fingerprint
+(`--extra scope=...`), so a scoped pass is never reused for a full one. The Mac fast tier step
+(ci/steps.toml `mac-fast-tier`) passes `CI_PATHS_FILE` when no FFI repin selected its own suites. Pushes to
+feat-cmux-next still run every entry.
+
+The switch: `vars.CI_FAST_TIER_PR_SCOPE` set to `0` runs every entry on the pull request again (both jobs).
