@@ -1,5 +1,5 @@
 // u2647 follow-up: the image viewer's icon buttons name the key that presses them, to VoiceOver
-// (aria-keyshortcuts) and in the tooltip, as every dialog button does: Close ⎋, Previous ←, Next →.
+// (aria-keyshortcuts) and in the tooltip, as every dialog button does: Close esc, Previous ←, Next →.
 import { afterAll, afterEach, expect, test } from "bun:test";
 import { settleReact } from "../../../../test/support/domTeardown";
 import { act } from "react";
@@ -101,7 +101,7 @@ test("the image viewer's Close, Previous and Next name their keys", () => {
     labels.find((l) => /next/i.test(l))!,
   );
   for (const [element, aria, glyph] of [
-    [close, "Escape", "⎋"],
+    [close, "Escape", "esc"],
     [previous, "ArrowLeft", "←"],
     [next, "ArrowRight", "→"],
   ] as const) {

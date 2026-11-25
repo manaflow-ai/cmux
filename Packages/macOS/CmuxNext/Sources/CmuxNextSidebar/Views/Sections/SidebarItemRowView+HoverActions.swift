@@ -18,8 +18,11 @@ extension SidebarItemRowView {
     /// Places the controls on hover and keeps the title and the trailing marks clear of them.
     func layoutHoverActions(in b: NSRect) {
         let shown = showsHoverActions
+        // Last, shown or not: no two icons share a box (Leo 2026-11-22: "fucking overlapping icons"), whatever the
+        // alphas below say.
+        defer { clearMarksMeetingIcons(keep: [hoverMore, hoverUnpin], marks: [rowBadge, badge, activity, taskCount], fades: false) }
         if shown, hoverMore == nil, onMore != nil {
-            let button = OverflowButton(label: Strings.workspaceMenu)
+            let button = OverflowButton.rowControl(label: Strings.workspaceMenu)
             button.onPress = { [weak self] in self?.onMore?() }
             addSubview(button)
             hoverMore = button
@@ -40,7 +43,7 @@ extension SidebarItemRowView {
         let unpins = shown && hoverMore != nil && onUnpin != nil && isPinned?() == true
         if unpins, hoverUnpin == nil {
             // Unpin is an action, so it draws the struck-through pin, never the filled pinned mark (`applyPin`).
-            let button = SidebarIconButton(icon: .browserToolbarUnpin, pointSize: { Metrics.smallIconSize - Metrics.space2 }, label: Strings.unpinWorkspace)
+            let button = SidebarIconButton.rowControl(icon: .browserToolbarUnpin, label: Strings.unpinWorkspace)
             button.onPress = { [weak self] in self?.onUnpin?() }
             if let workspace = info.workspace { button.setAccessibilityIdentifier("cmux.sidebar.workspace.\(workspace.rawValue).pin") }
             addSubview(button)

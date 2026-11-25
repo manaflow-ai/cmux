@@ -434,6 +434,39 @@ fn a_hibernation_and_its_wake_draw_no_row() {
     assert_eq!(t.items.len(), 2, "{:?}", t.items);
 }
 
+/// An agent that quit on its own reads as an exit with its reason, never as "agent stopped"; a Stop still reads "agent stopped" (Leo, 2026-11-21: "i dont
+/// think 429 should just cause a process to just exit on its own, this is pretty weird").
+#[test]
+fn an_exit_nobody_asked_for_says_why_and_never_reads_as_a_stop() {
+    let mux = |seq: u64, kind: &str, msg: Value| json!({"seq": seq, "at": 1_000 + seq, "dir": "mux", "kind": kind, "msg": msg});
+    let mut t = Transcript::default();
+    let line =
+        "API Error: Request rejected (429) · This request would exceed your account's rate limit";
+    t.apply_event(&mux(1, "exited", json!({"code": 0, "reason": "rate_limit", "error": line})));
+    t.apply_event(&mux(2, "exited", json!({"code": 0})));
+    t.apply_event(&mux(3, "stopped", json!({"code": 0})));
+    let texts: Vec<String> = t
+        .items
+        .iter()
+        .filter_map(|i| match i {
+            Item::Status { text } => Some(text.clone()),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(
+        texts,
+        [
+            format!(
+                "agent exited unexpectedly (code 0, rate limited): {line}; the next message resumes it"
+            ),
+            "agent exited unexpectedly (code 0); the next message resumes it".to_owned(),
+            "agent stopped".to_owned(),
+        ]
+    );
+    // The TUI shows every status that starts so with system chatter hidden (`tui/render`).
+    assert!(texts[..2].iter().all(|t| t.starts_with("agent exited unexpectedly")));
+}
+
 fn user(seq: u64, text: &str) -> Value {
     json!({"seq": seq, "at": 1_000 + seq, "dir": "mux", "kind": "user_message", "msg": {"text": text}})
 }
