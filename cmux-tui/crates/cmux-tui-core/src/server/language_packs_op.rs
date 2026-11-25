@@ -35,7 +35,7 @@ pub(super) fn handle(
     let limit = json!({"limit": MAX_WORKERS});
     let busy = || ResourceError::operation_failed(operation.wire_name(), "busy", limit.clone());
     if WORKERS
-        .fetch_update(Ordering::AcqRel, Ordering::Acquire, |n| {
+        .try_update(Ordering::AcqRel, Ordering::Acquire, |n| {
             (n < MAX_WORKERS).then(|| n.saturating_add(1))
         })
         .is_err()

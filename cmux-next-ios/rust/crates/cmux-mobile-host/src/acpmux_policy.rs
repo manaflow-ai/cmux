@@ -587,7 +587,7 @@ mod tests {
             ),
         ] {
             let terminal = json!({"id":"terminal","session":blocked,"session_id":"main"});
-            let message = json!({"id":1,"data":{key:[hidden,shown.clone(),terminal.clone()]}});
+            let message = json!({"id":1,"data":{key:[hidden,shown,terminal]}});
             let filtered: Value =
                 serde_json::from_str(&filter_daemon_response(&message.to_string(), &state).unwrap()).unwrap();
             assert_eq!(filtered["data"][key], json!([shown, terminal]));

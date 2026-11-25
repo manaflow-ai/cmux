@@ -612,7 +612,7 @@ impl AppVm {
         let _ = self
             .gate
             .skipped
-            .fetch_update(Ordering::Relaxed, Ordering::Relaxed, |s| Some(s.saturating_add(by)));
+            .try_update(Ordering::Relaxed, Ordering::Relaxed, |s| Some(s.saturating_add(by)));
     }
 
     /// Why the VM died, if it did. A dead VM refuses every entry.

@@ -22,7 +22,7 @@ impl Budget {
     fn take(self: &Arc<Self>, size: usize, terminal: bool) -> Option<Ticket> {
         let limit = if terminal { BOUND } else { BOUND - RESERVE };
         self.0
-            .fetch_update(Ordering::AcqRel, Ordering::Acquire, |held| {
+            .try_update(Ordering::AcqRel, Ordering::Acquire, |held| {
                 held.checked_add(size).filter(|n| *n <= limit)
             })
             .ok()?;

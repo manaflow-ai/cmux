@@ -39,7 +39,7 @@ fn next_rand() -> u64 {
         x ^= x << 17;
         x
     };
-    let old = SEED.fetch_update(Relaxed, Relaxed, |x| Some(step(x))).unwrap_or(1);
+    let old = SEED.try_update(Relaxed, Relaxed, |x| Some(step(x))).unwrap_or(1);
     step(old)
 }
 

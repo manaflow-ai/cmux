@@ -107,7 +107,7 @@ fn answer_http(mut connection: std::net::TcpStream, store: &Store) {
             let blobs = store.blobs.lock().unwrap();
             if store
                 .refuse_roots
-                .fetch_update(Ordering::SeqCst, Ordering::SeqCst, |left| left.checked_sub(1))
+                .try_update(Ordering::SeqCst, Ordering::SeqCst, |left| left.checked_sub(1))
                 .is_ok()
             {
                 ("503 Service Unavailable", b"{}".to_vec())
@@ -200,7 +200,7 @@ fn serve_machine(
                         let answer = blob_fetch::answer_line(Some(fetch), true, &line);
                         if cmd == "blob.fetch.start"
                             && lose_starts
-                                .fetch_update(Ordering::SeqCst, Ordering::SeqCst, |left| {
+                                .try_update(Ordering::SeqCst, Ordering::SeqCst, |left| {
                                     left.checked_sub(1)
                                 })
                                 .is_ok()

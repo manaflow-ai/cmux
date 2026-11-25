@@ -117,7 +117,7 @@ impl SendGate {
 
     /// The send after `queued(bytes)` failed: the driver never got them.
     pub(crate) fn unqueued(&self, bytes: usize) {
-        let _ = self.queued.fetch_update(Ordering::SeqCst, Ordering::SeqCst, |queued| {
+        let _ = self.queued.try_update(Ordering::SeqCst, Ordering::SeqCst, |queued| {
             Some(queued.saturating_sub(bytes))
         });
     }
@@ -125,7 +125,7 @@ impl SendGate {
     /// The driver moved `bytes` from the stream into the socket.
     pub(crate) fn moved(&self, bytes: usize) {
         self.unsent.fetch_add(bytes, Ordering::SeqCst);
-        let _ = self.queued.fetch_update(Ordering::SeqCst, Ordering::SeqCst, |queued| {
+        let _ = self.queued.try_update(Ordering::SeqCst, Ordering::SeqCst, |queued| {
             Some(queued.saturating_sub(bytes))
         });
     }

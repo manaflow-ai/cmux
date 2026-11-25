@@ -19,8 +19,8 @@
 # The same for the toolchain itself. `rustup toolchain install` also syncs the
 # channel manifest on every call, installed or not: the nightly's Chief step
 # failed on exactly that (run 43180668014, 2026-11-12: "could not download file
-# from 'https://static.rust-lang.org/dist/channel-rust-1.95.0.toml.sha256' ...
-# Operation timed out" with 1.95.0 on disk). This reads `rustup toolchain list`
+# from 'https://static.rust-lang.org/dist/channel-rust-1.100.0.toml.sha256' ...
+# Operation timed out" with 1.100.0 on disk). This reads `rustup toolchain list`
 # (local) first and installs only a missing toolchain, with the same bounded
 # retry. A toolchain that is listed but lacks a component asked for with
 # --component is still installed (rustup adds the component).

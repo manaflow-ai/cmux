@@ -1150,11 +1150,9 @@ impl webrtc::util::Conn for BlockableUdp {
             && self
                 .block
                 .drop_allocate_successes
-                .fetch_update(
-                    std::sync::atomic::Ordering::Relaxed,
-                    std::sync::atomic::Ordering::Relaxed,
-                    |n| n.checked_sub(1),
-                )
+                .try_update(std::sync::atomic::Ordering::Relaxed, std::sync::atomic::Ordering::Relaxed, |n| {
+                    n.checked_sub(1)
+                })
                 .is_ok()
         {
             return Ok(buf.len());

@@ -219,7 +219,7 @@ impl MeshHub for FakeHub {
                 return Err(HubError::refused("401 mesh.unauthorized"));
             }
             let left = std::sync::atomic::Ordering::SeqCst;
-            if self.refused_beats.fetch_update(left, left, |n| n.checked_sub(1)).is_ok() {
+            if self.refused_beats.try_update(left, left, |n| n.checked_sub(1)).is_ok() {
                 return Err(HubError { status: Some(403), ..HubError::refused("403 forbidden") });
             }
             Ok(HeartbeatReply {

@@ -252,8 +252,8 @@ impl PeerLists {
     /// The loop took a list of `bytes`. Saturating: a test may send a list no link counted.
     pub fn taken(&self, bytes: u64) {
         let less = |by: u64| move |v: u64| Some(v.saturating_sub(by));
-        let _ = self.lists.fetch_update(Ordering::Relaxed, Ordering::Relaxed, less(1));
-        let _ = self.bytes.fetch_update(Ordering::Relaxed, Ordering::Relaxed, less(bytes));
+        let _ = self.lists.try_update(Ordering::Relaxed, Ordering::Relaxed, less(1));
+        let _ = self.bytes.try_update(Ordering::Relaxed, Ordering::Relaxed, less(bytes));
     }
 
     fn status(&self) -> Value {
@@ -316,7 +316,7 @@ impl Held {
 impl Drop for Held {
     fn drop(&mut self) {
         let less = |v: u64| Some(v.saturating_sub(1));
-        let _ = self.0.fetch_update(Ordering::Relaxed, Ordering::Relaxed, less);
+        let _ = self.0.try_update(Ordering::Relaxed, Ordering::Relaxed, less);
     }
 }
 
@@ -485,7 +485,7 @@ impl FanoutClock {
 
     fn taken_into(&self, ring: &Latencies) {
         let less = |left: usize| left.checked_sub(1);
-        if self.left.fetch_update(Ordering::AcqRel, Ordering::Acquire, less) == Ok(1) {
+        if self.left.try_update(Ordering::AcqRel, Ordering::Acquire, less) == Ok(1) {
             let sent = Duration::from_nanos(self.sent_ns.load(Ordering::Relaxed));
             if !sent.is_zero() {
                 ring.record(global().born.elapsed().saturating_sub(sent));

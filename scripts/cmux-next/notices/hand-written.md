@@ -1103,15 +1103,20 @@ with each release as `COPYRIGHT-library.html`. This app ships that file,
 unchanged and gzip-compressed (`gunzip` restores it byte for byte), for each
 rustc that built one of its binaries:
 
+- `Contents/Resources/toolchain-licenses/rust-1.100.0/COPYRIGHT-library.html.gz`:
+  source builds of `bin/cmux`, `bin/cmux-tui-ssh/*`, `bin/cmux-app-host`,
+  `bin/cmux-browser-host`, `bin/cmux-cloud`, `bin/cmux-mobile-host` and
+  `bin/cmux-diff-sidecar` using this checkout's toolchain
 - `Contents/Resources/toolchain-licenses/rust-1.95.0/COPYRIGHT-library.html.gz`:
-  `bin/cmux`, `bin/cmux-tui-ssh/*`, `bin/cmux-app-host`, `bin/cmux-cloud`,
-  `bin/cmux-mobile-host` and `Helpers/cmux-remote-browser-host.app`
+  the pinned cmux-tui binaries and `Helpers/cmux-remote-browser-host.app`;
+  updating a source toolchain does not replace these prebuilt artifacts
 - `Contents/Resources/toolchain-licenses/rust-1.91.0/COPYRIGHT-library.html.gz`:
   no binary in this app is known to be built by rustc 1.91.0 since the app
   stopped linking iroh-ffi; the reviewed file still ships, for any Rust
   binary built by that rustc
 - `Contents/Resources/toolchain-licenses/rust-1.98.1/COPYRIGHT-library.html.gz`:
-  `bin/cmux-diff-sidecar`
+  previously built `bin/cmux-diff-sidecar` binaries; source builds now use
+  this checkout's toolchain
 - `Contents/Resources/toolchain-licenses/rust-1.97.1/COPYRIGHT-library.html.gz`:
   `Library/cmux Remote (dev).app/Contents/Frameworks/libcua_driver_sdk.dylib`
   (the pinned upstream Cua Driver SDK)

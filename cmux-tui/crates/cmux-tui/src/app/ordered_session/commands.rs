@@ -381,7 +381,7 @@ impl OrderedSession {
     }
 
     pub(in crate::app) fn settle_split_ratio(&self) {
-        let _ = self.layout_resize_transaction.fetch_update(
+        let _ = self.layout_resize_transaction.try_update(
             Ordering::AcqRel,
             Ordering::Acquire,
             |transaction| Some(transaction.wrapping_add(1).max(1)),

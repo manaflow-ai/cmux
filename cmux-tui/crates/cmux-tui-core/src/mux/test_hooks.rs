@@ -71,7 +71,7 @@ impl Mux {
     #[cfg(test)]
     pub(crate) fn take_host_frames_spawn_failure_for_test(&self) -> bool {
         self.host_frames_spawn_failures
-            .fetch_update(Ordering::AcqRel, Ordering::Acquire, |left| left.checked_sub(1))
+            .try_update(Ordering::AcqRel, Ordering::Acquire, |left| left.checked_sub(1))
             .is_ok()
     }
 

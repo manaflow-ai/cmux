@@ -122,7 +122,7 @@ impl MarkLatch {
     pub fn take(&self) -> bool {
         use std::sync::atomic::Ordering::SeqCst;
         self.0
-            .fetch_update(SeqCst, SeqCst, |n| n.checked_sub(1))
+            .try_update(SeqCst, SeqCst, |n| n.checked_sub(1))
             .is_err()
     }
 

@@ -1265,10 +1265,9 @@ impl OutputStore {
             self.resident_total.fetch_add(current - previous, Ordering::AcqRel);
         } else {
             let shrunk = previous - current;
-            let _ =
-                self.resident_total.fetch_update(Ordering::AcqRel, Ordering::Acquire, |total| {
-                    Some(total.saturating_sub(shrunk))
-                });
+            let _ = self.resident_total.try_update(Ordering::AcqRel, Ordering::Acquire, |total| {
+                Some(total.saturating_sub(shrunk))
+            });
         }
     }
 

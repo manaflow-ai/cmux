@@ -53,7 +53,7 @@ impl<U: Underlay> DropInitiations<U> {
         datagram.first() == Some(&INITIATION)
             && self
                 .pending
-                .fetch_update(Ordering::SeqCst, Ordering::SeqCst, |left| left.checked_sub(1))
+                .try_update(Ordering::SeqCst, Ordering::SeqCst, |left| left.checked_sub(1))
                 .is_ok()
     }
 }

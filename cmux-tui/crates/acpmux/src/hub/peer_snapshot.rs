@@ -432,7 +432,7 @@ impl PeerSnapshots {
     /// [`Self::reserve`] within `bound`.
     fn reserve_within(&self, cost: u64, bound: u64) -> bool {
         let fits = |q: u64| (q + cost <= bound).then_some(q + cost);
-        self.queued.fetch_update(Ordering::AcqRel, Ordering::Acquire, fits).is_ok()
+        self.queued.try_update(Ordering::AcqRel, Ordering::Acquire, fits).is_ok()
     }
 
     fn dropped(&self) -> std::sync::MutexGuard<'_, Dropped> {

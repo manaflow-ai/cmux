@@ -90,7 +90,7 @@ impl FreshSessions {
     pub(super) fn take(&self) -> bool {
         use std::sync::atomic::Ordering;
         self.0
-            .fetch_update(Ordering::AcqRel, Ordering::Acquire, |spent| {
+            .try_update(Ordering::AcqRel, Ordering::Acquire, |spent| {
                 (spent < MAX_FRESH_SESSIONS).then_some(spent + 1)
             })
             .is_ok()

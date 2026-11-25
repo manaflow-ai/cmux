@@ -255,7 +255,7 @@ async fn pair(tag: &str, stalled: usize) -> Pair {
             && m == method::MUX_INFO
             && stall
                 .left
-                .fetch_update(Ordering::SeqCst, Ordering::SeqCst, |n| n.checked_sub(1))
+                .try_update(Ordering::SeqCst, Ordering::SeqCst, |n| n.checked_sub(1))
                 .is_ok();
         Box::pin(async move {
             if ours {

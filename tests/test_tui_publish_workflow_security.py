@@ -678,7 +678,7 @@ def test_credentialed_publishers_bind_immutable_preflight_artifacts() -> None:
 def test_rust_release_uses_pinned_cargo_and_verifies_packaged_sidebar() -> None:
     preflight = workflow("sdk-publish-crates.yml")
 
-    assert 'RUST_TOOLCHAIN: "1.95.0"' in preflight
+    assert 'RUST_TOOLCHAIN: "1.100.0"' in preflight
     assert 'rustup toolchain install "$RUST_TOOLCHAIN" --profile minimal' in preflight
     assert 'rustup default "$RUST_TOOLCHAIN"' in preflight
 
