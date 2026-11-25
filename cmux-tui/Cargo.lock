@@ -1517,6 +1517,10 @@ name = "cmux-braid-carrier"
 version = "0.1.0"
 
 [[package]]
+name = "cmux-braid-class"
+version = "0.1.0"
+
+[[package]]
 name = "cmux-braid-path"
 version = "0.1.0"
 dependencies = [
@@ -2755,6 +2759,7 @@ name = "cmux-remote-protocol"
 version = "0.1.0"
 dependencies = [
  "base64",
+ "cmux-braid-class",
  "serde",
  "serde_json",
  "uuid",
@@ -3209,6 +3214,7 @@ dependencies = [
  "cmux-lifeline",
  "cmux-link",
  "cmux-migrate",
+ "cmux-palette-ranker",
  "cmux-panic-log",
  "cmux-process",
  "cmux-projection",
@@ -3237,6 +3243,7 @@ dependencies = [
  "cmux-tui-machine-agent-protocol",
  "cmux-tui-machine-protocol",
  "cmux-tui-platform",
+ "cmux-tui-test-modules",
  "cmux-unix-socket",
  "cmux-usage-patterns",
  "cmux-vm",
@@ -3515,6 +3522,10 @@ name = "cmux-tui-source-watch"
 version = "0.0.0"
 
 [[package]]
+name = "cmux-tui-test-modules"
+version = "0.0.0"
+
+[[package]]
 name = "cmux-tui-util"
 version = "0.1.0"
 dependencies = [
@@ -3699,6 +3710,7 @@ dependencies = [
  "blake2",
  "boringtun",
  "bytes",
+ "cmux-braid-class",
  "cmux-braid-path",
  "cmux-rd-core",
  "cmux-rd-engine",
