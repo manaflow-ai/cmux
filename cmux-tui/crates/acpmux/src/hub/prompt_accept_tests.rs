@@ -357,7 +357,7 @@ async fn a_second_copy_hears_no_turn_before_the_first_is_accepted() {
     let notice = tokio::time::timeout(WAIT, second_notice).await.unwrap().unwrap();
     assert_eq!(
         (&notice["duplicate"], &notice["turnId"], &notice["queued"]),
-        (&json!(true), &Value::Null, &json!(false)),
+        (&json!(true), &started["turnId"], &json!(false)),
         "{notice}"
     );
 
