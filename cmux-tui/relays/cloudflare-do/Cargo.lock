@@ -69,6 +69,7 @@ version = "0.1.0"
 dependencies = [
  "base64",
  "cmux-remote-protocol",
+ "futures-util",
  "hmac",
  "serde",
  "serde_json",

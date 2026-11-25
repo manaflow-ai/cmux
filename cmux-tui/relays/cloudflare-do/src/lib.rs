@@ -3,6 +3,7 @@ mod attachment;
 mod auth;
 mod circuit;
 mod daemon;
+mod diag;
 mod forward;
 mod inline;
 #[cfg(test)]

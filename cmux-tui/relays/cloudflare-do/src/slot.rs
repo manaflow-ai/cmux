@@ -44,7 +44,7 @@ const CONTROL_TAG: &str = "daemon-control";
 const CONNECT_TAG: &str = "client-allocation";
 /// A socket's tag naming the location hint of the caller that opened it (`crate::placement`): `region:weur`.
 /// `[vars]` switch, "1" to place far viewers' circuits near them. Off unless set (merge default-off).
-const VIEWER_CIRCUITS_VAR: &str = "CMUX_RELAY_VIEWER_CIRCUITS";
+pub(crate) const VIEWER_CIRCUITS_VAR: &str = "CMUX_RELAY_VIEWER_CIRCUITS";
 const REGION_TAG_PREFIX: &str = "region:";
 const MAX_SLOT_ID_BYTES: usize = 128;
 const MAX_LANE_TOKEN_BYTES: usize = 128;
@@ -1306,6 +1306,10 @@ impl DurableObject for RelaySlot {
     }
 
     async fn fetch(&self, request: Request) -> Result<Response> {
+        // The staging far-viewer probe (`crate::diag`); `None` unless it is on.
+        if let Some(response) = crate::diag::handle_internal(&request, &self.env).await? {
+            return Ok(response);
+        }
         if let Some(response) = self.handle_internal_circuit(&request).await? {
             return Ok(response);
         }

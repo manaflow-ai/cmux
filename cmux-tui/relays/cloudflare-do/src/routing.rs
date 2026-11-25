@@ -31,6 +31,10 @@ pub(crate) async fn route(mut request: Request, env: Env) -> Result<Response> {
     if request.method() != Method::Get {
         return Response::error("Method not allowed", 405);
     }
+    // Staging only: the far-viewer placement probe, unauthenticated and bounded (`crate::diag`).
+    if path == crate::diag::PROBE_ROUTE && crate::diag::enabled(&env) {
+        return crate::diag::probe(&request, &env).await;
+    }
     if !websocket_upgrade(&request)? {
         return Response::error("WebSocket upgrade required", 426);
     }

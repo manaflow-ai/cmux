@@ -40,6 +40,11 @@ pub(crate) fn is_region(region: &str) -> bool {
     REGIONS.contains(&region)
 }
 
+/// `region` as one of this relay's hints, `None` when it is not one.
+pub(crate) fn region(region: &str) -> Option<&'static str> {
+    REGIONS.iter().copied().find(|known| *known == region)
+}
+
 /// The Durable Object location hint for a request from `continent` (Cloudflare's two-letter
 /// code), `country` (ISO 3166-1 alpha-2) and `longitude`; `None` when none fits (Antarctica, a
 /// missing continent), which leaves the placement to Cloudflare.
