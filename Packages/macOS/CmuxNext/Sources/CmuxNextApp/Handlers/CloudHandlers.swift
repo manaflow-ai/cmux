@@ -32,6 +32,7 @@ enum CloudHandlers {
         bindAccount(into: registry, context: context, reason: reason)
         bindMove(into: registry, context: context)
         bindSignInRecovery(into: registry, cloud: cloud)
+        PaletteVerbActions(host: context.services).bindSecretRemove(into: registry) // before the unavailable sweep below
         CloudMachineStage.gatePowerActions(into: registry, context: context)
         // Open Desktop on a machine without a desktop: out of its menu, its run refused with why.
         ActionTargetVisibility.gate("cloudOpenDesktop", in: registry) { invocation in
@@ -229,12 +230,13 @@ enum CloudHandlers {
     }
 
     /// The machine's first workspace that no other machine also lists (``CloudMachineWorkspace``), created (with a terminal) when it has none.
-    private static func firstWorkspaceResult(on session: CloudMachineSession, _ context: AppActionContext,
+    /// `skipping`: workspaces never to pick (a Cloud chat's own workspace, which a Mac tab shows in place and no window lists).
+    private static func firstWorkspaceResult(on session: CloudMachineSession, _ context: AppActionContext, skipping: Set<String> = [],
                                              beforeCreate: () throws -> Void = {}) async throws -> (id: String, created: Bool) {
         let daemon = session.daemon, machines = context.services.machines
         guard daemon.connection != nil else { throw ActionFailure(message: CloudStrings.notConnected) }
         return try await CloudMachineWorkspace.first(in: daemon.store, notConnected: ActionFailure(message: CloudStrings.notConnected),
-                                                     listedElsewhere: { id in machines.daemons.contains { $0 !== daemon && $0.store.workspace(id: id) != nil } },
+                                                     listedElsewhere: { id in skipping.contains(id) || machines.daemons.contains { $0 !== daemon && $0.store.workspace(id: id) != nil } },
                                                      beforeCreate: beforeCreate) { await context.services.windows.createWorkspace(on: daemon) }
     }
 
@@ -248,11 +250,17 @@ enum CloudHandlers {
     /// one, or one that serves none) fails here with the Cloud error, never a blank tab; the carrier refuses a teammate.
     /// `viewer` is only ever `rd`.
     @MainActor static func openDesktop(_ session: CloudMachineSession, _ context: AppActionContext, viewer: String? = nil) throws {
-        let services = context.services, title = session.machine.title
-        guard viewer == nil || viewer == "rd", session.machine.opensCarrierDesktop,
+        guard viewer == nil || viewer == "rd" else { throw ActionFailure(message: CloudStrings.desktopUnavailable(session.machine.title)) }
+        openDesktopPane(try desktopRecord(session), name: CloudStrings.desktopWorkspaceName(session.machine, chats: session.daemon.store.workspaces.compactMap(\.title)), context.services)
+    }
+
+    /// The remote view record of the machine's desktop over its carrier (`cmux-rd`), watching; a machine that serves no
+    /// carrier desktop throws the Cloud error. Open Desktop and a Cloud chat's Browser (``CloudFrontedChats/openTool(_:chat:cwd:services:)``) open it.
+    @MainActor static func desktopRecord(_ session: CloudMachineSession) throws -> RemoteViewTabRecord {
+        guard session.machine.opensCarrierDesktop,
               let record = RemoteViewTabRecord(host: session.machineID.lowercased(), target: .virtual, mode: .view, cloudDesktop: true, cloudRd: true)
-        else { throw ActionFailure(message: CloudStrings.desktopUnavailable(title)) }
-        openDesktopPane(record, name: CloudStrings.desktopWorkspaceName(session.machine, chats: session.daemon.store.workspaces.compactMap(\.title)), services)
+        else { throw ActionFailure(message: CloudStrings.desktopUnavailable(session.machine.title)) }
+        return record
     }
 
     /// A remote view pane tab for `record` in a new workspace on this Mac's daemon.
@@ -272,9 +280,9 @@ enum CloudHandlers {
     /// Keep the durable workspace key on the spawn request so terminals stay
     /// attached to the machine after daemon handle ids are recycled.
     /// `proceed` runs right before each workspace this creates: its throw creates nothing.
-    @MainActor static func terminalAnchor(on session: CloudMachineSession, _ context: AppActionContext,
+    @MainActor static func terminalAnchor(on session: CloudMachineSession, _ context: AppActionContext, skipping: Set<String> = [],
                                           proceed: () throws -> Void = {}) async throws -> (id: String, key: WorkspaceKey, pane: PaneModel) {
-        let result = try await firstWorkspaceResult(on: session, context, beforeCreate: proceed)
+        let result = try await firstWorkspaceResult(on: session, context, skipping: skipping, beforeCreate: proceed)
         let id = result.id
         if let anchor = anchor(id: id, on: session) { return anchor }
         if let anchor = await mirroredAnchor(id: id, on: session) { return anchor }
@@ -356,12 +364,10 @@ enum CloudHandlers {
         if let reason = CloudStrings.machineChanging(session.machine.shownStatus) { throw ActionFailure(message: reason) }
     }
 
-    /// ``requireAttachableState(_:)`` after waiting out a resume (``CloudWait/outwaitResume(of:within:read:)``): a
-    /// machine that is resuming is waited for, up to `limit`, instead of refused with "This machine is resuming"
-    /// (prod, 2026-11-05: `cloud start-chat` refused at once after `cloud resume-machine`, then worked in 12 s once
-    /// the machine ran). A pause or delete still refuses at once, and so does a resume still running at `limit`.
+    /// ``requireAttachableState(_:)`` once the machine settles (Rust's `cloud_move_settle`): a resume or pause in flight is waited out
+    /// up to `limit` (ask-259986a6c4), its card told it wakes (`waking`); a paused one goes on to the attach; a delete, the deadline or `CMUX_CLOUD_SETTLE=0` refuses.
     static func requireAttachableState(_ session: CloudMachineSession, waitingOutResume limit: Duration) async throws {
-        await CloudWait.outwaitResume(of: { session.machine.shownStatus }, within: limit) { await session.refresher?(false) }
-        try requireAttachableState(session)
+        let settled = await CloudWait.settle(of: { session.machine.shownStatus }, within: limit, waking: { [weak session] in session?.waking?($0) }) { await session.refresher?(false) }
+        if settled != .proceed { try requireAttachableState(session) }
     }
 }

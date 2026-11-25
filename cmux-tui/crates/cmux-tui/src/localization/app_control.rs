@@ -111,6 +111,21 @@ pub(crate) struct RecordMessages {
     pub no_ffmpeg: &'static str,
     /// `{error}`, `{dir}`: ffmpeg ran and failed; the frames are kept.
     pub encode_failed: &'static str,
+    /// `cmux app health` (cli/app/health.rs).
+    pub health: HealthMessages,
+}
+
+/// `cmux app health`: the post-update checks. The JSON keys, check names and reason codes stay
+/// English (they are what the app and the bisect helper read).
+#[derive(Debug, PartialEq, Eq)]
+pub(crate) struct HealthMessages {
+    pub usage: &'static str,
+    /// The first line's label, before the app's version and commit.
+    pub app: &'static str,
+    pub pass: &'static str,
+    pub fail: &'static str,
+    pub healthy: &'static str,
+    pub unhealthy: &'static str,
 }
 
 /// `cmux app launch-times`: the app's recorded launches. The JSON keys and the table's column
@@ -325,7 +340,7 @@ pub(super) const ENGLISH: AppControlMessages = AppControlMessages {
     action_batch_not_object: "not an object",
     agent_open_usage: "usage: cmux agent open <session id> [--name NAME] [--key UUID] [--cwd DIR] [--host HOST] [--group GROUP] [--placement top] [--focus]",
     agent_open_tab_usage: "usage: cmux agent open-tab <session id> [--target PANE_OR_TAB] [--host HOST] [--focus]",
-    settings_usage: "usage: cmux settings get [PATH] | set PATH VALUE [--yes] | reset PATH [--yes] | unset PATH [--yes] | edit EDITS_JSON | list [--section SECTION] [--keys] | schema | validate [FILE]\n(`cmux config` is the same command)\nlist reads the session daemon (--socket or --session), without the app. --keys, schema and validate work offline. Keyed get and set/reset/unset use the session daemon. get without PATH and writes with --yes use the app socket.",
+    settings_usage: "usage: cmux settings get [PATH] | set PATH VALUE [--yes] | reset PATH [--yes] | unset PATH [--yes] | edit EDITS_JSON | history | undo | restore REVISION | reset --group GROUP | list [--section SECTION] [--keys] | schema | validate [FILE]\n(`cmux config` is the same command)\nlist reads the session daemon (--socket or --session), without the app. --keys, schema and validate work offline. Keyed get, set/reset/unset, history, undo, restore and reset --group use the session daemon: history lists the last changes by anyone (Settings, CLI, agents, hand edits), undo takes back the newest one, restore REVISION returns to the setup just before that change, reset --group resets a section (appearance) or group (appearance.sidebar). get without PATH and writes with --yes use the app socket.",
     settings_confirm_hint: "add --yes to ask for approval in cmux",
     settings_declined: "declined in cmux",
     settings_waiting: "Waiting for approval in cmux (Ctrl-C cancels this command; answer the sheet in cmux)",
@@ -382,6 +397,14 @@ pub(super) const ENGLISH: AppControlMessages = AppControlMessages {
         skipped: "{dropped} frames skipped while captures were still running, {failed} refused by the app",
         no_ffmpeg: "ffmpeg is not installed, so no movie: the PNG frames, frames.json (their times) and frames.ffconcat are in {dir}. On a Mac with ffmpeg, this makes the movie:",
         encode_failed: "ffmpeg failed ({error}); the PNG frames and frames.json are kept in {dir}",
+    },
+    health: HealthMessages {
+        usage: "usage: cmux app health [--since-ms <unix ms>] [--open-chat] [--json]\nChecks the app at the socket the way a person would notice it broken: the app answers, the model picker\nlists models, a chat can start (the default harness runs its session handshake, no model call), the app\nrelay refused no chat page frame since --since-ms (default: 10 minutes ago; --open-chat first opens a new\nchat, without changing focus, so its page handshakes through the relay, then closes it), and a\nthrowaway terminal echoes a nonce (then closes). Each check has a deadline and a reason code. Exit 0 when\nall pass, 1 when one fails, 3 when no app answers. Changes no saved state.",
+        app: "App",
+        pass: "ok",
+        fail: "FAIL",
+        healthy: "healthy",
+        unhealthy: "unhealthy: a check failed",
     },
     launch_times: LaunchTimesMessages {
         usage: "usage: cmux app launch-times [--limit <n>] [--file <path>] [--phases]\nThe app's last launches (at most 50), oldest first: build, commit, pre-main ms (process start to main),\nmain ms (main to the first window frame), first window frame ms, Home's first page ms, whether Home\nshowed by its page or its deadline, ms to the window taking keys (Home's message field), ms to the first\nshell output, whether the launch had no saved snapshot to show, whether the updater pre-warmed the build,\nand whether it was the build's first launch. --phases adds a line under each launch with its phases (ms since\nprocess start, in order, each with its step from the one before). Read from\n~/Library/Application Support/<bundle id>/launch-times.jsonl; the app need not run.",
@@ -570,7 +593,7 @@ pub(super) const JAPANESE: AppControlMessages = AppControlMessages {
     action_batch_not_object: "オブジェクトではありません",
     agent_open_usage: "使い方: cmux agent open <セッション ID> [--name 名前] [--key UUID] [--cwd フォルダ] [--host ホスト] [--group グループ] [--placement top] [--focus]",
     agent_open_tab_usage: "使い方: cmux agent open-tab <セッション ID> [--target ペインまたはタブ] [--host ホスト] [--focus]",
-    settings_usage: "使い方: cmux settings get [パス] | set パス 値 [--yes] | reset パス [--yes] | unset パス [--yes] | edit EDITS_JSON | list [--section セクション] [--keys] | schema | validate [ファイル]\n(`cmux config` も同じコマンドです)\nlist はアプリを起動せずにセッションデーモンから読み取ります (--socket または --session)。--keys、schema、validate はオフラインで使えます。パスを指定した get と set/reset/unset はセッションデーモンを使います。パスを指定しない get と --yes 付きの書き込みはアプリのソケットを使います。",
+    settings_usage: "使い方: cmux settings get [パス] | set パス 値 [--yes] | reset パス [--yes] | unset パス [--yes] | edit EDITS_JSON | history | undo | restore リビジョン | reset --group グループ | list [--section セクション] [--keys] | schema | validate [ファイル]\n(`cmux config` も同じコマンドです)\nlist はアプリを起動せずにセッションデーモンから読み取ります (--socket または --session)。--keys、schema、validate はオフラインで使えます。パスを指定した get、set/reset/unset、history、undo、restore、reset --group はセッションデーモンを使います。history は誰が行った変更か (設定画面、CLI、エージェント、手での編集) を問わず最近の変更を一覧し、undo は最新の変更を取り消し、restore リビジョン はその変更の直前の状態に戻し、reset --group はセクション (appearance) またはグループ (appearance.sidebar) を既定値に戻します。パスを指定しない get と --yes 付きの書き込みはアプリのソケットを使います。",
     settings_confirm_hint: "--yes を付けると cmux で承認を求めます",
     settings_declined: "cmux で拒否されました",
     settings_waiting: "cmux での承認を待っています (Ctrl-C でこのコマンドを取り消します。cmux のシートで応答してください)",
@@ -627,6 +650,14 @@ pub(super) const JAPANESE: AppControlMessages = AppControlMessages {
         skipped: "キャプチャの実行中に {dropped} フレームを飛ばし、{failed} フレームはアプリが拒否しました",
         no_ffmpeg: "ffmpeg がインストールされていないため動画は作りません: PNG フレーム、frames.json (各フレームの時刻)、frames.ffconcat は {dir} にあります。ffmpeg のある Mac では、次のコマンドで動画になります:",
         encode_failed: "ffmpeg が失敗しました ({error})。PNG フレームと frames.json は {dir} に残しています",
+    },
+    health: HealthMessages {
+        usage: "使い方: cmux app health [--since-ms <unix ms>] [--open-chat] [--json]\nソケットの先のアプリを、利用者が不具合に気づく観点で確認します: アプリが応答するか、モデルピッカーにモデルがあるか、\nチャットを開始できるか (既定のハーネスがセッションのハンドシェイクを行います。モデルは呼び出しません)、\n--since-ms 以降 (既定: 10 分前) にアプリのリレーがチャットページのフレームを拒否していないか\n(--open-chat は先にフォーカスを変えずに新しいチャットを開き、そのページにリレー経由のハンドシェイクをさせてから閉じます)、\n使い捨てのターミナルがノンスをエコーするか (その後閉じます)。各確認には期限と理由コードがあります。\nすべて成功で終了コード 0、失敗があれば 1、応答するアプリがなければ 3。保存された状態は変更しません。",
+        app: "アプリ",
+        pass: "OK",
+        fail: "失敗",
+        healthy: "正常",
+        unhealthy: "異常: 失敗した確認があります",
     },
     launch_times: LaunchTimesMessages {
         usage: "使い方: cmux app launch-times [--limit <n>] [--file <パス>] [--phases]\nアプリの直近の起動 (最大 50 件) を古い順に表示します: ビルド、コミット、main までの ms (プロセス開始から main)、\nmain から最初のウィンドウフレームまでの ms、最初のウィンドウフレームの ms、Home の最初のページの ms、\nHome がページと期限のどちらで表示されたか、\nウィンドウがキー入力を受け付けるまで (Home のメッセージ欄) の ms、最初のシェル出力までの ms、保存されたスナップショットがなかったか、\nアップデーターがそのビルドを事前起動したか、そのビルドの初回起動か。\n--phases を付けると、各起動の下にその起動フェーズ (プロセス開始からの ms、発生順、直前からの差分付き) を 1 行で表示します。\n~/Library/Application Support/<バンドル ID>/launch-times.jsonl から読み取ります。アプリが動作している必要はありません。",

@@ -108,7 +108,8 @@ public final class TerminalHostView: NSView {
     }
 
     /// Computer Use's live preview card (``TerminalComputerUsePreview``) for the agent running in
-    /// this terminal, at the top-trailing corner, under the find bar while that shows.
+    /// this terminal, where the person dragged it (at first the top-trailing corner), under the find
+    /// bar while that shows.
     public var computerUsePreview: TerminalComputerUsePreview? {
         didSet {
             guard oldValue !== computerUsePreview else { return }
@@ -557,9 +558,10 @@ public final class TerminalHostView: NSView {
         if let computerUsePreview, !computerUsePreview.isHidden {
             computerUsePreview.paneWidth = bounds.width
             let top = findBottom < bounds.height ? findBottom - inset : bounds.height - inset
-            _ = place(computerUsePreview, maxWidth: bounds.width - inset * 2) { size in
-                CGPoint(x: self.bounds.width - self.scrollerWidth - inset - size.width, y: top - size.height)
-            }
+            // Where the person dragged it inside the pane; a new card at the top-trailing corner.
+            computerUsePreview.area = CGRect(x: inset, y: inset, width: max(0, bounds.width - scrollerWidth - inset * 2),
+                                             height: max(0, top - inset))
+            _ = place(computerUsePreview, maxWidth: bounds.width - inset * 2) { size in computerUsePreview.origin(for: size) }
         }
     }
 

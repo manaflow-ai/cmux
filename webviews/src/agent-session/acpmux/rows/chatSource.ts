@@ -180,6 +180,12 @@ export class ChatSource {
     return shown?.chat === chat && shown.view !== undefined && this.host.page(shown.sid, "before");
   }
 
+  /// Opens one closed row-store fold after its disclosure is clicked.
+  pageFold(chat: string, fold: number): boolean {
+    const shown = this.shown;
+    return shown?.chat === chat && this.host.page(shown.sid, "after", { fold });
+  }
+
   /// Leaves the chat on the store, keeping its last window: on a select of another chat and at the
   /// client's close. A fall leaves it too, keeping nothing (`onFall`).
   close(): void {
