@@ -64,6 +64,27 @@ class AppcastRequireArm64Test(unittest.TestCase):
             path.write_text(APPCAST.replace("/cmux-macos.dmg", "/other.dmg"))
             self.assertNotEqual(self.run_script(path).returncode, 0)
 
+    def test_an_rc_item_named_by_its_dmg_requires_arm64(self):
+        # nightly.yml's cmux-next RC names its immutable DMG; older RC items keep their requirements.
+        rc = APPCAST.replace("/v1.0.0/cmux-macos.dmg", "/rc/cmux-rc-macos-arm64-4500000000001.dmg")
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "appcast-x86_64.xml"
+            path.write_text(rc)
+            result = subprocess.run([sys.executable, str(SCRIPT), str(path), "cmux-rc-macos-arm64-4500000000001.dmg"],
+                                    capture_output=True, text=True)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertEqual(requirements(path), {"114": "arm64", "113": None})
+            # Without the name, the default cmux-macos.dmg item is missing and the script refuses.
+            self.assertNotEqual(self.run_script(path).returncode, 0)
+
+    def test_refuses_a_path_as_the_dmg_name(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "appcast.xml"
+            path.write_text(APPCAST)
+            result = subprocess.run([sys.executable, str(SCRIPT), str(path), "v1.0.0/cmux-macos.dmg"],
+                                    capture_output=True, text=True)
+            self.assertNotEqual(result.returncode, 0)
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -43,7 +43,7 @@ upgrade again never duplicate or lose anything.
 | --- | --- | --- |
 | Stable | `com.cmuxterm.app`, feed `github.com/manaflow-ai/cmux/releases/latest/download/appcast.xml` (+ `files.cmux.com/stable/`), key `avjcg…` | **Same** bundle ID, name `cmux.app`, feed and key (`release.yml` on feat-cmux-next). Stable is an in-place Sparkle update. |
 | Nightly | `com.cmuxterm.app.nightly`, "cmux NIGHTLY", feed `files.cmux.com/nightly/appcast*.xml` | `com.cmuxterm.app.nightly.cmux-next`, "cmux NEXT", feed `files-next.cmux.com/nightly-next/next/appcast-arm64.xml`, own key `IOPI…`. A legacy-identity job already re-signs each NEXT build as `com.cmuxterm.app.nightly` for pre-NEXT installs on `files-next…/nightly-next/appcast-arm64.xml`. |
-| RC | `com.cmuxterm.app.rc`, `files.cmux.com/rc` | Keeps classic's `.rc` identity in code; no next feed. |
+| RC | `com.cmuxterm.app.rc`, `files.cmux.com/rc` | Same identity and feed: an `rc/**` push of feat-cmux-next builds cmux RC and publishes it only while `vars.CMUX_NEXT_RC_PUBLISH` is 1, Apple silicon only (`docs/cmux-next/release-channels.md`). |
 
 ## 2. Concept map, classic → cmux-next
 

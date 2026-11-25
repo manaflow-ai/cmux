@@ -343,6 +343,9 @@ jobs:
           UNSIGNED_ATTEMPT: ${{ inputs.nightly_next_unsigned_attempt }}
           LOOP_RETRY: ${{ inputs.nightly_next_loop_retry }}
           NIGHTLY_NEXT_ONE_JOB: ${{ vars.NIGHTLY_NEXT_ONE_JOB || '' }}
+          # cmux-next RC (docs/cmux-next/release-channels.md): an rc/** push of this tree publishes to
+          # classic's RC feed only while this is 1; otherwise it builds and signs and publishes nothing.
+          CMUX_NEXT_RC_PUBLISH: ${{ vars.CMUX_NEXT_RC_PUBLISH || '' }}
           CONTINUE_ONLY: ${{ github.event_name == 'workflow_dispatch' && inputs.nightly_next_continue_only && 'true' || 'false' }}
           REPUBLISH_RUN: ${{ inputs.nightly_next_republish_run }}
           REPUBLISH_ATTEMPT: ${{ inputs.nightly_next_republish_attempt }}
@@ -459,12 +462,15 @@ jobs:
             // build instead of three, after Apple's queue held all three past the wait in
             // runs 37648507383 and 37667249069. Its x86_64, universal and legacy feeds keep
             // their last build, so an Intel Mac is never offered an arm64-only app.
-            const variants = fastBuild || track === 'nightly-next' ? ['arm64'] : ['arm64', 'x86_64', 'universal'];
+            // cmux-next RC (rc/** of this tree) is Apple silicon only too: Intel is retired for cmux-next, and
+            // its CLI and Chromium engine ship for arm64. Intel classic RC installs keep their x86_64 feed.
+            const arm64Only = fastBuild || track === 'nightly-next' || track === 'rc';
+            const variants = arm64Only ? ['arm64'] : ['arm64', 'x86_64', 'universal'];
             // Compile only the slices these variants consume. nightly-next
             // ships arm64 only; compiling Intel here still paid for a second
             // whole-module Swift compile and both slices of the Rust helpers.
             const compileArchs = variants.includes('universal') ? ['arm64', 'x86_64'] : variants;
-            const feeds = track === 'nightly-next'
+            const feeds = track === 'nightly-next' || track === 'rc'
               ? ['appcast-arm64.xml']
               : ['appcast-arm64.xml', 'appcast-x86_64.xml', 'appcast-universal.xml', 'appcast.xml'];
             core.setOutput('variants', JSON.stringify(variants));
@@ -770,7 +776,16 @@ jobs:
             }
             core.notice(decisionReason);
 
-            const shouldPublish = !seedOnly && (isTrackRef || isRcRef) && !buildOnly && !fastBuild;
+            // This tree is cmux-next: an rc/** branch cut from it would ship cmux-next to every classic
+            // cmux RC install (com.cmuxterm.app.rc, files.cmux.com/rc). It publishes only while the
+            // repository variable CMUX_NEXT_RC_PUBLISH is 1 (docs/cmux-next/release-channels.md);
+            // otherwise the run builds and signs the RC and publishes nothing.
+            const rcHeld = isRcRef && (process.env.CMUX_NEXT_RC_PUBLISH || '').trim() !== '1';
+            if (rcHeld) {
+              core.notice('cmux-next RC is held: this rc/** run builds and signs cmux RC and publishes nothing. Publish to the RC feed: gh variable set CMUX_NEXT_RC_PUBLISH -R manaflow-ai/cmux --body 1');
+            }
+            core.setOutput('rc_held', rcHeld ? 'true' : 'false');
+            const shouldPublish = !seedOnly && (isTrackRef || isRcRef) && !rcHeld && !buildOnly && !fastBuild;
             const appBuildSelected = shouldBuild && !pushThrottled && !scheduledCacheOnly;
             // NIGHTLY_NEXT_WRITER governs publication: a nightly-next run that
             // publishes builds only while the Mac is the writer. Runs that never
@@ -4377,6 +4392,11 @@ jobs:
           fi
           SPARKLE_DELTA_NAME_PREFIX="${CHANNEL_DMG_PREFIX}-${NIGHTLY_VARIANT}-" \
             ./scripts/sparkle_generate_appcast.sh "$NIGHTLY_DMG_IMMUTABLE" "$CHANNEL_RELEASE_TAG" "$NIGHTLY_APPCAST"
+          # cmux-next RC is Apple silicon only, as cmux-next Stable is (release.yml): its cmux-tui CLI and
+          # Chromium engine ship for arm64. Intel classic RC installs skip the item and stay on classic.
+          if [ "$CHANNEL" = rc ]; then
+            python3 scripts/cmux-next/appcast-require-arm64.py "$NIGHTLY_APPCAST" "$(basename "$NIGHTLY_DMG_IMMUTABLE")"
+          fi
           ls -l "$NIGHTLY_DMG_IMMUTABLE" "$NIGHTLY_DMG_RELEASE" "$NIGHTLY_APPCAST"
           if grep -q 'sparkle:deltas' "$NIGHTLY_APPCAST"; then
             echo "ERROR: first publication appcasts must contain full archives only" >&2
