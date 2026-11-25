@@ -1842,7 +1842,8 @@ python3 -I scripts/cmux-next/check-connection-notices.py --root "$PWD"
 job = "ios"
 # Takes the Mac's cores and its one simulator; the phone cells follow it.
 alone = true
-timeout = 3600
+# 60 min, plus up to 20 for the fleet pool's verdict before a Mac fallback (vars.CMUX_IOS_SIM_LINUX=on).
+timeout = 4800
 title = "CmuxMobileKit tests (macOS swift test, iOS simulator)"
 about = "takes CmuxMobileLinkFFI.xcframework from the build fleet or builds it (and checks the checked-in bindings match), runs the kit's swift test on macOS, then its tests on an iOS 26 iPhone simulator"
 # The kit and every local package it links (scripts/ci/ios_app_package_paths.py --check keeps the list exact), and
@@ -1880,6 +1881,7 @@ inputs = [
   "scripts/ci/ios_link_ffi_key.py",
   "scripts/ci/ios_link_ffi.sh",
   "scripts/ci/ios_sim_udid.py",
+  "scripts/ci/ios-sim-pool.sh",
   ".github/actions/setup-cmux-tui-rust/**",
   ".github/actions/runner-cargo-home/**",
   "cmux-tui/rust-toolchain.toml",
@@ -1912,13 +1914,31 @@ swift test --package-path cmux-next-ios/CmuxMobileKit --no-parallel --filter Ter
 # LiveCoordinator, the banner and the FFI-backed transport are iOS only, so their tests run only on the simulator.
 # Coverage off: its profiler crashes Swift 6.3.3 on an isolated deinit. arm64 only: the xcframework has no x86_64
 # simulator slice.
+# The fleet pool runs these simulator tests too when the job submitted them (scripts/ci/ios-sim-pool.sh, the ios
+# job's "Fleet pool" steps). vars.CMUX_IOS_SIM_LINUX=on: the pool's verdict is the check, and this Mac runs them only
+# when the pool gave none (a logged Mac fallback). shadow: this Mac runs them and the pool is timed beside it.
+# Unset or off: the pool is left out.
+mode="${CMUX_IOS_SIM_LINUX:-off}"
+pool_dir="${CMUX_IOS_SIM_POOL_DIR:-${RUNNER_TEMP:-$CI_TOOLS}/sim-pool}"
+pool=""
+sim=0
+if [[ "$mode" == on && -f "$pool_dir/submitted" ]]; then
+  pool="$(CMUX_IOS_SIM_POOL_DIR="$pool_dir" CMUX_IOS_SIM_POOL_WAIT=1200 bash scripts/ci/ios-sim-pool.sh collect)"
+  echo "fleet pool: $pool"
+fi
+case "${pool%% *}" in
+pass) echo "iOS simulator tests passed on the fleet pool; this Mac skips them" ;;
+fail) echo "::error title=fleet pool::iOS simulator tests failed on the fleet pool (${pool#* })"; sim=1 ;;
+*)
+[[ "$mode" == on ]] && echo "::notice title=fleet pool::no verdict from the fleet pool (${pool#* }); this Mac runs the simulator tests"
+mac_start=$(date +%s)
 udid="$(python3 -I scripts/ci/ios_sim_udid.py)"
 bundle="${RUNNER_TEMP:-$CI_TOOLS}/ios-sim.xcresult"
 rm -rf "$bundle"
-sim=0
 (cd cmux-next-ios/CmuxMobileKit && xcodebuild test -scheme CmuxMobileKit-Package -destination "id=$udid,arch=arm64" \
   -enableCodeCoverage NO -derivedDataPath "${CMUX_DERIVED_DATA_SLOT:-${RUNNER_TEMP:-$CI_TOOLS}/dd-ios-sim}" \
   CODE_SIGNING_ALLOWED=NO -quiet -skip-testing:CmuxMobileInstantPerfTests -resultBundlePath "$bundle") || sim=$?
+mac_seconds=$(( $(date +%s) - mac_start ))
 # -quiet drops Swift Testing's output: report from the result bundle (counts, suites that did not pass, and every failure).
 xcrun xcresulttool get test-results tests --path "$bundle" --compact 2>/dev/null | python3 -c '
 import json, sys
@@ -1940,6 +1960,16 @@ for root in json.load(sys.stdin).get("testNodes", []):
     walk(root, [root.get("name", "")])
 print("iOS simulator test cases:", ", ".join(f"{k} {v}" for k, v in sorted(counts.items())))
 ' || echo "::warning::could not read the result bundle"
+if [[ "$mode" == shadow && -f "$pool_dir/submitted" ]]; then
+  # Advisory: the pool started before the swift tests, so a short wait is enough; its verdict never fails the step.
+  pool="$(CMUX_IOS_SIM_POOL_DIR="$pool_dir" CMUX_IOS_SIM_POOL_WAIT=300 bash scripts/ci/ios-sim-pool.sh collect 2>/dev/null)"
+  read -r pool_verdict pool_seconds _ <<< "$pool"
+  echo "fleet pool (shadow): $pool; this Mac: exit $sim in $mac_seconds s"
+  printf '\n**iOS simulator, fleet pool shadow:** pool %s in %s s, this Mac exit %s in %s s\n' \
+    "$pool_verdict" "$pool_seconds" "$sim" "$mac_seconds" >> "${GITHUB_STEP_SUMMARY:-/dev/null}"
+fi
+;;
+esac
 exit $(( status || sim ))
 '''
 
