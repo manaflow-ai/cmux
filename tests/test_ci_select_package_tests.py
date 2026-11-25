@@ -53,7 +53,9 @@ def job_scripts() -> set[str]:
     job = re.split(r"\n  [A-Za-z0-9_-]+:\n", job, maxsplit=1)[0]
     # The job's test steps run the lane script, which calls the rest by path.
     job += (ROOT / LANE).read_text(encoding="utf-8")
-    found = set(re.findall(r"(?:\./)?(scripts/[A-Za-z0-9_./-]+\.(?:sh|py))", job))
+    # Whole repo paths: "cmux-next-ios/rust/scripts/x.sh" is that path, not "scripts/x.sh";
+    # "$GITHUB_SHA/scripts/x.sh" (a variable, upper case) is "scripts/x.sh".
+    found = set(re.findall(r"(?<![A-Za-z0-9_.-])(?:\./)?((?:[a-z0-9][a-z0-9_-]*/)*scripts/[A-Za-z0-9_./-]+\.(?:sh|py))", job))
     pending = list(found)
     while pending:
         script = ROOT / pending.pop()

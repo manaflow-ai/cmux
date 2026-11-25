@@ -75,6 +75,13 @@ asset="CCmuxAppFFI.xcframework.zip"
 # dependencies (cmux-rd-ffi pulls cmux-remote-browser, which a hand list
 # missed on 2026-10-07), then the toolchain and the build script. Derived
 # from the Cargo.toml files at HEAD, so a new path dependency is never missed.
+# NAME's directory from the workspace manifest's `NAME = { path = "..." }`, repo-relative.
+workspace_path() {
+  local rel
+  rel="$(sed -nE "s/^[[:space:]]*$1[[:space:]]*=[[:space:]]*\{[^}]*path[[:space:]]*=[[:space:]]*\"([^\"]+)\".*/\1/p" "$root/cmux-tui/Cargo.toml" 2>/dev/null | head -1)"
+  [[ -n "$rel" ]] || return 1
+  rel="${rel%/}"; echo "cmux-tui/${rel#./}"
+}
 ffi_crates() {
   local queue=" cmux-tui/crates/cmux-app-ffi " seen=" " dir dep resolved
   while [[ -n "${queue// /}" ]]; do
@@ -88,6 +95,12 @@ ffi_crates() {
       [[ -f "$resolved/Cargo.toml" && "$resolved" == "$root"/* ]] || continue
       queue+="${resolved#"$root"/} "
     done < <(grep -oE 'path[[:space:]]*=[[:space:]]*"[^"]+"' "$root/$dir/Cargo.toml" | sed -E 's/.*"([^"]+)"$/\1/')
+    # `name.workspace = true` or `name = { workspace = true, ... }`: the path the workspace
+    # manifest gives NAME (cmux_next_route.CARGO_WORKSPACE_DEP reads the same; #53940 moved
+    # cmux-egress there, and a walk of `path =` alone missed it).
+    while IFS= read -r dep; do
+      dep="$(workspace_path "$dep")" && [[ -f "$root/$dep/Cargo.toml" ]] && queue+="$dep "
+    done < <(sed -nE 's/^[[:space:]]*([A-Za-z0-9_-]+)[[:space:]]*(\.workspace[[:space:]]*=[[:space:]]*true|=[[:space:]]*\{[^}]*workspace[[:space:]]*=[[:space:]]*true).*/\1/p' "$root/$dir/Cargo.toml")
   done
   tr ' ' '\n' <<<"$seen" | sed '/^$/d' | sort
 }
