@@ -33,10 +33,10 @@ public struct InsertPhotoAction {
     ///   - choose: The pictures the person picks; empty on Cancel (``choosePhotos(_:window:)``).
     ///   - shellQuoted: One path as one shell word; Rust's `tabs::panes::shell_quoted` (a dropped file's quoting) by default.
     public init(target: @escaping @MainActor (ActionInvocation) -> Target?, choose: @escaping @MainActor () async -> [URL],
-                shellQuoted: @escaping @Sendable (String) -> String? = { WindowRules().shellQuoted($0) }) {
+                shellQuoted: (@Sendable (String) -> String?)? = nil) {
         self.target = target
         self.choose = choose
-        self.shellQuoted = shellQuoted
+        self.shellQuoted = shellQuoted ?? { WindowRules().shellQuoted($0) }
     }
 
     public func bind(into registry: ActionRegistry) {
