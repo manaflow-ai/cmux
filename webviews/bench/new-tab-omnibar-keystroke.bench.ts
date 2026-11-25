@@ -6,8 +6,10 @@
 // A stress fixture at the hosts' caps: 40 tabs, 40 workspaces, 40 visited pages, 2,000 palette actions, 500 chats,
 // 200 folders, 3 agents. Each query is typed a letter at a time (each prefix is one key), many times over; per key
 // the time of `screenRows` is recorded. Prints p50 / p95 / p99 / max in µs, with and without the agent sources
-// (`--no-agents` measures the rows as they were before them, on the same code).
-//   bun bench/new-tab-omnibar-keystroke.bench.ts [--rounds 200] [--no-agents] [--json FILE]
+// (`--no-agents` measures the rows as they were before them, on the same code). `--icons` gives the browser tabs
+// and every other visited page a favicon and adds 40 bookmarks with icons, as a browsing host sends them, and counts
+// the website rows (open, history, tab) drawn with an icon: the site-favicon lookup's cost and its hit rate.
+//   bun bench/new-tab-omnibar-keystroke.bench.ts [--rounds 200] [--no-agents] [--icons] [--json FILE]
 /// <reference types="bun" />
 import fs from "node:fs";
 import { EMPTY_OMNIBAR, type OmnibarContext } from "../src/agent-session/acpmux/omnibar";
@@ -21,6 +23,8 @@ const flag = (name: string) => {
 const ROUNDS = Number(flag("--rounds") ?? 200);
 const AGENTS_ON = !argv.includes("--no-agents");
 const JSON_OUT = flag("--json");
+const ICONS = argv.includes("--icons");
+const ICON = "data:image/png;base64,iVBORw0KGgo=";
 
 const words = ["cmux", "omnibar", "sidebar", "release", "fix", "perf", "terminal", "browser", "notes", "site"];
 const pick = (index: number) => words[index % words.length]!;
@@ -32,6 +36,7 @@ const omnibar: OmnibarContext = {
     title: i % 3 === 0 ? `${pick(i)} docs - Site` : `${pick(i)} ${i}`,
     detail: i % 3 === 0 ? `https://${pick(i)}.example.com/page/${i}` : `~/fun/${pick(i)}`,
     workspace: `ws-${pick(i + 1)}`,
+    ...(ICONS && i % 3 === 0 ? { icon: ICON } : {}),
   })),
   workspaces: Array.from({ length: 40 }, (_, i) => ({
     id: `w${i}`,
@@ -41,7 +46,17 @@ const omnibar: OmnibarContext = {
   history: Array.from({ length: 40 }, (_, i) => ({
     url: `https://www.${pick(i)}${i}.com/a/b?utm_source=x`,
     title: `${pick(i)} page ${i}`,
+    ...(ICONS && i % 2 === 0 ? { icon: ICON } : {}),
   })),
+  ...(ICONS
+    ? {
+        bookmarks: Array.from({ length: 40 }, (_, i) => ({
+          url: i % 2 ? `https://${pick(i)}.com/` : `https://www.${pick(i)}${i + 1}.com/home`,
+          title: `${pick(i)} bookmark ${i}`,
+          icon: ICON,
+        })),
+      }
+    : {}),
   actions: Array.from({ length: 2000 }, (_, i) => ({
     id: `a${i}`,
     title: `${pick(i)} action ${i}`,
@@ -92,12 +107,20 @@ for (let round = 0; round < 20; round += 1)
 
 const samples: number[] = [];
 let rows = 0;
+let siteRows = 0;
+let iconRows = 0;
 for (let round = 0; round < ROUNDS; round += 1) {
   for (const query of queries) {
     for (let end = 1; end <= query.length; end += 1) {
       const start = Bun.nanoseconds();
-      rows += screenRows(query.slice(0, end), context).length;
+      const shown = screenRows(query.slice(0, end), context);
       samples.push((Bun.nanoseconds() - start) / 1000);
+      rows += shown.length;
+      for (const row of shown) {
+        if (row.type !== "open" && row.type !== "history" && !(row.type === "tab" && row.url)) continue;
+        siteRows += 1;
+        if ("icon" in row && row.icon) iconRows += 1;
+      }
     }
   }
 }
@@ -108,6 +131,9 @@ const report = {
   agents: AGENTS_ON,
   keys: samples.length,
   rows_per_key: +(rows / samples.length).toFixed(2),
+  icons: ICONS,
+  website_rows: siteRows,
+  website_rows_with_icon: iconRows,
   us: {
     p50: +at(0.5).toFixed(1),
     p95: +at(0.95).toFixed(1),
