@@ -23,7 +23,7 @@
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
-use anyhow::{Context, Result, bail};
+use anyhow::{Context, Result};
 use serde_json::{Value, json};
 
 /// This daemon's env that turns per-workspace displays on.
@@ -36,8 +36,6 @@ pub const WORKSPACE_KEY: &str = "ACPMUX_AGENT_WORKSPACE";
 /// The first display number a workspace gets (well above `:0` and the
 /// low numbers a desktop or Xvfb run by hand takes).
 pub const BASE: u32 = 100;
-/// Most workspaces one machine allocates.
-pub const MAX_DISPLAYS: usize = 1024;
 
 /// Whether this daemon runs with per-workspace displays.
 pub fn per_workspace() -> bool {
@@ -93,9 +91,6 @@ fn display_for_locked(lock: std::fs::File, dir: &Path, workspace: String) -> Res
     };
     if let Some(n) = displays.get(&workspace) {
         return Ok(*n);
-    }
-    if displays.len() >= MAX_DISPLAYS {
-        bail!("{MAX_DISPLAYS} workspaces already have a display");
     }
     let taken: std::collections::BTreeSet<u32> = displays.values().copied().collect();
     let n = (BASE..).find(|n| !taken.contains(n)).unwrap_or(BASE);
@@ -159,5 +154,16 @@ mod lock_tests {
         drop(keeper);
         assert_eq!(n, BASE);
         assert!(free, "an allocation left the display lock held");
+    }
+
+    /// Every workspace gets its own display, past the old cap of 1024.
+    #[test]
+    fn every_workspace_gets_a_display_past_the_old_cap() {
+        let home = tempfile::tempdir().unwrap();
+        let dir = home.path().join("agent-displays");
+        for i in 0..1030u32 {
+            assert_eq!(display_for(&dir, &format!("w{i}")).unwrap(), BASE + i);
+        }
+        assert_eq!(display_for(&dir, "w1029").unwrap(), BASE + 1029);
     }
 }

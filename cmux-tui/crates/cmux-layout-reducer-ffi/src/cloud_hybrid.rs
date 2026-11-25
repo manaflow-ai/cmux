@@ -3,13 +3,16 @@
 //! effects the answer lists (start here, make the machine, move, deliver or hold a prompt, show).
 //! `cloud_hybrid_start` reads back what a `cmux chat` start's driver shows now, for the chat
 //! header's `place.start` (cmux-cloud-start-core `hybrid_show`). `cloud_hybrid_keep_count` answers
-//! the keep-running switch's count (cmux-cloud-start-core `keep_count`). `cloud_computer_status` folds a
+//! the keep-running switch's count (cmux-cloud-start-core `keep_count`). `cloud_hybrid_balance`
+//! simulates where a chat's work should sit (cmux-cloud-start-core `balance`).
+//! `cloud_computer_status` folds a
 //! session's facts (that Show, a move, the machine's pause and shape, a refusal, the pins) into the
 //! one `ComputerStatus` the chat header reads (cmux-cloud-start-core `computer_status`, RFD 0080).
 
 use std::io::{Read, Seek, SeekFrom};
 use std::path::{Path, PathBuf};
 
+use cmux_cloud_start_core::balance;
 use cmux_cloud_start_core::computer_status::{self, Facts};
 use cmux_cloud_start_core::hybrid::{self, Account, Event, State};
 use cmux_cloud_start_core::hybrid_show;
@@ -94,6 +97,13 @@ pub(crate) fn respond(operation: &[u8], request: &[u8]) -> Result<Vec<u8>, i32> 
         b"cloud_hybrid_keep_count" => {
             let facts: keep_count::Facts = read(request)?;
             serde_json::to_value(keep_count::count(&facts)).map_err(|_| ERR_INVALID)?
+        }
+        // Where the chat's work should sit, simulated (cmux-cloud-start-core `balance`): the
+        // measured folder, head, upload and wake answer each placement's first tool, whole copy,
+        // awake hours and the pick. A read-out: it moves nothing.
+        b"cloud_hybrid_balance" => {
+            let facts: balance::Facts = read(request)?;
+            serde_json::to_value(balance::simulate(&facts)).map_err(|_| ERR_INVALID)?
         }
         _ => return Err(ERR_INVALID),
     };

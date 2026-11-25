@@ -688,6 +688,8 @@ pub struct IntegrationCompleteParams {
     pub installation_id: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub setup_action: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub actions_oidc: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]

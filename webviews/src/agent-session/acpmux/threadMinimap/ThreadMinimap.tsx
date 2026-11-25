@@ -24,6 +24,7 @@ import {
   highlightBubble,
   MOTION_SCROLL_EVENT,
   reducedMotion,
+  scrollRunning,
   settleScroll,
   stopScroll,
 } from "./scrollMotion";
@@ -41,8 +42,11 @@ import { LIT_OPACITY, threadMinimapLit } from "./lit.experiment";
 import { MARK_OPACITY, threadMinimapMark } from "./mark.experiment";
 import { threadMinimapWave } from "./wave.experiment";
 import { HoverWave, ZipperWave } from "./hoverWave";
+import { RailRevealIntent } from "./railIntent";
+import { REST_REVEAL_SWITCH, threadMinimapReveal } from "./reveal.experiment";
 import { INCOMING_LOOK, threadMinimapIncoming } from "./incoming.experiment";
 import { experimentArm } from "../../../experiments/experiment";
+import { useExperimentSwitch } from "../../../experiments/switches";
 import { tickRanges } from "./tickWindow";
 import { RailRows, tickRows, turnRows } from "./railRows";
 import { PromptHeads } from "../promptHeads";
@@ -499,6 +503,66 @@ function ThreadMinimapView({
       intend(null);
     }, grace);
   };
+  /// What may reveal the occluded rail from the strip (railIntent.ts): a rest of the pointer with no
+  /// button down, never a selection drag that began in the text, which also hides a rail already out.
+  /// The callbacks read the latest closures through `intentCalls`.
+  const intentCalls = useRef({ reveal: () => {}, hide: () => {} });
+  intentCalls.current = {
+    reveal: () => revealAndWarm(),
+    hide: () => {
+      if (railHideTimer.current !== undefined) {
+        clearTimeout(railHideTimer.current);
+        railHideTimer.current = undefined;
+      }
+      setRailRevealed(false);
+    },
+  };
+  /// A press that began in the text is under way (a selection drag): the rail and its strip take no
+  /// pointer until it ends (threadMinimap.css `data-text-press`), so a drag along the edge keeps selecting.
+  const [textPress, setTextPress] = useState(false);
+  /// How the strip treats a resting or dragging pointer (reveal.experiment.ts). Off by default (Leo's UI
+  /// merge hold, 2026-11-24): with Settings > Advanced > Experiments > Prompt Rail Waits for a Resting
+  /// Pointer (`experiments.threadMinimapRestReveal`) off, the strip keeps the earlier `immediate`
+  /// behavior; on, it takes the arm chosen for this pane (read once, `intent` unless overridden).
+  const restReveal = useExperimentSwitch(REST_REVEAL_SWITCH);
+  const [chosenRevealArm] = useState(() => experimentArm(threadMinimapReveal));
+  const revealArm = restReveal ? chosenRevealArm : "immediate";
+  const revealIntent = useRef<RailRevealIntent | undefined>(undefined);
+  revealIntent.current ??= new RailRevealIntent(
+    () => intentCalls.current.reveal(),
+    () => intentCalls.current.hide(),
+    undefined,
+    chosenRevealArm === "intent" ? undefined : 0,
+  );
+  useEffect(() => {
+    const intent = revealIntent.current;
+    const page = typeof window === "undefined" ? undefined : window;
+    if (!intent || !page || revealArm === "immediate") return;
+    const own = (target: EventTarget | null) =>
+      target instanceof Node && (rail.current?.contains(target) || card.current?.contains(target) || false);
+    const press = (event: PointerEvent) => {
+      if (event.button !== 0 || event.target === strip.current || own(event.target)) return;
+      intent.pressOutside();
+      setTextPress(true);
+      setHovered(undefined);
+    };
+    const end = () => {
+      intent.release();
+      setTextPress(false);
+    };
+    page.addEventListener("pointerdown", press, true);
+    page.addEventListener("pointerup", end, true);
+    page.addEventListener("pointercancel", end, true);
+    page.addEventListener("blur", end);
+    return () => {
+      intent.cancel();
+      setTextPress(false);
+      page.removeEventListener("pointerdown", press, true);
+      page.removeEventListener("pointerup", end, true);
+      page.removeEventListener("pointercancel", end, true);
+      page.removeEventListener("blur", end);
+    };
+  }, [revealArm]);
   /// The row keyboard focus is on.
   const [focused, setFocused] = useState<number | undefined>(undefined);
   /// The row the card shows (it stays while the pointer is in the card).
@@ -536,8 +600,6 @@ function ThreadMinimapView({
   /// The list's offset as the rail last set it or its scroll event reported it, so a commit reads no
   /// layout to place the list (reading `scrollTop` right after a commit lays out the whole transcript).
   const listOffset = useRef(0);
-  /// The chat the rail's list was last placed for: a switch places it in the next frame (the offset effect).
-  const placedSession = useRef<string | undefined>(undefined);
   /// A wheel over the rail means the person is browsing its history. Keep their offset until a tick
   /// click takes them back to the transcript; transcript scrolling must not snap the rail beneath them.
   /// Held for the session it was taken in: the transcript is reused across chats, and another chat's
@@ -1348,7 +1410,9 @@ function ThreadMinimapView({
   const [rested, setRested] = useState(0);
   const [restTimer] = useState(() => trailingTimer(() => setRested((count) => count + 1)));
   useEffect(() => () => restTimer.stop(), [restTimer]);
-  /// When the wheel last drove the transcript: only a wheel's motion is a fling (FLING_MOVES). The rail is
+  /// When the wheel last drove the transcript. A wheel's motion is a fling (FLING_MOVES), and so is any
+  /// other fast run of offset writes that is not a glide or jump of ours (a scrollbar drag, a script's
+  /// fling: the frame-pacing bench's debug fling paid the rail's list placement every frame). The rail is
   /// inside the scroller, and a wheel over its own list browses the rail, not the chat.
   const wheelAt = useRef(Number.NEGATIVE_INFINITY);
   useEffect(() => {
@@ -1399,7 +1463,7 @@ function ThreadMinimapView({
       const fast =
         was &&
         since < FLING_REST_MS &&
-        now - wheelAt.current < FLING_REST_MS &&
+        (now - wheelAt.current < FLING_REST_MS || (scroller.current !== null && !scrollRunning(scroller.current))) &&
         Math.abs(reader - was.top) >= FLING_SPEED * Math.max(1, since)
           ? was.fast + 1
           : 0;
@@ -1426,17 +1490,21 @@ function ThreadMinimapView({
       setListTop(next);
       followPointer(node);
     };
-    // A chat switch: the transcript's rows mounted in this commit and nothing has laid them out yet, so the
+    // In the next frame's callback, before that frame paints, never in the commit. A chat switch or a
+    // rail click mounts the transcript's rows in this commit and nothing has laid them out yet, so the
     // offset write here was the commit's first forced style and layout of the whole new chat, and the
     // transcript's anchor pass laid it out again after its own writes (bench/settled-page.bench.ts
-    // chat_switch: 45 ms of a 190 ms switch). In the next frame's callback, before that frame paints, the
-    // page is laid out once by then and the write only moves the list: the rail is placed in the first frame.
-    if (placedSession.current !== sessionId) {
-      placedSession.current = sessionId;
-      const frame = requestAnimationFrame(place);
-      return () => cancelAnimationFrame(frame);
+    // chat_switch: 45 ms of a 190 ms switch). A rail click commits many times a frame while its pages
+    // arrive, and each commit paid that layout here (bench/chat-fast-scroll.bench.ts rail_click_paint).
+    // In the frame the page is laid out once by then and the write only moves the list; a commit that
+    // moves the band again before that frame replaces the pending place, so the list moves once a frame.
+    // With no frames to wait for (a DOM test's environment), the commit places it.
+    if (typeof requestAnimationFrame !== "function") {
+      place();
+      return;
     }
-    place();
+    const frame = requestAnimationFrame(place);
+    return () => cancelAnimationFrame(frame);
   }, [
     shown,
     onScreen.first,
@@ -1637,7 +1705,8 @@ function ThreadMinimapView({
     if (event.currentTarget.hasPointerCapture?.(state.pointer))
       event.currentTarget.releasePointerCapture(state.pointer);
   };
-  const fades = railFades(onScreen, turns.length, height, listTop, rowPitch);
+  const browsing = railBrowsing.current && railBrowsing.current.sessionId === sessionId;
+  const fades = railFades(browsing ? undefined : onScreen, turns.length, height, listTop, rowPitch);
   const fadeReach = railFadeReach(turns.length, height, listTop, rowPitch);
   const inTickContent = (event: React.PointerEvent<HTMLElement>, node: HTMLElement) => {
     const y = event.clientY - node.getBoundingClientRect().top + node.scrollTop;
@@ -1668,6 +1737,7 @@ function ThreadMinimapView({
           className="acpmux-minimap__strip"
           aria-hidden="true"
           data-side={side}
+          data-text-press={textPress || undefined}
           // The wheel over the strip scrolls a list that scrolls itself (railWheel.ts), as over the list.
           {...(overflow ? { [RAIL_SCROLLS_ATTRIBUTE]: "" } : {})}
           style={{
@@ -1676,12 +1746,19 @@ function ThreadMinimapView({
             width: railVisible ? placement.left : stripWidth,
             height,
           }}
-          onPointerEnter={() => {
+          onPointerEnter={(event) => {
             overStrip.current = true;
-            revealAndWarm();
+            // Beside the text the rail is already drawn; over it, the pointer must rest, with no
+            // button down, before the rail covers the text (railIntent.ts).
+            if (placement.overlapsText && revealArm !== "immediate") revealIntent.current?.enter(event.buttons);
+            else revealAndWarm();
+          }}
+          onPointerMove={(event) => {
+            if (placement.overlapsText && revealArm !== "immediate") revealIntent.current?.move(event.buttons);
           }}
           onPointerLeave={(event) => {
             overStrip.current = false;
+            revealIntent.current?.leave();
             if (!within(rail.current, event.relatedTarget) && !within(card.current, event.relatedTarget))
               hideRailAfterGrace();
           }}
@@ -1705,6 +1782,7 @@ function ThreadMinimapView({
             } as React.CSSProperties
           }
           data-hovering={hovered !== undefined || undefined}
+          data-text-press={textPress || undefined}
           data-occluded={!railVisible || undefined}
           // The `dimmed` gutter arm (gutter.experiment.ts) draws the occluded rail faint instead of hidden.
           data-dim={(placement.gutterArm === "dimmed" && !railVisible) || undefined}
@@ -1760,7 +1838,7 @@ function ThreadMinimapView({
             ref={list}
             className="acpmux-minimap__list"
             {...{ [HIDDEN_SCROLLER_ATTRIBUTE]: "" }}
-            // The edge fades: 2.5rem, a quarter of a short rail, and never over the band (railFades).
+            // The edge fades: 2.5rem, a quarter of a short rail, and clear of the band when following the transcript.
             data-fade-top={fades.top || undefined}
             data-fade-bottom={(overflow && fades.bottom) || undefined}
             // A list longer than its room scrolls itself, and the wheel over it is the rail's (railWheel.ts).

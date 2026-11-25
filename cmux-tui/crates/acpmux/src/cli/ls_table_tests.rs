@@ -75,6 +75,27 @@ fn stuck_says_why_in_a_few_words() {
         (json!({"state": "stuck", "stuckReason": "capacity"}), "stuck", "capacity"),
         (json!({"state": "stuck", "stuckReason": "harness_unavailable"}), "stuck", "harness down"),
         (json!({"state": "idle", "lane": {"state": "failed"}}), "idle", "failed turn"),
+        // Paused: acpmux continues it by itself, and says when (`hub/pause_state.rs`).
+        (
+            json!({"state": "idle", "lane": {"state": "failed"},
+                   "lastTurn": {"status": "failed", "errorText": "API Error: Repeated 529 Overloaded errors"},
+                   "retry": {"attempt": 2, "of": 4, "reason": "capacity", "nextAt": 1_795_560_060_000_u64,
+                             "promptId": "p", "turnId": "t"}}),
+            "idle",
+            "paused: capacity, resumes 22:41Z",
+        ),
+        (
+            json!({"rateLimitedUntil": 1_795_560_060_000_u64}),
+            "running",
+            "paused: rate limit, resumes 22:41Z",
+        ),
+        // Stranded: failed, and nothing will continue it.
+        (
+            json!({"state": "idle", "status": "idle", "lane": {"state": "failed"},
+                   "lastTurn": {"status": "failed", "errorText": "No space left on device (os error 28)"}}),
+            "idle",
+            "stranded: disk",
+        ),
         (
             json!({"harnessSandboxFailed": NOW - 60_000, "harnessSandboxFailing": true}),
             "running",
