@@ -987,7 +987,7 @@ async fn hosted_background_agent_accepts_a_prompt_and_drains_66_restored_notices
             let line =
                 rpc.lines.next_line().await.unwrap().expect("connection closed before acceptance");
             let message: Value = serde_json::from_str(&line).unwrap();
-            if message["method"] == acpmux::protocol::method::MUX_PROMPT_ACCEPTED
+            if message["method"] == acpmux::rpc::method::MUX_PROMPT_ACCEPTED
                 && message["params"]["promptId"] == "after-restore"
             {
                 break;
