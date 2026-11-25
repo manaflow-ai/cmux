@@ -243,6 +243,12 @@ def runtime_command_fields() -> dict[str, dict[str, RuntimeField]]:
             )
             index += 1
             continue
+        # A fieldless struct variant: `Variant {},`.
+        empty = re.fullmatch(r"    ([A-Z][A-Za-z0-9]*) \{\s*\},", line)
+        if empty:
+            commands[camel_to_kebab(empty.group(1))] = {}
+            index += 1
+            continue
         structured = re.fullmatch(r"    ([A-Z][A-Za-z0-9]*) \{", line)
         if not structured:
             if line.strip() and not line.strip().startswith(("///", "//")):
