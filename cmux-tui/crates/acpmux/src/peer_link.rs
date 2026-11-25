@@ -201,7 +201,7 @@ impl SilenceBudget {
                 self.rttvar = rtt / 2;
             }
             Some(srtt) => {
-                let deviation = if srtt > rtt { srtt - rtt } else { rtt - srtt };
+                let deviation = srtt.abs_diff(rtt);
                 self.rttvar = (self.rttvar * 3 + deviation) / 4;
                 self.srtt = Some((srtt * 7 + rtt) / 8);
             }
@@ -459,7 +459,14 @@ impl Heard {
     }
 
     pub fn wrap<S>(&self, inner: S) -> HeardStream<S> {
-        HeardStream { inner, heard: self.clone() }
+        HeardStream { inner, heard: self.clone(), early: Vec::new(), pending: Vec::new() }
+    }
+
+    /// [`Self::wrap`], with `early` (a whole WebSocket frame, `masked_text_frame`) written right
+    /// behind the first write, which is the HTTP upgrade request: the peer's first request
+    /// travels in the request's own flight instead of a round trip after its 101.
+    pub fn wrap_early<S>(&self, inner: S, early: Vec<u8>) -> HeardStream<S> {
+        HeardStream { inner, heard: self.clone(), early, pending: Vec::new() }
     }
 }
 
@@ -542,6 +549,57 @@ impl<F> Drop for Listen<'_, F> {
 pub struct HeardStream<S> {
     inner: S,
     heard: Heard,
+    /// Bytes to send behind the first write (`Heard::wrap_early`).
+    early: Vec<u8>,
+    /// Bytes taken from a write but not yet on the inner stream.
+    pending: Vec<u8>,
+}
+
+/// One client WebSocket text frame for `payload`, masked with a fresh random key (RFC 6455 5.3).
+pub fn masked_text_frame(payload: &[u8]) -> Vec<u8> {
+    let mut mask = [0u8; 4];
+    let _ = getrandom::fill(&mut mask);
+    let mut frame = Vec::with_capacity(payload.len() + 14);
+    frame.push(0x81);
+    match payload.len() {
+        n if n < 126 => frame.push(0x80 | n as u8),
+        n if n <= u16::MAX as usize => {
+            frame.push(0x80 | 126);
+            frame.extend_from_slice(&(n as u16).to_be_bytes());
+        }
+        n => {
+            frame.push(0x80 | 127);
+            frame.extend_from_slice(&(n as u64).to_be_bytes());
+        }
+    }
+    frame.extend_from_slice(&mask);
+    frame.extend(
+        payload
+            .iter()
+            .enumerate()
+            .map(|(i, b)| b ^ mask.get(i % mask.len()).copied().unwrap_or_default()),
+    );
+    frame
+}
+
+impl<S: tokio::io::AsyncWrite + Unpin> HeardStream<S> {
+    /// Write out what a write left behind (`early`).
+    fn drain(&mut self, cx: &mut std::task::Context<'_>) -> std::task::Poll<std::io::Result<()>> {
+        use std::task::Poll;
+        while !self.pending.is_empty() {
+            match std::pin::Pin::new(&mut self.inner).poll_write(cx, &self.pending) {
+                Poll::Ready(Ok(0)) => {
+                    return Poll::Ready(Err(std::io::ErrorKind::WriteZero.into()));
+                }
+                Poll::Ready(Ok(n)) => {
+                    self.pending.drain(..n);
+                }
+                Poll::Ready(Err(e)) => return Poll::Ready(Err(e)),
+                Poll::Pending => return Poll::Pending,
+            }
+        }
+        Poll::Ready(Ok(()))
+    }
 }
 
 impl<S: tokio::io::AsyncRead + Unpin> tokio::io::AsyncRead for HeardStream<S> {
@@ -565,13 +623,25 @@ impl<S: tokio::io::AsyncWrite + Unpin> tokio::io::AsyncWrite for HeardStream<S> 
         cx: &mut std::task::Context<'_>,
         buf: &[u8],
     ) -> std::task::Poll<std::io::Result<usize>> {
-        std::pin::Pin::new(&mut self.inner).poll_write(cx, buf)
+        std::task::ready!(self.drain(cx))?;
+        if self.early.is_empty() {
+            return std::pin::Pin::new(&mut self.inner).poll_write(cx, buf);
+        }
+        // The first write, and the frame behind it, go out together; the flush finishes them.
+        let early = std::mem::take(&mut self.early);
+        self.pending.extend_from_slice(buf);
+        self.pending.extend_from_slice(&early);
+        if let std::task::Poll::Ready(Err(e)) = self.drain(cx) {
+            return std::task::Poll::Ready(Err(e));
+        }
+        std::task::Poll::Ready(Ok(buf.len()))
     }
 
     fn poll_flush(
         mut self: std::pin::Pin<&mut Self>,
         cx: &mut std::task::Context<'_>,
     ) -> std::task::Poll<std::io::Result<()>> {
+        std::task::ready!(self.drain(cx))?;
         std::pin::Pin::new(&mut self.inner).poll_flush(cx)
     }
 
@@ -579,6 +649,7 @@ impl<S: tokio::io::AsyncWrite + Unpin> tokio::io::AsyncWrite for HeardStream<S> 
         mut self: std::pin::Pin<&mut Self>,
         cx: &mut std::task::Context<'_>,
     ) -> std::task::Poll<std::io::Result<()>> {
+        std::task::ready!(self.drain(cx))?;
         std::pin::Pin::new(&mut self.inner).poll_shutdown(cx)
     }
 }

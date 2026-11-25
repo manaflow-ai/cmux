@@ -362,6 +362,11 @@ PARTS = [
     # frame p95/p99, input to paint, caret lag, dropped keys, stray layout shift and blank frames per input class
     # (webui.power_user.*). Its own part, under the 30-minute run cap.
     {"name": "web-ui-power-user", "where": "linux", "kind": "webui", "needs": "web-ui-power-user"},
+    # A settled page after a chat or workspace switch (webviews/bench/settled-page.bench.ts, goal settled-page-ceiling,
+    # Leo 2026-11-21: "reach a settled page (zero layout shift after first paint, streaming included) within 2x of a
+    # derived bound"): webui.settled_page.score_max is NOW's settled_page_score_max. The suite marks it ownPart, so the
+    # web-ui part never ran it and the row read unknown. Its own part, about 3 minutes.
+    {"name": "web-ui-settled", "where": "linux", "kind": "webui", "needs": "web-ui-settled"},
     # One live chat's disk growth (scripts/measure/chat-disk-growth.py, the same goal): a release acpmux streams one
     # chat to 100k rows on simulated time against an empty chat; bytes per simulated hour and their ratio
     # (chat_disk.growth_ratio). About 30 s after the build, which runs first under its own cap.
@@ -434,6 +439,7 @@ ROW_PARTS = [
     (r"^webui\.orchestrator\.", "web-ui-orchestrator"),
     (r"^webui\.sidebar_chats_fling\.", "web-ui-scroll"),
     (r"^webui\.power_user\.", "web-ui-power-user"),
+    (r"^webui\.settled_page\.", "web-ui-settled"),
     (r"^webui\.chat_disk\.", "chat-disk"),
     (r"^cloud\.claim_to_ready", "cloud-claim"),
     (r"^webui\.daemon_restart\.", "daemon-restart"),
@@ -454,7 +460,9 @@ ROW_PARTS = [
 # Ghostty's mW as budget). The chat search's fill and the CLI's scan (chat-search) are context for its judged
 # keystroke row: shown, not judged.
 REPORT_ONLY_ROW_RE = re.compile(r"^(terminal\.throughput\.|memory\.app_agents\.breakdown\.|cloud\.claim_to_ready"
-                                r"|acp\.[^.]+\.typing\.(to_listener|to_work)$|launch\.wake_proxy\.awake_echo_ms$"
+                                r"|acp\.[^.]+\.typing\.(to_listener|to_work|to_frame_frames)$"
+                                r"|acp\.[^.]+\.frame_interval$|acp\.[^.]+-(capped|full|nolimit)\."
+                                r"|launch\.wake_proxy\.awake_echo_ms$"
                                 r"|webui\.chat_open_paired\.(god\.)?[a-z0-9_]+\.attach_to_latest$"
                                 r"|power\.idle\.terminal\.(ghostty_mw|vs_ghostty)$"
                                 r"|webui\.chat_search\.(fill|scan_keystroke)\b)")
@@ -1273,6 +1281,8 @@ def linux_bench_runs(root, part="diff-viewer"):
         return {"suite": (["bun", "bench/web-ui-suite.ts", "--only", "composer-typing"], os.path.join(root, "webviews"), {})}
     if part == "web-ui-power-user":
         return {"suite": (["bun", "bench/web-ui-suite.ts", "--only", "power-user-bursts"], os.path.join(root, "webviews"), {})}
+    if part == "web-ui-settled":
+        return {"suite": (["bun", "bench/web-ui-suite.ts", "--only", "settled-page"], os.path.join(root, "webviews"), {})}
     if part == "coord-sim":
         # The release builds first, in a run of their own (each run has its own 30-minute cap), then 300 s of load.
         script = os.path.join(root, COORD_SIM)
@@ -1391,17 +1401,21 @@ def with_build(parts):
 
 
 def unread_parts(state):
-    """The Mac parts (build aside) that never produced a reading in the state (pure): no stored rows
-    (state['part_stored'], store_part_rows) and no row of theirs in state['part_rows'] or state['row_history']."""
+    """The parts (build aside), Mac and Linux, that never produced a reading in the state (pure): no stored rows
+    (state['part_stored'], store_part_rows) and no row of theirs in state['part_rows'] or state['row_history'].
+
+    Linux parts count too (2026-11-24: web-ui-orchestrator, cmux#54205, merged after tip b76703549055, which had
+    measured 13 of its 45 parts in 229 h; a Linux part runs only in a measurement whose commit has its bench, so NOW's
+    competitive.orchestrator.p99_frame_ms_16_children read unknown until that tip ended)."""
     read = set(state.get("part_stored") or {}) if isinstance(state.get("part_stored"), dict) else set()
     for key in ("part_rows", "row_history"):
         if isinstance(state.get(key), dict):
             read |= {part_for_row(name) for name in state[key] if isinstance(name, str)}
-    return [p["name"] for p in PARTS if p["name"] != "build" and not is_linux_part(p["name"]) and p["name"] not in read]
+    return [p["name"] for p in PARTS if p["name"] != "build" and p["name"] not in read]
 
 
 def unread_missing(state, cur):
-    """The unread Mac parts (unread_parts) the tip measurement in flight cannot run: its commit predates them (pure).
+    """The unread parts (unread_parts) the tip measurement in flight cannot run: its commit predates them (pure).
     Empty unless it still has a Mac part to do."""
     if not cur or cur.get("kind") != "tip" or not needs_mac(cur):
         return []
@@ -2496,6 +2510,8 @@ def supported_parts_at(sha):
             ok = has_path(sha, f"{COMPOSER_TYPING_ROWS}")
         elif need == "web-ui-power-user":
             ok = has_path(sha, f"{POWER_USER_BENCH}")
+        elif need == "web-ui-settled":
+            ok = has_path(sha, f"{SETTLED_PAGE_BENCH}")
         elif need == "web-ui-million":
             ok = has_path(sha, f"{MILLION_EVENT_BENCH}")
         elif need == "web-ui-memory":
@@ -2602,6 +2618,7 @@ CHAT_FAST_SCROLL_BENCH = "webviews/bench/chat-fast-scroll.bench.ts"
 ORCHESTRATOR_BENCH = "webviews/bench/orchestrator-16.bench.ts"
 # The web-ui-power-user part's adapter around the power-user input stress harness.
 POWER_USER_BENCH = "webviews/bench/power-user-bursts.bench.ts"
+SETTLED_PAGE_BENCH = "webviews/bench/settled-page.bench.ts"
 INFINITE_ITEMS = "scripts/measure/infinite-items-linux.sh"
 CHAT_DISK = "scripts/measure/chat-disk-growth-linux.sh"
 CLOUD_CLAIM = "scripts/cmux-next/cloud-claim-rows.py"
@@ -4100,15 +4117,25 @@ def restart_note(restarts):
 # job), so the job left no result three ticks running, the part ended yielded_out, and no infinite_items row was
 # stored after 2026-11-17 06:41Z.
 LINUX_RUN_SECONDS = 1800
+# Parts whose one run outlasts the 30 minutes. chat-100k-flat's seven launches (each about a minute of CPU settle, then
+# three idle and three streaming windows) were still in long_x20 when the suite's 1200 s timeout killed it, so
+# web-ui-flat stored no chat_100k_flat row after 2026-11-17 (Actions run 45422305557); its 20 chats grown live to
+# 100k rows timed out at 1770 s in two cron ticks running. The suite's own timeoutMs for each sits 5 minutes under.
+LINUX_RUN_SECONDS_BY_PART = {"web-ui-flat": 2700, "web-ui-flat-grown": 3300}
 LINUX_SETUP_MINUTES = 10
 LINUX_JOB_MIN_MINUTES = 40
+
+
+def linux_run_seconds(name):
+    """The cap of each bench run of Linux part NAME (pure)."""
+    return LINUX_RUN_SECONDS_BY_PART.get(name, LINUX_RUN_SECONDS)
 
 
 def linux_job_minutes(name):
     """The linux job's timeout-minutes for Linux part NAME (pure): its runs' caps and the setup. web-ui-god's paired
     rounds stop at GOD_PAIRED_DEADLINE_S of the part's time, so they add no run of their own."""
     runs = [n for n in linux_bench_runs("", name) if n != "paired"]
-    return max(LINUX_JOB_MIN_MINUTES, LINUX_SETUP_MINUTES + len(runs) * -(-LINUX_RUN_SECONDS // 60))
+    return max(LINUX_JOB_MIN_MINUTES, LINUX_SETUP_MINUTES + len(runs) * -(-linux_run_seconds(name) // 60))
 
 
 def run_capped(argv, cwd, env, timeout):
@@ -4228,10 +4255,10 @@ def cmd_run_linux_part(o):
             tail += [f"paired: {len(report['paired']['rounds'])} rounds, {report['paired']['stopped']}"]
             continue
         before = host_contention() if part != "web-ui" else []
-        stdout, stderr, code = run_capped(argv, cwd, {**env, **extra}, LINUX_RUN_SECONDS)
+        stdout, stderr, code = run_capped(argv, cwd, {**env, **extra}, linux_run_seconds(part))
         value = last_json_object(stdout) if code is not None else None
         if code is None:
-            code = f"timeout ({LINUX_RUN_SECONDS} s)"
+            code = f"timeout ({linux_run_seconds(part)} s)"
         # A script that prints its error to stdout (no stderr) still shows it.
         tail += [f"{name}: exit {code}"] + (stderr.strip() or (stdout if code != 0 else "")).splitlines()[-10:]
         if before:
