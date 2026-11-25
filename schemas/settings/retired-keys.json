@@ -213,6 +213,11 @@
       "since": "2026-10-06",
       "until": "2026-12-05",
       "why": "Minimal workspace rows, every row element a setting (2026-10-06, WorkspaceRowSetting.legacyPaths)."
+    },
+    {
+      "key": "sidebar.showAutomaticSessions",
+      "reason": "the Automatic (N) sidebar fold row is gone: sessions scripts start show in place",
+      "why": "Leo (2026-11-25): \"what the hell is automatic!? PLS REMOVE\" (cmux#55721 reverts #49506)."
     }
   ]
 }
