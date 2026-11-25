@@ -110,6 +110,8 @@ final class PaneCommitMotion {
     var lastFrame: NSView?
     /// The host that an unzoom put above the other panes, with the `zPosition` that its layer had.
     var raised: (host: PaneHostView, z: CGFloat)?
+    /// The hosts under the moving pane that show only outside it until the motion's end (`PaneCommitMotion+Under`).
+    var cuts: [ObjectIdentifier: PaneHostView] = [:]
     /// Hides the panes that a close took out (``keepsDeparted(on:)``); ``finish()`` runs it.
     private var departs: (@MainActor () -> Void)?
     /// The pass that shows a close began and did not place its panes yet: what the close took out still shows.
@@ -263,10 +265,14 @@ final class PaneCommitMotion {
             moveRing(of: change, act.spring)
             moveClip(of: change, act.spring)
         }
+        // The panes under the one pane that moves over them: a zoom's covered panes, an unzoom's others, a close's
+        // panes taken out when one neighbour takes their room. Several moving panes have no one hole: those show as before.
+        let others = act == .unzoom ? coming + staying.map(\.host).filter { $0 !== changes[0].host } : leaving
         if act == .unzoom {
             // The others: the panes that come back, or, in a zoom's move, the panes that it still kept under.
-            closeOver(changes[0], last: last, others: coming + staying.map(\.host).filter { $0 !== changes[0].host }, act.spring)
+            closeOver(changes[0], last: last, others: others, act.spring)
         }
+        cut(act != .split && changes.count == 1 ? others : [], by: changes[0], act.spring)
         for view in screen.dividerViews.values where !view.isHidden {
             guard let layer = view.layer else { continue }
             let new = layer.frame
@@ -345,7 +351,7 @@ final class PaneCommitMotion {
         // Between the begin of a close's pass and its panes' placement, what it took out shows.
         let departs = passBegan ? nil : self.departs
         if departs != nil { self.departs = nil }
-        if !moved.isEmpty || !grounds.isEmpty || !under.isEmpty || lastFrame != nil || raised != nil || departs != nil {
+        if !moved.isEmpty || !grounds.isEmpty || !under.isEmpty || !cuts.isEmpty || lastFrame != nil || raised != nil || departs != nil {
             CATransaction.begin()
             CATransaction.setDisableActions(true)
             // The panes taken out hide first, in this transaction: a pane put back at its own `zPosition` while it still
@@ -359,6 +365,7 @@ final class PaneCommitMotion {
             grounds = [:]
             for (host, z) in under { host.layer?.zPosition = z }
             under = []
+            uncutAll()
             dropLastFrame()
             lower()
             CATransaction.commit()

@@ -38,7 +38,7 @@ final class AgentPageChats {
     var cloudEnvironment: (@MainActor (AgentPaneCloudEnvironmentRequest) async -> [String: Any])?
     var cloudReservation: (@MainActor (AgentPaneCloudReservationRequest) async -> [String: Any])?
     /// A new chat's first send in Cloud (``CloudStartChat``), one runner for every page, given the pane that sent.
-    var cloudStart: (@MainActor (AgentPaneView?, AgentPaneCloudStart) async -> [String: Any])?
+    var cloudStart: (@MainActor (AgentPaneView?, AgentPaneCloudStart) async -> [String: Any])?, cloudSendGesture: (@MainActor (AgentPaneView?) -> Void)?
     /// The app's Cloud account sign-in, awaited by an inline first-send recovery card, and whether it is signed in now.
     var cloudSignIn: (@MainActor () async -> Bool)?
     var cloudSignedIn: (@MainActor () -> Bool)?
@@ -96,8 +96,7 @@ final class AgentPageChats {
         self.open = open
         let window = feed.windows.window(AcpmuxChatWindows.Spec.newTabCards.window)
         window.follow(self) { [weak self] rows in
-            guard let self else { return }
-            chats = Self.deviceChats(rows)
+            guard let self, AgentPaneDeviceChat.replace(&chats, with: Self.deviceChats(rows)) else { return }
             for view in views() { view.deviceChats = chats }
         }
         feed.windows.open(.newTabCards)
@@ -112,7 +111,7 @@ final class AgentPageChats {
         view.model.onSandboxRun = sandboxRun
         view.model.sendIsIncognito = { [weak self, weak view] in view.flatMap { self?.runNotices?.sendIsIncognito($0) } ?? true }
         view.model.onCloudEnvironment = cloudEnvironment
-        view.model.onCloudReservation = cloudReservation
+        view.model.onCloudReservation = cloudReservation; let sendGesture = cloudSendGesture; view.model.onCloudSendGesture = { @MainActor [weak view] () -> Void in sendGesture?(view) } // typed out: Xcode 26.6 could not type the `map` form
         if let run = handoffTurn {
             view.model.onCloudHandoffTurn = { @MainActor [weak view] (session: String) async -> [String: Any] in
                 await run(view, session)
@@ -149,7 +148,7 @@ final class AgentPageChats {
     static func wireSandbox(_ tabs: AgentTabStore, services: AppServices) {
         let notices = SandboxRunNotices(services: services)
         tabs.pageChats.runNotices = notices
-        tabs.pageChats.cloudStart = CloudStartChat.runner(tabs, services: services)
+        (tabs.pageChats.cloudStart, tabs.pageChats.cloudSendGesture) = (CloudStartChat.runner(tabs, services: services), CloudStartChat.sendGesture(tabs, services: services))
         tabs.pageChats.cloudSignIn = { [weak services] in await services?.cloud.auth.signInEndedOnCancel() ?? false }
         tabs.pageChats.cloudSignedIn = { [weak services] in services?.cloud.auth.isSignedIn ?? false }
         CloudStartChat.wireSetup(services)
@@ -187,7 +186,7 @@ final class AgentPageChats {
             // person picked Sandboxed and sent, Cloud is allowed and they are signed in. `account` is the account and team
             // they sent under, read now: the daemon starts the Run only while the app is still on them (CloudDaemon.runSandbox).
             guard services.cloud.isSignedIn, let account = services.cloud.auth.runAccount else { return AgentPaneReply.failure(code: "not_signed_in", message: "not_signed_in") }
-            let team = account.team, api = services.cloud.machineAPI.sending(as: account, classic: services.cloud.api) // the Stack team, as followed
+            let team = account.team, api = services.cloud.machineAPI.daemon.sending(as: account) // the Stack team, as followed
             let follow: @Sendable (String) async throws -> Data = { id in
                 try await notices.follow(id: id, task: task, key: key, team: team, incognito: incognito)
             }

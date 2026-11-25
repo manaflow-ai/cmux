@@ -137,7 +137,7 @@ extension ShellModel {
     /// way), or the live link is not attached yet. An idle Mac nothing dials is
     /// not waited for.
     private var macsStillLoading: Bool {
-        guard !mockMode else { return false }
+        guard !mockMode, !reviewDemo else { return false }
         if live == nil, auth.isSignedIn { return true }
         return (store.activeTeam?.macs ?? []).contains { mac in
             switch store.macDataPhase(mac.id) {

@@ -38,7 +38,9 @@ extension CloudGitHubPicker {
         let client = CloudDaemon.workerMachines(baseURL: auth.configuration.ownerAPIBaseURL(), accessToken: { install }, teamID: { nil },
                                                    machineIO: auth.machineIO, buildSpace: auth.configuration.buildSpace)
         let args: [String: any Sendable] = ["team": team, "repo": repo]
-        guard let answer = try? await client.daemon("owner.github_clone_token", args, timeout: CloudOwnerAPIClient.bound(.seconds(20))) else { return nil }
+        // A misconfigured dev build refuses before anything runs.
+        guard (try? auth.configuration.buildSpace.check()) != nil,
+              let answer = try? await client.daemon.daemon("owner.github_clone_token", args, timeout: CloudOwnerAPIClient.bound(.seconds(20))) else { return nil }
         return CloudGitHubCloneToken.parse(answer)
     }
 }

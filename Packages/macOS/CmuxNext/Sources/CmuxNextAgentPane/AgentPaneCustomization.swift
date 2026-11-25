@@ -1,7 +1,7 @@
 public import Foundation
 
 /// The user's agent pane customization: the files in the `agent-pane`
-/// directory next to `cmux.json` (`~/.config/cmux/agent-pane/`).
+/// directory next to `cmux-next.json` (`~/.config/cmux-next/agent-pane/`).
 ///
 /// - `theme.css`: a stylesheet applied after the pane's own.
 /// - `layout.json`: a JSON object handed to the page's registry `configure`;

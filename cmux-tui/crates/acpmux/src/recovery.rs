@@ -24,6 +24,40 @@ use serde_json::{Map, Value, json};
 use crate::rpc::RpcError;
 use cmux_json::JsonSet as _;
 
+/// Build the reply while the failed write still has its typed I/O cause.
+pub(crate) fn write_error(
+    operation: &str,
+    cause: anyhow::Error,
+    fallback_reason: Option<&str>,
+) -> RpcError {
+    let message = format!("{operation}: {cause:#}");
+    if is_out_of_space(&cause) {
+        return RpcError::new(crate::rpc::BUSY_CODE, message)
+            .with_data(json!({"reason": "disk_full", "retryable": true}));
+    }
+    let error = RpcError::internal(message);
+    match fallback_reason {
+        Some(reason) => error.with_data(json!({"reason": reason, "retryable": true})),
+        None => error,
+    }
+}
+
+/// A full disk or quota anywhere in the error's chain.
+pub(crate) fn is_out_of_space(error: &anyhow::Error) -> bool {
+    error.chain().any(|cause| cause.downcast_ref::<std::io::Error>().is_some_and(io_out_of_space))
+}
+
+fn io_out_of_space(error: &std::io::Error) -> bool {
+    if matches!(error.kind(), std::io::ErrorKind::StorageFull | std::io::ErrorKind::QuotaExceeded) {
+        return true;
+    }
+    #[cfg(unix)]
+    if matches!(error.raw_os_error(), Some(code) if code == libc::ENOSPC || code == libc::EDQUOT) {
+        return true;
+    }
+    false
+}
+
 /// The `errorKind` names. Clients match on these; never rename one.
 pub mod kind {
     /// A write failed because the disk (or the user's quota) is full.
@@ -53,6 +87,11 @@ pub mod kind {
     /// retries such a turn once under the model's catalog id when it has one
     /// (`hub/auto_resume/model_reroute.rs`); a sweeper reads this kind for the rest.
     pub const MODEL_UNRECOGNIZED: &str = "model.unrecognized";
+    /// The agent's account used up a usage limit that resets later (Claude Code's "You've hit
+    /// your weekly limit · resets ..."; `usage_limit.rs`): a retry fails the same way until then.
+    pub const USAGE_LIMIT: &str = "usage.limit";
+    /// The agent's provider disabled or suspended its account (`usage_limit.rs`).
+    pub const ACCOUNT_DISABLED: &str = "account.disabled";
 }
 
 /// The `errorKind` of a model call the owner's own gateway could not answer, by the code the
@@ -247,6 +286,11 @@ fn classify(
              so it signs in or renews its sign-in, then send the message again."
         };
         return Some((kind, recovery.into(), Map::new()));
+    }
+    // Before the sign-in kinds: an account out of usage, or one its provider turned off, is not
+    // signed out (another account or agent goes on; cmux#55066).
+    if let Some(limit) = crate::usage_limit::account_limit(message) {
+        return Some((limit.error_kind(), limit.sentence(None), limit.details()));
     }
     // Before `agent.exited`: an agent that died saying it is not signed in needs a sign-in, and
     // sending again would fail the same way.

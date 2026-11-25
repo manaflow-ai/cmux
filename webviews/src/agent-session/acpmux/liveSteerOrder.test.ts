@@ -84,6 +84,9 @@ type Variant = {
   plain?: boolean;
   /// A rebuild (reconnect / lag resync) mid-turn, after the steer was sent.
   rebuildMidTurn?: "beforeEcho" | "afterEcho";
+  /// acpmux holds the steer until its turn shows (`queued.steerOnStart`, hub/turns.rs
+  /// `steer_on_start`), then lets it go (`dequeued`) and steers it in.
+  startSteer?: boolean;
 };
 
 async function drive(v: Variant) {
@@ -108,11 +111,19 @@ async function drive(v: Variant) {
   }
   let rows: readonly AcpmuxRow[] = [];
   let shown: any;
+  /// Every snapshot after the send: did the steer show in the queue, did its bubble leave.
+  const watch = { sent: false, queued: false, bubbleSeen: false, bubbleLeft: false };
   const client = await AcpmuxDirectClient.connect(
     mockHost,
     (snapshot) => {
       shown = snapshot;
       rows = snapshot.rows;
+      if (watch.sent) {
+        if ((snapshot.queue ?? []).some((entry: { id: string }) => entry.id === "s1")) watch.queued = true;
+        const bubble = snapshot.rows.some((row) => row.kind === "user" && (row.text ?? "").includes(STEER));
+        if (bubble) watch.bubbleSeen = true;
+        else if (watch.bubbleSeen) watch.bubbleLeft = true;
+      }
       // As App.tsx draws it: each snapshot's turns built on the last one's.
       live = turnViewFrom(
         snapshot.rows,
@@ -164,8 +175,14 @@ async function drive(v: Variant) {
     size: 12,
     data: "aGVsbG8=",
   };
+  watch.sent = true;
   const sent = client.send(STEER, v.image ? [image] : [], "s1", undefined, undefined, !v.plain).catch(() => undefined);
   await settle(() => rpc.params !== undefined && (has(STEER) || (shown.queue ?? []).length > 0));
+  if (v.startSteer) {
+    const client_ = "cmux-react-agent-pane#01a1ce";
+    mux("queued", { text: STEER, promptId: "s1", client: client_, turnId: "t1", steerOnStart: true, position: 1 });
+    mux("dequeued", { promptId: "s1", turnId: "t1" });
+  }
   if (v.queued) mux("queued", { text: STEER, promptId: "s1", client: "cmux-react-agent-pane#01a1ce" });
   if (v.answer === "beforeEcho") answerRpc();
   const rebuild = () => (client as unknown as { rebuild(): void }).rebuild();
@@ -220,7 +237,7 @@ async function drive(v: Variant) {
   void sent;
   const drawn = turnView(rows, new Set(), { agentFamily: "claude" });
   client.close?.();
-  return { rows, drawn, live: live!.rows };
+  return { rows, drawn, live: live!.rows, watch };
 }
 
 const where = (list: readonly AcpmuxRow[], text: string) =>
@@ -245,7 +262,20 @@ const variants: Record<string, Variant> = {
   "sent as a plain prompt, rpc answers at the end": { answer: "afterEnd", plain: true },
   "rebuild mid-turn before the echo": { answer: "afterRead", rebuildMidTurn: "beforeEcho" },
   "rebuild mid-turn after the echo": { answer: "afterRead", rebuildMidTurn: "afterEcho" },
+  "acpmux held the steer until its turn showed": { answer: "afterRead", startSteer: true },
 };
+
+// Leo, 2026-11-24: "my message passes through the composer hat/composer area and it looks like it
+// goes through the queue and THEN goes properly... whih is wrong. my mode is steer right now". A
+// steer acpmux holds until its turn shows keeps its one bubble from the send on: never a queue row,
+// never a bubble that leaves and comes back.
+for (const answer of ["beforeEcho", "afterEcho", "afterRead", "afterEnd", "never"] as const)
+  test(`a steer acpmux holds for its turn never passes through the queue: rpc ${answer}`, async () => {
+    const { watch } = await drive({ answer, startSteer: true });
+    expect(watch.bubbleSeen).toBe(true);
+    expect(watch.queued).toBe(false);
+    expect(watch.bubbleLeft).toBe(false);
+  });
 
 for (const [name, variant] of Object.entries(variants))
   test(`a steer sent live into a notice-started turn draws above its answer: ${name}`, async () => {

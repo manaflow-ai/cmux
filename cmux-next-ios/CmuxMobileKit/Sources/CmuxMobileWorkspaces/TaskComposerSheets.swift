@@ -68,7 +68,6 @@ struct TaskComposerOptionsSheet: View {
             .font(.subheadline.weight(.semibold))
             .lineLimit(1)
             .textInputAutocapitalization(.never)
-            .autocorrectionDisabled()
             .submitLabel(.done)
             .accessibilityLabel("Workspace name")
             .accessibilityIdentifier("taskComposer.name")
@@ -206,6 +205,7 @@ struct TaskComposerDraftsSheet: View {
                 if !creator.taskDrafts.isLoaded {
                     CmuxSpinner(label: Text("Loading drafts…"))
                         .frame(maxWidth: .infinity, maxHeight: .infinity)
+                        .placeholderBound("drafts.loading", .milliseconds(2000))
                 } else if drafts.isEmpty {
                     ContentUnavailableView {
                         Label("No Other Drafts", systemImage: "tray")

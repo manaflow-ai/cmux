@@ -72,7 +72,6 @@ test/chat-under-glass.test.ts
 test/chief-usage-page.test.tsx
 test/chief-views-page.test.tsx
 test/classic-new-tab-composer.test.tsx
-test/cloud-environment-chip.test.tsx
 test/cloud-signin-card.test.tsx
 test/cmux-exec-rows.test.tsx
 test/cmux-link-chip-followups.test.tsx
@@ -182,7 +181,6 @@ test/markdown-html-anchor-name.test.ts
 test/markdown-remote-images.test.ts
 test/menu-press-guard.test.ts
 test/message-times.test.tsx
-test/mobile-pairing-page.test.tsx
 test/model-button-default-effort.test.tsx
 test/model-menu-compact.test.tsx
 test/model-menu-short-list.test.tsx
@@ -656,7 +654,6 @@ src/ui/findPaint.test.ts
 src/ui/lasting.test.tsx
 src/ui/mediaPreviewPolicy.test.ts
 src/ui/motion/motion.test.tsx
-src/ui/motion/useTextSwap.test.tsx
 src/ui/nativePopup.lifecycle.test.tsx
 src/ui/openOverlay.test.ts
 src/ui/popoverTrigger.test.tsx

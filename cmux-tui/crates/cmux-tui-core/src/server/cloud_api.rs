@@ -79,6 +79,7 @@ pub(super) const fn handles(operation: ResourceOperation) -> bool {
             | Op::CloudMachineChiefStart
             | Op::CloudMachineChiefResize
             | Op::CloudMachineSetupDesktop
+            | Op::CloudMachineFork
     )
 }
 pub(super) fn handle(
