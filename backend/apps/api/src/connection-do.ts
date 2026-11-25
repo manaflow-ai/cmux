@@ -298,7 +298,7 @@ export class ConnectionDO extends OwnerDO<ConnectionsState> {
       const installation = c ? githubInstallationOf(c) : undefined
       if (!c?.account || installation === undefined || !github.configured(this.env) || ghTokens.githubInstallationGone(c)) return ghTokens.githubStatus(this.env, state, principal, null)
       const page = await installationPage(this.ctx.storage.sql, this.env, this.http, installation, c.account.name, Date.now())
-      if (!page.gone || reconciled >= MAX_STATUS_RECONCILES) return ghTokens.githubStatus(this.env, state, principal, page.url)
+      if (!page.gone || reconciled >= MAX_STATUS_RECONCILES) return ghTokens.githubStatus(this.env, state, principal, page.url, page.permissionsPending)
       this.markNeedsReauth(c, ghTokens.GITHUB_GONE_DETAIL)
     }
   }
@@ -774,6 +774,8 @@ export class ConnectionDO extends OwnerDO<ConnectionsState> {
       case "installation.new_permissions_accepted": {
         const perms = p.installation?.permissions
         if (perms && typeof perms === "object") this.submitSystem("connection.github.sync", { connection: c.id, scopes_granted: githubScopesOf(perms as Record<string, unknown>) }, key("github-sync"))
+        // The cached grant said an update was pending: the next status read asks GitHub again.
+        if (event.event === "installation.new_permissions_accepted") this.forgetConfigurePage(c)
         const lifted = event.event === "installation.unsuspend" || p.installation?.suspended_at === null
         if (lifted && c.status !== "active" && c.status_detail === ghTokens.GITHUB_SUSPENDED_DETAIL) this.submitSystem("connection.status", { connection: c.id, status: "active" }, key("status:unsuspended"))
         return
