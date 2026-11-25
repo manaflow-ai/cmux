@@ -85,6 +85,8 @@ pub(crate) struct AppControlMessages {
     pub launch_times: LaunchTimesMessages,
     /// `cmux window record` and `cmux pane record` (cli/app/record.rs).
     pub record: RecordMessages,
+    /// `cmux app health` (cli/app/health.rs).
+    pub health: HealthMessages,
 }
 
 /// `cmux window record` / `cmux pane record`: a clip of the app's own window or pane, from its own
@@ -111,8 +113,6 @@ pub(crate) struct RecordMessages {
     pub no_ffmpeg: &'static str,
     /// `{error}`, `{dir}`: ffmpeg ran and failed; the frames are kept.
     pub encode_failed: &'static str,
-    /// `cmux app health` (cli/app/health.rs).
-    pub health: HealthMessages,
 }
 
 /// `cmux app health`: the post-update checks. The JSON keys, check names and reason codes stay
