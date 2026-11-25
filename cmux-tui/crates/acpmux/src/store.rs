@@ -577,10 +577,6 @@ pub struct SessionMeta {
         skip_serializing_if = "Option::is_none"
     )]
     pub goal: Option<GoalState>,
-    /// What is done and next across the chat's turns (`task_list.rs`): its harness's latest plan,
-    /// or the list its agent or Chief keeps. None until one is written.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub task_list: Option<crate::task_list::TaskList>,
     /// Per-session permission rules layered above the policy (see hub/rules.rs).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub permission_rules: Option<Value>,
@@ -746,6 +742,10 @@ pub struct SessionMeta {
     /// Unsent composer text owned by this acpmux session.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub composer_draft: Option<String>,
+    /// A person pinned the chat to the top of their list (`_acpmux/pin`), synced to their other
+    /// replicas as `pin/<id>` (`hub/synced.rs`).
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub pinned: bool,
     /// The session took its mode from the person's approval of its preset
     /// (`hub/person.rs` (b)): the approved contents' digest. A spawn from
     /// other contents leaves that mode (`hub/start_gate/preset_bind.rs`).

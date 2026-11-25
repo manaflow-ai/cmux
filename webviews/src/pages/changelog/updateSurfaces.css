@@ -347,6 +347,7 @@
 /* A page with content under the card (the gallery over a wallpaper) frosts it as the composer does;
    the sidebar's card sits on the sidebar's own glass and frosts nothing. */
 .wn-card.wn-updated[data-glass] {
+  /* one-material-allow: the Updated card is the composer's material twin (composerMaterial.css) and carries no .ui-glass on purpose, so the lens draws no wallpaper copy over the sidebar's native glass (updated-card-native-glass.test.ts); it frosts only where a page has content under it (data-glass) */
   -webkit-backdrop-filter: var(--ds-glass-popover-blur);
   backdrop-filter: var(--ds-glass-popover-blur);
 }
@@ -366,6 +367,7 @@
   -webkit-line-clamp: none;
 }
 .wn-card[data-decoration="doodle"][data-glass] {
+  /* one-material-allow: the Updated card is the composer's material twin (composerMaterial.css) and carries no .ui-glass on purpose, so the lens draws no wallpaper copy over the sidebar's native glass (updated-card-native-glass.test.ts); it frosts only where a page has content under it (data-glass) */
   -webkit-backdrop-filter: var(--ds-glass-popover-blur);
   backdrop-filter: var(--ds-glass-popover-blur);
 }
@@ -994,6 +996,7 @@
   margin-top: var(--ds-space-1);
   padding: var(--ds-space-2);
   background: var(--composer-material-tint, var(--page-bg));
+  /* one-material-allow: a sticky chip row's veil, part of the scrolling notes list it holds over, not a floating surface */
   -webkit-backdrop-filter: var(--ds-glass-popover-blur);
   backdrop-filter: var(--ds-glass-popover-blur);
 }

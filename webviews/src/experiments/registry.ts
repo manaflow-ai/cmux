@@ -6,6 +6,7 @@ import { sessionReplay } from "../agent-session/acpmux/replay/replay.experiment"
 import { steerQueueExperiment } from "../agent-session/acpmux/steerQueue/steerQueue.experiment";
 import { statusIslandExperiment } from "../agent-session/acpmux/statusIsland/statusIsland.experiment";
 import { chiefDock } from "../agent-session/acpmux/chiefDock.experiment";
+import { chiefPlans } from "../pages/home-channels/chiefPlans.experiment";
 import { newTabComposerTrailingGap } from "../agent-session/acpmux/newtab/composerGap.experiment";
 import { newTabIconColumn } from "../agent-session/acpmux/newtab/iconColumn.experiment";
 import { homeCardGlow } from "../agent-session/acpmux/newtab/homeCardGlow.experiment";
@@ -42,7 +43,6 @@ import { threadMinimapHeight } from "../agent-session/acpmux/threadMinimap/heigh
 import { threadMinimapGutter } from "../agent-session/acpmux/threadMinimap/gutter.experiment";
 import { threadMinimapRestTick } from "../agent-session/acpmux/threadMinimap/restTick.experiment";
 import { threadMinimapLit } from "../agent-session/acpmux/threadMinimap/lit.experiment";
-import { threadMinimapCutover } from "../agent-session/acpmux/threadMinimap/cutover.experiment";
 import { threadMinimapMark } from "../agent-session/acpmux/threadMinimap/mark.experiment";
 import { threadMinimapWave } from "../agent-session/acpmux/threadMinimap/wave.experiment";
 import { threadMinimapIncoming } from "../agent-session/acpmux/threadMinimap/incoming.experiment";
@@ -88,7 +88,6 @@ import { hatHeaderLook } from "../agent-session/acpmux/subagents/hatHeader.exper
 import { goalHatPlace } from "../agent-session/acpmux/goalHat.experiment";
 import { customizeBarPlace } from "../agent-session/acpmux/customizeBar/customizeBar.experiment";
 import { trayHeadLook } from "../agent-session/acpmux/subagents/trayHead.experiment";
-import { trayColumnLook } from "../agent-session/acpmux/subagents/trayColumn.experiment";
 import { trayFoldHeadLook } from "../agent-session/acpmux/subagents/trayFoldHead.experiment";
 import { trayKindLineLook } from "../agent-session/acpmux/subagents/trayKindLine.experiment";
 import { trayHeadClockLook } from "../agent-session/acpmux/subagents/trayHeadClock.experiment";
@@ -134,7 +133,6 @@ import { menuStyleV2 } from "../ui/menuStyleV2.experiment";
 import { menuRowStates } from "../ui/menuRowStates.experiment";
 import { jumpLatestPlace } from "../agent-session/acpmux/jumpPlace.experiment";
 import { hatPillPlace } from "../agent-session/acpmux/hatPillPlace.experiment";
-import { earlierPlanHat } from "../agent-session/acpmux/subagents/earlierPlanHat.experiment";
 import { dockBand } from "../agent-session/acpmux/dockBand.experiment";
 import { draftFoot } from "../agent-session/acpmux/draftFoot.experiment";
 import { outcomeAsk } from "../agent-session/acpmux/outcomeAsk.experiment";
@@ -155,6 +153,7 @@ export const EXPERIMENTS: readonly Experiment[] = [
   steerQueueExperiment,
   statusIslandExperiment,
   chiefDock,
+  chiefPlans,
   hoverActions,
   startedSessionCards,
   agentDotGrid,
@@ -182,7 +181,6 @@ export const EXPERIMENTS: readonly Experiment[] = [
   homeCardGlow,
   threadMinimapLit,
   threadMinimapMark,
-  threadMinimapCutover,
   threadMinimapWave,
   threadMinimapIncoming,
   threadMinimapReplies,
@@ -238,7 +236,6 @@ export const EXPERIMENTS: readonly Experiment[] = [
   customizeBarPlace,
   hatDoneLook,
   trayHeadLook,
-  trayColumnLook,
   trayFoldHeadLook,
   trayHeadKindsLook,
   trayKindLineLook,
@@ -284,7 +281,6 @@ export const EXPERIMENTS: readonly Experiment[] = [
   holdToApproveDuration,
   jumpLatestPlace,
   hatPillPlace,
-  earlierPlanHat,
   dockBand,
   draftFoot,
   outcomeAsk,
