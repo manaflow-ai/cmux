@@ -218,7 +218,7 @@ impl Hub {
             "host": super::start_gate::host_label(),
             "timeoutSecs": ask.timeout.as_secs(),
         });
-        let (outcome, password) = self.ask_person(session, CARD, card, ASK_TTL).await;
+        let (outcome, password, _) = self.ask_person(session, CARD, card, ASK_TTL).await;
         let Some(password) = password else {
             return Ok(json!({"outcome": outcome}));
         };

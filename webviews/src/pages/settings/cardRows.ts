@@ -103,6 +103,7 @@ export const FAVORITE_THEMES_KEY = "appearance.favoriteThemes";
 export const SPACE_ROWS: ReadonlySet<string> = new Set([
   "sidebar.showSpaces",
   "sidebar.spacesPosition",
+  "appearance.metrics.spaceButtonSpacing",
   "sidebar.spacesVisibility",
 ]);
 

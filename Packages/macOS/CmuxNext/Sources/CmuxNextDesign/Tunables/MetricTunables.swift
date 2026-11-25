@@ -64,7 +64,7 @@ public nonisolated enum MetricTunables {
     public static let roomDotDiameter = MetricTunable.make("roomDotDiameter", .sidebar, "Room dot size", help: "Drawn size of a room dot at the sidebar bottom.",
                                                            compact: 8, comfortable: 9)
     public static let roomDotSlot = MetricTunable.make("roomDotSlot", .sidebar, "Room dot hit width", help: "Hit target width of each room dot.",
-                                                       compact: 24, comfortable: 32)
+                                                       compact: 24, comfortable: 32, key: .spaceButtonSpacing)
 
     // MARK: Tabs
 

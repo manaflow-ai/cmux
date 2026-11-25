@@ -1,4 +1,4 @@
-//! The macOS desktop: one display through ScreenCaptureKit, encoded by VideoToolbox from the
+//! The macOS desktop: one display (or one window, `window.rs`) through ScreenCaptureKit, encoded by VideoToolbox from the
 //! captured IOSurface with no CPU copy, and viewer input posted as CGEvents. Design:
 //! plans/cmux-next/remote-desktop-mac-host.md. Needs Screen Recording and Accessibility for
 //! the host process or the app that launched it.
@@ -20,6 +20,7 @@ pub(crate) mod pasteboard;
 #[cfg(feature = "bench")]
 pub(crate) mod synthetic;
 mod sys;
+pub(crate) mod window;
 
 use crate::desktop::{Desktop, FrameSource, Halves};
 use crate::stream::SessionCfg;
@@ -103,12 +104,23 @@ pub fn open(cfg: &SessionCfg, cursor_metadata: bool) -> Res<Halves> {
     // The encoder session (about 100 ms on a fleet Mac) needs only the size, which CoreGraphics
     // knows before ScreenCaptureKit answers, so it is made beside the shareable-content request,
     // the stream start and the first frame, not after them.
+    let window = window::session_window(cfg.window, &cfg.display)?;
     let (capture, early) = std::thread::scope(|scope| {
-        let early = capture::expected_size(&cfg.display, cfg.max_width)
-            .map(|size| (size, scope.spawn(move || make_encoder(size))));
-        let capture =
-            Capture::start_for_session(&cfg.display, cfg.max_fps, cfg.max_width, in_pictures)
-                .and_then(|mut capture| capture.ready(FIRST_FRAME_TIMEOUT_NS).map(|()| capture));
+        // A display's size is known before ScreenCaptureKit answers; one window's is not, so a
+        // window session makes its encoder once the stream reports its size.
+        let early = match window {
+            Some(_) => None,
+            None => capture::expected_size(&cfg.display, cfg.max_width)
+                .map(|size| (size, scope.spawn(move || make_encoder(size)))),
+        };
+        let capture = match window {
+            // One window, captured alone; a close or resize ends the session (`drain`).
+            Some(id) => Capture::start_window(id, cfg.max_fps, cfg.max_width, in_pictures),
+            None => {
+                Capture::start_for_session(&cfg.display, cfg.max_fps, cfg.max_width, in_pictures)
+            }
+        }
+        .and_then(|mut capture| capture.ready(FIRST_FRAME_TIMEOUT_NS).map(|()| capture));
         let early = early.map(|(size, thread)| (size, thread.join()));
         (capture, early)
     });
@@ -149,8 +161,22 @@ impl Desktop for MacDesktop {
     }
 
     fn drain(&mut self, out: &mut Vec<Rect>) -> Res<()> {
+        // A closed or resized window ends the session with that reason, before a restart of
+        // the stream ScreenCaptureKit stopped for it is tried.
+        let news = self.capture.window_news();
+        if let Some(reason) = news.ended {
+            return Err(reason.into());
+        }
         self.capture.recover()?;
         self.capture.drain(out);
+        // The shared window moved: the picture is the same, the pointer maps through its new
+        // frame.
+        if let Some(bounds) = news.moved {
+            self.injector.move_to(bounds);
+            if let Some(cursor) = self.cursor.as_mut() {
+                cursor.move_to(bounds);
+            }
+        }
         Ok(())
     }
 
