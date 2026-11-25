@@ -32,7 +32,7 @@ import { EXIT_EASING, exitLeadMs } from "./exitLead";
 import { cssTimeMs, foldMs } from "./fold";
 import { ARRIVAL_FRAME_LINES } from "./followChase";
 import { boxOf, clippedBottom, clippedBottomOf, coverClip, ghostOf, type CoverPath, isLiveClockNode } from "./turnFold";
-import { ACTIVITY_LINE, LIVE_THINKING, WORKED, NEXT_STEP, WORKING } from "./turns";
+import { LIVE_THINKING, WORKED, NEXT_STEP, WORKING } from "./turns";
 import { isLineRow, type AcpmuxRow, type AcpmuxSnapshot } from "../model";
 import { experimentArm } from "../../../experiments/experiment";
 import { turnEndCrossLook, turnEndFoldLook, turnEndRecapLook, turnEndSubagentLook } from "./turnEndFoldLook.experiment";
@@ -171,10 +171,18 @@ export const TURN_END_SUBAGENT_ATTR = "data-turn-end-subagent";
 export type TurnEndCross = "snap" | "quick" | "even" | "eased";
 export const TURN_END_CROSSES: readonly TurnEndCross[] = ["snap", "quick", "even", "eased"];
 export const TURN_END_CROSS_ATTR = "data-turn-end-cross";
-const CROSS_TIMING: Record<Exclude<TurnEndCross, "snap">, { fadeMs: number; moveMs: number; easing: string }> = {
-  quick: { fadeMs: 120, moveMs: 180, easing: MOTION_SETTLE },
-  even: { fadeMs: 140, moveMs: 200, easing: MOTION_SETTLE },
-  eased: { fadeMs: 160, moveMs: 220, easing: "cubic-bezier(0.4, 0, 0.2, 1)" },
+/// Each arm's clocks on the house scale (schemas/motion-scale): the shipped `quick` is the house motion
+/// itself, its fade the `micro` step and its move the settle (`--cmux-motion-settle` on
+/// `--cmux-ease-settle`, the one fold length every web fold shares), read from the page so one token
+/// times every fold and ui.animationSpeed scales this one too; `even` and `eased` are that same clock
+/// a beat longer. Reduce Motion and a 0 ms token fold at once (`playTurnEnd` reads `foldMs` first).
+const CROSS_TIMING: Record<
+  Exclude<TurnEndCross, "snap">,
+  (settled: { ms: number; easing: string }, scale: number) => { fadeMs: number; moveMs: number; easing: string }
+> = {
+  quick: (settled, scale) => ({ fadeMs: MOTION_MS.micro * scale, moveMs: settled.ms, easing: settled.easing }),
+  even: (settled, scale) => ({ fadeMs: 140 * scale, moveMs: 200 * scale, easing: settled.easing }),
+  eased: (_settled, scale) => ({ fadeMs: 160 * scale, moveMs: 220 * scale, easing: "cubic-bezier(0.4, 0, 0.2, 1)" }),
 };
 
 /// The crossing fold set over `node`, else the dev setting's, else the shipped `quick`.
@@ -185,10 +193,12 @@ export function turnEndCross(node: Element): TurnEndCross {
   return TURN_END_CROSSES.includes(arm) ? arm : "quick";
 }
 
-/// The crossing fold's clocks over `node`: undefined for `snap`.
-export function turnEndCrossTiming(node: Element): { fadeMs: number; moveMs: number; easing: string } | undefined {
+/// The crossing fold's clocks over `node`, on the page's settle token: undefined for `snap`.
+export function turnEndCrossTiming(node: HTMLElement): { fadeMs: number; moveMs: number; easing: string } | undefined {
   const cross = turnEndCross(node);
-  return cross === "snap" ? undefined : CROSS_TIMING[cross];
+  if (cross === "snap") return undefined;
+  const settled = settle(node);
+  return CROSS_TIMING[cross](settled, settled.ms / MOTION_SETTLE_MS);
 }
 
 /// The subagent block's rows: the group's header and its start and done lines.
@@ -214,7 +224,7 @@ const LIVE_LINE = LIVE_THINKING;
 /// Whether `rows` holds a running turn's line near its end.
 export function hasLiveLine(rows: readonly AcpmuxRow[]): boolean {
   for (let index = rows.length - 1; index >= 0 && index >= rows.length - LINE_TAIL; index -= 1)
-    if (rows[index]!.id === LIVE_LINE || rows[index]!.kind === ACTIVITY_LINE) return true;
+    if (rows[index]!.id === LIVE_LINE) return true;
   return false;
 }
 
@@ -363,8 +373,7 @@ export function captureTurnEnd(
 ): TurnEndCapture | undefined {
   if (!thread || !scroller || foldMs(thread) <= 0) return undefined;
   const nodes = [...mounted(thread)];
-  const liveLine = (node: HTMLElement) =>
-    node.dataset.rowId === LIVE_LINE || node.classList.contains(`acpmux-${ACTIVITY_LINE}`);
+  const liveLine = (node: HTMLElement) => node.dataset.rowId === LIVE_LINE;
   if (!held && !nodes.some(liveLine)) return undefined;
   // The ids the swap keeps, from the first mounted row on: rows before the window never matter.
   const first = Math.max(

@@ -129,9 +129,8 @@ import { HatFaces, hatFaces, type HatFace } from "./HatFaces";
 import { trayFoldHeadLook } from "./trayFoldHead.experiment";
 import { trayOpenLook } from "./trayOpen.experiment";
 import { trayHeadKindsLook } from "./trayHeadKinds.experiment";
-import { trayHead, trayHeadParts, type TrayHeadPart, trayHeadGroups } from "./trayHeadKinds";
+import { trayHead, trayHeadGroups, trayHeadParts, type TrayHeadPart } from "./trayHeadKinds";
 import { HeadSummary } from "./HeadSummary";
-import { trayColumnLook } from "./trayColumn.experiment";
 import { trayHeadHeightLook } from "./trayHeadHeight.experiment";
 import { COMMAND_KIND_ICON, commandKind } from "./trayCommandKinds";
 import { KIND_LINE_SEPARATOR, trayKindLineLook } from "./trayKindLine.experiment";
@@ -155,11 +154,7 @@ import { awaitsOwnWork, type Subagent } from "./subagentFold";
 import type { SubagentTrayPlacement } from "./subagentTrayPlacement";
 import { rememberTrayOpen, trayOpenFor } from "./trayFoldMemory";
 import { HAT_OPEN_SLOP, hatDragEnd, hatDragHeight, setHatHeight, useHatHeight } from "./trayResize";
-import { PlanList } from "../conversation/PlanList";
-import { Spinner } from "../conversation/icons";
-import type { AcpmuxPlanEntry } from "../model";
 import type { TrayHandleSide } from "../chatDisplay";
-import { earlierPlanHead, planHead, planHeadMark } from "./subagentTrayModel";
 import { focusRingShown } from "../../../ui/focusModality";
 import { focusRoute } from "../../../ui/focusRoute";
 import { RESIZE_HANDLE_PROPS } from "../../../scrollers";
@@ -202,10 +197,6 @@ export const SubagentTray = memo(function SubagentTray({
   stepLook,
   enters = false,
   chat,
-  plan,
-  planEarlier = false,
-  planKept = false,
-  turnSince,
   onTuck,
   tuckSide = "middle",
   onHold,
@@ -254,18 +245,6 @@ export const SubagentTray = memo(function SubagentTray({
   enters?: boolean;
   /// The chat the tray belongs to: the person's open or fold holds for it (trayFoldMemory.ts).
   chat?: string;
-  /// The running turn's todo list (an ACP `plan`), shown in the header as "2 of 5 · <current task>"
-  /// and, opened, as its checklist over the lines (Leo, 2026-11-03: "did we like/prefer that tho to
-  /// the little composer hat we have rn"). Unset between turns: the ended list folds in the transcript.
-  plan?: readonly AcpmuxPlanEntry[];
-  /// `plan` is an earlier turn's list with steps left, carried while the running turn has none of its
-  /// own (turns.ts `earlierTurnPlan`): the header reads "Earlier plan · 2 of 5", the list says why.
-  planEarlier?: boolean;
-  /// `plan` is the chat's task list shown between turns (chatTaskList.ts `hatPlanOf`): nothing in it
-  /// spins and the header's mark is not lit, as no turn works on it now.
-  planKept?: boolean;
-  /// When the chat's running turn started, Unix ms: a plan-only header counts its time (cmux#51039).
-  turnSince?: number;
   /// Tucks the hat away to a pull tab on the composer's top edge (TrayPullTab.tsx): a chevron
   /// on the hat's own top edge, shown on hover (Leo, 2026-11-04: "at the top of the hat, there's
   /// some sort of little thing ... a special kind of chevron"). Unset, the hat can't tuck away.
@@ -327,7 +306,6 @@ export const SubagentTray = memo(function SubagentTray({
   const [foldHead] = useState(() => experimentArm(trayFoldHeadLook));
   const [facesArm] = useState(() => experimentArm(hatFacesLook));
   const [headHeight] = useState(() => experimentArm(trayHeadHeightLook));
-  const [column] = useState(() => experimentArm(trayColumnLook));
   const [stopLook] = useState(() => experimentArm(trayStopLook));
   const [opensArm] = useState(() => experimentArm(trayOpenLook));
   const [headClock] = useState(() => experimentArm(trayHeadClockLook));
@@ -361,10 +339,7 @@ export const SubagentTray = memo(function SubagentTray({
   // How the header reaches the Background tasks panel, where the chat has one (Leo, 2026-11-03: "a
   // thing like this that can either expand OR open up to this sort of thing"): a panel button beside
   // its chevron (the default), or the whole header, Claude's chip.
-  // A header that opens the panel can't open the plan, which lives only here: with a plan it falls
-  // back to the panel button, so the checklist and the panel both stay a click away.
-  const panelArm = opensArm === "header" && plan !== undefined && plan.length > 0 ? "button" : opensArm;
-  const opensPanel = onOpenPanel && panelArm !== "none" ? panelArm : undefined;
+  const opensPanel = onOpenPanel && opensArm !== "none" ? opensArm : undefined;
   // Only the bottom stack's tray leaves on a snapshot: one placed in the transcript moves with it.
   const motionRef = useTrayMotion(shown, enters, placement === "tray");
   const setTrayRef = useCallback(
@@ -396,13 +371,12 @@ export const SubagentTray = memo(function SubagentTray({
   }, []);
   // The header stays while the tray has a line, running or ended: one of two running ending never
   // takes it (and its collapse) away.
-  const planned = plan !== undefined && plan.length > 0;
   // One item heads the hat as several do (Leo, 2026-11-07: "when I click into it and it's only the one
   // sub-agent, like the fact that it immediately brings me over to the sub-agent instead of expanding
   // it is, like, ooh"): folded, the header names it, says what it does now and its time; a click
   // expands the hat in place, and the line inside opens it. The first click never navigates.
-  const lone = !planned && items.length + finished.length === 1 ? (items[0] ?? finished[0]) : undefined;
-  const headed = items.length + finished.length > 0 || planned;
+  const lone = items.length + finished.length === 1 ? (items[0] ?? finished[0]) : undefined;
+  const headed = items.length + finished.length > 0;
   // A header that opens the panel never expands in place.
   const open = !headed || (opened === true && opensPanel !== "header");
   // The `hide` arm (hatOpen.experiment.ts): a headed hat hides from a button in its header, not the top edge.
@@ -572,24 +546,6 @@ export const SubagentTray = memo(function SubagentTray({
   const [runStart, setRunStart] = useState<number | undefined>(undefined);
   const since = runSince(runStart, items);
   if (since !== runStart) setRunStart(since);
-  // A plan longer than the hat's rows scrolls in place; the step at work is kept in view as the list
-  // moves on, so the person never has to hunt for it (cmux#51039). Only the plan's own box scrolls.
-  const planBox = useRef<HTMLDivElement>(null);
-  useLayoutEffect(() => {
-    const box = planBox.current;
-    const step = box?.querySelector<HTMLElement>('.cv-plan__item[data-status="in_progress"]');
-    if (!box || !step) return;
-    // Measured against the box's own cap, not its drawn height: the hat's open fold starts it at
-    // nothing, which would scroll the step out of the view it then grows into.
-    const view = box.ownerDocument.defaultView;
-    const cap = view?.getComputedStyle ? Number.parseFloat(view.getComputedStyle(box).maxHeight) : Number.NaN;
-    const room = Math.min(box.scrollHeight, Number.isFinite(cap) ? cap : box.scrollHeight);
-    if (box.scrollHeight <= room) return;
-    const top = step.getBoundingClientRect().top - box.getBoundingClientRect().top + box.scrollTop;
-    const bottom = top + step.offsetHeight;
-    if (top < box.scrollTop) box.scrollTop = top;
-    else if (bottom > box.scrollTop + room) box.scrollTop = bottom - room;
-  }, [plan, open]);
   // A header over several items: no time (`none`, each line has its own), the longest still-running
   // item's (`running`), or the run's (`run`, before). Leo, 2026-11-22, on "… 5 stopped 1h 23m 25s":
   // "what the fuck are you timing man" (trayHeadClock.experiment.ts).
@@ -631,7 +587,7 @@ export const SubagentTray = memo(function SubagentTray({
     () => (foldHead === "kinds" && facesArm !== "lead" ? hatFaces(t, items, finished, chatHarness) : NO_FACES),
     [foldHead, facesArm, t, items, finished, chatHarness],
   );
-  if (items.length === 0 && finished.length === 0 && !planned) return null;
+  if (items.length === 0 && finished.length === 0) return null;
   // The counts, split by kind, then what ended and failed (trayHeadKinds.ts; Leo, 2026-11-03: "the
   // top bit aka what the collapsed area shows i think can show much more interesting stuf fthan it
   // does now").
@@ -673,10 +629,7 @@ export const SubagentTray = memo(function SubagentTray({
   const kindsHead = tallyHead || (foldHead === "kinds" && !loneEnd && headParts.length > 0);
   const named = !open && !loneHead && !kindsHead && foldHead !== "counts" && newest.length > 0;
   const shownNames = named ? newest.slice(0, foldHead === "one" || oneName ? 1 : 2) : [];
-  // The plan leads: its progress and the step at work, then what runs (Leo's hat, 2026-11-03).
-  const planText = planned ? (planEarlier ? earlierPlanHead(t, plan) : planHead(t, plan)) : "";
-  const workText =
-    items.length + finished.length === 0 ? "" : loneHead ? loneHead.title : named ? shownNames.join(" · ") : title;
+  const workText = loneHead ? loneHead.title : named ? shownNames.join(" · ") : title;
   // The `strip` and `cards` arms: the header's marks are one per running line, to thumb through. A lone
   // item's header already names it, so its one mark only opens it; with nothing running the header
   // keeps today's marks.
@@ -685,14 +638,8 @@ export const SubagentTray = memo(function SubagentTray({
   // What the header says while a mark is pointed at: that line's name and latest step, as a lone
   // item's header says them. The bar keeps its height and its trailing columns; the words truncate.
   const peekHead = peekItem ? loneHeadOf(t, language, peekItem, waiting, true) : undefined;
-  const headText = peekHead ? peekHead.title : [planText, workText].filter(Boolean).join(" · ");
-  // A tray with only a plan draws the Plan mode mark in its head's icon slot; with work beside the
-  // plan the head keeps the work's ring.
-  const planOnly = Boolean(planText) && !workText;
-  // While the turn runs, a plan-only header spins and counts the turn's time (cmux#51039).
-  const planMark = planOnly ? planHeadMark({ working, turnSince }) : undefined;
-  // A plan-only header has no items to time: it counts the turn while the turn runs (cmux#51039).
-  const headSince = itemsSince ?? planMark?.since;
+  const headText = peekHead ? peekHead.title : workText;
+  const headSince = itemsSince;
   const moreCount = items.length - shownNames.length;
   // Keep live and ended cards in one keyed child list. When a task completes, its card moves
   // between groups without remounting, so keyboard focus and the open affordance stay put.
@@ -819,11 +766,11 @@ export const SubagentTray = memo(function SubagentTray({
     rim.addEventListener("lostpointercapture", end);
   };
   // The header's mark is in the accent while anything under it runs.
-  const runs = running > 0 || commands > 0 || (planned && !planKept);
+  const runs = running > 0 || commands > 0;
   return (
     <section
       ref={setTrayRef}
-      className={`acpmux-running-tray${items.length > 0 || planned || surface !== "none" ? " ui-glass ui-glass-floats acpmux-stack-material" : ""}`}
+      className={`acpmux-running-tray${items.length > 0 || surface !== "none" ? " ui-glass ui-glass-floats acpmux-stack-material" : ""}`}
       // It holds still while the chat streams, ticks and scrolls: only its times tick, in their own
       // text (Elapsed.tsx). The dev budgets warn otherwise (devkit/perfBudgets.ts `still-surface`).
       data-perf-still="hat"
@@ -835,7 +782,7 @@ export const SubagentTray = memo(function SubagentTray({
       // Nothing runs: the ended lines sit quietly over the composer in the settled surface, joined to
       // the composer's top as one glass (no card of its own floating over it; Leo, 2026-10-31, on a
       // finished one-line row in a bordered card: "why is this still so ass").
-      data-settled={(items.length === 0 && !planned) || undefined}
+      data-settled={items.length === 0 || undefined}
       // A headed tray keeps its own surface, settled too: a slightly lighter or darker glass than the
       // chat behind it and a hairline rim (Leo, 2026-11-01: "you can't just have it be the exact same
       // glass as the background"). traySurface.experiment.ts holds the arms.
@@ -845,12 +792,11 @@ export const SubagentTray = memo(function SubagentTray({
       // runs, and settled in every arm with a surface, a lone ended line too, so the transcript never
       // shows through it (Leo, 2026-11-02, on a done line over a reply's footer icons: "this running
       // thing now looks mildly awkward").
-      data-card={items.length > 0 || planned || surface !== "none" || undefined}
+      data-card={items.length > 0 || surface !== "none" || undefined}
       data-motion={motion}
       data-narrow={narrow || undefined}
       data-head={head}
       data-head-height={headHeight}
-      data-column={column}
       data-stop={stopLook}
       data-opens={(headed && opensPanel) || undefined}
       data-tucks={onTuck ? tuckSide : undefined}
@@ -921,8 +867,6 @@ export const SubagentTray = memo(function SubagentTray({
             <HeadSummary
               t={t}
               parts={headParts}
-              plan={planText}
-              planIcon={PLAN_ICON}
               separator={KIND_LINE_SEPARATOR[kindLine]}
               markSize={ROW_ICON}
               mark={(part) => <KindMark part={part} chatHarness={chatHarness} />}
@@ -933,7 +877,6 @@ export const SubagentTray = memo(function SubagentTray({
             <HeadKinds
               t={t}
               parts={headParts}
-              plan={planText}
               separator={KIND_LINE_SEPARATOR[kindLine]}
               chatHarness={chatHarness}
               tally={tallyHead}
@@ -973,22 +916,12 @@ export const SubagentTray = memo(function SubagentTray({
             // (desktop.css --grid-tray-text) instead of jumping to the inset.
             <span
               className="acpmux-lineage__icon"
-              data-state={planOnly ? (planMark?.spins ? "running" : "done") : runs ? "running" : "done"}
-              // A plan-only header draws the Plan mode mark over its rows' status column (Lucas, 2026-11-14:
-              // "we should either have an icon (ideally) or align it"). Else an empty stack keeps the slot
-              // blank, never the ring.
-              data-blank={(!planOnly && (head === "bare" || head === "stack")) || undefined}
+              data-state={runs ? "running" : "done"}
+              // An empty stack keeps the slot blank, never the ring.
+              data-blank={head === "bare" || head === "stack" || undefined}
               aria-hidden="true"
             >
-              {planMark?.spins ? (
-                <Spinner size={ROW_ICON} loading />
-              ) : (
-                <Icon
-                  name={planOnly ? PLAN_ICON : head === "session" ? "agent.session" : HEAD_ICON}
-                  size={ROW_ICON}
-                  row
-                />
-              )}
+              <Icon name={head === "session" ? "agent.session" : HEAD_ICON} size={ROW_ICON} row />
             </span>
           )}
           {/* Its words slide as a status line hands over: a new name joining, the lone item's task (Leo,
@@ -1125,12 +1058,6 @@ export const SubagentTray = memo(function SubagentTray({
             if (to && !event.currentTarget.contains(to)) focusInList.current = false;
           }}
         >
-          {/* The plan's checklist over what runs, the turn's own work first. */}
-          {planned && (
-            <div ref={planBox} className="acpmux-running-tray__plan">
-              <PlanList entries={plan} earlier={planEarlier} still={planKept} />
-            </div>
-          )}
           <ul ref={listRef} id={listId} className="acpmux-running-tray__list">
             {cards}
           </ul>
@@ -1663,7 +1590,6 @@ function silentTurnName(t: Translate, turn: SilentTurn): string {
 function HeadKinds({
   t,
   parts,
-  plan,
   separator,
   chatHarness,
   tally,
@@ -1671,7 +1597,6 @@ function HeadKinds({
 }: {
   t: Translate;
   parts: readonly TrayHeadPart[];
-  plan: string;
   /// The `tally` arm: each kind is its mark and its number, the kinds a gap apart with no words between.
   tally: boolean;
   /// Between the kinds (trayKindLine.experiment.ts), so the header reads as the counts did.
@@ -1686,18 +1611,12 @@ function HeadKinds({
       data-tally={tally || undefined}
     >
       {faces}
-      {plan && (
-        <span className="acpmux-running-tray__kind" data-kind="plan">
-          <Icon name={PLAN_ICON} size={ROW_ICON} row />
-          <span className="acpmux-running-tray__kind-text">{plan}</span>
-        </span>
-      )}
       {parts.map((part, index) => (
         // A kind and the separator before it are one unit, so a kind that does not fit drops whole
         // onto the hidden second line, never cut mid-word (subagents.css; Leo, 2026-11-22: "this
         // should not be cutting off so harshly like this. we basically never want that kinda shit").
         <span key={part.key} className="acpmux-running-tray__kind-unit">
-          {!tally && (plan || index > 0) && <span className="acpmux-running-tray__kind-sep">{separator}</span>}
+          {!tally && index > 0 && <span className="acpmux-running-tray__kind-sep">{separator}</span>}
           <HeadKind t={t} part={part} chatHarness={chatHarness} faced={faces !== undefined} tally={tally} />
         </span>
       ))}
@@ -1838,8 +1757,6 @@ function stackMarks(
 /// The header's fixed mark for background work (trayHead.experiment.ts): a running ring, never the
 /// chat bubble, which reads as a message, and never the spinner, which each working line keeps.
 const HEAD_ICON = "app.sample.runningagents";
-/// A plan header's mark: the composer's Plan mode checklist (composerPlusRegistry.ts).
-const PLAN_ICON = "mode.plan";
 
 const NO_ITEMS: readonly TrayItem[] = [];
 const NO_ARRIVALS: ReadonlySet<string> = new Set();

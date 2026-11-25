@@ -25,6 +25,7 @@ const CARDS = [
   { file: "agent-session/acpmux/chips/LinkHoverCard.tsx", root: "acpmux-pr-card", glass: "ui-glass" },
   { file: "agent-session/acpmux/started/useSessionHover.tsx", root: "acpmux-session-hover-card", glass: "ui-glass" },
   { file: "agent-session/acpmux/newtab/StageCards.tsx", root: "nt-hovercard", glass: "ui-glass" },
+  // The hover-card glass on the App's popover glass (thread-minimap-card-glass.test.ts).
   { file: "agent-session/acpmux/threadMinimap/PreviewCard.tsx", root: "acpmux-minimap__card", glass: "ui-glass" },
   { file: "agent-session/acpmux/header/HeaderToolPreview.tsx", root: "acpmux-header-preview", glass: "ui-glass" },
 ] as const;
@@ -154,7 +155,7 @@ test("every hover card renders the shared glass", () => {
     const classes = [...source.matchAll(/"([^"\n]*)"/g)].map((match) => match[1]!.split(/\s+/));
     const named = classes.filter((list) => list.includes(root));
     if (named.length === 0) return true;
-    return glass !== null && !named.every((list) => list.includes(glass));
+    return !named.every((list) => list.includes(glass));
   });
   expect(missing.map(({ file, root }) => `${file}: .${root}`)).toEqual([]);
 });
