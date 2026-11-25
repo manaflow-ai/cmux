@@ -63,6 +63,10 @@ pub(crate) struct Arrival {
     pub id: String,
     /// The agent the chat runs.
     pub harness: String,
+    /// The chat ran the copy's agent conversation on this machine before: the agent's files of
+    /// it that are here are this chat's own, and the copy's replace them (`bundle.rs`
+    /// `agent_side`). Otherwise a file that is here is left as it is.
+    pub own_agent: bool,
     /// How the turn the copy's log left open, if it left one, was cut off. It is settled here,
     /// once, and its continuation queued in these words.
     pub cut: CutBy,
@@ -157,9 +161,16 @@ impl<C: AutoCloud + 'static> Importer<C> {
             let profile = config.harnesses.get(&manifest.harness);
             profile.map(|profile| crate::config::derive_family(&manifest.harness, profile))
         };
-        let meta = bundle::meta(view, manifest, dir, base, family).map_err(local_error)?;
-        bundle::write(staged, &view.id, &meta, &copy.events, &snapshot.native)
-            .map_err(local_error)?;
+        let stored = base.as_ref().and_then(|meta| meta.agent_session_id.clone());
+        let taken = self.hub.auto_agent_session_taken(&view.id, &manifest.harness_session_id);
+        if taken {
+            let id = &view.id;
+            tracing::warn!(session = %id, "auto session: the copy names another chat's agent");
+        }
+        let agent = bundle::agent_side(stored, manifest, &snapshot.native, taken);
+        let meta =
+            bundle::meta(view, manifest, &agent.session, dir, base, family).map_err(local_error)?;
+        bundle::write(staged, &view.id, &meta, &copy.events, agent.files).map_err(local_error)?;
         let open = manifest.open_turn.as_ref();
         let in_flight = open.and_then(|turn| {
             let tool = turn.tool.as_ref()?;
@@ -169,6 +180,7 @@ impl<C: AutoCloud + 'static> Importer<C> {
         let arrival = Arrival {
             id: view.id.clone(),
             harness: manifest.harness.clone(),
+            own_agent: agent.own,
             cut: if reason == ImportReason::Handback { CutBy::Move } else { CutBy::Takeover },
             in_flight,
             draft: manifest.draft.clone(),

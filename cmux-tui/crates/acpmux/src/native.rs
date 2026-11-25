@@ -26,7 +26,7 @@ pub fn locate_in(meta: &SessionMeta, home: &Path) -> Vec<(String, PathBuf)> {
             for p in walk(&root, 4) {
                 let name =
                     p.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
-                if name.ends_with(".jsonl") && name.contains(sid) {
+                if is_codex_rollout(&name, sid) {
                     out.push(("codex-rollout".to_owned(), p));
                 }
             }
@@ -64,6 +64,13 @@ pub fn locate_in(meta: &SessionMeta, home: &Path) -> Vec<(String, PathBuf)> {
         _ => {}
     }
     out
+}
+
+/// Whether the file named `name` is the Codex rollout of the session `sid`:
+/// `rollout-<time>-<sid>.jsonl`. The id is the name's whole end after a dash, so a word that is
+/// merely somewhere in a name (`rollout`, a date, the start of another id) names no file.
+fn is_codex_rollout(name: &str, sid: &str) -> bool {
+    name.starts_with("rollout-") && name.ends_with(&format!("-{sid}.jsonl"))
 }
 
 /// pi's session folder under the home folder.
@@ -241,9 +248,7 @@ fn restore_target(meta: &SessionMeta, label: &str, rel: &Path) -> Option<PathBuf
             Some(PathBuf::from(".claude/projects").join(claude_project_dir(&meta.cwd)).join(name))
         }
         ("codex", "codex-rollout")
-            if rel.starts_with(".codex/sessions")
-                && name.ends_with(".jsonl")
-                && name.contains(sid) =>
+            if rel.starts_with(".codex/sessions") && is_codex_rollout(&name, sid) =>
         {
             Some(rel.to_path_buf())
         }
@@ -470,9 +475,7 @@ fn guarded_target(meta: &SessionMeta, sid: &str, label: &str, rel: &Path) -> Opt
             Some(PathBuf::from(".claude/projects").join(claude_project_dir(&meta.cwd)).join(name))
         }
         ("codex", "codex-rollout")
-            if rel.starts_with(".codex/sessions")
-                && name.starts_with("rollout-")
-                && name.ends_with(&format!("-{sid}.jsonl")) =>
+            if rel.starts_with(".codex/sessions") && is_codex_rollout(name, sid) =>
         {
             Some(rel.to_path_buf())
         }

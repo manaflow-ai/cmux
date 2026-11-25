@@ -18,6 +18,17 @@ impl Hub {
         self.session_by_id(id)
     }
 
+    /// Whether a chat of this daemon other than `id` keeps the agent conversation
+    /// `agent_session`: one chat's copy never names another chat's.
+    pub(crate) fn auto_agent_session_taken(&self, id: &str, agent_session: &str) -> bool {
+        if agent_session.is_empty() {
+            return false;
+        }
+        let keeps = |meta: &SessionMeta| meta.agent_session_id.as_deref() == Some(agent_session);
+        let sessions = self.sessions.lock().unwrap_or_else(|e| e.into_inner());
+        sessions.values().any(|session| session.id != id && session.read_meta(keeps))
+    }
+
     /// Imports the Cloud copy in `bundle` as the chat `arrival.id`.
     ///
     /// A chat of that id that is here already is replaced whole, log and all, under the same
@@ -39,11 +50,13 @@ impl Hub {
             self.kill(&old, true).await?;
         }
         // Not `live`: its queue stays empty, so nothing runs when the import publishes it. The
-        // copy is the chat: its agent's own files replace any that are here (`the_chat`), and
-        // so does cmux-harness's journal (`replace_durable`), which a chat that ran here
-        // before left behind.
-        let plain = (false, None, true, false, None);
-        let session = self.import_placing(bundle, None, plain, true).await?;
+        // copy is the chat: its agent's own files replace those this chat left here
+        // (`the_chat`), and so does cmux-harness's journal (`replace_durable`). Only this
+        // chat's own: for a conversation this chat did not run here, a file that is here is
+        // another's and stays as it is, as after a move by hand.
+        let own = arrival.own_agent;
+        let plain = (false, None, own, false, None);
+        let session = self.import_placing(bundle, None, plain, own).await?;
         // Held as a chat still arriving while its open turn is settled and its queue comes
         // back, so no new prompt runs ahead of the continuation.
         *session.moving.lock().unwrap_or_else(|e| e.into_inner()) =
