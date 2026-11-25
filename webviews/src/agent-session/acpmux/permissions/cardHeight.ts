@@ -236,42 +236,51 @@ function questionHeight(question: AgentQuestion, width: number, bubbleScale = 1)
     if (scope) height += 2 + text(scope, inner, body.lineHeight, body.size);
     return height + 28;
   }
-  let height = 16 + 28 + 2 + text(item.prompt, inner, titleLine, contentSize) + 8;
+  // An ask of several questions is as tall on every page (QuestionCard `RowsSizer`): its title takes
+  // the tallest question's lines and its body the tallest question's rows and preview.
+  const title = Math.max(...question.items.map((each) => text(each.prompt, inner, titleLine, contentSize)));
+  let height = 16 + 28 + 2 + title + 8;
   // The rows and the preview share the body, inside the card's 8 px padding (questionCard.css). The
-  // preview the card opens with is the first row's, else the first one (QuestionCard `shownPreview`).
+  // preview a page opens with is its first row's, else the first one (QuestionCard `shownPreview`).
   const box = width - 16;
-  const preview = hasPreviews(item) ? shownPreview(item.options, [0]) : undefined;
-  const layout = preview ? experimentArm(questionPreviewLayout) : undefined;
-  // Split and even put the preview beside the rows, by their flex basis and grow (styles.css), 8 px
-  // apart, until the body is too narrow for both bases and the preview wraps under the rows.
-  const flex = layout === "split" ? [220, 2, 280, 3] : layout === "even" ? [260, 1, 280, 1] : undefined;
-  const beside = flex !== undefined && box >= flex[0]! + 8 + flex[2]!;
-  const rowsWidth = beside ? flex[0]! + ((box - flex[0]! - 8 - flex[2]!) * flex[1]!) / (flex[1]! + flex[3]!) : box;
-  // A row's label: the row's 8 px padding each side, the 20 px mark and its 10 px gap.
-  const rowRoom = Math.max(1, rowsWidth - 46);
-  let rows = item.options.reduce(
-    (sum, option, index) =>
-      sum +
-      (index ? 2 : 0) +
-      Math.max(
-        36,
-        16 +
-          text(option.label, rowRoom, body.lineHeight, body.size) +
-          (option.detail ? text(option.detail, rowRoom, detail.lineHeight, detail.size) : 0),
-      ),
-    0,
-  );
-  if (preview) {
-    // Inline opens under its row, 2 px below it, past the mark; beside, the taller column sets the
-    // height; under the rows, 8 px below them, the body's width.
-    if (layout === "inline") rows += 2 + previewHeight(preview, rowsWidth - 38);
-    else if (beside) rows = Math.max(rows, previewHeight(preview, box - rowsWidth - 8));
-    else rows += 8 + previewHeight(preview, box);
-  }
-  height += rows;
-  // The last row (8 px gap with its hairline, unless it is the only row); a narrow card wraps Skip
-  // and Send under the typed answer.
-  height += (item.options.length ? 8 : 0) + 36 + (item.allowsOther && inner < 320 ? 28 : 0);
+  const bodyHeight = (each: (typeof question.items)[number]) => {
+    const preview = hasPreviews(each) ? shownPreview(each.options, [0]) : undefined;
+    const layout = preview ? experimentArm(questionPreviewLayout) : undefined;
+    // Split and even put the preview beside the rows, by their flex basis and grow (styles.css), 8 px
+    // apart, until the body is too narrow for both bases and the preview wraps under the rows.
+    const flex = layout === "split" ? [220, 2, 280, 3] : layout === "even" ? [260, 1, 280, 1] : undefined;
+    const beside = flex !== undefined && box >= flex[0]! + 8 + flex[2]!;
+    const rowsWidth = beside ? flex[0]! + ((box - flex[0]! - 8 - flex[2]!) * flex[1]!) / (flex[1]! + flex[3]!) : box;
+    // A row's label: the row's 8 px padding each side, the 20 px mark and its 10 px gap.
+    const rowRoom = Math.max(1, rowsWidth - 46);
+    let rows = each.options.reduce(
+      (sum, option, index) =>
+        sum +
+        (index ? 2 : 0) +
+        Math.max(
+          36,
+          16 +
+            text(option.label, rowRoom, body.lineHeight, body.size) +
+            (option.detail ? text(option.detail, rowRoom, detail.lineHeight, detail.size) : 0),
+        ),
+      0,
+    );
+    if (preview) {
+      // Inline opens under its row, 2 px below it, past the mark; beside, the taller column sets the
+      // height; under the rows, 8 px below them, the body's width.
+      if (layout === "inline") rows += 2 + previewHeight(preview, rowsWidth - 38);
+      else if (beside) rows = Math.max(rows, previewHeight(preview, box - rowsWidth - 8));
+      else rows += 8 + previewHeight(preview, box);
+    }
+    return rows;
+  };
+  height += Math.max(...question.items.map(bodyHeight));
+  // The last row (8 px gap with its hairline, unless no question has options); a narrow card wraps
+  // Skip and Send under the typed answer, on every page when any question takes one.
+  height +=
+    (question.items.some((each) => each.options.length > 0) ? 8 : 0) +
+    36 +
+    (question.items.some((each) => each.allowsOther) && inner < 320 ? 28 : 0);
   return height;
 }
 
