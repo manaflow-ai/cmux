@@ -101,10 +101,10 @@ import Testing
             let loose = try Self.row(list, Self.loose)
             let textX = Self.x(list, loose.title.frame.minX, in: loose)
             // The slot every leading glyph's ink fills (`SidebarStyle.rowGlyphOpticalSide`, Lawrence 2026-11-09: one size).
-            // A glyph wider than tall (Home's house) stands at the slot's height, centered, and may spill evenly past both
-            // sides up to `maxAspect` of it.
-            let spill = SidebarStyle.rowGlyphOpticalSide * (SidebarOpticalGlyph.maxAspect - 1) / 2
-            let slot = (textX - spill)...(textX + SidebarStyle.rowGlyphOpticalSide + spill)
+            // A glyph wider than tall (Home's house) stands at the slot's height, starts on its leading edge (Lucas
+            // 2026-11-24), and may run past its trailing edge up to `maxAspect` of it.
+            let spill = SidebarStyle.rowGlyphOpticalSide * (SidebarOpticalGlyph.maxAspect - 1)
+            let slot = textX...(textX + SidebarStyle.rowGlyphOpticalSide + spill)
             // The glyph's frame snaps its origin and its size to whole pixels (a crisp bitmap): up to half a 1x pixel each.
             let snapped = Self.tolerance + 0.5
             #expect(pin.pinInkFrame == nil, "\(c.testDescription): the pinned row draws a pin")
@@ -120,7 +120,7 @@ import Testing
     /// https://github.com/manaflow-ai/cmux/issues/38061: a pinned row's pin ("CLOUDMUX") did not line up under Home's
     /// house. Home's row and a pinned row share one fixed-width icon column (one x, one width), and Home's ink
     /// starts on its leading edge, where a text-only row's title starts (Lawrence 2026-11-09, "home/pin icons not left
-    /// aligned with 'Fix…'"); the narrow pin centers under it (#42431), at every density, minimal mode, width and text size.
+    /// aligned with 'Fix…'"), at every density, minimal mode, width and text size.
     @Test(arguments: cases, DensityPreset.allCases)
     func homesGlyphStartsOnTheTextOnlyTitlesEdge(_ c: Case, preset: DensityPreset) throws {
         try Self.at(c, preset: preset) {
@@ -136,13 +136,13 @@ import Testing
             // device pixel off a column that starts on a half point (as PinnedRowsShareHomeColumnTests allows).
             let pixel = max(Self.tolerance, 1 / max(1, window.backingScaleFactor))
             // Home's house stands at the rows' glyph height (Lucas 2026-11-16: as tall as the App Store's bag), so it is a
-            // little wider than the column and spills evenly past both edges: its ink starts that spill before the column's
-            // edge, where a text-only title starts.
-            let spill = max(0, (homeInk.width - SidebarStyle.rowGlyphOpticalSide) / 2)
-            #expect(abs(homeInk.minX + spill - homeColumn.minX) <= pixel,
-                    "\(c.testDescription): Home's glyph starts at \(homeInk.minX) (spill \(spill)), its icon column at \(homeColumn.minX)")
-            #expect(abs(homeInk.minX + spill - titleX) <= pixel,
-                    "\(c.testDescription): Home's glyph starts at \(homeInk.minX) (spill \(spill)), a text-only title at \(titleX)")
+            // little wider than its square. Its ink starts on the column's edge, where a text-only title starts, and runs
+            // past the square's trailing edge only (Lucas 2026-11-24: the red light, the house, a globe and a text-only
+            // title on one line).
+            #expect(abs(homeInk.minX - homeColumn.minX) <= pixel,
+                    "\(c.testDescription): Home's glyph starts at \(homeInk.minX), its icon column at \(homeColumn.minX)")
+            #expect(abs(homeInk.minX - titleX) <= pixel,
+                    "\(c.testDescription): Home's glyph starts at \(homeInk.minX), a text-only title at \(titleX)")
         }
     }
 

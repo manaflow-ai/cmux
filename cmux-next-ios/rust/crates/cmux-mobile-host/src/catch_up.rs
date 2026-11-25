@@ -165,7 +165,7 @@ impl Request {
                 "listEpoch" if value.is_string() => drop(chat_list.insert(key, value)),
                 "afterSeq" if value.is_u64() => drop(chat_list.insert(key, value)),
                 "limit" if value.is_u64() => {
-                    drop(chat_list.insert(key, json!(value.as_u64().unwrap_or(0).min(LIST_ROWS_MAX))))
+                    drop(chat_list.insert(key, json!(value.as_u64().unwrap_or(0).min(LIST_ROWS_MAX))));
                 }
                 _ => return Err(bad(format!("chatList.{key} is not understood"))),
             }

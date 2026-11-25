@@ -120,14 +120,14 @@ import Testing
             #expect(abs(space(lastPin, a) - gap) <= Self.tolerance,
                     "\(c.testDescription): the first workspace row is \(space(lastPin, a)) pt under the last pin, the row gap is \(gap) pt")
 
-            // One optical column (wide Home ink fits by height and centers over the title's column). A text-only pinned
-            // row leads as a text-only workspace row does, with no pin (Leo 2026-11-23, ask c-b5d3e0efb6): its title
-            // starts where the workspace row's does.
+            // One optical column (wide Home ink fits by height and starts on the title's column, so its left edge is the
+            // titles'). A text-only pinned row leads as a text-only workspace row does, with no pin (Leo 2026-11-23, ask
+            // c-b5d3e0efb6): its title starts where the workspace row's does.
             let homeInk = list.convert(try #require(home.glyphInkFrame, "Home drew no glyph"), from: home)
             let titleX = list.convert(rowA.title.alignmentRect(forFrame: rowA.title.frame), from: rowA).minX
             let target = SidebarStyle.rowGlyphOpticalSide
-            #expect(abs(homeInk.midX - (titleX + target / 2)) <= Self.tolerance,
-                    "\(c.testDescription): Home's ink centers on the title's optical column")
+            #expect(abs(homeInk.minX - titleX) <= Self.tolerance,
+                    "\(c.testDescription): Home's ink starts at \(homeInk.minX), the title's column at \(titleX)")
             #expect(abs(SidebarOpticalGlyph.fittedExtent(homeInk.size) - target) <= Self.tolerance,
                     "\(c.testDescription): Home's ink keeps the shared optical size")
             for pin in pins {

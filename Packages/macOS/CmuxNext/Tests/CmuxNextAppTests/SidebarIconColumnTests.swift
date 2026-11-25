@@ -82,9 +82,9 @@ import Testing
         return CGPoint(x: CGFloat(minX + maxX + 1) / 2 - half, y: CGFloat(minY + maxY + 1) / 2 - half)
     }
 
-    /// Home's glyph centers its height-fitted ink on the optical column (#42431), where a workspace row's icon
-    /// column starts too (https://github.com/manaflow-ai/cmux/issues/38061 lined them up by center; Lawrence 2026-11-09,
-    /// "home/pin icons not left aligned with 'Fix…'", by their left edge, the titles' edge).
+    /// Home's glyph starts its height-fitted ink on the optical column's edge (Lucas 2026-11-24), where a workspace row's
+    /// icon column starts too (https://github.com/manaflow-ai/cmux/issues/38061 lined them up by center; Lawrence
+    /// 2026-11-09, "home/pin icons not left aligned with 'Fix…'", by their left edge, the titles' edge).
     @Test(arguments: HomePinnedRowAlignmentTests.cases)
     func leadingGlyphsStartOnOneX(_ c: Case) throws {
         try SidebarGroupRailAlignmentTests.with(c.density, c.minimal) {
@@ -96,8 +96,8 @@ import Testing
             let columnX = list.convert(home.leadingColumnFrame, from: home).minX
             let iconColumnX = list.convert(iconRow.icon.frame, from: iconRow).minX
             let target = SidebarStyle.rowGlyphOpticalSide
-            #expect(abs(homeInk.midX - (columnX + target / 2)) <= Self.tolerance,
-                    "\(c.testDescription): Home's ink centers in its optical column")
+            #expect(abs(homeInk.minX - columnX) <= Self.tolerance,
+                    "\(c.testDescription): Home's ink starts at \(homeInk.minX), its optical column at \(columnX)")
             #expect(abs(SidebarOpticalGlyph.fittedExtent(homeInk.size) - target) <= Self.tolerance,
                     "\(c.testDescription): Home's ink keeps the shared optical size")
             #expect(abs(iconColumnX - columnX) <= Self.tolerance, "\(c.testDescription): a row icon's column at \(iconColumnX), Home's at \(columnX)")

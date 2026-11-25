@@ -168,3 +168,16 @@ fn the_capability_ops_answer() {
     assert_eq!(after, json!({"header": null, "fetch": true}));
     call(c"cloud_capability_drop", &json!({}));
 }
+
+#[test]
+fn a_cloud_start_in_place_keeps_its_page() {
+    let shown = |kill: Option<&str>| {
+        call(
+            c"cloud_one_pane",
+            &json!({"inPlace": true, "pageLive": true, "cloudPageFree": true, "killSwitch": kill}),
+        )
+        .1
+    };
+    assert_eq!(shown(None), json!({"shown": "rehome"}));
+    assert_eq!(shown(Some("0")), json!({"shown": "swap"}));
+}
