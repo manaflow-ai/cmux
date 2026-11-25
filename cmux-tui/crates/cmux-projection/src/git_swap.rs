@@ -480,7 +480,13 @@ pub fn run(
     let local = state.join(LOCAL_DIR);
     let ready = match prepare_carry(&projected, &local, &projected.join(CARRY_PACK), &base) {
         Ok(ready) => ready,
-        Err(_) => return Ok(Outcome::NoPublicRemote),
+        Err(error) => {
+            eprintln!(
+                "cmux projection: carry preparation failed for {}: {error:#}",
+                projected.display()
+            );
+            return Ok(Outcome::NoPublicRemote);
+        }
     };
     swap(overlay, forget, &projected, &local, &ready)?;
     Ok(Outcome::Swapped(local))
