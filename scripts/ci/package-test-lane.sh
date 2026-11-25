@@ -301,12 +301,10 @@ select_packages() {
     CmuxIrxTransport
     CmuxUpdater
     CmuxPhonePush
-    CmuxDeviceHub
     CmuxHomeRender
     CmuxRemote
     CmuxScreenKit
     CmuxVNCWebRTC
-    CmuxVisibleRows
     GlassHost
   )
 
