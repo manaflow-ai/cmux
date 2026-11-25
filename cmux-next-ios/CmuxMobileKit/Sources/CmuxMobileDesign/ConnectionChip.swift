@@ -61,6 +61,15 @@ public struct ConnectionChip: View {
             }
         }
 
+        /// Connecting, Reconnecting or Updating: the link is still being brought up (#55034).
+        /// ``paints`` also hides "Can't reach" while the link redials.
+        public var isStillTrying: Bool {
+            switch self {
+            case .connecting, .reconnecting, .updating: true
+            case .offline, .macOffline, .cantReach: false
+            }
+        }
+
         /// An SF Symbol; nil shows a spinner (still trying).
         public var symbol: String? {
             switch self {

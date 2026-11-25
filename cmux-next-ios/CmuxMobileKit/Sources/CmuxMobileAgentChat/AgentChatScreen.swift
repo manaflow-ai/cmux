@@ -746,6 +746,7 @@ struct AgentChatConnectionLine: View {
                     .padding(.leading, 20)
                     .alignmentGuide(.top) { $0[.bottom] + 8 }
                     .accessibilityIdentifier("agentChat.connectionLine")
+                    .placeholderBound("chat.connection.chip", .milliseconds(0))
                     .transition(.opacity)
             }
         }
@@ -1119,6 +1120,8 @@ struct UserBubble: View {
                 .padding(.horizontal, 16)
                 .padding(.vertical, 11)
                 .background(Color.cmuxMobileChatBubble, in: .rect(cornerRadius: 20, style: .continuous))
+                // A bubble with no words and no attachment is an empty grey bubble: never drawn.
+                .placeholderBound("chat.user.empty", .milliseconds(0), when: prompt.isEmpty && attachments.isEmpty)
         }
         .selectionMenu(menuRows)
         .containerRelativeFrame(.horizontal, alignment: .trailing) { width, _ in Self.maxWidth(in: width) }

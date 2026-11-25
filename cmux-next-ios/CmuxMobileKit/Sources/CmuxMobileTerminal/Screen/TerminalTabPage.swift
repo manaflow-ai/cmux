@@ -56,7 +56,9 @@ public final class TerminalTabHost {
     }
 
     public func prepareCard() {
-        model.captureSnapshot()
+        // Runs in the tabs button's tap: the still is composed off the main
+        // thread, never in the zoom's first frame.
+        model.captureSnapshotOffMain()
         // The grid opens: the page becomes a picture in its card. TabsKit
         // does not lay the page out again until it zooms back in, so it is
         // taken out of accessibility and hit-testing here; the page's next
@@ -151,6 +153,7 @@ public struct TerminalTabPage: View {
                             .ignoresSafeArea()
                             .padding(.bottom, insets.bottom)
                             .transition(.identity)
+                            .placeholderBound("terminal.page.connecting", .milliseconds(2000))
                     }
                 }
                 .allowsHitTesting(isInteractive)
@@ -210,6 +213,7 @@ public struct TerminalTabCard: View {
                 switch content {
                 case .connecting:
                     TerminalConnectingView(topInset: insets.top, lastFrame: model.snapshot)
+                        .placeholderBound("tabgrid.terminal.connecting", .milliseconds(1000))
                 case .screenText:
                     TerminalCardScreenText(text: model.cardScreenText ?? "", topInset: insets.top, width: geo.size.width)
                 case .snapshot, .savedFrame:
@@ -249,6 +253,7 @@ public struct TerminalTabCard: View {
                     .padding(.horizontal, 12)
                     .padding(.top, insets.top + 8)
                     .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+                    .placeholderBound("tabgrid.terminal.placeholder", .milliseconds(1000))
                 }
             }
         }
