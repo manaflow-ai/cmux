@@ -149,7 +149,7 @@ import type { HandoffReviewInput } from "./handoff/review";
 import { acpWire, redactEndpoint, type AcpWireLog } from "./wire";
 import { noteTranscriptReplace } from "./flickerLog";
 import { chatPerfCapture } from "./chatPerfCapture";
-import { acpmuxPerf } from "./perf";
+import { acpmuxPerf, type PerfTransport } from "./perf";
 import { BUSY_TRIES, busyDelay, RequestBudget, waitsForSlot } from "./requestBudget";
 import { translate } from "./i18n";
 import { bgDoneNotice, bgDoneStarted } from "./conversation/bgDoneNotice";
@@ -10562,7 +10562,10 @@ export class AcpmuxDirectClient {
         }
         return;
       }
-      if (text) acpmuxPerf.markAgent("firstToken");
+      if (text) {
+        acpmuxPerf.markAgent("firstToken");
+        acpmuxPerf.markToken();
+      }
       // Subagents spawned after the session's own text form a new group.
       this.subagents.closeBatch();
       if (messageId && this.streamingAssistantMessageId && messageId !== this.streamingAssistantMessageId) {
@@ -12135,6 +12138,8 @@ export class AcpmuxDirectClient {
       this.promptRowKeys.set(promptId, rowId);
       this.optimisticPromptRows.set(promptId, rowId);
       this.optimisticPromptTexts.set(promptId, text);
+      // The perf watch's per-send span (perfReporter.ts); one boolean check while it is off.
+      acpmuxPerf.markSend(() => this.perfSendInfo(sessionId, rowId));
     }
     if (sessionId) this.emit();
     const standIns = attachments.filter(isBehindSend).map((chip) => chip.id);
@@ -12368,6 +12373,8 @@ export class AcpmuxDirectClient {
     if (!emptyContinuation) {
       this.optimisticPromptRows.set(promptId, rowId);
       this.optimisticPromptTexts.set(promptId, text);
+      // The perf watch's per-send span (perfReporter.ts), unless the row is already drawn ahead of its files.
+      if (!this.aheadDrawn.has(promptId)) acpmuxPerf.markSend(() => this.perfSendInfo(sessionId, rowId));
     }
     if (attachments.length) {
       this.optimisticPromptAttachments.set(promptId, attachments);
@@ -14185,6 +14192,9 @@ export class AcpmuxDirectClient {
     const leftTail = this.leftTail?.sessionId === sessionId ? this.leftTail.tail : undefined;
     this.leftTail = undefined;
     const generation = ++this.selectionGeneration;
+    // The perf watch's chat-switch span (perfReporter.ts); one boolean check while it is off.
+    if (previousSessionId !== undefined && previousSessionId !== sessionId)
+      acpmuxPerf.markChatSwitch(sessionId, () => this.perfTransport(sessionId));
     if (this.purgedSessionId !== sessionId) this.purgedSessionId = undefined;
     // What the pane shows (the chat before, a new chat's hero) stays drawn until this chat's attach page is in.
     let hold = this.holdSnapshots(SWITCH_HOLD_MS);
@@ -14693,6 +14703,21 @@ export class AcpmuxDirectClient {
   get trustGeneration(): number {
     return this.selectionGeneration;
   }
+  /// Where `sessionId` runs as the page knows it, for the perf watch's spans: Cloud by its summary's
+  /// host kind, another machine by its host or a page not on this Mac's acpmux, else this Mac.
+  private perfTransport(sessionId: string | undefined): PerfTransport {
+    const summary = sessionId && this.summary?.sessionId === sessionId ? this.summary : undefined;
+    if (hostKind(summary?.hostKind) === "cloud") return "cloud";
+    return text(summary?.host) || !this.localOrigin ? "remote" : "local";
+  }
+
+  /// The per-send span's facts at the send (perf.ts `markSend`), asked only while measuring.
+  private perfSendInfo(sessionId: string | undefined, rowId: string) {
+    let users = 0;
+    for (const row of this.rows.values()) if (row.kind === "user" && row.id !== rowId) users += 1;
+    return { rowId, transport: this.perfTransport(sessionId), freshChat: users === 0, rows: this.rows.size };
+  }
+
   /// The shown session, for a harness switch: whether it has nothing in it yet (a pick back to
   /// its harness reuses it), its harness, its mode and options (a pick it has is not sent), and its
   /// folder when it runs on this machine (the new chat starts there; a cloud or peer session's folder
