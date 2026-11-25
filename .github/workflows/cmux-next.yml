@@ -2432,7 +2432,7 @@ jobs:
 
       - name: Setup Bun
         uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
-        with:
+        with: &bun-with
           bun-version: "1.4.4"
           no-cache: ${{ !startsWith(github.workspace, '/home/runner/work/') || !(github.event_name != 'pull_request' && github.event_name != 'pull_request_target' && github.event_name != 'merge_group' && contains(fromJSON('["refs/heads/main","refs/heads/feat-cmux-next","refs/heads/nightly-next"]'), github.ref)) }}
 
@@ -3586,7 +3586,7 @@ jobs:
         if: ${{ env.CMUX_FAST_TIER_FLEET != 'report' && (always() && steps.reuse.outputs.hit != 'true') }}
         continue-on-error: true
         timeout-minutes: 3
-        run: |
+        run: &acpmux-stop |
           home="$RUNNER_TEMP/acpmux-home"
           [[ -d "$home" ]] || exit 0
           acpmux="$(PATH="$PATH:$HOME/.local/bin:$HOME/.cargo/bin:/opt/homebrew/bin:/usr/local/bin" command -v acpmux || true)"
@@ -4203,9 +4203,7 @@ jobs:
       - name: Setup Bun
         if: ${{ steps.reuse.outputs.hit != 'true' }}
         uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
-        with:
-          bun-version: "1.4.4"
-          no-cache: ${{ !startsWith(github.workspace, '/home/runner/work/') || !(github.event_name != 'pull_request' && github.event_name != 'pull_request_target' && github.event_name != 'merge_group' && contains(fromJSON('["refs/heads/main","refs/heads/feat-cmux-next","refs/heads/nightly-next"]'), github.ref)) }}
+        with: *bun-with
 
       # Why: note-226
       - name: Give this job its own bun
@@ -4557,12 +4555,7 @@ jobs:
         if: ${{ always() && steps.reuse.outputs.hit != 'true' }}
         continue-on-error: true
         timeout-minutes: 3
-        run: |
-          home="$RUNNER_TEMP/acpmux-home"
-          [[ -d "$home" ]] || exit 0
-          acpmux="$(PATH="$PATH:$HOME/.local/bin:$HOME/.cargo/bin:/opt/homebrew/bin:/usr/local/bin" command -v acpmux || true)"
-          [[ -z "$acpmux" ]] || env -u ACPMUX_SOCKET ACPMUX_HOME="$home" "$acpmux" daemon shutdown --end-agents || true
-          rm -rf "$home"
+        run: *acpmux-stop
 
       # Why: 2026-11-24-swift-test-15.md, note-239
       - name: Upload the test helper's crash reports
@@ -4723,9 +4716,7 @@ jobs:
 
       - name: Setup Bun
         uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
-        with:
-          bun-version: "1.4.4"
-          no-cache: ${{ !startsWith(github.workspace, '/home/runner/work/') || !(github.event_name != 'pull_request' && github.event_name != 'pull_request_target' && github.event_name != 'merge_group' && contains(fromJSON('["refs/heads/main","refs/heads/feat-cmux-next","refs/heads/nightly-next"]'), github.ref)) }}
+        with: *bun-with
 
       # Why: note-253
       - name: Give this job its own bun
@@ -4975,12 +4966,7 @@ jobs:
         if: ${{ always() }}
         continue-on-error: true
         timeout-minutes: 3
-        run: |
-          home="$RUNNER_TEMP/acpmux-home"
-          [[ -d "$home" ]] || exit 0
-          acpmux="$(PATH="$PATH:$HOME/.local/bin:$HOME/.cargo/bin:/opt/homebrew/bin:/usr/local/bin" command -v acpmux || true)"
-          [[ -z "$acpmux" ]] || env -u ACPMUX_SOCKET ACPMUX_HOME="$home" "$acpmux" daemon shutdown --end-agents || true
-          rm -rf "$home"
+        run: *acpmux-stop
 
       - name: Upload the test helper's crash reports
         if: ${{ failure() }}
@@ -5018,7 +5004,7 @@ jobs:
   # Why: note-59
   generated-files-linux:
     needs: [path_route, push-head-preflight, generated-files-base-red]
-    if: ${{ !cancelled() && format('{0}', vars.CI_GENERATED_FILES_LINUX) != '0' && needs.generated-files-base-red.outputs.base_red != 'true' && needs.push-head-preflight.outputs.current == 'true' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository || contains(github.event.pull_request.labels.*.name, 'full-ci')) && needs.path_route.outputs.generated_host == 'generated-files' && !(github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' || github.event.action == 'unlabeled') && !contains(fromJSON('["full-ci","ready-to-land"]'), github.event.label.name)) }}
+    if: ${{ (!cancelled() && format('{0}', vars.CI_GENERATED_FILES_LINUX) != '0' && needs.generated-files-base-red.outputs.base_red != 'true' && needs.push-head-preflight.outputs.current == 'true' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository || contains(github.event.pull_request.labels.*.name, 'full-ci')) && needs.path_route.outputs.generated_host == 'generated-files') && !(github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' || github.event.action == 'unlabeled') && !contains(fromJSON('["full-ci","ready-to-land"]'), github.event.label.name)) }}
     name: cmux-next generated files
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && (vars.CI_FORK_LINUX_RUNNER || 'ubuntu-24.04') || 'cmux-linux' }}
     container:
@@ -5038,7 +5024,7 @@ jobs:
         run: |
           home="$RUNNER_TEMP/acpmux-home"
           rm -rf "$home" && mkdir -m 700 "$home"
-          echo "ACPMUX_HOME=$home" >> "$GITHUB_ENV"
+          echo "ACPMUX_HOME=$RUNNER_TEMP/acpmux-home" >> "$GITHUB_ENV"
           echo "ACPMUX_SOCKET=" >> "$GITHUB_ENV"
       - name: Install checkout tools
         run: apt-get update -qq && apt-get install -y -qq --no-install-recommends git python3 curl ca-certificates
@@ -5143,12 +5129,7 @@ jobs:
         if: always()
         continue-on-error: true
         timeout-minutes: 3
-        run: |
-          home="$RUNNER_TEMP/acpmux-home"
-          [[ -d "$home" ]] || exit 0
-          acpmux="$(PATH="$PATH:$HOME/.local/bin:$HOME/.cargo/bin:/usr/local/bin" command -v acpmux || true)"
-          [[ -z "$acpmux" ]] || env -u ACPMUX_SOCKET ACPMUX_HOME="$home" "$acpmux" daemon shutdown --end-agents || true
-          rm -rf "$home"
+        run: *acpmux-stop
 
   generated-files:
     needs: [path_route, macos-placement, push-head-preflight, web-bundles, generated-files-base-red, generated-files-linux]
@@ -5346,9 +5327,7 @@ jobs:
       - name: Setup Bun
         if: ${{ steps.reuse.outputs.hit != 'true' }}
         uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
-        with:
-          bun-version: "1.4.4"
-          no-cache: ${{ !startsWith(github.workspace, '/home/runner/work/') || !(github.event_name != 'pull_request' && github.event_name != 'pull_request_target' && github.event_name != 'merge_group' && contains(fromJSON('["refs/heads/main","refs/heads/feat-cmux-next","refs/heads/nightly-next"]'), github.ref)) }}
+        with: *bun-with
 
       # Why: note-273
       - name: Give this job its own bun
@@ -5548,12 +5527,7 @@ jobs:
         if: ${{ always() && steps.reuse.outputs.hit != 'true' }}
         continue-on-error: true
         timeout-minutes: 3
-        run: |
-          home="$RUNNER_TEMP/acpmux-home"
-          [[ -d "$home" ]] || exit 0
-          acpmux="$(PATH="$PATH:$HOME/.local/bin:$HOME/.cargo/bin:/opt/homebrew/bin:/usr/local/bin" command -v acpmux || true)"
-          [[ -z "$acpmux" ]] || env -u ACPMUX_SOCKET ACPMUX_HOME="$home" "$acpmux" daemon shutdown --end-agents || true
-          rm -rf "$home"
+        run: *acpmux-stop
 
       # Why: 2026-11-24-generated-files-1.md, note-279
       - name: Record this pass for the same inputs
@@ -6414,9 +6388,7 @@ jobs:
       - name: Setup Bun
         if: ${{ ((inputs.dev_daily != true || steps.dev-product.outputs.hit != 'true') && steps.web-bundles-from.outcome != 'success') && steps.fleet-app.outputs.ok != 'true' }}
         uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
-        with:
-          bun-version: "1.4.4"
-          no-cache: ${{ !startsWith(github.workspace, '/home/runner/work/') || !(github.event_name != 'pull_request' && github.event_name != 'pull_request_target' && github.event_name != 'merge_group' && contains(fromJSON('["refs/heads/main","refs/heads/feat-cmux-next","refs/heads/nightly-next"]'), github.ref)) }}
+        with: *bun-with
 
       # Why: note-316
       - name: Give this job its own bun
@@ -7044,9 +7016,7 @@ jobs:
       - name: Setup Bun
         if: steps.dev-product.outputs.hit != 'true'
         uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
-        with:
-          bun-version: "1.4.4"
-          no-cache: ${{ !startsWith(github.workspace, '/home/runner/work/') || !(github.event_name != 'pull_request' && github.event_name != 'pull_request_target' && github.event_name != 'merge_group' && contains(fromJSON('["refs/heads/main","refs/heads/feat-cmux-next","refs/heads/nightly-next"]'), github.ref)) }}
+        with: *bun-with
       - name: Give this job its own bun
         if: steps.dev-product.outputs.hit != 'true'
         run: scripts/cmux-next/private-bun.sh
