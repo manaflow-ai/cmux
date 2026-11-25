@@ -1401,6 +1401,8 @@ dependencies = [
 name = "cmux-app-manifest"
 version = "0.1.0"
 dependencies = [
+ "cmux-action-catalog",
+ "cmux-config",
  "cmux-embed",
  "cmux-wallpaper",
  "hex",
@@ -1629,6 +1631,7 @@ dependencies = [
 name = "cmux-classic-import"
 version = "0.1.0"
 dependencies = [
+ "cmux-config",
  "cmux-file-lock",
  "libc",
  "serde",
@@ -2170,6 +2173,7 @@ dependencies = [
  "flate2",
  "futures-util",
  "hex",
+ "libc",
  "reqwest",
  "rustls",
  "serde_json",
@@ -3185,6 +3189,7 @@ dependencies = [
  "cmux-apps",
  "cmux-autocloud",
  "cmux-automations",
+ "cmux-braid-path",
  "cmux-browser-host",
  "cmux-build-identity",
  "cmux-build-space",
