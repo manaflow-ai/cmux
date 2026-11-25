@@ -132,6 +132,10 @@ public final class AcpmuxHub {
     /// Whether an `initialize` from this Mac has answered since launch: until then
     /// `capabilities` is unknown, not empty (``pipelineAttaches``).
     @ObservationIgnored private var capabilitiesKnown = false
+    /// The features the Mac's acpmux lists (`initialize` `_meta.acpmux.features`, acpmux
+    /// `initialize.rs`): `promptUploads` and `filePutChunks` let a photo go by reference
+    /// (``AcpmuxSessionSource``'s upload path); empty until this connection initializes.
+    @ObservationIgnored private(set) var features: Set<String> = []
     /// This connection's compact chunks and row patches, read back into whole records and rows
     /// (``AcpmuxDeltas``); a new one per connection, as the Mac keeps its side per connection.
     @ObservationIgnored var deltas = AcpmuxDeltas()
@@ -269,6 +273,7 @@ public final class AcpmuxHub {
             fullAccess = initialized["_meta"]?["acpmux"]?["fullAccess"] == .bool(true)
             capabilities = Set((initialized["_meta"]?["acpmux"]?["capabilities"]?.arrayValue ?? []).compactMap(\.stringValue))
             capabilitiesKnown = true
+            features = Set((initialized["_meta"]?["acpmux"]?["features"]?.arrayValue ?? []).compactMap(\.stringValue))
             let page = try await Self.reply(connection, pageID, "_acpmux/watch", timeout: requestTimeout)
             let first = (rows: try AcpmuxConnection.pageRows(page), cursor: try AcpmuxConnection.nextCursor(page))
             guard !(await connection.isClosed), self.connection === connection else { return }
@@ -974,6 +979,14 @@ public final class AcpmuxSessionSource: AgentSessionSource {
         guard let hub else { return }
         let session = JSONValue.string(sessionID)
         if case .prompt(let text, let attachments, let steer, let promptID, let resend) = intent {
+            #if canImport(CmuxMobileLinkFFI)
+            // Text, and photos the Mac takes by reference, go to the outbox at the tap: nothing
+            // waits behind a photo's bytes (``sendAtTap``).
+            if sendsAtTap(attachments, hub: hub) {
+                sendAtTap(text: text, attachments: attachments, steer: steer, promptID: promptID, resend: resend, hub: hub)
+                return
+            }
+            #endif
             // Messages reach the Mac in the order they were sent: each waits for the one before
             // it to be written (or held) before its own goes (an upload can take a while).
             let sentAt = now()
@@ -1155,6 +1168,130 @@ public final class AcpmuxSessionSource: AgentSessionSource {
         _ = promptOutbox.push(promptId: prompt.promptID, text: prompt.text, uploadIds: [], resend: prompt.resend,
                               tappedMs: ChatPromptClock.milliseconds(prompt.at), nowMs: nowMs)
         pumpPrompts()
+    }
+
+    /// Whether a prompt goes to the outbox at the tap: text alone, or photos alone when the
+    /// Mac's acpmux takes prompt uploads in chunks. Files, PDFs and videos (and any photo for
+    /// an older Mac) take the ordered path, uploading before the outbox has them.
+    private func sendsAtTap(_ attachments: [AgentAttachment], hub: AcpmuxHub) -> Bool {
+        if attachments.isEmpty { return true }
+        guard hub.features.contains("promptUploads"), hub.features.contains("filePutChunks") else { return false }
+        return attachments.allSatisfy { $0.imageMIMEType != nil && $0.data != nil }
+    }
+
+    /// The outbox has the prompt at once; each photo uploads beside it (`_acpmux/file_put_*`,
+    /// acpmux docs/prompt-uploads.md) and goes as a reference, so the photo's bytes never sit in
+    /// front of a later message on the link: the outbox writes a later prompt while this one's
+    /// uploads are on their way (Rust `cmux_composer_send::chat`), and this one once they are
+    /// done. Stop cancels the upload; a failed one gives the draft back with why.
+    private func sendAtTap(text: String, attachments: [AgentAttachment], steer: Bool, promptID: String,
+                           resend: Bool, hub: AcpmuxHub) {
+        let sentAt = now()
+        let keys = attachments.map { "\(promptID)#\($0.id)" }
+        promptPayloads[promptID] = HeldPrompt(text: text, attachments: attachments, promptID: promptID, steer: steer,
+                                              resend: resend, blocks: Self.promptBlocks(text: text, attachments: []),
+                                              at: sentAt)
+        _ = promptOutbox.push(promptId: promptID, text: text, uploadIds: keys, resend: resend,
+                              tappedMs: ChatPromptClock.milliseconds(sentAt), nowMs: ChatPromptClock.milliseconds(now()))
+        pumpPrompts()
+        guard !attachments.isEmpty else { return }
+        let task = Task { [weak self] in
+            guard let self else { return }
+            defer { self.sendTasks[promptID] = nil }
+            var references: [JSONValue] = []
+            for (attachment, key) in zip(attachments, keys) {
+                do {
+                    let reference = try await self.uploadByReference(attachment, key: key, promptID: promptID, hub: hub)
+                    references.append(reference)
+                } catch {
+                    // Stopped or given back while it went: the outbox already has nothing of it.
+                    guard let held = self.promptPayloads[promptID] else { return }
+                    let reason = error is CancellationError ? "Not sent: you stopped it." : Self.message(error)
+                    _ = self.promptOutbox.uploadFailed(uploadId: key, reason: reason)
+                    self.promptPayloads[promptID] = nil
+                    self.emit(.promptNotSent(text: held.text, attachments: held.attachments, promptID: promptID, reason: reason))
+                    self.pumpPrompts()
+                    return
+                }
+                if key == keys.last, var held = self.promptPayloads[promptID] {
+                    // What is written once the outbox hands it out: the text, then each photo's reference.
+                    held.blocks = (text.isEmpty ? [] : Self.promptBlocks(text: text, attachments: [])) + references
+                    self.promptPayloads[promptID] = held
+                }
+                self.promptOutbox.uploaded(uploadId: key, macPath: "", nowMs: ChatPromptClock.milliseconds(self.now()))
+            }
+            self.pumpPrompts()
+        }
+        sendTasks[promptID] = task
+    }
+
+    /// The most bytes one `_acpmux/file_put_chunk` carries (acpmux's bound, 512 KiB).
+    static let uploadChunkBytes = 512 << 10
+
+    /// Uploads one photo for `promptID` (`forPrompt`: acpmux keeps it for this prompt and deletes it
+    /// when the prompt is refused) and returns the `image` block that names it. Its progress
+    /// shows on the message; the outbox hears each chunk as progress, so a slow link is not a stall.
+    private func uploadByReference(_ attachment: AgentAttachment, key: String, promptID: String,
+                                   hub: AcpmuxHub) async throws -> JSONValue {
+        guard let data = attachment.data, let mime = attachment.imageMIMEType else {
+            throw AgentFeatureUnavailable("\(attachment.name) has no contents to send. Attach it again.")
+        }
+        let session = JSONValue.string(sessionID)
+        let total = data.count
+        let shown = attachment.name
+        func step(_ sent: Int, _ phase: AgentUploadProgress.Phase) {
+            emit(.promptUploading(promptID: promptID, AgentUploadProgress(name: shown, sent: sent, total: total, phase: phase)))
+        }
+        func still() throws {
+            try Task.checkCancellation()
+            guard promptPayloads[promptID] != nil else { throw CancellationError() }
+        }
+        step(0, .opening)
+        let begun = try await hub.request("_acpmux/file_put_begin", .object([
+            "sessionId": session, "fileName": .string(Self.uploadFileName(attachment.name, mime: mime)),
+            "size": .number(Double(total)), "forPrompt": .bool(true),
+        ]))
+        guard let uploadID = begun["uploadId"]?.stringValue, let owner = begun["ownerToken"]?.stringValue else {
+            throw AgentFeatureUnavailable("\(summary.macName) did not open the upload of \(attachment.name). Send it again.")
+        }
+        let fileName = begun["fileName"]?.stringValue ?? Self.uploadFileName(attachment.name, mime: mime)
+        do {
+            var offset = 0
+            while offset < total {
+                try still()
+                let end = min(offset + Self.uploadChunkBytes, total)
+                let chunk = data[(data.startIndex + offset)..<(data.startIndex + end)]
+                let reply = try await hub.request("_acpmux/file_put_chunk", .object([
+                    "sessionId": session, "uploadId": .string(uploadID), "offset": .number(Double(offset)),
+                    "data": .string(chunk.base64EncodedString()),
+                ]))
+                let next = reply["offset"]?.numberValue.map { Int($0) } ?? end
+                offset = next > offset ? min(next, total) : end
+                promptOutbox.uploadProgressed(uploadId: key, nowMs: ChatPromptClock.milliseconds(now()))
+                step(offset, .sending)
+            }
+            try still()
+            step(total, .saving)
+            _ = try await hub.request("_acpmux/file_put_finish", .object([
+                "sessionId": session, "uploadId": .string(uploadID), "fileName": .string(fileName),
+                "size": .number(Double(total)),
+            ]))
+            try still()
+        } catch {
+            // Nothing is left behind on the Mac: the owner token takes its part back.
+            Task {
+                _ = try? await hub.request("_acpmux/file_put_cancel", .object([
+                    "sessionId": session, "uploadId": .string(uploadID), "ownerToken": .string(owner),
+                ]))
+            }
+            throw error
+        }
+        return .object([
+            "type": .string("image"), "mimeType": .string(mime), "name": .string(fileName),
+            "_meta": .object(["acpmux": .object(["upload": .object([
+                "uploadId": .string(uploadID), "fileName": .string(fileName), "owned": .string(owner),
+            ])])]),
+        ])
     }
 
     /// Does what the outbox says is due: gives back prompts past the hold, writes the next one,
@@ -1587,6 +1724,28 @@ public final class AcpmuxSessionSource: AgentSessionSource {
         }
         if blocks.isEmpty { blocks.append(.object(["type": .string("text"), "text": .string("")])) }
         return blocks
+    }
+
+    /// A name acpmux takes for an upload (`file_put_begin`): one plain component, no leading
+    /// dot, no control or direction characters; a photo with none left is `photo.<ext>`.
+    nonisolated static func uploadFileName(_ name: String, mime: String) -> String {
+        let base = (name as NSString).lastPathComponent
+        var scalars = String.UnicodeScalarView()
+        for scalar in base.unicodeScalars {
+            switch scalar.properties.generalCategory {
+            case .control, .format, .lineSeparator, .paragraphSeparator, .surrogate, .privateUse, .unassigned:
+                continue
+            default:
+                scalars.append(scalar == "/" || scalar == "\\" ? "_" : scalar)
+            }
+        }
+        var plain = String(scalars).trimmingCharacters(in: .whitespaces)
+        while plain.hasPrefix(".") { plain.removeFirst() }
+        if plain.isEmpty {
+            let ext = UTType(mimeType: mime)?.preferredFilenameExtension ?? "png"
+            plain = "photo.\(ext)"
+        }
+        return plain
     }
 
     nonisolated static func mimeType(name: String) -> String {
