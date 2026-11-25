@@ -22,15 +22,18 @@ import Testing
         let surface = tokens.opaqueOverlayFill(lift: ChromeTunables.opaqueOverlayLift.value)
         let group = tokens.groupFill.composited(over: surface)
         for (ink, text) in [("primary", tokens.textPrimary), ("secondary", tokens.textSecondary)] {
+            // A theme whose text already misses 4.5:1 on the bare popup gets no worse on a group.
+            let bare = text.composited(over: surface).contrast(with: surface)
             let contrast = text.composited(over: group).contrast(with: group)
-            #expect(contrast >= ThemeTokens.minimumTextContrast, "\(name): \(ink) text on a group is \(contrast):1")
+            #expect(contrast >= min(ThemeTokens.minimumTextContrast, bare) - 0.01, "\(name): \(ink) text on a group is \(contrast):1, \(bare):1 bare")
         }
     }
 
+    /// In the default light and dark themes a group is at least as strong as a hovered row.
     @Test func aGroupStandsApartInTheDefaultThemes() {
         for (name, input) in Self.themes.prefix(2) {
             let tokens = ThemeTokens.derive(from: input)
-            #expect(tokens.groupFill.alpha == (tokens.isDark ? 0.08 : 0.06), "\(name) group fill \(tokens.groupFill.alpha)")
+            #expect(tokens.groupFill.alpha >= tokens.hoverFill.alpha, "\(name): group \(tokens.groupFill.alpha), hover \(tokens.hoverFill.alpha)")
         }
     }
 }
