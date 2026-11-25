@@ -46,6 +46,11 @@ private struct CloudDirectoryList: View {
     @State private var selectedLocation: CloudChatLocation?
     @State private var failed = false
     @State private var refresh = 0
+    /// The account's Auto chats, listed first while Settings > Cloud > Auto is on (no Mac needed).
+    @State private var auto = AutoChatsPresentation()
+
+    /// The list shows the Auto section: the setting is on, and this is not one chat from a notification.
+    private var showsAuto: Bool { scope.attention == nil && shell.settings.cloudAutoMode }
 
     init(shell: ShellModel, scope: CloudDirectoryScope, macID: String?, select: @escaping (String) -> Void) {
         self.shell = shell
@@ -66,6 +71,7 @@ private struct CloudDirectoryList: View {
         }
         NavigationStack {
             List {
+                if showsAuto { AutoChatsSection(auto: auto) }
                 if scope.attention == nil, let macs = shell.store.activeTeam?.macs, !macs.isEmpty {
                     Picker("Mac", selection: Binding(get: { macID ?? "" }, set: select)) {
                         ForEach(macs) { mac in Text(mac.name).tag(mac.id) }
@@ -119,6 +125,7 @@ private struct CloudDirectoryList: View {
                                         cachedList: shell.auth.lastKnownList(screen: "cloud-chat-sessions", teamID: scope.team,
                                             context: [location.macID, location.machine.teamID, location.machine.machineID]))
             }
+            .modifier(AutoChatsHost(auto: auto, enabled: showsAuto, refresh: refresh) { openCloudMachines() })
             .task(id: Refresh(live: shell.live.map(ObjectIdentifier.init), revision: refresh)) {
                 shell.cloudMacID = scope.attention == nil ? macID : nil
                 failed = false
@@ -138,6 +145,13 @@ private struct CloudDirectoryList: View {
     private struct Refresh: Hashable {
         let live: ObjectIdentifier?
         let revision: Int
+    }
+
+    /// The existing place to make a Cloud machine: Settings → Cloud Machines.
+    private func openCloudMachines() {
+        shell.cloudChats = nil
+        shell.tab = .settings
+        shell.settingsPath = [.cloudMachines]
     }
 
     /// Capture the account's handle before awaiting the Mac. Only a complete, authenticated reply

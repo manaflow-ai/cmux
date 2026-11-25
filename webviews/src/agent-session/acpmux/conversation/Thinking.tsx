@@ -25,6 +25,7 @@ import { RunningTime } from "./RunningTime";
 import { BackgroundHint } from "./BackgroundHint";
 import { useSubsessionInfo } from "../subagents/subsessions";
 import { LiveShimmer } from "./LiveShimmer";
+import { ThinkingGlyph } from "./ThinkingGlyph";
 import { JumpDots } from "./JumpDots";
 import { useThinkingLook } from "./thinkingLook";
 import { Slot } from "../../../slots/Slot";
@@ -44,6 +45,7 @@ import { retryParts, SILENT_MS, WRITING_MS, liveLead } from "./thinkingModel";
 import { CACHE_EXPIRY_REASON } from "./cacheCompaction";
 import type { LiveLinePulse } from "./liveLinePulse";
 import { type LiveWait, subagentsLabel, waitingLabel } from "./liveWait";
+import "../../../ui/motion/motion.css";
 /// False while `key` changed in the last `ms`, true once it held still that long (or there is none).
 /// `since`, when known, is when the key's text was written: a key that was already that old when the
 /// line mounted (a chat opened long after its reply paused) is quiet from the first frame, instead
@@ -433,14 +435,7 @@ function LiveWords({
   const selected = useSlotVariant(thinkingIndicatorSlot);
   const builtIn = slotVariant(thinkingIndicatorSlot, selected)?.component === DefaultThinkingIndicator;
   if (decorative && !builtIn) return <Slot slot={thinkingIndicatorSlot} props={indicator} />;
-  return (
-    <LiveShimmer
-      label={indicator.label}
-      verbs={decorative ? indicator.verbs : undefined}
-      lead={lead}
-      elapsed={indicator.elapsed}
-    />
-  );
+  return <LiveShimmer label={indicator.label} verbs={decorative ? indicator.verbs : undefined} lead={lead} />;
 }
 
 /// The one shimmer every status in the live spot draws with (conversation.css `.cv-thinking.is-shimmer`):
@@ -480,6 +475,7 @@ export function Thinking({
   command = false,
   retry,
   pulse,
+  glyphTrigger = starting ? "turnStart" : "thinking",
 }: {
   /// The prompt waits for its agent to start (harnessSwitch.ts): the start look's arm draws it.
   starting?: boolean;
@@ -545,8 +541,11 @@ export function Thinking({
   retry?: AcpmuxTurnRetry;
   /// The transcript's live line hears its chunks and events here without a draw (liveLinePulse.ts).
   pulse?: LiveLinePulse;
+  /// What a look's thinking glyph plays (thinkingGlyphModel.ts `glyphTrigger`, from the row's activity).
+  glyphTrigger?: string;
 } = {}) {
   const t = useT();
+  const thinkingGlyph = useThinkingLook().glyph;
   const waiting = useContext(WaitingOnContext);
   const { jumpButton } = useThinkingLook();
   const [answered, settled] = useAnswered(waiting);
@@ -822,8 +821,11 @@ export function Thinking({
       className={`cv-worked cv-worked--live${below ? " is-below" : ""}`}
       data-find-skip
       data-compacting={compacting && !waiting ? "" : undefined}
-      // The line's tail rolls in with its words (conversation.css `cv-roll-*`).
+      // The line's tail rolls in with its words (conversation.css `cv-roll-*`), through the shared
+      // text roll's faded edges and on its clock (ui/motion/TextRoll.tsx, motion.css `data-text-roll`).
       data-roll={waiting || roll.turns === 0 ? undefined : roll.turns % 2 ? "odd" : "even"}
+      data-text-roll-host=""
+      data-text-roll={waiting || roll.turns === 0 ? undefined : roll.turns % 2 ? "odd" : "even"}
     >
       {waiting ? (
         <output className={`cv-thinking ${SHIMMER_CLASS} cv-waiting`} data-waiting={waiting}>
@@ -840,6 +842,8 @@ export function Thinking({
         </output>
       ) : (
         <span className="cv-shimmer__row">
+          {/* A look's thinking dots before the words (thinkingLook.ts `glyph`, unset by default). */}
+          {thinkingGlyph && <ThinkingGlyph className="cv-thinking-glyph" doc={thinkingGlyph} trigger={glyphTrigger} />}
           {activityDots && jumpButton === "dots" && !done && !answered && <JumpDots inline />}
           {answered && (
             <span className="cv-needs-input-glyph is-answered" aria-hidden="true" onAnimationEnd={settled} />

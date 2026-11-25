@@ -55,10 +55,10 @@ test("a refused attachment view restores the host's choice", async () => {
   await withView(async (shown) => {
     const write = pending();
     settings.registerAttachmentViewHost(() => write.promise);
-    await act(async () => settings.setAttachmentView("strip"));
-    expect(shown()).toBe("strip");
-    await act(async () => write.reject(new Error("managed setting")));
+    await act(async () => settings.setAttachmentView("inline"));
     expect(shown()).toBe("inline");
+    await act(async () => write.reject(new Error("managed setting")));
+    expect(shown()).toBe("strip");
   });
 });
 
@@ -66,10 +66,10 @@ test("a delayed rejection cannot undo an authoritative host push", async () => {
   await withView(async (shown) => {
     const write = pending();
     settings.registerAttachmentViewHost(() => write.promise);
-    await act(async () => settings.setAttachmentView("strip"));
-    await act(async () => settings.setComposerSettings({ attachmentView: "inline" }));
+    await act(async () => settings.setAttachmentView("inline"));
+    await act(async () => settings.setComposerSettings({ attachmentView: "strip" }));
     await act(async () => write.reject(new Error("write refused")));
-    expect(shown()).toBe("inline");
+    expect(shown()).toBe("strip");
   });
 });
 
@@ -77,14 +77,14 @@ test("a failed later choice settles to an earlier write that eventually succeeds
   await withView(async (shown) => {
     const first = pending(),
       second = pending();
-    settings.registerAttachmentViewHost((view) => (view === "strip" ? first.promise : second.promise));
+    settings.registerAttachmentViewHost((view) => (view === "inline" ? first.promise : second.promise));
     await act(async () => {
-      settings.setAttachmentView("strip");
       settings.setAttachmentView("inline");
+      settings.setAttachmentView("strip");
     });
     await act(async () => second.reject(new Error("second write refused")));
     await act(async () => first.resolve());
-    expect(shown()).toBe("strip");
+    expect(shown()).toBe("inline");
   });
 });
 
@@ -92,14 +92,14 @@ test("an older rejection cannot undo a newer successful choice", async () => {
   await withView(async (shown) => {
     const first = pending(),
       second = pending();
-    settings.registerAttachmentViewHost((view) => (view === "strip" ? first.promise : second.promise));
+    settings.registerAttachmentViewHost((view) => (view === "inline" ? first.promise : second.promise));
     await act(async () => {
-      settings.setAttachmentView("strip");
       settings.setAttachmentView("inline");
+      settings.setAttachmentView("strip");
     });
     await act(async () => second.resolve());
     await act(async () => first.reject(new Error("old write refused")));
-    expect(shown()).toBe("inline");
+    expect(shown()).toBe("strip");
   });
 });
 
@@ -107,10 +107,10 @@ test("an authoritative host push wins over an older successful write", async () 
   await withView(async (shown) => {
     const write = pending();
     settings.registerAttachmentViewHost(() => write.promise);
-    await act(async () => settings.setAttachmentView("strip"));
-    await act(async () => settings.setComposerSettings({ attachmentView: "inline" }));
+    await act(async () => settings.setAttachmentView("inline"));
+    await act(async () => settings.setComposerSettings({ attachmentView: "strip" }));
     await act(async () => write.resolve());
-    expect(shown()).toBe("inline");
+    expect(shown()).toBe("strip");
   });
 });
 
@@ -119,7 +119,7 @@ test("a synchronous host failure also restores its choice", async () => {
     settings.registerAttachmentViewHost(() => {
       throw new Error("bridge unavailable");
     });
-    await act(async () => settings.setAttachmentView("strip"));
-    expect(shown()).toBe("inline");
+    await act(async () => settings.setAttachmentView("inline"));
+    expect(shown()).toBe("strip");
   });
 });

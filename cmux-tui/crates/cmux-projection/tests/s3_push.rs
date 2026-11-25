@@ -47,7 +47,7 @@ fn bucket() -> (String, Objects, Arc<Mutex<Vec<String>>>) {
                     let method = words.next().unwrap_or_default().to_owned();
                     let oid = words
                         .next()
-                        .and_then(|path| path.strip_prefix("/blobs/objects/"))
+                        .and_then(|path| path.strip_prefix("/blobs/objects/t1/"))
                         .unwrap_or_default()
                         .to_owned();
                     methods.lock().unwrap().push(method.clone());
@@ -94,6 +94,7 @@ fn push(git_dir: &Path, base: &str, extra: &[&str], stdin: &str) -> (bool, serde
         .args(extra)
         .env_clear()
         .env("PATH", std::env::var_os("PATH").unwrap_or_default())
+        .env("CMUX_PROJECTION_S3_TENANT", "t1")
         .env("AWS_ACCESS_KEY_ID", "id")
         .env("AWS_SECRET_ACCESS_KEY", "secret")
         .stdin(Stdio::piped())

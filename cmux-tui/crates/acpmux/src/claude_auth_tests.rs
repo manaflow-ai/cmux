@@ -23,6 +23,11 @@ fn a_cloud_machine_points_at_its_model_route() {
     // The gateway is named only where the machine's team has it.
     assert!(!text.contains(super::GATEWAY_OFFER), "{text}");
     assert!(text.contains("has no model route (Claude home ~/.claude)"), "{text}");
+    // A fresh account's machine runs the current image and still has no route on staging and
+    // production (`cloud_model_plane::machine_plane`): a new machine changes nothing, so the
+    // text never sends the person to make one; it names the card's sign-in.
+    assert!(!text.contains("new machine"), "{text}");
+    assert!(text.contains("Sign in to Claude"), "{text}");
     assert!(text.ends_with("(Claude said: Not logged in · Please run /login)"), "{text}");
     let routed = super::Found { endpoint: Some("coderouter.cmux.internal".into()), ..none };
     let text = super::compose_cloud(&routed, "API Error: 403 No Claude upstream account", false);

@@ -341,9 +341,11 @@ impl Hub {
                 .await
                 .unwrap_or_default()
         };
+        // A `requestId`'s reserved id (`fork_request.rs`), so a retry finds this fork.
         let id = before
             .as_ref()
             .map(|(id, _)| id.clone())
+            .or_else(super::fork_request::reserved_id)
             .unwrap_or_else(|| uuid::Uuid::now_v7().to_string());
         let (turn_cut, codex_fork, opencode_fork) = {
             let cfg = self.config.read().await;
@@ -771,6 +773,8 @@ impl Hub {
             icon: None,
             name_given,
             former_names: Vec::new(),
+            succeeds: Vec::new(),
+            roles: Vec::new(),
             harness: parent_meta.harness.clone(),
             harness_argv: parent_meta.harness_argv.clone(),
             spawn_argv: None,
@@ -815,6 +819,7 @@ impl Hub {
             }),
             history_kept_through: None,
             fork_requests: Default::default(),
+            fork_start: None,
             fork_parent_verified: Some(true),
             agent_info: parent_meta.agent_info.clone(),
             agent_capabilities: parent_meta.agent_capabilities.clone(),
@@ -909,6 +914,7 @@ impl Hub {
             harness_roots: vec![],
             watching: None,
             composer_draft: None,
+            pinned: false,
             // It runs the parent's mode: a spawn from other preset contents leaves it too.
             preset_mode_approval: parent_meta.preset_mode_approval.clone(),
             // The chat's marks on the history the fork shows by reference, under their own seqs;
@@ -956,6 +962,8 @@ impl Hub {
             turn_cap_noticed: None,
             delegator: None,
             cold: None,
+            // A fork is a new chat: it takes the setting's default, not its source's Auto.
+            auto_session: None,
             fork_of_subagent: sub_copy.as_ref().map(|c| crate::store::SubagentForkOf {
                 session_id: session.id.clone(),
                 subagent_id: c.subagent_id.clone(),
@@ -1027,6 +1035,9 @@ impl Hub {
             }
             Made::Copy(_) | Made::Agent(..) | Made::Empty => {}
         }
+        // Kept in its meta until its agent took it, and the fork marked unmade until its history
+        // is in: a restart before either starts it the same or closes it (`fork_start.rs`).
+        new.keep_fork_start(false);
         if let Err(e) = self.write_meta(&new) {
             // Never published: no session owns the conversation this fork copied or its agent
             // made, so remove it rather than leave a discoverable orphan (an inline /btw's fork
@@ -1270,6 +1281,7 @@ impl Hub {
         if super::fork_cancel::cancelled() {
             return Err(super::fork_cancel::cancelled_refusal());
         }
+        new.fork_made();
         self.save_meta(&new);
         creation_guard.disarm();
         if let Some(checked) = checked {

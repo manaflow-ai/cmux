@@ -77,3 +77,23 @@ test("start retries an indeterminate answer with the same key, and a pausing ref
 test("a probe gap that ended before wake_at fails the cycle as the harness's, never counted as an echo", () => {
   expect(causeOf({ error: "the probe's gap ended 9517 ms before wake_at: not this wake", guest: null })).toBe("probe fired before the wake (harness)");
 });
+
+test("wake on intent: the key lands lead ms after the wake; before ready it waits for echo, after it takes the echo phase", async () => {
+  const { keyToEcho, intentArms, falseWakeCost, intentMarkdown } = await import("./cloud-wake-echo.ts");
+  const c = { ...cycle(0, true, { resumed: 3000, pty_attach: 3400, input: 3400, echo: 3450 }), arm: "off" as const, answered_ms: 1000, paused_ms: 2000 };
+  c.phases = { ...c.phases, restore: 3000 };
+  // Baseline: the typing prewarm wakes at the key: wake-to-first-echo.
+  expect(keyToEcho(c, 0)).toBe(3450);
+  // A key 1 s after the hint waits for the guest: 2.45 s.
+  expect(keyToEcho(c, 1000)).toBe(2450);
+  // A key after the guest is ready sees only the echo phase.
+  expect(keyToEcho(c, 5000)).toBe(50);
+  expect(keyToEcho({ ...c, ok: false }, 1000)).toBeNull();
+  const on = { ...c, i: 1, arm: "on" as const, marks_ms: { ...c.marks_ms, echo: 2450, input: 2400 } };
+  const arms = intentArms([c, on], 1000);
+  expect(arms.map((a) => [a.arm, a.n, a.p50])).toEqual([["baseline", 1, 3450], ["prefetch", 1, 2450], ["wake-on-intent", 1, 2450], ["both", 1, 1450]]);
+  // Wait to running (3 - 1 s) + the 30 s bound + the 2 s pause.
+  expect(falseWakeCost([c]).p50).toBe(34000);
+  expect(intentMarkdown([c, on], [1000])).toContain("| 1.00 | both | 1 | 1.45 | 1.45 | 0/1 |");
+  expect(wakeEchoMarkdown([c, on], {})).toContain("Wake on intent");
+});
