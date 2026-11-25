@@ -49,7 +49,7 @@ pub struct Admission {
     committed: AtomicBool,
     acquired: AtomicBool,
     came: Instant,
-    /// Someone waits on its answer and a queued answer serves them ([`Unanswered::Defer`]).
+    /// Someone waits on its acceptance or refusal.
     listened: AtomicBool,
     session: String,
 }
@@ -140,7 +140,7 @@ impl Admission {
         self.came + ANSWER_BOUND
     }
 
-    /// Someone waits on it, and an answer that it is queued serves them.
+    /// Someone waits on its acceptance or refusal.
     pub(super) fn listen(&self) {
         self.listened.store(true, Ordering::SeqCst);
     }

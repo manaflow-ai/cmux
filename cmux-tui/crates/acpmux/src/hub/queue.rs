@@ -370,7 +370,19 @@ impl Hub {
                     tokio::pin!(done);
                     done.as_mut().enable();
                     if session.restoring.load(Ordering::SeqCst) {
-                        done.await;
+                        // The journal belongs to the restore until its last page. A sender
+                        // waiting for an answer may retry the same id after the restore.
+                        match p.answer_due {
+                            Some(due) => {
+                                tokio::time::timeout_at(due, done).await.map_err(|_| {
+                                    Err(RpcError::deadline_exceeded(
+                                        "prompt waiting for journal restore",
+                                        super::prompt_admission::ANSWER_BOUND,
+                                    ))
+                                })?
+                            }
+                            None => done.await,
+                        }
                         continue;
                     }
                     let _admit = session.admit.lock().unwrap_or_else(|e| e.into_inner());
