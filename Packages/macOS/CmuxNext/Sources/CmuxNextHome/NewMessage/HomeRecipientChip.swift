@@ -27,7 +27,8 @@ final class HomeRecipientChip: NSView {
         setAccessibilityRole(.button)
         setAccessibilityLabel(HomeConversationStrings.removeRecipient(token.text))
         setAccessibilityIdentifier("cmux.home.newMessage.token")
-        if !token.isValid { themedToolTip = HomeConversationStrings.unknownRecipient(token.text) }
+        // The chip shows the name: VoiceOver, not a tooltip, says it is unknown (a1315's cut 2).
+        setAccessibilityHelp(token.isValid ? nil : HomeConversationStrings.unknownRecipient(token.text))
         applyColors()
     }
 

@@ -15,8 +15,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 RETIRED = "files-next.cmux.com/nightly-next/next/appcast"
 # They install and drive com.cmuxterm.app.nightly.cmux-next, an identity the one feed does not carry.
-CMUX_NEXT_IDENTITY = {"scripts/cmux-next/update-e2e.py", "scripts/fuzz/macos-matrix/onboarding/nightly.py",
-                      "scripts/ci/cua_signed_host_check.py"}
+CMUX_NEXT_IDENTITY = {"scripts/cmux-next/update-e2e.py", "scripts/fuzz/macos-matrix/onboarding/nightly.py"}
 
 
 class OneFeedReaders(unittest.TestCase):

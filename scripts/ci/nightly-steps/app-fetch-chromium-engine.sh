@@ -22,5 +22,5 @@ python3 scripts/ci/background_build.py start --state "$RUNNER_TEMP/nightly-helpe
       CMUX_RB_HOST_NO_STORE=1 scripts/cmux-next/ensure-remote-browser-host.sh --optional >/dev/null
     fi
     if [[ -f scripts/cmux-next/cmux-remote-dev.pin.json ]]; then
-      CMUX_CUA_ASSET_NO_STORE=1 scripts/cmux-next/ensure-cua-pinned-asset.sh scripts/cmux-next/cmux-remote-dev.pin.json --optional >/dev/null
+      CMUX_CUA_ASSET_NO_STORE=1 scripts/cmux-next/ensure-signed-pinned-asset.sh scripts/cmux-next/cmux-remote-dev.pin.json --optional >/dev/null
     fi'

@@ -42,18 +42,15 @@ impl Hub {
             .or_else(|| crate::git_state::repo_root(&meta.cwd));
 
         let mut background_jobs = Vec::new();
-        if let Some(tasks) = self.bg_list(session).get("tasks").and_then(Value::as_array) {
-            background_jobs.extend(tasks.iter().filter(|task| task["state"] == "running").map(
-                |task| {
-                    json!({
-                        "id": task["id"],
-                        "kind": "background_task",
-                        "cwd": task["cwd"],
-                        "state": "running",
-                    })
-                },
-            ));
-        }
+        // The running tasks only: a chat of thousands of ended tasks reads none of their output.
+        background_jobs.extend(self.bg_running_tasks(session).into_iter().map(|(id, cwd)| {
+            json!({
+                "id": id,
+                "kind": "background_task",
+                "cwd": cwd,
+                "state": "running",
+            })
+        }));
         if let Some(processes) =
             self.list_processes(Some(session)).get("processes").and_then(Value::as_array)
         {
@@ -70,7 +67,7 @@ impl Hub {
         }
 
         let browser_available = mcp_available(&meta.tools.rows, "mcp:cmux");
-        let display_available = mcp_available(&meta.tools.rows, "mcp:cmux-cua");
+        let display_available = mcp_available(&meta.tools.rows, "mcp:cmux-computer-use");
 
         let mut secrets = BTreeMap::<String, (u64, String)>::new();
         let scan_result = self.store.scan_kinds(

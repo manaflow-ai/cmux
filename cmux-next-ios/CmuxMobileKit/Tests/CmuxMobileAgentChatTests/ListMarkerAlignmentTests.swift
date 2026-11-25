@@ -104,22 +104,59 @@ import UIKit
         #expect(cell.link(at: lineAbove) == nil, "a tap on the plain line above it")
     }
 
-    /// The row as drawn (its layer tree, on the chat's background) in both looks, attached to the
-    /// result bundle for the PR's before and after.
+    /// The row as drawn, on the chat's background, in both looks, attached to the result bundle for
+    /// the PR's before and after. The cell is hosted in a window of the shot's look: outside a window
+    /// its labels resolve `.label` in the light look whatever the cell's override (a dark shot drew
+    /// black text on black). The dark shot must have light text, so a blank capture fails.
     static func recordShots(category: UIContentSizeCategory) {
         for style in [UIUserInterfaceStyle.dark, .light] {
             guard let cell = try? cell(width: 350, category: category, style: style) else { continue }
             let rect = CGRect(x: 0, y: 0, width: cell.bounds.width, height: cell.bounds.height)
+            let window = UIWindow(frame: rect)
+            window.overrideUserInterfaceStyle = style
+            window.backgroundColor = style == .dark ? .black : .white
+            window.addSubview(cell)
+            window.isHidden = false
+            window.layoutIfNeeded()
             let format = UIGraphicsImageRendererFormat()
             format.scale = 3
-            let image = UIGraphicsImageRenderer(bounds: rect.insetBy(dx: 0, dy: -16), format: format).image { context in
+            // `drawHierarchy` draws nothing in the test host (a transparent image), so render the
+            // layer tree, each label drawn again under the window's look.
+            for label in cell.contentView.subviews.compactMap({ $0 as? UILabel }) {
+                label.setNeedsDisplay()
+                label.layer.displayIfNeeded()
+            }
+            let image = UIGraphicsImageRenderer(bounds: rect, format: format).image { context in
                 (style == .dark ? UIColor.black : UIColor.white).setFill()
-                context.fill(rect.insetBy(dx: 0, dy: -16))
-                cell.layer.render(in: context.cgContext)
+                context.fill(rect)
+                window.traitCollection.performAsCurrent { cell.layer.render(in: context.cgContext) }
+            }
+            window.isHidden = true
+            if style == .dark {
+                #expect(Self.brightFraction(image) > 0.005, "the dark shot draws its text light on black")
             }
             let name = "list-\(category == .large ? "large" : "xxl")-\(style == .dark ? "dark" : "light").png"
             if let png = image.pngData() { Attachment.record(png, named: name) }
         }
+    }
+
+    /// The share of pixels brighter than 70% gray.
+    static func brightFraction(_ image: UIImage) -> Double {
+        guard let cg = image.cgImage else { return 0 }
+        let width = cg.width, height = cg.height
+        var pixels = [UInt8](repeating: 0, count: width * height * 4)
+        let drawn = pixels.withUnsafeMutableBytes { buffer -> Bool in
+            guard let context = CGContext(data: buffer.baseAddress, width: width, height: height, bitsPerComponent: 8, bytesPerRow: width * 4,
+                                          space: CGColorSpaceCreateDeviceRGB(), bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue) else { return false }
+            context.draw(cg, in: CGRect(x: 0, y: 0, width: width, height: height))
+            return true
+        }
+        guard drawn else { return 0 }
+        var bright = 0
+        for index in stride(from: 0, to: pixels.count, by: 4) where Int(pixels[index]) + Int(pixels[index + 1]) + Int(pixels[index + 2]) > 535 {
+            bright += 1
+        }
+        return Double(bright) / Double(width * height)
     }
 }
 #endif

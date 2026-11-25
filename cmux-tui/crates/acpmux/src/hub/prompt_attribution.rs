@@ -9,8 +9,9 @@
 //!
 //! - Another agent's or session's message (`digest::agent_sender`): one line ahead of it,
 //!   `From another agent (NAME), not the person:`, or `(NAME, HARNESS)` when the daemon bound the
-//!   sender's harness (`fromHarness`), the same on every harness and in a bridged desktop app's
-//!   footer (`bridge.rs`). A forward of the person's words inside one
+//!   sender's harness (`fromHarness`); NAME reads `HANDLE · HOST/NAME` when the sender has a given
+//!   handle (`fromDisplayName`, `prompt_provenance::display_label`). The same on every harness and
+//!   in a bridged desktop app's footer (`bridge.rs`). A forward of the person's words inside one
 //!   (a quote the agent relays) stays that agent's message, with the quote in it.
 //! - A prompt acpmux could not attribute to anyone (`kind: "unverified"`, a program that sent
 //!   no sender): `From a program (NAME it claims), not the person:`, or the program acpmux saw
@@ -175,6 +176,13 @@ pub(super) fn mark(params: &mut Value, sender: Option<&str>, provenance: Option<
     // Ahead of the first block the agent reads as the prompt, after acpmux's hidden context.
     let first = blocks.iter().position(|b| !crate::prompt_context::is_context(b)).unwrap_or(0);
     if let Some(name) = sender.filter(|n| !n.trim().is_empty()) {
+        // The name people call the sender first, then the HOST/NAME it is known by
+        // (`Mango · studio-mac/claude-sr2-coord-old`), so the receiver can reply to either.
+        let label = crate::prompt_provenance::display_label(
+            crate::prompt_provenance::display_name_of(provenance),
+            name,
+        );
+        let name = label.as_str();
         let sub = provenance.and_then(|p| p.get(crate::prompt_provenance::FROM_SUBAGENT));
         let gets_reply = provenance
             .and_then(|p| p.get(crate::prompt_provenance::SUBAGENT_GETS_REPLY))
@@ -400,6 +408,35 @@ mod tests {
         assert_eq!(with_harness("lane-a", None), "lane-a");
         assert_eq!(with_harness("codex", Some(&json!({"fromHarness": "codex"}))), "codex");
         assert_eq!(with_harness("x", Some(&json!({"fromHarness": "a\nb"}))), "x", "one line only");
+    }
+
+    /// (c3) A sender with a given handle reads by it first, with the HOST/NAME it was known by,
+    /// across a peer link too (Leo, 2026-11-23: "the send/recieve messages are still only the
+    /// older names").
+    #[test]
+    fn an_agents_line_names_its_given_handle_first() {
+        let mut params =
+            json!({"sessionId": "s", "prompt": [{"type": "text", "text": "PR is green"}]});
+        let provenance = json!({"kind": "session_message", "from": "s2",
+            "fromName": "studio-mac/claude-sr2-coord-old", "fromHarness": "claude",
+            "fromDisplayName": "Mango"});
+        mark(&mut params, Some("studio-mac/claude-sr2-coord-old"), Some(&provenance));
+        assert_eq!(
+            texts(&params),
+            vec![
+                "From another agent (Mango · studio-mac/claude-sr2-coord-old, claude), not the \
+                 person:",
+                "PR is green"
+            ]
+        );
+        // No given handle (or one that is not a handle): the old line, unchanged.
+        for odd in [json!(null), json!("not a handle!"), json!(7)] {
+            let mut params =
+                json!({"sessionId": "s", "prompt": [{"type": "text", "text": "PR is green"}]});
+            let provenance = json!({"kind": "session_message", "fromDisplayName": odd});
+            mark(&mut params, Some("lane-a"), Some(&provenance));
+            assert_eq!(texts(&params)[0], "From another agent (lane-a), not the person:");
+        }
     }
 
     /// (d) The person's typed prompt reaches the agent as it was.

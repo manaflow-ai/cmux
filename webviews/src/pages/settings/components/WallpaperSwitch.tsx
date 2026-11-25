@@ -2,7 +2,7 @@
 // Light & Dark, Time of Day, Sun (a macOS dynamic wallpaper) or Rotate, each with its own small
 // editor. It sits under the Background card's first tile row, so opening an editor never moves the
 // picker grid; the model (which mode the values mean, what a mode writes) is ../wallpaperSwitch.ts.
-import { useEffect, useId, useRef, useState, type ReactNode } from "react";
+import { useId, useState, type ReactNode } from "react";
 import { Button } from "../../../ui/Button";
 import { Select } from "../editors/Select";
 import { t } from "../strings";
@@ -11,6 +11,8 @@ import {
   FOLDER_PREFIX,
   formatWhen,
   isFixed,
+  isShuffle,
+  NO_MEMORY,
   modeOf,
   MODES,
   nextWhen,
@@ -402,11 +404,12 @@ export function WallpaperSwitch({
   const labelId = useId();
   const name = useId();
   const mode = modeOf(values, choices);
-  // The last picture that stayed: Off puts it back after a mode that has none of its own.
-  const lastFixed = useRef<string | null>(isFixed(values.background) ? values.background : null);
-  useEffect(() => {
-    if (isFixed(values.background)) lastFixed.current = values.background;
-  }, [values.background]);
+  // The last picture that stayed: Off puts it back after a mode that has none of its own. The last
+  // shuffle: Rotate goes back to its folder. Both are kept in appearance.backgroundMemory, which the
+  // card's owner writes before each change, so they outlive this card, the web view and a restart.
+  const memory = values.memory ?? NO_MEMORY;
+  const lastFixed = !disabled && isFixed(values.background) ? values.background : memory.off;
+  const lastShuffle = !disabled && isShuffle(values.background) ? values.background : memory.rotate;
   // Which slot's picture list is open: "light", "dark", "sun" or a schedule row's key.
   // Kept with the mode it opened in, so a mode change closes it.
   const [opened, setOpened] = useState<{ mode: WallpaperMode; id: string } | null>(null);
@@ -417,7 +420,7 @@ export function WallpaperSwitch({
   const pickMode = (next: WallpaperMode) => {
     if (next === mode) return;
     write(
-      writesFor(next, values, { choices, lastFixed: lastFixed.current }),
+      writesFor(next, values, { choices, lastFixed, lastShuffle }),
       t("settingsPage.history.change", t("settingsWindow.wallpaperSwitch.title"), t(MODE_TITLE[next])),
     );
   };
@@ -500,9 +503,7 @@ export function WallpaperSwitch({
             type="button"
             className="button"
             disabled={disabled}
-            onClick={() =>
-              setSchedule(withEntry(schedule, nextWhen(schedule), values.light ?? lastFixed.current ?? "none"))
-            }
+            onClick={() => setSchedule(withEntry(schedule, nextWhen(schedule), values.light ?? lastFixed ?? "none"))}
           >
             {t("settingsWindow.wallpaperSwitch.addTime")}
           </Button>
@@ -529,13 +530,15 @@ export function WallpaperSwitch({
     );
   } else if (mode === "rotate") {
     const folder = values.background;
+    // The folder on screen, else the last one shuffled, so showing the paintings never drops it.
+    const own = folder.startsWith(FOLDER_PREFIX) ? folder : memory.folder;
     const folders = [
       { id: SHUFFLE_PAINTINGS, title: t("settingsWindow.backdropPicker.shufflePaintings") },
       ...(yoursFolder
         ? [{ id: FOLDER_PREFIX + yoursFolder, title: t("settingsWindow.backdropPicker.shuffleYours") }]
         : []),
-      ...(folder.startsWith(FOLDER_PREFIX) && folder !== FOLDER_PREFIX + yoursFolder
-        ? [{ id: folder, title: folder.slice(FOLDER_PREFIX.length).split("/").filter(Boolean).at(-1) ?? folder }]
+      ...(own !== null && own !== FOLDER_PREFIX + yoursFolder
+        ? [{ id: own, title: own.slice(FOLDER_PREFIX.length).split("/").filter(Boolean).at(-1) ?? own }]
         : []),
     ];
     editor = (

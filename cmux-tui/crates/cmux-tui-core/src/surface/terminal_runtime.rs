@@ -362,7 +362,7 @@ pub struct PtyTerminalRuntime {
     /// as the reader so the child wait cannot outlive terminal teardown.
     pub(super) reaper_thread: Mutex<Option<std::thread::JoinHandle<()>>>,
     pub(super) reaper_completion: Arc<ReaderCompletion>,
-    pub(super) term: RankedMutex<Box<Terminal>>,
+    pub(super) term: TerminalMirror,
     pub(super) stream_progress: Box<TerminalStreamProgress>,
     /// Generic metadata parsed from raw PTY output. This field has no agent
     /// or roster knowledge, so userland plugins can consume it through the
@@ -379,6 +379,8 @@ pub struct PtyTerminalRuntime {
     pub(super) command_tracker: Mutex<crate::shell_history::CommandTracker>,
     pub(super) mouse_encoders: RankedMutex<Box<MouseEncoders>>,
     pub(super) runtime: RankedMutex<PtyRuntime>,
+    /// A local PTY's paste pacer (`paste_pacing`): taken before `runtime`, never while holding it.
+    pub(super) paste_pacer: Mutex<crate::paste_pacing::PastePacer>,
     /// Explicit lifecycle authority for this process. Session content may
     /// survive a daemon replacement through a durable host; daemon-owned
     /// auxiliaries must terminate with the backend that created them.
