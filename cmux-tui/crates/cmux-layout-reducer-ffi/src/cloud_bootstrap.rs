@@ -105,6 +105,14 @@ pub(crate) fn respond(operation: &[u8], request: &[u8]) -> Result<Vec<u8>, i32> 
             let request: create::TeamRequest = read(request)?;
             json!({ "team": create::create_team(&request) })
         }
+        b"cloud_create_spare_note" => {
+            #[derive(Deserialize)]
+            struct Request {
+                answer: serde_json::Value,
+            }
+            let request: Request = read(request)?;
+            json!({ "note": create::spare_note(&request.answer) })
+        }
         b"cloud_power_retries" => {
             #[derive(Deserialize)]
             struct Request {
