@@ -118,6 +118,10 @@ pub(super) async fn route(
     if let Some(reply) = super::machine_tunnel::dispatch(hub, conn, m, &params).await {
         return reply;
     }
+    // Agent byte channels: listen, unlisten, open (`channels.rs`).
+    if let Some(reply) = super::channels::dispatch(hub, conn, m, &params).await {
+        return reply;
+    }
     // Adding a machine this computer reaches over ssh (`machine_join_ssh.rs`): the app's only.
     if let Some(reply) = super::machine_join_ssh::dispatch(hub, conn, m, &params).await {
         return reply;
@@ -183,6 +187,9 @@ pub(super) async fn route(
     }
     // The machine's GitHub poller (`github_prs.rs`, `pr_poller.rs`).
     if let Some(reply) = super::github_prs::dispatch(conn, m, &params).await {
+        return reply;
+    }
+    if let Some(reply) = heap(|| super::surgery::dispatch(hub, conn, m, &params)).await {
         return reply;
     }
     if let Some(reply) = super::goal::dispatch(hub, conn, m, &params) {
