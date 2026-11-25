@@ -143,6 +143,13 @@ const SESSION_SCOPED_EXCLUDED: &[&str] = &[
     // peer would read as this daemon's.
     "_acpmux/journal_restore",
     "_acpmux/attachments_held",
+    // A machine call names a machine, never a chat: its `session` is the calling agent's own key
+    // for the Computer Use worker (`computer_use_relay.rs`). Forwarded as a chat request, it lost
+    // its `name` (the tool) on the way and the far machine answered `unknown Computer Use tool ""`.
+    method::MUX_COMPUTER_USE_CALL,
+    method::MUX_COMPUTER_USE_MACHINES,
+    method::MUX_COMPUTER_USE_STATE,
+    method::MUX_MACHINE_FILES_CALL,
 ];
 
 /// The requests a chat that moved to a peer still takes here, forwarded to its copy there
@@ -189,8 +196,13 @@ pub(super) fn target(
 /// Whether `m` names a session that a peer's session forwards for: not one this daemon answers
 /// itself (`SESSION_SCOPED_EXCLUDED`).
 pub(super) fn names_a_session(m: &str) -> bool {
-    !SESSION_SCOPED_EXCLUDED.contains(&m)
+    // Every Computer Use method, the ones to come too, names a machine and its own worker
+    // session, never a chat (see the machine calls in `SESSION_SCOPED_EXCLUDED`).
+    !SESSION_SCOPED_EXCLUDED.contains(&m) && !m.starts_with(COMPUTER_USE_METHODS)
 }
+
+/// The prefix of every Computer Use method (`rpc::method::MUX_COMPUTER_USE_*`).
+const COMPUTER_USE_METHODS: &str = "_acpmux/computer_use_";
 
 /// The reply when `m` is for a peer's session (forwarded there), else None
 /// (this daemon handles it).
@@ -1611,6 +1623,23 @@ mod tests {
     #[test]
     fn a_registration_is_never_forwarded_to_a_peer() {
         assert!(!names_a_session(method::MUX_REGISTER));
+    }
+
+    /// A Computer Use or files call names a machine: its `session` is the agent's own worker key,
+    /// never a peer chat to forward it to (that forward dropped the tool's `name`, so a call with
+    /// `machine` answered `unknown Computer Use tool ""`).
+    #[test]
+    fn a_machine_call_is_never_forwarded_as_a_chat_request() {
+        for m in [
+            method::MUX_COMPUTER_USE_CALL,
+            method::MUX_COMPUTER_USE_MACHINES,
+            method::MUX_COMPUTER_USE_STATE,
+            method::MUX_MACHINE_FILES_CALL,
+            "_acpmux/computer_use_a_later_one",
+        ] {
+            assert!(!names_a_session(m), "{m}");
+        }
+        assert!(names_a_session(method::SESSION_PROMPT));
     }
 
     /// A phone's read of a peer chat keeps within the kinds an older peer takes: the sudo card's
