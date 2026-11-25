@@ -19,6 +19,7 @@ final class ComposerAttachmentPrestager {
     }
 
     private(set) var entries: [ComposerAttachment.ID: Entry] = [:]
+    private var claimedEntries: [ComposerAttachment.ID: Entry] = [:]
 
     func sync(_ attachments: [ComposerAttachment], upload: Upload?) {
         let wanted = Set(attachments.map(\.id))
@@ -51,18 +52,30 @@ final class ComposerAttachmentPrestager {
         for attachment in attachments {
             if let entry = entries.removeValue(forKey: attachment.id) {
                 claimed[attachment.id] = entry
+                claimedEntries[attachment.id] = entry
             }
         }
         return claimed
     }
 
+    func cancelClaimed() {
+        for entry in claimedEntries.values { entry.task.cancel() }
+        claimedEntries.removeAll()
+    }
+
+    func releaseClaimed() {
+        claimedEntries.removeAll()
+    }
+
     func cancelAll() {
         for entry in entries.values { entry.task.cancel() }
         entries.removeAll()
+        cancelClaimed()
     }
 
     isolated deinit {
         for entry in entries.values { entry.task.cancel() }
+        for entry in claimedEntries.values { entry.task.cancel() }
     }
 }
 

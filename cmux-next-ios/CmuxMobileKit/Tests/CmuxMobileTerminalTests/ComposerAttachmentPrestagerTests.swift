@@ -66,6 +66,20 @@ import UIKit
         await #expect(throws: CancellationError.self) { try await entry.task.value }
     }
 
+    @Test func cancellingClaimedUploadCancelsTheOriginalTask() async throws {
+        let probe = UploadProbe()
+        let prestager = ComposerAttachmentPrestager()
+        let file = attachment()
+        prestager.sync([file], upload: { _, name in try await probe.upload(name) })
+        await probe.waitForStart()
+
+        let claimed = prestager.claim([file])
+        let task = try #require(claimed[file.id]?.task)
+        prestager.cancelClaimed()
+        #expect(task.isCancelled)
+        await #expect(throws: CancellationError.self) { try await task.value }
+    }
+
     @Test func removingAnAttachmentCancelsItsEarlyUpload() async throws {
         let probe = UploadProbe()
         let prestager = ComposerAttachmentPrestager()

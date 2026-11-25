@@ -919,6 +919,7 @@ public final class TerminalModel {
                 } catch {
                     guard let self else { return }
                     guard self.uploadAttemptID == attemptID else { return }
+                    self.attachmentPrestager.releaseClaimed()
                     self.isUploading = false
                     self.uploadTask = nil
                     if error is CancellationError { return }
@@ -928,6 +929,7 @@ public final class TerminalModel {
             }
             guard let self else { return }
             guard self.uploadAttemptID == attemptID else { return }
+            self.attachmentPrestager.releaseClaimed()
             self.isUploading = false
             self.uploadTask = nil
             let submit = ComposerSubmit(attachmentPaths: paths, text: self.composerText, pressReturn: pressReturn)
@@ -950,6 +952,7 @@ public final class TerminalModel {
     public func cancelAttachmentSend() {
         guard isUploading else { return }
         uploadAttemptID = UUID()
+        attachmentPrestager.cancelClaimed()
         uploadTask?.cancel()
         uploadTask = nil
         isUploading = false
