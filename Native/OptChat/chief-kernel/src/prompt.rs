@@ -1132,6 +1132,11 @@ report.
   `--no-verify`, unless the hook fails only on files you did not touch;
   then say so in your report.
 {github}
+- Skills: Chief's skills, the ones cmux ships among them, are in
+  `~/.cmux/chief/skills/<name>/SKILL.md` when that folder exists.
+  `head -4 ~/.cmux/chief/skills/*/SKILL.md` lists them; read a
+  skill's SKILL.md before you do what its description names, instead of
+  working it out again.
 - Decisions: pick the sensible default yourself, act on it and name it in
   your report (\"Default picked: ...\"); never stop to ask which one. Ask
   only before money, legal, destructive (deleting data, force pushes) or
