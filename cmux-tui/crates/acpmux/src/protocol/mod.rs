@@ -10,6 +10,7 @@
 //! a name this registry lacks (`protocol/tests.rs`).
 
 pub mod auth;
+pub mod composer_status;
 pub mod events;
 pub mod here;
 pub mod inventory;
@@ -385,6 +386,7 @@ pub fn registry() -> Vec<MethodDecl> {
         untyped(method::MUX_TEAM_INBOX, Request),
         untyped(method::MUX_TEAM_READ, Request),
         untyped(method::MUX_TEAM_ACK, Request),
+        untyped(method::MUX_TEAM_LISTEN, Request),
         untyped(method::MUX_HISTORY, Request),
         untyped(method::MUX_SESSION_SEARCH, Request),
         untyped(method::MUX_COMPLETE, Request),
@@ -571,6 +573,7 @@ pub fn registry() -> Vec<MethodDecl> {
         untyped(method::MUX_CONNECTIONS_SPREAD_SET, Request),
         untyped(method::MUX_CONNECTIONS_REMOVE, Request),
         untyped(method::MUX_CONNECTIONS_KEY_ADD, Request),
+        untyped(method::MUX_CONNECTIONS_KEY_CHECK, Request),
         untyped(method::MUX_CONNECTIONS_CHATGPT_BEGIN, Request),
         untyped(method::MUX_CONNECTIONS_CHATGPT_WAIT, Request),
         untyped(method::MUX_CONNECTIONS_CHATGPT_CANCEL, Request),
