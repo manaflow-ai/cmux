@@ -121,6 +121,7 @@ mod first_send;
 mod compact_first;
 // A chat a full disk cut waits for free space (`disk_wait.rs`).
 mod disk_wait;
+pub(super) use disk_wait::RefusedRules;
 
 /// A dead agent's unread steers go into its continuation.
 mod unread_steers;

@@ -104,13 +104,13 @@ async fn a_shutdown_after_the_give_up_check_still_settles_the_turn() {
     let e = gave_up(late, 4);
     hub.begin_shutdown();
     let joined = super::super::digest::DigestTurn::default();
-    let failed = hub.fail_unless_shutdown_settles(&s, "p", "t", &e, &joined);
+    let failed = hub.fail_unless_shutdown_settles(&s, "p", "t", &e, &joined, None);
     assert!(!failed, "the turn was failed under the shutdown");
     let ended = kinds(&hub, &s, "turn_result");
     assert!(ended.iter().all(|m| m["turnId"] != "t"), "{ended:?}");
     // A Stop's end is still the Stop's.
     let stopped = super::super::turns::stopped_before_prompt();
-    assert!(hub.fail_unless_shutdown_settles(&s, "p2", "t2", &stopped, &joined));
+    assert!(hub.fail_unless_shutdown_settles(&s, "p2", "t2", &stopped, &joined, None));
     let _ = std::fs::remove_file(&gate);
 }
 
@@ -128,7 +128,7 @@ async fn the_shutdown_cannot_begin_between_the_check_and_the_failed_end() {
         tokio::task::spawn_blocking(move || {
             let late = RpcError::deadline_exceeded("agent_start", Duration::from_millis(900));
             let joined = super::super::digest::DigestTurn::default();
-            hub.fail_unless_shutdown_settles(&s, "p", "t", &gave_up(late, 4), &joined)
+            hub.fail_unless_shutdown_settles(&s, "p", "t", &gave_up(late, 4), &joined, None)
         })
     };
     tokio::time::timeout(WAIT, arrived).await.expect("the end never reached its write").ok();
@@ -196,7 +196,7 @@ async fn a_shutdown_as_the_last_try_misses_leaves_the_turn_to_the_shutdown() {
     let ended = hub.retry_late_start_with(&s, stops, cancels, "p", "t", Err(late), 0).await;
     let Err(e) = ended else { panic!("a start ran under the shutdown") };
     let joined = super::super::digest::DigestTurn::default();
-    let failed = hub.fail_unless_shutdown_settles(&s, "p", "t", &e, &joined);
+    let failed = hub.fail_unless_shutdown_settles(&s, "p", "t", &e, &joined, None);
     assert!(!failed, "the turn wrote a failed end: {e:?}");
     let _ = std::fs::remove_file(&gate);
 }
@@ -251,4 +251,70 @@ async fn a_restart_while_the_agent_starts_answers_that_the_daemon_restarts() {
     let ended = kinds(&hub, &s, "turn_result");
     assert!(ended.iter().all(|m| m["status"] != "failed"), "{ended:?}");
     let _ = std::fs::remove_file(&gate);
+}
+
+/// A lane VM's chat (2026-11-25): the store refused its turn's start on a
+/// full disk, the turn ended failed with nothing scheduled, and the chat sat stranded until a
+/// person retried it. Leo: "clearly we need to auto cleanup harder and faster/share stuff more
+/// so we dont have to manually go through this". The refused turn now waits for room as a turn
+/// a full disk cut does, then goes on once; a trigger's, or a turn with no rules, does not.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_turn_the_store_refused_on_a_full_disk_goes_on_once_it_has_room() {
+    use crate::config::{Config, StoreMode};
+    let fake = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fake_agent.py");
+    let cfg = json!({"harnesses": {"fake": {"argv": ["python3", fake]}}, "defaultHarness": "fake"});
+    let mut cfg: Config = serde_json::from_value(cfg).unwrap();
+    cfg.store.mode = StoreMode::Memory;
+    cfg.auto_resume_delays_ms = Some(vec![20; 3]);
+    // No disk has this much free: the disk reads full until the floor drops.
+    cfg.auto_resume_disk_free_bytes = Some(u64::MAX);
+    let store = crate::store::open(&cfg.store, std::path::Path::new("/nonexistent")).unwrap();
+    let hub = Hub::new(cfg, store);
+    let req = NewRequest { cwd: Some(std::env::temp_dir()), ..NewRequest::default() };
+    let s = hub.new_session(req).await.unwrap();
+    let refused = RpcError::internal(
+        "no space left on device: /home/u/.acpmux is full; acpmux stores nothing until it has 16 MiB free",
+    );
+    let joined = super::super::digest::DigestTurn::default();
+    let rules = super::super::auto_resume::RefusedRules {
+        control: Control::default(),
+        trust_gate: false,
+        from: None,
+        goes_on: true,
+    };
+    // No rules (a caller that keeps none): ended failed, nothing scheduled.
+    hub.fail_unstarted_turn(&s, "p0", "t0", &refused, &joined, None);
+    // A prompt no cut turn of goes on for (a cache compaction's, a cold wake's): the same.
+    let quiet = super::super::auto_resume::RefusedRules { goes_on: false, ..rules };
+    hub.fail_unstarted_turn(&s, "p1", "t1", &refused, &joined, Some(&quiet));
+    tokio::time::sleep(Duration::from_millis(200)).await;
+    assert!(kinds(&hub, &s, "auto_resume_scheduled").is_empty(), "a turn with no rules went on");
+
+    hub.fail_unstarted_turn(&s, "p", "t", &refused, &joined, Some(&rules));
+    let ended = kinds(&hub, &s, "turn_result");
+    assert_eq!(ended.last().unwrap()["errorKind"], crate::recovery::kind::DISK_FULL, "{ended:?}");
+    until("the refused turn was never scheduled to go on", || {
+        !kinds(&hub, &s, "auto_resume_scheduled").is_empty()
+    })
+    .await;
+    let scheduled = kinds(&hub, &s, "auto_resume_scheduled");
+    assert_eq!(scheduled[0]["reason"], "disk", "{scheduled:?}");
+    // A second refusal of the same chat while it waits schedules nothing more.
+    hub.fail_unstarted_turn(&s, "p2", "t2", &refused, &joined, Some(&rules));
+    // Well past its 20 ms wait: still waiting, on the disk.
+    tokio::time::sleep(Duration::from_millis(400)).await;
+    assert!(kinds(&hub, &s, "user_message").is_empty(), "it went on with the disk still full");
+
+    // The disk has room again: it goes on once, saying why it stopped.
+    hub.config.write().await.auto_resume_disk_free_bytes = Some(0);
+    let resumed = |m: &Value| m["promptId"] == "p~resume-1" && m["status"] == "completed";
+    until("the refused turn never went on", || kinds(&hub, &s, "turn_result").iter().any(resumed))
+        .await;
+    tokio::time::sleep(Duration::from_millis(200)).await;
+    let messages = kinds(&hub, &s, "user_message");
+    let ids: Vec<&Value> = messages.iter().map(|m| &m["promptId"]).collect();
+    assert_eq!(ids, [&json!("p~resume-1")], "{messages:?}");
+    let text = messages[0]["text"].as_str().unwrap_or_default();
+    assert!(text.contains("disk filling up"), "{text}");
+    assert_eq!(kinds(&hub, &s, "auto_resume_scheduled").len(), 1);
 }
