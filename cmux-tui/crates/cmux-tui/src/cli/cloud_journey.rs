@@ -65,8 +65,10 @@ checkout. --keep leaves the machine running at the end (its id is in the
 delete step) instead of deleting it.
 ";
 
-/// The shipped app's chat start size (cloud-journey.ts `CHAT_START_SIZE`, the platform's CHAT_START_SHAPE).
-const CHAT_START_SIZE: (i64, i64, i64) = (4, 16_384, 65_536);
+/// The shipped app's chat start size (cloud-journey.ts `CHAT_START_SIZE`, the app's `Machine.named`, the platform's
+/// CHAT_START_SHAPE, cmux-platform#1756): 2 vCPU, 4 GiB, 20 GiB disk. The platform's Scaler hands out a warm spare
+/// only to a create of exactly this shape; any other size skips the spare and makes a fresh machine.
+const CHAT_START_SIZE: (i64, i64, i64) = (2, 4_096, 20_480);
 const RUNNING_BUDGET: Duration = Duration::from_secs(300);
 const DEFAULT_CHAT_BUDGET: Duration = Duration::from_secs(300);
 const DEFAULT_PROMPT: &str = "Reply with one short sentence that names the planet you are on.";
