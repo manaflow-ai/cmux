@@ -13,9 +13,16 @@
 //! At the daemon's stop the table is drained ([`InFlight::drain_at_shutdown`], `shutdown_drain.rs`):
 //! every entry is taken as a cancel takes it, and the caller answers each with the typed restart
 //! error. From then on a new request is refused at its start ([`Ticket::refused`]).
+//!
+//! A client asks which of its requests are still running ([`InFlight::states`],
+//! `_acpmux/request_state`): its proof, per request, that a slow answer is still being worked on.
+//! The ids answered lately are kept too ([`ANSWERED_KEPT`]): a request whose answer was taken but
+//! is not yet queued (a turn's answer waits for its updates, `fanout::Flush`) is answered, not
+//! lost. An id in neither list was never read here: the client gives its connection up
+//! (webviews `direct.ts` `checkRequests`).
 
 use crate::rpc::Id;
-use std::collections::HashMap;
+use std::collections::{HashMap, VecDeque};
 use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 use tokio::sync::{OwnedSemaphorePermit, oneshot};
@@ -41,7 +48,13 @@ pub(crate) struct InFlight {
     drained: AtomicBool,
     /// Entries of every connection of the hub together (`Hub::requests_in_flight`).
     gauge: Arc<AtomicUsize>,
+    /// The ids answered lately, oldest first, at most [`ANSWERED_KEPT`] ([`InFlight::states`]).
+    answered: Mutex<VecDeque<Id>>,
 }
+
+/// How many answered ids a connection keeps for `_acpmux/request_state`: far more than a client
+/// asks about between two of its checks (a page sends at most 64 work requests at once).
+pub(crate) const ANSWERED_KEPT: usize = 256;
 
 /// One request's part in [`InFlight`]: what its task finishes with.
 pub(crate) struct Ticket {
@@ -84,6 +97,7 @@ impl InFlight {
             by_id: Mutex::default(),
             drained: AtomicBool::new(false),
             gauge,
+            answered: Mutex::default(),
         }
     }
 
@@ -99,7 +113,23 @@ impl InFlight {
     fn remove(&self, map: &mut HashMap<String, Entry>, key: &str) -> Option<Entry> {
         let entry = map.remove(key)?;
         self.gauge.fetch_sub(1, Ordering::Relaxed);
+        let mut answered = self.answered.lock().unwrap_or_else(|e| e.into_inner());
+        if answered.len() == ANSWERED_KEPT {
+            answered.pop_front();
+        }
+        answered.push_back(entry.id.clone());
         Some(entry)
+    }
+
+    /// The ids of this connection's requests still running, and of those answered lately
+    /// (`_acpmux/request_state`). Read in order with the connection's requests, so every request
+    /// read before the question is in one of the two, unless it was answered long ago.
+    pub(crate) fn states(&self) -> (Vec<Id>, Vec<Id>) {
+        let map = self.map();
+        let running = map.values().map(|entry| entry.id.clone()).collect();
+        let answered =
+            self.answered.lock().unwrap_or_else(|e| e.into_inner()).iter().cloned().collect();
+        (running, answered)
     }
 
     /// Request `id` of `method` starts, holding `slot`; `dual` is its key when it is one copy of
@@ -236,6 +266,30 @@ mod tests {
         assert_eq!(gauge.load(Ordering::Relaxed), 1);
         drop(flights);
         assert_eq!(gauge.load(Ordering::Relaxed), 0, "a closed connection leaves the count");
+    }
+
+    /// A request is running until its answer is taken, then answered; an id never begun is in
+    /// neither list; the answered list keeps the newest ANSWERED_KEPT.
+    #[test]
+    fn request_states_name_running_then_answered_and_never_an_unread_id() {
+        let flights = InFlight::counted(Arc::default());
+        let a = flights.begin(&json!(1), "session/prompt", None, None);
+        let _b = flights.begin(&json!("b"), "_acpmux/events", None, None);
+        let (mut running, answered) = flights.states();
+        running.sort_by_key(|id| id.to_string());
+        assert_eq!((running, answered), (vec![json!("b"), json!(1)], vec![]));
+        assert!(flights.finish(&a));
+        assert_eq!(flights.states(), (vec![json!("b")], vec![json!(1)]));
+        assert!(flights.cancel(&json!("b")).is_some());
+        assert_eq!(flights.states(), (vec![], vec![json!(1), json!("b")]));
+        for n in 0..ANSWERED_KEPT as i64 {
+            let ticket = flights.begin(&json!(100 + n), "m", None, None);
+            assert!(flights.finish(&ticket));
+        }
+        let (_, answered) = flights.states();
+        assert_eq!(answered.len(), ANSWERED_KEPT);
+        assert_eq!(answered.first(), Some(&json!(100)), "the oldest went first");
+        assert!(!answered.contains(&json!(7)), "an id never read is in neither list");
     }
 
     /// The stop takes every request in flight, each once, and refuses a later one; a drained

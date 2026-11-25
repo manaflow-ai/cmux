@@ -231,16 +231,28 @@ impl Hub {
     ) -> Result<Value, RpcError> {
         let homes = self.harness_homes();
         let socket = req.socket.clone();
+        let renew = req.renew;
         let found = tokio::task::spawn_blocking(move || {
             // Only the caller's own processes: never past this daemon, which a desktop shell may
             // have started.
-            let ancestry = below_daemon(crate::sender_harness::ancestors(peer_pid));
+            let ancestry = crate::sender_harness::ancestors(peer_pid);
+            if renew && ancestry.is_empty() {
+                // Its reply deadline may have passed before this worker ran. Leave the token
+                // and the proof cache alone so the next hook can prove the session immediately.
+                return Ok(None);
+            }
             let live = crate::claude_peers::live(&homes.claude);
-            nearest_claude(&ancestry, &live, socket.as_deref()).map(Found::Claude)
+            nearest_claude(&below_daemon(ancestry), &live, socket.as_deref())
+                .map(|peer| Some(Found::Claude(peer)))
+                .ok_or_else(not_found)
         })
         .await
-        .map_err(|e| RpcError::internal(e.to_string()))?
-        .ok_or_else(not_found)?;
+        .map_err(|e| RpcError::internal(e.to_string()))??;
+        let Some(found) = found else {
+            return Ok(
+                json!({"renewed": null, "reason": "renewal caller unavailable", "retryable": true}),
+            );
+        };
         // A registered Claude Code chat is delivered only with its session's own token (never the
         // undocumented peer key), so a shell that has none registers nothing.
         if req.token.is_none() || req.socket.is_none() {
@@ -258,7 +270,13 @@ impl Hub {
         let claude_home = self.harness_homes().claude;
         let inbox = req.socket.clone().unwrap_or_default();
         let token = req.token.clone().unwrap_or_default();
-        let (started, launched_for) = prove_claude(claimed, &claude_home, &inbox).await?;
+        let Some((started, launched_for)) =
+            prove_claude(claimed, &claude_home, &inbox, renew).await?
+        else {
+            return Ok(
+                json!({"renewed": null, "reason": "renewal inbox unavailable", "retryable": true}),
+            );
+        };
         // A chat registered before its Claude Code restarted takes the new process's token with
         // no code when the kernel's record of that process's launch names its conversation
         // (`--resume ID`): the code already went once, and the takeover rule below holds it to
@@ -394,8 +412,9 @@ impl Hub {
             if let Some(map) = tags.as_object_mut() {
                 map.insert(REGISTERED_TAG.to_owned(), json!("true"));
             }
-            mark_registered(&session.id)
-                .map_err(|e| RpcError::internal(format!("could not keep the registration: {e}")))?;
+            mark_registered(&session.id).map_err(|e| {
+                crate::recovery::write_error("could not keep the registration", e, None)
+            })?;
             // A stale or contested registration this one replaces no longer holds
             // (`bridge.rs` `note_unreached`).
             let unreachable = [super::bridge::UNREACHABLE_TAG.to_owned()];
@@ -414,7 +433,9 @@ impl Hub {
                     crate::qos::off_worker(|| {
                         crate::claude_peers::save_token(&home, &session.id, &kept)
                     })
-                    .map_err(|e| RpcError::internal(format!("could not keep the token: {e}")))?;
+                    .map_err(|e| {
+                        crate::recovery::write_error("could not keep the token", e, None)
+                    })?;
                     token_kept = true;
                 }
                 _ => crate::qos::off_worker(|| {
@@ -515,18 +536,24 @@ static PENDING: std::sync::LazyLock<std::sync::Mutex<std::collections::HashMap<u
 /// The proof a registry entry's process gives before anything it says is taken: Claude Code by
 /// its signature, the listener on `inbox` (this user's), the only live claimant of its
 /// conversation, and, when the kernel's record of its launch names a conversation, that one. Its
-/// proven `startedAt`, and the conversation its launch named.
+/// proven `startedAt`, and the conversation its launch named. A renewal with no inbox
+/// observation can retry immediately. An observed mismatch is always refused.
 async fn prove_claude(
     claimed: &crate::claude_peers::Peer,
     claude_home: &std::path::Path,
     inbox: &std::path::Path,
-) -> Result<(u64, Option<String>), RpcError> {
-    if !crate::claude_peers::inbox_is(inbox, claimed.pid).await {
-        return Err(unproven(format!(
-            "the inbox {} is not process {}'s",
-            inbox.display(),
-            claimed.pid
-        )));
+    renew: bool,
+) -> Result<Option<(u64, Option<String>)>, RpcError> {
+    match crate::claude_peers::inbox_proof(inbox, claimed.pid).await {
+        Ok(true) => {}
+        Err(_) if renew => return Ok(None),
+        _ => {
+            return Err(unproven(format!(
+                "the inbox {} is not process {}'s",
+                inbox.display(),
+                claimed.pid
+            )));
+        }
     }
     let (peer, home) = (claimed.clone(), claude_home.to_path_buf());
     tokio::task::spawn_blocking(move || {
@@ -546,7 +573,7 @@ async fn prove_claude(
         }
         let started = crate::claude_peers::started_at(&home, peer.pid)
             .ok_or_else(|| format!("process {} has no live registry entry", peer.pid))?;
-        Ok((started, launched_for))
+        Ok(Some((started, launched_for)))
     })
     .await
     .map_err(|e| RpcError::internal(e.to_string()))?
@@ -661,6 +688,26 @@ mod tests {
         assert_eq!(nearest_claude(&ancestry, &live, Some(other)), None);
         // Not under any listed session: nothing.
         assert_eq!(nearest_claude(&[50, 45, 1], &live, None), None);
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn renew_hook_retries_an_unavailable_inbox_but_rejects_the_wrong_owner() {
+        let dir = tempfile::tempdir().unwrap();
+        let socket = dir.path().join("inbox.sock");
+        let claimed = peer(0, socket.to_str().unwrap());
+        assert_eq!(prove_claude(&claimed, dir.path(), &socket, true).await.unwrap(), None);
+        assert!(prove_claude(&claimed, dir.path(), &socket, false).await.is_err());
+
+        // Once it answers, this process owns the socket. The wrong PID is a hard failure.
+        let _listener = tokio::net::UnixListener::bind(&socket).unwrap();
+        assert!(!crate::claude_peers::inbox_proof(&socket, claimed.pid).await.unwrap());
+        assert!(prove_claude(&claimed, dir.path(), &socket, true).await.is_err());
+        let link = dir.path().join("link.sock");
+        std::os::unix::fs::symlink(&socket, &link).unwrap();
+        let owner = peer(std::process::id(), link.to_str().unwrap());
+        assert!(!crate::claude_peers::inbox_proof(&link, owner.pid).await.unwrap());
+        assert!(prove_claude(&owner, dir.path(), &link, true).await.is_err());
     }
 
     #[test]

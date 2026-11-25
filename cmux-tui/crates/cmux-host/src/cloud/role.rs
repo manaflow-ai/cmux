@@ -1115,6 +1115,8 @@ impl Worker {
         match result {
             BindResult::Bound(bound, first_ticket) => {
                 self.bind_backoff.reset();
+                // The compiler cache settings the bind kept, for acpmux (`sccache_env.rs`).
+                crate::sccache_env::publish(&self.paths);
                 if let Err(e) = super::client::record_owner_kind(&mut self.store) {
                     log(&format!("vm-kind write: {e}"));
                 }
@@ -1549,6 +1551,9 @@ fn agent_ask(line: &str, paths: &Paths) -> Option<Ask> {
     }
     if let Some(ask) = msg.get(super::apps_call::CALL_KEY) {
         return Some(Ask::AppsCall(Box::new(super::apps_call::check_call(ask))));
+    }
+    if let Some(ask) = msg.get(super::mcp_call::CALL_KEY) {
+        return Some(Ask::McpCall(Box::new(super::mcp_call::check_call(ask))));
     }
     if let Some(ask) = msg.get(super::apps_call::LISTENER_KEY) {
         // The machine's own `proc`, as the workload probe reads it (`workload.rs`).
