@@ -18,6 +18,7 @@ watches every frame:
                       each mid-turn send (--transitions of them: Enter while a turn runs, a steer where the agent
                       steers, else the queued prompt until its row paints and 1 s after) and each compaction
                       (--transitions /compact runs, until the note ends and 0.5 s after)
+                      and each prompt sent while a /compact runs (until its row paints and 1 s after)
 Duress (Leo's rule: test under duress):
   none          a 4-turn chat
   long-session  a 1000-turn chat (the mock's loadSeed)
@@ -66,7 +67,7 @@ def transition_rows(sends, transitions):
         "shifts_per_transition_mean": round(sum(every) / len(every), 3) if every else None,
         "shifts_per_transition_max": max(every) if every else None,
     }
-    for kind in ("mid-turn", "compaction"):
+    for kind in ("mid-turn", "compaction", "mid-compaction"):
         some = counted([t for t in transitions if t.get("kind") == kind])
         out[f"shifts_per_{kind.replace('-', '_')}_mean"] = round(sum(some) / len(some), 3) if some else None
     return out
@@ -352,6 +353,30 @@ def compaction(page):
     return out
 
 
+def mid_compaction(page, marker):
+    """A prompt sent while /compact runs (shadow-leo for Leo: "a message sent mid-compaction shifts layout"): /compact
+    sent, its note seen running, then `marker` sent into it; shifts from that Enter to 1 s after `marker`'s row paints."""
+    page.focus_end()
+    page.type("/compact")
+    time.sleep(0.25)
+    page.enter()
+    if not wait(lambda: page.running(), 1.5, step=0.05):
+        page.enter()
+    running = wait(lambda: page.js("document.querySelector('.cv-compaction[data-state=running]') !== null"), 5, step=0.03)
+    page.focus_end()
+    page.type(marker)
+    page.js("window.__snappyProbe.watchArm('mid-compaction')")
+    page.enter()
+    painted = wait(lambda: page.js(f"window.__snappyProbe.seen({json.dumps(marker)})"), 30, step=0.1)
+    time.sleep(1.0)
+    out = page.js("window.__snappyProbe.watchResult()") or {"error": "no result"}
+    if not running:
+        out["error"] = "no compaction note ran"
+    elif not painted:
+        out["error"] = "the prompt sent mid-compaction never painted"
+    return out
+
+
 def switch_once(st, page, here, there):
     """`there`'s workspace shown, then `here`'s again: `here`'s page from turning visible to its first frame with rows."""
     st.show(there)
@@ -417,7 +442,8 @@ try:
                 say("after the send:", str(error)[:160])
         transitions = []
         for index in range(opts.transitions):
-            for kind, run in (("mid-turn", lambda: mid_turn(page, f"snappy-{duress}-mid-{index}")), ("compaction", lambda: compaction(page))):
+            for kind, run in (("mid-turn", lambda: mid_turn(page, f"snappy-{duress}-mid-{index}")), ("compaction", lambda: compaction(page)),
+                              ("mid-compaction", lambda: mid_compaction(page, f"snappy-{duress}-midc-{index}"))):
                 try:
                     row = run()
                 except RuntimeError as error:

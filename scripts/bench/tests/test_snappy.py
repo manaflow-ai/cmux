@@ -38,7 +38,8 @@ class SnappyTest(unittest.TestCase):
         report = {"schema": "snappy-bench/v1", "duress": "none", "surface": "local", "mode": "active", "rows": {
             "sends": 2, "failed_sends": 0, "shifts_per_send_mean": 1.0, "shifts_per_send_max": 1,
             "transitions": 4, "failed_transitions": 1, "shifts_per_transition_mean": 0.75,
-            "shifts_per_transition_max": 2, "shifts_per_mid_turn_mean": 0.0, "shifts_per_compaction_mean": 2.0}}
+            "shifts_per_transition_max": 2, "shifts_per_mid_turn_mean": 0.0, "shifts_per_compaction_mean": 2.0,
+            "shifts_per_mid_compaction_mean": 1.0}}
         with tempfile.TemporaryDirectory() as tmp:
             path = Path(tmp) / "snappy.json"
             path.write_text(json.dumps({"schema": "snappy-bench/v1", "reports": [report]}))
@@ -47,6 +48,7 @@ class SnappyTest(unittest.TestCase):
         self.assertEqual(rows[("shifts_per_transition", "none")]["p95"], 2)
         self.assertEqual(rows[("shifts_per_compaction", "none")]["value"], 2.0)
         self.assertEqual(rows[("shifts_per_mid_turn", "none")]["value"], 0.0)
+        self.assertEqual(rows[("shifts_per_mid_compaction", "none")]["value"], 1.0)
         self.assertEqual(rows[("failed_transitions", "none")]["value"], 1)
 
     def test_a_report_without_transitions_has_no_transition_rows(self):
