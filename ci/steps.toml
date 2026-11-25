@@ -440,6 +440,21 @@ needs = ["bun"]
 inputs = ["tests/automation-bench/**"]
 run = "bun test tests/automation-bench"
 
+# Leo, 2026-11-24: "this on reviving had tons of layout shifts." A recording is checked frame by frame for blocks
+# that jump (move in one frame and stay), blink or settle in steps; the seeded recordings here (rows pushed by a
+# banner, a card pushed sideways, a 30 fps capture) must fail and a glide, a still screen and content arriving in
+# place must pass. The iOS simulator's `video` runs and the Mac media captures run the same check on real recordings.
+[step.recording-shifts]
+job = "linux"
+timeout = 300
+title = "Recording layout-shift check (seeded fixtures)"
+about = "scripts/cmux-next/flicker-check.py finds the jump, blink and staggered frames planted in seeded YUV4MPEG2 recordings and passes the clean ones"
+inputs = [
+  "scripts/cmux-next/flicker-check.py",
+  "scripts/cmux-next/tests/test_flicker_check.py",
+]
+run = "python3 -I scripts/cmux-next/tests/test_flicker_check.py"
+
 [step.cloud-vm-image-lock]
 job = "linux"
 timeout = 300
