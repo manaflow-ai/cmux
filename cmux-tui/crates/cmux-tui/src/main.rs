@@ -2062,8 +2062,8 @@ fn run_main() {
     // a dropped link. Its links dial through this binary (`carrier dial`, `acp stdio`).
     if raw_args.first().map(String::as_str) == Some("autocloud") {
         discard_provider_secret_environment();
-        let args = std::iter::once(std::ffi::OsString::from("cmux autocloud"))
-            .chain(raw_args.iter().skip(1).map(std::ffi::OsString::from))
+        let args = std::iter::once(OsString::from("cmux autocloud"))
+            .chain(raw_args.iter().skip(1).map(OsString::from))
             .collect();
         client_log::exit(cmux_autocloud::run(args));
     }
