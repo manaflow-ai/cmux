@@ -67,13 +67,17 @@ impl Request {
     }
 
     /// Accepted and completed operations remain distinct observed states.
+    /// The error hands the request back so its caller can retry.
+    #[allow(clippy::result_large_err)]
+    #[allow(clippy::result_large_err)] // The subject comes back with the error: it is not lost.
+    #[allow(clippy::result_large_err)] // The Err hands the pending typestate back so the caller can retry it.
     pub fn complete(
         self,
         value: Value,
         revision: String,
-    ) -> Result<ObservedMachine, (Self, ApiError)> {
+    ) -> Result<ObservedMachine, Box<(Self, ApiError)>> {
         if let Err(error) = self.validate(&value, &revision) {
-            return Err((self, error));
+            return Err(Box::new((self, error)));
         }
         if self.pending.intent == Intent::Delete {
             let mut vm = self.pending.state.vm.delete().deleted();
@@ -85,11 +89,14 @@ impl Request {
             value.get("machine").cloned().unwrap_or(Value::Null),
         ) {
             Ok(record) => record,
-            Err(error) => return Err((self, ApiError::unreadable(error))),
+            Err(error) => return Err(Box::new((self, ApiError::unreadable(error)))),
         };
         match self.pending.reconcile(record) {
             Ok(result) => Ok(result.into_parts().0),
-            Err((pending, error)) => Err((Self { pending }, ApiError::unreadable(error))),
+            Err(failed) => {
+                let (pending, error) = *failed;
+                Err(Box::new((Self { pending }, ApiError::unreadable(error))))
+            }
         }
     }
 }

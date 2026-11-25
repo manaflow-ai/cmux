@@ -116,11 +116,28 @@ fn a_dial_to_a_carrier_that_is_not_serving_says_so() {
         assert!(said.contains("Update cmux") && said.contains("carrier.not_serving"), "{said}");
     }
     assert_eq!(relay_refusal("ticket expired".to_owned(), wait), "ticket expired");
-    let said = ticket_refusal("the hub answered 404 machine.not_found".to_owned());
+    let said = ticket_refusal("KEY=", "the hub answered 404 machine.not_found".to_owned());
     assert!(said.contains("another of your teams") && said.contains("teamId"), "{said}");
-    assert!(said.ends_with("(carrier.not_serving)"), "{said}");
-    assert_eq!(ticket_refusal("the hub answered 503".to_owned()), "the hub answered 503");
+    assert!(said.ends_with("(machine.not_joined)"), "{said}");
+    assert_eq!(ticket_refusal("KEY=", "the hub answered 503".to_owned()), "the hub answered 503");
     assert!(carrier_not_serving(Duration::from_millis(10)).contains("within 1s"));
+}
+
+/// The hub's 404 `machine.not_found` on the connect ticket names the machine, says it is not
+/// joined and how to join it, and carries a reason the CLI ends on at once (no redial, no
+/// timeout): found live on a machine that was never joined to the hub.
+#[test]
+fn a_ticket_for_a_machine_the_hub_does_not_know_says_join_it() {
+    let said = ticket_refusal(
+        "AAAAkey=",
+        "no relay ticket: the hub answered 404 machine.not_found".to_owned(),
+    );
+    assert!(said.starts_with("AAAAkey= is not joined to your hub"), "{said}");
+    assert!(said.contains("cmux machine add --cloud-token-stdin"), "{said}");
+    assert!(said.contains("sign in to the cmux app") && said.contains("then retry"), "{said}");
+    let refusal = crate::machine_routes::refusal_of(&said);
+    assert_eq!(refusal["reason"], "machine.not_joined");
+    assert!(cmux_remote::provider::TERMINAL_REFUSALS.contains(&"machine.not_joined"));
 }
 
 /// `--via-machine NAME`: the address book's host name finds the machine's `daemonId`.

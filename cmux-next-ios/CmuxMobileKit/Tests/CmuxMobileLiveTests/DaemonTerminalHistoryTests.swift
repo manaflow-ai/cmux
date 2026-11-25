@@ -308,6 +308,92 @@ import Testing
         #expect(session.historyRowsSkipped == 0)
     }
 
+    /// The attach's reply can reach the session before its own `vt-state`
+    /// (that line is decoded off the main actor; on a phone the replay of a
+    /// 4,000-row window is half a megabyte). Until the replay is applied the
+    /// rows the Mac left out are still the last attach's: no fetch may start.
+    /// Before, the next fetch asked for the window just sent again and its
+    /// attach dropped that replay on the way, so a 100,000-row scroll to line
+    /// 1 took 491 fetches at a 40 ms round trip (the load bench) for about 64
+    /// windows.
+    @Test func noFetchStartsBeforeTheLastReplayIsApplied() async throws {
+        let daemon = FakeTerminalDaemon()
+        daemon.tailReplay = true
+        daemon.windowReplay = true
+        daemon.historyRows = 100_000
+        daemon.afterAttach = nil
+        let gate = ReplayGate()
+        let session = DaemonTerminalSession(surface: 7) {
+            DaemonClient(channel: ReplayGateChannel(daemon: daemon, gate: gate))
+        }
+        session.historyPrefetchDelay = nil
+        defer { session.stop() }
+        session.start { _ in }
+        try await waitUntil { session.isAttached }
+        try await ask { session.loadOlderHistory() }
+        try await waitUntil { session.historyRowsOmitted == 98_000 }
+        try await waitUntil { daemon.recorded.filter { $0["cmd"] as? String == "release-surface-size" }.count == 1 }
+
+        // The next fetch's reply is confirmed; its replay is held back.
+        gate.holding = true
+        #expect(session.loadOlderHistory())
+        try await waitUntil { daemon.recorded.filter { $0["cmd"] as? String == "release-surface-size" }.count == 2 }
+        #expect(session.historyRowsOmitted == 98_000, "the replay is still on its way")
+        #expect(!session.loadOlderHistory(), "a fetch started with the last attach's rows")
+        #expect(attaches(daemon).count == 3)
+
+        gate.release()
+        try await waitUntil { session.historyRowsOmitted == 96_000 }
+        #expect(session.loadOlderHistory(), "the next fetch starts once the replay is applied")
+        try await waitUntil { session.historyRowsOmitted == 94_000 }
+        #expect(attaches(daemon).last?["replay_history_rows"] as? Int == 6_000)
+    }
+
+    /// A history fetch replaces a live attach on the same daemon at the size
+    /// it claims: its client info, identify and attach go in one write (one
+    /// round trip), and it does not ask where the terminal is first. Before,
+    /// each fetch took three round trips (resolve-terminal, set-client-info
+    /// with identify, attach-surface): at 40 ms, 120 ms per window of the
+    /// about 64 to line 1 of a 100,000-row history.
+    @Test func aHistoryFetchIsOneRoundTrip() async throws {
+        let daemon = FakeTerminalDaemon()
+        daemon.initialSize = true
+        daemon.tailReplay = true
+        daemon.windowReplay = true
+        daemon.historyRows = 100_000
+        daemon.afterAttach = nil
+        daemon.terminals = ["term_a": 7]
+        let writes = WriteLog()
+        let link = MockMacLink { service, data in
+            writes.append(data)
+            return daemon.respond(service, data)
+        }
+        let session = DaemonTerminalSession(surface: 7, terminalID: "term_a") {
+            DaemonClient(channel: try await link.openChannel(service: "daemon", args: [:]))
+        }
+        session.historyPrefetchDelay = nil
+        defer { session.stop() }
+        // The fake Mac answers 80x24: a grid it does not overrule.
+        session.resize(columns: 80, rows: 24)
+        session.start { _ in }
+        try await waitUntil { session.isAttached && session.historyRowsOmitted == 100_000 }
+
+        var fetches = 0
+        while session.historyRowsOmitted > 0, fetches < 80 {
+            try await ask { session.historyRowsOmitted == 0 || session.loadOlderHistory() }
+            fetches += 1
+        }
+        try await waitUntil { session.historyRowsOmitted == 0 }
+        #expect(daemon.recorded.filter { $0["cmd"] as? String == "resolve-terminal" }.isEmpty, "a fetch asked where the terminal is")
+        let fetchAttaches = writes.all.filter { String(decoding: $0, as: UTF8.self).contains("\"attach-surface\"") }.dropFirst()
+        #expect(fetchAttaches.count >= 60, "\(fetchAttaches.count) fetches")
+        #expect(fetchAttaches.allSatisfy { String(decoding: $0, as: UTF8.self).contains("\"set-client-info\"") },
+                "a fetch's attach waited for identify's reply")
+        let sized = attaches(daemon).dropFirst()
+        #expect(sized.allSatisfy { $0["cols"] as? Int == 80 && $0["rows"] as? Int == 24 })
+        #expect(attaches(daemon).last?["replay_history_start"] as? Int == 0)
+    }
+
     // MARK: History behind the screen (Leo, 2026-11-22: "so the phone side is clearly doing something off")
 
     /// The screen comes first and is live alone; the history follows by
@@ -433,4 +519,73 @@ import Testing
         }
         #expect(condition())
     }
+}
+
+/// Holds back the `vt-state` replays answered while ``holding`` (the attach
+/// reply after them still goes out) until ``release()``: a reply that reaches
+/// the session before its own replay, at will.
+final class ReplayGate: @unchecked Sendable {
+    private let lock = NSLock()
+    private var held: [@Sendable () -> Void] = []
+    private var isHolding = false
+    var holding: Bool {
+        get { lock.withLock { isHolding } }
+        set { lock.withLock { isHolding = newValue } }
+    }
+
+    /// Whether `deliver` was held (it runs at ``release()``).
+    func hold(_ line: Data, _ deliver: @escaping @Sendable () -> Void) -> Bool {
+        guard String(decoding: line, as: UTF8.self).contains("\"event\":\"vt-state\"") else { return false }
+        return lock.withLock {
+            guard isHolding else { return false }
+            held.append(deliver)
+            return true
+        }
+    }
+
+    func release() {
+        let deliveries = lock.withLock {
+            isHolding = false
+            defer { held = [] }
+            return held
+        }
+        for deliver in deliveries { deliver() }
+    }
+}
+
+/// A daemon channel answered by a ``FakeTerminalDaemon`` through a ``ReplayGate``.
+final class ReplayGateChannel: LinkChannel, @unchecked Sendable {
+    let id: UInt32 = 1
+    private let daemon: FakeTerminalDaemon
+    private let gate: ReplayGate
+    private let stream: AsyncStream<Data>
+    private let continuation: AsyncStream<Data>.Continuation
+    private var iterator: AsyncStream<Data>.Iterator
+
+    init(daemon: FakeTerminalDaemon, gate: ReplayGate) {
+        self.daemon = daemon
+        self.gate = gate
+        (stream, continuation) = AsyncStream.makeStream()
+        iterator = stream.makeAsyncIterator()
+    }
+
+    func send(_ data: Data) async throws {
+        let continuation = continuation
+        for line in daemon.respond("daemon", data) {
+            let held = gate.hold(line) { continuation.yield(line) }
+            if !held { continuation.yield(line) }
+        }
+    }
+
+    func receive() async throws -> Data? { await iterator.next() }
+
+    func close(code: String, reason: String) async { continuation.finish() }
+}
+
+/// Each write a channel sent, whole (a batch is one write).
+final class WriteLog: @unchecked Sendable {
+    private let lock = NSLock()
+    private var writes: [Data] = []
+    func append(_ data: Data) { lock.withLock { writes.append(data) } }
+    var all: [Data] { lock.withLock { writes } }
 }

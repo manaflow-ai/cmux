@@ -47,6 +47,36 @@ fn claude_profile_variant_carries_its_project_file() {
 }
 
 #[test]
+fn claude_subagent_transcripts_travel_beside_the_project_file() {
+    let src_home = tempfile::tempdir().unwrap();
+    let sid = "4b3c2d1e-aaaa-bbbb-cccc-111122223333";
+    let dir = src_home.path().join(".claude/projects/-src");
+    put(&dir.join(format!("{sid}.jsonl")), "{\"type\":\"user\"}\n");
+    put(&dir.join(sid).join("subagents/agent-a1.jsonl"), "{\"agentId\":\"a1\"}\n");
+    // Another session's children stay behind.
+    put(&dir.join("other-session/subagents/agent-b1.jsonl"), "{}\n");
+    let here = meta("claude", "claude", sid, "/src");
+    let found = native::locate_in(&here, src_home.path());
+    let mut found_labels = labels(&found);
+    found_labels.sort();
+    assert_eq!(found_labels, ["claude-project", "claude-subagent"]);
+
+    let bundle = tempfile::tempdir().unwrap();
+    for (label, src) in &found {
+        native::copy_into_from(src, &bundle.path().join("native"), label, src_home.path()).unwrap();
+    }
+    let dst_home = tempfile::tempdir().unwrap();
+    let there = meta("claude", "claude", sid, "/elsewhere/dst");
+    assert_eq!(native::restore_in(bundle.path(), &there, dst_home.path()).unwrap(), 2);
+    let moved = dst_home.path().join(".claude/projects/-elsewhere-dst");
+    assert_eq!(
+        std::fs::read_to_string(moved.join(sid).join("subagents/agent-a1.jsonl")).unwrap(),
+        "{\"agentId\":\"a1\"}\n"
+    );
+    assert!(moved.join(format!("{sid}.jsonl")).exists());
+}
+
+#[test]
 fn codex_acp_profile_carries_its_rollout() {
     let home = tempfile::tempdir().unwrap();
     let sid = "019a3c2e-7f41-7a2b-9c3d-5e6f7a8b9c0d";
@@ -174,4 +204,94 @@ fn a_chat_coming_back_replaces_its_stale_transcript_but_never_a_diverged_one() {
         std::fs::read_to_string(other.path().join(&rel)).unwrap(),
         "{\"turn\":1}\n{\"turn\":2,\"on\":\"here\"}\n"
     );
+}
+
+/// An Auto chat's Cloud copy is the chat: its transcript replaces one here that went another
+/// way, and what was here is kept beside it. The same bytes are left alone.
+#[test]
+fn a_cloud_copy_replaces_a_diverged_transcript_and_keeps_what_was_there() {
+    let sid = "4b3c2d1e-aaaa-bbbb-cccc-111122223333";
+    let here = meta("claude", "claude", sid, "/Users/me/src");
+    let rel = Path::new(".claude/projects/-Users-me-src").join(format!("{sid}.jsonl"));
+    let copy = "{\"turn\":1}\n{\"turn\":2,\"on\":\"vm\"}\n";
+    let bundle = tempfile::tempdir().unwrap();
+    put(&bundle.path().join("native/claude-project").join(&rel), copy);
+
+    let home = tempfile::tempdir().unwrap();
+    let mine = "{\"turn\":1}\n{\"turn\":2,\"on\":\"here\"}\n";
+    put(&home.path().join(&rel), mine);
+    assert_eq!(native::restore_replacing_in(bundle.path(), &here, home.path()).unwrap(), 1);
+    assert_eq!(std::fs::read_to_string(home.path().join(&rel)).unwrap(), copy);
+    let kept = home
+        .path()
+        .join(".claude/projects/-Users-me-src")
+        .join(format!("{sid}.jsonl{}", native::REPLACED_SUFFIX));
+    assert_eq!(std::fs::read_to_string(&kept).unwrap(), mine);
+    // What is kept is no session of the chat's: the next copy does not carry it.
+    let found = native::locate_in(&here, home.path());
+    assert_eq!(found, [("claude-project".to_owned(), home.path().join(&rel))]);
+
+    // The same copy again changes nothing.
+    assert_eq!(native::restore_replacing_in(bundle.path(), &here, home.path()).unwrap(), 0);
+    assert_eq!(std::fs::read_to_string(&kept).unwrap(), mine);
+}
+
+/// A chat that ran in another folder of this machine before left a file of its conversation
+/// under that folder's name. The one under the chat's own folder is the one that goes.
+#[test]
+fn a_claude_chat_carries_the_file_of_its_own_folder() {
+    let home = tempfile::tempdir().unwrap();
+    let sid = "4b3c2d1e-aaaa-bbbb-cccc-111122223333";
+    let name = format!("{sid}.jsonl");
+    put(&home.path().join(".claude/projects/-Users-me-old").join(&name), "{\"old\":1}\n");
+    let own = home.path().join(".claude/projects/-Users-me-src").join(&name);
+    put(&own, "{\"turn\":1}\n");
+    let found = native::locate_in(&meta("claude", "claude", sid, "/Users/me/src"), home.path());
+    assert_eq!(found, [("claude-project".to_owned(), own)]);
+}
+
+/// A history-later move's bundle takes the prepare's copy of the agent's transcript and only
+/// what the file grew by since (`grow_into_from`), cut back to its last whole line; a file that
+/// is not that copy grown at its end is left to the whole copy (None). Its restore links the
+/// bundle's file in, the same bytes.
+#[test]
+fn a_prepared_transcript_moves_with_only_its_growth() {
+    let sid = "4b3c2d1e-aaaa-bbbb-cccc-111122223333";
+    let rel = Path::new(".claude/projects/-Users-me-src").join(format!("{sid}.jsonl"));
+    let home = tempfile::tempdir().unwrap();
+    let src = home.path().join(&rel);
+    let early = "{\"turn\":1}\n".repeat(20_000);
+    put(&src, &early);
+    let prepared = tempfile::tempdir().unwrap();
+    native::copy_into_from(&src, prepared.path(), "claude-project", home.path()).unwrap();
+
+    let grown = format!("{early}{{\"turn\":2}}\n{{\"turn\":3,\"half");
+    put(&src, &grown);
+    let bundle = tempfile::tempdir().unwrap();
+    let dest = bundle.path().join("native");
+    let moved = native::grow_into_from(&src, prepared.path(), &dest, "claude-project", home.path());
+    let moved = moved.unwrap().expect("the grown file takes the prepared copy");
+    assert_eq!(moved, Path::new("claude-project").join(&rel).to_string_lossy());
+    let copy = std::fs::read_to_string(dest.join(&moved)).unwrap();
+    assert_eq!(copy, format!("{early}{{\"turn\":2}}\n"));
+    assert!(!prepared.path().join("claude-project").join(&rel).exists(), "moved, not copied");
+
+    let there = meta("claude", "claude", sid, "/Users/me/src");
+    let target = tempfile::tempdir().unwrap();
+    assert_eq!(native::restore_in_with(bundle.path(), &there, target.path(), true).unwrap(), 1);
+    assert_eq!(std::fs::read_to_string(target.path().join(&rel)).unwrap(), copy);
+
+    // Rewritten before the copy's end, or shorter: the whole copy goes instead.
+    let again = tempfile::tempdir().unwrap();
+    put(&src, &early);
+    native::copy_into_from(&src, again.path(), "claude-project", home.path()).unwrap();
+    put(&src, &format!("{}{{\"turn\":9}}\n", "{\"turn\":0}\n".repeat(20_000)));
+    let other = tempfile::tempdir().unwrap();
+    let refused =
+        native::grow_into_from(&src, again.path(), other.path(), "claude-project", home.path());
+    assert!(refused.unwrap().is_none());
+    put(&src, "{\"turn\":1}\n");
+    let refused =
+        native::grow_into_from(&src, again.path(), other.path(), "claude-project", home.path());
+    assert!(refused.unwrap().is_none());
 }

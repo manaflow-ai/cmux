@@ -1,3 +1,4 @@
+// cmux-web-test-timeout: 300
 // Every transcript disclosure chevron, and every trailing time or status at a row's end, sits on
 // its row's first text line: its glyph's middle on the middle of the words it follows
 // (cmux#51746: a folded thought's chevron rode a few px above its words, while the tool rows
@@ -206,10 +207,11 @@ await requireBrowserLane("transcript-chevron-vertical-center.test.ts", async () 
     );
     await page.evaluate(() => new Promise((done) => requestAnimationFrame(() => requestAnimationFrame(done))));
   };
-  /** Clicks open the first closed toggle `selector` matches, until none is left (bounded). */
+  /** Clicks open the first closed toggle `selector` matches, until none is left (bounded). `:is()`
+   * keeps the closed test on every part of a selector list, not only its last. */
   const openAll = async (page: Page, selector: string) => {
     for (let round = 0; round < 12; round++) {
-      const closed = page.locator(`${selector}[aria-expanded="false"]`);
+      const closed = page.locator(`:is(${selector})[aria-expanded="false"]`);
       if ((await closed.count()) === 0) return;
       await closed.first().click();
       await settle(page);
@@ -279,7 +281,18 @@ await requireBrowserLane("transcript-chevron-vertical-center.test.ts", async () 
   const DOT_SCENES = ["reply", "reply-no-time"];
   const SPACINGS = ["", "tight", "roomy"];
   type Dot = { row: string; inset: number; offset: number | null };
-  const dots = async (variant: string, width: number, spacing: string): Promise<Dot[]> => {
+  /** Each spacing's dots on one loaded page: the spacing is a document attribute, set in turn. */
+  const dotsByPage = new Map<string, Promise<Map<string, Dot[]>>>();
+  const dots = (variant: string, width: number, spacing: string): Promise<Dot[]> => {
+    const key = `${variant}@${width}`;
+    let all = dotsByPage.get(key);
+    if (!all) {
+      all = measureDots(variant, width);
+      dotsByPage.set(key, all);
+    }
+    return all.then((each) => each.get(spacing)!);
+  };
+  const measureDots = async (variant: string, width: number): Promise<Map<string, Dot[]>> => {
     const page = await browser.newPage({ viewport: { width: width + 40, height: 600 }, deviceScaleFactor: 2 });
     try {
       const port = (vite!.httpServer!.address() as { port: number }).port;
@@ -289,42 +302,49 @@ await requireBrowserLane("transcript-chevron-vertical-center.test.ts", async () 
       await page.waitForFunction(() => document.documentElement.dataset.galleryReady === "1", undefined, {
         timeout: 120_000,
       });
-      await page.evaluate((spacing) => {
-        if (spacing) document.documentElement.dataset.transcriptToolSpacing = spacing;
-        return document.fonts.ready;
-      }, spacing);
+      await page.evaluate(() => document.fonts.ready);
       await page.mouse.move(0, 0);
-      await settle(page);
-      return await page.evaluate(() =>
-        [...document.querySelectorAll(".acpmux-row .cv-subagent-done-row .cv-reaction-mark")].map((dot) => {
-          const row = dot.closest(".cv-subagent-done-row")!;
-          const style = getComputedStyle(row);
-          const edge =
-            row.getBoundingClientRect().right - parseFloat(style.paddingRight) - parseFloat(style.borderRightWidth);
-          const box = dot.getBoundingClientRect();
-          const sentence = row.querySelector(".cv-agent-activity__sentence");
-          const rects: DOMRect[] = [];
-          if (sentence) {
-            const walker = document.createTreeWalker(sentence, NodeFilter.SHOW_TEXT);
-            for (let node = walker.nextNode(); node; node = walker.nextNode()) {
-              if (!node.textContent?.trim()) continue;
-              const range = document.createRange();
-              range.selectNodeContents(node);
-              for (const rect of range.getClientRects()) if (rect.width > 0 && rect.height > 0) rects.push(rect);
-            }
-          }
-          const middles = rects.map((rect) => (rect.top + rect.bottom) / 2).sort((a, b) => a - b);
-          return {
-            row: (row.textContent || "").replace(/\s+/g, " ").trim().slice(0, 50),
-            inset: edge - box.right,
-            offset: middles.length ? (box.top + box.bottom) / 2 - middles[Math.floor(middles.length / 2)] : null,
-          };
-        }),
-      );
+      const out = new Map<string, Dot[]>();
+      for (const spacing of SPACINGS) {
+        await page.evaluate((spacing) => {
+          if (spacing) document.documentElement.dataset.transcriptToolSpacing = spacing;
+          else delete document.documentElement.dataset.transcriptToolSpacing;
+        }, spacing);
+        await settle(page);
+        out.set(spacing, await measureDotsOn(page));
+      }
+      return out;
     } finally {
       await page.close();
     }
   };
+  const measureDotsOn = (page: Page): Promise<Dot[]> =>
+    page.evaluate(() =>
+      [...document.querySelectorAll(".acpmux-row .cv-subagent-done-row .cv-reaction-mark")].map((dot) => {
+        const row = dot.closest(".cv-subagent-done-row")!;
+        const style = getComputedStyle(row);
+        const edge =
+          row.getBoundingClientRect().right - parseFloat(style.paddingRight) - parseFloat(style.borderRightWidth);
+        const box = dot.getBoundingClientRect();
+        const sentence = row.querySelector(".cv-agent-activity__sentence");
+        const rects: DOMRect[] = [];
+        if (sentence) {
+          const walker = document.createTreeWalker(sentence, NodeFilter.SHOW_TEXT);
+          for (let node = walker.nextNode(); node; node = walker.nextNode()) {
+            if (!node.textContent?.trim()) continue;
+            const range = document.createRange();
+            range.selectNodeContents(node);
+            for (const rect of range.getClientRects()) if (rect.width > 0 && rect.height > 0) rects.push(rect);
+          }
+        }
+        const middles = rects.map((rect) => (rect.top + rect.bottom) / 2).sort((a, b) => a - b);
+        return {
+          row: (row.textContent || "").replace(/\s+/g, " ").trim().slice(0, 50),
+          inset: edge - box.right,
+          offset: middles.length ? (box.top + box.bottom) / 2 - middles[Math.floor(middles.length / 2)] : null,
+        };
+      }),
+    );
   for (const variant of DOT_SCENES)
     for (const width of WIDTHS)
       for (const spacing of SPACINGS)

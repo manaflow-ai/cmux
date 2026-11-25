@@ -329,7 +329,11 @@ fn computer_use_off_is_a_tool_error_but_status_still_answers() {
         caller(FakeDaemon::new(vec![Ok(json!({"state": "off", "reason": "mode is off"}))]));
     let mcp = caller.call("click", &json!({}), "c").to_mcp();
     assert_eq!(mcp["isError"], true);
-    assert!(mcp["content"][0]["text"].as_str().unwrap().contains("computer_use_off"), "{mcp}");
+    let text = mcp["content"][0]["text"].as_str().unwrap();
+    assert!(text.contains("computer_use_off"), "{mcp}");
+    // The refusal tells the agent to open the guided setup for the person.
+    assert!(text.contains("cmux action run palette.computerUse.setup"), "{mcp}");
+    assert!(text.contains("mode is off"), "{mcp}");
     let Outcome::Output(status) = caller.call("status", &json!({}), "c2") else { panic!() };
     assert!(!status.is_error);
     assert_eq!(status.body["mode"], "off");
@@ -546,4 +550,20 @@ fn a_session_attaches_once_and_a_relayed_one_never() {
     let relayed = caller(FakeDaemon::new(vec![Ok(relayed_worker.ready())])).with_origin(origin);
     assert!(matches!(relayed.call("status", &json!({}), "c"), Outcome::Output(_)));
     assert!(relayed_worker.attaches.lock().unwrap().is_empty());
+}
+
+#[test]
+fn routable_machines_are_reachable_ready_and_not_the_locked_one() {
+    let data = json!({"machines": [
+        {"name": "studio", "reachable": true, "computer_use": "ready"},
+        {"name": "air", "reachable": true, "computer_use": "off"},
+        {"name": "mini", "reachable": false, "computer_use": "unknown"},
+        {"name": "hubbed", "reachable": true, "via": "hub", "computer_use": "unknown"},
+        {"name": "cosmic", "reachable": true, "computer_use": "ready"},
+    ]});
+    assert_eq!(routable_in(&data, None), ["studio", "cosmic"]);
+    assert_eq!(routable_in(&data, Some("studio")), ["cosmic"]);
+    assert!(routable_in(&json!({}), None).is_empty());
+    assert_eq!(caller(FakeDaemon::new(Vec::new())).routable_machines(None), ["studio"]);
+    assert!(caller(FakeDaemon::new(Vec::new())).routable_machines(Some("studio")).is_empty());
 }

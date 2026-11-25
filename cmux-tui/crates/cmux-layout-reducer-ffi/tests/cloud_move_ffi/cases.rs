@@ -185,6 +185,11 @@ fn the_rest_answer_in_the_shapes_the_app_reads() {
     );
     assert_eq!(ok(c"cloud_move_start_redial", json!({})), json!({"redial": "nothing"}));
     assert_eq!(
+        ok(c"cloud_move_rereads_record", json!({"running": true, "answeredAgoMs": 12})),
+        json!({"rereads": false})
+    );
+    assert_eq!(ok(c"cloud_move_rereads_record", json!({})), json!({"rereads": true}));
+    assert_eq!(
         ok(c"cloud_move_new_workspace_route", json!({"signedIn": false, "hasWindow": true})),
         json!({"route": "thisMac", "refusal": {"kind": "signedOut"}})
     );
@@ -216,6 +221,48 @@ fn the_rest_answer_in_the_shapes_the_app_reads() {
     );
     assert_eq!(legacy["lastLine"], "started");
     assert_eq!(legacy["answer"]["errorCode"], "machine_update_failed");
+}
+
+#[test]
+fn a_move_says_its_step_and_about_how_long_is_left() {
+    let copying = ok(
+        c"cloud_move_progress",
+        json!({"direction": "move", "stage": "copy", "name": "dev", "stageMs": 10_000,
+               "copy": {"phase": "copy", "filesDone": 301, "filesTotal": 1_204}}),
+    );
+    assert_eq!(copying["text"], "3 of 5 · Copying the folder (1,204 files) · about 45 s left");
+    assert_eq!((copying["step"].clone(), copying["steps"].clone()), (json!(3), json!(5)));
+    assert_eq!(copying["etaMs"], 43_000);
+    assert_eq!(copying["nextMs"], 3_000, "a measured copy counts down to its next text");
+    let stale = ok(
+        c"cloud_move_progress",
+        json!({"stage": "copy", "name": "dev", "stageMs": 120_000, "copyMs": 10_000,
+               "copy": {"phase": "copy", "filesDone": 99, "filesTotal": 100}}),
+    );
+    assert_eq!(
+        stale["text"],
+        "3 of 5 · Copying the folder (100 files) · taking longer than its progress said, 2 min so far"
+    );
+    assert_eq!(
+        (stale["etaMs"].clone(), stale["nextMs"].clone()),
+        (Value::Null, json!(60_000)),
+        "past its estimate it keeps a clock, waking when the minute changes"
+    );
+    let back = ok(
+        c"cloud_move_progress",
+        json!({"direction": "bringBack", "stage": "machine", "machine": "paused", "name": "dev"}),
+    );
+    assert_eq!(back["text"], "1 of 4 · Resuming dev · about 1 min left");
+    let running = ok(
+        c"cloud_move_progress",
+        json!({"stage": "machine", "machine": "running", "name": "dev"}),
+    );
+    assert_eq!(running["text"], "2 of 5 · Connecting to dev · about 35 s left");
+    assert_eq!(running["nextMs"], 3_000);
+    let checking = ok(c"cloud_move_progress", json!({"direction": "move", "stage": "folder"}));
+    assert_eq!(checking["text"], "1 of 5 · Checking the folder · about 40 s left");
+    let (code, _) = call(c"cloud_move_progress", &json!({"stage": "teleport"}));
+    assert_eq!(code, ERR_INVALID);
 }
 
 /// Move to… an SSH machine: one added in the sidebar (Add Machine) and one only acpmux knows

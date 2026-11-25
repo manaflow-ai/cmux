@@ -55,7 +55,8 @@ extension HomeChiefSettingsView {
         switch result {
         case .success(let automations):
             automationRows.show(automations)
-            showsAutomations = true
+            // None yet: the section is left out rather than explained (Lawrence 2026-11-23).
+            showsAutomations = !automations.isEmpty
             onResize()
         case .failure:
             showsAutomations = false
