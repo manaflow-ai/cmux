@@ -127,6 +127,15 @@ struct TabsScreen<Source: TabsDataSource>: View {
     private var gridSafeTop: CGFloat { max(safeTop, gridTop) }
     private var gridSafeBottom: CGFloat { max(safeBottom, gridBottom) }
     @State private var overviewPosition = ScrollPosition(y: 0)
+    /// The grid's own scroll is moving (its scroll phase).
+    @State private var gridScrolling = false
+    /// Card updates wait while the grid moves under them: its scroll, or a
+    /// zoom into or out of it (`TabsDataSource.overviewScrollingChanged`). A
+    /// card's screen read or snapshot that landed in a zoom frame re-laid that
+    /// card out in it.
+    private var gridMoving: Bool {
+        gridScrolling || (overviewVisible && (zoomState.phase == .animating || zoomState.phase == .interactive))
+    }
     @State private var menuExpanded = false
     @State private var menuContent = false
     /// The page menu's rows, built when the menu opens (CMUX-15). Built in `body`, every
@@ -244,6 +253,7 @@ struct TabsScreen<Source: TabsDataSource>: View {
         screen
         .onChange(of: GridShape(width: size.width, columns: overviewColumns)) { old, _ in keepGridPlace(from: old) }
         .onChange(of: overviewVisible) { _, visible in source.overviewVisibilityChanged(visible) }
+        .onChange(of: gridMoving) { _, moving in source.overviewScrollingChanged(moving) }
         // Leaving the foreground cancels the touches without ending their
         // gestures: a swipe up left part-way would keep the bar untouchable.
         .onChange(of: scenePhase) { _, phase in
@@ -465,7 +475,7 @@ struct TabsScreen<Source: TabsDataSource>: View {
                     onDone: { closeOverview(selecting: activeID) },
                     onCloseAll: { confirmingCloseAll = CloseAllConfirmation(ids: tabs.map(\.id)) },
                     pending: pending,
-                    onScrolling: { source.overviewScrollingChanged($0) },
+                    onScrolling: { gridScrolling = $0 },
                     onQueueSelect: { queuedOpen = $0 },
                     onPressChanged: { pressedCard = $0 },
                     isVisible: overviewVisible,
