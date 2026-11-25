@@ -170,8 +170,10 @@ public final class SettingsAgentMcpServers: PageProvider {
         return words
     }
 
-    /// The CLI prints one JSON object, on its last line.
+    /// The CLI's answer: the whole output (one JSON document, compact or pretty), or its last line when
+    /// progress lines came before it.
     nonisolated static func lastLine(_ data: Data) -> JSONValue? {
+        if let whole = try? JSONValue.parse(data) { return whole }
         let last = String(data: data, encoding: .utf8)?.split(separator: "\n").last.map { Data($0.utf8) } ?? Data()
         return try? JSONValue.parse(last)
     }
