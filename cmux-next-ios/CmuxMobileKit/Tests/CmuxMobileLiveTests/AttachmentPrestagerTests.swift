@@ -9,22 +9,22 @@ import Testing
 /// links the early copy instead of uploading again.
 @MainActor
 @Suite struct AttachmentPrestagerTests {
-    /// Counts uploads and answers a path per name; `gate` holds them until opened.
+    /// Counts uploads and answers a path per name; `hold()` holds them until opened.
     actor FakeMac {
         var started: [String] = []
-        var gate: CheckedContinuation<Void, Never>?
+        var gates: [CheckedContinuation<Void, Never>] = []
         var startWaiter: CheckedContinuation<Void, Never>?
         var open = true
         func upload(_ name: String) async throws -> String {
             started.append(name)
             startWaiter?.resume()
             startWaiter = nil
-            if !open { await withCheckedContinuation { gate = $0 } }
+            if !open { await withCheckedContinuation { gates.append($0) } }
             try Task.checkCancellation()
             return "/w/.cmux/attachments/\(name)"
         }
         func hold() { open = false }
-        func release() { open = true; gate?.resume(); gate = nil }
+        func release() { open = true; gates.forEach { $0.resume() }; gates = [] }
         func waitForUploadStart() async {
             if !started.isEmpty { return }
             await withCheckedContinuation { startWaiter = $0 }
@@ -78,6 +78,17 @@ import Testing
         let prestager = AttachmentPrestager()
         prestager.sync([file("a", "a.zip")], upload: nil)
         #expect(prestager.entries.isEmpty)
+    }
+
+    @Test func aChatThatGoesAwayStopsItsUploads() async throws {
+        let mac = FakeMac()
+        await mac.hold()
+        var prestager: AttachmentPrestager? = AttachmentPrestager()
+        prestager?.sync([file("a", "a.zip")], upload: { _, name in try await mac.upload(name) })
+        let task = try #require(prestager?.entries["a"]).task
+        prestager = nil
+        #expect(task.isCancelled)
+        await mac.release()
     }
 
     @Test func losingTheLinkCancelsComposerUploads() async throws {

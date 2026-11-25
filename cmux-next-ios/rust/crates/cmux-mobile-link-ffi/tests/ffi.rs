@@ -638,6 +638,32 @@ fn every_test_reading_warm_state_dials_on_its_own_pool() {
     );
 }
 
+#[test]
+fn network_interfaces_reach_the_dial_layer() {
+    use cmux_mobile_link::dial::wireguard as wg;
+    let iface = |name: &str, kind, primary| cmux_mobile_link_ffi::NetInterface {
+        name: name.into(),
+        kind,
+        expensive: kind == cmux_mobile_link_ffi::InterfaceKind::Cellular,
+        constrained: false,
+        primary,
+    };
+    cmux_mobile_link_ffi::set_network_interfaces(vec![
+        iface("en0", cmux_mobile_link_ffi::InterfaceKind::Wifi, true),
+        iface("pdp_ip0", cmux_mobile_link_ffi::InterfaceKind::Cellular, false),
+    ]);
+    let got = wg::multipath::interfaces();
+    assert_eq!(got.len(), 2);
+    assert_eq!(got[0].kind, wg::InterfaceKind::Wifi);
+    assert!(got[0].primary);
+    assert_eq!(got[1].kind, wg::InterfaceKind::Cellular);
+    assert!(got[1].expensive);
+    cmux_mobile_link_ffi::set_cellular_assist(false);
+    assert!(!wg::multipath::cellular_assist());
+    cmux_mobile_link_ffi::set_cellular_assist(true);
+    assert!(wg::multipath::cellular_assist());
+}
+
 /// A Mac whose ad outlived its network (the phone left the Wi-Fi; the hub socket opens and then
 /// says nothing, or the WireGuard dial over host candidates stalls) costs the service dial
 /// nothing: the hub races it instead of going first, and the service link wins.
@@ -696,5 +722,38 @@ async fn a_stale_local_ad_does_not_delay_the_service_dial() {
     raced.close();
     local_link_remove(instance);
     local_link_pair(mac_id, None);
+    pool.reset().await;
+}
+
+/// A network change drops the ads: they were seen on the old network, and a dial now would spend
+/// the hub bound on a dead one.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_network_change_forgets_the_local_ads() {
+    use cmux_mobile_link_ffi::local_link::{
+        LocalEndpoint, LocalTxt, local_link_nearby, local_link_observe, local_link_pair, local_link_remove,
+    };
+
+    let server = FakeSignaling::start(FakeOptions::default()).await;
+    let mac_id = uuid::Uuid::new_v4().to_string();
+    let device = uuid::Uuid::new_v4().to_string();
+    let instance = format!("roam-{mac_id}");
+    let key = b"roam-mac-key".to_vec();
+    local_link_pair(mac_id.clone(), Some(key.clone()));
+    assert!(local_link_observe(
+        instance.clone(),
+        vec![
+            LocalTxt { key: "id".into(), value: mac_id.clone() },
+            LocalTxt { key: "v".into(), value: "1".into() },
+            LocalTxt { key: "k".into(), value: cmux_mobile_link::local::key_tag(&key) },
+        ],
+        vec![LocalEndpoint { host: "127.0.0.1".into(), port: 9 }],
+    ));
+    assert!(local_link_nearby(mac_id.clone()));
+    let pool = WarmPool::new();
+    pool.network_changed(server.base_url.clone(), "user:alice".into(), "team".into(), device).await;
+    let mac_id_unpin = mac_id.clone();
+    assert!(!local_link_nearby(mac_id), "the old network's ad outlived the roam");
+    local_link_remove(instance);
+    local_link_pair(mac_id_unpin, None);
     pool.reset().await;
 }
