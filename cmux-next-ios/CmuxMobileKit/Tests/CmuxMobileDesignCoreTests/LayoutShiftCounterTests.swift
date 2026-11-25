@@ -1,8 +1,11 @@
-import CmuxMobileDesign
+import CmuxMobileDesignCore
+#if canImport(CoreGraphics)
 import CoreGraphics
+#endif
+import Foundation
 import Testing
 
-/// The layout-shift count's rule (CmuxMobileDesign/LayoutShift.swift). Leo, 2026-11-24: "the
+/// The layout-shift count's rule (CmuxMobileDesignCore/LayoutShiftCounter.swift). Leo, 2026-11-24: "the
 /// loading has layout shifts and placeholder states that likely dont need to be so placeholder and
 /// better diffed".
 struct LayoutShiftCounterTests {
