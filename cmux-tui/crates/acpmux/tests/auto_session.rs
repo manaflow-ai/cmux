@@ -36,6 +36,8 @@ use std::process::Command;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
+type MakeImporter = Box<dyn FnOnce(Arc<Hub>, FakeAutoCloud, PathBuf) -> Arc<dyn SessionImporter>>;
+
 use acpmux::auto_session::record::AutoRecord;
 use acpmux::auto_session::runtime::ManualClock;
 use acpmux::auto_session::{
@@ -176,10 +178,7 @@ impl Rig {
         Rig::build(DEVICE, Some(Box::new(make))).await
     }
 
-    async fn build(
-        device: &str,
-        make: Option<Box<dyn FnOnce(Arc<Hub>, FakeAutoCloud, PathBuf) -> Arc<dyn SessionImporter>>>,
-    ) -> Rig {
+    async fn build(device: &str, make: Option<MakeImporter>) -> Rig {
         let root = tempfile::tempdir().unwrap();
         let work = checkout(root.path());
         let wire_log = root.path().join("wire.log");
