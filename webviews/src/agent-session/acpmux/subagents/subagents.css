@@ -1944,6 +1944,11 @@ button.cv-subagent > :last-child {
 .cv-subagent-done-row[data-look="grid"] > .cv-subagent-done {
   grid-column: 1;
   grid-row: 1;
+  /* A button sizes to its words; the line fills its track, so the words take the whole first
+     column on every row (cmux#52916, cmux#54927). */
+  justify-self: stretch;
+  width: 100%;
+  min-width: 0;
 }
 /* The trail fills its column, so the controls before it start at one x on every row. */
 .cv-subagent-done-row[data-look="grid"] > .cv-subagent-done__trail {
