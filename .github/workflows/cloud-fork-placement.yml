@@ -1,0 +1,87 @@
+name: Cloud fork placement (staging)
+
+# RFD 0168: a new session placed on a fork of its parent's Cloud machine. Creates a parent machine on
+# staging, writes a marker, commits a repo and starts a counter there, forks it with cmux-platform's
+# POST /v1/machines/{id}/fork, times the fork call and fork-to-first-exec, checks the copy has the
+# same files, commit and live process, reads the copy's cost, deletes both and prints one JSON verdict
+# (scripts/cmux-next/cloud-fork-placement.ts). Staging only, on the agent test account the Cloud
+# journey uses (cloud-journey-pr.yml); same-repo pull requests and a dispatch on feat-cmux-next only.
+
+on:
+  workflow_dispatch:
+    inputs:
+      runs:
+        description: "How many forks to time (1 to 10)"
+        default: "10"
+      duress:
+        description: "Forks of one parent at once after the timed runs (0 to 8)"
+        default: "5"
+      divergence:
+        description: "Divergence mode: write 1 GiB on one copy, wait past a meter read, pause it, compare its paused rate with its parent's"
+        type: boolean
+        default: false
+      split:
+        description: "Non-empty: also time the fork's steps one at a time"
+        default: ""
+  pull_request:
+    branches: [feat-cmux-next]
+    paths:
+      - scripts/cmux-next/cloud-fork-placement.ts
+      - scripts/cmux-next/cloud-fork-placement.test.ts
+      - .github/workflows/cloud-fork-placement.yml
+
+permissions:
+  contents: read
+
+concurrency:
+  group: cloud-fork-placement-${{ github.event.pull_request.number || github.run_id }}
+  cancel-in-progress: true
+
+jobs:
+  measure:
+    if: ${{ github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/feat-cmux-next' || github.event.pull_request.head.repo.full_name == github.repository }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || fromJSON(vars.RUNNER_POOLS).linux_8 }}
+    environment:
+      name: cmux-next-vm-image-dev
+      deployment: false
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+          submodules: false
+          sparse-checkout: scripts/cmux-next
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+        with:
+          bun-version: "1.4.4"
+      - name: Unit tests
+        run: bun test scripts/cmux-next/cloud-fork-placement.test.ts
+      - name: Fork placement on staging
+        env:
+          CMUX_DOGFOOD_STACK_EMAIL: ${{ secrets.CMUX_DOGFOOD_STACK_EMAIL }}
+          CMUX_DOGFOOD_STACK_PASSWORD: ${{ secrets.CMUX_DOGFOOD_STACK_PASSWORD }}
+          RUNS: ${{ inputs.runs || '10' }}
+          DURESS: ${{ inputs.duress || '5' }}
+          SPLIT: ${{ inputs.split || '' }}
+          DIVERGENCE: ${{ inputs.divergence || false }}
+        run: |
+          set -o pipefail
+          # Divergence (cmux-platform Divergence.ts): one fork, 1 GiB written, a meter read, a pause; about 16 min.
+          if [ "$DIVERGENCE" = "true" ]; then
+            bun scripts/cmux-next/cloud-fork-placement.ts --backend staging --runs 1 --divergence --out "$RUNNER_TEMP/fork-placement.json"
+          else
+            bun scripts/cmux-next/cloud-fork-placement.ts --backend staging --runs "$RUNS" ${SPLIT:+--split} --duress "$DURESS" --out "$RUNNER_TEMP/fork-placement.json"
+          fi
+      - name: Verdict in the summary
+        if: always()
+        run: |
+          if [ -f "$RUNNER_TEMP/fork-placement.json" ]; then
+            { echo '```json'; python3 -m json.tool "$RUNNER_TEMP/fork-placement.json"; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
+          fi
+      - if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: cloud-fork-placement-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/fork-placement.json
+          if-no-files-found: warn
+          retention-days: 7

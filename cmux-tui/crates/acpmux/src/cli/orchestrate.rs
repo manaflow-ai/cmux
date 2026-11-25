@@ -269,7 +269,10 @@ async fn wait_inner(client: Arc<Client>, opts: WaitOpts, json_out: bool) -> Resu
 /// `wait` reports instead of a reply.
 fn failed_turn(s: &Value) -> Option<String> {
     let last = &s["lastTurn"];
-    if last["status"] != "failed" || s.get("turn").is_some_and(|t| !t.is_null()) {
+    // A turn held for capacity (`capacity`) failed too, and its retry waits.
+    if !(last["status"] == "failed" || last["status"] == "capacity")
+        || s.get("turn").is_some_and(|t| !t.is_null())
+    {
         return None;
     }
     let text = ["errorText", "error", "detail"]
@@ -331,6 +334,9 @@ fn wait_state(r: &Value) -> String {
             format!("asks a question: {prompt}")
         }
         (Some("question"), _) => "asks a question".to_owned(),
+        (Some("secret"), _) => "asks for a secret".to_owned(),
+        (Some("elevation"), _) => "asks to run a command as root".to_owned(),
+        (Some("mcp_connect"), _) => "asks to connect an MCP server".to_owned(),
         _ if pending > 0 => format!("waiting for permission ({pending})"),
         _ if r["error"].is_string() => {
             let status = r.get("status").and_then(Value::as_str).unwrap_or("");
@@ -343,8 +349,15 @@ fn wait_state(r: &Value) -> String {
 
 /// The `--notify` line for a waited-on session's row.
 fn wait_notice(name: &str, r: &Value) -> String {
-    if r.get("waitingOn").and_then(Value::as_str) == Some("question") {
+    let on = r.get("waitingOn").and_then(Value::as_str);
+    if on == Some("question") {
         format!("{name} asks a question")
+    } else if on == Some("secret") {
+        format!("{name} asks for a secret")
+    } else if on == Some("elevation") {
+        format!("{name} asks to run a command as root")
+    } else if on == Some("mcp_connect") {
+        format!("{name} asks to connect an MCP server")
     } else if r.get("pendingPermissions").and_then(Value::as_u64).unwrap_or(0) > 0 {
         format!("{name} needs a permission")
     } else if r["error"].is_string() {

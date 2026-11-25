@@ -155,11 +155,12 @@ jobs:
         uses: ./.github/actions/runner-cargo-home
       - uses: Swatinem/rust-cache@98c8021b550208e191a6a3145459bfc9fb29c4c0 # v2.8.2
         with:
+          save-if: ${{ github.event_name != 'pull_request' && github.event_name != 'pull_request_target' && github.event_name != 'merge_group' && contains(fromJSON('["refs/heads/main","refs/heads/feat-cmux-next","refs/heads/nightly-next"]'), github.ref) }}
           # Why: docs/ci/cmux-next-workflow-notes.md#note-210 (pool runners keep different leftover toolchains)
           add-rust-environment-hash-key: false
           cache-bin: false
           workspaces: coderouter
-          key: ${{ matrix.rust_target }}
+          key: ${{ matrix.rust_target }}-${{ hashFiles('coderouter/Cargo.lock', '.cargo/config.toml') }}
       - run: cargo test --locked --release --target ${{ matrix.rust_target }}
       - run: cargo build --locked --release --target ${{ matrix.rust_target }} --bins
       - name: Build PyPI wheel
@@ -491,11 +492,12 @@ jobs:
         uses: ./.github/actions/runner-cargo-home
       - uses: Swatinem/rust-cache@98c8021b550208e191a6a3145459bfc9fb29c4c0 # v2.8.2
         with:
+          save-if: ${{ github.event_name != 'pull_request' && github.event_name != 'pull_request_target' && github.event_name != 'merge_group' && contains(fromJSON('["refs/heads/main","refs/heads/feat-cmux-next","refs/heads/nightly-next"]'), github.ref) }}
           # Why: docs/ci/cmux-next-workflow-notes.md#note-210 (pool runners keep different leftover toolchains)
           add-rust-environment-hash-key: false
           cache-bin: false
           workspaces: coderouter
-          key: x86_64-unknown-linux-gnu
+          key: x86_64-unknown-linux-gnu-${{ hashFiles('coderouter/Cargo.lock', '.cargo/config.toml') }}
       - run: cargo test --locked --release --target x86_64-unknown-linux-gnu
       - run: cargo build --locked --release --target x86_64-unknown-linux-gnu --bins
       - name: Build PyPI wheel

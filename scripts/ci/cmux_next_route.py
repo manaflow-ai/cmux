@@ -170,6 +170,7 @@ SWIFT_JOB_INPUTS = (
     "cmux-tui/crates/cmux-tab-discard/",
     "cmux-tui/crates/cmux-cloud-config/",
     "cmux-tui/crates/cmux-cloud-environment/",
+    "cmux-tui/crates/cmux-build-space/",
     "cmux-tui/crates/cmux-cloud-handlers/",
     "cmux-tui/crates/cmux-cloud-machine/",
     "cmux-tui/crates/cmux-cloud-tasks/",
@@ -178,6 +179,7 @@ SWIFT_JOB_INPUTS = (
     "cmux-tui/crates/cmux-daemon-launch-core/",
     "cmux-tui/crates/cmux-health-core/",
     "cmux-tui/crates/cmux-launch-image/",
+    "cmux-tui/crates/cmux-pane-pictures/",
     "cmux-tui/crates/cmux-local-auth/",
     "cmux-tui/crates/cmux-imessage/",
     "cmux-tui/crates/cmux-layout-reducer/",
@@ -1055,6 +1057,7 @@ WORKFLOW_JOB_TIERS: dict[str, tuple[str, ...]] = {
     "release-compile": ("native", "mac_release"),
     "app-compile-fleet": ("native",),
     "cmux-scheme-compile": ("native", "scheme"),
+    "cmux-scheme-compile-fleet": ("native", "scheme"),
 }
 # The tiers a Route can take from WORKFLOW_JOB_TIERS (its attribute names; "swift" also sets all_tests).
 WORKFLOW_TIER_FIELDS = ("swift", "generated", "daemon", "native", "mac_release", "scheme")
