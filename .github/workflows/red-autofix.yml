@@ -7,16 +7,23 @@ name: red-autofix
 # When a watched workflow's run fails on one of those branches (workflow_run fires only from main's copy of
 # this file, for runs on any branch):
 #
-#   triage         what broke, which merge (scripts/ci/red_autofix.py triage). An infrastructure red (no
-#                  repository file named, a known transient) gets its failed jobs rerun once.
-#   fix            a Claude run that may only read and edit files makes the smallest mechanical fix-forward on
-#                  the target's tip (nightly-next's target is feat-cmux-next); opened as autofix/red-<key>.
+#   triage         what broke, which merge (scripts/ci/red_autofix.py triage), read at the attempt that fired.
+#                  An infrastructure red (no repository file named, a known transient) gets its failed jobs rerun.
+#   fix            a Claude run that may only read and edit files makes the smallest mechanical fix-forward in a
+#                  plain copy of the target's tip (nightly-next's target is feat-cmux-next). Its job holds no
+#                  pull request credential; only its tracked-file diff leaves it, as a patch artifact.
+#   open-fix       on a fresh runner, the trusted helper (this workflow's own commit, github.workflow_sha) applies
+#                  that patch to a fresh checkout of the same tip and opens autofix/red-<key>. No fixer-written
+#                  file, git config or hook runs here.
 #   revert         beside it, when the culprit is confirmed: its revert on the tip, opened as revert/pr-N (the
 #                  name post-merge batch and fixit-handoff use). A core teammate's revert opens held.
-#   verify-*       the red's own check on each candidate (bun scripts the log ran, cargo check of the crates the
-#                  errors name, actionlint), in a job with no secrets; a red with no local check (Swift) waits
-#                  for the pull request's own checks.
-#   land-*         the first one verified green merges (squash, pinned to the verified head); the other closes.
+#   verify-*       the red's own check on the tip and on each candidate, as a separate uid under env -i (the
+#                  helper's Sandbox): the red must reproduce on the tip and its failures must clear. Only the
+#                  helper writes the verdict; no isolation, no green. A red with no local check (Swift) waits for
+#                  the red's own checks on the pull request.
+#   land-*         the first one verified green merges (squash, pinned to the verified head and the verified
+#                  base); the other closes. Each writes an elapsed receipt (detected, triaged, pushed, verified,
+#                  landed) to its step summary and the red-receipt-* artifact.
 #
 # vars.RED_AUTOFIX: 0 turns it off; `pr` opens the pull requests and never merges. On by default.
 # ci-compile-attribution.yml keeps main's Swift compile (Seed DerivedData, Main compile probe).
@@ -57,10 +64,11 @@ env:
   # The files behind the trigger's display names (tests/test_ci_workflow_run_sources.py).
   SOURCE_WORKFLOW_PATHS: .github/workflows/ci-fast-guards.yml .github/workflows/ci-main-full-suite.yml .github/workflows/web-validation.yml .github/workflows/cmux-tui-artifacts.yml .github/workflows/cmux-tui-sdks.yml .github/workflows/cmux-tui-spec.yml .github/workflows/localization-catalog.yml .github/workflows/cmux-skill-contract.yml .github/workflows/cmux-cloud-cli.yml .github/workflows/coderouter-ci.yml .github/workflows/remote-daemon.yml .github/workflows/iroh-v2.yml .github/workflows/nightly.yml .github/workflows/cmux-next.yml .github/workflows/cmux-next-ios-kit.yml .github/workflows/test-ios.yml
 
-# One triage per red workflow and branch at a time; a newer red of the same pair replaces a pending one, which
-# loses nothing because triage reads that branch's newest red afresh.
+# One group per red run and attempt, so a red never replaces another pending red. Two reds of one incident meet
+# in open-<key> (one candidate at a time) and in the land group; triage's stale_or_stop and open's head+base
+# lookup keep them to one pull request.
 concurrency:
-  group: red-autofix-${{ github.event.workflow_run.path || 'dispatch' }}-${{ github.event.workflow_run.head_branch || inputs.run_id }}
+  group: red-autofix-run-${{ github.event.workflow_run.id || inputs.run_id }}-${{ github.event.workflow_run.run_attempt || github.run_attempt }}
   cancel-in-progress: false
 
 jobs:
@@ -81,6 +89,7 @@ jobs:
       revert: ${{ steps.triage.outputs.revert }}
       regen: ${{ steps.triage.outputs.regen }}
       run: ${{ steps.triage.outputs.run }}
+      red: ${{ steps.triage.outputs.red }}
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
@@ -96,9 +105,10 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           RED_AUTOFIX: ${{ vars.RED_AUTOFIX }}
           RUN_ID: ${{ github.event.workflow_run.id || inputs.run_id }}
+          RUN_ATTEMPT: ${{ github.event.workflow_run.run_attempt }}
         run: |
           git remote set-url origin "https://github.com/$GITHUB_REPOSITORY.git"
-          python3 scripts/ci/red_autofix.py triage --run "$RUN_ID" --out "$RUNNER_TEMP/report.json"
+          python3 scripts/ci/red_autofix.py triage --run "$RUN_ID" --attempt "$RUN_ATTEMPT" --out "$RUNNER_TEMP/report.json"
       - name: Rerun an infrastructure red once
         if: ${{ steps.triage.outputs.action == 'rerun' }}
         env:
@@ -117,16 +127,29 @@ jobs:
     if: ${{ needs.triage.outputs.action == 'fix' && needs.triage.outputs.revert == 'true' }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || contains(fromJSON('["blacksmith-4vcpu-ubuntu-2404","blacksmith-8vcpu-ubuntu-2404","blacksmith-16vcpu-ubuntu-2404","blacksmith-32vcpu-ubuntu-2404"]'), vars.LINUX_RUNNER) && vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     timeout-minutes: 10
+    concurrency:
+      group: red-autofix-open-${{ needs.triage.outputs.key }}-revert
+      cancel-in-progress: false
     permissions:
       contents: read
     outputs:
       number: ${{ steps.open.outputs.number }}
       sha: ${{ steps.open.outputs.sha }}
       action: ${{ steps.open.outputs.action }}
+      pushed_at: ${{ steps.open.outputs.pushed_at }}
     steps:
+      # The helper at this workflow's own commit, never the target's or a candidate's copy.
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: ${{ github.workflow_sha }}
+          path: trusted
+          sparse-checkout: scripts/ci/red_autofix.py
+          sparse-checkout-cone-mode: false
+          persist-credentials: false
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           ref: ${{ needs.triage.outputs.target }}
+          path: fresh
           fetch-depth: 200
           persist-credentials: false
       - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
@@ -153,30 +176,42 @@ jobs:
         run: |
           set -euo pipefail
           sha="$(python3 -I -c 'import json,sys; print(json.load(open(sys.argv[1]))["culprit"]["sha"])' "$RUNNER_TEMP/red/report.json")"
-          git fetch --quiet --depth=2 origin "$sha" || true
+          git -C fresh fetch --quiet --depth=2 "https://github.com/$GITHUB_REPOSITORY.git" "$sha" || true
           auth="$(printf 'x-access-token:%s' "$APP_TOKEN" | base64 -w0)"
           echo "::add-mask::$auth"
-          export GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0="http.https://github.com/.extraheader" GIT_CONFIG_VALUE_0="AUTHORIZATION: basic $auth"
-          python3 -I scripts/ci/red_autofix.py open --report "$RUNNER_TEMP/red/report.json" --kind revert \
+          export GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_NOSYSTEM=1
+          export GIT_CONFIG_COUNT=3 GIT_CONFIG_KEY_0="http.https://github.com/.extraheader" GIT_CONFIG_VALUE_0="AUTHORIZATION: basic $auth" \
+            GIT_CONFIG_KEY_1=core.hooksPath GIT_CONFIG_VALUE_1=/dev/null GIT_CONFIG_KEY_2=core.fsmonitor GIT_CONFIG_VALUE_2=false
+          python3 -I trusted/scripts/ci/red_autofix.py open --report "$RUNNER_TEMP/red/report.json" --repo-dir fresh --kind revert \
             --push-url "https://github.com/$GITHUB_REPOSITORY.git"
 
+  # No pull request credential here: the fixer's edits leave this job only as a tracked-file patch.
   fix:
     name: Fix forward
     needs: triage
     if: ${{ needs.triage.outputs.action == 'fix' }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_REPAIR_SKIP_FLEET != '1' && 'cmux-gcp-repair-jit-x64' || contains(fromJSON('["blacksmith-2vcpu-ubuntu-2404","blacksmith-4vcpu-ubuntu-2404","blacksmith-8vcpu-ubuntu-2404","cmux-gcp-secret-jit-x64"]'), vars.CI_TRUSTED_RUNNER) && vars.CI_TRUSTED_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }} # ephemeral-required: holds the Claude token and the PR App key; CI_TRUSTED_RUNNER picks the Blacksmith size
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_REPAIR_SKIP_FLEET != '1' && 'cmux-gcp-repair-jit-x64' || contains(fromJSON('["blacksmith-2vcpu-ubuntu-2404","blacksmith-4vcpu-ubuntu-2404","blacksmith-8vcpu-ubuntu-2404","cmux-gcp-secret-jit-x64"]'), vars.CI_TRUSTED_RUNNER) && vars.CI_TRUSTED_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }} # ephemeral-required: holds the Claude token; CI_TRUSTED_RUNNER picks the Blacksmith size
     timeout-minutes: 25
     permissions:
       contents: read
       actions: read
     outputs:
-      number: ${{ steps.open.outputs.number }}
-      sha: ${{ steps.open.outputs.sha }}
-      action: ${{ steps.open.outputs.action }}
+      tip: ${{ steps.patch.outputs.tip }}
+      ready: ${{ steps.patch.outputs.ready }}
+      summary: ${{ steps.fixer.outputs.summary || steps.regen.outputs.summary }}
     steps:
+      # The helper at this workflow's own commit, never the target's or a candidate's copy.
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: ${{ github.workflow_sha }}
+          path: trusted
+          sparse-checkout: scripts/ci/red_autofix.py
+          sparse-checkout-cone-mode: false
+          persist-credentials: false
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           ref: ${{ needs.triage.outputs.target }}
+          path: target
           fetch-depth: 200
           persist-credentials: false
       - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
@@ -196,9 +231,11 @@ jobs:
       - name: Copy the regenerated files onto the tip
         id: regen
         if: ${{ needs.triage.outputs.regen != '' }}
-        run: python3 -I scripts/ci/red_autofix.py regen --report "$RUNNER_TEMP/red/report.json" --files "$RUNNER_TEMP/regen"
-      # Read and Edit only, in a copy of the tracked files with no .git (ci-compile-attribution.yml says why);
-      # only its edits to tracked files come back.
+        run: |
+          git -C target fetch --quiet --depth=1 "https://github.com/$GITHUB_REPOSITORY.git" "${{ needs.triage.outputs.red }}" || true
+          python3 -I trusted/scripts/ci/red_autofix.py regen --report "$RUNNER_TEMP/red/report.json" --repo-dir target --files "$RUNNER_TEMP/regen" \
+            --patch-out "$RUNNER_TEMP/fix.patch"
+      # Read and Edit only, in a plain copy of the tracked files with no .git (ci-compile-attribution.yml says why).
       - name: Ask the fixer for a mechanical fix
         id: fixer
         if: ${{ steps.regen.outputs.applied != 'true' }}
@@ -209,25 +246,19 @@ jobs:
         run: |
           set -euo pipefail
           culprit="$(python3 -I -c 'import json,sys; print((json.load(open(sys.argv[1])).get("culprit") or {}).get("sha",""))' "$RUNNER_TEMP/red/report.json")"
-          [ -z "$culprit" ] || git fetch --quiet --depth=2 "https://github.com/$GITHUB_REPOSITORY.git" "$culprit" || true
+          [ -z "$culprit" ] || git -C target fetch --quiet --depth=2 "https://github.com/$GITHUB_REPOSITORY.git" "$culprit" || true
           npm install --global --no-fund --no-audit @anthropic-ai/claude-code@2.1.284 >/dev/null
-          python3 -I scripts/ci/red_autofix.py prompt --report "$RUNNER_TEMP/red/report.json" --out "$RUNNER_TEMP/prompt.txt"
+          python3 -I trusted/scripts/ci/red_autofix.py prompt --report "$RUNNER_TEMP/red/report.json" --repo-dir target --out "$RUNNER_TEMP/prompt.txt"
           schema='{"type":"object","properties":{"mechanical":{"type":"boolean"},"summary":{"type":"string"}},"required":["mechanical","summary"]}'
           tree="$RUNNER_TEMP/fixer-tree"
           mkdir -p "$tree"
-          git ls-files -z > "$RUNNER_TEMP/tracked.z"
-          tar --null -T "$RUNNER_TEMP/tracked.z" -cf - | tar -xf - -C "$tree"
-          touch "$RUNNER_TEMP/fixer-start"
+          git -C target ls-files -z > "$RUNNER_TEMP/tracked.z"
+          (cd target && tar --null -T "$RUNNER_TEMP/tracked.z" -cf -) | tar -xf - -C "$tree"
           (cd "$tree" && claude -p "$(cat "$RUNNER_TEMP/prompt.txt")" \
             --allowedTools "Read,Edit,Glob,Grep" \
-            --disallowedTools "Bash,WebFetch,WebSearch,Edit(.git/**),Write(.git/**)" \
+            --disallowedTools "Bash,WebFetch,WebSearch" \
             --max-turns 40 --output-format json --json-schema "$schema") > "$RUNNER_TEMP/fixer.json"
-          (cd "$tree" && find . -type f -newer "$RUNNER_TEMP/fixer-start" -print0) | while IFS= read -r -d '' path; do
-            path="${path#./}"
-            grep -qxzF -- "$path" "$RUNNER_TEMP/tracked.z" || continue
-            if [ ! -f "$path" ] || [ -L "$path" ]; then continue; fi
-            cp -- "$tree/$path" "$path"
-          done
+          python3 -I trusted/scripts/ci/red_autofix.py diff --repo-dir target --tree "$tree" --out "$RUNNER_TEMP/fix.patch" > /dev/null
           python3 -I - "$RUNNER_TEMP/fixer.json" <<'PY' >> "$GITHUB_OUTPUT"
           import json, sys
           data = json.load(open(sys.argv[1]))
@@ -240,9 +271,73 @@ jobs:
           print(f"mechanical={'true' if out.get('mechanical') is True else 'false'}")
           print("summary=" + " ".join(str(out.get("summary") or "").split())[:400])
           PY
+      - name: Hand the patch over
+        id: patch
+        env:
+          MECHANICAL: ${{ steps.fixer.outputs.mechanical }}
+          REGEN: ${{ steps.regen.outputs.applied }}
+        run: |
+          echo "tip=$(git -C target rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+          if [ -s "$RUNNER_TEMP/fix.patch" ] && { [ "$REGEN" = true ] || [ "$MECHANICAL" = true ]; }; then
+            echo "ready=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "ready=false" >> "$GITHUB_OUTPUT"
+            echo "red-autofix: no mechanical fix to open." >> "$GITHUB_STEP_SUMMARY"
+          fi
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        if: ${{ steps.patch.outputs.ready == 'true' }}
+        with:
+          name: red-fix-patch
+          path: ${{ runner.temp }}/fix.patch
+          retention-days: 14
+
+  # A fresh runner where no fixer-written file, config or hook exists: the patch goes onto a fresh checkout of the
+  # same tip and the trusted helper opens it.
+  open-fix:
+    name: Open the fix-forward
+    needs: [triage, fix]
+    if: ${{ needs.fix.outputs.ready == 'true' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || contains(fromJSON('["blacksmith-4vcpu-ubuntu-2404","blacksmith-8vcpu-ubuntu-2404","blacksmith-16vcpu-ubuntu-2404","blacksmith-32vcpu-ubuntu-2404"]'), vars.LINUX_RUNNER) && vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    timeout-minutes: 10
+    concurrency:
+      group: red-autofix-open-${{ needs.triage.outputs.key }}-fix
+      cancel-in-progress: false
+    permissions:
+      contents: read
+    outputs:
+      number: ${{ steps.open.outputs.number }}
+      sha: ${{ steps.open.outputs.sha }}
+      action: ${{ steps.open.outputs.action }}
+      pushed_at: ${{ steps.open.outputs.pushed_at }}
+    steps:
+      # The helper at this workflow's own commit, never the target's or a candidate's copy.
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: ${{ github.workflow_sha }}
+          path: trusted
+          sparse-checkout: scripts/ci/red_autofix.py
+          sparse-checkout-cone-mode: false
+          persist-credentials: false
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: ${{ needs.fix.outputs.tip }}
+          path: fresh
+          fetch-depth: 200
+          persist-credentials: false
+      - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+        with:
+          name: red-report
+          path: ${{ runner.temp }}/red
+      - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+        with:
+          name: red-fix-patch
+          path: ${{ runner.temp }}/patch
+      - name: Apply the patch
+        run: |
+          GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_NOSYSTEM=1 git -c core.hooksPath=/dev/null -c core.fsmonitor=false \
+            -C fresh apply --index --binary "$RUNNER_TEMP/patch/fix.patch"
       - name: Mint the pull request token
         id: app-token
-        if: ${{ steps.fixer.outputs.mechanical == 'true' || steps.regen.outputs.applied == 'true' }}
         uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
         with:
           app-id: ${{ vars.GLAEDA_ROUTE_APP_ID }}
@@ -253,31 +348,26 @@ jobs:
           permission-pull-requests: write
           permission-issues: write
           permission-workflows: write
-      # Untracked files go first (a module the fixer added must not be imported); git runs with no hook,
-      # fsmonitor or global config.
       - name: Open the fix-forward
         id: open
-        if: ${{ steps.app-token.outputs.token != '' }}
         env:
           GH_TOKEN: ${{ steps.app-token.outputs.token }}
           APP_TOKEN: ${{ steps.app-token.outputs.token }}
-          SUMMARY: ${{ steps.fixer.outputs.summary || steps.regen.outputs.summary }}
+          SUMMARY: ${{ needs.fix.outputs.summary }}
         run: |
           set -euo pipefail
-          git clean -ffdxq
           auth="$(printf 'x-access-token:%s' "$APP_TOKEN" | base64 -w0)"
           echo "::add-mask::$auth"
           export GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_NOSYSTEM=1
           export GIT_CONFIG_COUNT=3 GIT_CONFIG_KEY_0="http.https://github.com/.extraheader" GIT_CONFIG_VALUE_0="AUTHORIZATION: basic $auth" \
             GIT_CONFIG_KEY_1=core.hooksPath GIT_CONFIG_VALUE_1=/dev/null GIT_CONFIG_KEY_2=core.fsmonitor GIT_CONFIG_VALUE_2=false
-          python3 -I scripts/ci/red_autofix.py open --report "$RUNNER_TEMP/red/report.json" --kind fix \
+          python3 -I trusted/scripts/ci/red_autofix.py open --report "$RUNNER_TEMP/red/report.json" --repo-dir fresh --kind fix \
             --push-url "https://github.com/$GITHUB_REPOSITORY.git" --summary "${SUMMARY:-}"
 
-  # The candidates' own code runs here (bun install, build scripts): no secret, a read-only token.
   verify-fix:
     name: Verify the fix-forward
-    needs: [triage, fix]
-    if: ${{ needs.fix.outputs.action == 'opened' }}
+    needs: [triage, open-fix]
+    if: ${{ needs.open-fix.outputs.action == 'opened' }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_OVERFLOW_LINUX || 'cmux-linux' }}
     timeout-minutes: 50
     permissions:
@@ -285,17 +375,22 @@ jobs:
       checks: read
     outputs:
       green: ${{ steps.verify.outputs.green }}
+      base: ${{ steps.verify.outputs.base }}
+      verified_at: ${{ steps.verify.outputs.verified_at }}
     steps:
+      # The helper at this workflow's own commit, never the target's or a candidate's copy.
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
-          ref: main
+          ref: ${{ github.workflow_sha }}
+          path: trusted
           sparse-checkout: scripts/ci/red_autofix.py
           sparse-checkout-cone-mode: false
           persist-credentials: false
-      # The candidate and its parent (the target's tip): a check already red on the tip is not this red's.
+      # The candidate and its parent (the target's tip). The helper exports both trees out of this checkout and
+      # runs them as its sandbox uid; nothing in them runs as the runner user.
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
-          ref: ${{ needs.fix.outputs.sha }}
+          ref: ${{ needs.open-fix.outputs.sha }}
           path: cand
           fetch-depth: 2
           persist-credentials: false
@@ -318,8 +413,9 @@ jobs:
         id: verify
         env:
           GH_TOKEN: ${{ github.token }}
-          SHA: ${{ needs.fix.outputs.sha }}
-        run: python3 -I scripts/ci/red_autofix.py verify --report "$RUNNER_TEMP/red/report.json" --repo-dir cand --kind fix --sha "$SHA"
+          SHA: ${{ needs.open-fix.outputs.sha }}
+          PUSHED_AT: ${{ needs.open-fix.outputs.pushed_at }}
+        run: python3 -I trusted/scripts/ci/red_autofix.py verify --report "$RUNNER_TEMP/red/report.json" --repo-dir cand --kind fix --sha "$SHA" --pushed-at "$PUSHED_AT"
 
   verify-revert:
     name: Verify the revert
@@ -332,14 +428,19 @@ jobs:
       checks: read
     outputs:
       green: ${{ steps.verify.outputs.green }}
+      base: ${{ steps.verify.outputs.base }}
+      verified_at: ${{ steps.verify.outputs.verified_at }}
     steps:
+      # The helper at this workflow's own commit, never the target's or a candidate's copy.
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
-          ref: main
+          ref: ${{ github.workflow_sha }}
+          path: trusted
           sparse-checkout: scripts/ci/red_autofix.py
           sparse-checkout-cone-mode: false
           persist-credentials: false
-      # The candidate and its parent (the target's tip): a check already red on the tip is not this red's.
+      # The candidate and its parent (the target's tip). The helper exports both trees out of this checkout and
+      # runs them as its sandbox uid; nothing in them runs as the runner user.
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           ref: ${{ needs.revert.outputs.sha }}
@@ -366,11 +467,12 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           SHA: ${{ needs.revert.outputs.sha }}
-        run: python3 -I scripts/ci/red_autofix.py verify --report "$RUNNER_TEMP/red/report.json" --repo-dir cand --kind revert --sha "$SHA"
+          PUSHED_AT: ${{ needs.revert.outputs.pushed_at }}
+        run: python3 -I trusted/scripts/ci/red_autofix.py verify --report "$RUNNER_TEMP/red/report.json" --repo-dir cand --kind revert --sha "$SHA" --pushed-at "$PUSHED_AT"
 
   land-fix:
     name: Land the fix-forward
-    needs: [triage, fix, verify-fix]
+    needs: [triage, open-fix, verify-fix]
     if: ${{ needs.verify-fix.outputs.green == 'true' }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || contains(fromJSON('["blacksmith-4vcpu-ubuntu-2404","blacksmith-8vcpu-ubuntu-2404","blacksmith-16vcpu-ubuntu-2404","blacksmith-32vcpu-ubuntu-2404"]'), vars.LINUX_RUNNER) && vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     timeout-minutes: 10
@@ -380,9 +482,11 @@ jobs:
     permissions:
       contents: read
     steps:
+      # The helper at this workflow's own commit, never the target's or a candidate's copy.
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
-          ref: main
+          ref: ${{ github.workflow_sha }}
+          path: trusted
           sparse-checkout: scripts/ci/red_autofix.py
           sparse-checkout-cone-mode: false
           persist-credentials: false
@@ -402,11 +506,25 @@ jobs:
           permission-pull-requests: write
           permission-issues: write
           permission-workflows: write
+      # Pinned to the verified head and the verified base; no merge or arm while the sibling is armed or merged.
       - name: Merge if first
         env:
           GH_TOKEN: ${{ steps.app-token.outputs.token }}
           RED_AUTOFIX: ${{ vars.RED_AUTOFIX }}
-        run: python3 -I scripts/ci/red_autofix.py land --report "$RUNNER_TEMP/red/report.json" --kind fix --pr "${{ needs.fix.outputs.number }}" --sha "${{ needs.fix.outputs.sha }}"
+          PR: ${{ needs.open-fix.outputs.number }}
+          SHA: ${{ needs.open-fix.outputs.sha }}
+          BASE: ${{ needs.verify-fix.outputs.base }}
+          PUSHED_AT: ${{ needs.open-fix.outputs.pushed_at }}
+          VERIFIED_AT: ${{ needs.verify-fix.outputs.verified_at }}
+        run: |
+          python3 -I trusted/scripts/ci/red_autofix.py land --report "$RUNNER_TEMP/red/report.json" --kind fix --pr "$PR" --sha "$SHA" \
+            --base "$BASE" --pushed-at "$PUSHED_AT" --verified-at "$VERIFIED_AT"
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        if: ${{ always() }}
+        with:
+          name: red-receipt-fix
+          path: ${{ runner.temp }}/red/report.json
+          retention-days: 30
 
   land-revert:
     name: Land the revert
@@ -420,9 +538,11 @@ jobs:
     permissions:
       contents: read
     steps:
+      # The helper at this workflow's own commit, never the target's or a candidate's copy.
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
-          ref: main
+          ref: ${{ github.workflow_sha }}
+          path: trusted
           sparse-checkout: scripts/ci/red_autofix.py
           sparse-checkout-cone-mode: false
           persist-credentials: false
@@ -442,15 +562,29 @@ jobs:
           permission-pull-requests: write
           permission-issues: write
           permission-workflows: write
+      # Pinned to the verified head and the verified base; no merge or arm while the sibling is armed or merged.
       - name: Merge if first
         env:
           GH_TOKEN: ${{ steps.app-token.outputs.token }}
           RED_AUTOFIX: ${{ vars.RED_AUTOFIX }}
-        run: python3 -I scripts/ci/red_autofix.py land --report "$RUNNER_TEMP/red/report.json" --kind revert --pr "${{ needs.revert.outputs.number }}" --sha "${{ needs.revert.outputs.sha }}"
+          PR: ${{ needs.revert.outputs.number }}
+          SHA: ${{ needs.revert.outputs.sha }}
+          BASE: ${{ needs.verify-revert.outputs.base }}
+          PUSHED_AT: ${{ needs.revert.outputs.pushed_at }}
+          VERIFIED_AT: ${{ needs.verify-revert.outputs.verified_at }}
+        run: |
+          python3 -I trusted/scripts/ci/red_autofix.py land --report "$RUNNER_TEMP/red/report.json" --kind revert --pr "$PR" --sha "$SHA" \
+            --base "$BASE" --pushed-at "$PUSHED_AT" --verified-at "$VERIFIED_AT"
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        if: ${{ always() }}
+        with:
+          name: red-receipt-revert
+          path: ${{ runner.temp }}/red/report.json
+          retention-days: 30
 
   tell-culprit:
     name: Tell the culprit's pull request
-    needs: [triage, fix, revert]
+    needs: [triage, open-fix, revert]
     if: ${{ always() && !cancelled() && needs.triage.outputs.action == 'fix' && needs.triage.outputs.revert == 'true' }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || contains(fromJSON('["blacksmith-4vcpu-ubuntu-2404","blacksmith-8vcpu-ubuntu-2404","blacksmith-16vcpu-ubuntu-2404","blacksmith-32vcpu-ubuntu-2404"]'), vars.LINUX_RUNNER) && vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     timeout-minutes: 5
@@ -459,9 +593,11 @@ jobs:
       pull-requests: write
       issues: write
     steps:
+      # The helper at this workflow's own commit, never the target's or a candidate's copy.
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
-          ref: main
+          ref: ${{ github.workflow_sha }}
+          path: trusted
           sparse-checkout: scripts/ci/red_autofix.py
           sparse-checkout-cone-mode: false
           persist-credentials: false
@@ -472,6 +608,6 @@ jobs:
       - name: Comment
         env:
           GH_TOKEN: ${{ github.token }}
-          FIX: ${{ needs.fix.outputs.number && format('#{0}', needs.fix.outputs.number) || '' }}
+          FIX: ${{ needs.open-fix.outputs.number && format('#{0}', needs.open-fix.outputs.number) || '' }}
           REVERT: ${{ needs.revert.outputs.number && format('#{0}', needs.revert.outputs.number) || '' }}
-        run: python3 -I scripts/ci/red_autofix.py comment --report "$RUNNER_TEMP/red/report.json" --fix "$FIX" --revert "$REVERT"
+        run: python3 -I trusted/scripts/ci/red_autofix.py comment --report "$RUNNER_TEMP/red/report.json" --fix "$FIX" --revert "$REVERT"
