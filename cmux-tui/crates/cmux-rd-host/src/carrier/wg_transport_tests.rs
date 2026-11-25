@@ -281,7 +281,7 @@ fn wg_selection_omission_is_legacy_but_unknown_or_malformed_never_downgrades() {
 #[allow(clippy::large_enum_variant)]
 enum VersionedPeer {
     Legacy(Net),
-    Current(LinkCarrier),
+    Current(Box<LinkCarrier>),
 }
 impl VersionedPeer {
     fn events(&mut self) -> Vec<NetEvent> {
@@ -315,12 +315,16 @@ fn wg_version_pairs_preserve_original_media_until_both_select_wg() {
         let offer = viewer_current.then_some("rd_wg/1");
         let answer = (host_current && viewer_current).then_some("rd_wg/1");
         let mut host = if host_current {
-            VersionedPeer::Current(LinkCarrier::new(a, Role::Host, selection(offer)).unwrap())
+            VersionedPeer::Current(Box::new(
+                LinkCarrier::new(a, Role::Host, selection(offer)).unwrap(),
+            ))
         } else {
             VersionedPeer::Legacy(a)
         };
         let mut viewer = if viewer_current {
-            VersionedPeer::Current(LinkCarrier::new(b, Role::Viewer, selection(answer)).unwrap())
+            VersionedPeer::Current(Box::new(
+                LinkCarrier::new(b, Role::Viewer, selection(answer)).unwrap(),
+            ))
         } else {
             VersionedPeer::Legacy(b)
         };

@@ -39,7 +39,7 @@ impl Role {
 }
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(tag = "t", rename_all = "snake_case", deny_unknown_fields)]
-// The variant names are the wire tags (`wg_offer`, ...): renaming them changes the protocol.
+// The `Wg` prefix is the wire tag (`wg_offer`, `wg_ready`, ...), not decoration.
 #[allow(clippy::enum_variant_names)]
 pub enum Control {
     WgOffer { version: u8, key: String, address: Ipv4Addr, mtu: u16 },
