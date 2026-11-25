@@ -346,6 +346,33 @@ class OpenPrsQuery(unittest.TestCase):
             self.assertEqual(gh.graphql("query { x }"), {"ok": 1})
 
 
+    def test_a_rate_limit_waits_out_its_named_reset(self):
+        gh = nb.GitHub("o/r")
+        limited = "[RATE_LIMITED] not sent; retry after 27s, resets at 08:05:55Z"
+        replies = [subprocess.CompletedProcess([], 75, "", limited),
+                   subprocess.CompletedProcess([], 0, '{"data": {"ok": 1}}', "")]
+        with mock.patch.object(nb.subprocess, "run", side_effect=replies), \
+                mock.patch.object(nb.time, "sleep") as slept:
+            self.assertEqual(gh.graphql("query { x }"), {"ok": 1})
+        slept.assert_called_once_with(28.0)
+
+    def test_a_rate_limit_that_persists_still_fails(self):
+        gh = nb.GitHub("o/r")
+        limited = subprocess.CompletedProcess([], 75, "", "retry after 900s")
+        with mock.patch.object(nb.subprocess, "run", return_value=limited), \
+                mock.patch.object(nb.time, "sleep") as slept, self.assertRaises(RuntimeError):
+            gh.graphql("query { x }")
+        self.assertEqual([call.args[0] for call in slept.call_args_list], [120.0] * 3)
+
+    def test_a_refusal_is_not_retried(self):
+        gh = nb.GitHub("o/r")
+        refused = subprocess.CompletedProcess([], 1, "", "refused: retry after 5s")
+        with mock.patch.object(nb.subprocess, "run", return_value=refused) as ran, \
+                mock.patch.object(nb.time, "sleep"), self.assertRaises(RuntimeError):
+            gh.graphql("query { x }")
+        self.assertEqual(ran.call_count, 1)
+
+
 class Debounce(unittest.TestCase):
     def test_waits_for_quiet_but_not_past_the_hard_max(self):
         self.assertEqual(nb.debounce_wait(NOW, NOW), 120)
