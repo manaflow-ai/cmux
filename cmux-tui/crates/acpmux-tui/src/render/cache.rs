@@ -51,17 +51,9 @@ impl TranscriptCache {
         } else {
             self.markdown.retain(|&item, _| item < dirty);
         }
-        // Keep queued messages in the tail: promotion can move their item
-        // indices, and they are displayed after the live turn.
-        let first_queued = t
-            .items
-            .iter()
-            .position(|i| matches!(i, Item::User { queued: true, .. }))
-            .unwrap_or(t.items.len());
-        let split = t.items[..first_queued]
-            .iter()
-            .rposition(|i| matches!(i, Item::User { queued: false, .. }))
-            .unwrap_or(0);
+        // The live turn is the tail, from the newest user row; queued prompts dock after it
+        // (`Transcript::queue`), outside `items`, so nothing in the prefix moves.
+        let split = t.items.iter().rposition(|i| matches!(i, Item::User { .. })).unwrap_or(0);
         let rebuild_prefix = reset || dirty < self.prefix_items || split < self.prefix_items;
         let changed_row = if rebuild_prefix { 0 } else { self.prefix_rows };
         if rebuild_prefix {
