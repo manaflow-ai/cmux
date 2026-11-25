@@ -1734,7 +1734,7 @@ fn a_claude_image_row_names_its_size_from_its_header() {
                 Change::Row(row) if row.kind == RowKind::Image && !row.open => Some(row),
                 _ => None,
             })
-            .last()
+            .next_back()
             .expect("a settled image row")
     };
     // A real 1x1 PNG.
@@ -1748,6 +1748,6 @@ fn a_claude_image_row_names_its_size_from_its_header() {
     assert_eq!(one.head(), r#"{"h":1,"w":1}"#);
     // A header acpmux does not read names no size, and the row is as before.
     let unknown = image("AAAA");
-    assert!(unknown.fields.get("w").is_none() && unknown.fields.get("h").is_none());
+    assert!(!unknown.fields.contains_key("w") && !unknown.fields.contains_key("h"));
     assert_eq!(unknown.head(), "{}");
 }

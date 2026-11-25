@@ -115,6 +115,10 @@ pub(super) async fn handle(
         .filter(|t| !t.is_empty())
         .ok_or_else(|| RpcError::invalid_params("request.sessionId is required"))?
         .to_owned();
+    // A name nothing live here answers to goes to the session that took it over or claimed it,
+    // and a session on a peer that is down is looked up on the mesh hub first (`send_check.rs`).
+    let asked = target.clone();
+    let (target, unchecked) = super::send_check::route(hub, &mut request, target).await?;
     // Team-scoped addresses are always hub-routed and are never resolved as
     // local session names. The mesh sender applies the team-messaging gate and address
     // validation before posting them.
@@ -168,6 +172,8 @@ pub(super) async fn handle(
             );
         }
     }
+    // The hub did not answer the post, or the book could not tell: the name was not checked.
+    let unchecked = unchecked.or_else(|| hub_post.as_ref().map(|(_, why)| why.clone()));
     // A peer that is down now: queued and tried again, and the answer says so.
     let host_unreachable = hub.host_unreachable_for(&target);
     // Over the caps it is refused now, never kept (`attach.rs`).
@@ -207,7 +213,7 @@ pub(super) async fn handle(
         tokio::task::spawn_blocking(move || crate::hub::outbox::keep_attachments(&path, &request))
             .await
             .map_err(|e| RpcError::internal(e.to_string()))?
-            .map_err(|e| RpcError::internal(format!("cannot keep the attachments: {e:#}")))?;
+            .map_err(|e| crate::recovery::write_error("cannot keep the attachments", e, None))?;
     }
     // The send's one durable write (its line in outbox.journal, a group commit with other
     // changes): on the blocking pool at the on-screen CPU tier (`qos.rs`), so a loaded machine or
@@ -226,8 +232,11 @@ pub(super) async fn handle(
             if let Some(path) = kept {
                 forget_attachments(path).await;
             }
-            return Err(RpcError::internal(format!("cannot keep the message: {e:#}"))
-                .with_data(json!({"reason": "outbox.not_saved", "retryable": true})));
+            return Err(crate::recovery::write_error(
+                "cannot keep the message",
+                e,
+                Some("outbox.not_saved"),
+            ));
         }
     };
     // The same prompt id again: the first delivery, already on its way.
@@ -260,6 +269,7 @@ pub(super) async fn handle(
     if host_unreachable {
         status.set("hostUnreachable", json!(true));
     }
+    super::send_check::note(&mut status, &asked, &delivery.target, unchecked);
     Ok(status)
 }
 
@@ -333,7 +343,7 @@ pub(super) async fn remember_forward(
     hub.outbox
         .remember_forward(intent)
         .map(|delivery| delivery.id)
-        .map_err(|e| RpcError::internal(format!("cannot persist peer message intent: {e:#}")))
+        .map_err(|e| crate::recovery::write_error("cannot persist peer message intent", e, None))
 }
 
 /// Find a receiver projection across every page, including messages still queued
@@ -676,6 +686,10 @@ async fn deliver(hub: &Arc<Hub>, id: &str) {
         let ready = hub.outbox.peer_ready.notified();
         tokio::pin!(ready);
         ready.as_mut().enable();
+        // `peer_ready` is one signal for every peer: this delivery's own peer's count, read
+        // with it armed, tells whether a ready was this peer's (`Outbox::note_peer_ready`). A
+        // target that names no peer (no `/`) never wakes on one.
+        let ready_seen = own_ready_count(&hub.outbox, &delivery.target);
         // The same for the hub's gate opening (`mesh_gate.rs` `Gate::opened`): a delivery the
         // hub carries is tried the moment the hub takes a post again (RFD 0086 item 2).
         let opened = hub.mesh.gate().opened.notified();
@@ -955,13 +969,19 @@ async fn deliver(hub: &Arc<Hub>, id: &str) {
                         () = &mut opened, if on_open => break,
                         () = &mut ready, if on_ready => {
                             // `peer_ready` is one signal for every peer. Another peer's link
-                            // coming back leaves this one's still down: waking for it retried
+                            // coming back leaves this one's as it was: waking for it retried
                             // (and ssh-carried, and journaled) every queued delivery at once on
-                            // each link flap anywhere. Re-armed before the look, so a ready in
-                            // between is not missed.
+                            // each link flap anywhere. Only this target's own peer, ready or
+                            // listed since the wait was armed and up now, ends it; a target
+                            // naming an unknown peer or none, or one whose peer was up all along
+                            // (`Next::Unsent` without an outage), waits its own delay (review of
+                            // #53719, F1). Re-armed before the look, so a ready in between is not
+                            // missed.
                             ready.set(hub.outbox.peer_ready.notified());
                             ready.as_mut().enable();
-                            if hub.peer_down_for(&delivery.target).is_none() {
+                            if own_ready_since(&hub.outbox, ready_seen.as_ref())
+                                && hub.peer_down_for(&delivery.target).is_none()
+                            {
                                 break;
                             }
                         }
@@ -970,6 +990,20 @@ async fn deliver(hub: &Arc<Hub>, id: &str) {
             }
         }
     }
+}
+
+/// `target`'s own peer and how many times its link was ready or listed so far
+/// (`Outbox::note_peer_ready`), read as a delivery arms its `peer_ready` wait. None for a target
+/// that names no peer (no `/`): no peer's ready is its own.
+fn own_ready_count(outbox: &crate::hub::outbox::Outbox, target: &str) -> Option<(String, u64)> {
+    let (peer, rest) = target.split_once('/')?;
+    (!peer.is_empty() && !rest.is_empty()).then(|| (peer.to_owned(), outbox.peer_ready_count(peer)))
+}
+
+/// Whether the peer [`own_ready_count`] read was ready or listed again since: a `peer_ready`
+/// that was another peer's leaves it false.
+fn own_ready_since(outbox: &crate::hub::outbox::Outbox, seen: Option<&(String, u64)>) -> bool {
+    seen.is_some_and(|(peer, count)| outbox.peer_ready_count(peer) != *count)
 }
 
 /// Peer `peer`'s link `link` is ready, and its journals took back what this daemon kept of them
@@ -2082,3 +2116,6 @@ mod relay_tests;
 #[cfg(test)]
 #[path = "outbox_hub_queue_tests.rs"]
 mod hub_queue_tests;
+#[cfg(test)]
+#[path = "lost_message_tests.rs"]
+mod lost_message_tests;

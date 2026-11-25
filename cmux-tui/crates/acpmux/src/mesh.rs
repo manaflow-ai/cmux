@@ -113,7 +113,8 @@ pub fn heartbeat_former_names(former: &[String], succeeds: &[String]) -> Vec<Str
 
 /// The `roles` a heartbeat lists: valid addresses only, the newest [`MAX_ROLES`].
 pub fn heartbeat_roles(roles: &[RoleClaim]) -> Vec<RoleClaim> {
-    let mut out: Vec<RoleClaim> = roles.iter().filter(|r| valid_role(&r.address)).cloned().collect();
+    let mut out: Vec<RoleClaim> =
+        roles.iter().filter(|r| valid_role(&r.address)).cloned().collect();
     out.sort_by_key(|r| r.claimed_at);
     let over = out.len().saturating_sub(MAX_ROLES);
     out.drain(..over);

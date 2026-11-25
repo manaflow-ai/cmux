@@ -32,6 +32,7 @@ public struct CloudAutomationsScreen: View {
             CmuxSpinner(label: Text("Loading automations…"))
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
                 .accessibilityIdentifier("automations.loading")
+                .placeholderBound("cloud.automations.loading", .milliseconds(2000))
         case .failed(let message):
             ContentUnavailableView {
                 Label("Couldn't load automations", systemImage: "exclamationmark.triangle")
@@ -174,10 +175,10 @@ struct CloudAutomationAlerts: ViewModifier {
             } message: { _ in
                 Text("It stops running. Its run history stays.")
             }
-            .alert("Couldn't do that", isPresented: Binding(get: { showsFailure && model.failure != nil }, set: { if !$0 { model.failure = nil } })) {
+            .alert("Couldn't do that", isPresented: Binding(get: { showsFailure && model.shownFailure != nil }, set: { if !$0 { model.dismissFailure() } })) {
                 Button("OK", role: .cancel) {}
             } message: {
-                Text(model.failure ?? "")
+                Text(model.shownFailure ?? "")
             }
     }
 }

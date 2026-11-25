@@ -52,26 +52,6 @@ mod shared_value;
 mod text_index;
 pub use shared_value::{SharedRows, SharedText, SharedValue};
 
-/// A chat's rolling summary (`hub/rolling_summary.rs`): one short line on where it stands and
-/// the next action, kept current after each turn a person started (or one that ended on a
-/// `wrap_up`). The sidebar and the chat header draw it.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, schemars::JsonSchema)]
-#[serde(rename_all = "camelCase")]
-pub struct RollingSummary {
-    /// Where the chat stands, one or two short sentences.
-    pub text: String,
-    /// The next action, for the person or the agent; absent when there is none.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    #[schemars(default)]
-    pub next: Option<String>,
-    /// Who wrote it: `wrap_up` (the agent's own recap and ask, no model call) or `model`.
-    pub source: String,
-    /// The chat's turn count it covers.
-    pub turn: u64,
-    /// When it was written, Unix ms.
-    pub at: u64,
-}
-
 /// The plan the person last approved in a chat (`hub/plan_build.rs` `approved_plan`): Claude
 /// Code's ExitPlanMode, or a Grok, Cursor or Gemini plan approval, answered with an allow. The
 /// pane keeps it in sight while the agent builds it (Leo's feature map, 2026-11-23: "plan pane
@@ -305,6 +285,15 @@ pub struct AwayRecap {
     pub dismissed: bool,
 }
 
+/// A chat's model switch for a sustained overload (`SessionMeta::capacity_fallback`).
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct CapacityFallback {
+    /// The chat's own model, as it named it.
+    pub from: String,
+    /// The smaller model it runs meanwhile.
+    pub to: String,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub struct SessionMeta {
@@ -369,6 +358,11 @@ pub struct SessionMeta {
     /// effort wins after that.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub effort_request: Option<String>,
+    /// The chat runs a smaller model because its own stayed overloaded
+    /// (`hub/auto_resume/capacity_failover.rs`): `from` comes back once a turn on `to` ends well.
+    /// Saved with the meta, so a daemon restart still puts it back.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub capacity_fallback: Option<CapacityFallback>,
     pub cwd: PathBuf,
     /// Folders the chat sees beside `cwd` (ACP `session/new` `additionalDirectories`, its
     /// Sources): every start of its harness gets them (`hub/additional_dirs.rs`). Absolute,
@@ -580,10 +574,6 @@ pub struct SessionMeta {
     /// None until the first recap.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub away_recap: Option<AwayRecap>,
-    /// The chat's rolling summary and next action (`hub/rolling_summary.rs`); None until the
-    /// first turn that makes one.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub rolling_summary: Option<RollingSummary>,
     /// The plan the person last approved (`hub/plan_build.rs` `approved_plan`); None until one.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub approved_plan: Option<ApprovedPlan>,
@@ -3251,6 +3241,8 @@ fn is_zero(v: &u64) -> bool {
 
 #[cfg(test)]
 mod head_tests;
+#[cfg(test)]
+mod no_rolling_summary_tests;
 
 #[cfg(all(test, unix))]
 mod journal_meta_tests;

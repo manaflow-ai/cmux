@@ -183,11 +183,16 @@ impl Hub {
     fn former_names_of(&self, old: &str) -> Vec<String> {
         let mut out = Vec::new();
         if let Some((_, route, summary)) = self.resolve_remote(old) {
-            let host = old.split_once('/').map(|(h, _)| h).or_else(|| route.split_once('/').map(|(h, _)| h));
+            let host = old
+                .split_once('/')
+                .map(|(h, _)| h)
+                .or_else(|| route.split_once('/').map(|(h, _)| h));
             if let Some(names) = summary.get("formerNames").and_then(Value::as_array) {
                 for n in names.iter().filter_map(Value::as_str) {
                     match host {
-                        Some(h) if !n.contains('/') && !valid_role(n) => out.push(format!("{h}/{n}")),
+                        Some(h) if !n.contains('/') && !valid_role(n) => {
+                            out.push(format!("{h}/{n}"))
+                        }
                         _ if !valid_role(n) => out.push(n.to_owned()),
                         _ => {}
                     }
@@ -232,7 +237,12 @@ impl Hub {
                 (m.roles.len() != before).then(|| m.name.clone())
             };
             if let Some(name) = changed {
-                self.append(&other, "mux", "role_released", json!({"address": address, "to": session.id}));
+                self.append(
+                    &other,
+                    "mux",
+                    "role_released",
+                    json!({"address": address, "to": session.id}),
+                );
                 self.save_meta(&other);
                 released.push(name);
             }
@@ -265,8 +275,11 @@ impl Hub {
             m.roles.len() != before
         };
         if !had {
-            return Err(RpcError::invalid_params(format!("{} holds no role {address}", session.id))
-                .with_data(json!({"reason": "role.not_held"})));
+            return Err(RpcError::invalid_params(format!(
+                "{} holds no role {address}",
+                session.id
+            ))
+            .with_data(json!({"reason": "role.not_held"})));
         }
         self.append(session, "mux", "role_released", json!({"address": address}));
         self.save_meta_kept(session)?;
