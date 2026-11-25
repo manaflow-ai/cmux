@@ -36,6 +36,8 @@ mod artifacts_fs;
 pub mod artifacts_sync;
 pub mod attach;
 pub mod author;
+/// Auto mode: a chat keeps running in the Cloud when the laptop goes away (`auto_session/`).
+pub mod auto_session;
 pub mod beads;
 pub mod bg_hook;
 pub mod bg_run;
@@ -84,6 +86,7 @@ pub mod config;
 pub mod conn_origin;
 pub mod context_inventory;
 pub mod cpu_class;
+pub mod customize_run;
 pub mod cwd_pin;
 pub mod daemon;
 pub(crate) mod daemon_parts;

@@ -492,6 +492,10 @@ pub mod method {
     pub const MUX_TYPING: &str = "_acpmux/typing";
     /// Who has a chat open and who types in it, to its attached connections.
     pub const MUX_PRESENCE: &str = "_acpmux/presence";
+    /// A client's heartbeat for its person on one device (`hub/here.rs`).
+    pub const MUX_HERE_BEAT: &str = "_acpmux/here/beat";
+    /// Every person and agent on this machine now, across devices (`hub/here.rs`).
+    pub const MUX_HERE: &str = "_acpmux/here";
     pub const MUX_DETACH: &str = "_acpmux/detach";
     pub const MUX_WATCH: &str = "_acpmux/watch";
     pub const MUX_RENAME: &str = "_acpmux/rename";
@@ -619,6 +623,9 @@ pub mod method {
     pub const MUX_ATTACHMENT: &str = "_acpmux/attachment";
     /// A turn's before and after picture of the chat's page (`hub/turn_shots.rs`).
     pub const MUX_TURN_SHOTS: &str = "_acpmux/turn_shots";
+    /// A wrap-up card's Try it on, Keep or Revert: `cmux customize` run from a typed, allowlisted
+    /// request (`customize_run.rs`).
+    pub const MUX_CUSTOMIZE_RUN: &str = "_acpmux/customize_run";
     pub const MUX_PERMISSION_RESPOND: &str = "_acpmux/permission_respond";
     /// The signed app gives this launch's person key (`hub/person.rs`).
     pub const MUX_PERSON_ENROLL: &str = "_acpmux/person_enroll";
@@ -1033,6 +1040,17 @@ pub mod method {
     /// Cold archive of one chat (`hub/cold_archive.rs`): `{sessionId, archived}` -> its summary,
     /// with `coldArchive` while archived. `archived: false` brings its log back.
     pub const MUX_COLD_ARCHIVE: &str = "_acpmux/cold_archive";
+    /// Auto mode for one chat (`auto_session/surface.rs`): `{sessionId, auto, keepInCloud?}` ->
+    /// `{autoSession}`, the chat's row field after the switch.
+    pub const MUX_AUTO_SESSION_SET: &str = "_acpmux/auto_session/set";
+    /// The changes kept aside when the Cloud took a chat: `{sessionId, action}` with `show` ->
+    /// `{files, patch?}`, `apply` or `discard` -> `{autoSession}`.
+    pub const MUX_AUTO_SESSION_LEFTOVER: &str = "_acpmux/auto_session/leftover";
+    /// The system woke from sleep (no params): every Auto chat stops and asks the Cloud first.
+    pub const MUX_AUTO_SESSION_WAKE: &str = "_acpmux/auto_session/wake";
+    /// The Cloud's events of a chat another holder runs, read only: `{sessionId, after?,
+    /// version?}` -> `{version, projection, events, more}` (`auto_session/runtime/projection.rs`).
+    pub const MUX_AUTO_SESSION_TRANSCRIPT: &str = "_acpmux/auto_session/transcript";
     // Pairing (`crate::pairing`, `server/pairing.rs`).
     pub const MUX_PAIR_TICKET_NEW: &str = "_acpmux/pair_ticket_new";
     pub const MUX_PAIR_LIST: &str = "_acpmux/pair_list";
@@ -1062,6 +1080,10 @@ pub mod method {
     pub const MUX_MACHINE_JOIN_SSH: &str = "_acpmux/machine_join_ssh";
     /// One step of a [`MUX_MACHINE_JOIN_SSH`]: `{joinId, host, step, state, detail, seconds}`.
     pub const MUX_MACHINE_JOIN_PROGRESS: &str = "_acpmux/machine_join_progress";
+    /// An Auto `session/new` found no room on any machine and waits while the fleet adds one
+    /// (`hub/admission.rs`): `{warning, live, maxLanes, scalingUp: true, waitSecs}`, to the
+    /// creating connection only, once, when the wait begins. Its reply follows on its own.
+    pub const MUX_ADMISSION_WAITING: &str = "_acpmux/admission_waiting";
     /// The machines this computer reaches and has not added (its tailnet, `~/.ssh/config`): `{}`
     /// -> `{candidates: [{name, address, os, found, online, mine}], tailnet?}`. Local socket and
     /// the person only.

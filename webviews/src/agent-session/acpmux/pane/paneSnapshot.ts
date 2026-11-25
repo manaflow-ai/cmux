@@ -545,7 +545,11 @@ export function paneSnapshotEffect({
   };
   window.cmuxAcpmuxBridge = {
     toggleInspector,
-    perfCapture: (options) => chatPerfCapture.capture(options),
+    perfCapture: (options) =>
+      chatPerfCapture.capture(options, undefined, () => ({
+        rows: rowsRef.current.length,
+        events: directClient.current?.eventSeq ?? null,
+      })),
     lastCodeBlock: () => lastCodeBlock(snapshotRef.current?.rows ?? []) ?? null,
     composerState: () => {
       const draft = composerHandle.current?.draft();
