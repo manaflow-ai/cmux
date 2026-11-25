@@ -186,3 +186,32 @@ test(`chat simulator: a ${LONG ? "monstrously " : ""}long run (${LONG ? "10k+" :
   expect(result.virtualMs).toBeGreaterThan((LONG ? 30 : 6) * 3_600_000);
   expect(broken(result, "b-")).toEqual([]);
 }, 300_000);
+
+// Leo, 2026-11-25: "the animation for compaction and a message sent/steered during compaction is weird. the worked for
+// collapsing the compaction and then the next worked for + thinking is weird. layout shifts and awkward looking
+// animations". A /compact turn the person steers while it compacts draws one "Worked for" at every step, under the
+// steer, never over the compaction note: the note and the steer keep their places while the steer's work comes in.
+test("chat simulator: compact-steer: one Worked for, under the steer, at every step", () => {
+  const result = runSimulation(SCENARIOS["compact-steer"]!());
+  let seen = false;
+  for (const step of result.traces) {
+    const own = (step.rows ?? []).filter((row) => row.turn >= 2);
+    const headers = own.filter((row) => row.kind === "worked").length;
+    expect({ step: step.step, headers: Math.min(headers, 2) }).toEqual({
+      step: step.step,
+      headers: Math.min(headers, 1),
+    });
+    const steer = own.findIndex((row) => row.kind === "user" && row.text?.startsWith("then add a test"));
+    const header = own.findIndex((row) => row.kind === "worked");
+    if (header >= 0) {
+      seen = true;
+      expect({ step: step.step, under: steer >= 0 && header > steer }).toEqual({ step: step.step, under: true });
+    }
+  }
+  expect(seen).toBe(true);
+  const last = result.traces
+    .at(-1)!
+    .rows!.filter((row) => row.turn >= 2)
+    .map((row) => row.kind);
+  expect(last.slice(0, 4)).toEqual(["user", "compaction", "user", "worked"]);
+});

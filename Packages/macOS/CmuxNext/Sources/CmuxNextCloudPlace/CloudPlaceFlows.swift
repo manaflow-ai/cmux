@@ -89,6 +89,10 @@ public final class CloudPlaceFlows {
     @ObservationIgnored public private(set) var autoMoved: Set<String> = []
     /// Sessions Evacuate moved to Cloud and not back yet (Bring Back All's list with ``autoMoved``), kept across launches.
     @ObservationIgnored public private(set) var evacuated: Set<String> = []
+    /// The Cloud machine each chat ran on before a Bring Back to this Mac ended its move-ledger entry, kept across launches:
+    /// the next move to Cloud offers it to Rust's own-machine rule (`before`), so a Hybrid round trip resumes that machine
+    /// instead of making another. One entry per chat brought back, dropped once a move to Cloud records it in the ledger again.
+    @ObservationIgnored public private(set) var lastMachines: [String: String] = [:]
     /// The running (or last) Evacuate or Bring Back All; each change of it re-sends the header.
     public internal(set) var evacuation: Evacuation?
     /// Each running move's trigger and direction, to record who moved it once it landed.
@@ -110,6 +114,7 @@ public final class CloudPlaceFlows {
         if let kept = defaults.stringArray(forKey: key + ".autoMoved") { autoMoved = Set(kept) }
         if let kept = defaults.stringArray(forKey: key + ".evacuated") { evacuated = Set(kept) }
         if let data = defaults.data(forKey: key), let kept = try? JSONDecoder().decode([String: String].self, from: data) { modes = kept }
+        if let data = defaults.data(forKey: key + ".lastMachine"), let kept = try? JSONDecoder().decode([String: String].self, from: data) { lastMachines = kept }
     }
 
     /// This computer's own name, as the move names the place it leaves or reaches.
@@ -127,6 +132,28 @@ public final class CloudPlaceFlows {
         guard ["local", "cloud", "auto"].contains(mode), modes[session] != mode else { return }
         modes[session] = mode
         if let data = try? JSONEncoder().encode(modes) { defaults.set(data, forKey: modesKey) }
+    }
+
+    // MARK: The machine a chat ran on
+
+    /// A Bring Back of `session` (its id on this Mac) committed off `machineID`: kept for the chat's next move to Cloud.
+    public func rememberMachine(_ machineID: String, for session: String) {
+        guard lastMachines[session] != machineID else { return }
+        lastMachines[session] = machineID
+        saveLastMachines()
+    }
+
+    /// The machine `session` ran on before it was brought back, when it was.
+    public func lastMachine(of session: String) -> String? { lastMachines[session] }
+
+    /// The move ledger names the chat's machine again (a move to Cloud committed): this one is no longer needed.
+    public func forgetMachine(of session: String) {
+        guard lastMachines.removeValue(forKey: session) != nil else { return }
+        saveLastMachines()
+    }
+
+    private func saveLastMachines() {
+        if let data = try? JSONEncoder().encode(lastMachines) { defaults.set(data, forKey: modesKey + ".lastMachine") }
     }
 
     // MARK: Reporting a move
@@ -267,12 +294,42 @@ public final class CloudPlaceFlows {
 
     // MARK: The chat's place, for pane.tabState
 
-    /// `place: {mode, at, cloudName?, move?}` for the chat header, as JSON; nil with no session.
-    public func placeJSON(session: String?, onCloud: Bool, cloudName: String?) -> Data? {
+    /// `place: {mode, at, cloudName?, move?, blocked?, holders?}` for the chat header, as JSON; nil with no session.
+    /// `blocked` and `holders` are Rust's answer (`cloud_move_place_control`, `priority::control`) to `control`'s facts.
+    public func placeJSON(session: String?, onCloud: Bool, cloudName: String?, control: ControlFacts? = nil) -> Data? {
         guard let session else { return nil }
         var place: [String: Any] = ["mode": mode(of: session, onCloud: onCloud), "at": onCloud ? "cloud" : "local"]
         if let cloudName { place["cloudName"] = cloudName }
         if !settled.contains(session), let view = views[session], let move = try? JSONSerialization.jsonObject(with: view) { place["move"] = move }
+        if let control, let request = try? JSONEncoder().encode(control.with(session: session)), let reply = core("cloud_move_place_control", request),
+           let answer = try? JSONSerialization.jsonObject(with: reply) as? [String: Any] {
+            if let blocked = answer["blocked"] { place["blocked"] = blocked }
+            if let holders = answer["holders"] { place["holders"] = holders }
+        }
         return try? JSONSerialization.data(withJSONObject: place, options: [.sortedKeys])
+    }
+
+    /// What Rust needs to say whether the header's cloud control is blocked or every slot is held (`priority::ControlFacts`).
+    /// Facts only: a plan id is mapped to its slots in Rust (`priority::plan_of_id`); a plan not read is `planKnown: false`.
+    public struct ControlFacts: Encodable, Sendable, Equatable {
+        public struct Chat: Encodable, Sendable, Equatable {
+            public var session: String, title: String, pin: String, at: String, hasWork: Bool, activeAtMs: UInt64
+            public init(session: String, title: String, pin: String, at: String, hasWork: Bool, activeAtMs: UInt64 = 0) {
+                (self.session, self.title, self.pin, self.at, self.hasWork, self.activeAtMs) = (session, title, pin, at, hasWork, activeAtMs)
+            }
+        }
+        public var session = "", signedIn: Bool, restoring: Bool, planKnown: Bool, planId: String?, chats: [Chat]
+        public init(signedIn: Bool, restoring: Bool, planKnown: Bool, planId: String?, chats: [Chat]) {
+            (self.signedIn, self.restoring, self.planKnown, self.planId, self.chats) = (signedIn, restoring, planKnown, planId, chats)
+        }
+        func with(session: String) -> Self { var copy = self; copy.session = session; return copy }
+    }
+
+    /// ``ControlFacts/Chat`` for each chat the place controls see, pinned as the person set it here.
+    public func controlChats(_ chats: [CloudPlaceChat]) -> [ControlFacts.Chat] {
+        chats.map { chat in
+            ControlFacts.Chat(session: chat.session, title: chat.title, pin: mode(of: chat.session, onCloud: chat.onCloud), at: chat.onCloud ? "cloud" : "local",
+                              hasWork: chat.turnRunning || chat.queued > 0, activeAtMs: chat.turnStartedAtMs.flatMap { $0.isFinite && $0 > 0 ? UInt64($0) : nil } ?? 0)
+        }
     }
 }

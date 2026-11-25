@@ -202,6 +202,9 @@ cmux-tui/crates/cmux-app-host/generated/** merge=cmux-generated-v1
 clients/ts/cloud/src/generated.ts merge=cmux-generated-v1
 clients/ts/cloud/src/automation-cmux.ts merge=cmux-generated-v1
 cmux-tui/crates/cmux-cloud-wire/src/generated/** merge=cmux-generated-v1
+# The iPhone app's uniffi Swift bindings (scripts/ios-ffi-bindings.sh, a host cargo build): every branch that
+# changes cmux-mobile-link-ffi rewrites it, so two of them always collided, or a merge picked one side.
+cmux-next-ios/CmuxMobileKit/Sources/CmuxMobileLinkFFI/CmuxMobileLinkFFI.swift merge=cmux-generated-v1
 plans/cmux-next/coordination/INDEX.md merge=cmux-generated-v1
 scripts/ghosttykit-checksums.txt merge=cmux-export-v1
 # The former bundle directories' placeholders are hand-written.
