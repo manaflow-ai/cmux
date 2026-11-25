@@ -589,8 +589,11 @@ impl TurnCarrier {
         // no stream server there is nothing to hand over to, and UDP gets
         // NO_STREAM_UDP_WAIT (on a lossy link, losing an answer or two
         // takes it past UDP_WAIT), within the dial's own bound.
-        let udp_wait =
-            if !streams.is_empty() { UDP_WAIT } else { NO_STREAM_UDP_WAIT.min(options.timeout.max(UDP_WAIT)) };
+        let udp_wait = if !streams.is_empty() {
+            UDP_WAIT
+        } else {
+            NO_STREAM_UDP_WAIT.min(options.timeout.max(UDP_WAIT))
+        };
         // Every UDP server listed, the one `turn_servers` picks first: a dead
         // first server (its process gone, its host unreachable) hands over to
         // the next one, each with its own `udp_wait`, instead of leaving a
