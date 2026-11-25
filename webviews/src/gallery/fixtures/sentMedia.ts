@@ -137,7 +137,12 @@ export function attachmentsHoldTheirBoxes({ inBubble = false }: { inBubble?: boo
           box.top < bubble.top - 0.5 ||
           box.bottom > bubble.bottom + 0.5)
       )
-        throw new Error("a placed attachment draws outside its bubble, not where it was put");
+        throw new Error(
+          `a placed attachment draws outside its bubble, not where it was put: ${frame.className} ` +
+            `${box.width.toFixed(1)}x${box.height.toFixed(1)} at ${box.left.toFixed(1)},${box.top.toFixed(1)}, ` +
+            `bubble ${bubble.width.toFixed(1)}x${bubble.height.toFixed(1)} at ${bubble.left.toFixed(1)},${bubble.top.toFixed(1)} ` +
+            `(${document.querySelectorAll(".cv-user__bubble").length} bubbles)`,
+        );
     }
   };
 }
