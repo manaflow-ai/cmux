@@ -2112,6 +2112,12 @@ public protocol ChatPromptOutboxProtocol: AnyObject, Sendable {
     func pending()  -> UInt32
     
     /**
+     * Every prompt still on its way at `now_ms`, in tap order, with the actions each has: the
+     * chat's pending rows (no pending send is ever without an exit).
+     */
+    func pendingSends(nowMs: UInt64)  -> [ChatPendingSend]
+    
+    /**
      * The link made progress at `now_ms` (bytes heard from the Mac, a channel bound, a write
      * taken): prompts waiting their turn keep going; the hold bounds a stall, not a send.
      */
@@ -2441,6 +2447,19 @@ open func pending() -> UInt32  {
     return try!  FfiConverterUInt32.lift(try! rustCall() {
     uniffi_cmux_mobile_link_ffi_fn_method_chatpromptoutbox_pending(
             self.uniffiCloneHandle(),$0
+    )
+})
+}
+    
+    /**
+     * Every prompt still on its way at `now_ms`, in tap order, with the actions each has: the
+     * chat's pending rows (no pending send is ever without an exit).
+     */
+open func pendingSends(nowMs: UInt64) -> [ChatPendingSend]  {
+    return try!  FfiConverterSequenceTypeChatPendingSend.lift(try! rustCall() {
+    uniffi_cmux_mobile_link_ffi_fn_method_chatpromptoutbox_pending_sends(
+            self.uniffiCloneHandle(),
+        FfiConverterUInt64.lower(nowMs),$0
     )
 })
 }
@@ -8640,6 +8659,118 @@ public func FfiConverterTypeChatAttachment_lift(_ buf: RustBuffer) throws -> Cha
 #endif
 public func FfiConverterTypeChatAttachment_lower(_ value: ChatAttachment) -> RustBuffer {
     return FfiConverterTypeChatAttachment.lower(value)
+}
+
+
+/**
+ * A prompt still on its way, as the chat draws its row, with the actions it has: Stop (its
+ * text back in the composer to edit and send again) and Delete always, Send now when offered.
+ */
+public struct ChatPendingSend: Equatable, Hashable {
+    public var promptId: String
+    public var text: String
+    /**
+     * Its attachments' upload ids.
+     */
+    public var uploadIds: [String]
+    public var look: ChatPromptLook
+    /**
+     * Until it goes again after a "not now", when it waits on one.
+     */
+    public var retryInMs: UInt64?
+    /**
+     * The chat shows its row (attachments, waiting, or being stopped).
+     */
+    public var shown: Bool
+    /**
+     * Send now is offered (link up, unwritten, waiting).
+     */
+    public var canSendNow: Bool
+    /**
+     * Stopped after it may have reached the Mac: the Mac's removal is awaited.
+     */
+    public var stopping: Bool
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(promptId: String, text: String, 
+        /**
+         * Its attachments' upload ids.
+         */uploadIds: [String], look: ChatPromptLook, 
+        /**
+         * Until it goes again after a "not now", when it waits on one.
+         */retryInMs: UInt64?, 
+        /**
+         * The chat shows its row (attachments, waiting, or being stopped).
+         */shown: Bool, 
+        /**
+         * Send now is offered (link up, unwritten, waiting).
+         */canSendNow: Bool, 
+        /**
+         * Stopped after it may have reached the Mac: the Mac's removal is awaited.
+         */stopping: Bool) {
+        self.promptId = promptId
+        self.text = text
+        self.uploadIds = uploadIds
+        self.look = look
+        self.retryInMs = retryInMs
+        self.shown = shown
+        self.canSendNow = canSendNow
+        self.stopping = stopping
+    }
+
+    
+
+    
+}
+
+#if compiler(>=6)
+extension ChatPendingSend: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeChatPendingSend: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> ChatPendingSend {
+        return
+            try ChatPendingSend(
+                promptId: FfiConverterString.read(from: &buf), 
+                text: FfiConverterString.read(from: &buf), 
+                uploadIds: FfiConverterSequenceString.read(from: &buf), 
+                look: FfiConverterTypeChatPromptLook.read(from: &buf), 
+                retryInMs: FfiConverterOptionUInt64.read(from: &buf), 
+                shown: FfiConverterBool.read(from: &buf), 
+                canSendNow: FfiConverterBool.read(from: &buf), 
+                stopping: FfiConverterBool.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: ChatPendingSend, into buf: inout [UInt8]) {
+        FfiConverterString.write(value.promptId, into: &buf)
+        FfiConverterString.write(value.text, into: &buf)
+        FfiConverterSequenceString.write(value.uploadIds, into: &buf)
+        FfiConverterTypeChatPromptLook.write(value.look, into: &buf)
+        FfiConverterOptionUInt64.write(value.retryInMs, into: &buf)
+        FfiConverterBool.write(value.shown, into: &buf)
+        FfiConverterBool.write(value.canSendNow, into: &buf)
+        FfiConverterBool.write(value.stopping, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeChatPendingSend_lift(_ buf: RustBuffer) throws -> ChatPendingSend {
+    return try FfiConverterTypeChatPendingSend.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeChatPendingSend_lower(_ value: ChatPendingSend) -> RustBuffer {
+    return FfiConverterTypeChatPendingSend.lower(value)
 }
 
 
@@ -16312,6 +16443,31 @@ fileprivate struct FfiConverterSequenceTypeChatAttachment: FfiConverterRustBuffe
 #if swift(>=5.8)
 @_documentation(visibility: private)
 #endif
+fileprivate struct FfiConverterSequenceTypeChatPendingSend: FfiConverterRustBuffer {
+    typealias SwiftType = [ChatPendingSend]
+
+    public static func write(_ value: [ChatPendingSend], into buf: inout [UInt8]) {
+        let len = Int32(value.count)
+        writeInt(&buf, len)
+        for item in value {
+            FfiConverterTypeChatPendingSend.write(item, into: &buf)
+        }
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> [ChatPendingSend] {
+        let len: Int32 = try readInt(&buf)
+        var seq = [ChatPendingSend]()
+        seq.reserveCapacity(Int(len))
+        for _ in 0 ..< len {
+            seq.append(try FfiConverterTypeChatPendingSend.read(from: &buf))
+        }
+        return seq
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
 fileprivate struct FfiConverterSequenceTypeChatPromptDone: FfiConverterRustBuffer {
     typealias SwiftType = [ChatPromptDone]
 
@@ -18110,6 +18266,9 @@ private let initializationResult: InitializationResult = {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_cmux_mobile_link_ffi_checksum_method_chatpromptoutbox_pending() != 54210) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_cmux_mobile_link_ffi_checksum_method_chatpromptoutbox_pending_sends() != 15921) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_cmux_mobile_link_ffi_checksum_method_chatpromptoutbox_progressed() != 31423) {
