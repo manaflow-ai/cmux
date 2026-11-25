@@ -171,13 +171,6 @@ private struct CloudDirectoryList: View {
             throw error
         }
     }
-
-    /// The existing place to make a Cloud machine: Settings → Cloud Machines.
-    private func openCloudMachines() {
-        shell.cloudChats = nil
-        shell.tab = .settings
-        shell.settingsPath = [.cloudMachines]
-    }
 }
 
 /// No Mac to reach Cloud chats through. Cloud chats reach the phone only

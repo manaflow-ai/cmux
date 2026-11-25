@@ -24,11 +24,11 @@ bindgen = ["uniffi/cli"]
 [dependencies]
 async-trait = "0.1"
 cmux-auto-session.workspace = true
-cmux-mobile-core.workspace = true
 # The terminal composer's keyed Send (src/composer_outbox.rs).
 cmux-composer-send.workspace = true
 cmux-follow-cam.workspace = true
 cmux-mobile-auto.workspace = true
+cmux-mobile-core.workspace = true
 # The launch's last place (src/last_place.rs).
 cmux-mobile-last-place.workspace = true
 cmux-mobile-link.workspace = true
