@@ -31,6 +31,7 @@ dependencies = [
  "cmux-chat-index",
  "cmux-cloud-api",
  "cmux-cloud-client",
+ "cmux-cloud-disk",
  "cmux-cloud-environment",
  "cmux-cloud-start-core",
  "cmux-cloud-wire",
@@ -1747,8 +1748,10 @@ dependencies = [
 name = "cmux-cloud-start-core"
 version = "0.1.0"
 dependencies = [
+ "hex",
  "serde",
  "serde_json",
+ "sha2 0.10.9",
  "toml",
 ]
 
@@ -2053,6 +2056,7 @@ dependencies = [
 name = "cmux-extension-sdk"
 version = "1.0.0"
 dependencies = [
+ "cmux-app-host",
  "cmux-app-manifest",
  "cmux-customize",
  "serde_json",
@@ -3466,9 +3470,11 @@ dependencies = [
 name = "cmux-tui-machine-protocol"
 version = "0.1.0"
 dependencies = [
+ "async-trait",
  "serde",
  "serde_json",
  "subtle",
+ "tokio",
  "zeroize",
 ]
 
