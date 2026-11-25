@@ -24,6 +24,7 @@ dependencies = [
  "clap",
  "cmux-agent-customize",
  "cmux-agent-pane-policy",
+ "cmux-api-compat",
  "cmux-auto-session",
  "cmux-bounded",
  "cmux-build-space",
@@ -1406,6 +1407,8 @@ dependencies = [
 name = "cmux-app-manifest"
 version = "0.1.0"
 dependencies = [
+ "cmux-action-catalog",
+ "cmux-config",
  "cmux-embed",
  "cmux-wallpaper",
  "hex",
@@ -1634,6 +1637,7 @@ dependencies = [
 name = "cmux-classic-import"
 version = "0.1.0"
 dependencies = [
+ "cmux-config",
  "cmux-file-lock",
  "libc",
  "serde",
@@ -2174,6 +2178,7 @@ dependencies = [
  "flate2",
  "futures-util",
  "hex",
+ "libc",
  "reqwest",
  "rustls",
  "serde_json",
@@ -3189,6 +3194,7 @@ dependencies = [
  "cmux-apps",
  "cmux-autocloud",
  "cmux-automations",
+ "cmux-braid-path",
  "cmux-browser-host",
  "cmux-build-identity",
  "cmux-build-space",
@@ -3224,6 +3230,7 @@ dependencies = [
  "cmux-lifeline",
  "cmux-link",
  "cmux-migrate",
+ "cmux-palette-ranker",
  "cmux-panic-log",
  "cmux-process",
  "cmux-projection",
@@ -3252,6 +3259,7 @@ dependencies = [
  "cmux-tui-machine-agent-protocol",
  "cmux-tui-machine-protocol",
  "cmux-tui-platform",
+ "cmux-tui-test-modules",
  "cmux-unix-socket",
  "cmux-usage-patterns",
  "cmux-vm",
@@ -3527,6 +3535,10 @@ dependencies = [
 
 [[package]]
 name = "cmux-tui-source-watch"
+version = "0.0.0"
+
+[[package]]
+name = "cmux-tui-test-modules"
 version = "0.0.0"
 
 [[package]]
