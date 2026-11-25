@@ -36,7 +36,7 @@ env:
 jobs:
   rotate:
     if: github.ref == 'refs/heads/feat-cmux-next'
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && (vars.CI_FORK_LINUX_RUNNER || 'ubuntu-24.04') || 'cmux-linux' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}
     # The environment whose CLOUDFLARE_API_TOKEN deploys cmux-api-staging and already puts cmux-platform-staging's
     # JWT_PRIVATE_JWK (backend.yml deploy-staging).
     environment: cmux-next-staging
