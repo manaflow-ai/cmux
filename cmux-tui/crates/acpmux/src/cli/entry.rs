@@ -665,6 +665,14 @@ async fn async_main(parsed: Parsed) -> Result<()> {
             let _ = std::io::stdout().write_all(crate::cli::orchestrate::guide().as_bytes());
             Ok(())
         }
+        // A heavy shell call the Bash hook sent to a run VM (`placement/run_vm.rs`): no daemon.
+        Some(Command::RunVm { command }) => {
+            match crate::placement::run_vm::main(&command.join(" ")).await {
+                // crash-allow: the agent's shell reads the command's own exit code, as if it ran here
+                Ok(code) => std::process::exit(code),
+                Err(e) => errors::exit_with(&e, cli.json),
+            }
+        }
         // No daemon: what this binary serves (`capabilities.rs`).
         Some(Command::SubForkJob) => match crate::placement::sub_fork_run::job_main().await {
             Ok(()) => Ok(()),
