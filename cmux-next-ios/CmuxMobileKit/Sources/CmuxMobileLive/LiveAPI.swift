@@ -1,4 +1,5 @@
 import CMUXAuthCore
+import CmuxEgress
 import Foundation
 import struct CmuxMobileModel.ServiceFailureMessage
 import struct CmuxMobileModel.TeamAppearance
@@ -15,7 +16,7 @@ public struct LiveAPI: Sendable {
     /// dev build's requests throw ``CMUXBuildSpaceError``.
     public let buildSpace: CMUXBuildSpaceState
 
-    public init(baseURL: URL, session: URLSession = .shared, buildSpace: CMUXBuildSpaceState = .nightly,
+    public init(baseURL: URL, session: URLSession = CmuxEgress.shared(site: "CmuxMobileLive.LiveAPI"), buildSpace: CMUXBuildSpaceState = .nightly,
                 accessToken: @escaping @Sendable (_ forceRefresh: Bool) async throws -> String) {
         self.baseURL = baseURL
         self.session = session
