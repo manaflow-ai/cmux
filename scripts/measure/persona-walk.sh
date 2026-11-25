@@ -69,33 +69,40 @@ install_nightly() {
   echo "{\"dmg\":\"$url\",\"install_ms\":$(( $(now_ms) - t0 ))}" >"$out/install.json"
 }
 
-# On-screen windows owned by a process name, from CoreGraphics (no Accessibility or osascript needed).
-window_count() {
-  python3 - "$1" <<'PY' 2>/dev/null || echo 0
-import sys, Quartz
-ws = Quartz.CGWindowListCopyWindowInfo(Quartz.kCGWindowListOptionOnScreenOnly, Quartz.kCGNullWindowID)
-print(sum(1 for w in ws if sys.argv[1].split()[0].lower() in str(w.get("kCGWindowOwnerName", "")).lower() and w.get("kCGWindowLayer") == 0))
-PY
-}
+# CuaDriver holds the fleet Mac's Screen Recording and Accessibility grants (a scratch app copy has none); its client
+# finds the daemon under the account's own HOME, not the step's fresh one.
+CUA=/Applications/CuaDriver.app/Contents/MacOS/cua-driver
+cua() { HOME=$(eval echo "~$(id -un)") to 30 env -u CFFIXED_USER_HOME "$CUA" call "$@"; }
+shot() { cua get_desktop_state "{\"screenshot_out_file\":\"$PWD/$out/shots/$1.png\"}" >"$out/state-$1.json" 2>&1; note "shot $1 rc=$?"; }
+step() { # step NAME START_MS: one timed step in timings.json
+  printf '{"step":"%s","ms":%s}\n' "$1" "$(( $(now_ms) - $2 ))" >>"$out/timings.jsonl"; note "step $1 $(( $(now_ms) - $2 )) ms"; }
 
 p0() {
   probe
-  install_nightly || return 1
-  local t0 pid
-  t0=$(now_ms)
-  open -n -a "$APP" --args 2>>"$log"
+  { echo "--- cua-driver"; ls -l "$CUA"; HOME=$(eval echo "~$(id -un)") to 20 "$CUA" --help 2>&1 | head -40; } >>"$log" 2>&1
+  local t
+  t=$(now_ms); install_nightly || return 1; step install "$t"
   local cli; cli=$(app_cli "$APP"); note "scratch cli=$cli"
-  local name; name=$(basename "$APP" .app)
-  for _ in $(seq 1 120); do
-    if [ "$(window_count "$name")" -gt 0 ] 2>/dev/null; then break; fi
-    python3 -c 'import time;time.sleep(0.5)'
+  t=$(now_ms)
+  open -n -a "$APP" 2>>"$log"
+  local pid="" win=""
+  for _ in $(seq 1 240); do
+    [ -n "$pid" ] || pid=$(pgrep -nf "$APP/Contents/MacOS/" || true)
+    if [ -n "$pid" ] && cua list_windows "{\"pid\":$pid}" >"$out/cua-windows.json" 2>&1 && grep -q '"window_id"\|"windowId"\|"id"' "$out/cua-windows.json"; then win=1; break; fi
+    python3 -c 'import time;time.sleep(0.25)'
   done
-  note "first window after $(( $(now_ms) - t0 )) ms"
-  to 20 screencapture -x "$out/shots/p0-first-window.png"
-  [ -n "$cli" ] && { to 30 "$cli" computer-use status >"$out/cu-status.txt" 2>&1
-    to 30 "$cli" computer-use call list_windows --args '{}' >"$out/windows.json" 2>&1
-    to 30 "$cli" computer-use screenshot --out "$PWD/$out/shots/p0-cu.png" >>"$log" 2>&1; }
-  pid=$(pgrep -nf "$APP/Contents/MacOS" || true)
+  [ -n "$win" ] && step first_window "$t" || note "STUCK no window in 60 s (pid=$pid)"
+  shot 01-first-window
+  python3 -c 'import time;time.sleep(5)'
+  shot 02-after-5s
+  # P0 task 1: a person types their first command into whatever the app shows.
+  t=$(now_ms)
+  cua type_text '{"text":"echo persona-ok"}' >>"$log" 2>&1 || note "type_text rc=$?"
+  cua press_key '{"key":"return","scope":"desktop"}' >>"$log" 2>&1 || note "press_key rc=$?"
+  python3 -c 'import time;time.sleep(1)'
+  step first_command "$t"
+  shot 03-first-command
+  [ -n "$cli" ] && to 30 "$cli" computer-use status >"$out/cu-status.txt" 2>&1
   [ -n "$pid" ] && kill "$pid"
 }
 
