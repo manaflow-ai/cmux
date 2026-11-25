@@ -1728,14 +1728,7 @@ async fn foreground_probe_cost() {
 }
 
 fn wificell_profile(name: &str, rtt_ms: u64, loss_percent: f64) -> LinkProfile {
-    LinkProfile {
-        name: name.into(),
-        up_kbit: 20_000,
-        down_kbit: 20_000,
-        rtt_ms,
-        jitter_ms: 0,
-        loss_percent,
-    }
+    LinkProfile { name: name.into(), up_kbit: 20_000, down_kbit: 20_000, rtt_ms, jitter_ms: 0, loss_percent }
 }
 
 /// connectivity-map 7.1's `wificell` row in-process: the link is on Wi-Fi at
