@@ -11,13 +11,24 @@
 //! 0, or `{"error": WHY}`; the first host, or a provider declared or answering
 //! `terminal: true`, ends the chain.
 //!
-//! The run is detached: the create never waits for it (a cap only warns, and a
-//! create is never refused or slowed). One run at a time per daemon, and none
+//! The run is detached for ordinary starts: the create never waits for it (a
+//! cap only warns, and a create is never refused or slowed). An Auto start may
+//! await the same run while it waits for the new peer to connect. One run at a time per daemon, and none
 //! again within [`COOLDOWN`] of the last start, so a burst of over-cap creates
 //! asks once. No registry, no `lane_overflow.providers`, or no leo-workspace
 //! checkout holding the provider: nothing runs (acpmux outside the fleet is
 //! unchanged). The new machine takes the next `--machine auto` start once it
-//! is connected; making that start wait for it is a follow-up.
+//! is connected; Auto starts wait for that connection below.
+//!
+//! Warm spare (default off; `ACPMUX_AUTO_WARM_SPARE=1`, or the registry's
+//! `lane_overflow.warm_spare: true`, the environment winning): the same run is
+//! asked for one create earlier, when a create takes this host's last free slot
+//! and no connected host has room, so the next Auto start finds the new machine
+//! connected instead of waiting for it, and is placed there. Never more than
+//! one spare: once it joins a connected host has room and nothing more is
+//! asked, and the single flight and cooldown above hold under a burst. The
+//! providers keep their own quota (no slot: no host, so no spare) and idle or
+//! pause policy, which the spare follows like any other machine.
 
 use super::*;
 use std::sync::OnceLock;
@@ -30,6 +41,9 @@ const BUDGET_DEFAULT: u64 = 240;
 const BUDGET_MAX: u64 = 3600;
 /// Seconds a provider gets past the `--budget` it was told before it is killed.
 const SLACK: u64 = 10;
+/// Auto waits for the default provider budget plus the process-kill slack.
+/// A configured provider may run longer, but an Auto start stays bounded.
+pub(crate) const AUTO_WAIT_BOUND: Duration = Duration::from_secs(BUDGET_DEFAULT + SLACK);
 
 /// One provider to ask: its name, and the argv to run (resolved).
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -102,6 +116,33 @@ pub(crate) fn room_elsewhere(verdict: &Value) -> Option<String> {
         .and_then(crate::placement::placed)
 }
 
+/// The warm-spare switch (module docs): the environment's
+/// [`WARM_SPARE_ENV`] when it says on or off (`cold_wake::env_flag`), else the
+/// registry's `lane_overflow.warm_spare`; off by default.
+pub(crate) const WARM_SPARE_ENV: &str = "ACPMUX_AUTO_WARM_SPARE";
+
+pub(crate) fn warm_spare_on(
+    registry: Option<&Value>,
+    env: impl Fn(&str) -> Option<String>,
+) -> bool {
+    super::cold_wake::env_flag(env(WARM_SPARE_ENV).as_deref()).unwrap_or_else(|| {
+        registry.and_then(|r| r.pointer("/lane_overflow/warm_spare")).and_then(Value::as_bool)
+            == Some(true)
+    })
+}
+
+/// Whether a create asks for a warm spare: the switch is on, it takes this
+/// host's last free slot, and no connected host has room.
+pub(crate) fn wants_warm_spare(on: bool, last_slot: bool, peer_room: bool) -> bool {
+    on && last_slot && !peer_room
+}
+
+/// Whether an Auto start past the cap takes a connected host's room (the
+/// spare) at once rather than starting here.
+pub(crate) fn uses_spare(on: bool, auto: bool, peer_room: bool) -> bool {
+    on && auto && peer_room
+}
+
 /// The leo-workspace checkout the provider argv is relative to: the one the
 /// registry was read from (`.../machines/fleet-registry.json`), else
 /// `~/Projects/leo-workspace`.
@@ -172,6 +213,7 @@ pub(crate) struct Outcome {
 struct State {
     running: bool,
     last: Option<Instant>,
+    result: Option<Arc<tokio::sync::watch::Sender<Option<Option<String>>>>>,
     outcome: Outcome,
 }
 
@@ -182,6 +224,9 @@ pub(crate) struct Ran {
     pub error: Option<String>,
     pub provider: Option<String>,
 }
+
+/// A scale-up result shared by Auto starts that arrive during one provider run.
+pub(crate) type ResultReceiver = tokio::sync::watch::Receiver<Option<Option<String>>>;
 
 /// This daemon's scale-up: at most one run, none within the cooldown.
 pub(crate) struct ScaleUp {
@@ -210,39 +255,62 @@ impl ScaleUp {
 
     /// Starts `plan` on `owner` (the Hub's scope: its close ends the run)
     /// unless a run is under way or within the cooldown. Never waits for the
-    /// run. Call inside a Tokio runtime.
+    /// run. Call inside a Tokio runtime. Admission calls [`Self::trigger_wait`];
+    /// the tests drive the detached form.
+    #[cfg(test)]
     pub(crate) fn trigger(&self, owner: &cmux_scope::Scope, plan: Plan, now: Instant) -> Trigger {
+        self.trigger_wait(owner, plan, now).0
+    }
+
+    /// Starts a provider run and returns a receiver for its eventual answer.
+    /// The receiver is present for a newly started or already-running run and
+    /// absent during cooldown. A caller that drops the receiver keeps the run
+    /// detached.
+    pub(crate) fn trigger_wait(
+        &self,
+        owner: &cmux_scope::Scope,
+        plan: Plan,
+        now: Instant,
+    ) -> (Trigger, Option<ResultReceiver>) {
         {
             let mut state = self.state.lock().unwrap_or_else(|e| e.into_inner());
             if state.running {
-                return Trigger::InFlight;
+                let receiver = state.result.as_ref().map(|result| result.subscribe());
+                return (Trigger::InFlight, receiver);
             }
             if state.last.is_some_and(|last| now.saturating_duration_since(last) < self.cooldown) {
-                return Trigger::Cooling;
+                return (Trigger::Cooling, None);
             }
             state.running = true;
             state.last = Some(now);
             state.outcome =
                 Outcome { started_ms: Some(crate::store::now_ms()), ..Outcome::default() };
+            let (result, receiver) = tokio::sync::watch::channel(None);
+            let result = Arc::new(result);
+            state.result = Some(result.clone());
+            let (state, runner) = (self.state.clone(), self.runner.clone());
+            owner.spawn_named("admission scale-up", async move {
+                let ran = run_plan(&runner, plan).await;
+                match &ran.host {
+                    Some(host) => {
+                        tracing::info!(host, "scale-up: the fleet added a machine for lanes")
+                    }
+                    None => tracing::warn!("scale-up: no provider added a machine"),
+                }
+                let _ = result.send(Some(ran.host.clone()));
+                let mut state = state.lock().unwrap_or_else(|e| e.into_inner());
+                state.running = false;
+                state.result = None;
+                state.outcome = Outcome {
+                    ended_ms: Some(crate::store::now_ms()),
+                    host: ran.host,
+                    error: ran.error,
+                    provider: ran.provider,
+                    ..state.outcome.clone()
+                };
+            });
+            (Trigger::Started, Some(receiver))
         }
-        let (state, runner) = (self.state.clone(), self.runner.clone());
-        owner.spawn_named("admission scale-up", async move {
-            let ran = run_plan(&runner, plan).await;
-            match &ran.host {
-                Some(host) => tracing::info!(host, "scale-up: the fleet added a machine for lanes"),
-                None => tracing::warn!("scale-up: no provider added a machine"),
-            }
-            let mut state = state.lock().unwrap_or_else(|e| e.into_inner());
-            state.running = false;
-            state.outcome = Outcome {
-                ended_ms: Some(crate::store::now_ms()),
-                host: ran.host,
-                error: ran.error,
-                provider: ran.provider,
-                ..state.outcome.clone()
-            };
-        });
-        Trigger::Started
     }
 
     /// The daemon status's `scaleUp` (`fleet_elastic.rs`, version 1): `adding` while a run is
@@ -580,5 +648,153 @@ mod tests {
         );
         assert!(matches!(parse_answer(true, "not json"), Answer::Failed { terminal: false, .. }));
         assert!(matches!(parse_answer(false, "{\"host\": \"x\"}"), Answer::Failed { .. }));
+    }
+
+    /// This host at `live` of a cap of 3, as `admission::check` reads it.
+    fn at(registry: &Value, live: usize) -> crate::hub::admission::Verdict {
+        crate::hub::admission::check(&crate::hub::admission::Inputs {
+            flag: None,
+            registry: Some(registry),
+            unreadable: false,
+            source: Path::new("/r/fleet-registry.json"),
+            machine: Some("m"),
+            live,
+        })
+    }
+
+    fn spare_registry(warm_spare: Option<bool>) -> Value {
+        let mut r = serde_json::json!({"machines": {"m": {"lanes": {"max_lanes": 3}}}});
+        if let Some(on) = warm_spare {
+            r["lane_overflow"] = serde_json::json!({"warm_spare": on});
+        }
+        r
+    }
+
+    #[test]
+    fn admission_scale_up_warm_spare_is_off_unless_turned_on() {
+        let none = |_: &str| None;
+        assert!(!warm_spare_on(None, none), "off by default");
+        assert!(!warm_spare_on(Some(&spare_registry(None)), none));
+        assert!(!warm_spare_on(Some(&spare_registry(Some(false))), none));
+        assert!(warm_spare_on(Some(&spare_registry(Some(true))), none));
+        let env = |v: &'static str| move |k: &str| (k == WARM_SPARE_ENV).then(|| v.to_owned());
+        assert!(warm_spare_on(None, env("1")));
+        assert!(!warm_spare_on(Some(&spare_registry(Some(true))), env("0")), "env wins");
+        assert!(warm_spare_on(Some(&spare_registry(Some(true))), env("maybe")));
+        // Off, no create asks for a spare and no Auto start moves for one, at any count.
+        let r = spare_registry(None);
+        for live in 0..6 {
+            let v = at(&r, live);
+            assert!(!wants_warm_spare(false, v.last_slot.is_some(), false), "live {live}");
+        }
+        assert!(!uses_spare(false, true, true));
+    }
+
+    #[test]
+    fn admission_scale_up_warm_spare_only_at_the_last_free_slot() {
+        let r = spare_registry(Some(true));
+        let asks: Vec<bool> = (0..6)
+            .map(|live| wants_warm_spare(true, at(&r, live).last_slot.is_some(), false))
+            .collect();
+        // Two free slots, one, then the create that takes the last; past the cap the
+        // existing over-cap scale-up asks instead.
+        assert_eq!(asks, [false, false, true, false, false, false]);
+        assert!(at(&r, 3).over.is_some() && at(&r, 3).last_slot.is_none());
+        assert!(!wants_warm_spare(true, true, true), "a connected host has room: no spare");
+        let uncapped = serde_json::json!({"machines": {"m": {}}});
+        assert!(at(&uncapped, 0).last_slot.is_none(), "no cap, no last slot");
+    }
+
+    #[tokio::test]
+    async fn admission_scale_up_warm_spare_asks_once_for_a_burst_at_zero_headroom() {
+        let (calls, release) =
+            (Arc::new(AtomicUsize::new(0)), Arc::new(tokio::sync::Notify::new()));
+        let scale = Arc::new(ScaleUp::new(held_runner(calls.clone(), release.clone()), COOLDOWN));
+        let owner = Arc::new(cmux_scope::Scope::new("test"));
+        let r = Arc::new(spare_registry(Some(true)));
+        let now = Instant::now();
+        // 16 concurrent creates that each see the last free slot, plus earlier ones.
+        let creates: Vec<_> = (0..16)
+            .map(|i| {
+                let (scale, owner, r) = (scale.clone(), owner.clone(), r.clone());
+                tokio::spawn(async move {
+                    let live = if i < 4 { i % 2 } else { 2 };
+                    let v = at(&r, live);
+                    wants_warm_spare(
+                        warm_spare_on(Some(&r), |_| None),
+                        v.last_slot.is_some(),
+                        false,
+                    )
+                    .then(|| scale.trigger(&owner, one_plan(), now))
+                })
+            })
+            .collect();
+        let mut seen = Vec::new();
+        for c in creates {
+            seen.extend(c.await.unwrap());
+        }
+        assert_eq!(seen.len(), 12, "only the last-slot creates ask: {seen:?}");
+        assert_eq!(seen.iter().filter(|t| **t == Trigger::Started).count(), 1, "{seen:?}");
+        release.notify_one();
+        settle(&scale).await;
+        // Repeated last-slot creates after the run ended, within the cooldown, ask nothing.
+        for s in 1..5 {
+            let later = now + Duration::from_secs(s * 30);
+            assert_eq!(scale.trigger(&owner, one_plan(), later), Trigger::Cooling);
+        }
+        assert_eq!(calls.load(Ordering::SeqCst), 1, "one machine for the whole burst");
+        assert!(owner.close(Duration::from_secs(1)).await.joined());
+    }
+
+    #[tokio::test]
+    async fn admission_scale_up_warm_spare_adds_none_when_quota_says_no() {
+        let calls = Arc::new(AtomicUsize::new(0));
+        let counted = calls.clone();
+        let denied: Runner = Arc::new(move |_p, _bound| {
+            counted.fetch_add(1, Ordering::SeqCst);
+            Box::pin(async {
+                Answer::Failed { why: "no slot: saved VM cap reached".into(), terminal: true }
+            })
+        });
+        let scale = ScaleUp::new(denied, COOLDOWN);
+        let owner = cmux_scope::Scope::new("test");
+        let now = Instant::now();
+        let (trigger, result) = scale.trigger_wait(&owner, one_plan(), now);
+        assert_eq!(trigger, Trigger::Started);
+        let mut result = result.expect("a started run has a result");
+        let _ = result.wait_for(|r| r.is_some()).await;
+        assert_eq!(*result.borrow(), Some(None), "no host");
+        settle(&scale).await;
+        let done = scale.status(now);
+        assert!(done["lastHost"].is_null(), "{done}");
+        assert_eq!(done["lastError"].as_str(), Some("no slot: saved VM cap reached"));
+        // With no spare, no connected host has room, so Auto starts never move for one,
+        // and the next last-slot creates within the cooldown ask nothing more.
+        assert!(!uses_spare(true, true, false));
+        assert_eq!(
+            scale.trigger(&owner, one_plan(), now + Duration::from_secs(60)),
+            Trigger::Cooling
+        );
+        assert_eq!(calls.load(Ordering::SeqCst), 1);
+        assert!(owner.close(Duration::from_secs(1)).await.joined());
+    }
+
+    #[test]
+    fn admission_scale_up_warm_spare_takes_the_next_auto_start() {
+        // The spare joined: the placement engine's verdict over the peers has room on it.
+        let peers = serde_json::json!({"pick": "spare", "why": "spare: 4 cores free", "hosts": []});
+        let room = room_elsewhere(&peers).is_some();
+        assert!(room);
+        assert!(uses_spare(true, true, room), "the next Auto start is placed on the spare");
+        assert!(!uses_spare(true, false, room), "an explicit choice stays where it asked");
+        assert!(!wants_warm_spare(true, true, room), "never a second spare while one has room");
+        let placed = crate::hub::admission_redirect::pick(
+            &peers,
+            crate::hub::admission_redirect::Reason::OverCap,
+            3,
+            Some(3),
+        )
+        .expect("placed on the spare");
+        assert_eq!(placed.host, "spare");
     }
 }

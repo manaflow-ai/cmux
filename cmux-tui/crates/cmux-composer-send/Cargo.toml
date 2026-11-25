@@ -11,4 +11,5 @@ description = "The phone composer's Send: the draft and its Return as one keyed 
 workspace = true
 
 [dependencies]
+base64.workspace = true
 serde_json.workspace = true

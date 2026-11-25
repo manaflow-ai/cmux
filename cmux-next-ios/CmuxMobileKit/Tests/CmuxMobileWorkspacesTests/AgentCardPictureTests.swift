@@ -295,6 +295,36 @@ import CmuxTabsKit
         #expect(!CannotDrawMark.isIn(image), "\(kind): the card's picture holds the cannot-draw mark (\(yellow) yellow, \(red) red pixels)")
     }
 
+    /// Leo, 2026-11-24, on his iPhone NIGHTLY: a subagent row with a prohibited-sign icon ("wer need to
+    /// chase all these placeholders doen and prevent them"). A running subagent's glyph is the spinner,
+    /// a UIKit view, which `ImageRenderer` draws as the cannot-draw mark. Its card's picture holds
+    /// none, running or finished, and a tool output picture draws in it too.
+    @Test(arguments: [AgentSubagent.State.running, .completed, .failed])
+    func aCardPictureOfSubagentsHoldsNoSystemCannotDrawMark(state: AgentSubagent.State) async throws {
+        let store = AgentChatStore(source: Silent())
+        let at = Date(timeIntervalSince1970: 0)
+        store.apply(.batch([
+            .userMessage(text: "Split it", promptId: "p", turnId: "t", attachments: [], at: at),
+            .turnStarted(turnId: "t", at: at),
+            .subagent(AgentSubagentChange(id: "sa", name: "Dialer", task: "Check the dialers", state: state, at: at)),
+            .subagent(AgentSubagentChange(id: "sb", name: "Relay", task: "Time the relay", state: .running, at: at)),
+            .update(.toolCall(ACPToolCall(id: "shot", title: "Screenshot", kind: .other, status: .completed,
+                                          content: [.content(.image(mimeType: "image/png", data: try Self.redPNG().base64EncodedString()))]))),
+        ]))
+        let turns = store.turns
+        let feed = AgentCardFeed(store: store)
+        var key = Self.key(feed, turns: turns)
+        for _ in 0 ..< 200 where !key.isDrawable {
+            try await Task.sleep(for: .milliseconds(10))
+            key = Self.key(feed, turns: turns)
+        }
+        try #require(key.isDrawable)
+        let image = try #require(AgentCardRasterizer.render(feed, key))
+        let (yellow, red) = CannotDrawMark.pixels(image)
+        #expect(yellow == 0, "subagents \(state): the card's picture holds the cannot-draw mark (\(yellow) yellow, \(red) red pixels)")
+        #expect(red > 100, "the screenshot in the tool output is not drawn in the card's picture (\(red) red pixels)")
+    }
+
     /// A 4:3 blue JPEG the size of a phone photo's upload (no crop in its bubble).
     static func bluePhotoJPEG() throws -> Data {
         let format = UIGraphicsImageRendererFormat()

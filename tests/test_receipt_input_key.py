@@ -121,6 +121,147 @@ class InputsListTest(unittest.TestCase):
         self.assertEqual({u for u, _, _ in rows if u != "*"}, set(gate.PROJECTS), "a listed unit is not a project")
 
 
+class StepReceiptTest(unittest.TestCase):
+    """One receipt per step of static-checks (cmuxterm-hq RFD 0148 row 34), in shadow. A step's key is its own
+    traced rows and its own command, and its receipt is recorded as soon as it passes, so a job that times out or
+    fails in a later step keeps it."""
+
+    JOB = "static-checks"
+    WORKFLOW = HERE.parent / ".github" / "workflows" / "cmux-next-guards.yml"
+
+    @classmethod
+    def setUpClass(cls):
+        import yaml
+        cls.steps = yaml.load(cls.WORKFLOW.read_text(encoding="utf-8"), Loader=yaml.BaseLoader)["jobs"][cls.JOB]["steps"]
+        cls.ids = [step.get("id", "") for step in cls.steps]
+        cls.checks = rik.step_checks(cls.JOB)
+
+    def test_there_are_step_checks(self):
+        self.assertEqual(sorted(self.checks), ["defaults-snapshot", "group-menus", "page-strings"])
+
+    def test_the_key_command_is_the_step_the_workflow_runs(self):
+        # The workflow file is not a row of a step's list (an edit to another step must not change this step's
+        # key), so the command in the key has to be the step's own, held equal here.
+        node = next(step["with"]["node-version"] for step in self.steps
+                    if str(step.get("uses", "")).startswith("actions/setup-node@"))
+        for step_id, check in self.checks.items():
+            step = self.steps[self.ids.index(step_id)]
+            spec = rik.CHECKS[check]
+            self.assertEqual(step["run"].strip(), spec["command"], step_id)
+            self.assertEqual(spec.get("node"), node if spec["command"].startswith("node ") else None, step_id)
+            self.assertEqual([k for k, v in (step.get("env") or {}).items() if v], [],
+                             f"{step_id}: a step env value is an input the key does not cover")
+
+    def test_each_list_is_the_steps_own_rows(self):
+        whole = {(kind, rel) for _unit, kind, rel in rik.load_inputs(self.JOB)}
+        for step_id, check in self.checks.items():
+            rows = rik.load_inputs(check)
+            self.assertTrue(rows, check)
+            self.assertEqual({unit for unit, _, _ in rows}, {"*"}, f"{check}: a step has no units")
+            paths = {rel for _unit, _kind, rel in rows}
+            self.assertIn(rik.CHECKS[check]["command"].split()[-1], paths, f"{check}: its own script is not a row")
+            self.assertIn(f"scripts/ci/receipt-inputs/{check}.txt", paths, f"{check}: its list is not a row")
+            self.assertNotIn(".github/workflows/cmux-next-guards.yml", paths,
+                             f"{check}: keyed on the workflow file, every edit to another step would change it")
+            self.assertLess(len(rows), len(whole), f"{check}: not narrower than the job's list")
+
+    def test_a_step_receipt_is_recorded_before_the_next_step(self):
+        for step_id in self.checks:
+            at = self.ids.index(step_id)
+            lookup, record, save = (self.steps[self.ids.index(f"{step_id}-receipt")], self.steps[at + 1],
+                                    self.steps[at + 2])
+            self.assertLess(self.ids.index("step-keys"), self.ids.index(f"{step_id}-receipt"))
+            self.assertLess(self.ids.index(f"{step_id}-receipt"), at, "the lookup comes before the step")
+            self.assertEqual(lookup["with"]["lookup-only"], "true", "shadow: the receipt is looked up, never used")
+            self.assertEqual(record.get("id"), f"{step_id}-record")
+            self.assertIn(f"record {self.checks[step_id]} ", record["run"])
+            self.assertIn(f"steps.{step_id}.outcome == 'success'", record["if"])
+            self.assertTrue(str(save.get("uses", "")).startswith("actions/cache/save@"), step_id)
+            self.assertEqual(save["with"]["key"], lookup["with"]["key"])
+            self.assertIn(f"steps.step-keys.outputs.{step_id}", save["with"]["key"])
+            for shadow in (lookup, record, save):
+                self.assertEqual(shadow.get("continue-on-error"), "true", "a shadow step never fails the job")
+                # success() would drop the receipt of a step that passed when an earlier step failed.
+                self.assertNotIn("success()", shadow["if"])
+            self.assertNotIn("steps.", self.steps[at].get("if", ""), "shadow: the step itself still always runs")
+
+    def test_verdicts_compare_each_step_with_its_receipt(self):
+        steps = {
+            "step-keys": {"outputs": {"defaults-snapshot": "a" * 64, "group-menus": "b" * 64, "page-strings": ""}},
+            "defaults-snapshot-receipt": {"outputs": {"cache-hit": "true"}},
+            "defaults-snapshot": {"outcome": "failure"},
+            "group-menus-receipt": {"outputs": {"cache-hit": "true"}},
+            "group-menus": {"outcome": "success"},
+            "page-strings": {"outcome": "success"},
+        }
+        by = {v["step"]: v for v in rik.step_verdicts(self.JOB, steps)}
+        self.assertEqual(sorted(by), ["defaults-snapshot", "group-menus"], "a step with no key reports nothing")
+        self.assertTrue(by["defaults-snapshot"]["wrong_reuse"], "found a receipt and the step failed")
+        self.assertTrue(by["group-menus"]["would_skip"])
+        self.assertFalse(by["group-menus"]["wrong_reuse"])
+        cut_off = {"step-keys": steps["step-keys"], "group-menus-receipt": {"outputs": {"cache-hit": "true"}},
+                   "defaults-snapshot": {"outcome": "success"}}
+        by = {v["step"]: v for v in rik.step_verdicts(self.JOB, cut_off)}
+        self.assertEqual(by["group-menus"]["run"], "not-run", "the job was cut off before the step")
+        self.assertFalse(by["group-menus"]["wrong_reuse"], "a step that did not run has no verdict to contradict")
+        self.assertFalse(by["defaults-snapshot"]["would_skip"])
+
+
+class StepKeyTest(KeyTest):
+    def test_a_step_key_moves_with_its_own_rows_only(self):
+        mine, other = [("*", "blob", "gate.py"), ("*", "tree", "app")], [("*", "tree", "site"), ("*", "names", "rust")]
+        key = lambda rows: rik.input_key("static-checks-group-menus", [], rows=rows)[0]  # noqa: E731
+        before_mine, before_other = key(mine), key(other)
+        self.write("site/b.tsx", "changed")
+        self.write("rust/x.rs", "changed")
+        self.commit()
+        self.assertEqual(before_mine, key(mine), "another step's input changed this step's key")
+        self.assertNotEqual(before_other, key(other))
+        self.write("app/a.tsx", "changed")
+        self.commit()
+        self.assertNotEqual(before_mine, key(mine))
+
+    def test_a_probed_directory_keys_on_being_there_not_on_its_tree(self):
+        # `stat scripts` on the way to scripts/x.py: a blob row on the directory was its whole tree, so every edit
+        # under it changed the key (group menus: 77% of a day's pushes reused, 98% with exists).
+        key = lambda kind: rik.input_key("static-checks-group-menus", [], rows=[("*", kind, "app"), ("*", "blob", "gate.py")])[0]  # noqa: E731
+        probed, whole = key("exists"), key("blob")
+        self.write("app/a.tsx", "changed")
+        self.write("app/new.tsx", "new")
+        self.commit()
+        self.assertEqual(probed, key("exists"), "an edit under a probed directory changed the key")
+        self.assertNotEqual(whole, key("blob"))
+        self.git("rm", "-q", "-r", "app")
+        self.commit()
+        gone = key("exists")
+        self.assertNotEqual(probed, gone, "the probed directory went away and the key stayed")
+        self.write("app", "now a file")
+        self.commit()
+        as_file = key("exists")
+        self.assertNotIn(as_file, (probed, gone), "a file where the directory was is another key")
+        self.write("app", "another file")
+        self.commit()
+        self.assertNotEqual(as_file, key("exists"), "a probed file keys on its content")
+
+    def test_the_widest_kind_of_a_path_wins(self):
+        rows = lambda *kinds: [("*", kind, "app") for kind in kinds]  # noqa: E731
+        key = lambda *kinds: rik.input_key("static-checks-group-menus", [], rows=rows(*kinds))[0]  # noqa: E731
+        self.assertEqual(key("exists", "names"), key("names"))
+        self.assertEqual(key("names", "exists", "blob"), key("blob"))
+        self.assertEqual(rik.pinned_patterns("static-checks-group-menus", "HEAD", rows=rows("exists")), [],
+                         "a probed directory pins nothing")
+
+    def test_the_node_pin_is_part_of_a_node_steps_key(self):
+        rows = [("*", "blob", "gate.py")]
+        before = rik.input_key("static-checks-page-strings", [], rows=rows)[0]
+        old = rik.CHECKS["static-checks-page-strings"]
+        rik.CHECKS["static-checks-page-strings"] = {**old, "node": "99.0.0"}
+        try:
+            self.assertNotEqual(before, rik.input_key("static-checks-page-strings", [], rows=rows)[0])
+        finally:
+            rik.CHECKS["static-checks-page-strings"] = old
+
+
 class ControllerVectorTest(unittest.TestCase):
     """cmuxterm-hq build-fleet/cmd/controller/input_receipt_test.go keys the same material to the same key; the
     controller computes the key a signed receipt is stored under, so the two must never drift."""
