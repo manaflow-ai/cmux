@@ -1640,7 +1640,7 @@ fn a_read_or_send_on_a_paused_machine_resumes_it() {
         json!({"code": "cloud.machine.paused", "message": "the machine is paused; start it first"}),
         app("This machine is stopped. Start it, then try again. (trace t-1)"),
     ];
-    for refusal in refusals {
+    for refusal in &refusals {
         let refused = || Ran { code: 1, stdout: String::new(), stderr: refusal.to_string() };
         let coming_up = Ran {
             code: 1,
