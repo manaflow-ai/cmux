@@ -26,7 +26,11 @@ export function foreignHarness(
   /// setting draws the row again.
   badge: SenderIconBadge,
 ): string | undefined {
-  if (!harness) return undefined;
-  if (badge !== "none") return harness;
-  return chatHarness && harnessFamily(harness) === harnessFamily(chatHarness) ? undefined : harness;
+  // A harness's own subagent (Claude's Task, Codex's spawn) names no harness: it runs on its chat's,
+  // so it wears the chat's mark, never the sparkle alone (Leo, 2026-11-22: "when did we decide to
+  // omit the claude/codex or whatever icons and only do the diamonds?").
+  const own = harness ?? chatHarness;
+  if (!own) return undefined;
+  if (badge !== "none") return own;
+  return chatHarness && harnessFamily(own) === harnessFamily(chatHarness) ? undefined : own;
 }
