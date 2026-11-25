@@ -50,7 +50,9 @@ const LANE_CONFIRM: Duration = Duration::from_secs(10);
 /// is still connecting before it falls back to the main stream.
 const LANE_WAIT: Duration = Duration::from_secs(2);
 /// How long a channel's owner may leave its full queue unread before that
-/// channel is closed (`overflow`).
+/// channel is closed (`overflow`). A silence bound: each event waits afresh
+/// for one free slot, so an owner that reads at all within it keeps the
+/// channel however long its backlog takes.
 const CHANNEL_STALL: Duration = Duration::from_secs(3);
 /// Bytes one channel may hold between the link reader and its owner's queue
 /// ([`Inbox`]) before the reader waits for it. Above the god sessions' bursts
@@ -183,6 +185,32 @@ fn probe_timeout(floor: Duration, srtt: Option<Duration>) -> Duration {
     let scaled = srtt.map_or(Duration::ZERO, |srtt| (srtt * PROBE_RTT_FACTOR).min(PROBE_TIMEOUT_CAP));
     floor.max(scaled)
 }
+/// A resumed parked link that has not answered after this many smoothed
+/// round trips, plus [`RESUME_HEDGE_SLACK`], is presumed stale and a fresh
+/// dial is started next to it (the old link keeps being probed; whichever
+/// answers first is kept). A live resume answers in two round trips: the
+/// tunnel's handshake on its new socket, then the ping's pong. The third
+/// round trip and the slack absorb jitter and one lost datagram's pacing.
+pub const RESUME_HEDGE_RTT_FACTOR: u32 = 3;
+/// Fixed slack on top of [`RESUME_HEDGE_RTT_FACTOR`] round trips: wake-up
+/// scheduling and the radio's promotion from idle.
+pub const RESUME_HEDGE_SLACK: Duration = Duration::from_millis(100);
+/// The hedge never fires sooner: under this, a healthy resume on a fast
+/// path still races a needless dial.
+pub const RESUME_HEDGE_FLOOR: Duration = Duration::from_millis(250);
+/// Nor later than the parked-resume probe's own 1.5 s: past that the app
+/// already gives up on the old link and redials.
+pub const RESUME_HEDGE_CAP: Duration = Duration::from_millis(1500);
+/// With no round trip measured on the link yet.
+pub const RESUME_HEDGE_UNKNOWN: Duration = Duration::from_millis(500);
+
+fn resume_hedge_after(srtt: Option<Duration>) -> Duration {
+    srtt.map_or(RESUME_HEDGE_UNKNOWN, |srtt| {
+        (srtt.saturating_mul(RESUME_HEDGE_RTT_FACTOR) + RESUME_HEDGE_SLACK)
+            .clamp(RESUME_HEDGE_FLOOR, RESUME_HEDGE_CAP)
+    })
+}
+
 /// While a link is suspect it pings this often, so the first ping after
 /// the network comes back is answered within about this long, and so the
 /// tunnel has a datagram to resume on. Only while suspect: an idle healthy
@@ -697,6 +725,12 @@ struct Inner {
     /// When the reader last received a frame other than a ping or a pong:
     /// the link carries traffic, not only keepalives.
     last_traffic: Mutex<Instant>,
+    /// When the link last made progress ([`Link::progress_ago`]): a frame or
+    /// datagram heard from the peer, or a write other than a keepalive taken
+    /// by the transport.
+    last_progress: Mutex<Instant>,
+    /// How many times the link made progress ([`Link::progress_count`]).
+    progress: AtomicU64,
     /// What this side sent that nothing has answered yet: the first frame
     /// (other than a ping or a pong) and the first ping written after the
     /// last inbound frame. Entries older than [`Inner::last_received`] are
@@ -845,7 +879,9 @@ impl Inner {
     }
 
     fn received(&self) {
-        *self.last_rx.lock().unwrap_or_else(PoisonError::into_inner) = Instant::now();
+        let now = Instant::now();
+        *self.last_rx.lock().unwrap_or_else(PoisonError::into_inner) = now;
+        self.progressed(now);
         // Anything from the peer clears a suspect link at once.
         if self.suspect_flag.load(Ordering::Relaxed) && self.suspect_flag.swap(false, Ordering::Relaxed) {
             self.suspect.send_replace(false);
@@ -856,7 +892,14 @@ impl Inner {
     /// The writer sent frames other than pings and pongs (data, open,
     /// close): note the first since the last inbound frame.
     fn sent_traffic(&self) {
+        self.progressed(Instant::now());
         self.note_unanswered(|unanswered| &mut unanswered.traffic);
+    }
+
+    /// The link moved: something was heard, or a write was taken.
+    fn progressed(&self, now: Instant) {
+        *self.last_progress.lock().unwrap_or_else(PoisonError::into_inner) = now;
+        self.progress.fetch_add(1, Ordering::Relaxed);
     }
 
     /// A ping went out: note the first since the last inbound frame.
@@ -1018,6 +1061,8 @@ impl Link {
             lane_attached: AtomicBool::new(false),
             last_rx: Mutex::new(Instant::now()),
             last_traffic: Mutex::new(Instant::now()),
+            last_progress: Mutex::new(Instant::now()),
+            progress: AtomicU64::new(0),
             unanswered: Mutex::new(Unanswered::default()),
             unanswered_changed: Notify::new(),
             suspect: watch::channel(false).0,
@@ -1515,6 +1560,15 @@ impl Link {
         probe_timeout(floor, srtt)
     }
 
+    /// How long a resumed parked link may stay silent before a fresh dial
+    /// is raced against it: [`RESUME_HEDGE_RTT_FACTOR`] smoothed round trips
+    /// plus [`RESUME_HEDGE_SLACK`], within [`RESUME_HEDGE_FLOOR`] and
+    /// [`RESUME_HEDGE_CAP`]. A remembered endpoint that died during the park
+    /// then costs this plus the dial instead of the full 1.5 s probe plus it.
+    pub fn resume_hedge_after(&self) -> Duration {
+        resume_hedge_after(*self.inner.srtt.lock().unwrap_or_else(PoisonError::into_inner))
+    }
+
     /// Whether the link is alive, within `timeout`: `Ok(Some(rtt))` on the
     /// pong, `Ok(None)` as soon as any other frame arrives after the ping went
     /// out (a pong can trail a full transmit queue on a slow relay; the link's
@@ -1605,6 +1659,27 @@ impl Link {
     /// Keepalives on, the foreground heartbeat probes it on the beat.
     pub fn traffic_ago(&self) -> Duration {
         self.inner.last_traffic.lock().unwrap_or_else(PoisonError::into_inner).elapsed()
+    }
+
+    /// How long ago the link last made progress: anything heard from the
+    /// peer (a frame or a liveness datagram, keepalives included), or a write
+    /// other than a ping or a pong taken by the transport. It starts at the
+    /// link's creation.
+    ///
+    /// This is the one progress clock a sender's hold reads: a prompt queued
+    /// on this link is stalled only once this has stayed quiet for the hold,
+    /// however long ago it was tapped (Leo: "10s timeout for messages being
+    /// sendsble is a shame. if it's making good progress, it shiukd be allowed
+    /// to keep going?"). The phone's `PromptOutbox::progressed` is its adapter.
+    pub fn progress_ago(&self) -> Duration {
+        self.inner.last_progress.lock().unwrap_or_else(PoisonError::into_inner).elapsed()
+    }
+
+    /// How many times the link made progress (see [`progress_ago`](Self::progress_ago)).
+    /// Monotonic: a reader that saw it change since its last look knows the
+    /// link moved in between, without comparing clocks.
+    pub fn progress_count(&self) -> u64 {
+        self.inner.progress.load(Ordering::Relaxed)
     }
 
     /// Resolves with the reason once the link is closed.
@@ -2556,6 +2631,17 @@ mod tests {
         assert_eq!(probe_timeout(floor, Some(Duration::from_secs(4))), PROBE_TIMEOUT_CAP);
     }
 
+    #[test]
+    fn resume_hedge_scales_with_the_round_trip_within_bounds() {
+        let ms = Duration::from_millis;
+        assert_eq!(resume_hedge_after(None), RESUME_HEDGE_UNKNOWN);
+        assert_eq!(resume_hedge_after(Some(ms(2))), RESUME_HEDGE_FLOOR);
+        assert_eq!(resume_hedge_after(Some(ms(20))), RESUME_HEDGE_FLOOR);
+        assert_eq!(resume_hedge_after(Some(ms(70))), ms(310));
+        assert_eq!(resume_hedge_after(Some(ms(300))), ms(1000));
+        assert_eq!(resume_hedge_after(Some(Duration::from_secs(2))), RESUME_HEDGE_CAP);
+    }
+
     fn pair() -> (Link, Link) {
         let (a, b) = tokio::io::duplex(64 * 1024);
         (
@@ -2794,6 +2880,44 @@ mod tests {
         drop(channel);
         phone.close("done");
         let _ = sink.await;
+    }
+
+    /// The progress clock moves on every write taken and everything heard,
+    /// so a link that keeps moving never looks stalled however long it runs,
+    /// and a link that goes silent does, one quiet stretch after its last move.
+    #[tokio::test(start_paused = true)]
+    async fn the_progress_clock_follows_the_last_move_not_the_first() {
+        let (a, b) = tokio::io::duplex(1024 * 1024);
+        let config = LinkConfig { keepalive: None, ..LinkConfig::default() };
+        let phone = Link::new(a, Role::Phone, config.clone(), None);
+        let mac = Link::new(b, Role::Mac, config, None);
+        let sink = async {
+            let mut incoming = mac.accept().await.expect("incoming");
+            while let Some(ChannelEvent::Data(_)) = incoming.channel.recv().await {}
+        };
+        let moves = async {
+            let channel = phone.open("sink", serde_json::json!({})).await.unwrap();
+            // A minute of a write every 5 s: far past a 10 s hold from the
+            // first write, never 10 s quiet.
+            for _ in 0..12 {
+                let before = phone.progress_count();
+                channel.send(Bytes::from_static(b"chunk")).await.unwrap();
+                tokio::time::sleep(Duration::from_millis(10)).await;
+                assert!(phone.progress_count() > before, "a write taken is progress");
+                assert!(mac.progress_ago() < Duration::from_millis(100), "a frame heard is progress");
+                tokio::time::sleep(Duration::from_secs(5)).await;
+                assert!(phone.progress_ago() < Duration::from_secs(6), "{:?}", phone.progress_ago());
+            }
+            // Then silence: the clock runs from the last move.
+            let count = phone.progress_count();
+            tokio::time::sleep(Duration::from_secs(30)).await;
+            assert_eq!(phone.progress_count(), count, "a silent link does not move");
+            assert!(phone.progress_ago() >= Duration::from_secs(30), "{:?}", phone.progress_ago());
+            drop(channel);
+            phone.close("done");
+        };
+        tokio::join!(sink, moves);
+        mac.close("done");
     }
 
     /// A Mac that floods one channel through a slow stream and, meanwhile,
@@ -3055,6 +3179,49 @@ mod tests {
         phone.close("done");
         let (_mac, code) = server.await.unwrap();
         assert_eq!(code, "overflow");
+    }
+
+    /// [`CHANNEL_STALL`] is a silence bound on the channel's owner, not a
+    /// total: each event waits for one free slot in the owner's queue, so an
+    /// owner that drains a backlog slowly (one event every 2 s for 2 minutes,
+    /// far past 3 s from the first full queue) keeps its channel, and one that
+    /// stops reading is closed `overflow` one bound after its last read.
+    #[tokio::test(start_paused = true)]
+    async fn a_slowly_draining_channel_is_kept_and_a_stopped_one_closed() {
+        let (a, b) = tokio::io::duplex(1024 * 1024);
+        let config = LinkConfig { keepalive: None, ..LinkConfig::default() };
+        let phone = Link::new(a, Role::Phone, config.clone(), None);
+        let mac = Link::new(b, Role::Mac, config, None);
+        let flood = async {
+            let mut incoming = mac.accept().await.expect("incoming");
+            for _ in 0..CHANNEL_DEPTH + 100 {
+                incoming.channel.send(Bytes::from_static(&[7u8; 64])).await.unwrap();
+            }
+            loop {
+                match incoming.channel.recv().await {
+                    Some(ChannelEvent::Closed(info)) => return (info.code, tokio::time::Instant::now()),
+                    Some(_) => {}
+                    None => return ("gone".to_owned(), tokio::time::Instant::now()),
+                }
+            }
+        };
+        let drain = async {
+            let mut channel = phone.open("flood", serde_json::json!({})).await.unwrap();
+            for read in 0..60 {
+                tokio::time::sleep(Duration::from_secs(2)).await;
+                let event = channel.recv().await;
+                assert!(matches!(event, Some(ChannelEvent::Data(_))), "read {read}: {event:?}");
+            }
+            let stopped = tokio::time::Instant::now();
+            tokio::time::sleep(CHANNEL_STALL * 3).await;
+            (channel, stopped)
+        };
+        let ((code, closed_at), (_channel, stopped)) = tokio::join!(flood, drain);
+        assert_eq!(code, "overflow");
+        assert!(closed_at >= stopped + CHANNEL_STALL - Duration::from_secs(2), "closed while still read");
+        assert!(closed_at <= stopped + CHANNEL_STALL + Duration::from_secs(1), "closed late");
+        phone.close("done");
+        mac.close("done");
     }
 
     /// Any inbound frame proves the peer is alive: a link receiving data
