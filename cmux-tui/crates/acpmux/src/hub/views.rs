@@ -57,6 +57,8 @@ pub(crate) fn without_summary_tools(mut summary: Value) -> Value {
             *title = summary_title(title);
         }
     }
+    // A census row's composer status: the whole one rides only with tools.
+    census_composer_status(&mut summary);
     summary
 }
 
@@ -389,6 +391,43 @@ pub fn decide(summary: &mut Value) {
     summary.set("lane", lane);
 }
 
+/// Set the summary's `composerStatus` from its own fields (`protocol/composer_status.rs`): a
+/// fixed set of key reads and at most a handful of items and nine facts, whatever the row holds.
+/// `whole` for a read with tools; else the census form (`composer_status::census`), and no
+/// member at all when it has nothing worth a census row.
+pub(crate) fn set_composer_status(summary: &mut Value, whole: bool) {
+    use crate::protocol::composer_status::{SessionFacts, census, composer_status};
+    if !summary.is_object() {
+        return;
+    }
+    let status = composer_status(&SessionFacts::from_summary(summary));
+    let status = if whole { Some(status) } else { census(status) };
+    put_composer_status(summary, status);
+}
+
+/// A census row's `composerStatus` (`composer_status::census`) from the whole one it carries.
+fn census_composer_status(row: &mut Value) {
+    use crate::protocol::composer_status::{ComposerStatus, census};
+    let Some(value) = row.get("composerStatus").filter(|v| !v.is_null()) else { return };
+    let status = <ComposerStatus as serde::Deserialize>::deserialize(value).ok().and_then(census);
+    put_composer_status(row, status);
+}
+
+fn put_composer_status(
+    summary: &mut Value,
+    status: Option<crate::protocol::composer_status::ComposerStatus>,
+) {
+    let Some(row) = summary.as_object_mut() else { return };
+    match status.and_then(|status| serde_json::to_value(status).ok()) {
+        Some(value) => {
+            row.insert("composerStatus".to_owned(), value);
+        }
+        None => {
+            row.remove("composerStatus");
+        }
+    }
+}
+
 /// The summary's `lastMessage`, one sidebar line: the last line of words in
 /// the agent's reply, or the prompt while the turn has not answered yet.
 /// Null before the first prompt.
@@ -474,7 +513,14 @@ impl Hub {
     }
 
     pub fn session_summary(&self, session: &Session) -> Value {
-        self.summary_with_tools(session, true)
+        self.summary_with_tools(session, true, false)
+    }
+
+    /// The whole row of a chat for the `session_changed` that follows one of its records: its
+    /// summary, with the time breakdown only when the row owes it
+    /// (`time_breakdown::State::row_snapshot`). Built once per record (`HubEvent::row`).
+    pub(crate) fn session_change_summary(&self, session: &Session) -> Value {
+        self.summary_with_tools(session, true, true)
     }
 
     /// Start restoring a chat's time breakdown off the request path, at most one at a time. Until
@@ -702,7 +748,7 @@ impl Hub {
     /// Census rows omit the inventory and cut a long title (`TITLE_CHARS`); `_acpmux/info` and
     /// attach keep both.
     pub(crate) fn session_list_summary(&self, session: &Session) -> Value {
-        self.summary_with_tools(session, false)
+        self.summary_with_tools(session, false, false)
     }
 
     /// Whether `fork_through.rs` and `fork.rs` fork this chat through any completed turn: its
@@ -716,7 +762,9 @@ impl Hub {
         Some(cfg.profile(&m.harness).and_then(|p| crate::config::turn_cut(&m.harness, p)).is_some())
     }
 
-    fn summary_with_tools(&self, session: &Session, with_tools: bool) -> Value {
+    /// `change_row`: the row follows a record (`session_change_summary`), so it carries the
+    /// time breakdown only when owed.
+    fn summary_with_tools(&self, session: &Session, with_tools: bool, change_row: bool) -> Value {
         use crate::protocol::session::{
             QueuedImage, QueuedPromptSummary, SessionSummary, TurnSummary,
         };
@@ -817,6 +865,7 @@ impl Hub {
             queued: session.queued(),
             // The person's unsent text (`set_composer_draft`): an idle app update waits for it.
             has_draft: m.composer_draft.as_deref().is_some_and(|d| !d.trim().is_empty()),
+            pinned: m.pinned,
             // Background work no turn shows: an idle app update waits for it too.
             working_below: self.holds_work_below_read(session),
             // A turn failed: the prompts that waited behind it wait for a client to resume them.
@@ -900,6 +949,10 @@ impl Hub {
                         .provenance
                         .clone()
                         .filter(|p| super::inbox::is_notice(Some(p))),
+                    origin: Some(super::queue_origin::of(
+                        q.run.provenance.as_ref(),
+                        q.run.agent.as_deref(),
+                    )),
                     // By attachment id: `_acpmux/attachment` reads each back.
                     images: super::prompt_images::named_sourced(
                         &q.run.blocks,
@@ -972,7 +1025,17 @@ impl Hub {
             // What its harness spent and holds, as the last read found it (`usage_view.rs`).
             usage_stats: self.usage_stats_of(session, &m),
             // A detail/attach read seeds this lazily; census rows never scan journals.
-            time_breakdown: with_tools.then(|| self.cached_time_breakdown(session)).flatten(),
+            time_breakdown: match (with_tools, change_row) {
+                (false, _) => None,
+                (true, false) => self.cached_time_breakdown(session),
+                (true, true) => session
+                    .time_breakdown
+                    .lock()
+                    .unwrap_or_else(|e| e.into_inner())
+                    .row_snapshot(crate::store::now_ms()),
+            },
+            // Set from the row's own fields below (`set_composer_status`).
+            composer_status: None,
         };
         let receipt = SessionReceipt::new(
             LOCAL_HOST_ID,
@@ -1016,6 +1079,11 @@ impl Hub {
         summary.set("subagentsWorkingSince", json!(self.work_below_since(session)));
         // Other sessions' messages its Claude Code holds (`native_messaging.rs`): `acpmux pending`.
         summary.set("heldMessages", super::native_messaging::held_messages(session));
+        // Its inbox's held-message deadlines (`inbox.rs`, "Deadlines"): NOW counts a session with
+        // a message past its deadline red, from this field in one `ls` call.
+        let (overdue, due_at) = super::inbox::deadline_row(session);
+        summary.set("inboxOverdue", json!(overdue));
+        summary.set("inboxDueAt", json!(due_at));
         // How many open sub-sessions below it wait on the person, and since when (`asks_below.rs`).
         let waiting = self.subsessions_waiting(session);
         summary.set("subsessionsWaiting", json!(waiting.map_or(0, |(count, _)| count)));
@@ -1062,6 +1130,7 @@ impl Hub {
         let warnings = super::usage_warnings::usage_warnings(&summary, &limits);
         summary.set("usageWarnings", json!(warnings));
         decide(&mut summary);
+        set_composer_status(&mut summary, with_tools);
         summary
     }
 
@@ -1233,6 +1302,8 @@ impl Hub {
             // Messages handed to this daemon that are not delivered yet (`outbox.rs`):
             // `acpmux ls` says so, `acpmux send --status` lists them.
             "outboxPending": self.outbox_unsettled(),
+            // Its counters and gauges (`outbox_stats.rs`): `acpmux ls` ends with them.
+            "outboxStats": self.outbox.stats(),
             // The lock bridge (`hub/lock_bridge.rs`): this Mac's screen lock, whether
             // `sessions.keepAwakeWhenLocked` is on, and whether it holds idle sleep off now.
             "lockBridge": super::lock_bridge::state(),
@@ -1512,3 +1583,7 @@ mod time_breakdown_tests {
 #[cfg(test)]
 #[path = "views_status_budget_tests.rs"]
 mod status_budget_tests;
+
+#[cfg(test)]
+#[path = "composer_status_cost_tests.rs"]
+mod composer_status_cost_tests;
