@@ -1864,8 +1864,7 @@ lane = "linux-guard"
 
 [[test]]
 path = "tests/test_ci_job_token_floor.py"
-lane = "manual"
-reason = "No workflow step runs it (lane derived by --write). Run it yourself: python3 tests/test_ci_job_token_floor.py"
+lane = "linux-guard"
 
 [[test]]
 path = "tests/test_ci_fast_checks_failover.py"
