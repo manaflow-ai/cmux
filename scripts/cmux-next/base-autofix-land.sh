@@ -69,7 +69,7 @@ main() {
   trap 'rm -rf "${work:-}"' EXIT
   root="$(git rev-parse --show-toplevel)"
   # The run's own push and area rules, copied before a checkout of the tip can change them. The repair
-  # and the defaults guard on the tip are the tip's own (in the checkout).
+  # and the defaults snapshot tool on the tip are the tip's own (in the checkout).
   cp "$here/autofix-areas.sh" "$work/autofix-areas.sh"
   areas_script="${CMUX_BASE_AUTOFIX_AREAS:-$work/autofix-areas.sh}"
   push_script="${CMUX_BASE_AUTOFIX_PUSH:-}"
@@ -105,6 +105,8 @@ main() {
       web/data/next-docs/*.generated.json) ((actions_current)) ;;
       # The namespace lint's safe rewrites (base-autofix.sh 1f', with --ratchets).
       Packages/*.swift | ios/cmux/*.swift) return 0 ;;
+      # The iPhone app's uniffi Swift bindings (base-autofix.sh 5a), from the tip's own crate.
+      cmux-next-ios/CmuxMobileKit/Sources/CmuxMobileLinkFFI/*) return 0 ;;
       web/data/cmux-shortcuts.generated.json | cmux-tui/crates/cmux-app-host/generated/* \
         | Packages/macOS/CmuxNext/Sources/CmuxNextApps/Resources/AppPlatform/*) ((actions_current)) ;;
       schemas/defaults/cmux-next.json) ((actions_current && settings_current)) ;;
