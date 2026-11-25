@@ -73,9 +73,12 @@ import Testing
 
     @Test func memoryPressureRateLimiterRefillsAfterItsInterval() {
         var limiter = MemoryPressureRateLimiter(capacity: 1, refillNanos: 10)
-        #expect(limiter.admit(nowNanos: 0))
-        #expect(!limiter.admit(nowNanos: 9))
-        #expect(limiter.admit(nowNanos: 10))
+        let first = limiter.admit(nowNanos: 0)
+        let beforeRefill = limiter.admit(nowNanos: 9)
+        let afterRefill = limiter.admit(nowNanos: 10)
+        #expect(first)
+        #expect(!beforeRefill)
+        #expect(afterRefill)
     }
 
     @Test func everyEventNamesTheTeamMemberCommitAndInstall() {
