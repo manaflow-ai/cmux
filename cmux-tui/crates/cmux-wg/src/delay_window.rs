@@ -47,6 +47,14 @@
 //!   limited) does not grow it.
 //! - The window holds fresh data only: the pacer queues a resent segment
 //!   ahead of the fresh ones, which may wait for the ACK it brings.
+//! - Past slow start, and in a round with a resend, the window leaves paced
+//!   at [`HELD_GAIN`] times its rate instead of the pacer's two: the window
+//!   then holds about the path's product, and ACKs keep the flight near it,
+//!   so the pace only binds when a whole window opens at once. A resend does
+//!   that: smoltcp has no SACK, so the ACK that covers it covers the whole
+//!   window behind it, and at twice the path's rate that window put half of
+//!   itself in the queue (a 110 to 250 ms keystroke-echo spike under a bulk
+//!   transfer on lte's 0.5 % loss, where the target is 5 ms).
 //!
 //! The backlog the window holds back waits in the pacer, behind every
 //! interactive connection and datagram, instead of in the path's queue.
@@ -70,6 +78,10 @@ const RECENT_SAMPLES: usize = 8;
 /// Past slow start, a queue this many targets deep cuts the window at once,
 /// without waiting for the round's end.
 const OVERSHOOT: u32 = 4;
+/// Pacing gain over the window's rate where the window holds the path's
+/// product (see the module docs): enough to keep the window full, little
+/// enough that a window opening at once queues a fifth of itself.
+pub(crate) const HELD_GAIN: f64 = 1.25;
 /// A full-size segment.
 const SEGMENT: u32 = 1200;
 /// Acknowledged bytes one delivery-rate sample spans at least: several
@@ -133,6 +145,8 @@ pub(crate) struct DelayWindow {
     ack_times: VecDeque<(Instant, u32)>,
     /// Largest delivery rate (bytes a second) of the round being measured.
     round_rate: f64,
+    /// TCP resent in the round being measured.
+    round_resent: bool,
 }
 
 impl Default for DelayWindow {
@@ -149,6 +163,7 @@ impl Default for DelayWindow {
             round_flight: 0,
             ack_times: VecDeque::new(),
             round_rate: 0.0,
+            round_resent: false,
         }
     }
 }
@@ -157,6 +172,12 @@ impl DelayWindow {
     /// The bytes of fresh data allowed on the wire, or `None` when off.
     pub(crate) fn window(&self) -> Option<u32> {
         enabled().then_some(self.window)
+    }
+
+    /// The pacing gain over the window's rate, or `None` for the pacer's
+    /// own: [`HELD_GAIN`] past slow start or in a round with a resend.
+    pub(crate) fn pacing_gain(&self) -> Option<f64> {
+        (enabled() && (!self.slow_start || self.round_resent)).then_some(HELD_GAIN)
     }
 
     /// The base delay: the smallest sample of the history.
@@ -183,6 +204,7 @@ impl DelayWindow {
         self.round_min = None;
         self.recent.clear();
         self.round = self.round.map(|round| Round { until: None, ..round });
+        self.round_resent = true;
     }
 
     /// The ACK moved to `ack` at `now`; `snd_max` is the highest sequence end
@@ -225,6 +247,7 @@ impl DelayWindow {
         self.round_min = None;
         self.round_flight = 0;
         self.round_rate = 0.0;
+        self.round_resent = false;
     }
 
     /// The ACK moved to `ack` at `now`: one delivery-rate sample over the

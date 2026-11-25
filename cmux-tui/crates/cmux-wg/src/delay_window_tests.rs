@@ -18,6 +18,26 @@ fn bottleneck_from_start(
     base: Duration,
     run: Duration,
 ) -> (u32, f64, Duration, Duration) {
+    let sim = bottleneck_losing(rate, base, run, None);
+    (sim.window, sim.goodput, sim.worst_half, sim.worst_ever)
+}
+
+struct Sim {
+    window: u32,
+    /// Bytes acked a second over the last half of the run.
+    goodput: f64,
+    /// Largest queueing delay a segment met over the last half of the run.
+    worst_half: Duration,
+    worst_ever: Duration,
+    /// Largest queueing delay a segment sent after the resend's ACK met.
+    worst_after_loss: Duration,
+}
+
+/// [`bottleneck`] where the first segment sent at `lose_at` or later is
+/// lost, as smoltcp recovers it: the receiver acknowledges nothing past the
+/// hole (no SACK), the sender resends it on the first duplicate ACK, and
+/// the ACK of the resend covers everything sent before it.
+fn bottleneck_losing(rate: f64, base: Duration, run: Duration, lose_at: Option<Duration>) -> Sim {
     let start = Instant::now();
     let mut delay = DelayWindow::default();
     let mut now = start;
@@ -27,9 +47,13 @@ fn bottleneck_from_start(
     let mut acks: VecDeque<(Instant, u32)> = VecDeque::new();
     let half = start + run / 2;
     let (mut acked_after_half, mut worst_queue) = (0u64, Duration::ZERO);
-    let mut worst_ever = Duration::ZERO;
+    let (mut worst_ever, mut worst_after_loss) = (Duration::ZERO, Duration::ZERO);
     let (mut srtt, mut next_send): (Option<Duration>, Instant) = (None, start);
     let mut departed: VecDeque<(u32, Instant)> = VecDeque::new();
+    let mut lose_at = lose_at.map(|at| start + at);
+    // The lost segment's end until it is resent, then the resend's ACK.
+    let (mut hole, mut resend_ack, mut recovered): (Option<u32>, Option<u32>, bool) =
+        (None, None, false);
     while now < start + run {
         // Send what the window and the pacing allow.
         while next_send <= now
@@ -41,13 +65,22 @@ fn bottleneck_from_start(
                 worst_queue = worst_queue.max(queued);
             }
             worst_ever = worst_ever.max(queued);
+            if recovered {
+                worst_after_loss = worst_after_loss.max(queued);
+            }
             link_free = begin + Duration::from_secs_f64(f64::from(SEGMENT) / rate);
             snd_max = snd_max.wrapping_add(SEGMENT);
             delay.departed(snd_max, snd_max.wrapping_sub(snd_una), now);
             departed.push_back((snd_max, now));
-            acks.push_back((link_free + base, snd_max));
+            if lose_at.is_some_and(|at| now >= at) {
+                lose_at = None;
+                hole = Some(snd_max);
+            } else {
+                acks.push_back((link_free + base, snd_max));
+            }
             if let Some(srtt) = srtt {
-                let pace = 2.0 * f64::from(delay.window) / srtt.as_secs_f64();
+                let gain = delay.pacing_gain().unwrap_or(2.0);
+                let pace = gain * f64::from(delay.window) / srtt.as_secs_f64();
                 next_send = now + Duration::from_secs_f64(f64::from(SEGMENT) / pace);
             }
         }
@@ -59,7 +92,21 @@ fn bottleneck_from_start(
         }
         acks.pop_front();
         now = at;
-        if let Some((_, sent)) = departed.pop_front() {
+        if hole.is_some() || resend_ack.is_some_and(|resend| resend != ack) {
+            // A duplicate ACK: the receiver holds what came after the hole.
+            if hole.take().is_some() {
+                delay.resent();
+                let begin = link_free.max(now);
+                link_free = begin + Duration::from_secs_f64(f64::from(SEGMENT) / rate);
+                resend_ack = Some(snd_max);
+                acks.push_back((link_free + base, snd_max));
+            }
+            continue;
+        }
+        if resend_ack.take().is_some() {
+            recovered = true;
+            departed.retain(|&(end, _)| after(end, ack));
+        } else if let Some((_, sent)) = departed.pop_front() {
             let sample = now - sent;
             srtt = Some(srtt.map_or(sample, |srtt| (srtt * 7 + sample) / 8));
         }
@@ -69,7 +116,13 @@ fn bottleneck_from_start(
         snd_una = ack;
         delay.acked(ack, snd_max, now);
     }
-    (delay.window, acked_after_half as f64 / (run / 2).as_secs_f64(), worst_queue, worst_ever)
+    Sim {
+        window: delay.window,
+        goodput: acked_after_half as f64 / (run / 2).as_secs_f64(),
+        worst_half: worst_queue,
+        worst_ever,
+        worst_after_loss,
+    }
 }
 
 #[test]
@@ -97,6 +150,19 @@ fn slow_start_stops_near_the_product_on_lte() {
     // is the largest queue left, 32 segments at 12 Mbit/s, about 25 ms.
     let first_burst = Duration::from_secs_f64(f64::from(INITIAL_WINDOW) / rate);
     assert!(worst <= first_burst + TARGET, "queue reached {worst:?}");
+}
+
+#[test]
+fn the_window_a_resend_opens_does_not_fill_the_queue_on_lte() {
+    // smoltcp has no SACK: the ACK of a resent segment covers the whole
+    // window behind it, and the window opens at once. Paced at twice the
+    // path's rate it put half of itself in the queue, 37 ms here, 16 ms at the held gain (110 to
+    // 250 ms keystroke-echo spikes under a transfer on lte's 0.5 % loss).
+    let rate = 12e6 / 8.0;
+    let base = Duration::from_millis(70);
+    let sim = bottleneck_losing(rate, base, Duration::from_secs(8), Some(Duration::from_secs(4)));
+    assert!(sim.goodput > 0.9 * rate, "goodput {:.0} of {rate:.0} B/s", sim.goodput);
+    assert!(sim.worst_after_loss <= TARGET * 4, "queue reached {:?}", sim.worst_after_loss);
 }
 
 #[test]

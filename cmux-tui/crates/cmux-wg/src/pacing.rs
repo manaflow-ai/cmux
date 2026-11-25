@@ -268,7 +268,14 @@ impl Connection {
             Some(window) => self.flight().min(window),
             None => self.flight(),
         };
-        Some(GAIN * f64::from(flight.max(MIN_FLIGHT)) / srtt)
+        // A bulk connection whose window holds the path's product leaves at
+        // little more than its rate: a window opening at once (the ACK after
+        // a resend) would otherwise queue half of itself in the path.
+        let gain = match self.delay.pacing_gain() {
+            Some(gain) if !self.interactive() => gain,
+            _ => GAIN,
+        };
+        Some(gain * f64::from(flight.max(MIN_FLIGHT)) / srtt)
     }
 
     /// Record a segment the stack emitted; true when it carries sequence
