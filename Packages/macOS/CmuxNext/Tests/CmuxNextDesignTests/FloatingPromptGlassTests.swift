@@ -28,6 +28,10 @@ struct FloatingPromptGlassTests {
     /// The floating panel's card and the consents' host view draw the prompt glass; a card over its anchor window keeps
     /// the spec's.
     @Test func floatingCardsDrawThePromptGlass() throws {
+        try DesignSettings.$themedPromptsOverride.withValue(true) { try floatingCardsDrawThePromptGlassOn() }
+    }
+
+    private func floatingCardsDrawThePromptGlassOn() throws {
         _ = NSApplication.shared
         let spec = CmuxDialogSpec(title: "Allow control?", lines: ["A computer on your team asks."],
                                   buttons: [CmuxDialogButton(id: "ok", title: "OK", role: .default)])
@@ -41,6 +45,28 @@ struct FloatingPromptGlassTests {
     /// A floating prompt names who asks in its header (the icon small beside the title) and keeps the text column the
     /// card's width; a dialog in a window keeps the large icon at the left.
     @Test func floatingCardsLeadWithAnIdentityHeader() throws {
+        try DesignSettings.$themedPromptsOverride.withValue(true) { try floatingCardsLeadWithAnIdentityHeaderOn() }
+    }
+
+    /// Off (Settings > Experiments > Themed Floating Prompts, the default), a floating card keeps the large icon at
+    /// the left, as before.
+    @Test func offAFloatingCardKeepsTheLargeIcon() throws {
+        _ = NSApplication.shared
+        try DesignSettings.$themedPromptsOverride.withValue(false) {
+            let spec = CmuxDialogSpec(title: "Desk Mac asked to control this Mac.", lines: ["Allow control?"],
+                                      buttons: [CmuxDialogButton(id: "ok", title: "OK", role: .default)])
+            let floating = CmuxDialogView(dialog: .standalone(spec) { _ in }, overApps: true)
+            floating.layoutSubtreeIfNeeded()
+            #expect(!floating.overApps)
+            func icons(_ view: NSView) -> [NSImageView] {
+                view.subviews.flatMap { ($0 as? NSImageView).map { [$0] } ?? icons($0) }
+            }
+            #expect(icons(floating).map(\.frame.width) == [CmuxDialogMetrics.iconSize])
+            #expect(try #require(floating.surface).glass.tone.style != .prompt)
+        }
+    }
+
+    private func floatingCardsLeadWithAnIdentityHeaderOn() throws {
         _ = NSApplication.shared
         let spec = CmuxDialogSpec(title: "Desk Mac asked to control this Mac.", lines: ["Allow control?", "You can change this later."],
                                   buttons: [CmuxDialogButton(id: "ok", title: "OK", role: .default)])

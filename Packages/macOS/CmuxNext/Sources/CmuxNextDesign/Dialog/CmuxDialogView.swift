@@ -23,12 +23,14 @@ public final class CmuxDialogView: NSView, CmuxDialogRendering {
     /// A prompt floating over every app (``CmuxFloatingDialogPanel``): the ``SurfaceRole/prompt`` glass, its inks fit
     /// over any app's pixels, and a header that names who asks (the icon small beside the title, the question under
     /// it, a quieter note last; Leo 2026-11-22: "it didn't seem very intentionally designed").
+    /// Only while Settings > Experiments > Themed Floating Prompts is on (``DesignSettings/themedPrompts``, off by
+    /// default): off, a floating prompt draws as it did before.
     public let overApps: Bool
 
     /// `overApps`: the card floats over every app (``CmuxFloatingDialogPanel``), not over a cmux window.
     public init(dialog: CmuxDialogPresentation, overApps: Bool = false) {
         self.dialog = dialog
-        self.overApps = overApps
+        self.overApps = overApps && DesignSettings.shared.themedPrompts
         super.init(frame: .zero)
         translatesAutoresizingMaskIntoConstraints = false
         build()

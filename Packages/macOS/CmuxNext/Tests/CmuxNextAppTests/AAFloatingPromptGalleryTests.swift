@@ -111,6 +111,11 @@ import Testing
 
     @Test(.enabled(if: ProcessInfo.processInfo.environment["CMUX_TEST_REQUIRE_GUI"] == "1"))
     func renderGallery() throws {
+        // The look Settings > Experiments > Themed Floating Prompts turns on (off by default).
+        try DesignSettings.$themedPromptsOverride.withValue(true) { try renderGalleryOn() }
+    }
+
+    private func renderGalleryOn() throws {
         Motion.reduceMotionOverride = true
         defer { Motion.reduceMotionOverride = nil }
         let root = AANestedGroupsGalleryTests.packageRoot

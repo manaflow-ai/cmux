@@ -143,7 +143,7 @@ public final class ThemeStore {
         if publishesGlobally {
             ThemeSnapshot.store(derived)
             // cmux Remote's prompts over every app wear this theme too (PromptThemeFile).
-            PromptThemeFile.publish(derived)
+            PromptThemeFile.publish(derived, enabled: DesignSettings.shared.themedPrompts)
             // Room, workspace and terminal scopes inherit from the app scope.
             // A theme, light/dark or Ghostty config change recolors every window in place: its
             // layer colors blend from the ones on screen (colors drawn in draw(_:) and terminal

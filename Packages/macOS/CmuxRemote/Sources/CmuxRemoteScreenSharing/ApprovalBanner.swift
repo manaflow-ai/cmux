@@ -247,6 +247,9 @@ enum ApprovalLook {
     static let buttonHeight: CGFloat = 26
     static let buttonCorner: CGFloat = 8
     static var cardCorner: CGFloat { buttonCorner + padding }
+    /// The app icon at the card's left, without the app's theme (``theme`` is nil).
+    static let iconSize: CGFloat = 40
+    static let iconGap: CGFloat = 12
     static let keycapInset: CGFloat = 3
     static let keycapPadding: CGFloat = 5
     static let screenMargin: CGFloat = 12
@@ -259,7 +262,9 @@ enum ApprovalLook {
     static let headerIconSize: CGFloat = 20
     static let headerIconGap: CGFloat = 8
 
-    /// The app's theme for the prompt now on screen (``PromptTheme``); nil: the system's colors.
+    /// The app's theme for the prompt now on screen (``PromptTheme``); nil: the system's colors and the banner's
+    /// layout as it was. The app leaves one only while Settings > Experiments > Themed Floating Prompts is on (off by
+    /// default, Leo's UI merge hold, 2026-11-24).
     static var theme: PromptTheme?
 
     /// The banner's inks: the theme's, fit to read on its prompt glass over any app, else the system's.
@@ -358,8 +363,10 @@ final class ApprovalView: NSView {
         super.init(frame: NSRect(x: 0, y: 0, width: Self.width, height: 200))
         wantsLayer = true
         let look = ApprovalLook.self
-        // The text takes the card's width; the icon sits small beside the title (who asks), as the app's prompt.
-        let textWidth = Self.width - look.padding * 2
+        // Themed: the text takes the card's width and the icon sits small beside the title (who asks), as the app's
+        // prompt. Without the app's theme: the large icon at the left, as before.
+        let themed = look.theme != nil
+        let textWidth = Self.width - look.padding * 2 - (themed ? 0 : look.iconSize + look.iconGap)
         let content = NSView()
         let card = look.card(content: content)
         card.setAccessibilityElement(true)
@@ -371,6 +378,7 @@ final class ApprovalView: NSView {
         icon.imageScaling = .scaleProportionallyUpOrDown
         icon.setAccessibilityElement(false)
         icon.translatesAutoresizingMaskIntoConstraints = false
+        if !themed { content.addSubview(icon) }
         stack.orientation = .vertical
         stack.alignment = .leading
         stack.spacing = look.spacing
@@ -380,34 +388,47 @@ final class ApprovalView: NSView {
             card.leadingAnchor.constraint(equalTo: leadingAnchor), card.trailingAnchor.constraint(equalTo: trailingAnchor),
             card.topAnchor.constraint(equalTo: topAnchor), card.bottomAnchor.constraint(equalTo: bottomAnchor),
             widthAnchor.constraint(equalToConstant: Self.width),
-            icon.widthAnchor.constraint(equalToConstant: look.headerIconSize), icon.heightAnchor.constraint(equalToConstant: look.headerIconSize),
-            stack.leadingAnchor.constraint(equalTo: content.leadingAnchor, constant: look.padding),
             stack.topAnchor.constraint(equalTo: content.topAnchor, constant: look.padding),
             stack.widthAnchor.constraint(equalToConstant: textWidth),
             content.bottomAnchor.constraint(equalTo: stack.bottomAnchor, constant: look.padding),
         ])
+        NSLayoutConstraint.activate(themed ? [
+            icon.widthAnchor.constraint(equalToConstant: look.headerIconSize), icon.heightAnchor.constraint(equalToConstant: look.headerIconSize),
+            stack.leadingAnchor.constraint(equalTo: content.leadingAnchor, constant: look.padding),
+        ] : [
+            icon.leadingAnchor.constraint(equalTo: content.leadingAnchor, constant: look.padding),
+            icon.topAnchor.constraint(equalTo: content.topAnchor, constant: look.padding),
+            icon.widthAnchor.constraint(equalToConstant: look.iconSize), icon.heightAnchor.constraint(equalToConstant: look.iconSize),
+            stack.leadingAnchor.constraint(equalTo: icon.trailingAnchor, constant: look.iconGap),
+        ])
         let title = Self.label(String(format: request.scope == .full
                 ? RemoteText.t("macScreen.approval.titleFull", "%@ wants to control this Mac")
                 : RemoteText.t("macScreen.approval.titleView", "%@ wants to see this Mac"), request.viewerName),
-            font: look.titleFont, width: textWidth - look.headerIconSize - look.headerIconGap)
-        let header = NSStackView(views: [icon, title])
-        header.orientation = .horizontal
-        header.alignment = .centerY
-        header.spacing = look.headerIconGap
-        stack.addArrangedSubview(header)
+            font: look.titleFont, width: themed ? textWidth - look.headerIconSize - look.headerIconGap : textWidth)
+        if themed {
+            let header = NSStackView(views: [icon, title])
+            header.orientation = .horizontal
+            header.alignment = .centerY
+            header.spacing = look.headerIconGap
+            stack.addArrangedSubview(header)
+        } else {
+            stack.addArrangedSubview(title)
+            stack.setCustomSpacing(look.subtitleGap, after: title)
+        }
         let full = request.scope == .full
         stack.addArrangedSubview(Self.label(full
                 ? RemoteText.t("macScreen.approval.bodyFull", "It can see your screen and use your mouse and keyboard.")
                 : RemoteText.t("macScreen.approval.bodyView", "It can see your screen but can’t control it."),
             font: look.bodyFont, color: look.ink(.secondary), width: textWidth))
-        // What Allow keeps: a quieter note under the question.
+        // What Allow keeps: themed, a quieter note under the question.
+        let note = look.ink(themed ? .tertiary : .secondary)
         stack.addArrangedSubview(Self.label(String(format: full
                 ? RemoteText.t("macScreen.approval.remembersFull", "Allow lets %@ control this Mac from now on. Change it in Devices.")
                 : RemoteText.t("macScreen.approval.remembersView", "Allow lets %@ see this Mac from now on. Change it in Devices."),
-            request.viewerName), font: look.captionFont, color: look.ink(.tertiary), width: textWidth))
+            request.viewerName), font: themed ? look.captionFont : look.bodyFont, color: note, width: textWidth))
         if let fingerprint = request.viewerKeyFingerprint {
             stack.addArrangedSubview(Self.label(RemoteText.t("macScreen.approval.deviceKey", "Device key"), font: look.captionFont,
-                                                color: look.ink(.tertiary), width: textWidth))
+                                                color: note, width: textWidth))
             stack.addArrangedSubview(CodeWell(Self.fingerprintLines(fingerprint), width: textWidth))
         }
         if let error {

@@ -118,8 +118,8 @@ public final class JoinConsentAskView: CmuxDialogHostView {
         let spec = CmuxDialogSpec(
             title: JoinConsentStrings.askTitle(ask),
             lines: [JoinConsentStrings.askQuestion(ask.surface), JoinConsentStrings.askNote],
-            buttons: [
-                CmuxDialogButton(id: "settings", title: JoinConsentStrings.settings),
+            // Settings… only with Settings > Experiments > Themed Floating Prompts on (off by default, Leo's UI hold).
+            buttons: (DesignSettings.shared.themedPrompts ? [CmuxDialogButton(id: "settings", title: JoinConsentStrings.settings)] : []) + [
                 CmuxDialogButton(id: "deny", title: JoinConsentStrings.decline(ask.surface), role: .cancel),
                 CmuxDialogButton(id: "allow", title: JoinConsentStrings.allow, role: .default, personOnly: true),
             ],

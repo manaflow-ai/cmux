@@ -919,6 +919,27 @@ import Testing
     /// still answers only the person's own click (``allowAnswersOnlyThePersonsOwnClickOnAllow()``).
     @Test(arguments: [JoinConsentSurface.screen, .control])
     func theSheetsSettingsOpensTheSwitchItAsksAboutAndGrantsNothing(surface: JoinConsentSurface) async throws {
+        // Settings… shows only with Settings > Experiments > Themed Floating Prompts on (off by default).
+        try await DesignSettings.$themedPromptsOverride.withValue(true) { try await settingsOpensTheSwitch(surface: surface) }
+    }
+
+    /// Off (the default), the sheet keeps Deny and Allow alone, as before.
+    @Test func offTheSheetHasNoSettingsButton() async throws {
+        _ = NSApplication.shared
+        try await DesignSettings.$themedPromptsOverride.withValue(false) {
+            let fake = Fake()
+            let model = JoinConsentModel(services: fake.services())
+            await model.refresh()
+            model.refused(JoinConsentRefusal(requester: "lane-vm-3", surface: .control))
+            let panel = JoinConsentAskPanel(model: model)
+            panel.content.rebuild()
+            let ids = AddDeviceShotsTests.identifiers(panel.content)
+            #expect(!ids.contains("cmux.joinConsentAsk.settings"))
+            #expect(ids.contains("cmux.joinConsentAsk.allow") && ids.contains("cmux.joinConsentAsk.deny"))
+        }
+    }
+
+    private func settingsOpensTheSwitch(surface: JoinConsentSurface) async throws {
         _ = NSApplication.shared
         let fake = Fake()
         let model = JoinConsentModel(services: fake.services())

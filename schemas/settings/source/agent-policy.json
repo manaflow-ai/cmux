@@ -533,6 +533,7 @@
         "experiments.menuRowStates",
         "experiments.toastsV2",
         "experiments.terminalHistoryFind",
+        "experiments.themedPrompts",
         "experiments.terminalHistory"
       ]
     },

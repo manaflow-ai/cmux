@@ -101,19 +101,21 @@ final class ApprovalQuestionView: NSView {
     private let stack = NSStackView()
     private var targets: [ApprovalPressTarget] = []
 
-    /// The card's corner: concentric with a 26 pt button rounding 8 pt inside the 16 pt padding, as the device-control
-    /// banner and the app's dialog card round.
+    /// The card's corner with the app's theme: concentric with a 26 pt button rounding 8 pt inside the 16 pt padding,
+    /// as the device-control banner and the app's dialog card round. Without it (Settings > Experiments > Themed
+    /// Floating Prompts off, the default): 12 pt, as before.
     static let cornerRadius: CGFloat = 24
+    static let plainCornerRadius: CGFloat = 12
 
     init(question: ApprovalQuestion, theme: PromptTheme? = nil, answer: @escaping (ApprovalAnswer) -> Void) {
         super.init(frame: NSRect(x: 0, y: 0, width: Self.width, height: 160))
         let surface = NSVisualEffectView()
         surface.material = .popover
-        surface.blendingMode = .behindWindow
+        if theme != nil { surface.blendingMode = .behindWindow }
         surface.state = .active
         surface.wantsLayer = true
-        surface.layer?.cornerRadius = Self.cornerRadius
-        surface.layer?.cornerCurve = .continuous
+        surface.layer?.cornerRadius = theme != nil ? Self.cornerRadius : Self.plainCornerRadius
+        if theme != nil { surface.layer?.cornerCurve = .continuous }
         surface.layer?.masksToBounds = true
         // The theme's veil over the blur (the app's `SurfaceRole.prompt`), dense enough to read over any app.
         if let theme { surface.layer?.backgroundColor = PromptTheme.color(theme.veil).cgColor }
