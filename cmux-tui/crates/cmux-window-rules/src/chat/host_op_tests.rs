@@ -123,7 +123,7 @@ fn repository_actions_take_only_their_shape() {
         );
     };
     let no = |method: &str, params: Value| {
-        assert_eq!(op(method, params.clone()), refused(method), "{method} {params}")
+        assert_eq!(op(method, params.clone()), refused(method), "{method} {params}");
     };
 
     ok("cloud.repo.local", json!({}));
