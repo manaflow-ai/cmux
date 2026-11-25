@@ -94,6 +94,9 @@ await requireBrowserLane("settings-cohesive-look.test.ts", async () => {
       const helps: string[] = [];
       for (const help of document.querySelectorAll<HTMLElement>(".content .rows .row .row-help")) {
         const row = help.closest<HTMLElement>(".row")!;
+        // A help alone in its row is a note across the row (Customization Library's "Where two
+        // entries set the same thing…"), not a help beside a control, so it may run the row's width.
+        if (row.childElementCount === 1 && help.parentElement === row) continue;
         const ratio = help.getBoundingClientRect().width / row.getBoundingClientRect().width;
         if (ratio > 0.66) helps.push(`${help.textContent?.slice(0, 30)}: ${ratio.toFixed(2)}`);
       }
