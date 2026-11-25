@@ -217,6 +217,7 @@ nonisolated extension SidebarLayoutOptions {
     func rowContent(_ ws: SidebarWorkspace, machine: String?) -> WorkspaceRowContent {
         var content = baseRowContent(ws, machine: machine)
         content.detailedStatus = detailedStatus
+        content.statusLeads = workspaceRow.statusPlacement == .leading
         content.runsInCloud = cloudMachines.contains(ws.machineID) || ws.startsInCloud
         content.machine = cloudMachines.contains(ws.machineID) ? nil : machines[ws.machineID].map(SidebarMachineMark.init)
         // Every mode (each density, workspaces as tabs), mark drawn or not: VoiceOver says the

@@ -162,7 +162,8 @@ export function sectionReads(store: SettingsStore, section: string): SectionRead
   // stay fresh until the host pushes a change; the per-section host reads refresh when stale.
   for (const id of category.actions) reads.push({ options: sectionActionsQuery(store, id), revalidate: true });
   if (cards.has("themeStudio")) reads.push({ options: { queryKey: settingsKeys.themeColors }, revalidate: false });
-  if (cards.has("accounts")) reads.push({ options: { queryKey: settingsKeys.accounts }, revalidate: false });
+  if (cards.has("accounts") || cards.has("integrationsHub"))
+    reads.push({ options: { queryKey: settingsKeys.accounts }, revalidate: false });
   if (cards.has("harnesses")) reads.push({ options: { queryKey: settingsKeys.harnesses }, revalidate: false });
   if (cards.has("models") || cards.has("cloudModels"))
     reads.push({ options: { queryKey: settingsKeys.models }, revalidate: false });
