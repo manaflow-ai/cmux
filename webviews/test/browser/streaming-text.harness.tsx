@@ -601,7 +601,7 @@ async function run({
   /// Ease the followed view's steps (followGlide.ts), as the app does.
   eased?: boolean;
   /// While the reply streams, a call runs under it that another call replaces every this many ms,
-  /// so the live line's words change as they stream (ui/motion/useTextSwap.ts). Needs `liveLine`.
+  /// so the live line's words change as they stream (ui/motion/TextRoll.tsx). Needs `liveLine`.
   callEveryMs?: number;
 }): Promise<StreamReport> {
   lineBelow = liveLine;
