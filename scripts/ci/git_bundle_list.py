@@ -41,6 +41,7 @@ BASE = "cmux-blobless-base.bundle"
 DELTA = "cmux-blobless-delta.bundle"
 BASE_MAX_DAYS = 7
 HEADER_BYTES = 1 << 20  # a bundle's header (its refs and prerequisites) ends well before this
+USER_AGENT = "cmux-ci git_bundle_list"
 SHA = re.compile(r"[0-9a-f]{40}|[0-9a-f]{64}")
 
 
@@ -87,7 +88,10 @@ def header_tips(header: bytes) -> list[str]:
 
 def http_get(url: str, byte_range: int | None = None, timeout: float = 30) -> bytes | None:
     """URL's body (its first BYTE_RANGE bytes when given), or None when it is not there (404)."""
-    req = urllib.request.Request(url, headers={"Range": f"bytes=0-{byte_range - 1}"} if byte_range else {})
+    # The edge (Cloudflare) answers urllib's default User-Agent with 403, which raised here and, under the publish
+    # step's continue-on-error, kept the rolling list from ever being written: name ourselves.
+    headers = {"User-Agent": USER_AGENT, **({"Range": f"bytes=0-{byte_range - 1}"} if byte_range else {})}
+    req = urllib.request.Request(url, headers=headers)
     try:
         with urllib.request.urlopen(req, timeout=timeout) as resp:
             return resp.read(byte_range) if byte_range else resp.read()

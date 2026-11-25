@@ -112,6 +112,9 @@ PLATFORM_MSGS = frozenset({
     "cloud.entitlement.profile_heal_failed",
     "cloud.entitlement.read_failed",
     "cloud.fork_snapshot_delete_failed",
+    # Why an overdue running machine was not paused, once per machine per change (cmux-platform src/server/cloud
+    # IdleKept.ts). Kept only as its idle_kept() projection: cmux#54889's timer-only `workload` lines.
+    "cloud.idle.kept",
     "cloud.image.cache.failed",
     "cloud.image.follow",
     "cloud.image.follow.read_failed",
@@ -302,6 +305,45 @@ PUBLIC_FIELDS = {"team": ID, "teamId": ID, "machine": ID, "machineId": ID, "vm":
 PUBLIC_BOOLS = ("lacks", "shared", "host")
 
 
+# cloud.idle.kept's reasons (IdleKept.ts idleKept, first match); anything else prints as "other".
+IDLE_KEPT_WHY = frozenset({"not_allowed", "changing", "no_report", "no_activity", "held", "sessions", "workload",
+                           "no_turns", "recent"})
+# cmux#54889: every image since cmux#50074 (2026-11-22) installs cmux-chief-update.timer disabled, and the guest's
+# workload reader counted it as the person's work, so a machine whose only workload was that timer never paused idle.
+CHIEF_UPDATE_TIMERS = frozenset({"systemd:cmux-chief-update.timer", "cmux-chief-update.timer"})
+# A daemon version: digits first, then version characters. Anything hex-like prints hashed, as a token does.
+DAEMON_VERSION = re.compile(r"^[0-9][0-9A-Za-z.+_-]{0,47}$")
+# How long the machine had run since its last power when the line was written: a coarse band, never the number.
+RUNNING_BANDS = ((3600, "lt1h"), (6 * 3600, "1h-6h"), (24 * 3600, "6h-24h"))
+
+
+def idle_kept(j):
+    """cloud.idle.kept's typed projection: why, a timer_only flag for `workload`, the daemon version and a running
+    band. The line's team and machine are ids and its process, port and timer names are the guest's own words: only
+    whether the names were exactly cmux-chief-update.timer leaves the line."""
+    why = j.get("why")
+    out = {"msg": "cloud.idle.kept", "why": why if why in IDLE_KEPT_WHY else "other"}
+    for k in ("team", "machine"):
+        v = base.typed(ID, j.get(k))
+        if v is not None:
+            out[k] = v
+    w = j.get("workload")
+    if why == "workload" and isinstance(w, dict):
+        names = w.get("timer_names")
+        quiet = all(not w.get(k) for k in ("busy", "listening", "process_names", "ports"))
+        out["timer_only"] = bool(quiet and isinstance(names, list) and names
+                                 and all(isinstance(n, str) and n in CHIEF_UPDATE_TIMERS for n in names))
+    d = j.get("daemon")
+    if isinstance(d, str) and DAEMON_VERSION.match(d):
+        out["daemon"] = base.tag(d) if base.ID_LIKE.search(d) else d
+    elif d is None and "daemon" in j:
+        out["daemon"] = "null"
+    s = j.get("running_s")
+    if isinstance(s, int) and not isinstance(s, bool) and s >= 0:
+        out["running"] = next((band for limit, band in RUNNING_BANDS if s < limit), "ge24h")
+    return out
+
+
 def public_log(j):
     """(fields, why): fields only for an allowlisted platform msg, else None and the drop reason."""
     if any(k in j for k in base.TENANT_KEYS):
@@ -309,6 +351,8 @@ def public_log(j):
     msg = j.get("msg")
     if not isinstance(msg, str) or msg not in PLATFORM_MSGS:
         return None, "unlisted"
+    if msg == "cloud.idle.kept":
+        return idle_kept(j), None
     out = {"msg": msg}
     for k, kind in PUBLIC_FIELDS.items():
         if k in j:
@@ -524,6 +568,13 @@ def window_totals(events, needles):
     return head, rows[:MAX_ROWS]
 
 
+def window_needle(needles):
+    """A window read asks the query for one msg's events when its only needle is an allowlisted platform msg literal:
+    a busy production hour holds more events than PAGES pages, and cloud.idle.kept is a few of them (cmux#54889).
+    The literal is our own constant, never a tenant's word; any other needle filters only the rows, as before."""
+    return needles[0] if len(needles) == 1 and needles[0] in PLATFORM_MSGS else None
+
+
 def query(token, service, frm, to, offset=None, needle=None):
     body = {"queryId": f"cmux-platform-prod-logs-{int(time.time())}", "timeframe": {"from": frm, "to": to},
             "view": "events", "limit": 1000,
@@ -588,7 +639,7 @@ def main():
     token = sys.stdin.readline().strip()
     events, offset, pages, complete = [], None, 0, False
     while pages < PAGES:
-        got = base.dig(query(token, service, frm, to, offset, needle=None if kind == WINDOW else ident),
+        got = base.dig(query(token, service, frm, to, offset, needle=window_needle(needles) if kind == WINDOW else ident),
                        "result", "events", "events") or []
         events += got
         pages += 1

@@ -524,7 +524,6 @@ type RestoredViewport = (std::collections::BTreeMap<SplitId, f32>, Option<f32>, 
 
 /// Startup diagnostics kept until the frontend installs its sink.
 const MAX_PENDING_DIAGNOSTICS: usize = 8;
-const WORKSPACE_REGISTRY_LIMIT: usize = 4_096;
 const WORKSPACE_KEY_MAX_BYTES: usize = 256;
 const WORKSPACE_NAME_MAX_BYTES: usize = 1_024;
 /// How long a closed terminal's host gets to end its programs (SIGHUP, grace,
@@ -913,6 +912,9 @@ pub struct Mux {
     pub(crate) control_clients: crate::server::ClientRegistry,
     /// One whole-tree `list-workspaces` build for concurrent readers.
     pub(crate) tree_reply_flight: crate::server::tree_reply_flight::TreeReplyFlight,
+    /// The ring of changed workspace ids for `list-workspaces {since}`
+    /// (server/list_workspaces_delta.rs).
+    pub(crate) workspace_delta: crate::server::list_workspaces_delta::WorkspaceDelta,
     /// Guarded chat moves (`agent-transfer-v1`, server/agent_transfer.rs).
     #[cfg(unix)]
     pub(crate) agent_transfers: crate::server::agent_transfer::AgentTransfers,
