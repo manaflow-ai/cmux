@@ -237,7 +237,7 @@ pub trait Orchestrator: Send + Sync {
         let _ = (id, text);
         Err("this Chief host cannot reply in a thread".into())
     }
-    /// `send(text, attachments, reply_to)`: one or more short messages posted now.
+    /// `send(text, attachments, reply_to)`: one message posted now.
     fn send(&self, call: SendCall) -> Result<String, String> {
         let _ = call;
         Err("this Chief host cannot send".into())
@@ -1104,7 +1104,7 @@ pub enum Call {
         id: u64,
         text: String,
     },
-    /// `send` (brain/send.rs): one or more messages now, with files, optionally in
+    /// `send` (brain/send.rs): one message now, with files, optionally in
     /// a thread.
     Send(SendCall),
     /// `transcript` (brain/transcript.rs): the last `n` messages of the
