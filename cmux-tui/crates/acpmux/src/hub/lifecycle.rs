@@ -1462,7 +1462,7 @@ impl Hub {
                 && resume.is_some()
                 && !fork
                 && crate::native::locate(&meta).into_iter().any(|(label, path)| {
-                    label == "claude-project"
+                    label == crate::session_artifacts::CLAUDE_PROJECT
                         && crate::claude_stdio::resume_cut::prepare(&path).unwrap_or(false)
                 });
             session.resumed_cut.store(resumes_cut_turn, Ordering::SeqCst);

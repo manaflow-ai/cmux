@@ -336,3 +336,37 @@ fn a_subagent_transcript_that_cannot_land_is_named_unacked() {
     assert_eq!(unacked.len(), 1, "{unacked:?}");
     assert!(unacked[0].starts_with("claude-subagent/"), "{unacked:?}");
 }
+
+/// The mover lists only what the store table declares (`session_artifacts::STORES`), each file
+/// under the folder its row names: a locator that starts returning a new kind of file fails
+/// here until the table (which the guarded receive and the move matrix read) declares it.
+#[test]
+fn every_located_file_is_a_family_its_store_declares() {
+    use acpmux::session_artifacts;
+    let home = tempfile::tempdir().unwrap();
+    let sid = "4b3c2d1e-aaaa-bbbb-cccc-111122223333";
+    // Claude: a transcript found by the walk (another folder's name), with a subagent's.
+    let dir = home.path().join(".claude/projects/-elsewhere");
+    put(&dir.join(format!("{sid}.jsonl")), "{}\n");
+    put(&dir.join(sid).join("subagents/agent-a1.jsonl"), "{}\n");
+    put(&home.path().join(format!(".codex/sessions/2026/11/25/rollout-1-{sid}.jsonl")), "{}\n");
+    put(&home.path().join(format!(".pi/agent/sessions/--src--/1_{sid}.jsonl")), "{}\n");
+    let mut seen = Vec::new();
+    for row in session_artifacts::STORES {
+        let here = meta(row.store, row.store, sid, "/src");
+        assert_eq!(native::store_kind(&here), row.store);
+        for (label, path) in native::locate_in(&here, home.path()) {
+            let family = row.family(&label).unwrap_or_else(|| {
+                panic!("{} located {label} ({path:?}), which its row does not declare", row.store)
+            });
+            assert!(path.starts_with(home.path().join(family.root)), "{label}: {path:?}");
+            seen.push(label);
+        }
+    }
+    // Every declared file family a locator finds in a home folder was found.
+    for family in session_artifacts::STORES.iter().flat_map(|r| r.native) {
+        if !family.root.is_empty() {
+            assert!(seen.iter().any(|l| l == family.label), "nothing located {}", family.label);
+        }
+    }
+}

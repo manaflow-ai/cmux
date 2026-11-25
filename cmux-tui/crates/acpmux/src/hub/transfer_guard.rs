@@ -171,6 +171,7 @@ async fn checked_root(s: &str, home: &Path, stores: &[PathBuf]) -> Result<PathBu
 /// Whether a guarded move takes the bundle file `path`: `Some(true)` for an agent store file,
 /// `Some(false)` for the bundle's own (`session.json`, `manifest.json`, `events/*.ndjson`).
 pub(super) fn bundle_path_kind(path: &str) -> Option<bool> {
+    use crate::session_artifacts as artifacts;
     let parts: Vec<String> = Path::new(path)
         .components()
         .map(|c| match c {
@@ -191,26 +192,31 @@ pub(super) fn bundle_path_kind(path: &str) -> Option<bool> {
         }
         ["events", f] if f.len() > ".ndjson".len() && f.ends_with(".ndjson") => Some(false),
         ["harness", "journal.ndjson"] | ["harness", "session.jsonl"] => Some(false),
-        ["native", "claude-project", ".claude", "projects", dir, f]
+        // An agent store file only of a family the store table declares
+        // (`session_artifacts::STORES`), and only in that family's own shape below.
+        ["native", label, ..] if crate::session_artifacts::native_family(label).is_none() => None,
+        ["native", artifacts::CLAUDE_PROJECT, ".claude", "projects", dir, f]
             if !dir.is_empty() && jsonl(f) =>
         {
             Some(true)
         }
         // A Claude subagent's transcript, beside the session's: `<dir>/<sid>/subagents/<f>`.
-        ["native", "claude-subagent", ".claude", "projects", dir, sid, "subagents", f]
+        ["native", artifacts::CLAUDE_SUBAGENT, ".claude", "projects", dir, sid, "subagents", f]
             if !dir.is_empty() && !sid.is_empty() && jsonl(f) =>
         {
             Some(true)
         }
-        ["native", "pi-session", ".pi", "agent", "sessions", dir, f]
+        ["native", artifacts::PI_SESSION, ".pi", "agent", "sessions", dir, f]
             if !dir.is_empty() && jsonl(f) =>
         {
             Some(true)
         }
-        ["native", "opencode-export", f] if f.len() > ".json".len() && f.ends_with(".json") => {
+        ["native", artifacts::OPENCODE_EXPORT, f]
+            if f.len() > ".json".len() && f.ends_with(".json") =>
+        {
             Some(true)
         }
-        ["native", "codex-rollout", ".codex", "sessions", rest @ ..]
+        ["native", artifacts::CODEX_ROLLOUT, ".codex", "sessions", rest @ ..]
             if (1..=5).contains(&rest.len())
                 && rest.iter().all(|p| !p.is_empty())
                 && rest.last().is_some_and(|f| jsonl(f)) =>
