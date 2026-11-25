@@ -57,7 +57,7 @@ struct CloudStartSessionTests {
         let services = Self.fixture().services
         let start = CloudStartSession(services: services)
         var deleted = 0
-        func run(made: Bool, _ error: any Error, delete: @escaping () async throws -> Void = {}) async -> (any Error)? {
+        func run(made: Bool, _ error: any Error, delete: @escaping @MainActor () async throws -> Void = {}) async -> (any Error)? {
             do {
                 _ = try await start.releasing(made: made, name: "chat-1", id: "vm-chat-1", account: services.cloud.account, delete: { deleted += 1; try await delete() }) { () async throws -> Int in throw error }
                 return nil

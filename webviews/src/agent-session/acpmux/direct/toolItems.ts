@@ -119,6 +119,13 @@ function placeDiffs(diffs: AcpmuxFileDiff[] | undefined, locations: any): Acpmux
   );
 }
 
+/// A v1 tool update with the name the daemon gave its SendMessage's recipient, which acpmux puts
+/// on the record's params (`_meta.acpmux.recipient`), not on the update.
+export function withRecipient(update: any, params: any): any {
+  const recipient = params?._meta?.acpmux?.recipient;
+  return typeof recipient === "string" && recipient ? { ...update, recipient } : update;
+}
+
 /// A tool call folded with an update to it. ACP updates carry only the fields that changed;
 /// content, when present, replaces the call's content. `at` is the event's time: the call
 /// starts at its first event and ends at the first that reports it completed or failed.
@@ -140,6 +147,9 @@ export function mergeToolItem(
             : {}),
         }
       : before?.provenance;
+  // The subagent a SendMessage goes to, as the daemon names it: a v1 update's `recipient` (from its
+  // record's `_meta.acpmux.recipient`, `withRecipient`) or a v2 tool row's field of that name.
+  const recipient = typeof update.recipient === "string" && update.recipient ? update.recipient : before?.recipient;
   const title = update.title ?? update.name;
   const status = String(update.status ?? before?.status ?? "in_progress");
   const ended = status === "completed" || status === "failed";
@@ -190,6 +200,8 @@ export function mergeToolItem(
       ...(before?.background ? { background: before.background } : {}),
       // An approval stays on its call as the call's result comes in.
       ...(before?.approved ? { approved: true as const } : {}),
+      // A call whose oldest output went with its records stays marked as later output comes in.
+      ...(before?.earlierOutput ? { earlierOutput: true as const } : {}),
       // What a background task's end left on it (`attachReaction`) stays as later updates come in.
       ...(before?.reaction ? { reaction: before.reaction } : {}),
       locations,
@@ -199,15 +211,16 @@ export function mergeToolItem(
       tampering: update.tampering ?? before?.tampering,
       tamperingEventSeq: update.tampering ? eventSeq : before?.tamperingEventSeq,
       ...(provenance ? { provenance } : {}),
+      ...(recipient ? { recipient } : {}),
     },
   };
 }
 
-/// What a call says it does, in a few words: Claude Code's Bash `description` ("Run the web
-/// tests"), which a command row reads instead of its raw command line.
+/// The caller's description is a direct argument or, for Codex MCP calls, inside its named envelope.
 export function callDescription(rawInput: any): string | undefined {
-  const description = rawInput?.description;
-  return typeof description === "string" && description.trim() ? description.trim() : undefined;
+  const description = stringValue(rawInput?.description);
+  if (description || typeof rawInput?.server !== "string" || typeof rawInput.tool !== "string") return description;
+  return stringValue(rawInput.arguments?.description);
 }
 
 /// The command line a shell call ran, from `rawInput.command`: a string, or an argv array. An

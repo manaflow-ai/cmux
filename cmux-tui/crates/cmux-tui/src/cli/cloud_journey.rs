@@ -30,16 +30,25 @@ use cmux_cloud_client::machine::{Machine, Scope};
 use cmux_cloud_client::ops::{self, Answer};
 use cmux_cloud_wire::{
     CloudMachineCreateOp, CloudMachineCreateParams, CloudMachineDeleteOp, CloudMachineDeleteParams,
-    CloudMachineGetOp, CloudMachineGetParams, CloudMachineSize, CloudMachineStatus,
+    CloudMachineGetOp, CloudMachineGetParams, CloudMachineListOp, CloudMachineListParams,
+    CloudMachineSize, CloudMachineStatus,
 };
 use serde_json::{Value, json};
 
 use super::{GlobalArgs, OutputMode};
 
+#[path = "cloud_journey/capsule.rs"]
+pub(super) mod capsule;
+#[path = "cloud_journey/repo.rs"]
+mod repo;
+#[path = "cloud_journey/sweep.rs"]
+mod sweep;
+
 pub(super) const USAGE: &str = "\
 usage: cmux cloud journey [--backend staging|prod|dev|preview-N | --api URL] [--team TEAM_ID]
                           [--model-stub FILE] [--prompt TEXT] [--chat-timeout SECONDS]
                           [--out DIR] [--json]
+                          [--repo SPEC [--machine-config FILE]] [--keep]
 
 The Cloud journey's core, headless, on this binary's own Cloud client: sign in,
 create machine, running, first exec, pass Claude login, start agent (claude),
@@ -52,10 +61,35 @@ Auth: CMUX_CLOUD_ACCESS_TOKEN (and CMUX_CLOUD_API_URL or --backend), else
 CMUX_DOGFOOD_STACK_EMAIL and CMUX_DOGFOOD_STACK_PASSWORD (the agent test
 account). The chat's model connection is CLAUDE_CODE_OAUTH_TOKEN; --model-stub
 FILE runs that model stub on the machine instead, with a made-up login.
+
+--repo SPEC (OWNER/NAME, a GitHub or https git URL, #REF) is a moved project's
+journey (cmux migrate): after the first exec the machine clones it and applies
+its machine config (--machine-config FILE, else the checkout's own
+.cmux/machine.toml) as the app's start does, and the chat starts in the
+checkout. --keep leaves the machine running at the end (its id is in the
+delete step) instead of deleting it.
 ";
 
-/// The shipped app's chat start size (cloud-journey.ts `CHAT_START_SIZE`, the platform's CHAT_START_SHAPE).
-const CHAT_START_SIZE: (i64, i64, i64) = (4, 16_384, 65_536);
+/// The shipped app's chat start size (cloud-journey.ts `CHAT_START_SIZE`, the app's `Machine.named`, the platform's
+/// CHAT_START_SHAPE, cmux-platform#1756): 2 vCPU, 4 GiB, 20 GiB disk. The platform's Scaler hands out a warm spare
+/// only to a create of exactly this shape; any other size skips the spare and makes a fresh machine.
+pub(super) const CHAT_START_SIZE: (i64, i64, i64) = (2, 4_096, 20_480);
+/// The size before the spare shape: the kill switch `CMUX_CLOUD_SPARE_CLAIM=0` creates at it, never claiming a spare.
+const NO_SPARE_SIZE: (i64, i64, i64) = (4, 16_384, 65_536);
+
+/// The create size: the spare shape (on by default; with no spare left the platform makes a fresh machine of it),
+/// or [`NO_SPARE_SIZE`] when `CMUX_CLOUD_SPARE_CLAIM` is `0`, `false` or `off`.
+pub(super) fn start_size(kill: Option<&str>) -> (i64, i64, i64) {
+    match kill.map(|v| v.trim().to_ascii_lowercase()) {
+        Some(v) if matches!(v.as_str(), "0" | "false" | "off") => NO_SPARE_SIZE,
+        _ => CHAT_START_SIZE,
+    }
+}
+
+/// [`start_size`] read from `CMUX_CLOUD_SPARE_CLAIM` (the journey's and the headless direct start's create).
+pub(super) fn start_size_from_env() -> (i64, i64, i64) {
+    start_size(std::env::var("CMUX_CLOUD_SPARE_CLAIM").ok().as_deref())
+}
 const RUNNING_BUDGET: Duration = Duration::from_secs(300);
 const DEFAULT_CHAT_BUDGET: Duration = Duration::from_secs(300);
 const DEFAULT_PROMPT: &str = "Reply with one short sentence that names the planet you are on.";
@@ -78,6 +112,13 @@ pub(super) struct Args {
     pub prompt: String,
     pub chat_budget: Duration,
     pub out: Option<PathBuf>,
+    /// `--repo`: the moved project's repository (repo.rs).
+    pub repo: Option<String>,
+    pub machine_config: Option<PathBuf>,
+    /// `--keep`: the machine is the migrated project's, so it stays.
+    pub keep: bool,
+    /// `cmux repro run --cloud`: replay a repro capsule instead of the chat (capsule.rs).
+    pub capsule: Option<capsule::CapsuleJob>,
 }
 
 /// `Some(exit code)` when `args` is `cloud journey …`.
@@ -111,6 +152,10 @@ pub(super) fn parse(words: &[String]) -> Result<Args, String> {
         prompt: DEFAULT_PROMPT.to_owned(),
         chat_budget: DEFAULT_CHAT_BUDGET,
         out: None,
+        repo: None,
+        machine_config: None,
+        keep: false,
+        capsule: None,
     };
     let mut it = words.iter();
     while let Some(word) = it.next() {
@@ -128,8 +173,18 @@ pub(super) fn parse(words: &[String]) -> Result<Args, String> {
                 args.chat_budget = Duration::from_secs(seconds.clamp(10, 3600));
             }
             "--out" => args.out = Some(PathBuf::from(value()?)),
+            "--repo" => {
+                let spec = value()?;
+                repo::parse_repo(&spec)?;
+                args.repo = Some(spec);
+            }
+            "--machine-config" => args.machine_config = Some(PathBuf::from(value()?)),
+            "--keep" => args.keep = true,
             other => return Err(format!("unknown argument {other}")),
         }
+    }
+    if args.machine_config.is_some() && args.repo.is_none() {
+        return Err("--machine-config needs --repo SPEC".to_owned());
     }
     Ok(args)
 }
@@ -297,25 +352,46 @@ pub(super) fn shq(text: &str) -> String {
 /// The guest program that starts `session` with the person's model connection as its launch
 /// credential: `session/new` on the machine's acpmux socket with `_meta.acpmux.credentials`
 /// (cloud-journey.ts `launchCredentialStartProgram`). The value is in the heredoc, on stdin, never
-/// on a command line.
+/// on a command line. It looks for the socket where that program does: `ACPMUX_SOCKET`, the cmux
+/// daemon's acpmux home (`~/.cmux/acpmux`), then acpmux's own default home, where a machine's
+/// `acpmux.service` listens (cmux-host `cloud/role.rs` `acpmux_home`). Without the last the start
+/// answered "no acpmux socket" on staging machines the TypeScript journey started agents on
+/// (backend runs 45306859441, 45310842160, 45312889044).
+#[cfg(test)]
 pub(super) fn launch_credential_program(
     session: &str,
     harness: &str,
     name: &str,
     value: &str,
 ) -> String {
+    launch_credential_program_in(session, harness, name, value, None)
+}
+
+/// [`launch_credential_program`] with the chat's folder: `cwd` (a moved project's checkout), else
+/// the machine user's home.
+pub(super) fn launch_credential_program_in(
+    session: &str,
+    harness: &str,
+    name: &str,
+    value: &str,
+    cwd: Option<&str>,
+) -> String {
+    let cwd = serde_json::to_string(cwd.unwrap_or("")).unwrap_or_else(|_| "\"\"".into());
     let params = json!({
         "mcpServers": [],
         "_meta": { "acpmux": { "name": session, "harness": harness, "credentials": { "env": { name: value } } } },
     });
     let params = serde_json::to_string(&params.to_string()).unwrap_or_default();
+    // acpmux's own home under the machine user's home, from acpmux's resolver, not a literal.
+    let own = acpmux::config::default_home_in(std::path::Path::new(""));
+    let own = own.to_string_lossy();
     format!(
         r#"python3 -I - <<'CMUX_JOURNEY_START'
 import json, os, socket, sys
 params = json.loads({params})
-params['cwd'] = os.environ.get('HOME') or '/home/cmux'
-home = params['cwd']
-paths = [p for p in (os.environ.get('ACPMUX_SOCKET'), home + '/.cmux/acpmux/acpmux.sock') if p]
+home = os.environ.get('HOME') or '/home/cmux'
+params['cwd'] = {cwd} or home
+paths = [p for p in (os.environ.get('ACPMUX_SOCKET'), home + '/.cmux/acpmux/acpmux.sock', home + '/{own}/acpmux.sock') if p]
 def call(f, s, i, method, p):
     s.sendall((json.dumps({{'jsonrpc': '2.0', 'id': i, 'method': method, 'params': p}}) + '\n').encode())
     while True:
@@ -403,6 +479,30 @@ struct Exec<'a> {
 }
 
 impl Exec<'_> {
+    /// Writes `data` to `path` on the machine over the Cloud file API (`/fs/write`).
+    async fn write(&self, path: &str, data: &[u8], mode: u32) -> Result<(), String> {
+        use base64::Engine as _;
+        let url = self.scope.route(&self.machine, "/fs/write").map_err(|e| e.to_string())?;
+        let mut request = self
+            .client
+            .post(url)
+            .bearer_auth(self.credential)
+            .timeout(Duration::from_secs(60))
+            .json(&json!({ "path": path, "dataBase64": base64::engine::general_purpose::STANDARD.encode(data), "mode": mode }));
+        if let Some(team) = self.scope.team() {
+            request = request.header(cmux_cloud_client::TEAM_HEADER, team);
+        }
+        let response =
+            request.send().await.map_err(|e| format!("fs/write {path}: {}", e.without_url()))?;
+        let status = response.status();
+        let body: Value = response.json().await.unwrap_or(Value::Null);
+        if !status.is_success() || body.get("ok") == Some(&Value::Bool(false)) {
+            let code = body.pointer("/error/code").and_then(Value::as_str).unwrap_or("");
+            return Err(format!("fs/write {path}: HTTP {} {code}", status.as_u16()));
+        }
+        Ok(())
+    }
+
     async fn run(&mut self, command: &str, timeout_ms: u64) -> Result<ExecAnswer, String> {
         if !self.direct && self.session.as_ref().is_none_or(|(_, at)| at.elapsed() > SESSION_REUSE)
         {
@@ -511,7 +611,10 @@ async fn journey(global: &GlobalArgs, args: &Args) -> Result<i32, String> {
         meta: vec![
             ("tag", tag.clone()),
             ("team", args.team.clone().unwrap_or_else(|| "(personal)".into())),
-            ("agent", "claude".into()),
+            (
+                "agent",
+                if args.capsule.is_some() { "none (repro capsule)" } else { "claude" }.into(),
+            ),
             (
                 "driver",
                 concat!("cmux cloud journey (Rust, cmux-tui ", env!("CARGO_PKG_VERSION"), ")")
@@ -591,7 +694,7 @@ async fn journey(global: &GlobalArgs, args: &Args) -> Result<i32, String> {
         Duration::from_secs(120),
     )
     .map_err(|e| e.to_string())?;
-    let exec_client = reqwest::Client::builder()
+    let exec_client = cmux_egress::client_builder("cmux_tui::cli::cloud_journey")
         .default_headers(cmux_build_space::headers().map_err(|e| e.to_string())?)
         .redirect(reqwest::redirect::Policy::none())
         .user_agent(ua)
@@ -599,19 +702,27 @@ async fn journey(global: &GlobalArgs, args: &Args) -> Result<i32, String> {
         .map_err(|e| e.to_string())?;
     let scope = Scope::new(&api, args.team.as_deref()).map_err(|e| e.to_string())?;
 
+    sweep_step(&mut j, &http, &base).await;
+
     // create machine
     let t0 = Instant::now();
-    let machine_name = format!("cloud journey auto {tag}");
+    let machine_name = match &args.capsule {
+        Some(job) => format!("repro capsule {} {tag}", job.capsule.id),
+        None => format!("cloud journey auto {tag}"),
+    };
     let create_key = cmux_cloud_client::client_key();
+    let size = start_size_from_env();
     let params = CloudMachineCreateParams {
         name: Some(machine_name.clone()),
         size: CloudMachineSize {
-            cpu: Some(CHAT_START_SIZE.0),
-            memory_mb: Some(CHAT_START_SIZE.1),
-            disk_mb: Some(CHAT_START_SIZE.2),
+            cpu: Some(size.0),
+            memory_mb: Some(size.1),
+            disk_mb: Some(size.2),
         },
         image: None,
         from_snapshot: None,
+        origin: None,
+        ttl_seconds: None,
     };
     let mut created = None;
     for attempt in 0..3 {
@@ -671,39 +782,105 @@ async fn journey(global: &GlobalArgs, args: &Args) -> Result<i32, String> {
     )
     .await;
 
-    // delete, pass or fail
+    // delete, pass or fail; --keep leaves a moved project's machine running.
     let t0 = Instant::now();
-    let delete_key = cmux_cloud_client::client_key();
-    let mut deleted = Err(String::new());
-    for attempt in 0..4 {
-        let params = CloudMachineDeleteParams { machine: machine_id.clone() };
-        match ops::call::<CloudMachineDeleteOp>(&http, &base, params, Some(&delete_key), None)
-            .await
-            .and_then(Answer::into_result)
-        {
-            Ok(_) => {
-                deleted = Ok(());
-                break;
-            }
-            Err(error) if error.code.as_deref() == Some("cloud.machine.not_found") => {
-                deleted = Ok(());
-                break;
-            }
-            Err(error) if error.retryable && attempt < 3 => {
-                deleted = Err(format!("{} {}", error.code.unwrap_or_default(), error.message));
-                tokio::time::sleep(Duration::from_secs(5)).await;
-            }
-            Err(error) => {
-                deleted = Err(format!("{} {}", error.code.unwrap_or_default(), error.message));
-                break;
-            }
-        }
+    if args.keep {
+        j.record("delete", Status::Skip, t0, &format!("kept: machine {machine_id} (--keep)"));
+        return Ok(finish(&j, json_out));
     }
+    let deleted = delete_machine(&http, &base, &machine_id).await;
     match deleted {
         Ok(()) => j.pass("delete", t0, &machine_id),
         Err(error) => j.fail("delete", t0, &format!("{machine_id}: {error}")),
     }
     Ok(finish(&j, json_out))
+}
+
+/// Deletes one machine under one key, retried while the answer is retryable; gone already counts.
+async fn delete_machine(
+    http: &reqwest::Client,
+    base: &str,
+    machine_id: &str,
+) -> Result<(), String> {
+    let delete_key = cmux_cloud_client::client_key();
+    let mut deleted = Err(String::new());
+    for attempt in 0..4 {
+        let params = CloudMachineDeleteParams { machine: machine_id.to_owned() };
+        match ops::call::<CloudMachineDeleteOp>(http, base, params, Some(&delete_key), None)
+            .await
+            .and_then(Answer::into_result)
+        {
+            Ok(_) => return Ok(()),
+            Err(error) if error.code.as_deref() == Some("cloud.machine.not_found") => return Ok(()),
+            Err(error) if error.retryable && attempt < 3 => {
+                deleted = Err(format!("{} {}", error.code.unwrap_or_default(), error.message));
+                tokio::time::sleep(Duration::from_secs(5)).await;
+            }
+            Err(error) => {
+                return Err(format!("{} {}", error.code.unwrap_or_default(), error.message));
+            }
+        }
+    }
+    deleted
+}
+
+/// `sweep leaked journey machines` (cloud_journey/sweep.rs): lists the account's machines and deletes
+/// the stale journey-owned ones. A list or delete error is recorded as a skip and the run goes on.
+async fn sweep_step(j: &mut Journey, http: &reqwest::Client, base: &str) {
+    const STEP: &str = "sweep leaked journey machines";
+    let t0 = Instant::now();
+    let mut machines = Vec::new();
+    let mut cursor = None;
+    for _ in 0..20 {
+        let params = CloudMachineListParams { cursor: cursor.take(), limit: Some(100) };
+        match ops::call::<CloudMachineListOp>(http, base, params, None, None)
+            .await
+            .and_then(Answer::into_result)
+        {
+            Ok(page) => {
+                machines.extend(page.machines);
+                match page.next_cursor {
+                    Some(next) if !next.is_empty() => cursor = Some(next),
+                    _ => break,
+                }
+            }
+            Err(error) => {
+                let why = format!("list: {} {}", error.code.unwrap_or_default(), error.message);
+                j.record(STEP, Status::Skip, t0, &why);
+                return;
+            }
+        }
+    }
+    let now_ms = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_or(0, |d| i64::try_from(d.as_millis()).unwrap_or(i64::MAX));
+    let stale: Vec<(String, String)> = sweep::stale(&machines, now_ms)
+        .into_iter()
+        .map(|m| (m.id.clone(), m.name.clone().unwrap_or_default()))
+        .collect();
+    let (mut gone, mut failed) = (Vec::new(), Vec::new());
+    for (id, name) in &stale {
+        match delete_machine(http, base, id).await {
+            Ok(()) => gone.push(format!("{id} ({name})")),
+            Err(error) => failed.push(format!("{id}: {error}")),
+        }
+    }
+    let detail = format!(
+        "{} machines listed, {} stale journey machines deleted{}{}",
+        machines.len(),
+        gone.len(),
+        if gone.is_empty() { String::new() } else { format!(": {}", gone.join(", ")) },
+        if failed.is_empty() {
+            String::new()
+        } else {
+            format!("; not deleted: {}", failed.join(", "))
+        },
+    );
+    if failed.is_empty() {
+        j.pass(STEP, t0, &detail);
+    } else {
+        j.record(STEP, Status::Skip, t0, &detail);
+    }
 }
 
 /// running, first exec, the model stub, pass login, start agent, send chat, reply. Stops at the
@@ -798,10 +975,45 @@ async fn chat_steps(
         }
     }
 
+    // A repro capsule's replays take the chat's place (capsule.rs).
+    if let Some(job) = &args.capsule {
+        return capsule::capsule_steps(j, &mut exec, job, machine_id).await;
+    }
+
+    // clone repo, machine config: a moved project's journey (repo.rs).
+    let mut checkout = None;
+    if let Some(spec) = &args.repo {
+        let t0 = Instant::now();
+        let parsed = match repo::parse_repo(spec) {
+            Ok(parsed) => parsed,
+            Err(error) => {
+                j.fail("clone repo", t0, &error);
+                return Err(());
+            }
+        };
+        let config = match &args.machine_config {
+            Some(path) => match std::fs::read(path) {
+                Ok(bytes) if bytes.len() <= cmux_cloud_start_core::machine_config::MAX_BYTES => {
+                    Some(bytes)
+                }
+                Ok(_) => {
+                    j.fail("machine config", t0, &format!("{} is over 64 KiB", path.display()));
+                    return Err(());
+                }
+                Err(error) => {
+                    j.fail("machine config", t0, &format!("{}: {error}", path.display()));
+                    return Err(());
+                }
+            },
+            None => None,
+        };
+        checkout = Some(repo::repo_steps(j, &mut exec, &parsed, config.as_deref()).await?);
+    }
+
     // model stub on the machine
     if let Some(stub) = &args.model_stub {
         let t0 = Instant::now();
-        match start_stub(&mut exec, exec_client, scope, bearer, stub, nonce).await {
+        match start_stub(&mut exec, stub, nonce).await {
             Ok(port) => j.pass(
                 "model stub on the machine",
                 t0,
@@ -852,7 +1064,13 @@ async fn chat_steps(
     let t0 = Instant::now();
     let program = format!(
         "{GUEST}{}",
-        launch_credential_program(&session, "claude", "CLAUDE_CODE_OAUTH_TOKEN", login)
+        launch_credential_program_in(
+            &session,
+            "claude",
+            "CLAUDE_CODE_OAUTH_TOKEN",
+            login,
+            checkout.as_deref()
+        )
     );
     match exec.run(&program, 120_000).await {
         Ok(r) if r.exit_code == 0 && r.stdout.contains("@@session ") => {
@@ -969,34 +1187,14 @@ async fn chat_steps(
 /// points Claude Code's settings there. Answers the port.
 async fn start_stub(
     exec: &mut Exec<'_>,
-    client: &reqwest::Client,
-    scope: &Scope,
-    bearer: &str,
     stub: &std::path::Path,
     nonce: &str,
 ) -> Result<String, String> {
-    use base64::Engine as _;
     let program =
         std::fs::read(stub).map_err(|e| format!("--model-stub {}: {e}", stub.display()))?;
     let script = stub_script().to_string().into_bytes();
     for (path, data) in [(STUB_FILE, program), (STUB_SCRIPT, script)] {
-        let url = scope.route(&exec.machine, "/fs/write").map_err(|e| e.to_string())?;
-        let mut request = client
-            .post(url)
-            .bearer_auth(bearer)
-            .timeout(Duration::from_secs(60))
-            .json(&json!({ "path": path, "dataBase64": base64::engine::general_purpose::STANDARD.encode(&data), "mode": 0o644 }));
-        if let Some(team) = scope.team() {
-            request = request.header(cmux_cloud_client::TEAM_HEADER, team);
-        }
-        let response =
-            request.send().await.map_err(|e| format!("fs/write {path}: {}", e.without_url()))?;
-        let status = response.status();
-        let body: Value = response.json().await.unwrap_or(Value::Null);
-        if !status.is_success() || body.get("ok") == Some(&Value::Bool(false)) {
-            let code = body.pointer("/error/code").and_then(Value::as_str).unwrap_or("");
-            return Err(format!("fs/write {path}: HTTP {} {code}", status.as_u16()));
-        }
+        exec.write(path, &data, 0o644).await?;
     }
     let point = "python3 - \"$port\" <<'PY'\nimport json, pathlib, sys\np = pathlib.Path('/home/cmux/.claude/settings.json')\nc = json.loads(p.read_text()) if p.exists() else {}\nc.setdefault('env', {})['ANTHROPIC_BASE_URL'] = 'http://127.0.0.1:' + sys.argv[1]\np.parent.mkdir(parents=True, exist_ok=True)\np.write_text(json.dumps(c))\nprint('stub-ready')\nPY";
     let (log, ready, file, script) =

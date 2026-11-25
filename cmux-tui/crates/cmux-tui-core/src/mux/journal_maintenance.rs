@@ -246,6 +246,10 @@ impl JournalMaintenance {
                     }
                     let Some(mux) = weak_mux.upgrade() else { return };
                     outcome = mux.run_journal_maintenance(&mut ledgers);
+                    // A tick runs 30 s or more after the last request, past
+                    // the quiet trim it armed: arm it again, or the pages the
+                    // checkpoint and sealing freed stay with the process.
+                    cmux_tui_platform::malloc_quiet_trim::note_activity();
                 }
             },
         )?;
@@ -286,6 +290,9 @@ fn run_index_backfill(weak_mux: &Weak<Mux>, control: &JournalMaintenanceControl)
             let Some(mux) = weak_mux.upgrade() else { return };
             if mux.journal_maintenance_paused() { Ok(true) } else { mux.run_index_backfill_slice() }
         };
+        // Same as a maintenance tick: the slices' freed pages are trimmed
+        // once they stop (slices 800 ms apart keep postponing it).
+        cmux_tui_platform::malloc_quiet_trim::note_activity();
         let rest = match outcome {
             Ok(false) => return,
             Ok(true) => {
