@@ -1,15 +1,15 @@
 import { composerPickerEntries } from "./composerPickerEntries";
 import { acpmuxPerf } from "./perf";
 import React, {
-  memo,
   useCallback,
   useContext,
   useEffect,
-  useLayoutEffect,
+  useEffectEvent,
   useMemo,
   useRef,
   useState,
-  useEffectEvent,
+  memo,
+  useLayoutEffect,
 } from "react";
 import type { SignIn } from "./signIn";
 import { useChatAccounts } from "./chatAccounts";
@@ -114,14 +114,14 @@ import {
   type ModeIconName,
   RECOMMENDED_BADGE,
   type ShownMode,
+  cloudPickableModes,
   cloudStartAgent,
+  cloudStartMode,
   harnessFamilyMenu,
   harnessModeMenu,
   highestMode,
   remoteStartMode,
   shownModes,
-  cloudPickableModes,
-  cloudStartMode,
 } from "./harnessModes";
 import {
   PICKER_LABELS,
@@ -2513,7 +2513,7 @@ const TerminalShieldIcon = () => (
   </Icon>
 );
 /** A mode's symbol: the harness's own icon for it when its menu draws one, else the shield family. */
-function ModeIcon({ modeId, icon }: { modeId?: unknown; icon?: ModeIconName }) {
+export function ModeIcon({ modeId, icon }: { modeId?: unknown; icon?: ModeIconName }) {
   if (icon === "hand") return <HandIcon />;
   if (icon === "terminal-shield") return <TerminalShieldIcon />;
   if (icon === "shield-alert") return <ShieldIcon shield="alert" modeIcon="shield-alert" />;
