@@ -66,6 +66,8 @@ final class HomeFirstRunView: NSView {
     /// How many times the panel measured its parts (the full pass of `layout()`). A pane width change that keeps the
     /// column's width, and any layout while the panel is hidden, add none (HomeFirstRunWidthChangeTests).
     private(set) var measurePasses = 0
+    /// How many times the panel asked its stack for its fitting size (HomeFirstRunWidthChangeTests).
+    private(set) var fittingSizePasses = 0
 
     /// What the last measure pass measured the parts from: the column's width, the panel's height (what fits), the scale
     /// and everything the panel shows. A layout with the same values keeps every part's size and only centres the column
@@ -358,6 +360,7 @@ final class HomeFirstRunView: NSView {
         let card = switchCard.height(for: width)
         if cardHeight.constant != card { cardHeight.constant = card }
         fitAgentRows()
+        fittingSizePasses += 1
         let size = stack.fittingSize
         stack.frame = CGRect(x: (bounds.width - width) / 2, y: max(0, (bounds.height - size.height) / 2),
                              width: width, height: size.height)
