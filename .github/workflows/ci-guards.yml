@@ -1746,6 +1746,14 @@ jobs:
         if: ${{ matrix.group == 'ci' }}
         run: python3 tests/test_ci_fork_runner_routing.py
 
+      - name: Validate no gate main requires can skip into a raw-expression name
+        if: ${{ matrix.group == 'ci' }}
+        run: python3 tests/test_ci_required_gate_never_skips_into_main.py
+
+      - name: Validate the shed sweep keeps the runs it must
+        if: ${{ matrix.group == 'ci' }}
+        run: python3 tests/test_ci_shed_superseded_runs.py
+
       - name: Validate write-token jobs lead with a JIT label
         if: ${{ matrix.group == 'ci' }}
         run: python3 tests/test_ci_write_token_jit_label.py
