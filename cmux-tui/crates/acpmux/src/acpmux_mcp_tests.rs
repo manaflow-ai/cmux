@@ -1093,6 +1093,9 @@ fn a_fleet_sized_list_answers_small_and_live_first() {
     assert_eq!(rows[0]["name"], "lane-299", "newest first");
     assert_eq!(rows[0]["via"], "relay");
     assert_eq!(rows[0]["asOfMs"], 42);
+    assert!(rows[0].get("updatedAt").is_none(), "the folder and time only with detail");
+    let full = ls_result(&all, &json!({"detail": true}));
+    assert_eq!(full["structuredContent"]["sessions"][0]["updatedAt"], json!(10_299));
     assert_eq!(r["structuredContent"]["more"], json!(300 - LS_DEFAULT_LIMIT));
     assert!(text(&r).lines().last().unwrap().contains("more"), "{}", text(&r));
 
@@ -1415,12 +1418,19 @@ fn a_thread_listing_names_its_sender_once_and_the_reader_never() {
     }
     let before = as_the_daemon_lists().to_string().len();
     assert!(listed.to_string().len() * 2 < before, "{listed} of {before} bytes");
-    // A thread's own read is not a listing: every sender it names stays.
+    // A thread's own read is not a listing: every sender it names stays, less its nulls, and
+    // what a message says twice or leaves off goes.
     let mut read = json!({"threadId": "pr:12", "sessionId": "s-1",
-        "messages": [{"from": "lane-a", "text": "hi", "sender": {"label": "lane-a"}}]});
-    let whole = read.clone();
+        "messages": [{"from": "lane-a", "fromName": "lane-a", "class": "fyi", "kind": "fyi",
+            "text": "hi", "details": null, "read": true, "surgeHeld": false,
+            "sender": {"label": "lane-a", "session": "s-2", "relay": null}}]});
     trim_threads(&mut read);
-    assert_eq!(read, whole, "a thread read was trimmed like a listing");
+    assert_eq!(
+        read,
+        json!({"threadId": "pr:12", "messages": [{"from": "lane-a", "class": "fyi", "text": "hi",
+            "sender": {"label": "lane-a", "session": "s-2"}}]}),
+        "a thread read kept what it says twice or not at all"
+    );
 }
 
 /// The census of 2026-11-23 (cmuxterm-hq docs/findings/2026-11-23-mcp-tool-error-census.md)
@@ -1546,4 +1556,19 @@ fn the_most_called_tools_are_always_loaded_and_the_rest_deferred() {
     let rest = list.iter().filter(|t| !super::ALWAYS_LOADED.contains(&t["name"].as_str().unwrap()));
     assert!(rest.clone().count() > 5);
     assert!(rest.into_iter().all(|t| t.get("_meta").is_none()));
+}
+
+/// Prints each tool schema this crate serves (acpmux's and the sub-session server's), one
+/// `TOOLJSON` line each, to measure what a harness pays per turn for them:
+/// `cargo test -p acpmux --lib print_tool_schemas -- --ignored --nocapture`.
+#[test]
+#[ignore = "a measurement, not a check"]
+fn print_tool_schemas() {
+    for (server, list) in
+        [("acpmux", tools()), ("cmux-subsessions", crate::subsession_mcp::tools())]
+    {
+        for tool in list.as_array().into_iter().flatten() {
+            println!("TOOLJSON {server} {tool}");
+        }
+    }
 }

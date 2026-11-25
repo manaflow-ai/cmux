@@ -60,22 +60,16 @@ of independent tool calls, and keep working while a bg_start task runs.";
 const MAX_LAST: u64 = 20;
 /// How many sessions `ls` lists unless asked for another `limit`, and the most it lists: a fleet
 /// holds thousands of sessions (8,636 on one Mac, 29 MB as whole rows), and a reply that large
-/// closed the MCP connection of every harness that asked for it.
-const LS_DEFAULT_LIMIT: usize = 100;
+/// closed the MCP connection of every harness that asked for it. 50: an agent reads this list
+/// every turn it calls it (29 KB at 100 whole-path rows), and the newest 50 name every live lane.
+const LS_DEFAULT_LIMIT: usize = 50;
 const LS_MAX_LIMIT: usize = 500;
-/// The fields of a session `ls` answers with in `structuredContent`; `info` has the rest.
-const LS_FIELDS: &[&str] = &[
-    "name",
-    "status",
-    "title",
-    "peer",
-    "sessionId",
-    "harness",
-    "cwd",
-    "updatedAt",
-    "asOfMs",
-    "via",
-];
+/// The fields of a session `ls` answers with in `structuredContent`; `info` has the rest, and
+/// `detail: true` adds [`LS_DETAIL_FIELDS`]. The folder and time were a third of each row and
+/// the rows come newest first already.
+const LS_FIELDS: &[&str] =
+    &["name", "status", "title", "peer", "sessionId", "harness", "asOfMs", "via"];
+const LS_DETAIL_FIELDS: &[&str] = &["cwd", "updatedAt"];
 
 #[path = "acpmux_mcp_artifacts.rs"]
 pub(crate) mod artifacts;
@@ -184,7 +178,8 @@ fn base_tools() -> Value {
                 "properties": {
                     "status": {"type": "string", "description": "Only sessions in this state: running, ready, idle, waiting, disconnected or closed."},
                     "query": {"type": "string", "description": "Only sessions whose name, title or peer contains this text (any case)."},
-                    "limit": {"type": "integer", "minimum": 1, "maximum": LS_MAX_LIMIT, "description": "Most sessions to list (default 100)."}
+                    "limit": {"type": "integer", "minimum": 1, "maximum": LS_MAX_LIMIT, "description": "Most sessions to list (default 50)."},
+                    "detail": {"type": "boolean", "description": "Also each session's folder and last update."}
                 }
             }
         },
@@ -671,11 +666,31 @@ async fn inbox_tool(daemon: &Arc<Client>, session: &str, name: &str, args: &Valu
 /// of 8,470 B becomes 6,344 B, a 25.1% cut (`scripts/measure/inbox-listing-bytes.py`).
 fn trim_threads(answer: &mut Value) {
     let Some(o) = answer.as_object_mut() else { return };
-    // Not a listing: a thread's own messages keep every sender they name.
+    o.remove("sessionId");
+    // Not a listing: a thread's own messages keep every sender they name, less what is null,
+    // off or said twice (`fromName` the same as `from`, `kind` as `class`, `read` after the read
+    // that marked it). A thread read was this tool's large answer (p95 34 KB in a day's calls).
     if !o.contains_key("threads") {
+        for m in o.get_mut("messages").and_then(Value::as_array_mut).into_iter().flatten() {
+            let Some(m) = m.as_object_mut() else { continue };
+            if m.get("fromName") == m.get("from") {
+                m.remove("fromName");
+            }
+            if m.get("kind") == m.get("class") {
+                m.remove("kind");
+            }
+            m.retain(|k, v| match (k.as_str(), &*v) {
+                (_, Value::Null) => false,
+                ("surgeHeld", v) => v.as_bool() != Some(false),
+                ("read", v) => v.as_bool() != Some(true),
+                _ => true,
+            });
+            if let Some(sender) = m.get_mut("sender").and_then(Value::as_object_mut) {
+                sender.retain(|_, v| !v.is_null() && v != &json!(false));
+            }
+        }
         return;
     }
-    o.remove("sessionId");
     for row in o.get_mut("threads").and_then(Value::as_array_mut).into_iter().flatten() {
         let Some(row) = row.as_object_mut() else { continue };
         if row.get("key") == row.get("threadId") {
@@ -886,13 +901,18 @@ fn ls_result(all: &Value, args: &Value) -> Value {
             "… {more} more: raise limit (up to {LS_MAX_LIMIT}), narrow with query, or pass status (closed lists the closed ones)."
         ));
     }
+    let detail = args.get("detail").and_then(Value::as_bool).unwrap_or(false);
+    let extra: &[&str] = if detail { LS_DETAIL_FIELDS } else { &[] };
     let slim: Vec<Value> = rows
         .iter()
         .map(|s| {
             let row: serde_json::Map<String, Value> = LS_FIELDS
                 .iter()
+                .chain(extra)
                 .filter_map(|k| {
-                    s.get(*k).filter(|v| !v.is_null()).map(|v| ((*k).to_owned(), v.clone()))
+                    s.get(*k)
+                        .filter(|v| !v.is_null() && v.as_str() != Some(""))
+                        .map(|v| ((*k).to_owned(), v.clone()))
                 })
                 .collect();
             Value::Object(row)

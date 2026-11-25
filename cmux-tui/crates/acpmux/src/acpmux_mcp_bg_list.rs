@@ -246,12 +246,12 @@ impl Page {
 /// carrying it: an end that has not happened (`endedAt`, `exitCode`, `signal`), a spool that
 /// did not fail (`outputError`), the lead agent (`startedBy`), no output dropped
 /// (`keptFromByte`), and `notify` and `resultLine` as `bg_start` leaves them.
-fn is_default(key: &str, v: &Value) -> bool {
+pub(super) fn is_default(key: &str, v: &Value) -> bool {
     match key {
         "endedAt" | "exitCode" | "signal" | "outputError" | "startedBy" => v.is_null(),
         "resultLine" => v == &json!(false),
         "notify" => v == &json!(true),
-        "keptFromByte" => v == &json!(0),
+        "keptFromByte" | "skippedBytes" => v == &json!(0),
         _ => false,
     }
 }
