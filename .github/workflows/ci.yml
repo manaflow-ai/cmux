@@ -53,6 +53,7 @@ on:
       - "docs/mdm/managed-preferences.md"
       - "docs/ci/health-report.md"
       - "docs/privacy.md"
+      - "docs/network-requirements.md"
       - "**/notices/**"
       - "vendor/stack-auth-swift-sdk-prerelease/README.cmux.md"
       - "cmux-tui/README.md"
