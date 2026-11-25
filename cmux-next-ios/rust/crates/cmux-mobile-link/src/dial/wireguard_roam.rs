@@ -40,6 +40,7 @@ use serde::{Deserialize, Serialize};
 use tokio::task::JoinHandle;
 
 use super::*;
+use crate::dial::turn::LateTurn;
 
 /// Overlay UDP port of the roaming messages, next to the link's 7420.
 pub const ROAM_PORT: u16 = 7421;
@@ -603,19 +604,47 @@ impl Session {
         why: &'static str,
         start: impl std::future::Future<Output = bool> + Send + 'static,
     ) {
+        self.retry_turn_after(why, start, LateTurn::default());
+    }
+
+    /// [`Self::retry_turn`], also taking a grant from `late` (allocations
+    /// that ran past their bound) as soon as one lands: a grant the server
+    /// made seconds ago is not thrown away for a new allocation's round trips.
+    fn retry_turn_after(
+        self: &Arc<Self>,
+        why: &'static str,
+        start: impl std::future::Future<Output = bool> + Send + 'static,
+        late: LateTurn,
+    ) {
         let weak = Arc::downgrade(self);
+        let since = self.roams.load(Ordering::Relaxed);
         let task = tokio::spawn(async move {
             if !start.await {
                 return;
             }
             for wait in TURN_RETRIES {
-                tokio::time::sleep(wait).await;
+                let landed = tokio::select! {
+                    () = tokio::time::sleep(wait) => None,
+                    Some(turn) = late.landed() => Some(turn),
+                };
                 let Some(session) = weak.upgrade() else { return };
                 if session.closed.load(Ordering::Relaxed) {
                     return;
                 }
+                if let Some(turn) = landed {
+                    tracing::info!(session = session.session_id, "a late TURN grant landed; taking it");
+                    session.take_turn(since, turn).await;
+                    return;
+                }
                 tracing::info!(session = session.session_id, "{why}");
-                if session.replace_turn().await {
+                if session.replace_turn(since, &late).await {
+                    return;
+                }
+            }
+            if let Some(turn) = late.landed().await {
+                let Some(session) = weak.upgrade() else { return };
+                if !session.closed.load(Ordering::Relaxed) {
+                    session.take_turn(since, turn).await;
                     return;
                 }
             }
@@ -625,17 +654,34 @@ impl Session {
     }
 
     /// Take a new TURN allocation on the current network and tell the peer
-    /// its address; `false` when none could be had.
-    async fn replace_turn(self: &Arc<Self>) -> bool {
+    /// its address; `false` when none could be had. A grant landing in
+    /// `late` meanwhile (from the roam numbered `since`) is taken instead.
+    async fn replace_turn(self: &Arc<Self>, since: u64, late: &LateTurn) -> bool {
         // Allocate before taking the roam lock: a roam meanwhile must not wait
         // seconds for an allocation that belongs to the old network.
         let roams = self.roams.load(Ordering::Relaxed);
-        let Some(turn) = TurnCarrier::allocate(&self.options).await else { return false };
+        let (turn, roams) = tokio::select! {
+            Some(turn) = late.landed() => (turn, since),
+            turn = TurnCarrier::allocate_keeping(&self.options, late) => match turn {
+                Some(turn) => (turn, roams),
+                None => return false,
+            },
+        };
+        self.take_turn(roams, turn).await
+    }
+
+    /// Install `turn`, allocated while the roam count was `roams`, and tell
+    /// the peer its address. A later roam's network makes it stale: it is
+    /// dropped (released).
+    async fn take_turn(self: &Arc<Self>, roams: u64, turn: TurnCarrier) -> bool {
         let _one_at_a_time = self.roaming.lock().await;
         if self.roams.load(Ordering::Relaxed) != roams || self.closed.load(Ordering::Relaxed) {
             // A roam took its own allocation on the new network, or started
             // its own retry.
             return true;
+        }
+        if let Some(timeline) = lock(&self.last_roam).as_ref() {
+            timeline.mark("turn_retry_allocated");
         }
         let Ok(net) = self.net() else { return true };
         let (old, _) = lock(&self.relayed).clone();
@@ -684,7 +730,9 @@ impl Session {
             }
             found
         };
-        let (reflexive, turn) = tokio::join!(reflexive, turn_beside(&self.options, false, turn_side));
+        let late = LateTurn::default();
+        let (reflexive, turn) =
+            tokio::join!(reflexive, turn_beside_keeping(&self.options, false, turn_side, Some(&late)));
         let blocked = asked > 0 && reflexive.is_empty();
         // A STUN answer came after all: the early allocation is dropped
         // (released) unused.
@@ -717,7 +765,7 @@ impl Session {
             let _ = net.refresh().await;
             gather.allocated();
         } else if turn_missed {
-            self.retry_turn("no TURN allocation at answer; taking one", async { true });
+            self.retry_turn_after("no TURN allocation at answer; taking one", async { true }, late);
         }
         if endpoints.len() != known {
             self.announce(endpoints, relayed, relayed_tls);
@@ -922,7 +970,12 @@ impl Session {
         self.announce(offered(endpoints.iter().copied(), &self.options), Vec::new(), Vec::new());
         // On the transport the new network allows: UDP, else TLS.
         let mut keeps_turn = self.keeps_turn.load(Ordering::Relaxed);
-        let turn = async { if keeps_turn { TurnCarrier::allocate(&self.options).await } else { None } };
+        // Allocations that run past their bound stay here: a miss below
+        // takes the first grant that lands instead of asking again.
+        let late = LateTurn::default();
+        let turn = async {
+            if keeps_turn { TurnCarrier::allocate_keeping(&self.options, &late).await } else { None }
+        };
         let reflexive = async {
             let mut deadline = Instant::now() + STUN_WAIT;
             let mut found = Vec::new();
@@ -946,7 +999,7 @@ impl Session {
             // below when this one misses.
             keeps_turn = true;
             self.keeps_turn.store(true, Ordering::Relaxed);
-            turn = TurnCarrier::allocate(&self.options).await;
+            turn = TurnCarrier::allocate_keeping(&self.options, &late).await;
         }
         let known = endpoints.len();
         for address in reflexive {
@@ -974,7 +1027,7 @@ impl Session {
             if missed_turn(keeps_turn, None, &self.options) {
                 // The new network's TURN server did not answer in time: keep
                 // asking (this also replaces a retry started on the old one).
-                self.retry_turn("roam took no TURN allocation; taking one", async { true });
+                self.retry_turn_after("roam took no TURN allocation; taking one", async { true }, late);
             }
         }
         if endpoints.len() != known {
@@ -1238,7 +1291,8 @@ pub fn rehome(client: &SignalingClient) -> usize {
 
 /// The marks of session `session_id`'s latest roam.
 pub fn roam_timeline(session_id: &str) -> Option<Timeline> {
-    live().into_iter().find(|s| s.session_id == session_id).and_then(|s| lock(&s.last_roam).clone())
+    // Both sides of a session run in one process in tests: the side that roamed.
+    live().into_iter().filter(|s| s.session_id == session_id).find_map(|s| lock(&s.last_roam).clone())
 }
 
 /// The phone is back from the background with a parked link: move its
