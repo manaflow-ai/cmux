@@ -27,7 +27,8 @@ struct ZoomFrameWorkTests {
         log.begin(at: 100, toOverview: false)
         log.frame(at: 100.01)
         log.frame(at: 100.30)
-        let s = try #require(log.end(maxFPS: 120))
+        let summary = log.end(maxFPS: 120)
+        let s = try #require(summary)
         #expect(abs(s.startMs - 100_000) < 0.01 && abs(s.endMs - 100_300) < 0.01)
         #expect(s.work == nil)
     }
