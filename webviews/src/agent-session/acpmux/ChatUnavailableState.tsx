@@ -137,7 +137,10 @@ export function ChatUnavailableState({
     title = t("unavailable.notFound.title");
     detail = named ? t("unavailable.notFound.detailOn", { machine: named }) : t("unavailable.notFound.detail");
   } else {
-    title = `${t("header.reconnecting")}…`;
+    // A machine down past the bound says it is offline, with Reconnect: never a "Reconnecting…" that
+    // leaves the person in limbo (Leo, 2026-11-24: "making the user think they're constsntly suspended
+    // in a state of connection limbo").
+    title = t("machineLink.offline");
     detail =
       unavailable.lastSeen !== undefined
         ? t("unavailable.offline.lastSeen", {
