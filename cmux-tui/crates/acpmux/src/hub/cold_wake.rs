@@ -49,8 +49,10 @@ pub(crate) const COLD_FULL_MS: u64 = 30 * 60_000;
 /// The context below which a cold chat opens no batch: re-reading it uncached costs little, so
 /// its wakes go in as before (a chat with no usage reported yet included).
 pub(crate) const MIN_BATCH_TOKENS: u64 = 20_000;
-/// The context from which a cold batch compacts first.
-pub(crate) const COMPACT_ABOVE_TOKENS: u64 = 100_000;
+/// The context from which a cold batch compacts first. 50K, not 100K: the cold batches measured
+/// on one lane VM over 48 h were 75.9K, 85.3K and 89.2K, none compacted, and each post-idle
+/// wake rewrote 64K-123K tokens into the cache while reading 9.9K from it.
+pub(crate) const COMPACT_ABOVE_TOKENS: u64 = 50_000;
 /// Settings > General > Prompt Cache: batch a cold chat's wakes on an interval (on by default).
 pub const SETTING_ENABLED: &str = "agents.coldWake.enabled";
 /// And compact a large cold chat before its batch goes in (on by default; Leo, 2026-11-24: "this
