@@ -214,6 +214,15 @@ IOS_FIXED = """\
     }
 """
 
+DROP_SET = """\
+    const SELF_HEALING: ReadonlySet<string> = new Set([
+      "Reconnecting",
+    ]);
+    export function readStatusItem(raw: Raw): Item | undefined {
+      if (SELF_HEALING.has(raw.words)) return undefined;
+      return { words: raw.words };
+    }
+"""
 WEB = "webviews/src/agent-session/acpmux"
 PAGE = "webviews/src/pages/editor"
 MAC = "Packages/macOS/CmuxNext/Sources/CmuxNextApp/Remote"
@@ -335,6 +344,18 @@ class WebShapes(unittest.TestCase):
         tree.write(f"{PAGE}/PhaseBadge.tsx", NOT_TEXT)
         code, out = tree.check()
         self.assertEqual(code, 0, out)
+
+
+    def test_a_word_set_read_only_to_drop_what_it_names_shows_nothing(self):
+        """composerStatusModel.ts (cmux#55968) keeps the self-healing link words to drop an older acpmux's item."""
+        tree = Tree(self)
+        tree.write(f"{WEB}/statusModel.ts", DROP_SET)
+        code, out = tree.check()
+        self.assertEqual(code, 0, out)
+        tree.write(f"{WEB}/statusModel.ts", DROP_SET.replace(
+            "if (SELF_HEALING.has(raw.words)) return undefined;", "const shown = SELF_HEALING.has(raw.words);"))
+        code, out = tree.check()
+        self.assertEqual(code, 1, "a set read for anything but a drop still carries its words to its reader")
 
 
 class NativeShapes(unittest.TestCase):
