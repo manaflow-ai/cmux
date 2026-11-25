@@ -12,7 +12,8 @@
 //!
 //! A daemon that lists [`FEATURE`] takes that. Its requests run concurrently (each its own task,
 //! `server/mod.rs`), so chunk k+1 may reach the disk before chunk k: a chunk ahead of the upload's
-//! end by at most [`AHEAD_BYTES`] waits its turn ([`in_turn`]) for at most [`TURN_WAIT`], and a
+//! end by at most [`AHEAD_BYTES`] waits its turn ([`in_turn`]) while the bytes before it keep
+//! landing (up to [`TURN_WAIT`] of silence), and a
 //! finish marked [`IN_FLIGHT`] waits the same way for the bytes before it. Every write still lands
 //! at the upload's end, in order, so the `.part` never has a hole and `_acpmux/file_put_status`
 //! still answers the resumable offset. A chunk or a finish past either bound gets the answer it
@@ -37,8 +38,9 @@ pub const CHUNKS: usize = 8;
 /// How far ahead of an upload's end a chunk's offset (or a finish's size) may be and still wait
 /// for the bytes before it: twice a sender's window.
 pub const AHEAD_BYTES: u64 = (2 * CHUNKS * CHUNK_BYTES) as u64;
-/// The longest a chunk or a finish waits for the bytes before it. A chunk lost in front of it
-/// (a sender that died) fails it then, as it would have failed at once before.
+/// The longest a chunk or a finish waits with the bytes before it not moving: each time the
+/// upload's end moves toward it the wait starts again. A chunk lost in front of it (a sender that
+/// died) fails it then, as it would have failed at once before.
 pub const TURN_WAIT: Duration = Duration::from_secs(30);
 /// The finish param that says its chunks may still be in flight: it waits for them.
 pub const IN_FLIGHT: &str = "chunksInFlight";
@@ -72,12 +74,17 @@ fn behind(e: &RpcError, want: u64) -> bool {
 
 /// Runs `attempt` (blocking: an append at `want`, or a finish of `want` bytes) off the runtime,
 /// again each time upload `upload` changes while it answers that the bytes before `want` are not
-/// all there, until [`TURN_WAIT`] has passed: then its last answer.
+/// all there, until [`TURN_WAIT`] has passed with the upload's end not moving: then its last
+/// answer.
 pub(super) async fn in_turn<F>(upload: &str, want: u64, attempt: F) -> Result<Value, RpcError>
 where
     F: Fn() -> Result<Value, RpcError> + Clone + Send + 'static,
 {
-    let deadline = tokio::time::Instant::now() + TURN_WAIT;
+    // Silence, not a wall clock: each time the upload's end moves toward `want` (the bytes before
+    // it landing) the wait starts again, so a long window over a slow link never fails a chunk
+    // that is still on its way.
+    let mut quiet = cmux_deadline::IdleDeadline::<tokio::time::Instant>::new(TURN_WAIT, None);
+    let mut reached: Option<u64> = None;
     // Before the first try: a change after it is seen however soon it comes.
     let mut changed = turn(upload).subscribe();
     loop {
@@ -86,10 +93,18 @@ where
             .await
             .map_err(|e| RpcError::internal(e.to_string()))?;
         match &answer {
-            Err(e) if behind(e, want) => {}
+            Err(e) if behind(e, want) => {
+                let at = e.data.as_ref().and_then(|d| d.get("offset")).and_then(Value::as_u64);
+                if at > reached {
+                    if reached.is_some() {
+                        quiet.progressed();
+                    }
+                    reached = at;
+                }
+            }
             _ => return answer,
         }
-        if !matches!(tokio::time::timeout_at(deadline, changed.changed()).await, Ok(Ok(()))) {
+        if !matches!(tokio::time::timeout_at(quiet.end(), changed.changed()).await, Ok(Ok(()))) {
             return answer;
         }
     }
@@ -329,5 +344,74 @@ mod tests {
             },
             |_, out| assert!(out.contains("REFUSED"), "{out}"),
         );
+    }
+
+    /// An attempt for [`in_turn`] whose upload's end is `end`: behind `want` it answers
+    /// `upload.offset` at `end`, as `chunk_in_turn` does; at `want` it lands.
+    fn attempt_at(
+        end: &Arc<std::sync::atomic::AtomicU64>,
+        want: u64,
+    ) -> impl Fn() -> Result<Value, RpcError> + Clone + Send + 'static {
+        let end = end.clone();
+        move || {
+            let at = end.load(std::sync::atomic::Ordering::SeqCst);
+            if at >= want {
+                Ok(json!({"offset": at}))
+            } else {
+                Err(RpcError::invalid_params("behind")
+                    .with_data(json!({"reason": "upload.offset", "offset": at})))
+            }
+        }
+    }
+
+    /// Leo, 2026-11-24: "if it's making good progress, it shiukd be allowed to keep going?" A
+    /// chunk whose bytes before it keep landing, each step well inside [`TURN_WAIT`], waits as
+    /// long as they keep coming: four times the old fixed bound here, and it lands.
+    #[tokio::test(start_paused = true)]
+    async fn a_chunk_whose_bytes_before_it_keep_landing_waits_past_the_old_bound() {
+        const UPLOAD: &str = "turn-moving";
+        let end = Arc::new(std::sync::atomic::AtomicU64::new(0));
+        let want = 6;
+        let feeder = async {
+            for _ in 0..want {
+                tokio::time::sleep(TURN_WAIT * 2 / 3).await;
+                end.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+                bump(UPLOAD);
+            }
+        };
+        let started = tokio::time::Instant::now();
+        let ((), answer) = tokio::join!(feeder, in_turn(UPLOAD, want, attempt_at(&end, want)));
+        assert_eq!(answer.unwrap()["offset"], want, "it landed");
+        assert!(started.elapsed() >= TURN_WAIT * 3, "{:?}", started.elapsed());
+    }
+
+    /// A chunk whose bytes before it stop coming answers as it always did, one [`TURN_WAIT`]
+    /// after the upload's end last moved, however often other changes on its stripe wake it.
+    #[tokio::test(start_paused = true)]
+    async fn a_chunk_whose_bytes_stop_coming_answers_one_bound_after_the_last_move() {
+        const UPLOAD: &str = "turn-stuck";
+        let end = Arc::new(std::sync::atomic::AtomicU64::new(0));
+        let want = 10;
+        let feeder = async {
+            // Two moves, then wakes that bring nothing, for as long as it waits.
+            for n in 0u32.. {
+                tokio::time::sleep(TURN_WAIT / 6).await;
+                if n < 2 {
+                    end.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+                }
+                bump(UPLOAD);
+            }
+        };
+        let started = tokio::time::Instant::now();
+        let answer = tokio::select! {
+            answer = in_turn(UPLOAD, want, attempt_at(&end, want)) => answer,
+            () = feeder => unreachable!("the feeder never ends"),
+        };
+        let e = answer.unwrap_err();
+        assert_eq!(e.data.unwrap()["offset"], 2);
+        let took = started.elapsed();
+        // The last move was at 2/6 of the bound; the answer came one bound after it.
+        assert!(took >= TURN_WAIT + TURN_WAIT / 3, "{took:?}");
+        assert!(took < TURN_WAIT * 2, "{took:?}");
     }
 }
