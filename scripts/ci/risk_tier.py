@@ -339,10 +339,10 @@ DELETES = re.compile(
 # Removing the file the same code just made: an atomic write's temp or part file on its failure
 # path, or a Swift `defer` that drops a scratch copy. It trusts the variable's name, from a closed
 # list, and the argument must be that bare name (`&temp`, `self.staged`), so `&path` still counts.
+_TEMP_NAME = r"(temp|tmp|temporary|part|partial|staged|staging|scratch|copy)"
 OWN_TEMP = re.compile(
-    r"\b(remove_file|remove_dir_all|remove_dir|rmSync)\s*\(\s*&?(self\.)?"
-    r"(temp|tmp|temporary|part|partial|staged|staging|scratch)\s*[,)]"
-    r"|^defer\s*\{\s*(try\?\s*)?FileManager\.\w+\.removeItem\(at:\s*\w+\s*\)\s*\}$")
+    r"\b(remove_file|remove_dir_all|remove_dir|rmSync)\s*\(\s*&?(self\.)?" + _TEMP_NAME + r"\s*[,)]"
+    r"|^defer\s*\{\s*(try\?\s*)?FileManager\.\w+\.removeItem\(at:\s*" + _TEMP_NAME + r"\s*\)\s*\}$")
 DELETE_SCOPE_EXCLUDED = ("scripts/*", "*/scripts/*", ".github/*", "tools/*", "dogfood/*", "Prototypes/*",
                          "samples/*", "examples/*", ".claude/*", ".codex/*", ".agents/*", "cmux-tui/bindings/*",
                          # Benchmarks, end-to-end runs, examples, evals and simulators: harness code.

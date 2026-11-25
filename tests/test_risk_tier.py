@@ -312,6 +312,7 @@ class ClassifyTests(unittest.TestCase):
         mixed = "+    let _ = std::fs::remove_file(&temp); std::fs::remove_dir_all(&user_dir)?;"
         self.assertEqual(self.tier(rs, patches={rs: mixed}), "high")
         self.assertEqual(self.tier(swift, patches={swift: "+ try FileManager.default.removeItem(at: temp)"}), "high")
+        self.assertEqual(self.tier(swift, patches={swift: "+ defer { try? FileManager.default.removeItem(at: userDataDir) }"}), "high")
         self.assertEqual(self.tier("webviews/src/store.ts", patches={"webviews/src/store.ts": "+  await db.delete(chats)"}), "high")
 
     def test_unlink_bare_remove_and_keychain_deletes_count(self):
