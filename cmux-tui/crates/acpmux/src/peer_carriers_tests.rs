@@ -554,3 +554,31 @@ async fn only_the_links_dial_sends_a_first_request_behind_the_upgrade() {
         );
     }
 }
+
+#[tokio::test]
+async fn a_cold_connect_never_waits_on_an_absent_or_hung_tailscale() {
+    use crate::tailnet_carrier::{LocalRead, Mode, PathSource, Snapshots};
+    // LocalAPI never answers its first read; the CLI is missing or hangs for 2 s.
+    let missing = Snapshots::new(Arc::new(|| Err(anyhow::anyhow!("no tailscale CLI"))));
+    let hung = Snapshots::new(Arc::new(|| {
+        std::thread::sleep(Duration::from_secs(2));
+        Err(anyhow::anyhow!("tailscale status hung"))
+    }));
+    for (name, local, cli) in [
+        ("localapi pending", LocalRead::Pending, missing.clone()),
+        ("localapi absent, cli missing", LocalRead::Unavailable, missing),
+        ("localapi absent, cli hung", LocalRead::Unavailable, hung),
+    ] {
+        let (tx, _rx) = mpsc::channel(8);
+        let peer = Peer::new("box", "ssh://leo@box:7777", Some("t".into()), Some("p".into()), tx);
+        let source = PathSource::new(Arc::new(move || local.clone()), cli);
+        *peer.tailnet.lock().unwrap() =
+            super::super::tailnet_path::State::with_source(Mode::DirectOnly, Some(source));
+        let started = std::time::Instant::now();
+        peer.refresh_tailnet(None).await;
+        let waited = started.elapsed();
+        eprintln!("cold connect tailnet read, {name}: {waited:?}");
+        assert!(waited < Duration::from_millis(5), "{name}: the race waited {waited:?}");
+        assert!(!peer.dial_order().contains(&Via::Tailnet));
+    }
+}
