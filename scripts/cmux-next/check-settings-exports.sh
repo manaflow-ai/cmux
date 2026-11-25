@@ -37,6 +37,20 @@
 # plain build cannot put HEAD's products back, it removes the built products, so a later
 # `--skip-build` suite fails instead of passing against the base export's binaries.
 set -euo pipefail
+# With CMUX_SETTINGS_EXPORTS_REGEN (the Linux generated-files job), an export that cannot decide (exit 2 or more:
+# a Swift shape or a catalog key the Linux export does not know) is no verdict: the step passes with
+# undecided=true and the committed exports back, and the Mac fallback job decides.
+if [[ -n "${CMUX_SETTINGS_EXPORTS_REGEN:-}" && -z "${CMUX_SETTINGS_EXPORTS_INNER:-}" ]]; then
+  rc=0
+  CMUX_SETTINGS_EXPORTS_INNER=1 bash "${BASH_SOURCE[0]}" "$@" || rc=$?
+  if (( rc >= 2 )); then
+    echo "undecided=true" >> "${GITHUB_OUTPUT:-/dev/null}"
+    echo "::warning::the Linux settings export could not decide (exit $rc); the Mac job decides"
+    git checkout -q HEAD -- docs/mdm schemas/settings
+    exit 0
+  fi
+  exit "$rc"
+fi
 temp="${RUNNER_TEMP:-$(mktemp -d)}"
 root="$(git rev-parse --show-toplevel)"
 list="$(dirname "${BASH_SOURCE[0]}")/settings-exports.txt"

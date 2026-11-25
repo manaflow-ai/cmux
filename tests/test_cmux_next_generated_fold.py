@@ -216,8 +216,11 @@ class GeneratedFoldTest(unittest.TestCase):
                              "${{ needs.path_route.outputs.generated_host == '%s' }}" % job_id)
             self.assertIn("steps.generated-files-verdict.outputs.verdict", self.jobs[job_id]["outputs"]["generated_files"])
         self.assertIn("needs.path_route.outputs.generated_host == 'generated-files'", self.generated["if"])
-        self.assertEqual(self.daemon["needs"], self.generated["needs"])
-        self.assertEqual(self.swift["needs"], self.generated["needs"])
+        # The Mac job alone also waits on its own deciders (the base-red excuse and the Linux run it falls back from).
+        own = {"generated-files-base-red", "generated-files-linux"}
+        shared = [job for job in self.generated["needs"] if job not in own]
+        self.assertEqual(self.daemon["needs"], shared)
+        self.assertEqual(self.swift["needs"], shared)
 
     def test_every_routed_run_builds_once_for_its_generated_files(self):
         """Evaluates path_route's generated_host and the four jobs' conditions over events, routes,
