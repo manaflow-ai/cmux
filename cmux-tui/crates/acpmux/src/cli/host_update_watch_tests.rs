@@ -98,7 +98,7 @@ fn no_installed_binary_still_starts_the_service() {
 fn a_build_no_newer_than_the_installed_one_never_starts_the_service() {
     let mut watch = Watch::default();
     let t0 = Instant::now();
-    // fs-agent-lane-27, 2026-11-25: the marker named 22b26281 (07:34:53Z) with
+    // A lane VM, 2026-11-25: the marker named 22b26281 (07:34:53Z) with
     // d3f59cc48 (07:55:49Z) installed; the old watch started the service on
     // every RETRY for a build the install step refused as newerInstalled.
     let starts =
@@ -143,7 +143,7 @@ async fn the_head_is_the_controllers_marker_when_it_is_on() {
 #[tokio::test(start_paused = true)]
 async fn a_controller_miss_names_no_build_and_never_r2s() {
     // The old watch fell back to R2 here, whose hourly channel named an older
-    // build (8a9cc34c on fs-agent-lane-27), and started the service for it.
+    // build (8a9cc34c on a lane VM), and started the service for it.
     let report = Files([marker(NEW, "report")].into_iter().collect());
     let down = Files::default();
     for ctl_files in [&report, &down] {

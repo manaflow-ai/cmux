@@ -18,7 +18,7 @@
 //! falls back to. R2 is the Actions channel, which moves about once an hour,
 //! so a controller read that missed used to name R2's older build. That
 //! started the service for a build the install step then refused, and reset
-//! the retry count of the new build. fs-agent-lane-27 saw 6 such starts in
+//! the retry count of the new build. a lane VM saw 6 such starts in
 //! 35 minutes on 2026-11-25. A miss is retried once after [`MISS_RETRY`];
 //! when that misses too, the pass is skipped and the reason is logged when it
 //! changes. Nor does the watch start for a build no newer than the installed
