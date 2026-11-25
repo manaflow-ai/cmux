@@ -1309,392 +1309,398 @@ export function drawPaneBody({
                   style={parkStyle ?? (inTabRow ? tabRowStyle(tabRow) : undefined)}
                   inert={parked || undefined}
                 >
-                {/* In the tab row the native tabs draw over this band, so a tooltip stays out of it
+                  {/* In the tab row the native tabs draw over this band, so a tooltip stays out of it
                       (ui/titleTooltips.ts `data-tooltip-covered`). */}
-                <header
-                  className="acpmux-header"
-                  data-tab-row={inTabRow ? "" : undefined}
-                  data-tooltip-covered={inTabRow ? "" : undefined}
-                >
-                  <ChatHeaderStatus status={header.status} detail={header.detail}>
-                    {!inTabRow && !showNewTab && snapshot.sessionId && (
-                      <span className="acpmux-header-status-content">
-                        <ThreadTitle
-                          key={snapshot.sessionId}
-                          title={heading.title}
-                          onRename={heading.renamable ? renameFromTitle : undefined}
-                          trail={heading.renamable ? titleTrail : undefined}
-                          icon={heading.renamable ? snapshot.summary?.icon : undefined}
-                          formerNames={heading.renamable ? snapshot.summary?.formerNames : undefined}
-                        />
-                        {/* No rolling summary beside a chat's name: the sidebar's hover card and Expanded rows show it
+                  <header
+                    className="acpmux-header"
+                    data-tab-row={inTabRow ? "" : undefined}
+                    data-tooltip-covered={inTabRow ? "" : undefined}
+                  >
+                    <ChatHeaderStatus status={header.status} detail={header.detail}>
+                      {!inTabRow && !showNewTab && snapshot.sessionId && (
+                        <span className="acpmux-header-status-content">
+                          <ThreadTitle
+                            key={snapshot.sessionId}
+                            title={heading.title}
+                            onRename={heading.renamable ? renameFromTitle : undefined}
+                            trail={heading.renamable ? titleTrail : undefined}
+                            icon={heading.renamable ? snapshot.summary?.icon : undefined}
+                            formerNames={heading.renamable ? snapshot.summary?.formerNames : undefined}
+                          />
+                          {/* No rolling summary beside a chat's name: the sidebar's hover card and Expanded rows show it
                               (Leo, 2026-11-22, on the line here: "im not sure if this is useful ... it's overlapping").
                               A subagent's own pane says whose it is there instead (Leo, 2026-11-22: "it is prob ok to
                               somehow denote the \"subagent of\"... at the top i feel like"). */}
-                        {heading.of && (
-                          <span className="acpmux-subagent-of" data-subagent-of="">
-                            {heading.of}
-                          </span>
-                        )}
-                      </span>
-                    )}
-                  </ChatHeaderStatus>
-                  <div className="acpmux-handoff-header-tools" ref={tabRowTools}>
-                    {liveTreeEnabled && snapshot.sessionId && (
-                      <LiveTreePill key={snapshot.sessionId} cwd={snapshot.summary?.cwd} readStatus={readLiveTree} />
-                    )}
-                    <LivePresenceStack
-                      sessionId={snapshot.sessionId ?? snapshot.summary?.sessionId}
-                      fallback={snapshot.presence}
-                    />
-                    {/* No Share button here: Share… lives in the ••• menu (Leo, 2026-11-07: "would that
+                          {heading.of && (
+                            <span className="acpmux-subagent-of" data-subagent-of="">
+                              {heading.of}
+                            </span>
+                          )}
+                        </span>
+                      )}
+                    </ChatHeaderStatus>
+                    <div className="acpmux-handoff-header-tools" ref={tabRowTools}>
+                      {liveTreeEnabled && snapshot.sessionId && (
+                        <LiveTreePill key={snapshot.sessionId} cwd={snapshot.summary?.cwd} readStatus={readLiveTree} />
+                      )}
+                      <LivePresenceStack
+                        sessionId={snapshot.sessionId ?? snapshot.summary?.sessionId}
+                        fallback={snapshot.presence}
+                      />
+                      {/* No Share button here: Share… lives in the ••• menu (Leo, 2026-11-07: "would that
                           defeat the minimalism? ... you'd want to put it in the dot dot dot area").
                           This only hosts its dialog; the faces before it draw only when someone else
                           is here. */}
-                    {snapshot.sessionId && !showNewTab && hasNativeHost() && (
-                      <ShareDialogHost
-                        key={snapshot.sessionId}
-                        sessionId={snapshot.sessionId}
-                        chat={chatName}
-                        open={shareOpen}
-                        onOpenChange={setShareOpen}
+                      {snapshot.sessionId && !showNewTab && hasNativeHost() && (
+                        <ShareDialogHost
+                          key={snapshot.sessionId}
+                          sessionId={snapshot.sessionId}
+                          chat={chatName}
+                          open={shareOpen}
+                          onOpenChange={setShareOpen}
+                        />
+                      )}
+                      {/* No title in the tab row: the pane's tab already names the chat (Leo, 2026-11-01). */}
+                      {inTabRow && <ChatHeaderInlineStatus status={header.status} detail={header.detail} />}
+                      <ChatHeaderTools
+                        chat={snapshot.sessionId}
+                        nativeRowTools={{
+                          enabled: inTabRow && tabRow.nativeRowTools === true && !inspectorOpen,
+                          callNative,
+                          panel: sessionInfo.on
+                            ? {
+                                // The native row's wire id for Session Info's toggle (header/nativeRowTools.ts), kept as the host knows it.
+                                id: "inspector",
+                                label: t("sessionInfo.title"),
+                                toggled: sessionInfo.shown === true,
+                                run: sessionInfo.toggle,
+                              }
+                            : {
+                                id: "summary",
+                                label: t("summary.open"),
+                                toggled: summaryCard.shown,
+                                run: summaryCard.toggle,
+                              },
+                        }}
+                        nativeNeedsYou={{ items: needsYou.items, mode: needsYou.mode, actions: needsYou.actions }}
+                        tabTools={!quick}
+                        pullRequestChip={!readOnlySubagent}
+                        // A new chat's picked folder too: New Worktree names its branch before the first prompt.
+                        folder={localCwd ?? (remoteChat ? undefined : startFolder)}
+                        readStatus={readFolderStatus}
+                        statusKey={snapshot.isWorking}
+                        working={snapshot.isWorking === true}
+                        // Apply brings a worktree chat's work to its main checkout (cx-lyqio.4); a new chat has none yet.
+                        onApplyWorktree={
+                          snapshot.sessionId && localCwd
+                            ? (key: string) =>
+                                callNative("git.worktree.apply", {
+                                  session_id: snapshot.sessionId,
+                                  idempotency_key: key,
+                                })
+                            : undefined
+                        }
+                        // Remove cleans the worktree up (cx-lyqio.5); discard only on "Remove anyway".
+                        onRemoveWorktree={
+                          snapshot.sessionId && localCwd
+                            ? (key: string, discard: boolean) =>
+                                callNative("git.worktree.remove", {
+                                  session_id: snapshot.sessionId,
+                                  idempotency_key: key,
+                                  ...(discard ? { discard: true } : {}),
+                                })
+                            : undefined
+                        }
+                        // A merge asks the header again, so the chip shows the pull request merged.
+                        onMergePullRequest={
+                          localCwd
+                            ? ({ number, url }) =>
+                                callNative("git.pullRequest", { action: "merge", number, url }).then((value) => {
+                                  const result = value as {
+                                    merged?: unknown;
+                                    queued?: unknown;
+                                  } | null;
+                                  if (result?.merged !== true && result?.queued !== true)
+                                    throw new Error(translate("header.prMergeFailed"));
+                                  void callNative("pane.tabState", { refresh: true })
+                                    .then(setHeaderState)
+                                    .catch(() => undefined);
+                                  return { queued: result.queued === true };
+                                })
+                            : undefined
+                        }
+                        // The glass toolbar's search chip (Settings > Advanced > Experiments): the palette's chats page.
+                        onSearch={showAllChats}
+                        onTerminal={(mode) => runSplitAction(HEADER_ACTIONS.terminal, localCwd, mode)}
+                        onSplitDown={(mode) => runSplitAction(HEADER_ACTIONS.splitDown, localCwd, mode)}
+                        onBrowser={(mode) => runSplitAction(HEADER_ACTIONS.browser, undefined, mode)}
+                        // Changes owns the diff of the chat's folder, read on the chat's machine (a Cloud chat's too).
+                        hasChanges={lastEditTurn !== undefined && chatCwd !== undefined}
+                        onChanges={toggleChanges}
+                        onFiles={localCwd ? (mode) => runSplitAction(HEADER_ACTIONS.files, localCwd, mode) : undefined}
+                        previewUrl={previewUrl}
+                        onPreview={(url, mode) => {
+                          ignoreFailure(
+                            callNative("pane.action", {
+                              id: HEADER_ACTIONS.preview,
+                              ...(url ? { url } : {}),
+                              mode,
+                            }),
+                          );
+                          window.setTimeout(refreshTabState, 400);
+                        }}
+                        sideTabs={sideTabs}
+                        onSideTabs={toggleSideTabs}
+                        onPointerEnter={quick ? undefined : refreshTabState}
+                        onCustomize={(list) => {
+                          // Shown at once; the App saves it to layout.json, whose watch pushes it to every chat.
+                          // A save the App refused (layout.json mid-edit) puts the buttons back.
+                          const before = quickActions();
+                          configureQuickActions({ quickActions: list });
+                          callNative("pane.setQuickActions", { quickActions: list }).catch(() =>
+                            configureQuickActions({ quickActions: before }),
+                          );
+                        }}
+                        sessionInfo={sessionInfo.button}
+                        inbox={
+                          <NeedsYouButton items={needsYou.items} mode={needsYou.mode} actions={needsYou.actions} />
+                        }
+                        inboxRelevant={needsYou.items.length > 0}
+                        newButton={
+                          quick
+                            ? undefined
+                            : {
+                                available: {
+                                  sideChat: sideChat !== undefined,
+                                  // chat.newHere needs a started chat that is not a Cloud chat (canMove, as the folder menu's
+                                  // New Chat) and its folder; another machine's only when absolute.
+                                  newTab: canMove && chatCwd !== undefined && (!remoteChat || chatCwd.startsWith("/")),
+                                },
+                                make: (kind) => {
+                                  if (kind === "terminal") newTerminal();
+                                  else if (kind === "browser") newBrowser();
+                                  else if (kind === "sideChat") sideChat?.onSelect?.();
+                                  // The New Tab page beside the chat, in the chat's folder: it starts a chat or opens anything else.
+                                  else if (chatCwd) ignoreFailure(callNative("chat.newHere", { cwd: chatCwd }));
+                                },
+                              }
+                        }
+                        summary={
+                          sessionInfo.on ? null : (native) => <SummaryButton card={summaryCard} native={native} />
+                        }
+                        menu={chatMenu}
+                        onMenuOpen={() => Promise.all([readTabState(true), readChatMini()])}
+                        expand={continuing && canContinue ? "continue" : undefined}
+                        onExpanded={stopContinuing}
                       />
-                    )}
-                    {/* No title in the tab row: the pane's tab already names the chat (Leo, 2026-11-01). */}
-                    {inTabRow && <ChatHeaderInlineStatus status={header.status} detail={header.detail} />}
-                    <ChatHeaderTools
-                      chat={snapshot.sessionId}
-                      nativeRowTools={{
-                        enabled: inTabRow && tabRow.nativeRowTools === true && !inspectorOpen,
-                        callNative,
-                        panel: sessionInfo.on
-                          ? {
-                              // The native row's wire id for Session Info's toggle (header/nativeRowTools.ts), kept as the host knows it.
-                              id: "inspector",
-                              label: t("sessionInfo.title"),
-                              toggled: sessionInfo.shown === true,
-                              run: sessionInfo.toggle,
-                            }
-                          : {
-                              id: "summary",
-                              label: t("summary.open"),
-                              toggled: summaryCard.shown,
-                              run: summaryCard.toggle,
-                            },
-                      }}
-                      nativeNeedsYou={{ items: needsYou.items, mode: needsYou.mode, actions: needsYou.actions }}
-                      tabTools={!quick}
-                      pullRequestChip={!readOnlySubagent}
-                      // A new chat's picked folder too: New Worktree names its branch before the first prompt.
-                      folder={localCwd ?? (remoteChat ? undefined : startFolder)}
-                      readStatus={readFolderStatus}
-                      statusKey={snapshot.isWorking}
-                      working={snapshot.isWorking === true}
-                      // Apply brings a worktree chat's work to its main checkout (cx-lyqio.4); a new chat has none yet.
-                      onApplyWorktree={
-                        snapshot.sessionId && localCwd
-                          ? (key: string) =>
-                              callNative("git.worktree.apply", {
-                                session_id: snapshot.sessionId,
-                                idempotency_key: key,
-                              })
-                          : undefined
-                      }
-                      // Remove cleans the worktree up (cx-lyqio.5); discard only on "Remove anyway".
-                      onRemoveWorktree={
-                        snapshot.sessionId && localCwd
-                          ? (key: string, discard: boolean) =>
-                              callNative("git.worktree.remove", {
-                                session_id: snapshot.sessionId,
-                                idempotency_key: key,
-                                ...(discard ? { discard: true } : {}),
-                              })
-                          : undefined
-                      }
-                      // A merge asks the header again, so the chip shows the pull request merged.
-                      onMergePullRequest={
-                        localCwd
-                          ? ({ number, url }) =>
-                              callNative("git.pullRequest", { action: "merge", number, url }).then((value) => {
-                                const result = value as {
-                                  merged?: unknown;
-                                  queued?: unknown;
-                                } | null;
-                                if (result?.merged !== true && result?.queued !== true)
-                                  throw new Error(translate("header.prMergeFailed"));
-                                void callNative("pane.tabState", { refresh: true })
-                                  .then(setHeaderState)
-                                  .catch(() => undefined);
-                                return { queued: result.queued === true };
-                              })
-                          : undefined
-                      }
-                      // The glass toolbar's search chip (Settings > Advanced > Experiments): the palette's chats page.
-                      onSearch={showAllChats}
-                      onTerminal={(mode) => runSplitAction(HEADER_ACTIONS.terminal, localCwd, mode)}
-                      onSplitDown={(mode) => runSplitAction(HEADER_ACTIONS.splitDown, localCwd, mode)}
-                      onBrowser={(mode) => runSplitAction(HEADER_ACTIONS.browser, undefined, mode)}
-                      // Changes owns the diff of the chat's folder, read on the chat's machine (a Cloud chat's too).
-                      hasChanges={lastEditTurn !== undefined && chatCwd !== undefined}
-                      onChanges={toggleChanges}
-                      onFiles={localCwd ? (mode) => runSplitAction(HEADER_ACTIONS.files, localCwd, mode) : undefined}
-                      previewUrl={previewUrl}
-                      onPreview={(url, mode) => {
-                        ignoreFailure(
-                          callNative("pane.action", {
-                            id: HEADER_ACTIONS.preview,
-                            ...(url ? { url } : {}),
-                            mode,
-                          }),
-                        );
-                        window.setTimeout(refreshTabState, 400);
-                      }}
-                      sideTabs={sideTabs}
-                      onSideTabs={toggleSideTabs}
-                      onPointerEnter={quick ? undefined : refreshTabState}
-                      onCustomize={(list) => {
-                        // Shown at once; the App saves it to layout.json, whose watch pushes it to every chat.
-                        // A save the App refused (layout.json mid-edit) puts the buttons back.
-                        const before = quickActions();
-                        configureQuickActions({ quickActions: list });
-                        callNative("pane.setQuickActions", { quickActions: list }).catch(() =>
-                          configureQuickActions({ quickActions: before }),
-                        );
-                      }}
-                      sessionInfo={sessionInfo.button}
-                      inbox={<NeedsYouButton items={needsYou.items} mode={needsYou.mode} actions={needsYou.actions} />}
-                      inboxRelevant={needsYou.items.length > 0}
-                      newButton={
-                        quick
-                          ? undefined
-                          : {
-                              available: {
-                                sideChat: sideChat !== undefined,
-                                // chat.newHere needs a started chat that is not a Cloud chat (canMove, as the folder menu's
-                                // New Chat) and its folder; another machine's only when absolute.
-                                newTab: canMove && chatCwd !== undefined && (!remoteChat || chatCwd.startsWith("/")),
-                              },
-                              make: (kind) => {
-                                if (kind === "terminal") newTerminal();
-                                else if (kind === "browser") newBrowser();
-                                else if (kind === "sideChat") sideChat?.onSelect?.();
-                                // The New Tab page beside the chat, in the chat's folder: it starts a chat or opens anything else.
-                                else if (chatCwd) ignoreFailure(callNative("chat.newHere", { cwd: chatCwd }));
-                              },
-                            }
-                      }
-                      summary={sessionInfo.on ? null : (native) => <SummaryButton card={summaryCard} native={native} />}
-                      menu={chatMenu}
-                      onMenuOpen={() => Promise.all([readTabState(true), readChatMini()])}
-                      expand={continuing && canContinue ? "continue" : undefined}
-                      onExpanded={stopContinuing}
-                    />
-                  </div>
-                </header>
-                {/* A feature tip under its header control (featureTips.tsx; it portals out). */}
-                {!quick && !showNewTab && snapshot.sessionId && <PaneFeatureTips streaming={turnWorking} />}
-                {!sessionInfo.on && !summaryCard.column && summaryPanel}
-                {underHeader.checkpointReview && checkpoints.review}
-                {/* The lines under the header drop in from the top (ui/popupSurface.css `data-enter`). */}
-                {underHeader.liveChat && snapshot.liveChat && (
-                  <LiveChatChoice
-                    {...snapshot.liveChat}
-                    onChoose={(choice) => void callNative("chat.adoptLive", { choice }).catch(() => undefined)}
-                  />
-                )}
-                {underHeader.unavailable && cloudUnavailable && (
-                  <ChatUnavailableState
-                    line
-                    unavailable={cloudUnavailable}
-                    onResumeMachine={cloudRecovery.resume}
-                    resuming={cloudRecovery.resuming}
-                    resumeLong={cloudRecovery.slow}
-                    error={cloudRecovery.error}
-                    {...(machineName ? { machine: machineName } : {})}
-                    onRemove={() => runHeaderAction(HEADER_ACTIONS.close)}
-                    onReconnect={() => {
-                      cloudRecovery.refresh();
-                      void directClient.current?.recheckMissing();
-                    }}
-                    onResume={showAllChats}
-                    onClose={() => runHeaderAction(HEADER_ACTIONS.close)}
-                  />
-                )}
-                {underHeader.peerCopy && snapshot.peerCopy && (
-                  <PeerCopyBanner
-                    key={`${snapshot.sessionId ?? ""}:${snapshot.peerCopy.peer}`}
-                    copy={snapshot.peerCopy}
-                    machine={peerMachine.state}
-                    onResume={peerMachine.resume}
-                    asked={peerMachine.asked}
-                    onReconnect={reconnectPeer}
-                    // An ssh peer's offline copy waits out acpmux's own redial (LINK_DOWN_SAID_MS): a
-                    // drop that heals on its own says nothing (Leo, 2026-11-14).
-                    noteDelayMs={snapshot.peerKinds?.[snapshot.peerCopy.peer] === "ssh" ? LINK_DOWN_SAID_MS : undefined}
-                  />
-                )}
-                {underHeader.autoSession && autoBanner}
-                {/* Computer use's live preview: the app this chat's agent drives, at the top right. Always
-                      mounted: with no card it draws the last one's exit, then nothing (cardMotion.ts). */}
-                <ComputerUsePreviewCard
-                  preview={previewShown ? computerUsePreview : null}
-                  onClose={() => ignoreFailure(callNative("chat.computerUsePreview", { action: "close" }))}
-                  onMove={(_session, move) =>
-                    ignoreFailure(callNative("chat.computerUsePreview", { action: "place", ...move }))
-                  }
-                  onShow={() => ignoreFailure(callNative("chat.computerUsePreview", { action: "show" }))}
-                />
-                {environmentCardNode}
-                {underHeader.watching &&
-                  snapshot.summary?.watching &&
-                  // A chat its terminal drives is a live view of the same session, not View Only.
-                  !snapshot.summary.terminal &&
-                  !snapshot.liveTakeOver && (
-                    <WatchBanner
-                      family={snapshot.summary.watching}
-                      bridged={snapshot.summary.bridged === true}
-                      onTakeOver={() => void directClient.current?.takeOver().catch(() => undefined)}
-                      onContinue={() => void directClient.current?.continueWatched().catch(() => undefined)}
+                    </div>
+                  </header>
+                  {/* A feature tip under its header control (featureTips.tsx; it portals out). */}
+                  {!quick && !showNewTab && snapshot.sessionId && <PaneFeatureTips streaming={turnWorking} />}
+                  {!sessionInfo.on && !summaryCard.column && summaryPanel}
+                  {underHeader.checkpointReview && checkpoints.review}
+                  {/* The lines under the header drop in from the top (ui/popupSurface.css `data-enter`). */}
+                  {underHeader.liveChat && snapshot.liveChat && (
+                    <LiveChatChoice
+                      {...snapshot.liveChat}
+                      onChoose={(choice) => void callNative("chat.adoptLive", { choice }).catch(() => undefined)}
                     />
                   )}
-                {underHeader.watching && snapshot.liveTakeOver && (
-                  <LiveChatChoice
-                    {...snapshot.liveTakeOver}
-                    onChoose={(choice) => void callNative("chat.adoptLive", { choice }).catch(() => undefined)}
-                  />
-                )}
-                {underHeader.handoffError && snapshot.handoff?.error && (
-                  <p className="acpmux-handoff-error" role="alert" data-enter="top">
-                    {snapshot.handoff.error}
-                  </p>
-                )}
-                {viewedSandbox ? (
-                  // The person opened the tab's Sandboxed Run: it shows whatever the chat's state
-                  // (its composer is hidden while it does).
-                  <SandboxRunView
-                    run={viewedSandbox}
-                    onCheckAgain={() => void sandbox.read()}
-                    unread={sandbox.unread}
-                    onBack={() => {
-                      pendingWake.current = sandboxWake.current ?? pendingWake.current;
-                      sandboxWake.current = undefined;
-                      setSandboxViewing(false);
-                    }}
-                  />
-                ) : reviewing && handoff && snapshot.handoff ? (
-                  <HandoffReviewMessage
-                    key={`${handoff.handoffId}:${reviewReload}`}
-                    record={handoff}
-                    state={snapshot.handoff}
-                    strings={handoffLabels}
-                    onSave={(review) => callNative("chat.handoff.draft", { review })}
-                    onStart={(review) => callNative("chat.handoff.start", { review })}
-                    onReturn={() => selectSession(handoff.source.sessionId)}
-                    onDiscard={() => ignoreFailure(callNative("chat.handoff.discard"))}
-                    onReload={() =>
-                      ignoreFailure(callNative("chat.handoff.get").then(() => setReviewReload((value) => value + 1)))
+                  {underHeader.unavailable && cloudUnavailable && (
+                    <ChatUnavailableState
+                      line
+                      unavailable={cloudUnavailable}
+                      onResumeMachine={cloudRecovery.resume}
+                      resuming={cloudRecovery.resuming}
+                      resumeLong={cloudRecovery.slow}
+                      error={cloudRecovery.error}
+                      {...(machineName ? { machine: machineName } : {})}
+                      onRemove={() => runHeaderAction(HEADER_ACTIONS.close)}
+                      onReconnect={() => {
+                        cloudRecovery.refresh();
+                        void directClient.current?.recheckMissing();
+                      }}
+                      onResume={showAllChats}
+                      onClose={() => runHeaderAction(HEADER_ACTIONS.close)}
+                    />
+                  )}
+                  {underHeader.peerCopy && snapshot.peerCopy && (
+                    <PeerCopyBanner
+                      key={`${snapshot.sessionId ?? ""}:${snapshot.peerCopy.peer}`}
+                      copy={snapshot.peerCopy}
+                      machine={peerMachine.state}
+                      onResume={peerMachine.resume}
+                      asked={peerMachine.asked}
+                      onReconnect={reconnectPeer}
+                      // An ssh peer's offline copy waits out acpmux's own redial (LINK_DOWN_SAID_MS): a
+                      // drop that heals on its own says nothing (Leo, 2026-11-14).
+                      noteDelayMs={
+                        snapshot.peerKinds?.[snapshot.peerCopy.peer] === "ssh" ? LINK_DOWN_SAID_MS : undefined
+                      }
+                    />
+                  )}
+                  {underHeader.autoSession && autoBanner}
+                  {/* Computer use's live preview: the app this chat's agent drives, at the top right. Always
+                      mounted: with no card it draws the last one's exit, then nothing (cardMotion.ts). */}
+                  <ComputerUsePreviewCard
+                    preview={previewShown ? computerUsePreview : null}
+                    onClose={() => ignoreFailure(callNative("chat.computerUsePreview", { action: "close" }))}
+                    onMove={(_session, move) =>
+                      ignoreFailure(callNative("chat.computerUsePreview", { action: "place", ...move }))
                     }
+                    onShow={() => ignoreFailure(callNative("chat.computerUsePreview", { action: "show" }))}
                   />
-                ) : cloudUnavailable && !missingRows ? (
-                  // The tab's chat is not here: which case it is, centered where the chat would be.
-                  <ChatUnavailableState
-                    unavailable={cloudUnavailable}
-                    onResumeMachine={cloudRecovery.resume}
-                    resuming={cloudRecovery.resuming}
-                    resumeLong={cloudRecovery.slow}
-                    error={cloudRecovery.error}
-                    {...(snapshot.missingSession ? { session: snapshot.missingSession } : {})}
-                    {...(machineName ? { machine: machineName } : {})}
-                    onRemove={() => runHeaderAction(HEADER_ACTIONS.close)}
-                    onReconnect={() => {
-                      cloudRecovery.refresh();
-                      void directClient.current?.recheckMissing();
-                    }}
-                    onResume={showAllChats}
-                    onClose={() => runHeaderAction(HEADER_ACTIONS.close)}
-                  />
-                ) : freshView && pastTurns && (!pastWaitsForTrust || trustAsk.ask) ? (
-                  <PastChat turns={pastTurns} {...(githubRepository ? { githubRepository } : {})} />
-                ) : cloudStartShown ? (
-                  <CloudStartView
-                    start={cloudStart}
-                    onAnswer={answerCloudStart}
-                    onRetry={retryCloudStart}
-                    onSignIn={cloudSignInRetry}
-                    planStore={cloudPlanStore}
-                    onRunHere={runCloudHere}
-                    onDismiss={dismissCloudFailure}
-                    onSwitchTeam={switchTeamAndRetry}
-                    onOpenNewCloudChat={openNewCloudChatForStart}
-                    {...cloudTooBigActions}
-                    onSetUp={setUpCloud}
-                    onSetUpDismiss={dismissCloudSetUp}
-                  />
-                ) : sandboxView && !snapshot.sessionId && (sandboxHoldsChat || sandbox.mode === "sandboxed") ? (
-                  <SandboxRunView
-                    run={sandboxView}
-                    onCheckAgain={() => void sandbox.read()}
-                    unread={sandbox.unread}
-                    // Sandboxed can't run here now: the person says how the message goes instead.
-                    {...(sandboxRetryable(sandboxView) ? { onPersistent: () => sandbox.setMode("persistent") } : {})}
-                  />
-                ) : freshView && !premountsChatView ? (
-                  <EmptyState
-                    {...(projectName(composerSnapshot.summary?.cwd) && tourOffer ? { tour: tourOffer } : {})}
-                    // Once per chat: the empty state remounted by this chat (picker, reconnect) is at rest.
-                    entranceKey={snapshot.sessionId ?? "new-chat"}
-                  />
-                ) : (
-                  <AgentTonesContext.Provider value={chatTones}>
-                    <AgentNamesContext.Provider value={chatAgentNames}>
-                      <AgentOpenContext.Provider value={chatAgentOpen}>
-                        <BackgroundTaskOutputContext.Provider value={backgroundTaskOutput}>
-                          <TourStartContext.Provider value={tourHere ? startTourTask : undefined}>
-                            {transcript}
-                          </TourStartContext.Provider>
-                        </BackgroundTaskOutputContext.Provider>
-                      </AgentOpenContext.Provider>
-                    </AgentNamesContext.Provider>
-                  </AgentTonesContext.Provider>
-                )}
-                {displayAnchor && (
-                  <ChatDisplaySettings
-                    open
-                    anchor={displayAnchor}
-                    onOpenChange={(open) => !open && setDisplayAnchor(null)}
-                  />
-                )}
-                {inspectorOpen && (
-                  <Inspector
-                    snapshot={snapshot}
-                    sessionEvents={() => directClient.current?.sessionEvents() ?? []}
-                    onClose={closeInspector}
-                    onExport={saveLogNatively}
-                    perf={sendPerf}
-                  />
-                )}
+                  {environmentCardNode}
+                  {underHeader.watching &&
+                    snapshot.summary?.watching &&
+                    // A chat its terminal drives is a live view of the same session, not View Only.
+                    !snapshot.summary.terminal &&
+                    !snapshot.liveTakeOver && (
+                      <WatchBanner
+                        family={snapshot.summary.watching}
+                        bridged={snapshot.summary.bridged === true}
+                        onTakeOver={() => void directClient.current?.takeOver().catch(() => undefined)}
+                        onContinue={() => void directClient.current?.continueWatched().catch(() => undefined)}
+                      />
+                    )}
+                  {underHeader.watching && snapshot.liveTakeOver && (
+                    <LiveChatChoice
+                      {...snapshot.liveTakeOver}
+                      onChoose={(choice) => void callNative("chat.adoptLive", { choice }).catch(() => undefined)}
+                    />
+                  )}
+                  {underHeader.handoffError && snapshot.handoff?.error && (
+                    <p className="acpmux-handoff-error" role="alert" data-enter="top">
+                      {snapshot.handoff.error}
+                    </p>
+                  )}
+                  {viewedSandbox ? (
+                    // The person opened the tab's Sandboxed Run: it shows whatever the chat's state
+                    // (its composer is hidden while it does).
+                    <SandboxRunView
+                      run={viewedSandbox}
+                      onCheckAgain={() => void sandbox.read()}
+                      unread={sandbox.unread}
+                      onBack={() => {
+                        pendingWake.current = sandboxWake.current ?? pendingWake.current;
+                        sandboxWake.current = undefined;
+                        setSandboxViewing(false);
+                      }}
+                    />
+                  ) : reviewing && handoff && snapshot.handoff ? (
+                    <HandoffReviewMessage
+                      key={`${handoff.handoffId}:${reviewReload}`}
+                      record={handoff}
+                      state={snapshot.handoff}
+                      strings={handoffLabels}
+                      onSave={(review) => callNative("chat.handoff.draft", { review })}
+                      onStart={(review) => callNative("chat.handoff.start", { review })}
+                      onReturn={() => selectSession(handoff.source.sessionId)}
+                      onDiscard={() => ignoreFailure(callNative("chat.handoff.discard"))}
+                      onReload={() =>
+                        ignoreFailure(callNative("chat.handoff.get").then(() => setReviewReload((value) => value + 1)))
+                      }
+                    />
+                  ) : cloudUnavailable && !missingRows ? (
+                    // The tab's chat is not here: which case it is, centered where the chat would be.
+                    <ChatUnavailableState
+                      unavailable={cloudUnavailable}
+                      onResumeMachine={cloudRecovery.resume}
+                      resuming={cloudRecovery.resuming}
+                      resumeLong={cloudRecovery.slow}
+                      error={cloudRecovery.error}
+                      {...(snapshot.missingSession ? { session: snapshot.missingSession } : {})}
+                      {...(machineName ? { machine: machineName } : {})}
+                      onRemove={() => runHeaderAction(HEADER_ACTIONS.close)}
+                      onReconnect={() => {
+                        cloudRecovery.refresh();
+                        void directClient.current?.recheckMissing();
+                      }}
+                      onResume={showAllChats}
+                      onClose={() => runHeaderAction(HEADER_ACTIONS.close)}
+                    />
+                  ) : freshView && pastTurns && (!pastWaitsForTrust || trustAsk.ask) ? (
+                    <PastChat turns={pastTurns} {...(githubRepository ? { githubRepository } : {})} />
+                  ) : cloudStartShown ? (
+                    <CloudStartView
+                      start={cloudStart}
+                      onAnswer={answerCloudStart}
+                      onRetry={retryCloudStart}
+                      onSignIn={cloudSignInRetry}
+                      planStore={cloudPlanStore}
+                      onRunHere={runCloudHere}
+                      onDismiss={dismissCloudFailure}
+                      onSwitchTeam={switchTeamAndRetry}
+                      onOpenNewCloudChat={openNewCloudChatForStart}
+                      {...cloudTooBigActions}
+                      onSetUp={setUpCloud}
+                      onSetUpDismiss={dismissCloudSetUp}
+                    />
+                  ) : sandboxView && !snapshot.sessionId && (sandboxHoldsChat || sandbox.mode === "sandboxed") ? (
+                    <SandboxRunView
+                      run={sandboxView}
+                      onCheckAgain={() => void sandbox.read()}
+                      unread={sandbox.unread}
+                      // Sandboxed can't run here now: the person says how the message goes instead.
+                      {...(sandboxRetryable(sandboxView) ? { onPersistent: () => sandbox.setMode("persistent") } : {})}
+                    />
+                  ) : freshView && !premountsChatView ? (
+                    <EmptyState
+                      {...(projectName(composerSnapshot.summary?.cwd) && tourOffer ? { tour: tourOffer } : {})}
+                      // Once per chat: the empty state remounted by this chat (picker, reconnect) is at rest.
+                      entranceKey={snapshot.sessionId ?? "new-chat"}
+                    />
+                  ) : (
+                    <AgentTonesContext.Provider value={chatTones}>
+                      <AgentNamesContext.Provider value={chatAgentNames}>
+                        <AgentOpenContext.Provider value={chatAgentOpen}>
+                          <BackgroundTaskOutputContext.Provider value={backgroundTaskOutput}>
+                            <TourStartContext.Provider value={tourHere ? startTourTask : undefined}>
+                              {transcript}
+                            </TourStartContext.Provider>
+                          </BackgroundTaskOutputContext.Provider>
+                        </AgentOpenContext.Provider>
+                      </AgentNamesContext.Provider>
+                    </AgentTonesContext.Provider>
+                  )}
+                  {displayAnchor && (
+                    <ChatDisplaySettings
+                      open
+                      anchor={displayAnchor}
+                      onOpenChange={(open) => !open && setDisplayAnchor(null)}
+                    />
+                  )}
+                  {inspectorOpen && (
+                    <Inspector
+                      snapshot={snapshot}
+                      sessionEvents={() => directClient.current?.sessionEvents() ?? []}
+                      onClose={closeInspector}
+                      onExport={saveLogNatively}
+                      perf={sendPerf}
+                    />
+                  )}
                 </div>
                 <div
                   ref={setDock}
                   className="acpmux-dock"
                   style={parkStyle}
                   inert={parked || undefined}
-                // The stack holds the composer, whose card always draws its quiet row (ComposerFoot):
-                // bottomStack.css gives the transcript up first for it, from this, not from a
-                // `.acpmux-dock:has(.acpmux-composer-foot)` checked again for every inserted node.
-                data-foot={dockFoot ? "" : undefined}
-              >
-                {/* The pane's toasts stand on the stack's top edge, over the transcript (ToastLayer.tsx). */}
-                <ToastLayer queue={paneToasts} topHost={toastTop} />
-                {asks}
-                {hostLine}
-                {forkPendingLine}
-                <LiveTypingLine
-                  sessionId={snapshot.sessionId ?? snapshot.summary?.sessionId}
-                  fallback={snapshot.presence}
-                />
-                {/* A draft a refusal put back stays in reach even once the tab's run shows. */}
-                {dockFoot && composer}
+                  // The stack holds the composer, whose card always draws its quiet row (ComposerFoot):
+                  // bottomStack.css gives the transcript up first for it, from this, not from a
+                  // `.acpmux-dock:has(.acpmux-composer-foot)` checked again for every inserted node.
+                  data-foot={dockFoot ? "" : undefined}
+                >
+                  {/* The pane's toasts stand on the stack's top edge, over the transcript (ToastLayer.tsx). */}
+                  <ToastLayer queue={paneToasts} topHost={toastTop} />
+                  {asks}
+                  {hostLine}
+                  {forkPendingLine}
+                  <LiveTypingLine
+                    sessionId={snapshot.sessionId ?? snapshot.summary?.sessionId}
+                    fallback={snapshot.presence}
+                  />
+                  {/* A draft a refusal put back stays in reach even once the tab's run shows. */}
+                  {dockFoot && composer}
                 </div>
               </ChatViewParked.Provider>
             </Activity>
