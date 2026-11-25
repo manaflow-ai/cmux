@@ -191,15 +191,16 @@ else
       --summary "$GITHUB_STEP_SUMMARY" || true
   fi
 fi
-# A draft head, or a base merge into a PR idle 24 h, runs the cheap tier: the Linux checks and the
-# cargo fast tier, no Mac tier (scripts/ci/head_tier.py; a later line of an output wins).
+# A draft head, a ready head without ready-to-land (the land rule), or a base merge into a PR idle 24 h runs
+# the cheap tier: no Mac tier, and no cargo fast tier (set again after its route below; a later line of an
+# output wins). scripts/ci/head_tier.py decides.
 head_tier=""
 if [[ "$EVENT_NAME" == pull_request && -f scripts/ci/head_tier.py ]]; then
   head_tier="$(python3 -I scripts/ci/head_tier.py tier 2>/dev/null || true)"
 fi
 if [[ "$head_tier" == cheap || "$head_tier" == none ]]; then
   printf '%s=false\n' native swift_canary cmuxnext_swift mac_release macos scheme generated swift daemon full fast_tier >> "$GITHUB_OUTPUT"
-  echo "- head tier $head_tier (a draft, or a base merge into a PR idle 24 h): Linux checks and the cargo fast tier only; the Mac tiers run when it is marked ready, or on the next push (an empty commit does) once it has a new commit of its own or the full-ci label; adding the label alone does not re-run this workflow." >> "$GITHUB_STEP_SUMMARY"
+  echo "- head tier $head_tier (a draft, a ready head without the ready-to-land label, or a base merge into a PR idle 24 h): path routing only; the cargo fast tier and the Mac tiers run when the ready-to-land or full-ci label is added (the label re-runs this workflow at the same head)." >> "$GITHUB_STEP_SUMMARY"
 fi
 # Whether this pull request changes the cmux-tui it would test against:
 # any v2 tree-key input (cmux-tui-tree-inputs.txt), such as cmux-tui/,
@@ -246,4 +247,9 @@ if [[ "$EVENT_NAME" == pull_request && "${PR_BASE_REF:-}" == feat-cmux-next && "
   printf '%s=false\n' "${deferred[@]}" >> "$GITHUB_OUTPUT"
   echo "::notice title=cmux-next PR fast tier::Mac jobs, the cargo fast tier and web bundles are deferred to the feat-cmux-next push run; add the full-ci label to run them here"
   echo "- PR fast tier (vars.CI_PR_FAST_ONLY): deferred to the feat-cmux-next push run: ${deferred[*]}. The full-ci label runs every tier here." >> "$GITHUB_STEP_SUMMARY"
+fi
+# Leo, 2026-11-23: "de facto, im asking for 99% fewer minutes of ci time, period." The cheap tier skips the
+# cargo fast tier too; the ready-to-land label runs it at the head handed to land.
+if [[ "$head_tier" == cheap || "$head_tier" == none ]]; then
+  echo "fast_tier_cargo=false" >> "$GITHUB_OUTPUT"
 fi
