@@ -351,23 +351,21 @@ jobs:
           fi
           bash scripts/ci/ios-sim-pool.sh pack
           echo "packed=1" >> "$GITHUB_OUTPUT"
+      # The products go to the fleet pool's own store (for this run's pool step only), not to an artifact here.
       - name: Fleet pool, upload the products
+        id: sim-pool-upload
         if: ${{ steps.sim-pool.outputs.packed == '1' }}
         continue-on-error: true
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
-        with:
-          name: kit-sim-products-${{ github.run_id }}-${{ github.run_attempt }}
-          path: ${{ runner.temp }}/sim-pool/products/
-          retention-days: 1
-          compression-level: 0
-          if-no-files-found: error
+        timeout-minutes: 10
+        env:
+          CONTROLLER: ${{ vars.CMUX_FLEET_CONTROLLER }}
+        run: bash scripts/ci/ios-sim-pool.sh upload
       - name: Fleet pool, submit
-        if: ${{ steps.sim-pool.outputs.packed == '1' }}
+        if: ${{ steps.sim-pool.outputs.packed == '1' && steps.sim-pool-upload.outcome == 'success' }}
         continue-on-error: true
         env:
           CONTROLLER: ${{ vars.CMUX_FLEET_CONTROLLER }}
           HEAD_SHA: ${{ github.event.pull_request.head.sha }}
-          PRODUCTS: ${{ github.run_id }}/kit-sim-products-${{ github.run_id }}-${{ github.run_attempt }}
         run: bash scripts/ci/ios-sim-pool.sh submit
       - name: Run the routed ios steps (ci/steps.toml)
         env:
