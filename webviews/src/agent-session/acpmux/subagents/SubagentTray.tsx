@@ -1132,7 +1132,9 @@ export const SubagentTray = memo(function SubagentTray({
               before the panel button's, so it never sits where the expand chevron is. */}
           {hidesInHead && <span className="acpmux-running-tray__hide-slot" aria-hidden="true" />}
           {hideAt === "eye" && <span className="acpmux-hat-hide-slot" data-at="eye" aria-hidden="true" />}
-          {opensPanel === "button" && (!lineHead || open) && <span className="acpmux-running-tray__open-slot" aria-hidden="true" />}
+          {opensPanel === "button" && (!lineHead || open) && (
+            <span className="acpmux-running-tray__open-slot" aria-hidden="true" />
+          )}
           {/* The one trailing column every line's chevron ends in. */}
           {!lineHead && (
             <span className="acpmux-running-tray__status">
