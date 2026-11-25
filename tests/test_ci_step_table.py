@@ -1088,6 +1088,24 @@ class PipelineTest(unittest.TestCase):
         # One failed command does not stop the others, as the job's `!cancelled()` steps did.
         self.assertEqual(holes.run.count("|| status=1"), 4)
         self.assertIn('exit "$status"', holes.run)
+        guards = wf["jobs"]
+        # tooling-tests: on a feat-cmux-next pull request (not the fallback's call) the job keeps only the tt- steps the
+        # linux job cannot run; tooling-tests-1..4 carry every other tt- step's command, each behind the job's selection.
+        route = next(s for s in guards["tooling-tests"]["steps"] if s.get("id") == "setup-tooling-route")
+        staying = ("tt-remote-p10k", "tt-webviews-tests-per-file", "tt-web-lint-prepush", "tt-tailnet")
+        self.assertIn('[ "${GITHUB_BASE_REF:-}" = feat-cmux-next ] && [ "$GITHUB_WORKFLOW" != "docs-only fallback" ]',
+                      route["run"])
+        self.assertIn("for id in " + " ".join(staying) + "; do", route["run"])
+        tooling = [steps[f"tooling-tests-{i}"] for i in range(1, 5)]
+        carried = re.findall(r"^if want (tt-[\w-]+); then", "\n".join(s.run for s in tooling), re.M)
+        tt_ids = [s["id"] for s in guards["tooling-tests"]["steps"] if s.get("id", "").startswith("tt-")]
+        self.assertEqual(carried, [i for i in tt_ids if i not in staying])
+        for step in tooling:
+            with self.subTest(step=step.name):
+                self.assertEqual((step.job, step.inputs, step.alone), ("linux", ("**",), False))
+                self.assertLessEqual(step.timeout, 360)
+                self.assertIn("tooling_steps.py route --workflow .github/workflows/cmux-next-guards.yml --job tooling-tests",
+                              step.run)
         # ci-web.yml's diff-sidecar-check keeps its route and runs as the table step on feat-cmux-next pull requests,
         # while docs-only fallback still runs the reusable job directly.
         diff_wf = yaml.safe_load((ROOT / ".github/workflows/ci-web.yml").read_text())
