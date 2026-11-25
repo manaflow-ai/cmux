@@ -4,6 +4,7 @@ import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { nextDocHref, nextDocPage, nextDocPages, nextDocPublicPath, repoSourceHref } from "../data/next-docs/pages";
 import { buildLlmsText, resolveAgentPageVariant } from "../app/lib/agent-page-paths";
+import { NEXT_START_MARKDOWN_PATH, NEXT_START_MARKDOWN_URL, nextStartMarkdown } from "../data/next-docs/markdown";
 import { sitemapEntries } from "../app/sitemap";
 import {
   buildCliReference,
@@ -123,13 +124,25 @@ describe("cmux-next docs", () => {
     const blocks = body.flatMap((block) => ("code" in block && block.lang === "text" ? [block.code] : []));
     const url = `https://cmux.com${nextDocPublicPath("start")}.md`;
     expect(blocks).toHaveLength(3);
-    expect(blocks[0]).toContain(url);
+    // The pasted line names the repo copy, which serves today; the nightly docs zone is built from main and has no
+    // cmux-next pages, so cmux.com/docs/nightly/next/start.md answered 404 to every agent the old line sent there.
+    expect(blocks[0]).toContain(NEXT_START_MARKDOWN_URL);
+    expect(blocks[0]).not.toContain("cmux.com/docs/nightly/next");
     expect(blocks.slice(1)).toEqual([promptOf("Start a chat on cmux Cloud")!, promptOf("Use cmux from an iPhone")!]);
     // The heading the entry line and llms.txt both name.
     expect(body).toContainEqual({ h2: "If you are an agent" });
     const llms = buildLlmsText("https://cmux.com");
     expect(llms.indexOf(url)).toBeGreaterThan(-1);
     expect(llms.indexOf(url)).toBeLessThan(llms.indexOf("## What cmux is"));
+  });
+
+  // docs/cmux-next/start.md is what the pasted setup line sends an agent to: it must be the Start page as it is now.
+  test("docs/cmux-next/start.md is the Start page, regenerated", () => {
+    const committed = readFileSync(join(repo, NEXT_START_MARKDOWN_PATH), "utf8");
+    // Stale: run `bun web/scripts/export-next-start.ts` and commit docs/cmux-next/start.md.
+    expect(committed).toBe(nextStartMarkdown());
+    expect(committed).toContain("## If you are an agent");
+    expect(NEXT_START_MARKDOWN_URL.endsWith(`/feat-cmux-next/${NEXT_START_MARKDOWN_PATH}`)).toBe(true);
   });
 
   test("every cmux command written in a hand-written page is a real CLI verb", () => {
