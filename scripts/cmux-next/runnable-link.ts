@@ -251,7 +251,8 @@ async function main(): Promise<number> {
       meta.disclosure = link.disclosure;
     } else {
       meta.via = "snapshot";
-      meta.link_api = `HTTP ${minted.status}`;
+      // The code tells a flag that is off (link.not_found before auth) from a refusal of this machine.
+      meta.link_api = `HTTP ${minted.status} ${String(minted.body?.code ?? minted.body?.error ?? "").slice(0, 80)}`.trim();
       const snap = await api.op("cloud.snapshot.create", { machine: parent, name: `runnable link ${tag}` }, `${tag}-snap`);
       snapshot = String(snap?.snapshot?.id ?? snap?.snapshot ?? snap?.id);
     }
