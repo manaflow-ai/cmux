@@ -189,7 +189,8 @@ public struct AgentPaneGitHub {
                         connectRepo: { repo in
                             AgentPaneGitHubConnect(await picker.connect(repo: repo), open: open) {
                                 _ = Self.signInAndRetry(beginSignIn: { picker.auth.beginSignIn() },
-                                                        connect: { await picker.connect(repo: repo) }, open: open)
+                                                        connect: { await picker.connect(repo: repo) }, open: open,
+                                                        connected: { picker.auth.gitHubChanges.recordConnected() })
                             }
                         },
                         repos: { await picker.repos(query: $0) },
@@ -202,17 +203,23 @@ public struct AgentPaneGitHub {
     @MainActor @discardableResult
     static func signInAndRetry(beginSignIn: @escaping @MainActor () -> Task<Bool, Never>,
                                connect: @escaping @MainActor () async -> CloudGitHubPicker.Connect,
-                               open: @escaping @MainActor (URL) -> Void) -> Task<Void, Never> {
+                               open: @escaping @MainActor (URL) -> Void,
+                               connected: @escaping @MainActor () -> Void = {}) -> Task<Void, Never> {
         let signIn = beginSignIn()
-        return Task { await finishSignInAndRetry(signIn: signIn, connect: connect, open: open) }
+        return Task { await finishSignInAndRetry(signIn: signIn, connect: connect, open: open, connected: connected) }
     }
 
     @MainActor
     private static func finishSignInAndRetry(signIn: Task<Bool, Never>,
                                              connect: @escaping @MainActor () async -> CloudGitHubPicker.Connect,
-                                             open: @escaping @MainActor (URL) -> Void) async {
+                                             open: @escaping @MainActor (URL) -> Void,
+                                             connected: @escaping @MainActor () -> Void) async {
         guard await signIn.value else { return }
-        if case .open(let page) = await connect() { open(page) }
+        switch await connect() {
+        case .open(let page): open(page)
+        case .connected: connected()
+        case .unavailable, .failed: break
+        }
     }
 }
 
@@ -250,7 +257,7 @@ public enum AgentPaneGitHubConnect: Equatable, Sendable {
     }
 
     /// The picker's own Connect GitHub (``CloudGitHubPicker/connect()``): its page opened with `open`, a person signed
-    /// out sent to `signIn` (the cmux sign-in; Connect GitHub again once signed in), or why neither.
+    /// out sent to `signIn` (the cmux sign-in, then the same request is replayed), or why neither.
     @MainActor public init(_ connect: CloudGitHubPicker.Connect, open: (URL) -> Void, signIn: (@MainActor () -> Void)? = nil) {
         switch connect {
         case .open(let url): open(url); self = .opened

@@ -234,16 +234,19 @@ struct AgentPaneGitHubRequestTests {
         #expect(opened.isEmpty)
     }
 
-    @Test func connectedRetryDoesNotOpenAnotherPage() async {
+    @Test func connectedRetryNotifiesTheWaitingPicker() async {
         var opened: [URL] = []
+        var changes = 0
         let work = AgentPaneGitHub.signInAndRetry(
             beginSignIn: { Task { true } },
             connect: { .connected },
-            open: { opened.append($0) })
+            open: { opened.append($0) },
+            connected: { changes += 1 })
 
         await work.value
 
         #expect(opened.isEmpty)
+        #expect(changes == 1)
     }
 
     @Test(arguments: [
