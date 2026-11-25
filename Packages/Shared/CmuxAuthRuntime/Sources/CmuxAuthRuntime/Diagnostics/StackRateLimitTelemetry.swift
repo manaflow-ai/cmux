@@ -1,5 +1,4 @@
 public import Foundation
-import os
 import StackAuth
 
 /// Which auth step the sign-in service answered with 429.

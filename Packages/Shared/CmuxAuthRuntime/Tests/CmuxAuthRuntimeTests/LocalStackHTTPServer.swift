@@ -1,3 +1,4 @@
+#if canImport(Network)
 import Foundation
 import Network
 
@@ -183,6 +184,7 @@ final class LocalStackHTTPServer: @unchecked Sendable {
         }
     }
 }
+#endif
 
 private final class LockedFlag: @unchecked Sendable {
     private let lock = NSLock()
