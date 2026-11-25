@@ -147,6 +147,8 @@ final class FFIMacLink: TimedMacLink, @unchecked Sendable {
 }
 
 extension FFIMacLink: ParkableMacLink {
+    var resumeHedge: Duration? { .milliseconds(handle.resumeHedgeMs()) }
+
     func park(hold: Duration, timeout: Duration) async -> Bool {
         (try? await handle.park(holdMs: Self.millis(hold), timeoutMs: Self.millis(timeout))) ?? false
     }
@@ -268,6 +270,7 @@ final class FFIChannel: LinkChannel, @unchecked Sendable {
     private let closeLock = NSLock()
     private var closeInfo: LinkError?
     var closedBy: LinkError? { closeLock.withLock { closeInfo } }
+    var sentBytes: UInt64? { handle.sentBytes() }
 
     init(handle: ChannelHandle) {
         self.handle = handle

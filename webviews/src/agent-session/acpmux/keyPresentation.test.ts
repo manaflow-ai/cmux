@@ -5,10 +5,11 @@ import { typingSummary } from "./perf";
 test("a rounded presentation time brackets the key between its 4 ms step and its paint", () => {
   // Chromium 157, not cross-origin isolated: paint 2595.3, presented 2596.0 rounded up to 2600. The step's
   // floor (2596) lies after the paint: the floor is the step's.
-  expect(keyPresentation({ paintTime: 2595.3, presentationTime: 2600 }, 2590, false)).toEqual({
-    submitted: 10,
-    submittedFloor: 6,
-  });
+  const step = keyPresentation({ paintTime: 2595.3, presentationTime: 2600 }, 2590, false);
+  expect(step?.submitted).toBe(10);
+  expect(step?.submittedFloor).toBe(6);
+  // The frame's own paint, as the composer-typing bench reads `to_paint`.
+  expect(step?.painted).toBeCloseTo(5.3, 6);
   // The paint lies after the step's floor: nothing is presented before its paint.
   const late = keyPresentation({ paintTime: 2597.2, presentationTime: 2600 }, 2590, false);
   expect(late?.submitted).toBe(10);
@@ -19,6 +20,7 @@ test("a cross-origin isolated page reads the presentation time as is", () => {
   expect(keyPresentation({ paintTime: 2598.75, presentationTime: 2599.5 }, 2590, true)).toEqual({
     submitted: 9.5,
     submittedFloor: 9.5,
+    painted: 8.75,
   });
 });
 

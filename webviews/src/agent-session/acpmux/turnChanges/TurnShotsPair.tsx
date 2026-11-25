@@ -8,6 +8,8 @@ import { MediaCompare } from "../../../ui/MediaCompare";
 import { ImageViewerContext } from "../conversation/imageViewerContext";
 import { useT } from "../i18n";
 import type { AcpmuxRow } from "../model";
+import { TurnFramesContext } from "../liveFrames/framesCache";
+import type { TurnFramesReader } from "../liveFrames/turnFrames";
 import { SessionEditsContext } from "./sessionRows";
 import { TurnShotsContext, type TurnShotPair, type TurnShotsReader } from "./turnShots";
 
@@ -16,15 +18,20 @@ import { TurnShotsContext, type TurnShotPair, type TurnShotsReader } from "./tur
 export function SessionEditsAndShots({
   edits,
   shots,
+  frames,
   children,
 }: {
   edits: readonly AcpmuxRow[] | undefined;
   shots: TurnShotsReader | undefined;
+  /// The turn's frames (liveFrames/): the strip beside the before and after pair.
+  frames?: TurnFramesReader | undefined;
   children: ReactNode;
 }) {
   return (
     <TurnShotsContext.Provider value={shots}>
-      <SessionEditsContext.Provider value={edits}>{children}</SessionEditsContext.Provider>
+      <TurnFramesContext.Provider value={frames}>
+        <SessionEditsContext.Provider value={edits}>{children}</SessionEditsContext.Provider>
+      </TurnFramesContext.Provider>
     </TurnShotsContext.Provider>
   );
 }
