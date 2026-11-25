@@ -5213,7 +5213,7 @@ jobs:
         continue-on-error: true
         env:
           CMUX_SETTINGS_EXPORTS_REGEN: scripts/cmux-next/regenerate-settings-exports-linux.sh
-        run: bash scripts/ci/cmux-next-steps/generated-files-linux.sh settings
+        run: scripts/cmux-next/check-settings-exports.sh
 
       # Why: docs/ci/cmux-next-workflow-notes.md#note-380
       - name: Pack the exports for the base autofix

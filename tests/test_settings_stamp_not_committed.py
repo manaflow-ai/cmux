@@ -103,6 +103,8 @@ class OneListOfTheExports(unittest.TestCase):
         "scripts/ci/generated_files_guard.py",                # hands it to generated_outputs.py
         "scripts/cmux-next/base-autofix-exports-pack.sh",     # packs them for the base autofix
         "scripts/cmux-next/base_autofix_pushed_exports.py",   # takes that pack's files, digest-checked
+        "scripts/cmux-next/regenerate-settings-exports-linux.sh",  # exports them off a Mac
+        "scripts/cmux-next/linux-exports/export.py",          # checks the Linux export writes exactly them
     )
 
     # A test's own fixture may name the exports it drives: a short copy there weakens that test,

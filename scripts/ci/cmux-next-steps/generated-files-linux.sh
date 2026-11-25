@@ -4,7 +4,7 @@
 # file size limit (tests/test_ci_workflow_file_size.py); each step's env: still sets its inputs.
 # Why: docs/ci/cmux-next-workflow-notes/2026-11-25-generated-files-linux.md
 set -uo pipefail
-step="${1:?usage: generated-files-linux.sh preflight|settings|base-pack|pr-pack|regenerate|verdict}"
+step="${1:?usage: generated-files-linux.sh preflight|base-pack|pr-pack|regenerate|verdict}"
 
 case "$step" in
   # Exit 0 fresh, 1 stale, anything else: this pool cannot export, so the Mac job decides.
@@ -16,19 +16,6 @@ case "$step" in
     # changed), and hands over to the Mac there if it cannot decide.
     git checkout -q HEAD -- plans/cmux-next
     echo "ok=$ok" >> "$GITHUB_OUTPUT"
-    ;;
-
-  # Exit 1 is a stale export; 2 or more is the Linux export that cannot decide (a Swift shape or a catalog key it
-  # does not know), which leaves no verdict so the Mac job decides.
-  settings)
-    scripts/cmux-next/check-settings-exports.sh; rc=$?
-    if (( rc >= 2 )); then
-      echo "undecided=true" >> "$GITHUB_OUTPUT"
-      echo "::warning::the Linux settings export could not decide (exit $rc); the Mac job decides"
-      git checkout -q HEAD -- docs/mdm schemas/settings
-      exit 0
-    fi
-    exit "$rc"
     ;;
 
   base-pack)
