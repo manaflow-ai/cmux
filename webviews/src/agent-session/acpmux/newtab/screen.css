@@ -7,11 +7,13 @@
    resizing calculation is slow and wack"; new-tab-live-resize). */
 .nt-screen{padding-top:clamp(12px,calc(46vh - 154px),clamp(40px,14vh,140px))}
 .nt-screen>*{width:100%;min-width:0;max-width:100%}
-/* The box uses the same glass material as the chat composer (ComposerBox.tsx): the shared tint,
-   backdrop and rim are owned by .ui-glass. Keep the composer's edge/elevation aliases so focus,
-   borders-none and Reduce Transparency preserve the existing card contract. */
+/* The box uses the same glass material as the chat composer (ComposerBox.tsx) and the popups: the
+   shared tint, backdrop and rim are owned by .ui-glass (composerStates.css, ONE MATERIAL FAMILY), its
+   drop is the popups' (--ui-popup-drop), and in a see-through Chromium page it is the App's popover
+   glass (data-host-glass="popover"). Keep the composer's edge alias so focus, borders-none and Reduce
+   Transparency preserve the existing card contract. */
 .nt-box{flex:none;display:flex;flex-direction:column;box-sizing:border-box;border-radius:var(--nt-box-radius);position:relative}
-.nt-composer-surface{--acpmux-card-ring:inset 0 0 0 var(--cmux-hairline,.5px) var(--acpmux-composer-edge);--glass-edge:var(--acpmux-composer-edge);--glass-elevation:var(--acpmux-composer-shadow,var(--elevation-1))}
+.nt-composer-surface{--acpmux-card-ring:inset 0 0 0 var(--cmux-hairline,.5px) var(--acpmux-composer-edge);--glass-edge:var(--acpmux-composer-edge);--glass-elevation:var(--ui-popup-drop,var(--elevation-2))}
 .nt-input{display:flex;align-items:flex-start;gap:var(--ds-space-2);min-height:var(--nt-box-height);--nt-input-pad-inline:calc(18px * var(--acpmux-density, 1));padding:0 var(--nt-input-pad-inline)}
 :root[data-borders=none] .nt-composer-surface{--acpmux-composer-edge:transparent;--acpmux-card-ring:inset 0 0 0 var(--cmux-hairline,.5px) transparent}
 /* The field wraps a long draft and grows with it (field-sizing; NewTabScreen fits it only in an engine
@@ -396,6 +398,13 @@
 .nt-all-meta,.nt-all-state{flex:none;margin-left:auto;padding-left:var(--ds-space-3);color:var(--acpmux-composer-dim);font-size:var(--text-detail);font-variant-numeric:tabular-nums;letter-spacing:var(--text-detail--letter-spacing)}
 .nt-all-row[data-state=input] .nt-all-state{color:var(--agent-warning,var(--agent-text))}
 .nt-all-row[data-state=error] .nt-all-state,.nt-all-row[data-state=failed] .nt-all-state{color:var(--agent-danger)}
+/* Status Pills in All Chats (agentPane.display.chatListStatusPills, Taste Board #19): a live chat's state as a small tinted pill at the row's end, in the status palette. */
+.nt-all-pill{--nt-pill:var(--agent-muted);flex:none;margin-left:auto;padding:0 var(--ds-space-2);border-radius:999px;background:color-mix(in srgb,var(--nt-pill) 14%,transparent);box-shadow:inset 0 0 0 1px color-mix(in srgb,var(--nt-pill) 28%,transparent);color:var(--nt-pill);font-size:var(--text-detail);font-weight:500;line-height:18px;letter-spacing:var(--text-detail--letter-spacing);white-space:nowrap}
+.nt-all-state+.nt-all-pill{margin-left:var(--ds-space-2)}
+.nt-all-pill[data-tone=running]{--nt-pill:var(--agent-accent)}
+.nt-all-pill[data-tone=input]{--nt-pill:var(--agent-status-warning)}
+.nt-all-pill[data-tone=done]{--nt-pill:var(--agent-status-success)}
+.nt-all-pill[data-tone=failed]{--nt-pill:var(--agent-status-failure)}
 /* A project's header in Projects: its folder and count; a click folds its chats. */
 .nt-all-group{display:flex;align-items:center;gap:var(--ds-space-2);width:100%;height:100%;padding:0 var(--ui-row-padding-inline);box-sizing:border-box;border:0;border-radius:var(--ds-radius-control);background:none;color:var(--acpmux-composer-dim);font:inherit;font-size:var(--text-detail);font-weight:var(--weight-emphasis);text-align:left;white-space:nowrap;letter-spacing:var(--text-detail--letter-spacing)}
 .nt-all-group:hover,.nt-all-group:focus-visible{outline:0;color:var(--agent-text)}

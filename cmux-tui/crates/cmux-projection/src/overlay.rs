@@ -45,6 +45,9 @@ use crate::manifest::{Entry, Kind, Manifest, ROOT};
 use crate::upper::{RENAME_EXCHANGE, RENAME_NOREPLACE, SetTime, Stat, Upper, fmt};
 use crate::{Fetch, FetchError};
 
+#[path = "overlay_room.rs"]
+mod room;
+
 /// The size of a chunk of a big file, and the largest file fetched whole.
 pub const CHUNK: u64 = 4 * 1024 * 1024;
 
@@ -93,10 +96,11 @@ pub mod errno {
     pub const EINVAL: i32 = libc::EINVAL;
     pub const ENAMETOOLONG: i32 = libc::ENAMETOOLONG;
     pub const ENOTEMPTY: i32 = libc::ENOTEMPTY;
+    pub const ENOSPC: i32 = libc::ENOSPC;
 }
 use errno::{
-    EACCES, EBADF, EEXIST, EINVAL, EIO, EISDIR, ENAMETOOLONG, ENOENT, ENOTDIR, ENOTEMPTY, EPERM,
-    EXDEV,
+    EACCES, EBADF, EEXIST, EINVAL, EIO, EISDIR, ENAMETOOLONG, ENOENT, ENOSPC, ENOTDIR, ENOTEMPTY,
+    EPERM, EXDEV,
 };
 /// The longest name a folder holds, in bytes (Linux's `NAME_MAX`).
 const NAME_MAX: usize = 255;
@@ -387,6 +391,8 @@ pub struct Overlay {
     /// for a source that is not cached, or a store that could not be made.
     content: Option<content::Content>,
     cache_evicted: AtomicU64,
+    /// A failed cache store means readahead would repeatedly fetch bytes it cannot retain.
+    cache_failing: AtomicBool,
     /// The pinned paths, written to `pins_file` (one per NUL) on every change.
     pins: Mutex<BTreeSet<String>>,
     pins_file: PathBuf,
@@ -694,6 +700,7 @@ impl Overlay {
             cache_max: DEFAULT_CACHE_MAX_BYTES,
             content,
             cache_evicted: AtomicU64::new(0),
+            cache_failing: AtomicBool::new(false),
             pins: Mutex::new(BTreeSet::new()),
             pins_file,
             pin_reserve: pin::DEFAULT_PIN_RESERVE,
@@ -1079,7 +1086,17 @@ impl Overlay {
                 return Ok(());
             }
         }
-        self.write_whiteouts(&inner)
+        let saved = self.write_whiteouts(&inner);
+        if saved.is_err() {
+            // A full disk means the on-disk whiteout did not change. Keep memory aligned with
+            // the state a reopen would observe.
+            if on {
+                inner.whiteouts.remove(path);
+            } else {
+                inner.whiteouts.insert(path.to_owned());
+            }
+        }
+        saved
     }
 
     /// Readies whited-out `path` for something new there: the whiteout goes, and when a lower
@@ -1414,6 +1431,10 @@ impl Overlay {
         if !self.fetch.cache() {
             return;
         }
+        if !self.cache_has_room(bytes.len() as u64) {
+            self.cache_failing.store(true, Ordering::Relaxed);
+            return;
+        }
         let temp = self.scratch_path();
         // The content store keeps the bytes once, by hash; the cache's file is a hard link to it.
         let linked = self
@@ -1424,9 +1445,11 @@ impl Overlay {
             .is_some_and(|(content, hash)| content.link(&hash, &temp));
         if !linked && fs::write(&temp, bytes).is_err() {
             let _ = fs::remove_file(&temp);
+            self.cache_failing.store(true, Ordering::Relaxed);
             return;
         }
         self.admit(key, &temp, bytes.len() as u64);
+        self.cache_failing.store(false, Ordering::Relaxed);
     }
 
     /// Lands scratch file `temp` (`size` bytes) as cached `key`, under the cap.
@@ -1485,7 +1508,7 @@ impl Overlay {
         }
         let mut batch = vec![index];
         // A source with no cache answers one file at a time: read ahead would be thrown away.
-        if self.fetch.cache() {
+        if self.fetch.cache() && !self.cache_failing.load(Ordering::Relaxed) {
             let picked = {
                 let inner = self.lock();
                 read_ahead(&self.manifest, index, |other, entry| {
@@ -1807,11 +1830,13 @@ impl Overlay {
 
     /// Writes `ino` by its path (no open handle), copying a lower file up first.
     pub fn write(&self, ino: u64, offset: u64, data: &[u8]) -> Result<u32, i32> {
-        let path = self.path_of(ino)?;
-        self.ensure_upper(&path)?;
-        let file = self.upper.open_existing(&path, libc::O_WRONLY)?;
-        file.write_all_at(data, offset).map_err(|error| io_errno(&error))?;
-        u32::try_from(data.len()).map_err(|_| EINVAL)
+        self.with_room(|| {
+            let path = self.path_of(ino)?;
+            self.ensure_upper(&path)?;
+            let file = self.upper.open_existing(&path, libc::O_WRONLY)?;
+            file.write_all_at(data, offset).map_err(|error| io_errno(&error))?;
+            u32::try_from(data.len()).map_err(|_| EINVAL)
+        })
     }
 
     /// `fallocate(2)` through open handle `handle` (Linux).
@@ -1861,6 +1886,16 @@ impl Overlay {
     /// level saved on every create after the first in a folder); an upper path already there is
     /// the disk's own `EEXIST`.
     pub fn create(&self, parent: u64, name: &str, mode: u32, who: Who) -> Result<(Attr, u64), i32> {
+        self.with_room(|| self.create_once(parent, name, mode, who))
+    }
+
+    fn create_once(
+        &self,
+        parent: u64,
+        name: &str,
+        mode: u32,
+        who: Who,
+    ) -> Result<(Attr, u64), i32> {
         let (parent, child) = self.child(parent, name)?;
         if self.lower(&child).is_some() {
             return Err(EEXIST);
@@ -2153,6 +2188,10 @@ impl Overlay {
     /// setattr(2)-family changes to `ino`, through open handle `handle` when the kernel names one
     /// (an `ftruncate` of a file deleted while open).
     pub fn setattr(&self, ino: u64, handle: Option<u64>, set: Set) -> Result<Attr, i32> {
+        self.with_room(|| self.setattr_once(ino, handle, set))
+    }
+
+    fn setattr_once(&self, ino: u64, handle: Option<u64>, set: Set) -> Result<Attr, i32> {
         let by_handle = handle.and_then(|handle| self.handle_file(handle));
         // A change through an open handle goes to the file it holds: no lookup, no open.
         if let Some(file) = &by_handle

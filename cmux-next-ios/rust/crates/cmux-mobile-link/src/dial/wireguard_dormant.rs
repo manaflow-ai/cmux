@@ -198,6 +198,13 @@ impl Keeper {
         })
     }
 
+    /// The tunnel's overlay, as the first link on it had: a resumed link
+    /// syncs its viewport over the same tunnel (`None` once it stopped).
+    fn overlay(&self) -> Option<super::super::Overlay> {
+        let net = self.session.net().ok()?;
+        Some(super::super::Overlay { net, peer_ip: IpAddr::V4(self.peer_ip) })
+    }
+
     fn hold(&self) -> Duration {
         let bound = match HOLD_FOR_TESTS.load(Ordering::Relaxed) {
             0 => DORMANT_HOLD,
@@ -364,11 +371,7 @@ impl Keeper {
             on_link: Some(on_link),
             reliable: self.reliable,
             tunnel_keys: Some(self.tunnel_keys.clone()),
-            overlay: self
-                .session
-                .net()
-                .ok()
-                .map(|net| crate::dial::Overlay { net, peer_ip: IpAddr::V4(self.peer_ip) }),
+            overlay: self.overlay(),
         };
         lock(waiting()).insert(ticket, dialed);
         let signaling = self.session.signaling_client();
@@ -425,7 +428,7 @@ impl Lease {
 
     /// Run once the link exists: the lease learns how it closes, and an older
     /// link ends when the peer resumes the tunnel with a new one.
-    pub(super) fn on_link(&self) -> Box<dyn FnOnce(&Link) + Send> {
+    pub(super) fn on_link(&self) -> crate::dial::OnLink {
         let closed = Arc::clone(&self.closed);
         let mut generation = self.keeper.generation.subscribe();
         generation.mark_unchanged();
@@ -594,7 +597,7 @@ pub async fn try_resume(
         webrtc_media: false,
         resumed: false,
         tunnel_keys: Some(keeper.tunnel_keys.clone()),
-        overlay: Some(crate::dial::Overlay { net, peer_ip: IpAddr::V4(keeper.peer_ip) }),
+        overlay: keeper.overlay(),
     })
 }
 

@@ -107,15 +107,7 @@
       "fallback": "Blacksmith macOS after the dedicated-builder grace",
       "after_minutes": 5
     },
-    "CI_OVERFLOW_LINUX": {
-      "fallback": "unset by default, so pr-pipeline.yml's linux job runs on its literal cmux-linux pool label; an operator sets it only to move that job to an overflow label",
-      "after_minutes": 5
-    },
     "CI_CLOUD_OVERFLOW_SAVED": {
-      "fallback": "the route-defined owned-pool or Blacksmith fallback",
-      "after_minutes": 5
-    },
-    "CI_OVERFLOW_LINUX": {
       "fallback": "the route-defined owned-pool or Blacksmith fallback",
       "after_minutes": 5
     },

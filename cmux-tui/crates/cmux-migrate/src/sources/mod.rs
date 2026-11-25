@@ -4,6 +4,7 @@
 //! and hand them here as plain data, so every reader is a pure function a test can feed.
 
 pub mod laptop;
+pub mod t3code;
 
 pub mod competitors;
 pub mod detect;
