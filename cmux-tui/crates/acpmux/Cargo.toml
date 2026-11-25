@@ -82,6 +82,9 @@ tokio-rustls = { version = "0.26", default-features = false, features = ["ring",
 # brought both comments in also brought the line twice, which is a TOML duplicate key.
 cmux-cloud-start-core.workspace = true
 cmux-session-cloud.workspace = true
+# The opt-in tailnet carrier's path read: tailscaled's LocalAPI first, the CLI when it is
+# unavailable (peer_tailnet.rs).
+cmux-tailnet-local.workspace = true
 acpmux-book = { path = "../acpmux-book" }
 # The model catalog, RPC schema, secret rules and web page compiled in compressed.
 cmux-embed.workspace = true

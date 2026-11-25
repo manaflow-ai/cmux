@@ -387,6 +387,7 @@ cmux-coderouter = { path = "crates/cmux-coderouter" }
 cmux-session-cloud = { path = "crates/cmux-session-cloud" }
 cmux-automations = { path = "crates/cmux-automations" }
 cmux-tailnet = { path = "crates/cmux-tailnet" }
+cmux-tailnet-local = { path = "crates/cmux-tailnet-local" }
 ghostty-vt-sys = { path = "crates/ghostty-vt-sys" }
 ghostty-vt = { path = "crates/ghostty-vt" }
 cmux-tui-core = { path = "crates/cmux-tui-core" }
