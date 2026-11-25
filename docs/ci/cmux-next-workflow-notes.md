@@ -5005,6 +5005,18 @@ spill off; unset or any other value leaves it on.
 
 ## note-556
 
+Above the `if:` of `swift-canary-fleet`, `swift-canary`, `fast-tier-rerun-placement`, `fast-tier-fleet` and `fast-tier` in `.github/workflows/cmux-next.yml`.
+
+CI v2 step 11 (Leo, 2026-11-24: "how about finishing up our borg/ci v2? did we finish all 27+ things?"): a
+feat-cmux-next pull request runs the fast tier's Swift suites and the Swift canary as the `mac-fast-tier` and
+`mac-swift-canary` steps of ci/steps.toml, in pr-pipeline.yml's `mac` job, which pr-router.yml starts only when
+the change routes a `mac` step and the head is in the full tier (scripts/ci/pr_router.py FULL_TIER_JOBS). Each
+step asks scripts/ci/mac_tiers.py, which reads cmux_next_route.py over the same merge-commit diff, whether its
+tier is routed. So fast-tier, fast-tier-fleet, fast-tier-rerun-placement, swift-canary and swift-canary-fleet
+lost their pull request clause here (fast-tier-handback-placement follows fast-tier-fleet), and
+macos-placement no longer places them for a pull request. A push to feat-cmux-next and a dispatch still run
+them here, unchanged.
+
 Above `generated-files-base-red:` in `.github/workflows/cmux-next.yml`.
 
 Leo, 2026-11-24: "de facto, im asking for 99% fewer minutes of ci time, period." In the 24 h to 2026-11-24 11Z,

@@ -391,6 +391,33 @@ async fn a_send_whose_record_cannot_be_saved_is_refused_and_not_kept() {
     std::fs::remove_dir_all(&dir).unwrap();
 }
 
+/// RFD 0124 R6: the sender can distinguish a full disk and retry the same prompt.
+#[cfg(unix)]
+#[tokio::test]
+async fn an_outbox_enospc_answers_busy_disk_full() {
+    let (hub, _) = setup(FakeHub::default());
+    let dir = tempfile::tempdir().unwrap();
+    hub.outbox.open(&dir.path().join("outbox.json"));
+    *hub.outbox.next_write_error.lock().unwrap() =
+        Some(std::io::Error::from_raw_os_error(libc::ENOSPC));
+
+    let params = request("huge-blue/lane", "retry-after-enospc");
+    let error = call(&hub, method::MUX_SEND_QUEUE, params.clone()).await.unwrap_err();
+    assert_eq!(error["code"], crate::rpc::BUSY_CODE);
+    assert_eq!(error["data"]["reason"], "disk_full");
+    assert_eq!(error["data"]["retryable"], true);
+    assert!(hub.outbox.list(None, 10).0.is_empty());
+
+    let daemon = crate::client::DaemonError(serde_json::from_value(error).unwrap());
+    let envelope = crate::cli::errors::classify(&daemon.into()).envelope();
+    assert_eq!(envelope["error"]["code"], "busy");
+    assert_eq!(envelope["error"]["detail"], "disk_full");
+    assert_eq!(envelope["error"]["retryable"], true);
+
+    let queued = call(&hub, method::MUX_SEND_QUEUE, params).await.unwrap();
+    assert!(queued["deliveryId"].is_string(), "{queued}");
+}
+
 /// Another peer's link coming back (`peer_ready` is one signal for every peer) does not end the
 /// wait of a message whose own peer is still down: the retry sleeps out its delay instead of
 /// trying again, and writing its journal, once per other peer's reconnect.
