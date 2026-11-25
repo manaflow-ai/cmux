@@ -12,7 +12,9 @@ import {
   swapRestored,
 } from "./swapHandoff";
 
-const URL = "cmux-page://settings/index.html#/settings/general";
+// jsdom gives a custom scheme an opaque origin with no sessionStorage (WKWebView gives cmux-page:// one),
+// so the stand-in page lives on an http origin.
+const URL = "http://cmux-page.localhost/settings/index.html#/settings/general";
 const page = (body: string) =>
   new JSDOM(`<!doctype html><head></head><body>${body}</body>`, { url: URL, pretendToBeVisual: true })
     .window as unknown as Window;
