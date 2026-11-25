@@ -1,4 +1,5 @@
 #if os(iOS) && DEBUG
+import CmuxMobileDesign
 import SwiftUI
 
 /// DEBUG only (the terminal demo): workspace tabs host terminals through
@@ -32,6 +33,7 @@ public struct TerminalScreen: View {
                    !model.connectionState.keepsWarmFrame {
                     TerminalConnectingView(screenText: model.cardScreenText)
                         .transition(.opacity)
+                        .placeholderBound("terminal.connecting", .milliseconds(2000))
                 }
             }
             .navigationBarTitleDisplayMode(.inline)
