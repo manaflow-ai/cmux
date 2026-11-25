@@ -34,7 +34,7 @@ public struct CloudMachinesScreen: View {
                         .accessibilityIdentifier("cloudMachines.new")
                 }
             }
-            .refreshable { await model.load() }
+            .refreshable { await model.load(reportFailure: true) }
             .task { await model.load() }
             .autoRetry(autoRetry, failing: loadFailed) { await model.load() }
             .sheet(isPresented: $creating) { NewCloudMachineSheet(model: model) }
@@ -60,9 +60,11 @@ public struct CloudMachinesScreen: View {
             }
             .accessibilityIdentifier("cloudMachines.failed")
         case .loading, .failed:
+            // placeholder-ok: This personal Cloud list has never answered for this account.
             CmuxSpinner(label: Text("Loading Cloud machines…"))
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
                 .accessibilityIdentifier("cloudMachines.loading")
+                .placeholderBound("cloud.machines.loading", .milliseconds(2000))
         case .loaded:
             list
         }
@@ -271,10 +273,10 @@ struct CloudMachineAlerts: ViewModifier {
 
     func body(content: Content) -> some View {
         content
-            .alert("Couldn't do that", isPresented: Binding(get: { showsFailure && model.failure != nil }, set: { if !$0 { model.failure = nil } })) {
+            .alert("Couldn't do that", isPresented: Binding(get: { showsFailure && model.shownFailure != nil }, set: { if !$0 { model.dismissFailure() } })) {
                 Button("OK", role: .cancel) {}
             } message: {
-                Text(model.failure ?? "")
+                Text(model.shownFailure ?? "")
             }
     }
 }

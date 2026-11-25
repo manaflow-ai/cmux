@@ -23,7 +23,7 @@ public struct CloudAutomationsScreen: View {
         content
             .navigationTitle("Automations")
             .navigationBarTitleDisplayMode(.inline)
-            .refreshable { await model.load() }
+            .refreshable { await model.load(reportFailure: true) }
             .task { await model.load() }
             .autoRetry(autoRetry, failing: loadFailed) { await model.load() }
             .modifier(CloudAutomationAlerts(model: model, deleting: $deleting, showsFailure: !model.showsDetail))
@@ -48,9 +48,11 @@ public struct CloudAutomationsScreen: View {
             }
             .accessibilityIdentifier("automations.failed")
         case .loading, .failed:
+            // placeholder-ok: This personal Cloud list has never answered for this account.
             CmuxSpinner(label: Text("Loading automations…"))
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
                 .accessibilityIdentifier("automations.loading")
+                .placeholderBound("cloud.automations.loading", .milliseconds(2000))
         case .loaded:
             list
         }
@@ -184,10 +186,10 @@ struct CloudAutomationAlerts: ViewModifier {
             } message: { _ in
                 Text("It stops running. Its run history stays.")
             }
-            .alert("Couldn't do that", isPresented: Binding(get: { showsFailure && model.failure != nil }, set: { if !$0 { model.failure = nil } })) {
+            .alert("Couldn't do that", isPresented: Binding(get: { showsFailure && model.shownFailure != nil }, set: { if !$0 { model.dismissFailure() } })) {
                 Button("OK", role: .cancel) {}
             } message: {
-                Text(model.failure ?? "")
+                Text(model.shownFailure ?? "")
             }
     }
 }

@@ -110,8 +110,9 @@ final class TerminalDockInsetUITests: XCTestCase {
         }
     }
 
-    /// A reattach past the quiet bound: the title pill says so and the dock
-    /// keeps its rows; Reconnect in the page menu ends it.
+    /// A reattach past the quiet bound: the title pill keeps its usual words (no
+    /// "Reattaching…": Leo, 2026-11-24, "all the connecting... indicators ... nah let's
+    /// not do that"), the dock keeps its rows, and Reconnect in the page menu ends it.
     @MainActor
     func testReattachTakesNoRow() throws {
         XCUIDevice.shared.orientation = .portrait
@@ -124,9 +125,9 @@ final class TerminalDockInsetUITests: XCTestCase {
         let attachedBottom = field.frame.maxY
         attach(app, "1-attached")
 
-        let pill = app.buttons.matching(NSPredicate(format: "label CONTAINS %@", "Reattaching")).firstMatch
-        XCTAssertTrue(pill.waitForExistence(timeout: 25), "the title pill says Reattaching… past the quiet bound\n\(app.debugDescription)")
-        Thread.sleep(forTimeInterval: 0.5)
+        // On purpose (Leo's item 3): past the quiet bound the pill still says no waiting word.
+        let waiting = app.buttons.matching(NSPredicate(format: "label CONTAINS %@ OR label CONTAINS %@", "Reattaching", "Connecting")).firstMatch
+        XCTAssertFalse(waiting.waitForExistence(timeout: 14), "the title pill says a waiting word past the quiet bound\n\(app.debugDescription)")
         attach(app, "2-reattaching")
         let gap = field.frame.minY - control.frame.maxY
         XCTAssertEqual(gap, attachedGap, accuracy: 1, "a reattach adds no row between the key row and the composer")
@@ -136,7 +137,9 @@ final class TerminalDockInsetUITests: XCTestCase {
 
         // No Reconnect in the page menu: a terminal reattaches on its own (a reattach that gave
         // up is retried automatically), so there is nothing to decide.
-        // A terminal's title pill opens its page menu (its leading glyph is hidden).
+        // A terminal's title pill (its tab title, "zsh") opens its page menu.
+        let pill = app.buttons.matching(NSPredicate(format: "label BEGINSWITH %@", "zsh")).firstMatch
+        XCTAssertTrue(pill.waitForExistence(timeout: 5), "the title pill\n\(app.debugDescription)")
         pill.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).tap()
         let paste = app.buttons.matching(NSPredicate(format: "label BEGINSWITH %@", "Paste")).firstMatch
         XCTAssertTrue(paste.waitForExistence(timeout: 5), "the page menu\n\(app.debugDescription)")

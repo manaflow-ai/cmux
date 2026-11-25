@@ -54,6 +54,7 @@ pub fn table() -> Vec<(&'static str, Ask)> {
             method::MUX_GITHUB_APP_LEASE,
             Any(json!({}), "a connection that is not the person is refused"),
         ),
+        (method::MUX_GITHUB_REST, Any(json!({}), "a connection that is not the person is refused")),
         (
             method::MUX_GITHUB_ACTION,
             Any(
@@ -164,6 +165,13 @@ pub fn table() -> Vec<(&'static str, Ask)> {
             Skip("starts the embedded tailnet node (network, a real account)"),
         ),
         (
+            method::MUX_TAILNET_JOIN,
+            Any(
+                json!({"key": "tskey-auth-x"}),
+                "the person check refuses this connection before any tailnet work",
+            ),
+        ),
+        (
             method::MUX_TAILNET_LOGIN,
             Skip("signs the embedded tailnet in (network, a real account)"),
         ),
@@ -171,6 +179,12 @@ pub fn table() -> Vec<(&'static str, Ask)> {
         (
             method::MUX_TAILNET_LOGOUT,
             Any(json!({}), "the person check refuses this connection before any tailnet work"),
+        ),
+        (
+            method::MUX_TAILNET_PLACEMENT,
+            Run(
+                json!({"kind": "set", "v": 1, "workspace": "w", "placement": {"ssh": "127.0.0.1:1"}}),
+            ),
         ),
         (method::MUX_STATUS, Run(json!({}))),
         (method::MUX_SESSIONS, Run(json!({"usage": true}))),
@@ -303,6 +317,13 @@ pub fn table() -> Vec<(&'static str, Ask)> {
         // `archived: false` brings a log back: an in-memory store has no archive file, so the
         // chat `$S` stays as it is for the rows after this one.
         (method::MUX_COLD_ARCHIVE, Run(json!({"sessionId": "$S", "archived": false}))),
+        // This hub runs no holder loop, so the switch answers `auto.unavailable` (the arm's own
+        // answer); `$S` has no kept changes, so `show` lists none.
+        (method::MUX_AUTO_SESSION_SET, Run(json!({"sessionId": "$S", "auto": false}))),
+        (method::MUX_AUTO_SESSION_LEFTOVER, Run(json!({"sessionId": "$S", "action": "show"}))),
+        (method::MUX_AUTO_SESSION_WAKE, Run(json!({}))),
+        // No holder loop: the chat's own log is its transcript (`projection: null`).
+        (method::MUX_AUTO_SESSION_TRANSCRIPT, Run(json!({"sessionId": "$S"}))),
         (method::MUX_SIDE, Run(json!({"sessionId": "$S", "chat": "lso-no-such-chat"}))),
         (
             method::MUX_HARNESS_ENABLE,

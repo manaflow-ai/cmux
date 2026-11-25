@@ -46,6 +46,7 @@ public struct StreamedSimulatorPage: View {
                         .padding(.top, 8)
                         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
                         .accessibilityIdentifier("simulator.reconnecting")
+                        .placeholderBound("simulator.connection.chip", .milliseconds(0))
                 } else if model.openFailed, !autoRetry.isQuietLineShown {
                     // Opened again on its own: the opening line stays until the quiet bound.
                     status(String(localized: "Opening the simulator on your Mac…"))
@@ -57,6 +58,7 @@ public struct StreamedSimulatorPage: View {
                 }
             } else if model.phase == .connecting {
                 status(String(localized: "Opening the simulator on your Mac…"))
+                    .placeholderBound("simulator.stream.opening", .milliseconds(2000))
             }
             if StreamedBrowserOverlay.enabled {
                 // Top left: the accessory bar (Home, Lock, keyboard) sits at the bottom.
