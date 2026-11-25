@@ -305,6 +305,12 @@ nonisolated struct OnboardingPageState: Encodable, Equatable {
         /// `appearance.backgroundBlur`; null: unset (the theme's).
         let material: String?
         let materials: [String]
+        /// Where a new chat runs: `local` or `cloud`.
+        let chatsRunIn: String
+        /// The intro walk's other settings now, by dotted path (absent: unset).
+        let walk: [String: JSONValue]
+        /// `experiments.introWalk`: the four screens; false: today's one screen.
+        let introWalk: Bool
         let loaded: Bool
 
         func encode(to encoder: any Encoder) throws {
@@ -318,11 +324,14 @@ nonisolated struct OnboardingPageState: Encodable, Equatable {
             try c.encode(opacitySet, forKey: .opacitySet)
             try c.encodeNullable(material, forKey: .material)
             try c.encode(materials, forKey: .materials)
+            try c.encode(chatsRunIn, forKey: .chatsRunIn)
+            try c.encode(walk, forKey: .walk)
+            try c.encode(introWalk, forKey: .introWalk)
             try c.encode(loaded, forKey: .loaded)
         }
 
         private enum Keys: String, CodingKey {
-            case workStyle, density, densities, background, backgrounds, opacity, opacitySet, material, materials, loaded
+            case workStyle, density, densities, background, backgrounds, opacity, opacitySet, material, materials, chatsRunIn, walk, introWalk, loaded
         }
     }
 
@@ -381,7 +390,8 @@ extension OnboardingPageState {
                            backgrounds: model.backgrounds.map { Background(id: $0.id, name: $0.name, preview: $0.preview.map { Image(src: $0, template: false) }) },
                            opacity: model.shownOpacity.map { ($0 * 100).rounded() / 100 }, opacitySet: choices.opacity != nil,
                            material: choices.material?.rawValue, materials: FirstRunMaterial.allCases.map(\.rawValue),
-                           loaded: model.loaded)
+                           chatsRunIn: choices.chatsRunIn.rawValue,
+                           walk: model.walk, introWalk: model.introWalk, loaded: model.loaded)
     }
 
     /// The footer's quiet button: Skip Importing over the Keychain explainer.
