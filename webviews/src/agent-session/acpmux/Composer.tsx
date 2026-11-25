@@ -4,6 +4,7 @@ import { sentWords } from "./computerUse/computerUseState";
 import { runResumed, submitResumed } from "./composer/resumedSend";
 import { holdFlag, resumeOrFail, setRef } from "./heldFlag";
 import { useStableHandlers, usePropChurn } from "./stableHandlers";
+import { useStableProps } from "./stableProps";
 import { chatPlace } from "./chatMachine";
 import React, {
   useCallback,
@@ -734,8 +735,17 @@ const CALL_TIME_PROPS = ["holdsSend"] as const;
 
 export function Composer(props: Props) {
   const stable = useStableHandlers(useRelayProps(props), CALL_TIME_PROPS);
+  // The pane builds the place control inline (pane/PaneComposer.tsx: PlaceChip and HybridChip with their
+  // own `claims`), a new element on every pane render, so each replayed record drew the composer, its box
+  // and its field again with nothing changed. The same element with the same parts is the one given before
+  // (stableProps.ts); its `claims` and `say` call the newest ones, read only at a pick. Kept per chat.
+  const place = useStableProps(
+    { placeControl: stable.placeControl },
+    undefined,
+    stable.snapshot.sessionId,
+  ).placeControl;
   usePropChurn("composer", stable, acpmuxPerf.enabled, (key) => acpmuxPerf.render(key));
-  return <MemoComposer {...stable} />;
+  return <MemoComposer {...stable} {...(place === undefined ? {} : { placeControl: place })} />;
 }
 
 /// The prompt box with the agent's `/` command menu:
