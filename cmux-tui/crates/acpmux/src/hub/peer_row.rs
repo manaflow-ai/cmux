@@ -298,6 +298,23 @@ impl PeerRow {
             .filter_map(|(which, text)| Some((which.key(), serde_json::from_str(text).ok()?)))
     }
 
+    /// This row with `previous`'s `timeBreakdown` when it carries none: a change row carries the
+    /// chart once a turn (`time_breakdown::State::row_snapshot`) and a census row never, so the
+    /// copy kept here would lose the chart it had at the next row. No parse.
+    pub(super) fn keeping_time_breakdown(mut self, previous: Option<&Self>) -> Self {
+        let chart = |row: &Self| {
+            row.apart.iter().find(|(which, _)| *which == Apart::TimeBreakdown).cloned()
+        };
+        if self.mark.is_none()
+            && self.base.ends_with('}')
+            && chart(&self).is_none()
+            && let Some(kept) = previous.and_then(chart)
+        {
+            self.apart = self.apart.iter().cloned().chain([kept]).collect();
+        }
+        self
+    }
+
     /// Marks it last-known (`peer_cache::mark_stale`): whether it changed.
     pub(super) fn mark_stale(&mut self, last_seen: Option<u64>) -> bool {
         if self.closed() {
@@ -445,6 +462,16 @@ mod tests {
         assert_eq!(row.listed(None, true).matches("\"stale\"").count(), 1);
         assert_eq!(row.listed(Some("x"), true).matches("\"peerState\"").count(), 1);
         assert_eq!(serde_json::to_value(&row).unwrap(), summary);
+        // A row with no chart keeps the one the row before it had; one with a chart keeps its own.
+        let bare = PeerRow::new(&json!({"sessionId": "s1", "status": "running"}));
+        let kept = bare.clone().keeping_time_breakdown(Some(&row));
+        assert_eq!(kept.value()["timeBreakdown"], summary["timeBreakdown"]);
+        assert_eq!(kept.value()["status"], "running");
+        assert!(kept.changed_text(false).find("timeBreakdown").is_none());
+        let own = PeerRow::new(&json!({"sessionId": "s1", "timeBreakdown": {"totalMs": 1}}));
+        assert_eq!(own.clone().keeping_time_breakdown(Some(&row)), own);
+        assert_eq!(bare.clone().keeping_time_breakdown(Some(&bare)), bare);
+        assert_eq!(bare.clone().keeping_time_breakdown(None), bare);
     }
 
     #[test]
