@@ -1,4 +1,5 @@
 import { type StringKey, translate } from "../i18n";
+import { invalidReply } from "../invalidReply";
 export const CHECKPOINT_OPS = {
   create: "git.checkpoint.create",
   get: "git.checkpoint.get",
@@ -46,22 +47,21 @@ export type MutationEnvelope<T> = { result: T; revision: string; replayed: boole
 export type CheckpointCapability = { checkpoints: boolean };
 
 function object(value: unknown, message: StringKey = "error.invalid.checkpointResponse"): Record<string, unknown> {
-  if (!value || typeof value !== "object" || Array.isArray(value)) throw new Error(translate(message));
+  if (!value || typeof value !== "object" || Array.isArray(value)) throw invalidReply(message);
   return value as Record<string, unknown>;
 }
 function text(value: unknown, field: string): string {
-  if (typeof value !== "string" || value.length === 0)
-    throw new Error(translate("error.invalid.checkpointField", { field }));
+  if (typeof value !== "string" || value.length === 0) throw invalidReply("error.invalid.checkpointField", { field });
   return value;
 }
 function nonnegative(value: unknown, field: string): number {
   if (typeof value !== "number" || !Number.isSafeInteger(value) || value < 0)
-    throw new Error(translate("error.invalid.checkpointField", { field }));
+    throw invalidReply("error.invalid.checkpointField", { field });
   return value;
 }
 function revision(value: unknown): string {
   if (typeof value !== "string" || !/^(?:0|[1-9]\d*)$/.test(value))
-    throw new Error(translate("error.invalid.checkpointRevision"));
+    throw invalidReply("error.invalid.checkpointRevision");
   return value;
 }
 function limits(value: unknown): CheckpointLimits {
@@ -83,12 +83,11 @@ function checkpoint(value: unknown): Checkpoint {
     (raw.expires_at !== null && typeof raw.expires_at !== "string") ||
     typeof base.detached !== "boolean"
   )
-    throw new Error(translate("error.invalid.checkpointResponse"));
-  if (base.head !== null && typeof base.head !== "string") throw new Error(translate("error.invalid.checkpointBase"));
-  if (base.branch !== null && typeof base.branch !== "string")
-    throw new Error(translate("error.invalid.checkpointBase"));
+    throw invalidReply("error.invalid.checkpointResponse");
+  if (base.head !== null && typeof base.head !== "string") throw invalidReply("error.invalid.checkpointBase");
+  if (base.branch !== null && typeof base.branch !== "string") throw invalidReply("error.invalid.checkpointBase");
   if (!Array.isArray(raw.skipped) || raw.skipped.length > nonnegative(raw.skipped_total, "skipped_total"))
-    throw new Error(translate("error.invalid.checkpointSkipAccounting"));
+    throw invalidReply("error.invalid.checkpointSkipAccounting");
   const skipped = raw.skipped.map((entry) => {
     const item = object(entry);
     const result = { path: text(item.path, "skip"), code: text(item.code, "skip") } as {
@@ -130,7 +129,7 @@ function checkpoint(value: unknown): Checkpoint {
           return { pin_id: text(item.pin_id, "pin"), reason: text(item.reason, "pin") };
         })
       : (() => {
-          throw new Error(translate("error.invalid.checkpointPins"));
+          throw invalidReply("error.invalid.checkpointPins");
         })(),
   };
 }
@@ -146,7 +145,7 @@ export function checkpointRecord(value: unknown): Checkpoint {
 export function checkpointList(value: unknown): CheckpointList {
   const raw = object(value);
   if (!Array.isArray(raw.checkpoints) || (raw.next_cursor !== null && typeof raw.next_cursor !== "string"))
-    throw new Error(translate("error.invalid.checkpointList"));
+    throw invalidReply("error.invalid.checkpointList");
   const result: CheckpointList = {
     repository_id: text(raw.repository_id, "repository"),
     worktree_id: text(raw.worktree_id, "worktree"),
@@ -155,10 +154,10 @@ export function checkpointList(value: unknown): CheckpointList {
     limits: limits(raw.limits),
   };
   if (raw.candidates !== undefined) {
-    if (!Array.isArray(raw.candidates)) throw new Error(translate("error.invalid.checkpointCandidates"));
+    if (!Array.isArray(raw.candidates)) throw invalidReply("error.invalid.checkpointCandidates");
     result.candidates = raw.candidates.map((candidate) => {
       const item = object(candidate);
-      if (typeof item.eligible !== "boolean") throw new Error(translate("error.invalid.checkpointCandidate"));
+      if (typeof item.eligible !== "boolean") throw invalidReply("error.invalid.checkpointCandidate");
       const value = {
         path: text(item.path, "candidate"),
         bytes: nonnegative(item.bytes, "candidate bytes"),
@@ -172,7 +171,7 @@ export function checkpointList(value: unknown): CheckpointList {
 }
 export function mutationEnvelope<T>(value: unknown): MutationEnvelope<T> {
   const raw = object(value);
-  if (typeof raw.replayed !== "boolean") throw new Error(translate("error.invalid.checkpointMutation"));
+  if (typeof raw.replayed !== "boolean") throw invalidReply("error.invalid.checkpointMutation");
   return { result: raw.result as T, revision: revision(raw.revision), replayed: raw.replayed };
 }
 

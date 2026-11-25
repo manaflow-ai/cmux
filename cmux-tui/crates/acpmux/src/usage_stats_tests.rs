@@ -5,7 +5,7 @@ use std::io::Write;
 const SID: &str = "01a18ad5-89bc-7a02-905f-8f4fbef7fed2";
 
 fn ms(text: &str) -> u64 {
-    crate::server::machine_health::rfc3339_ms(text).unwrap()
+    crate::clock_text::rfc3339_ms(text).unwrap()
 }
 
 fn models() -> Models {
@@ -273,6 +273,39 @@ fn a_first_read_cut_at_a_line_start_keeps_that_line() {
     assert_eq!(stats.tokens24h, Some(0), "it starts before the day: the day's count is known");
 }
 
+/// A first read cut mid-day leaves the day unknown, but the hours it read in full are known:
+/// the previous UTC hour's spend is metered without waiting a day for the cut to age out.
+#[test]
+fn a_first_read_cut_mid_day_still_knows_the_hours_it_covers() {
+    let home = tempfile::tempdir().unwrap();
+    let (source, path) = claude(home.path());
+    let now = ms("2026-10-30T12:20:00Z");
+    let early = assistant("msg_0", "2026-10-30T02:00:00Z", usage(1, 0, 0, 1), false);
+    let before = assistant("msg_1", "2026-10-30T10:30:00Z", usage(3, 0, 0, 4), false);
+    let previous = assistant("msg_2", "2026-10-30T11:10:00Z", usage(5, 0, 0, 6), false);
+    let current = assistant("msg_3", "2026-10-30T12:05:00Z", usage(7, 0, 0, 8), false);
+    append(&path, &[early, before.clone(), previous.clone(), current.clone()]);
+    // The first read takes only the last three lines: it covers from 10:30.
+    let first = [&before, &previous, &current].iter().map(|v| format!("{v}\n").len() as u64).sum();
+    let mut tracker = Tracker { limits: Some((first, u64::MAX)), ..Tracker::default() };
+    let stats = tracker.refresh(&source, now, &models()).unwrap();
+    assert_eq!(stats.tokens24h, None, "the day before 10:30 was not read");
+    assert_eq!(stats.calls24h, None);
+    assert_eq!(stats.tokens_by_model_previous_utc_hour.unwrap()["claude-opus-5-5"], 11);
+    // The rolling hour (11:20 to 12:20) holds only the 12:05 call.
+    assert_eq!(stats.tokens_by_model1h.unwrap()["claude-opus-5-5"], 15);
+
+    // A cut that starts inside the previous hour leaves that hour unknown, not short.
+    let late = ms("2026-10-30T11:30:00Z") + HOUR_MS;
+    let mut short = Tracker {
+        limits: Some((format!("{current}\n").len() as u64, u64::MAX)),
+        ..Tracker::default()
+    };
+    let stats = short.refresh(&source, late, &models()).unwrap();
+    assert_eq!(stats.tokens_by_model_previous_utc_hour, None);
+    assert_eq!(stats.tokens_by_model1h, None);
+}
+
 /// Review of #28015: a line still being written, or one longer than a read step, never reads
 /// as a known count, and a long line does not stop the reads after it.
 #[test]
@@ -412,6 +445,44 @@ fn the_autocompact_cap_comes_from_the_flag_then_the_env_then_the_settings() {
     )
     .unwrap();
     assert_eq!(autocompact(&codex, None), (Capped, Some(180_000)));
+}
+
+/// acpmux gives a Claude Code session its own autocompact window only when nothing the person
+/// set decides one (`harness_limits::lift_claude`, Leo 2026-10-20: 400K).
+#[test]
+fn acpmux_sets_the_claude_window_only_when_the_person_set_none() {
+    let home = tempfile::tempdir().unwrap();
+    let (mut source, _) = claude(home.path());
+    let argv = |a: &[&str]| Some(a.iter().map(|s| s.to_string()).collect::<Vec<_>>());
+    assert!(!claude_autocompact_unset(&source), "--autocompact in its argv");
+    source.argv = argv(&["claude"]);
+    assert!(claude_autocompact_unset(&source), "no flag, env or settings file");
+    let settings = home.path().join("settings.json");
+    std::fs::write(&settings, r#"{"theme": "dark", "env": {"FOO": "1"}}"#).unwrap();
+    assert!(claude_autocompact_unset(&source), "settings that name no window");
+    std::fs::write(&settings, r#"{"autoCompactWindow": "auto"}"#).unwrap();
+    assert!(!claude_autocompact_unset(&source), "the person's auto stays");
+    std::fs::write(&settings, r#"{"env": {"CLAUDE_AUTOCOMPACT_PCT_OVERRIDE": "50"}}"#).unwrap();
+    assert!(!claude_autocompact_unset(&source), "a window in settings.json's env");
+    std::fs::write(&settings, "{not json").unwrap();
+    assert!(!claude_autocompact_unset(&source), "settings it cannot read");
+    std::fs::remove_file(&settings).unwrap();
+    let project = home.path().join("repo");
+    std::fs::create_dir_all(project.join(".claude")).unwrap();
+    source.cwd = project.join("sub");
+    assert!(claude_autocompact_unset(&source), "a project with no settings");
+    std::fs::write(project.join(".claude/settings.local.json"), r#"{"autoCompactWindow": 600000}"#)
+        .unwrap();
+    assert!(!claude_autocompact_unset(&source), "a project's window, from a folder under it");
+    std::fs::remove_file(project.join(".claude/settings.local.json")).unwrap();
+    source.env.insert("CLAUDE_CODE_AUTO_COMPACT_WINDOW".into(), "auto".into());
+    assert!(!claude_autocompact_unset(&source), "the env's window");
+    source.env.remove("CLAUDE_CODE_AUTO_COMPACT_WINDOW");
+    let (key, value) = crate::harness_limits::CLAUDE_AUTOCOMPACT_WINDOW;
+    source.env.insert(key.into(), value.into());
+    assert_eq!(autocompact(&source, None), (Autocompact::Capped, Some(400_000)));
+    source.argv = None;
+    assert!(!claude_autocompact_unset(&source), "a chat this daemon did not start");
 }
 
 /// A first read that starts after the day began, or a backlog it left, cannot say the day's
@@ -855,4 +926,48 @@ fn an_untimed_repeat_of_a_counted_record_is_not_lost() {
     again.as_object_mut().unwrap().remove("timestamp");
     append(&path, &[report, again]);
     assert_eq!(Tracker::default().refresh(&source, now, &models()).unwrap().tokens24h, Some(10));
+}
+
+#[test]
+fn the_day_reports_the_cache_read_share_and_the_cost_per_call() {
+    let home = tempfile::tempdir().unwrap();
+    let (source, path) = claude(home.path());
+    let now = ms("2026-10-30T12:00:00Z");
+    // A cold call writes the prompt to the hour-long cache; the next two read it back.
+    let cold = json!({"input_tokens": 10, "cache_creation_input_tokens": 90_000,
+        "cache_creation": {"ephemeral_1h_input_tokens": 90_000, "ephemeral_5m_input_tokens": 0},
+        "cache_read_input_tokens": 0, "output_tokens": 100});
+    append(
+        &path,
+        &[
+            assistant("msg_1", "2026-10-30T11:00:00Z", cold, false),
+            assistant("msg_2", "2026-10-30T11:10:00Z", usage(10, 0, 90_000, 100), false),
+            // A subagent's call is the chat's spend too.
+            assistant("msg_3", "2026-10-30T11:20:00Z", usage(10, 0, 90_000, 100), true),
+        ],
+    );
+    let mut tracker = Tracker::default();
+    let stats = tracker.refresh(&source, now, &models()).unwrap();
+    assert_eq!(stats.calls24h, Some(3));
+    assert_eq!(stats.tokens_by_model1h.as_ref().unwrap()["claude-opus-5-5"], 270_330);
+    let next = tracker.refresh(&source, now + 15 * MINUTE_MS, &models()).unwrap();
+    assert_eq!(next.tokens_by_model1h.as_ref().unwrap()["claude-opus-5-5"], 90_110);
+    assert_eq!(next.tokens_by_model_previous_utc_hour, stats.tokens_by_model1h);
+    let later = tracker.refresh(&source, now + HOUR_MS, &models()).unwrap();
+    assert!(later.tokens_by_model_previous_utc_hour.unwrap().is_empty());
+    assert_eq!(next.tokens24h, stats.tokens24h);
+    // 180,000 of 270,030 prompt tokens came from the cache.
+    assert_eq!(stats.cache_read_share24h, Some(0.6666));
+    // 1h writes at twice the $4 input: 90,000 * 8 = $0.72; 30 input at $4, 300 output at $20,
+    // 180,000 reads at $0.20: $0.76212 over three calls.
+    assert_eq!(stats.cost_usd24h, Some(0.7621));
+    // Per call keeps sub-cent precision, so a cheap call never reads as $0.
+    assert_eq!(stats.cost_per_call_usd24h, Some(0.25404));
+
+    // A day later no call is left: the share is unknown, never 0%.
+    let later = tracker.refresh(&source, now + DAY_MS, &models()).unwrap();
+    assert_eq!(
+        (later.calls24h, later.cache_read_share24h, later.cost_per_call_usd24h),
+        (Some(0), None, None)
+    );
 }

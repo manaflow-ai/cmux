@@ -1,3 +1,4 @@
+import CmuxNextFiles
 import Foundation
 
 /// A Markdown file's location for the omnibar and the Share menu: its absolute path, the `~` form

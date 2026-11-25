@@ -55,6 +55,35 @@ struct ChatScrollRestoreDefaultPathTests {
         #expect(Self.value(Self.call("chat.scrollAnchor.get", ["sessionId": "s-1"])) is NSNull)
     }
 
+    /// A sidebar open adopts the spare page, which awaited `chat.scrollAnchor.get` (a host round trip
+    /// raced against 250 ms) before its switch could draw. The adopt event carries the tab's place
+    /// instead, as it carries the chat's tail: the place the tab left, null when none is kept (the
+    /// chat opens at its latest message), and nothing at all with no store, so the page asks as before.
+    @Test func theAdoptEventCarriesWhereTheTabLeftTheChat() throws {
+        let directory = FileManager.default.temporaryDirectory.appending(path: "anchors-adopt-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer {
+            AgentPaneScrollAnchors.shared = nil
+            try? FileManager.default.removeItem(at: directory)
+        }
+        func detail(_ session: String, tab: String?) throws -> JSONValue {
+            let text = AgentPaneView.adoptEventDetail(session: session, revealTurn: nil, tail: nil,
+                                                      place: AgentPaneView.adoptedPlace(session: session, tab: tab))
+            return try #require(JSONValue(foundation: try JSONSerialization.jsonObject(with: Data(text.utf8))))
+        }
+        AgentPaneScrollAnchors.shared = nil
+        #expect(try detail("s-1", tab: "tab-a") == .object(["sessionId": .string("s-1")]))
+
+        let anchors = AgentPaneScrollAnchors(directory: directory, files: AgentPaneStateFiles())
+        AgentPaneScrollAnchors.shared = anchors
+        anchors.remember(AgentPaneScrollAnchor(rowId: "user-42", offset: 120.5), for: "s-1", tab: "tab-a")
+        anchors.remember(AgentPaneScrollAnchor(rowId: "user-7", offset: 3), for: "s-1", tab: "tab-b")
+        #expect(try detail("s-1", tab: "tab-a")["scrollAnchor"] == .object(["rowId": .string("user-42"), "offset": .number(120.5)]))
+        #expect(try detail("s-1", tab: "tab-b")["scrollAnchor"] == .object(["rowId": .string("user-7"), "offset": .number(3)]))
+        // A chat with no place kept says so: the page opens it at its latest message without asking.
+        #expect(try detail("s-2", tab: "tab-a") == .object(["sessionId": .string("s-2"), "scrollAnchor": .null]))
+    }
+
     /// Both hosts read and write the one store, so a chat opened on either reopens where the other
     /// left it — a pane with `agent.pageHost` on beside one without, or the setting changed between
     /// two runs.

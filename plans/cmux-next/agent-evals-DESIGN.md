@@ -243,6 +243,7 @@ it ships.
 | replies | a672 | reply ledger: a tapback answers, stop/sleep refused over an unanswered message |
 | tone | a25575 | plain answers: no filler intro or offer of help, no apology string to a frustrated person, results not narrated steps |
 | delegation | a25575 | build and test work goes to a subagent, one per independent ask; the Chief does not run it itself |
+| teleport | a963 | "teleport to the cloud / to a mini / come back" in chat: the Chief dry-runs and moves itself, asks the person nothing |
 
 ### Tracked numbers (summary.json)
 

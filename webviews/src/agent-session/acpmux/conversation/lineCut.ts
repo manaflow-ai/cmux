@@ -1,4 +1,11 @@
 // Stop an agent preview between rendered lines and atomic chips/code, never under a fade.
+
+/// A message cut short (ClampedText.tsx) shows this many lines; model.ts estimates the row from the
+/// same count.
+export const CLAMPED_LINES = 8;
+/// The Show more row under a cut message (`.cv-user__more`: 4px above a 20px line).
+export const CLAMP_MORE_HEIGHT = 24;
+
 export type Span = { top: number; bottom: number };
 
 export function cutBetween(spans: readonly Span[], limit: number): number {

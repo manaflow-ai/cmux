@@ -1,3 +1,4 @@
+#if canImport(QuartzCore)  // Core Animation: Apple only (the Linux CI package build skips this file)
 import CmuxConversationCore
 import QuartzCore
 #if canImport(UIKit)
@@ -286,6 +287,11 @@ public final class ConversationTextEffectLayer: CALayer {
     /// `textSize` with line fragment padding 0) and starts their loop.
     /// `seed` keys explode/jitter randomness. Re-calls with the same input keep
     /// the running animation.
+    /// `animated` is the Reduce Motion gate: every host passes
+    /// `!UIAccessibility.isReduceMotionEnabled` (iOS) or
+    /// `!NSWorkspace.shared.accessibilityDisplayShouldReduceMotion` (macOS),
+    /// and with it false no loop is built or added;
+    /// the glyphs sit still in their laid-out place.
     /// With `cacheToken`, the rendered glyphs come from (and go to) a cache
     /// shared with `prepare`; see there for what the token must name.
     public func update(text: NSAttributedString, textSize: CGSize, textOrigin: CGPoint = .zero, scale: CGFloat, animated: Bool, seed: UInt64, restart: Bool = false, cacheToken: String? = nil) {
@@ -343,7 +349,8 @@ public final class ConversationTextEffectLayer: CALayer {
         }
     }
 
-    /// Adds a sublayer per glyph and starts the loops.
+    /// Adds a sublayer per glyph and starts the loops (none when `animated`
+    /// is false, the Reduce Motion form).
     private func install(_ rendering: Rendering, textOrigin: CGPoint, scale: CGFloat, animated: Bool, seed: UInt64) {
         let begin = CACurrentMediaTime()
         let loops = animated ? rendering.animations(seed: seed) : []
@@ -514,3 +521,4 @@ private final class EffectRenderJob: @unchecked Sendable {
         self.layer = layer
     }
 }
+#endif

@@ -4,6 +4,7 @@ import CmuxNextBridge
 @testable import CmuxNextDaemon
 @testable import CmuxNextFloating
 import CmuxNextSettings
+import CmuxNextTestSupport
 import Foundation
 import Testing
 import CmuxNextWakeupsTestSupport
@@ -28,7 +29,7 @@ import CmuxNextWakeupsTestSupport
         init() {
             _ = NSApplication.shared
             let name = "ChiefPetFeedTests.\(UUID().uuidString)"
-            defaults = UserDefaults(suiteName: name)!
+            defaults = UserDefaults(testSuiteName: name)!
             defaults.removePersistentDomain(forName: name)
             let tabs = [1, 2].map { TabSnapshot(surface: SurfaceID(rawValue: $0), terminalResourceID: ResourceID(rawValue: "term_\($0)"), title: "New chat") }
             store.apply(snapshot: DaemonTree(workspaces: [WorkspaceSnapshot(id: 1, key: nil, name: "api-server", screens: [

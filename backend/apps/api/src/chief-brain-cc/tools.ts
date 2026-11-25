@@ -2,6 +2,7 @@ import type { Env } from "../env.ts"
 import { GITHUB_CLIENT } from "./github.ts"
 import { WAKE_CLIENT } from "./wake.ts"
 import { AUTO_CLIENT } from "./jobs.ts"
+import { MEMORY_CLIENT } from "./memory-tools.ts"
 
 /**
  * The Cloud Chief's own tools (Lawrence, 2026-10-22: "the Cloud Chief must be able to add or change its own
@@ -23,11 +24,12 @@ const CLIENT = ".local/bin/chief-tools"
 const GITHUB = ".local/bin/chief-github"
 const WAKE = ".local/bin/chief-wake"
 const AUTO = ".local/bin/chief-auto"
+const MEMORY = ".local/bin/chief-memory"
 const SETTINGS = ".claude/settings.json"
 
 /** A path the Chief may keep a tool at: ~/.local/bin/NAME, ~/.claude/agents/NAME, ~/.claude/skills/** or ~/.chief/tools/**. */
 export const toolPathOk = (path: string): boolean => {
-  if (path.length > 200 || !PATH.test(path) || path.split("/").some((p) => p === "." || p === "..") || path === CLIENT || path === GITHUB || path === WAKE || path === AUTO) return false
+  if (path.length > 200 || !PATH.test(path) || path.split("/").some((p) => p === "." || p === "..") || path === CLIENT || path === GITHUB || path === WAKE || path === AUTO || path === MEMORY) return false
   const parts = path.split("/")
   if (path.startsWith(".local/bin/") || path.startsWith(".claude/agents/")) return parts.length === 3
   return (path.startsWith(".claude/skills/") || path.startsWith(".chief/tools/")) && parts.length >= 3
@@ -75,7 +77,7 @@ export const toolFiles = (sql: SqlStorage): Record<string, string> => {
 
 type ToolsStub = { ccTools(req: unknown): Promise<Out>; ccToolFiles(): Promise<Record<string, string>> }
 /** The Chief's tools object (`<agent>/tools`; a conversation id always starts with conv_). */
-export const toolsOf = (env: Env, agent: string): ToolsStub => env.CHIEF_BRAIN_DO.get(env.CHIEF_BRAIN_DO.idFromName(`${agent}/tools`)) as unknown as ToolsStub
+export const toolsOf = (env: Env, agent: string): ToolsStub => env.CHIEF_BRAIN_DO.get(env.CHIEF_BRAIN_DO.idFromName(`${agent}/tools`))
 
 /**
  * Makes ~/.local/bin/* and ~/.chief/tools/** runnable when Claude Code starts (chief-turn-runner writes every file mode 600).
@@ -140,5 +142,5 @@ esac
  */
 export const mergeTurnFiles = (base: Readonly<Record<string, string>>, tools: Readonly<Record<string, string>>): Record<string, string> => {
   const own = Object.fromEntries(Object.entries(tools).filter(([p]) => toolPathOk(p)))
-  return { ...base, ...own, [CLIENT]: CLIENT_TEXT, [GITHUB]: GITHUB_CLIENT, [WAKE]: WAKE_CLIENT, [AUTO]: AUTO_CLIENT, [SETTINGS]: withHook(base[SETTINGS]) }
+  return { ...base, ...own, [CLIENT]: CLIENT_TEXT, [GITHUB]: GITHUB_CLIENT, [WAKE]: WAKE_CLIENT, [AUTO]: AUTO_CLIENT, [MEMORY]: MEMORY_CLIENT, [SETTINGS]: withHook(base[SETTINGS]) }
 }

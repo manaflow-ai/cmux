@@ -3,7 +3,7 @@
 
 use serde_json::{Value, json};
 
-use super::{CloudConversations, CloudError};
+use super::{CloudConversations, CloudError, HttpReply};
 
 fn invalid() -> CloudError {
     CloudError::BadRequest(
@@ -21,6 +21,40 @@ fn identifier(value: Option<&Value>) -> Result<&str, CloudError> {
         .ok_or_else(invalid)
 }
 
+/// A refused reply as the error the sheet sees. Effect HttpApi returns a flat
+/// `{_tag, code, message}` object (or one under `error`). A code the sheet maps
+/// (cmux-platform's `cloud_environment.*` refusals and, since cmux-platform#1046, the vault's
+/// `vault.*` save failures) is forwarded alone, shape and length checked, even for a 503. Any
+/// other 4xx code becomes `http_<status>`. The message is always ours, never the upstream's: a
+/// validation service can quote a submitted write-only value.
+fn refused(reply: &HttpReply) -> Result<(), CloudError> {
+    if (200..=299).contains(&reply.status) {
+        return Ok(());
+    }
+    let error = reply.body.get("error").unwrap_or(&reply.body);
+    if let Some(code) = error.get("code").and_then(Value::as_str).filter(|code| {
+        (code.starts_with("cloud_environment.") || code.starts_with("vault."))
+            && code.len() <= 128
+            && code.bytes().all(|byte| byte.is_ascii_alphanumeric() || b"._".contains(&byte))
+    }) {
+        return Err(CloudError::Rejected {
+            code: code.into(),
+            message: "Could not save or load the cloud environment. Try again.".into(),
+            retryable: reply.status >= 500 || reply.status == 429,
+        });
+    }
+    super::contract::classify(reply).map_err(|error| match error {
+        CloudError::Rejected { retryable, .. } => CloudError::Rejected {
+            code: format!("http_{}", reply.status),
+            message:
+                "Could not save or load the cloud environment. Check the fields and try again."
+                    .into(),
+            retryable,
+        },
+        other => other,
+    })
+}
+
 impl CloudConversations {
     pub fn environment(
         &self,
@@ -32,15 +66,7 @@ impl CloudConversations {
         // The verified native app supplies the existing platform resolver's origin and a
         // freshly minted cmux install token. Neither is a page parameter or a Home lease.
         let base = url::Url::parse(origin).map_err(|_| invalid())?;
-        let loopback = matches!(base.host_str(), Some("localhost" | "127.0.0.1" | "[::1]"));
-        let platform = base.host_str().is_some_and(|host| host.ends_with(".debussy.workers.dev"))
-            && base.port().is_none();
-        if !(base.scheme() == "https" && platform || base.scheme() == "http" && loopback)
-            || !base.username().is_empty()
-            || base.password().is_some()
-            || base.query().is_some()
-            || base.fragment().is_some()
-            || base.path() != "/"
+        if !super::platform::accepts_environment_origin(&base)
             || access_token.is_empty()
             || access_token.len() > 8192
         {
@@ -84,6 +110,24 @@ impl CloudConversations {
                 // Validation details belong to the platform; preserve null and empty values.
                 send("PATCH", &format!("/v1/cloud-environments/{id}"), &json!(patch))?
             }
+            // New environment… (the composer's Environment chip): one new environment, with the
+            // platform's create fields only; the platform validates them.
+            "create" if params.len() == 1 => {
+                let environment =
+                    params.get("environment").and_then(Value::as_object).ok_or_else(invalid)?;
+                if environment
+                    .get("name")
+                    .and_then(Value::as_str)
+                    .is_none_or(|name| name.trim().is_empty())
+                    || environment.keys().any(|key| {
+                        !["name", "scope", "setup_script", "env_vars", "secrets", "network"]
+                            .contains(&key.as_str())
+                    })
+                {
+                    return Err(invalid());
+                }
+                send("POST", "/v1/cloud-environments", &json!(environment))?
+            }
             "derive" => {
                 if params.keys().any(|key| !["repo", "ref", "environment"].contains(&key.as_str()))
                     || params.get("repo").and_then(Value::as_str).is_none_or(|s| s.is_empty())
@@ -94,48 +138,8 @@ impl CloudConversations {
             }
             _ => return Err(invalid()),
         };
-        // Effect HttpApi returns a flat {_tag, code, message} object. Preserve
-        // its typed environment failures even for 503 (secret storage unavailable).
-        // Never forward messages, which may reflect a submitted write-only value.
-        if !(200..=299).contains(&reply.status) {
-            let error = reply.body.get("error").unwrap_or(&reply.body);
-            if let Some(code) = error.get("code").and_then(Value::as_str).filter(|code| {
-                code.starts_with("cloud_environment.")
-                    && code.len() <= 128
-                    && code
-                        .bytes()
-                        .all(|byte| byte.is_ascii_alphanumeric() || b"._".contains(&byte))
-            }) {
-                return Err(CloudError::Rejected {
-                    code: code.into(),
-                    message: "Could not save or load the cloud environment. Try again.".into(),
-                    retryable: reply.status >= 500 || reply.status == 429,
-                });
-            }
-        }
-        super::contract::classify(&reply).map_err(|error| match error {
-            // A validation service can quote an invalid submitted value. Never echo one
-            // from a request that may contain a write-only secret; the UI maps the code.
-            CloudError::Rejected { code, retryable, .. } => CloudError::Rejected {
-                code,
-                message:
-                    "Could not save or load the cloud environment. Check the fields and try again."
-                        .into(),
-                retryable,
-            },
-            other => other,
-        })?;
+        refused(&reply)?;
         let mut body = reply.body;
-        // Never forward secret values, even if an upstream reply accidentally includes one.
-        fn redact(environment: &mut Value) {
-            if let Some(secrets) = environment.get_mut("secrets").and_then(Value::as_array_mut) {
-                for secret in secrets {
-                    if let Some(fields) = secret.as_object_mut() {
-                        fields.retain(|key, _| key == "name" || key == "updated_at");
-                    }
-                }
-            }
-        }
         if let Some(environments) = body.as_array_mut() {
             environments.iter_mut().for_each(redact);
         } else {
@@ -144,3 +148,38 @@ impl CloudConversations {
         Ok(body)
     }
 }
+
+/// Never forward secret values, even if an upstream reply accidentally includes one. A secret
+/// keeps only its name, `updated_at` and its delivery targets: `hosts` (strings) and `header`'s
+/// `name` and `format` (strings). Any other field, nested ones included, and any secret that is not
+/// an object, is dropped.
+fn redact(environment: &mut Value) {
+    let Some(secrets) = environment.get_mut("secrets").and_then(Value::as_array_mut) else {
+        return;
+    };
+    secrets.retain(Value::is_object);
+    for fields in secrets.iter_mut().filter_map(Value::as_object_mut) {
+        fields.retain(|key, _| matches!(key.as_str(), "name" | "updated_at" | "hosts" | "header"));
+        if let Some(hosts) = fields.get_mut("hosts") {
+            match hosts.as_array_mut() {
+                Some(list) => list.retain(Value::is_string),
+                None => *hosts = Value::Null,
+            }
+        }
+        // A header is forwarded only whole: its `name` and `format`, both strings, and nothing else.
+        if let Some(header) = fields.get_mut("header") {
+            *header = match (
+                header.get("name").and_then(Value::as_str),
+                header.get("format").and_then(Value::as_str),
+            ) {
+                (Some(name), Some(format)) => json!({ "name": name, "format": format }),
+                _ => Value::Null,
+            };
+        }
+        fields.retain(|_, value| !value.is_null());
+    }
+}
+
+#[cfg(test)]
+#[path = "environments_tests.rs"]
+mod tests;

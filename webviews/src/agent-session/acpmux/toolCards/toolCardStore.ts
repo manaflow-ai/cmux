@@ -7,7 +7,9 @@
 // a push that arrives before the chat mounts is kept.
 import { useSyncExternalStore } from "react";
 
-export type ToolCardAction = { id: string; title: string; hint?: string; submitsInput?: boolean };
+/// `check`: the action is the card's checkmark ("Ask me first"), drawn checked when true; a click
+/// sends the action like a button and the host pushes the card again with the new value.
+export type ToolCardAction = { id: string; title: string; hint?: string; submitsInput?: boolean; check?: boolean };
 export type ToolCardInput = { placeholder: string; secure: boolean; maxBytes: number };
 export type ToolCard = {
   id: string;
@@ -30,6 +32,7 @@ function readAction(value: unknown): ToolCardAction[] {
       title: action.title,
       ...(typeof action.hint === "string" ? { hint: action.hint } : {}),
       ...(action.submitsInput === true ? { submitsInput: true } : {}),
+      ...(typeof action.check === "boolean" ? { check: action.check } : {}),
     },
   ];
 }

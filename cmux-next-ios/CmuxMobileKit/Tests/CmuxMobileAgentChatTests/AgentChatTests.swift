@@ -40,6 +40,29 @@ import Testing
         #expect(doc.needsWebRenderer)
     }
 
+    @Test func tableInterruptsParagraph() {
+        let doc = MarkdownDocument(parsing: """
+        **What doesn't**
+        | Gap | Now | Target | Owner lane |
+        |---|---|---|---|
+        | Select to first reply (p50) | 45.4 s | ≤ 3 s | cloud-instant-start-v2 |
+        | Machine time spent idle | 26% | ≤ 23% | cloud-machine-lifecycle |
+        """)
+        let kinds = doc.blocks.map(\.kind)
+        #expect(kinds.count == 2)
+        if case .paragraph("**What doesn't**") = kinds.first {} else { Issue.record("bold line") }
+        if case .table(let table) = kinds.last {
+            #expect(table.header == ["Gap", "Now", "Target", "Owner lane"])
+            #expect(table.rows.count == 2)
+        } else { Issue.record("table") }
+    }
+
+    @Test func mismatchedTableHeaderIsText() {
+        let kinds = MarkdownDocument(parsing: "para\n| a | b |\n|---|\n| 1 | 2 |").blocks.map(\.kind)
+        #expect(kinds.count == 1)
+        if case .paragraph = kinds.first {} else { Issue.record("paragraph") }
+    }
+
     @Test func pricesAreNotMath() {
         #expect(!MarkdownDocument(parsing: "It costs $5 and $6 today").needsWebRenderer)
     }

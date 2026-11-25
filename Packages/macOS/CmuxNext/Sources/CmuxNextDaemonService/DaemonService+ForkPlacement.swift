@@ -11,12 +11,16 @@ extension DaemonService {
     ///   - pane: The chat's pane.
     ///   - left: The column's side; nil for a row.
     ///   - rowHeight: A new row's height in permille.
+    ///   - rowRefused: Called on the main actor when the daemon refuses a new row (a column's move reports through `moveToColumn`).
     ///   - moveToColumn: Moves the tab into a new column after the given column, then reports whether it moved.
     public func placeFork(_ surface: SurfaceID, beside pane: PaneModel, left: Bool?, rowHeight: Int,
+                          rowRefused: @escaping @MainActor () -> Void = {},
                           moveToColumn: @escaping @MainActor (ColumnID?, @escaping @MainActor (Bool) -> Void) -> Void) {
         let handle = pane.handle
         guard let left else {
-            return send("new-row") { try await RowCommands($0).moveTab(surface, toNewRowBelow: handle, height: rowHeight) }
+            return send("new-row", onFailure: { _ in rowRefused() }) {
+                try await RowCommands($0).moveTab(surface, toNewRowBelow: handle, height: rowHeight)
+            }
         }
         switch ForkColumnSlot(beside: pane, in: store, left: left) {
         case .after(let column): moveToColumn(column) { _ in }

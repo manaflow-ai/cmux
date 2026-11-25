@@ -34,8 +34,7 @@ enum DebugPaletteCapture {
             return write(image, to: path, source: "window")
         }
         guard let drawn = panel.renderSnapshot()?.cgImage else { return .object(["error": .string("no image")]) }
-        let size = view.bounds.size
-        let scale = panel.backingScaleFactor
+        let size = view.bounds.size, scale = panel.backingScaleFactor
         guard let context = CGContext(data: nil, width: Int(size.width * scale), height: Int(size.height * scale), bitsPerComponent: 8,
                                       bytesPerRow: 0, space: CGColorSpace(name: CGColorSpace.sRGB) ?? CGColorSpaceCreateDeviceRGB(),
                                       bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)
@@ -49,16 +48,17 @@ enum DebugPaletteCapture {
         return write(image, to: path, source: "appkit")
     }
 
-    /// The window-list capture, resolved at run time: the SDK marks it
-    /// unavailable in favor of ScreenCaptureKit, which needs a Screen
-    /// Recording grant even for the app's own windows. DEBUG evidence only.
+    /// The window-list capture of the palette's rectangle with the app's windows under it, as seen (the panel alone is
+    /// glass over nothing, a gray veil on light themes), resolved at run time: the SDK marks it unavailable in favor
+    /// of ScreenCaptureKit, which needs a Screen Recording grant even for the app's own windows. DEBUG evidence only.
     nonisolated static func windowImage(_ id: CGWindowID) -> CGImage? {
         typealias Capture = @convention(c) (CGRect, UInt32, UInt32, UInt32) -> Unmanaged<CGImage>?
         guard let symbol = dlsym(UnsafeMutableRawPointer(bitPattern: -2), "CGWindowListCreateImage") else { return nil }
         let capture = unsafeBitCast(symbol, to: Capture.self)
-        let options = CGWindowListOption.optionIncludingWindow.rawValue
+        let bounds = ((CGWindowListCopyWindowInfo(.optionIncludingWindow, id) as? [[String: Any]])?.first?[kCGWindowBounds as String] as? NSDictionary).flatMap { CGRect(dictionaryRepresentation: $0) } ?? .null
+        let options: CGWindowListOption = bounds.isNull ? .optionIncludingWindow : [.optionOnScreenBelowWindow, .optionIncludingWindow]
         let imageOptions = CGWindowImageOption([.boundsIgnoreFraming, .bestResolution]).rawValue
-        return capture(.null, options, id, imageOptions)?.takeRetainedValue()
+        return capture(bounds, options.rawValue, id, imageOptions)?.takeRetainedValue()
     }
 
     private static func write(_ image: CGImage, to path: String, source: String) -> JSONValue {

@@ -68,4 +68,9 @@ await requireBrowserLane("composer-history.test.ts", async () => {
     const result = await play("history-recall");
     expect(playFailures(result.report)).toEqual([]);
   });
+
+  test("keeps prompt recall anchored when an older page arrives", async () => {
+    const result = await play("history-recall-older-page");
+    expect(playFailures(result.report)).toEqual([]);
+  });
 });

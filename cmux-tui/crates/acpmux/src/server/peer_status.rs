@@ -10,23 +10,26 @@
 //! each other cannot ask back and forth.
 
 use super::Origin;
+use super::host_power;
 use crate::hub::Hub;
 use crate::rpc::RpcError;
 use cmux_json::JsonSet as _;
 use serde_json::{Value, json};
 use std::time::{Duration, Instant};
 
-/// How long each peer may take to answer; they are asked at once.
+/// How long each peer may take to answer; they are asked at once. This is a status-response
+/// bound only: a timeout becomes an unreachable row and never gates a session wake.
+// timeout: status callers need a bounded fallback row for a dead peer.
 const PEER_BUDGET: Duration = Duration::from_secs(5);
 
 /// The next step an unreachable or unknown peer's row names.
-const NEXT: &str = "acpmux host doctor";
+const NEXT: &str = "acpmux machine doctor";
 
 /// The `host_pressure` keys a caller of `_acpmux/host_health` gets: the
 /// verdict and this daemon's turns, without the formula, the sessions' names
 /// (`top`) or `warning` (it names the host, which a Web or peer caller does
 /// not get).
-const PRESSURE_KEYS: [&str; 9] = [
+const PRESSURE_KEYS: [&str; 10] = [
     "ok",
     "over",
     "load1",
@@ -35,17 +38,32 @@ const PRESSURE_KEYS: [&str; 9] = [
     "cores_kind",
     "pressure",
     "available_ram_fraction",
+    "swap_mb_per_min",
     "local_turns",
 ];
 
 /// This machine's own health (`_acpmux/host_health`). A Web or peer caller
 /// gets no host name (`hub::host_label`): the caller names its peer.
 pub(super) async fn host_health(hub: &Hub, origin: Origin) -> Value {
+    host_health_with(hub, origin, crate::wireguard::link_state_dir().as_deref()).await
+}
+
+/// [`host_health`] with the cmux link state directory `link_dir` (none: no link here).
+pub(crate) async fn host_health_with(
+    hub: &Hub,
+    origin: Origin,
+    link_dir: Option<&std::path::Path>,
+) -> Value {
     let mut v = json!({
         "version": crate::hub::VERSION,
         "build": crate::hub::build(),
         "os": std::env::consts::OS,
         "arch": std::env::consts::ARCH,
+        // What kind of device this is (`cmux-device-kind`: `mac-mini`, `linux-server`), so every
+        // view of a machine draws its own glyph; read once per process.
+        "device": cmux_device_kind::this_device().kind.as_str(),
+        // The SF Symbol that kind draws, so a native view names it without a table of its own.
+        "deviceSymbol": cmux_device_kind::this_device().kind.symbol(),
         "cpus": std::thread::available_parallelism().map(|n| n.get()).unwrap_or(1),
         "liveSessions": hub.live_session_count(),
         "uptimeSecs": crate::store::now_ms().saturating_sub(hub.started_at) / 1000,
@@ -60,6 +78,11 @@ pub(super) async fn host_health(hub: &Hub, origin: Origin) -> Value {
         v.set("load", json!(load));
     }
     let pressure = hub.host_pressure_status().await;
+    // How old the meter's sample is: a reader subtracts it from its own clock
+    // (`shadow_admission.rs`), so no two hosts' clocks are compared.
+    if let Some(age) = pressure_age_ms() {
+        v.set("pressureAgeMs", json!(age));
+    }
     let fraction = pressure["available_ram_fraction"].as_f64();
     if let Some(total) = ram_total() {
         let mut ram = json!({"totalBytes": total});
@@ -71,6 +94,13 @@ pub(super) async fn host_health(hub: &Hub, origin: Origin) -> Value {
     if let Some((used, total)) = swap() {
         v.set("swap", json!({"usedBytes": used, "totalBytes": total}));
     }
+    // Power and network for Auto chat placement (`host_power.rs`): a closed lid, a low battery
+    // or a network that is down change where a chat runs. A debug override can stand in for each.
+    let assume = host_power::assumed(crate::store::now_ms());
+    if let Some(power) = host_power::power_json(host_power::power().await, assume.as_ref()) {
+        v.set("power", power);
+    }
+    v.set("network", host_power::network_json(host_power::network_up(), assume.as_ref()));
     v.set(
         "pressure",
         PRESSURE_KEYS.iter().filter_map(|k| Some((*k, pressure.get(*k)?.clone()))).collect(),
@@ -83,6 +113,11 @@ pub(super) async fn host_health(hub: &Hub, origin: Origin) -> Value {
     if !origin.web_class() {
         v.set("host", json!(crate::hub::host_label()));
     }
+    if let Some(link) =
+        link_identity(origin, link_dir.and_then(crate::peer::overlay::own_install_in))
+    {
+        v.set("link", link);
+    }
     // The public node identity is safe to show in status and is what the
     // platform join/registry APIs use to address this machine. The private
     // key stays in the transport-owned helper and is never serialized.
@@ -90,6 +125,23 @@ pub(super) async fn host_health(hub: &Hub, origin: Origin) -> Value {
         v.set("node", json!({"wgPublicKey": key.public_key_b64()}));
     }
     v
+}
+
+/// `link` of `host_health`: the install this machine's cmux link runs as, so a daemon that
+/// reaches it over ssh and is paired with that install adds the link as a backup path
+/// (`peer_overlay.rs`). For every origin but the Web: a peer daemon (`Origin::Peer`, which is
+/// web-class for rights) is the one that asks, and a Web client gets no machine identity.
+pub(crate) fn link_identity(origin: Origin, install: Option<String>) -> Option<Value> {
+    if origin == Origin::Web {
+        return None;
+    }
+    install.map(|install| json!({"install": install}))
+}
+
+/// How long ago this host's meter took its last sample, in ms.
+pub(crate) fn pressure_age_ms() -> Option<u64> {
+    let (age, _) = crate::host_pressure::Meter::shared().last_with_age(Instant::now())?;
+    Some(u64::try_from(age.as_millis()).unwrap_or(u64::MAX))
 }
 
 /// `_acpmux/peer_status`: `{"hosts": [ROW...]}`, this machine first (`self`),
@@ -105,7 +157,7 @@ pub(super) async fn peer_status(
         && !listed.iter().any(|p| p["name"] == name)
     {
         return Err(RpcError::invalid_params(format!(
-            "no peer named {name:?}: `acpmux host ls` lists the peers"
+            "no peer named {name:?}: `acpmux machine ls` lists the peers"
         )));
     }
     let mut hosts = Vec::new();
@@ -130,13 +182,18 @@ pub(super) async fn peer_status(
 async fn peer_row(hub: &Hub, listed: &Value) -> Value {
     let name = listed["name"].as_str().unwrap_or_default().to_owned();
     let mut row = json!({"name": name, "self": false, "reachable": false});
-    for key in ["state", "lastSeen", "downSince", "remoteBuild", "outdated", "sessions"] {
+    for key in ["state", "via", "lastSeen", "downSince", "remoteBuild", "outdated", "sessions"] {
         if let Some(v) = listed.get(key).filter(|v| !v.is_null()) {
             row[key] = v.clone();
         }
     }
     let peer = hub.connected_peers().into_iter().find(|p| p.name == name);
     let Some(peer) = peer else {
+        // Listed as connected through the hub: it is up, only this machine has no link of its own to ask.
+        if listed["state"] == "connected" && listed["via"] == "hub" {
+            row.set("via", json!("hub"));
+            return row;
+        }
         let why = listed["error"].as_str().unwrap_or("not connected");
         row.set("error", json!(format!("{why}; `{NEXT} {name}` checks it step by step")));
         return row;
@@ -157,7 +214,14 @@ async fn peer_row(hub: &Hub, listed: &Value) -> Value {
             if let Some(problems) = health.get("problems") {
                 row.set("problems", super::machine_health::sanitize(problems));
             }
-            row.set("outdated", json!(health["build"].as_str() != Some(crate::hub::build())));
+            row.set(
+                "outdated",
+                json!(
+                    health["build"]
+                        .as_str()
+                        .is_none_or(|b| crate::build_info::lags(b, crate::hub::build()))
+                ),
+            );
         }
         // It answered, so it is up: an older build without this method.
         Ok(Err(e)) => {
@@ -165,7 +229,7 @@ async fn peer_row(hub: &Hub, listed: &Value) -> Value {
             row.set("latencyMs", json!(started.elapsed().as_millis() as u64));
             row.set("healthUnsupported", json!(true));
             row.set("error", json!(format!(
-                "{}; peer target is unknown: run `acpmux host update {name}` only with a matching build, or rebuild acpmux on {name} for its OS and architecture (see docs/remote-agents-and-cloud.md)",
+                "{}; peer target is unknown: run `acpmux machine update {name}` only with a matching build, or rebuild acpmux on {name} for its OS and architecture (see docs/remote-agents-and-cloud.md)",
                 e.message
             )));
         }
@@ -203,7 +267,7 @@ fn disk(_: &std::path::Path) -> Option<(u64, u64)> {
 
 /// Installed RAM in bytes: macOS `hw.memsize`, Linux `/proc/meminfo` `MemTotal`.
 #[cfg(target_os = "macos")]
-fn ram_total() -> Option<u64> {
+pub(crate) fn ram_total() -> Option<u64> {
     let mut bytes = 0u64;
     let mut len = std::mem::size_of::<u64>();
     // SAFETY: a NUL-terminated name and a writable u64 with its length.
@@ -220,7 +284,7 @@ fn ram_total() -> Option<u64> {
 }
 
 #[cfg(target_os = "linux")]
-fn ram_total() -> Option<u64> {
+pub(crate) fn ram_total() -> Option<u64> {
     let text = std::fs::read_to_string("/proc/meminfo").ok()?;
     let kb: u64 = text
         .lines()
@@ -233,7 +297,7 @@ fn ram_total() -> Option<u64> {
 }
 
 #[cfg(not(any(target_os = "macos", target_os = "linux")))]
-fn ram_total() -> Option<u64> {
+pub(crate) fn ram_total() -> Option<u64> {
     None
 }
 
@@ -241,7 +305,7 @@ fn ram_total() -> Option<u64> {
 /// (`SwapTotal` less `SwapFree`). A host can read fine on pressure while its
 /// swap is nearly full; placement weighs both (`placement.rs`).
 #[cfg(target_os = "macos")]
-fn swap() -> Option<(u64, u64)> {
+pub(crate) fn swap() -> Option<(u64, u64)> {
     /// `struct xsw_usage` (`sys/sysctl.h`).
     #[repr(C)]
     struct XswUsage {
@@ -267,7 +331,7 @@ fn swap() -> Option<(u64, u64)> {
 }
 
 #[cfg(target_os = "linux")]
-fn swap() -> Option<(u64, u64)> {
+pub(crate) fn swap() -> Option<(u64, u64)> {
     let text = std::fs::read_to_string("/proc/meminfo").ok()?;
     let kb = |key: &str| -> Option<u64> {
         text.lines().find_map(|l| l.strip_prefix(key))?.split_whitespace().next()?.parse().ok()
@@ -277,19 +341,19 @@ fn swap() -> Option<(u64, u64)> {
 }
 
 #[cfg(not(any(target_os = "macos", target_os = "linux")))]
-fn swap() -> Option<(u64, u64)> {
+pub(crate) fn swap() -> Option<(u64, u64)> {
     None
 }
 
 /// The 1, 5 and 15 minute load averages.
 #[cfg(unix)]
-fn load() -> Option<[f64; 3]> {
+pub(crate) fn load() -> Option<[f64; 3]> {
     let mut l = [0f64; 3];
     // SAFETY: a writable array of the three entries asked for.
     (unsafe { libc::getloadavg(l.as_mut_ptr(), 3) } == 3).then_some(l)
 }
 
 #[cfg(not(unix))]
-fn load() -> Option<[f64; 3]> {
+pub(crate) fn load() -> Option<[f64; 3]> {
     None
 }

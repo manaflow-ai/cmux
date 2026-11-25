@@ -2,9 +2,9 @@
 // (`agentPane.editedFiles.scope` session): the card at the latest edit covers every edit of the
 // session. The pane provides them, the same array until an edit row changes, so a card's memos
 // survive the snapshots of a long chat.
+import { keptPrefix } from "../conversation/prefixFlatMap";
 import { createContext } from "react";
-import { isFoldedCopy } from "../conversation/turns";
-import type { AcpmuxRow } from "../model";
+import { isEditCard, type AcpmuxRow } from "../model";
 
 export const SessionEditsContext = createContext<readonly AcpmuxRow[] | undefined>(undefined);
 
@@ -16,9 +16,7 @@ export type SessionEdits = { rows: readonly AcpmuxRow[]; at: number[]; edits: re
 /// The edit rows of `rows`. Rows before the first that differs from `previous.rows` (by object)
 /// keep their result, and `edits` stays `previous.edits` when they are the same rows.
 export function sessionEdits(rows: readonly AcpmuxRow[], previous?: SessionEdits): SessionEdits {
-  let from = 0;
-  if (previous)
-    while (from < rows.length && from < previous.rows.length && rows[from] === previous.rows[from]) from += 1;
+  const from = previous ? keptPrefix(previous.rows, rows) : 0;
   let keep = 0;
   if (previous) while (keep < previous.at.length && previous.at[keep]! < from) keep += 1;
   const at = previous ? previous.at.slice(0, keep) : [];
@@ -39,17 +37,9 @@ export function sessionEdits(rows: readonly AcpmuxRow[], previous?: SessionEdits
 
 /// A row the transcript draws as an edited-files card (App.tsx `rowKind`). An edit still waiting
 /// for its permission has not run, so it reads as its tool call until then. A shaped tool run
-/// (`foldRun`, including false while permission is pending) also keeps its tool-row renderer.
-export function isEditRow(row: AcpmuxRow): boolean {
-  return (
-    row.kind === "activity" &&
-    row.foldRun === undefined &&
-    !isFoldedCopy(row) &&
-    (row.items ?? []).some(
-      (item) => (item.tool?.kind === "edit" || item.tool?.kind === "fileChange") && item.tool.status !== "pending",
-    )
-  );
-}
+/// (`foldRun`, including false while permission is pending) also keeps its tool-row renderer. The
+/// layout's gap rules read the same test (model.ts `isEditCard`, transcriptGrid.ts MARK_CARD).
+export const isEditRow = isEditCard;
 
 /// The session's folder, so a tool row names a file in it by its path from there. The pane provides it.
 export const SessionCwdContext = createContext<string | undefined>(undefined);

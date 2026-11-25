@@ -71,8 +71,8 @@ public nonisolated final class TerminalAttachDriver<Link: TerminalAttachLink>: S
     /// in a row (the App passes a capped ``Backoff``). Throws when cancelled.
     public typealias BackoffDelay = @Sendable (_ failedReconnects: Int) async throws -> Void
 
-    /// `restoring`: the view attaches to a terminal that already runs
-    /// (``TerminalAttachMachine/init(initialSize:visible:restoring:)``).
+    /// `restoring`: the view attaches to a terminal that already runs; `creating`: to one the daemon has
+    /// not confirmed yet (``TerminalAttachMachine/init(initialSize:visible:restoring:creating:)``).
     /// `onGridSent`: told each grid this view sends to the PTY (a claim or a take over of the live link),
     /// in reduction order under the reducer's lock, as the effect is queued (the applier sends it right
     /// after, in order); never a resize the machine dropped (no live link, hidden, or the grid it already
@@ -81,6 +81,7 @@ public nonisolated final class TerminalAttachDriver<Link: TerminalAttachLink>: S
         initialSize: CellSize,
         visible: Bool = true,
         restoring: Bool = false,
+        creating: Bool = false,
         outputHighWater: Int = 1 << 20,
         opener: @escaping Opener,
         onFailure: @escaping @Sendable (any Error) -> Void = { _ in },
@@ -90,7 +91,7 @@ public nonisolated final class TerminalAttachDriver<Link: TerminalAttachLink>: S
         backoffDelay: @escaping BackoffDelay = { _ in },
         onGridSent: GridSent? = nil
     ) {
-        core = Mutex(Core(machine: Machine(initialSize: initialSize, visible: visible, restoring: restoring)))
+        core = Mutex(Core(machine: Machine(initialSize: initialSize, visible: visible, restoring: restoring, creating: creating)))
         queue = TerminalStepQueue(highWater: outputHighWater)
         self.opener = opener
         self.onFailure = onFailure

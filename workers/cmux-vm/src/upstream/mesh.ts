@@ -85,7 +85,19 @@ export interface UpstreamMeshService {
       readonly routes: ReadonlyArray<string>;
     },
   ) => Effect.Effect<CreatedTunnel, UpstreamError>;
+  /** Deletes a tunnel `createTunnel` or `findDeviceTunnel` returned; one already gone counts as deleted. */
   readonly discardCreatedTunnel: (created: CreatedTunnel) => Effect.Effect<void, UpstreamError>;
+  /**
+   * The tunnel a create for `device` made, found by the slug that create sent (its reply may have been lost): None when
+   * the provider has no tunnel at that slug. Fails (touching nothing) when the tunnel there is not this device's on this
+   * mesh. Only for a device id the store recorded as a create attempt on this mesh.
+   */
+  readonly findDeviceTunnel: <C, M, D>(
+    mesh: Named<M, MeshId>,
+    device: Named<D, DeviceId>,
+    proofs: { readonly owns: TenantOwnsResource<C, M>; readonly scope: KeyHasScope<C, "mesh:join"> },
+    options: { readonly tenantId: TenantId },
+  ) => Effect.Effect<Option.Option<CreatedTunnel>, UpstreamError>;
   readonly getTunnel: <C, T>(
     tunnel: Named<T, TunnelId>,
     proofs: {

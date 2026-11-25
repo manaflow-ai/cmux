@@ -27,6 +27,8 @@ public nonisolated struct WorkspaceHibernationPlanner: Sendable {
         /// Minutes a workspace of a space no window shows stays idle before it hibernates (the shorter
         /// of this and ``idleMinutes`` applies).
         public var hiddenSpaceIdleMinutes: Double
+        /// The freeing tier under hibernation (`workspaces.freeing.*`); off unless the settings turn it on.
+        public var freeing = WorkspaceFreeingPlanner.Policy(enabled: false)
 
         /// - Parameters:
         ///   - enabled: whether workspaces hibernate on their own (default on).
@@ -39,10 +41,12 @@ public nonisolated struct WorkspaceHibernationPlanner: Sendable {
             self.hiddenSpaceIdleMinutes = hiddenSpaceIdleMinutes
         }
 
-        /// The policy cmux.json's `workspaces.hibernation.*` sets; nil (no settings yet) takes the defaults.
+        /// The policy cmux.json's `workspaces.hibernation.*` and `workspaces.freeing.*` set; nil (no settings yet) takes
+        /// the defaults.
         public init(_ settings: WorkspaceHibernationSettings?) {
             let settings = settings ?? WorkspaceHibernationSettings()
             self.init(enabled: settings.enabled, idleMinutes: settings.idleMinutes, hiddenSpaceIdleMinutes: settings.hiddenSpaceMinutes)
+            freeing = WorkspaceFreeingPlanner.Policy(settings)
         }
     }
 

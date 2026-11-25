@@ -1,0 +1,7 @@
+{
+  "jsPlugins": ["./aria-props.mjs"],
+  "categories": { "correctness": "off" },
+  "rules": {
+    "cmux-a11y/role-supports-aria-props": "error"
+  }
+}

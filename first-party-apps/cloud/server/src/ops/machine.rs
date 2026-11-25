@@ -1,27 +1,51 @@
 //! `cloud.machine.*` over `cmux.wire/1` (contract 1.3): list (paged),
 //! watch, get, create, rename, start, pause, resize, delete,
-//! idle_policy.set, connect_info. Each op sends the checked params to the
-//! backend op of the same name.
+//! idle_policy.set, keep, archive_delete, connect_info. Each op sends the checked params to the
+//! backend op of the same name. The list's last page adds the latest surge ([`super::surge`]).
 
 use crate::api::args;
-use crate::api::models::{ConnectInfo, Machine, MachinePage, Revision};
+use crate::api::models::{Machine, Revision, decode_connect_info};
 use crate::api::{CloudError, ControlPlane, Ctx, codes, decode_answer};
 use serde::Deserialize;
 use serde_json::{Map, Value, json};
 
-/// A mutation answer `{machine}`.
+/// A mutation answer `{machine}`; a create at the plan's cap may also name
+/// the person's idle machine the backend paused to make room (`made_room`).
 #[derive(Deserialize)]
 struct MachineAnswer {
     machine: Machine,
+    #[serde(default)]
+    made_room: Option<MadeRoom>,
+}
+
+/// `made_room`: the machine paused so the create fits the cap.
+#[derive(Deserialize)]
+struct MadeRoom {
+    machine: Machine,
+}
+
+/// `cloud.machine.list`: one page (`CloudMachineListResult`, with each
+/// record's extra fields kept).
+#[derive(Deserialize)]
+struct MachinePage {
+    machines: Vec<Machine>,
+    next_cursor: Option<String>,
+    /// The team's registry revision when the page was read.
+    revision: Revision,
 }
 
 pub(super) fn run<C: ControlPlane>(
     ctx: &mut Ctx<'_, C>,
+    lifecycle: &mut super::machine_lifecycle::Ledger,
     name: &str,
     raw: &Value,
 ) -> Result<Value, CloudError> {
     match name {
         "cloud.machine.list" => list(ctx, raw),
+        "cloud.machine.pause_all" => {
+            args::object(raw, &[])?;
+            super::pause_all::run(ctx)
+        }
         "cloud.machine.watch" => {
             // The events are the stream (`cloud.machine.watch` lines after
             // each op result); this read only names where it stands.
@@ -38,12 +62,29 @@ pub(super) fn run<C: ControlPlane>(
             Ok(json!(machine))
         }
         "cloud.machine.create" => {
-            let map = args::object(raw, &["name", "size", "image", "from_snapshot"])?;
+            // Optional create features are validated by the selected backend's
+            // capabilities. Preserve them across this relay, including on a
+            // backend that will return an explicit unsupported-option error.
+            const FIELDS: &[&str] = &[
+                "name",
+                "size",
+                "image",
+                "from_snapshot",
+                // Who started it and how long it may live: the platform checks
+                // and records both (origin, expires_at on the machine).
+                "origin",
+                "ttl_seconds",
+                "size_name",
+                "idle_seconds",
+                "bootstrap",
+                "machine_config_base64",
+            ];
+            let map = args::object(raw, FIELDS)?;
             args::name(map, "name")?;
             args::size(map, "size")?;
             args::opt_id(map, "image")?;
             args::opt_id(map, "from_snapshot")?;
-            machine_mutation(ctx, name, trimmed(map, &["name", "size", "image", "from_snapshot"]))
+            machine_mutation(ctx, name, trimmed(map, FIELDS))
         }
         "cloud.machine.rename" => {
             let map = args::object(raw, &["machine", "name"])?;
@@ -51,10 +92,16 @@ pub(super) fn run<C: ControlPlane>(
             args::name(map, "name")?.ok_or_else(|| CloudError::invalid("name is required"))?;
             machine_mutation(ctx, name, trimmed(map, &["machine", "name"]))
         }
-        "cloud.machine.start" | "cloud.machine.pause" => {
+        "cloud.machine.start" | "cloud.machine.pause" | "cloud.machine.delete" => {
             let map = args::object(raw, &["machine"])?;
-            args::id(map, "machine")?;
-            machine_mutation(ctx, name, args::params(map, &["machine"]))
+            let id = args::id(map, "machine")?;
+            lifecycle.run(ctx, name, id).map_err(|error| {
+                if super::delete_retry::indeterminate(&error) || error.code == codes::BAD_RESPONSE {
+                    super::delete_retry::retry_with_same_key(name, error)
+                } else {
+                    error
+                }
+            })
         }
         "cloud.machine.resize" => {
             let map = args::object(raw, &["machine", "size"])?;
@@ -69,19 +116,20 @@ pub(super) fn run<C: ControlPlane>(
                 .ok_or_else(|| CloudError::invalid("idle_seconds is required"))?;
             machine_mutation(ctx, name, args::params(map, &["machine", "idle_seconds"]))
         }
-        "cloud.machine.delete" => {
-            let map = args::object(raw, &["machine"])?;
-            let id = args::id(map, "machine")?;
-            let answer = ctx.wire(name, args::params(map, &["machine"]));
-            let result = gone_if_not_found(ctx, id, answer)?;
-            deleted(&result.value)?;
-            // The answer's revision is the removal's: an older upsert of
-            // this machine never brings it back.
-            match result.revision.and_then(|r| Revision::try_from(r).ok()) {
-                Some(revision) => ctx.projection.remove_at(id, revision),
-                None => ctx.projection.remove(id),
+        "cloud.machine.keep" => {
+            let map = args::object(raw, &["machine", "keep"])?;
+            args::id(map, "machine")?;
+            if !map.get("keep").is_some_and(Value::is_boolean) {
+                return Err(CloudError::invalid("keep is required: true or false"));
             }
-            Ok(json!({ "deleted": true }))
+            machine_mutation(ctx, name, args::params(map, &["machine", "keep"]))
+        }
+        "cloud.machine.archive_delete" => {
+            // The machine stays (paused, `delete_reason: requested`) until its
+            // archive is ready; the platform's `cloud.machine.removed` follows.
+            let map = args::object(raw, &["machine"])?;
+            args::id(map, "machine")?;
+            machine_mutation(ctx, name, args::params(map, &["machine"]))
         }
         "cloud.machine.connect_info" => {
             // Exactly one of `machine` and `host` (contract 1.7).
@@ -104,8 +152,7 @@ pub(super) fn run<C: ControlPlane>(
                     "cloud.machine.connect_info answered a credential; a read never carries one",
                 ));
             }
-            let info: ConnectInfo = decode_answer(name, answer.value)?;
-            Ok(json!(info))
+            Ok(json!(decode_connect_info(name, answer.value)?))
         }
         _ => Err(CloudError::new(codes::UNKNOWN_OP, format!("{name} has no handler"))),
     }
@@ -147,7 +194,8 @@ pub(super) fn trimmed(map: &Map<String, Value>, fields: &[&str]) -> Value {
 
 /// A mutation that answers `{machine}`: the record goes into the
 /// projection (unless the projection already holds a newer one) and the
-/// op answers `{machine}`.
+/// op answers `{machine}`, plus `made_room` when the backend paused one
+/// of the person's idle machines to make room for a create.
 pub(super) fn machine_mutation<C: ControlPlane>(
     ctx: &mut Ctx<'_, C>,
     op: &str,
@@ -155,7 +203,9 @@ pub(super) fn machine_mutation<C: ControlPlane>(
 ) -> Result<Value, CloudError> {
     let answer: MachineAnswer = decode_answer(op, ctx.wire(op, params)?.value)?;
     ctx.projection.upsert(answer.machine.clone());
-    Ok(json!({ "machine": answer.machine }))
+    let Some(room) = answer.made_room else { return Ok(json!({ "machine": answer.machine })) };
+    ctx.projection.upsert(room.machine.clone());
+    Ok(json!({ "machine": answer.machine, "made_room": { "machine": room.machine } }))
 }
 
 /// One `cloud.machine.list` page.
@@ -169,11 +219,19 @@ fn list<C: ControlPlane>(ctx: &mut Ctx<'_, C>, raw: &Value) -> Result<Value, Clo
         cursor,
         page.machines.clone(),
         page.next_cursor.as_deref(),
-        page.revision.clone(),
+        Some(page.revision),
     );
-    Ok(json!({
+    let mut answer = json!({
         "machines": page.machines,
         "next_cursor": page.next_cursor,
         "revision": ctx.projection.revision(),
-    }))
+    });
+    // The last page also carries the latest surge (the Machines page's surge
+    // card), from the whole projection; absent when no surge is listed.
+    if page.next_cursor.is_none()
+        && let Some(surge) = super::surge::latest(ctx.projection.machines())
+    {
+        answer["surge"] = json!(surge);
+    }
+    Ok(answer)
 }

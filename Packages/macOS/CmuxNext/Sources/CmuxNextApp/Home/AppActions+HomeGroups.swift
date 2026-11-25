@@ -1,6 +1,7 @@
 import CmuxHomeCore
 import CmuxNextActions
 import CmuxNextHome
+import CmuxNextHomeModel
 import CmuxNextHomeEngine
 import Foundation
 
@@ -91,6 +92,8 @@ extension AppActions {
         })
         HomeListActions(page: { shownPage(services) }, source: { pinSource(services) }, conversation: { conversation($0, services) },
                         notReady: RefusalStrings.homeNotReady, pinTitles: (PinStrings.pinConversation, PinStrings.unpinConversation)).bind(into: registry)
+        HomeChannelActions(directory: services.home.directory, contact: { services.home.groupActions.contact($0) }, enableBrain: { _ = await services.home.hostedChief.enableBrain(of: $0) },
+                           show: { services.home.pendingSelection = $0 }).bind(into: registry)  // New Channel (chief-channels-DESIGN.md)
         // A chat's own colours: arguments set them (`cmux chat colors`, MCP); a person's run with none opens the panel.
         registry.bindEffect("home.chatColors", requires: nil, effect: { invocation in
             guard let id = conversation(invocation, services) else { return .done }

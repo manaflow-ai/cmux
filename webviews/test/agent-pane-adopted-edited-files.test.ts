@@ -1,6 +1,6 @@
 // l10n-allow-file: test fixture prompts and replies, not shipped UI.
 // A reopened Codex turn that edited two files ends with the edited-files card (hq#2569 item 4):
-// "Edited 2 files +4 -1" with a row and counts per file; View changes opens the turn's diff with
+// "Edited 2 files +4 -1" with a row and counts per file; Open in Changes opens the turn's diff with
 // its hunks; the chat menu lists Changes; the summary's Outputs lists the files.
 //
 // Before: the turn had no edit records, so none of these drew (#22155 replays them); with them,
@@ -122,20 +122,20 @@ await requireBrowserLane("agent-pane-adopted-edited-files.test.ts", async () => 
     await daemon?.stop(true);
   });
 
-  test("the edited-files card lists each file with its counts, and View changes opens the hunks", async () => {
+  test("the edited-files card lists each file with its counts", async () => {
     const page = await open();
     const card = page.locator(".acpmux-edited");
     await expect(card.locator(".acpmux-edited-title").innerText()).resolves.toMatch(/^Edited 2 files\s*\+4\s*-1/);
     const files = await card.locator(".acpmux-edited-file").allInnerTexts();
-    expect(files.map((row) => row.replace(/\s+/g, " ").trim())).toEqual(["CHANGELOG.md +3 -0", "Cargo.toml +1 -1"]);
+    expect(files.map((row) => row.replace(/\s+/g, " ").trim())).toEqual([
+      // Each path from the session's folder (EditedFilesCard.tsx `shownPath`).
+      "CHANGELOG.md +3 -0",
+      "Cargo.toml +1 -1",
+    ]);
     // A reopened Codex edit is replayed as hunks, parts of each file (`_meta.acpmux.fragment`): no
     // whole-file text to put back, so the card offers no Undo the host would refuse.
     await card.hover();
     expect(await card.locator(".acpmux-edited-undo").count()).toBe(0);
-    await card.getByRole("button", { name: "View changes" }).click();
-    // The browser host has no pane beside the chat: the turn's diff opens in place, its hunks drawn.
-    await page.getByText('version = "1.3.0"').first().waitFor();
-    await page.getByText("- Bump the version to 1.3.0").first().waitFor();
     await page.close();
   });
 

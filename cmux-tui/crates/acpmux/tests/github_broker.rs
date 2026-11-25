@@ -125,7 +125,9 @@ async fn lane_asking(
         let (tcp, _) = l.accept().await.unwrap();
         let mut ws = tokio_tungstenite::accept_async(tcp).await.unwrap();
         let mut tx = Some(tx);
-        while let Some(Ok(Ws::Text(text))) = ws.next().await {
+        // Non-text frames (the client's pings, #38015) are not requests: skip them.
+        while let Some(Ok(frame)) = ws.next().await {
+            let Ws::Text(text) = frame else { continue };
             let v: Value = serde_json::from_str(&text).unwrap();
             if v["id"] == "lane-1" {
                 let _ = tx.take().map(|tx| tx.send(v));

@@ -136,18 +136,13 @@ describe("Cloud VM plan ceilings", () => {
 });
 
 describe("Cloud VM resource pool policy", () => {
-  test("each plan's pool follows the paid seat count like the machine allowance", () => {
-    for (const plan of ["pro", "founders"]) {
-      expect(resourcePoolForPlan(plan, maxActiveVmsForPlan(plan, {}))).toEqual(PRO_POOL);
+  test("no plan has a pool: paid compute is metered, and seats multiply nothing", () => {
+    for (const plan of ["pro", "founders", "team", "max", "go", "free"]) {
+      expect(resourcePoolForPlan(plan, maxActiveVmsForPlan(plan, {}))).toBeNull();
+      expect(resourcePoolForPlan(plan, 5)).toBeNull();
     }
-    expect(resourcePoolForPlan("team", maxActiveVmsForPlan("team", {}, { seats: 3 }))).toEqual({ vcpus: 60, memoryMb: 120 * GB });
-    expect(resourcePoolForPlan("max", maxActiveVmsForPlan("max", {}))).toEqual({ vcpus: 80, memoryMb: 160 * GB });
-    // A Max caller on a large team keeps the larger pool in each dimension.
-    expect(resourcePoolForPlan("max", 50)).toEqual({ vcpus: 200, memoryMb: 400 * GB });
-    expect(resourcePoolForPlan("go", 1)).toBeNull();
-    expect(resourcePoolForPlan("free", 0)).toBeNull();
     expect(resourcePoolForPlan("pro", null)).toBeNull();
-    expect(resourcePoolPolicyForPlan("pro", 5)?.legacyReservation).toEqual({ vcpus: 32, memoryMb: 64 * GB });
+    expect(resourcePoolPolicyForPlan("pro", 5)).toBeNull();
   });
 
   const refusal = (planId: string, resource: "memoryMb" | "vcpus") => new VmResourcePoolExceededError({
@@ -256,10 +251,9 @@ describe("Cloud VM resource pool", () => {
     expect(small.kind).toBe("create");
   }));
 
-  dbTest("resuming a paused VM needs room in the pool", () => withTeam(async team => {
+  dbTest("resuming a paused VM is not refused by a plan pool: paid compute is metered", () => withTeam(async team => {
     await seedVm(team, { status: "running", vcpus: 16, memoryMb: 32 * GB });
     const large = await seedVm(team, { status: "paused", vcpus: 8, memoryMb: 16 * GB });
-    const small = await seedVm(team, { status: "paused", vcpus: 4, memoryMb: 8 * GB });
     let resumes = 0;
     const provider = {
       getStatus: () => Effect.succeed("paused"),
@@ -268,30 +262,17 @@ describe("Cloud VM resource pool", () => {
         return { provider: "freestyle", providerVmId, image: "snapshot-test", status: "running", createdAt: Date.now() };
       }),
     } as unknown as VmProviderGatewayShape;
-    const resume = (providerVmId: string) => runWorkflow(resumeVm({
-      userId: team, billingTeamId: team, teamIds: [team], providerVmId,
-      maxActiveVms: 5, callerPlanId: "pro",
+    const resumed = await runWorkflow(resumeVm({
+      userId: team, billingTeamId: team, teamIds: [team], providerVmId: large,
+      maxActiveVms: maxActiveVmsForPlan("pro", {}), callerPlanId: "pro",
     }), provider);
-    const blocked = await resume(large);
-    expect(blocked._tag).toBe("Left");
-    if (blocked._tag === "Left") {
-      expect(blocked.left).toMatchObject({
-        _tag: "VmResourcePoolExceededError",
-        phase: "resume",
-        resource: "memoryMb",
-        used: { vcpus: 16, memoryMb: 32 * GB },
-        requested: { vcpus: 8, memoryMb: 16 * GB },
-      });
-    }
-    expect(resumes).toBe(0);
-    const resumed = await resume(small);
+    // The old 20 vCPU / 40 GB Pro pool would have refused this one (24 vCPUs, 48 GB together).
     expect(resumed._tag).toBe("Right");
     expect(resumes).toBe(1);
   }));
 
-  dbTest("growing a VM's memory or vCPUs needs room in the pool", () => withTeam(async team => {
-    // Keep every fixture within the current Pro per-machine ceiling while
-    // filling the shared pool around the target VM.
+  dbTest("growing a VM's memory or vCPUs is not refused by a plan pool", () => withTeam(async team => {
+    // Two 8 vCPU / 16 GB machines beside the target filled the old Pro pool.
     await seedVm(team, { status: "running", vcpus: 8, memoryMb: 16 * GB });
     await seedVm(team, { status: "running", vcpus: 8, memoryMb: 16 * GB });
     const target = await seedVm(team, { status: "running", vcpus: 4, memoryMb: 8 * GB });
@@ -309,26 +290,14 @@ describe("Cloud VM resource pool", () => {
     } as unknown as VmProviderGatewayShape;
     const resize = (request: { cpu?: number; memoryMb?: number }) => runWorkflow(resizeVm({
       userId: team, billingTeamId: team, billingPlanId: "pro", teamIds: [team],
-      providerVmId: target, maxActiveVms: 5, ...request,
+      providerVmId: target, maxActiveVms: maxActiveVmsForPlan("pro", {}), ...request,
     }), provider);
 
-    const tooMuchMemory = await resize({ memoryMb: 16 * GB });
-    expect(tooMuchMemory._tag).toBe("Left");
-    if (tooMuchMemory._tag === "Left") {
-      expect(tooMuchMemory.left).toMatchObject({
-        _tag: "VmResourcePoolExceededError",
-        phase: "resize",
-        resource: "memoryMb",
-        used: { vcpus: 16, memoryMb: 32 * GB },
-        requested: { vcpus: 4, memoryMb: 16 * GB },
-      });
-    }
-    const tooManyVcpus = await resize({ cpu: 8 });
-    expect(tooManyVcpus._tag).toBe("Left");
-    if (tooManyVcpus._tag === "Left") {
-      expect(tooManyVcpus.left).toMatchObject({ _tag: "VmResourcePoolExceededError", resource: "vcpus" });
-    }
-    expect(resizes).toBe(0);
+    const grown = await resize({ memoryMb: 16 * GB });
+    if (grown._tag === "Left") expect(grown.left).not.toMatchObject({ _tag: "VmResourcePoolExceededError" });
+    const moreVcpus = await resize({ cpu: 8 });
+    if (moreVcpus._tag === "Left") expect(moreVcpus.left).not.toMatchObject({ _tag: "VmResourcePoolExceededError" });
+    expect(resizes).toBeGreaterThan(0);
   }));
 
   dbTest("a disk-and-compute resize gives the compute claim back when the disk claim fails", () => withTeam(async team => {
@@ -367,7 +336,7 @@ describe("Cloud VM resource pool", () => {
     expect(fits.inserted).toBe(true);
   }));
 
-  dbTest("a resume after a failed attach uses the caller's current plan pool", () => withTeam(async team => {
+  dbTest("a resume after a failed attach is not refused by a plan pool", () => withTeam(async team => {
     await seedVm(team, { status: "running", vcpus: 16, memoryMb: 32 * GB });
     // Made on Max, which has a larger pool; the caller is now on Pro.
     const target = await seedVm(team, { status: "running", vcpus: 8, memoryMb: 16 * GB, planId: "max" });
@@ -401,19 +370,11 @@ describe("Cloud VM resource pool", () => {
       userId: team, billingTeamId: team, teamIds: [team], providerVmId: target,
       maxActiveVms: 5, callerPlanId: "pro",
     }), provider);
-    expect(result._tag).toBe("Left");
-    if (result._tag === "Left") {
-      expect(result.left).toMatchObject({
-        _tag: "VmResourcePoolExceededError",
-        phase: "resume",
-        pool: PRO_POOL,
-        planId: "pro",
-      });
-    }
-    expect(resumes).toBe(0);
+    // Pro has no pool any more (its compute is metered), so no pool refuses the resume.
+    expect(result._tag === "Left" ? (result.left as { _tag?: string })._tag : "Right").not.toBe("VmResourcePoolExceededError");
   }));
 
-  dbTest("a fork needs room in the pool for a copy of its source", () => withTeam(async team => {
+  dbTest("a fork is not refused by a plan pool", () => withTeam(async team => {
     const source = await seedVm(team, { status: "running", vcpus: 8, memoryMb: 16 * GB });
     await seedVm(team, { status: "running", vcpus: 8, memoryMb: 16 * GB });
     let forks = 0;
@@ -429,16 +390,7 @@ describe("Cloud VM resource pool", () => {
       userId: team, billingCustomerType: "team", billingTeamId: team, teamIds: [team],
       billingPlanId: "pro", maxActiveVms: 5, providerVmId: source,
     }), provider);
-    expect(result._tag).toBe("Left");
-    if (result._tag === "Left") {
-      expect(result.left).toMatchObject({
-        _tag: "VmResourcePoolExceededError",
-        phase: "fork",
-        resource: "memoryMb",
-        used: { vcpus: 16, memoryMb: 32 * GB },
-        requested: { vcpus: 8, memoryMb: 16 * GB },
-      });
-    }
-    expect(forks).toBe(0);
+    // Pro has no pool any more (its compute is metered), so no pool refuses the fork.
+    expect(result._tag === "Left" ? (result.left as { _tag?: string })._tag : "Right").not.toBe("VmResourcePoolExceededError");
   }));
 });

@@ -19,7 +19,7 @@ import unittest
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "tests"))
-from nightly_workflow_text import nightly_text  # noqa: E402
+from nightly_workflow_text import nightly_text, write_out_step_aliases  # noqa: E402
 
 SCRIPT = ROOT / "scripts/ci/nightly_next_dev_ring.sh"
 RING = ROOT / "scripts/ci/nightly_next_ring.py"
@@ -106,13 +106,13 @@ class StaleSnapshotTests(unittest.TestCase):
 
 class WorkflowTests(unittest.TestCase):
     def job(self, name: str) -> str:
-        text = nightly_text()
+        text = write_out_step_aliases(nightly_text())
         start = text.index(f"\n  {name}:")
         following = re.search(r"\n  [a-z0-9-]+:\n", text[start + 1:])
         return text[start:start + 1 + following.start()] if following else text[start:]
 
     def test_no_publish_step_reads_the_ring_from_the_run_snapshot(self):
-        for name in ("publish-nightly", "publish-nightly-identity-legacy", "republish-nightly-deltas"):
+        for name in ("publish-nightly", "republish-nightly-deltas"):
             job = self.job(name)
             self.assertNotIn("vars.NIGHTLY_NEXT_DEV_RING", job, name)
             self.assertIn("nightly_next_dev_ring.sh --github-output", job, name)
@@ -130,14 +130,14 @@ class WorkflowTests(unittest.TestCase):
             self.assertLess(read, tag)
             self.assertLess(tag, job.index(later), later)
 
-    def test_the_old_feed_and_the_delta_feed_use_the_live_read(self):
-        for name in ("publish-nightly-identity-legacy", "republish-nightly-deltas"):
+    def test_the_delta_feed_uses_the_live_read(self):
+        for name in ("republish-nightly-deltas",):
             job = self.job(name)
             self.assertIn("RING_TOKEN: ${{ steps.ring-token.outputs.token }}", job, name)
             self.assertIn("DEV_RING: ${{ steps.ring.outputs.mode || 'off' }}", job, name)
             self.assertLess(job.index("- name: Read the Dev ring switch live"), job.index("DEV_RING: ${{ steps.ring.outputs.mode"))
         # The token step mints the App without a permission filter: its Variables: read stays.
-        mint = self.job("publish-nightly-identity-legacy")
+        mint = self.job("republish-nightly-deltas")
         mint = mint[mint.index("name: Mint the release App token that reads the Dev ring switch"):]
         mint = mint[:mint.index("\n      - ")]
         self.assertNotIn("permission-", mint)

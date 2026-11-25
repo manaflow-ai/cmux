@@ -1,12 +1,19 @@
 import { exportPKCS8, generateKeyPair, decodeProtectedHeader } from "jose"
-import { describe, expect, it } from "vitest"
+import { createExecutionContext, waitOnExecutionContext } from "cloudflare:test"
+import { afterEach, describe, expect, it, vi } from "vitest"
 import { env } from "cloudflare:workers"
-import { apnsPayload, apnsRequest, clean, collapseId, sendApns, sendCloudAttention, turnPushKey } from "../src/push.ts"
+import worker from "../src/index.ts"
+import type { Env } from "../src/env.ts"
+import { apnsConfig, apnsPayload, apnsRequest, clean, collapseId, notifyFailures, sendApns, sendCloudAttention, turnPushKey } from "../src/push.ts"
 import { userHubName, type TeamHub } from "../src/team-hub.ts"
 import type { PushRegistration } from "../src/store.ts"
 import { call, connect, PROD_PROJECT, register, token } from "./helpers.ts"
 
 const HEX = "ab".repeat(32)
+
+afterEach(() => {
+  vi.restoreAllMocks()
+})
 
 describe("device list and removal", () => {
   it("lists the caller's Macs and phones with presence and push state", async () => {
@@ -96,6 +103,70 @@ describe("push registration and notify", () => {
     expect(await call("POST", `/v1/devices/${mac}/notify`, t, body)).toEqual({ status: 200, json: { configured: false, sent: 0, failed: 0, dropped: 0, wants: [] } })
   })
 
+  // Experiment 1 of the iOS push goal saw every sandbox send fail with only `failed: 1` to go on: APNs'
+  // reason went to the Worker's log, which nobody debugging from a Mac can read.
+  it("answers why APNs refused a send, without the token", async () => {
+    const t = await token("pia")
+    const mac = await register(t, "mac", "personal-pia")
+    const sandboxPhone = await register(t, "phone", "personal-pia")
+    const prodPhone = await register(t, "phone", "personal-pia")
+    const sandboxToken = "cd".repeat(32)
+    const prodToken = "ef".repeat(32)
+    for (const [id, tok, environment] of [[sandboxPhone, sandboxToken, "sandbox"], [prodPhone, prodToken, "production"]] as const)
+      expect((await call("PUT", `/v1/devices/${id}/push`, t, { token: tok, environment, topic: "dev.cmux.mobile", kinds: ["question"] })).status).toBe(200)
+    const { privateKey } = await generateKeyPair("ES256", { extractable: true })
+    const apnsEnv = { ...env, APNS_KEY_P8: await exportPKCS8(privateKey), APNS_KEY_ID: "KEY123", APNS_TEAM_ID: "TEAM123" }
+    const realFetch = globalThis.fetch
+    vi.spyOn(globalThis, "fetch").mockImplementation(async (input, init) => {
+      const url = input instanceof Request ? input.url : String(input)
+      if (url.startsWith("https://api.sandbox.push.apple.com/")) return new Response(JSON.stringify({ reason: "BadEnvironmentKeyInToken" }), { status: 403 })
+      if (url.startsWith("https://api.push.apple.com/")) return new Response(null, { status: 200 })
+      return realFetch(input, init)
+    })
+    const ctx = createExecutionContext()
+    const res = await worker.fetch(
+      new Request(`https://api.test/v1/devices/${mac}/notify`, {
+        method: "POST",
+        headers: { "content-type": "application/json", authorization: `Bearer ${t}` },
+        body: JSON.stringify({ eventId: "evt-reason", kind: "question", agent: "Claude", place: "repo" })
+      }),
+      apnsEnv as unknown as Parameters<typeof worker.fetch>[1],
+      ctx
+    )
+    await waitOnExecutionContext(ctx)
+    const text = await res.text()
+    expect(res.status).toBe(200)
+    expect(JSON.parse(text)).toMatchObject({
+      configured: true,
+      sent: 1,
+      failed: 1,
+      dropped: 0,
+      failures: [{ environment: "sandbox", status: 403, reason: "BadEnvironmentKeyInToken" }]
+    })
+    expect(text).not.toContain(sandboxToken)
+    expect(text).not.toContain("dev.cmux.mobile")
+  })
+
+  it("keeps the failure reason to APNs' word or a fixed fallback", () => {
+    const r = (status: number, reason?: string) => ({ token: "t", environment: "production" as const, outcome: "failed" as const, status, ...(reason ? { reason } : {}) })
+    expect(
+      notifyFailures([
+        r(403, "TopicDisallowed"),
+        r(0, "TypeError: connect failed to api.push.apple.com"),
+        r(500, "free text: not an APNs reason"),
+        r(503),
+        { ...r(502), reason: true as unknown as string },
+        { ...r(200), outcome: "sent" }
+      ])
+    ).toEqual([
+      { environment: "production", status: 403, reason: "TopicDisallowed" },
+      { environment: "production", status: 0, reason: "network" },
+      { environment: "production", status: 500, reason: "unknown" },
+      { environment: "production", status: 503, reason: "unknown" },
+      { environment: "production", status: 502, reason: "unknown" }
+    ])
+  })
+
   it("ice reports whether TURN is included", async () => {
     const r = await call("GET", "/v1/ice", await token("alice"))
     expect(r.json.turn).toBe(false)
@@ -119,7 +190,7 @@ describe("APNs payload and sender", () => {
   })
 
   it("collapses a session's finished turns into one notification and keeps each ask", () => {
-    const target: PushRegistration = { deviceId: "d", ownerUserId: "o", token: "aa", environment: "production", topic: "dev.cmux.mobile", kinds: ["completed"], mutedMacs: [], previews: true, updatedAt: "" }
+    const target: PushRegistration = { deviceId: "d", space: "", ownerUserId: "o", token: "aa", environment: "production", topic: "dev.cmux.mobile", kinds: ["completed"], mutedMacs: [], previews: true, updatedAt: "" }
     const done = { ...event, kind: "completed" as const, eventId: "t-s1-t9" }
     // A newer finished turn (or error, or Chief reply) of the same session replaces the older one.
     expect(collapseId(done)).toBe("turn-s1")
@@ -165,6 +236,7 @@ describe("APNs payload and sender", () => {
     const config = { keyP8: await exportPKCS8(privateKey), keyId: "KEY123", teamId: "TEAM123" }
     const target = (token: string, environment: "sandbox" | "production"): PushRegistration => ({
       deviceId: "d",
+      space: "",
       ownerUserId: "o",
       token,
       environment,
@@ -190,11 +262,47 @@ describe("APNs payload and sender", () => {
     expect(decodeProtectedHeader(jwt)).toMatchObject({ alg: "ES256", kid: "KEY123" })
   })
 
+  it("signs sandbox sends with the sandbox key when the Worker has one, production with the main key", async () => {
+    const main = await generateKeyPair("ES256", { extractable: true })
+    const sandbox = await generateKeyPair("ES256", { extractable: true })
+    const config = apnsConfig({
+      APNS_KEY_P8: await exportPKCS8(main.privateKey),
+      APNS_KEY_ID: "PRODKEY",
+      APNS_TEAM_ID: "TEAM789",
+      APNS_SANDBOX_KEY_P8: await exportPKCS8(sandbox.privateKey),
+      APNS_SANDBOX_KEY_ID: "SANDKEY"
+    } as Env)!
+    const target = (token: string, environment: "sandbox" | "production"): PushRegistration => ({
+      deviceId: "d",
+      space: "",
+      ownerUserId: "o",
+      token,
+      environment,
+      topic: "dev.cmux.mobile",
+      kinds: ["permission"],
+      mutedMacs: [],
+      previews: true,
+      updatedAt: ""
+    })
+    const kids = new Map<string, unknown>()
+    const fetcher = (async (req: Request) => {
+      kids.set(new URL(req.url).host, decodeProtectedHeader(req.headers.get("authorization")!.slice(7)).kid)
+      return new Response(null, { status: 200 })
+    }) as unknown as typeof fetch
+    await sendApns(config, [target("aa", "production"), target("bb", "sandbox")], event, Date.now(), fetcher)
+    expect(Object.fromEntries(kids)).toEqual({ "api.push.apple.com": "PRODKEY", "api.sandbox.push.apple.com": "SANDKEY" })
+    // Without a sandbox key, both hosts get the main key, as before.
+    kids.clear()
+    await sendApns({ ...config, sandbox: undefined }, [target("aa", "production"), target("bb", "sandbox")], event, Date.now(), fetcher)
+    expect(Object.fromEntries(kids)).toEqual({ "api.push.apple.com": "PRODKEY", "api.sandbox.push.apple.com": "PRODKEY" })
+  })
+
   it("sends Cloud attention with routing metadata only", async () => {
     const { privateKey } = await generateKeyPair("ES256", { extractable: true })
     const config = { keyP8: await exportPKCS8(privateKey), keyId: "KEY456", teamId: "TEAM456" }
     const target: PushRegistration = {
       deviceId: "phone",
+      space: "",
       ownerUserId: "owner",
       token: "cc".repeat(32),
       environment: "sandbox",

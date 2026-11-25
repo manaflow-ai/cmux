@@ -1,16 +1,19 @@
+public import CmuxNextAgentIntegrations
 public import CmuxNextDesign
 public import Foundation
 public import Observation
 
-/// The tool window: one screen for one tool, Import from Browser or
-/// Computer Use setup (Lawrence 2026-10-09: no onboarding window, no
-/// sequence). Work is async and cancellable; nothing here blocks the main
+/// The tool window: one screen for one tool, Agents (first run), Import
+/// from Browser or Computer Use setup (Lawrence 2026-10-09: no onboarding
+/// window, no sequence). Work is async and cancellable; nothing here blocks the main
 /// thread.
 @MainActor
 @Observable
 public final class OnboardingModel {
     public enum Step: String, CaseIterable, Sendable {
-        case importData, computerUse
+        // Agents comes first at a first run. importData is the browser importer (Import from Browser).
+        // makeItYours: a new person's one setup screen (how they work, density, background), cmux#48416.
+        case agents, importData, computerUse, makeItYours
     }
 
     /// The tool this window shows; it never changes.
@@ -19,17 +22,26 @@ public final class OnboardingModel {
     public var steps: [Step] { [step] }
     public let importer: ImportStepModel
     public let computerUse: ComputerUseStepModel
+    public let agents: AgentsStepModel
+    public let makeItYours: MakeItYoursStepModel
     @ObservationIgnored public let services: any OnboardingServices
     /// Set once the window ended, so a second close does not report twice.
     public private(set) var ended = false
     /// The window asks to close (the controller observes this).
     public var onEnd: ((Bool) -> Void)?
 
-    public init(services: any OnboardingServices, step: Step) {
+    /// `choices`: Make cmux Yours' source, else the services' own. `clock` times the Computer Use done
+    /// view's close (tests pass their own).
+    public init(services: any OnboardingServices, step: Step, choices: (any FirstRunChoicesSource)? = nil,
+                clock: any Clock<Duration> = ContinuousClock()) {
         self.services = services
         self.step = step
         importer = ImportStepModel(services: services)
-        computerUse = ComputerUseStepModel(source: services.computerUsePermissions)
+        computerUse = ComputerUseStepModel(source: services.computerUsePermissions, clock: clock)
+        agents = AgentsStepModel(source: services.agentSignIns)
+        makeItYours = MakeItYoursStepModel(source: choices ?? services.firstRunChoices)
+        // The done view's time is up: the window closes as Done.
+        computerUse.onFinished = { [weak self] in self?.finish(completed: true) }
     }
 
     /// The primary button: Find Browsers on the import step before a person
@@ -41,6 +53,7 @@ public final class OnboardingModel {
         if step == .importData, importer.explainingAccess != nil { return OnboardingStrings.continueTitle }
         if step == .importData, importer.isConfirmingPasswords { return OnboardingStrings.beginImporting }
         if step == .importData, importer.canStart { return OnboardingStrings.importButton }
+        if step == .agents || step == .makeItYours { return OnboardingStrings.continueTitle }
         return OnboardingStrings.done
     }
 
@@ -113,6 +126,8 @@ public final class OnboardingModel {
     /// answers after the window is gone.
     public func skipStep() {
         if step == .importData, importer.isConfirmingPasswords { importer.backFromConsent() }
+        // Make cmux Yours' Skip keeps the person's settings: the picks it made live are put back.
+        if step == .makeItYours { makeItYours.revert() }
         finish(completed: false)
     }
 
@@ -124,7 +139,14 @@ public final class OnboardingModel {
         switch step {
         case .importData: importer.detect()
         case .computerUse: computerUse.start()
+        case .agents: agents.start()
+        case .makeItYours: makeItYours.start()
         }
+    }
+
+    /// The window became key: back from an agent's sign-in, the Agents step reads again.
+    public func windowBecameKey() {
+        if step == .agents { agents.cameBack() }
     }
 
     /// The window closed without Skip or Done (the close button, quit):
@@ -134,6 +156,8 @@ public final class OnboardingModel {
         ended = true
         computerUse.stop()
         importer.stopDetecting()
+        agents.stop()
+        makeItYours.stop()
     }
 
     public func finish(completed: Bool) {
@@ -141,6 +165,8 @@ public final class OnboardingModel {
         ended = true
         computerUse.stop()
         importer.stopDetecting()
+        agents.stop()
+        makeItYours.stop()
         onEnd?(completed)
     }
 }

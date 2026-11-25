@@ -1,21 +1,32 @@
 // An opened edit inside the transcript: a card per changed file with its name, the lines added
-// and removed, Wrap lines and copy, and the change on @pierre/diffs: its first lines under a fade
-// with Show all N lines when it is long (BlockParts.tsx). A prose file (Markdown, text) wraps with a
+// and removed, Wrap lines and copy, and the change on @pierre/diffs, scrolling in an eight-line
+// box when it is long (BlockParts.tsx). A prose file (Markdown, text) wraps with a
 // hanging indent; code keeps its lines whole, its right edge fading while more lies past it. The
 // changes view (changes/EditBlock.tsx) draws the same edits at full size.
-import { lazy, Suspense, useContext, useLayoutEffect, useMemo, useState } from "react";
+import { cornerAction } from "./cornerActions";
+import {
+  lazy,
+  Suspense,
+  useContext,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+  type ComponentType,
+  type ReactNode,
+} from "react";
 import { editPatch, type TurnFile } from "../diff";
 import { copyTextResult } from "./clipboard";
 import { Copy } from "./icons";
 import { useT } from "../i18n";
 import { fileBlockKind, useBlockWrap } from "./blockWrap";
-import { PreviewMore, usePreview, useSidewaysRef, WrapButton } from "./BlockParts";
+import { WrapButton } from "./BlockParts";
+import { usePreview, useSidewaysRef } from "./blockPartsModel";
 import { FindReveal, foldFind } from "./chatFind";
-
-/// The card's lines (EditDiffHunks.tsx, on @pierre/diffs) come in their own chunk, so the page's
-/// first script parses without Pierre (bd cx-z9kz0). The header shows at once; the page starts the
-/// chunk once it has painted (App.tsx), so the lines rarely wait.
-export const loadEditDiffHunks = () => import("./EditDiffHunks");
+import { useMoreBelowOn } from "./moreBelow";
+import { EditDiffLoading } from "./EditDiffLoading";
+import { useDiffPainted } from "./editDiffLoadingModel";
+import { loadEditDiffHunks } from "./editDiffModel";
 const EditDiffHunks = lazy(() => loadEditDiffHunks().then((module) => ({ default: module.EditDiffHunks })));
 
 /// Bumps each time Find in Chat's current match is in `file` (its text, or the call that made it),
@@ -45,16 +56,29 @@ function useFindInFile(file: TurnFile) {
   return found;
 }
 
-export function EditDiff({
-  file,
-  reveal = 0,
-  whole = false,
-}: {
+type EditDiffProps = {
   file: TurnFile;
   /** Bumped when Find in Chat reveals the call: opens the preview, as the match may be past it. */
   reveal?: number;
   /** Never cut to a preview (an edit a permission ask is about). */
   whole?: boolean;
+  /** More corner actions after Wrap and copy (the edited-files card's Open in Changes). */
+  actions?: ReactNode;
+};
+
+export function EditDiff(props: EditDiffProps) {
+  return <EditDiffFrame {...props} hunks={EditDiffHunks} />;
+}
+
+/** The real card and preview boundary, also used by the gallery with a deferred renderer. */
+export function EditDiffFrame({
+  file,
+  reveal = 0,
+  whole = false,
+  actions,
+  hunks: Hunks,
+}: EditDiffProps & {
+  hunks: ComponentType<{ file: TurnFile; patches: string[]; wrap: boolean }>;
 }) {
   const t = useT();
   const [copied, setCopied] = useState(false);
@@ -70,6 +94,9 @@ export function EditDiff({
     reveal + found,
   );
   const body = useSidewaysRef<HTMLDivElement>();
+  const hunks = useRef<HTMLDivElement>(null);
+  const painted = useDiffPainted(hunks);
+  useMoreBelowOn(body, painted);
   return (
     <div className="cv-edit-diff" data-wrap={wrap}>
       <div className="cv-edit-diff__header">
@@ -78,10 +105,10 @@ export function EditDiff({
         </span>
         <span className="cv-edit-diff__add">+{file.additions}</span>
         <span className="cv-edit-diff__del">-{file.deletions}</span>
-        <WrapButton kind={kind} className="cv-codeblock__action cv-edit-diff__wrap" />
+        <WrapButton kind={kind} className={`${cornerAction()} cv-edit-diff__wrap`} />
         <button
           type="button"
-          className="cv-codeblock__action cv-edit-diff__copy"
+          className={`${cornerAction()} cv-edit-diff__copy`}
           aria-label={copied ? t("code.copied") : t("code.copyDiff")}
           onClick={() =>
             void copyTextResult(patches.join("")).then(
@@ -92,13 +119,21 @@ export function EditDiff({
         >
           <Copy />
         </button>
+        {actions}
       </div>
       <div ref={body} className="cv-edit-diff__body" data-preview={preview.attribute}>
-        <Suspense fallback={null}>
-          <EditDiffHunks file={file} patches={patches} wrap={wrap} />
-        </Suspense>
+        {/* The placeholder holds the body's height until Pierre has drawn every edit: the renderer's
+            chunk resolves first, then each host fills a frame or more later, so a Suspense fallback
+            alone left an empty body for a frame. Both share one grid cell, the lines hidden. */}
+        <div className="cv-edit-diff__stack" data-painted={painted || undefined}>
+          <div ref={hunks} className="cv-edit-diff__hunks">
+            <Suspense fallback={null}>
+              <Hunks file={file} patches={patches} wrap={wrap} />
+            </Suspense>
+          </div>
+          {painted ? null : <EditDiffLoading file={file} wrap={wrap} />}
+        </div>
       </div>
-      <PreviewMore preview={preview} />
     </div>
   );
 }

@@ -6,7 +6,7 @@ import type { Rendered } from "./testing";
 
 const restore = installDom();
 afterAll(() => restore());
-const { click, ops, renderPage, run } = await import("./testing");
+const { click, fire, ops, renderPage, run, settle } = await import("./testing");
 
 let page: Rendered | null = null;
 afterEach(() => {
@@ -89,10 +89,15 @@ describe("Appearance's floating Undo, Redo and Reset", () => {
   });
 
   test("picking a background is undoable and redoable, and the buttons name the step", async () => {
+    // The background picker's one home is Appearance, which shows the bar.
     page = await renderPage({ path: "/settings/appearance" });
     const tile = page.container.querySelector<HTMLButtonElement>('.backdrop-tile[aria-label="Shuffle Paintings"]')!;
     await click(tile);
-    expect(ops(page.provider, "cmux.settings.set")).toEqual([{ key: "appearance.background", value: "daily" }]);
+    // Beside the step, the card keeps the picture Off showed (none); that write is no step of its own.
+    expect(ops(page.provider, "cmux.settings.set")).toEqual([
+      { key: "appearance.background", value: "daily" },
+      { key: "appearance.backgroundMemory", value: { off: "none" } },
+    ]);
     expect(undoButton().disabled).toBe(false);
     expect(undoButton().getAttribute("aria-label")).toBe("Undo: Background → Shuffle Paintings");
 
@@ -115,7 +120,20 @@ describe("Appearance's floating Undo, Redo and Reset", () => {
     expect(page.store.getSnapshot().host?.theme?.current.room).toBeNull();
   });
 
-  test("Reset to Defaults asks inline, resets every appearance key set, and is itself undoable", async () => {
+  test("the bar's Reset menu runs Reset to Defaults on the pick, with no question", async () => {
+    page = await renderPage({ path: "/settings/appearance" });
+    await run(() => page!.store.set("appearance.backgroundOpacity", 0.5));
+    await click(page.container.querySelector<HTMLButtonElement>('[data-menu="appearance-reset"]')!);
+    const item = [...document.querySelectorAll<HTMLElement>('[role="menuitem"]')].find((row) =>
+      row.textContent?.includes("Reset to Defaults"),
+    )!;
+    await click(item);
+    expect(page.store.getSnapshot().rows.get("appearance.backgroundOpacity")?.customized).toBe(false);
+    expect(page.container.querySelector(".appearance-bar-confirm")).toBeNull();
+    expect(page.store.appearance.nextUndo?.label).toBe("Appearance defaults");
+  });
+
+  test("Reset to Defaults resets every appearance key set, and is itself undoable", async () => {
     page = await renderPage({ path: "/settings/appearance" });
     await run(() => page!.store.set("appearance.background", "friedrich-forest-moonlight"));
     await run(() => page!.store.set("appearance.backgroundOpacity", 0.5));
@@ -210,5 +228,162 @@ describe("Appearance's presets", () => {
     const rows = page.store.getSnapshot().rows;
     expect(rows.get("appearance.backgroundOpacity")?.value).toBe(0.6);
     expect(rows.get("appearance.backgroundBlur")?.value).toBe("glass");
+  });
+});
+
+test("the undo stack and Reset to Defaults still cover the look rows that moved to Sidebar, Tabs and Terminal", async () => {
+  // The pages split moved 96 Appearance rows out of the two undo pages (review of #41237): the
+  // Sidebar page is all look, the mixed pages keep only their look rows in the stack.
+  const { tracksAppearance } = await import("./appearanceUndo");
+  for (const key of [
+    "sidebar.style",
+    "sidebar.workspaceRow.branch",
+    "layout.paneBorder",
+    "focusRing.color",
+    "terminal.fontSize",
+  ])
+    expect(tracksAppearance(key)).toBe(true);
+  for (const key of ["tabs.swapCmdTAndCmdN", "layout.focusFollowsMouse", "terminal.cursorStyle"])
+    expect(tracksAppearance(key)).toBe(false);
+});
+
+// Leo (2026-11-19): "improve the usability of background switching. you guys clicking and whatnot,
+// make sure you can recover and stuff. for all customizations".
+describe("recovering from a background or look change", () => {
+  const bar = () => page!.container.querySelector<HTMLElement>("[data-appearance-bar]")!;
+  const undoButton = () => bar().querySelector<HTMLButtonElement>("[data-undo]")!;
+  const redoButton = () => bar().querySelector<HTMLButtonElement>("[data-redo]")!;
+
+  async function thisWorkspace(value: string | null = null) {
+    page = await renderPage({
+      path: "/settings/appearance?focus=appearance.background&workspace=ws-1",
+      mock: {
+        values: { "appearance.background": "friedrich-forest-moonlight" },
+        workspaceBackgrounds: [{ workspace: "ws-1", title: "Research", value, opacity: null }],
+      },
+    });
+    await settle();
+    const picker = page.container.querySelector<HTMLElement>('[data-card="backdrop"]')!;
+    await click(picker.querySelector<HTMLInputElement>('[aria-label="This Workspace (Research)"]')!);
+    return picker;
+  }
+
+  test("a workspace's own background is undoable and redoable through the same host op", async () => {
+    const picker = await thisWorkspace();
+    await click(picker.querySelector<HTMLButtonElement>('[aria-label="The Starry Night"]')!);
+    expect(page!.provider.workspaceBackgrounds.get("ws-1")?.value).toBe("starryNight");
+    expect(undoButton().getAttribute("aria-label")).toBe("Undo: This Workspace (Research) → The Starry Night");
+
+    await click(undoButton());
+    expect(ops(page!.provider, "cmux.settings.backdrop.workspace.set").at(-1)).toEqual({
+      workspace: "ws-1",
+      value: null,
+    });
+    expect(page!.provider.workspaceBackgrounds.get("ws-1")?.value).toBeNull();
+    // The picker shows the workspace following All Workspaces again.
+    const follow = picker.querySelector<HTMLButtonElement>('[aria-label="Same as All Workspaces"]')!;
+    expect(follow.getAttribute("aria-pressed")).toBe("true");
+    // The app's own background was never touched.
+    expect(ops(page!.provider, "cmux.settings.set")).toEqual([]);
+
+    await click(redoButton());
+    expect(page!.provider.workspaceBackgrounds.get("ws-1")?.value).toBe("starryNight");
+    expect(
+      picker.querySelector<HTMLButtonElement>('[aria-label="The Starry Night"]')!.getAttribute("aria-pressed"),
+    ).toBe("true");
+  });
+
+  test("a workspace's own opacity is undoable and redoable", async () => {
+    await thisWorkspace("starryNight");
+    await run(() => page!.store.setWorkspaceOpacity("ws-1", 0.8));
+    expect(page!.provider.workspaceBackgrounds.get("ws-1")?.opacity).toBe(0.8);
+    expect(page!.store.appearance.canUndo).toBe(true);
+    await run(() => page!.store.undoAppearance());
+    expect(ops(page!.provider, "cmux.settings.backdrop.workspace.set").at(-1)).toEqual({
+      workspace: "ws-1",
+      opacity: null,
+    });
+    expect(page!.provider.workspaceBackgrounds.get("ws-1")?.opacity).toBeNull();
+    await run(() => page!.store.redoAppearance());
+    expect(page!.provider.workspaceBackgrounds.get("ws-1")?.opacity).toBe(0.8);
+  });
+
+  const resetItem = (name: string) =>
+    [...document.querySelectorAll<HTMLElement>('[role="menuitem"]')].find((row) => row.textContent === name);
+
+  test("Reset Window Background resets only that card's keys, as one undo step", async () => {
+    page = await renderPage({
+      path: "/settings/appearance",
+      mock: {
+        values: {
+          "appearance.background": "daily",
+          "appearance.backgroundLight": "munch-madonna",
+          "appearance.backgroundSchedule": { "08:00": "klee-fish-magic" },
+          "appearance.backgroundOpacity": 0.5,
+          "appearance.accent": "#ff0000",
+          "appearance.density": "compact",
+        },
+      },
+    });
+    await click(page.container.querySelector<HTMLButtonElement>('[data-menu="appearance-reset"]')!);
+    // Appearance's cards: its theme, its background and its density each reset alone.
+    expect(resetItem("Reset App Theme")).toBeDefined();
+    expect(resetItem("Reset Density and Motion")).toBeDefined();
+    await click(resetItem("Reset Window Background")!);
+    const rows = page.store.getSnapshot().rows;
+    for (const key of [
+      "appearance.background",
+      "appearance.backgroundLight",
+      "appearance.backgroundSchedule",
+      "appearance.backgroundOpacity",
+    ])
+      expect(rows.get(key)?.customized).toBe(false);
+    expect(rows.get("appearance.accent")?.value).toBe("#ff0000");
+    expect(rows.get("appearance.density")?.value).toBe("compact");
+    expect(page.store.appearance.nextUndo?.label).toBe("Reset Window Background");
+
+    await click(undoButton());
+    const back = page.store.getSnapshot().rows;
+    expect(back.get("appearance.background")?.value).toBe("daily");
+    expect(back.get("appearance.backgroundLight")?.value).toBe("munch-madonna");
+    expect(back.get("appearance.backgroundSchedule")?.value).toEqual({ "08:00": "klee-fish-magic" });
+    expect(back.get("appearance.backgroundOpacity")?.value).toBe(0.5);
+    expect(page.store.appearance.canUndo).toBe(false);
+  });
+
+  test("a card with nothing set offers no reset; the Sidebar page lists its own cards", async () => {
+    page = await renderPage({
+      path: "/settings/sidebar",
+      mock: { values: { "sidebar.style": "minimal" } },
+    });
+    await click(page.container.querySelector<HTMLButtonElement>('[data-menu="appearance-reset"]')!);
+    expect(resetItem("Reset Sidebar")?.getAttribute("aria-disabled")).not.toBe("true");
+    expect(resetItem("Reset Workspace Rows")?.getAttribute("aria-disabled")).toBe("true");
+    expect(resetItem("Reset Window Background")).toBeUndefined();
+  });
+
+  const press = (init: KeyboardEventInit, target: Element = document.body) =>
+    fire(target, "keydown", { key: "z", metaKey: true, ...init });
+
+  test("Cmd-Z and Shift-Cmd-Z undo and redo the last appearance step", async () => {
+    page = await renderPage({ path: "/settings/appearance" });
+    await run(() => page!.store.set("appearance.backgroundOpacity", 0.5));
+    // Focus on the page itself (the search field takes it when Settings opens).
+    (document.activeElement as HTMLElement | null)?.blur();
+    await press({});
+    expect(page.store.getSnapshot().rows.get("appearance.backgroundOpacity")?.customized).toBe(false);
+    await press({ shiftKey: true, key: "Z" });
+    expect(page.store.getSnapshot().rows.get("appearance.backgroundOpacity")?.value).toBe(0.5);
+  });
+
+  test("Cmd-Z in a text field is the field's own undo", async () => {
+    page = await renderPage({ path: "/settings/appearance" });
+    await run(() => page!.store.set("appearance.backgroundOpacity", 0.5));
+    const field = document.createElement("input");
+    page.container.appendChild(field);
+    field.focus();
+    await press({}, field);
+    expect(page.store.getSnapshot().rows.get("appearance.backgroundOpacity")?.value).toBe(0.5);
+    expect(page.store.appearance.canUndo).toBe(true);
   });
 });

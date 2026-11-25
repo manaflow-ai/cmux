@@ -27,13 +27,16 @@ import Testing
         ],
         lastSeq: 2, createdAt: date(-100), updatedAt: date(0))
 
-    /// My root with several bubbles (a long block, a middle one, the question last) and the
-    /// Chief's thread reply to it.
-    static func items(replyPart: Int?) -> [TranscriptItem] {
+    static let question = "optimize downloading update sizes, is that possible?"
+
+    /// A root with several bubbles (a long block, a middle one, the question last) by `rootAuthor` and the
+    /// Chief's thread reply to it. The line joins a reply and a root on the leading side only (user 2026-11-05,
+    /// msg 23140), so the length cases root in a Chief message (an agent's report it answers in its thread).
+    static func items(replyPart: Int?, rootAuthor: ParticipantID = chief) -> [TranscriptItem] {
         let block = (1...40).map { "Context line \($0) from the Chief." }.joined(separator: "\n")
-        let rootItem = TranscriptItem(key: IdempotencyKey("k1"), seq: 1, author: me,
+        let rootItem = TranscriptItem(key: IdempotencyKey("k1"), seq: 1, author: rootAuthor,
                                       parts: [.text(block), .text("Claude Opus 5.5\nClaude Sonnet 5.5\nHaiku"),
-                                              .text("optimize downloading update sizes, is that possible?")],
+                                              .text(question)],
                                       createdAt: date(2), delivery: .committed, messageID: root)
         let reply = TranscriptItem(key: IdempotencyKey("k2"), seq: 2, author: chief,
                                    parts: [.text("Yes, it's possible. Sparkle can ship binary deltas.")],
@@ -66,6 +69,16 @@ import Testing
         let c = try Self.connector(width: width)
         #expect(c.rootKey == c.lastBubbleKey, "at \(width) pt the line starts at \(c.rootKey), not the bubble above the reply")
         #expect(c.length <= c.nearest + 0.5, "at \(width) pt the line is \(c.length) pt, the reply is \(c.nearest) pt under the bubble above it")
+    }
+
+    /// User 2026-11-05 (msg 23140): my root ends at the right edge, far from the arc's arm in the leading column, so the
+    /// Chief's reply under it draws no arc (it hung over nothing).
+    @Test(arguments: [CGFloat(320), 520, 760, 1100])
+    func theChiefsReplyToMyRootDrawsNoStrayArc(width: CGFloat) {
+        var core = ProjectionCore(me: Self.me)
+        let (conv, _) = core.install(Self.id, items: Self.items(replyPart: nil, rootAuthor: Self.me), summary: Self.summary)
+        let rows = RowBuilder.rows(AppState(conversation: conv), messages: conv.messages, now: Self.date(60), width: width)
+        #expect(!rows.contains { if case let .part(p) = $0.kind { p.connectorRoot != nil } else { false } })
     }
 
     /// A reply that names a later part of the root (a quote of that bubble) keeps that part.

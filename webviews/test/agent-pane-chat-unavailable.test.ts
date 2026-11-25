@@ -243,6 +243,108 @@ await requireBrowserLane("agent-pane-chat-unavailable.test.ts", async () => {
     await waiting.close();
   });
 
+  /// The app host holds `chat`'s tail as another tab or the last launch read it (tailCache.ts
+  /// `chat.tail.get`; the host forwards a miss to acpmux's disk copy): its one prompt says `text`.
+  async function withHostTail(page: Page, chat: string, text: string) {
+    await page.addInitScript(
+      ({ chat, text, at }) => {
+        const tail = {
+          events: [{ sessionId: chat, seq: 1, at, dir: "mux", kind: "user_message", msg: { text } }],
+          summary: {
+            sessionId: chat,
+            title: `Chat ${chat}`,
+            cwd: "/home/dev/atlas",
+            harness: "claude",
+            peer: "build-box",
+            // Kept while it ran: the pane must not read the unlisted chat as working.
+            status: "running",
+          },
+        };
+        const host = {
+          "chat.tail.get": async (params: { sessionId?: string }) => (params?.sessionId === chat ? tail : null),
+        };
+        let actions: Record<string, unknown> = { ...host };
+        Object.defineProperty(window, "cmuxAcpmuxActions", {
+          configurable: true,
+          get: () => actions,
+          set: (value) => {
+            actions = Object.assign(value ?? {}, host);
+          },
+        });
+      },
+      { chat, text, at: START },
+    );
+  }
+
+  // Leo, 2026-11-05: "It should take a lot faster of a time to be loading, like within a few seconds,
+  // really." A restored tab whose chat's machine is still connecting drew an empty area for up to the
+  // 30 s grace although the app host held the chat's rows; they draw on the open's first frames now.
+  test("a tab whose machine is still connecting draws the chat's kept rows at once, then opens it live", async () => {
+    scenario = {
+      sessions: [summary("chat-other")],
+      peers: [{ name: "build-box", transport: "ssh", connected: false, state: "connecting", attempts: 0 }],
+    };
+    const page = await browser!.newPage({ viewport: { width: 900, height: 760 } });
+    await watchForUnavailable(page);
+    // What the host kept is the start of the machine's own log, as a kept tail always is.
+    await withHostTail(page, "chat-on-box", "Opened chat-on-box");
+    const { port } = vite!.httpServer!.address() as { port: number };
+    const endpoint = `ws://127.0.0.1:${daemon!.port}/`;
+    const started = Date.now();
+    await page.goto(
+      `http://127.0.0.1:${port}/#${new URLSearchParams({ endpoint, token: "t", session: "chat-on-box", must: "" })}`,
+    );
+    await page.getByText("Opened chat-on-box", { exact: true }).waitFor({ timeout: 25_000 });
+    const drawnMs = Date.now() - started;
+    console.log(`chat-unavailable: kept rows of a chat whose machine is connecting drawn ${drawnMs} ms after open`);
+    expect(drawnMs).toBeLessThan(3_000);
+    // Still loading: no line over the rows, and no centered state in their place. Nothing runs.
+    expect(await page.locator("[data-unavailable]").count()).toBe(0);
+    expect((await state(page)).isWorking).toBe(false);
+    // The machine connects and acpmux lists the chat: it opens live, continuing the kept rows.
+    scenario.peers = [{ name: "build-box", transport: "ssh", connected: true, state: "connected" }];
+    const listed = summary("chat-on-box", { peer: "build-box" });
+    scenario.sessions = [...scenario.sessions, listed];
+    notify("_acpmux/session_changed", { kind: "created", session: listed });
+    await page.waitForFunction(
+      () => {
+        const chat = (window as any).cmuxAcpmuxDebug.chatState() as Record<string, any>;
+        return chat.sessionId === "chat-on-box";
+      },
+      undefined,
+      { timeout: 60_000 },
+    );
+    expect(await page.getByText("Opened chat-on-box", { exact: true }).count()).toBe(1);
+    expect(await page.evaluate(() => (window as any).__unavailableSeen)).toEqual([]);
+    await page.close();
+  });
+
+  test("a tab whose machine is down shows its kept rows under one Reconnecting line with every action", async () => {
+    scenario = {
+      sessions: [summary("chat-other")],
+      peers: [
+        { name: "build-box", transport: "ssh", connected: false, state: "offline", attempts: 6, lastSeen: START },
+      ],
+    };
+    const page = await browser!.newPage({ viewport: { width: 900, height: 760 } });
+    await withHostTail(page, "chat-on-box", "Kept chat-on-box");
+    const { port } = vite!.httpServer!.address() as { port: number };
+    const endpoint = `ws://127.0.0.1:${daemon!.port}/`;
+    await page.goto(
+      `http://127.0.0.1:${port}/#${new URLSearchParams({ endpoint, token: "t", session: "chat-on-box", must: "" })}`,
+    );
+    await page.getByText("Kept chat-on-box", { exact: true }).waitFor({ timeout: 25_000 });
+    const line = page.locator('.acpmux-unavailable-line[data-unavailable="offline"]');
+    await line.waitFor({ timeout: 25_000 });
+    // One state: the line over the rows, never the centered state as well.
+    expect(await page.locator("[data-unavailable]").count()).toBe(1);
+    expect(await line.innerText()).toContain("Reconnecting…");
+    expect((await state(page)).isWorking).toBe(false);
+    for (const action of ["reconnect", "resume", "close"])
+      expect(await line.locator(`[data-action="${action}"]`).count()).toBe(1);
+    await page.close();
+  });
+
   test("loading stays an empty transcript area above the composer as the pane resizes", async () => {
     scenario = {
       sessions: [summary("chat-other", { peer: "build-box" })],
@@ -289,6 +391,61 @@ await requireBrowserLane("agent-pane-chat-unavailable.test.ts", async () => {
       const availableCenter = (layout.header.bottom + layout.composer.top) / 2;
       expect(Math.abs(rootCenter - availableCenter)).toBeLessThanOrEqual(2);
       expect(await page.locator(".acpmux-composer-strip").count()).toBe(0);
+    }
+    await page.close();
+  });
+
+  // While the chat connects (a reload, PaneBoundary's Try again) the stack sits in flow under the empty
+  // loading area: a notice that took its height there shrank that area, moving whatever it centers up as
+  // the notice came and down as it went (Leo, 2026-11-22: "layout shift galore with the \"cmux could not
+  // open\" blah blah above the composer. that message should not shift layout"). It lies over the area's
+  // empty foot instead (styles.css), for every notice the stack holds (noticeSlotModel.ts DOCK_NOTICE).
+  test("a notice coming and going while the chat loads moves neither the loading area nor the composer", async () => {
+    scenario = {
+      sessions: [summary("chat-other", { peer: "build-box" })],
+      peers: [{ name: "build-box", transport: "ssh", connected: false, state: "connecting", attempts: 0 }],
+    };
+    const page = await open("chat-on-box");
+    await page.locator('[data-unavailable="connecting"]').waitFor({ timeout: 60_000 });
+    const notices = {
+      paneNotice:
+        '<output class="acpmux-host-error acpmux-harness-notice" data-pane-notice="test"><div class="acpmux-host-error-card"><p class="acpmux-host-error-message">cmux blocked opening this chat.</p><div class="acpmux-host-error-actions"><button type="button">Retry</button></div></div></output>',
+      uiNotice: '<div class="ui-notice" role="status">The agent service restarted.</div>',
+      autoResume: '<output class="acpmux-switch-notice" data-auto-resume="waiting">Retrying in 5s…</output>',
+    };
+    for (const [name, html] of Object.entries(notices)) {
+      const moved = await page.evaluate(async (html) => {
+        const tops = () => {
+          const area = document.querySelector<HTMLElement>('[data-unavailable="connecting"]')!.getBoundingClientRect();
+          return {
+            area: (area.top + area.bottom) / 2,
+            composer: document.querySelector<HTMLElement>(".acpmux-composer-box")!.getBoundingClientRect().top,
+          };
+        };
+        const painted = () =>
+          new Promise<void>((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => resolve())));
+        const dock = document.querySelector<HTMLElement>(".acpmux-dock")!;
+        const before = tops();
+        const holder = document.createElement("div");
+        holder.innerHTML = html;
+        const notice = holder.firstElementChild as HTMLElement;
+        dock.insertBefore(notice, dock.querySelector(":scope > .acpmux-composer"));
+        await painted();
+        const came = tops();
+        const height = notice.getBoundingClientRect().height;
+        notice.remove();
+        await painted();
+        const went = tops();
+        const most = (key: "area" | "composer") =>
+          Math.round(Math.max(Math.abs(came[key] - before[key]), Math.abs(went[key] - before[key])) * 10) / 10;
+        return { height: Math.round(height), area: most("area"), composer: most("composer") };
+      }, html);
+      console.log(
+        `loading, ${name} (${moved.height}px tall): loading area's center moved ${moved.area}px; composer moved ${moved.composer}px`,
+      );
+      expect(moved.height).toBeGreaterThan(12);
+      expect(moved.area).toBeLessThanOrEqual(1);
+      expect(moved.composer).toBeLessThanOrEqual(1);
     }
     await page.close();
   });
@@ -555,6 +712,50 @@ await requireBrowserLane("agent-pane-chat-unavailable.test.ts", async () => {
           .chatState()
           .sessions.find((session: { sessionId: string }) => session.sessionId === "chat-on-box")?.unread === false,
     );
+    await page.close();
+  });
+
+  test("a tab that recorded a chat's harness session id or its name opens that chat, even with a machine down", async () => {
+    // An agent opened the tab with the chat's harness session id (acpmux `agentSessionId`, which
+    // `acpmux ls --json` prints first), not acpmux's id. Another machine is down, so before the fix
+    // the pane guessed the chat was there and showed "Reconnecting…" forever (Leo, 2026-11-05).
+    const down = { name: "build-box", transport: "ssh", connected: false, state: "reconnecting", attempts: 5 };
+    scenario = {
+      sessions: [
+        summary("chat-other"),
+        summary("chat-lane", { name: "claude/cloud-lane", shortName: "cloud-lane", agentSessionId: "harness-lane-1" }),
+      ],
+      peers: [down],
+    };
+    const byHarnessId = await open("harness-lane-1");
+    await byHarnessId.getByText("Opened chat-lane", { exact: true }).waitFor({ timeout: 60_000 });
+    expect((await state(byHarnessId)).sessionId).toBe("chat-lane");
+    expect((await state(byHarnessId)).missingSession).toBeNull();
+    await byHarnessId.close();
+    // The same tab named by the chat's short name.
+    const byName = await open("cloud-lane");
+    await byName.getByText("Opened chat-lane", { exact: true }).waitFor({ timeout: 60_000 });
+    expect((await state(byName)).sessionId).toBe("chat-lane");
+    await byName.close();
+  });
+
+  test("a tab whose id names more than one chat says the session no longer exists, never Reconnecting", async () => {
+    scenario = {
+      sessions: [
+        summary("chat-a", { name: "claude/cloud-lane", shortName: "cloud-lane" }),
+        summary("chat-b", { name: "codex/cloud-lane", shortName: "cloud-lane" }),
+      ],
+      peers: [{ name: "build-box", transport: "ssh", connected: false, state: "reconnecting", attempts: 5 }],
+    };
+    const page = await open("cloud-lane");
+    const shown = page.locator('[data-unavailable="gone"]');
+    await shown.waitFor({ timeout: 60_000 });
+    expect(await shown.locator("h2").innerText()).toBe("This session no longer exists");
+    expect(await shown.innerText()).not.toContain("Reconnecting");
+    expect(await shown.getByRole("button", { name: "Reconnect" }).count()).toBe(0);
+    expect(await shown.getByRole("button", { name: "Resume from Transcript…" }).count()).toBe(1);
+    expect(await shown.getByRole("button", { name: "Close Tab" }).count()).toBe(1);
+    expect((await state(page)).sessionId).toBeNull();
     await page.close();
   });
 

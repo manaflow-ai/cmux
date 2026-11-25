@@ -94,7 +94,12 @@ def clean_base_merges(repo: Path, old: str, new: str) -> list[str]:
 def pre_push(repo: Path, lines: list[str]) -> list[str]:
     warnings = []
     slug = None
+    # GitHub unread once is not asked again for this push's other refs (cmux#41715 review): each ask has a TIMEOUT
+    # limit, and a down or signed-out gh cost it once per pushed branch with a base merge.
+    unreadable = False
     for line in lines:
+        if unreadable:
+            break
         parts = line.split()
         if len(parts) != 4 or ZERO_SHA in (parts[1], parts[3]):
             continue  # a deletion or a new branch: no old head whose CI could be cut
@@ -106,6 +111,7 @@ def pre_push(repo: Path, lines: list[str]) -> list[str]:
             continue
         slug = slug or repo_slug(repo)
         running = running_checks(slug, remote) if slug else None
+        unreadable = running is None
         if running:
             warnings.append(f"base-merge warning: this push merges the base into {branch} while {running} check(s) "
                             f"still run on its old head {remote[:12]}; the push cancels them. {ADVICE}")

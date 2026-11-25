@@ -3,7 +3,10 @@ import CmuxNextActions
 import CmuxNextCompat
 import CmuxNextDaemon
 import CmuxNextRemote
+import CmuxNextRemoteView
+import CmuxNextRemoteViewSessions
 import CmuxNextServer
+import CmuxNextWindowRules
 
 /// SSH machine actions (`SSHService`). A machine is the invocation's
 /// `machine:` target (a section header's context menu, CLI `--machine`,
@@ -12,32 +15,15 @@ import CmuxNextServer
 /// installing run in tasks; failures surface as a sheet in the UI and as a
 /// refusal on the control socket.
 enum RemoteHandlers {
-    /// Whether the observation task should end before handling this update.
-    static func shouldEndConnectionObservation(status: SSHConnectionMachine.Status) -> Bool {
-        status == .offline
-    }
-
-    /// A daemon failure belongs to one stamped connection attempt. An old failure
-    /// must never reopen recovery after a newer Retry or Reconnect has started.
-    static func shouldPresentDaemonFailure(_ failure: SSHMachineSession.DaemonFailure?, currentAttemptID: UInt64) -> Bool {
-        failure?.attemptID == currentAttemptID
-    }
-
-    /// With no active window, a focused connect needs a window for its persistent
-    /// recovery sheet. A loaded daemon is handled by `CloudHandlers.show` instead.
-    static func shouldOpenRecoveryWindow(loaded: Bool, hasWindow: Bool,
-                                         status: SSHConnectionMachine.Status,
-                                         failure: SSHMachineSession.DaemonFailure?,
-                                         currentAttemptID: UInt64) -> Bool {
-        !loaded && !hasWindow && (status.needsRecovery || shouldPresentDaemonFailure(failure, currentAttemptID: currentAttemptID))
-    }
-
     static func bind(into registry: ActionRegistry, context: AppActionContext) {
-        // A joined machine's menu rows (Labs `labs.machineJoin`): Check, Rotate Credential, Revoke….
+        // A joined machine's menu rows (machines joined through the hub): Check, Rotate Credential, Revoke….
         MachineSectionHostView.bindJoinedActions(into: registry, context: context)
+        bindQuality(into: registry, context: context)
         let ssh = context.services.ssh
         let available: @MainActor () -> String? = { ssh.unavailableReason }
-        let hasMachine: @MainActor () -> String? = { ssh.unavailableReason ?? (ssh.sessions.isEmpty ? RemoteStrings.noMachine : nil) }
+        // The palette collects a machine, or offers Add Machine when none is
+        // known. Explicit callers still get machine()'s missing-target refusal.
+        let hasMachine = available
         ssh.offerInstall = { [weak registry] session in
             // Asks through the registry's confirmation sheet (remote.install is destructive).
             _ = registry?.perform("remote.install", invocation: ActionInvocation(target: ActionTargetRef(kind: .machine, id: session.machineID)))
@@ -50,11 +36,11 @@ enum RemoteHandlers {
                 let session = try ssh.connect(destination: text, session: invocation["session"]?.stringValue,
                                               binary: invocation["binary"]?.stringValue, stateDir: invocation["stateDir"]?.stringValue,
                                               offerInstall: interactive, byPerson: invocation.isPersonsRequest)
+                // `--name` (server install --label): the sidebar name, as Add Machine's Name field sets it.
+                if let name = invocation["name"]?.stringValue, session.host.label != name { session.host = session.host.named(name); ssh.rememberHost(session) }
                 if interactive { showWhenConnected(session, context) }
             }
-            if let text = invocation["destination"]?.stringValue {
-                return try connect(text)
-            }
+            if let text = invocation["destination"]?.stringValue { return try connect(text) }
             // The host as a Cmd-Shift-P step; Return runs this again with it.
             registry.ask("remote.connect", invocation, ActionArgumentAsk(argument: "destination"))
         }
@@ -69,24 +55,22 @@ enum RemoteHandlers {
             }
             let home = context.services.daemon(for: pane)
             let cwd = invocation["cwd"]?.stringValue
-            // Rex-style placement words too (`below`, `bottom`); the daemon splits right or down only.
-            var direction: SplitDirection?
-            if let word = invocation["direction"]?.stringValue {
-                switch word {
-                case "right": direction = .right
-                case "down", "below", "bottom": direction = .down
-                default: throw ActionFailure(message: RemoteStrings.splitRightOrDown)
-                }
-            }
-            if daemon === home && direction == nil && cwd == nil {
-                registry.perform("newSurface", invocation: ActionInvocation(target: ActionTargetRef(kind: .pane, id: pane.id)))
+            // Rex-style placement words too (`below`, `bottom`); the daemon splits right or down only (cmux-window-rules `remote`).
+            let direction: SplitDirection?
+            switch WindowRules().terminalHere(direction: invocation["direction"]?.stringValue, sameMachine: daemon === home, cwd: cwd != nil) {
+            case .newSurface?:
+                registry.perform("newSurface", invocation: ActionInvocation(target: ActionTargetRef(kind: .pane, id: pane.id)).onMachine(home.machineID))
                 return
+            case .open(let split)?: direction = split == "right" ? .right : split == "down" ? .down : nil
+            case .splitRightOrDown?, nil: throw ActionFailure(message: RemoteStrings.splitRightOrDown)
             }
             if let failure = context.services.remoteTerminals.openTerminal(on: daemon, in: pane, home: home, cwd: cwd, splitting: direction) {
                 throw ActionFailure(message: failure.message)
             }
         })
         bindOpenRemote(into: registry, context: context)
+        bindPortActions(into: registry, context: context, reason: hasMachine)
+        bindSwitchHost(into: registry, context: context)
         CloudHandlers.bind("remote.newWorkspace", registry, reason: hasMachine) { invocation in
             let session = try machine(invocation, context)
             guard session.daemon.connection != nil else { throw ActionFailure(message: RemoteStrings.notConnected(session.host.label)) }
@@ -121,7 +105,7 @@ enum RemoteHandlers {
                     return nil
                 } catch {
                     if interactive { CloudPresenter.failure(error, in: CloudHandlers.window(context)) }
-                    return ActionWorkFailure(String(describing: error))
+                    return ActionWorkFailure(log: String(describing: error), reason: CloudStrings.errorText(error))
                 }
             }
             registry.track(work)
@@ -169,20 +153,18 @@ enum RemoteHandlers {
 
     /// The SSH machine an invocation acts on.
     static func machine(_ invocation: ActionInvocation, _ context: AppActionContext) throws -> SSHMachineSession {
-        let machines = context.services.machines
-        if let target = invocation.target, target.kind == .machine {
-            if let session = machines.sshSession(target.id) { return session }
-            let wanted = target.id.lowercased()
-            let matches = machines.ssh.filter { session in
-                [session.host.label, session.host.destination.description, session.host.destination.displayName,
-                 session.host.destination.sshArgument].contains { $0.lowercased() == wanted }
-            }
-            if matches.count == 1, let only = matches.first { return only }
-            throw ActionFailure(message: RemoteStrings.unknownMachine(target.id))
+        let sessions = context.services.machines.ssh
+        let target = invocation.target.flatMap { $0.kind == .machine ? $0.id : nil }
+        let machines = sessions.map { session in
+            WindowRules.Machine(id: session.machineID, names: [session.host.label, session.host.destination.description,
+                                                               session.host.destination.displayName, session.host.destination.sshArgument])
         }
-        if let state = context.services.windows.active?.state, let session = machines.sshSession(state.machineID) { return session }
-        if machines.ssh.count == 1, let only = machines.ssh.first { return only }
-        throw ActionFailure(message: RemoteStrings.noMachine)
+        // The target's machine by id or one name, else the active window's, else the only one (cmux-window-rules `remote::machine`).
+        switch WindowRules().machine(target: target, machines: machines, active: context.services.windows.active?.state.machineID) {
+        case .success(let index)? where sessions.indices.contains(index): return sessions[index]
+        case .failure(.unknownMachine)?: throw ActionFailure(message: RemoteStrings.unknownMachine(target ?? ""))
+        default: throw ActionFailure(message: RemoteStrings.noMachine)
+        }
     }
 
     /// After Connect from the UI or CLI: shows the machine's first workspace in
@@ -210,7 +192,10 @@ enum RemoteHandlers {
                  session.connectionAttemptID, context.services.windows.active?.window != nil)
             }) {
                 guard !Task.isCancelled else { return }
-                if loaded {
+                // Each change's step is Rust's (cmux-window-rules `remote::connect_step`): an old attempt's failure never reopens recovery.
+                let step = WindowRules().connectStep(.init(loaded: loaded, hasWindow: hasWindow, offline: status == .offline, needsRecovery: status.needsRecovery,
+                                                           failureAttempt: failure?.attemptID, currentAttempt: attemptID))
+                if step?.showWorkspace == true {
                     recovery.stop()
                     let id: String?
                     if let first = daemon.store.workspaces.first { id = first.id }
@@ -218,15 +203,13 @@ enum RemoteHandlers {
                     if let id, !Task.isCancelled { CloudHandlers.show(id, context) }
                     return
                 }
-                if Self.shouldEndConnectionObservation(status: status) { return }
-                if Self.shouldOpenRecoveryWindow(loaded: loaded, hasWindow: hasWindow, status: status,
-                                                 failure: failure, currentAttemptID: attemptID), !requestedRecoveryWindow {
+                guard let step, !step.end else { return }
+                if step.openWindow, !requestedRecoveryWindow {
                     requestedRecoveryWindow = true
                     context.services.windows.reopenOrCreateWindow()
                 }
                 guard let window = CloudHandlers.window(context) else { continue }
-                let currentFailure = Self.shouldPresentDaemonFailure(failure, currentAttemptID: attemptID) ? failure : nil
-                if status.needsRecovery || currentFailure != nil {
+                if step.recovery {
                     let detail = RemoteStrings.detail(session) ?? ""
                     let spec = SSHConnectRecovery.spec(title: RemoteStrings.connectFailedTitle(session.host.label),
                         detail: detail, cancel: CloudStrings.cancel, copy: RemoteStrings.copyError,
@@ -291,5 +274,27 @@ extension RemoteHandlers {
         case .unsupportedSplit: RemoteStrings.splitRightOrDown
         case .badRatio(let text): RemoteStrings.openRemoteBadRatio(text)
         }
+    }
+}
+
+/// Set Screen Sharing Quality… (`remote.setQuality`): a remote desktop tab's quality preset. The
+/// session toolbar's Quality menu runs this action on its own tab (`RemoteViewPageTab.onPickQuality`),
+/// so the menu and the palette run one handler; the palette offers it while a remote desktop
+/// session is the focused tab.
+extension RemoteHandlers {
+    static func bindQuality(into registry: ActionRegistry, context: AppActionContext) {
+        registry.bindEffect("remote.setQuality", effect: { invocation in
+            guard let page = remoteDesktop(invocation, context) else { return .refused(RemoteDesktopPane.noSessionReason) }
+            guard let preset = invocation["quality"]?.stringValue.flatMap(RemoteQualityPreset.init(rawValue:)) else { return .done }
+            page.selectQuality(preset)
+            return .done
+        })
+        ActionTargetVisibility.gate("remote.setQuality", in: registry) { remoteDesktop($0, context) == nil ? RemoteDesktopPane.noSessionReason : nil }
+    }
+
+    /// The invocation's tab (the toolbar's own), else the focused pane's, when it streams a remote desktop session.
+    static func remoteDesktop(_ invocation: ActionInvocation, _ context: AppActionContext) -> RemoteViewPageTab? {
+        guard let page = (try? context.page(invocation))?.tab as? RemoteViewPageTab, page.streams else { return nil }
+        return page
     }
 }

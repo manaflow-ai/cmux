@@ -36,6 +36,21 @@ struct PaletteSearchCenteringTests {
         let bar: NSRect
         let magnifier: ClosedRange<CGFloat>
         let text: ClosedRange<CGFloat>
+        /// The leftmost ink right of the magnifier: the first letter's left edge.
+        let textMinX: CGFloat
+        /// The x of the line's start, where the caret of the empty field sits, from the field
+        /// editor's layout (the caret is not in a cached drawing).
+        let caretX: CGFloat
+    }
+
+    /// The leftmost column with ink at or right of `x`.
+    private static func inkMinX(_ rep: NSBitmapImageRep, scale: CGFloat, from x: CGFloat) -> CGFloat? {
+        for column in Int((x * scale).rounded(.up))..<rep.pixelsWide {
+            for y in 0..<rep.pixelsHigh where (rep.colorAt(x: column, y: y)?.alphaComponent ?? 0) > 0.15 {
+                return CGFloat(column) / scale
+            }
+        }
+        return nil
     }
 
     /// Lays the bar out at the palette's width and search height, in a key window with the field
@@ -53,11 +68,18 @@ struct PaletteSearchCenteringTests {
                    keywordHint: nil, isLoading: false)
         bar.layoutSubtreeIfNeeded()
         window.makeFirstResponder(bar.field)
-        bar.field.currentEditor()?.selectedRange = NSRange(location: query.utf16.count, length: 0)
+        let editor = try #require(bar.field.currentEditor() as? NSTextView)
+        // The caret where the palette leaves it, at the end; the line's start x comes from the layout.
+        editor.selectedRange = NSRange(location: query.utf16.count, length: 0)
         bar.layoutSubtreeIfNeeded()
         bar.displayIfNeeded()
         let rep = try #require(bar.bitmapImageRepForCachingDisplay(in: bar.bounds))
         bar.cacheDisplay(in: bar.bounds, to: rep)
+        // Read after the drawing: forcing the editor's layout before it moved the typed line 3 pt.
+        let layout = try #require(editor.layoutManager)
+        let container = try #require(editor.textContainer)
+        let line = editor.string.isEmpty ? layout.extraLineFragmentRect : layout.lineFragmentRect(forGlyphAt: 0, effectiveRange: nil)
+        let caretX = editor.convert(NSPoint(x: line.minX + container.lineFragmentPadding + editor.textContainerOrigin.x, y: 0), to: bar).x
         let scale = CGFloat(rep.pixelsWide) / bar.bounds.width
         let icon = bar.subviews.first { $0 is NSImageView && !$0.isHidden }
         let iconFrame = try #require(icon?.frame)
@@ -66,7 +88,9 @@ struct PaletteSearchCenteringTests {
         let text = (field.minX + 6)...(field.minX + 60)
         return Drawn(bar: bar.bounds,
                      magnifier: try #require(inkRows(rep, scale: scale, xRange: iconFrame.minX...iconFrame.maxX)),
-                     text: try #require(inkRows(rep, scale: scale, xRange: text)))
+                     text: try #require(inkRows(rep, scale: scale, xRange: text)),
+                     textMinX: try #require(inkMinX(rep, scale: scale, from: iconFrame.maxX + 1)),
+                     caretX: caretX)
     }
 
     private static func center(_ range: ClosedRange<CGFloat>) -> CGFloat { (range.lowerBound + range.upperBound) / 2 }
@@ -90,5 +114,18 @@ struct PaletteSearchCenteringTests {
         // Centers, not edges: the placeholder's tertiary ink loses its faint anti-aliased top row to
         // the ink threshold, which typed text in the primary color keeps.
         #expect(abs(Self.center(empty.text) - Self.center(typed.text)) <= 0.75, "placeholder \(empty.text) vs typed \(typed.text)")
+    }
+
+    /// The caret of the empty field sits at the placeholder's left edge, just left of its "S"
+    /// (Lawrence 2026-11-02: "blinking cursor is not fully on left of S of Search"), and the typed
+    /// "S" starts where the placeholder's did.
+    @Test(arguments: [NSAppearance.Name.aqua, .darkAqua])
+    func theCaretSitsLeftOfThePlaceholdersFirstLetter(appearance: NSAppearance.Name) throws {
+        let empty = try Self.draw(query: "", appearance: appearance)
+        let typed = try Self.draw(query: Self.placeholder, appearance: appearance)
+        let bearing = empty.textMinX - empty.caretX
+        #expect(bearing >= -0.25 && bearing <= 1.5, "placeholder S at \(empty.textMinX), caret at \(empty.caretX)")
+        // One pixel at 1x: the tertiary placeholder's faint first column can fall under the ink threshold.
+        #expect(abs(empty.textMinX - typed.textMinX) <= 1, "placeholder S at \(empty.textMinX), typed S at \(typed.textMinX)")
     }
 }

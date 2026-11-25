@@ -6,7 +6,7 @@ import Testing
 @testable import CmuxMobileLive
 
 /// Review m10: a permission card says "Allowed" only once the signed Allow
-/// went out; until then it says it waits for Face ID and offers no buttons.
+/// went out; until then it says it is sending and offers no buttons.
 @MainActor
 @Suite struct FeedPendingTests {
     @MainActor final class HeldActions: FeedActions {
@@ -19,7 +19,7 @@ import Testing
             responds += 1
             try await withCheckedThrowingContinuation { release = $0 }
         }
-        func message(for error: any Error) -> String { "Not approved: Face ID was cancelled." }
+        func message(for error: any Error) -> String { "Not approved: this iPhone couldn't read its approval key. Try again." }
     }
 
     static func store() throws -> (FeedStore, ACPPermissionOption, ACPPermissionOption) {
@@ -42,9 +42,9 @@ import Testing
         store.actions = actions
         store.respond("p1", option: allow)
         #expect(store.item(id: "p1")?.resolution == nil)
-        #expect(store.item(id: "p1")?.pending == FeedStore.waitingForFaceID)
+        #expect(store.item(id: "p1")?.pending == FeedStore.sendingAllow)
         await settle { actions.release != nil }
-        // A Deny while Face ID is up sends nothing more.
+        // A Deny while the Allow is on its way sends nothing more.
         store.respond("p1", option: deny)
         #expect(actions.responds == 1)
         actions.release?.resume()
@@ -53,15 +53,15 @@ import Testing
         #expect(store.item(id: "p1")?.pending == nil)
     }
 
-    @Test func aCancelledFaceIDPutsTheCardBack() async throws {
+    @Test func aFailedSignaturePutsTheCardBack() async throws {
         let (store, allow, _) = try Self.store()
         let actions = HeldActions()
         store.actions = actions
         store.respond("p1", option: allow)
         await settle { actions.release != nil }
-        actions.release?.resume(throwing: AcpmuxHub.ApprovalCancelled())
+        actions.release?.resume(throwing: PhoneKeys.Failure.keychain(-25300))
         await settle { store.item(id: "p1")?.pending == nil }
         #expect(store.item(id: "p1")?.resolution == nil)
-        #expect(store.item(id: "p1")?.error == "Not approved: Face ID was cancelled.")
+        #expect(store.item(id: "p1")?.error == "Not approved: this iPhone couldn't read its approval key. Try again.")
     }
 }

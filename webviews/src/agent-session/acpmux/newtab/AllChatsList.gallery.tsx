@@ -3,7 +3,8 @@ import { componentEntry } from "../../../gallery/format";
 import { GALLERY_NOW, minutesAgo } from "../../../gallery/clock";
 import type { PlayContext } from "../../../gallery/play";
 import type { ComponentProps } from "react";
-import { AllChatsList, type AllChatsPage, type LoadChatsPage } from "./AllChatsList";
+import { AllChatsList } from "./AllChatsList";
+import { type AllChatsPage, type LoadChatsPage } from "./allChatsListModel";
 
 const rows = Array.from({ length: 8 }, (_, index) => ({
   key: `claude:gallery-${index}`,
@@ -92,6 +93,24 @@ const longActive = [
   { id: "gallery-live-short", title: "Release notes", harness: "codex", state: "input" as const, label: "Needs input" },
 ];
 
+// When and the search's operators (ask-b75ea23533): a stand-in for acpmux that reads `since:Nd`
+// and `harness:` as chats/terms.rs does, so the list narrows as it would.
+const operatorLoad: LoadChatsPage = async ({ query = "" }) => {
+  const days = /(?:^|\s)since:(\d+)d(?:\s|$)/.exec(query)?.[1];
+  const harness = /(?:^|\s)harness:(\S+)/.exec(query)?.[1];
+  const since = days ? GALLERY_NOW - Number(days) * DAY_MINUTES * 60_000 : -Infinity;
+  const chats = longRows.chats.filter((row) => row.updatedAt >= since && (!harness || row.harness.startsWith(harness)));
+  return { ...longRows, chats };
+};
+const WHEN = { role: "button", name: "Last used" } as const;
+
+// The leaders (leads.ts): every live chat other chats report to, once, above the live chats.
+const leads = [
+  { id: "gallery-lead-area", title: "area-owner", harness: "claude", state: "running" as const, label: "6 reporting" },
+  { id: "gallery-lead-coord", title: "coordinator", harness: "claude", state: "idle" as const, label: "4 reporting" },
+  { id: "gallery-lead-codex", title: "ui-owner", harness: "codex", state: "input" as const, label: "2 reporting" },
+];
+
 export default componentEntry<ComponentProps<typeof AllChatsList>>({
   id: "agent-pane.all-chats-list",
   title: "All chats page recovery",
@@ -115,6 +134,35 @@ export default componentEntry<ComponentProps<typeof AllChatsList>>({
     "long-values": {
       note: "Long titles and folders cut at the row's edge and carry their whole value as a tooltip, the live chats at the top included; ages from a week on read as a date.",
       props: { ...baseProps, load: async () => longRows, active: longActive, now: GALLERY_NOW },
+    },
+    leads: {
+      note: "Leads: every leader (a live chat other chats report to) once, with how many report to it; a press opens its chat.",
+      props: { ...baseProps, load: async () => longRows, active: longActive, leads, now: GALLERY_NOW },
+    },
+    "when-menu": {
+      note: "When, beside Filter: Any time, Past day, Past week or Past month, Any time checked.",
+      props: { ...baseProps, load: operatorLoad, active: longActive, now: GALLERY_NOW },
+      play: async (ctx) => {
+        await ctx.click(WHEN);
+        await ctx.waitFor(() => ctx.document.querySelector("[role=menuitemradio]"));
+      },
+    },
+    "when-past-week": {
+      note: "Past week writes since:7d into the search: the chats from the last seven days stay, the live chats too (they are in use now).",
+      props: { ...baseProps, load: operatorLoad, active: longActive, now: GALLERY_NOW },
+      play: async (ctx) => {
+        await ctx.click(WHEN);
+        await ctx.click({ role: "menuitemradio", name: "Past week" });
+        await ctx.waitFor(() => ctx.document.querySelectorAll(".nt-all-item").length === 2);
+      },
+    },
+    "operators-typed": {
+      note: "Operators typed by hand: since:3d harness:claude narrows to Claude chats of the last three days; When names the since: as typed.",
+      props: { ...baseProps, load: operatorLoad, active: longActive, now: GALLERY_NOW },
+      play: async (ctx) => {
+        await ctx.type("since:3d harness:claude", { selector: ".nt-all-search input" });
+        await ctx.waitFor(() => ctx.document.querySelectorAll(".nt-all-item").length === 1);
+      },
     },
     "page-empty": {
       note: "A first page with no cursor stays a quiet list with no dead loader row.",

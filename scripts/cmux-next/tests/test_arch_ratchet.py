@@ -17,7 +17,7 @@ full counts, and the hook must stay under 1 s on a 30-file push and on a warm 80
 (which reads no file twice: the facts cache). The installed-hook path (install-git-hooks.sh
 copying arch_rules/, guardrails running the ratchet) is in tests/test_cmux_next_guardrails.py.
 
-Not a CI job (Lawrence 2026-10-23: no new CI gates): run it yourself after a change to the ratchet:
+Not a CI job (Lawrence 2026-10-23: no new CI gates, lifted 2026-11-18): run it yourself after a change to the ratchet:
   python3 -I scripts/cmux-next/tests/test_arch_ratchet.py
 """
 
@@ -35,6 +35,14 @@ import tempfile
 import time
 import unittest
 from pathlib import Path
+
+# tests/git_fixture_env.py turns off git's background maintenance in temp repos.
+_git_fixture_env = importlib.util.spec_from_file_location(
+    "git_fixture_env",
+    os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", "..", "tests", "git_fixture_env.py"),
+)
+git_fixture_env = importlib.util.module_from_spec(_git_fixture_env)
+_git_fixture_env.loader.exec_module(git_fixture_env)
 
 SCRIPTS = Path(__file__).resolve().parents[1]
 SRC = "Packages/macOS/CmuxNext/Sources"
@@ -90,7 +98,7 @@ class Repo(unittest.TestCase):
         config = root / "gitconfig"
         config.write_text("[user]\n\tname = Fixture\n\temail = fixture@example.com\n[maintenance]\n\tauto = false\n"
                           "[gc]\n\tauto = 0\n")
-        self.env = {k: v for k, v in os.environ.items() if not k.startswith("GIT_")}
+        self.env = git_fixture_env.fixture_env({k: v for k, v in os.environ.items() if not k.startswith("GIT_")})
         self.env.update(GIT_CONFIG_NOSYSTEM="1", GIT_CONFIG_GLOBAL=str(config), HOME=str(root))
         self.saved = {k: os.environ.get(k) for k in ("GIT_CONFIG_NOSYSTEM", "GIT_CONFIG_GLOBAL", "HOME",
                                                      "GITHUB_ACTIONS")}
@@ -1277,6 +1285,121 @@ class RatchetTests(Repo):
         self.assertEqual(refusals, [])
         self.assertTrue(any("exception 2026-10-23" in n for n in notes), notes)
 
+    def file_entry(self, slug, **fields):
+        """A reviewed singleton exception for SLUG, FIELDS over it."""
+        return {"date": "2026-10-23", "row": "stateful_singletons", "allow": 1, "why": f"fixture {slug}", **REVIEW,
+                **fields}
+
+    def exception_file(self, slug, **fields):
+        """Write one exception as plans/cmux-next/arch-exceptions/SLUG.json and return it."""
+        entry = self.file_entry(slug, **fields)
+        self.write(f"{ratchet.EXCEPTIONS_DIR}/{slug}.json", json.dumps(entry, indent=2) + "\n")
+        return entry
+
+    def test_an_exception_file_the_push_adds_lets_the_row_rise(self):
+        self.write(counts.RATCHET_JSON, json.dumps({"exceptions": []}))
+        base = self.commit("record")
+        self.add_singleton()
+        refusals, _ = self.check(base=base)
+        self.assertEqual(self.rows(refusals), ["stateful_singletons"])
+        self.assertIn(f"as a new file {ratchet.EXCEPTIONS_DIR}/<id>.json", refusals[0][1])
+        self.exception_file("31999")
+        self.commit("its exception, in a file of its own")
+        refusals, notes = self.check(base=base)
+        self.assertEqual(refusals, [], notes)
+        self.assertTrue(any("exception 2026-10-23" in n and "fixture 31999" in n for n in notes), notes)
+        refused, out = self.run_push(base=base)
+        self.assertFalse(refused, out)
+
+    def test_an_expired_unparsable_or_nested_exception_file_allows_nothing(self):
+        self.write(counts.RATCHET_JSON, json.dumps({"exceptions": []}))
+        base = self.commit("record")
+        self.add_singleton()
+        self.exception_file("expired", expiry="2026-10-22")
+        self.commit("an exception that expired before its date")
+        refusals, notes = self.check(base=base)
+        self.assertEqual(self.rows(refusals), ["stateful_singletons"], notes)
+        self.assertTrue(any("ignored exception" in n and "expiry" in n for n in notes), notes)
+        self.remove(f"{ratchet.EXCEPTIONS_DIR}/expired.json")
+        self.write(f"{ratchet.EXCEPTIONS_DIR}/broken.json", '{"date": "2026-10-23", "row": ')
+        self.write(f"{ratchet.EXCEPTIONS_DIR}/sub/nested.json", json.dumps(self.file_entry("nested")))
+        self.write(f"{ratchet.EXCEPTIONS_DIR}/notes.txt", json.dumps(self.file_entry("txt")))
+        self.commit("a file that does not parse, one in a subdirectory, one that is not .json")
+        refusals, notes = self.check(base=base)
+        self.assertEqual(self.rows(refusals), ["stateful_singletons"], notes)
+        self.assertTrue(any(f"unparsable {ratchet.EXCEPTIONS_DIR}/broken.json" in n for n in notes), notes)
+
+    def test_two_branches_that_each_add_an_exception_file_merge_with_no_conflict(self):
+        self.write(counts.RATCHET_JSON, json.dumps({"exceptions": [
+            {"date": "2026-10-20", "row": "app_lines", "allow": 1, "why": "an old list entry", **REVIEW}]}, indent=2))
+        base = self.commit("record")
+        self.git("checkout", "--quiet", "-b", "pr-a")
+        self.add_singleton()
+        self.exception_file("pr-a")
+        self.commit("pr a: a singleton and its exception file")
+        self.git("checkout", "--quiet", "-b", "pr-b", base)
+        self.write(f"{SRC}/CmuxNextDomain/Store+Other.swift", "extension Store {\n    static let other = Store()\n}\n")
+        self.exception_file("pr-b")
+        self.commit("pr b: another singleton and its exception file")
+        self.git("checkout", "--quiet", "feat-cmux-next")
+        self.git("merge", "--quiet", "--no-edit", "pr-a")
+        self.git("merge", "--quiet", "--no-edit", "pr-b")  # check=True: a conflict fails the test
+        head = self.git("rev-parse", "HEAD")
+        refusals, notes = self.check(base=base, head=head)
+        self.assertEqual(refusals, [], notes)
+        refusals, notes = self.check(base=self.git("rev-parse", "pr-a"), head=head)
+        self.assertEqual(refusals, [], "the second PR, merged over the first, is paid by its own file: " + "\n".join(notes))
+        # The old way, appending to the json's list on two branches, conflicts (why the files exist).
+        self.git("checkout", "--quiet", "-b", "list-a", base)
+        data = self.recorded()
+        self.write(counts.RATCHET_JSON, json.dumps(dict(data, exceptions=data["exceptions"] + [{"why": "a"}]), indent=2))
+        self.commit("list a")
+        self.git("checkout", "--quiet", "-b", "list-b", base)
+        self.write(counts.RATCHET_JSON, json.dumps(dict(data, exceptions=data["exceptions"] + [{"why": "b"}]), indent=2))
+        self.commit("list b")
+        merged = subprocess.run(["git", "-C", str(self.repo), "merge", "--no-edit", "list-a"], env=self.env,
+                                capture_output=True, text=True)
+        self.assertNotEqual(merged.returncode, 0, merged.stdout)
+        self.git("merge", "--abort")
+
+    def test_update_applies_an_exception_file_in_its_file_and_keeps_it_verbatim(self):
+        self.assertEqual(self.update()[0], 0)
+        record = self.commit("record")
+        recorded = self.recorded()["totals"]["stateful_singletons"]
+        self.add_singleton()
+        entry = self.exception_file("31999")
+        base = self.commit("a reviewed singleton and its exception file")
+        refusals, notes = self.check(base=record)
+        self.assertEqual(refusals, [], notes)
+        code, out = self.update()
+        self.assertEqual(code, 0, out)
+        data = self.recorded()
+        self.assertEqual(data["totals"]["stateful_singletons"], recorded + 1)
+        self.assertEqual(data["exceptions"], [], "a file's entry is applied in its file, not copied into the list")
+        path = self.repo / ratchet.EXCEPTIONS_DIR / "31999.json"
+        self.assertEqual(json.loads(path.read_text()), dict(entry, applied_sha=base))
+        applied = self.commit("update")
+        refusals, notes = self.check(base=base, head=applied)
+        self.assertEqual(refusals, [], notes)
+        self.assertEqual(self.update()[0], 0, "an applied exception is folded in, not spent twice")
+        self.assertEqual(json.loads(path.read_text()), dict(entry, applied_sha=base))
+        # An applied entry moved verbatim into the json's list is the same entry; edited or deleted it is refused.
+        self.write(counts.RATCHET_JSON, json.dumps(dict(data, exceptions=[json.loads(path.read_text())])))
+        self.remove(f"{ratchet.EXCEPTIONS_DIR}/31999.json")
+        self.commit("moves the applied entry to the list")
+        refusals, notes = self.check(base=applied)
+        self.assertEqual(refusals, [], notes)
+        self.git("reset", "--quiet", "--hard", applied)
+        self.write(f"{ratchet.EXCEPTIONS_DIR}/31999.json", json.dumps(dict(entry, applied_sha=base, allow=2)))
+        self.commit("edits the applied file")
+        refusals, _ = self.check(base=applied)
+        self.assertEqual(self.rows(refusals), [ratchet.RECORD_ROW])
+        self.assertIn("applied exception", refusals[0][1])
+        self.remove(f"{ratchet.EXCEPTIONS_DIR}/31999.json")
+        self.commit("deletes the applied file")
+        refusals, _ = self.check(base=applied)
+        self.assertEqual(self.rows(refusals), [ratchet.RECORD_ROW])
+
     def test_a_hand_edit_of_method_version_is_refused_and_a_method_change_passes(self):
         self.assertEqual(self.update()[0], 0)
         base = self.commit("record")
@@ -1541,6 +1664,184 @@ class RatchetTests(Repo):
         self.assertEqual(code, 1, out.getvalue())
         self.assertIn("not on upstream", out.getvalue())
 
+    def orphaned_record(self):
+        """A record whose measured_sha is no commit here, as a squash merge leaves the --update of a branch
+        (9c4b1ccc1285, 2026-10-24): the commit that records it, a singleton that lands on upstream past the hook,
+        and the runner's own commit. Returns (orphan, recording commit, landed)."""
+        self.assertEqual(self.update()[0], 0)
+        data = self.recorded()
+        orphan = "9c4b1ccc1285b2b9078289302ea8aef7fc9122b4"
+        data["measured_sha"] = orphan
+        self.write(counts.RATCHET_JSON, json.dumps(data))
+        recording = self.commit("the squash of the branch whose --update measured the orphan")
+        landed = self.add_singleton()  # lands on origin/feat-cmux-next past the hook
+        self.git("branch", "upstream", landed)
+        self.write("README", "the runner's own commit\n")
+        self.commit("the runner's own commit")
+        return orphan, recording, landed
+
+    def test_the_anchor_commit_s_own_rise_is_attributed(self):
+        # The squash that carries the orphaned record also adds a singleton: anchoring there must name it (review F1).
+        self.assertEqual(self.update()[0], 0)
+        data = self.recorded()
+        orphan = "9c4b1ccc1285b2b9078289302ea8aef7fc9122b4"
+        before = data["totals"]["stateful_singletons"]
+        data["measured_sha"] = orphan
+        self.write(counts.RATCHET_JSON, json.dumps(data))
+        self.write(f"{SRC}/CmuxNextDomain/Store+Shared.swift", "extension Store {\n    static let shared = Store()\n}\n")
+        recording = self.commit("the squash carries the record and a singleton")
+        self.git("branch", "upstream", recording)
+        self.write("README", "the runner's own commit\n")
+        self.commit("the runner's own commit")
+        self.assertEqual(ratchet.anchor_boundary(self.repo, orphan, recording), self.git("rev-parse", f"{recording}^1"))
+        code, out = self.update_at(anchor=recording)
+        self.assertEqual(code, 0, out)
+        data = self.recorded()
+        entry = data["exceptions"][-1]
+        self.assertEqual((data["totals"]["stateful_singletons"], entry["row"], entry["raised_by"]),
+                         (before + 1, "stateful_singletons", [recording]))
+        update = self.commit("--update --anchor")
+        refusals, notes = ratchet.check_range(self.repo, recording, update, [], upstream_ref="upstream")
+        self.assertEqual(refusals, [], notes)
+
+    def update_at(self, **kwargs):
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out):
+            code = ratchet.update(self.repo, upstream_ref="upstream", **kwargs)
+        return code, out.getvalue()
+
+    def test_update_names_the_anchor_for_a_measured_sha_a_squash_orphaned(self):
+        orphan, recording, landed = self.orphaned_record()
+        recorded = self.recorded()
+        code, out = self.update_at()
+        self.assertEqual(code, 1, out)
+        self.assertIn(f"measured_sha {orphan} is not a commit of upstream", out)
+        self.assertIn(f"--anchor {recording}", out)
+        self.assertEqual(self.recorded(), recorded, "a refused update writes nothing")
+        # An anchor that does not record the orphan (nor is its merge base) is refused too.
+        code, out = self.update_at(anchor=self.base)
+        self.assertEqual(code, 1, out)
+        self.assertIn(f"--anchor {self.base} is not a commit of upstream", out)
+
+    def test_update_refuses_an_anchor_for_a_record_on_upstream(self):
+        self.assertEqual(self.update()[0], 0)
+        record = self.commit("record")
+        self.git("branch", "upstream", record)
+        code, out = self.update_at(anchor=self.base)
+        self.assertEqual(code, 1, out)
+        self.assertIn("--anchor is only for", out)
+        self.assertEqual(self.update_at()[0], 0)
+
+    def test_update_with_the_anchor_records_the_upstream_rise_and_the_record_rule_takes_it(self):
+        orphan, recording, landed = self.orphaned_record()
+        before = self.recorded()["totals"]["stateful_singletons"]
+        code, out = self.update_at(anchor=recording)
+        self.assertEqual(code, 0, out)
+        data = self.recorded()
+        self.assertEqual(data["reanchor"], {"measured_sha": orphan, "at": recording})
+        self.assertEqual(data["totals"]["stateful_singletons"], before + 1)
+        entry = data["exceptions"][-1]
+        self.assertEqual((entry["row"], entry["allow"], entry["raised_by"]), ("stateful_singletons", 1, [landed]))
+        update = self.commit("--update --anchor")
+        refusals, notes = ratchet.check_range(self.repo, landed, update, [], upstream_ref="upstream")
+        self.assertEqual(refusals, [], notes)
+        # A reanchor that names a commit not recording the orphan gives the generated entry nothing.
+        self.write(counts.RATCHET_JSON, json.dumps(dict(data, reanchor={"measured_sha": orphan, "at": self.base})))
+        forged = self.commit("a hand-written reanchor")
+        refusals, _ = ratchet.check_range(self.repo, landed, forged, [], upstream_ref="upstream")
+        self.assertEqual(self.rows(refusals), [ratchet.RECORD_ROW])
+        # The next --update counts from the new, reachable measured_sha and drops the reanchor.
+        self.git("reset", "--quiet", "--hard", update)
+        self.git("branch", "--force", "upstream", update)
+        code, out = self.update_at()
+        self.assertEqual(code, 0, out)
+        self.assertNotIn("reanchor", self.recorded())
+
+    def test_an_orphan_still_on_a_local_ref_offers_its_merge_base(self):
+        self.assertEqual(self.update()[0], 0)
+        fork = self.commit("record")
+        self.git("checkout", "--quiet", "-b", "side")
+        self.write("README", "a side branch\n")
+        side = self.commit("the branch --update measured")  # it lands squashed: side is on no upstream history
+        self.git("checkout", "--quiet", "feat-cmux-next")
+        data = self.recorded()
+        data["measured_sha"] = side
+        self.write(counts.RATCHET_JSON, json.dumps(data))
+        self.commit("the squash records the side commit")
+        self.git("branch", "upstream", "HEAD")
+        candidates = [sha for sha, _ in ratchet.anchor_candidates(self.repo, side, "upstream")]
+        self.assertEqual(candidates, [self.git("rev-parse", "HEAD"), fork])
+        self.assertTrue(ratchet.valid_anchor(self.repo, side, fork, "upstream"))
+        self.assertFalse(ratchet.valid_anchor(self.repo, side, self.base, "upstream"))
+
+    def test_a_reanchor_is_ignored_while_the_old_record_is_on_upstream(self):
+        self.assertEqual(self.update()[0], 0)
+        record = self.commit("record")
+        self.git("branch", "upstream", record)
+        old = self.recorded()
+        new = dict(old, reanchor={"measured_sha": old["measured_sha"], "at": record})
+        self.assertEqual(ratchet.record_anchor(self.repo, old, new, "upstream"), old["measured_sha"])
+        # A record measured on a branch off upstream still bounds the commits when the new record's history has it
+        # (a branch's own earlier --update, which --update accepts too).
+        self.git("checkout", "--quiet", "-b", "perf")
+        self.write("README", "a perf branch\n")
+        branch = self.commit("measured on a branch")
+        self.write("README", "later on the branch\n")
+        later = self.commit("the next --update's commit")
+        self.git("checkout", "--quiet", "feat-cmux-next")
+        measured = dict(old, measured_sha=branch)
+        self.assertEqual(ratchet.record_anchor(self.repo, measured, dict(old, measured_sha=later), "upstream"), branch)
+        self.assertIsNone(ratchet.record_anchor(self.repo, measured, old, "upstream"))
+        # An orphan with no valid reanchor bounds nothing (and is never looked up).
+        orphan = dict(old, measured_sha="9c4b1ccc1285b2b9078289302ea8aef7fc9122b4")
+        self.assertIsNone(ratchet.record_anchor(self.repo, orphan, old, "upstream"))
+
+    def test_the_audit_counts_an_orphaned_record_from_its_recording_commit(self):
+        orphan, recording, landed = self.orphaned_record()
+        self.git("update-ref", "refs/remotes/origin/feat-cmux-next", "upstream")
+        result = ratchet.audit(self.repo)
+        self.assertTrue(result["orphaned"])
+        self.assertEqual(result["anchored_at"], recording)
+        self.assertIn(f"--anchor {recording}", "\n".join(ratchet.audit_lines(result)))
+        self.assertEqual([c["sha"] for c in result["over"]["stateful_singletons"]["raised_by"]], [landed[:11]])
+
+    def test_app_lines_rise_matches_the_delta_count(self):
+        app = f"{SRC}/CmuxNextApp"
+        steps = [
+            ({f"{app}/A.swift": "struct A {}\nlet a = 1\n"}, ()),  # a new App file
+            ({f"{app}/A.swift": "struct A {}\n", f"{app}/Nested/B.swift": "struct B {}\n\n\n"}, ()),  # an edit, a nested one
+            ({f"{app}/C.txt": "not swift\n", f"{SRC}/CmuxNextDomain/D.swift": "struct D {}\n"}, ()),  # not App Swift
+            ({}, (f"{app}/Nested/B.swift",)),  # a removal
+            ({f"{app}/E.swift": "struct E {}"}, ()),  # no final newline
+        ]
+        for files, removed in steps:
+            for path, text in files.items():
+                self.write(path, text)
+            for path in removed:
+                self.remove(path)
+            sha = self.commit("an App change")
+            want = counts.delta_count(self.repo, f"{sha}^1", sha, use_worktree=False).total("app_lines")
+            self.assertEqual(ratchet.app_lines_rise(self.repo, sha), want, files or removed)
+            self.assertEqual(ratchet.commit_rises(self.repo, sha, {"app_lines"}), {"app_lines": want})
+        # A manifest change that keeps the closure's packages takes the fast count too.
+        self.write(counts.MANIFEST, MANIFEST % "")
+        self.write(f"{app}/F.swift", "struct F {}\n")
+        sha = self.commit("a manifest and an App file")
+        want = counts.delta_count(self.repo, f"{sha}^1", sha, use_worktree=False).total("app_lines")
+        self.assertEqual(ratchet.app_lines_rise(self.repo, sha), want)
+        # One that links another local package changes the closure: only the full delta count tells.
+        self.write("Packages/Shared/Extra/Package.swift", "// swift-tools-version: 6.2\nimport PackageDescription\n"
+                   "let package = Package(name: \"Extra\", targets: [.target(name: \"Extra\")])\n")
+        self.write("Packages/Shared/Extra/Sources/Extra/G.swift", "struct G {}\nlet g = 1\n")
+        self.write(counts.MANIFEST, MANIFEST.replace('name: "CmuxNext",', 'name: "CmuxNext",\n    dependencies: '
+                                                     '[.package(path: "../../Shared/Extra")],') % "")
+        sha = self.commit("links a local package")
+        self.assertIn("Packages/Shared/Extra", counts.read_paths(self.repo, sha).packages)
+        self.assertNotIn("Packages/Shared/Extra", counts.read_paths(self.repo, f"{sha}^1").packages)
+        self.assertIsNone(ratchet.app_lines_rise(self.repo, sha))
+        want = counts.delta_count(self.repo, f"{sha}^1", sha, use_worktree=False).total("app_lines")
+        self.assertEqual(ratchet.commit_rises(self.repo, sha, {"app_lines"}), {"app_lines": want})
+
     def test_an_exception_added_and_applied_in_one_push_passes_both_rules(self):
         self.assertEqual(self.update()[0], 0)
         base = self.commit("record")
@@ -1663,6 +1964,32 @@ class RatchetTests(Repo):
         self.assertEqual(refusals, [])
         self.assertTrue(any(n.startswith("arch-ratchet: stateful_singletons -1 ") for n in notes), notes)
         self.assertFalse(any(ratchet.UPDATE_HINT in n for n in notes), notes)
+
+    def test_pre_push_stdin_judges_the_pushed_ref_in_a_clone_without_the_hook(self):
+        # The fallback entry the fleet's global pre-push hook runs where cmux's hook is not installed (a lane VM's
+        # wt mirror): #35294 pushed +26 App lines from one, and a lane had to move them out (#35386).
+        self.git("update-ref", "refs/remotes/origin/feat-cmux-next", self.base)
+        self.git("checkout", "--quiet", "-b", "topic")
+        self.write(f"{SRC}/CmuxNextApp/Big.swift", "let a = 1\n" * 26)
+        head = self.commit("app lines")
+        line = [f"refs/heads/topic {head} refs/heads/lane/topic {'0' * 40}"]
+
+        def pre_push(lines):
+            out = io.StringIO()
+            with contextlib.redirect_stdout(out), contextlib.redirect_stderr(out):
+                code = ratchet.pre_push(self.repo, "origin", lines)
+            return code, out.getvalue()
+
+        code, out = pre_push(line)
+        self.assertEqual(code, 1, out)
+        self.assertIn("[app_lines] CmuxNextApp Swift lines: +26", out)
+        # A deletion and a line that is not a pushed ref push no code: nothing to judge, and the push goes on.
+        self.assertEqual(pre_push([f"(delete) {'0' * 40} refs/heads/lane/topic {head}", "garbage"])[0], 0)
+        self.remove(f"{SRC}/CmuxNextApp/Big.swift")
+        self.write(f"{SRC}/CmuxNextDomain/Big.swift", "let a = 1\n" * 26)
+        head = self.commit("the lines go to their own target")
+        code, out = pre_push([f"refs/heads/topic {head} refs/heads/lane/topic {'0' * 40}"])
+        self.assertEqual(code, 0, out)
 
     def test_app_lines_ratchet(self):
         # Report only until the reward-hacking audit of 2026-10-30: the row rose 143,610 -> 164,014 unrefused.
@@ -1994,6 +2321,43 @@ class BatchDeadlockTests(Repo):
     def test_the_closure_walk_over_many_packages_answers(self):
         out, _ = self.within_deadline("print(len(counts._walk_closure(counts.Git(repo), head).packages))\n")
         self.assertEqual(out, str(self.PACKAGES + 1))
+
+
+class BloblessCloneTests(Repo):
+    """A wt checkout is a worktree of a blobless mirror, and `cat-file --batch` fetches each blob it lacks by itself:
+    one fetch, one promisor pack in the shared mirror per blob (fs-agent-lane-10, 2026-11-24: `--update --anchor`
+    wrote 1301 packs in an hour). A read fetches what it lacks in one fetch, and raised_by fetches a range once."""
+
+    COMMITS = 6
+
+    def setUp(self):
+        super().setUp()
+        for i in range(self.COMMITS):
+            self.write(f"{SRC}/CmuxNextApp/F{i}.swift", "".join(f"let a{i}_{n} = {n}\n" for n in range(i + 1)))
+            self.commit(f"app {i}")
+        self.head = self.git("rev-parse", "HEAD")
+        self.git("config", "uploadpack.allowFilter", "true")
+        self.git("config", "uploadpack.allowAnySHA1InWant", "true")
+        self.clone = Path(self.tmp.name) / "blobless"
+        subprocess.run(["git", "clone", "--quiet", "--bare", "--filter=blob:none", f"file://{self.repo}",
+                        str(self.clone)], env=self.env, check=True, capture_output=True)
+
+    def packs(self):
+        return len(list((self.clone / "objects" / "pack").glob("*.pack")))
+
+    def test_a_read_of_many_missing_blobs_writes_one_pack(self):
+        before = self.packs()
+        items = [(self.head, f"{SRC}/CmuxNextApp/F{i}.swift") for i in range(self.COMMITS)]
+        texts = counts.Git(self.clone).read(items)
+        self.assertEqual(texts[items[-1]].count("\n"), self.COMMITS)
+        self.assertEqual(self.packs() - before, 1)
+        self.assertEqual(counts.Git(self.clone).fetch_missing(counts.Git(self.clone).ids([f"{r}:{p}" for r, p in items])), 0)
+
+    def test_raised_by_fetches_a_ranges_blobs_once(self):
+        before = self.packs()
+        found = ratchet.raised_by(self.clone, self.base, self.head, {ratchet.APP_LINES})
+        self.assertEqual(self.packs() - before, 1, "one fetch for the whole range, never one per commit or blob")
+        self.assertEqual(len(found[ratchet.APP_LINES]), self.COMMITS)
 
 
 class MethodTests(unittest.TestCase):

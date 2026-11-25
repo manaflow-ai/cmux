@@ -45,11 +45,14 @@ protocol FilePageHosting: AnyObject {
     func edited(_ url: URL, text: String, baseHash: String?, writable: Bool) -> RecoveryDraftAcceptance
     /// A normal save of `url` wrote `hash`.
     func saved(_ url: URL, hash: String)
+    /// A runbook's Run (a new terminal beside the page) or Run all (a new agent chat), started in `cwd`; false when none opened.
+    func run(_ run: RunbookRun, cwd: String) -> Bool
 }
 
 extension FilePageHosting {
     var showsOmnibar: Bool { false }
     func historyChanged(canBack: Bool, canForward: Bool) {}
+    func run(_ run: RunbookRun, cwd: String) -> Bool { false }
 }
 
 /// One file page tab's `cmux.markdown.*` or `cmux.editor.*` namespace (diff-host.md S6 "Markdown
@@ -96,6 +99,8 @@ final class FilePageProvider: PageProvider, PageDynamicResourceSource {
     /// Where the editor puts the cursor on the tab's file (a Find result's line and column): the
     /// next config of that file carries it once as `reveal`. The markdown page ignores it.
     var reveal: FilePosition?
+    /// The page reported an edit no save has covered yet (app health's hold; ``ReportedEdits``).
+    let reportedEdits = ReportedEdits()
     /// Whether the tab's file may be saved (the last config's answer).
     private var writable = false
     var isWritable: Bool { writable }
@@ -222,6 +227,14 @@ final class FilePageProvider: PageProvider, PageDynamicResourceSource {
             return try await setTableWidths(params)
         case kind.op("deleteComment") where kind == .markdown:
             return try await deleteComment(params)
+        case kind.op("runBlock") where kind == .markdown, kind.op("runAll") where kind == .markdown:
+            let shown = file, requested = try path(params["path"])
+            let run = try RunbookRun(target: op == kind.op("runAll") ? .chat : .terminal, params: params,
+                                     userGesture: context.userGesture, isPageFile: shown != nil && canonical(requested) == shown, local: files.isLocal)
+            let cwd = await run.folder(for: shown ?? requested)
+            guard !isClosed, file == shown else { throw PageError.closed }
+            guard host.run(run, cwd: cwd) else { throw PageError(code: "cmux.page.unavailable", message: "no terminal or chat opened") }
+            return .object([:])
         case kind.op("contextTable") where kind == .markdown:
             contextTable = params["table"]?.intValue.flatMap { $0 >= 0 ? $0 : nil }
             return .object([:])
@@ -404,7 +417,7 @@ final class FilePageProvider: PageProvider, PageDynamicResourceSource {
         let workspace = inWorkspace(file)
         let result: FileSaveResult
         do {
-            result = try await files.save(text, to: file, baseHash: base, inWorkspace: workspace)
+            result = try await reportedEdits.covering { () async throws(FileSaveFailure) in try await files.save(text, to: file, baseHash: base, inWorkspace: workspace) }
         } catch .readOnly {
             throw PageError(code: kind.op("read_only"), message: file.path)
         } catch .conflict(let hash, let text) {
@@ -454,14 +467,11 @@ final class FilePageProvider: PageProvider, PageDynamicResourceSource {
         let url = try path(params["path"])
         guard let file, canonical(url) == file else { throw PageError.invalidParams("path is not this page's file") }
         guard let text = params["text"]?.stringValue else { throw PageError.invalidParams("text is required") }
+        reportedEdits.reported()
         // Crash drafts are keyed by this Mac's paths (FilePageRecovery): none for another machine's file.
         guard files.isLocal else { return ["recovery": "invalidID"] }
         let accepted = host.edited(file, text: text, baseHash: params["baseHash"]?.stringValue, writable: writable)
-        switch accepted {
-        case .kept: return ["recovery": "kept"]
-        case .tooLarge: return ["recovery": "tooLarge"]
-        case .invalidID: return ["recovery": "invalidID"]
-        }
+        return ["recovery": .string(accepted.rawValue)]
     }
 
     // MARK: Preferences

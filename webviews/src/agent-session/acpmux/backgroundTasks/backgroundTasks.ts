@@ -5,9 +5,15 @@
 //
 // One group per agent: each of the chat's subagents (its own tool calls are its tasks, its nested
 // subagents are tasks that open in turn), each chat the agent started (a child session, which has no
-// tasks of its own here), and the chat's own background commands under the chat's name. Inside a
+// tasks of its own here), and the chat's own background commands under the chat's name; a command
+// a subagent started (the registry's `subagentSessionId`) is a task of that subagent's group. Inside a
 // group the running tasks come first, oldest first, then the finished ones, the latest first, which
 // the panel folds under "N finished". The group's counts line ("39 tasks, 3 failed") counts both.
+//
+// Subagents the rows no longer hold (a chat whose page is only its newest records, while its helpers
+// started hours earlier) come from acpmux's own list of the chat's subagents (`listed`,
+// listedSubagents.ts): each is a group of its own with no tasks, which drills into its transcript
+// as any other does (its own records, read by id).
 //
 // All of it is derived from acpmux's snapshot: the rows and `subagentViews` (subagentFold.ts), the
 // process registry's commands (session-info/processes.ts `backgroundCommands`) and the started chats
@@ -30,6 +36,7 @@ import type { AcpmuxActivity, AcpmuxRow } from "../model";
 import type { BackgroundCommand } from "../session-info/processes";
 import type { StartedSession } from "../started/startedSessions";
 import { subagentsIn } from "../subagents/subagentRows";
+import type { ListedSubagent } from "./listedSubagents";
 import type { Subagent } from "../subagents/subagentFold";
 import { workflowDetailRequest, workflowOf } from "../summary/foldWorkflows";
 import type { WorkflowAgent } from "../summary/workflow";
@@ -58,7 +65,13 @@ export type BackgroundTask = {
   rowId?: string;
   /// A command's tool call, which its terminal opens by (processTerminal.ts).
   toolCallId?: string;
+  /// A command's full text as typed, which its card shows (BackgroundTaskCard.tsx), and the
+  /// registry's process id, which its output is read by.
+  command?: string;
+  processId?: string;
   stop?: StopTarget;
+  /// The task this one nests under: a command a workflow's agent started, under that agent's task.
+  parent?: string;
   /// A workflow's agent: the pane id its transcript loads by (summary/workflowTranscript.ts) and the
   /// agent, whose progress refreshes that transcript while it is open.
   workflow?: { pane: string; agent: WorkflowAgent };
@@ -96,6 +109,9 @@ export type BackgroundInput = {
   /// Groups the person cleared (Clear finished): ended groups whose id is here are left out. A
   /// group that runs again (a restarted subagent keeps its id) shows again.
   dismissed?: ReadonlySet<string>;
+  /// Every subagent acpmux lists for the chat (`_acpmux/subagents`): those the rows lack join as
+  /// groups of their own; the rows' own say wins for the rest.
+  listed?: readonly ListedSubagent[];
 };
 
 /// A subagent's tasks by the view array they were read from (see the header's Cost).
@@ -236,7 +252,7 @@ export const isLive = (group: BackgroundGroup): boolean => group.state === "runn
 /// The panel's groups: the running ones first, oldest first, so a group never jumps while it runs;
 /// then the ended ones, the latest first. Cleared groups that ended are left out.
 export function backgroundGroups(input: BackgroundInput, cache: TaskCache = new WeakMap()): BackgroundGroup[] {
-  const { rows, views, commands, sessions, chatName, sessionId, dismissed } = input;
+  const { rows, views, commands, sessions, chatName, sessionId, dismissed, listed } = input;
   const agents = subagentsIn(rows, views);
   const children = new Map<string, Subagent[]>();
   for (const agent of agents.values()) {
@@ -244,6 +260,45 @@ export function backgroundGroups(input: BackgroundInput, cache: TaskCache = new 
     const list = children.get(agent.parent) ?? [];
     list.push(agent);
     children.set(agent.parent, list);
+  }
+  // A command an agent of a workflow started is a task of the workflow's group, under that agent, not
+  // the chat's own (Leo, 2026-11-05, on shells a workflow's agents ran listed as the chat's). Other
+  // subagents' commands stay the chat's, as Session Info lists them.
+  const rootOf = (id: string): string | undefined => {
+    let at = agents.get(id);
+    const seen = new Set<string>();
+    while (at && at.parent !== null && agents.has(at.parent) && !seen.has(at.id)) {
+      seen.add(at.id);
+      at = agents.get(at.parent);
+    }
+    return at?.id;
+  };
+  const commandTask = (command: BackgroundCommand): BackgroundTask => ({
+    id: command.id,
+    kind: "command",
+    title: command.description?.trim() || command.command,
+    state: commandState(command),
+    startedAt: command.startedAt,
+    endedAt: command.endedAt,
+    toolCallId: command.toolCallId,
+    command: command.command,
+    ...(command.processId !== undefined && { processId: command.processId }),
+    ...(command.state === "running" &&
+      command.processId !== undefined && { stop: { kind: "process", id: command.processId } as StopTarget }),
+  });
+  const ownCommands: BackgroundCommand[] = [];
+  const agentCommands = new Map<string, BackgroundTask[]>();
+  // The workflow agent (Claude's agent id) that started a command, from the registry.
+  const startedBy = new Map<string, string>();
+  for (const command of commands) {
+    const workflow = command.subagent !== undefined && agents.get(command.subagent)?.kind === "workflow";
+    const root = workflow ? rootOf(command.subagent!) : undefined;
+    if (root === undefined) {
+      ownCommands.push(command);
+      continue;
+    }
+    if (command.workflowAgent !== undefined) startedBy.set(command.id, command.workflowAgent);
+    agentCommands.set(root, [...(agentCommands.get(root) ?? []), commandTask(command)]);
   }
   const groups: BackgroundGroup[] = [];
   for (const agent of agents.values()) {
@@ -277,6 +332,29 @@ export function backgroundGroups(input: BackgroundInput, cache: TaskCache = new 
       });
     // A nested workflow's agents are tasks of the top agent too, each opening its own transcript.
     for (const child of descendants) if (child.kind === "workflow") tasks.push(...workflowTasks(child, sessionId));
+    // The Bash call that started one of its commands is that command: one row, the process's, with
+    // its state and Stop.
+    // A workflow agent's command nests under that agent's task: its tasks by Claude's agent id, read
+    // once for the group.
+    const commandsHere = agentCommands.get(agent.id) ?? [];
+    const taskOfAgent = new Map<string, string>();
+    if (commandsHere.some((task) => startedBy.has(task.id))) {
+      const shown = new Set(tasks.flatMap((each) => (each.kind === "agent" ? [each.id] : [])));
+      for (const each of [agent, ...descendants])
+        if (each.kind === "workflow")
+          for (const run of workflowOf(each, sessionId ?? "").agents)
+            if (run.agentId !== undefined && shown.has(run.id)) taskOfAgent.set(run.agentId, run.id);
+    }
+    const started = commandsHere.map((task) => {
+      const parent = taskOfAgent.get(startedBy.get(task.id) ?? "");
+      return parent !== undefined ? { ...task, parent } : task;
+    });
+    if (started.length > 0) {
+      const calls = new Set(started.flatMap((task) => (task.toolCallId ? [task.toolCallId] : [])));
+      const kept = tasks.filter((task) => !(task.kind === "tool" && calls.has(task.id)));
+      tasks.length = 0;
+      tasks.push(...kept, ...started);
+    }
     const state = nodeState(agent);
     groups.push({
       id: `agent:${agent.id}`,
@@ -290,6 +368,7 @@ export function backgroundGroups(input: BackgroundInput, cache: TaskCache = new 
       ...split(tasks),
     });
   }
+  groups.push(...listedGroups(listed, agents));
   for (const session of sessions) {
     const state = sessionState(session);
     groups.push({
@@ -305,18 +384,11 @@ export function backgroundGroups(input: BackgroundInput, cache: TaskCache = new 
       failed: 0,
     });
   }
-  if (commands.length > 0) {
-    const tasks: BackgroundTask[] = commands.map((command) => ({
-      id: command.id,
-      kind: "command",
-      title: command.description?.trim() || command.command,
-      state: commandState(command),
-      startedAt: command.startedAt,
-      endedAt: command.endedAt,
-      toolCallId: command.toolCallId,
-      ...(command.state === "running" &&
-        command.processId !== undefined && { stop: { kind: "process", id: command.processId } as StopTarget }),
-    }));
+  const keptCommands = ownCommands.filter(
+    (command) => command.state === "running" || !dismissed?.has(commandClearKey(command.id)),
+  );
+  if (keptCommands.length > 0) {
+    const tasks: BackgroundTask[] = keptCommands.map(commandTask);
     const parts = split(tasks);
     const starts = tasks.map((task) => task.startedAt).filter((at): at is number => at !== undefined);
     const ends = tasks.map((task) => task.endedAt).filter((at): at is number => at !== undefined);
@@ -344,6 +416,63 @@ export function backgroundGroups(input: BackgroundInput, cache: TaskCache = new 
   return [...live, ...ended];
 }
 
+/// Groups for the listed subagents the rows lack: one per top one (started by the chat, or by a
+/// subagent nobody lists), its listed descendants its tasks. One under a subagent the rows hold is
+/// that subagent's, whose own rows name it, and is left out here.
+function listedGroups(
+  listed: readonly ListedSubagent[] | undefined,
+  agents: ReadonlyMap<string, Subagent>,
+): BackgroundGroup[] {
+  if (!listed || listed.length === 0) return [];
+  const missing = new Map<string, ListedSubagent>();
+  for (const each of listed) if (!agents.has(each.id) && !missing.has(each.id)) missing.set(each.id, each);
+  const rootOf = (each: ListedSubagent): ListedSubagent | undefined => {
+    let at = each;
+    const seen = new Set<string>();
+    while (at.parent !== null && !seen.has(at.id)) {
+      seen.add(at.id);
+      if (agents.has(at.parent)) return undefined;
+      const up = missing.get(at.parent);
+      if (!up) break;
+      at = up;
+    }
+    return at;
+  };
+  const tasks = new Map<string, BackgroundTask[]>();
+  const roots: ListedSubagent[] = [];
+  for (const each of missing.values()) {
+    const root = rootOf(each);
+    if (!root) continue;
+    if (root === each) {
+      roots.push(each);
+      continue;
+    }
+    const list = tasks.get(root.id) ?? [];
+    list.push({
+      id: each.id,
+      kind: "agent",
+      title: each.title ?? each.id,
+      state: each.state,
+      startedAt: each.startedAt,
+      endedAt: each.endedAt,
+      ...(each.kind !== "workflow" && { agentId: each.id }),
+      ...(each.state === "running" && { stop: { kind: "agent", id: each.id } as StopTarget }),
+    });
+    tasks.set(root.id, list);
+  }
+  return roots.map((each) => ({
+    id: `agent:${each.id}`,
+    kind: "agent" as const,
+    name: each.title ?? each.id,
+    state: each.state,
+    startedAt: each.startedAt,
+    endedAt: each.endedAt,
+    ...(each.kind !== "workflow" && { agentId: each.id }),
+    ...(each.state === "running" && { stop: { kind: "agent", id: each.id } as StopTarget }),
+    ...split(tasks.get(each.id) ?? []),
+  }));
+}
+
 /// What Clear finished records for a group: its id with what it ended as (its end, its task count).
 /// Ids are stable (`agent:<id>`, `commands`), so a group that runs again and ends again, or gains a
 /// task, reads as new and shows again instead of staying cleared for good.
@@ -353,7 +482,17 @@ export const clearKey = (group: BackgroundGroup): string =>
 /// What Clear finished clears (their `clearKey`s): every group with nothing left running (one whose
 /// agent ended while a nested agent or command of it still runs stays).
 export const finishedGroupIds = (groups: readonly BackgroundGroup[]): string[] =>
-  groups.filter((group) => !isLive(group)).map(clearKey);
+  groups.flatMap((group) =>
+    !isLive(group)
+      ? [clearKey(group)]
+      : group.kind === "commands"
+        ? group.finished.map((task) => commandClearKey(task.id))
+        : [],
+  );
+
+/// What Clear finished records for one of the chat's own commands that ended while another still
+/// runs: the panel lists those one by one under Finished, so each clears on its own.
+export const commandClearKey = (id: string): string => `command:${id}`;
 
 /// Whether anything runs: the panel's clock ticks only then (SubagentGroup.tsx `useNow`).
 export const anyRunning = (groups: readonly BackgroundGroup[]): boolean => groups.some(isLive);

@@ -1,7 +1,7 @@
 import AppKit
 import CmuxNextBridge
 @testable import CmuxNextDaemon
-import CmuxNextDesign
+@testable import CmuxNextDesign
 @testable import CmuxNextSidebar
 import Testing
 import CmuxNextTestSupport
@@ -20,9 +20,12 @@ struct WorkspaceRowHoverMotionTests {
 
     /// Every animation key path on `layer` and the layers under it, masks included
     /// (the title's fade is its text layer's mask).
+    /// The key paths animating in `layer`'s tree. The marquee's leading fade (`TitleFade.edgeKey`) runs with its
+    /// scroll, not on hover entry, so it is left out.
     private static func keyPaths(under layer: CALayer?) -> [String] {
         guard let layer else { return [] }
-        let own = (layer.animationKeys() ?? []).compactMap { (layer.animation(forKey: $0) as? CAPropertyAnimation)?.keyPath }
+        let own = (layer.animationKeys() ?? []).filter { $0 != TitleFade.edgeKey }
+            .compactMap { (layer.animation(forKey: $0) as? CAPropertyAnimation)?.keyPath }
         return own + ((layer.sublayers ?? []) + [layer.mask].compactMap { $0 }).flatMap { keyPaths(under: $0) }
     }
 

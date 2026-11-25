@@ -1,4 +1,5 @@
 #if os(iOS)
+import CmuxMobileDesign
 import SwiftUI
 
 /// A Mac's browser tab opened on this iPhone: the phone's own web view, a small
@@ -29,7 +30,7 @@ struct NativeBrowserPage: View {
                         .font(.system(size: 15, weight: .medium))
                         .frame(width: 44, height: 44)
                 }
-                .buttonStyle(.plain)
+                .buttonStyle(.cmuxPressGlass)
                 .glassEffect(.regular.interactive(), in: .circle)
                 .padding(12)
                 .padding(.bottom, insets.bottom)
@@ -48,6 +49,7 @@ struct NativeBrowserPage: View {
             Image(systemName: problem.isMacOnly ? "macbook" : "wifi.exclamationmark")
                 .font(.system(size: 34, weight: .light))
                 .foregroundStyle(.secondary)
+                .accessibilityHidden(true)
             Text(Self.title(problem, label: label, macName: macName))
                 .font(.headline)
                 .multilineTextAlignment(.center)
@@ -67,6 +69,9 @@ struct NativeBrowserPage: View {
                         .accessibilityIdentifier("browser.native.mirror")
                 }
             }
+            // Both actions are capsules of one height, whatever the title length.
+            .buttonBorderShape(.capsule)
+            .controlSize(.large)
             .padding(.top, 4)
         }
         .padding(24)

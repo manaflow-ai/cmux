@@ -14,6 +14,15 @@
 // Those two are asserted to 0.5px; the rest are logged beside their 2026-10-30 values, since later
 // settled designs own them (the one-line row pitch, #29965). No per-reply action row comes back.
 //
+// Both are now the grid's: #27580 (044769ae, transcript columns and block spacing) put every vertical
+// gap on the stack (leo-workspace design/grid.md 5.5 Vertical rhythm: block 24, turn 32; "the
+// boundary between a user message and another transcript element takes 32") and set
+// `--cv-reply-room` to 0. So a reply to the next prompt is one turn gap between the two rows' boxes,
+// read from `--grid-gap-turn` (45.75px ink to ink here), and a reply to the status row under it is
+// the stack's gap between a message and a step (transcriptGrid.ts `transcriptGap`; 29.75px ink to
+// ink here, 43.75 on 2026-10-30), each asserted in its own case. The transcript-spacing table
+// (transcriptSpacing.ts prose-to-step, 38.375 centre to centre) supersedes both when it lands.
+//
 // CAPTURE keeps the capture's own gaps, read from its pixels, for reference only: they are not the
 // 2026-10-30 build's, and a follow-up decides whether they become the target
 // (design/chat-transcript.md "Rows between replies").
@@ -24,6 +33,7 @@ import path from "node:path";
 import { chromium, type Browser, type Page } from "playwright";
 import { galleryFrame, warmGalleryFrame } from "./support/galleryFrame";
 import { requireBrowserLane } from "./support/requireBrowserLane";
+import { MARK_MESSAGE, MARK_STEP, transcriptGap } from "../src/agent-session/acpmux/transcriptGrid";
 
 await requireBrowserLane("transcript-spacing-reference.test.ts", async () => {
   setDefaultTimeout(240_000);
@@ -127,7 +137,30 @@ await requireBrowserLane("transcript-spacing-reference.test.ts", async () => {
 
       const gap = (above: Box | null, below: Box | null) =>
         above && below ? Math.round((below.top - above.bottom) * 100) / 100 : null;
+      /** A row's own box: grid.md 5.5 measures its gaps between the boxes of adjacent elements. */
+      const rowBox = (row: HTMLElement | null | undefined): Box | null => {
+        if (!row) return null;
+        const rect = row.getBoundingClientRect();
+        return { top: rect.top, bottom: rect.bottom };
+      };
+      /** The turn gap as the transcript draws it (the token scales with Interface Size). */
+      const probe = document.createElement("div");
+      probe.style.cssText = "position:absolute;visibility:hidden;height:var(--grid-gap-turn)";
+      (document.querySelector(".acpmux-thread") ?? document.body).append(probe);
+      const turnGap = probe.getBoundingClientRect().height;
+      probe.remove();
+      // The steer ends the reply's stretch on its copy row (turns.ts supersededFooters, #34939), so the
+      // row right over the prompt is that footer, a footer gap under the paragraph.
+      const regroupRow = rowOf("we should regroup");
+      const aboveRegroup = regroupRow ? (rows[rows.indexOf(regroupRow) - 1] ?? null) : null;
       return {
+        "paragraph -> prompt (rows)": gap(rowBox(aboveRegroup), rowBox(regroupRow)),
+        "copy row over prompt": aboveRegroup?.dataset.rowId?.startsWith("superseded-") ? 1 : 0,
+        "reply -> notice (rows)": gap(
+          rowBox(holding("docs half of the release page")?.closest<HTMLElement>(".acpmux-row")),
+          rowBox(rowOf("Fixed the stale release cache")),
+        ),
+        "turn gap": turnGap,
         "reply -> notice": gap(reply, notice),
         "notice -> prompt": gap(notice, there),
         "prompt -> sent message": gap(there, sent),
@@ -167,10 +200,9 @@ await requireBrowserLane("transcript-spacing-reference.test.ts", async () => {
     "card -> prompt": 28,
   };
   /**
-   * The gaps this test holds to OCT_30: the two under a reply, which the reply's kept room sets. The
-   * others are logged beside them; later settled designs own them (the one-line row pitch, #29965).
+   * What 8f5dfe06ee58 drew is logged beside each gap, not asserted: the grid owns both moved gaps since
+   * #27580 (the cases below), and later settled designs own the rest (the one-line row pitch, #29965).
    */
-  const MOVED = ["reply -> notice", "paragraph -> prompt"] as const;
   const TOLERANCE = 0.5;
 
   /**
@@ -190,16 +222,35 @@ await requireBrowserLane("transcript-spacing-reference.test.ts", async () => {
   };
 
   for (const theme of THEMES)
-    test(`a reply keeps its 2026-10-30 room (${theme.name})`, async () => {
+    test(`a reply is the stack's message-to-step gap from the status row under it (${theme.name})`, async () => {
       const page = await open(theme.name);
       try {
         const measured = await measure(page);
-        console.log(`TRANSCRIPT_SPACING ${theme.file} ${JSON.stringify(measured)} capture ${JSON.stringify(CAPTURE)}`);
+        console.log(
+          `TRANSCRIPT_SPACING ${theme.file} ${JSON.stringify(measured)} 2026-10-30 ${JSON.stringify(OCT_30)} capture ${JSON.stringify(CAPTURE)}`,
+        );
         if (LOG_ONLY) return;
-        const off = MOVED.map((name) => [name, OCT_30[name]!] as const)
-          .filter(([name, want]) => measured[name] === null || Math.abs(measured[name]! - want) > TOLERANCE)
-          .map(([name, want]) => `${name}: ${measured[name]}px, not ${want}px`);
-        expect(off).toEqual([]);
+        // The notice is a one-line row (model.ts isLineRow, a step), under a reply (a message).
+        const want = transcriptGap(MARK_MESSAGE, MARK_STEP);
+        expect(measured["reply -> notice (rows)"]).not.toBeNull();
+        expect(Math.abs(measured["reply -> notice (rows)"]! - want)).toBeLessThanOrEqual(TOLERANCE);
+      } finally {
+        await page.close();
+      }
+    });
+
+  for (const theme of THEMES)
+    test(`a reply is one turn gap from the next prompt (${theme.name})`, async () => {
+      const page = await open(theme.name);
+      try {
+        const measured = await measure(page);
+        if (LOG_ONLY) return;
+        const want = measured["turn gap"]!;
+        expect(want).toBeGreaterThan(0);
+        // The reply's stretch ends on its copy row over the steer (#34939); the prompt is a turn gap under it.
+        expect(measured["copy row over prompt"]).toBe(1);
+        expect(measured["paragraph -> prompt (rows)"]).not.toBeNull();
+        expect(Math.abs(measured["paragraph -> prompt (rows)"]! - want)).toBeLessThanOrEqual(TOLERANCE);
       } finally {
         await page.close();
       }

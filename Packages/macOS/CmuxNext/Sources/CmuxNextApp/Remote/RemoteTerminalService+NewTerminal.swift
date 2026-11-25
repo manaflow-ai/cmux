@@ -21,7 +21,7 @@ extension RemoteTerminalService {
     func openTerminal(besides tab: TabModel?, in pane: PaneModel, home: DaemonService, cwd: String?) -> Bool {
         guard let machine = machine(of: tab, home: home) else { return false }
         if let failure = openTerminal(on: machine, in: pane, home: home, cwd: cwd) {
-            services.registry.refuse(failure.message)
+            services.registry.refuse(failure: failure)
         }
         return true
     }

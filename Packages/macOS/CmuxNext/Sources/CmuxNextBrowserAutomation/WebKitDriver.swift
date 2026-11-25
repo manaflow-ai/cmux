@@ -50,7 +50,7 @@ public final class WebKitDriver: DriverCallHandler {
         await keepRendering(params)
         switch method {
         case "tabs.list": return try tabsList(params)
-        case "tabs.open": return try await tabsOpen(params)
+        case "tabs.open": return try await tabsOpen(params, place: AutomationTabPlace(json))
         case "tabs.close": return try await tabsClose(params)
         case "tabs.activate", "tab.bringToFront": return try tabsActivate(params)
         case "tab.info": return try tabInfo(params)
@@ -97,7 +97,7 @@ public final class WebKitDriver: DriverCallHandler {
     private func keepRendering(_ params: DriverParams) async {
         guard params.method != "tabs.close", let raw = try? params.optionalString("targetId"),
               let provider, let tab = provider.automationTabs(all: true).first(where: { $0.tab.id.rawValue == raw })?.tab,
-              tab.webView.window == nil else { return }
+              tab.webView.isOffScreen() else { return }
         guard await provider.keepRendering(tab) else { return }
         await privateCalls.afterActivityStateUpdate(tab.webView)
     }

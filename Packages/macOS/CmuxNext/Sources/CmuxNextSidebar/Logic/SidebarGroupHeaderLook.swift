@@ -29,28 +29,6 @@ public nonisolated enum SidebarGroupHeaderStyle: String, Sendable, CaseIterable,
         default: .band, code: "SidebarGroupHeaderStyle.tunable")
 }
 
-/// Where sidebar group colors come from (`sidebar.groupColors`, cx-7yywz). Leo: group colors come
-/// from the theme. Lawrence 2026-10-13 put the fixed palette back as the default (familiar group
-/// colors first), so the theme's colors are a choice until they decide.
-public nonisolated enum SidebarGroupPalette: String, Sendable, CaseIterable, Hashable, TunableChoice {
-    /// The fixed group palette (`GroupColor.rgb(_:dark:)`), the same in every theme.
-    case fixed
-    /// The theme's own color for each group color (its terminal palette, `GroupColor.themeRGB`).
-    case theme
-
-    public var tunableTitle: String {
-        switch self {
-        case .fixed: "Fixed palette"
-        case .theme: "From the theme"
-        }
-    }
-
-    public static let tunable = Tunable<SidebarGroupPalette>.choice(
-        "sidebar.groupColors", .sidebar, "Group colors",
-        help: "Where sidebar group colors come from: the fixed group palette, the same in every theme, or the theme's own colors.",
-        default: .fixed, code: "SidebarGroupPalette.tunable")
-}
-
 /// Where a sidebar group's members' line sits against its header (`sidebar.groupLineLayout`, Debug). Leo
 /// 2026-10-23, on the line: "THE FUCKING THHIN PURPLE LIINE IS THE GROUP!!!! THE POINT IS WHY DID IT GET SO OVFF
 /// FUCKING CENTER ... PLUS THE SHAPING ON IT... WTF HAPPENED TO IT BEING PUSHED TO THE LEFT!?" Every layout keeps
@@ -78,4 +56,34 @@ public nonisolated enum SidebarGroupLineLayout: String, Sendable, CaseIterable, 
         "sidebar.groupLineLayout", .sidebar, "Group line",
         help: "Where a group's members' line sits: at the header's left edge, joined to the header as one shape, or inside the header's left corner.",
         default: .edge, code: "SidebarGroupLineLayout.tunable")
+}
+
+/// How a group with no color still reads as a group (`sidebar.noColorGroup`): one untinted glass pane behind its header and
+/// its members, no hue and no indent. Leo 2026-11-05: "if you're gonna allow the no color option ... you might as well
+/// have it be at least slightly distinguishing from, like, literally depicting it as if it were unhovered", "a
+/// differently highlighted, differently refracted, differently transparented thing ... a grouped up thing", and "we're
+/// not necessarily into that indentation thing". A colored group draws as before in every look.
+public nonisolated enum SidebarNoColorGroupLook: String, Sendable, CaseIterable, Hashable, TunableChoice {
+    /// Untinted glass: the `group` surface role's veil and rim (`SurfaceRole.group`), a glass header's pane with no color.
+    case glass
+    /// The role's veil alone, no rim.
+    case tray
+    /// The role's veil lit from the header: the rim's top light behind it, fading down the members.
+    case lit
+    /// Nothing: the header and members draw as plain rows (the look since #32198).
+    case plain
+
+    public var tunableTitle: String {
+        switch self {
+        case .glass: "Untinted glass"
+        case .tray: "Faint tray"
+        case .lit: "Lit from the header"
+        case .plain: "Plain rows"
+        }
+    }
+
+    public static let tunable = Tunable<SidebarNoColorGroupLook>.choice(
+        "sidebar.noColorGroup", .sidebar, "Group with no color",
+        help: "How a group with no color reads as a group: a faint neutral surface behind its header and members, or plain rows.",
+        default: .glass, code: "SidebarNoColorGroupLook.tunable")
 }

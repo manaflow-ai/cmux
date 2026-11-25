@@ -18,7 +18,7 @@
         "general"
       ],
       "wait": 3,
-      "cite": "Packages/macOS/CmuxNext/Sources/CmuxNextActions/Catalog/WindowActionCatalog.swift:7-12 (SettingsWindowService.swift:12-18)"
+      "cite": "cmux-tui/crates/cmux-action-catalog/src/catalog/window.rs (SettingsWindowService.swift:12-18)"
     }
   ]
 }

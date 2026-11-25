@@ -1,14 +1,14 @@
-// What a tray line says a running subagent or chat does now (SubagentTray.tsx): its status in words,
-// never a raw shell line (Leo 2026-10-25 on a tray line reading "cd /Users/…/checkouts/… && sed -i
-// …": "it's kind of wack"). Only a tool call's title is ever a command: a Claude subagent's action
+// What a tray line says a running subagent or chat does now (SubagentTray.tsx): its status in words.
+// Command rows additionally show their trimmed raw shell line as activity; a subagent's action
 // is its latest call's title, and a chat's doing line (sessionList.ts `doingLine`) is its plan step,
 // prose that is never touched, then its latest call's title (`doingTool`). ACP titles every other
 // call in words that start with a capital ("Read AgentCard.tsx", "Run cargo test"); a shell call's
 // title is the command as typed, which starts with a lowercase program, a path or an assignment.
-// That one reads "Running <program …>" (conversation/shortCommand.ts, the background-task note's
-// short label); the whole text stays the line's tooltip.
+// That one reads as the command itself while it shimmers (Leo, 2026-11-23: "running" doesn't need
+// text); the whole text stays the line's tooltip.
 import type { Translate } from "../i18n";
-import { shortCommand } from "../conversation/shortCommand";
+import { ROW_WIDTH, shortCommand } from "../conversation/shortCommand";
+import { toolForName } from "../toolNames";
 
 /// A command as a shell call's title starts: a lowercase program (`git`, `cd`, `./x`), a path
 /// (`/opt/bin/x`, `~/bin/x`) or an assignment before one (`FOO=1 make`).
@@ -37,16 +37,17 @@ export function isCommandTitle(title: string, shell = false): boolean {
   return PROGRAMS.has(/^\S+/.exec(line)![0]) || SHELL_SHAPED.test(line);
 }
 
-/// The longest short command a line keeps; the row's CSS ellipsis cuts the rest of the line.
-const COMMAND_MAX = 40;
-
-/// A tool call's title in words: a command reads "Running <program …>", any other title as it is.
-export function toolDetail(t: Translate, title: string | undefined, shell = false): string | undefined {
+/// A tool call's title in words: a command reads as itself while it shimmers (Leo, 2026-11-23:
+/// "running" doesn't need text), any other title as it is.
+export function toolDetail(_t: Translate, title: string | undefined, shell = false): string | undefined {
   const trimmed = title?.trim();
   if (!trimmed) return undefined;
   if (!isCommandTitle(trimmed, shell)) return trimmed;
-  const command = shortCommand(trimmed, COMMAND_MAX);
-  return command ? t("tools.runningCommand", { command }) : t("tools.runningUnnamed");
+  // No character cap: the line's CSS ellipsis cuts it where the row ends, never 40 characters in
+  // with the row half empty (Leo, 2026-11-12: "why are there ellipses going so fast? Like they get
+  // truncated and cut off so soon").
+  const command = shortCommand(trimmed, ROW_WIDTH);
+  return command || trimmed;
 }
 
 /// A chat's doing line in words: its plan step as it is, then its tool call's title in words. The
@@ -54,4 +55,63 @@ export function toolDetail(t: Translate, title: string | undefined, shell = fals
 export function doingDetail(t: Translate, doing: string | undefined, tool: string | undefined): string | undefined {
   if (!doing || !tool || !doing.endsWith(tool)) return doing;
   return doing.slice(0, doing.length - tool.length) + toolDetail(t, tool);
+}
+
+/// The last line of what an agent said that has words in it, Markdown marks taken off the line's
+/// start (`- `, `## `, `> `, `**`), so a report's closing line reads as a sentence.
+export function lastSaidLine(text: string | undefined): string | undefined {
+  if (!text) return undefined;
+  const lines = text.split("\n");
+  for (let at = lines.length - 1; at >= 0; at -= 1) {
+    const line = lines[at]!.trim()
+      .replace(/^(?:[-*+]\s+|\d+[.)]\s+|#{1,6}\s+|>\s*)+/u, "")
+      .replace(/\*\*|__|`/gu, "")
+      .trim();
+    if (/[\p{L}\p{N}]/u.test(line)) return line;
+  }
+  return undefined;
+}
+
+/// A tool's own name standing in for its step ("Bash", "Read"): Claude's progress names a
+/// background subagent's last tool so when it has no summary, and the parent sees none of its calls.
+/// A shell call announced before its input ("Bash", kind `execute`) is one too; a one-word command
+/// (`ls`) is not.
+const isBareToolName = (action: string | undefined, shell = false): boolean => {
+  if (action === undefined || !/^\S+$/.test(action.trim())) return false;
+  const tool = toolForName(action);
+  return shell ? tool === "shell" : tool !== undefined;
+};
+
+/// An agent's step as every surface names it: a bare shell tool's name says nothing, so the line falls
+/// back to its call's title or its task. Never "Bash", which read as the line's kind (Leo, 2026-11-05:
+/// "these are all bash? How are they all bash? Aren't they sub-agents?"), and never "Running a
+/// command" (Leo, 2026-11-23: ""running" doesn't need text"). Any other step as it is.
+export function namedAction(_t: Translate, action: string | undefined, shell = false): string | undefined {
+  return isBareToolName(action, shell) && toolForName(action!) === "shell" ? undefined : action;
+}
+
+/// What an agent does now in words: ``namedAction``, else its call's title (``toolDetail``).
+export function actionDetail(t: Translate, action: string | undefined, shell = false): string | undefined {
+  const named = namedAction(t, action, shell);
+  return named === action ? toolDetail(t, action, shell) : named;
+}
+
+/// What a running tray line says its agent did last, on its second line (trayLatest.experiment.ts):
+/// for one that stopped to wait on background work of its own, the last line it said; else its
+/// latest step in words (``actionDetail``), else the last line it said. A step known only by its
+/// tool's name says less than the agent's own last line, so that line leads it. Never its prompt.
+export function latestLine(
+  t: Translate,
+  agent: {
+    action?: string;
+    actionShell?: boolean;
+    lastMessage?: string;
+    result?: string;
+  },
+  ownWork: boolean,
+): string | undefined {
+  const said = lastSaidLine(agent.lastMessage ?? agent.result);
+  const doing = actionDetail(t, agent.action, agent.actionShell);
+  if (ownWork || isBareToolName(agent.action, agent.actionShell)) return said ?? doing;
+  return doing ?? said;
 }

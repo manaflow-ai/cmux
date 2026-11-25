@@ -4,6 +4,10 @@
 /// (`transport.gesture {intent: {method: "session/prompt", params: {promptId}}}`); the next send
 /// takes it and carries the ticket beside that promptId (`_meta.cmuxGesture`).
 export type HeldPrompt = { promptId: string; ticket?: string };
+/// The person's key press or click bound to one prompt as it happened (`client.bindSendGesture`),
+/// for a send the composer holds until its files are ready: the send goes under `promptId` with
+/// `ticket`, whatever else spent the gesture meanwhile (a pasted image's upload).
+export type SendGesture = { promptId: string; ticket: Promise<string | undefined> };
 
 export function heldPrompts(reserve: (intent: Record<string, unknown>) => Promise<string | undefined>) {
   let held: HeldPrompt | undefined;

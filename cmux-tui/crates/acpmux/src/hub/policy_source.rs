@@ -164,6 +164,17 @@ impl Hub {
         policy: PermissionPolicy,
         source: &str,
     ) -> Result<(), RpcError> {
+        // The app may replay its policy on every visible refresh. Preserve the answered-request
+        // barrier, but avoid emitting the same policy and permission-state records again.
+        let unchanged = {
+            let meta = session.meta();
+            meta.permission_policy.as_deref() == Some(policy.to_string().as_str())
+                && (meta.policy_source.as_deref() == Some(source)
+                    || meta.policy_source.as_deref() == Some(CLEARED_HOST))
+        };
+        if unchanged {
+            return self.meta_barrier(session);
+        }
         self.permission_policy_changed(session, |m| {
             m.permission_policy = Some(policy.to_string());
             if m.policy_source.as_deref() != Some(CLEARED_HOST) {
@@ -191,10 +202,11 @@ impl Hub {
 
     /// [`settle_grant`] on every session the store lists, each saved when it changed. A cleared
     /// chat whose agent host may run (or when the host records cannot be read) is
-    /// [`CLEARED_HOST`].
-    pub(super) fn settle_legacy_grants(&self, metas: &mut [SessionMeta]) {
+    /// [`CLEARED_HOST`]. Returns the ids whose repairs were not saved.
+    pub(super) fn settle_legacy_grants(&self, metas: &mut [SessionMeta]) -> HashSet<String> {
+        let mut unsaved = HashSet::new();
         if !metas.iter().any(|m| m.policy_source.is_none() && m.permission_policy.is_some()) {
-            return;
+            return unsaved;
         }
         let everyone = self.could_have_had_vm_host();
         let could_be = could_be_vm_host(metas, &self.handoffs.target_ids());
@@ -210,8 +222,10 @@ impl Hub {
             }
             if let Err(e) = self.store.save(meta) {
                 tracing::warn!(session = %meta.id, "save the settled grant failed: {e}");
+                unsaved.insert(meta.id.clone());
             }
         }
+        unsaved
     }
 
     /// A [`CLEARED_HOST`] chat's agent host is ended, never adopted (module docs). Called before a

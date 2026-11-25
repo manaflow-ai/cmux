@@ -1,0 +1,187 @@
+name: fixture
+on: push
+jobs:
+  checks:
+    name: cmux-next checks (god files, concurrency, crash safety, l10n)
+    runs-on: fixture
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+      - name: "Drop stale submodule checkouts (self-hosted reused workspace)"
+        run: "scripts/ci/reset-stale-submodules.sh"
+      - name: "Prepare check Python (PyYAML) and timeout"
+        run: "set -euo pipefail"
+      - name: "Start the slow checks in the background"
+        run: "scripts/ci/run-checks-concurrently.sh --start \"$RUNNER_TEMP/background-checks\" --jobs \"$(getconf _NPROCESSORS_ONLN)\" <<'CHECKS'"
+      - name: "God files and types (Swift)"
+        run: "base=()"
+        continue-on-error: true
+      - name: "God files (cmux-tui Rust)"
+        run: "base=()"
+        continue-on-error: true
+      - name: "CmuxNextApp size cap"
+        run: "if [[ \"$FULL_CI\" != true ]]; then"
+        continue-on-error: true
+      - name: "No Swift CLI (the cmux CLI is Rust, plans/cmux-next/cli.md)"
+        run: "scripts/cmux-next/check-no-swift-cli.sh \"$GITHUB_WORKSPACE\""
+        continue-on-error: true
+      - name: "No Swift closed history (the daemon owns it, plans/cmux-next/reopen-closed.md 9)"
+        run: "scripts/cmux-next/check-no-swift-closed-history.sh \"$GITHUB_WORKSPACE\""
+        continue-on-error: true
+      - name: "One omnibar (popups, New Tab and tabs share AddressBarView)"
+        run: "python3 -I scripts/cmux-next/check-single-omnibar.py \"$GITHUB_WORKSPACE\""
+        continue-on-error: true
+      - name: "React pages are listed (native chrome and Home are Swift)"
+        run: "base=()"
+        continue-on-error: true
+      - name: "No new SwiftUI (macOS UI is AppKit)"
+        run: "base=()"
+        continue-on-error: true
+      - name: "No process scanning (holders register themselves, plans/cmux-next/pty-holder.md 4)"
+        run: "scripts/ci/run-checks-concurrently.sh --wait \"$RUNNER_TEMP/background-checks\" no-process-scan"
+        continue-on-error: true
+      - name: "Default cursor (no pointing hand in app UI)"
+        run: "python3 -I scripts/cmux-next/check-default-cursor.py \"$GITHUB_WORKSPACE\""
+        continue-on-error: true
+      - name: "No literal state roots (per-build isolation S7, cx-is1kf.8)"
+        run: "scripts/ci/run-checks-concurrently.sh --wait \"$RUNNER_TEMP/background-checks\" state-roots"
+        continue-on-error: true
+      - name: "Dialog buttons show their keys (u2647)"
+        run: "python3 -I scripts/cmux-next/check-dialog-key-hints.py \"$GITHUB_WORKSPACE\""
+        continue-on-error: true
+      - name: "Main-thread concurrency"
+        run: "scripts/ci/run-checks-concurrently.sh --wait \"$RUNNER_TEMP/background-checks\" concurrency"
+        continue-on-error: true
+      - name: "One web view factory"
+        run: "python3 -I scripts/cmux-next/check-webview-factory.py \"$GITHUB_WORKSPACE/Packages/macOS/CmuxNext\""
+        continue-on-error: true
+      - name: "Crash safety"
+        run: "if [[ \"$FULL_CI\" != true ]]; then"
+        continue-on-error: true
+      - name: "Tests inject their notification center"
+        run: "scripts/cmux-next/check-test-notification-centers.sh \"$GITHUB_WORKSPACE/Packages/macOS/CmuxNext\""
+        continue-on-error: true
+      - name: "String tables (21 languages)"
+        run: "set -o pipefail"
+        continue-on-error: true
+      - name: "Module resource bundles"
+        run: "scripts/cmux-next/check-module-resources.sh \"$GITHUB_WORKSPACE/Packages/macOS/CmuxNext\""
+        continue-on-error: true
+      - name: "Scrollbars thin, one style"
+        run: "set -o pipefail"
+        continue-on-error: true
+      - name: "Motion tokens"
+        run: "scripts/cmux-next/check-motion.sh \"$GITHUB_WORKSPACE/Packages/macOS/CmuxNext\""
+        continue-on-error: true
+      - name: "Overlays are glass, never solid"
+        run: "scripts/ci/run-checks-concurrently.sh --wait \"$RUNNER_TEMP/background-checks\" overlay-glass"
+        continue-on-error: true
+      - name: "Type scale"
+        run: "python3 -I scripts/cmux-next/gen-type-scale.py --check"
+        continue-on-error: true
+      - name: "Layout grid"
+        run: "python3 -I tests/test_layout_grid.py && python3 -I scripts/cmux-next/gen-layout-grid.py --check"
+        continue-on-error: true
+      - name: "UI font (the system font)"
+        run: "if [[ \"$EVENT_NAME\" == pull_request ]]; then"
+        continue-on-error: true
+      - name: "Motion scale"
+        run: "python3 -I scripts/cmux-next/gen-motion-scale.py --check"
+        continue-on-error: true
+      - name: "Motion and colour tokens"
+        run: "python3 -I scripts/cmux-next/tests/test_motion_inventory.py"
+        continue-on-error: true
+      - name: "Surface roles"
+        run: "python3 -I scripts/cmux-next/check-surface-roles.py"
+        continue-on-error: true
+      - name: "Menu metrics"
+        run: "python3 -I scripts/cmux-next/gen-menu-metrics.py --check"
+        continue-on-error: true
+      - name: "Protected-folder copies"
+        run: "python3 -I scripts/cmux-next/gen-protected-folders.py --check"
+        continue-on-error: true
+      - name: "Settings source copies"
+        run: "python3 -I scripts/cmux-next/gen-settings-sources.py --check"
+        continue-on-error: true
+      - name: "Phone lane field allowlist"
+        run: "python3 -I scripts/cmux-next/gen-phone-lane-fields.py --check"
+        continue-on-error: true
+      - name: "Backdrop art export"
+        run: "python3 -I scripts/cmux-next/export-backdrop-art.py --check"
+        continue-on-error: true
+      - name: "Stale scheme PCM cleanup"
+        run: "bash tests/test_cmux_next_stale_pcm_cleanup.sh"
+        continue-on-error: true
+      - name: "Script tests (pin-cmux-tui, embed-cef, ensure-cef store)"
+        run: "scripts/ci/run-checks-concurrently.sh --wait \"$RUNNER_TEMP/background-checks\" script-tests"
+        continue-on-error: true
+      - name: "Ghostty resources bundle"
+        run: "git submodule update --init --depth 1 --filter=blob:none ghostty-next"
+        continue-on-error: true
+      - name: "Bundled terminfo"
+        run: "bash scripts/cmux-next/tests/bundled-terminfo.test.sh"
+        continue-on-error: true
+      - name: "Package conventions lint"
+        run: "scripts/ci/run-checks-concurrently.sh --wait \"$RUNNER_TEMP/background-checks\" package-conventions"
+        continue-on-error: true
+      - name: "Browser chrome icons"
+        run: "python3 scripts/icons/chromium_icons.py --check"
+        continue-on-error: true
+      - name: "App Store review rules (cmux-next-ios intents, Info.plist)"
+        run: "python3 tests/test_app_store_rules.py"
+        continue-on-error: true
+      - name: "Perf source guard (no window capture or CATransaction.flush)"
+        run: "python3 tests/test_cmux_next_perf_source_guard.py"
+        continue-on-error: true
+      - name: "No fleet host names in gallery fixtures"
+        run: "python3 tests/test_cmux_next_fixture_host_names.py"
+        continue-on-error: true
+      - name: "Kill switches are declared, tied to a PR and unexpired"
+        run: "python3 tests/test_cmux_next_kill_switches.py"
+        continue-on-error: true
+      - name: "Checks job structure"
+        run: "scripts/ci/run-checks-concurrently.sh --wait \"$RUNNER_TEMP/background-checks\" checks-structure"
+        continue-on-error: true
+      - name: "Tier routing"
+        run: "scripts/ci/run-checks-concurrently.sh --wait \"$RUNNER_TEMP/background-checks\" tier-routing"
+        continue-on-error: true
+      - name: "Package dependency lists sorted"
+        run: "scripts/ci/run-checks-concurrently.sh --wait \"$RUNNER_TEMP/background-checks\" package-dependency-lists"
+        continue-on-error: true
+      - name: "Web bundle key inputs"
+        run: "scripts/ci/run-checks-concurrently.sh --wait \"$RUNNER_TEMP/background-checks\" web-bundle-key-inputs"
+        continue-on-error: true
+      - name: "Prebuilt web bundles install and stamp"
+        run: "bash tests/test_build_web_bundles_from.sh"
+        continue-on-error: true
+      - name: "Web update pointer"
+        run: "python3 tests/test_web_ota_publication_contract.py"
+        continue-on-error: true
+      - name: "Companion workflows"
+        run: "python3 tests/test_cmux_next_generated_catch_up.py"
+        continue-on-error: true
+      - name: "Base-red classifier (per test)"
+        run: "python3 tests/test_test_reds.py"
+        continue-on-error: true
+      - name: "DEV update and classic import scripts"
+        run: "python3 tests/test_cmux_next_update_dev_daily.py"
+        continue-on-error: true
+      - name: "Routing replay (router changes)"
+        run: "if [[ \"$EVENT_NAME\" != pull_request ]]; then"
+        continue-on-error: true
+      - name: "Check the app FFI pin"
+        run: "set -euo pipefail"
+        continue-on-error: true
+      - name: "Daemon capabilities export is fresh"
+        run: "python3 scripts/cmux-next/check-daemon-capabilities-fresh.py"
+        continue-on-error: true
+      - name: "App capability references are listed"
+        run: "python3 -I scripts/cmux-next/check-app-capability-references.py --repo ."
+        continue-on-error: true
+      - name: "Capability texts never say update the app"
+        run: "bash scripts/cmux-next/tests/capability-text.test.sh"
+        continue-on-error: true
+      - name: "Pushed commits add no violations"
+        run: "# Sidebar look owner sweep (plans/cmux-next/sidebar-owner.md): every commit since the check landed,"
+        continue-on-error: true
+      - name: "Fail on any red check"
+        run: "failed=()"

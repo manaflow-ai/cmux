@@ -83,13 +83,13 @@ struct DensityPaletteTests {
         #expect(custom.id == "my-tight" && custom.basedOn == "ultraCompact" && custom.fontSize == 11)
         #expect(f.design.densityTokens == custom)
         _ = f.registry.perform("appearance.density.spacious")
-        let rows = DensityPaletteRows.items(design: f.design, registry: f.registry)
+        let rows = DensityPaletteRows(currentMark: DensityStrings.current, useTitle: DensityStrings.use).items(design: f.design, registry: f.registry)
         let row = try #require(rows.first)
         #expect(rows.count == 1 && row.title == "Density: My Tight")
         guard case .perform(let run) = row.primary.effect else { Issue.record("the row runs Set Density"); return }
         run()
         #expect(f.design.densityTokens == custom)
-        #expect(DensityPaletteRows.items(design: f.design, registry: f.registry).first?.title == "Density: My Tight (current)")
+        #expect(DensityPaletteRows(currentMark: DensityStrings.current, useTitle: DensityStrings.use).items(design: f.design, registry: f.registry).first?.title == "Density: My Tight (current)")
     }
 
     @Test func setDensityTakesAnyIDAndRefusesAnUnknownOne() {

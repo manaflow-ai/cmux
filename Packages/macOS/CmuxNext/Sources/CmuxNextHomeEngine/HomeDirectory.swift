@@ -1,7 +1,8 @@
 public import CmuxHomeCore
 import CmuxNextCloud
 import CmuxNextCompat
-public import CmuxNextHome
+public import CmuxNextHomeModel
+public import CmuxNextActions
 import Foundation
 public import Observation
 
@@ -187,6 +188,51 @@ public final class HomeDirectory {
         return record
     }
 
+    /// Chief channels (plans/cmux-next/chief-channels-DESIGN.md): `channel.create` makes a group the user
+    /// owns with its own Chief scoped to it, then each person is invited on the channel (an email gets
+    /// `invite.create`, an account `participants.add`). One person's refusal is that person's result; the
+    /// channel stays. An empty title throws `validation.invalid` before any call.
+    /// - Parameters:
+    ///   - title: The channel's name (trimmed, 1 to 200 characters).
+    ///   - chiefName: The channel Chief's name; nil: "<title> Chief".
+    ///   - people: Who to invite, in order.
+    /// - Returns: The channel Chief, the channel and one result per person.
+    public func createChannel(title: String, chiefName: String?, people: [HomeChannelPerson]) async throws -> HomeChannelCreation {
+        let name = title.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !name.isEmpty, name.count <= 200 else { throw FeedServiceError.owner(code: "validation.invalid", message: "title") }
+        var params: [String: Any] = ["title": name]
+        if let chief = chiefName?.trimmingCharacters(in: .whitespacesAndNewlines), !chief.isEmpty { params["display_name"] = chief }
+        let key = "channel-create-" + UUID().uuidString.lowercased()
+        let value = try await ensuringUser {
+            try Self.value(try await self.call("v1/ops", ["op": "channel.create", "params": params, "idempotency_key": key, "origin": "user"]))
+        }
+        guard let record = HomeChiefRecord.parse(value), let conversation = record.mainConversation else { throw FeedServiceError.badReply }
+        chiefs.removeAll { $0.id == record.id }
+        chiefs.append(record)
+        var invited: [HomeChannelCreation.Invited] = []
+        for (index, person) in people.enumerated() {
+            let body: [String: Any]
+            switch person {
+            case .email(let address):
+                body = ["op": "invite.create", "idempotency_key": "\(key):invite:\(index)", "origin": "user",
+                        "params": ["conversation": conversation, "address": ["email": address],
+                                   "display_name": String(address.prefix { $0 != "@" })]]
+            case .account(let id):
+                body = ["op": "participants.add", "idempotency_key": "\(key):add:\(index)", "origin": "user",
+                        "params": ["conversation": conversation, "participant": ["id": id, "kind": "human"]]]
+            }
+            do {
+                _ = try Self.value(try await call("v1/ops", body))
+                invited.append(.init(who: person.label, ok: true))
+            } catch FeedServiceError.owner(let code, _) {
+                invited.append(.init(who: person.label, ok: false, code: code))
+            } catch {
+                invited.append(.init(who: person.label, ok: false, code: "unreachable"))
+            }
+        }
+        return HomeChannelCreation(chief: record, conversation: conversation, invited: invited)
+    }
+
     /// `chief.delete` at the record's revision: the Chief goes for good (only its tombstone stays),
     /// and its conversation leaves the list as an archived one's does.
     public func deleteChief(_ id: String) async throws {
@@ -234,6 +280,82 @@ public final class HomeDirectory {
             }
         }
         return .changedElsewhere
+    }
+
+    /// Makes the cloud Chief `id` the account's primary one, the Chief texts to the cmux line reach:
+    /// `chief.update {is_default: true}` at the record's revision; UserDO clears the flag on every
+    /// other Chief. Settings' Primary row, `cmux chief primary` and the `/primary` text all set this
+    /// one flag. One revision conflict reads the list again and retries once. Nil when it is
+    /// primary (already, or now), else why not.
+    public func makePrimaryChief(_ id: String) async -> HomeChiefRenameFailure? {
+        for attempt in 0..<2 {
+            if attempt > 0 || !chiefs.contains(where: { $0.id == id }) {
+                do {
+                    let value = try Self.value(try await call("v1/read", ["op": "chief.list", "params": ["include_archived": true]]))
+                    chiefs = HomeChiefRecord.list(from: value)
+                    hiddenCloudChiefs = HomeChiefRecord.archivedIDs(from: value)
+                } catch {
+                    return Self.renameFailure(error)
+                }
+            }
+            guard let record = chiefs.first(where: { $0.id == id }) else { return .notFound }
+            if record.isDefault { return nil }
+            let body: [String: Any] = ["op": "chief.update", "origin": "user",
+                                       "idempotency_key": "chief-primary-\(record.id)-\(record.rev)-\(UUID().uuidString.lowercased())",
+                                       "params": ["chief": record.id, "expected_rev": record.rev, "is_default": true]]
+            do {
+                let value = try Self.value(try await call("v1/ops", body))
+                var primary = HomeChiefRecord.parse(value) ?? record
+                if HomeChiefRecord.parse(value) == nil { primary.rev += 1 }
+                primary.isDefault = true
+                chiefs = chiefs.map { chief in
+                    if chief.id == primary.id { return primary }
+                    var other = chief
+                    other.isDefault = false
+                    return other
+                }
+                return nil
+            } catch FeedServiceError.owner(code: "revision.conflict", message: _) where attempt == 0 {
+                continue
+            } catch {
+                return Self.renameFailure(error)
+            }
+        }
+        return .changedElsewhere
+    }
+
+    /// Archives one of my cloud Chiefs; nil when it is gone from the list (the cloud archive may
+    /// still wait, ``HomeChiefArchive``), else why not.
+    public func archiveChiefReason(_ id: String) async -> String? {
+        if chief(for: ParticipantID(id)) == nil { await refreshChiefs() }
+        switch await archiveChief(id) {
+        case .archived, .hiddenHere: return nil
+        case .refused(let reason): return reason
+        }
+    }
+
+    /// ``setPrimaryChief(_:)`` as the `home.setPrimaryChief` action's work: nil when done, else its refusal.
+    public func setPrimaryChiefWork(_ chief: String?) async -> ActionWorkFailure? {
+        await setPrimaryChief(chief ?? "").map { ActionWorkFailure(refusal: .unavailable, reason: $0) }
+    }
+
+    /// Makes the cloud Chief named or identified by `chief` the primary one: the one path of
+    /// Settings' Primary row, `home.setPrimaryChief` and `cmux chief primary`. Nil when it is
+    /// primary, else why not (localized).
+    public func setPrimaryChief(_ chief: String) async -> String? {
+        if chiefNamed(chief) == nil { await refreshChiefs() }
+        guard let record = chiefNamed(chief) else { return HomeEngineStrings.primaryUnknown }
+        return await makePrimaryChief(record.id).map(HomeEngineStrings.primaryFailed)
+    }
+
+    /// The cloud Chief with id `idOrName`, else the one whose name matches it (case and spacing
+    /// do not matter); nil when none or several do.
+    public func chiefNamed(_ idOrName: String) -> HomeChiefRecord? {
+        let wanted = idOrName.trimmingCharacters(in: .whitespacesAndNewlines)
+        if let byID = chiefs.first(where: { $0.id == wanted }) { return byID }
+        let key = { (s: String) in s.lowercased().split(whereSeparator: \.isWhitespace).joined(separator: " ") }
+        let named = chiefs.filter { key($0.name) == key(wanted) }
+        return named.count == 1 ? named[0] : nil
     }
 
     /// The card's reason for an error of `call` or of the owner.

@@ -6,6 +6,7 @@ from __future__ import annotations
 import argparse
 import ast
 import importlib.util
+import json
 import os
 import re
 import subprocess
@@ -174,7 +175,55 @@ CI_MACOS_TEST_PRODUCT_INPUTS = frozenset({
 # Areas only gate ci.yml and the reusable workflows it calls. A helper no job in
 # that tree can execute cannot change what a pull request's lanes do.
 _LOCAL_WORKFLOW_CALL_RE = re.compile(r"""uses:\s*["']?\./(\.github/workflows/[A-Za-z0-9_.-]+\.ya?ml)""")
-_DOCUMENTATION_SUFFIXES = (".md", ".mdx", ".txt")
+# Text nothing executes: prose, and captured CI logs (#41545's base_red_excuse
+# fixtures quote a run that printed tests/test_cmux_next_route.py, which made
+# every helper that test names route to every area).
+_DOCUMENTATION_SUFFIXES = (".md", ".mdx", ".txt", ".log")
+# Files where `#` starts a comment. Outside scripts/, actions and tests/, one
+# that names a helper only in a comment does not run it (a Cargo.toml's note on
+# the release strip routed that strip script to every lane, #42338).
+_HASH_COMMENT_SUFFIXES = (".toml", ".yml", ".yaml", ".sh", ".bash", ".zsh")
+# Data files that name helpers without running them: git attributes, the
+# warm-source table, whose entries describe a source in prose (#28568), the
+# single-host fallback declaration, whose `fallback` lines name the rescue that
+# moves a stuck job (#40880), and every other data file under .github/: tables
+# scripts read, issue templates, code owners, the run-request files whose edit
+# triggers a workflow. A file listed here is a dead end when ci_helper_areas()
+# walks back from a helper. A file under .github/ that is neither here nor a
+# workflow, action, script or documentation fails every helper it names open,
+# so test_every_github_file_is_placed_by_the_helper_walk fails on the pull
+# request that adds it: list it here if nothing executes what it names.
+_NON_RUNNING_FILES = frozenset({
+    ".gitattributes",
+    ".github/CODEOWNERS",
+    ".github/ISSUE_TEMPLATE/bug_report.yml",
+    ".github/ISSUE_TEMPLATE/config.yml",
+    ".github/ISSUE_TEMPLATE/feature_request.yml",
+    ".github/actionlint.yaml",
+    ".github/checkout-lean.json",
+    ".github/cloud-backend-paths.json",
+    ".github/cloud-machine-count-probe/request",
+    ".github/cloud-surge-proof/request",
+    ".github/cold-tier/cmux-lawrence-cold-recipient.crt",
+    ".github/design-surfaces.json",
+    ".github/gateway-e2e/request",
+    ".github/github-token-budget.json",
+    ".github/ios-review-gate-devices.json",
+    ".github/labels.json",
+    ".github/language-boundaries.toml",
+    ".github/nightly-known-bad.json",
+    ".github/nightly-step-coverage.json",
+    ".github/post-merge-batch.json",
+    ".github/post-merge-checks.json",
+    ".github/release-thanks.json",
+    ".github/review-fabric-policy.json",
+    ".github/runners.json",
+    ".github/rust-workspaces.toml",
+    ".github/single-host-fallbacks.json",
+    ".github/swift-warning-budget.tsv",
+    ".github/warm-sources.json",
+    ".github/workflow-job-bounds.json",
+})
 
 
 def routed_workflows(root: Path) -> Optional[frozenset[str]]:
@@ -201,14 +250,45 @@ def routed_workflows(root: Path) -> Optional[frozenset[str]]:
     return frozenset(seen)
 
 
+LEAN_CHECKOUT_TABLE = ".github/checkout-lean.json"
+
+
+@lru_cache(maxsize=None)
+def _tree_is_complete(root: str) -> bool:
+    """True when the tree at `root` holds every file the helper walk searches.
+
+    ci.yml's `changes` job checks out a narrower sparse set than the table's `sparse_checkout`
+    (.github/checkout-lean.json), which saves the blobs of the paths routing never opens
+    (78-80 s of a cold workspace, 2026-11-23). The helper walk's `git grep` sees only checked-out
+    files, so before its first search it widens the checkout to the table's patterns: the tree
+    the job had before it was narrowed, and the same answer. A checkout that is not sparse is
+    complete already. False when the table or the widening fails, which the walk reads as
+    "could not search" and answers every area.
+    """
+    def git(*args: str, **options) -> subprocess.CompletedProcess:
+        return subprocess.run(["git", "-C", root, *args], capture_output=True, text=True, **options)
+
+    try:
+        if git("config", "--bool", "core.sparseCheckout").stdout.strip() != "true":
+            return True
+        patterns = json.loads((Path(root) / LEAN_CHECKOUT_TABLE).read_text(encoding="utf-8"))["sparse_checkout"]
+        widened = git("sparse-checkout", "set", "--no-cone", "--stdin", input="\n".join(patterns) + "\n", timeout=240)
+        return widened.returncode == 0
+    except (OSError, ValueError, KeyError, TypeError, subprocess.SubprocessError):
+        return False
+
+
 def _files_naming(root: Path, token: str) -> Optional[list[str]]:
     """Tracked files that name `token` as a whole name, not inside a longer one.
 
     `tests/test_foo.py` names the test, not `foo`; the test is its own
     referrer and is judged by its own rule.
     """
+    if not _tree_is_complete(str(root)):
+        return None
     result = subprocess.run(
-        ["git", "-C", str(root), "grep", "-l", "-F", "-e", token],
+        # -I: a binary file (an image, an archive) names no helper.
+        ["git", "-C", str(root), "grep", "-I", "-l", "-F", "-e", token],
         capture_output=True, text=True,
     )
     if result.returncode not in (0, 1):
@@ -225,6 +305,48 @@ def _files_naming(root: Path, token: str) -> Optional[list[str]]:
     return named
 
 
+def searchable_files(root: Path, pathspec: str) -> Optional[frozenset[str]]:
+    """The tracked files under `pathspec` that _files_naming() can return: the
+    non-empty text files. None when git cannot search the tree."""
+    if not _tree_is_complete(str(root)):
+        return None
+    result = subprocess.run(
+        ["git", "-C", str(root), "grep", "-I", "-l", "-e", "", "--", pathspec],
+        capture_output=True, text=True,
+    )
+    if result.returncode not in (0, 1):
+        return None
+    return frozenset(result.stdout.splitlines())
+
+
+def referrer_role(path: str) -> Optional[str]:
+    """What ci_helper_areas() makes of a tracked file that names a helper, or
+    None when it cannot place the file and so answers every area.
+
+    "workflow": routed by its jobs, or a dead end outside ci.yml's call tree.
+    "documentation" and "data": a dead end. "action": followed through the jobs
+    that use its directory. "script": followed through whatever names it.
+    "test": placed by where the test runs.
+    """
+    if path.startswith(".github/workflows/"):
+        return "workflow"
+    if path.endswith(_DOCUMENTATION_SUFFIXES):
+        return "documentation"
+    if path in _NON_RUNNING_FILES:
+        return "data"
+    if path.startswith(".github/actions/") and path.endswith(("/action.yml", "/action.yaml")):
+        return "action"
+    if path.startswith("tests/"):
+        return "test"
+    if path.startswith("scripts/") or (
+        path.startswith(".github/") and path.endswith(_WALKABLE_SCRIPT_SUFFIXES)
+    ):
+        # A script under .github/ (an action's own script, .github/scripts/)
+        # runs wherever the files that name it run, like one under scripts/.
+        return "script"
+    return None
+
+
 def is_unowned_ci_helper(path: str) -> bool:
     return (
         path.startswith("scripts/ci/")
@@ -238,7 +360,8 @@ def is_unowned_ci_helper(path: str) -> bool:
 
 
 # Script sources ci_helper_areas() can trace through the tree by name.
-_WALKABLE_SCRIPT_SUFFIXES = (".py", ".sh", ".bash", ".zsh", ".js", ".mjs", ".ts")
+# .ps1: a Windows job's PowerShell script (#42833 added .github/scripts/cmux-rd-motion.ps1 unplaced).
+_WALKABLE_SCRIPT_SUFFIXES = (".py", ".sh", ".bash", ".zsh", ".js", ".mjs", ".ts", ".ps1")
 
 
 def is_walkable_script(path: str) -> bool:
@@ -259,20 +382,13 @@ _CI_GUARD_PROFILE_MARKER = "scripts/ci/cmux_workload_profile.py run cmux.ci.guar
 _CI_GUARD_ENTRYPOINT = "scripts/ci/workloads/ci-guard.sh"
 
 
-# ci-guards.yml's guard tests take a free mini from portable placement
-# (scripts/ci/portable_job_placement.py) only when cmux-next-guards.yml passes
-# one. That job runs the same Linux guard tests, not the app's macOS lanes, so
-# the term does not make the tests it names macOS-relevant.
-_PORTABLE_RUNNER_TERM = "inputs.guard_tests_runner != '' && inputs.guard_tests_runner ||"
-
-
 def is_plainly_linux_runner(runs_on: str) -> bool:
     # Anything else counts as macOS: a matrix or needs expression, a list or
     # group on the following lines, or a label this does not recognize.
-    value = runs_on.strip().replace(_PORTABLE_RUNNER_TERM, "")
+    value = runs_on.strip()
     if not value or re.search(r"macos|matrix\.|needs\.|inputs\.", value, re.IGNORECASE):
         return False
-    return bool(re.search(r"LINUX_RUNNER|LINUX_ARM64_RUNNER|ubuntu", value))
+    return bool(re.search(r"LINUX_RUNNER|LINUX_ARM64_RUNNER|ubuntu|'cmux-linux'", value))
 
 
 _JOB_SPLIT_RE = re.compile(r"(?m)^  (?=[A-Za-z0-9_-]+:\s*$)")
@@ -530,16 +646,44 @@ _ROUTING_TABLES = frozenset({
     "scripts/ci/detect_linux_guard_changes.py",
     "scripts/ci/workflow_guard_groups.py",
 })
-# Files that list test paths without running them: the routing tables and
-# cmux-next.yml's path router.
+# Files that list test paths without running them: the routing tables,
+# cmux-next.yml's path router, the guard wiring test's manual-lane list, and
+# base_red_excuse.py's guard-test input table with its test's fixtures (#30467).
 _TEST_PATH_LISTS = _ROUTING_TABLES | frozenset({
+    "scripts/ci/base_red_excuse.py",
     "scripts/ci/cmux_next_route.py",
+    "tests/test_base_red_excuse.py",
+    "tests/test_ci_workflow_guards_are_wired.py",
 })
 # The execution registry runs its entries: ci-macos.yml's
 # `run_python_test_lane.py --lane ...` step executes every test in the lanes it
 # names (macos-shell, macos-cli-no-socket and their fish variants). Only these
 # lanes run no Mac job; a new lane is run until it is added here.
 _TEST_REGISTRY_PATH = "tests/test-execution.toml"
+# The registry's area fragments, which replaced the single file (scripts/ci/test_execution_registry.py).
+_TEST_REGISTRY_FRAGMENTS = "tests/test-execution.d"
+_TEST_REGISTRY_FRAGMENT_RE = re.compile(r"tests/test-execution\.d/[^/]+\.toml")
+
+
+def is_test_registry_path(path: str) -> bool:
+    return path == _TEST_REGISTRY_PATH or _TEST_REGISTRY_FRAGMENT_RE.fullmatch(path) is not None
+
+
+def _test_registry_text(root: Path) -> str:
+    """The merged registry under `root` as one TOML text: the old single file while it is there,
+    then each fragment by name (a fragment holds only [[test]] entries). Raises OSError with neither."""
+    texts = []
+    legacy = root / _TEST_REGISTRY_PATH
+    if legacy.is_file():
+        texts.append(legacy.read_text(encoding="utf-8"))
+    fragments = root / _TEST_REGISTRY_FRAGMENTS
+    if fragments.is_dir():
+        texts += [path.read_text(encoding="utf-8")
+                  for path in sorted(fragments.glob("*.toml"), key=lambda path: path.name)]
+    if not texts:
+        raise FileNotFoundError(f"{root / _TEST_REGISTRY_FRAGMENTS}: no test registry")
+    body = "\n".join(text.rstrip("\n") + "\n" for text in texts)
+    return body if legacy.is_file() else "version = 1\n\n" + body
 _TEST_REGISTRY_INERT_LANES = frozenset({"linux-guard", "legacy", "manual"})
 _COMMENT_RE = re.compile(r"(?m)(?:^[ \t]*#(?![{!]).*$|[ \t]+#(?![{!]).*$)")
 
@@ -585,6 +729,44 @@ def _python_names(text: str, token: str, *, imports_only: bool = False) -> Optio
                 and id(node) not in docstrings and whole_name.search(node.value)):
             return True
     return False
+
+
+def _python_runner_names(root: Path, runner: str, test: str) -> Optional[bool]:
+    """Whether the Python file `runner` names `test` outside comments and
+    docstrings, or None when it cannot be read or parsed (fail open)."""
+    try:
+        text = (root / runner).read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        return None
+    return _python_names(text, test)
+
+
+def _nothing_imports_test(root: Path, test: str) -> bool:
+    """True when no tracked file but the test, its inert registry entry, the
+    test path lists and documentation names its module, outside a Python file
+    that names it only as a string (a path) rather than importing it."""
+    # Only a test the registry declares in a lane no job runs (manual, say)
+    # counts; an unregistered test nothing names still fails open.
+    if not _registry_lane_is_inert(root, test):
+        return False
+    stem = Path(test).stem
+    namers = _files_naming(root, stem)
+    if namers is None:
+        return False
+    for namer in namers:
+        if namer == test or namer in _TEST_PATH_LISTS or namer.endswith(_DOCUMENTATION_SUFFIXES):
+            continue
+        if is_test_registry_path(namer) and _registry_lane_is_inert(root, test):
+            continue
+        if namer.endswith(".py"):
+            try:
+                text = (root / namer).read_text(encoding="utf-8", errors="replace")
+            except OSError:
+                return False
+            if _python_names(text, stem, imports_only=True) is False:
+                continue
+        return False
+    return True
 
 
 def _jobs_naming(jobs: dict[str, str], token: str) -> frozenset[str]:
@@ -710,11 +892,10 @@ def ci_helper_areas(
                 continue
             visited_files.add(referrer)
             referenced = True
-            if referrer.endswith(_DOCUMENTATION_SUFFIXES) or referrer.startswith(".github/workflows/"):
+            role = referrer_role(referrer)
+            if role in ("workflow", "documentation", "data"):
                 continue
-            if referrer == ".gitattributes":
-                continue
-            if referrer.startswith(("scripts/", ".github/actions/")):
+            if role in ("script", "action") or referrer.startswith(".github/actions/"):
                 try:
                     text = (root / referrer).read_text(encoding="utf-8", errors="replace")
                 except OSError:
@@ -725,23 +906,55 @@ def ci_helper_areas(
                 )
                 if named is False or (named is None and not _names(text, token)):
                     continue
-            if referrer.startswith(".github/actions/") and referrer.endswith(("/action.yml", "/action.yaml")):
+            elif not referrer.startswith("tests/") and referrer.endswith(_HASH_COMMENT_SUFFIXES):
+                try:
+                    text = (root / referrer).read_text(encoding="utf-8", errors="replace")
+                except OSError:
+                    return every_area(f"could not read {referrer}")
+                if not _names(text, token):
+                    continue
+            if role == "action":
                 # An action runs in whatever job uses it; its directory is
                 # the token those jobs name.
                 tokens.append(str(Path(referrer).parent))
                 continue
-            if referrer.startswith("tests/"):
+            if role == "test":
                 if is_guard_only_test(referrer, test_references):
                     continue
                 if is_unrouted_test(referrer, test_references):
                     runners = _files_naming(root, referrer)
                     if runners is None:
                         return every_area(f"could not search for {referrer}")
+                    # The test itself, documentation and a Python test that
+                    # names it only in a comment or docstring do not run it
+                    # (docs/ci/cmux-next-tiers.md and a route test naming its
+                    # own path as a routing input made these fail open).
                     runners = [
                         runner for runner in runners
-                        if runner not in _TEST_PATH_LISTS
-                        and not (runner == _TEST_REGISTRY_PATH and _registry_lane_is_inert(root, referrer))
+                        if runner != referrer
+                        and runner not in _TEST_PATH_LISTS
+                        and not runner.endswith(_DOCUMENTATION_SUFFIXES)
+                        and not (is_test_registry_path(runner) and _registry_lane_is_inert(root, referrer))
+                        # So does a script under scripts/ (scripts/cmux-next/tests/
+                        # test_build_names.py names tests/test_script_module_loads.py
+                        # in a comment; #44759 made that fail open for every helper
+                        # that test reaches).
+                        and not (runner.startswith(("tests/", "scripts/")) and runner.endswith(".py")
+                                 and _python_runner_names(root, runner, referrer) is False)
+                        # A test that runs this test is judged by the rule for a
+                        # test that names the helper: a Linux guard test, or a
+                        # manual-lane test nothing runs or imports, reaches no
+                        # Mac job (tests/test_script_module_loads.py, #41175,
+                        # runs tests/test_cmux_next_route.py by hand).
+                        and not (runner.startswith("tests/") and (
+                            is_guard_only_test(runner, test_references)
+                            or (is_unrouted_test(runner, test_references)
+                                and _nothing_imports_test(root, runner))))
                     ]
+                    if not runners and _nothing_imports_test(root, referrer):
+                        # Nothing runs it or imports it: a manual-lane test
+                        # people run by hand, which no pull request job reaches.
+                        continue
                     if runners and all(
                         (runner.startswith(".github/workflows/") and runner not in routed)
                         or runner.startswith("scripts/")
@@ -765,7 +978,7 @@ def ci_helper_areas(
                             tokens.append(Path(runner).stem)
                         continue
                 return every_area(f"{referrer} names {token} and runs outside the Linux guards")
-            if referrer.startswith("scripts/"):
+            if role == "script":
                 tokens.append(Path(referrer).stem)
                 continue
             return every_area(f"{referrer} names {token}")
@@ -863,7 +1076,7 @@ def _registry_lane_is_inert(root: Path, test: str) -> bool:
     entries counts as run (fails open).
     """
     try:
-        entries = _test_registry_entries((root / _TEST_REGISTRY_PATH).read_text(encoding="utf-8"))
+        entries = _test_registry_entries(_test_registry_text(root))
     except (OSError, UnicodeDecodeError, ImportError, ValueError, TypeError, KeyError) as error:
         print(f"Could not read {_TEST_REGISTRY_PATH}: {error}", file=sys.stderr)
         return False
@@ -1068,6 +1281,11 @@ def is_web_change(path: str) -> bool:
         return True
     if path == "CHANGELOG.md":
         return True
+    # web/tests/next-docs.test.ts compares the generated docs references with
+    # these (web_subareas.UNIT_TESTS_EXACT); #38631 changed the catalog alone,
+    # skipped Web tests and turned them red on base.
+    if path in ("plans/cmux-next/action-surfaces.json", "schemas/settings/settings-schema.json"):
+        return True
     if is_web_bundle_input(path):
         return True
     return path in {
@@ -1094,6 +1312,7 @@ def is_web_change(path: str) -> bool:
         # It also runs the test of the PR scoping of ui-rules and gallery coverage.
         "scripts/tests/test_pr_scoped_webviews_checks.py",
         "scripts/check-webviews-bun-version.sh",
+        "scripts/webviews_bun_version.py",
         "scripts/check-webviews-react-compiler.mjs",
         # The generated agent pane page, its build and regenerate scripts, and
         # the merge driver that keeps it mergeable: react-apps-check verifies
@@ -1101,8 +1320,6 @@ def is_web_change(path: str) -> bool:
         "Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/Resources/agent-pane/index.html",
         "Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/Resources/agent-pane/pane.js",
         "scripts/cmux-next/build-agent-pane-web.sh",
-        "Packages/macOS/CmuxNext/Sources/CmuxNextPalette/Resources/palette-ranker.js",
-        "scripts/cmux-next/build-palette-ranker.sh",
         "Packages/macOS/CmuxNext/Sources/CmuxNextAgentActivity/Resources/agent-activity/index.html",
         "scripts/cmux-next/build-agent-activity-web.sh",
         "scripts/cmux-next/regenerate-web-bundles.sh",
@@ -1462,7 +1679,7 @@ def is_macos_neutral(
     if re.match(r"Packages/iOS/[^/]+/Tests/", path):
         return True
     # Agent instructions at any depth, and skill documentation. The app bundles
-    # skills/cmux-cua as a folder resource, and skill scripts and manifests are
+    # skills/cmux-computer-use as a folder resource, and skill scripts and manifests are
     # executable inputs, so only Markdown outside that folder is neutral.
     if path.rsplit("/", 1)[-1] in {"CLAUDE.md", "AGENTS.md"}:
         return True
@@ -1514,7 +1731,7 @@ def is_macos_neutral(
         return True
     if path == "README.md" or (path.startswith("README.") and path.endswith(".md")):
         return True
-    return path.startswith("skills/") and path.endswith(".md") and not path.startswith("skills/cmux-cua/")
+    return path.startswith("skills/") and path.endswith(".md") and not path.startswith("skills/cmux-computer-use/")
 
 
 def is_macos_change(
@@ -1554,7 +1771,7 @@ def is_release_build_neutral(path: str) -> bool:
 
 
 def _test_registry_entries(text: str) -> list[dict]:
-    """tests/test-execution.toml's `[[test]]` entries, read with tomllib.
+    """The test registry's `[[test]]` entries (_test_registry_text), read with tomllib.
 
     Raises ValueError (tomllib.TOMLDecodeError is one) for an unknown schema,
     no entries or a non-table entry, and ImportError without tomllib.
@@ -1576,36 +1793,41 @@ def test_registry_change_is_linux_only(base: str, head: str) -> bool:
     """Ignore only Linux registrations; native execution entries must match."""
     try:
         def native_entries(text: str) -> list[dict]:
+            """The entries a native lane runs, and the linux-guard entries with runtime requirements
+            (which need more than a Linux guard, so they count as native too)."""
             entries = _test_registry_entries(text)
             seen = set()
             native = []
             for entry in entries:
-                if not isinstance(entry, dict) or set(entry) - {"path", "lane", "requirements", "reason"}:
+                # `serial` runs an entry alone in its lane: on a native entry it is compared with the
+                # rest of the entry; on a linux-guard entry it changes only the Linux run.
+                if not isinstance(entry, dict) or set(entry) - {"path", "lane", "requirements", "reason", "serial"}:
                     raise ValueError("unknown test entry")
                 path, lane = entry.get("path"), entry.get("lane")
                 if not isinstance(path, str) or not isinstance(lane, str) or path in seen:
                     raise ValueError("missing or duplicate test identity")
                 seen.add(path)
-                if lane != "linux-guard":
+                if lane != "linux-guard" or entry.get("requirements"):
                     native.append(entry)
-                elif entry.get("requirements"):
-                    raise ValueError("guard entry with runtime requirements")
             return native
 
-        return native_entries(base) == native_entries(head)
+        # By path, not position: the split re-ordered the entries (by area, then path).
+        def by_path(entries: list[dict]) -> list[dict]:
+            return sorted(entries, key=lambda entry: entry["path"])
+
+        return by_path(native_entries(base)) == by_path(native_entries(head))
     except (ImportError, ValueError, TypeError, KeyError):
         return False
 
 
 def test_registry_linux_only(base_path: Optional[Path]) -> bool:
+    """`base_path` is the base's registry: one file, or a directory holding the base's tests/ registry files."""
     if base_path is None:
         return False
     root = Path(os.environ.get("CMUX_CI_HEAD_TEST_REFERENCE_ROOT") or Path.cwd())
     try:
-        return test_registry_change_is_linux_only(
-            base_path.read_text(encoding="utf-8"),
-            (root / "tests/test-execution.toml").read_text(encoding="utf-8"),
-        )
+        base = _test_registry_text(base_path) if base_path.is_dir() else base_path.read_text(encoding="utf-8")
+        return test_registry_change_is_linux_only(base, _test_registry_text(root))
     except OSError:
         return False
 
@@ -1631,7 +1853,7 @@ def classify_files(paths: Iterable[str], *,
         path = normalize_path(raw_path)
         if not path:
             continue
-        if path == "tests/test-execution.toml":
+        if is_test_registry_path(path):
             # The guard workflow references this registry too, but native
             # Python lanes consume it indirectly through their lane runner.
             # A Linux reference alone cannot prove native execution unchanged.
@@ -1804,7 +2026,8 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
     parser.add_argument(
         "--test-registry-base",
         type=Path,
-        help="Base test registry; Linux-only entry changes do not select native CI.",
+        help="Base test registry (a file, or a directory with the base's tests/ registry files); "
+             "Linux-only entry changes do not select native CI.",
     )
     parser.add_argument(
         "--files-from",

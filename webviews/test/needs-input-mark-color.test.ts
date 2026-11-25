@@ -33,15 +33,10 @@ await requireBrowserLane("needs-input-mark-color.test.ts", async () => {
     .map((file) => readFileSync(path.join(src, file), "utf8"))
     .join("\n");
 
-  // Each surface that marks "needs your input", and which of its properties carries the mark.
+  // Each surface that marks "needs your input", and which of its properties carries the mark. The
+  // question card and its folded pill are not here: they say it in muted words with a grey question
+  // icon, no colour (Lucas, 2026-11-24, question/questionCard.css).
   const marks = [
-    [
-      "question card pill dot",
-      `<span class="acpmux-question-status"><span class="acpmux-question-status-dot"></span></span>`,
-      ".acpmux-question-status-dot",
-      "background",
-    ],
-    ["question card pill text", `<span class="acpmux-question-status"></span>`, ".acpmux-question-status", "color"],
     [
       "Needs your input jump pill",
       `<span class="acpmux-jump-latest acpmux-needs-you-pill"><span class="acpmux-needs-you-dot"></span></span>`,

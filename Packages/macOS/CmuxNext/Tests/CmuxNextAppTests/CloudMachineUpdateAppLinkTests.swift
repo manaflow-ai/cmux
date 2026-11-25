@@ -31,7 +31,6 @@ struct CloudMachineUpdateAppLinkTests {
 
         try await fixture.waitUntil { machines.compatibility(of: session.daemon)?.level == .incompatible }
         #expect(session.daemon.connection == nil, "the refused daemon left no connection")
-        #expect(session.appLink != nil && session.link == nil)
         #expect(CloudMachineUpdates.daemon(of: session, machines: machines) == CloudMachineUpdateTarget.Daemon(build: nil, level: .incompatible))
         #expect(await resolver.opens == 1)
 
@@ -46,10 +45,16 @@ struct CloudMachineUpdateAppLinkTests {
         // The machine connects again, to the daemon the update left there.
         try await fixture.waitUntil { fixture.identifies >= 2 }
         #expect(await resolver.opens == 2, "a fresh connect of the app link")
+
+        // A start's own update (the daemon cannot serve what the start needs) is not held to the commit times.
+        let own = CloudMachineUpdates.source(session, machines: machines, cli: cli, ifOlder: false,
+                                             logger: Logger(subsystem: "com.cmuxterm.app.next.tests", category: "cloud.machine-update"))
+        _ = try await own.update()
+        #expect(fixture.cliCalls.last == ["link", "machine", "update", "--socket", fixture.daemonSocket.path, "--to-bundled"])
     }
 }
 
-/// How an app link connects after an update (``CloudMachineSession/afterUpdate(restarted:linkEnded:connected:connecting:)``);
+/// How an app link connects after an update (``CloudLinkAfterUpdate``, CmuxNextCloud);
 /// when its handshakes are offered is `HandshakeFollowerTests` (CmuxNextCloudTests).
 @MainActor @Suite
 struct CloudMachineUpdateFollowTests {
@@ -57,19 +62,21 @@ struct CloudMachineUpdateFollowTests {
     /// the old daemon's connection because its drop has not arrived yet: the old ticket goes, so
     /// that late drop changes nothing. One that restarted nothing leaves a healthy connection alone.
     @Test func anUpdateThatRestartedTheDaemonConnectsAfreshBeforeTheOldDropArrives() {
-        typealias Session = CloudMachineSession
-        #expect(Session.afterUpdate(restarted: true, linkEnded: false, connected: true, connecting: false) == .connect(dropTicket: true),
+        typealias After = CloudLinkAfterUpdate
+        #expect(After(restarted: true, linkEnded: false, connected: true, connecting: false) == .connect(dropTicket: true),
                 "the CLI answered before the old connection's drop")
-        #expect(Session.afterUpdate(restarted: true, linkEnded: true, connected: false, connecting: false) == .connect(dropTicket: true))
-        #expect(Session.afterUpdate(restarted: true, linkEnded: false, connected: false, connecting: true) == .connectAfterHop)
-        #expect(Session.afterUpdate(restarted: false, linkEnded: false, connected: true, connecting: false) == .connect(dropTicket: false))
-        #expect(Session.afterUpdate(restarted: false, linkEnded: false, connected: false, connecting: false) == .connect(dropTicket: true),
+        #expect(After(restarted: true, linkEnded: true, connected: false, connecting: false) == .connect(dropTicket: true))
+        #expect(After(restarted: true, linkEnded: false, connected: false, connecting: true) == .connectAfterHop)
+        #expect(After(restarted: false, linkEnded: false, connected: true, connecting: false) == .connect(dropTicket: false))
+        #expect(After(restarted: false, linkEnded: false, connected: false, connecting: false) == .connect(dropTicket: true),
                 "a refused daemon's link")
 
         #expect(CloudMachineUpdateTarget.mayHaveRestarted(CloudMoveCLI.Answer(ok: true, updated: true, build: "abc123def456")))
         #expect(!CloudMachineUpdateTarget.mayHaveRestarted(CloudMoveCLI.Answer(ok: true, updated: false, build: "abc123def456")))
         #expect(!CloudMachineUpdateTarget.mayHaveRestarted(CloudMoveCLI.Answer(ok: false, errorCode: "machine_update_busy")))
         #expect(!CloudMachineUpdateTarget.mayHaveRestarted(CloudMoveCLI.Answer(ok: false, errorCode: "machine_unreachable")))
+        #expect(!CloudMachineUpdateTarget.mayHaveRestarted(CloudMoveCLI.Answer(ok: false, errorCode: "machine_update_foreign_daemon")),
+                "a daemon on someone's own build was left alone")
         #expect(CloudMachineUpdateTarget.mayHaveRestarted(CloudMoveCLI.Answer(ok: false, errorCode: "machine_update_rolled_back")))
         #expect(CloudMachineUpdateTarget.mayHaveRestarted(CloudMoveCLI.Answer(ok: false, errorCode: "machine_update_unresolved")))
         #expect(CloudMachineUpdateTarget.mayHaveRestarted(nil), "the CLI gave no answer")

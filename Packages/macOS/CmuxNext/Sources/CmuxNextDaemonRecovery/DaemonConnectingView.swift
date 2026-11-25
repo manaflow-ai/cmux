@@ -1,4 +1,5 @@
 public import AppKit
+import CmuxNextCompat
 public import CmuxNextDaemon
 public import CmuxNextDaemonService
 import CmuxNextDesign
@@ -12,13 +13,18 @@ import CmuxNextWakeups
 /// while not yet connected, so a fast launch replaces it first. Once the startup deadline
 /// passes, it shows the failure at once, in plain words, with the raw error
 /// behind Copy Details for a bug report, Retry Now and, for a stuck owner,
-/// Restart cmux-tui (`DaemonRecoveryControls`, cx-jniyz.1).
+/// Restart cmux-tui (`DaemonRecoveryControls`, cx-jniyz.1). While the session owner restores, the title says
+/// so and how long it has taken ("Restoring sessions… 4m 12s", ``DaemonRecovery/restoring``), at once and in
+/// either state (Leo, 2026-11-08: a 30-minute restore read only that the service isn't connected).
 public final class DaemonConnectingView: NSView {
     let mark = LaunchMarkView()
     private let titleLabel = ChromeLabel(labelWithString: "")
     private let detailLabel = NSTextField(wrappingLabelWithString: "")
     private let copyDetailsButton = ThemedBezelButton(title: "", target: nil, action: nil)
     private let recoveryControls: DaemonRecoveryControls?
+    private let recovery: DaemonRecovery?
+    /// Follows ``DaemonRecovery/restoring`` (about every 5 s while an owner restores); ends after this view is gone.
+    private var restoreObservation: Task<Void, Never>?
     /// The failure's raw text, for Copy Details.
     private var failureDetails = ""
     /// Copy Details' write (tests read it instead of the clipboard).
@@ -45,6 +51,7 @@ public final class DaemonConnectingView: NSView {
     init(frame: NSRect, clock: any Clock<Duration>, recovery: DaemonRecovery? = nil) {
         statusTimer = DemandTimer(owner: "launch.status", clock: clock)
         recoveryControls = recovery.map(DaemonRecoveryControls.init(recovery:))
+        self.recovery = recovery
         super.init(frame: frame)
         // Layer-backed, so the status line's fade sets its model alpha at once.
         wantsLayer = true
@@ -77,6 +84,14 @@ public final class DaemonConnectingView: NSView {
         setAccessibilityElement(true)
         setAccessibilityRole(.group)
         apply(.connecting)
+        guard let recovery else { return }
+        // task-owner: ends after this view is gone (weak self), at the recovery's next change
+        restoreObservation = Task { [weak self, recovery] in
+            for await _ in ObservationStream({ recovery.restoring }) {
+                guard let self else { return }
+                self.apply(self.state)
+            }
+        }
     }
 
     @available(*, unavailable)
@@ -146,6 +161,13 @@ public final class DaemonConnectingView: NSView {
             failureDetails = String(describing: error)
             copyDetailsButton.isHidden = false
             recoveryControls?.isOffered = true
+        }
+        if state != .connected, let restoring = recovery?.restoring {
+            // The owner is restoring: say so now, with how long, in place of "Starting cmux…" or the restore timeout.
+            cancelStagger()
+            statusDue = true
+            titleLabel.stringValue = RefusalStrings.restoringSessions(waitedMs: restoring.waitedMs)
+            titleLabel.alphaValue = 1
         }
         setAccessibilityLabel([titleLabel.stringValue, detailLabel.stringValue].filter { !$0.isEmpty }.joined(separator: ". "))
     }

@@ -1,285 +1,66 @@
+import { keycapLegend } from "../../ui/keycapLegend";
 import { useWebSwapHold } from "../../pages/shared/useWebSwapHold";
+import { runResumed } from "./composer/resumedSend";
 import { WEB_SWAP_KEPT_TEXT } from "../../pages/shared/webSwap";
-import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { useEscapingList } from "../../ui/popupHost";
-import { AgentMark as BrandMark } from "../shared/AgentMark";
+import { useScrollEdges } from "../../ui/scrollEdges";
+import type { ListCommand } from "../../ui/keyStyle";
+import { useKeyStyleSettings, useListKeys } from "../../ui/useListKeys";
+// AgentMark and KindIcon live in tabMarks.tsx: chat lists draw them, and importing them from here
+// would pull this New Tab screen into the chat page's first script.
+import { KindIcon, StrokeIcon as Icon, AgentMark } from "./tabMarks";
 import { agentDisplayName } from "./agents";
-import { seedLastPicks, useLastPick } from "./lastPick";
+import { useLastPick } from "./lastPick";
 import { ArrowUpIcon } from "./ComposerPickers";
-import { useComposerLook } from "./composerLook";
 import { ComposerFoot } from "./ComposerFoot";
 import { useRowFit } from "./composerRowFit";
+import { MarkdownField, type MarkdownFieldHandle } from "./MarkdownField";
 import { useComposerSettings } from "./composerSettings";
 import type { AcpmuxSnapshot } from "./model";
 import { ProjectChooser, type Project } from "./ProjectChooser";
-import { BROWSE_BUSY, type BrowseRequest, type BrowseResult } from "./AddProjectPanel";
-import { BrowseFailure, browseFailureMessage } from "./BrowseFailure";
-import {
-  defaultRow,
-  stepSelection,
-  EMPTY_OMNIBAR,
-  MAX_NEW_TAB_ENTRIES,
-  omnibarContext,
-  omnibarRows,
-  type OmnibarContext,
-  type OmnibarRow,
-} from "./omnibar";
-import {
-  activityTime,
-  firstProject,
-  folded,
-  homePath,
-  listed,
-  mostRecentProject,
-  normalizedSessionEntry,
-  projectLabel,
-  sessionMark,
-  type AcpmuxSessionEntry,
-} from "./sessionList";
-import { type StringKey, type Translate, translate, useT } from "./i18n";
-import { parsePageWidgets, type PageWidget } from "./newtab/pageWidgets";
-import { parseWeather, type NewTabWeather } from "./newtab/ambient";
-import { parseNewTabTemplate, type NewTabTemplate } from "./newtab/templates";
-import { suggestionOrder, type SuggestionOrder } from "./newtab/suggestionOrder";
-import { isStartableProject, rememberedStartedProject } from "./newtab/startedProject";
-import { seedWarmNewTab } from "./newtab/warmSnapshot";
+import { BROWSE_BUSY, type BrowseRequest, type BrowseResult } from "./browseProject";
+import { BrowseFailure } from "./BrowseFailure";
+import { ErrorDetails } from "./conversation/ErrorDetails";
+import { browseFailureMessage } from "./browseFailureModel";
+import { defaultRow, stepSelection, EMPTY_OMNIBAR, omnibarRows, type OmnibarContext, type OmnibarRow } from "./omnibar";
+import { firstProject, homePath, mostRecentProject, projectLabel, isTemporaryFolder } from "./sessionList";
+import { useT } from "./i18n";
+import { ShortcutKeycaps } from "./ButtonKeycaps";
+import { SHORTCUT_ACTIONS, useShortcut } from "./shortcuts";
+import { isStartableProject, startedProjectChoices } from "./newtab/startedProject";
 import { useNoEntryMotion } from "./newtab/noEntryMotion";
 import { usePasteAnywhere } from "./composer/pasteAnywhere";
 import { newTabStart, useNewTabChipModel } from "./newtab/chipDefaults";
 import type { ComposerAttachment } from "./attachments";
-import {
-  AttachmentStrip,
-  backspacedAttachment,
-  useAttachmentIntake,
-  useSendWhenAttached,
-} from "./composer/attachmentIntake";
+import { AttachmentStrip } from "./composer/attachmentIntake";
+import { backspacedAttachment, useAttachmentIntake, useSendWhenAttached } from "./composer/attachmentIntakeModel";
 import { reordered } from "./composer/stripReorder";
 import { DropOverlay } from "./composer/DropOverlay";
 import { useHarnessesListed } from "./catalog";
-import { ageWithDate } from "./timeLabels";
+import { customizeMessage } from "./customizeCommand";
 import { useNewTabCommand, type NewTabCommandActions } from "./newtab/useNewTabCommand";
+import { reportInputReadyWhenFocused } from "./newtab/inputReady";
+import {
+  TAB_KINDS,
+  type TabKind,
+  type NewTabChat,
+  FOCUS_LOCATION_EVENT,
+  NEW_TAB_LABELS,
+  prefixedEdit,
+  cycleKind,
+  recentSessions,
+} from "./newTabModel";
+import { focusRoute } from "../../ui/focusRoute";
 
-/// The three things a new tab can become (#16620). Order is the switch's order and Tab's cycle.
-export const TAB_KINDS = ["terminal", "browser", "agent"] as const;
-export type TabKind = (typeof TAB_KINDS)[number];
-/// The chat an Agent submit starts: the harness and model the page's chips show.
-export type NewTabChat = { harness: string; model?: string };
-
-/// The event the host dispatches on `window` for Focus Location Bar (Cmd-L).
-export const FOCUS_LOCATION_EVENT = "acpmux-focus-location";
-
-/// New tab page copy: keys of the pane's string table.
-export const NEW_TAB_LABELS = {
-  kinds: {
-    terminal: "newTabPage.kind.terminal",
-    browser: "newTabPage.kind.browser",
-    agent: "newTabPage.kind.agent",
-  } satisfies Record<TabKind, StringKey>,
-  placeholder: {
-    terminal: (t: Translate, folder: string) =>
-      folder ? t("newTabPage.placeholder.terminalIn", { folder }) : t("newTabPage.placeholder.terminal"),
-    browser: (t: Translate) => t("newTabPage.placeholder.browser"),
-    agent: (t: Translate, agent: string) => t("newTabPage.placeholder.agent", { agent }),
-  } satisfies Record<TabKind, (t: Translate, name: string) => string>,
-  switchLabel: "newTabPage.switchLabel",
-  /// `{kind}` is a tab kind's name, `{keys}` its shortcut.
-  editShortcut: "newTabPage.editShortcut",
-  open: "newTabPage.open",
-  openFailed: "newTabPage.openFailed",
-  suggestions: "newTabPage.suggestions",
-  rows: {
-    tab: "newTabPage.row.tab",
-    workspace: "newTabPage.row.workspace",
-    session: "newTabPage.row.session",
-    folder: "newTabPage.row.folder",
-    command: "newTabPage.row.command",
-    history: "newTabPage.row.history",
-    run: "newTabPage.row.run",
-    open: "newTabPage.row.open",
-  } satisfies Record<Exclude<OmnibarRow["type"], "ask">, StringKey>,
-  ask: "newTabPage.ask",
-  allSessions: "newTabPage.allSessions",
-  thisMac: "newTabPage.thisMac",
-} as const;
-
-/// What the host's handshake says about a tab opened as a new tab page.
-export type NewTabHost = {
-  inputToken?: string;
-  hotkeys: Partial<Record<TabKind, string>>;
-  initialKind: TabKind;
-  cwd?: string;
-  host?: string;
-  location?: string;
-  /// Project folders found by the host scan, before session-derived folders.
-  projects?: string[];
-  omnibar?: OmnibarContext;
-  /// The workspace's tabs a split's page offers to move into its pane (cx-jfo7).
-  openTabs?: OmnibarContext["tabs"];
-  /// Which design (Debug Settings `newTab.layout`): "b" the one-input screen (default),
-  /// "a" this Terminal | Browser | Agent page, kept until B passes dogfood (decision Q6).
-  layout: "a" | "b";
-  /// The saved template (`tabs.newTabTemplate`); unset follows `layout` (newtab/templates.ts).
-  template?: NewTabTemplate;
-  /// The agent last picked (decision Q3).
-  lastAgent?: string;
-  /// The project of the chat the person last picked and started (newtab/startedProject.ts).
-  startedProject?: string;
-  /// The home folder, so `~/path` reads as a folder.
-  home?: string;
-  /// false: leave the field unfocused (Cmd-L opened the page for the omnibar, cx-e2aa).
-  focusesField?: boolean;
-  /// The page is agent history (the sidebar's History dot, cx-zlnl), not the New Tab page.
-  history?: boolean;
-  /// The widget view under the composer (Debug Settings `newTab.widgets`, newtab/WidgetCards.tsx).
-  widgets?: boolean;
-  /// The Minimal layout's widgets the user turned on (`tabs.newTabWidgets.*`, newtab/pageWidgets.ts);
-  /// unset is Settings' defaults (none: the composer alone).
-  pageWidgets?: PageWidget[];
-  /// The weather widget's last reading (`tabs.newTabWidgets.weather`, newtab/ambient.ts).
-  weather?: NewTabWeather;
-  /// `tabs.newTabWidgets.greeting` is set to false in cmux.json, not left to the default: Minimal
-  /// keeps no room for the headline over the composer, which stays where it sat with the greeting
-  /// off (newtab/screen.css .nt-headline-slot).
-  headlineOff?: true;
-  /// The page lists only its own connection's chats, not the store every page shares (Debug
-  /// Settings `newTab.privateChatLists`, newtab/chatStore.ts).
-  privateChatLists?: boolean;
-  /// false: Show All Chats on New Tab is off (`sidebar.showChats`): the page lists the recent chats
-  /// only, never All chats. Unset lists All chats where the template does.
-  allChats?: false;
-  /// How the rows under the field rank (newtab/screenModel.ts SuggestionOrder); unset is the default.
-  suggestionOrder?: SuggestionOrder;
-};
-
-/// Reads `newTab` from the handshake: `true`, or `{hotkeys, kind, cwd, host}`. Nil for a plain chat.
-export function newTabHost(handshake: { newTab?: unknown; cwd?: unknown }): NewTabHost | undefined {
-  const value = handshake.newTab;
-  if (value !== true && (typeof value !== "object" || value === null)) return undefined;
-  const object = (typeof value === "object" ? value : {}) as Record<string, unknown>;
-  // The app's copy of the last picks: this page's own storage did not outlive the launch.
-  seedLastPicks(object.lastPicks);
-  // The chats a page of this Mac listed last: the Chats list's first frame (newtab/warmSnapshot.ts).
-  seedWarmNewTab(object.warm);
-  const keys = (typeof object.hotkeys === "object" && object.hotkeys !== null ? object.hotkeys : {}) as Record<
-    string,
-    unknown
-  >;
-  const hotkeys: Partial<Record<TabKind, string>> = {};
-  for (const kind of TAB_KINDS) if (typeof keys[kind] === "string" && keys[kind]) hotkeys[kind] = keys[kind] as string;
-  const initialKind = TAB_KINDS.includes(object.kind as TabKind) ? (object.kind as TabKind) : "agent";
-  const cwd =
-    typeof object.cwd === "string" ? object.cwd : typeof handshake.cwd === "string" ? handshake.cwd : undefined;
-  const omnibar = omnibarContext(object.omnibar);
-  const openTabs = Array.isArray(object.openTabs) ? omnibarContext({ tabs: object.openTabs })?.tabs : undefined;
-  const template = parseNewTabTemplate(object.template);
-  const pageWidgets = parsePageWidgets(object.pageWidgets);
-  const weather = parseWeather(object.weather);
-  const order = suggestionOrder(object.suggestionOrder);
-  return {
-    hotkeys,
-    initialKind,
-    ...(cwd ? { cwd } : {}),
-    ...(typeof object.host === "string" ? { host: object.host } : {}),
-    ...(typeof object.location === "string" && object.location ? { location: object.location } : {}),
-    ...(omnibar ? { omnibar } : {}),
-    ...(openTabs?.length ? { openTabs } : {}),
-    ...(Array.isArray(object.projects)
-      ? {
-          projects: object.projects
-            .filter((path): path is string => typeof path === "string" && path.length > 0)
-            .slice(0, MAX_NEW_TAB_ENTRIES),
-        }
-      : {}),
-    layout: object.layout === "a" ? "a" : "b",
-    ...(template ? { template } : {}),
-    ...(typeof object.lastAgent === "string" && object.lastAgent ? { lastAgent: object.lastAgent } : {}),
-    ...(isStartableProject(typeof object.startedProject === "string" ? object.startedProject : undefined)
-      ? { startedProject: object.startedProject as string }
-      : {}),
-    ...(typeof object.home === "string" && object.home.startsWith("/") ? { home: object.home } : {}),
-    ...(typeof object.inputToken === "string" && object.inputToken ? { inputToken: object.inputToken } : {}),
-    ...(object.focusesField === false ? { focusesField: false } : {}),
-    ...(object.history === true ? { history: true } : {}),
-    ...(object.widgets === true ? { widgets: true } : {}),
-    ...(pageWidgets ? { pageWidgets } : {}),
-    ...(weather ? { weather } : {}),
-    ...(object.headlineOff === true ? { headlineOff: true as const } : {}),
-    ...(object.privateChatLists === true ? { privateChatLists: true } : {}),
-    ...(object.allChats === false ? { allChats: false as const } : {}),
-    ...(order ? { suggestionOrder: order } : {}),
-  };
-}
-
-/// How many recent sessions the page shows (two rows of three).
-export const RECENT_COUNT = 6;
-
-/// A leading character that switches the field to a kind as it is typed, as `!` does in
-/// Claude Code: `!` runs a command in a terminal, `?` asks the agent. `@` is left to the
-/// agent composer, which uses it for file mentions.
-export const KIND_PREFIXES: Readonly<Record<string, TabKind>> = { "!": "terminal", "?": "agent" };
-
-/// The kind a field edit switches to and the text it keeps: typing a prefix into an
-/// empty field switches and consumes it; anything else stays as typed.
-export function prefixedEdit(previous: string, next: string): { kind: TabKind; text: string } | undefined {
-  if (previous !== "" || next.length === 0) return undefined;
-  const kind = KIND_PREFIXES[next[0]!];
-  return kind ? { kind, text: next.slice(1) } : undefined;
+function escapedLiteral(value: string): string {
+  return value.replace(/[!-/:-@[-`{-~]/g, "\\$&").replace(/\r\n?|\n/g, "\\\n");
 }
 
 /// The next kind for Tab (or Shift+Tab with `step` -1), wrapping.
-export function cycleKind(kind: TabKind, step = 1): TabKind {
-  const index = TAB_KINDS.indexOf(kind);
-  return TAB_KINDS[(index + step + TAB_KINDS.length) % TAB_KINDS.length]!;
-}
-
 type KindSwitchDirection = "next" | "previous";
 
 /// The newest sessions first, the ones waiting on the user ahead of them.
-export function recentSessions(
-  sessions: AcpmuxSnapshot["sessions"],
-  count = RECENT_COUNT,
-  fold = true,
-): AcpmuxSessionEntry[] {
-  // Snapshots already carry normalized entries from the direct client. Keep their identity so a
-  // New Tab render does not allocate and normalize every recent chat again. Gallery and older
-  // callers may still provide raw summaries, so retain the normalization fallback for those.
-  const all = sessions
-    .map((session) => normalizedSessionEntry(session as AcpmuxSessionEntry & Record<string, unknown>))
-    // A chat nothing was sent in yet (a New Tab's chip pick starts one) is no recent chat.
-    .filter((entry) => listed(entry) && !entry.unsent);
-  const urgency = (entry: AcpmuxSessionEntry) => (sessionMark(entry, false) === "input" ? 0 : 1);
-  // Chats reported in the same millisecond tie on their durable ids, so a snapshot's arrival order
-  // cannot make the rows trade places.
-  const ordered = all.sort(
-    (a, b) =>
-      urgency(a) - urgency(b) ||
-      (activityTime(b) ?? 0) - (activityTime(a) ?? 0) ||
-      a.sessionId.localeCompare(b.sessionId),
-  );
-  if (!fold) return ordered.slice(0, count);
-  // A child folds only under a parent this list shows; under one past the cut it lists on its own.
-  const shown = ordered.filter((entry) => !entry.spawnedBy).slice(0, count);
-  const parents = new Set(shown.map((entry) => entry.sessionId));
-  return ordered.filter((entry) => !folded(entry, parents)).slice(0, count);
-}
-
-/// "now", "5m", "3h", "2d": the card's age, as compact as the sidebar's.
-export function ageLabel(updatedAt: number | undefined, now = Date.now(), t: Translate = translate): string {
-  return ageWithDate(
-    updatedAt,
-    now,
-    (_, translate, elapsedMs) => {
-      // Rounded, as this card's age always was; the date switch is ageWithDate's.
-      const minutes = Math.round(elapsedMs / 60_000);
-      if (minutes < 1) return translate("age.now");
-      if (minutes < 60) return translate("age.minutes", { n: minutes });
-      const hours = Math.round(minutes / 60);
-      return hours < 24 ? translate("age.hours", { n: hours }) : translate("age.days", { n: Math.round(hours / 24) });
-    },
-    t,
-  );
-}
-
 type Props = NewTabCommandActions & {
   snapshot: AcpmuxSnapshot;
   /// Each kind's shortcut as the host shows it ("⌃⇧⌘T"); a kind without one shows none.
@@ -322,6 +103,10 @@ type Props = NewTabCommandActions & {
     attachments?: ComposerAttachment[],
     chat?: NewTabChat,
   ): void | Promise<unknown>;
+  /// True: an agent prompt may not go now (`@computer-use` while Computer Use is not ready, CMUX-682);
+  /// the pane opened setup or said why. Asked on Return's own key press, before a wait for files.
+  /// `late`: the submit resumed after its files were read: hold and say why only, never open setup.
+  holdsSend?(text: string, late?: boolean): boolean;
   /// Go to an open tab or workspace instead of opening a duplicate.
   onJump?(target: "tab" | "workspace", id: string): void;
   onOpenSession(sessionId: string): void;
@@ -335,6 +120,11 @@ type Props = NewTabCommandActions & {
   /// The chat view's composer stood in for this page while the host failed before its handshake:
   /// what was typed there, taken once as the page's own draft when the page comes back.
   takeDraft?(): { text: string; attachments: ComposerAttachment[] } | undefined;
+  /// A chat this page started failed after the page had gone (App.tsx `startLeftNewTab`): the page
+  /// came back and says it on its failure line, with Retry, never the chat view's empty-chat hero.
+  startFailure?: { error: string };
+  /// The field's text as typed, after each edit (for a draft it was handed: what a pick leaves again).
+  onFieldEdit?(text: string): void;
   now?: number;
 };
 
@@ -356,6 +146,7 @@ export function NewTabPage({
   location,
   projects = [],
   onSubmit,
+  holdsSend,
   onCmuxCommand,
   onImportFile,
   importError,
@@ -369,8 +160,11 @@ export function NewTabPage({
   onInputReady,
   onLeaveDraft,
   takeDraft,
+  startFailure,
+  onFieldEdit,
 }: Props) {
   const t = useT();
+  const allChatsKey = useShortcut(SHORTCUT_ACTIONS.searchChats);
   const { plainFooter, spellChecking } = useComposerSettings();
   // The classic template is a New Tab page too: what it opens (the project chooser, its menus)
   // appears at once; exits keep their fades (newtab/noEntryMotion.ts).
@@ -421,14 +215,19 @@ export function NewTabPage({
       browsePending.current = false;
     }
   };
-  const [started] = useState(() => (home ? (rememberedStartedProject() ?? startedProject) : undefined));
+  const [started] = useState(() => (home ? startedProjectChoices(startedProject) : []));
   const projectCwd =
     picked ??
-    (isStartableProject(cwd) || !home
+    ((isStartableProject(cwd) && !isTemporaryFolder(cwd)) || !home
       ? cwd
-      : (firstProject(started ? [started.replace(/(.)\/+$/, "$1")] : [], home, knownProjects) ??
+      : (firstProject(started, home, knownProjects) ??
         mostRecentProject(snapshot.sessions, home, knownProjects) ??
         cwd));
+  // Where the chips' picks start the chat: the project, never the tab's inherited `~` or agent-home
+  // folder by itself (cmux#40938: a Codex pick then started in the home folder, which the pane
+  // refuses). None: the host starts the chat in its own start folder. A terminal still opens in
+  // the tab's folder (`projectCwd`).
+  const chatCwd = projectCwd === cwd && !isStartableProject(cwd) ? undefined : projectCwd;
   // Agent's harness and model before a pick, as the New Tab screen reads them (newTabStart): the
   // chips pick on this snapshot, and Return starts the chat on the same harness and model.
   const remembered = useLastPick(projectCwd);
@@ -438,26 +237,55 @@ export function NewTabPage({
     [snapshot, lastAgent, projectCwd, remembered, harnessesListed],
   );
   const chipModel = useNewTabChipModel(chipSnapshot);
-  const [text, setText] = useState(carried?.text || (location ?? ""));
-  /// The last open was refused (the host made no tab): a note under the field until the next edit.
-  const [openFailed, setOpenFailed] = useState(false);
+  // The field is the chat composer's prompt editor (MarkdownField), as on the New Tab screen
+  // (newtab/NewTabScreen.tsx): one composer everywhere (leo-workspace design/new-tab.md). Its value is
+  // Markdown; a host-provided location is literal text (paths and URLs can hold `_`, `*` or `[`), so
+  // it goes in escaped. A carried composer draft is already Markdown, attachment tokens included.
+  const field = useRef<MarkdownFieldHandle | null>(null);
+  const [fieldReady, setFieldReady] = useState(false);
+  const fieldElement = () => field.current?.element() ?? null;
+  const untouchedText = useRef(escapedLiteral(location ?? ""));
+  const [text, setText] = useState(carried?.text || untouchedText.current);
+  // What was typed, as the agent, a terminal or an address bar gets it: the characters themselves,
+  // never the field's Markdown escaping (the screen's `typed`).
+  const typed = useMemo(
+    () =>
+      fieldReady ? (field.current?.agentText(text) ?? text) : text === untouchedText.current ? (location ?? "") : text,
+    [text, fieldReady, location],
+  );
+  /// The last open was refused (the host made no tab): a note under the field until the next edit,
+  /// saying which kind did not open, with Retry (the same open again) and the host's words under Details.
+  // Retry on a failure the page came back with asks again with the field as it is then.
+  const retryStart = useRef<() => void>(() => undefined);
+  const [openFailed, setOpenFailed] = useState<{ kind: TabKind; detail: string; retry: () => void } | undefined>(() =>
+    startFailure ? { kind: "agent", detail: startFailure.error.trim(), retry: () => retryStart.current() } : undefined,
+  );
+  // A start that failed in the same turn it left keeps this page mounted: the failure arrives as a prop.
+  useLayoutEffect(() => {
+    if (startFailure)
+      setOpenFailed({ kind: "agent", detail: startFailure.error.trim(), retry: () => retryStart.current() });
+  }, [startFailure]);
   const attachmentRef = useRef<ComposerAttachment[]>([]);
   const make = (next: TabKind, value: string, folder?: string) => {
-    setOpenFailed(false);
+    setOpenFailed(undefined);
     const attachments = next === "agent" ? attachmentRef.current : [];
     const chat = next === "agent" && harness ? { harness, ...(chipModel ? { model: chipModel } : {}) } : undefined;
     if (next === "agent" && command.intercept(value, harness, attachments.length)) return;
-    const result = onSubmit(next, value, folder, attachments.length ? attachments : undefined, chat);
+    // `/customize …` goes as the ask it stands for (customizeCommand.ts). Here, the one place every
+    // way of starting a chat passes: Enter on the field, Enter on the Ask row, a click on that row.
+    const sent = next === "agent" ? (customizeMessage(value.trim()) ?? value) : value;
+    const result = onSubmit(next, sent, folder, attachments.length ? attachments : undefined, chat);
     // The suggestions float over the note: they close until the next edit, so it shows.
     if (result)
-      void result.catch(() => {
-        setOpenFailed(true);
+      void result.catch((error: unknown) => {
+        const detail = error instanceof Error ? error.message : typeof error === "string" ? error : "";
+        setOpenFailed({ kind: next, detail: detail.trim(), retry: () => make(next, value, folder) });
         setDismissed(queryRef.current);
       });
   };
   // The location stays a suggestion until edited: the rows are the empty bar's.
   const [touched, setTouched] = useState(Boolean(carried?.text));
-  const query = touched ? text : "";
+  const query = touched ? typed : "";
   const [selected, setSelected] = useState(-1);
   // The field was wholly selected before this edit, so a typed prefix starts it over.
   const replacing = useRef(false);
@@ -465,6 +293,7 @@ export function NewTabPage({
   // With no room under the field for every row, the rows go past the window's edge (cx-6k6cg).
   // A dismiss there (another app, a resize) hides the rows until the query changes; the text stays.
   const [dismissed, setDismissed] = useState<string>();
+  const listEdges = useScrollEdges();
   const escape = useEscapingList("bottom", 10, () => setDismissed(queryRef.current));
   const attachList = useCallback(
     (node: HTMLDivElement | null) => {
@@ -475,7 +304,6 @@ export function NewTabPage({
   );
   // The kind a prefix switched from, so Backspace in the empty field switches back.
   const [beforePrefix, setBeforePrefix] = useState<TabKind>();
-  const field = useRef<HTMLInputElement>(null);
   const {
     attachments,
     setAttachments,
@@ -489,8 +317,8 @@ export function NewTabPage({
     dropLanded,
   } = useAttachmentIntake({
     allowImages: snapshot.summary?.promptCapabilities?.image !== false,
-    pasteTarget: (target) => (kind === "agent" && field.current?.contains(target) ? { uploads: false } : undefined),
-    dropZone: () => field.current?.closest(".acpmux-newtab") ?? null,
+    pasteTarget: (target) => (kind === "agent" && fieldElement()?.contains(target) ? { uploads: false } : undefined),
+    dropZone: () => fieldElement()?.closest(".acpmux-newtab") ?? null,
   });
   const holdForAttachments = useSendWhenAttached(unsettled);
   const command = useNewTabCommand(
@@ -512,7 +340,7 @@ export function NewTabPage({
   // The Agent draft as it is now, for `onLeaveDraft` when the page goes (a terminal command or an
   // address has no chat composer to go to).
   const leaving = useRef({ text, attachments, typed: false, kind, onLeaveDraft });
-  leaving.current = { text, attachments, typed: text !== (location ?? ""), kind, onLeaveDraft };
+  leaving.current = { text, attachments, typed: text !== untouchedText.current, kind, onLeaveDraft };
   useEffect(
     () => () => {
       const draft = leaving.current;
@@ -526,7 +354,7 @@ export function NewTabPage({
   // query (the location comes back with the page), staged attachments, and a kind or folder picked
   // (pages/shared/webSwap.ts).
   useWebSwapHold(
-    text !== (location ?? "")
+    text !== untouchedText.current
       ? "newtab.draft"
       : attachments.length || pending.length
         ? "newtab.attachments"
@@ -536,10 +364,11 @@ export function NewTabPage({
   );
   const [dropHost, setDropHost] = useState<Element | null>(null);
   useEffect(() => {
-    const element = field.current;
+    const element = field.current?.element();
     setDropHost(element ? (element.closest(".acpmux-newtab") ?? element.ownerDocument.body) : null);
-  }, []);
-  const dropLandingTarget = useCallback(() => field.current?.parentElement ?? null, []);
+  }, [fieldReady]);
+  // The input card, which a file drag rings (composer/DropOverlay.tsx).
+  const dropLandingTarget = useCallback(() => field.current?.element()?.closest(".acpmux-newtab-box") ?? null, []);
   // Cmd-V anywhere on the page outside a text field (a row, a card, the empty page) goes into the
   // field, caret at the end, as in a chat (composer/pasteAnywhere.ts; Leo 2026-10-22: "cmd v anywhere
   // in chat should put it in chat").
@@ -547,31 +376,36 @@ export function NewTabPage({
     const input = field.current;
     if (!input) return false;
     input.focus();
-    input.setSelectionRange(input.value.length, input.value.length);
+    input.setCaret(input.plainText().length);
     return true;
   });
   const composing = useRef(false);
-  const recent = useMemo(() => recentSessions(snapshot.sessions), [snapshot.sessions]);
   // The suggestions float over the page under the field (cx-6k6cg), so they show only while the
   // field has the keyboard and something is typed: at rest nothing covers the page below.
   const [focused, setFocused] = useState(false);
   const queryRef = useRef(query);
   queryRef.current = query;
-  const open = focused && query.trim() !== "" && query !== dismissed;
-  const suggestions = useMemo(
+  retryStart.current = () => make("agent", queryRef.current);
+  // The failure line sits where the rows float: they wait for the next edit, which clears the line.
+  const open = focused && query.trim() !== "" && query !== dismissed && !openFailed;
+  // The recent chats are sorted only while the rows show: a page at rest never sorts every chat.
+  const recent = useMemo(() => (open ? recentSessions(snapshot.sessions) : []), [open, snapshot.sessions]);
+  const rows = useMemo(
     () =>
-      omnibarRows(query, kind, {
-        ...omnibar,
-        sessions: recent.map((session) => ({
-          sessionId: session.sessionId,
-          title: session.displayTitle ?? session.sessionId,
-          ...(session.harness ? { harness: session.harness } : {}),
-          detail: projectLabel(session.cwd),
-        })),
-      }),
-    [query, kind, omnibar, recent],
+      open
+        ? omnibarRows(query, kind, {
+            ...omnibar,
+            sessions: recent.map((session) => ({
+              sessionId: session.sessionId,
+              title: session.displayTitle ?? session.sessionId,
+              ...(session.harness ? { harness: session.harness } : {}),
+              ...(session.icon ? { icon: session.icon } : {}),
+              detail: projectLabel(session.cwd),
+            })),
+          })
+        : [],
+    [open, query, kind, omnibar, recent],
   );
-  const rows = useMemo(() => (open ? suggestions : []), [open, suggestions]);
   useEffect(() => setSelected(defaultRow(rows, kind, query)), [rows, kind, query]);
   useEffect(() => {
     // Rows past the window's edge draw in the host; the invisible list never scrolls the page.
@@ -587,7 +421,7 @@ export function NewTabPage({
   const changeKind = (next: TabKind) => {
     if (next === kind) return;
     const direction: KindSwitchDirection = cycleKind(kind) === next ? "next" : "previous";
-    const view = field.current?.ownerDocument.defaultView;
+    const view = fieldElement()?.ownerDocument.defaultView ?? window;
     if (kindSwitchTimer.current !== undefined) view?.clearTimeout(kindSwitchTimer.current);
     // Clear first, then re-arm on the next frame. Consecutive forward switches (Tab) therefore
     // restart the animation even though the direction stays the same.
@@ -601,8 +435,7 @@ export function NewTabPage({
 
   useEffect(
     () => () => {
-      const view = field.current?.ownerDocument.defaultView;
-      if (kindSwitchTimer.current !== undefined) view?.clearTimeout(kindSwitchTimer.current);
+      if (kindSwitchTimer.current !== undefined) window.clearTimeout(kindSwitchTimer.current);
     },
     [],
   );
@@ -611,21 +444,41 @@ export function NewTabPage({
   // again on Cmd-L (the host's FOCUS_LOCATION_EVENT), wherever focus moved on the page; only
   // then, so an update (the App hands a new callback on each render) or a click into the field
   // never moves its caret or restarts its blink.
+  // The editor mounts a moment after the field (`fieldReady`): the first focus waits for it.
   const inputReady = useRef(onInputReady);
   inputReady.current = onInputReady;
-  useEffect(() => {
+  const inputReadyReported = useRef<string | undefined>(undefined);
+  useLayoutEffect(() => {
+    if (!fieldReady) return;
     const focus = () => {
-      field.current?.focus();
-      field.current?.select();
+      const input = field.current;
+      if (!input) return;
+      input.focus();
+      // AllSelection in an empty document selects the root, outside its typing paragraph (the
+      // screen's focus does the same).
+      if (input.plainText().trim()) input.selectAll();
+      else input.setCaret(0);
       // A page shown in a window that is not key yet gets no focus event until it is.
-      setFocused(field.current === document.activeElement);
+      setFocused(input.focused());
     };
-    focus();
-    if (inputToken) inputReady.current?.(inputToken);
-    const host = field.current?.ownerDocument.defaultView;
+    // Not again while the field has the keyboard: a token change after the readiness selected the keys typed so far
+    // (the screen's show-focus has the same rule).
+    if (!field.current?.focused()) focus();
+    const host = fieldElement()?.ownerDocument.defaultView;
+    // The app replays the keys typed after Cmd-T at this readiness: it waits for the page's focus.
+    let cancelReady = () => {};
+    if (inputToken && inputReadyReported.current !== inputToken) {
+      cancelReady = reportInputReadyWhenFocused(host, () => {
+        inputReadyReported.current = inputToken;
+        inputReady.current?.(inputToken);
+      });
+    }
     host?.addEventListener(FOCUS_LOCATION_EVENT, focus);
-    return () => host?.removeEventListener(FOCUS_LOCATION_EVENT, focus);
-  }, [inputToken]);
+    return () => {
+      cancelReady();
+      host?.removeEventListener(FOCUS_LOCATION_EVENT, focus);
+    };
+  }, [inputToken, fieldReady]);
   const choose = (next: TabKind) => {
     changeKind(next);
     setBeforePrefix(undefined);
@@ -649,23 +502,36 @@ export function NewTabPage({
       case "open":
         return make("browser", row.text);
       case "ask":
+        // cmux's own commands first (`/import @computer-use` opens its picker), as Return does in `submit`.
+        if (command.intercept(row.text.trim(), harness, attachments.length, true)) return;
+        // An Ask row's press is its own gesture: held for Computer Use here, as Return is in `submit`;
+        // a submit resumed after its files only holds and says why (`sendResuming`).
+        if (holdsSend?.(row.text.trim(), sendResuming.current)) return;
         return make("agent", row.text, projectCwd);
     }
   };
   // The row is the field's text area (the I-beam shows over all of it): a press beside the
-  // field focuses it; the field and the kind switch keep their own presses. Pointer only, so the
-  // row is presentation: keys reach the field itself.
+  // field, or on its padding above and below the text, focuses it; the editable text and the
+  // kind switch keep their own presses. Pointer only, so the row is presentation: keys reach the
+  // field itself.
   const focusFromRow = (event: React.MouseEvent<HTMLDivElement>) => {
     const target = event.target as Element;
-    if (target === field.current || target.closest("fieldset, button")) return;
+    const editable = fieldElement()?.querySelector('[contenteditable="true"]');
+    if (editable?.contains(target) || target.closest("fieldset, button")) return;
     event.preventDefault();
     field.current?.focus();
   };
   const submitNow = useRef<() => void>(() => {});
+  /// A submit that resumes after its files were read (`runResumed`): its Computer Use hold only says why.
+  const sendResuming = useRef(false);
   const submit = (event?: React.FormEvent) => {
     event?.preventDefault();
     if (kind === "agent" && command.intercept(query.trim(), harness, attachments.length, true)) return;
-    if (holdForAttachments(() => submitNow.current())) return;
+    // Held for Computer Use on this key press, before a screenshot still being read can outlast it:
+    // only a chat prompt (no row picked, or an Ask row), never a workspace, tab or folder Return opens.
+    const picked = rows[selected];
+    if (kind === "agent" && query.trim() && (!picked || picked.type === "ask") && holdsSend?.(query.trim())) return;
+    if (holdForAttachments(() => runResumed(sendResuming, () => submitNow.current()))) return;
     submitNow.current();
   };
   submitNow.current = () => {
@@ -675,15 +541,52 @@ export function NewTabPage({
     if (kind === "browser" && !query.trim()) return;
     make(kind, query.trim(), kind === "browser" ? undefined : projectCwd);
   };
-  const keyDown = (event: React.KeyboardEvent<HTMLInputElement>) => {
-    if (composing.current || event.nativeEvent.isComposing) return;
-    const input = event.currentTarget;
+  // `app.keyStyle`. The prompt keeps its typing: Emacs' Ctrl-N/P step the rows as the arrows do,
+  // and Vim's Esc (Emacs' Ctrl-G) gives the keyboard to the rows, where j/k, gg/G and l or Return
+  // pick as the arrows and Return do and / goes back to the prompt. Their Esc is the page's.
+  const listTakesKeys = useKeyStyleSettings().keyStyle !== "standard";
+  const runListCommand = (command: ListCommand, inField: boolean): boolean | void => {
+    if (!rows.length) return false;
+    if (command === "list.next" || command === "list.previous") {
+      setSelected((current) => stepSelection(current, command === "list.next" ? 1 : -1, rows.length));
+      return;
+    }
+    if (inField) {
+      if (command !== "list.leave" || !list.current) return false;
+      focusRoute(list.current, "person", "key style list key", { preventScroll: true });
+      return;
+    }
+    if (command === "list.first" || command === "list.last")
+      setSelected(command === "list.first" ? 0 : rows.length - 1);
+    else if (command === "list.open") {
+      const row = rows[selected];
+      if (row) activate(row);
+    } else if (command === "list.search") focusRoute(field.current, "person", "key style list key");
+    else return false;
+  };
+  const fieldKeys = useListKeys({ onCommand: (command) => runListCommand(command, true) });
+  const rowKeys = useListKeys({ onCommand: (command) => runListCommand(command, false) });
+  const keyDown = (event: KeyboardEvent) => {
+    if (composing.current || event.isComposing || event.keyCode === 229) return;
+    fieldKeys(event);
+    if (event.defaultPrevented) return;
+    const input = field.current?.text() ?? { value: typed, selectionStart: typed.length, selectionEnd: typed.length };
     replacing.current = input.value !== "" && input.selectionStart === 0 && input.selectionEnd === input.value.length;
-    if ((event.key === "ArrowDown" || event.key === "ArrowUp") && rows.length) {
+    // A prompt of several lines, wrapped ones too, keeps ↑ and ↓ for its caret while there is a line
+    // to move to (the New Tab screen's rule, newtab/NewTabScreen.tsx `movesCaretInPrompt`); past it
+    // they step the rows.
+    const plainArrow = !event.ctrlKey && !event.metaKey && !event.altKey && !event.shiftKey;
+    const onEdge = (direction: "up" | "down") => field.current?.caretOnEdgeLine(direction) ?? true;
+    const movesCaret =
+      plainArrow &&
+      (event.key === "ArrowUp"
+        ? input.value.slice(0, input.selectionStart).includes("\n") || !onEdge("up")
+        : event.key === "ArrowDown" && (input.value.slice(input.selectionEnd).includes("\n") || !onEdge("down")));
+    if ((event.key === "ArrowDown" || event.key === "ArrowUp") && rows.length && !movesCaret) {
       event.preventDefault();
       const step = event.key === "ArrowDown" ? 1 : -1;
       setSelected((current) => stepSelection(current, step, rows.length));
-    } else if (event.key === "Escape" && text) {
+    } else if (event.key === "Escape" && typed) {
       event.preventDefault();
       setText("");
       setTouched(true);
@@ -691,74 +594,124 @@ export function NewTabPage({
       event.preventDefault();
       setBeforePrefix(undefined);
       changeKind(cycleKind(kind, event.shiftKey ? -1 : 1));
-    } else if (event.key === "Backspace" && text === "" && beforePrefix) {
+    } else if (event.key === "Backspace" && typed === "" && beforePrefix) {
       event.preventDefault();
       changeKind(beforePrefix);
       setBeforePrefix(undefined);
     } else {
       // Backspace at the field's start takes back the last chip (backspacedAttachment).
-      const backspaced = backspacedAttachment(
-        event,
-        input.selectionStart === 0 && input.selectionEnd === 0,
-        attachments,
-      );
+      const backspaced = backspacedAttachment(event, field.current?.atStart() ?? false, attachments);
       if (!backspaced) return;
       event.preventDefault();
       setAttachments((current) => current.filter((item) => item.id !== backspaced.id));
     }
   };
+  const prefixReset = useRef<string | undefined>(undefined);
+  useLayoutEffect(() => {
+    const value = prefixReset.current;
+    if (value === undefined) return;
+    prefixReset.current = undefined;
+    if (field.current?.value() !== value) field.current?.reset(value);
+  }, [kind]);
   const edit = (next: string) => {
+    // The editor canonicalizes the location's escaping as it mounts: still the untouched location,
+    // not a typed draft, a reason to show suggestions or a web swap to hold.
+    if (!fieldReady && field.current?.agentText(next) === (location ?? "")) {
+      untouchedText.current = next;
+      setText(next);
+      return;
+    }
     setTouched(true);
-    setOpenFailed(false);
-    const prefixed = composing.current ? undefined : prefixedEdit(replacing.current ? "" : text, next);
+    setOpenFailed(undefined);
+    const plain = field.current?.agentText(next) ?? next;
+    onFieldEdit?.(plain);
+    const prefixed = composing.current ? undefined : prefixedEdit(replacing.current ? "" : typed, plain);
     replacing.current = false;
     if (prefixed && prefixed.kind !== kind) {
       setBeforePrefix(kind);
       changeKind(prefixed.kind);
-      setText(prefixed.text);
+      // The prefix is consumed: the field holds what follows it, as typed. The editor already holds
+      // the prefix, and the value may not change (a lone `!`), so it is reset after this edit.
+      prefixReset.current = escapedLiteral(prefixed.text);
+      setText(prefixReset.current);
       return;
     }
     setText(next);
   };
-  // The composer's look (composerLook.ts; the page's first two dots, newtab/PageDots.tsx): both lay
-  // the row under the field out the same; Codex's names Full access in the accent (composerLook.css).
-  const look = useComposerLook();
   const foot = useRef<HTMLDivElement>(null);
-  useRowFit(foot, `${kind}:${plainFooter}:${look}`);
+  useRowFit(foot, `${kind}:${plainFooter}`);
 
   return (
-    <div className="acpmux-newtab" data-kind={kind} data-composer-look={look === "codex" ? "codex" : undefined}>
+    <div className="acpmux-newtab" data-kind={kind}>
       {/* The suggestions float under the field (cx-6k6cg): opening them moves nothing below. */}
       <div className="acpmux-newtab-anchor">
         <form className="acpmux-newtab-box" onSubmit={submit}>
+          {/* Attachments sit inside the top of the card (Leo 2026-11-23, ask-525a5e502a: within the top
+              part of the composer, no shift); the prompt gives up their band (composerAttachments.css),
+              so a capped card keeps its height when they land. */}
+          <AttachmentStrip
+            attachments={attachments}
+            pending={pending}
+            {...(command.error || attachError ? { error: command.error ?? attachError } : {})}
+            codex={false}
+            onRemove={(id) => {
+              setAttachments((current) => current.filter((item) => item.id !== id));
+              field.current?.focus();
+            }}
+            onCancel={(id) => {
+              cancel(id);
+              field.current?.focus();
+            }}
+            onRetry={retry}
+            originalFailures={originalFailures}
+            onReorder={(id, index) => setAttachments((current) => reordered(current, id, index))}
+          />
           <div
             className="acpmux-newtab-row"
             data-kind-switch={kindSwitch}
             role="presentation"
             onMouseDown={focusFromRow}
+            onFocus={(event) => {
+              if (fieldElement()?.contains(event.target)) setFocused(true);
+            }}
+            onBlur={(event) => {
+              if (
+                fieldElement()?.contains(event.target) &&
+                !fieldElement()?.contains(event.relatedTarget as Node | null) &&
+                // A key style's leave hands the keyboard to the rows: they stay up.
+                !list.current?.contains(event.relatedTarget as Node | null)
+              )
+                setFocused(false);
+            }}
           >
             <KindIcon kind={kind} />
-            <input
+            {/* The chat composer's prompt editor (MarkdownField), as the New Tab screen draws it: a long
+                prompt wraps and grows to its cap, then scrolls; Return opens; Shift-Return adds a line.
+                Commands and addresses keep their characters (literal). */}
+            <MarkdownField
               ref={field}
               className="acpmux-newtab-field"
-              {...{ [WEB_SWAP_KEPT_TEXT]: "" }}
-              aria-label={placeholder}
-              placeholder={placeholder}
               value={text}
-              aria-controls="acpmux-omni"
-              aria-activedescendant={selected >= 0 ? `acpmux-omni-${selected}` : undefined}
-              spellCheck={spellChecking && kind === "agent"}
-              autoCapitalize="off"
-              autoCorrect="off"
-              onChange={(event) => edit(event.target.value)}
-              onFocus={() => setFocused(true)}
-              onBlur={() => setFocused(false)}
+              placeholder={placeholder}
+              multiline
+              plainInput
+              literal={kind !== "agent"}
+              onReady={() => setFieldReady(true)}
+              onChange={(value) => edit(value)}
               onKeyDown={keyDown}
-              onCompositionStart={() => {
-                composing.current = true;
+              onCompositionChange={(value) => {
+                composing.current = value;
               }}
-              onCompositionEnd={() => {
-                composing.current = false;
+              onSubmit={() => submit()}
+              attributes={{
+                [WEB_SWAP_KEPT_TEXT]: "",
+                "data-focus-ring": "none",
+                "aria-label": placeholder,
+                "aria-controls": "acpmux-omni",
+                "aria-activedescendant": selected >= 0 ? `acpmux-omni-${selected}` : undefined,
+                spellcheck: spellChecking && kind === "agent" ? "true" : "false",
+                autocapitalize: "off",
+                autocorrect: "off",
               }}
             />
             <fieldset className="acpmux-newtab-switch" aria-label={t(NEW_TAB_LABELS.switchLabel)}>
@@ -793,23 +746,6 @@ export function NewTabPage({
             </fieldset>
           </div>
           {command.input}
-          <AttachmentStrip
-            attachments={attachments}
-            pending={pending}
-            {...(command.error || attachError ? { error: command.error ?? attachError } : {})}
-            codex={false}
-            onRemove={(id) => {
-              setAttachments((current) => current.filter((item) => item.id !== id));
-              field.current?.focus();
-            }}
-            onCancel={(id) => {
-              cancel(id);
-              field.current?.focus();
-            }}
-            onRetry={retry}
-            originalFailures={originalFailures}
-            onReorder={(id, index) => setAttachments((current) => reordered(current, id, index))}
-          />
           {dropHost && (
             <DropOverlay state={drop} onLanded={dropLanded} container={dropHost} landingTarget={dropLandingTarget} />
           )}
@@ -842,7 +778,7 @@ export function NewTabPage({
               type="submit"
               className={`acpmux-send${query.trim() || kind !== "browser" ? " acpmux-send-ready" : ""}`}
               aria-label={t(NEW_TAB_LABELS.open)}
-              title={`${t(NEW_TAB_LABELS.open)} ↵`}
+              title={`${t(NEW_TAB_LABELS.open)} ↩`}
             >
               <ArrowUpIcon />
             </button>
@@ -851,50 +787,65 @@ export function NewTabPage({
         {kind === "agent" && Chips && (
           <div className="acpmux-newtab-foot">
             <ComposerFoot ref={foot} plain={plainFooter}>
-              <Chips snapshot={chipSnapshot} cwd={projectCwd} />
+              <Chips snapshot={chipSnapshot} {...(chatCwd ? { cwd: chatCwd } : {})} />
             </ComposerFoot>
           </div>
         )}
         {rows.length > 0 && (
           <div
             ref={attachList}
-            className="acpmux-omni ui-popup ui-glass"
+            className="acpmux-omni ui-popup ui-glass ui-popup-scroll-shell"
+            // The omnibar's rows are the live answer to the field above (ui/popupSettle.ts).
+            data-popup-settle="results"
             id="acpmux-omni"
             // oxlint-disable-next-line jsx-a11y/prefer-tag-over-role
             role="listbox"
             aria-label={t(NEW_TAB_LABELS.suggestions)}
+            tabIndex={listTakesKeys ? -1 : undefined}
+            onKeyDown={(event) => {
+              rowKeys(event);
+              if (event.defaultPrevented || event.key !== "Enter" || event.nativeEvent.isComposing) return;
+              event.preventDefault();
+              runListCommand("list.open", false);
+            }}
+            onBlur={(event) => {
+              const next = event.relatedTarget as Node | null;
+              if (!list.current?.contains(next) && !fieldElement()?.contains(next)) setFocused(false);
+            }}
           >
-            {/* Virtual focus, as the composer's slash menu: the field keeps focus and names the row. */}
-            {rows.map((row, index) => (
-              <div
-                key={rowKey(row)}
-                id={`acpmux-omni-${index}`}
-                // oxlint-disable-next-line jsx-a11y/prefer-tag-over-role
-                role="option"
-                tabIndex={-1}
-                aria-selected={index === selected}
-                className={index === selected ? "acpmux-omni-row is-selected" : "acpmux-omni-row"}
-                // Hover only lights the row (styles.css); Return stays the keyboard's row, as on
-                // the New Tab screen (newtab/NewTabScreen.tsx). A press still runs the row.
-                onMouseDown={(event) => {
-                  event.preventDefault();
-                  activate(row);
-                }}
-              >
-                <RowIcon row={row} agent={snapshot.summary?.harness ?? snapshot.catalog[0]?.id} />
-                <span className="acpmux-omni-text">
-                  <span className="acpmux-omni-title">
-                    {row.type === "ask" && <b>{t(NEW_TAB_LABELS.ask, { agent })}: </b>}
-                    {rowTitle(row)}
-                  </span>{" "}
-                  {rowDetail(row) && <span className="acpmux-omni-detail">{rowDetail(row)}</span>}
-                </span>
-                <span className="acpmux-omni-action" data-popup-skip>
-                  {row.type === "ask" ? t(NEW_TAB_LABELS.ask, { agent }) : t(NEW_TAB_LABELS.rows[row.type])}
-                  {index === selected && <kbd>↵</kbd>}
-                </span>
-              </div>
-            ))}
+            <div ref={listEdges} className="ui-popup-scroll ui-scroll-edge-fade">
+              {/* Virtual focus, as the composer's slash menu: the field keeps focus and names the row. */}
+              {rows.map((row, index) => (
+                <div
+                  key={rowKey(row)}
+                  id={`acpmux-omni-${index}`}
+                  // oxlint-disable-next-line jsx-a11y/prefer-tag-over-role
+                  role="option"
+                  tabIndex={-1}
+                  aria-selected={index === selected}
+                  className={index === selected ? "acpmux-omni-row is-selected" : "acpmux-omni-row"}
+                  // Hover only lights the row (styles.css); Return stays the keyboard's row, as on
+                  // the New Tab screen (newtab/NewTabScreen.tsx). A press still runs the row.
+                  onMouseDown={(event) => {
+                    event.preventDefault();
+                    activate(row);
+                  }}
+                >
+                  <RowIcon row={row} agent={snapshot.summary?.harness ?? snapshot.catalog[0]?.id} />
+                  <span className="acpmux-omni-text">
+                    <span className="acpmux-omni-title">
+                      {row.type === "ask" && <b>{t(NEW_TAB_LABELS.ask, { agent })}: </b>}
+                      {rowTitle(row)}
+                    </span>{" "}
+                    {rowDetail(row) && <span className="acpmux-omni-detail">{rowDetail(row)}</span>}
+                  </span>
+                  <span className="acpmux-omni-action" data-popup-skip>
+                    {row.type === "ask" ? t(NEW_TAB_LABELS.ask, { agent }) : t(NEW_TAB_LABELS.rows[row.type])}
+                    {index === selected && <kbd>{keycapLegend("↩")}</kbd>}
+                  </span>
+                </div>
+              ))}
+            </div>
           </div>
         )}
       </div>
@@ -906,13 +857,18 @@ export function NewTabPage({
         />
       )}
       {openFailed && (
-        <p className="acpmux-newtab-failed" role="alert">
-          {t(NEW_TAB_LABELS.openFailed)}
-        </p>
+        <div className="acpmux-newtab-failed" role="alert">
+          <p className="acpmux-newtab-failed-message">{t(NEW_TAB_LABELS.openFailedKind[openFailed.kind])}</p>
+          <button type="button" className="acpmux-newtab-failed-retry ui-ghost" onClick={openFailed.retry}>
+            {t(NEW_TAB_LABELS.openRetry)}
+          </button>
+          {openFailed.detail && <ErrorDetails text={openFailed.detail} className="acpmux-newtab-failed-details" />}
+        </div>
       )}
       <div className="acpmux-newtab-actions ui-ghost-row">
         <button type="button" className="acpmux-newtab-all ui-ghost" onClick={onShowAll}>
           <span>{t(NEW_TAB_LABELS.allSessions)}</span>
+          <ShortcutKeycaps shortcut={allChatsKey} />
           <span className="ui-ghost-icon" aria-hidden="true">
             <ChevronRight />
           </span>
@@ -934,8 +890,14 @@ function rowKey(row: OmnibarRow): string {
       return `command:${row.command}`;
     case "history":
       return `history:${row.url}`;
-    default:
-      return row.type;
+    // Rows that are the typed text itself (Run, Open, Ask) are a new row for each query, as a command
+    // row is: kept by their type alone, the last row (Ask) slid up whenever the matches above it fell
+    // away (`g` drew six rows, `gi` two), which counts as a layout shift on the frames that drew both
+    // (cmux#35744).
+    case "run":
+    case "open":
+    case "ask":
+      return `${row.type}:${row.text}`;
   }
 }
 
@@ -978,7 +940,7 @@ function RowIcon({ row, agent }: { row: OmnibarRow; agent?: string }) {
     case "workspace":
       return <WorkspaceIcon />;
     case "session":
-      return <AgentMark harness={row.harness} />;
+      return <AgentMark harness={row.harness} icon={row.sessionIcon} />;
     case "folder":
       return <FolderIcon />;
     case "command":
@@ -996,59 +958,6 @@ function RowIcon({ row, agent }: { row: OmnibarRow; agent?: string }) {
 /// A page's favicon (cx-d0d.8), drawn as is at the row icons' size.
 function Favicon({ src }: { src: string }) {
   return <img className="acpmux-icon acpmux-favicon" src={src} alt="" width={16} height={16} draggable={false} />;
-}
-
-/// The agent's brand mark (design/agent-icons) or its harness's own icon, so a session's row says
-/// which agent it is at a glance; an agent without either draws the generic agent glyph.
-export function AgentMark({ harness }: { harness?: string }) {
-  return <BrandMark agent={harness} size={16} fallback={<KindIcon kind="agent" />} />;
-}
-
-// 16px stroke icons in currentColor, matching ComposerPickers.
-function Icon({ children }: { children: React.ReactNode }) {
-  return (
-    <svg
-      className="acpmux-icon"
-      width={16}
-      height={16}
-      viewBox="0 0 16 16"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth={1.25}
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      aria-hidden="true"
-      focusable="false"
-    >
-      {children}
-    </svg>
-  );
-}
-
-export function KindIcon({ kind }: { kind: TabKind }) {
-  switch (kind) {
-    case "terminal":
-      return (
-        <Icon>
-          <rect x="1.75" y="2.75" width="12.5" height="10.5" rx="2" />
-          <path d="m4.6 6.2 2 1.8-2 1.8M8.4 10h3" />
-        </Icon>
-      );
-    case "browser":
-      return (
-        <Icon>
-          <circle cx="8" cy="8" r="6.1" />
-          <path d="M1.9 8h12.2M8 1.9c1.7 1.7 2.5 3.7 2.5 6.1S9.7 12.4 8 14.1C6.3 12.4 5.5 10.4 5.5 8S6.3 3.6 8 1.9Z" />
-        </Icon>
-      );
-    case "agent":
-      return (
-        <Icon>
-          <path d="M8 1.9c.4 2.9 1.6 4.1 4.6 4.6-3 .5-4.2 1.7-4.6 4.6-.4-2.9-1.6-4.1-4.6-4.6 3-.5 4.2-1.7 4.6-4.6Z" />
-          <path d="M12.4 10.4c.15 1.1.6 1.55 1.7 1.7-1.1.15-1.55.6-1.7 1.7-.15-1.1-.6-1.55-1.7-1.7 1.1-.15 1.55-.6 1.7-1.7Z" />
-        </Icon>
-      );
-  }
 }
 
 /// A folder glyph (the project picker on both New Tab designs).
@@ -1080,3 +989,5 @@ const ChevronRight = () => (
     <path d="m6.3 4.6 3.3 3.4-3.3 3.4" />
   </Icon>
 );
+
+export { AgentMark, KindIcon } from "./tabMarks";

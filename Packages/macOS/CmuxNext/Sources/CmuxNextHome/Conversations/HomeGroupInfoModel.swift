@@ -1,4 +1,5 @@
 public import CmuxHomeCore
+public import CmuxNextHomeModel
 import Foundation
 public import Observation
 

@@ -79,13 +79,17 @@ async function until(ready: () => boolean, what: string) {
 
 async function connect(daemon: ReturnType<typeof fakeDaemon>) {
   let snapshot: any;
+  let attached = false;
   const client = await AcpmuxDirectClient.connect(
     { protocolVersion: 1, transport: "acpmux-websocket", endpoint: "ws://127.0.0.1:1/", token: "t", sessionId: CHAT },
-    (next: any) => (snapshot = next),
+    (next: any) => {
+      snapshot = next;
+      attached ||= next.connection === "connected";
+    },
     undefined,
     daemon.open,
   );
-  await until(() => snapshot?.connection === "connected", "the attach");
+  await until(() => attached, "the attach");
   const notes = () =>
     (snapshot.rows as AcpmuxRow[]).filter((row) => row.kind === "policyUnenforced").map((row) => row.policyUnenforced);
   return { client, notes };

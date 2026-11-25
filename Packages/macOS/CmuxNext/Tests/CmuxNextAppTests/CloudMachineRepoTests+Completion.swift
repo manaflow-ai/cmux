@@ -53,43 +53,13 @@ extension CloudMachineRepoTests {
     var withRepo: CloudMachineBootstrap { CloudMachineBootstrap(kind: .plain, contents: CloudMachineBootstrap.noScript, repo: Self.repo) }
     var scriptOnly: CloudMachineBootstrap { CloudMachineBootstrap(kind: .plain, contents: Data("#!/bin/sh\n".utf8)) }
 
+    /// The wait's reads go to Rust and its answer comes back (each status's reading is cmux-cloud-start-core's
+    /// `machine_bootstrap::read`, with its cases); the run becomes words here.
     @Test func aFinishedRunGivesTheClonePathOrNoneWithoutARepo() async {
         #expect(await run(withRepo, [.success(Self.answer(Self.status("done", "0", repo: Self.repoStatus("cloned"))))]) == (Run.finished(repoPath: Self.clone), 1))
         #expect(await run(withRepo, [.success(Self.answer(Self.status("done", "0", repo: Self.repoStatus("kept"))))]).0 == .finished(repoPath: "/home/cmux/work/r"))
         #expect(await run(scriptOnly, [.success(Self.answer(Self.status("done", "0")))]).0 == .finished(repoPath: nil))
         #expect(CloudMachineBootstrap.completion(.finished(repoPath: "/home/cmux/work/r")) == .finished(repoPath: "/home/cmux/work/r"))
-    }
-
-    @Test func eachFailureSaysWhyInWords() async {
-        let needs = await run(withRepo, [.success(Self.answer(Self.status("failed", "3", repo: Self.repoStatus("needs_github"))))]).0
-        #expect(needs == .needsGitHub(repo: "o/r"))
-        #expect(CloudMachineBootstrap.completion(needs) == .failed(reason: CloudStrings.bootstrapNeedsGitHub("o/r")))
-        #expect(CloudStrings.bootstrapNeedsGitHub("o/r").contains("o/r"))
-        let clone = await run(withRepo, [.success(Self.answer(Self.status("failed", "1", repo: Self.repoStatus("failed"))))]).0
-        #expect(clone == .repoFailed(repo: "o/r"))
-        let script = await run(scriptOnly, [.success(Self.answer(Self.status("failed", "7")))]).0
-        #expect(script == .scriptFailed(exitCode: 7))
-        #expect(CloudMachineBootstrap.completion(script) == .failed(reason: CloudStrings.bootstrapScriptFailed(7, log: CloudMachineBootstrap.logPath)))
-        #expect(CloudStrings.bootstrapScriptFailed(7, log: "L").contains("7"))
-        #expect(await run(withRepo, [.success(Self.answer(Self.status("failed", "75", late: true)))]).0 == .runnerNeverCame, "the runner came a minute late")
-        #expect(await run(scriptOnly, [.success(Self.answer(Self.status("failed", "75")))]).0 == .scriptFailed(exitCode: 75), "a script's own exit 75")
-        // The runner says which step failed: a script that exits 3 after a needs_github repo step is the script's failure,
-        // the repo step's retry after it is the repo's, and a late refusal wins over any repo status.
-        let needsGitHub = Self.repoStatus("needs_github")
-        #expect(await run(withRepo, [.success(Self.answer(Self.status("failed", "3", repo: needsGitHub, step: "script")))]).0 == .scriptFailed(exitCode: 3))
-        #expect(await run(withRepo, [.success(Self.answer(Self.status("failed", "3", repo: needsGitHub, step: "repo")))]).0 == .needsGitHub(repo: "o/r"))
-        #expect(await run(withRepo, [.success(Self.answer(Self.status("failed", "75", repo: Self.repoStatus("failed"), late: true)))]).0 == .runnerNeverCame)
-        #expect(await run(withRepo, [.success(Self.answer(Self.status("starting", at: 1000), now: 1100))]).0 == .runnerNeverCame)
-        #expect(await run(withRepo, [.success(Self.answer(nil))]).0 == .runnerNeverCame, "no status at all")
-        #expect(await run(withRepo, [.success(Self.answer(Self.status("running")))]).0 == .stopped, "`running` read under a free lock")
-        // `running` with no `alive` yet raced the runner making it: read again, and the next read sees the run.
-        #expect(await run(withRepo, [.success(Self.answer(Self.status("running"), lock: "none")),
-                                     .success(Self.answer(Self.status("done", "0", repo: Self.repoStatus("cloned"))))]) == (Run.finished(repoPath: Self.clone), 2))
-    }
-
-    @Test func aSkippedStartReadsTheEarlierRunAtOnce() async {
-        // `skipped`: the same script and repo step already finished here, so the lock is free and the status final.
-        #expect(await run(withRepo, [.success(Self.answer(Self.status("done", "0", repo: Self.repoStatus("updated"))))]) == (Run.finished(repoPath: Self.clone), 1))
     }
 
     @Test func aReadCutOffWhileTheRunnerRunsIsIssuedAgain() async {
@@ -119,14 +89,16 @@ extension CloudMachineRepoTests {
         #expect(CloudMachineBootstrap.completion(.stillRunning) == .failed(reason: CloudStrings.bootstrapStillRunning(log: CloudMachineBootstrap.logPath)))
     }
 
-    @Test func theReadBlocksOnTheRunnersLockAndNeverLoopsOnTheMachine() throws {
-        let command = CloudMachineBootstrap.waitCommand
-        #expect(command.contains(#"exec 8<"$d/alive"; then if flock -s -w 15 8; then w=free; n=$(date +%s); s=$(cat "$d/status.json""#),
-                "a shared wait on the lock the runner holds for its life, and the status read while holding it")
-        let starting = try #require(command.range(of: "then sleep 1; fi")), locked = try #require(command.range(of: "flock -s"))
-        #expect(starting.upperBound < locked.lowerBound, "a `starting` read waits before it takes the lock, never between the lock and the status")
-        #expect(!command.contains("while") && !command.contains("until"))
-        #expect(CloudMachineBootstrap.runner.contains("exec 8>\"$d/alive\"\nflock 8\n"))
+    @Test func eachEndBecomesWords() async {
+        let needs = await run(withRepo, [.success(Self.answer(Self.status("failed", "3", repo: Self.repoStatus("needs_github"))))]).0
+        #expect(needs == .needsGitHub(repo: "o/r"))
+        #expect(CloudMachineBootstrap.completion(needs) == .failed(reason: CloudStrings.bootstrapNeedsGitHub("o/r")))
+        #expect(CloudStrings.bootstrapNeedsGitHub("o/r").contains("o/r"))
+        let script = await run(scriptOnly, [.success(Self.answer(Self.status("failed", "7")))]).0
+        #expect(script == .scriptFailed(exitCode: 7))
+        #expect(CloudMachineBootstrap.completion(script) == .failed(reason: CloudStrings.bootstrapScriptFailed(7, log: CloudMachineBootstrap.logPath)))
+        #expect(CloudStrings.bootstrapScriptFailed(7, log: "L").contains("7"))
+        #expect(await run(withRepo, [.success(Self.answer(Self.status("running")))]).0 == .stopped, "`running` read under a free lock")
     }
 
     // MARK: The creation's wait
@@ -187,7 +159,7 @@ extension CloudMachineRepoTests {
         // The flow's task, as `CloudCreationFlow.run` makes it: the hook, then the open, then it waits
         // for the workspace's mirror (here: until the row's removal cancels it).
         let flow = Task { @MainActor in
-            await CloudCreationFlow.startBootstrap(creation, on: fake.machine)
+            await CloudCreationFlow.startBootstrap(creation, on: fake.machine, running: {})
             opened.on = true
             try? await Task.sleep(for: .seconds(3600))
         }
@@ -208,7 +180,7 @@ extension CloudMachineRepoTests {
     @MainActor @Test func tearingTheCreationDownStopsTheWait() async {
         let creations = CloudCreations(), fake = GatedMachine()
         let creation = repoCreation(creations)
-        await CloudCreationFlow.startBootstrap(creation, on: fake.machine)
+        await CloudCreationFlow.startBootstrap(creation, on: fake.machine, running: {})
         await fake.untilRead()
         creations.end(creation)
         // The read in flight comes back still waiting: no read follows it.
@@ -228,7 +200,7 @@ extension CloudMachineRepoTests {
     @MainActor @Test func aCallerWaitingOnTheCompletionWakesWhenTheCreationEnds() async {
         let creations = CloudCreations(), fake = GatedMachine(), fired = Fired()
         let creation = repoCreation(creations)
-        await CloudCreationFlow.startBootstrap(creation, on: fake.machine)
+        await CloudCreationFlow.startBootstrap(creation, on: fake.machine, running: {})
         await fake.untilRead()
         // The wizard's wait: the completion, or the creation's end, whichever comes first.
         withObservationTracking { _ = creation.bootstrapCompletion != nil || creation.isTornDown } onChange: { fired.fire() }
@@ -252,9 +224,56 @@ extension CloudMachineRepoTests {
             else if !command.contains("mkdir -p"), command != CloudMachineBootstrap.waitCommand { others.fire() }
             return CloudExecResult(exitCode: 0, stdout: "started\n", stderr: "")
         })
-        await Task { @MainActor in await CloudCreationFlow.startBootstrap(creation, on: machine) }.value
+        await Task { @MainActor in await CloudCreationFlow.startBootstrap(creation, on: machine, running: {}) }.value
         #expect(creation.machineConfig == nil && !others.on, "the apply waits for the Retry")
         #expect(CloudCreationFlow.needsMachineConfig(creation))
+        creation.tearDown()
+    }
+
+    @MainActor @Test func nothingGoesToTheMachineBeforeItRuns() async {
+        // A create answers while the machine still binds, and the machine's file and exec routes refuse it until it
+        // runs ("the machine is not running; start it first": production start matrix 2026-11-15 06:32Z).
+        let creation = repoCreation(CloudCreations()), runs = Fired(), early = Fired(), sent = Fired()
+        let machine = CloudMachineBootstrap.Machine(write: { _, _, _ in
+            if !runs.on { early.fire() }
+            sent.fire()
+        }, exec: { _ in
+            if !runs.on { early.fire() }
+            sent.fire()
+            return CloudExecResult(exitCode: 0, stdout: "started\n", stderr: "")
+        })
+        await CloudCreationFlow.startBootstrap(creation, on: machine, running: { runs.fire() })
+        #expect(sent.on && !early.on, "the start waited for the machine to run")
+        #expect(creation.bootstrap?.status == "started")
+        creation.tearDown()
+    }
+
+    @MainActor @Test func aCreationTornDownWhileTheMachineBindsStartsNothing() async {
+        let creation = repoCreation(CloudCreations()), sent = Fired()
+        let machine = CloudMachineBootstrap.Machine(write: { _, _, _ in sent.fire() }, exec: { _ in
+            sent.fire()
+            return CloudExecResult(exitCode: 0, stdout: "started\n", stderr: "")
+        })
+        await CloudCreationFlow.startBootstrap(creation, on: machine, running: { creation.tearDown() })
+        #expect(!sent.on && creation.bootstrap == nil)
+    }
+
+    @MainActor @Test func aCreateIsAttachedBeforeItsBootstrapWaitsForTheMachine() async {
+        // `cloud new-machine` answers once its creation has a session (settledCreation), within 30 s, and the bootstrap
+        // first waits up to 180 s for the machine to run: run before the attach, it held the answer back and the
+        // caller got `pending` with no machine id (production start matrix 2026-11-16 12:44Z, gitlab-url).
+        var request = CloudMachineRequest(repo: Self.repo)
+        request.script = withRepo
+        let session = CloudLinkEndedHeaderTests.session(status: .running), attached = Flag(), ran = Flag()
+        var flow = CloudCreationFlow(creations: CloudCreations(), create: { _ in session }, open: { _ in "" }, show: { _, _ in })
+        flow.bootstrap = { creation, _ in
+            ran.on = true
+            attached.on = creation.session === session
+            creation.task?.cancel()
+        }
+        let creation = flow.start(in: nil, existing: nil, request: request)
+        await creation.task?.value
+        #expect(ran.on && attached.on, "the creation had its machine before the bootstrap began")
         creation.tearDown()
     }
 

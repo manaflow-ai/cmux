@@ -43,4 +43,31 @@ struct PageContextMenuGestureTests {
         #expect(stale["picked"] == .null)
         #expect(view.recentUserGestureEvent(now: chosenAt + 31) == nil)
     }
+
+    @Test(arguments: [false, true])
+    func aPopupPickAfterThirtySecondsRenewsTheGesture(chromium: Bool) async throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent("page-popup-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        try Data("<!doctype html><title>Popup</title>".utf8).write(to: root.appendingPathComponent("index.html"))
+        let hosting = FakeChromiumHosting()
+        hosting.preference = chromium ? .chromium : .webkit
+        let descriptor = PageDescriptor(id: "test.popup-gesture", resource: "popup-gesture", namespaces: [])
+        let view = try #require(PageWebView(descriptor: descriptor, root: root, routes: [], chromium: hosting))
+        view.chromiumClock = PageTestClock.never
+        await view.chromiumStart?.value
+        defer { view.close() }
+        let chosenAt = ProcessInfo.processInfo.systemUptime
+        if chromium { view.chromiumUserInput(at: chosenAt - 31) }
+        else { view.webView.noteNativeMenuSelection(at: chosenAt - 31) }
+
+        // Highlights and dismissals are not choices and grant nothing.
+        view.publishPopupEvent(["type": "highlight", "id": "copy-url"], at: chosenAt)
+        view.publishPopupEvent(["type": "dismiss"], at: chosenAt)
+        #expect(view.recentUserGestureEvent(now: chosenAt) == nil)
+
+        view.publishPopupEvent(["type": "pick", "id": "copy-url"], at: chosenAt)
+        #expect(view.recentUserGestureEvent(now: chosenAt) == chosenAt)
+        #expect(view.router.userGestureEvent?() == chosenAt)
+    }
 }

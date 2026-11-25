@@ -5,20 +5,25 @@
 // the toggle, outside its button, for the controls a row adds at the line's end (a menu, a queue tag,
 // Reply); `leading` sits before it, outside its button too, for a control of its own at the line's
 // start (an incoming message's sender, which opens its chat), with the icon then left to it.
-// A row that opens a chat (`onOpen`) is that chat's button: a click on the line opens it, and the
-// chevron after the status is its own button for the panel. No "Open chat" word beside it (Leo,
-// 2026-10-29: "Nobody asked for open chat. We can just click. Just have the thing be clickable, and
-// then you can open it.").
+// A row that opens a chat (`onOpen`) draws its label as that chat's link chip: a click on the chip
+// opens it, and only the chip lights under the pointer; the rest of the line opens the panel, as the
+// chevron after the status does (Leo, 2026-11-05: "subagents need to have their clickable bit be
+// highlighted instead of the whole line click sending me to the subagent righ split"). No "Open
+// chat" word beside it (Leo, 2026-10-29: "Nobody asked for open chat. We can just click. Just have
+// the thing be clickable, and then you can open it.").
 import { useCallback, useId, type ReactNode } from "react";
 import type { AcpmuxActivity } from "../model";
 import { useFindReveal } from "../conversation/chatFind";
 import { ChevronRight } from "../conversation/icons";
 import { HEADER_TOGGLE_ATTRIBUTE, headerToggleClick } from "../conversation/headerToggle";
 import { TranscriptActivityRowShell } from "../conversation/TranscriptActivityRow";
-import { useTranscriptDisclosure } from "../conversation/transcriptDisclosure";
+import { useTranscriptDisclosure } from "../conversation/transcriptDisclosureModel";
 import { useT } from "../i18n";
 import { useAnchoredCollapse } from "../conversation/useAnchoredCollapse";
+import { AgentTag } from "../conversation/AgentTag";
+import "../conversation/cardFit.css";
 import "./DisclosureRow.css";
+import { openSessionAttributes } from "../conversation/menuParts";
 
 export type DisclosureRowProps = {
   /// Stable row identity; the transcript provider scopes it to the parent session. Unused when the
@@ -30,12 +35,16 @@ export type DisclosureRowProps = {
   label: ReactNode;
   meta?: ReactNode;
   status?: ReactNode;
-  /// The line's tooltip when it opens a chat ("Open chat").
+  /// Use the visible status as the details control instead of a chevron.
+  chevron?: boolean;
+  /// The chip's accessible name when it opens a chat ("Open chat").
   openLabel?: string;
-  /// The line's tooltip, when it says more than `openLabel`.
+  /// The chip's tooltip, when it says more than `openLabel`.
   openTitle?: string;
-  /// Opens the row's chat: the line's click does this, and the chevron alone opens the panel.
+  /// Opens the row's chat: the label's chip does this, and the rest of the line opens the panel.
   onOpen?: () => void;
+  /// The chat `onOpen` opens, for the right-click's Go to Chat (menuParts.ts `openSessionAttributes`).
+  openSession?: string;
   children?: ReactNode;
   defaultOpen?: boolean;
   /// The state, when the caller holds it.
@@ -52,10 +61,15 @@ export type DisclosureRowProps = {
   actions?: ReactNode;
   /// Before the toggle, outside its button.
   leading?: ReactNode;
+  /// A second line under the row (a received message's first line, stacked: messageLineLook.ts),
+  /// at the text column; a click on it toggles the row as the line does.
+  below?: ReactNode;
   /// Shared activity-row treatment for transcript notices.
   lineClassName?: string;
   /// The row's own class, next to `cv-disclosure`.
   className?: string;
+  /// More attributes on the row's root (a sent message's `data-send-state`).
+  attributes?: Record<string, string | undefined>;
 };
 
 export function DisclosureRow({
@@ -65,9 +79,11 @@ export function DisclosureRow({
   label,
   meta,
   status,
+  chevron = true,
   openLabel,
   openTitle,
   onOpen,
+  openSession,
   children,
   defaultOpen = false,
   open,
@@ -77,8 +93,10 @@ export function DisclosureRow({
   toggleLabel,
   actions,
   leading,
+  below,
   lineClassName,
   className,
+  attributes,
 }: DisclosureRowProps) {
   const [stored, setStored] = useTranscriptDisclosure(disclosureKey, defaultOpen);
   const held = open !== undefined;
@@ -91,7 +109,12 @@ export function DisclosureRow({
   );
   // Search opens directly: anchoring here would fight Find's scroll to the selected match.
   useFindReveal(findItems, () => setOpen(true));
-  const collapse = useAnchoredCollapse({ open: held ? open : stored, onOpenChange: setOpen, animates, fadeIn });
+  const collapse = useAnchoredCollapse({
+    open: held ? open : stored,
+    onOpenChange: setOpen,
+    animates,
+    fadeIn,
+  });
   const bodyId = useId();
   const t = useT();
   const content = (
@@ -101,17 +124,35 @@ export function DisclosureRow({
           {icon}
         </span>
       )}
-      <span className="cv-disclosure__label">{label}</span>
+      {onOpen ? (
+        <AgentTag
+          name={label}
+          className="cv-disclosure__label"
+          title={openTitle ?? openLabel}
+          ariaLabel={openLabel}
+          attributes={openSession ? openSessionAttributes(openSession) : undefined}
+          onClick={onOpen}
+        />
+      ) : (
+        <span className="cv-disclosure__label">{label}</span>
+      )}
       {meta && <span className="cv-disclosure__meta">{meta}</span>}
-      {status && <span className="cv-disclosure__status">{status}</span>}
+      {status && (chevron || !onOpen) && <span className="cv-disclosure__status">{status}</span>}
     </>
   );
-  const chevron = <ChevronRight size={12} strokeWidth={1.4} className={`cv-rotor${collapse.open ? " is-open" : ""}`} />;
+  // A row with actions measures its own width (conversation/cardFit.css): they wrap under the line
+  // when it is narrow and shrink to icons when it is narrower, never over the label.
+  const fit = actions !== undefined && actions !== null && actions !== false;
+  const arrow = chevron && <ChevronRight size={14} className={`cv-rotor${collapse.open ? " is-open" : ""}`} />;
   return (
-    <div className={className ? `cv-disclosure ${className}` : "cv-disclosure"} data-open={collapse.open || undefined}>
+    <div
+      className={`cv-disclosure${fit ? " cv-fit" : ""}${className ? ` ${className}` : ""}`}
+      data-open={collapse.open || undefined}
+      {...attributes}
+    >
       {/* The line summarizes indexed content in the panel; it adds no Find occurrences. */}
       <TranscriptActivityRowShell
-        className={`cv-disclosure__line${lineClassName ? ` ${lineClassName}` : ""}`}
+        className={`cv-disclosure__line${fit ? " cv-fit-row" : ""}${lineClassName ? ` ${lineClassName}` : ""}`}
         attributes={{ "data-find-skip": "", [HEADER_TOGGLE_ATTRIBUTE]: "" }}
         headerRef={onOpen ? collapse.headerRef : undefined}
         onClick={headerToggleClick(collapse.toggle)}
@@ -119,18 +160,17 @@ export function DisclosureRow({
         {leading}
         {onOpen ? (
           <>
-            <button type="button" className="cv-disclosure__open" title={openTitle ?? openLabel} onClick={onOpen}>
-              {content}
-            </button>
+            {/* No control itself: its chip opens the chat, a click elsewhere opens the panel. */}
+            <span className="cv-disclosure__open">{content}</span>
             <button
               type="button"
-              className="cv-disclosure__toggle is-chevron"
+              className={`cv-disclosure__toggle ${chevron ? "is-chevron" : "is-status"}`}
               aria-expanded={collapse.open}
               aria-controls={collapse.present ? bodyId : undefined}
-              aria-label={toggleLabel ?? t("message.details")}
+              aria-label={toggleLabel ?? (chevron ? t("message.details") : undefined)}
               onClick={collapse.toggle}
             >
-              {chevron}
+              {chevron ? arrow : <span className="cv-disclosure__status">{status ?? t("message.details")}</span>}
             </button>
           </>
         ) : (
@@ -144,11 +184,23 @@ export function DisclosureRow({
             onClick={collapse.toggle}
           >
             {content}
-            {chevron}
+            {arrow}
           </button>
         )}
-        {actions}
+        {fit && <span className="cv-disclosure__actions cv-fit-actions">{actions}</span>}
       </TranscriptActivityRowShell>
+      {below !== undefined && below !== null && below !== "" && (
+        // The toggle's label reads these words for a screen reader; this is the pointer's target.
+        // oxlint-disable-next-line jsx-a11y/click-events-have-key-events, jsx-a11y/no-static-element-interactions
+        <div
+          className="cv-msgline__preview cv-disclosure__below"
+          aria-hidden
+          data-find-skip=""
+          onClick={collapse.toggle}
+        >
+          {below}
+        </div>
+      )}
       {collapse.present && (
         <div id={bodyId} {...collapse.bodyProps}>
           <div className="cv-disclosure__panel">{children}</div>

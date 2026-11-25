@@ -3,6 +3,7 @@ import AppKit
 import CmuxNextControl
 import CmuxNextRemote
 import CmuxNextSettings
+import CmuxNextTestSupport
 import Foundation
 import Testing
 
@@ -37,7 +38,7 @@ struct CloudMoveStateDebugTests {
     /// record reads as gone.
     @Test func theSeededStateReadsBackTheSameFromAnotherAppOnTheSameDefaults() async throws {
         let suite = "cmux.test.cloudMoveState.\(UUID().uuidString)"
-        let defaults = try #require(UserDefaults(suiteName: suite))
+        let defaults = try #require(UserDefaults(testSuiteName: suite))
         defer { defaults.removePersistentDomain(forName: suite) }
         let first = Self.app(defaults), second = Self.app(defaults)
 

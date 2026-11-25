@@ -6,10 +6,13 @@
 # reply, records the first turn's requests, counts their input tokens through
 # the team subrouter (count_tokens) and fails when one is over the limit.
 #   cmux-ci run --class isolated --script scripts/ci/chief-first-turn-cost.sh --ref SHA \
-#     --arg=count_url=http://HOST:PORT [--arg=limit=50000] [--arg=claude=X.Y.Z] \
+#     --arg=count_url=http://HOST:PORT [--arg=scenario=smoke|coordinator|mcp] [--arg=limit=50000] [--arg=claude=X.Y.Z] \
 #     [--arg=force_full_tools=1] [--arg=turns=N] [--arg=real=1 --arg=min_hit=PCT] --timeout 6000
 # count_url= is a Claude route that needs no credential (a router that signs
 # requests itself); only count_tokens goes there, never a turn (except real=1).
+# Use SR2, http://100.120.48.119:4016 (by IP: fleet workers do not resolve
+# sr2-gateway); the old subrouter on :31415 answers 502 to every Claude request.
+# real=1 sends one tiny request first and stops (exit 3) when it gets a 5xx.
 # force_full_tools=1 proves the guard red: Claude Code gets a --settings file
 # with ENABLE_TOOL_SEARCH=false (it wins over the turn's project
 # settings), which is the behavior before session_dir::TURN_SETTINGS_ENV: every
@@ -31,6 +34,7 @@
 # Output: FIRST-TURN-COST lines; files under .build/chief-first-turn.
 set -euo pipefail
 count_url=""
+scenario="smoke"
 limit=50000
 claude_version="2.1.300"
 force_full_tools=0
@@ -40,6 +44,7 @@ min_hit=0
 for arg in "$@"; do
   case "$arg" in
     count_url=*) count_url="${arg#count_url=}" ;;
+    scenario=*) scenario="${arg#scenario=}" ;;
     limit=*) limit="${arg#limit=}" ;;
     claude=*) claude_version="${arg#claude=}" ;;
     force_full_tools=*) force_full_tools="${arg#force_full_tools=}" ;;
@@ -50,6 +55,11 @@ for arg in "$@"; do
   esac
 done
 [[ "$count_url" =~ ^https?://[A-Za-z0-9.-]+(:[0-9]{1,5})?$ ]] || { echo "chief-first-turn-cost.sh: count_url=http://HOST[:PORT] is required" >&2; exit 2; }
+[[ "$scenario" =~ ^(smoke|coordinator|mcp)$ ]] || { echo "chief-first-turn-cost.sh: scenario=smoke|coordinator|mcp" >&2; exit 2; }
+if [[ "$scenario" =~ ^(coordinator|mcp)$ && "$real" != 1 ]]; then
+  echo "chief-first-turn-cost.sh: scenario=$scenario requires real=1" >&2
+  exit 2
+fi
 [[ "$limit" =~ ^[1-9][0-9]{2,6}$ ]] || { echo "chief-first-turn-cost.sh: limit is a token count" >&2; exit 2; }
 [[ "$claude_version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || { echo "chief-first-turn-cost.sh: claude=X.Y.Z" >&2; exit 2; }
 [[ "$force_full_tools" =~ ^[01]$ ]] || { echo "chief-first-turn-cost.sh: force_full_tools=0|1" >&2; exit 2; }
@@ -67,6 +77,11 @@ if [[ "$real" == 1 ]]; then
   # The turns run on this route: it must be up.
   if [[ "$ready" == 503 ]]; then echo "FIRST-TURN-COST the route $count_url answered 503. Stop: the route is down." >&2; exit 3; fi
   [[ "$ready" == 200 ]] || { echo "FIRST-TURN-COST the route $count_url is not reachable from this worker ($ready)" >&2; exit 1; }
+  # Ready says nothing about Claude: the old subrouter answered 200 here while every
+  # request got 502 (2026-11-09), and each turn then waited out its timeout.
+  probe_status=0
+  python3 -I Native/OptChat/optchat-chief/measure/first_turn_cost.py probe --url "$count_url" || probe_status=$?
+  [[ "$probe_status" == 0 ]] || exit "$probe_status"
 elif [[ "$ready" != 200 ]]; then
   # The stand-in runs the turn; count_tokens falls back to the byte estimate.
   echo "FIRST-TURN-COST WARNING the route $count_url answered $ready to ready; count_tokens may fall back to the byte estimate" >&2
@@ -178,7 +193,7 @@ else
 fi
 
 status=0
-HOME="$work/home" python3 Native/OptChat/optchat-chief/measure/chief_driver.py --scenario smoke --only "$only" \
+HOME="$work/home" python3 Native/OptChat/optchat-chief/measure/chief_driver.py --scenario "$scenario" --only "$only" \
   --out "$work/run" --bins "$work/bin" --turn-timeout 600 \
   --env "ANTHROPIC_BASE_URL=$base_url" --env "ANTHROPIC_API_KEY=$api_key" \
   --env "CLAUDE_CONFIG_DIR=$work/home/.claude" --env "DISABLE_AUTOUPDATER=1" > "$work/driver.log" 2>&1 7<&- &
@@ -190,6 +205,23 @@ if [[ "$status" != 0 ]]; then echo "FIRST-TURN-COST the driver failed ($status)"
 if ! grep -q "acpmux cleanup: .*no process holds its locks" "$work/driver.log"; then
   echo "FIRST-TURN-COST acpmux cleanup not confirmed: $(grep "acpmux cleanup" "$work/driver.log" || echo 'no cleanup line')" >&2
   status=1
+fi
+# mcp (docs/chief-mcp-hub.md): chat sentences add MCP servers, run a task, get an event.
+if [[ "$scenario" == mcp ]]; then
+  grep -E '^\[chief .*\] MCP' "$work/driver.log" || true
+  if grep -q 'MCP-PROOF .*=FAIL' "$work/driver.log" || ! grep -q 'MCP-PROOF' "$work/driver.log"; then status=1; fi
+  exit "$status"
+fi
+if [[ "$scenario" == coordinator ]]; then
+  grep '^\[chief .*\] COORDINATOR ' "$work/driver.log" || true
+  if ! grep -q '^\[chief .*\] COORDINATOR owner_reply_posted=PASS' "$work/driver.log" \
+      || ! grep -q '^\[chief .*\] COORDINATOR ping_readback=PASS' "$work/driver.log" \
+      || ! grep -q '^\[chief .*\] COORDINATOR provenance_sender=PASS' "$work/driver.log" \
+      || ! grep -q '^\[chief .*\] COORDINATOR tool_list=' "$work/driver.log" \
+      || ! grep -q '^\[chief .*\] COORDINATOR ask_send_refused=PASS' "$work/driver.log"; then
+    status=1
+  fi
+  exit "$status"
 fi
 if [[ "$real" == 1 ]]; then
   # Every turn must have ended; then one line per turn from the driver's

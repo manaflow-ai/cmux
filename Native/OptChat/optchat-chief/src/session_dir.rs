@@ -16,8 +16,8 @@
 //!
 //! Deviation: acpmux ignores the client's `mcpServers` in `session/new` and
 //! gives every agent chat its own agent tools instead (cmux, cmux-cua,
-//! secrets: acpmux agent_tools.rs, cx-wx93i; a Chief turn keeps only cmux
-//! and agent memory, `TURN_TOOL_SERVERS`, cx-4a5w2), so mux/host's way of passing
+//! secrets: acpmux agent_tools.rs, cx-wx93i; a Chief turn keeps cmux, its folded
+//! acpmux server and agent memory, `TURN_TOOL_SERVERS`, cx-4a5w2), so mux/host's way of passing
 //! MCP servers reaches no harness. The Chief's own `optchat` server, which
 //! acpmux does not know, goes in the directory's `.mcp.json`, enabled by the
 //! project settings, which Claude Code harnesses read.
@@ -273,7 +273,21 @@ pub const TURN_DENIED_TOOLS: [&str; 24] = [
 /// started in the app (#25571): a send is the Chief's agent message, under
 /// the daemon's agent message policy, and starts a turn in that chat, a
 /// restored chat no tab has shown yet included.
-pub const CHIEF_CMUX_TOOLS: [&str; 16] = [
+/// Folded `acpmux_*` tools reach coordinator sessions. They are not in
+/// `approval::turn_allowed_tools`: an ask turn still refuses them.
+/// Background tasks stay out because a turn session is temporary.
+/// The `cloud_*` tools reach the user's Cloud machines through the app: list
+/// them, start and follow agent chats there, and use the attached computer's
+/// desktop (`cloud_computer`, refused while the person has taken over). Like
+/// the `acpmux_*` tools they are not in `approval::turn_allowed_tools`, so an
+/// ask turn refuses them.
+///
+/// The `workspace_*` and `workspace_group_*` tools are the Direct lifetime
+/// (action_lifetime.rs, Leo 2026-11-10: "when I tell it to organize my
+/// workspace versus groups, you don't need to make a workspace for that"):
+/// the Chief lists, renames, moves and groups the person's workspaces in its
+/// own turn instead of spawning a helper.
+pub const CHIEF_CMUX_TOOLS: [&str; 39] = [
     "agents_snapshot",
     "agents_workspace_create",
     "agents_workspace_select",
@@ -290,9 +304,32 @@ pub const CHIEF_CMUX_TOOLS: [&str; 16] = [
     "agents_chat_send",
     "agents_chat_read",
     "agents_chat_state",
+    "acpmux_send",
+    "acpmux_send_status",
+    "acpmux_ls",
+    "acpmux_last",
+    "acpmux_info",
+    "acpmux_inbox_read",
+    "acpmux_inbox_reply",
+    "acpmux_watch_add",
+    "acpmux_watch_ls",
+    "acpmux_watch_rm",
+    "cloud_machines",
+    "cloud_chat_start",
+    "cloud_chat_send",
+    "cloud_chat_status",
+    "cloud_computer",
+    "cloud_computer_control",
+    "workspace_list",
+    "workspace_rename",
+    "workspace_move",
+    "workspace_place",
+    "workspace_group_list",
+    "workspace_group_create",
+    "workspace_group_update",
 ];
 
-/// The turn presets' env that keeps only acpmux's `cmux` MCP server
+/// The turn presets' env that keeps `cmux` and its folded `acpmux` server
 /// (acpmux `agent_tools::SERVERS_ENV`; its built-in turn presets set the
 /// same, cx-4a5w2). In the app, whose bundle has `cmux-cua`, the computer
 /// use and secret servers' 43 tool names and instructions came after the
@@ -301,11 +338,17 @@ pub const CHIEF_CMUX_TOOLS: [&str; 16] = [
 /// `MEMORY_SERVER_NAME`) stays too: acpmux adds it only when cmux.json sets
 /// `agents.memory.enabled`, and its three tools wait behind ToolSearch
 /// (measured 2026-10-31: 158 tokens).
-pub const TURN_TOOL_SERVERS: (&str, &str) = ("ACPMUX_AGENT_TOOL_SERVERS", "cmux,cmux-agent-memory");
+pub const TURN_TOOL_SERVERS: (&str, &str) =
+    ("ACPMUX_AGENT_TOOL_SERVERS", "cmux,acpmux,cmux-agent-memory");
 
 /// The turn presets' env that limits acpmux's `cmux` MCP server to
 /// `CHIEF_CMUX_TOOLS` (acpmux `agent_tools::MCP_TOOLS_ENV`).
 pub const TURN_TOOLS_ENV: &str = "CMUX_MCP_TOOLS";
+
+/// The turn presets' env that names the Chief's engine.json to acpmux's
+/// `cmux` MCP server (acpmux `agent_tools::CHIEF_ENGINE_ENV`): its `computer`
+/// is `cloud_computer`'s default machine.
+pub const CHIEF_ENGINE_ENV: &str = "CMUX_CHIEF_ENGINE";
 
 /// The code-mode tools of `cmux mcp serve`: a script reaches every cmux
 /// tool, so a turn always denies them, even when the server did not get
@@ -315,8 +358,14 @@ const CODE_MODE_TOOLS: [&str; 2] = ["cmux_exec", "cmux_docs"];
 /// Deny rules for the other agent tool servers, the second guard for an
 /// acpmux without `TURN_TOOL_SERVERS` (their tools leave the list; their
 /// instructions stay).
-pub const TURN_DENIED_SERVERS: [&str; 3] =
-    ["mcp__cmux-cua", "mcp__cmux-secrets", "mcp__cmux-sessions"];
+pub const TURN_DENIED_SERVERS: [&str; 4] = [
+    "mcp__cmux-cua",
+    "mcp__cmux-secrets",
+    "mcp__cmux-sessions",
+    // Without the cmux fold, acpmux has no per-tool filter. Keep its standalone
+    // server denied; the six `mcp__cmux__acpmux_*` tools are still available.
+    "mcp__acpmux",
+];
 
 /// How long `cmux mcp tools` may take before a turn keeps every tool.
 const TOOL_LIST_LIMIT: std::time::Duration = std::time::Duration::from_secs(15);
@@ -572,6 +621,31 @@ pub fn claude_settings() -> Value {
 /// ~/.claude config is never changed.
 pub const QUIET_ENV: [(&str, &str); 1] = [("DISABLE_AUTOUPDATER", "1")];
 
+/// Claude Code's switch for auto mode's server-side safety check
+/// (2.1.319). With it on, auto mode asks the API to judge each tool call
+/// and runs the call only on the verdict that comes back with the
+/// response. When a response carries no verdict (`server_no_result` in
+/// `--debug`), it denies the call ("auto mode has no safety result for
+/// this call"), because it keeps no local classifier as a fallback. On
+/// 2026-11-06 that denied every classified Bash call of a Chief on both
+/// `claude` and `claude-sr2` (https://github.com/manaflow-ai/cmux/issues/37356).
+/// With the switch at `0`, Claude Code's own classifier judges the same
+/// calls with its own retries, and still denies the unsafe ones.
+pub const AUTO_MODE_SERVER_ENV: &str = "CLAUDE_CODE_AUTO_MODE_SERVER";
+
+/// The env every Chief Claude session's preset carries (turn, compactor,
+/// subagent): [`QUIET_ENV`], and auto mode judged by Claude Code's local
+/// classifier ([`AUTO_MODE_SERVER_ENV`] at `0`). A daemon with built-in
+/// Chief presets fills the same env itself (acpmux
+/// `config/chief_builtins.rs`).
+pub fn claude_session_env() -> BTreeMap<String, String> {
+    QUIET_ENV
+        .iter()
+        .chain(&[(AUTO_MODE_SERVER_ENV, "0")])
+        .map(|(k, v)| ((*k).to_owned(), (*v).to_owned()))
+        .collect()
+}
+
 /// The env of the turn and subagent sessions' acpmux presets: no
 /// auto-memory. No `CLAUDE_CONFIG_DIR` of their own: Claude Code finds the
 /// user's login through the user's Claude home, and a plain `claude`
@@ -587,14 +661,16 @@ pub fn isolation_env(_paths: &Paths) -> BTreeMap<String, String> {
 
 /// Writes the directory; a file is rewritten only when its bytes differ.
 /// The instructions go to CLAUDE.md for a Claude Code harness (the old
-/// layout; the cached layout puts them in the turn preset's system prompt
-/// and removes the file, `set_claude_md`), to AGENTS.md for any other.
+/// layout; the cached layout puts them in the turn preset's system prompt),
+/// and to AGENTS.md for any other harness. The cached layout keeps the short
+/// Claude-owned pointer so acpmux does not copy AGENTS.md into the preset's
+/// first message.
 pub fn write(paths: &Paths, setup: &SessionSetup) -> io::Result<()> {
     std::fs::create_dir_all(paths.session.join(".claude"))?;
     std::fs::create_dir_all(&paths.bin)?;
     // AGENTS.md always (a turn may swap to codex or another harness between
-    // turns, engine.rs); Claude Code reads only CLAUDE.md, which only the
-    // old layout of a Claude harness keeps.
+    // turns, engine.rs); Claude Code reads its own short pointer while the
+    // preset carries the full instructions in the cached layout.
     let chief = paths.bin.join("chief").display().to_string();
     let agents = chief_system_text(
         setup.instructions.as_deref(),
@@ -603,6 +679,7 @@ pub fn write(paths: &Paths, setup: &SessionSetup) -> io::Result<()> {
         setup.chiefs_tool,
     );
     write_if_changed(&paths.session.join("AGENTS.md"), agents.as_bytes())?;
+    own_claude_md(&paths.session, matches!(setup.tools, Tools::Cli(_)))?;
     // The Mac host never runs the Cloud mode; it would take Claude's files.
     match setup.tools {
         Tools::Mcp | Tools::Cloud(_) => {
@@ -647,6 +724,10 @@ pub fn write(paths: &Paths, setup: &SessionSetup) -> io::Result<()> {
     settings["permissions"]["allow"] = json!(crate::approval::turn_allowed_tools());
     // The hooks and skills the user names in cmux.json, bundled skills off.
     crate::turn_user_extras::apply(&mut settings, &paths.session);
+    // The rights table's tool hook (rights.rs); OPTCHAT_RIGHTS=0: none.
+    if std::env::var("OPTCHAT_RIGHTS").as_deref() != Ok("0") {
+        crate::rights::add_turn_hooks(&mut settings, &setup.exe, &paths.tools_socket);
+    }
     let settings = pretty(&settings)?;
     write_private(
         &paths.session.join(".claude").join("settings.json"),
@@ -758,7 +839,13 @@ pub fn write_subagent(paths: &Paths, setup: &SessionSetup, text: &str) -> io::Re
     sub.env.insert(SUBAGENT_ENV.to_owned(), "1".to_owned());
     // Subagents load the user's own settings; no copy of its env here.
     sub.user_env.clear();
-    let settings = pretty(&settings_json(&sub, paths, &SUBAGENT_DENIED_TOOLS))?;
+    let mut settings = settings_json(&sub, paths, &SUBAGENT_DENIED_TOOLS);
+    // Hooks stay on in a subagent: Claude Code's `/goal` (goal.rs) runs as a
+    // Stop hook and refuses to start under `disableAllHooks` (a1147,
+    // 2026-11-12). A subagent works like the user's own session, so the
+    // user's hooks run there too; the Chief's turns keep them off.
+    settings["disableAllHooks"] = json!(false);
+    let settings = pretty(&settings)?;
     write_if_changed(
         &dir.join(".claude").join("settings.json"),
         settings.as_bytes(),
@@ -767,10 +854,29 @@ pub fn write_subagent(paths: &Paths, setup: &SessionSetup, text: &str) -> io::Re
         &dir.join(".claude").join("settings.local.json"),
         settings.as_bytes(),
     )?;
+    own_claude_md(dir, matches!(setup.tools, Tools::Cli(_)))?;
     match setup.tools {
         Tools::Mcp | Tools::Cloud(_) => remove_if_present(&dir.join("AGENTS.md")),
         Tools::Cli(_) => write_if_changed(&dir.join("AGENTS.md"), text.as_bytes()),
     }
+}
+
+/// The one line in a Chief or subagent folder's `.claude/CLAUDE.md`.
+const OWN_CLAUDE_MD: &str = "Your instructions are your system prompt. This folder's AGENTS.md holds the same text for other harnesses: do not read it.\n";
+
+/// With `on` (the layout whose system prompt is the preset's, AGENTS.md kept
+/// for other harnesses), writes `dir/.claude/CLAUDE.md`, Claude's own
+/// instruction file there, so acpmux's cross-harness fallback
+/// (folder_instructions.rs) sends no copy of the folder's AGENTS.md
+/// (tests/folder_context.rs: 33 KB a Chief turn, 15 KB a subagent's first
+/// prompt); else removes it.
+fn own_claude_md(dir: &Path, on: bool) -> io::Result<()> {
+    let path = dir.join(".claude").join("CLAUDE.md");
+    if !on {
+        return remove_if_present(&path);
+    }
+    std::fs::create_dir_all(dir.join(".claude"))?;
+    write_if_changed(&path, OWN_CLAUDE_MD.as_bytes())
 }
 
 /// The subagent directory's AGENTS.md for a codex subagent beside a Claude
@@ -784,15 +890,22 @@ pub fn write_subagent_agents_md(paths: &Paths, text: &str) -> io::Result<()> {
 /// tell there (section 9: subagents get zoom and date, not spawn).
 pub const SUBAGENT_ENV: &str = "OPTCHAT_SUBAGENT";
 
-/// Writes the session directory's CLAUDE.md (Some) or removes it (None).
+/// Writes the session directory's CLAUDE.md with the full instructions (Some),
+/// or, when the turn's preset carries them as its system prompt (None),
+/// removes it and writes the one-line `.claude/CLAUDE.md` pointer instead, so
+/// acpmux's cross-harness fallback sends no second copy of AGENTS.md.
 pub fn set_claude_md(session: &Path, text: Option<&str>) -> io::Result<()> {
     let path = session.join("CLAUDE.md");
     match text {
         Some(text) => {
+            own_claude_md(session, false)?;
             std::fs::create_dir_all(session)?;
             write_if_changed(&path, text.as_bytes())
         }
-        None => remove_if_present(&path),
+        None => {
+            own_claude_md(session, true)?;
+            remove_if_present(&path)
+        }
     }
 }
 

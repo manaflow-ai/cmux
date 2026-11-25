@@ -21,7 +21,7 @@ struct SidebarTabHomeTitleTests {
         guard let workspace = store.workspaces.first else { return nil }
         if let agent { workspace.screens.flatMap(\.panes).flatMap(\.tabs).first?.setAgent(AgentStatus(surface: 1, state: .working, agent: agent)) }
         return SidebarMapping.shared.row(workspace, machine: machine,
-                                         tabTitle: { TabItemMapping.shared.title($0, fallbackTitle: "Terminal") }).tabs.first
+                                         tabTitle: { TabItemMapping.shared.title($1, fallbackTitle: "Terminal") }).tabs.first
     }
 
     private static let cloud = MachineID("vm-1")

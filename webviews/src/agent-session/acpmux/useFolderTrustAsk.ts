@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
+  agentHomeTrust,
   readFolderTrust,
   readTrust,
   sessionTrust,
@@ -9,16 +10,28 @@ import {
   type TrustSource,
 } from "./folderTrust";
 import type { StringKey } from "./i18n";
-import { trustRefusal } from "./direct";
+import { trustRefusal } from "./trustRefusal";
+import { knownRefusalText } from "./transportErrors";
 
 /// The chat's trust question: "ask" while the folder reads as unknown for the chat's agent, then
 /// the user's answer with its Undo, or "failed" when saving it didn't. `repo`: the repository
 /// holding the folder (the question offers to trust it whole); `via`: the folder the answer was
 /// made for when not this one (the repository, or a parent folder).
 export type FolderTrustAsk = { cwd: string; repo?: TrustRepo; via?: string } & (
-  | { state: "ask" | "failed" | "remote" }
+  | { state: "ask" | "remote" }
+  /// `reason`: why the save failed, in the pane's words (absent unless the pane words it).
+  | { state: "failed"; reason?: string }
   | { state: "decided"; level: Exclude<TrustLevel, "unknown"> }
 );
+
+/// The question again after a save of its answer failed with `error`. "Couldn't save that. Try
+/// again." says what to do; a reason shows under it only when the pane words that reason itself
+/// (a refusal that can never pass reads as one). The host's own words go to the log.
+export function failedAsk(cwd: string, error: unknown): FolderTrustAsk {
+  const reason = knownRefusalText(error);
+  if (!reason) console.warn("agent pane: saving the trust answer failed", error);
+  return { cwd, state: "failed", ...(reason ? { reason } : {}) };
+}
 
 /// Where the folder's answer lives, read or answered last: the trusted grant names it, and Undo
 /// forgets the answer there.
@@ -180,7 +193,8 @@ function sameAsk(left: FolderTrustAsk | undefined, right: FolderTrustAsk | undef
       left.via === right.via &&
       left.repo?.root === right.repo?.root &&
       left.repo?.worktree === right.repo?.worktree &&
-      (left.state === "decided" ? left.level : undefined) === (right.state === "decided" ? right.level : undefined))
+      (left.state === "decided" ? left.level : undefined) === (right.state === "decided" ? right.level : undefined) &&
+      (left.state === "failed" ? left.reason : undefined) === (right.state === "failed" ? right.reason : undefined))
   );
 }
 
@@ -195,7 +209,17 @@ function sameAsk(left: FolderTrustAsk | undefined, right: FolderTrustAsk | undef
 /// (one gesture); Don't trust leaves it in the composer with the reason.
 export function useFolderTrustAsk(
   source: TrustSource,
-  chat: { sessionId?: string; cwd?: string; family?: string; prompts: number; authority?: unknown; visit?: unknown },
+  chat: {
+    sessionId?: string;
+    cwd?: string;
+    family?: string;
+    prompts: number;
+    authority?: unknown;
+    visit?: unknown;
+    /// Bumped to read the folder again with no other change (a New Tab page Cmd-T adopted with its screen kept:
+    /// the reads it made while parked had no tab's roots, SHORTCUT FRAMES F2).
+    reread?: number;
+  },
   canAnswer = true,
   /// The chat's folder is on this computer: only then is its answer kept by path for the next chat.
   local = true,
@@ -204,7 +228,7 @@ export function useFolderTrustAsk(
 ) {
   // A connection/host identity, stable while streaming. Equal paths on another machine are not
   // the same trust scope, even when a migration preserves the chat id.
-  const { sessionId, family, prompts, authority = source, visit = sessionId } = chat;
+  const { sessionId, family, prompts, authority = source, visit = sessionId, reread = 0 } = chat;
   // A live getter also fences the interval between the client's route change and React's render.
   const authorityValue = typeof authority === "function" ? authority() : authority;
   const visitValue = typeof visit === "function" ? visit() : visit;
@@ -359,13 +383,17 @@ export function useFolderTrustAsk(
     } else {
       // The persisted path cache belongs to this page's initial local authority. Once its route
       // changes, read the new authority instead of projecting a previous host's answer by path.
+      // A no-project chat's agent-home folder on this computer has a known answer: drawn now, read after.
       const trust = cwd && remembers ? knownTrust().get(cwd) : undefined;
+      const seeded = trust ?? (cwd && local ? agentHomeTrust(cwd) : undefined);
       const shown =
-        trust && cwd ? shownTrust(trust, cwd, family, canAnswer) : { ask: undefined, trusted: false, scope: undefined };
+        seeded && cwd
+          ? shownTrust(seeded, cwd, family, canAnswer)
+          : { ask: undefined, trusted: false, scope: undefined };
       setAsk(shown.ask);
       setTrusted(shown.trusted);
       setScope(shown.scope);
-      setReading(Boolean(cwd) && !trust);
+      setReading(Boolean(cwd) && !seeded);
     }
   }
   useEffect(() => {
@@ -423,7 +451,7 @@ export function useFolderTrustAsk(
     return () => {
       live = false;
     };
-  }, [source, cwd, reads, canAnswer, remembers, sameAuthority]);
+  }, [source, cwd, reads, reread, canAnswer, remembers, sameAuthority]);
 
   useEffect(() => {
     if (
@@ -544,8 +572,8 @@ export function useFolderTrustAsk(
           resend.current.delete(found.key);
           found.held.declined?.();
         }
-      } catch {
-        if (stillHere()) setAsk({ cwd: asked.cwd, state: "failed" });
+      } catch (error) {
+        if (stillHere()) setAsk(failedAsk(asked.cwd, error));
       } finally {
         if (sameAuthority()) saving.current = false;
       }
@@ -592,9 +620,9 @@ export function useFolderTrustAsk(
     resend.current.delete(key);
     try {
       held.again();
-    } catch {
+    } catch (error) {
       // A failed retry stays in its row/draft and keeps the question recoverable, as save did.
-      setAsk({ cwd, state: "failed" });
+      setAsk(failedAsk(cwd, error));
     }
   }, [ask, trusted, blockSend, sessionId, cwd, family, sameAuthority, sameVisit, visitValue]);
 
@@ -611,10 +639,6 @@ export function useFolderTrustAsk(
   return {
     ask,
     revision,
-    /// The trust question or Don't trust holds the chat's other asks (permission, secret, tool
-    /// cards): one question at a time. A read in flight asks nothing, so it holds nothing; the asks
-    /// keep their place while it reads (a chat switch). The daemon authorizes any prompt sent meanwhile.
-    holdsAsks: Boolean(blocked?.reason),
     trusted,
     /// Where the folder's answer lives (its repository, a parent folder), for the trusted grant.
     scope,
@@ -641,6 +665,21 @@ export function useFolderTrustAsk(
     /// Back to unknown: acpmux forgets its record where the answer was made (the repository, a
     /// parent folder, or the folder) and each agent's own level answers.
     undo: () => void save("unknown", ask?.via ?? (scope?.cwd === cwd ? scope?.via : undefined)),
+    /// The pending peer's own session/new succeeded. Retire only this visit's refusal and
+    /// refresh its answer from that peer; success never grants local trust by folder path.
+    started: useCallback(() => {
+      if (!mounted.current || !sameAuthority() || !sameVisit()) return;
+      const refused = refusedTrust.current.get(sessionId);
+      refusedTrust.current.delete(sessionId);
+      for (const key of retryKeys(sessionId, visitValue)) resend.current.delete(key);
+      askFromRefusal.current = undefined;
+      for (const folder of [refused?.cwd, cwd])
+        if (folder) answers.current.set(folder, (answers.current.get(folder) ?? 0) + 1);
+      lastRead.current = undefined;
+      setAsk(undefined);
+      setReading(Boolean(cwd));
+      setReads((count) => count + 1);
+    }, [sessionId, cwd, visitValue, sameAuthority, sameVisit]),
     /// Takes a refusal from acpmux: for its folder trust it reads the folder it named again (the
     /// question shows), keeps `again` to send after Trust, and is true; any other refusal is false.
     refused: useCallback(

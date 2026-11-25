@@ -27,6 +27,9 @@ import Testing
     static let windowCornerRadius: CGFloat = 16
 
     private func load(_ style: ChromeStyle?, density: Density) {
+        // These sweeps check the tab pill's geometry in every style; the flush corner, the default over
+        // flat and default chrome, has its own (`CornerFlushTests`).
+        MainPaneGutterSuites.pinsCornerFlushOff(style != nil)
         let appearance: JSONValue = style.map { .object(["chromeStyle": .string($0.rawValue)]) } ?? .object([:])
         let snapshot = CmuxConfigSnapshot.parse(.object(["appearance": appearance]), validDensities: SettingsApplier.validDensities,
                                                 validMetrics: SettingsApplier.validMetrics)
@@ -86,10 +89,10 @@ import Testing
 
     nonisolated static let variants: [(ChromeStyle, Density)] = ChromeStyle.allCases.flatMap { style in Density.allCases.map { (style, $0) } }
 
-    /// The first pill sits as far from the card's side as from its top (`PaneChromeEvenInsetTests`).
-    /// Under Floating Panes its corner is concentric with the pane's own small card (the card's radius
-    /// less the inset); in the curved main pane it is Helium's 8 pt (Lawrence 2026-10-31,
-    /// `HeliumTabCornerTests`).
+    /// The first pill keeps the strip's end gap before it (`PaneChromeEvenInsetTests`), and its corner is concentric with the card it sits in, in every window style: the card's radius
+    /// less the inset, at most half the tab (Lawrence 2026-11-04: "all nested radius everywhere ...
+    /// must be concentric, where inner radius is outer minus padding"). It was Helium's fixed 8 pt in
+    /// the curved main pane's 14 pt card 2 pt away, where concentric is 12.
     @Test(arguments: variants)
     func theFirstTabIsConcentricWithTheCardItSitsIn(style: ChromeStyle, density: Density) throws {
         defer { reset() }
@@ -97,12 +100,28 @@ import Testing
         guard let cardRadius = Self.enclosingCardRadius() else { return }
         let scene = Self.scene()
         defer { scene.window.close() }
-        let inset = scene.pill.minY - scene.card.minY
+        // The radius is one token for every screen, concentric with the inset on the 2x grid (`Metrics.tabStripCardInset`).
+        // On a 1x screen the pill's gap snaps down a half point (2.5 to 2 at Compact, 3.5 to 3 at Comfortable; #44449 made
+        // those gaps half points), a half pixel no radius can show, so the measured gap is held to that one pixel and the
+        // concentric radius reads the design inset, not the snapped one.
+        let measured = scene.pill.minY - scene.card.minY
+        let inset = Metrics.tabStripCardInset
+        let scale = scene.window.backingScaleFactor
+        #expect(measured <= inset + 0.01 && inset - measured < 1 / scale + 0.01,
+                "\(style) \(density) @\(scale)x: the pill is \(measured) pt from the card's top, the design inset is \(inset) pt")
         let leading = scene.pill.minX - scene.card.minX
-        #expect(abs(inset - leading) <= 0.01, "\(style) \(density): the pill is \(leading) pt from the side, \(inset) pt from the top")
+        // Lucas 2026-11-15: the first pill keeps the strip's one end gap at every density (`Metrics.tabStripEndGap`).
+        let stripLeading = scene.strip.convert(scene.strip.bounds, to: scene.host).minX - scene.card.minX
+        let endGap = TabStripMetrics().endGap(scale: scene.window.backingScaleFactor)
+        #expect(abs(leading - stripLeading - endGap) <= 0.01, "\(style) \(density): the pill is \(leading) pt from the side")
         let cell = try #require(scene.firstCell)
         let radius = cell.backgroundLayer.cornerRadius
-        let concentric = Metrics.floatingPanes ? max(Metrics.space2, cardRadius - inset) : Metrics.heliumTabCornerRadius
+        var concentric = min(max(0, cardRadius - inset), Metrics.tabHeight / 2)
+        // A card capped at the window's radius cannot round as far as the tab's proportional corner needs; the tab then
+        // keeps one roundness at every density (Lucas 2026-11-13 and 2026-11-14) instead of flattening to the card.
+        if Metrics.usesChromeRowCorner, Metrics.chromeTabCornerRadius + inset > cardRadius + 0.01 {
+            concentric = min(Metrics.chromeTabCornerRadius, Metrics.tabHeight / 2)
+        }
         #expect(abs(radius - concentric) <= 0.01,
                 "\(style) \(density): the tab's radius is \(radius) pt in a \(cardRadius) pt card \(inset) pt away; concentric is \(concentric) pt")
     }
@@ -144,7 +163,7 @@ import Testing
                   from: scene.strip.hoverCard)
         defer { cards.dismiss(.action) }
         let panel = try #require(cards.panel, "the tab's card did not show")
-        defer { panel.orderOut(nil) }
+        defer { panel.close() } // closed, not ordered out: the suite's window check counts an ordered-out panel as open
         return try #require(panel.host).cornerRadius
     }
 
@@ -155,18 +174,18 @@ import Testing
         defer { reset() }
         var shots: [(String, CGImage)] = []
         for density in [Density.compact, .comfortable] {
-            // No `appearance.chromeStyle` (flat with the sidebar line, no rounded card: tabs keep the
+            // No `appearance.chromeStyle` (flat, no rounded card: tabs keep the
             // item radius and the hover card takes it), the curved main pane, and Floating Panes.
             for style in [ChromeStyle?.none, .card, .floating] {
                 load(style, density: density)
                 let scene = Self.scene(tabs: 2, width: 360)
                 defer { scene.window.close() }
                 let image = try Self.render(scene, hoverRadius: try Self.shownCardRadius(scene))
-                shots.append(("\(style?.rawValue ?? "unset (flat-sidebar-line)") \(density)", image))
+                shots.append(("\(style?.rawValue ?? "unset (flat)") \(density)", image))
             }
         }
-        let sheet = PaneMoreShotsTests.contactSheet(shots)
-        let out = PaneMoreShotsTests.packageRoot.appending(path: ".build/tab-concentric-corners.png")
+        let sheet = ShotSheet.contactSheet(shots)
+        let out = ShotSheet.packageRoot.appending(path: ".build/tab-concentric-corners.png")
         try FileManager.default.createDirectory(at: out.deletingLastPathComponent(), withIntermediateDirectories: true)
         try #require(NSBitmapImageRep(cgImage: sheet).representation(using: .png, properties: [:])).write(to: out)
         print("tab-concentric-corners: wrote \(out.path)")
@@ -201,7 +220,7 @@ import Testing
         return try upright(root)
     }
 
-    /// The flipped host's layer tree drawn top side up (`PaneMoreShotsTests.snapshot` expects an
+    /// The flipped host's layer tree drawn top side up (`ShotSheet.snapshot` expects an
     /// unflipped root), at 2x.
     static func upright(_ view: NSView) throws -> CGImage {
         let scale: CGFloat = 2

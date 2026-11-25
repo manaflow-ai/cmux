@@ -20,11 +20,12 @@ import { spans, untimedFrame } from "./streaming-text.clock";
 import { useState } from "react";
 import { FileRenderer, File as PierreFile } from "@pierre/diffs";
 import { createRoot } from "react-dom/client";
-import { saveSnapshot, VirtualTranscript } from "../../src/agent-session/acpmux/App";
-import { loadHighlightedCode } from "../../src/agent-session/acpmux/conversation/CodeBlock";
+import { VirtualTranscript } from "../../src/agent-session/acpmux/App";
+import { saveSnapshot } from "../../src/agent-session/acpmux/snapshotCache";
+import { loadHighlightedCode } from "../../src/agent-session/acpmux/conversation/codeBlockModel";
 import { nextFrame } from "../../src/agent-session/acpmux/direct";
 import type { AcpmuxRow, AcpmuxSnapshot } from "../../src/agent-session/acpmux/model";
-import { percentile, round2 } from "../../src/agent-session/acpmux/perf";
+import { acpmuxPerf, percentile, round2 } from "../../src/agent-session/acpmux/perf";
 import { StreamReveal } from "../../src/agent-session/acpmux/streamReveal";
 import { turnView } from "../../src/agent-session/acpmux/conversation/turns";
 import {
@@ -70,14 +71,9 @@ const stats = (values: number[]): Stats => {
   };
 };
 
-/// The last reveal of the streaming reply: how much of its source the reveal let through.
+/// How much of the streaming reply's source has arrived, and how much of it shows: the reply draws all of
+/// it in the snapshot commit that brings it (revealedMarkdownModel.ts), so both are set there.
 const reveal = { received: 0, shown: 0 };
-const advance = StreamReveal.prototype.advance;
-StreamReveal.prototype.advance = function (this: StreamReveal, text: string, now: number, done: boolean) {
-  const shown = advance.call(this, text, now, done);
-  if (text.startsWith(REPLY.slice(0, 40))) Object.assign(reveal, { received: text.length, shown });
-  return shown;
-};
 
 /// Pierre's highlighting ([start, end]): the dev server serves no highlight worker, so Pierre
 /// highlights on the main thread, which the app's page never does (highlightPool.ts). `highlighting`
@@ -93,6 +89,8 @@ function timedHighlight<A extends unknown[], R>(body: (...args: A) => R, self: u
   if (highlightDepth > 0) return body.apply(self, args);
   highlightDepth = 1;
   const start = performance.now();
+  acpmuxPerf.enabled = true;
+  acpmuxPerf.resetRenders();
   try {
     return body.apply(self, args);
   } finally {
@@ -113,11 +111,44 @@ renderer.renderFileWithHighlighter = function (this: FileRenderer, ...args: unkn
 const initialize = FileRenderer.prototype.initializeHighlighter;
 FileRenderer.prototype.initializeHighlighter = function (this: FileRenderer) {
   const start = performance.now();
+  acpmuxPerf.enabled = true;
+  acpmuxPerf.resetRenders();
   return initialize.call(this).finally(() => loading.push([start, performance.now()]));
 };
 /// Time inside [from, to] that `windows` cover.
 const overlap = (windows: [number, number][], from: number, to: number) =>
   windows.reduce((sum, [start, end]) => sum + Math.max(0, Math.min(end, to) - Math.max(start, from)), 0);
+
+/// The followed view's glide (followGlide.ts) as the page drives it: each time it draws the thread
+/// back (`animate` from `translate: 0 Npx`, +N) and each time it lets go of what it still held (a
+/// glide cancelled, -what it still held). Their sum over a frame is how much of that frame's rise the
+/// glide took; the rest of the rise moved the reply at once. Cancel runs before the next `animate`
+/// (`rise`), and `stop` cancels alone, so a glide stopped mid-way counts as the jump it is.
+const glideEvents: { at: number; px: number }[] = [];
+const glideFrom = new WeakMap<Animation, number>();
+const animate = Element.prototype.animate;
+Element.prototype.animate = function (this: Element, ...args: Parameters<typeof animate>) {
+  const animation = animate.apply(this, args);
+  const first = Array.isArray(args[0]) ? (args[0][0] as { translate?: string } | undefined) : undefined;
+  if (this.classList.contains("acpmux-thread") && typeof first?.translate === "string") {
+    const px = Number.parseFloat(first.translate.split(" ")[1] ?? "");
+    if (Number.isFinite(px)) {
+      glideFrom.set(animation, px);
+      glideEvents.push({ at: performance.now(), px });
+    }
+  }
+  return animation;
+};
+const cancel = Animation.prototype.cancel;
+Animation.prototype.cancel = function (this: Animation) {
+  const from = glideFrom.get(this);
+  if (from !== undefined) {
+    const progress = this.effect?.getComputedTiming().progress;
+    if (typeof progress === "number") glideEvents.push({ at: performance.now(), px: -from * (1 - progress) });
+    glideFrom.delete(this);
+  }
+  cancel.call(this);
+};
 
 /// The first task span no sample has counted.
 let nextSpan = 0;
@@ -126,8 +157,8 @@ const PROMPT_ID = "live-user";
 const ANSWER_ID = "live-answer";
 const expanded = new Set<string>();
 let show: (rows: AcpmuxRow[], working: boolean) => void = () => {};
-/// Draw the running turn's live line under the reply (Debug `agentPane.debug.liveLineBelow`, on in
-/// the app), so the end of the turn swaps that line for the turn's footer as the app does.
+/// Draw the running turn's live line under the reply, as the app does, so the end of the turn swaps
+/// that line for the turn's footer. Off, the harness leaves the line out to measure the reply alone.
 let lineBelow = false;
 /// Turn off the followed view's eased steps (followGlide.ts) to measure the view that steps at once.
 let glide = true;
@@ -142,7 +173,7 @@ function Pane() {
         <div className="acpmux-stage">
           <header className="acpmux-header" />
           <VirtualTranscript
-            rows={turnView(state.rows, expanded, { working: state.working, lineBelow, liveRuns: lineBelow })}
+            rows={turnView(state.rows, expanded, { working: state.working }).filter((row) => lineBelow || !row.below)}
             sessionId="streaming-text"
             working={state.working}
             jumpButton
@@ -172,6 +203,8 @@ createRoot(root).render(<Pane />);
 /// One sampled display frame.
 type Frame = {
   t: number;
+  /// When the sample was read (performance.now()), after the frame's timestamp `t`.
+  at: number;
   /// The stream has started and not ended.
   live: boolean;
   /// Characters of the reply drawn (its Markdown root's textContent).
@@ -183,6 +216,8 @@ type Frame = {
   blocks: { tag: string; top: number; height: number; text: string }[];
   /// The reply row's top on screen (transforms included): followed, it only moves up.
   rowTop?: number;
+  /// How far the followed view's glide draws the thread down (its animated `translate`, followGlide.ts).
+  glide?: number;
   /// How far the view rests from its end, when it can scroll.
   fromEnd?: number;
   /// Room between the reply's last drawn line and the top of the bottom stack.
@@ -231,6 +266,7 @@ function sampleFrame(t: number, live: boolean): Frame {
   const dock = document.querySelector<HTMLElement>(".acpmux-dock");
   const frame: Frame = {
     t,
+    at: performance.now(),
     live,
     length: 0,
     shown: reveal.shown,
@@ -245,6 +281,8 @@ function sampleFrame(t: number, live: boolean): Frame {
   if (!row || !markdown) return frame;
   frame.length = markdown.textContent?.length ?? 0;
   frame.rowTop = row.getBoundingClientRect().top;
+  const thread = document.querySelector<HTMLElement>(".acpmux-thread");
+  if (thread) frame.glide = Number.parseFloat(getComputedStyle(thread).translate.split(" ")[1] ?? "") || 0;
   const origin = layoutTop(markdown);
   frame.blocks = [...markdown.children].map((child) => {
     const block = child as HTMLElement;
@@ -263,7 +301,9 @@ function sampleFrame(t: number, live: boolean): Frame {
 
 export type Shift = { t: number; index: number; tag: string; text: string; top: number; height: number };
 export type Flip = { t: number; index: number; from: string; to: string; fromText: string; text: string };
-export type StreamReport = ReturnType<typeof analyze>;
+/// Committed renders of the reply's closed Markdown blocks while it streamed (Markdown.tsx BlockView):
+/// `closed` all of them, `rerenders` those after a block's first, which a closed block never needs.
+export type StreamReport = ReturnType<typeof analyze> & { markdown: { closed: number; rerenders: number } };
 
 /// A frame's last block, the one being written: where an event happened.
 const tailOf = (frame: Frame) => {
@@ -275,6 +315,8 @@ const JUMP_CHARS = 40;
 /// A settle step larger than this in one frame reads as a snap: an eased 180 ms move over a line
 /// (22.75 px) steps at most about 4 px a frame at 60 Hz.
 const SNAP_PX = 8;
+/// A display frame at 60 Hz, the rate SNAP_PX is set for.
+const FRAME_MS = 1000 / 60;
 
 function analyze(
   cadence: Cadence,
@@ -379,12 +421,50 @@ function analyze(
   }
   // Follow steps: how far the reply's row moves on screen from one frame to the next while it
   // streams. A followed view that takes each new line at once moves it a whole line in one frame.
+  // A frame's move has two parts. What moved at once: the rows' rise in layout less what the glide
+  // took of it (glideEvents), counted whole however long the frame was. And the glide's own slide
+  // toward rest, which runs on the animation clock, so a frame twice as long draws twice the slide:
+  // that part counts at what a 60 Hz frame draws of it, so a starved host's long frames (WebKit on a
+  // loaded runner: 20 ms median, 38-45 ms worst) are not read as jumps the page never made. A
+  // stepped view has no glide, and every move it makes counts whole.
   const steps: number[] = [];
+  const snapEvents: { t: number; px: number; ms: number; atOnce: number; slide: number; tail: string }[] = [];
+  const starvedFrames: { t: number; intervalMs: number; pageWorkMs: number }[] = [];
+  let nextGlide = 0;
   for (let index = 1; index < live.length; index += 1) {
-    const before = live[index - 1]!.rowTop;
-    const now = live[index]!.rowTop;
+    const previous = live[index - 1]!;
+    const frame = live[index]!;
+    // Use the same monotonic clock as the animation and the work spans. The rAF timestamp is the
+    // display timestamp, which can stay on the nominal cadence while this callback waits in a
+    // loaded runner; using it would charge that scheduler gap to the glide's 60 Hz step.
+    const ms = frame.at - previous.at;
+    const pageWorkMs = frame.scriptMs + frame.layoutMs;
+    // Keep delayed frames in the motion metric. A low-work, long interval is useful evidence of
+    // runner starvation, but dropping it could hide a real jump from an unmeasured callback. The
+    // glide contribution below is the only part adjusted for the scheduler gap; layout movement
+    // remains a semantic one-frame jump. The work/long-task checks still inspect the same frame.
+    if (ms > FRAME_MS && pageWorkMs < FRAME_MS)
+      starvedFrames.push({ t: at(frame.t), intervalMs: round2(ms), pageWorkMs: round2(pageWorkMs) });
+    let took = 0;
+    for (; nextGlide < glideEvents.length && glideEvents[nextGlide]!.at <= frame.at; nextGlide += 1)
+      if (glideEvents[nextGlide]!.at > previous.at) took += glideEvents[nextGlide]!.px;
+    const before = previous.rowTop;
+    const now = frame.rowTop;
     if (before === undefined || now === undefined || Math.abs(now - before) <= 0.5) continue;
-    steps.push(Math.abs(now - before));
+    const glided = (frame.glide ?? 0) - (previous.glide ?? 0);
+    const atOnce = now - before - glided + took;
+    const slide = glided - took;
+    const step = Math.abs(atOnce + slide * Math.min(1, FRAME_MS / Math.max(ms, 1)));
+    steps.push(step);
+    if (step > SNAP_PX)
+      snapEvents.push({
+        t: at(frame.t),
+        px: round2(step),
+        ms: round2(ms),
+        atOnce: round2(atOnce),
+        slide: round2(slide),
+        tail: tailOf(frame),
+      });
   }
   // Bottom-edge reversals over the whole run: the reply's top, which a followed view only lifts,
   // coming back down by more than half a pixel in one frame.
@@ -415,6 +495,9 @@ function analyze(
     work: {
       frames: work.length,
       scriptMs: stats(working.map((frame) => frame.scriptMs)),
+      /// All the script the stream cost, and the frames that ran any (over half a millisecond).
+      scriptTotalMs: round2(working.reduce((sum, frame) => sum + frame.scriptMs, 0)),
+      busyFrames: working.filter((frame) => frame.scriptMs > 0.5).length,
       layoutMs: stats(working.map((frame) => frame.layoutMs)),
       totalMs: stats(work),
       heaviest: heaviest && {
@@ -468,6 +551,9 @@ function analyze(
       moving: steps.length,
       ...stats(steps),
       overSnap: steps.filter((px) => px > SNAP_PX).length,
+      snapEvents: snapEvents.slice(0, 40),
+      starvedFrames: starvedFrames.length,
+      starved: starvedFrames.slice(0, 40),
     },
     settle: {
       moves: settleMoves.length,
@@ -489,6 +575,14 @@ function analyze(
   };
 }
 
+/// The calls the live line names in turn while the reply streams (`callEveryMs`).
+const CALLS = [
+  "Read daemon log_load and startup",
+  "Read the REST quota",
+  "Read _acpmux/watch and sessions callers",
+  "Read relay.ts",
+];
+
 const frameTime = () => new Promise<number>((resolve) => requestAnimationFrame(resolve));
 
 async function run({
@@ -497,6 +591,7 @@ async function run({
   settleMs = 1_000,
   liveLine = false,
   eased = true,
+  callEveryMs,
 }: {
   cadence: Cadence;
   seed?: number;
@@ -505,6 +600,9 @@ async function run({
   liveLine?: boolean;
   /// Ease the followed view's steps (followGlide.ts), as the app does.
   eased?: boolean;
+  /// While the reply streams, a call runs under it that another call replaces every this many ms,
+  /// so the live line's words change as they stream (ui/motion/useTextSwap.ts). Needs `liveLine`.
+  callEveryMs?: number;
 }): Promise<StreamReport> {
   lineBelow = liveLine;
   glide = eased;
@@ -525,10 +623,31 @@ async function run({
   let version = 0;
   let streaming = true;
   let ended = false;
+  let call = 0;
+  const running = (): AcpmuxRow[] =>
+    callEveryMs === undefined || ended
+      ? []
+      : [
+          {
+            id: "live-call",
+            version: call + 1,
+            at: 100_002,
+            kind: "activity",
+            toolCount: 1,
+            items: [
+              {
+                kind: "tool",
+                text: CALLS[call % CALLS.length]!,
+                tool: { id: `call-${call}`, title: CALLS[call % CALLS.length]!, kind: "read", status: "in_progress" },
+              },
+            ],
+          } as AcpmuxRow,
+        ];
   const rows = (summary: boolean): AcpmuxRow[] => [
     ...base,
     prompt,
     { id: ANSWER_ID, version, at: 100_001, kind: "assistant", text, streaming },
+    ...running(),
     ...(summary
       ? [{ id: "live-end", version: 1, at: 120_000, kind: "turnSummary", status: "completed" } as AcpmuxRow]
       : []),
@@ -543,10 +662,12 @@ async function run({
       const snapshot = rows(ended);
       saveSnapshot({ type: "snapshot", rows: snapshot } as unknown as AcpmuxSnapshot);
       show(snapshot, !ended);
+      reveal.received = reveal.shown = text.length;
     });
   };
 
   const frames: Frame[] = [];
+  glideEvents.length = 0;
   let live = false;
   let sampling = true;
   const longTasks: { t: number; ms: number }[] | null = PerformanceObserver.supportedEntryTypes?.includes("longtask")
@@ -567,6 +688,15 @@ async function run({
   await frameTime();
 
   const start = performance.now();
+  acpmuxPerf.enabled = true;
+  acpmuxPerf.resetRenders();
+  const calls =
+    callEveryMs === undefined
+      ? undefined
+      : setInterval(() => {
+          call += 1;
+          emit();
+        }, callEveryMs);
   const done = new Promise<void>((resolve) => {
     live = true;
     deltas.forEach((delta, index) =>
@@ -588,6 +718,7 @@ async function run({
     );
   });
   await done;
+  if (calls !== undefined) clearInterval(calls);
   // The reveal drains what is left (StreamReveal.finishMs) before the stream counts as drawn.
   // fixed-wait: the drain's frames are sampled; its length is StreamReveal.finishMs of wall time
   await new Promise((resolve) => setTimeout(resolve, StreamReveal.finishMs + 50));
@@ -601,7 +732,11 @@ async function run({
   sampling = false;
   observer?.disconnect();
   const dock = document.querySelector<HTMLElement>(".acpmux-dock")?.getBoundingClientRect().height ?? 0;
-  return analyze(cadence, deltas, frames, start, longTasks, dock, sampleEnd);
+  const markdown = {
+    closed: acpmuxPerf.renders.get("markdown.closed") ?? 0,
+    rerenders: acpmuxPerf.renders.get("markdown.closed.rerender") ?? 0,
+  };
+  return { ...analyze(cadence, deltas, frames, start, longTasks, dock, sampleEnd), markdown };
 }
 
 (window as unknown as { __streamingText: { run: typeof run } }).__streamingText = { run };

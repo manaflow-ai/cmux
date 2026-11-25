@@ -6,6 +6,7 @@
 ///   "sound": "Glass",
 ///   "sounds": {
 ///     "volume": 0.8,
+///     "maxSeconds": 3,
 ///     "when": "unlessViewed",
 ///     "cooldownSeconds": 1.5,
 ///     "events": {"needsInput": "Ping", "error": "Basso"},
@@ -17,11 +18,13 @@
 /// ```
 public nonisolated struct NotificationSoundPreferences: Hashable, Sendable {
     /// Master volume, 0 to 1; every level's volume is a share of it.
-    public var volume: Double = 1
-    public var when: NotificationSoundTiming = .unlessViewed
+    public var volume: Double = Self.volumeDefault
+    /// Each sound cmux plays itself stops after this many seconds; 0 plays it to its end.
+    public var maxSeconds: Double = Self.maxSecondsDefault
+    public var when: NotificationSoundTiming = Self.whenDefault
     /// After a sound, quieter or equal events wait this long before the next one plays, so many
     /// agents finishing together sound once. 0 turns it off.
-    public var cooldownSeconds: Double = 1.5
+    public var cooldownSeconds: Double = Self.cooldownDefault
     /// The global sound of one event; nil keeps `notifications.sound` (or its source's sound).
     public var events: [NotificationSoundEvent: String] = [:]
     /// Group rules by group id or name.
@@ -32,9 +35,6 @@ public nonisolated struct NotificationSoundPreferences: Hashable, Sendable {
     public var agents: [String: NotificationSoundRule] = [:]
 
     public init() {}
-
-    public static let volumeRange: ClosedRange<Double> = 0...1
-    public static let cooldownRange: ClosedRange<Double> = 0...60
 
     /// The levels that apply to `scope`, most specific first: the agent kind, the workspace, then
     /// each group from the innermost out.

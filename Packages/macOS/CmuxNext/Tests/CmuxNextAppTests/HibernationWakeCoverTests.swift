@@ -17,7 +17,8 @@ import CmuxNextWakeupsTestSupport
         <script>const until = Date.now() + 1500; while (Date.now() < until) {}</script><p>painted</p>
         """
 
-    @Test func theWokenPageKeepsItsPictureUntilItPaints() async throws {
+    @Test(.disabled("Quarantined: on a CI Mac the woken page's first paint was never reported (test window never on screen), https://github.com/manaflow-ai/cmux/issues/31548"))
+    func theWokenPageKeepsItsPictureUntilItPaints() async throws {
         let rig = try HiddenPageHibernationTests.Rig()
         defer { rig.close() }
         // The cap never runs out here: only the page's paint removes the picture.

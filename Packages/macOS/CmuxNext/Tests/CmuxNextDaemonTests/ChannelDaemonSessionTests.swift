@@ -1,4 +1,5 @@
 import CmuxNextCompat
+import CmuxNextTestSupport
 import Foundation
 import Testing
 @testable import CmuxNextDaemon
@@ -32,7 +33,7 @@ struct ChannelDaemonSessionTests {
             try DaemonLauncher.forApp(
                 build: BuildIdentity(bundleID: bundleID, bundledTag: nil), terminalEnvironment: [:],
                 processEnvironment: [DaemonLauncher.binaryOverrideKey: binary.path],
-                socketMemory: DaemonSocketMemory(defaults: { UserDefaults(suiteName: defaultsSuite) ?? .standard }),
+                socketMemory: DaemonSocketMemory(defaults: { UserDefaults(testSuiteName: defaultsSuite) ?? .standard }),
                 applicationSupport: support
             ).configuration
         }
@@ -43,7 +44,7 @@ struct ChannelDaemonSessionTests {
         #expect(release.session == "cmux-app")
         #expect(release.stateDirectory == nil)
         #expect(nightly.session == "cmux-app-nightly")
-        #expect(nightly.stateDirectory == support.appendingPathComponent("cmux/tags/nightly/tui", isDirectory: true))
+        #expect(nightly.stateDirectory == support.appendingPathComponent("cmux-next/tags/nightly/tui", isDirectory: true))
 
         // Run both at once. The test never uses the real runtime base or
         // the user's default state root: release's nil root (cmux-tui's

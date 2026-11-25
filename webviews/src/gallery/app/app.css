@@ -1,0 +1,276 @@
+/* The whole app (app/main.tsx): the toolbar, then one window scaled to the room under it. The
+   window's chrome reads the same --cmux-* tokens the app hands its pages (applyTheme). Nothing here
+   animates, filters or blurs: the page paints once and the live pane is the only moving part. */
+html,
+body,
+#app {
+  height: 100%;
+  margin: 0;
+}
+
+body {
+  /* The page around the window: the theme's surface, a step darker. */
+  --app-page: color-mix(in srgb, var(--cmux-surface-solid, #1e1e1e) 70%, #000);
+  display: flex;
+  flex-direction: column;
+  background: var(--app-page);
+  color: var(--cmux-text, #eee);
+  font-family: var(--font-ui);
+  font-size: var(--text-detail);
+}
+
+#app {
+  display: flex;
+  flex-direction: column;
+}
+
+.app-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 16px;
+  align-items: center;
+  padding: 8px 16px;
+  border-bottom: 1px solid var(--cmux-separator, #333);
+}
+
+.app-control {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  color: var(--cmux-text-secondary, #aaa);
+}
+
+.app-control select {
+  font: inherit;
+  color: var(--cmux-text, #eee);
+  background: var(--cmux-elevated-background, #2a2a2a);
+  border: 1px solid var(--cmux-separator, #444);
+  border-radius: 6px;
+  padding: 0 4px;
+}
+
+.app-note {
+  flex: 1 1 240px;
+  min-width: 0;
+  overflow: hidden;
+  color: var(--cmux-text-tertiary, #888);
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.app-status {
+  color: var(--cmux-text-secondary, #aaa);
+  font-variant-numeric: tabular-nums;
+}
+
+.app-toolbar a {
+  color: var(--cmux-accent, #6af);
+}
+
+.app-room {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+  display: grid;
+  place-items: center;
+  overflow: hidden;
+}
+
+.app-fit {
+  position: relative;
+}
+
+.app-window {
+  position: absolute;
+  top: 0;
+  left: 0;
+  transform-origin: 0 0;
+  overflow: hidden;
+  border-radius: 12px;
+  /* The window behind the panes: the theme's surface, a step toward the text color. */
+  background: color-mix(in srgb, var(--cmux-surface-solid, #1e1e1e) 92%, var(--cmux-text, #fff));
+  box-shadow: var(--app-window-shadow);
+  contain: layout paint;
+}
+
+.app-sidebar {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.app-titlebar {
+  display: flex;
+  flex: none;
+  gap: 8px;
+  align-items: center;
+  padding-left: 12px;
+}
+
+.app-window {
+  /* macOS's window controls: fixed colors, as the system draws them in every theme. */
+  --app-light-close: #ff5f57;
+  --app-light-minimize: #febc2e;
+  --app-light-zoom: #28c840;
+  --app-dot-input: #f5a524;
+  /* The rim carries the edge; the drop is the shared scale's (no dramatic shadows). */
+  --app-window-shadow: 0 0 0 1px var(--cmux-separator, #333), var(--elevation-2);
+  --app-light-size: 12px;
+  --app-dot-size: 8px;
+}
+
+.app-light {
+  width: var(--app-light-size);
+  height: var(--app-light-size);
+  border-radius: 50%;
+  background: var(--app-light-close);
+}
+
+.app-light[data-light="minimize"] {
+  background: var(--app-light-minimize);
+}
+
+.app-light[data-light="zoom"] {
+  background: var(--app-light-zoom);
+}
+
+.app-sidebar-header {
+  padding: 4px 16px;
+  color: var(--cmux-text-tertiary, #888);
+  font-size: var(--text-caption);
+  font-weight: 600;
+}
+
+.app-rows {
+  margin: 0;
+  padding: 0 8px;
+  list-style: none;
+  overflow: hidden;
+}
+
+.app-row {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  height: var(--app-row-height);
+  padding: 0 8px;
+  border-radius: 6px;
+}
+
+.app-row[data-active] {
+  background: var(--cmux-selection, rgb(255 255 255 / 0.1));
+}
+
+.app-row-dot {
+  flex: none;
+  width: var(--app-dot-size);
+  height: var(--app-dot-size);
+  border-radius: 50%;
+  background: transparent;
+}
+
+.app-row-dot[data-indicator="working"] {
+  background: var(--cmux-accent, #6af);
+}
+
+.app-row-dot[data-indicator="input"] {
+  background: var(--app-dot-input);
+}
+
+.app-row-dot[data-unread] {
+  background: var(--cmux-text, #eee);
+}
+
+.app-row-text {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.app-row-title,
+.app-row-subtitle {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.app-row-title {
+  font-size: var(--text-body);
+}
+
+.app-row-subtitle {
+  color: var(--cmux-text-tertiary, #888);
+  font-size: var(--text-caption);
+}
+
+.app-pane {
+  position: absolute;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  border-radius: var(--app-radius);
+  background: var(--cmux-surface-solid, #1e1e1e);
+  box-shadow: 0 0 0 1px var(--cmux-separator, #333);
+}
+
+.app-tabstrip {
+  display: flex;
+  flex: none;
+  gap: 4px;
+  align-items: center;
+  box-sizing: border-box;
+  padding: 0 8px;
+  border-bottom: 1px solid var(--cmux-separator, #333);
+}
+
+.app-tab {
+  display: flex;
+  align-items: center;
+  max-width: 220px;
+  height: var(--app-tab-height);
+  padding: 0 12px;
+  overflow: hidden;
+  border-radius: 6px;
+  color: var(--cmux-text-secondary, #aaa);
+  font-size: var(--text-detail);
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.app-tab[data-active] {
+  background: var(--cmux-hover, rgb(255 255 255 / 0.08));
+  color: var(--cmux-text, #eee);
+}
+
+.app-tab-new {
+  padding: 0 8px;
+  color: var(--cmux-text-tertiary, #888);
+  font-size: var(--text-title);
+}
+
+.app-stage {
+  display: block;
+  flex: none;
+  border: 0;
+}
+
+.app-terminal {
+  box-sizing: border-box;
+  display: flex;
+  gap: 8px;
+  align-items: flex-start;
+  padding: 12px;
+  font-family: ui-monospace, "SF Mono", Menlo, monospace;
+  font-size: var(--text-detail);
+}
+
+.app-terminal-cursor {
+  width: 0.6em;
+  height: 1.2em;
+  background: var(--cmux-text, #eee);
+  opacity: 0.7;
+}

@@ -33,6 +33,20 @@ import Testing
         #expect(frames.apply(BrowserMediaState(title: "B", isPlaying: true, isPictureInPicture: true), from: "b")?.title == "B")
     }
 
+    /// Issue 38062: a frame's Web Audio (a report with no element) must not take the tab's media
+    /// from another frame's video, playing or paused; it lends the shown report its speaker.
+    @Test func soundWithNoElementNeverHidesAnotherFramesVideo() {
+        let sound = BrowserMediaState(title: "Game", isPlaying: true, isSoundOnly: true, isOtherSound: true)
+        var frames = BrowserMediaFrames()
+        _ = frames.apply(BrowserMediaState(title: "Talk", isPlaying: true, isVideo: true), from: "main")
+        #expect(frames.apply(sound, from: "ad")?.title == "Talk", "a later Web Audio frame took the playing video's place")
+        let shown = frames.apply(Self.paused, from: "main")
+        #expect(shown?.title == "Talk", "a Web Audio frame took the paused video's place")
+        #expect(shown?.isSounding == true && shown?.isOtherSound == true, "the other frame's sound lost the speaker")
+        #expect(frames.apply(nil, from: "main") == sound, "alone, the sound shows")
+        #expect(frames.apply(nil, from: "ad") == nil)
+    }
+
     @Test func aNewDocumentDropsEveryFramesReport() {
         var machine = BrowserTabStateMachine()
         let id = BrowserNavigationID(rawValue: 1)

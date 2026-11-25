@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""The explicitly reserved nightly mini precedes every early portable route."""
+"""The explicitly reserved nightly mini takes the early Mac jobs and the nightly's credentialed controls."""
 import sys
 import tempfile
 import unittest
@@ -13,14 +13,18 @@ sys.path.insert(0, str(ROOT / "tests"))
 import nightly_build_runner as picker
 import runner_label_policy as policy
 from test_nightly_trusted_routing import evaluate, parse_expression
+import workflow_jobs
 
 LABEL = "glaeda-nightly-only-m4pro"
 VARIABLE = "vars.CI_NIGHTLY_ONLY_RUNNER"
 BUILDER = "glaeda-nightly-only-m4pro-builder"
 BUILDER_VARIABLE = "vars.CI_NIGHTLY_ONLY_BUILDER_RUNNER"
-EARLY = ("decide", "resolve-nightly-cmux-tui-client", "resolve-nightly-ghostty-cli-helper",
-         "build-nightly-inputs", "find-nightly-next-recovery", "pick-nightly-build-runner",
-         "build-nightly-ghostty-cli-helper")
+EARLY = ("build-nightly-inputs", "build-nightly-ghostty-cli-helper")
+# The early controls decide no longer places: the two that read the routing App key stay on the
+# reservation pool, the two that hold no key take cmux-linux.
+RESERVED_CONTROLS = ("find-nightly-next-recovery", "pick-nightly-build-runner")
+LINUX_CONTROLS = ("resolve-nightly-cmux-tui-client", "resolve-nightly-ghostty-cli-helper")
+VERIFY_OWNED = ("verify-signed-nightly", "verify-final-dmg-nightly")
 DOC = yaml.safe_load((ROOT / ".github/workflows/nightly.yml").read_text())
 
 
@@ -33,8 +37,16 @@ def context(**changes):
     return value
 
 
+def written_runs_on(job):
+    """The job's runs-on as written: one cell, since none of these jobs has a runner matrix."""
+    cells = workflow_jobs.runs_on_cells(DOC["jobs"][job])
+    if cells is None or len(cells) != 1:
+        raise AssertionError(f"{job}: expected one runs-on, read {cells!r}")
+    return cells[0]
+
+
 def selected(job, values):
-    return evaluate(parse_expression(DOC["jobs"][job]["runs-on"].removeprefix("${{").removesuffix("}}")), values)
+    return evaluate(parse_expression(written_runs_on(job).removeprefix("${{").removesuffix("}}")), values)
 
 
 class DedicatedMini(unittest.TestCase):
@@ -49,6 +61,34 @@ class DedicatedMini(unittest.TestCase):
             with self.subTest(job=job):
                 self.assertEqual(selected(job, context()), LABEL)
 
+    def test_decide_bootstraps_on_the_reservation(self):
+        # No earlier job places decide; nightlies run only on our own minis, so it takes the reservation pool.
+        self.assertEqual(selected("decide", context()), LABEL)
+        self.assertEqual(selected("decide", context(**{VARIABLE: ""})), LABEL)
+        pools = '{"linux_16": "blacksmith-16vcpu-ubuntu-2404", "linux_32": "blacksmith-32vcpu-ubuntu-2404"}'
+        self.assertEqual(selected("decide", context(**{"github.run_attempt": 2, "vars.RUNNER_POOLS": pools})), LABEL)
+
+    def test_early_controls_take_their_one_route_on_every_attempt(self):
+        pools = '{"linux_16": "blacksmith-16vcpu-ubuntu-2404", "linux_32": "blacksmith-32vcpu-ubuntu-2404"}'
+        for changes in ({}, {"github.run_attempt": 2, "vars.RUNNER_POOLS": pools},
+                        {"vars.CI_NIGHTLY_NEXT_BUILD_RUNNER": ""}):
+            for job in RESERVED_CONTROLS:
+                with self.subTest(job=job, changes=changes):
+                    self.assertEqual(selected(job, context(**changes)), LABEL)
+            for job in LINUX_CONTROLS:
+                with self.subTest(job=job, changes=changes):
+                    self.assertEqual(selected(job, context(**changes)), "cmux-linux")
+        for job in RESERVED_CONTROLS + LINUX_CONTROLS:
+            with self.subTest(job=job, fork=True):
+                self.assertEqual(selected(job, context(**{"github.repository": "other/cmux",
+                                                          "github.repository_owner": "other"})), "ubuntu-24.04")
+
+    def test_decide_places_nothing(self):
+        decide = DOC["jobs"]["decide"]
+        ids = {step.get("id") for step in decide["steps"]}
+        self.assertFalse(ids & {"place-reserved", "place-early-mac", "early-route-token"})
+        self.assertFalse([key for key in decide["outputs"] if key.startswith("early_")])
+
     def test_exception_is_exact_label_next_repository_and_first_attempt(self):
         for job in EARLY:
             for changes in ({VARIABLE: ""}, {VARIABLE: "glaeda-unregistered"},
@@ -59,14 +99,6 @@ class DedicatedMini(unittest.TestCase):
                 with self.subTest(job=job, changes=changes):
                     self.assertNotEqual(selected(job, context(**changes)), LABEL)
 
-    def test_dedicated_route_skips_the_unreachable_linux_admission_wait(self):
-        steps = {step.get("id"): step for step in DOC["jobs"]["decide"]["steps"]}
-        values = context(**{"steps.decide.outputs.track": "nightly-next",
-                            "steps.decide.outputs.should_build": "true"})
-        for name in ("start-early-linux", "place-early", "place-early-mac"):
-            condition = steps[name]["if"].removeprefix("${{").removesuffix("}}")
-            self.assertFalse(evaluate(parse_expression(condition), values))
-            self.assertTrue(evaluate(parse_expression(condition), {**values, VARIABLE: ""}))
 
     def test_app_and_helper_pick_the_reserved_mini_without_api_quota(self):
         def unavailable(*args):
@@ -161,8 +193,33 @@ class DedicatedMini(unittest.TestCase):
         self.assertTrue(evaluate(condition, {**values, BUILDER_VARIABLE: BUILDER}))
         self.assertIn(f"${{{{ {BUILDER_VARIABLE} }}}}", steps["pick"]["env"]["NIGHTLY_ONLY_BUILDER_LABEL"])
 
-    def test_linux_elf_signer_does_not_take_the_mac_reservation(self):
-        self.assertNotIn(VARIABLE, DOC["jobs"]["signer-build"]["runs-on"])
+
+    def test_sign_picker_prefers_reservation_for_secret_free_mac_consumers(self):
+        output = DOC["jobs"]["pick-nightly-sign-runner"]["outputs"]["owned"]
+        expression = parse_expression(output.removeprefix("${{").removesuffix("}}"))
+        valid = context(**{"github.ref_name": "nightly-next",
+                            "steps.owned.outputs.owned": "glaeda-side-std-xcode-26.6"})
+        self.assertEqual(evaluate(expression, valid), LABEL)
+        self.assertEqual(evaluate(expression, {**valid, "github.event_name": "workflow_dispatch"}), LABEL)
+        # A bad variable, fork, other track or retry falls through to the normal
+        # owned picker (or an empty output); it can never widen the reservation.
+        self.assertEqual(evaluate(expression, {**valid, VARIABLE: "glaeda-unregistered"}),
+                         "glaeda-side-std-xcode-26.6")
+        for changes in ({VARIABLE: "", "steps.owned.outputs.owned": "glaeda-side-std-xcode-26.6"},
+                        {"github.run_attempt": 2},
+                        {"github.repository": "other/cmux", "github.repository_owner": "other"},
+                        {"github.ref_name": "main"}):
+            with self.subTest(changes=changes):
+                self.assertNotEqual(evaluate(expression, {**valid, **changes}), LABEL)
+
+        for job in VERIFY_OWNED:
+            source = written_runs_on(job)
+            selected_job = evaluate(parse_expression(source.removeprefix("${{").removesuffix("}}")),
+                                     {**valid,
+                                      "needs.pick-nightly-sign-runner.outputs.attempt": "1",
+                                      "needs.pick-nightly-sign-runner.outputs.owned": LABEL,
+                                      "vars.CI_PR_POOL_OWNED": "1"})
+            self.assertEqual(selected_job, LABEL, job)
 
 
 if __name__ == "__main__":

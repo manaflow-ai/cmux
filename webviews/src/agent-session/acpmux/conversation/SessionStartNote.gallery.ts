@@ -1,6 +1,8 @@
 // l10n-allow-file: gallery fixtures (sample prompts, versions, models and paths), not shipped UI.
-// Where a Claude Code chat's session started (SessionStartNote.tsx): what it runs on in one short
-// line; a click opens the whole of it. No explainer line under it.
+// Where a Claude Code chat's session started: the transcript draws no line for it (Lucas,
+// 2026-11-06, Codex parity: it landed inside the first turn's work and read as noise;
+// rows/SessionStartRow.tsx). The row stays in the store for HarnessStatusCard. SessionStartNote.tsx
+// keeps its own unit test.
 import { agentPaneEntry } from "../../../gallery/format";
 import { assistant, chat, row, summary, user } from "../../../gallery/fixtures/acpmux";
 
@@ -30,19 +32,15 @@ export default agentPaneEntry({
   covers: ["agent-session/acpmux/conversation/SessionStartNote.tsx"],
   variants: {
     managed: {
-      note: 'A chat on sr2: "Claude Code · Opus 5.5 · sr2", one quiet line and nothing under it.',
-      snapshot: managed(),
-    },
-    details: {
-      note: "A click on the facts line opens the whole of it: Claude Code's version, the model id, the route and the folder.",
+      note: "Play: a chat on sr2 with a session start row draws no line for it; the prompt and the reply alone.",
       snapshot: managed(),
       play: async (ctx) => {
-        await ctx.click({ selector: ".cv-session-start" });
-        await ctx.waitFor(() => ctx.document.querySelector(".cv-session-start__detail"));
+        await ctx.waitFor(() => ctx.document.body.textContent?.includes("Looking at the sidebar test first."));
+        if (ctx.document.querySelector(".cv-session-start")) throw new Error("a session start draws a line");
       },
     },
     stock: {
-      note: 'A chat on the person\'s own Claude Code setup: "Claude Code · Opus 5.5", no route on the line.',
+      note: "A chat on the person's own Claude Code setup: no session start line either.",
       snapshot: chat([
         user("Summarize the open PRs", 4),
         row("sessionStart", 4, start("claude")),

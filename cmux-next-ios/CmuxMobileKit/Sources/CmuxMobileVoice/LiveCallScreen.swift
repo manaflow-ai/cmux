@@ -29,13 +29,10 @@ public struct LiveCallScreen: View {
         self.openKeySettings = openKeySettings
     }
 
-    private var chiefName: String {
-        let chief = ChiefSources.shared.primary
-        let name = chief.title ?? chief.identity.title
-        return name.isEmpty ? "Chief" : name
-    }
+    /// The Chief this call is to (never the default Chief when another was called).
+    private var chiefName: String { call.chiefName }
 
-    private var avatarText: String { ChiefSources.shared.primary.avatar }
+    private var avatarText: String { call.chiefAvatar }
 
     private var failure: VoiceCallFailure? {
         if case let .ended(failure) = session.phase { return failure }
@@ -106,7 +103,7 @@ public struct LiveCallScreen: View {
                 LiveCallAvatar(text: avatarText, speaking: session.chiefSpeaking, listening: session.userSpeaking,
                                reduceMotion: reduceMotion)
             }
-            .buttonStyle(.plain)
+            .buttonStyle(.cmuxPressFill)
             .disabled(!session.chiefSpeaking)
             .accessibilityLabel(chiefName)
             .accessibilityHint(session.chiefSpeaking ? LiveCallText.interruptHint : "")
@@ -127,7 +124,7 @@ public struct LiveCallScreen: View {
             }
             .font(.subheadline)
             .foregroundStyle(.secondary)
-            .animation(theme.motion.smooth.animation, value: statusLine)
+            .animation(theme.motion.smooth.animation.unlessReduceMotion, value: statusLine)
         }
     }
 
@@ -179,7 +176,7 @@ public struct LiveCallScreen: View {
             // anchor above; an animated scroll per word fought it (and each one ran a scroll
             // animation for every token). A new line still scrolls into view once.
             .onChange(of: session.lines.count) { _, _ in
-                withAnimation(theme.motion.smooth.animation) { proxy.scrollTo("end", anchor: .bottom) }
+                withAnimation(theme.motion.smooth.animation.unlessReduceMotion) { proxy.scrollTo("end", anchor: .bottom) }
             }
         }
         .accessibilityIdentifier("chief.call.captions")
@@ -196,11 +193,7 @@ public struct LiveCallScreen: View {
                 .font(.headline)
                 .foregroundStyle(.white)
                 .multilineTextAlignment(.center)
-            Text(failure.detail)
-                .font(.callout)
-                .foregroundStyle(.secondary)
-                .multilineTextAlignment(.center)
-                .textSelection(.enabled)
+            InPlaceSelectionLabel(failure.detail, textStyle: .callout, color: .secondaryLabel, alignment: .center)
                 .accessibilityIdentifier("chief.call.failure")
             Spacer()
         }
@@ -283,7 +276,7 @@ public struct LiveCallScreen: View {
                 }
                 LiveCallControl(symbol: "keyboard", title: LiveCallText.keyboard, on: typing,
                                 identifier: "chief.call.keyboard") {
-                    withAnimation(theme.motion.snappy.animation) { typing.toggle() }
+                    withAnimation(theme.motion.snappy.animation.unlessReduceMotion) { typing.toggle() }
                 }
                 .disabled(!session.isLive)
                 LiveCallControl(symbol: "phone.down.fill", title: LiveCallText.end, on: false, tint: .red,
@@ -323,8 +316,8 @@ private struct LiveCallAvatar: View {
             }
             .frame(width: 160, height: 160)
         }
-        .animation(theme.motion.smooth.animation, value: listening)
-        .animation(theme.motion.smooth.animation, value: speaking)
+        .animation(theme.motion.smooth.animation.unlessReduceMotion, value: listening)
+        .animation(theme.motion.smooth.animation.unlessReduceMotion, value: speaking)
     }
 }
 
@@ -401,7 +394,7 @@ private struct LiveCallControl: View {
             .frame(maxWidth: .infinity)
             .contentShape(.rect)
         }
-        .buttonStyle(.plain)
+        .buttonStyle(.cmuxPressFill)
         .accessibilityLabel(title)
         .accessibilityValue(tint == nil ? (on ? Text(LiveCallText.on) : Text(LiveCallText.off)) : Text(verbatim: ""))
         .accessibilityIdentifier(identifier)
@@ -446,10 +439,10 @@ public struct LiveCallPill: View {
             .foregroundStyle(.white)
             .padding(.horizontal, 16)
             .padding(.vertical, 9)
-            .background(Color.green, in: .capsule)
+            .cmuxMobilePressBackground(Color.green, in: .capsule)
             .shadow(color: .black.opacity(0.2), radius: 8, y: 2)
         }
-        .buttonStyle(.plain)
+        .buttonStyle(.cmuxPressFillInLabel)
         .accessibilityLabel(LiveCallText.pillAccessibility)
         .accessibilityIdentifier("chief.call.pill")
     }
@@ -485,8 +478,8 @@ extension VoiceCallFailure {
         case .keyMissing, .keyRejected: LiveCallText.failKeyDetail
         case let .quota(message), let .modelUnavailable(message), let .refused(message), let .network(message): message
         case .dropped: LiveCallText.failDroppedDetail
-        case let .server(status, requestID):
-            [LiveCallText.failServerDetail(status: status), requestID.map(LiveCallText.requestID)]
+        case let .server(_, requestID):
+            [LiveCallText.failServerDetail, requestID.map(LiveCallText.requestID)]
                 .compactMap { $0 }.joined(separator: "\n")
         }
     }

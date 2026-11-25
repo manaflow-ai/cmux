@@ -95,6 +95,7 @@ pub mod access_requests;
 pub mod agent_update;
 mod ask_first;
 mod askable;
+mod history_later;
 mod landed;
 pub(super) mod state_file;
 
@@ -107,10 +108,34 @@ pub const AGENT_TRANSFER_VM_KIND_CAPABILITY: &str = "agent-transfer-vm-kind-v1";
 /// here when the move does not happen. An older one stops it for good, so the pump asks for the
 /// Stop only from a source that lists this.
 pub const AGENT_TRANSFER_CONTINUES_CAPABILITY: &str = "agent-transfer-continues-v1";
+/// `credentials {env}` on `agent-transfer-finish`: the owner's login for the moved chat's agent
+/// (`agent-session-start`'s `credentials`), which a new Cloud machine has none of. Held on the chat
+/// before its queue runs, so the turn the move continues starts signed in. An older daemon refuses
+/// the field, so the pump sends it only to a target that lists this.
+pub const AGENT_TRANSFER_CREDENTIALS_CAPABILITY: &str = "agent-transfer-credentials-v1";
+/// `begin_token` on `agent-transfer-begin`: acpmux keeps it with the move (also across a
+/// restart) and a `transfer.moving` refusal hands it back (`error_details.begin_token`), so a
+/// pump that lost its begin answer can prove the frozen move is its own and end it at once
+/// instead of waiting out the source's lease. An acpmux that keeps no token echoes none.
+pub const AGENT_TRANSFER_BEGIN_TOKEN_CAPABILITY: &str = "agent-transfer-begin-token-v1";
+/// The optional bundle files this daemon's acpmux takes on a receive, by acpmux's own ids
+/// (acpmux `capabilities::OPTIONAL_BUNDLE_FILES`): a pump leaves out of a move to a machine each
+/// one its `identify` does not list, so an older machine image takes the chat without it
+/// instead of refusing the whole move (`cmux link agent move`).
+pub const AGENT_TRANSFER_BUNDLE_FILE_CAPABILITIES: &[&str] =
+    &["transfer-composers-v1", "transfer-images-v1"];
+/// Tail first, history after (`agent_transfer/history_later.rs`): the prepare, stage and
+/// history verbs, `prepare_id` on a begin and `stage_id` on a receive.
+pub const AGENT_TRANSFER_HISTORY_LATER_CAPABILITY: &str = "agent-transfer-history-later-v1";
 
 /// The largest page of bundle data a write takes or a read answers.
 pub(crate) const MAX_PAGE_BYTES: usize = 4 << 20;
 const DEFAULT_READ: u64 = 1 << 20;
+/// Live receives at once. Kept: every live receive must stay askable after a restart
+/// (`askable.rs`), through a record in one file rewritten whole per receive and read only
+/// up to 64 KiB (`state_file.rs`); an uncapped count needs another record store first.
+/// Measured: the askable file is read only up to 64 KiB (`state_file.rs` MAX_FILE_BYTES) and
+/// holds MAX_RECEIVES + MAX_SETTLED + MAX_CALLS (40) records.
 const MAX_RECEIVES: usize = 16;
 /// Settled receives kept for a pump's question (the oldest goes first).
 const MAX_SETTLED: usize = 16;
@@ -118,7 +143,16 @@ const MAX_SETTLED: usize = 16;
 /// and whether the chat landed is unknown.
 static UNKNOWN_LANDING: std::sync::LazyLock<Value> =
     std::sync::LazyLock::new(|| json!({"dropped": false, "forgotten": false, "landed": null}));
+/// Moves out remembered at once. Kept as a memory bound: a move holds its scrubbed
+/// `manifest.json` and `session.json` (each up to [`MAX_PAGE_BYTES`], 4 MiB) for up to
+/// [`STALE`], so 16 moves hold at most 128 MiB.
+/// Measured: from the limits, not RSS: 8 MiB a move (two 4 MiB files), 128 MiB for 16.
 const MAX_MOVES: usize = 16;
+/// Calls at once. Kept as a memory bound: each is a thread (256 KiB stack) that holds,
+/// until acpmux answers (15 to 60 s), a page of up to 4 MiB (about 5.3 MiB as base64),
+/// or for a begin two files of up to 4 MiB each read and scrubbed. From those bounds 8
+/// calls hold at most about 8 x 13 MiB, roughly 100 MiB.
+/// Measured: from the limits, not RSS: a 256 KiB-stack thread and about 13 MiB a call.
 const MAX_CALLS: usize = 8;
 /// A receive or move not touched that long is forgotten (acpmux sweeps its
 /// own files after the same time).
@@ -134,7 +168,7 @@ const THREAD_STACK_BYTES: usize = 256 * 1024;
 
 /// Frame params refused on every verb (the guard is the daemon's own).
 const FORBIDDEN_PARAMS: &[&str] =
-    &["guard", "roots", "control", "env", "mcpServers", "sessionId", "session_id"];
+    &["guard", "roots", "control", "env", "mcpServers", "sessionId", "session_id", "preset"];
 
 /// What machine this daemon takes chats on, as the binary reads it at start
 /// (never from a request).
@@ -162,6 +196,8 @@ pub(crate) struct AgentTransfers {
     calls: AtomicUsize,
     /// Update Everything's agent CLI updates (`agent_update.rs`).
     updates: agent_update::AgentUpdates,
+    /// Tail-first moves' prepares, stages and owed histories (`history_later.rs`).
+    history_later: history_later::HistoryLater,
 }
 
 /// A guarded receive: what its finish uses.
@@ -169,6 +205,7 @@ struct Receive {
     cwd: String,
     /// The move and chat its manifest names (what a forget drops).
     moved: Moved,
+    epoch: u64,
     touched: Instant,
     /// A finish of it is running: whether the chat lands is not known yet.
     finishing: bool,
@@ -196,6 +233,7 @@ struct Move {
     /// Every bundle path its begin manifest listed, with the scrubbed bytes
     /// served for `manifest.json` and `session.json`.
     files: BundleFiles,
+    epoch: u64,
     touched: Instant,
 }
 
@@ -213,6 +251,13 @@ impl AgentTransfers {
         let receive = receives.get_mut(receive_id)?;
         receive.touched = Instant::now();
         Some(receive.cwd.clone())
+    }
+
+    fn receive_epoch(&self, receive_id: &str) -> Option<u64> {
+        let mut receives = lock(&self.receives);
+        let receive = receives.get_mut(receive_id)?;
+        receive.touched = Instant::now();
+        Some(receive.epoch)
     }
 
     /// Marks the receive's finish as running (or done, `false`).
@@ -252,6 +297,21 @@ impl AgentTransfers {
         let entry = moves.get_mut(transfer_id).ok_or(Refusal::UnknownTransfer)?;
         entry.touched = Instant::now();
         entry.files.get(path).cloned().ok_or(Refusal::BadRequest)
+    }
+
+    /// The epoch the move's begin carried, or None for a move this daemon does not hold.
+    fn move_epoch(&self, transfer_id: &str) -> Result<Option<u64>, Refusal> {
+        let mut moves = lock(&self.moves);
+        let Some(entry) = moves.get_mut(transfer_id) else {
+            // The move table is intentionally in-memory; after a daemon restart the source
+            // acpmux remains authoritative and the commit/abort path refreshes its epoch via
+            // `_acpmux/info` before issuing the fenced write.
+            return Ok(None);
+        };
+        entry.touched = Instant::now();
+        // A held move's begin answer is the epoch: 0 is an acpmux that does not fence, which
+        // `_acpmux/info` would only confirm at the cost of a round trip.
+        Ok(Some(entry.epoch))
     }
 
     /// Ends the receive `receive_id`, keeping what a receive-abort asks.
@@ -330,7 +390,6 @@ impl Mux {
 // MARK: Requests
 
 #[derive(Deserialize)]
-#[serde(deny_unknown_fields)]
 struct ReceiveParams {
     manifest: Map<String, Value>,
     cwd: String,
@@ -338,10 +397,12 @@ struct ReceiveParams {
     /// explicit `null` is a word, and refuses).
     #[serde(default, deserialize_with = "crate::server::command_args::present_nullable")]
     vm_kind: Option<Option<String>>,
+    /// The tail-first stage the move's prefix is in (`agent-transfer-stage`).
+    #[serde(default)]
+    stage_id: Option<String>,
 }
 
 #[derive(Deserialize)]
-#[serde(deny_unknown_fields)]
 struct WriteParams {
     receive_id: String,
     path: String,
@@ -350,7 +411,6 @@ struct WriteParams {
 }
 
 #[derive(Deserialize)]
-#[serde(deny_unknown_fields)]
 struct FinishParams {
     receive_id: String,
     #[serde(default)]
@@ -358,32 +418,39 @@ struct FinishParams {
     /// As the receive's.
     #[serde(default, deserialize_with = "crate::server::command_args::present_nullable")]
     vm_kind: Option<Option<String>>,
+    /// The owner's login for the chat's agent ([`AGENT_TRANSFER_CREDENTIALS_CAPABILITY`]): taken
+    /// only as `agent-session-credentials` takes one
+    /// ([`agent_session_start::credentials_admitted`]). Never printed or recorded.
+    #[serde(default)]
+    credentials: Option<agent_session_start::StartCredentials>,
 }
 
 #[derive(Deserialize)]
-#[serde(deny_unknown_fields)]
 struct ReceiveAbortParams {
     receive_id: String,
 }
 
 #[derive(Deserialize)]
-#[serde(deny_unknown_fields)]
 struct SourceParams {
     surface: SurfaceId,
 }
 
 #[derive(Deserialize)]
-#[serde(deny_unknown_fields)]
 struct BeginParams {
     surface: SurfaceId,
     #[serde(default)]
     interrupt: bool,
     #[serde(default)]
     ask_first: bool,
+    /// The pump's own mark for this begin ([`AGENT_TRANSFER_BEGIN_TOKEN_CAPABILITY`]).
+    #[serde(default)]
+    begin_token: Option<String>,
+    /// The tail-first prepare the target staged (`agent-transfer-prepare`).
+    #[serde(default)]
+    prepare_id: Option<String>,
 }
 
 #[derive(Deserialize)]
-#[serde(deny_unknown_fields)]
 struct ReadParams {
     transfer_id: String,
     path: String,
@@ -393,7 +460,6 @@ struct ReadParams {
 }
 
 #[derive(Deserialize)]
-#[serde(deny_unknown_fields)]
 struct CommitParams {
     surface: SurfaceId,
     transfer_id: String,
@@ -401,7 +467,6 @@ struct CommitParams {
 }
 
 #[derive(Deserialize)]
-#[serde(deny_unknown_fields)]
 struct AbortParams {
     surface: SurfaceId,
     transfer_id: String,
@@ -417,6 +482,7 @@ enum Verb {
     Commit(CommitParams),
     Abort(AbortParams),
     Source(SourceParams),
+    Later(history_later::Verb),
 }
 
 impl Verb {
@@ -424,6 +490,11 @@ impl Verb {
         if params.keys().any(|key| {
             FORBIDDEN_PARAMS.contains(&key.as_str()) || COMMAND_PARAMS.contains(&key.as_str())
         }) {
+            return None;
+        }
+        // Other unknown fields are ignored, but a receive abort never names a move:
+        // the move is the receive's own.
+        if cmd == "agent-transfer-receive-abort" && params.contains_key("transfer_id") {
             return None;
         }
         let params = Value::Object(params);
@@ -438,7 +509,7 @@ impl Verb {
             "agent-transfer-commit" => Self::Commit(from_value(params).ok()?),
             "agent-transfer-abort" => Self::Abort(from_value(params).ok()?),
             "agent-transfer-source" => Self::Source(from_value(params).ok()?),
-            _ => return None,
+            _ => Self::Later(history_later::Verb::parse(cmd, params)?),
         })
     }
 }
@@ -461,6 +532,8 @@ enum Refusal {
     TeamVmBlocked,
     /// `agent-session-start`'s code: a Cloud VM of unknown kind.
     HostUnverified,
+    /// `agent-session-credentials`' code: a login is taken only from the owner on their own VM.
+    OwnerOnly,
 }
 
 impl Refusal {
@@ -479,6 +552,7 @@ impl Refusal {
             Self::Refused => "agent_transfer.refused",
             Self::TeamVmBlocked => "agent_session.team_vm_blocked",
             Self::HostUnverified => "agent_session.host_unverified",
+            Self::OwnerOnly => "agent_session.owner_only",
         }
     }
 
@@ -499,6 +573,7 @@ impl Refusal {
             Self::HostUnverified => {
                 "this machine cannot tell whether it is a team VM, so it takes no moved chat"
             }
+            Self::OwnerOnly => "only the owner's app on the owner's own Cloud VM sends a login",
         }
     }
 }
@@ -535,8 +610,9 @@ enum Failure {
     Acpmux(String),
     /// A begin of a chat already in a move: acpmux's `transfer.moving`, with
     /// that move's id (`error_details.transfer_id`), so a pump that lost its
-    /// begin answer can resolve the move it began.
-    Moving(String, String),
+    /// begin answer can resolve the move it began, and the move's begin token when acpmux kept
+    /// one (`error_details.begin_token`).
+    Moving(String, String, Option<String>),
 }
 
 impl From<Refusal> for Failure {
@@ -550,7 +626,6 @@ impl From<LinkError> for Failure {
         match error {
             LinkError::Closed => Self::Refusal(Refusal::Unavailable),
             LinkError::Timeout => Self::Refusal(Refusal::Timeout),
-            LinkError::Busy => Self::Refusal(Refusal::Limit),
             LinkError::MethodNotFound(message) | LinkError::BadList(message) => {
                 Self::Acpmux(message)
             }
@@ -558,7 +633,8 @@ impl From<LinkError> for Failure {
                 let moving = data.field("transferId").as_str().filter(|id| is_plain_id(id));
                 match moving {
                     Some(id) if message.starts_with("transfer.moving") => {
-                        Self::Moving(message, id.to_owned())
+                        let token = data.field("beginToken").as_str().filter(|t| is_plain_id(t));
+                        Self::Moving(message, id.to_owned(), token.map(str::to_owned))
                     }
                     _ => Self::Acpmux(message),
                 }
@@ -642,6 +718,7 @@ enum Prepared {
         guard: Value,
         cwd: String,
         moved: Moved,
+        stage_id: Option<String>,
     },
     /// `_acpmux/transfer_forget` of a receive's move; `live` is the receive
     /// taken out for it (put back if the forget does not happen).
@@ -655,40 +732,54 @@ enum Prepared {
         path: String,
         offset: u64,
         data: String,
+        epoch: u64,
     },
     Finish {
         receive_id: String,
         cwd: String,
         name: Option<String>,
+        epoch: u64,
+        credentials: Option<agent_session_start::StartCredentials>,
     },
     Begin {
         session: String,
         interrupt: bool,
         ask_first: bool,
+        begin_token: Option<String>,
+        /// The prepare it begins from, with its id.
+        prefix: Option<(String, history_later::Prefix)>,
     },
     Read {
         transfer_id: String,
         path: String,
         offset: u64,
         limit: u64,
+        epoch: u64,
     },
     /// Answered by the daemon itself (a scrubbed page, a dropped receive).
     Answer(Value),
+    /// `epoch` is None for a move this daemon does not hold (`move_epoch`).
     Commit {
         session: String,
         transfer_id: String,
         to: Value,
+        epoch: Option<u64>,
     },
     Abort {
         session: String,
         transfer_id: String,
+        epoch: Option<u64>,
     },
+    Later(history_later::Prepared),
 }
 
 fn prepare(mux: &Mux, client: u64, verb: Verb) -> Result<Prepared, Failure> {
     let transfers = &mux.agent_transfers;
     Ok(match verb {
-        Verb::Receive(ReceiveParams { manifest, cwd, vm_kind }) => {
+        Verb::Receive(ReceiveParams { manifest, cwd, vm_kind, stage_id }) => {
+            if stage_id.as_deref().is_some_and(|id| !transfers.history_later.holds_stage(id)) {
+                return Err(Refusal::UnknownReceive.into());
+            }
             let host = transfers.host().ok_or(Refusal::Unavailable)?;
             host_gate(mux, client, vm_word(&vm_kind))?;
             let (guard, cwd) = guard_for(&host, &cwd)?;
@@ -708,20 +799,34 @@ fn prepare(mux: &Mux, client: u64, verb: Verb) -> Result<Prepared, Failure> {
                 return Err(Refusal::BadRequest.into());
             };
             let moved = Moved { transfer_id, session_id };
-            Prepared::Receive { manifest, guard, cwd, moved }
+            Prepared::Receive { manifest, guard, cwd, moved, stage_id }
         }
         Verb::Write(WriteParams { receive_id, path, offset, data }) => {
             if !is_bundle_path(&path) || page_data_len(&data).is_none_or(|n| n > MAX_PAGE_BYTES) {
                 return Err(Refusal::BadRequest.into());
             }
-            transfers.receive_cwd(&receive_id).ok_or(Refusal::UnknownReceive)?;
-            Prepared::Write { receive_id, path, offset, data }
+            // A stage's pages carry no epoch: nothing is frozen while it fills.
+            let epoch = match transfers.receive_epoch(&receive_id) {
+                Some(epoch) => epoch,
+                None if transfers.history_later.holds_stage(&receive_id) => 0,
+                None => return Err(Refusal::UnknownReceive.into()),
+            };
+            Prepared::Write { receive_id, path, offset, data, epoch }
         }
-        Verb::Finish(FinishParams { receive_id, name, vm_kind }) => {
+        Verb::Finish(FinishParams { receive_id, name, vm_kind, credentials }) => {
             if name.as_deref().is_some_and(|name| !is_chat_name(name)) {
                 return Err(Refusal::BadRequest.into());
             }
+            if credentials.as_ref().is_some_and(|c| !c.valid()) {
+                return Err(Refusal::BadRequest.into());
+            }
+            if credentials.is_some()
+                && !agent_session_start::credentials_admitted(mux, client, &vm_kind)
+            {
+                return Err(Refusal::OwnerOnly.into());
+            }
             let cwd = transfers.receive_cwd(&receive_id).ok_or(Refusal::UnknownReceive)?;
+            let epoch = transfers.receive_epoch(&receive_id).ok_or(Refusal::UnknownReceive)?;
             if let Err(refusal) = host_gate(mux, client, vm_word(&vm_kind)) {
                 // A team VM stays one: the receive can never finish here.
                 if refusal == Refusal::TeamVmBlocked {
@@ -729,7 +834,7 @@ fn prepare(mux: &Mux, client: u64, verb: Verb) -> Result<Prepared, Failure> {
                 }
                 return Err(refusal.into());
             }
-            Prepared::Finish { receive_id, cwd, name }
+            Prepared::Finish { receive_id, cwd, name, epoch, credentials }
         }
         Verb::ReceiveAbort(ReceiveAbortParams { receive_id }) => {
             // Without this entry no write or finish reaches the receive; acpmux
@@ -745,12 +850,22 @@ fn prepare(mux: &Mux, client: u64, verb: Verb) -> Result<Prepared, Failure> {
                 }
             }
         }
-        Verb::Begin(BeginParams { surface, interrupt, ask_first }) => {
+        Verb::Begin(BeginParams { surface, interrupt, ask_first, begin_token, prepare_id }) => {
+            if begin_token.as_deref().is_some_and(|token| !is_plain_id(token)) {
+                return Err(Refusal::BadRequest.into());
+            }
             let session = tab_session(mux, surface).ok_or(Refusal::UnknownTab)?;
+            let prefix = match prepare_id {
+                Some(id) => {
+                    let prefix = transfers.history_later.prefix(&id, &session);
+                    Some((id, prefix.ok_or(Refusal::UnknownTransfer)?))
+                }
+                None => None,
+            };
             if AgentTransfers::full(&mut lock(&transfers.moves), MAX_MOVES, |m| m.touched) {
                 return Err(Refusal::Limit.into());
             }
-            Prepared::Begin { session, interrupt, ask_first }
+            Prepared::Begin { session, interrupt, ask_first, begin_token, prefix }
         }
         Verb::Read(ReadParams { transfer_id, path, offset, limit }) => {
             let limit = limit.unwrap_or(DEFAULT_READ);
@@ -759,7 +874,13 @@ fn prepare(mux: &Mux, client: u64, verb: Verb) -> Result<Prepared, Failure> {
             }
             match transfers.listed(&transfer_id, &path)? {
                 Some(bytes) => Prepared::Answer(page_of(&bytes, offset, limit)),
-                None => Prepared::Read { transfer_id, path, offset, limit },
+                None => Prepared::Read {
+                    epoch: transfers.move_epoch(&transfer_id)?.unwrap_or(0),
+                    transfer_id,
+                    path,
+                    offset,
+                    limit,
+                },
             }
         }
         Verb::Commit(CommitParams { surface, transfer_id, to }) => {
@@ -767,7 +888,8 @@ fn prepare(mux: &Mux, client: u64, verb: Verb) -> Result<Prepared, Failure> {
             if !is_plain_id(&transfer_id) || to.to_string().len() > MAX_TO_BYTES {
                 return Err(Refusal::BadRequest.into());
             }
-            Prepared::Commit { session, transfer_id, to }
+            let epoch = transfers.move_epoch(&transfer_id)?;
+            Prepared::Commit { session, transfer_id, to, epoch }
         }
         Verb::Source(SourceParams { surface }) => {
             // The tab's own store record, read without reaching acpmux.
@@ -779,8 +901,10 @@ fn prepare(mux: &Mux, client: u64, verb: Verb) -> Result<Prepared, Failure> {
             if !is_plain_id(&transfer_id) {
                 return Err(Refusal::BadRequest.into());
             }
-            Prepared::Abort { session, transfer_id }
+            let epoch = transfers.move_epoch(&transfer_id)?;
+            Prepared::Abort { session, transfer_id, epoch }
         }
+        Verb::Later(verb) => Prepared::Later(history_later::prepare(mux, client, verb)?),
     })
 }
 
@@ -870,10 +994,32 @@ fn run(mux: &Mux, socket: &Path, prepared: Prepared) -> Result<Value, Failure> {
     let call = |method: &str, params: Value, timeout: Duration| -> Result<Value, Failure> {
         Ok(link.call(method, params, timeout)?)
     };
+    let with_epoch = |mut params: Value, epoch: u64| {
+        if epoch != 0 {
+            params.insert("epoch", json!(epoch));
+        }
+        params
+    };
+    let refresh_epoch = |session: &str, epoch: Option<u64>| -> Result<u64, Failure> {
+        if let Some(epoch) = epoch {
+            return Ok(epoch);
+        }
+        let info =
+            call("_acpmux/info", json!({"sessionId": session, "waitLogs": false}), CALL_TIMEOUT)?;
+        Ok(info.get("ownershipEpoch").and_then(Value::as_u64).unwrap_or(0))
+    };
+    let manifest_epoch = |value: Option<&Value>| -> Result<u64, Failure> {
+        let Some(value) = value else { return Ok(0) };
+        value.as_u64().ok_or(Refusal::BadRequest.into())
+    };
     let transfers = &mux.agent_transfers;
     match prepared {
-        Prepared::Receive { manifest, guard, cwd, moved } => {
-            let params = json!({"manifest": manifest, "guard": guard});
+        Prepared::Receive { manifest, guard, cwd, moved, stage_id } => {
+            let epoch = manifest_epoch(manifest.get("epoch"))?;
+            let mut params = json!({"manifest": manifest, "guard": guard});
+            if let Some(stage_id) = &stage_id {
+                params.insert("stageId", json!(stage_id));
+            }
             let answer = call("_acpmux/transfer_receive", params, CALL_TIMEOUT)?;
             let receive_id = answer.field("receiveId").as_str().filter(|id| is_plain_id(id));
             let (Some(receive_id), true) = (receive_id, *answer.field("guarded") == json!(true))
@@ -882,20 +1028,28 @@ fn run(mux: &Mux, socket: &Path, prepared: Prepared) -> Result<Value, Failure> {
             };
             // Before the pump learns the receive: it can always ask about it.
             mux.remember_askable_receive(receive_id, &moved);
-            let entry = Receive { cwd, moved, touched: Instant::now(), finishing: false };
+            let entry = Receive { cwd, moved, epoch, touched: Instant::now(), finishing: false };
             lock(&transfers.receives).insert(receive_id.to_owned(), entry);
             Ok(json!({"receive_id": receive_id, "session_id": answer.field("sessionId")}))
         }
-        Prepared::Write { receive_id, path, offset, data } => {
-            let params = json!({"receiveId": receive_id, "path": path, "offset": offset,
-                                "data": data});
+        Prepared::Write { receive_id, path, offset, data, epoch } => {
+            let params = with_epoch(
+                json!({"receiveId": receive_id, "path": path, "offset": offset, "data": data}),
+                epoch,
+            );
             let answer = call("_acpmux/transfer_write", params, CALL_TIMEOUT)?;
             Ok(json!({"next": answer.field("next")}))
         }
-        Prepared::Finish { receive_id, cwd, name } => {
+        Prepared::Finish { receive_id, cwd, name, epoch, credentials } => {
             let mut params = json!({"receiveId": receive_id, "cwd": cwd});
+            if epoch != 0 {
+                params.insert("epoch", json!(epoch));
+            }
             if let Some(name) = name {
                 params.insert("name", json!(name));
+            }
+            if let Some(credentials) = credentials {
+                params.insert("credentials", credentials.wire());
             }
             // Only once acpmux is reached: a finish that never ran leaves
             // the receive askable.
@@ -912,12 +1066,19 @@ fn run(mux: &Mux, socket: &Path, prepared: Prepared) -> Result<Value, Failure> {
             }
             Ok(json!({"session": session}))
         }
-        Prepared::Begin { session, interrupt, ask_first } => {
+        Prepared::Begin { session, interrupt, ask_first, begin_token, prefix } => {
             if ask_first {
                 ask_first::narrow(&call, &session)?;
             }
             let source_session = session.clone();
-            let params = json!({"sessionId": session, "interrupt": interrupt});
+            let mut params = json!({"sessionId": session, "interrupt": interrupt});
+            if let Some(token) = begin_token {
+                params.insert("beginToken", json!(token));
+            }
+            if let Some((prepare_id, prefix)) = &prefix {
+                params.insert("prepareId", json!(prepare_id));
+                params.insert("afterSeq", json!(prefix.after_seq));
+            }
             let mut manifest = call("_acpmux/transfer_begin", params, BEGIN_TIMEOUT)?;
             let transfer_id = manifest
                 .field("transferId")
@@ -925,26 +1086,44 @@ fn run(mux: &Mux, socket: &Path, prepared: Prepared) -> Result<Value, Failure> {
                 .filter(|id| is_plain_id(id))
                 .ok_or(Refusal::Refused)?
                 .to_owned();
-            let files = match scrub_bundle(&call, &transfer_id, &mut manifest) {
+            let epoch = manifest_epoch(manifest.get("epoch"))?;
+            let files = match scrub_bundle(&call, &transfer_id, epoch, &mut manifest) {
                 Ok(files) => files,
                 Err(failure) => {
                     // The chat must not stay frozen for a move nobody can read.
-                    let params = json!({"sessionId": session, "transferId": transfer_id});
+                    let params =
+                        with_epoch(json!({"sessionId": session, "transferId": transfer_id}), epoch);
                     let _ = call("_acpmux/transfer_abort", params, CALL_TIMEOUT);
                     return Err(failure);
                 }
             };
-            let entry = Move { files, touched: Instant::now() };
+            let entry = Move { files, epoch, touched: Instant::now() };
             lock(&transfers.moves).insert(transfer_id.clone(), entry);
+            // Begun from the staged prefix, which held no history: the history is owed.
+            let staged = manifest.get("prefix").is_some_and(|p| !p.is_null());
+            let history_later = match &prefix {
+                Some((_, prefix)) if staged && prefix.history_later => {
+                    transfers.history_later.owe(&transfer_id, prefix);
+                    true
+                }
+                _ => false,
+            };
             // The chat is leaving this machine: no new tab of it may name it.
             mux.forget_landed_agent_session(&source_session);
             mux.control_clients.agent_sessions.known_children.forget(&source_session);
-            Ok(json!({"transfer_id": transfer_id, "source_session": source_session,
-                       "manifest": manifest}))
+            let mut answer = json!({"transfer_id": transfer_id, "source_session": source_session,
+                                    "manifest": manifest});
+            if prefix.is_some() {
+                answer.insert("staged", json!(staged));
+                answer.insert("history_later", json!(history_later));
+            }
+            Ok(answer)
         }
-        Prepared::Read { transfer_id, path, offset, limit } => {
-            let params =
-                json!({"transferId": transfer_id, "path": path, "offset": offset, "limit": limit});
+        Prepared::Read { transfer_id, path, offset, limit, epoch } => {
+            let params = with_epoch(
+                json!({"transferId": transfer_id, "path": path, "offset": offset, "limit": limit}),
+                epoch,
+            );
             let page = call("_acpmux/transfer_read", params, CALL_TIMEOUT)?;
             Ok(
                 json!({"data": page.field("data"), "next": page.field("next"), "eof": page.field("eof")}),
@@ -964,16 +1143,22 @@ fn run(mux: &Mux, socket: &Path, prepared: Prepared) -> Result<Value, Failure> {
                 }
             })
         }
-        Prepared::Commit { session, transfer_id, to } => {
-            let params = json!({"sessionId": session, "transferId": transfer_id, "to": to});
+        Prepared::Commit { session, transfer_id, to, epoch } => {
+            let epoch = refresh_epoch(&session, epoch)?;
+            let params = with_epoch(
+                json!({"sessionId": session, "transferId": transfer_id, "to": to}),
+                epoch,
+            );
             call("_acpmux/transfer_commit", params, CALL_TIMEOUT)?;
             lock(&transfers.moves).remove(&transfer_id);
             mux.forget_landed_agent_session(&session);
             mux.control_clients.agent_sessions.known_children.forget(&session);
             Ok(json!({"committed": true}))
         }
-        Prepared::Abort { session, transfer_id } => {
-            let params = json!({"sessionId": session, "transferId": transfer_id});
+        Prepared::Abort { session, transfer_id, epoch } => {
+            let epoch = refresh_epoch(&session, epoch)?;
+            let params =
+                with_epoch(json!({"sessionId": session, "transferId": transfer_id}), epoch);
             let aborted = call("_acpmux/transfer_abort", params, CALL_TIMEOUT);
             // Forgotten either way: a move acpmux will not abort committed
             // or was never this chat's, and no read of it should go on.
@@ -981,6 +1166,7 @@ fn run(mux: &Mux, socket: &Path, prepared: Prepared) -> Result<Value, Failure> {
             aborted?;
             Ok(json!({"aborted": true}))
         }
+        Prepared::Later(prepared) => history_later::run(mux, &call, prepared),
     }
 }
 
@@ -996,8 +1182,12 @@ fn reply(writer: &MessageWriter, id: Option<Value>, result: Result<Value, Failur
             Some(format!("{}: {message}", Refusal::Refused.message())),
             Some(Refusal::Refused.code()),
         ),
-        Err(Failure::Moving(message, transfer_id)) => {
-            details = Some(json!({"transfer_id": transfer_id}));
+        Err(Failure::Moving(message, transfer_id, token)) => {
+            let mut moving = json!({"transfer_id": transfer_id});
+            if let Some(token) = token {
+                moving["begin_token"] = json!(token);
+            }
+            details = Some(moving);
             (
                 None,
                 Some(format!("{}: {message}", Refusal::Refused.message())),

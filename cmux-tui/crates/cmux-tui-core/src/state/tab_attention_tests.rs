@@ -209,3 +209,35 @@ fn attention_request_identity_clear_is_guarded_and_validated() {
     );
     assert!(cleared["extra"].get("attention").is_none());
 }
+
+/// The raw tree (what the TUI and other tree clients read) carries a tab's
+/// mark as `attention: {reason, at_ms}`, and drops it when the agent clears it,
+/// so a frontend draws marks without reading the resource API.
+#[test]
+fn the_raw_tree_carries_a_tab_attention_mark_until_it_clears() {
+    let mux = Mux::new_for_test("state-tab-attention-tree", SurfaceOptions::default());
+    let tabs = terminal_tabs(&mux, 2);
+    let tab = tab_id(&mux, tabs[1]);
+    let tree_tab = |mux: &Mux| {
+        let decorations = mux.tree_decorations();
+        let tree = mux.with_state(|state| crate::server::workspaces_json(state, &decorations));
+        tree["workspaces"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .flat_map(|workspace| workspace["screens"].as_array().unwrap().iter())
+            .flat_map(|screen| screen["panes"].as_array().unwrap().iter())
+            .flat_map(|pane| pane["tabs"].as_array().unwrap().iter())
+            .find(|listed| listed["surface"] == json!(tabs[1]))
+            .cloned()
+            .unwrap()
+    };
+    assert!(tree_tab(&mux)["attention"].is_null());
+    mutate(&mux, "tab.update", json!({"tab": tab, "attention": REASON}), "attention-tree-1");
+    let marked = tree_tab(&mux);
+    assert_eq!(marked["attention"]["reason"], REASON);
+    assert!(marked["attention"]["at_ms"].as_u64().is_some_and(|at| at > 0));
+    assert!(marked["attention"].get("request_id").is_none(), "the tree shows only what is drawn");
+    mutate(&mux, "tab.update", json!({"tab": tab, "attention": null}), "attention-tree-2");
+    assert!(tree_tab(&mux)["attention"].is_null());
+}

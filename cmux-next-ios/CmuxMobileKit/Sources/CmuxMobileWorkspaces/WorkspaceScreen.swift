@@ -1,7 +1,11 @@
+import Foundation
 #if os(iOS)
+import CmuxSpinner
 import CmuxTabsKit
 import CmuxMobileDesign
+import CmuxMobileLinkFFI
 import CmuxMobileModel
+import CmuxMobileScreenSharing
 import SwiftUI
 import UIKit
 
@@ -20,14 +24,31 @@ extension TabsKitTheme {
         tabs.colors.overviewTop = TabsKitTheme.Colors.pair(0xF2F2F7, 0x1C1C1E)
         tabs.colors.overviewBottom = TabsKitTheme.Colors.pair(0xE5E5EA, 0x000000)
         tabs.colors.accent = TabsKitTheme.Colors.pair(0x1C1C1E, 0x636366)
+        // The bar under the status bar (Leo 2026-11-23: "we keep the "safari" esque thing. but we
+        // move it to the top"): the bottom is the composer's, and Back stays one tap away with
+        // the keyboard up.
+        tabs.metrics.barEdge = .top
+        #if DEBUG
+        // Gallery variants of the top bar's placement (TopBarGalleryUITests); the shipped one is `grid`.
+        let args = ProcessInfo.processInfo.arguments
+        if let i = args.firstIndex(of: "-cmux-mobile-topbar-variant"), args.indices.contains(i + 1) {
+            switch args[i + 1] {
+            case "edge": tabs.metrics.topBarGap = 0; tabs.metrics.topSideInset = 12
+            case "airy": tabs.metrics.topBarGap = 10; tabs.metrics.topSideInset = 24
+            case "safari": tabs.metrics.topBarGap = 2; tabs.metrics.topSideInset = tabs.metrics.sideInset
+            default: break
+            }
+        }
+        #endif
         return tabs
     }
 }
 
-/// A workspace: its tabs in the Safari-style TabsKit chrome, opened on the
-/// last tab used on this device. Pushed full screen from the Workspaces
+/// A workspace: its tabs in the Safari-style TabsKit chrome, opened where
+/// `AppStore.openingTab` says (the tab left on screen when it was open before in this
+/// launch, else its layout's top-left pane's). Pushed full screen from the Workspaces
 /// list with the navigation bar hidden and, by the shell, the root tab bar (SPEC 3.1: full
-/// screen surfaces own the bottom edge). Ways back to the list: the
+/// screen surfaces own the bottom edge). Ways back to the list: the top
 /// toolbar's back chevron (a tab without page history), the system edge
 /// swipe, the grid's leading back circle, and "All Workspaces" in the page menu.
 public struct WorkspaceScreen: View {
@@ -37,10 +58,13 @@ public struct WorkspaceScreen: View {
     @State private var holder = SourceHolder()
     private let makeSource: @MainActor () -> WorkspaceTabsSource
     @State private var showsGrid: Bool
+    /// The tab overview's columns at this page's width.
+    @State private var overviewColumnCount = 2
     @State private var renameText = ""
     @State private var renameID: String?
     @State private var renamePlaceholder = "Name"
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.scenePhase) private var scenePhase
     #if DEBUG
     private let director = WorkspaceDemoDirector.shared
     #endif
@@ -50,20 +74,40 @@ public struct WorkspaceScreen: View {
 
     public init(store: AppStore, workspaceID: String, terminal: any TerminalTabContent = PlaceholderTerminalTabContent(),
                 creator: WorkspaceCreator? = nil, startsInGrid: Bool = false,
-                openWorkspace: (@MainActor (Workspace) -> Void)? = nil) {
-        makeSource = { WorkspaceTabsSource(store: store, workspaceID: workspaceID, terminal: terminal, creator: creator) }
+                openWorkspace: (@MainActor (Workspace) -> Void)? = nil, screenSharing: ScreenSharingService? = nil) {
+        makeSource = {
+            let source = WorkspaceTabsSource(store: store, workspaceID: workspaceID, terminal: terminal, creator: creator)
+            source.offersScreenSharing = screenSharing != nil
+            source.screenSharing = screenSharing
+            return source
+        }
         _showsGrid = State(initialValue: startsInGrid)
         self.openWorkspace = openWorkspace
+        self.screenSharing = screenSharing
     }
+
+    /// The account's Screen Sharing (nil signed out): + › Screen Sharing shows this Mac's screen.
+    private let screenSharing: ScreenSharingService?
 
     private var source: WorkspaceTabsSource { holder.source(makeSource) }
 
     public var body: some View {
         TabsView(source: source, isShowingOverview: $showsGrid)
             .tabsKitTheme(.mobile)
+            // The overview shows as many columns as the page's width fits (Rust's
+            // `overview_columns`): two on a phone, more on an unfolded screen.
+            .environment(\.tabsKitOverviewColumns, overviewColumnCount)
+            .onGeometryChange(for: Int.self) { proxy in
+                Int(overviewColumns(width: Double(proxy.size.width)))
+            } action: { columns in
+                overviewColumnCount = columns
+                // Agent cards draw their pictures at the grid's card size.
+                if source.overviewColumns != columns { source.overviewColumns = columns }
+            }
             .overlay(alignment: .top) {
-                if showsGrid {
-                    WorkspaceGridHeader(source: source).transition(.opacity.animation(.easeOut(duration: 0.2)))
+                // Select Tabs puts its Close | More where Back is.
+                if showsGrid, !source.isSelectingTabs {
+                    WorkspaceGridHeader(source: source).transition(.opacity.animation(.easeOut(duration: 0.2).unlessReduceMotion))
                 }
             }
             // The workspace's own toast (TabsKit's is never fed: it covers the title and
@@ -79,6 +123,9 @@ public struct WorkspaceScreen: View {
             }
             .background(theme.colors.bg.color.ignoresSafeArea())
             .toolbar(.hidden, for: .navigationBar)
+            // Its own layer: the Workspaces bar (title, Macs online, Search) never
+            // draws over it through a swipe back (Leo, 2026-11-24).
+            .cmuxMobilePaneLayer()
             .background(InteractivePopEnabler())
             // Search Agent Chats, Screens, Panes and a tab group's pages, and Fork Conversation…'s destinations.
             .modifier(WorkspacePages(source: source))
@@ -90,15 +137,44 @@ public struct WorkspaceScreen: View {
                 if CommandLine.arguments.contains("-cmux-mobile-toast-demo") { source.showDemoToast() }
                 #endif
             }
+            // The grid's view stays "visible" in the background: its refresh stops here.
+            // Inactive (Control Center, the app switcher's first moment) still shows it.
+            .onChange(of: scenePhase) { _, phase in source.sceneActiveChanged(phase != .background) }
+            .onDisappear { source.screenDisappeared() }
             #if DEBUG
             .onChange(of: director.serial) { run(director.command) }
             #endif
+            // The page is one container element that holds its own identifier: on the bare
+            // content the identifier went to every element inside, and the agent tab's
+            // composer field read `workspace.<id>` instead of `chat.composer.field`.
+            .accessibilityElement(children: .contain)
             .accessibilityIdentifier("workspace.\(source.workspaceID)")
             // New Agent Chat With…: the Mac's agents and models.
             .sheet(isPresented: Binding(get: { source.choosingAgent }, set: { source.choosingAgent = $0 })) {
                 AgentChooser(load: { [source] in try await source.agentCatalog() },
-                             start: { [source] start in source.startAgentChat(start) })
+                             start: { [source] start in source.startAgentChat(start) },
+                             macID: source.workspace?.macID ?? "")
                     .presentationDetents([.medium, .large])
+            }
+            // + › Screen Sharing: the account's Macs; this workspace's Mac connects at once.
+            .sheet(isPresented: Binding(get: { source.showingScreenSharing }, set: { source.showingScreenSharing = $0 })) {
+                if let screenSharing {
+                    NavigationStack {
+                        ScreenSharingPage(service: screenSharing, connectTo: source.macName)
+                            .toolbar {
+                                ToolbarItem(placement: .cancellationAction) {
+                                    Button("Done") { source.showingScreenSharing = false }
+                                        .accessibilityIdentifier("screenSharing.done")
+                                }
+                                // Screen Sharing as a tab of this workspace (user 2026-11-05).
+                                ToolbarItem(placement: .primaryAction) {
+                                    Button("Open as Tab", systemImage: "plus.rectangle.on.rectangle") { source.openScreenSharingTab() }
+                                        .labelStyle(.titleOnly)
+                                        .accessibilityIdentifier("screenSharing.openAsTab")
+                                }
+                            }
+                    }
+                }
             }
             // Rename Tab… (page and card menus), as the Mac's.
             .onChange(of: source.renamingTab?.id) { _, id in
@@ -114,8 +190,7 @@ public struct WorkspaceScreen: View {
                 set: { shown in if !shown { source.renamingTab = nil } }
             )) {
                 TextField(renamePlaceholder, text: $renameText)
-                    // Names and prompts are code-like: no autocorrect, no capitals (full verify D5).
-                    .autocorrectionDisabled()
+                    // Names and prompts are code-like: no capitals (full verify D5); autocorrect stays on, as on every GUI field (Leo, 2026-11-23).
                     .textInputAutocapitalization(.never)
                 Button("Cancel", role: .cancel) {}
                 Button("Rename") {
@@ -144,7 +219,7 @@ public struct WorkspaceScreen: View {
             if let title = source.pendingTabTitle {
                 // A tab on its way: the grid keeps its cards until the Mac lists it.
                 HStack(spacing: 8) {
-                    ProgressView().controlSize(.small)
+                    CmuxSpinner().controlSize(.small)
                     Text(Self.openingText(title))
                 }
                 .font(theme.type.meta.weight(.semibold))
@@ -172,7 +247,7 @@ public struct WorkspaceScreen: View {
                 .dynamicTypeSize(...DynamicTypeSize.accessibility3)
                 .accessibilityElement(children: .combine)
                 .cmuxMobileDismissibleToast(entry: placement.entry, announcement: text) {
-                    withAnimation(theme.motion.snappy.animation) { source.clearNotice() }
+                    withAnimation(theme.motion.snappy.animation.unlessReduceMotion) { source.clearNotice() }
                 }
                 .padding(.horizontal, 20)
                 .padding(showsGrid ? .bottom : .top, placement.inset)
@@ -181,9 +256,9 @@ public struct WorkspaceScreen: View {
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: showsGrid ? .bottom : .top)
-        .animation(theme.motion.snappy.animation, value: source.toastText)
-        .animation(theme.motion.snappy.animation, value: source.pendingTabTitle)
-        .animation(theme.motion.snappy.animation, value: showsGrid)
+        .animation(theme.motion.snappy.animation.unlessReduceMotion, value: source.toastText)
+        .animation(theme.motion.snappy.animation.unlessReduceMotion, value: source.pendingTabTitle)
+        .animation(theme.motion.snappy.animation.unlessReduceMotion, value: showsGrid)
     }
 
     /// "Opening a Claude chat…" for "New Claude Chat".
@@ -307,6 +382,8 @@ private struct InteractivePopEnabler: UIViewControllerRepresentable {
 /// on a Mac publish, not the workspace screen and the tabs under it.
 struct WorkspaceGridHeader: View {
     let source: WorkspaceTabsSource
+    /// TabsKit's top-control metrics, so Back matches More and the bottom bar.
+    private let metrics = TabsKitTheme.mobile.metrics
 
     var body: some View {
         ZStack {
@@ -321,12 +398,12 @@ struct WorkspaceGridHeader: View {
                     source.exit()
                 } label: {
                     Image(systemName: "chevron.left")
-                        .font(.system(size: 17, weight: .semibold))
+                        .font(.system(size: metrics.toolbarGlyph, weight: .medium))
                         .foregroundStyle(theme.colors.label.color)
-                        .frame(width: 36, height: 36)
+                        .frame(width: metrics.overviewTopControl, height: metrics.overviewTopControl)
                         .contentShape(.circle)
                 }
-                .buttonStyle(.plain)
+                .buttonStyle(.cmuxPressGlass)
                 .glassEffect(.regular.interactive(), in: .circle)
                 .accessibilityLabel("Workspaces")
                 Spacer()

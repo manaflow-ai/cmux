@@ -70,13 +70,17 @@ async fn fake_peer() -> u16 {
         while let Ok((tcp, _)) = l.accept().await {
             tokio::spawn(async move {
                 let Ok(mut ws) = tokio_tungstenite::accept_async(tcp).await else { return };
-                while let Some(Ok(Ws::Text(text))) = ws.next().await {
+                // Non-text frames (the client's pings, #38015) are not requests: skip them.
+                while let Some(Ok(frame)) = ws.next().await {
+                    let Ws::Text(text) = frame else { continue };
                     let Ok(Message::Request { id, method: m, .. }) = Message::parse(&text) else {
                         continue;
                     };
                     let result = match m.as_str() {
+                        // A dated build, not older than this one: an undated or older one is
+                        // `outdated` (`build_info::lags`), which placement passes over.
                         method::INITIALIZE => json!({"protocolVersion": 1, "_meta": {"acpmux": {
-                            "build": "older", "origin": "peer", "features": []}}}),
+                            "build": "newer 2099-12-31", "origin": "peer", "features": []}}}),
                         method::MUX_WATCH => json!({"sessions": []}),
                         "_acpmux/host_health" => json!({"cpus": 64, "load": [1.0, 1.0, 1.0],
                             "disk": {"freeBytes": 500_u64 << 30, "totalBytes": 1000_u64 << 30},

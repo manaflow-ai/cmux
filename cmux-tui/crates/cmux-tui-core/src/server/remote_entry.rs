@@ -198,7 +198,10 @@ fn accept_loop(
         if shutdown.load(Ordering::Acquire) {
             return;
         }
-        let Some(permit) = claim_connection(&connections) else { continue };
+        let Some(permit) = claim_connection(&connections) else {
+            connections.commands().connection_refused(crate::diagnostics::ClientKind::Remote);
+            continue;
+        };
         let (mux, verifier, gate, render_service) =
             (mux.clone(), verifier.clone(), gate.clone(), render_service.clone());
         let _ = std::thread::Builder::new().name("mux-remote-conn".into()).spawn(move || {
@@ -249,14 +252,21 @@ fn serve_remote_connection(
     // A dial whose first line asks for an `fs.*` byte stream is served raw
     // (fs_wire.rs); any other dial reaches the line connection unchanged.
     let entry_fs = config.entry_fs;
-    let Some(stream) = fs_wire::route_first_line(&mux, stream, &*gate, &peer, entry_fs) else {
-        return;
-    };
     let native_vm_kind = match check {
         Some(cmux_link::stamp::StampCheck::NativeLinkToken { vm_kind, .. }) => Some(vm_kind),
         _ => None,
     };
-    let admission = RemoteAdmission { peer, gate, native_vm_kind };
+    let Some(stream) =
+        fs_wire::route_first_line_of(&mux, stream, &*gate, &peer, entry_fs, native_vm_kind)
+    else {
+        return;
+    };
+    let admission = RemoteAdmission {
+        peer,
+        gate,
+        native_vm_kind,
+        cloud_token: matches!(check, Some(cmux_link::stamp::StampCheck::LinkToken { .. })),
+    };
     serve_line_connection(
         mux,
         stream,
@@ -307,11 +317,12 @@ struct RemoteAdmission {
     peer: RemotePeer,
     native_vm_kind: Option<Option<cmux_link::token::VmKind>>,
     gate: Arc<dyn RemoteGate>,
+    cloud_token: bool,
 }
 
 impl LineAdmission for RemoteAdmission {
     fn registered(&self, mux: &Arc<Mux>, client: u64) -> bool {
-        if mux.bind_remote_peer(client, &self.peer).is_err() {
+        if mux.bind_remote_peer_checked(client, &self.peer, self.cloud_token).is_err() {
             return false;
         }
         // No peer-controlled frame has run yet. This field is never set by
@@ -323,9 +334,17 @@ impl LineAdmission for RemoteAdmission {
     }
 
     fn refusal(&self, line: &str) -> Option<Value> {
-        if self.gate.admit(&self.peer, line)
+        // A Native dial that is not the owner's never sends a file, seed or repo frame
+        // (`fs_wire::native_dial_admits`), whatever the entry's gate admits; on a machine of the
+        // person's own, neither does a classic dial (`fs_wire::remote_dial_admits`).
+        if (self.gate.admit(&self.peer, line)
+            && fs_wire::remote_dial_admits(self.native_vm_kind, line))
             || (self.native_vm_kind == Some(Some(cmux_link::token::VmKind::Owner))
                 && self.gate.admit_native_owner(line))
+            // A Cloud team member's signed dial: its chat verbs only (agent_session_member.rs).
+            || (self.native_vm_kind == Some(Some(cmux_link::token::VmKind::Team))
+                && self.gate.admit_native_owner(line)
+                && agent_session_attach::member::admits(&self.peer, line))
         {
             return None;
         }

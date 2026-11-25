@@ -32,6 +32,7 @@ await requireBrowserLane("model-menu-update-footer.test.ts", async () => {
   }
 
   const ENTRY = "agent-pane.model-picker";
+  const MENU = ".acpmux-cols, .acpmux-quick-menu";
   const { createServer } = await import("vite");
   const webviews = path.resolve(import.meta.dir, "..");
   let vite: Awaited<ReturnType<typeof createServer>> | undefined;
@@ -83,41 +84,48 @@ await requireBrowserLane("model-menu-update-footer.test.ts", async () => {
       timeout: 120_000,
     });
     await installPaintedFrames(page);
-    await page.locator(".acpmux-quick-menu").waitFor();
+    await page.locator(MENU).waitFor();
     await atRest(page);
     return page;
   };
 
   const layout = (page: Page) =>
     page.evaluate(() => {
-      const popup = document.querySelector<HTMLElement>(".acpmux-quick-menu")!;
-      const footer = popup.querySelector<HTMLElement>(".acpmux-quick-update");
+      const popup = document.querySelector<HTMLElement>(".acpmux-cols, .acpmux-quick-menu")!;
+      const frame = popup.querySelector(".acpmux-cols-frame") ?? popup;
+      const footer = popup.querySelector<HTMLElement>(".acpmux-cols-update, .acpmux-quick-update");
       const box = (element: Element) => {
         const rect = element.getBoundingClientRect();
         return { top: rect.top, bottom: rect.bottom, left: rect.left, right: rect.right };
       };
-      const rows = [...popup.querySelectorAll('[role^="menuitem"]')].filter((row) => !footer?.contains(row));
+      const rows = [
+        ...popup.querySelectorAll('[role^="menuitem"], [role="option"], [role="radio"], [role="switch"]'),
+      ].filter((row) => !footer?.contains(row));
       // The rail menu's list scrolls in its own box, which ends where the footer starts; the plain
       // menu scrolls rows and footer together, so its rows end above the footer at any scroll.
-      const layout = popup.querySelector(".acpmux-quick-layout");
+      const layout = popup.querySelector(".acpmux-cols-body, .acpmux-quick-layout");
       return {
         popup: box(popup),
         footer: footer ? box(footer) : undefined,
-        inList: !!footer?.closest(".acpmux-quick-list"),
-        lastChild: popup.lastElementChild === footer,
+        inList: !!footer?.closest(".acpmux-cols-list, .acpmux-quick-list"),
+        lastChild: frame.lastElementChild === footer,
         listBottom: layout
           ? layout.getBoundingClientRect().bottom
           : Math.max(...rows.map((row) => row.getBoundingClientRect().bottom)),
         rowWithUpdate: rows.some((row) => row.textContent?.includes("2.2.0")),
-        actions: footer ? [...footer.querySelectorAll('[role^="menuitem"]')].map((item) => item.textContent) : [],
+        actions: footer
+          ? [...footer.querySelectorAll('button, [role^="menuitem"]')].map((item) => item.textContent)
+          : [],
       };
     });
 
-  /** ArrowDown until the keyboard is on the footer's Update; whether it got there. */
+  /** Columns use Tab for buttons; the list menu uses ArrowDown for its menu items. */
   const toUpdate = async (page: Page) => {
-    for (let step = 0; step < 24; step++) {
+    // Both menus reach the footer with ArrowDown: the columns' past their last model row.
+    for (let step = 0; step < 60; step++) {
       await page.keyboard.press("ArrowDown");
-      if (await page.evaluate(() => document.activeElement?.closest(".acpmux-quick-update") !== null)) return true;
+      if (await page.evaluate(() => !!document.activeElement?.closest(".acpmux-cols-update, .acpmux-quick-update")))
+        return true;
     }
     return false;
   };
@@ -142,18 +150,20 @@ await requireBrowserLane("model-menu-update-footer.test.ts", async () => {
 
       test(`${engine} ${variant}: the keyboard reaches Update, and Enter on it closes the menu`, async () => {
         const page = await open(engine, variant);
-        expect(await toUpdate(page), "ArrowDown reaches the footer's Update").toBe(true);
+        expect(await toUpdate(page), "the keyboard reaches the footer's Update").toBe(true);
         await page.keyboard.press("Enter");
-        await page.locator(".acpmux-quick-menu").waitFor({ state: "detached" });
+        await page.locator(MENU).waitFor({ state: "detached" });
         await page.close();
       });
 
       test(`${engine} ${variant}: in a short window the keyboard brings Update into view`, async () => {
         const page = await open(engine, variant, 260);
-        expect(await toUpdate(page), "ArrowDown reaches the footer's Update").toBe(true);
+        expect(await toUpdate(page), "the keyboard reaches the footer's Update").toBe(true);
         await atRest(page);
         const seen = await page.evaluate(() => {
-          const popup = document.querySelector<HTMLElement>(".acpmux-quick-menu")!.getBoundingClientRect();
+          const popup = document
+            .querySelector<HTMLElement>(".acpmux-cols, .acpmux-quick-menu")!
+            .getBoundingClientRect();
           const update = document.activeElement!.getBoundingClientRect();
           return {
             popup: { top: popup.top, bottom: popup.bottom },
@@ -167,17 +177,29 @@ await requireBrowserLane("model-menu-update-footer.test.ts", async () => {
         expect(seen.bottom, "inside the menu").toBeLessThanOrEqual(seen.popup.bottom + 1);
         expect(seen.top, "inside the window").toBeGreaterThanOrEqual(-1);
         expect(seen.bottom, "inside the window").toBeLessThanOrEqual(seen.window + 1);
-        // One up is the list's last row: it scrolls into the list's visible box, above the footer.
-        await page.keyboard.press("ArrowUp");
+        const columns = (await page.locator(".acpmux-cols").count()) > 0;
+        if (columns) {
+          // ArrowUp from Update returns to the search field; the highlight is still on the last
+          // model, the row Down left from. Each column scrolls independently above the fixed footer.
+          await page.keyboard.press("ArrowUp");
+          expect(
+            await page.locator(".acpmux-cols-search input").evaluate((node) => document.activeElement === node),
+          ).toBe(true);
+        } else {
+          // One up from Update is the old list menu's last row.
+          await page.keyboard.press("ArrowUp");
+        }
         await atRest(page);
         const last = await page.evaluate(() => {
-          const popup = document.querySelector<HTMLElement>(".acpmux-quick-menu")!;
-          const row = document.activeElement!;
-          const view = (popup.querySelector(".acpmux-quick-body") ?? popup).getBoundingClientRect();
-          const footer = popup.querySelector(".acpmux-quick-update")!.getBoundingClientRect();
+          const popup = document.querySelector<HTMLElement>(".acpmux-cols, .acpmux-quick-menu")!;
+          const row = popup.querySelector("[role=listbox] [role=option][data-hl]") ?? document.activeElement!;
+          const view = (popup.querySelector("[role=listbox], .acpmux-quick-body") ?? popup).getBoundingClientRect();
+          const footer = popup.querySelector(".acpmux-cols-update, .acpmux-quick-update")!.getBoundingClientRect();
           const rect = row.getBoundingClientRect();
           return {
-            inFooter: row.closest(".acpmux-quick-update") !== null,
+            inFooter: row.closest(".acpmux-cols-update, .acpmux-quick-update") !== null,
+            lastModel:
+              !popup.matches(".acpmux-cols") || row === popup.querySelector("[role=listbox] [role=option]:last-child"),
             top: rect.top,
             bottom: rect.bottom,
             view: { top: view.top, bottom: view.bottom },
@@ -186,6 +208,7 @@ await requireBrowserLane("model-menu-update-footer.test.ts", async () => {
         });
         console.log(`::notice title=model-menu-update-footer (${engine} ${variant} last row)::${JSON.stringify(last)}`);
         expect(last.inFooter, "the row above Update is a list row").toBe(false);
+        expect(last.lastModel, "the highlight reached the last model").toBe(true);
         expect(last.top, "inside the list's visible box").toBeGreaterThanOrEqual(last.view.top - 1);
         expect(last.bottom, "inside the list's visible box").toBeLessThanOrEqual(last.view.bottom + 1);
         expect(last.bottom, "above the footer").toBeLessThanOrEqual(last.footerTop + 1);
@@ -195,7 +218,7 @@ await requireBrowserLane("model-menu-update-footer.test.ts", async () => {
       test(`${engine} ${variant}: Escape closes the menu with the update offered`, async () => {
         const page = await open(engine, variant);
         await page.keyboard.press("Escape");
-        await page.locator(".acpmux-quick-menu").waitFor({ state: "detached" });
+        await page.locator(MENU).waitFor({ state: "detached" });
         await page.close();
       });
     }

@@ -116,11 +116,19 @@ pub(super) fn run(global: &GlobalArgs, args: &[String]) -> i32 {
     let request = match parse(args) {
         Ok(request) => request,
         Err(error) => {
-            eprintln!("cmux: {error}\n\n{}", t.usage);
-            return 2;
+            let json = args.iter().any(|arg| arg == "--json");
+            let output = if json { OutputMode::Json } else { global.output };
+            return super::super::scope_usage_failure(output, "avatar", &error, t.usage);
         }
     };
     let output = if request.json { OutputMode::Json } else { global.output };
+    let fail = |code: &str, message: String, exit: i32| {
+        super::super::wire::print_local_error(
+            &serde_json::json!({"code": code, "message": format!("cmux: {message}"), "details": {}, "retryable": false}),
+            output,
+            exit,
+        )
+    };
     if request.word == "set"
         && let Some(marker) = super::super::federation::agent_marker(|key| std::env::var(key).ok())
     {
@@ -129,37 +137,29 @@ pub(super) fn run(global: &GlobalArgs, args: &[String]) -> i32 {
     let (socket, derived) = match super::super::wire::resolve_socket_with_origin(global) {
         Ok(found) => found,
         Err(error) => {
-            eprintln!("{}", super::super::wire::resolve_failure_message(&error));
-            return super::super::wire::RESOLVE_FAILURE_EXIT;
+            return super::super::wire::print_local_error(
+                &super::super::wire::resolve_failure(&error),
+                output,
+                super::super::wire::RESOLVE_FAILURE_EXIT,
+            );
         }
     };
     let mut link = match Link::connect(&socket, derived) {
         Ok(link) => link,
-        Err(error) => {
-            eprintln!("{}", super::super::wire::connect_failure(&socket, &error));
-            return 3;
-        }
+        Err(error) => return super::super::wire::report_connect_failure(&socket, &error, output),
     };
     let json_out = request.json || super::json_output(global.output);
     match execute(&mut link, &request, json_out) {
         Ok(()) => 0,
-        Err(Failure::Usage(message)) => {
-            eprintln!("cmux: {message}");
-            2
-        }
-        Err(Failure::Link(LinkError::Transport(message))) => {
-            eprintln!("cmux: {message}");
-            3
-        }
+        Err(Failure::Usage(message)) => fail("usage.invalid", message, 2),
+        Err(Failure::Link(LinkError::Transport(message))) => fail("transport.failed", message, 3),
         Err(Failure::Link(LinkError::Rejected { code, .. }))
             if code.starts_with("validation.invalid: unknown operation") =>
         {
-            eprintln!("cmux: {}", t.unsupported);
-            1
+            fail("avatar.unsupported", t.unsupported.to_string(), 1)
         }
         Err(Failure::Link(LinkError::Rejected { code, message })) => {
-            eprintln!("cmux: {code}: {message}");
-            1
+            fail(&code, format!("{code}: {message}"), 1)
         }
     }
 }

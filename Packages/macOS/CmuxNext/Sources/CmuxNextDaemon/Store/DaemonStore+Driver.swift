@@ -90,7 +90,7 @@ final class EventInbox: Sendable {
     /// (as a `tree-changed` carrying it), drop the rest.
     private static func keep(_ envelope: DaemonEventEnvelope, in state: inout State) {
         switch envelope.event {
-        case .connected, .disconnected, .daemonShutdown, .sessionState:
+        case .connected, .disconnected, .daemonShutdown, .sessionState, .screenDeviceChanged:
             // Session state: not in the snapshot the collapse refetches.
             state.append(envelope)
         case .terminalRegistryChanged:
@@ -134,18 +134,22 @@ final class EventInbox: Sendable {
         state.withLock { $0.events.compactMap { $0 } }
     }
 
-    /// Takes everything buffered and clears the pending-frame flag.
+    /// Takes everything buffered and clears the pending-frame flag. The lock is held for a swap of the buffer only:
+    /// the holes coalescing left are dropped after it, so the pump never waits on the main thread copying and
+    /// destroying a 4,096-event batch inside the lock (hq#8685: a hang in `drain` there).
     func take() -> [DaemonEventEnvelope] {
-        state.withLock { state in
+        let events = state.withLock { state -> [DaemonEventEnvelope?] in
             state.framePending = false
             state.takenThrough = state.receivedThrough
             state.collapsed = false
             state.echoes.removeAll(keepingCapacity: true)
             state.latest.removeAll(keepingCapacity: true)
             state.live = 0
-            defer { state.events.removeAll(keepingCapacity: true) }
-            return state.events.compactMap { $0 }
+            var events: [DaemonEventEnvelope?] = []
+            swap(&events, &state.events)
+            return events
         }
+        return events.compactMap { $0 }
     }
 
     /// Keeps new events from scheduling frames (during a resync).
@@ -306,7 +310,16 @@ extension DaemonStore {
                 snapshotCoveredPersonal(through: consumed)
                 advanceAppliedSequence(to: consumed)
                 resyncPacer.reset()
-                if seedAgents { apply(agents: try await driver.connection.agents()) }
+                if seedAgents {
+                    do {
+                        apply(agents: try await driver.connection.agents())
+                    } catch let error as DaemonError where error.isRemoteDenied {
+                        // The link refuses this read for good (a Cloud machine's Native carrier
+                        // serves no `list-agents`): the tree stands, and asking again only refuses
+                        // again. Not a failed resync, so no retry loop (566 refusals in 30 min).
+                        logger.info("resync: \(DaemonError.remoteDeniedCode, privacy: .public) for list-agents; agent rows come from events")
+                    }
+                }
             } catch {
                 logger.error("resync failed: \(String(describing: error), privacy: .public)")
                 failed = true

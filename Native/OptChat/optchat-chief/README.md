@@ -116,12 +116,25 @@ id). With `OPTCHAT_GROUP_WAKE` set, a person's message in another local
 conversation the Chief takes part in is a wake of that conversation, read and
 answered as a cloud wake is (`brain/side.rs`); another Chief's message wakes
 it too (never its own; other agents never do). Loop guard: the owner's
-per-thread budget (`cmux_conversation::MAX_AGENT_TURNS`, 6): at most 6 agent
-texts in one thread (the replies of one root, or the top level) since a
-person's text in that thread; the owner refuses more (`agent_budget`), and a
+per-thread budget (`cmux_conversation::MAX_AGENT_TURNS`, 6): in a
+conversation with two or more agents, at most 6 agent texts in one thread
+(the replies of one root, or the top level) since a person's text in that
+thread (the person's own Chief chat, with one agent, has no cap); the owner refuses more (`agent_budget`), and a
 Chief pre-checks it from the messages it read (`thread_agent_streak` on the
 thread its reply goes into) so it stays quiet instead of running that turn.
-A person's text resets its own thread only. A page shows "Chiefs paused" for
+A person's text resets its own thread only. The outbox drops a refused
+message (it never loops) but keeps the refusal for the Chief: `send` answers
+an error ("refused by the conversation, nothing was posted (agent_budget)")
+when the owner refuses it at once, `outcome: queued` while it still waits in
+the outbox (the gap, an upload, link previews), and `outcome: done. sent`
+only when the owner took it; a later refusal (a queued send, a turn reply)
+is told on the Chief's next `send`. An `agent_budget` refusal in the Chief's
+conversation also starts the hold (`brain/budget_hold.rs`): while the guard
+refuses, `stop` and `sleep` are not refused for untold landed work, and the
+`[untold]` and `[no text]` notes wait instead of starting turns that could post
+nothing. The person's next message ends the hold, and its turn carries a
+`<held-news>` block naming the owed outcomes and silent starts; a Chief message
+the owner takes ends it too. A page shows "Chiefs paused" for
 a thread when `thread_agent_streak` of its newest messages is at the budget. `every` adds a constant
 "Channels" paragraph to the system prompt: the Chief acts on its own when a
 message concerns its role, and a reply of exactly `NO_REPLY` posts nothing.
@@ -257,8 +270,16 @@ Claude harness, `chief spawn|tell|zoom|date` on any other).
   and it starts no turn. A subagent that runs again later (a `tell`, the user
   writing in its chat) reports again when it finishes.
 
-- Any number of subagents work at once by default; `OPTCHAT_MAX_LIVE_SUBAGENTS=N`
-  caps it (one spawn takes at most 8 tasks; call spawn again for more). A spawn
+- The machine limits local subagents at work (src/machine_limits.rs): at most
+  `max(2, min(2 x cores, RAM GiB / 2))` (24 on a 15-core, 48 GB Mac), and while
+  the machine is over budget (load1 >= 2 x cores, or memory pressure warn or
+  critical) no new one starts past those at work (at least 2). Over it a
+  subagent is queued with its place in line (`a5: queued, #2 in line`), never
+  refused, and starts when a slot frees or the machine has room (checked every
+  60 s). `OPTCHAT_MACHINE_HELPERS=N` sets the ceiling, `0` lifts the machine
+  limit; an explicit cap below wins over it.
+- Otherwise any number of subagents work at once; `OPTCHAT_MAX_LIVE_SUBAGENTS=N`
+  caps it (one spawn takes at most 24 tasks; call spawn again for more). A spawn
   over the cap answers `a<N>: queued`, naming the cap's source (`control cap N`
   or the env) and that `control cap 0` removes it; a queued subagent starts, with the view
   of that moment and its task, when another finishes. Its record keeps its
@@ -380,6 +401,26 @@ engine bar over the Chief conversation (harness, model and effort pickers,
 the last turn's engine, latency, tool calls, cache hit rate and cost) that
 writes the same file.
 
+### Open-source brains (Hermes, OpenClaw)
+
+`chief engine set --harness hermes` (or `openclaw`) runs the turns on Hermes
+Agent or OpenClaw through acpmux, once the brain is on PATH
+(`brain_home.rs`, chief-cohesion OSS-LOCAL-BRAINS.md "Build"). The Chief keeps
+the conversation, the memory, the schedules and the approvals; the brain runs
+one turn at a time from a home the Chief owns (`optchat/brains/<family>`,
+`HERMES_HOME`/`OPENCLAW_HOME` through acpmux's built-in
+`optchat-chief-<brain>-<home id>` preset), never the person's own, with its
+models through the gateway the person sets (`chief engine set
+--brain-base-url URL` or `OPTCHAT_BRAIN_BASE_URL`; no built-in default: without
+one the brain is unavailable and the default harness answers) and its own cron, memory and logins off. OpenClaw runs only in
+sandbox mode `all` (Docker or Podman needed), with no skills, and gets cmux's
+MCP servers in its own config (its ACP bridge takes none per session); the
+host runs its Gateway on loopback. A brain that cannot run a turn (not
+installed, unavailable, or it failed one in the last 10 minutes) gives way to
+the default harness, with one note in the chat; `chief brains` shows each
+brain's state and last fallback, and `chief brains migrate hermes` turns
+Hermes' own cron jobs into cmux automations, one confirmed line at a time.
+
 ## Monitoring: trace and stats
 
 Every turn (`turn.start`, `turn.end`), every model request in a turn
@@ -470,6 +511,9 @@ optchat-chief memory import [--mux-home DIR] DIR           an old JSONL home or 
 optchat-chief memory search [--mux-home DIR] [--limit N] [--json] WORDS  messages and summaries holding every word (FTS5);
                                                            --json: id, kind, date, snippet and full text per hit
 optchat-chief memory stats [--mux-home DIR]                counts, schema, migration record, backup status
+optchat-chief memory redescribe [--mux-home DIR] failed|ID...   the running host describes again the images these note
+                                                           lines name (failed: every "no description" note), rewrites
+                                                           each note in the change book and rebuilds the summaries above it
 optchat-chief agent-memory search|get|remember|mcp|sync|sources|config ...
                                                            long-term memory shared by Codex and Claude Code sessions
 ```
@@ -536,8 +580,8 @@ replies).
 | `ACPMUX_SOCKET`, `ACPMUX_HOME` | `~/.acpmux/acpmux.sock` | the acpmux daemon |
 | `ACPMUX_BIN` | none | started as `$ACPMUX_BIN daemon run` when the socket does not answer |
 | `CMUX_SOCKET_PATH` | none | the app's control socket, passed to the turn's tools |
-| `OPTCHAT_ANTHROPIC_BASE_URL` | `http://cmux-lawrences-mac-mini:31415` | the Messages API of the native engine, and of the compactor's `api` route (team subrouter) |
-| `OPTCHAT_ANTHROPIC_API_KEY` | none | `x-api-key`; else `ANTHROPIC_API_KEY` for any base URL but the subrouter; else `subrouter` |
+| `OPTCHAT_ANTHROPIC_BASE_URL` | `https://api.anthropic.com` | the Messages API of the native engine, and of the compactor's `api` route (a gateway is the person's own setting) |
+| `OPTCHAT_ANTHROPIC_API_KEY` | none | `x-api-key` for that URL; else `ANTHROPIC_API_KEY` for the official API only, or for another URL with `OPTCHAT_SEND_KEY_TO_BASE_URL=1`; else `subrouter` (no real key) |
 | `OPTCHAT_COMPACTOR` | `acpmux` | how summaries are built; `api` only when set (see Compactor routes) |
 | `OPTCHAT_COMPACTOR_HARNESS` | the Chief's harness | acpmux route: the harness of the compactor sessions |
 | `OPTCHAT_COMPACTOR_MODEL` | `claude-sonnet-5-5` on a Claude harness, else the harness's default | acpmux route: their model (the refusal fallback `claude-sonnet-5` exists on a Claude harness only) |
@@ -708,19 +752,21 @@ store's files or an export) into an empty memory.
 
 **Backup** (decision 2026-10-06). After the commit, the export's history is
 pushed to a private `manaflow-ai/chief-memory-<home id>` repository, which
-`gh repo create --private` makes on the first push; never forced, so a
-remote with other history fails the push and stays as it is. Before each
-push the lines added since the last pushed commit are scanned (gitleaks when
-it is on PATH, else built-in shapes: GitHub, Anthropic, OpenAI, AWS, Slack,
-Stripe, Google and npm tokens, private keys). A hit holds the backup:
+`gh repo create --private` makes on the first push. If another Chief moves the
+branch, the persister fetches it and merges append-only `main/` and `tree/`
+JSONL lines before retrying, so neither writer's memory is replaced. Before
+each push the lines added since the last pushed commit are scanned (gitleaks
+when it is on PATH, else built-in shapes: GitHub, Anthropic, OpenAI, AWS,
+Slack, Stripe, Google and npm tokens, private keys). A hit holds the backup:
 nothing is pushed, `optchat/backup.json` says `(backup held: possible secret
 in message N)`, a `backup_held` trace event is written, host.log says how to
 release it (the message id or summary name on a line of
-`optchat/backup-allow.txt`). A failed push is retried by the persister
-thread after 30 s, doubling to 30 min; a turn never waits on it. On by
-default when `gh auth status` succeeds, except for tagged dev homes
-(`.../tags/<tag>`), which would each make their own repository; set
-`OPTCHAT_BACKUP_REMOTE` or `settings.json` to choose.
+`optchat/backup-allow.txt`). A failed push is retried by the persister thread
+with bounded jittered backoff and becomes a visible `blocked` status after its
+retry window; a turn never waits on it. On by default when `gh auth status`
+succeeds, except for tagged dev homes (`.../tags/<tag>`), which would each
+make their own repository; set `OPTCHAT_BACKUP_REMOTE` or `settings.json` to
+choose.
 
 **Migration.** On the first start with an old home (day files in `chat/`,
 an empty database), the host copies them into
@@ -812,8 +858,9 @@ that profile is named. Any other Claude-family profile must also be kind
 proxy` replaced by a `claude-stdio` profile that runs `claude` with no
 arguments) only when its `ANTHROPIC_BASE_URL` is the team subrouter on
 cmux-lawrence (`harness_gate::TEAM_SUBROUTER_URLS`); a real `sr claude
-proxy` profile wins over it. A refused turn starts no session and posts `(turn refused:
-...)` in the chat. A session that acpmux resolved or moved onto another
+proxy` profile wins over it. A refused turn starts no session and posts a short plain reply
+(`harness_gate::refused_reply`): it quotes the message it answers, says what is missing and what
+to do, and a repeat says how many turns in a row were refused, so no two in a row read the same. A session that acpmux resolved or moved onto another
 profile is checked again by its own harness, at the start and at the end
 of the turn. Every refusal is a `harness.refused` trace event (role,
 harness, reason), and each `turn.end` records `harness_profile`,
@@ -1246,7 +1293,7 @@ all chief approvals. chief should never have to ask for approvals"):
 | One that reads the Home workspace block (the host reads it on every turn) | the configured one |
 | One a paired device of the owner started | the configured one |
 | Another person wrote in it (a shared Chief, a channel), or it reads the report of a subagent spawned under such a turn | `ask`, and the host refuses every local effect at once |
-| Another agent wrote it: `cmux chief -p`, `cmux chief send` or `cmux chief acp` run by an acpmux session (its `client_msg_id` names the session, `cmux_conversation::agent_sender`; the text shows `[from NAME]`), or an acpmux session's answer to the Chief's `tell(id: "session:NAME")` | `ask`, as for another person |
+| Another agent wrote it: `cmux chief -p`, `cmux chief send` or `cmux chief acp` run by an acpmux session (its `client_msg_id` names the session, `cmux_conversation::agent_sender`; the text shows `[from NAME]`) | `ask`, as for another person |
 
 History: Lawrence added the device gate on 2026-10-05 (0654733226a, default
 ask), made auto-approve the default on 2026-10-06 (8f1b5b9c65b, "i dont want
@@ -1265,14 +1312,15 @@ there is no approval card, and an `allow` or `deny` message is only a message.
   `sleep`, `spawn` (its children take the floor), `send` without
   attachments, `profile` reads (`history` or no field), and `control`
   `status`, `interrupt` with no message and `answer` with `deny`, plus a
-  `tell` or `control` to a subagent that runs with `ask` itself, `control
-  sessions`, and a `tell` to `session:NAME` when the turn carries NAME's own
-  message (it answers that agent, never starts a talk with another). Plain
-  replies need nothing.
+  `tell` or `control` to a subagent that runs with `ask` itself. Plain replies need
+  nothing: a reply to an agent's message goes back to it through the CLI
+  that sent it.
 - Refused: everything else (a shell command, a file write or edit, computer
   use, a `send` with attachments, a `profile` write or undo, a `tell` or
   `control` to an approve-all subagent, so another person cannot pass a
-  command through one).
+  command through one, and the acpmux tools `acpmux_send`, `ls`, `last`,
+  `info` and `inbox_*`, so such a turn never starts a talk with another
+  session).
 - A refused request repeated three times in the turn stops it, and the turn
   posts one line saying so instead of its text.
 - Every refusal goes to the trace (`optchat/traces/YYYY-MM-DD.jsonl`, event
@@ -1287,6 +1335,27 @@ there is no approval card, and an `allow` or `deny` message is only a message.
   host-served section 9 `spawn` takes the same floor (`Brain::spawn_policy`).
 - The native engine refuses its bash and editor tools in such a turn and says
   so to the model.
+
+Hidden local owner subagents can show an Allow once / Deny card in Home by
+default. This is another view of an existing harness permission, not a new
+Chief approval gate (#22747): it changes no turn or spawn policy. Only the
+local native app can answer, using its person proof and a fresh click bound
+to the exact pending request. Phone answers, cloud peers, turn sessions and
+other-person `ask` children cannot use this path.
+
+Once the conversation owner acknowledges the card, the request waits for the
+person's Allow or Deny however long Home stays closed: it is never denied for
+the 120-second no-answer deadline from #22941 (Leo, 2026-11-03: a subagent's
+prompt must show in Home as an Allow/Deny card, never be declined silently).
+Replayed events post no second card. The Chief can still deny or steer the
+subagent, and opening its local workspace keeps the existing answer path. A
+hidden request Home cannot draw as Allow once / Deny (no single allow-once and
+reject-once option, a question, or a snapshot over the preview bound) opens
+its subagent's workspace instead, whose tab answers it. The deadline still
+applies until a card is acknowledged, to a card that was refused or retired,
+and where this host makes no workspaces. A completed or replaced request
+closes its card, including a late delivery acknowledgement. No Preview
+Features setting is required, and there is no rollout polling timer.
 
 Policy analysis (the relay rules of this repository's CLAUDE.md):
 
@@ -1323,6 +1392,57 @@ card and traces each refusal; a refused request repeated three times ends
 the turn with a line; a child or a section 9 subagent spawned in such a turn
 takes the floor and is refused without a question).
 
+## Multiplayer rights, audit and caps
+
+Design: cmuxterm-hq `plans/multiplayer-chief/DESIGN.md` (Lawrence's rights
+table, `/audit` and `/cap`) and leo-workspace `design/multiplayer-chief.md`.
+Code: `src/rights.rs`, `src/audit.rs`, `src/brain/rights_gate.rs`. On by
+default; `OPTCHAT_RIGHTS=0` turns it off (the floor above still holds).
+
+**Who may prompt.** Watching a shared Chief is always allowed. Another
+person's prompt runs on the owner's model login, so it runs only when the
+owner declared a commercial login (`/auth api-key|bedrock|vertex|foundry|team|enterprise`)
+and listed that person in `$MUX_HOME/optchat/rights.json`. On a personal
+subscription (the default, and what an undeclared login counts as) another
+person's message is a suggestion: the host answers "Not run: ... a suggestion"
+and no turn runs. A request from another person's Chief is held to the same
+rule on this Chief's login.
+
+**What they may trigger.** A listed person's turn still runs under the ask
+floor. Each tool call passes the turn session's hook (`optchat-chief
+rights-hook pre|post`, put in the turn folder's project settings): the host
+allows a call every non-owner author of the turn holds a grant for
+(`Read(/dir/*)`, `Bash(ls*)` and other read-only commands with plain
+arguments only, `WebFetch`,
+`mcp__server__*`), and denies the rest. A hook that cannot reach the host
+gives no answer, so the call reaches the floor and is refused (fail closed).
+No grant writes `$MUX_HOME/optchat` (the table, the audit). An approver
+(`/approver PERSON on`, the owner only; never a Chief) runs as the owner.
+
+**Audit.** `$MUX_HOME/optchat/audit/audit.jsonl`: every call of every turn
+(before: allow or deny and why; after: the output's SHA-256 and size), every
+refusal, every rights change and each turn's spend, with who, the turn, the
+host and the cwd. Each record carries the hash of the one before it;
+`optchat-chief audit verify` (or `/audit verify`) walks the chain. `/audit
+[N] [PERSON]` in chat: the owner and approvers see everything, anyone else
+their own records.
+
+**Caps.** `/cap USD|off` (the Chief, every turn) and `/cap PERSON USD|off`
+(a person's turns), per local day, from the audit's `spend` records. A
+message over a cap gets one line and no turn; `/cap` itself always answers.
+
+**Chat commands** (answered by the host, no turn): `/rights`, `/audit`,
+`/grant PERSON PATTERN...`, `/revoke PERSON [PATTERN...]`, `/approver PERSON
+on|off`, `/cap ...`, `/auth KIND|auto`. The CLI does the same:
+`optchat-chief rights ...`, `optchat-chief audit [verify|head]`.
+
+**Chief to Chief across people.** A peer Chief's message (peer_chiefs.rs) is
+`chief:<name>`'s request: stamped with the person the owner says it acts for
+(`owner` in its table entry, never the request's word), run under the floor
+with that Chief's grants, and answered with `tell("chief:<name>")`, the one
+`tell` its turn may make. A Chief in a shared group conversation is
+`chief:<participant>` the same way.
+
 ## Deviations from the spec
 
 Taelin's updated recipe (gist 3c190e0, 2026-10-08) is followed for the view
@@ -1342,6 +1462,9 @@ compactions 98.1% of their prefix (spec: 98.6% and 96.2%). What differs:
   them); the next turn reads their summaries. A node the compactor cannot
   build at all (a setup error such as a missing acpmux preset or a refused
   harness, or a request error on every try) is stuck at once and holds no
+  turn; a transient failure (a session that does not answer under load)
+  is stuck after `COMPACT_TRIES` and retried quietly, and a request the API
+  refuses as too large keeps its input, cut to the room, as the line. Neither holds a
   turn; the Chief status says why. The class rule: a user message never
   waits more than 1 s on the compactor (a turn's start and `spawn` alike).
   Cost: a deferred turn's cache mark covers a view with placeholders, so the
@@ -1353,6 +1476,17 @@ compactions 98.1% of their prefix (spec: 98.6% and 96.2%). What differs:
   (chiefux on cmux-lawrence-2, 7 turns with a 3-message burst): settle
   13-22 ms, no deferred turn, no zoom call; a busy compactor (an import) is
   not measured.
+- **A slow session start.** The Chief's own sessions (its turns and the
+  compactor's) ask acpmux to wait on the harness (`waitStart`) instead of a
+  wall clock: a loaded machine slows a start down, and killing it there loses
+  the start and the turn. acpmux ends the start once the harness has used no
+  CPU (under 5 ms per 10 s: a launcher's own runtime ticks are no work), with
+  no thread ready and no page read in, for 5 minutes. A turn's wait still ends
+  on a stop or the turn's limit, and past 30 s `settle.json` has
+  `startingSecs`: the app says the machine is busy and the Chief is still
+  starting. A turn whose start acpmux ended that way posts no diagnostics: its
+  person's message waits in the reply ledger, whose retry turns start a fresh
+  harness and, if none starts, say so in plain words (#36028).
 - **Turns paragraph.** The spec says "do the user's tasks yourself ... use
   subagents only when the user asks". The Chief's base prompt replaces that
   paragraph with `prompt.rs` `CHIEF_TURNS`: keep turns short, give builds,
@@ -1555,6 +1689,11 @@ manifest; host.json does not move. A sealed home (`optchat/MOVED`) never starts 
 pinned binaries (optchat-chief, cmux-tui, acpmux and the Rust `cmux` CLI, all from one
 build; the CLI beside optchat-chief is what the Chief's and its subagents' `cmux` calls run);
 `deploy/brain/rollback.sh` removes them and keeps the memory and key.
+
+On a shared Linux box (a fleet VM, a cmux Cloud machine), `deploy/linux-box/install.sh` installs
+the same three processes as hardened systemd units under their own user, with one CPU and
+memory cap over the Chief and its agents, and the `chief-box` command for pairing, the rights
+table and the audit log (`deploy/linux-box/README.md`).
 
 ## Link previews
 

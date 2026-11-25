@@ -7,8 +7,11 @@
 //!    catalog entry whose `modelSource` is `catalog`. For an ACP harness that
 //!    already reported its models, only the curated ones it reported (the
 //!    agent decides what it runs; the catalog adds names, order and
-//!    metadata). Claude Code reports none, so its list comes from the catalog
-//!    after the "default" choice;
+//!    metadata), unless the entry `runsAnyModel` (Gemini CLI: its ACP menu is
+//!    fixed per release, `--model` takes any Gemini API id), which gets every
+//!    curated model, the ones newer than its whole menu leading `topModels`.
+//!    Claude Code reports none, so its list comes from the catalog after the
+//!    "default" choice;
 //! 3. the models the harness reported that the catalog does not list, marked
 //!    `curated: false` (for example an OpenCode user's own providers). A
 //!    `probe` entry lists no models: every reported model is shown, with the
@@ -19,6 +22,7 @@
 use super::*;
 use crate::catalog::{Catalog, CatalogHarness, CatalogService, HarnessModel};
 use crate::config::HarnessKind;
+use crate::live_models::LiveModel;
 use cmux_json::JsonSet as _;
 use std::sync::PoisonError;
 
@@ -128,7 +132,10 @@ fn offered(
         out.extend(reported.iter().map(|r| reported_json(r, catalog)));
         return out;
     };
-    let picks = (*kind == HarnessKind::Acp || live) && !reported.is_empty();
+    // A harness that runs any model id gets every catalog model, not only the ones it names.
+    let picks = (*kind == HarnessKind::Acp || live)
+        && !reported.is_empty()
+        && curated.runs_any_model != Some(true);
     for model in &curated.models {
         if !picks || lists(reported, model) {
             out.push(curated_json(model, catalog));
@@ -144,6 +151,42 @@ fn offered(
         }
     }
     out
+}
+
+/// Drops the models the catalog disabled from a harness's list: one never shows, even when the
+/// harness reports it itself or the user's config names it.
+fn drop_disabled(models: &mut Vec<Value>, disabled: &[String]) {
+    models.retain(|m| m["id"].as_str().is_none_or(|id| !disabled.iter().any(|d| d == id)));
+}
+
+/// For a harness that runs any model id (`runsAnyModel`: Gemini CLI, whose ACP menu is fixed in
+/// each release), the catalog models released after every model its menu names, in catalog
+/// order: they lead its picker menu, so a model the harness's release predates still shows
+/// first the day the catalog or the feed lists it. Empty for any other harness, or when no menu
+/// model has a known release date.
+fn newer_than_menu(
+    curated: &CatalogHarness,
+    catalog: &Catalog,
+    reported: &[(String, String)],
+) -> Vec<String> {
+    if curated.runs_any_model != Some(true) {
+        return Vec::new();
+    }
+    let released = |model: &HarnessModel| {
+        model
+            .reference
+            .as_deref()
+            .and_then(|r| catalog.models.get(r))
+            .and_then(|i| i.release_date.clone())
+    };
+    let newest = curated.models.iter().filter(|m| lists(reported, m)).filter_map(released).max();
+    let Some(newest) = newest else { return Vec::new() };
+    curated
+        .models
+        .iter()
+        .filter(|m| !lists(reported, m) && released(m).is_some_and(|date| date > newest))
+        .map(|m| m.id.clone())
+        .collect()
 }
 
 /// Preserve the harness's own picker order independently of the catalog's metadata order.
@@ -167,6 +210,16 @@ fn picker_models(reported: &[(String, String)], models: &[Value]) -> Vec<String>
         }
     }
     top
+}
+
+/// The harness's current models: its report without the ones its live catalog moves to
+/// another model (Codex's `upgrade`: gpt-5.6-terra and gpt-5.5 name gpt-6-sol). Pickers list
+/// those under Legacy (`topModels` leaves them out), so current and legacy follow the CLI's
+/// own catalog rather than its order (#38044).
+fn current(reported: &[(String, String)], live: Option<&[LiveModel]>) -> Vec<(String, String)> {
+    let upgraded =
+        |id: &str| live.is_some_and(|live| live.iter().any(|m| m.id == id && m.upgrade.is_some()));
+    reported.iter().filter(|(id, _)| !upgraded(id)).cloned().collect()
 }
 
 /// Whether pickers leave out the profile `name` (`pickerHidden` on its `_acpmux/models` and
@@ -210,7 +263,7 @@ impl Hub {
                 .collect();
             let curated = curated_for(&self.catalog, name, profile);
             let live = self.live_models_for(name).filter(|l| !l.is_empty());
-            let reported = match &live {
+            let reported: Vec<(String, String)> = match &live {
                 Some(live) => live.iter().map(|m| (m.id.clone(), m.name.clone())).collect(),
                 None => known.get(name).cloned().unwrap_or_default(),
             };
@@ -222,13 +275,23 @@ impl Hub {
             if let Some(live) = &live {
                 crate::live_models::overlay(&mut models, live);
             }
+            let disabled: &[String] = curated.as_ref().map_or(&[], |c| &c.disabled);
+            drop_disabled(&mut models, disabled);
             if models.is_empty() {
                 models.push(json!({"id": "default", "name": "default (agent's choice)"}));
             }
             super::model_availability::mark_unavailable(&mut models, name, &refused);
             let top =
                 if live.is_some() || (profile.kind == HarnessKind::Acp && !reported.is_empty()) {
-                    Some(picker_models(&reported, &models))
+                    let menu = picker_models(&current(&reported, live.as_deref()), &models);
+                    let mut top: Vec<String> = curated
+                        .as_ref()
+                        .map(|c| newer_than_menu(c, &catalog, &reported))
+                        .unwrap_or_default();
+                    top.retain(|id| !menu.contains(id));
+                    top.extend(menu);
+                    top.retain(|id| !disabled.contains(id));
+                    Some(top)
                 } else {
                     None
                 };
@@ -277,90 +340,5 @@ impl Hub {
 }
 
 #[cfg(test)]
-mod picker_models_tests {
-    use super::*;
-    use std::collections::BTreeMap;
-
-    #[test]
-    fn harness_picker_order_survives_catalog_order_and_aliases() {
-        let models = vec![
-            json!({"id": "release-b", "aliases": ["b"]}),
-            json!({"id": "release-a", "aliases": ["a"]}),
-            json!({"id": "older"}),
-        ];
-        let reported = [("default", "Default"), ("a", "A"), ("b", "B"), ("a", "A")]
-            .map(|(id, name)| (id.to_owned(), name.to_owned()));
-        assert_eq!(picker_models(&reported, &models), vec!["release-a", "release-b"]);
-    }
-
-    #[test]
-    fn a_new_harness_model_needs_no_cmux_top_list_update() {
-        let models = vec![json!({"id": "new-family"}), json!({"id": "existing"})];
-        let reported = [("existing", "Existing"), ("new-family", "New")]
-            .map(|(id, name)| (id.to_owned(), name.to_owned()));
-        assert_eq!(picker_models(&reported, &models), vec!["existing", "new-family"]);
-    }
-
-    /// A hub with Claude Code and the `cmux` router profile, discovered or user-written.
-    fn router_hub(discovered: bool) -> std::sync::Arc<Hub> {
-        use crate::config::{Config, StoreMode};
-        let mut found = BTreeMap::new();
-        crate::config::add_cmux_router_with(&mut found, &|_| Some("/usr/bin/claude".into()), None);
-        let claude = HarnessProfile {
-            env: BTreeMap::new(),
-            description: None,
-            models: vec![],
-            model: None,
-            ..found["cmux"].clone()
-        };
-        let mut cfg = Config::default();
-        cfg.harnesses.insert("claude".into(), claude);
-        if discovered {
-            cfg.join_discovered(found);
-        } else {
-            cfg.harnesses.insert("cmux".into(), found["cmux"].clone());
-        }
-        cfg.store.mode = StoreMode::Memory;
-        let store = crate::store::open(&cfg.store, std::path::Path::new("/nonexistent")).unwrap();
-        Hub::new(cfg, store)
-    }
-
-    fn models_row(reply: &Value, name: &str) -> Value {
-        reply["harnesses"]
-            .as_array()
-            .unwrap()
-            .iter()
-            .find(|h| h["harness"] == name)
-            .cloned()
-            .unwrap()
-    }
-
-    /// The discovered `cmux` profile is Claude's automatic fallback to the cmux model router,
-    /// not an agent a person picks: pickers showed it as a "Cmux" harness above Claude Code
-    /// (user, 2026-10-28). Both replies keep its row (a chat that failed over to it still needs
-    /// its name, icon and models) and mark it `pickerHidden`.
-    #[tokio::test]
-    async fn the_discovered_cmux_router_fallback_is_hidden_from_pickers() {
-        let hub = router_hub(true);
-        assert_eq!(
-            hub.config.read().await.harnesses["claude"].fallback.as_deref(),
-            Some("cmux"),
-            "the router stays Claude's fallback"
-        );
-        let models = hub.models_catalog().await;
-        assert_eq!(models_row(&models, "cmux")["pickerHidden"], json!(true));
-        assert!(models_row(&models, "cmux")["models"].as_array().is_some_and(|m| !m.is_empty()));
-        assert_eq!(models_row(&models, "claude").get("pickerHidden"), None);
-        let view = hub.harnesses_view().await;
-        assert_eq!(view["harnesses"]["cmux"]["pickerHidden"], json!(true));
-        assert_eq!(view["harnesses"]["claude"].get("pickerHidden"), None);
-    }
-
-    /// A `cmux` profile the person wrote in their config is theirs to pick.
-    #[tokio::test]
-    async fn a_user_written_cmux_profile_stays_in_pickers() {
-        let hub = router_hub(false);
-        assert_eq!(models_row(&hub.models_catalog().await, "cmux").get("pickerHidden"), None);
-        assert_eq!(hub.harnesses_view().await["harnesses"]["cmux"].get("pickerHidden"), None);
-    }
-}
+#[path = "models_view_picker_models_tests.rs"]
+mod picker_models_tests;

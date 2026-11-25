@@ -1,0 +1,71 @@
+.blank-load-fade-gallery {
+  --blf-space-18: 18px;
+  --blf-space-24: 24px;
+  --blf-space-400: 400px;
+  min-height: 100%;
+  padding: var(--blf-space-18) var(--blf-space-24);
+  box-sizing: border-box;
+  color: var(--cv-text);
+  background: var(--agent-page-bg, transparent);
+}
+
+.blank-load-fade-gallery__header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 12px;
+}
+
+.blank-load-fade-gallery__header h1 {
+  margin: 0;
+  font-size: var(--text-title);
+  font-weight: 600;
+}
+
+.blank-load-fade-gallery__header p {
+  margin: 4px 0 0;
+  color: var(--cv-text-muted);
+  font-size: var(--text-detail);
+}
+
+.blank-load-fade-gallery__transcript {
+  height: var(--blf-space-400);
+  /* The transcript's scroller fills a column, as in the pane's stage. */
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  border: 1px solid color-mix(in srgb, var(--cv-text) 14%, transparent);
+  border-radius: 12px;
+}
+
+/* The arms: one length or curve of the load fade each (desktop.css `cmux-load-fade`). */
+.blank-load-fade-gallery[data-variant="pop"] {
+  --cmux-load-fade-duration: 0ms;
+}
+.blank-load-fade-gallery[data-variant="standard"] {
+  --cmux-load-fade-duration: var(--cmux-motion-standard, 180ms);
+}
+.blank-load-fade-gallery[data-variant="large"] {
+  --cmux-load-fade-duration: var(--cmux-motion-large, 240ms);
+}
+.blank-load-fade-gallery[data-variant="linear"] {
+  --cmux-load-fade-easing: linear;
+}
+.blank-load-fade-gallery[data-variant="stagger"] .acpmux-row.cmux-load-fade:nth-of-type(2) {
+  animation-delay: 16ms;
+}
+.blank-load-fade-gallery[data-variant="stagger"] .acpmux-row.cmux-load-fade:nth-of-type(3) {
+  animation-delay: 32ms;
+}
+.blank-load-fade-gallery[data-variant="stagger"] .acpmux-row.cmux-load-fade:nth-of-type(4) {
+  animation-delay: 48ms;
+}
+.blank-load-fade-gallery[data-variant="stagger"] .acpmux-row.cmux-load-fade:nth-of-type(n + 5) {
+  animation-delay: 64ms;
+}
+/* A still of the selected fade at its midpoint. */
+.blank-load-fade-gallery[data-frozen] .acpmux-row.cmux-load-fade {
+  animation-play-state: paused;
+  animation-delay: calc(var(--cmux-motion-micro, 120ms) / -2);
+}

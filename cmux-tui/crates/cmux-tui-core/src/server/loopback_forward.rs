@@ -11,8 +11,12 @@
 //! - Loopback only: the target is `localhost`, `*.localhost`, or a loopback
 //!   IP literal. No DNS lookup decides the target, and the connected peer is
 //!   checked again after connect.
-//! - Bounded: per-connection and daemon-wide stream limits, credit-based flow
-//!   control in both directions, bounded frames, and an audit ring.
+//! - Bounded per stream, not by a stream count: each costs one socket, two
+//!   threads of `THREAD_STACK_BYTES` (256 KiB) stack, a 64 KiB read buffer
+//!   and at most `DAEMON_RECEIVE_WINDOW` (256 KiB) of queued bytes
+//!   (credit-based flow control in both directions); frames are bounded; an
+//!   audit ring. A socket or thread the machine cannot give refuses that one
+//!   stream (`loopback.limit`).
 //! - No new listening socket anywhere.
 //!
 //! Wire (JSON lines, same framing as every v12 command):
@@ -37,6 +41,7 @@ use serde::Deserialize;
 use serde_json::{Value, json};
 
 use super::{MessageWriter, OutboundStream, Response, send_response};
+use crate::stream_interrupt::StreamInterrupt;
 use crate::{mux::Mux, panic_free::RecoverPoison};
 
 pub const LOOPBACK_FORWARD_CAPABILITY: &str = "loopback-forward-v1";
@@ -49,8 +54,6 @@ pub(crate) const DAEMON_RECEIVE_WINDOW: usize = 256 * 1024;
 pub(crate) const DEFAULT_CLIENT_WINDOW: usize = 256 * 1024;
 const MIN_CLIENT_WINDOW: usize = 16 * 1024;
 const MAX_CLIENT_WINDOW: usize = 4 * 1024 * 1024;
-pub(crate) const MAX_STREAMS_PER_CLIENT: usize = 128;
-pub(crate) const MAX_STREAMS_TOTAL: usize = 512;
 const CONNECT_TIMEOUT: Duration = Duration::from_secs(3);
 const AUDIT_CAPACITY: usize = 256;
 const MAX_HOST_BYTES: usize = 253;
@@ -320,7 +323,7 @@ impl OpenError {
             Self::Disabled => "loopback forwarding is turned off on this machine",
             Self::DeniedHost => "only localhost, *.localhost and loopback addresses are forwarded",
             Self::DeniedPort => "this port is not allowed for loopback forwarding",
-            Self::Limit => "too many forwarded connections",
+            Self::Limit => "this machine could not start another forwarded connection",
             Self::Duplicate => "stream id is already in use",
             Self::Refused => "nothing is listening on that loopback port",
             Self::Timeout => "the loopback connection timed out",
@@ -372,10 +375,6 @@ impl LoopbackForwarder {
         let mut state = self.state.lock().recover_poison();
         if state.streams.contains_key(&(client, stream)) {
             return Err(OpenError::Duplicate);
-        }
-        let used = state.slots.get(&client).copied().unwrap_or_default();
-        if used >= MAX_STREAMS_PER_CLIENT || state.total >= MAX_STREAMS_TOTAL {
-            return Err(OpenError::Limit);
         }
         *state.slots.entry(client).or_default() += 1;
         state.total += 1;
@@ -438,8 +437,6 @@ impl LoopbackForwarder {
             "opened": state.opened,
             "refused": state.refused,
             "limits": {
-                "per_client": MAX_STREAMS_PER_CLIENT,
-                "total": MAX_STREAMS_TOTAL,
                 "frame_bytes": MAX_FRAME_BYTES,
                 "daemon_window": DAEMON_RECEIVE_WINDOW,
             },
@@ -481,6 +478,9 @@ struct StreamInner {
     closed: bool,
     bytes_to_target: u64,
     bytes_from_target: u64,
+    /// Fired when the stream's connection writer closes; kept here because
+    /// the writer holds it weakly.
+    connection_closed: Option<Arc<StreamInterrupt>>,
 }
 
 impl ForwardStream {
@@ -921,11 +921,11 @@ fn connect_and_start(
     };
     let _ = socket.set_nodelay(true);
     let overflow = json!({"event": "loopback-closed", "stream": stream_id, "error": "overflow"});
-    let Ok(outbound) = writer.start_stream(&overflow) else {
+    let opened = writer.start_stream(&overflow);
+    let Ok(outbound) = opened else {
         forwarder.release(client);
         let _ = socket.shutdown(Shutdown::Both);
-        open_error(&writer, id, OpenError::Limit);
-        return;
+        return writer.refuse_stream(id, opened.err());
     };
     let stream = Arc::new(ForwardStream {
         client,
@@ -950,6 +950,25 @@ fn connect_and_start(
         }
         state.streams.insert((client, stream_id), stream.clone());
         state.opened += 1;
+    }
+    // The stream ends when its connection's writer closes. A disconnect ends
+    // the client's streams before it closes the writer, so a stream inserted
+    // in between (the check above saw the writer open) is ended here, at
+    // once if the writer closed already.
+    let connection_closed = StreamInterrupt::new();
+    {
+        let stream = Arc::downgrade(&stream);
+        let mux = Arc::downgrade(&mux);
+        connection_closed.on_fire(move || {
+            if let (Some(stream), Some(mux)) = (stream.upgrade(), mux.upgrade()) {
+                stream.fail(&mux.control_clients.loopback, "disconnected", false);
+            }
+        });
+    }
+    stream.inner.lock().recover_poison().connection_closed = Some(connection_closed.clone());
+    writer.register_interrupt(&connection_closed);
+    if stream.inner.lock().recover_poison().closed {
+        return;
     }
     // The reply is queued before the reader starts, and control messages
     // leave before stream messages, so no data can overtake it.
@@ -1093,4 +1112,32 @@ impl LoopbackForwarder {
     pub(super) fn release_for_test(&self, client: u64) {
         self.release(client);
     }
+
+    pub(super) fn open_streams_for_test(&self) -> usize {
+        self.state.lock().recover_poison().streams.len()
+    }
+}
+
+/// Tests: what an accepted `loopback-open` of `127.0.0.1:port` runs on its
+/// open thread, run on the caller's thread (the caller reserved the stream).
+#[cfg(test)]
+pub(super) fn open_for_test(
+    mux: &Arc<Mux>,
+    client: u64,
+    stream: u64,
+    port: u16,
+    target: LoopbackTarget,
+    writer: &MessageWriter,
+) {
+    connect_and_start(
+        mux.clone(),
+        client,
+        Some(json!(1)),
+        stream,
+        "127.0.0.1".into(),
+        port,
+        target,
+        DEFAULT_CLIENT_WINDOW,
+        writer.clone(),
+    );
 }

@@ -1,4 +1,6 @@
+import CmuxNextCompat
 import Darwin
+import Dispatch
 import Network
 
 /// Who is on the other end of a loopback TCP connection to the proxy.
@@ -114,5 +116,105 @@ enum PeerProcess {
             return .v6(withUnsafeBytes(of: &raw) { Array($0) })
         }
         return nil
+    }
+}
+
+/// The proxy's trust scans. Each is a run of blocking `proc_pid*` calls (one per socket of the app and of
+/// every Chromium helper), so they run one at a time on a queue of their own: a flood of local connections
+/// neither occupies the cooperative pool nor runs many scans at once. A caller's wait is bounded and
+/// cancellation-aware: after `timeout`, or when its task is cancelled, it answers false (not trusted) at
+/// once and its queued scan is skipped. At most `limit` scans are queued or running; past that a caller is
+/// untrusted at once, so a stalled scan cannot grow the queue.
+final class PeerScan: Sendable {
+    /// The longest a caller waits for its scan.
+    static let timeout: Duration = .seconds(2)
+    static let pendingLimit = 32
+
+    private let queue = DispatchQueue(label: "com.cmuxterm.next.remote-localhost.peer-scan", qos: .userInitiated)
+    private let pending = Mutex(0)
+    private let limit: Int
+
+    init(limit: Int = PeerScan.pendingLimit) { self.limit = limit }
+
+    /// ``PeerProcess/isTrusted(peerHost:peerPort:localHost:localPort:candidates:)`` through ``run(timeout:_:)``.
+    func isTrusted(peerHost: NWEndpoint.Host, peerPort: UInt16, localHost: NWEndpoint.Host, localPort: UInt16) async -> Bool {
+        await run {
+            PeerProcess.isTrusted(peerHost: peerHost, peerPort: peerPort, localHost: localHost, localPort: localPort)
+        }
+    }
+
+    func run(timeout: Duration = PeerScan.timeout, _ scan: @escaping @Sendable () -> Bool) async -> Bool {
+        let admitted = pending.withLock { count -> Bool in
+            guard count < limit else { return false }
+            count += 1
+            return true
+        }
+        guard admitted else { return false }
+        let request = ScanRequest()
+        // task-owner: one timer per scan; cancelled below once the scan answers
+        let timer = Task {
+            // wakeup-allow: one-shot bound on a scan's wait, cancelled when the scan answers
+            do { try await Task.sleep(for: timeout) } catch { return }
+            request.cancel()
+        }
+        defer { timer.cancel() }
+        return await withTaskCancellationHandler {
+            await withCheckedContinuation { continuation in
+                request.arm(continuation)
+                queue.async {
+                    defer { self.pending.withLock { $0 -= 1 } }
+                    guard !request.isCancelled else { return }
+                    request.finish(scan())
+                }
+            }
+        } onCancel: {
+            request.cancel()
+        }
+    }
+}
+
+/// One scan's answer, delivered exactly once: the scan's result, or false when the wait was cancelled
+/// or timed out first.
+fileprivate final class ScanRequest: Sendable {
+    private struct State {
+        var continuation: CheckedContinuation<Bool, Never>?
+        var result: Bool?
+        var cancelled = false
+    }
+
+    private let state = Mutex(State())
+
+    var isCancelled: Bool { state.withLock { $0.cancelled } }
+
+    func arm(_ continuation: CheckedContinuation<Bool, Never>) {
+        let settled = state.withLock { state -> Bool? in
+            if let result = state.result { return result }
+            state.continuation = continuation
+            return nil
+        }
+        if let settled { continuation.resume(returning: settled) }
+    }
+
+    func finish(_ trusted: Bool) {
+        let waiting = state.withLock { Self.settle(&$0, trusted) }
+        waiting?.resume(returning: trusted)
+    }
+
+    /// Marks the request cancelled and answers false in one critical section, so a scan that finishes
+    /// at the same time sees either "cancelled and settled" or "not yet cancelled", never a mix.
+    func cancel() {
+        let waiting = state.withLock { state -> CheckedContinuation<Bool, Never>? in
+            state.cancelled = true
+            return Self.settle(&state, false)
+        }
+        waiting?.resume(returning: false)
+    }
+
+    /// Records the answer once and hands back the waiter to resume, if it is armed already.
+    private static func settle(_ state: inout State, _ value: Bool) -> CheckedContinuation<Bool, Never>? {
+        guard state.result == nil else { return nil }
+        state.result = value
+        defer { state.continuation = nil }
+        return state.continuation
     }
 }

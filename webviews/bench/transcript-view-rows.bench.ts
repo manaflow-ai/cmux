@@ -12,6 +12,7 @@ import type { AcpmuxRow } from "../src/agent-session/acpmux/model";
 import { turnViewFrom, type TurnView } from "../src/agent-session/acpmux/conversation/turns";
 import { subagentRowsFrom, type SubagentRows } from "../src/agent-session/acpmux/subagents/subagentRows";
 import { activity, assistant, summary, thought, tool, user } from "../src/gallery/fixtures/acpmux";
+import { perfRow, TARGET_MS } from "./perfRow";
 
 const TURNS = Number(process.argv[2] ?? 500);
 const EVENTS = Number(process.argv[3] ?? 2000);
@@ -83,3 +84,10 @@ console.log(
   `FOLDS=${FOLDS} turns=${TURNS} events=${EVENTS} rounds=${ROUNDS}: p50 ${fmt(median(rounds.map((r) => r.p50)))}, ` +
     `p95 ${fmt(median(rounds.map((r) => r.p95)))}, max ${fmt(median(rounds.map((r) => r.max)))} per event`,
 );
+// Per streamed event: the row pipeline is part of one frame's work.
+perfRow({
+  name: `transcript_rows.stream.${FOLDS}`,
+  p50: median(rounds.map((r) => r.p50)),
+  p95: median(rounds.map((r) => r.p95)),
+  target: TARGET_MS.frameWork,
+});

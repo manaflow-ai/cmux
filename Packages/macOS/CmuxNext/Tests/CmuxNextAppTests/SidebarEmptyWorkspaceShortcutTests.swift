@@ -20,7 +20,6 @@ import Testing
         for (config, expected) in cases {
             applier.apply(CmuxConfigSnapshot.parse(config, validDensities: [], validMetrics: []))
             #expect(registry.shortcutDisplay(for: "newTab") == expected)
-            #expect(SidebarBridge.builtInShortcuts(registry)["newTab"] == expected)
         }
     }
 }

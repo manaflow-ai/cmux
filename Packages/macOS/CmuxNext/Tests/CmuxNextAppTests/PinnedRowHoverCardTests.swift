@@ -103,17 +103,17 @@ import Testing
         #expect(body.lines.contains { $0.contains("Durable runner for the cloud Chief") }, "\(body.lines)")
     }
 
-    /// The same delay as a list row: no card before `sidebar.hoverCards.delay`.
+    /// The same wait as a list row: Chrome's whole delay (`HoverIntentTiming.cardDelay`), no early card.
     @Test func aPinnedRowWaitsARowsDelay() async throws {
         let clock = ManualClock()
         let harness = Self.sidebar(clock: clock)
         defer { harness.tearDown() }
         harness.list.updateHover(try harness.pinnedRowMiddle())
         try await clock.waitForSleeper()
-        clock.advance(by: DesignSettings.shared.hoverCardDelay - .milliseconds(20))
+        clock.advance(by: DesignSettings.shared.hoverCardDelay - .milliseconds(10))
         for _ in 0..<20 { await Task.yield() }
-        #expect(harness.coordinator.machine.shownTarget == nil, "a sweep over a pinned row opened a card early")
-        clock.advance(by: .milliseconds(70))
+        #expect(harness.coordinator.machine.shownTarget == nil, "a pinned row opened its card before Chrome's delay")
+        clock.advance(by: .milliseconds(20))
         try await Self.settle { harness.coordinator.machine.shownTarget != nil }
         #expect(harness.coordinator.machine.shownTarget?.id == WorkspaceHoverCardController.targetID(Self.pinnedID))
     }
@@ -168,5 +168,18 @@ import Testing
         #expect(harness.list.hoverCardWorkspace(at: point) == Self.listedID)
         let pinnedPoint = harness.list.convert(try harness.pinnedRowMiddle(), from: nil)
         #expect(harness.list.hoverCardWorkspace(at: pinnedPoint) == Self.pinnedID)
+    }
+
+    /// A capture tour's `debug.mouse` `row` and the icon picker find a row by `rowFrameOnScreen`, which looked only
+    /// at list rows: every pinned workspace answered nil, so the pin lifecycle tour's hovers, drags and clicks on
+    /// pinned rows all failed. A pinned workspace answers with its drawn pill; a list row still answers with its row.
+    @Test func aPinnedRowIsFoundOnScreen() throws {
+        let harness = Self.sidebar(clock: ManualClock())
+        defer { harness.tearDown() }
+        let row = try #require(harness.pinnedRow, "the pinned workspace drew no row")
+        let pill = harness.window.convertToScreen(row.convert(row.pill.frame, to: nil))
+        #expect(harness.list.rowFrameOnScreen(for: Self.pinnedID) == pill)
+        let listed = try #require(harness.list.rowFrameOnScreen(for: Self.listedID), "the list row was not found")
+        #expect(!listed.intersects(pill), "the list row answered with the pinned pill")
     }
 }

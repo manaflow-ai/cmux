@@ -10,6 +10,7 @@ import { act } from "react";
 import type { Root } from "react-dom/client";
 import type { ReleaseNotes } from "../src/pages/changelog/types";
 import type { UpdateHighlights } from "../src/pages/changelog/updateHighlights";
+import { teardownDom } from "./support/domTeardown";
 
 const scope = globalThis as Record<string, unknown>;
 const keys = ["window", "document", "navigator", "HTMLElement", "IS_REACT_ACT_ENVIRONMENT", "Node", "Element"] as const;
@@ -31,12 +32,9 @@ beforeAll(() => {
   host = window.document.getElementById("root")!;
 });
 
-afterAll(() => {
+afterAll(async () => {
   act(() => root?.unmount());
-  for (const [key, had, value] of saved) {
-    if (had) scope[key] = value;
-    else delete scope[key];
-  }
+  await teardownDom(saved, { scope });
 });
 
 function notes(build: string, items: { title: string; pr: number }[]): ReleaseNotes {
@@ -106,7 +104,8 @@ const note = () => [...host.querySelectorAll(".wn-card-note")].map((n) => n.text
 test("the Updated card summarizes every skipped nightly by area, not the newest commit's subject", async () => {
   await renderCard(data, span);
   // The newest commit is one change among the rest, never the card's headline.
-  expect(note()).toEqual(["Sidebar: groups made by automation take a palette color"]);
+  // The change in full, never cut at its first clause (u51892: "we need to show everything").
+  expect(note()).toEqual(["Sidebar: groups made by automation take a palette color, not grey"]);
   // CI, tests and autofixes stay out; no count of the rest.
   expect(host.querySelector(".wn-card-more")).toBeNull();
   expect(host.textContent).not.toContain("shard");
@@ -132,4 +131,56 @@ test("an update with only internal work says Maintenance and fixes", async () =>
   ]);
   expect(note()).toEqual(["Maintenance and fixes"]);
   expect(host.querySelector(".wn-card-more")).toBeNull();
+});
+
+// Leo 2026-11-02, on the card reading "Improved: fixes and improvements" ("why is the update thing
+// unthemed"): a build with nothing reviewed publishes the generic "Fixes and improvements" entry
+// (release-notes.py GENERIC_ENTRY) as its What's New. It is not a change; the card says the build's
+// own top change from its commits instead.
+const generic = {
+  id: "fixes-and-improvements",
+  category: "improved" as const,
+  title: { en: "Fixes and improvements" },
+  summary: { en: "This build brings fixes and improvements. The link lists every change in it." },
+  platforms: ["macos"],
+  audience: "all",
+  docs: "https://github.com/manaflow-ai/cmux/compare/a...b",
+};
+
+test("a build whose What's New is the generic entry shows its real top change, not fixes and improvements", async () => {
+  const build = {
+    ...notes("3940000000005", [
+      { title: "cmux-next sidebar: groups made by automation take a palette color, not grey", pr: 501 },
+      { title: "ci: shard the gallery capture", pr: 502 },
+    ]),
+    whatsNew: {
+      schemaVersion: 1,
+      version: "3940000000005",
+      channel: "nightly",
+      date: "2026-10-20",
+      headline: { en: "Fixes and improvements" },
+      entries: [generic],
+    },
+  } as unknown as ReleaseNotes;
+  await renderCard(
+    {
+      ...data,
+      source: "whatsNew",
+      items: [{ id: generic.id, title: "Fixes and improvements", summary: generic.summary.en, category: "improved" }],
+    },
+    [build],
+  );
+  // The change in full, never cut at its first clause (u51892: "we need to show everything").
+  expect(note()).toEqual(["Sidebar: groups made by automation take a palette color, not grey"]);
+  expect(host.textContent?.toLowerCase()).not.toContain("fixes and improvements");
+});
+
+test("before the span loads, the host's generic entry is not shown as a change", async () => {
+  await renderCard({
+    ...data,
+    source: "whatsNew",
+    items: [{ id: generic.id, title: "Fixes and improvements", summary: generic.summary.en, category: "improved" }],
+  });
+  expect(note()).toEqual(["What's new in this build"]);
+  expect(host.textContent?.toLowerCase()).not.toContain("fixes and improvements");
 });

@@ -45,11 +45,11 @@ describe("Session Info is never called Inspector", () => {
       // The debug setting's and the Settings row's English defaults.
       [
         "Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/AgentPaneTunables.swift",
-        /"agent\.inspector", PageTunables\.section, "([^"]*)",\s*help: "([^"]*)"/,
+        /"agent\.sessionInfo", PageTunables\.section, "([^"]*)",\s*help: "([^"]*)"/,
       ],
       [
-        "Packages/macOS/CmuxNext/Sources/CmuxNextSettings/Schema/AgentPaneDisplaySettingsSchema.swift",
-        /settings\.agentPane\.display\.inspector(?:\.help)?",\s*"([^"]*)"/g,
+        "schemas/settings/source/agent-pane-display.json",
+        /"settings\.agentPane\.display\.inspector(?:\.help)?",\s*"text": "([^"]*)"/g,
       ],
       [
         "webviews/src/agent-session/acpmux/session-info/SessionInfo.gallery.tsx",

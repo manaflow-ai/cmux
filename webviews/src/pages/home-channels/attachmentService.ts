@@ -8,6 +8,7 @@
 // from a short-lived URL on the daemon's listener, which answers byte ranges (seeking); a page
 // whose policy has no `media-src` for that origin (the app's page scheme today) cannot play it.
 import type { PageClient } from "../shared/pageClient";
+import type { UploadSource } from "./textUpload";
 import { imageSize, MAX_DECODE_PIXELS, MAX_UNSIZED_DECODE_BYTES } from "../../agent-session/acpmux/composer/imageWork";
 import {
   HomeOps,
@@ -259,7 +260,7 @@ async function sha256(bytes: ArrayBuffer | Uint8Array): Promise<string> {
   return [...new Uint8Array(digest)].map((byte) => byte.toString(16).padStart(2, "0")).join("");
 }
 
-export async function hashFile(file: File, signal?: AbortSignal): Promise<string> {
+export async function hashFile(file: Pick<Blob, "size" | "slice">, signal?: AbortSignal): Promise<string> {
   const hash = new StreamingSha256();
   for (let offset = 0; offset < file.size; offset += READ_BYTES) {
     if (signal?.aborted) throw new DOMException("cancelled", "AbortError");
@@ -412,6 +413,29 @@ export class AttachmentService {
     const kind = attachmentClass(mimeType);
     const facts: Facts =
       kind === "image" ? await imageFacts(file, mimeType) : kind === "video" ? await videoFacts(file) : {};
+    return this.uploadSource(conversation, file, mimeType, facts, onProgress, signal);
+  }
+
+  /** Upload a sliced text source with the same content hash, deduplication and bounded chunks as
+   * a file. No whole-file UTF-8 buffer or preview decode is needed. */
+  uploadText(
+    conversation: string,
+    file: UploadSource,
+    onProgress: (progress: UploadProgress) => void,
+    signal?: AbortSignal,
+  ): Promise<HomeAttachment> {
+    return this.uploadSource(conversation, file, "text/plain", {}, onProgress, signal);
+  }
+
+  private async uploadSource(
+    conversation: string,
+    file: UploadSource,
+    mimeType: string,
+    facts: Facts,
+    onProgress: (progress: UploadProgress) => void,
+    signal?: AbortSignal,
+  ): Promise<HomeAttachment> {
+    const kind = attachmentClass(mimeType);
     const derived = facts.preview ?? facts.poster;
     const part: HomeAttachment = {
       type: "attachment",
@@ -554,11 +578,20 @@ export class AttachmentService {
 /** The part as the owner keeps it: a hash it already held keeps its first record's derived image. */
 function kept(part: HomeAttachment, stored: unknown): HomeAttachment {
   if (!stored || typeof stored !== "object") return part;
-  const record = stored as { poster?: Record<string, unknown>; preview?: Record<string, unknown> };
+  const record = stored as {
+    mime_type?: string;
+    byte_count?: number;
+    poster?: Record<string, unknown>;
+    preview?: Record<string, unknown>;
+  };
   const image = (raw?: Record<string, unknown>): HomeDerivedImage | undefined =>
     raw ? { hash: String(raw.hash), mimeType: String(raw.mime_type), byteCount: Number(raw.byte_count) } : undefined;
   const { poster: _poster, preview: _preview, ...rest } = part;
   const result: HomeAttachment = { ...rest };
+  // The first record of identical bytes may have another declared type (for example a Markdown
+  // file later sent as long text). References must use the owner's kept metadata too.
+  if (typeof record.mime_type === "string") result.mimeType = record.mime_type;
+  if (typeof record.byte_count === "number") result.byteCount = record.byte_count;
   const poster = image(record.poster);
   const preview = image(record.preview);
   if (poster) result.poster = poster;

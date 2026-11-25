@@ -40,6 +40,17 @@ fn protocol_registry_names_are_unique() {
     }
 }
 
+#[test]
+fn controls_snapshot_is_a_request_and_control_updates_are_notifications() {
+    let registry = registry();
+    for (name, kind) in [
+        (crate::rpc::method::MUX_CONTROLS, super::Kind::Request),
+        (crate::rpc::method::MUX_CONTROL, super::Kind::Notification),
+    ] {
+        assert_eq!(registry.iter().find(|d| d.name == name).unwrap().kind, kind, "{name}");
+    }
+}
+
 /// Every name the dispatcher and its notifications use is in the registry:
 /// the constants in `rpc::method` and the literal names in the server.
 #[test]
@@ -76,6 +87,35 @@ fn protocol_registry_names_every_served_method() {
             let name = &capture[1];
             if !names.contains(name) && !prefixes.contains(&name) {
                 missing.insert(name.to_owned());
+            }
+        }
+    }
+    // A dispatcher branch on a constant another module owns (`m == crate::perf_trace::METHOD_SPANS`)
+    // names no literal here and no `rpc::method` constant: read the constant from its module, so a
+    // method served that way cannot miss the registry (#55624's trace methods did).
+    let foreign = regex::Regex::new(r"\bm == crate::((?:[a-z_]+::)+)([A-Z0-9_]+)\b").unwrap();
+    let src = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("src");
+    for source in sources {
+        let served = source.split("\n#[cfg(test)]\nmod ").next().unwrap_or_default();
+        for capture in foreign.captures_iter(served) {
+            let module = capture[1].trim_end_matches("::").replace("::", "/");
+            if module == "rpc/method" {
+                continue;
+            }
+            let file = [src.join(format!("{module}.rs")), src.join(format!("{module}/mod.rs"))]
+                .into_iter()
+                .find(|path| path.is_file())
+                .unwrap_or_else(|| panic!("no source for crate::{module}"));
+            let text = std::fs::read_to_string(&file).unwrap();
+            let defined =
+                regex::Regex::new(&format!(r#"const {}: &str = "([^"]+)";"#, &capture[2])).unwrap();
+            let name = defined
+                .captures(&text)
+                .unwrap_or_else(|| panic!("{} names no &str in {}", &capture[2], file.display()))
+                [1]
+            .to_owned();
+            if !names.contains(name.as_str()) {
+                missing.insert(name);
             }
         }
     }
@@ -137,4 +177,72 @@ fn protocol_author_approval_round_trips() {
     assert_eq!(schema["properties"]["approval"]["anyOf"][0]["$ref"], "#/types/AuthorApproval");
     assert_eq!(ir["types"]["AuthorApproval"]["enum"], json!(["owner"]));
     assert!(!schema["required"].as_array().unwrap().contains(&json!("approval")));
+}
+
+/// A keyed method's params are closed, and every request's `_meta.acpmux` names
+/// [`super::params::AcpmuxRequestMeta`], so the IR's `types` carries it.
+#[test]
+fn protocol_keyed_params_are_closed_and_name_the_request_meta() {
+    let ir: serde_json::Value = serde_json::from_str(&ir_text()).expect("IR is JSON");
+    let agent_hold = &ir["types"]["AgentHoldParams"];
+    assert_eq!(agent_hold["additionalProperties"], false, "{agent_hold}");
+    assert_eq!(agent_hold["properties"]["_meta"]["$ref"], "#/types/RequestMeta");
+    let meta = &ir["types"]["AcpmuxRequestMeta"];
+    assert_eq!(meta["additionalProperties"], false, "{meta}");
+    let keys: BTreeSet<&str> =
+        meta["properties"].as_object().expect("properties").keys().map(String::as_str).collect();
+    let listed: BTreeSet<&str> = super::params::ACPMUX_REQUEST_META.iter().copied().collect();
+    assert_eq!(keys, listed);
+    for key in [
+        "localAppToken",
+        "personKey",
+        crate::prompt_provenance::PERSON_VERIFIED,
+        crate::hub::require_asking::FIELD,
+        crate::hub::create_key::FIELD,
+    ] {
+        assert!(keys.contains(key), "request metadata lacks {key}");
+    }
+}
+
+/// Every `_meta.acpmux` key acpmux's own clients put in a request (the CLI, the hand, the TUI, a peer's
+/// `initialize`) is one [`super::params::AcpmuxRequestMeta`] lists, so the closed type accepts acpmux's own
+/// requests: `acpmux send --class/--thread`, `run --effort/--tag`, a peer's `compression` offer.
+#[test]
+fn protocol_request_meta_lists_every_key_acpmux_clients_send() {
+    let src = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("src");
+    let writes = [
+        r#"\b(?:mux|meta)\s*\[\s*"(\w+)"\s*\]\s*="#,
+        r#"\b(?:mux|meta)\.set\(\s*"(\w+)""#,
+        r#"set_path\(\s*&\["_meta",\s*"acpmux",\s*"(\w+)""#,
+    ]
+    .map(|pattern| regex::Regex::new(pattern).expect("pattern"));
+    let listed: BTreeSet<&str> = super::params::ACPMUX_REQUEST_META.iter().copied().collect();
+    let mut files = vec![src.join("client.rs"), src.join("peer.rs"), src.join("prompt_class.rs")];
+    // The TUI is its own crate now (acpmux-tui), still one of acpmux's own clients.
+    let tui = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../acpmux-tui/src");
+    let mut dirs = vec![src.join("cli"), src.join("hand"), tui];
+    while let Some(dir) = dirs.pop() {
+        for entry in std::fs::read_dir(&dir).expect("source dir").flatten() {
+            let path = entry.path();
+            if path.is_dir() {
+                dirs.push(path);
+            } else if path.extension().is_some_and(|ext| ext == "rs") {
+                files.push(path);
+            }
+        }
+    }
+    let mut missing = BTreeSet::new();
+    for path in files.iter().filter(|path| !path.to_string_lossy().contains("test")) {
+        let text = std::fs::read_to_string(path).expect("source file");
+        // A file's own `#[cfg(test)]` module writes test fixtures, not requests.
+        let text = text.split("#[cfg(test)]").next().unwrap_or_default();
+        for pattern in &writes {
+            for key in pattern.captures_iter(text).filter_map(|captures| captures.get(1)) {
+                if !listed.contains(key.as_str()) {
+                    missing.insert(format!("{}: {}", path.display(), key.as_str()));
+                }
+            }
+        }
+    }
+    assert!(missing.is_empty(), "add these request keys to ACPMUX_REQUEST_META: {missing:?}");
 }

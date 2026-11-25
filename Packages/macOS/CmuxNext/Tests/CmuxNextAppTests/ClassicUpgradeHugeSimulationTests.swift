@@ -11,7 +11,7 @@ import Testing
 /// (180 s without a test finishing), so it is one simulation in phases, in
 /// order: the launch and the first part of the run, then waiting for the
 /// rest, then the checks and a relaunch.
-@MainActor @Suite(.serialized, .ownsSidebarDocStore, .timeLimit(.minutes(15)), .enabled(if: SameTreeDaemonBinary.url != nil, "needs the same-tree cmux-tui"))
+@MainActor @Suite(.serialized, .timeLimit(.minutes(15)), .enabled(if: SameTreeDaemonBinary.url != nil, "needs the same-tree cmux-tui"))
 struct ClassicUpgradeHugeSimulationTests {
     /// The simulation every phase works on.
     private final class Run {
@@ -68,7 +68,7 @@ struct ClassicUpgradeHugeSimulationTests {
             #expect(ptys.isEmpty, "\(ptys.count) workspaces found no free PTY")
             #expect(outcome.failures.isEmpty, "\(outcome.failures.values.prefix(3))")
             await run.sim.settle()
-            try run.sim.verify(profile, classicBefore: run.before)
+            try await run.sim.verify(profile, classicBefore: run.before)
             let clock = ContinuousClock()
             let start = clock.now
             let again = try await run.sim.relaunch()

@@ -5,8 +5,7 @@ public import CmuxNextDesign
 /// as they are, so turning it off restores them.
 public nonisolated struct CalmModeSetting {
     public nonisolated init() {}
-    public static let configPath = ["ui", "calm"]
-    public static let fallback: CalmMode = .off
+    // The path and default are generated from schemas/settings/source/motion.json.
 
     /// A missing key is off with no diagnostic; a bad value is off plus a diagnostic.
     static func parse(_ root: JSONValue) -> (CalmMode, SettingsDiagnostic?) {

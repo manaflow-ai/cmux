@@ -67,9 +67,12 @@ public final class SettingsPaletteProvider: PaletteProvider {
         switch row.kind {
         case .toggle(let isOn):
             let next = !isOn
+            // The state shows as every row that flips a state shows it (`PaletteToggleStyle`): the trailing
+            // On/Off, not this row's own value text beside a command row's other look (Leo 2026-11-07: "just unify").
+            let shown = PaletteTunables.toggleStyle.value.apply(title: row.title, symbol: "slider.horizontal.3", isOn: isOn)
             item = PaletteItem(
-                id: "setting:\(id)", title: row.title, subtitle: row.group, accessory: row.value,
-                symbol: isOn ? "checkmark.circle.fill" : "circle", section: Self.section,
+                id: "setting:\(id)", title: shown.title, subtitle: row.group,
+                symbol: shown.symbol, section: Self.section,
                 keywords: row.keywords + ["setting", "toggle", next ? "enable" : "disable"],
                 isEnabled: row.isEnabled,
                 primary: PaletteCommand(
@@ -78,6 +81,7 @@ public final class SettingsPaletteProvider: PaletteProvider {
                 ),
                 frecencyKey: "setting:\(id)"
             )
+            item.toggleState = isOn
             item.actionRefs = [PaletteActionRef("palette.toggleSetting", arguments: ["setting": .string(id), "on": .bool(next)],
                                                 title: next ? PaletteStrings.turnOn : PaletteStrings.turnOff)]
         case .options(let options, let custom):

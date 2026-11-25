@@ -15,6 +15,12 @@ The allowed values come from the workflow environment
 (NIGHTLY_NEXT_FEED_BASE, NIGHTLY_NEXT_R2_BUCKET, NIGHTLY_NEXT_R2_PREFIX); the
 refused ones are main's feeds and objects, written out here so a wrong
 environment value cannot allow them. Exit 0 when allowed, 1 with a reason.
+
+The weekly rollback drill (nightly-next-rollback-drill.yml) writes the same
+bucket under its own folder, nightly-next/drill/, which no app reads unless
+pointed there. A run of that workflow (GITHUB_WORKFLOW_REF, which a reusable
+workflow it calls shares) may write only inside that folder, and every other
+run may write anything but it.
 """
 
 import os
@@ -41,6 +47,8 @@ SPARKLE_NS = "http://www.andymatuschak.org/xml-namespaces/sparkle"
 # (UpdateFeedResolver.Channel.allowedSparkleChannels), so main's builds ignore
 # every item, and an untagged item is what this guard must never let through.
 NEXT_SPARKLE_CHANNELS = ("cmux-next-stable", "cmux-next", "cmux-next-canary", "cmux-next-dev")
+DRILL_PREFIX = "nightly-next/drill/"
+DRILL_WORKFLOW = "manaflow-ai/cmux/.github/workflows/nightly-next-rollback-drill.yml@"
 
 
 class Refused(Exception):
@@ -110,6 +118,11 @@ def check_r2_key(bucket, key):
         raise Refused(f"key {key} is outside prefix {prefix!r}")
     if bucket == MAIN_BUCKET and key.startswith(MAIN_OBJECT_PREFIXES):
         raise Refused(f"key {key} is a main release object")
+    drill = os.environ.get("GITHUB_WORKFLOW_REF", "").startswith(DRILL_WORKFLOW)
+    if drill and not key.startswith(DRILL_PREFIX):
+        raise Refused(f"the rollback drill writes only under {DRILL_PREFIX}, not {key}")
+    if not drill and key.startswith(DRILL_PREFIX):
+        raise Refused(f"key {key} is the rollback drill's; only nightly-next-rollback-drill.yml writes it")
 
 
 def main(argv):

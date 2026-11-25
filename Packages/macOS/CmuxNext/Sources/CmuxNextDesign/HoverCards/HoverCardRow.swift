@@ -11,7 +11,9 @@ public enum HoverCardTone: Hashable, Sendable {
     case attention
     /// Failed, offline, checks failed: the theme's ANSI red.
     case danger
-    /// A merged pull request: the theme's ANSI magenta.
+    /// A merged pull request: the fixed purple the sidebar's pull request card uses, in every
+    /// theme. A theme's ANSI magenta can be pink or red (Leo 2026-11-02: "the merged colour should
+    /// not be red").
     case merged
     /// Running now: the theme's ANSI blue.
     case working
@@ -26,8 +28,7 @@ public enum HoverCardTone: Hashable, Sendable {
         case .attention: Palette.attention
         case .danger: Palette.danger
         case .working: Palette.highlight
-        case .merged:
-            (ThemeContext.active ?? ThemeScope.app.tokens).ansi.dropFirst(5).first?.nsColor ?? .systemPurple
+        case .merged: GroupColor.purple.markColor
         }
     }
 }
@@ -116,7 +117,24 @@ extension HoverCardAccessory {
 /// text wraps keeps them on its first line (Lawrence 2026-10-21).
 @MainActor
 public final class HoverCardRowView: NSView {
+    /// The default icon column: 13 pt, a step above the 10.5 pt caption.
     public static var iconSize: CGFloat { 13 }
+    /// The gap from the icon column to the text: `Metrics.space2` in whole points. A density scale (#44449) can make
+    /// `space2` fractional, and a stack view snaps a half-point gap to a pixel that frame-laid rows beside it do not,
+    /// so the text columns part.
+    public static var iconGap: CGFloat { Metrics.space2.rounded() }
+
+    /// This row's icon column; a card sized by its own tokens (the sidebar's workspace card) sets it.
+    public var iconSide: CGFloat = HoverCardRowView.iconSize {
+        didSet {
+            guard iconSide != oldValue else { return }
+            iconWidth?.constant = iconSide
+            iconHeight?.constant = iconSide
+            iconView.side = iconSide
+        }
+    }
+    private var iconWidth: NSLayoutConstraint?
+    private var iconHeight: NSLayoutConstraint?
 
     public let icon: NSImageView
     private let iconView = HoverCardIconView()
@@ -149,18 +167,21 @@ public final class HoverCardRowView: NSView {
         stack.setViews([accessoryView], in: .trailing)
         stack.orientation = .horizontal
         stack.alignment = .firstBaseline
-        stack.spacing = Metrics.space2
+        stack.spacing = Self.iconGap
         stack.setCustomSpacing(Metrics.space1, after: additionsLabel)
         stack.setCustomSpacing(Metrics.space3, after: deletionsLabel)
         stack.translatesAutoresizingMaskIntoConstraints = false
         addSubview(stack)
+        let iconWidth = icon.widthAnchor.constraint(equalToConstant: iconSide)
+        let iconHeight = icon.heightAnchor.constraint(equalToConstant: iconSide)
+        (self.iconWidth, self.iconHeight) = (iconWidth, iconHeight)
         NSLayoutConstraint.activate([
             stack.topAnchor.constraint(equalTo: topAnchor),
             stack.bottomAnchor.constraint(equalTo: bottomAnchor),
             stack.leadingAnchor.constraint(equalTo: leadingAnchor),
             stack.trailingAnchor.constraint(equalTo: trailingAnchor),
-            icon.widthAnchor.constraint(equalToConstant: Self.iconSize),
-            icon.heightAnchor.constraint(equalToConstant: Self.iconSize),
+            iconWidth,
+            iconHeight,
         ])
     }
 
@@ -362,26 +383,42 @@ public final class HoverCardAccessoryView: NSView {
 public final class HoverCardGalleryHost: NSView, ThemeResponsive {
     private let recolor: () -> Void
     private weak var observedScope: ThemeScope?
+    private let body: NSView
+    /// The card in the popup host a hover shows it in (``HoverCardPanel``), shadow and all, so the
+    /// gallery draws what a hover draws. Without it the gallery showed no host shadow, and a second,
+    /// black shadow under Liquid Glass (a dark ring on a dark theme; Leo 2026-11-22: "this hover
+    /// preview of the tabs situation has a black border") never showed here. It overhangs this view by
+    /// the shadow band, as the panel's window does.
+    private let host: PopupHostView
 
     /// - Parameter cornerRadius: the real card's shape, so the gallery shows what a hover shows: nil
     ///   is the floating panels' (`HoverCardPanel.cornerRadius`); a tab's card passes the tab's.
     public init(body: NSView, cornerRadius: CGFloat? = nil, recolor: @escaping () -> Void) {
         self.recolor = recolor
-        super.init(frame: .zero)
-        let glass = Glass.makeOverlayPanel(cornerRadius: cornerRadius ?? HoverCardPanel.cornerRadius, interactive: false, cardFill: false)
+        self.body = body
+        let radius = cornerRadius ?? HoverCardPanel.cornerRadius
+        let glass = Glass.makeOverlayPanel(cornerRadius: radius, interactive: false, cardFill: false)
         body.translatesAutoresizingMaskIntoConstraints = false
         glass.contentView.addSubview(body)
-        addSubview(glass)
         NSLayoutConstraint.activate([
             body.topAnchor.constraint(equalTo: glass.contentView.topAnchor),
             body.bottomAnchor.constraint(equalTo: glass.contentView.bottomAnchor),
             body.leadingAnchor.constraint(equalTo: glass.contentView.leadingAnchor),
             body.trailingAnchor.constraint(equalTo: glass.contentView.trailingAnchor),
-            glass.topAnchor.constraint(equalTo: topAnchor),
-            glass.bottomAnchor.constraint(equalTo: bottomAnchor),
-            glass.leadingAnchor.constraint(equalTo: leadingAnchor),
-            glass.trailingAnchor.constraint(equalTo: trailingAnchor),
         ])
+        host = PopupHostView(card: glass)
+        host.cornerRadius = radius
+        super.init(frame: .zero)
+        addSubview(host)
+    }
+
+    /// The card's own size; the host's shadow band lies outside it.
+    public override var intrinsicContentSize: NSSize { body.fittingSize }
+
+    public override func layout() {
+        super.layout()
+        let band = PopupStyle.standard.shadowMargin
+        host.frame = bounds.insetBy(dx: -band, dy: -band)
     }
 
     @available(*, unavailable)

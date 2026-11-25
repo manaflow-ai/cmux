@@ -14,6 +14,7 @@ import { Toolbar, ToolbarButton } from "../../ui/Toolbar";
 import type { Strings } from "../shared/i18n";
 import { EmojiPicker, loadEmoji } from "./EmojiPicker";
 import { HomeIcon } from "./icons";
+import "../../ui/motion/motion.css";
 
 const QUICK_REACTIONS = ["✅", "👀", "🙌"];
 
@@ -90,7 +91,9 @@ export function MessageActions({
   const moreMenu = (
     <Menu open={menu} onOpenChange={setMenu}>
       <MenuButton
-        className={one ? "hc-tool hc-msg-more" : "hc-tool ui-toolbar-button"}
+        className={
+          one ? "hc-tool hc-msg-more ui-glass ui-glass-floats ui-glass-transient" : "hc-tool ui-toolbar-button"
+        }
         label={one ? t("message.actions") : t("action.more")}
       >
         <HomeIcon name="more" />
@@ -114,11 +117,14 @@ export function MessageActions({
         {children}
       </ContextMenu>
       {active && (
-        <div ref={box} className={`hc-msg-actions${picker || menu ? " pinned" : ""}`}>
+        <div ref={box} className={`hc-msg-actions ui-reveal${picker || menu ? " pinned" : ""}`}>
           {one ? (
             moreMenu
           ) : (
-            <Toolbar label={t("message.actions")} className="hc-msg-toolbar">
+            <Toolbar
+              label={t("message.actions")}
+              className="hc-msg-toolbar ui-glass ui-glass-floats ui-glass-transient"
+            >
               {QUICK_REACTIONS.map((value) => (
                 <ToolbarButton
                   key={value}

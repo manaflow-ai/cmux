@@ -58,7 +58,7 @@ import Testing
         services.linkOpener.placement = { .splitRight }
         let link = try #require(URL(string: "https://example.com/"))
         let activated = await withCheckedContinuation { (done: CheckedContinuation<Bool, Never>) in
-            browserTabs.create = { _, _, _, _, _, activate, _ in
+            browserTabs.create = { _, _, _, _, _, activate, _, _ in
                 done.resume(returning: activate)
                 throw CancellationError()
             }

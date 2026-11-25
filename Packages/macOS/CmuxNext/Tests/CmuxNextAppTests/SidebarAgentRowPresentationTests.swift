@@ -124,6 +124,54 @@ struct SidebarAgentRowPresentationTests {
         #expect(row(renamed, machine: .local, autoNamesWorkspaces: true, turns: turns).title == "demo-lane")
     }
 
+    /// Leo, 2026-11-22: "BUT WHO IS MANGO? I DON'T KNOW WHO'S BEEN RENAMED TO WHAT THE PROPAGATION OF
+    /// RENAMES ARE INCOMPLETE AND I DONT SEE MANGO." A chat renamed "mango" (acpmux `rename`: its title
+    /// becomes the name in words, its old name a former name) reads as Mango in its sidebar row, the
+    /// window title and its tab, through the same watch feed, row hold and resolvers the app uses.
+    @Test func aRenamedChatShowsItsNewNameInTheSidebarRowAndItsTab() throws {
+        let turns = AgentTurnStateStore()
+        turns.localHost = "install:sidebar-title-fixture"
+        let feed = AgentTurnStateFeed(socketPath: "/nonexistent-sidebar-rename", turns: turns, lanes: AgentLaneStore())
+        func handle(_ object: [String: Any]) throws {
+            let message = try #require(AgentTurnStateFeed.Message(line: JSONSerialization.data(withJSONObject: object)))
+            feed.handle(message)
+        }
+        let titled: [String: Any] = ["sessionId": Self.laneSession, "name": "codex-2", "harness": "codex",
+                                     "title": "Fix the flaky upload", "titleSource": "harness"]
+        try handle(["id": 2, "result": ["sessions": [titled]]])
+        let workspace = try fixture(name: "workspace-7", nameSource: .auto, freeFormPrompt: true)
+        let names = WorkspaceAutoNameReader(enabled: { true }, isNewTabPage: { _ in false }, livePage: { _ in nil },
+            incognitoTitle: { _ in nil },
+            terminal: { .init(kind: .terminal, userName: $0.name, title: $0.titleText, pageTitle: nil, url: nil, cwd: $0.cwd) },
+            turns: turns, hold: WorkspaceAutoNameHold())
+        func sidebarTitle() -> String {
+            SidebarMapping.shared.row(workspace, machine: .local, selectedTab: { _ in nil }, newTabPages: [],
+                pageFace: { workspace, tab, work in .init(title: names.label(workspace, front: tab, work: work)) }).title
+        }
+        let tab = try #require(workspace.screens.first?.panes.first?.tabs.first { $0.agentSession != nil })
+        var tabs = TabTitleResolver()
+        tabs.chatTitle = { AgentChatTabTitle.untitled($0.agentSession, turns: turns) }
+        #expect(sidebarTitle() == "Fix the flaky upload")
+
+        var renamed = titled
+        renamed["name"] = "mango"
+        renamed["title"] = "Mango"
+        renamed["titleSource"] = "named"
+        renamed["nameGiven"] = true
+        renamed["formerNames"] = ["codex-2"]
+        try handle(["method": "_acpmux/session_changed", "params": ["sessionId": Self.laneSession, "session": renamed]])
+        #expect(AgentTurnStates.isRenamed(renamed))
+        #expect(sidebarTitle() == "Mango", "the sidebar row kept the chat's old title after its rename")
+        #expect(names.titlebarName(workspace, selectedTab: { _ in nil }) == "Mango")
+        #expect(tabs.title(tab).lowercased() == "mango", "the tab kept the chat's old name: \(tabs.title(tab))")
+        // A chat only started under a name (no former names) still reads as its real title.
+        var launched = titled
+        launched["name"] = "demo-lane"
+        launched["titleSource"] = "named"
+        #expect(!AgentTurnStates.isRenamed(launched))
+        #expect(AgentTurnStates.title(launched, includingPrompt: false) == nil)
+    }
+
     @Test func aNamedChatTitleWinsOverItsSessionName() {
         let named: [String: Any] = ["sessionId": Self.laneSession, "name": "lane-1", "title": "Review the release", "titleSource": "generated"]
         #expect(AgentTurnStates.title(named, includingPrompt: false) == "Review the release")
@@ -224,6 +272,22 @@ struct SidebarAgentRowPresentationTests {
         #expect(row(workspace, machine: .local, autoNamesWorkspaces: true, turns: turns).title == "demo-lane")
     }
 
+    /// An unnamed chat whose title was never generated reads as its tab does, not as the daemon's default
+    /// (Leo, 2026-11-05: "this workspace didn't inherit the agent chat name. Like it's still just called
+    /// Workspace whatever."). Its generated title replaces that once it arrives; a rename still wins.
+    @MainActor
+    @Test func anUnnamedChatWithoutAGeneratedTitleNamesItsRowAsItsTab() throws {
+        let workspace = try fixture(name: "workspace-347", nameSource: .auto, freeFormPrompt: true)
+        let placeholder = turnStore(title: "can u try doing the workflow here", generatedTitle: nil, sessionName: nil)
+        #expect(row(workspace, machine: .local, autoNamesWorkspaces: true, turns: placeholder).title
+            == "can u try doing the workflow here")
+        let titled = turnStore(title: "Run the workflow", generatedTitle: "Run the workflow", sessionName: nil)
+        #expect(row(workspace, machine: .local, autoNamesWorkspaces: true, turns: titled).title == "Run the workflow")
+        #expect(row(workspace, machine: .local, autoNamesWorkspaces: false, turns: placeholder).title == "workspace-347")
+        let renamed = try fixture(name: "workspace-347", nameSource: .user, nameRevision: 1, freeFormPrompt: true)
+        #expect(row(renamed, machine: .local, autoNamesWorkspaces: true, turns: placeholder).title == "workspace-347")
+    }
+
     @MainActor
     @Test func aRunningTerminalFrontDoesNotUseABackgroundChatTitle() throws {
         let workspace = try fixture(nameSource: .auto, terminalFront: true)
@@ -237,7 +301,12 @@ struct SidebarAgentRowPresentationTests {
     @Test func theFrontChatUsesItsOwnTask() throws {
         let workspace = try fixture(nameSource: .auto, secondAgent: true)
         let tabs = try #require(workspace.screens.first?.panes.first?.tabs)
-        #expect(SidebarMapping.shared.agentTab(tabs)?.id == tabs[1].id)
+        // The face rules name the second chat the row's agent tab.
+        let batch = SidebarFaceBatch()
+        batch.reset(showsUnread: true, newTabTitled: false)
+        batch.append(workspace, local: true, status: nil, selectedTab: { _ in nil }, newTabPages: [], listTitle: \.displayTitle,
+                     branded: { $0.agentBrand != nil })
+        #expect(try #require(batch.run()).face(0, tabCount: tabs.count).agent == 1)
         #expect(row(workspace, machine: .local, selectedTab: { _ in tabs[0].id },
                                          autoNamesWorkspaces: true).title == "Review the release")
         #expect(row(workspace, machine: .local, selectedTab: { _ in tabs[1].id },
@@ -291,7 +360,7 @@ struct SidebarAgentRowPresentationTests {
         let terminal = try #require(tabs.first(where: { $0.kind == .pty }))
         terminal.applyState(nil, progress: nil)
         // An empty terminal title is idle; its cwd still supplies the name.
-        terminal.title = "zsh"
+        terminal.titleText = "zsh"
         terminal.titleText = "zsh"
         let chat = try #require(tabs.first(where: { $0.agentSession != nil }))
         #expect(row(workspace, machine: .local, autoNamesWorkspaces: true, newTabPages: [chat.id]).title == "tmp")

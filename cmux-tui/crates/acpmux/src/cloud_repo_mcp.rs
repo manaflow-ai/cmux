@@ -15,11 +15,27 @@ use std::time::Duration;
 
 pub const SERVER_NAME: &str = "cmux-cloud-repos";
 pub const SESSION_ENV: &str = "ACPMUX_CLOUD_REPO_SESSION";
+/// Its acpmux command word: its own stdio process, where the daemon's gateway does not serve it.
+pub const COMMAND: &str = "repo-mcp";
 /// The daemon action names are deliberately shared with `cmux mcp` and the
 /// webview action bridge (rather than a second agent-only protocol).
 pub const REPO_LIST_ACTION: &str = "cloud.repo.list";
 pub const REPO_ADD_ACTION: &str = "cloud.repo.add";
 pub const REPO_WAIT_GITHUB_ACTION: &str = "cloud.repo.wait_github";
+
+/// What the agent tells a person who asks where it runs: the machine, how long its files last,
+/// and how to bring a repository in. A Cloud chat can start with no repository, so the agent says
+/// so plainly instead of guessing (Leo, 2026-11-02, on Claude Code's cloud session that does:
+/// "i want us to be able to do this too"). Facts, not policy: the machine is a cmux Cloud Linux VM
+/// (`/etc/cmux/vm-kind`), its disk stays until it is deleted, and an idle machine may be paused
+/// (cmux-platform CloudIdle) and resumes with its files.
+pub const INSTRUCTIONS: &str = "This chat runs on a cmux Cloud machine: a Linux virtual machine \
+in cmux Cloud, not the person's Mac. Its files stay on the machine between chats, even while it \
+is paused when idle, until the machine is deleted. Nothing on it is copied back to the Mac: push \
+work to GitHub to keep it anywhere else. A chat can start with no repository; then the working \
+folder may be empty. Attach one at any time with add_repo (list_repos finds names); Session Info \
+may also offer the person Add repository. A needs_github result is retried automatically after Connect \
+GitHub finishes. When asked what this environment is, say these things plainly.";
 
 /// Cloud machines carry the same image marker used by acpmux host updates.
 pub fn is_cloud_machine() -> bool {
@@ -51,12 +67,26 @@ fn tools() -> Value {
     ])
 }
 
+/// The server for the session in the env, as one of acpmux's own
+/// ([`crate::tools_mcp::SERVERS`]): the daemon's gateway, or the chat's one `acpmux tools-mcp`,
+/// answers it, so a chat runs no `acpmux repo-mcp` process of its own.
+pub(crate) fn served(daemon: &Arc<crate::tools_mcp::Daemon>) -> Result<crate::tools_mcp::Served> {
+    crate::tools_mcp::served(
+        SERVER_NAME,
+        SESSION_ENV,
+        tools(),
+        Some(INSTRUCTIONS.to_owned()),
+        daemon,
+        |daemon, session, params| async move { call(&daemon, &session, &params).await },
+    )
+}
+
 pub async fn run() -> Result<()> {
     crate::secret_mcp::serve(
         SERVER_NAME,
         SESSION_ENV,
         tools(),
-        Some("Repository tools are available on this Cloud machine. A needs_github result is retried automatically after Connect GitHub finishes.".to_owned()),
+        Some(INSTRUCTIONS.to_owned()),
         |daemon, session, params| async move { call(&daemon, &session, &params).await },
     )
     .await
@@ -117,8 +147,11 @@ fn result_text(result: &Value) -> String {
 /// (never interpolated into a command string), and makes this bridge work with
 /// the same socket as `cmux cloud repo`.
 async fn run_cli(action: &'static str, request: Value) -> Result<Value, String> {
-    let binary = std::env::var_os("CMUX_BIN").unwrap_or_else(|| "cmux".into());
-    run_cli_with(&binary, std::env::var_os("CMUX_SOCKET_PATH").as_deref(), action, request).await
+    // The chat's env where the daemon's gateway serves it, else this process's.
+    let binary: std::ffi::OsString =
+        crate::tool_env::var("CMUX_BIN").unwrap_or_else(|| "cmux".into()).into();
+    let socket = crate::tool_env::var("CMUX_SOCKET_PATH").map(std::ffi::OsString::from);
+    run_cli_with(&binary, socket.as_deref(), action, request).await
 }
 
 async fn run_cli_with(
@@ -271,17 +304,22 @@ fn enrich_retry(result: &mut Value, session: &str, repo: &str, reference: Option
     } else {
         return;
     };
-    if error.get("code").and_then(Value::as_str) != Some("repo.needs_github") {
+    let code = error.get("code").and_then(Value::as_str);
+    if code != Some("repo.needs_github") && code != Some("repo.no_access") {
         return;
     }
     let mut args = json!({"session": session, "repo": repo});
     if let Some(reference) = reference.and_then(Value::as_str).filter(|s| !s.trim().is_empty()) {
         args.set("ref", json!(reference));
     }
-    error.set(
-        "retry",
-        json!({"action": REPO_ADD_ACTION, "args": args, "wait_action": REPO_WAIT_GITHUB_ACTION}),
-    );
+    // No access is granted on GitHub (an install on the organization, its owner's yes), never by a
+    // connect to wait on: its retry is the same add, with no wait.
+    let retry = if code == Some("repo.needs_github") {
+        json!({"action": REPO_ADD_ACTION, "args": args, "wait_action": REPO_WAIT_GITHUB_ACTION})
+    } else {
+        json!({"action": REPO_ADD_ACTION, "args": args})
+    };
+    error.set("retry", retry);
 }
 
 #[cfg(test)]
@@ -326,6 +364,19 @@ mod tests {
     }
 
     #[test]
+    fn instructions_state_the_machine_and_its_lifetime() {
+        for fact in [
+            "Linux virtual machine",
+            "until the machine is deleted",
+            "push work",
+            "no repository",
+            "add_repo",
+        ] {
+            assert!(INSTRUCTIONS.contains(fact), "instructions lack {fact:?}");
+        }
+    }
+
+    #[test]
     fn retry_shape_is_stable() {
         let mut result = json!({"code":"repo.needs_github","message":"Connect GitHub."});
         enrich_retry(&mut result, "chat-1", "cmux-platform", Some(&json!("main")));
@@ -333,6 +384,15 @@ mod tests {
         assert_eq!(
             result["retry"]["args"],
             json!({"session":"chat-1","repo":"cmux-platform","ref":"main"})
+        );
+    }
+    #[test]
+    fn no_access_retries_the_add_with_no_wait() {
+        let mut result = json!({"code":"repo.no_access","org":"acme"});
+        enrich_retry(&mut result, "chat-1", "acme/tool", None);
+        assert_eq!(
+            result["retry"],
+            json!({"action": REPO_ADD_ACTION, "args": {"session":"chat-1","repo":"acme/tool"}})
         );
     }
     #[test]

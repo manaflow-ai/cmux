@@ -122,7 +122,8 @@ impl Client {
         }
         let id = self.next_request_id();
         let params = capability_params(&capabilities).into_value();
-        let envelope = request_envelope(&id, ops::CLIENT_METADATA_UPDATE, params, None);
+        let envelope =
+            request_envelope(&id, ops::CLIENT_METADATA_UPDATE, params, None, self.origin);
         let send_timeout = budget.remaining(operation)?;
         connection.with_write_timeout(send_timeout, |connection| {
             connection.send_with_limit(&envelope, self.shared.config.max_request_bytes)

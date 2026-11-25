@@ -33,7 +33,7 @@ public struct MailboxReply: Sendable, Equatable {
     public var plaintext: PushJSON
 
     /// The plaintext of `reply` from `phone` (without `sig`). `approval` is
-    /// the acpmux `_meta.acpmux` an Allow carries (signed after Face ID).
+    /// the acpmux `_meta.acpmux` an Allow carries (signed with the approval key).
     /// `lifetime` is capped at `MailboxReply.lifetime` (the Mac refuses longer).
     public init(reply: PushReply, phone: String, nonce: String, now: Date, approval: PushJSON? = nil,
                 lifetime: TimeInterval = MailboxReply.lifetime) throws {

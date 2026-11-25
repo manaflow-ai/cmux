@@ -1,8 +1,10 @@
 import AppKit
 import CmuxNextActions
 import CmuxNextBrowser
+import CmuxNextDesign
 import CmuxNextPages
 import CmuxNextFocus
+import CmuxNextFocusUI
 import CmuxNextSidebar
 import CmuxNextTerminal
 
@@ -25,7 +27,7 @@ extension KeyRouter {
 
     /// The context keys for a key in a window with `focus`.
     func keyContext(for focus: FocusState, facts: Facts) -> KeyContext {
-        Self.keyContext(for: focus, appContext: registry.context, facts: facts)
+        keyModes.marking(Self.keyContext(for: focus, appContext: registry.context, facts: facts))
     }
 
     /// Pure: the focus-independent bits of `appContext` (signed in, Cloud
@@ -34,7 +36,8 @@ extension KeyRouter {
     nonisolated static func keyContext(for focus: FocusState, appContext: ActionContext, facts: Facts) -> KeyContext {
         var bits = appContext.subtracting(ActionContext.focusBits)
         let implied = focus.context
-        if implied.terminal { bits.insert(.terminalFocused) }
+        // A text input outside the named terminal has the keyboard (#52840): the key is that input's.
+        if implied.terminal, !facts.typingOutsideFocusedTerminal { bits.insert(.terminalFocused) }
         if implied.browser { bits.insert(.browserFocused) }
         if implied.agent { bits.insert(.agentPaneFocused) }
         if case .addressBar = focus.resolved { bits.insert(.omnibarFocused) }
@@ -55,6 +58,7 @@ extension KeyRouter {
         if resolved.isTextInput || facts.pageEditableFocused { context[KeyContext.textInputFocus] = .bool(true) }
         if focus.isBrowserFocusModeActive { context[KeyContext.browserFocusMode] = .bool(true) }
         if facts.terminalCopyMode, case .terminal = resolved { context[KeyContext.terminalCopyMode] = .bool(true) }
+        if facts.terminalAlternateScreen, case .terminal = resolved { context[KeyContext.terminalAlternateScreen] = .bool(true) }
         let omnibarList = facts.omnibarListOpen && { if case .addressBar = resolved { true } else { false } }()
         if facts.listFocus || omnibarList || Self.isNativeList(resolved) { context[KeyContext.listFocus] = .bool(true) }
         if facts.sidebarMultiSelection, case .sidebar = resolved { context[KeyContext.sidebarMultiSelection] = .bool(true) }
@@ -136,7 +140,8 @@ extension KeyRouter {
         // Only a code editor page has key sequences; the editor pages' service is not made for others.
         let editor = page?.descriptor.id == Self.codeEditorPageID ? page : nil
         return Facts(hasMarkedText: (window.firstResponder as? any NSTextInputClient)?.hasMarkedText() == true,
-                     terminalCopyMode: terminalCopyMode(in: controller), pageID: page?.descriptor.id,
+                     terminalCopyMode: terminalCopyMode(in: controller),
+                     terminalAlternateScreen: terminalAlternateScreen(in: controller), pageID: page?.descriptor.id,
                      markdownReadOnly: services?.viewers.markdownPages.showsReadOnly(focusedIn: controller) == true,
                      listFocus: focusedReadiness(in: controller)?.isListFocused == true,
                      pageEditableFocused: focusedReadiness(in: controller)?.isEditableFocused == true,
@@ -149,7 +154,21 @@ extension KeyRouter {
                      sidebarMultiSelection: controller.sidebar.model.selection.count > 1,
                      fileExplorerFocused: FileExplorerService.hasKeyboard(window),
                      workspacesAsTabs: SidebarTunables.workspacesAsTabsOn,
-                     pageReportsUnhandledKeys: chromiumPageHasKeys(window, controller: controller))
+                     pageReportsUnhandledKeys: chromiumPageHasKeys(window, controller: controller),
+                     typingOutsideFocusedTerminal: typingOutsideFocusedTerminal(window, controller: controller))
+    }
+
+    /// The model names a terminal, but the keys go elsewhere (``KeyFacts/typingOutsideFocusedTerminal``,
+    /// #52840): `window`, the key window, is not the cmux window itself (a Chromium page window over it,
+    /// such as a Chief chat page, which a terminal never lives in), or its first responder is a visible,
+    /// editable text input outside the terminal (Home's message box). The window itself or no responder
+    /// (a terminal whose surface is on its way) keeps the terminal's keys.
+    func typingOutsideFocusedTerminal(_ window: NSWindow, controller: WindowController) -> Bool {
+        guard case .terminal(let pane, _) = controller.focus.state.resolved else { return false }
+        if let shell = controller.window, window !== shell { return true }
+        guard let responder = window.firstResponder, responder.ownsTypedText else { return false }
+        guard case .terminal(let entry)? = controller.content?.paneController(key: pane)?.currentContent else { return true }
+        return !entry.session.hasKeyboard(responder)
     }
 
     /// The focused live Chromium tab's page window is `window`, the key window: the key reaches
@@ -187,7 +206,7 @@ extension KeyRouter {
     private func focusedAddressBar(in controller: WindowController) -> AddressBarView? {
         guard case .addressBar = controller.focus.state.resolved, let pane = controller.focus.state.resolved.pane,
               case .browser(let entry)? = controller.content?.paneController(key: pane)?.currentContent else { return nil }
-        return entry.chrome.addressBar
+        return entry.chrome?.addressBar
     }
 
     /// The React page the focused pane's selected tab shows, if any.
@@ -195,14 +214,13 @@ extension KeyRouter {
         // A top page (TopPages: Settings, App Store, ...) fills the content area with no pane:
         // its page has the keyboard when the window's first responder is inside it.
         if let route = controller.shownTopPage, case .page = route,
-           let view = controller.topPages.views[route] as? InternalPageView,
-           let responder = controller.window?.firstResponder as? NSView, responder.isDescendant(of: view) {
+           let view = controller.topPages.views[route] as? InternalPageView, view.holdsKeyboard {
             return view.content as? PageWebView
         }
         var modelPage: PageWebView?
         if case .page(_, _) = controller.focus.state.resolved, let pane = controller.focus.state.resolved.pane,
            case .page(let view)? = controller.content?.paneController(key: pane)?.currentContent {
-            modelPage = view.content as? PageWebView
+            modelPage = PageWebView.shown(in: view.content)
         }
         return Self.keyPage(modelPage: modelPage, in: controller.window)
     }
@@ -233,5 +251,11 @@ extension KeyRouter {
         guard case .terminal(let pane, _) = controller.focus.state.resolved,
               case .terminal(let entry)? = controller.content?.paneController(key: pane)?.currentContent else { return false }
         return entry.session.surfaceView.isCopyModeActive
+    }
+
+    private func terminalAlternateScreen(in controller: WindowController) -> Bool {
+        guard case .terminal(let pane, _) = controller.focus.state.resolved,
+              case .terminal(let entry)? = controller.content?.paneController(key: pane)?.currentContent else { return false }
+        return entry.session.surfaceView.isAlternateScreen
     }
 }

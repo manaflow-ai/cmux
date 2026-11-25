@@ -2,8 +2,8 @@ import AppKit
 import CmuxNextDaemon
 
 /// Closing an incognito window closes its workspaces and ends their
-/// terminals (coordinator decision 2026-09-30). Quitting with one open asks
-/// in the quit alert instead (`QuitAlert`, one alert, not two).
+/// terminals (coordinator decision 2026-09-30). Quitting with one open never
+/// asks (no quit asks how to quit, Leo 2026-11-05): its programs end with it.
 /// It asks first only while a terminal runs a program other than the shell,
 /// the rule Close Workspace uses (`DestructiveConfirmation`); otherwise it
 /// closes at once.

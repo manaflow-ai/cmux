@@ -89,4 +89,16 @@ done
 run "$script" fmt
 grep -qxF "toolchain=unset cargo fmt --all --check" "$work/calls.env" || fail "cmux-tui fmt: $(cat "$work/calls.env")"
 
-echo "ok: 5 rust-check cases"
+# acpmux-hot runs the crate's bench.sh (a fleet Mac's hot-module proof), its outputs in the step's
+# artifacts folder; it takes no TEST_FILTER.
+mkdir -p "$work/src/cmux-tui/crates/acpmux-hot"
+printf '#!/usr/bin/env bash\necho "bench out=$FAST_CHECKS_OUT" >>"$CALLS"\n' \
+  >"$work/src/cmux-tui/crates/acpmux-hot/bench.sh"
+run "$script" acpmux-hot
+[[ $rc -eq 0 ]] || fail "acpmux-hot: rc=$rc"
+grep -qxF "bench out=$work/src/.build/artifacts/acpmux-hot" "$work/calls" || fail "acpmux-hot did not run bench.sh"
+run "$script" acpmux-hot some_filter
+[[ $rc -eq 2 ]] || fail "acpmux-hot with a filter: rc=$rc"
+! grep -q "^bench " "$work/calls" || fail "acpmux-hot ran bench.sh with a filter"
+
+echo "ok: 7 rust-check cases"

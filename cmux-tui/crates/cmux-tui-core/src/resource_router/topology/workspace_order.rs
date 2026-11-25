@@ -29,7 +29,13 @@ pub(super) fn list_workspaces(
         }
     };
     let Value::Array(mut workspaces) = listed else { return Ok(listed) };
-    if let Some(order) = mux.personal_state_read(crate::state::sidebar_doc_order::document_order)? {
+    // Committed rows on the read-only connection, as the list itself: no
+    // wait for a writer that holds the registry lock.
+    let document_order = crate::resource_api::read_committed_registry(mux, |connection, _| {
+        crate::state::sidebar_doc_order::document_order(connection)
+    })
+    .map_err(crate::resource_api::operation_failed)?;
+    if let Some(order) = document_order {
         crate::state::sidebar_doc_order::sort_workspaces(
             &mut workspaces,
             "id",
@@ -37,7 +43,10 @@ pub(super) fn list_workspaces(
             crate::user_settings::NewWorkspacePlacement::current(),
         );
     } else if personal {
-        let order = mux.personal_state_read(crate::state::sidebar_doc_legacy::workspace_order)?;
+        let order = crate::resource_api::read_committed_registry(mux, |connection, _| {
+            crate::state::sidebar_doc_legacy::workspace_order(connection)
+        })
+        .map_err(crate::resource_api::operation_failed)?;
         let rank = order
             .iter()
             .enumerate()

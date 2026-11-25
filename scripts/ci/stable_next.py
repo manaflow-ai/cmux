@@ -24,9 +24,6 @@ segment, and only the cmux NEXT classification accepts ring-tagged items. Every 
       pulled from the cmux NEXT feed, a build pulled from the stable feed, and a fail verdict.
   published-tonight --stable STABLE.xml --night-start ISO
       published=true|false: whether the stable feed's newest item was published since night_start.
-  test-shards --package Packages/macOS/CmuxNext/Package.swift --shards N
-      matrix=<JSON>: the package's test targets, by name (package-test-lane.sh suite takes a target
-      name as a filter), dealt round robin into N shards ({"include": [{"shard": 1, "filters": "A,B"}]}).
   merge-feed --new NEW.xml [--live LIVE.xml] --out OUT.xml [--keep N]
       The stable feed after publishing NEW's one item: that item, tagged cmux-next-stable, then the
       live feed's items below its build, newest first, KEEP (3) items in all, so a rollback always
@@ -34,6 +31,9 @@ segment, and only the cmux NEXT classification accepts ring-tagged items. Every 
   rollback --live LIVE.xml --out OUT.xml (--bad-build B | --to-build B) [--allow-empty]
       The live feed without B and every newer item (or every item above B). Refuses to empty it
       unless --allow-empty (pulling the only stable build). Prints the pulled builds as JSON.
+  soak --build B [--pulled PULLED.json] [--verdicts DIR|URL]
+      Refuses (exit 1) a build pulled from the cmux NEXT feed or with a fail verdict. Being off the
+      feed is fine: the feed keeps 2 builds, so a nightly published an hour later drops the picked one.
   record-pulled --pulled PULLED.json --builds B[,B...] --reason R --out OUT.json
       The stable pulled.json with these builds added; pick never takes a build listed there again.
   write-feed --feed OUT --expect-sha256 HEX|absent
@@ -61,11 +61,15 @@ import os
 import re
 import subprocess
 import sys
+import time
 import urllib.error
 import urllib.parse
 import urllib.request
 from pathlib import Path
 from zoneinfo import ZoneInfo
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import deadline_http  # noqa: E402
 
 HERE = Path(__file__).resolve().parent
 STABLE_CHANNEL = "cmux-next-stable"
@@ -83,7 +87,6 @@ CHANNEL = re.compile(r"<sparkle:channel>\s*([^<]*?)\s*</sparkle:channel>")
 PUBDATE = re.compile(r"<pubDate>\s*([^<]*?)\s*</pubDate>")
 ENCLOSURE = re.compile(r"<enclosure\b[^>]*>")
 ATTR = re.compile(r'([\w:]+)="([^"]*)"')
-TARGET = re.compile(r'\.testTarget\(\s*name:\s*"([A-Za-z0-9_]+)"')
 
 
 class Refused(Exception):
@@ -136,6 +139,31 @@ def window(now: dt.datetime) -> dict[str, str]:
 
 # pick ---------------------------------------------------------------------------------------------
 
+def notes_published(source: str, build: int) -> bool:
+    """Whether notes/<build>.json is published under SOURCE (an https base URL or a folder)."""
+    if not re.match(r"^https://", source):
+        return (Path(source) / f"{build}.json").is_file()
+    request = urllib.request.Request(f"{source.rstrip('/')}/{build}.json", method="HEAD",
+                                     headers={"User-Agent": "cmux-stable-next/1"})
+    last = None
+    for attempt in range(3):  # a transient 5xx or timeout must not fail plan (it counts toward the night's 3 failures)
+        try:
+            # The whole call ends in 30 s, not each socket wait (tests/test_ci_no_bare_urlopen.py).
+            deadline_http.request(request, 30, raise_errors=True)
+            return True
+        except urllib.error.HTTPError as error:
+            if error.code == 404:
+                return False
+            if error.code < 500:
+                raise Refused(f"notes/{build}.json: HTTP {error.code}") from error
+            last = error
+        except (urllib.error.URLError, TimeoutError) as error:
+            last = error
+        if attempt < 2:
+            time.sleep(5 * (attempt + 1))  # backoff between HTTP retries, not synchronization
+    raise Refused(f"notes/{build}.json could not be read: {last}")
+
+
 def read_verdict(source: str | None, build: int) -> str | None:
     if not source:
         return None
@@ -143,8 +171,8 @@ def read_verdict(source: str | None, build: int) -> str | None:
         # The feed's CDN refuses Python's default user agent (403).
         request = urllib.request.Request(f"{source.rstrip('/')}/{build}.json", headers={"User-Agent": "cmux-stable-next/1"})
         try:
-            with urllib.request.urlopen(request, timeout=30) as response:
-                return json.load(response).get("verdict")
+            _, body, _ = deadline_http.request(request, 30, raise_errors=True)
+            return json.loads(body).get("verdict")
         except urllib.error.HTTPError as error:
             if error.code == 404:
                 return None
@@ -166,7 +194,7 @@ def pulled_builds(path: str | None) -> set[int]:
 
 
 def pick(feed: str, stable: str | None, pulled: set[int], verdict_of, build: int | None,
-         stable_pulled: set[int] = frozenset()) -> dict[str, str]:
+         stable_pulled: set[int] = frozenset(), has_notes=None) -> dict[str, str]:
     offered = [(m, b) for m, b in items(feed) if channel_of(m.group(0)) in NIGHTLY_CHANNELS]
     if build is not None and build in stable_pulled:
         raise Refused(f"build {build} was pulled from the stable feed")
@@ -177,7 +205,18 @@ def pick(feed: str, stable: str | None, pulled: set[int], verdict_of, build: int
             raise Refused(f"build {build} is not on the cmux NEXT feed")
     if not offered:
         raise Refused("the cmux NEXT feed offers Nightly apps no build that was not pulled from stable")
-    match, chosen = max(offered, key=lambda entry: entry[1])
+    offered.sort(key=lambda entry: entry[1], reverse=True)
+    passed = []
+    if has_notes is not None:
+        # The gates test the commit a build's release notes record (notes/<build>.json "head"). nightly.yml
+        # publishes them after the feed, sometimes much later, and some runs not at all (4424316677601, 2026-11-17:
+        # plan failed on every tick that night). Take the newest build with notes; a newer one is tested next tick.
+        first = next(((m, b) for m, b in offered if has_notes(b)), None)  # stop at the newest with notes
+        if first is None:
+            raise Refused(f"no build on the feed has published release notes (newest {offered[0][1]})")
+        passed = [b for _, b in offered if b > first[1]]
+        offered = [first]
+    match, chosen = offered[0]
     if chosen in pulled:
         raise Refused(f"build {chosen} was pulled from the cmux NEXT feed")
     verdict = verdict_of(chosen)
@@ -190,6 +229,8 @@ def pick(feed: str, stable: str | None, pulled: set[int], verdict_of, build: int
         raise Refused(f"build {chosen} has no usable enclosure")
     short = SHORT.search(item)
     minimum = MINIMUM.search(item)
+    date = PUBDATE.search(item)
+    published = email.utils.parsedate_to_datetime(date.group(1)) if date else None
     result = {
         "build": str(chosen),
         # nightly.yml's build number is <run id><two-digit attempt>.
@@ -198,7 +239,11 @@ def pick(feed: str, stable: str | None, pulled: set[int], verdict_of, build: int
         "url": url,
         "length": length,
         "minimum_system_version": minimum.group(1) if minimum else "",
+        # The plan warns when the newest build is old: a feed that stopped moving (the retired
+        # nightly-next/next feed, 11-06 to 11-10) re-tests one build every night.
+        "published_at": published.astimezone(dt.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ") if published else "",
         "verdict": verdict or "none",
+        "passed_without_notes": ",".join(str(b) for b in passed),
         "skip": "false",
         "skip_reason": "",
     }
@@ -208,6 +253,13 @@ def pick(feed: str, stable: str | None, pulled: set[int], verdict_of, build: int
             result["skip"] = "true"
             result["skip_reason"] = f"the stable feed already serves build {max(served)}"
     return result
+
+
+def soak(build: int, pulled: set[int], verdict_of) -> None:
+    if build in pulled:
+        raise Refused(f"build {build} was pulled from the cmux NEXT feed")
+    if verdict_of(build) == "fail":
+        raise Refused(f"build {build} has a fail verdict from the cmux NEXT canary")
 
 
 def published_tonight(stable: str | None, start: dt.datetime) -> bool:
@@ -221,20 +273,6 @@ def published_tonight(stable: str | None, start: dt.datetime) -> bool:
     if date is None:
         return False
     return email.utils.parsedate_to_datetime(date.group(1)) >= start
-
-
-# test shards --------------------------------------------------------------------------------------
-
-def test_shards(package: str, shards: int) -> dict:
-    targets = sorted(set(TARGET.findall(package)))
-    if not targets:
-        raise Refused("the package declares no test target")
-    if shards < 1:
-        raise Refused("--shards must be at least 1")
-    groups: list[list[str]] = [[] for _ in range(min(shards, len(targets)))]
-    for index, target in enumerate(targets):
-        groups[index % len(groups)].append(target)
-    return {"include": [{"shard": n + 1, "filters": ",".join(group)} for n, group in enumerate(groups)]}
 
 
 # feeds --------------------------------------------------------------------------------------------
@@ -356,8 +394,15 @@ def crash_delta(base_tree: Path, head_tree: Path) -> list[str]:
     ratchet = _ratchet_module(head_tree)
     old, new = ratchet.scan_tree(str(base_tree), True), ratchet.scan_tree(str(head_tree), True)
     base_rows, head_rows = scan_rows(ratchet, old), scan_rows(ratchet, new)
+    # A counted row the candidate's own reviewed baseline allows is no new hit: the ratchet already
+    # passed it on feat-cmux-next. The stable build can sit under a row's baseline (a hit fixed, the
+    # baseline not lowered), and a reviewed hit added later brings it back to it: acpmux's
+    # parent-death exit(0), 4 -> 5 under a baseline of 5 (run 42918010143).
+    reviewed = ratchet.load_baseline(str(head_tree / "scripts/cmux-next/crash-safety-baseline.json"))
+    allowed = ratchet.baseline_rows(reviewed) if reviewed else {}
     found = []
-    risen = {row: n for row, n in head_rows.items() if row[0] != ratchet.WAIVED and n > base_rows.get(row, 0)}
+    risen = {row: n for row, n in head_rows.items()
+             if row[0] != ratchet.WAIVED and n > base_rows.get(row, 0) and n > allowed.get(row, 0)}
     if risen:
         allowance, _ = ratchet.carry_moves(base_rows, risen, ratchet.proven_moves(old, new))
         found += [f"{ratchet.row_label(row)}: {base_rows.get(row, 0)} -> {n}"
@@ -381,11 +426,20 @@ def sentry_new_crashes(release: str, org: str, project: str, token: str) -> list
     params = urllib.parse.urlencode({"project": project, "query": query, "statsPeriod": "14d", "limit": 25})
     request = urllib.request.Request(f"https://sentry.io/api/0/organizations/{org}/issues/?{params}",
                                      headers={"Authorization": f"Bearer {token}"})
-    with urllib.request.urlopen(request, timeout=60) as response:
-        return json.load(response)
+    # user-agent: sentry.io's API, no CDN of ours
+    _, body, _ = deadline_http.request(request, 60, raise_errors=True)
+    return json.loads(body)
 
 
 # main ---------------------------------------------------------------------------------------------
+
+def annotate(title: str, lines: list[str]) -> None:
+    """An error annotation on the job in GitHub Actions: the reason stable_next_slack.py posts."""
+    if os.environ.get("GITHUB_ACTIONS") != "true" or not lines:
+        return
+    body = "\n".join(lines).replace("%", "%25").replace("\r", "").replace("\n", "%0A")
+    print(f"::error title=cmux NEXT Stable: {title}::{body}")
+
 
 def read_optional(path: str | None) -> str | None:
     if not path:
@@ -406,12 +460,11 @@ def main(argv: list[str]) -> int:
     p.add_argument("--stable-pulled")
     p.add_argument("--verdicts")
     p.add_argument("--build", type=int)
+    p.add_argument("--notes", help="base URL or folder of the release notes (notes/<build>.json); "
+                                    "take the newest build whose notes are published")
     t = sub.add_parser("published-tonight")
     t.add_argument("--stable", required=True)
     t.add_argument("--night-start", required=True)
-    s = sub.add_parser("test-shards")
-    s.add_argument("--package", required=True)
-    s.add_argument("--shards", type=int, default=4)
     m = sub.add_parser("merge-feed")
     m.add_argument("--new", required=True)
     m.add_argument("--live")
@@ -424,6 +477,10 @@ def main(argv: list[str]) -> int:
     group.add_argument("--bad-build", type=int)
     group.add_argument("--to-build", type=int)
     r.add_argument("--allow-empty", action="store_true")
+    sk = sub.add_parser("soak")
+    sk.add_argument("--build", type=int, required=True)
+    sk.add_argument("--pulled")
+    sk.add_argument("--verdicts")
     rp = sub.add_parser("record-pulled")
     rp.add_argument("--pulled")
     rp.add_argument("--builds", required=True)
@@ -447,16 +504,14 @@ def main(argv: list[str]) -> int:
             out(window(now), github_output)
         elif args.command == "pick":
             feed = Path(args.feed).read_text(encoding="utf-8")
+            notes = (lambda b: notes_published(args.notes, b)) if args.notes else None
             result = pick(feed, read_optional(args.stable), pulled_builds(args.pulled),
-                          lambda b: read_verdict(args.verdicts, b), args.build, pulled_builds(args.stable_pulled))
+                          lambda b: read_verdict(args.verdicts, b), args.build, pulled_builds(args.stable_pulled), notes)
             out(result, github_output)
         elif args.command == "published-tonight":
             start = dt.datetime.fromisoformat(args.night_start.replace("Z", "+00:00"))
             out({"published": "true" if published_tonight(read_optional(args.stable), start) else "false"},
                 github_output)
-        elif args.command == "test-shards":
-            matrix = test_shards(Path(args.package).read_text(encoding="utf-8"), args.shards)
-            out({"matrix": json.dumps(matrix, separators=(",", ":"))}, github_output)
         elif args.command == "merge-feed":
             merged = merge_feed(Path(args.new).read_text(encoding="utf-8"), read_optional(args.live), args.keep)
             Path(args.out).write_text(merged, encoding="utf-8")
@@ -467,6 +522,9 @@ def main(argv: list[str]) -> int:
             Path(args.out).write_text(text, encoding="utf-8")
             left = [b for _, b in items(text)]
             print(json.dumps({"pulled": dropped, "serves": max(left) if left else None}))
+        elif args.command == "soak":
+            soak(args.build, pulled_builds(args.pulled), lambda b: read_verdict(args.verdicts, b))
+            print(f"build {args.build}: not pulled, no fail verdict")
         elif args.command == "record-pulled":
             when = dt.datetime.now(dt.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
             builds = [int(b) for b in args.builds.split(",") if b.strip()]
@@ -478,6 +536,8 @@ def main(argv: list[str]) -> int:
             for line in risen:
                 print(f"crash-delta: {line}")
             print(f"crash-delta: {len(risen)} crash-class row(s) rose over the last stable build")
+            if risen:
+                annotate("new crash-risk code since the last stable build", risen)
             return 1 if risen else 0
         elif args.command == "sentry-new-crashes":
             token = os.environ.get("SENTRY_AUTH_TOKEN", "").strip()
@@ -495,6 +555,7 @@ def main(argv: list[str]) -> int:
             return 1 if issues else 0
     except Refused as error:
         print(f"refused: {error}", file=sys.stderr)
+        annotate("refused", [str(error)])
         return 1
     return 0
 

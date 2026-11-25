@@ -31,7 +31,6 @@ pub use process::{ProcessSubscription, ProcessSubscriptionError};
 use query::{ContinuationDelivery, WorkspaceQueryContext, WorkspaceQueryService};
 use route::RouteManager;
 
-const MAX_WORKSPACES: usize = 256;
 const MAX_PENDING_CANCELLATIONS: usize = 4_096;
 const WORKSPACE_CODEC_JOBS: usize = 2;
 const REQUEST_QUIESCE_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(5);
@@ -44,6 +43,8 @@ struct WorkspaceServiceInner {
     queries: Arc<WorkspaceQueryService>,
     routes: RouteManager,
     computer_capabilities: Vec<ComputerUseCapability>,
+    /// `secrets-v1`, on a daemon that knows its machine id.
+    secrets: Option<Arc<crate::secrets::MachineSecrets>>,
     request_control: StdMutex<RequestControlState>,
     activity_changed: Notify,
 }
@@ -190,6 +191,18 @@ impl WorkspaceService {
     }
 
     pub fn with_computer_capabilities(computer_capabilities: Vec<ComputerUseCapability>) -> Self {
+        Self::with_options(computer_capabilities, None)
+    }
+
+    /// A service that also answers `secrets-v1` with `secrets`.
+    pub fn with_secrets(secrets: crate::secrets::MachineSecrets) -> Self {
+        Self::with_options(Vec::new(), Some(Arc::new(secrets)))
+    }
+
+    fn with_options(
+        computer_capabilities: Vec<ComputerUseCapability>,
+        secrets: Option<Arc<crate::secrets::MachineSecrets>>,
+    ) -> Self {
         Self {
             inner: Arc::new(WorkspaceServiceInner {
                 catalog: RwLock::new(WorkspaceCatalog::default()),
@@ -199,6 +212,7 @@ impl WorkspaceService {
                 queries: Arc::new(WorkspaceQueryService::default()),
                 routes: RouteManager::default(),
                 computer_capabilities,
+                secrets,
                 request_control: StdMutex::new(RequestControlState::default()),
                 activity_changed: Notify::new(),
             }),
@@ -461,6 +475,10 @@ impl WorkspaceService {
                     capabilities.push(RemoteCapability::TerminalViewerSizePriorityV1);
                     capabilities
                 };
+                let mut capabilities = capabilities;
+                if self.inner.secrets.is_some() {
+                    capabilities.push(RemoteCapability::SecretsV1);
+                }
                 Ok(WorkspaceResponse::Capabilities { capabilities })
             }
             WorkspaceRequest::OpenWorkspace { root } => self.open_workspace(scope, &root).await,
@@ -633,7 +651,21 @@ impl WorkspaceService {
             WorkspaceRequest::CancelComputerUse { invocation } => {
                 Ok(WorkspaceResponse::ComputerUseCanceled { invocation, accepted: false })
             }
+            WorkspaceRequest::ReplaceMachineSecrets { items } => {
+                let secrets = self.secrets()?;
+                self.inner
+                    .blocking
+                    .run("secrets-v1", move || secrets.replace_machine_secrets(&items))
+                    .await
+                    .map(|count| WorkspaceResponse::MachineSecretsReplaced { count })
+            }
         }
+    }
+
+    fn secrets(&self) -> Result<Arc<crate::secrets::MachineSecrets>, RpcError> {
+        self.inner.secrets.clone().ok_or_else(|| {
+            RpcError::new("unsupported", "this daemon does not know its machine id: no secrets-v1")
+        })
     }
 
     /// Subscribe to retained and live process events. The remote session layer
@@ -785,12 +817,6 @@ impl WorkspaceService {
                 id: existing.id.clone(),
                 root: existing.display_root(),
             });
-        }
-        if catalog.workspaces.len() >= MAX_WORKSPACES {
-            return Err(RpcError::new(
-                "resource-exhausted",
-                format!("workspace limit of {MAX_WORKSPACES} reached"),
-            ));
         }
         let response = WorkspaceResponse::Workspace {
             id: candidate.id.clone(),
@@ -970,5 +996,24 @@ fn computer_feature_name(feature: ComputerUseFeature) -> &'static str {
         ComputerUseFeature::Keyboard => "keyboard",
         ComputerUseFeature::TextInput => "text-input",
         ComputerUseFeature::Scroll => "scroll",
+    }
+}
+
+#[cfg(all(test, unix))]
+mod open_tests {
+    use super::*;
+
+    /// Every folder opens as a workspace, past the old cap of 256: each holds one directory
+    /// descriptor until its last lease ends.
+    #[tokio::test]
+    async fn workspaces_past_the_old_cap_open() {
+        let service = WorkspaceService::new();
+        let dirs: Vec<_> = (0..300).map(|_| tempfile::tempdir().unwrap()).collect();
+        let scope = ClientScope::local();
+        for dir in &dirs {
+            let response = service.open_workspace(&scope, dir.path().to_str().unwrap()).await;
+            assert!(matches!(response, Ok(WorkspaceResponse::Workspace { .. })), "{response:?}");
+        }
+        assert_eq!(service.inner.catalog.read().await.workspaces.len(), 300);
     }
 }

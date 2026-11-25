@@ -8,8 +8,9 @@ import Testing
 /// "nothing should ever be on the left side besides the favicon", and "there is slightly too much
 /// space between the favicon and the name of the workspace". A workspace row's leading slot draws
 /// only its favicon or icon; its one state glyph (the Ready dot, the Working spinner, a waiting or
-/// error glyph) draws in the trailing slot, exactly where a text-only row draws it; the title's
-/// text starts a Chrome-like 6 pt after the favicon's drawing.
+/// error glyph) draws in the trailing slot, exactly where a text-only row draws it. Since #27598 (Leo's shared
+/// grid) the favicon draws at its glyph size centered in the grid's icon column box, and the title's text starts
+/// one grid gap (`LayoutGrid.gap`) after that box: the text column every leading-icon row shares.
 @MainActor @Suite(.serialized) struct SidebarRowTrailingStatusTests {
     private static let favicon = WorkspaceID("ws-favicon")
     private static let emoji = WorkspaceID("ws-emoji")
@@ -85,10 +86,14 @@ import Testing
         let sidebar = Self.sidebar(unread: .none)
         for id in [Self.favicon, Self.emoji] {
             let row = try Self.row(sidebar, id)
-            // The favicon draws at the glyph size, centered in the icon box.
-            let drawn = row.icon.frame.insetBy(dx: (row.icon.frame.width - SidebarStyle.kindGlyphSize) / 2, dy: 0)
-            let gap = row.title.frame.minX - drawn.maxX
-            #expect(abs(gap - Metrics.space3) < 0.5, "\(id): favicon to title gap \(gap)")
+            // The icon frame is the grid's icon column box; the favicon draws at the glyph size, centered in it.
+            #expect(abs(row.icon.frame.width - SidebarStyle.iconColumnBox) < 0.5, "\(id): icon box \(row.icon.frame.width)")
+            #expect(SidebarStyle.kindGlyphSize <= row.icon.frame.width, "\(id): the glyph outgrows its column box")
+            // The title starts one grid gap after the box, on the shared text column.
+            let gap = row.title.frame.minX - row.icon.frame.maxX
+            #expect(abs(gap - LayoutGrid.gap) < 0.5, "\(id): icon box to title gap \(gap)")
+            let text = SidebarStyle.columns(rowWidth: row.bounds.width).text
+            #expect(abs(row.title.frame.minX - text) < 0.5, "\(id): the title starts at \(row.title.frame.minX), the text column at \(text)")
         }
     }
 }

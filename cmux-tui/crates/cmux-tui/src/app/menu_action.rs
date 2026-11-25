@@ -71,6 +71,8 @@ pub enum MenuAction {
         visible: bool,
     },
     ShowShortcuts,
+    /// Focus a tab of the attention list (`attention-list`).
+    FocusAttention(SurfaceId),
     SetClientSizing {
         surface: SurfaceId,
         client: u64,
@@ -195,6 +197,10 @@ impl MenuAction {
             MenuAction::SetSidebarViewVisible { visible: false, .. } => menu.hide_sidebar_view,
             MenuAction::ShowShortcuts => {
                 localization::catalog().action_label(Action::ShowShortcuts)
+            }
+            // The list wraps every row in a labeled item; this is the fallback.
+            MenuAction::FocusAttention(_) => {
+                localization::catalog().action_label(Action::NextAttention)
             }
             MenuAction::SetClientSizing { enabled: true, .. } => menu.include_client_size,
             MenuAction::SetClientSizing { enabled: false, .. } => menu.excluded,

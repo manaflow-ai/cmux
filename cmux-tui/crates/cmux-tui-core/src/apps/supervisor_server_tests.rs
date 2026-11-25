@@ -1,6 +1,7 @@
 //! Supervisor tests of app servers: lifecycle, the op gate, the environment,
 //! host frames and open tokens.
 
+use super::super::supervisor::ApiError;
 use super::*;
 
 /// A v2-only first-party app `cmux/<dir>` whose catalog ops run in its
@@ -94,20 +95,11 @@ fn wait_marker(marker: &Path, lines: &[&str]) {
     }
 }
 
-fn run_server_op(
-    f: &Fixture,
-    app: &str,
-    op: &str,
-) -> Result<Value, super::super::supervisor::ApiError> {
+fn run_server_op(f: &Fixture, app: &str, op: &str) -> Result<Value, ApiError> {
     run_server_op_as(f, app, op, Origin::User)
 }
 
-fn run_server_op_as(
-    f: &Fixture,
-    app: &str,
-    op: &str,
-    origin: Origin,
-) -> Result<Value, super::super::supervisor::ApiError> {
+fn run_server_op_as(f: &Fixture, app: &str, op: &str, origin: Origin) -> Result<Value, ApiError> {
     let (tx, rx) = channel();
     f.supervisor
         .run(run_request(app, op, None, origin, None), Box::new(move |r| tx.send(r).unwrap()));
@@ -190,20 +182,166 @@ fn a_missing_server_binary_is_reported_once_and_never_retried() {
     assert_eq!(errors(&f), 1, "nothing retries a missing binary");
 }
 
+fn external() -> Value {
+    json!({ "kind": "external", "instances": "user", "hosts": ["local"] })
+}
+
+/// A second control connection (the person's own server process): its
+/// events, and its client id.
+fn connection(f: &Fixture, client: u64) -> Receiver<Value> {
+    let (tx, rx) = channel();
+    let tx = Mutex::new(tx);
+    f.supervisor.register_client(
+        client,
+        Arc::new(move |v: &Value| tx.lock().unwrap().send(v.clone()).is_ok()),
+    );
+    rx
+}
+
+/// The next `apps-server-line` the connection receives.
+fn next_line(events: &Receiver<Value>) -> Value {
+    let deadline = Instant::now() + Duration::from_secs(10);
+    loop {
+        let left = deadline.saturating_duration_since(Instant::now());
+        let event = events.recv_timeout(left).expect("an apps-server-line");
+        if event["event"] == "apps-server-line" {
+            return event["line"].clone();
+        }
+    }
+}
+
+/// Starts a run of `op` and returns where its answer arrives.
+fn start_run(f: &Fixture, app: &str, op: &str) -> Receiver<Result<Value, ApiError>> {
+    let (tx, rx) = channel();
+    f.supervisor
+        .run(run_request(app, op, None, Origin::Cli, None), Box::new(move |r| tx.send(r).unwrap()));
+    rx
+}
+
+const SERVER: u64 = 9;
+
 #[test]
-fn external_servers_are_refused_for_now() {
+fn an_external_server_serves_ops_only_with_the_credential_the_person_approved() {
     let root = temp_dir();
-    write_server_app(
-        &root.0.join("bundled"),
-        "ext",
-        json!({ "kind": "external", "instances": "user", "hosts": ["local"] }),
-    );
+    write_server_app_3p(&root.0, "ext", external(), true);
     let f = fixture_with(&[], Duration::from_secs(60), root);
-    f.install("cmux/ext");
+    f.install("acme/ext");
+    let events = connection(&f, SERVER);
+    // Nothing attached: a call answers at once, never waits.
+    let refused = run_op(&f, "acme/ext", "acme.ext.go", Origin::Cli).unwrap_err();
+    assert_eq!(refused.code, "apps.server_unavailable");
+    // A server without a credential, or with one nobody approved, is refused.
+    let attach = |client, agent, credential: &str| {
+        f.supervisor.server_attach(client, agent, "acme/ext", credential).map_err(|e| e.code)
+    };
+    assert_eq!(attach(SERVER, false, "").unwrap_err(), "apps.server_credential");
+    assert_eq!(attach(SERVER, false, "cmuxsrv1_guess").unwrap_err(), "apps.server_credential");
+    // Only the person approves one (origin user: the verified cmux app).
+    for origin in [Origin::Cli, Origin::Mcp, Origin::Script] {
+        let refused = f.supervisor.server_credential("acme/ext", origin).unwrap_err();
+        assert_eq!(refused.code, "apps.gesture_required", "{origin:?}");
+    }
+    let approved = f.supervisor.server_credential("acme/ext", Origin::User).unwrap();
+    let credential = approved["credential"].as_str().unwrap().to_string();
+    assert!(credential.starts_with("cmuxsrv1_"), "{approved}");
+    // The daemon keeps only its digest.
+    let stored = std::fs::read_to_string(f.state.join("apps-credentials/acme.ext")).unwrap();
+    assert!(!stored.contains(&credential[9..]), "{stored}");
+    assert_eq!(attach(SERVER, false, "cmuxsrv1_guess").unwrap_err(), "apps.server_credential");
+    assert_eq!(attach(SERVER, true, &credential).unwrap_err(), "apps.origin_forbidden");
+    attach(SERVER, false, &credential).unwrap();
+    assert_eq!(attach(10, false, &credential).unwrap_err(), "apps.server_taken");
+
+    // An op reaches the connection as the native wire's op line; its result answers the run.
+    let answer = start_run(&f, "acme/ext", "acme.ext.go");
+    let op = next_line(&events);
+    assert_eq!((op["type"].as_str(), op["op"].as_str()), (Some("op"), Some("acme.ext.go")));
+    let id = op["id"].clone();
+    // Only the attached connection answers, and only result and event lines.
+    let line = json!({ "type": "result", "id": id, "ok": true, "result": { "pong": 1 } });
+    let stranger = f.supervisor.server_line_from(10, "acme/ext", line.clone()).unwrap_err();
+    assert_eq!(stranger.code, "apps.server_not_attached");
+    let other = json!({ "t": "host.request", "id": 7, "op": "cmux.host.link.get" });
     assert_eq!(
-        run_server_op(&f, "cmux/ext", "ext.ping").unwrap_err().code,
-        "apps.server_unsupported"
+        f.supervisor.server_line_from(SERVER, "acme/ext", other).unwrap_err().code,
+        "bad-request"
     );
+    f.supervisor.server_line_from(SERVER, "acme/ext", line).unwrap();
+    let answered = answer.recv_timeout(Duration::from_secs(10)).unwrap().unwrap();
+    assert_eq!(answered, json!({ "value": { "pong": 1 } }));
+
+    // The connection closes: calls in flight fail, and nothing is attached.
+    let answer = start_run(&f, "acme/ext", "acme.ext.go");
+    next_line(&events);
+    f.supervisor.disconnect(SERVER);
+    let failed = answer.recv_timeout(Duration::from_secs(10)).unwrap().unwrap_err();
+    assert_eq!(failed.code, "apps.server_exited", "{failed:?}");
+    let deadline = Instant::now() + Duration::from_secs(10);
+    while f.supervisor.inner.lock().unwrap().servers.contains_key("acme/ext") {
+        assert!(Instant::now() < deadline, "the server stayed attached");
+        std::thread::sleep(Duration::from_millis(20));
+    }
+
+    // A new credential voids the old one.
+    let events = connection(&f, SERVER);
+    attach(SERVER, false, &credential).unwrap();
+    let rotated = f.supervisor.server_credential("acme/ext", Origin::User).unwrap();
+    assert_eq!(next_line(&events), json!({ "type": "stop" }));
+    let deadline = Instant::now() + Duration::from_secs(10);
+    while f.supervisor.inner.lock().unwrap().servers.contains_key("acme/ext") {
+        assert!(Instant::now() < deadline, "the old credential's server stayed");
+        std::thread::sleep(Duration::from_millis(20));
+    }
+    assert_eq!(attach(SERVER, false, &credential).unwrap_err(), "apps.server_credential");
+    attach(SERVER, false, rotated["credential"].as_str().unwrap()).unwrap();
+
+    // Revoking the approval ends it; nothing attaches or runs until it is granted again.
+    f.set("revoke", "acme/ext", Origin::User, |o| o.grant = Some(("server:execute".into(), false)))
+        .unwrap();
+    assert_eq!(next_line(&events), json!({ "type": "stop" }));
+    let refused = run_op(&f, "acme/ext", "acme.ext.go", Origin::Cli).unwrap_err();
+    assert_eq!(refused.code, "apps.server_unapproved");
+    let rotated = rotated["credential"].as_str().unwrap().to_string();
+    let deadline = Instant::now() + Duration::from_secs(10);
+    loop {
+        match attach(SERVER, false, &rotated) {
+            Err(code) if code == "apps.server_unapproved" => break,
+            _ if Instant::now() < deadline => std::thread::sleep(Duration::from_millis(20)),
+            other => panic!("attach after the revoke: {other:?}"),
+        }
+    }
+    // Uninstall removes the credential.
+    f.set("rm", "acme/ext", Origin::User, |o| o.installed = Some(false)).unwrap();
+    assert!(!f.state.join("apps-credentials/acme.ext").exists());
+}
+
+#[test]
+fn js_and_external_servers_are_off_until_the_person_approves_them() {
+    let root = temp_dir();
+    let js = json!({ "kind": "js", "instances": "user", "hosts": ["local"] });
+    // The manifests do not ask for server:execute: nothing grants it at install.
+    write_server_app_3p(&root.0, "jsoff", js.clone(), false);
+    write_server_app_3p(&root.0, "extoff", external(), false);
+    write_server_app_3p(&root.0, "json", js, true);
+    let f = fixture_with(&[], Duration::from_secs(60), root);
+    for app in ["acme/jsoff", "acme/extoff", "acme/json"] {
+        f.install(app);
+    }
+    let code = |app: &str, op: &str| run_op(&f, app, op, Origin::User).unwrap_err().code;
+    assert_eq!(code("acme/jsoff", "acme.jsoff.go"), "apps.server_unapproved");
+    assert_eq!(code("acme/extoff", "acme.extoff.go"), "apps.server_unapproved");
+    let refused = f.supervisor.server_credential("acme/extoff", Origin::User).unwrap_err();
+    assert_eq!(refused.code, "apps.server_unapproved");
+    // Granted at install it runs; revoked in Settings it stops.
+    assert_eq!(
+        run_op(&f, "acme/json", "acme.json.go", Origin::Cli).unwrap(),
+        json!({ "value": "go" })
+    );
+    f.set("revoke", "acme/json", Origin::User, |o| {
+        o.grant = Some(("server:execute".into(), false));
+    })
+    .unwrap();
+    assert_eq!(code("acme/json", "acme.json.go"), "apps.server_unapproved");
 }
 
 #[test]
@@ -269,7 +407,10 @@ fn host_link_get_answers_the_daemon_values_and_needs_its_scope() {
     let bundled = root.0.join("bundled");
     write_server_app(&bundled, "linked", probe_server(&linked, "cmux.host.link.get", true));
     write_server_app(&bundled, "unscoped", probe_server(&unscoped, "cmux.host.link.get", false));
-    write_server_app(&bundled, "relay", probe_server(&relay, "cmux.credential.relay", true));
+    // The relay server also holds the credential relay scope (as the Cloud server does).
+    let mut relay_server = probe_server(&relay, "cmux.credential.relay", true);
+    relay_server["scopes"]["op:cmux.credential.relay"] = json!("Call the cmux Cloud API.");
+    write_server_app(&bundled, "relay", relay_server);
     let state = root.0.join("state");
     let f = fixture_with(&[], Duration::from_secs(60), root);
     for app in ["cmux/linked", "cmux/unscoped", "cmux/relay"] {
@@ -322,6 +463,24 @@ fn host_link_get_answers_the_daemon_values_and_needs_its_scope() {
     );
     std::thread::sleep(Duration::from_millis(200));
     assert_eq!(frames(&unscoped, 1).len(), 1);
+    // A pushed Cloud event (apps-team-event) reaches only the server that
+    // holds the credential relay scope, as a team.event line.
+    let data = json!({ "v": 1, "t": "state", "machine": "vm_x", "revision": 2, "state": null });
+    assert_eq!(
+        f.supervisor.team_event("cloud.machine.state", &data).unwrap(),
+        json!({ "servers": 1 })
+    );
+    // The relay server's lines: its host.error, the link change, then this.
+    let pushed = &frames(&relay, 3)[2];
+    assert_eq!(
+        pushed,
+        &json!({ "type": "team.event", "event": "cloud.machine.state", "data": data })
+    );
+    assert!(f.supervisor.team_event("user.changed", &data).is_err(), "only cloud.* events");
+    let big = json!({ "blob": "x".repeat(crate::apps::host_ops::TEAM_EVENT_MAX_BYTES) });
+    assert!(f.supervisor.team_event("cloud.machine.state", &big).is_err(), "bounded");
+    std::thread::sleep(Duration::from_millis(200));
+    assert_eq!(frames(&linked, 2).len(), 2, "the link server got no team event");
 }
 
 /// Makes the server app `cmux/<dir>` a terminal connector whose user runs of
@@ -346,7 +505,7 @@ fn run_with(
     args: Value,
     origin: Origin,
     idempotency_key: Option<&str>,
-) -> Result<Value, super::super::supervisor::ApiError> {
+) -> Result<Value, ApiError> {
     let (tx, rx) = channel();
     let mut request = run_request(app, op, idempotency_key.map(str::to_string), origin, None);
     request.args = args;
@@ -497,3 +656,170 @@ mod terminal_ops_tests;
 
 #[path = "supervisor_relay_tests.rs"]
 mod relay;
+
+/// An `always` server that appends `start` to its marker (its first argument)
+/// and exits at once: it crashes on every start.
+fn crash_server(dir: &Path, marker: &Path) -> Value {
+    write_script(dir, "crash-server", "#!/bin/sh\necho start >> \"$1\"\nexit 1\n");
+    let mut server = native_server(marker, json!({ "start": "always" }));
+    server["binaries"] = json!({ "darwin-arm64": "crash-server", "darwin-x64": "crash-server", "linux-arm64": "crash-server", "linux-x64": "crash-server" });
+    server
+}
+
+/// R-LIFECYCLE S1b: an `always` server that crashed and waits for its
+/// restart keeps the daemon's owner (server/owner_keepers.rs) as a running
+/// one does, and every end of what keeps the owner reaches its observers,
+/// also a disable during that wait, which broadcasts no `apps-server` event.
+#[test]
+fn an_always_server_waiting_for_its_crash_restart_keeps_the_owner() {
+    let root = temp_dir();
+    let marker = root.0.join("crash.marker");
+    let server = crash_server(&root.0.join("servers"), &marker);
+    write_server_app(&root.0.join("bundled"), "srv", server);
+    let f = fixture_with(&[], Duration::from_secs(60), root);
+    let told = Arc::new(Mutex::new(0_usize));
+    let observers: crate::apps::ServerObservers = Arc::default();
+    let count = told.clone();
+    observers.lock().unwrap().push(Box::new(move || *count.lock().unwrap() += 1));
+    f.supervisor.observe_kept_servers(observers);
+    f.install("cmux/srv");
+    let deadline = Instant::now() + Duration::from_secs(10);
+    while std::fs::read_to_string(&marker).unwrap_or_default().is_empty() {
+        assert!(Instant::now() < deadline, "the always server never started");
+        std::thread::sleep(Duration::from_millis(5));
+    }
+    // From its first start on, it runs or waits for its restart (about 0.5 s,
+    // then 1 s; it gives up only after 5 restarts): it keeps the owner all along.
+    let watched = Instant::now() + Duration::from_millis(1500);
+    while Instant::now() < watched {
+        assert!(
+            f.supervisor.kept_servers() >= 1,
+            "a crashed always server waiting for its restart kept nothing"
+        );
+        std::thread::sleep(Duration::from_millis(5));
+    }
+    // Disable the app while a restart waits and no server runs.
+    let deadline = Instant::now() + Duration::from_secs(10);
+    loop {
+        let waiting = {
+            let inner = f.supervisor.inner.lock().unwrap();
+            !inner.servers.contains_key("cmux/srv")
+                && inner.server_crashes.get("cmux/srv").is_some_and(|c| c.restart.is_some())
+        };
+        if waiting {
+            break;
+        }
+        assert!(Instant::now() < deadline, "no crash restart waited");
+        std::thread::sleep(Duration::from_millis(2));
+    }
+    let before = *told.lock().unwrap();
+    f.set("off", "cmux/srv", Origin::User, |o| o.enabled = Some(false)).unwrap();
+    let deadline = Instant::now() + Duration::from_secs(10);
+    while f.supervisor.kept_servers() > 0 || *told.lock().unwrap() == before {
+        assert!(
+            Instant::now() < deadline,
+            "after the disable: {} app servers keep the owner and the observers were told {} \
+             times (before: {before})",
+            f.supervisor.kept_servers(),
+            *told.lock().unwrap()
+        );
+        std::thread::sleep(Duration::from_millis(5));
+    }
+}
+
+/// An on-demand server that appends `start` to its marker (its first
+/// argument), answers nothing, and exits by itself once `<marker>.go` exists.
+fn self_ending_server(dir: &Path, marker: &Path) -> Value {
+    write_script(
+        dir,
+        "self-ending-server",
+        "#!/bin/sh\necho start >> \"$1\"\nwhile [ ! -e \"$1.go\" ]; do sleep 0.02; done\nexit 0\n",
+    );
+    let mut server = native_server(marker, json!({ "start": "onDemand" }));
+    server["binaries"] = json!({ "darwin-arm64": "self-ending-server", "darwin-x64": "self-ending-server", "linux-arm64": "self-ending-server", "linux-x64": "self-ending-server" });
+    server
+}
+
+/// R-LIFECYCLE S1b (review of #34188, finding 1): two emits race. One reads
+/// the kept count (0) and is held before it tells the observers; meanwhile a
+/// call starts a server (1). When the held emit goes on, a later end of that
+/// server must still reach the owner's observers: a count told out of order
+/// must never hide a change, or the owner runs on with nothing kept.
+#[test]
+fn a_late_emit_never_hides_the_end_of_an_app_server_from_the_owner() {
+    let root = temp_dir();
+    let marker = root.0.join("ending.marker");
+    let server = self_ending_server(&root.0.join("servers"), &marker);
+    write_server_app(&root.0.join("bundled"), "srv", server);
+    let f = fixture_with(&[], Duration::from_secs(60), root);
+    let woken = Arc::new(Mutex::new(Vec::<usize>::new()));
+    let observers: crate::apps::ServerObservers = Arc::default();
+    let (seen, supervisor) = (woken.clone(), Arc::downgrade(&f.supervisor));
+    // What a woken owner reads: the count at the wake.
+    observers.lock().unwrap().push(Box::new(move || {
+        if let Some(supervisor) = supervisor.upgrade() {
+            seen.lock().unwrap().push(supervisor.kept_servers());
+        }
+    }));
+    f.supervisor.observe_kept_servers(observers);
+    f.install("cmux/srv");
+    assert_eq!(f.supervisor.kept_servers(), 0, "an on-demand server waits for its first call");
+
+    // Emit A reads 0 and is held before it tells anyone.
+    let (held_tx, held_rx) = channel::<()>();
+    let (go_tx, go_rx) = channel::<()>();
+    let late = {
+        let supervisor = f.supervisor.clone();
+        std::thread::spawn(move || {
+            *supervisor.emit_pause.lock().unwrap() = Some((
+                std::thread::current().id(),
+                Box::new(move || {
+                    held_tx.send(()).unwrap();
+                    go_rx.recv().unwrap();
+                }),
+            ));
+            supervisor.emit(Vec::new());
+        })
+    };
+    held_rx.recv_timeout(Duration::from_secs(10)).expect("emit A never reached its pause");
+
+    // A call starts the server: 1 is told.
+    let (answer_tx, _answer_rx) = channel();
+    f.supervisor.run(
+        run_request("cmux/srv", "srv.ping", None, Origin::User, None),
+        Box::new(move |r| {
+            let _ = answer_tx.send(r);
+        }),
+    );
+    let deadline = Instant::now() + Duration::from_secs(10);
+    while std::fs::read_to_string(&marker).unwrap_or_default().is_empty() {
+        assert!(Instant::now() < deadline, "the on-demand server never started");
+        std::thread::sleep(Duration::from_millis(5));
+    }
+    assert_eq!(f.supervisor.kept_servers(), 1);
+
+    // Emit A goes on with its old read, then the server ends by itself.
+    go_tx.send(()).unwrap();
+    late.join().unwrap();
+    let told_before_the_end = woken.lock().unwrap().len();
+    std::fs::write(format!("{}.go", marker.display()), b"").unwrap();
+    let deadline = Instant::now() + Duration::from_secs(10);
+    while f.supervisor.kept_servers() > 0 {
+        assert!(Instant::now() < deadline, "the server never ended");
+        std::thread::sleep(Duration::from_millis(5));
+    }
+    let deadline = Instant::now() + Duration::from_secs(10);
+    loop {
+        let woken = woken.lock().unwrap().clone();
+        if woken.len() > told_before_the_end && woken.last() == Some(&0) {
+            break;
+        }
+        assert!(
+            Instant::now() < deadline,
+            "the server's end reached no observer: wakes {woken:?}, {told_before_the_end} before \
+             the end; the owner would read {} kept servers only at its next unrelated wake",
+            f.supervisor.kept_servers()
+        );
+        std::thread::sleep(Duration::from_millis(5));
+    }
+}

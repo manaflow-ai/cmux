@@ -1,24 +1,20 @@
 // l10n-allow-file: test fixture prompts and tool titles, not shipped UI.
-// The running turn's line says what the turn has spent so far, as Claude desktop's does: the
-// time, then this turn's generated output ("Working for 5m 54s · 2.1M out"). Claude Code reports
-// each model call's prompt and output usage as it lands, and acpmux marks those records as one
-// call's (`usage_update` with `_meta.acpmux.call`, claude_stdio/inbound.rs), so the turn's line
-// adds only output tokens since its `turn_started`. Every other usage record is the context a
-// harness holds: Claude Code's result repeats its last call's (for the context ring), and other
+// Turn usage stays available as data while the running line shows elapsed time alone.
+// Claude Code reports each model call's prompt and output usage as it lands, and acpmux marks
+// those records as one call's (`usage_update` with `_meta.acpmux.call`, claude_stdio/inbound.rs),
+// so the turn's usage accumulator adds only output tokens since its `turn_started`. Every other
+// usage record is the context a harness holds: Claude Code's result repeats its last call's (for the context ring), and other
 // harnesses, whatever their family, report only that. None of those adds up. A chat attached after
-// its turn started has not seen every call; it shows the time alone, even once older pages load.
+// its turn started has not seen every call; its accumulated usage stays unknown even once older pages load.
 import { expect, test } from "bun:test";
 import { renderToStaticMarkup } from "react-dom/server";
 import { AcpmuxDirectClient } from "../src/agent-session/acpmux/direct";
 import { translatorFor } from "../src/agent-session/acpmux/i18n";
 import type { AcpmuxRow } from "../src/agent-session/acpmux/model";
 import { ContextCardBody } from "../src/agent-session/acpmux/ContextCard";
-import {
-  WorkingCountsContext,
-  WorkingFor,
-  workingTokens,
-  type WorkingCounts,
-} from "../src/agent-session/acpmux/conversation/WorkingFor";
+import { WorkingFor } from "../src/agent-session/acpmux/conversation/WorkingFor";
+import { WorkingCountsContext, type WorkingCounts } from "../src/agent-session/acpmux/conversation/workingForModel";
+import { workingTokens } from "../src/agent-session/acpmux/conversation/turnTokensModel";
 
 const CHAT = "0190a000-0000-7000-8000-0000000000e7";
 const START = Date.UTC(2026, 9, 20, 9, 0, 0);
@@ -98,6 +94,9 @@ function fakeDaemon(
   let socket: any;
   let liveOnAttach: Recorded[] = [];
   let gapFails = false;
+  let pageLimit = 400;
+  let holdIndex = false;
+  let indexReply: (() => void) | undefined;
   const session = {
     sessionId: CHAT,
     cwd: "/Users/dev/app",
@@ -117,6 +116,17 @@ function fakeDaemon(
       case "_acpmux/watch":
         return { sessions: [session] };
       case "_acpmux/attach": {
+        // `afterSeq` alone pages forward, oldest first, `pageLimit` records at most (acpmux
+        // requests.rs): a reconnect's read of what it missed.
+        if (typeof params?.afterSeq === "number") {
+          const after = history.filter((event) => event.seq > params.afterSeq && passes(params?.kinds, event));
+          return {
+            session,
+            lastSeq: lastSeq(),
+            events: after.slice(0, pageLimit),
+            hasMore: after.length > pageLimit,
+          };
+        }
         const events = history.filter((event) => event.seq >= attachFrom && passes(params?.kinds, event));
         return {
           session,
@@ -150,8 +160,8 @@ function fakeDaemon(
           liveOnAttach = [];
           push(live);
         }
-        if (message.id !== undefined)
-          queueMicrotask(() => {
+        if (message.id !== undefined) {
+          const reply = () => {
             let reply: Record<string, unknown>;
             try {
               reply = { result: answer(message.method, message.params) };
@@ -161,7 +171,10 @@ function fakeDaemon(
             socket.onmessage?.({
               data: JSON.stringify({ jsonrpc: "2.0", id: message.id, ...reply }),
             });
-          });
+          };
+          if (holdIndex && message.params?.promptIndex === true) indexReply = reply;
+          else queueMicrotask(reply);
+        }
       },
       close() {},
     };
@@ -187,12 +200,37 @@ function fakeDaemon(
   const onAttach = (events: Recorded[]) => (liveOnAttach = events);
   /// Whether the reconnect's gap read fails.
   const failGap = (fails: boolean) => (gapFails = fails);
-  return { open, push, notify, drop, pageFrom, onAttach, failGap };
+  /// How many records a forward attach page holds (acpmux's `limit` and byte bound).
+  const forwardLimit = (limit: number) => (pageLimit = limit);
+  return {
+    open,
+    push,
+    notify,
+    drop,
+    pageFrom,
+    onAttach,
+    failGap,
+    forwardLimit,
+    holdIndex: () => {
+      holdIndex = true;
+    },
+    indexWaiting: () => indexReply !== undefined,
+    releaseIndex: () => {
+      holdIndex = false;
+      indexReply?.();
+      indexReply = undefined;
+    },
+  };
 }
 
 async function connect(daemon: ReturnType<typeof fakeDaemon>) {
   let snapshot: any;
+  let resynced: any;
   let snapshots = 0;
+  // `connection` names why the client emitted, not the link: a local open drawn from its attach
+  // emits "connected", then "session changed" as soon as the list behind it settles
+  // (`listAfterOpen`). The open is done once a "connected" snapshot came; a lost link undoes it.
+  let attached = false;
   const client = await AcpmuxDirectClient.connect(
     {
       protocolVersion: 1,
@@ -204,12 +242,21 @@ async function connect(daemon: ReturnType<typeof fakeDaemon>) {
     (next: any) => {
       snapshot = next;
       snapshots += 1;
+      if (next.connection === "resynced") resynced = next;
+      if (next.connection === "connected") attached = true;
+      else if (next.connection === "disconnected" || next.connection === "failed") attached = false;
     },
     undefined,
     daemon.open,
   );
-  await until(() => snapshot?.connection === "connected", "the attach");
-  return { client, snapshot: () => snapshot, snapshots: () => snapshots };
+  await until(() => attached, "the attach");
+  return {
+    client,
+    snapshot: () => snapshot,
+    snapshots: () => snapshots,
+    attached: () => attached,
+    resynced: () => resynced,
+  };
 }
 /// Yields until `ready()` holds; fails after 2 s with what it waited for.
 async function until(ready: () => boolean, what: string) {
@@ -221,6 +268,12 @@ async function until(ready: () => boolean, what: string) {
 }
 const prompt = (text: string): Step => ["mux", "user_message", { text }];
 const started: Step = ["mux", "turn_started", {}];
+/// A line of the agent's reply: a transcript row, which usage records are not.
+const reply = (text: string): Step => [
+  "in",
+  "agent_message_chunk",
+  update({ sessionUpdate: "agent_message_chunk", content: { type: "text", text } }),
+];
 
 test("a Claude turn's output tokens are the sum of its model calls since it started, live", async () => {
   const daemon = fakeDaemon(
@@ -383,9 +436,20 @@ test("once older pages bring a mid-turn attach's start, every rebuild keeps its 
   // The attach page starts after the turn's first calls; an older page brings the start, but
   // pages carry no usage, so a count from it would leave those calls out. Each later rebuild of
   // the held events (a lag resync, a Debug toggle, a reconnect's attach) must not count it either.
-  const history = record([prompt("fix the build"), started, call(41_200), call(43_800), call(46_000), call(9_000)]);
+  // The page draws a line of the reply: an open whose page draws nothing reads the older page
+  // itself before its first snapshot (#45859), and then no older history is left to page in.
+  const history = record([
+    prompt("fix the build"),
+    started,
+    call(41_200),
+    call(43_800),
+    call(46_000),
+    reply("Reading the build log."),
+    call(9_000),
+  ]);
   const daemon = fakeDaemon(history, { attachFrom: 5 });
-  const { client, snapshot } = await connect(daemon);
+  daemon.holdIndex();
+  const { client, snapshot, snapshots, attached, resynced } = await connect(daemon);
   const scope = globalThis as { window?: unknown };
   const hadWindow = "window" in scope;
   // The client schedules its reconnect on `window`; this test has no DOM.
@@ -400,7 +464,17 @@ test("once older pages bring a mid-turn attach's start, every rebuild keeps its 
 
     daemon.notify("_acpmux/lagged", { dropped: 1 });
     expect(snapshot().connection).toBe("resyncing");
-    await until(() => snapshot().connection === "resynced", "the resync");
+    // A deferred prompt-index reply may emit again before the next task. Observe the resync
+    // itself, not whether it happens to remain the most recent snapshot when this test polls.
+    await until(() => resynced() !== undefined, "the resync");
+    expect(resynced().turnTokens).toBeUndefined();
+    expect(snapshot().turnTokens).toBeUndefined();
+
+    // Release the deferred read only after the resync, then check its own emission as well.
+    await until(daemon.indexWaiting, "the deferred prompt-index request");
+    const beforeIndexReply = snapshots();
+    daemon.releaseIndex();
+    await until(() => snapshots() > beforeIndexReply, "the prompt-index emission");
     expect(snapshot().turnTokens).toBeUndefined();
 
     // The rebuild and its snapshot are synchronous.
@@ -409,12 +483,12 @@ test("once older pages bring a mid-turn attach's start, every rebuild keeps its 
 
     daemon.drop();
     expect(snapshot().connection).toBe("disconnected");
-    await until(() => snapshot().connection === "connected", "the reconnect");
+    await until(attached, "the reconnect");
     expect(snapshot().isWorking).toBe(true);
     expect(snapshot().turnTokens).toBeUndefined();
 
     // A turn that starts while the client watches counts from its start.
-    daemon.push(record([["mux", "turn_result", { status: "completed" }], prompt("again"), started, call(7_000)], 7));
+    daemon.push(record([["mux", "turn_result", { status: "completed" }], prompt("again"), started, call(7_000)], 8));
     await until(() => snapshot().turnTokens !== undefined, "the new turn's call");
     expect(snapshot().turnTokens).toBe(7_000);
   } finally {
@@ -427,7 +501,7 @@ test("a reconnect whose page starts after the turn began keeps the count it held
   // The chat was read whole; then the turn outgrows the attach page and the socket drops. The new
   // page starts mid-turn, but the client still holds every call before it.
   const daemon = fakeDaemon(record([prompt("fix the build"), started, call(41_200), call(43_800)]));
-  const { client, snapshot } = await connect(daemon);
+  const { client, snapshot, attached } = await connect(daemon);
   const scope = globalThis as { window?: unknown };
   const hadWindow = "window" in scope;
   // The client schedules its reconnect on `window`; this test has no DOM.
@@ -440,7 +514,7 @@ test("a reconnect whose page starts after the turn began keeps the count it held
     daemon.pageFrom(4);
     daemon.drop();
     expect(snapshot().connection).toBe("disconnected");
-    await until(() => snapshot().connection === "connected", "the reconnect");
+    await until(attached, "the reconnect");
     expect(snapshot().isWorking).toBe(true);
     expect(snapshot().turnTokens).toBe(131_000);
   } finally {
@@ -483,6 +557,8 @@ test("a reconnect whose gap read fails hides the count it can no longer add up",
     expect(snapshot().turnTokens).toBe(85_000);
     history.push(...record([call(46_000), call(1_000), call(2_000), call(3_000)], 5));
     daemon.pageFrom(7);
+    // The reconnect's forward page holds two of the four calls missed; reading the rest fails.
+    daemon.forwardLimit(2);
     daemon.failGap(true);
     daemon.drop();
     await until(() => snapshot().turnTokens === undefined, "the gap read to fail");
@@ -567,14 +643,9 @@ test("a usage record's reported setup reaches the context summary while the tool
   }
 });
 
-const status: AcpmuxRow = { id: "working", kind: "working", version: 1, at: START };
+// The line under the work (`below`); "Working for" over the work says only the turn's time.
+const status: AcpmuxRow = { id: "working", kind: "working", version: 1, at: START, below: true };
 const counts = (extra: Partial<WorkingCounts> = {}): WorkingCounts => ({
-  agents: 0,
-  commands: 0,
-  sessions: 0,
-  openAgents: () => {},
-  openCommands: () => {},
-  openSessions: () => {},
   ...extra,
 });
 const drawn = (row: AcpmuxRow, value: WorkingCounts) =>
@@ -587,14 +658,16 @@ const drawn = (row: AcpmuxRow, value: WorkingCounts) =>
     .replace(/\s+/g, " ")
     .trim();
 
-test("the line reads the time, then the turn's output, after the working dots", () => {
-  expect(drawn(status, counts({ tokens: 2_140_000 }))).toBe("Working for 5m 54s · 2.1M out");
-  expect(drawn({ ...status, doing: "bun test" }, counts({ tokens: 840_000 }))).toBe("bun test 5m 54s · 840K out");
+test("the line keeps elapsed time and background work counts without token amounts", () => {
+  expect(drawn(status, counts({ tokens: 2_140_000 }))).toBe("Working for 5m 54s");
+  expect(drawn({ ...status, doing: "bun test" }, counts({ tokens: 840_000 }))).toBe("bun test 5m 54s");
   // Before the first call reports, or with no token data, the time stands alone.
   expect(drawn(status, counts())).toBe("Working for 5m 54s");
   expect(drawn(status, counts({ tokens: 0 }))).toBe("Working for 5m 54s");
-  // The background counts follow the tokens.
-  expect(drawn(status, counts({ tokens: 2_140_000, agents: 2 }))).toBe("Working for 5m 54s · 2.1M out · 2 subagents");
+  // Usage data adds nothing to the line: the tray counts the background work, never the line.
+  expect(drawn(status, counts({ tokens: 2_140_000 }))).toBe("Working for 5m 54s");
+  // Over the work, as the Codex app's "Working for 32s": the time alone.
+  expect(drawn({ ...status, below: undefined }, counts({ tokens: 2_140_000 }))).toBe("Working for 5m 54s");
 });
 
 test("tokens are compact in the pane's language", () => {
@@ -605,4 +678,84 @@ test("tokens are compact in the pane's language", () => {
     maximumFractionDigits: 1,
   }).format(2_140_000);
   expect(workingTokens(translatorFor("de"), "de", 2_140_000)).toContain(german);
+});
+
+test("usage carries acpmux's cache expiry to the card, and a finished compaction drops it", async () => {
+  const expiresAt = START + 300_000;
+  const cached = (used: number): Step => [
+    "in",
+    "usage_update",
+    update({ sessionUpdate: "usage_update", used, size: 400_000, _meta: { acpmux: { cacheExpiresAt: expiresAt } } }),
+  ];
+  const daemon = fakeDaemon(record([prompt("fix the build"), started, cached(300_000)]));
+  const { client, snapshot } = await connect(daemon);
+  try {
+    await until(() => snapshot().summary?.usage !== undefined, "the usage");
+    expect(snapshot().summary.usage).toEqual({ used: 300_000, size: 400_000, cacheExpiresAt: expiresAt });
+    // A compaction whose boundary named no size sends no usage: the expiry still goes.
+    daemon.push(record([["in", "compaction", update({ sessionUpdate: "compaction", state: "completed" })]], 4));
+    await until(() => snapshot().summary.usage.cacheExpiresAt === undefined, "the compaction");
+    expect(snapshot().summary.usage).toEqual({ used: 300_000, size: 400_000 });
+  } finally {
+    client.close();
+  }
+});
+
+// A Codex turn an older acpmux recorded: its input whole, the cache's reads in it, and no
+// `inputExcludesCache` mark. The summary row reads it by the chat's harness (tokenSplit.ts), so its
+// hover says 314.9K uncached, not 3.3M; the same turn recorded now, marked, reads the same.
+test("a Codex chat's older and marked turn_results count their cached input once", async () => {
+  const turn = (seq: number, result: Record<string, unknown>) =>
+    record(
+      [
+        prompt("fix the build"),
+        started,
+        ["mux", "turn_result", { status: "completed", outputTokens: 4_017, cacheReadTokens: 3_021_696, ...result }],
+      ],
+      seq,
+    );
+  const daemon = fakeDaemon(
+    [...turn(1, { inputTokens: 3_336_595 }), ...turn(4, { inputTokens: 314_899, inputExcludesCache: true })],
+    { harness: "codex", family: "codex" },
+  );
+  const { client, snapshot } = await connect(daemon);
+  try {
+    const summaries = () => snapshot().rows.filter((row: AcpmuxRow) => row.kind === "turnSummary");
+    await until(() => summaries().length === 2, "both turns' ends");
+    const split = { output: 4_017, input: 314_899, cacheRead: 3_021_696, cacheWrite: 0 };
+    expect(summaries().map((row: AcpmuxRow) => row.tokens)).toEqual([split, split]);
+  } finally {
+    client.close();
+  }
+});
+
+// Claude Code behind the built-in `cmux` router profile (claude-stdio, family `claude`): an older
+// acpmux's unmarked record had its fresh input alone, as every Claude Code record did.
+test("a cmux router chat's older turn_result keeps its fresh input", async () => {
+  const daemon = fakeDaemon(
+    record([
+      prompt("fix the build"),
+      started,
+      [
+        "mux",
+        "turn_result",
+        {
+          status: "completed",
+          outputTokens: 23_702,
+          inputTokens: 112,
+          cacheReadTokens: 4_530_027,
+          cacheWriteTokens: 124_616,
+        },
+      ],
+    ]),
+    { harness: "cmux", family: "claude" },
+  );
+  const { client, snapshot } = await connect(daemon);
+  try {
+    const summary = () => snapshot().rows.find((row: AcpmuxRow) => row.kind === "turnSummary");
+    await until(() => summary() !== undefined, "the turn's end");
+    expect(summary()?.tokens).toEqual({ output: 23_702, input: 112, cacheRead: 4_530_027, cacheWrite: 124_616 });
+  } finally {
+    client.close();
+  }
 });

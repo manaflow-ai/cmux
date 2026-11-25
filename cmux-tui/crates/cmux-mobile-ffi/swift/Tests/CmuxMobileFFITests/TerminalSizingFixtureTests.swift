@@ -63,9 +63,11 @@ struct TerminalSizingFixtureTests {
 
     @Test(arguments: corpus)
     func replay(_ fixture: Case) throws {
+        // Every fixture starts at the default policy, "last active", as the
+        // Rust and the Kotlin runners do.
         let engine = TerminalSizingEngine(
             initial: try Self.size(fixture.initial),
-            policy: terminalSizingPolicy(mode: .smallest, priority: [], fixed: nil)
+            policy: terminalSizingPolicy(mode: .latest, priority: [], fixed: nil)
         )
         for (index, step) in fixture.steps.enumerated() {
             let at = "\(fixture.name) step \(index)"

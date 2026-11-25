@@ -92,6 +92,11 @@ pub struct RbCallbacks {
     /// count, the caret (x y w h, or NULL).
     pub on_text_input:
         Option<unsafe extern "C" fn(*mut c_void, c_int, c_int, *const c_int, c_int, *const c_int)>,
+    /// browser, the fork's dialog token: Chromium dropped that dialog (its
+    /// frame went away, or the tab closed).
+    pub on_dialog_dropped: Option<unsafe extern "C" fn(*mut c_void, c_int, i64)>,
+    /// browser, match count, active match (1-based), final update.
+    pub on_find_result: Option<unsafe extern "C" fn(*mut c_void, c_int, c_int, c_int, c_int)>,
 }
 
 unsafe extern "C" {
@@ -111,6 +116,18 @@ unsafe extern "C" {
     );
     pub fn rb_shim_set_screen(width_dip: c_int, height_dip: c_int, scale: f64) -> c_int;
     pub fn rb_shim_open_tab(request: c_int, url: *const c_char, w: c_int, h: c_int) -> c_int;
+    /// A shared host's tab: the virtual screen, and only `browser`'s window
+    /// resized (-1: no window yet).
+    pub fn rb_shim_set_tab_screen(browser: c_int, w: c_int, h: c_int, scale: f64) -> c_int;
+    /// [`rb_shim_open_tab`] in a request context of its own whose cache
+    /// (cookies, storage) is `cache_dir`, under the host's root cache.
+    pub fn rb_shim_open_tab_in(
+        request: c_int,
+        url: *const c_char,
+        w: c_int,
+        h: c_int,
+        cache_dir: *const c_char,
+    ) -> c_int;
     pub fn rb_shim_close_tab(browser: c_int);
     pub fn rb_shim_capture(browser: c_int, on: c_int, min_period_us: c_int) -> c_int;
     pub fn rb_shim_capture_refresh(browser: c_int) -> c_int;
@@ -186,6 +203,14 @@ unsafe extern "C" {
     pub fn rb_shim_go_forward(browser: c_int) -> c_int;
     pub fn rb_shim_reload(browser: c_int, ignore_cache: c_int) -> c_int;
     pub fn rb_shim_stop_load(browser: c_int) -> c_int;
+    pub fn rb_shim_find(
+        browser: c_int,
+        text: *const c_char,
+        forward: c_int,
+        match_case: c_int,
+        find_next: c_int,
+    ) -> c_int;
+    pub fn rb_shim_stop_finding(browser: c_int, keep_selection: c_int) -> c_int;
 }
 
 fn cstr(s: &str) -> CString {
@@ -203,12 +228,26 @@ fn range(r: Option<[u32; 2]>) -> (c_int, c_int) {
 
 /// The shim on the CEF UI thread. Use only from shim callbacks or tasks posted
 /// with `rb_shim_post`.
-pub struct ShimPresentation;
+#[derive(Debug, Default)]
+pub struct ShimPresentation {
+    /// The tab's browser once it exists.
+    pub browser: Option<i32>,
+    /// A shared host's tab: its own cache directory (request context). Its
+    /// screen changes size only its own window; `None` (a one-tab host)
+    /// sizes every window, as before.
+    pub cache: Option<CString>,
+}
 
 impl Presentation for ShimPresentation {
     fn set_screen(&mut self, s: ScreenSize) -> bool {
         let w = c_int::try_from(s.css_width).unwrap_or(c_int::MAX);
         let h = c_int::try_from(s.css_height).unwrap_or(c_int::MAX);
+        if self.cache.is_some() {
+            // SAFETY: plain values; on the UI thread by this type's contract.
+            return unsafe {
+                rb_shim_set_tab_screen(self.browser.unwrap_or(-1), w, h, s.scale) == 1
+            };
+        }
         // SAFETY: plain values; on the UI thread by this type's contract.
         unsafe { rb_shim_set_screen(w, h, s.scale) == 1 }
     }
@@ -217,6 +256,12 @@ impl Presentation for ShimPresentation {
         let url = cstr(url);
         let w = c_int::try_from(s.css_width).unwrap_or(c_int::MAX);
         let h = c_int::try_from(s.css_height).unwrap_or(c_int::MAX);
+        if let Some(cache) = self.cache.as_ref() {
+            // SAFETY: `url` and `cache` outlive the call.
+            return unsafe {
+                rb_shim_open_tab_in(request, url.as_ptr(), w, h, cache.as_ptr()) == 1
+            };
+        }
         // SAFETY: `url` outlives the call.
         unsafe { rb_shim_open_tab(request, url.as_ptr(), w, h) == 1 }
     }
@@ -373,6 +418,32 @@ impl Presentation for ShimPresentation {
             }
         };
         done == 1
+    }
+
+    fn find(
+        &mut self,
+        browser: i32,
+        query: &str,
+        forward: bool,
+        match_case: bool,
+        next: bool,
+    ) -> bool {
+        let query = cstr(query);
+        // SAFETY: `query` outlives the call; UI thread.
+        unsafe {
+            rb_shim_find(
+                browser,
+                query.as_ptr(),
+                c_int::from(forward),
+                c_int::from(match_case),
+                c_int::from(next),
+            ) == 1
+        }
+    }
+
+    fn stop_finding(&mut self, browser: i32, keep_selection: bool) -> bool {
+        // SAFETY: plain values; UI thread.
+        unsafe { rb_shim_stop_finding(browser, c_int::from(keep_selection)) == 1 }
     }
 
     fn popup_menu_result(&mut self, fork_token: i64, indices: Option<&[u32]>) -> bool {

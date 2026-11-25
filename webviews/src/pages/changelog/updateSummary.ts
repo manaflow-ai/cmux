@@ -7,8 +7,8 @@
 // Pure: no DOM, no state.
 import { areaOf, type AreaKey } from "./areas";
 import { changeItems, localized, readableChanges } from "./model";
-import { changeArea, readableChange, shortTitle, tidyTitle } from "./readableChange";
-import type { ReleaseNotes, WhatsNewCategory } from "./types";
+import { changeArea, plainChange, readableChange, shortTitle, tidyTitle } from "./readableChange";
+import type { ReleaseNotes, WhatsNewCategory, WhatsNewEntry } from "./types";
 import type { UpdateHighlights } from "./updateHighlights";
 
 /** One line of the card: a known area, else the category its changes share, and their phrases. */
@@ -16,6 +16,10 @@ export interface SummaryRow {
   area?: AreaKey;
   category?: WhatsNewCategory;
   phrases: string[];
+  /** Each phrase's change in full, in the same order and case: the card's change line shows this, so a
+      change is never cut at its first clause ("fix \"the glass on it", u51892: "we need to show everything").
+      The card wraps it onto as many lines as it needs. */
+  full: string[];
 }
 
 export interface UpdateSummary {
@@ -44,10 +48,22 @@ interface Change {
     clause is short enough. */
 function phrase(change: Change, english: boolean): string | undefined {
   const short = shortTitle(change.title, PHRASE_LIMIT);
-  if (!short) return undefined;
-  const lower = short.charAt(0).toLowerCase() + short.slice(1);
-  if (change.raw !== undefined) return change.raw.includes(lower) ? lower : short;
-  return english && /^[A-Z][a-z]*\s+[^A-Z\s]/.test(short) ? lower : short;
+  return short ? cased(short, change, english) : undefined;
+}
+
+/** `text` (the change's title or its first clause) lowercased where ``phrase`` lowercases its clause. */
+function cased(text: string, change: Change, english: boolean): string {
+  const lower = text.charAt(0).toLowerCase() + text.slice(1);
+  if (change.raw !== undefined) return change.raw.includes(lower) ? lower : text;
+  return english && /^[A-Z][a-z]*\s+[^A-Z\s]/.test(text) ? lower : text;
+}
+
+/** The change in full, cased as its phrase `short` (its first clause, or the whole title when it fits):
+    its whole title, without a closing period. */
+function fullPhrase(change: Change, short: string): string {
+  const whole = change.title.trim().replace(/[\s.]+$/u, "");
+  const lowered = short.charAt(0) !== whole.charAt(0) && short.charAt(0) === whole.charAt(0).toLowerCase();
+  return lowered ? whole.charAt(0).toLowerCase() + whole.slice(1) : whole;
 }
 
 function category(group: string): WhatsNewCategory {
@@ -58,10 +74,21 @@ function category(group: string): WhatsNewCategory {
 function summarize(changes: Change[], language: string, unlisted = 0): UpdateSummary {
   const english = language === "en" || language.startsWith("en-");
   const buckets = new Map<string, { row: SummaryRow; changes: Change[]; first: number }>();
-  changes.forEach((change, index) => {
+  // The card says each change as the popover beside it does (readableChange.ts plainChange): a line
+  // only a builder reads never leads the card; it still counts in "+N more" (Leo 2026-11-14).
+  const plain = changes.flatMap((change) => {
+    const said = plainChange(change.title, undefined, language, false);
+    if (!said) return [];
+    if (said.title === change.title) return [change];
+    const { raw: _raw, ...rest } = change;
+    return [{ ...rest, title: said.title }];
+  });
+  plain.forEach((change, index) => {
     const key = change.area ?? `category:${change.category}`;
     const bucket = buckets.get(key) ?? {
-      row: change.area ? { area: change.area, phrases: [] } : { category: change.category, phrases: [] },
+      row: change.area
+        ? { area: change.area, phrases: [], full: [] }
+        : { category: change.category, phrases: [], full: [] },
       changes: [],
       first: index,
     };
@@ -75,21 +102,51 @@ function summarize(changes: Change[], language: string, unlisted = 0): UpdateSum
   let listed = 0;
   for (const bucket of ordered) {
     if (rows.length === ROWS) break;
-    const phrases = bucket.changes.flatMap((c) => phrase(c, english) ?? []).slice(0, PHRASES);
-    if (phrases.length === 0) continue;
-    rows.push({ ...bucket.row, phrases });
+    const picked = bucket.changes
+      .flatMap((c) => {
+        const short = phrase(c, english);
+        return short ? [{ short, full: fullPhrase(c, short) }] : [];
+      })
+      .slice(0, PHRASES);
+    if (picked.length === 0) continue;
+    const phrases = picked.map((p) => p.short);
+    rows.push({ ...bucket.row, phrases, full: picked.map((p) => p.full) });
     listed += phrases.length;
   }
   return { rows, more: changes.length + unlisted - listed };
 }
 
-/** A build's reviewed changes: its What's New entries (not the ones made from summary lines) and
-    the highlights they do not carry. */
+/** The entry a build with nothing reviewed publishes in place of a What's New
+    (scripts/cmux-next/release-notes.py GENERIC_ENTRY): "Fixes and improvements", which says nothing
+    (Leo 2026-11-02, on the card reading "Improved: fixes and improvements"). It is not a change: the
+    card reads that build's own commits instead. */
+export const GENERIC_ENTRY_ID = "fixes-and-improvements";
+
+/** Whether `id`/`title` is the generic entry, by its id and its English title. */
+export function isGenericEntry(id: string, title: string): boolean {
+  return id === GENERIC_ENTRY_ID && tidyTitle(title).toLowerCase() === "fixes and improvements";
+}
+
+/** Whether a What's New entry is the generic entry, by its source identity: its id and its English
+    title, whatever language the page shows (#37615 F1). */
+export function isGenericWhatsNewEntry(entry: WhatsNewEntry): boolean {
+  return isGenericEntry(entry.id, localized(entry.title, "en"));
+}
+
+/** Whether a build has reviewed changes (``curatedChanges``): such a build reads as those, any other
+    as its readable commits. */
+export function hasCuratedChanges(notes: ReleaseNotes): boolean {
+  return curatedChanges(notes, "en").length > 0;
+}
+
+/** A build's reviewed changes: its What's New entries (not the ones made from summary lines, nor
+    the generic entry) and the highlights they do not carry. */
 function curatedChanges(notes: ReleaseNotes, language: string): Change[] {
   const changes: Change[] = [];
   const ids = new Set<string>();
   for (const entry of notes.whatsNew?.entries ?? []) {
     if (entry.id.startsWith("summary-")) continue;
+    if (isGenericWhatsNewEntry(entry)) continue;
     ids.add(entry.id);
     const title = tidyTitle(localized(entry.title, language));
     changes.push({ title, category: entry.category, area: areaOf(title) });
@@ -130,7 +187,7 @@ export function summarizeUpdate(notes: ReleaseNotes[], language: string): Update
 /** The summary of what the host sent for the installed build alone, when the span's notes did not
     load (an older host, offline): the same rows, from its already readable items. */
 export function summarizeHighlights(data: UpdateHighlights): UpdateSummary {
-  const items = [...data.items, ...(data.rest ?? [])];
+  const items = [...data.items, ...(data.rest ?? [])].filter((item) => !isGenericEntry(item.id, item.title));
   const changes = items.map((item) => ({ title: item.title, category: item.category, area: areaOf(item.title) }));
   return summarize(changes, data.language, Math.max(0, data.moreCount - (data.rest?.length ?? 0)));
 }

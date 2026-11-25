@@ -2,6 +2,9 @@
 // Workflow progress traverses the real App memo boundary; unchanged siblings stay untouched.
 import { afterAll, expect, test } from "bun:test";
 import { JSDOM, VirtualConsole } from "jsdom";
+import { teardownDom } from "./support/domTeardown";
+import { RUNNING_TRAY_LINE } from "../src/agent-session/acpmux/subagents/subagentSelectors";
+import { SESSION_INFO } from "../src/agent-session/acpmux/session-info/sessionInfoSelectors";
 
 const dom = new JSDOM("<!doctype html><div id=root></div>", {
   url: "cmux-agent://pane/index.html",
@@ -53,15 +56,10 @@ const { createRoot } = await import("react-dom/client");
 const fixtures = await import("../src/gallery/fixtures/acpmux");
 const { AcpmuxApp } = await import("../src/agent-session/acpmux/App");
 
-afterAll(() => {
-  dom.window.close();
-  for (const [key, had, value] of saved) {
-    if (had) scope[key] = value;
-    else delete scope[key];
-  }
+afterAll(async () => {
+  await teardownDom(saved, { window: dom.window, scope });
 });
 
-const { configureSubagentTray } = await import("../src/agent-session/acpmux/subagents/runningTray");
 const { rememberTrayOpen } = await import("../src/agent-session/acpmux/subagents/trayFoldMemory");
 // A tray of more than one line starts folded and builds no rows (cmux#29250); these tests read rows.
 for (const chat of [fixtures.SESSION_ID, "late-root-tray"]) rememberTrayOpen(chat, true);
@@ -79,6 +77,8 @@ const mountApp = async (root: { render(node: unknown): void }) => {
 const { AgentProgressStore, markAgentProgressSource } =
   await import("../src/agent-session/acpmux/subagents/agentProgressSource");
 const { SubagentFold } = await import("../src/agent-session/acpmux/subagents/subagentFold");
+const { bindSessionInfoPane, setSessionInfoOpen } =
+  await import("../src/agent-session/acpmux/session-info/sessionInfoState");
 type Subagent = import("../src/agent-session/acpmux/subagents/subagentFold").Subagent;
 const agents: Subagent[] = ["workflow-a", "workflow-b"].map((id) => ({
   id,
@@ -133,7 +133,6 @@ for (const producer of [false, true])
       markAgentProgressSource(next.rows, fold.progressSource);
       return next;
     };
-    configureSubagentTray(true);
     (dom.window as unknown as { webkit: unknown }).webkit = {
       messageHandlers: {
         agentSession: {
@@ -152,7 +151,7 @@ for (const producer of [false, true])
     try {
       await mountApp(root);
       await act(async () => receive(publish(structuredClone(agents))));
-      const rows = () => [...dom.window.document.querySelectorAll(".acpmux-running-tray .acpmux-agent-line")];
+      const rows = () => [...dom.window.document.querySelectorAll(RUNNING_TRAY_LINE)];
       expect(rows()).toHaveLength(2);
       const [first, second] = rows();
       const before = second!.innerHTML;
@@ -187,8 +186,11 @@ for (const producer of [false, true])
     }
   });
 
+/// A workflow's progress: on its line, or, for a lone item, on the folded hat's header (SubagentTray.tsx
+/// LoneProgress), where the line is not drawn until the hat opens.
+const PROGRESS = ".acpmux-agent-line__progress, .acpmux-running-tray__stats";
+
 test("bridge repopulates progress when switching sessions", async () => {
-  configureSubagentTray(true);
   (dom.window as unknown as { webkit: unknown }).webkit = {
     messageHandlers: {
       agentSession: {
@@ -209,16 +211,15 @@ test("bridge repopulates progress when switching sessions", async () => {
     const second = { ...agents[0]!, id: "workflow-session-b", tokens: 84_000, agents: { started: 3, done: 2 } };
     await mountApp(root);
     await act(async () => receive(snapshot([first], [], "gallery-session-a")));
-    expect(dom.window.document.querySelector(".acpmux-agent-line__progress")?.textContent).toBe("1/3 agents");
+    expect(dom.window.document.querySelector(PROGRESS)?.textContent).toBe("1/3 agents");
     await act(async () => receive(snapshot([second], [], "gallery-session-b")));
-    expect(dom.window.document.querySelector(".acpmux-agent-line__progress")?.textContent).toBe("2/3 agents");
+    expect(dom.window.document.querySelector(PROGRESS)?.textContent).toBe("2/3 agents");
   } finally {
     await act(async () => root.unmount());
   }
 });
 
 test("versioned bridge snapshots retain progress when an unrelated snapshot omits the delta", async () => {
-  configureSubagentTray(true);
   (dom.window as unknown as { webkit: unknown }).webkit = {
     messageHandlers: {
       agentSession: {
@@ -240,7 +241,7 @@ test("versioned bridge snapshots retain progress when an unrelated snapshot omit
     ...snapshot(items, changed),
     subagentStructureVersion: 1,
   });
-  const progress = () => dom.window.document.querySelector(".acpmux-agent-line__progress")?.textContent;
+  const progress = () => dom.window.document.querySelector(PROGRESS)?.textContent;
   try {
     await mountApp(root);
     await act(async () => receive(versioned([first])));
@@ -255,7 +256,6 @@ test("versioned bridge snapshots retain progress when an unrelated snapshot omit
 });
 
 test("compatibility snapshots without a progress delta refresh the row from its latest agent", async () => {
-  configureSubagentTray(true);
   (dom.window as unknown as { webkit: unknown }).webkit = {
     messageHandlers: {
       agentSession: {
@@ -276,16 +276,15 @@ test("compatibility snapshots without a progress delta refresh the row from its 
     const updated = { ...first, tokens: 84_000, agents: { started: 3, done: 2 } };
     await mountApp(root);
     await act(async () => receive(snapshot([first], [], "compatibility-session")));
-    expect(dom.window.document.querySelector(".acpmux-agent-line__progress")?.textContent).toBe("1/3 agents");
+    expect(dom.window.document.querySelector(PROGRESS)?.textContent).toBe("1/3 agents");
     await act(async () => receive(snapshot([updated], [], "compatibility-session")));
-    expect(dom.window.document.querySelector(".acpmux-agent-line__progress")?.textContent).toBe("2/3 agents");
+    expect(dom.window.document.querySelector(PROGRESS)?.textContent).toBe("2/3 agents");
   } finally {
     await act(async () => root.unmount());
   }
 });
 
 test("a rebuilt producer source refreshes rows even when its structure counter restarts", async () => {
-  configureSubagentTray(true);
   (dom.window as unknown as { webkit: unknown }).webkit = {
     messageHandlers: {
       agentSession: {
@@ -374,7 +373,6 @@ test("one usage event touches one source entry regardless of sibling count", () 
 
 for (const surface of ["tray", "inspector"] as const)
   test(`late root identification retires phantom progress from the ${surface}`, async () => {
-    configureSubagentTray(true);
     (dom.window as unknown as { webkit: unknown }).webkit = {
       messageHandlers: {
         agentSession: {
@@ -407,7 +405,12 @@ for (const surface of ["tray", "inspector"] as const)
     };
     const root = createRoot(dom.window.document.getElementById("root")!);
     const container = () =>
-      dom.window.document.querySelector(surface === "tray" ? ".acpmux-running-tray" : "aside.acpmux-session-info");
+      dom.window.document.querySelector(surface === "tray" ? ".acpmux-running-tray" : SESSION_INFO);
+    // Session Info starts closed in a new chat: opened before the chat binds, it is this chat's.
+    if (surface === "inspector") {
+      bindSessionInfoPane(undefined);
+      setSessionInfoOpen(true);
+    }
     try {
       await mountApp(root);
       await act(async () => receive(publish()));
@@ -440,3 +443,10 @@ for (const surface of ["tray", "inspector"] as const)
       await act(async () => root.unmount());
     }
   });
+
+// This suite checks the headers from before the `tally` arm (trayFoldHead.experiment.ts, the default since
+// Leo's 2026-11-23 ask); subagent-tray-tally.test.tsx checks `tally`. Read when each tray mounts.
+{
+  const host = globalThis as { cmuxExperiments?: Record<string, string> };
+  host.cmuxExperiments = { ...host.cmuxExperiments, "subagent-tray-fold-head": "kinds" };
+}

@@ -4,7 +4,7 @@ import CmuxMobileTransport
 import Foundation
 import OSLog
 
-private let creationLog = Logger(subsystem: "dev.cmux.mobile", category: "creation")
+let creationLog = Logger(subsystem: "dev.cmux.mobile", category: "creation")
 
 /// Creates workspaces and tabs on the linked Mac's cmux-tui daemon. The
 /// phone's `daemon` lane (cmux-mobile-host policy) allows `new-workspace {name}`,
@@ -14,12 +14,18 @@ private let creationLog = Logger(subsystem: "dev.cmux.mobile", category: "creati
 @MainActor
 public final class LiveWorkspaceCreationBackend: WorkspaceCreationBackend {
     let sync: WorkspaceSync
-    private let link: LinkController
+    let link: LinkController
     /// Starts the agent session behind a new agent tab (nil: no agent tabs).
     weak var acpmux: AcpmuxHub?
 
     /// The capabilities each Mac's `version` service reported (nil: not known yet).
     public var capabilities: @MainActor (String) -> Set<String>? = { _ in nil }
+    /// Reads the person made, sent until the Mac answers (LiveWorkspaceArrangement.swift).
+    var reads = StickyRead()
+    /// New Task's chats by the workspace `create` made, until `sendTask` sends the task.
+    var taskSessions: [String: (session: String, cwd: String)] = [:]
+    /// Each workspace's newest Mark as Read / Unread: an older read stops once a newer one is made.
+    var readMarks: [String: Int] = [:]
 
     /// Whether a Mac streams browser tabs: it said `browser-stream-v1`. A Mac that
     /// has not answered yet keeps the option (an older Mac's refusal then reads plainly).
@@ -83,14 +89,136 @@ public final class LiveWorkspaceCreationBackend: WorkspaceCreationBackend {
                 _ = try? await client.request("close-workspace", params: ["key": key])
                 throw error
             }
-            let tree = try await sync.listNow()
-            guard let workspace = tree.workspaces.first(where: { $0.id == key }) else {
-                throw WorkspaceCreationError("The new workspace didn't appear on the Mac")
+            if request.task != nil { taskSessions[key] = (session, cwd) }
+            // `create-workspace` answered with the key, so the Mac has it: a fresh list that
+            // leaves it out twice is a broken state, and a task start that the phone reports as
+            // failed (its draft comes back) closes it, so no unprompted chat is left to start
+            // again. A list that fails (the link) proves nothing: the workspace stays, with no
+            // prompt sent, so nothing can run twice.
+            for attempt in 0..<2 {
+                let tree: DaemonTree
+                do {
+                    tree = try await sync.listNow()
+                } catch {
+                    taskSessions[key] = nil
+                    throw error
+                }
+                if let workspace = tree.workspaces.first(where: { $0.id == key }) { return workspace }
+                if attempt == 1 {
+                    taskSessions[key] = nil
+                    if request.task != nil { _ = try? await client.request("close-workspace", params: ["key": key]) }
+                }
             }
-            return workspace
+            throw WorkspaceCreationError("The new workspace didn't appear on the Mac")
         } catch let error as DaemonReplyError {
             throw WorkspaceCreationError(error.message)
         }
+    }
+
+    /// New Task's prompt and images as the first message of the chat `create` made in
+    /// `workspace`: acpmux `session/prompt`, once per `promptId`, as the chat's own Send does
+    /// it, in its own task: acpmux answers only when the agent's turn ends, which nobody waits
+    /// for. A failure is reported through `failed`, said by what the phone knows of it.
+    public func sendTask(_ task: AgentTask, in workspace: Workspace,
+                         failed: @escaping @MainActor (TaskDeliveryFailure) -> Void) throws {
+        guard let (session, cwd) = taskSessions.removeValue(forKey: workspace.id) else {
+            throw WorkspaceCreationError("The chat for this task isn't on the Mac.", isForPerson: true)
+        }
+        guard let acpmux, acpmux.isReady else {
+            throw WorkspaceCreationError("Agents on this Mac aren't connected.", isForPerson: true)
+        }
+        acpmux.beginFirstPrompt(session)
+        // The chat's own prompt builder (photos inline, files uploaded to the session's folder and
+        // linked), with no chat source: the chat's own is made when its page opens.
+        let macName = link.target?.name ?? "the Mac"
+        Task {
+            let blocks: [JSONValue]
+            do {
+                blocks = try await AcpmuxSessionSource.promptBlocks(text: task.prompt, attachments: Self.taskAttachments(task),
+                                                                    link: acpmux.macLink, cwd: cwd, macName: macName)
+            } catch {
+                // A file that couldn't be uploaded: nothing was sent, the task waits in the chat.
+                acpmux.endFirstPrompt(session)
+                failed(.notSent(AcpmuxSessionSource.message(error)))
+                return
+            }
+            do {
+                // On success the mark stays until the chat shows the task: a fast agent's reply can
+                // come before the chat's records do (live run 16). The hub's cap ends stale marks.
+                _ = try await acpmux.request("session/prompt", .object([
+                    "sessionId": .string(session), "prompt": .array(blocks),
+                    "_meta": .object(["acpmux": .object([
+                        "promptId": .string(UUID().uuidString), "steer": .bool(false), "resend": .bool(false),
+                    ])]),
+                ]))
+            } catch {
+                // Not sent (or unknown): the chat stops saying it is starting. On success the
+                // mark stays until the chat shows the task (its records can come after this reply).
+                acpmux.endFirstPrompt(session)
+                failed(Self.deliveryFailure(error))
+            }
+        }
+    }
+
+    /// What a failed first send means for the person: never sent (no connection: it can go again
+    /// from the chat's composer), refused by the agent (its own answer, acpmux's RPC error), else
+    /// unknown (a dropped link, a failed write, a cancel: the Mac may have it).
+    static func deliveryFailure(_ error: any Error) -> TaskDeliveryFailure {
+        let reason = AcpmuxSessionSource.message(error)
+        if let link = error as? LinkError, link.code == "offline" { return .notSent(reason) }
+        if error is AcpmuxConnection.RPCError { return .refused(reason) }
+        return .uncertain(reason)
+    }
+
+    /// A task's photos and files as the chat's attachments (its prompt builder sends them).
+    nonisolated static func taskAttachments(_ task: AgentTask) -> [AgentAttachment] {
+        task.images.map { AgentAttachment(id: $0.id, kind: .image, name: "Photo", data: $0.data) }
+            + task.files.map { AgentAttachment(id: $0.id, kind: .file, name: $0.name, data: $0.data) }
+    }
+
+    /// A terminal launch: uploads the task's photos and files to `cwd` (the workspace's folder),
+    /// then types the agent's command into the new terminal (`send`, as the folder's `cd` line).
+    /// Throws, closing nothing, when the agent has no CLI here or an upload fails; the caller
+    /// closes the workspace it made.
+    func launchInTerminal(_ task: AgentTask, surface: Int, cwd: String, client: DaemonClient) async throws {
+        guard task.terminalLine() != nil else {
+            throw WorkspaceCreationError("This agent can't open in a terminal from here. Open it as a chat.", isForPerson: true)
+        }
+        var paths: [String] = []
+        let attachments = Self.taskAttachments(task)
+        if !attachments.isEmpty {
+            guard let macLink = acpmux?.macLink else {
+                throw WorkspaceCreationError("Connect to the Mac to send the task's attachments.", isForPerson: true)
+            }
+            let macName = link.target?.name ?? "the Mac"
+            for attachment in attachments {
+                guard let data = attachment.data else { continue }
+                let name = attachment.kind == .image ? "photo-\(attachment.id.prefix(8)).jpg" : attachment.name
+                do {
+                    paths.append(try await AcpmuxSessionSource.upload(.data(data), name: name, cwd: cwd, link: macLink, macName: macName))
+                } catch {
+                    // The phone's own words ("Couldn't send <file>…"), not the Mac's.
+                    throw WorkspaceCreationError(AcpmuxSessionSource.message(error), isForPerson: true)
+                }
+            }
+        }
+        // One line: `cd` to the folder, then the agent only if that worked (never in another folder).
+        guard let line = task.terminalLine(folder: cwd, attachmentPaths: paths) else { return }
+        do {
+            try WorkspaceSync.check(await client.request("send", params: ["surface": surface, "text": line]))
+        } catch let error as DaemonReplyError {
+            // The Mac answered no: nothing was typed. The caller closes the workspace.
+            throw WorkspaceCreationError(error.message)
+        } catch {
+            // The reply was lost: the line may have run. The workspace stays (never a second agent).
+            throw TerminalLaunchUncertain(message: AcpmuxSessionSource.message(error))
+        }
+    }
+
+    /// A terminal launch whose command may have reached the shell (its reply was lost).
+    struct TerminalLaunchUncertain: Error, LocalizedError {
+        let message: String
+        var errorDescription: String? { message }
     }
 
     nonisolated static let chatFolderRefusal = "Agent chats start in a folder that's open on the Mac. Open a workspace there first (New Workspace › Open Folder…), then start the chat."
@@ -124,7 +252,11 @@ public final class LiveWorkspaceCreationBackend: WorkspaceCreationBackend {
             throw WorkspaceCreationError("Not connected")
         }
         if case .agent(let harness) = request.start {
-            return try await createChatWorkspace(request, start: AgentChatStart(harness: harness.isEmpty ? nil : harness),
+            return try await createChatWorkspace(request, start: AgentChatStart(harness: harness.isEmpty ? nil : harness,
+                                                                                model: request.task?.model,
+                                                                                effort: request.task?.effort,
+                                                                                mode: request.task?.mode,
+                                                                                options: request.task?.options ?? [:]),
                                                  placeholder: placeholder, client: client)
         }
         do {
@@ -135,8 +267,38 @@ public final class LiveWorkspaceCreationBackend: WorkspaceCreationBackend {
                 throw WorkspaceCreationError("The Mac didn't say which workspace it created")
             }
             var opening = DaemonTree.tabID(surface: surface)
-            if let directory = request.directory, let line = Self.changeDirectoryLine(directory) {
+            if request.task?.launch != .terminal, let directory = request.directory, let line = Self.changeDirectoryLine(directory) {
                 _ = try? await client.request("send", params: ["surface": surface, "text": line])
+            }
+            if let task = request.task, task.launch == .terminal {
+                // New Task in a terminal: the agent's CLI, in the folder the `cd` line went to.
+                let folders = Set((sync.tree?.directories ?? [:]).values)
+                let cwd = Self.chatFolder(request.directory, known: folders) ?? request.directory ?? "~"
+                do {
+                    try await launchInTerminal(task, surface: surface, cwd: cwd, client: client)
+                } catch let uncertain as TerminalLaunchUncertain {
+                    // Maybe running: the workspace stands; the person checks it (no draft comes back).
+                    let tree = try? await sync.listNow()
+                    if let made = tree?.workspaces.first(where: { $0.tabs.contains { $0.id == opening } }) { return made }
+                    throw WorkspaceCreationError("The task may have started on the Mac: \(uncertain.message). Check its workspaces before starting it again.",
+                                                 isForPerson: true, mayHaveStarted: true)
+                } catch {
+                    // The phone reports this start as failed (its draft comes back): the
+                    // workspace goes too, with nothing running in it.
+                    if let made = try? await sync.listNow().workspaces.first(where: { $0.tabs.contains { $0.id == opening } }) {
+                        _ = try? await client.request("close-workspace", params: ["key": made.id])
+                    }
+                    throw error
+                }
+                // Typed: the agent runs from here, so no failure below hands the task back.
+                do {
+                    let tree = try await sync.listNow()
+                    if let made = tree.workspaces.first(where: { $0.tabs.contains { $0.id == opening } }) { return made }
+                    throw WorkspaceCreationError("The new workspace didn't appear on the Mac")
+                } catch {
+                    throw WorkspaceCreationError("The task started on the Mac, but its workspace didn't show here: \(AcpmuxSessionSource.message(error)). Check its workspaces before starting it again.",
+                                                 isForPerson: true, mayHaveStarted: true)
+                }
             }
             if request.start == .browser {
                 // No pane: the active pane, which is the new workspace's. If
@@ -158,95 +320,21 @@ public final class LiveWorkspaceCreationBackend: WorkspaceCreationBackend {
         }
     }
 
-    /// One tab of a phone's Duplicate Workspace.
-    enum DuplicateStep: Hashable, Sendable {
-        /// A new shell; `folder` is typed as `cd` when it can be (nil: the Mac's default).
-        case terminal(folder: String?)
-        case browser(url: String)
-    }
-
-    /// What Duplicate Workspace makes, as the Mac's `WorkspaceBlueprint`: each terminal tab
-    /// again as a new shell in its folder, each web page again, in tab order. Agent chats and
-    /// pages that are not http or https are left out (a phone never opens those itself).
-    nonisolated static func duplicatePlan(_ workspace: Workspace, directories: [String: String]) -> [DuplicateStep] {
-        workspace.tabs.compactMap { tab in
-            switch tab.kind {
-            case .terminal:
-                return .terminal(folder: directories[tab.id] ?? tab.subtitle)
-            case .browser:
-                guard let url = tab.url, ["http", "https"].contains(url.scheme?.lowercased() ?? "") else { return nil }
-                return .browser(url: url.absoluteString)
-            case .agent, .simulator:
-                return nil
-            }
-        }
-    }
-
-    /// The Mac's Duplicate Workspace (`workspace.duplicate`), from lines a phone already
-    /// sends: `new-workspace {name}` (one shell), then in its pane `new-tab {pane}` per
-    /// terminal and `new-browser-tab {url, pane}` per page, and each shell gets
-    /// `cd '<folder>' && clear` typed (`changeDirectoryLine`), as New Workspace in a folder.
-    /// The daemon never takes a program or folder from the phone. Unlike the Mac, every tab
-    /// goes in one pane (the phone does not copy splits), and color and icon stay.
-    public func duplicate(_ workspace: Workspace) async throws -> Workspace {
+    /// The Mac's Duplicate Workspace (`workspace.duplicate`) and Duplicate Workspace Without
+    /// Browser Tabs (`workspace.duplicateTerminalsOnly`): its layout, tabs, color and icon,
+    /// from lines a phone already sends (LiveWorkspaceDuplicate.swift).
+    public func duplicate(_ workspace: Workspace, browsers: Bool) async throws -> Workspace {
         guard canManage(on: workspace.macID), let client = sync.daemon, let tree = sync.tree else {
             throw WorkspaceCreationError("Not connected")
         }
         guard !workspace.isHome else { throw WorkspaceCreationError("Home has no duplicate.", isForPerson: true) }
-        let plan = Self.duplicatePlan(workspace, directories: tree.directories)
+        // The Mac's own copy of the workspace now (its layout is the tree's, not a stale row's).
+        let current = (tree.workspaces.first { $0.id == workspace.id }) ?? workspace
+        // Pages only where the Mac can open them, so no pane keeps a placeholder shell for one.
+        let pages = browsers && Self.streamsBrowser(capabilities(workspace.macID))
+        let blueprint = Self.duplicateBlueprint(current, directories: tree.directories, browsers: pages)
         do {
-            func surface(_ reply: Data) throws -> Int {
-                guard let id = (try WorkspaceSync.check(reply)["data"] as? [String: Any])?["surface"] as? Int else {
-                    throw WorkspaceCreationError("The Mac didn't say which tab it opened")
-                }
-                return id
-            }
-            let first = try surface(await client.request("new-workspace", params: ["name": workspace.title]))
-            let listed = try await sync.listNow()
-            let firstID = DaemonTree.tabID(surface: first)
-            guard let pane = listed.tabPlaces[firstID]?.pane,
-                  let createdID = listed.workspaces.first(where: { $0.tabs.contains { $0.id == firstID } })?.id else {
-                // Its first tab is all there is of it: close it, so no empty copy stays.
-                _ = try? await client.request("close-surface", params: ["surface": first])
-                throw WorkspaceCreationError("The new workspace didn't appear on the Mac")
-            }
-            // Pages only on a Mac that streams browser tabs; one that fails is left out (as
-            // New Browser Tab is optional elsewhere), never the terminals after it.
-            let pages = Self.streamsBrowser(capabilities(workspace.macID))
-            var firstUsed = false
-            do {
-                for step in plan {
-                    switch step {
-                    case .terminal(let folder):
-                        let shell: Int
-                        if firstUsed {
-                            shell = try surface(await client.request("new-tab", params: ["pane": pane]))
-                        } else {
-                            shell = first
-                            firstUsed = true
-                        }
-                        if let folder, let line = Self.changeDirectoryLine(folder) {
-                            _ = try? await client.request("send", params: ["surface": shell, "text": line])
-                        }
-                    case .browser(let url):
-                        guard pages else { continue }
-                        _ = try? await client.request("new-browser-tab", params: ["url": url, "pane": pane])
-                    }
-                }
-            } catch {
-                // A half-made copy is never left behind.
-                _ = try? await client.request("close-workspace", params: ["key": createdID])
-                throw error
-            }
-            // Only pages: the first shell goes, as the Mac's builder closes its initial tab.
-            if !firstUsed, !plan.isEmpty {
-                _ = try? await client.request("close-surface", params: ["surface": first])
-            }
-            let tree = try await sync.listNow()
-            guard let created = tree.workspaces.first(where: { $0.id == createdID }) else {
-                throw WorkspaceCreationError("The new workspace didn't appear on the Mac")
-            }
-            return created
+            return try await buildDuplicate(blueprint, name: current.title, color: current.colorHex, icon: current.icon, on: client)
         } catch let error as DaemonReplyError {
             throw WorkspaceCreationError(error.message)
         }
@@ -415,7 +503,41 @@ public final class LiveWorkspaceCreationBackend: WorkspaceCreationBackend {
                 creationLog.error("set_model \(model, privacy: .public) refused: \(AcpmuxSessionSource.message(error), privacy: .public)")
             }
         }
+        await Self.applyStartSettings(start, to: session, choice: choice) { method, params in
+            _ = try await acpmux.request(method, params, timeout: .seconds(20))
+        }
+        acpmux.noteStartedHere(session)
         return (choice.id, session)
+    }
+
+    /// The effort, mode and options the phone picked, set on the new chat before its first prompt,
+    /// each only when the Mac offers it (as the Mac's composer applies its held picks). A refusal
+    /// leaves the agent's own value: the chat stands, as with a refused model.
+    static func applyStartSettings(_ start: AgentChatStart, to session: String, choice: AgentHarnessChoice,
+                                   send: @Sendable (String, JSONValue) async throws -> Void) async {
+        var requests: [(String, JSONValue)] = []
+        if let effort = start.effort, choice.efforts(model: start.model).contains(where: { $0.id == effort }) {
+            // acpmux finds the agent's own effort option for `effort` (`model_options.rs`).
+            requests.append(("session/set_config_option", .object([
+                "sessionId": .string(session), "configId": .string(choice.effortOption?.id ?? "effort"), "value": .string(effort),
+            ])))
+        }
+        if let mode = start.mode, mode != choice.askingModes.first, choice.askingModes.contains(mode) {
+            requests.append(("session/set_mode", .object(["sessionId": .string(session), "modeId": .string(mode)])))
+        }
+        for (id, value) in start.options.sorted(by: { $0.key < $1.key }) {
+            guard choice.configOptions.first(where: { $0.id == id })?.choices.contains(where: { $0.id == value }) == true else { continue }
+            requests.append(("session/set_config_option", .object([
+                "sessionId": .string(session), "configId": .string(id), "value": .string(value),
+            ])))
+        }
+        for (method, params) in requests {
+            do {
+                try await send(method, params)
+            } catch {
+                creationLog.error("\(method, privacy: .public) refused: \(AcpmuxSessionSource.message(error), privacy: .public)")
+            }
+        }
     }
 
     /// acpmux could not reach the model service the agent's route needs (`route.unavailable`):
@@ -542,6 +664,58 @@ public final class LiveWorkspaceCreationBackend: WorkspaceCreationBackend {
     public func renameTab(_ tab: WorkspaceTab, in workspace: Workspace, to title: String) async throws {
         let (client, surface) = try target(tab, in: workspace)
         try await run(client, "rename-surface", ["surface": surface, "name": title])
+    }
+
+    /// The Mac's Clear Tab Name: `rename-surface {surface, name: ""}` (the daemon reads an
+    /// empty name as none), then a fresh list.
+    public func clearTabName(_ tab: WorkspaceTab, in workspace: Workspace) async throws {
+        let (client, surface) = try target(tab, in: workspace)
+        try await run(client, "rename-surface", ["surface": surface, "name": ""])
+    }
+
+    /// The Mac's New Tab rows (`newTabOfPaneKind`): a tab of the pane's kind, `new-tab {pane}`
+    /// for a terminal, `new-browser-tab {url: about:blank, pane}` for a page and a new chat of
+    /// the same agent (`new-conversation-tab {pane, agent_session}`), then `move-tab {surface,
+    /// pane, index}` to the position. Nothing new on the daemon lane.
+    public func newTab(besides tab: WorkspaceTab, at position: NewTabPosition, in workspace: Workspace) async throws -> WorkspaceTab {
+        let (client, _) = try target(tab, in: workspace)
+        guard let place = sync.tree?.tabPlaces[tab.id] else { throw WorkspaceCreationError("The Mac doesn't list this tab") }
+        do {
+            let reply: Data
+            switch tab.kind {
+            case .terminal:
+                reply = try await client.request("new-tab", params: ["pane": place.pane])
+            case .browser:
+                reply = try await client.request("new-browser-tab", params: ["url": "about:blank", "pane": place.pane])
+            case .agent:
+                let (harness, session) = try await startAgentSession(AgentChatStart(harness: sync.tree?.agentTabs[tab.id]?.harness), in: workspace)
+                reply = try await client.request("new-conversation-tab", params: [
+                    "pane": place.pane, "agent_session": ["harness": harness, "session": session],
+                ])
+            case .simulator:
+                throw WorkspaceCreationError("Open phone tabs on your Mac.", isForPerson: true)
+            }
+            guard let surface = (try WorkspaceSync.check(reply)["data"] as? [String: Any])?["surface"] as? Int else {
+                throw WorkspaceCreationError("The Mac didn't say which tab it opened")
+            }
+            let id = DaemonTree.tabID(surface: surface)
+            var tree = try await sync.listNow()
+            if let created = tree.tabPlaces[id], created.pane == place.pane, let anchor = tree.tabPlaces[tab.id],
+               let slots = tree.paneSlots[place.pane],
+               let index = position.moveIndex(from: created.index, anchor: anchor.index, pinned: slots.map(\.pinned),
+                                              groups: slots.map(\.group)) {
+                // The tab stays where the Mac put it when the move is refused: it was made.
+                if (try? WorkspaceSync.check(await client.request("move-tab", params: ["surface": surface, "pane": place.pane, "index": index]))) != nil {
+                    tree = try await sync.listNow()
+                }
+            }
+            guard let created = tree.workspaces.flatMap(\.tabs).first(where: { $0.id == id }) else {
+                throw WorkspaceCreationError("The new tab didn't appear on the Mac")
+            }
+            return created
+        } catch let error as DaemonReplyError {
+            throw WorkspaceCreationError(error.message)
+        }
     }
 
     /// The Mac's Duplicate Tab: a terminal is a new terminal in the tab's pane (the Mac
@@ -898,6 +1072,44 @@ public final class LiveWorkspaceCreationBackend: WorkspaceCreationBackend {
         }
     }
 
+    /// Duplicate Screen, as the Mac's `ScreenCommands.duplicate`: a new screen (`new-screen`) with
+    /// the same name (`rename-screen`), its terminal in the folder of the screen's shown tab
+    /// (`cd '<folder>' && clear` typed, as New Workspace in a folder; the phone sends no `cwd`).
+    /// The Mac also gives the copy the screen's color, icon and place right after it: a phone
+    /// may not set those (`new-screen` takes only the workspace from a phone), so the copy goes
+    /// at the end with the Mac's default look.
+    public func duplicateScreen(_ screen: MacScreen, in workspace: Workspace) async throws -> WorkspaceTab {
+        guard canManage(on: workspace.macID), let client = sync.daemon, let tree = sync.tree else { throw WorkspaceCreationError("Not connected") }
+        guard let number = tree.workspaceNumbers[workspace.id] else { throw WorkspaceCreationError("The Mac doesn't list this workspace") }
+        let folder = Self.duplicateFolder(of: screen, in: workspace, directories: tree.directories)
+        do {
+            let reply = try await client.request("new-screen", params: ["workspace": number])
+            guard let surface = (try WorkspaceSync.check(reply)["data"] as? [String: Any])?["surface"] as? Int else {
+                throw WorkspaceCreationError("The Mac didn't say which tab it opened")
+            }
+            if let folder, let line = Self.changeDirectoryLine(folder) {
+                _ = try? await client.request("send", params: ["surface": surface, "text": line])
+            }
+            let tab = try await listedTab(surface)
+            let name = screen.name.trimmingCharacters(in: .whitespacesAndNewlines)
+            if !name.isEmpty, let copy = sync.tree?.workspaces.first(where: { $0.id == workspace.id })?.screen(ofTab: tab.id)?.screen {
+                // The copy stands either way: a refused name leaves the Mac's default.
+                try? await run(client, "rename-screen", ["screen": copy.id, "name": name])
+            }
+            return tab
+        } catch let error as DaemonReplyError {
+            throw WorkspaceCreationError(error.message)
+        }
+    }
+
+    /// The folder Duplicate Screen opens its terminal in: the shown tab of the screen's active
+    /// pane (else its first tab), as the Mac reads the default pane's tab.
+    nonisolated static func duplicateFolder(of screen: MacScreen, in workspace: Workspace, directories: [String: String]) -> String? {
+        let pane = screen.activePane ?? screen.panes.first
+        let shown = pane.flatMap { pane in workspace.layout?.pane(pane)?.activeTabID } ?? screen.tabIDs.first
+        return shown.flatMap { directories[$0] }
+    }
+
     public func renameScreen(_ screen: MacScreen, in workspace: Workspace, to name: String) async throws {
         guard canManage(on: workspace.macID), let client = sync.daemon else { throw WorkspaceCreationError("Not connected") }
         try await run(client, "rename-screen", ["screen": screen.id, "name": name])
@@ -973,6 +1185,17 @@ public final class LiveWorkspaceCreationBackend: WorkspaceCreationBackend {
     /// the chat's pane, as the Mac opens a fork in a tab of its own. acpmux refuses a fork of a
     /// Claude chat the Mac started (D13); its reason is shown as the Mac words it.
     public func forkAgentChat(_ tab: WorkspaceTab, in workspace: Workspace) async throws -> WorkspaceTab {
+        try await forkChat(tab, through: nil, in: workspace)
+    }
+
+    /// Edit and Resend of an earlier prompt: acpmux `acp.session.fork {sessionId, throughSeq}`
+    /// (the copy holds the chat through that turn; the Mac's pane sends the same), then a tab of
+    /// the copy in the chat's pane, as Fork does.
+    public func forkAgentChat(_ tab: WorkspaceTab, through seq: Int, in workspace: Workspace) async throws -> WorkspaceTab {
+        try await forkChat(tab, through: seq, in: workspace)
+    }
+
+    private func forkChat(_ tab: WorkspaceTab, through seq: Int?, in workspace: Workspace) async throws -> WorkspaceTab {
         let (client, _) = try target(tab, in: workspace)
         guard let acpmux, acpmux.isReady else {
             throw WorkspaceCreationError("Agents on this Mac aren't connected. Try again in a moment.", isForPerson: true)
@@ -983,7 +1206,9 @@ public final class LiveWorkspaceCreationBackend: WorkspaceCreationBackend {
         }
         let forked: String
         do {
-            let reply = try await acpmux.request("session/fork", .object(["sessionId": .string(session)]), timeout: .seconds(60))
+            var params: [String: JSONValue] = ["sessionId": .string(session)]
+            if let seq { params["throughSeq"] = .number(Double(seq)) }
+            let reply = try await acpmux.request(seq == nil ? "session/fork" : "acp.session.fork", .object(params), timeout: .seconds(60))
             guard let id = reply["sessionId"]?.stringValue, !id.isEmpty else { throw WorkspaceCreationError("The Mac didn't fork the chat") }
             forked = id
         } catch let error as AcpmuxConnection.RPCError {

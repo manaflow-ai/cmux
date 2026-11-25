@@ -12,6 +12,7 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { chromium, type Browser } from "playwright";
 import { ChatCards } from "../src/agent-session/acpmux/newtab/ChatCards";
 import type { ChatCard } from "../src/agent-session/acpmux/newtab/screenModel";
+import { designTokenCss } from "./support/gridTokens";
 import { requireBrowserLane } from "./support/requireBrowserLane";
 
 await requireBrowserLane("new-tab-chat-title-width.test.tsx", async () => {
@@ -52,7 +53,7 @@ await requireBrowserLane("new-tab-chat-title-width.test.tsx", async () => {
     const list = renderToStaticMarkup(createElement(ChatCards, { cards, variant: "list", onOpen: () => {} }));
     const page = await browser!.newPage({ viewport: { width: 900, height: 400 } });
     await page.setContent(
-      `<style>${css}</style><div style="width:720px;margin:40px;font:13px system-ui">${list}</div>`,
+      `<style>${designTokenCss()}${css}</style><div style="width:720px;margin:40px;font:13px system-ui">${list}</div>`,
     );
     const rows = await page.evaluate(() =>
       [...document.querySelectorAll(".nt-card")].map((card) => {

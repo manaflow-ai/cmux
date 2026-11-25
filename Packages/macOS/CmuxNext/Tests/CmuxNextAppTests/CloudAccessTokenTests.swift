@@ -55,9 +55,12 @@ import Testing
     @Test func installFailuresMapToTheCodesTheCLIActsOn() {
         #expect(CloudAccessToken.failure(MacInstallIdentity.Failure.signedOut) == .signedOut)
         #expect(CloudAccessToken.failure(InstallAuthError.noSession) == .signedOut)
-        #expect(CloudAccessToken.failure(InstallAuthError.transport) == .unreachable)
+        #expect(CloudAccessToken.failure(InstallAuthError.transport(path: "/v1/auth/token", urlErrorCode: -1001)) == .unreachable)
         #expect(CloudAccessToken.failure(InstallAuthError.clientTooOld(minimumVersion: "3.0")) == .clientTooOld(minimumVersion: "3.0"))
-        #expect(CloudAccessToken.failure(InstallAuthError.unexpectedChallenge) == .badReply)
+        #expect(CloudAccessToken.failure(InstallAuthError.unexpectedChallenge) == .badReply("unexpected_challenge"))
+        #expect(CloudAccessToken.failure(InstallAuthError.malformedReply).detail == "malformed_reply")
+        // A local error is never "an answer cmux can't use": it names itself.
+        #expect(CloudAccessToken.failure(InstallAuthError.invalidPublicKey) == .local(InstallAuthError.invalidPublicKey.description))
         // A server or rate-limit status is the service's trouble, never "not a member".
         #expect(CloudAccessToken.failure(InstallAuthError.refused("http_503")) == .unreachable)
         #expect(CloudAccessToken.failure(InstallAuthError.refused("http_429")) == .unreachable)
@@ -86,11 +89,24 @@ import Testing
         #expect(!CloudAccessToken.isTeam("personal"))
     }
 
+    @Test func machineRoutesActInTheInstallsOwnTeamUnlessTheDeviceIsManaged() throws {
+        let project = "proj_1", stackTeam = "6F1C2D9E-0000-4000-8000-000000000001", other = "6f1c2d9e-0000-4000-8000-000000000002"
+        let backend = CloudIdentity.workerTeamID(stackProjectID: project, stackTeamID: stackTeam)
+        // Unmanaged: the install's own (personal) team, where the Cloud machines are, whatever team is active
+        // (cloud-carrier-ssh-failover 2026-11-15T21:18Z joined the Mac in the active Stack team: another mesh).
+        #expect(try CloudAccessToken.machineRoutesTeam(activeStackTeam: stackTeam, managedStackTeam: nil, stackProjectID: project) == nil)
+        #expect(try CloudAccessToken.machineRoutesTeam(activeStackTeam: nil, managedStackTeam: nil, stackProjectID: project) == nil)
+        // Managed: only its team, only while it is the active one.
+        #expect(try CloudAccessToken.machineRoutesTeam(activeStackTeam: stackTeam, managedStackTeam: stackTeam, stackProjectID: project) == backend)
+        #expect(throws: CloudAccessToken.Failure.managed) {
+            try CloudAccessToken.machineRoutesTeam(activeStackTeam: other, managedStackTeam: stackTeam, stackProjectID: project)
+        }
+    }
+
     @Test func theDefaultIsTheActiveTeamAndAManagedDeviceMintsOnlyForItsTeam() throws {
         let project = "proj_1", stackTeam = "6F1C2D9E-0000-4000-8000-000000000001", other = "6f1c2d9e-0000-4000-8000-000000000002"
-        let backend = CloudAccessToken.backendTeamID(stackProjectID: project, stackTeamID: stackTeam)
-        // The same id the Worker and Home use for that team.
-        #expect(backend == CloudIdentity.workerTeamID(stackProjectID: project, stackTeamID: stackTeam))
+        // Rust mints for the same id the Worker and Home use for that team.
+        let backend = CloudIdentity.workerTeamID(stackProjectID: project, stackTeamID: stackTeam)
         #expect(CloudAccessToken.isTeam(backend))
         // Unmanaged: the asked team, else the active team, else the install's own (personal) team.
         #expect(try CloudAccessToken.team(requested: team, activeStackTeam: stackTeam, managedStackTeam: nil, stackProjectID: project) == team)

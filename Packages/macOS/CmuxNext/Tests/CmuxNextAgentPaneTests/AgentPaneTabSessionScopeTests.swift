@@ -1,3 +1,4 @@
+import Foundation
 import Testing
 @testable import CmuxNextAgentPane
 
@@ -18,6 +19,26 @@ struct AgentPaneTabSessionScopeTests {
         sessions.observeTabSession(["id": 3, "result": ["sessions": [], "tabSessionId": "acp-review-1"]], replyTo: "_acpmux/watch")
         #expect(sessions.contains("acp-review-1"))
         #expect(AgentPaneTransport.sessionRefusal(Self.prompt("acp-review-1"), sessions: sessions) == nil)
+    }
+
+    @Test func raceParentUsesThePaneSessionScope() throws {
+        let sessions = AcpmuxPaneSessions()
+        sessions.add("race-parent")
+        let frame: [String: Any] = [
+            "jsonrpc": "2.0", "id": 10, "method": "_acpmux/race/list",
+            "params": ["parent": "race-parent"],
+        ]
+        if case .failure = AcpmuxPaneMethods.decideFrame(try Self.json(frame), isFirst: false) {
+            Issue.record("race request was refused by the native relay")
+        }
+        #expect(AgentPaneTransport.sessionRefusal(frame, sessions: sessions) == nil)
+        var outside = frame
+        outside["params"] = ["parent": "other"]
+        #expect(AgentPaneTransport.sessionRefusal(outside, sessions: sessions) != nil)
+    }
+
+    private static func json(_ frame: [String: Any]) throws -> String {
+        String(decoding: try JSONSerialization.data(withJSONObject: frame), as: UTF8.self)
     }
 
     @Test func onlyAWatchReplyNamesIt() {

@@ -439,7 +439,7 @@ fn persistent_mux_restart_restores_auxiliary_resources_and_exact_replay() {
     }
     assert_eq!(reopened.resource_notifications(256).len(), 1);
     assert!(
-        reopened.list_agents(None, None).is_empty(),
+        settled(&reopened).list_agents(None, None).is_empty(),
         "the legacy live-surface cache must not retain a detached terminal"
     );
     assert_eq!(

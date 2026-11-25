@@ -1,0 +1,17 @@
+{
+  "title": "Vertical tabs",
+  "steps": [
+    {"title": "Launch", "wait": 2},
+    {"title": "New workspace", "cmux": ["workspace", "new", "--name", "Vertical"]},
+    {"title": "Browser tab", "cmux": ["tab", "new-browser", "--url", "https://example.com"], "wait": 4, "shot": false},
+    {"title": "Second browser tab", "cmux": ["tab", "new-browser", "--url", "https://example.org"], "wait": 4, "shot": false},
+    {"title": "Third browser tab", "cmux": ["tab", "new-browser", "--url", "https://example.net"], "wait": 4},
+    {"title": "Pin the selected tab", "cmux": ["action", "run", "palette.toggleTabPin"], "wait": 1, "shot": false},
+    {"title": "Select the next tab", "cmux": ["action", "run", "nextSurface"], "shot": false},
+    {"title": "Put it in a new group", "cmux": ["action", "run", "tabGroup.create"], "wait": 1},
+    {"title": "Turn on vertical tabs for this workspace: the tabs list beside the page", "cmux": ["action", "run", "tabs.verticalTabs.toggle"], "wait": 2},
+    {"title": "Collapse tabs: icons only", "cmux": ["action", "run", "tabs.verticalTabs.collapse"], "wait": 2},
+    {"title": "Expand tabs", "cmux": ["action", "run", "tabs.verticalTabs.collapse"], "wait": 2},
+    {"title": "Turn vertical tabs off: the tab bar is back", "cmux": ["action", "run", "tabs.verticalTabs.toggle"], "wait": 2}
+  ]
+}

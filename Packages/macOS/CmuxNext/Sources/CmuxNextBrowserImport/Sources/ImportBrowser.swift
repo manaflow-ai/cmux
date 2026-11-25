@@ -27,11 +27,37 @@ public enum BrowserFamily: String, Sendable, Codable, CaseIterable {
 /// each have their own folder, but Firefox Developer Edition and Nightly
 /// keep their profiles in Firefox's `profiles.ini`, and ungoogled-chromium
 /// is Chromium (same bundle id and folder).
+///
+/// A browser that detection found from its folder (an Electron app, a new
+/// Chromium fork) or whose Keychain item it looked up carries that row with
+/// it (``init(row:)``); identity, hashing and coding use `rawValue` only.
 public struct ImportBrowser: RawRepresentable, Sendable, Hashable, Codable, Identifiable, CustomStringConvertible {
     public let rawValue: String
+    /// The row detection made or completed; nil reads the registry.
+    private let foundRow: BrowserSourceRow?
 
     public init(rawValue: String) {
         self.rawValue = rawValue
+        foundRow = nil
+    }
+
+    /// A browser described by `row` rather than the registry: one detection
+    /// found on disk, or a registry row with the Keychain item it found.
+    public init(row: BrowserSourceRow) {
+        rawValue = row.id
+        foundRow = row
+    }
+
+    public static func == (lhs: ImportBrowser, rhs: ImportBrowser) -> Bool { lhs.rawValue == rhs.rawValue }
+    public func hash(into hasher: inout Hasher) { hasher.combine(rawValue) }
+
+    public init(from decoder: any Decoder) throws {
+        self.init(rawValue: try decoder.singleValueContainer().decode(String.self))
+    }
+
+    public func encode(to encoder: any Encoder) throws {
+        var container = encoder.singleValueContainer()
+        try container.encode(rawValue)
     }
 
     public var id: String { rawValue }
@@ -42,10 +68,13 @@ public struct ImportBrowser: RawRepresentable, Sendable, Hashable, Codable, Iden
 
     /// This browser's registry row; nil for an id an older build stored
     /// that the registry no longer has.
-    public var row: BrowserSourceRow? { BrowserSourceRegistry.shared.row(rawValue) }
+    public var row: BrowserSourceRow? { foundRow ?? BrowserSourceRegistry.shared.row(rawValue) }
 
     /// The row with engine defaults applied.
     public var source: ResolvedBrowserSource? { row.map(BrowserSourceRegistry.shared.resolved) }
+
+    /// Whether ``BrowserSourceDiscovery`` found this browser from its folder (no registry row).
+    public var isFoundOnDisk: Bool { rawValue.hasPrefix("found.") }
 
     /// What kind of app this is; bookmark pickers list only browsers.
     public var kind: BrowserSourceKind { row?.kind ?? .noLocalStore }
@@ -70,6 +99,8 @@ public struct ImportBrowser: RawRepresentable, Sendable, Hashable, Codable, Iden
     /// Chromium: the Keychain item ("<Name> Safe Storage") whose password
     /// encrypts the browser's cookies and passwords.
     public var safeStorageService: String? { row?.safeStorage?.service }
+    /// The account of ``safeStorageService`` when its service has more than one item.
+    public var safeStorageAccount: String? { row?.safeStorage?.account }
 
     /// Whether cmux can read this browser's saved passwords. Yandex seals them
     /// with its own scheme, so its passwords show as unsupported (use its export).

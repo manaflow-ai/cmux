@@ -2,15 +2,21 @@
 import { componentEntry } from "../../gallery/format";
 import type { ChatAccounts } from "./chatAccounts";
 import type { ModelPickerProps } from "./modelPickerLayout";
+import type { UsedLook } from "./quickModelMenuModel";
 import type { Play } from "../../gallery/play";
 import { BUNDLED_MODEL_CATALOG } from "./modelCatalogData";
 import { topModelsFor } from "./topModels";
+import { setModelMenuWidth } from "./modelMenuWidth";
 import { mergeModelCatalog } from "./modelCatalog";
-import { type UpdateOffer, UpdateOfferContext } from "./HarnessHealthNotice";
+import { type UpdateOffer, UpdateOfferContext } from "./harnessHealthNoticeModel";
+import { type HarnessUpdates, HarnessUpdatesContext } from "./harnessUpdateList";
 import { SOL_SEARCH_CATALOG, SOL_SEARCH_QUERY } from "../../gallery/fixtures/modelSearch";
+import { MODEL_PICKER } from "./composerSelectors";
 
-/// The chat's agent CLI update on offer (hq#2569 #12), which the pane hands the chip by context.
-type GalleryProps = ModelPickerProps & { update?: UpdateOffer };
+/// The chat's agent CLI update on offer (hq#2569 #12), which the pane hands the chip by context, and
+/// the outdated agent CLIs the menus' footer lists (harnessUpdateList.ts), which the pane hands the
+/// same way.
+type GalleryProps = ModelPickerProps & { update?: UpdateOffer; harnessUpdates?: HarnessUpdates };
 
 const update: UpdateOffer = {
   harness: "claude",
@@ -19,6 +25,12 @@ const update: UpdateOffer = {
   latest: "2.2.0",
   update: () => undefined,
   skip: () => undefined,
+};
+
+/// One outdated agent CLI, as Lawrence's menu had it (msg 48182, 2026-11-23): Claude Code and its Update.
+const oneHarnessUpdate: HarnessUpdates = {
+  rows: [{ harness: "claude", agent: "Claude Code", version: "2.1.4", latest: "2.2.0", update: () => undefined }],
+  updateAll: () => undefined,
 };
 
 const catalog: ModelPickerProps["catalog"] = [
@@ -132,6 +144,34 @@ const recommendationPlay =
 
 // These direct ModelPicker inputs omit top rather than borrowing the bundled harness lists.
 const fallbackRecommendationCatalog = familyRecommendationCatalog.map(({ top: _top, ...entry }) => entry);
+
+/// Claude Code's own list on Nov 9 (`list_models`, through the gateway): Fable 5.2 shipped before
+/// cmux's catalog knew it, so it has no catalog family. It leads the Fable line; Fable 5.1 folds.
+const liveFable52Rows: [id: string, name: string, family?: string][] = [
+  ["claude-opus-5-5", "Opus 5.5", "Opus"],
+  ["claude-fable-5-2", "Fable 5.2"],
+  ["claude-fable-5-1", "Fable 5.1", "Fable"],
+  ["claude-fable-5", "Fable 5", "Fable"],
+  ["claude-sonnet-5-5", "Sonnet 5.5", "Sonnet"],
+  ["claude-haiku-5-5", "Haiku 5.5", "Haiku"],
+  ["claude-opus-5", "Opus 5", "Opus"],
+  ["claude-sonnet-5", "Sonnet 5", "Sonnet"],
+  ["claude-opus-4-8", "Opus 4.8", "Opus"],
+];
+const liveFable52: ModelPickerProps = {
+  ...base,
+  catalog: [
+    {
+      id: "claude",
+      name: "Claude Code",
+      top: liveFable52Rows.map(([id]) => id),
+      models: liveFable52Rows.map(([id, name, family]) => ({ id, name, ...(family ? { family } : {}) })),
+    },
+  ],
+  harness: "claude",
+  model: "claude-opus-5-5",
+  label: "Opus 5.5",
+};
 
 const familyRecommendationsClaude: ModelPickerProps = {
   ...base,
@@ -247,8 +287,8 @@ const numericSearch: Play = async (ctx) => {
   await ctx.waitFor(() => ctx.document.querySelector('.acpmux-mp input[role="combobox"]') !== null);
 };
 
-/// The compact model menu, the one menu every composer's model button opens (Leo 2026-10-20):
-/// numbered top models, then Effort, More models and Account beside their rows, then Fast mode.
+/// The model button's menu: with a harness rail, the columns (rail, models, Effort and Fast mode,
+/// the account avatar above the rail); a started chat with no rail keeps the compact list menu.
 const accounts: ChatAccounts = {
   list: async () => ({
     accounts: [
@@ -279,8 +319,8 @@ const quick: ModelPickerProps = {
   },
 };
 
-/// The optional effort treatment Leo asked to compare: the default stays the Effort submenu, while
-/// this variant uses the same stepped track with endpoint-inclusive thumb geometry.
+/// The optional effort treatment Leo asked to compare: a stepped track in the list menu. The
+/// columns have no slider and list the same levels as rows.
 const quickSlider: ModelPickerProps = {
   ...quick,
   quick: {
@@ -289,16 +329,37 @@ const quickSlider: ModelPickerProps = {
   },
 };
 
-/// A started Claude chat can fork to Codex, excluding another Claude-family profile.
+/// A started Claude chat can fork to Codex, excluding another Claude-family profile. Codex's models
+/// list and pick as a New Tab's do (Leo 2026-11-06: "Everybody wants to see the models"); a pick of
+/// one is held for the next message, which forks.
 const startedFork: ModelPickerProps = {
   ...quick,
+  harness: "claude",
+  model: curated.catalog.find((entry) => entry.id === "claude")!.models[0]!.id,
   catalog: [
     ...curated.catalog,
     { ...curated.catalog.find((entry) => entry.id === "claude")!, id: "claude-work", name: "Claude (work)" },
   ],
   harnessFixed: true,
-  fork: { to: () => undefined, ready: true, targets: new Set(["codex"]) },
+  fork: { targets: new Set(["codex"]), hold: () => undefined },
 };
+
+/// The same chat with a Codex model held for its next message: the chip names it with its effort
+/// and the fork mark, and the menus mark what the chat ran in `used`'s look. `glyph` ships (the
+/// history glyph after the running model and its provider, a hairline ring on the chat's own tab);
+/// `dot` and `caption` are the versions it was chosen over.
+const heldCodex = curated.catalog.find((entry) => entry.id === "codex")!.models[0]!;
+const startedHeld = (used: UsedLook): ModelPickerProps => ({
+  ...startedFork,
+  label: heldCodex.name ?? heldCodex.id,
+  detail: "High",
+  fork: {
+    targets: new Set(["codex"]),
+    hold: () => undefined,
+    held: { harness: "codex", model: heldCodex.id, effort: "high", name: "Codex" },
+    used,
+  },
+});
 
 /// A short New Tab/chat pane with 48 installed accounts: the menu must cap to its window and
 /// let the Account list scroll to its last row without an empty spacer.
@@ -324,19 +385,50 @@ const manyProfiles: ModelPickerProps = {
   },
 };
 
+/// The compact list menu: a menu with no rail (a started chat that cannot fork).
 const openQuick: Play = async (ctx) => {
-  await ctx.click({ selector: ".acpmux-model .acpmux-picker-button" });
+  await ctx.click({ selector: MODEL_PICKER });
   await ctx.waitFor(() => ctx.document.querySelector(".acpmux-quick-menu") !== null);
 };
 
-const openQuickSlider: Play = async (ctx) => {
-  await openQuick(ctx);
-  // Base UI's submenu trigger opens on hover and ignores a plain mouse click; Enter on the
-  // focused Effort row exercises the same path as keyboard users and keeps this capture reliable.
-  await ctx.focus({ role: "menuitem", name: /^Effort/ });
-  await ctx.press("Enter");
-  await ctx.waitFor(() => ctx.document.querySelector(".acpmux-quick-effort-slider .acpmux-effort-range") !== null);
+/// The columns menu: a menu with a harness rail.
+const openColumns = async (ctx: Parameters<Play>[0], width?: number) => {
+  // The menu's width is kept for every composer (modelMenuWidth.ts): each state opens at the
+  // default unless it names a dragged width, so one state's drag never carries into the next.
+  setModelMenuWidth(width);
+  await ctx.click({ selector: MODEL_PICKER });
+  await ctx.waitFor(() => ctx.document.querySelector(".acpmux-cols [role=listbox] [role=option]") !== null);
 };
+
+/// Opens the columns at a dragged width on OpenCode's tab, whose provider-prefixed names are the longest.
+const openOpenCodeAt = async (ctx: Parameters<Play>[0], width: number) => {
+  await openColumns(ctx, width);
+  await ctx.click({ selector: '.acpmux-cols-tab[aria-label="OpenCode"]' });
+  await ctx.waitFor(() => ctx.document.querySelector(".acpmux-cols [role=listbox] [role=option]") !== null);
+};
+
+/// Opens the columns on the chat's own tab, where the "used here" marks show beside the hold.
+const openOwnTab: Play = async (ctx) => {
+  await openColumns(ctx);
+  await ctx.click({ selector: '.acpmux-cols-tab[aria-label="Claude Code"]' });
+  await ctx.waitFor(
+    () =>
+      ctx.document.querySelector(".acpmux-cols [role=listbox] :is(.acpmux-used-mark, .acpmux-used-caption)") !== null,
+  );
+};
+
+/// The columns' account avatar opens its card, which lists the harness's other accounts.
+const openAccountCard =
+  (row: string): Play =>
+  async (ctx) => {
+    await openColumns(ctx);
+    await ctx.click({ selector: ".acpmux-cols-profile" });
+    await ctx.waitFor(() =>
+      [...ctx.document.querySelectorAll(".acpmux-cols-card [role=button]")].some((item) =>
+        item.textContent?.includes(row),
+      ),
+    );
+  };
 
 /// An OpenCode chat as Lawrence's screenshot showed it (2026-10-22: "spacing + needs search"): one
 /// model offered by several providers, each its own row.
@@ -371,7 +463,7 @@ const openCodeChat: ModelPickerProps = {
 };
 
 /// Harness menus have no fixed count. These fixture lists are supplied by the harness; an old
-/// running or recent model stays under More models rather than changing its menu.
+/// running or recent model stays under Legacy models rather than changing its menu.
 const relevantFew: ModelPickerProps = {
   ...base,
   catalog: [
@@ -459,7 +551,8 @@ const searchLook = (props: ModelPickerProps, searchField: "always" | "typed" | "
 });
 
 const searchField = { selector: ".acpmux-quick-search input" };
-const typeSearch =
+/// A search in the list menu (a chat with no rail).
+const typeQuickSearch =
   (text: string): Play =>
   async (ctx) => {
     await openQuick(ctx);
@@ -469,6 +562,20 @@ const typeSearch =
       () =>
         ctx.document.querySelector<HTMLInputElement>(searchField.selector)?.value === text &&
         ctx.document.querySelector(".acpmux-quick-found, .acpmux-quick-note") !== null,
+    );
+  };
+
+const colsField = { selector: ".acpmux-cols-search input" };
+/// A search in the columns: the matches under their harness's name, or a note when none match.
+const typeSearch =
+  (text: string): Play =>
+  async (ctx) => {
+    await openColumns(ctx);
+    await ctx.type(text, colsField);
+    await ctx.waitFor(
+      () =>
+        ctx.document.querySelector<HTMLInputElement>(colsField.selector)?.value === text &&
+        ctx.document.querySelector(".acpmux-cols-group, .acpmux-cols-note") !== null,
     );
   };
 
@@ -491,17 +598,22 @@ export default componentEntry<GalleryProps>({
   covers: [
     "agent-session/acpmux/ModelPicker.tsx#ModelPicker",
     "agent-session/acpmux/QuickModelMenu.tsx#QuickModelMenu",
+    "agent-session/acpmux/QuickModelColumns.tsx#QuickModelColumns",
     "ui/ScrollArea.tsx#ScrollArea",
-    "agent-session/acpmux/HarnessHealthNotice.tsx#UpdateOfferContext",
   ],
   styles: () => Promise.all([import("./styles.css"), import("./modelPicker.css"), import("./composerControls.css")]),
   load: () =>
-    import("./ModelPicker").then(({ ModelPicker }) => ({ update: offer, ...props }: GalleryProps) => (
+    import("./ModelPicker").then(({ ModelPicker }) => ({ update: offer, harnessUpdates, ...props }: GalleryProps) => (
       <UpdateOfferContext.Provider value={offer}>
-        <ModelPicker {...props} />
+        <HarnessUpdatesContext.Provider value={harnessUpdates}>
+          <ModelPicker {...props} />
+        </HarnessUpdatesContext.Provider>
       </UpdateOfferContext.Provider>
     )),
   variants: {
+    "reasoning-column": { props: { ...quick, reasoningMenu: "column", detail: "Medium" }, play: openPicker },
+    "separate-reasoning": { props: { ...quick, reasoningMenu: "separate", detail: "Medium" }, play: openPicker },
+    "model-only": { props: { ...curated, reasoningMenu: "column" }, play: openPicker },
     idle: {
       props: { ...base, catalogRefresh: refresh("idle", "2026-10-07T10:00:00Z") },
       play: async (ctx) => {
@@ -543,6 +655,13 @@ export default componentEntry<GalleryProps>({
       props: familyRecommendationsCodex,
       play: recommendationPlay(["gpt-6.1-sol", "gpt-6.1-terra", "gpt-6.1-luna", "gpt-6-astra"], ["gpt-6-sol"]),
     },
+    "live-list-new-release": {
+      props: liveFable52,
+      play: recommendationPlay(
+        ["claude-opus-5-5", "claude-fable-5-2", "claude-sonnet-5-5", "claude-haiku-5-5"],
+        ["claude-fable-5-1", "claude-fable-5", "claude-opus-5", "claude-sonnet-5", "claude-opus-4-8"],
+      ),
+    },
     // Without top, keep each family's newest release in source order, then older versions newest-first.
     "family-recommendations-claude-fallback": {
       props: { ...familyRecommendationsClaude, catalog: fallbackRecommendationCatalog },
@@ -580,52 +699,104 @@ export default componentEntry<GalleryProps>({
       },
       play: openQuick,
     },
-    // The same chat where it can fork (Leo 2026-10-22: "can expose as fork"): the whole rail, and
-    // the Codex tab offers Fork to Codex in place of its models.
-    "started-chat-fork": {
-      props: startedFork,
+    // A Codex model held for the next message: the chip names it with the fork mark, and the menu
+    // opens on the Codex tab with the held row checked and its effort shown. Shipped look (`glyph`).
+    "started-chat-held": { props: startedHeld("glyph"), play: openColumns },
+    // The "used here" mark's versions, each on the chat's own tab beside the held Codex pick, the
+    // rail listing every harness the chat can fork to (Leo 2026-11-06: "Everybody wants to see the
+    // models").
+    // C, shipped: the history glyph after the running model, a hairline ring on its tab; hovering
+    // the glyph says "In this chat".
+    "started-chat-used-glyph": { props: startedHeld("glyph"), play: openOwnTab },
+    // A: a dot after the running model's name and on its tab.
+    "started-chat-used-dot": { props: startedHeld("dot"), play: openOwnTab },
+    // B: "In this chat" after the running model's name; its tab a dot in the corner.
+    "started-chat-used-caption": { props: startedHeld("caption"), play: openOwnTab },
+    // D, shipped with nothing held (Leo 2026-11-09, relaying Lucas: "What's this new clock icon?"):
+    // the chat's own tab with only the running row's check, no mark beside it and no ring.
+    "started-chat-used-none": { props: startedFork, play: openColumns },
+    // The full picker with the same hold: the rail's Claude tab carries the ring, Codex's row the check.
+    "started-chat-held-full": {
+      props: { ...startedHeld("glyph"), quick: undefined },
       play: async (ctx) => {
-        await openQuick(ctx);
-        await ctx.click({ selector: '.acpmux-quick-rail-tab[aria-label="Codex"]' });
-        await ctx.waitFor(() => ctx.document.querySelector(".acpmux-quick-fork") !== null);
+        await ctx.click({ role: "button", name: "Model" });
+        await ctx.waitFor(() => ctx.document.querySelector('.acpmux-mp-harness[data-used="glyph"]') !== null);
       },
     },
-    // Its Account row contains signed-in routes, separate from named launch harnesses.
-    "started-chat-accounts": {
-      props: startedFork,
+    // Its account card lists the signed-in routes, separate from named launch harnesses.
+    "started-chat-accounts": { props: startedFork, play: openAccountCard("Anthropic API key") },
+    // The columns as the model button opens them, and the same on a short harness list.
+    "quick-menu": { props: quick, play: openColumns },
+    // Lawrence 2026-11-19 (clip 3.37.01 PM): "why does the model disappear briefly". "opus 5.5 m" is
+    // "medium" half typed: the list keeps Opus 5.5 instead of flashing No matching models.
+    "search-half-typed-effort": {
+      props: quick,
       play: async (ctx) => {
-        await openQuick(ctx);
-        // Keyboard activation is stable on a started chat even when the pointer-hover timer races
-        // the async account list. Keep checking the real signed-in routes, not just a popup count.
-        await ctx.focus({ role: "menuitem", name: /^Account/ });
-        await ctx.press("Enter");
-        await ctx.waitFor(() =>
-          Array.from(ctx.document.querySelectorAll("[role=menuitemradio]")).some(
-            (row) => row.textContent === "Anthropic API key",
-          ),
-        );
+        await openColumns(ctx);
+        await ctx.type("opus 5.5 m", { selector: ".acpmux-cols-search input[type=search]" });
+        await ctx.waitFor(() => {
+          const list = ctx.document.querySelector(".acpmux-cols [role=listbox]");
+          if (list?.querySelector(".acpmux-cols-note")) throw new Error("a half-typed effort word emptied the list");
+          return list?.querySelector("[role=option]");
+        });
       },
     },
-    // Three captures keep the menu comparison concrete: default Effort submenu, opt-in slider, and
-    // the harness-only rail with no machine/session initials.
-    "quick-menu": { props: quick, play: openQuick },
-    "relevant-few": { props: relevantFew, play: openQuick },
-    "relevant-many": { props: relevantMany, play: openQuick },
-    "reported-claude-menu": { props: reportedClaude, play: openQuick },
-    "reported-codex-menu": { props: reportedCodex, play: openQuick },
-    // A short window with many accounts (Lawrence: "model picker too tall"): the Account submenu
-    // remains inside the window and scrolls to the final row.
+    "relevant-few": { props: relevantFew, play: openColumns },
+    "relevant-many": { props: relevantMany, play: openColumns },
+    "reported-claude-menu": { props: reportedClaude, play: openColumns },
+    "reported-codex-menu": { props: reportedCodex, play: openColumns },
+    "long-model-name": {
+      props: {
+        ...reportedCodex,
+        catalog: [
+          {
+            ...reportedCodex.catalog[0]!,
+            top: ["long-name", ...(reportedCodex.catalog[0]!.top ?? [])],
+            models: [
+              { id: "long-name", name: "A model with a very long name that must stay inside the model column" },
+              ...reportedCodex.catalog[0]!.models,
+            ],
+          },
+        ],
+      },
+      play: openColumns,
+    },
+    // OpenCode's provider-prefixed names are the longest of any harness: the menu opens on Claude Code
+    // already as wide as the longest of them, and keeps that width on every tab (Lucas 2026-11-10).
+    "quick-menu-widest-name": {
+      props: { ...quick, catalog: [...quick.catalog, ...openCode] },
+      play: openColumns,
+      note: "Fit width (ships): as wide as the longest name of every tab, up to 40em; each name on one line. At the narrow width the window caps it and a longer name wraps.",
+    },
+    // A width the person dragged to, narrower than OpenCode's longest names: they wrap onto a second
+    // line instead of ending in an ellipsis (Lawrence 2026-11-05: "cant see full model name").
+    "quick-menu-dragged-narrow": {
+      props: { ...quick, catalog: [...quick.catalog, ...openCode] },
+      play: (ctx) => openOpenCodeAt(ctx, 318),
+      note: "Dragged to the narrowest (318px, ships): a name longer than the column wraps; nothing is clipped.",
+    },
+    "quick-menu-dragged-narrow-ellipsis": {
+      props: { ...quick, catalog: [...quick.catalog, ...openCode] },
+      play: async (ctx) => {
+        await openOpenCodeAt(ctx, 318);
+        for (const name of ctx.document.querySelectorAll<HTMLElement>(".acpmux-cols-body .acpmux-cols-name"))
+          Object.assign(name.style, { whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" });
+      },
+      note: "Not shipped: the same width with #40103's ellipsis, where a long name's end is cut.",
+    },
+    // A short window with many accounts (Lawrence: "model picker too tall"): the account card
+    // stays inside the window and its list scrolls to the final row.
     "quick-menu-many-profiles": {
       props: { ...manyProfiles, update },
       height: 360,
-      play: async (ctx) => {
-        await openQuick(ctx);
-        await ctx.hover({ role: "menuitem", name: /^Account/ });
-        await ctx.waitFor(() => ctx.document.querySelectorAll(".acpmux-quick-menu").length > 1);
-      },
+      play: openAccountCard("Claude account 48"),
     },
-    // An agent CLI update on offer: a quiet footer below the model choices, out of the numbered list.
-    "quick-update-offer": { props: { ...quick, update }, play: openQuick },
+    // An agent CLI update on offer: a quiet footer below the columns.
+    "quick-update-offer": { props: { ...quick, update }, play: openColumns },
+    // Harness updates available under the columns (Lawrence 2026-11-23, msg 48182: "spacing here is
+    // bad"): one menu row, its mark on the rows' inset, its Update as far from the divider, the
+    // bottom and the end as a row highlight is from the popup's edges.
+    "quick-harness-update": { props: { ...quick, harnessUpdates: oneHarnessUpdate }, play: openColumns },
     // The same footer on a started chat's menu, which has no rail.
     "started-chat-update-offer": {
       props: {
@@ -638,33 +809,40 @@ export default componentEntry<GalleryProps>({
       },
       play: openQuick,
     },
-    "quick-menu-slider": { props: quickSlider, play: openQuickSlider },
+    // The columns have no slider: the opt-in `slider` effort shows as the same level rows.
+    "quick-menu-slider": {
+      note: "The opt-in slider effort: the columns show its levels as rows, as without it.",
+      props: quickSlider,
+      play: async (ctx) => {
+        await openColumns(ctx);
+        await ctx.waitFor(() => ctx.document.querySelector('.acpmux-cols-tune [role=radio][aria-checked="true"]'));
+      },
+    },
     // A new chat with a named alternate launch harness and separate account routes.
     "quick-menu-accounts": {
       props: { ...quick, catalog: startedFork.catalog, onHarness: () => undefined },
-      play: async (ctx) => {
-        await openQuick(ctx);
-        await ctx.hover({ role: "menuitem", name: /^Account/ });
-        await ctx.waitFor(() => ctx.document.querySelectorAll(".acpmux-quick-menu").length > 1);
-      },
+      play: openAccountCard("Claude (work)"),
     },
-    // The rail's Codex tab: Codex's models in place; Effort and Account stay with the chat's harness.
+    // The rail's Codex tab: Codex's models in place; the avatar shows Codex's account.
     "quick-menu-rail": {
       props: quick,
       play: async (ctx) => {
-        await openQuick(ctx);
-        await ctx.click({ selector: '.acpmux-quick-rail-tab[aria-label="Codex"]' });
+        await openColumns(ctx);
+        await ctx.click({ selector: '.acpmux-cols-tab[aria-label="Codex"]' });
         await ctx.waitFor(
-          () => ctx.document.querySelector('.acpmux-quick-rail-tab[aria-label="Codex"][aria-pressed="true"]') !== null,
+          () => ctx.document.querySelector('.acpmux-cols-tab[aria-label="Codex"][aria-selected="true"]') !== null,
         );
       },
     },
+    // A rail with more harnesses than fit: it scrolls by wheel or trackpad and draws no scrollbar
+    // (Lucas 2026-11-22: "remove this scrollbar when hovering over it").
+    "quick-menu-rail-overflow": { props: { ...quick, catalog: manyHarnesses }, play: openColumns },
     // Search, version A (ships): a search field heads the list and has the keyboard as the menu
     // opens, so the menu says it can search (Lawrence: "needs search").
     "quick-search-field": {
-      note: "Search version A (ships): the field heads the list and has the keyboard when the menu opens.",
+      note: "Search version A (ships): the field heads the columns and has the keyboard when the menu opens.",
       props: searchLook(quick, "always"),
-      play: openQuick,
+      play: openColumns,
     },
     "quick-search-field-typed": {
       note: "Search version A, typed: the full picker's matching, an effort word included; Enter lands the first row with it.",
@@ -672,29 +850,27 @@ export default componentEntry<GalleryProps>({
       play: typeSearch("opus high"),
     },
     "quick-search-field-opencode": {
-      note: "Search version A on Lawrence's OpenCode chat: typing narrows its long provider list.",
+      note: "Search version A on Lawrence's OpenCode chat (no rail, the list menu): typing narrows its long provider list.",
       props: searchLook(openCodeChat, "always"),
-      play: typeSearch("deepseek v4"),
+      play: typeQuickSearch("deepseek v4"),
     },
-    // Version B: no field until a key is typed (Claude Code's menu), then the field shows the query.
+    // Versions B and C apply to the list menu only: the columns always show their field.
     "quick-search-typed-only": {
-      note: "Search version B: no field until you type, as in Claude Code; nothing says the menu searches.",
+      note: "Search version B: the columns ignore it and show their field, as version A.",
       props: searchLook(quick, "typed"),
-      play: openQuick,
+      play: openColumns,
     },
     "quick-search-typed-only-typing": {
-      note: "Search version B after typing on a row: the field appears with the query.",
+      note: "Search version B after typing: the field has the keyboard, so the query types into it.",
       props: searchLook(quick, "typed"),
       play: async (ctx) => {
-        await openQuick(ctx);
-        // A key on a row opens the field with it; the rest types into the field.
+        await openColumns(ctx);
         await ctx.press("s");
-        await ctx.waitFor(() => ctx.document.querySelector(searchField.selector) !== null);
-        await ctx.type("on", searchField);
+        await ctx.type("on", colsField);
         await ctx.waitFor(
           () =>
-            ctx.document.querySelector<HTMLInputElement>(searchField.selector)?.value === "son" &&
-            ctx.document.querySelector(".acpmux-quick-found, .acpmux-quick-note") !== null,
+            ctx.document.querySelector<HTMLInputElement>(colsField.selector)?.value === "son" &&
+            ctx.document.querySelector(".acpmux-cols-group, .acpmux-cols-note") !== null,
         );
       },
     },
@@ -709,9 +885,9 @@ export default componentEntry<GalleryProps>({
       props: searchLook({ ...quick, catalog, harnessFixed: true }, "long"),
       play: openQuick,
     },
-    // Typing filters every harness's models in place, each row naming its harness.
+    // Typing filters every harness's models in place, under each harness's name.
     "quick-menu-filter": { props: quick, play: typeSearch("son") },
-    // The search looks for Lawrence's "sol 6.1" (via Leo 2026-10-28). Grouped by harness ships.
+    // The search looks for Lawrence's "sol 6.1" (via Leo 2026-10-28). The columns always group by harness.
     "search-grouped": { props: solSearch("harness"), play: typeSearch(SOL_SEARCH_QUERY) },
     "search-grouped-top-rail": { props: solSearch("harness", "top"), play: typeSearch(SOL_SEARCH_QUERY) },
     "search-flat": { props: solSearch("flat"), play: typeSearch(SOL_SEARCH_QUERY) },

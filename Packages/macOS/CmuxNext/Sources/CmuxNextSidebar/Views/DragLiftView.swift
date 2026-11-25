@@ -2,12 +2,14 @@ import AppKit
 import CmuxNextDesign
 import QuartzCore
 
-/// The row or group being dragged: a live row view on the one overlay glass
-/// (`OverlaySurfaceView`: clear, untinted Liquid Glass on macOS 26+, the
-/// frosted material before, opaque under Reduce Transparency) with a shadow.
-/// The glass is clear so a picked-up row stays as see-through as it was in
-/// the list (Leo 2026-10-23: "they don't need to be solid when you pick them
-/// up"). It keeps its size and place: no lift scale (Lawrence 2026-10-20, u5506).
+/// The row or group being dragged: a live row view with a shadow. In a
+/// translucent window it draws no material of its own and stands on the
+/// window's (`OverlaySurfaceView.standsOnWindow`), so a picked-up row stays as
+/// see-through as it was in the list in every sidebar style (Leo 2026-10-23:
+/// "they don't need to be solid when you pick them up"); clear Liquid Glass
+/// still frosted it. An opaque window keeps the overlay surface (clear Liquid
+/// Glass on macOS 26+, the frosted material before), Reduce Transparency the
+/// solid one. It keeps its size and place: no lift scale (Lawrence 2026-10-20, u5506).
 /// Multi-item drags show stacked cards behind it, peeking out below it only,
 /// and a count badge.
 final class DragLiftView: NSView {
@@ -34,7 +36,7 @@ final class DragLiftView: NSView {
         super.init(frame: .zero)
         card.wantsLayer = true
         card.layer?.cornerRadius = SidebarStyle.rowCornerRadius
-        card.layer?.cornerCurve = .continuous
+        card.layer?.cornerCurve = Metrics.tabCornerCurve // one curve with the rows and tabs (`TabCornerCurve`)
         card.layer?.masksToBounds = true
         wantsLayer = true
         layer?.masksToBounds = false
@@ -43,7 +45,7 @@ final class DragLiftView: NSView {
             let back = NSView()
             back.wantsLayer = true
             back.layer?.cornerRadius = SidebarStyle.rowCornerRadius
-            back.layer?.cornerCurve = .continuous
+            back.layer?.cornerCurve = Metrics.tabCornerCurve // one curve with the rows and tabs (`TabCornerCurve`)
             back.layer?.borderWidth = Metrics.lineWidth(0.5)
             back.identifier = NSUserInterfaceItemIdentifier("\(depth)")
             addSubview(back)
@@ -130,6 +132,7 @@ final class DragLiftView: NSView {
     }
 
     private func updateColors() {
+        background.standsOnWindow = WindowBackdrop.dragPreview(themeScope).dragsOnGlass
         performWithTheme {
             layer?.shadowColor = Palette.shadow.cgColor
             for back in stack {
@@ -190,9 +193,9 @@ final class DragLiftView: NSView {
             CATransaction.setDisableActions(true)
             cap.mask.position = capStart
             CATransaction.commit()
-            cap.place(height: frame.height, width: frame.width, animated: Motion.sidebar.policy.animatesMovement)
+            cap.place(height: frame.height, width: frame.width, animated: Motion.sidebar.animatesMovement(in: window))
         }
-        guard Motion.sidebar.policy.animatesMovement else {
+        guard Motion.sidebar.animatesMovement(in: window) else {
             if let layer { Motion.sidebar.set(layer, "opacity", to: Float(alphaValue), fade: .crossfade, from: Float(alphaValue) * 0.4) }
             return
         }

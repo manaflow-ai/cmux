@@ -14,9 +14,4 @@ public nonisolated enum LinkPlacement: String, Hashable, Sendable, CaseIterable 
     case newColumn = "new-column"
     /// A new tab in the source pane (cmux-next before 2026-10-19).
     case samePane = "same-pane"
-
-    /// The cmux.json key.
-    public static let configPath = ["layout", "linkPlacement"]
-    /// ``splitRight`` when the key is unset or invalid.
-    public static let fallback: LinkPlacement = .splitRight
 }

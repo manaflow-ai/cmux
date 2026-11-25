@@ -49,9 +49,6 @@ struct NewWorkspaceDiskFullRefusalTests {
         let services = AppServices(environment: AppEnvironment.current([:]))
         // The app's actions, as the app binds them at launch: without them `perform` runs nothing.
         AppActions.bind(services)
-        let savedDocument = SidebarDocStore.current
-        SidebarDocStore.current = nil
-        defer { SidebarDocStore.current = savedDocument }
         let log = FileManager.default.temporaryDirectory.appendingPathComponent("cn-diskfull-create-\(UUID().uuidString.prefix(8)).log")
         defer { try? FileManager.default.removeItem(at: log) }
         let bridge = DaemonBridge.fakePython(["-c", Self.daemonScript, log.path])
@@ -93,7 +90,7 @@ struct NewWorkspaceDiskFullRefusalTests {
             await Self.settle()
             #expect(hud.shownCount == before + 1, "one refused create showed \(hud.shownCount - before) refusals: \(hud.history.suffix(3))")
             let message = hud.history.last ?? ""
-            // The localized reason itself (REVIEW.md: never assert English text).
+            // The localized reason itself: never assert English text.
             #expect(message.contains(RefusalStrings.diskFull), "the refusal does not say the disk is full: \(message)")
             #expect(message != RefusalStrings.diskFull, "the refusal does not name the change that did not apply: \(message)")
             #expect(!message.contains("operation.failed"), "the refusal shows the daemon's raw error: \(message)")

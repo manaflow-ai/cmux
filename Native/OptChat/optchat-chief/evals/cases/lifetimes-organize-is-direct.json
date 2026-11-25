@@ -1,0 +1,17 @@
+{
+  "id": "lifetimes-organize-is-direct",
+  "group": "delegation",
+  "owner": "chief-action-lifetimes",
+  "about": "Leo 2026-11-10: \"when I tell it to organize my workspace versus groups, you don't need to make a workspace for that\": an organize request is a Direct action the Chief does itself, never a subagent or workspace",
+  "turns": [
+    {
+      "text": "organize my workspaces into groups by repo",
+      "checks": [
+        {"type": "not_called", "cmd": "spawn"},
+        {"type": "not_called", "cmd": "cloud_workspace"},
+        {"type": "no_question"},
+        {"type": "judge", "rubric": "Passes when the Chief groups the workspaces itself in this turn (it lists them, then makes or reuses groups and places the workspaces with the cmux workspace tools or CLI) and replies in a line or two with what it moved. Fails when it starts a subagent or makes a new workspace for the job, or asks the user anything first."}
+      ]
+    }
+  ]
+}

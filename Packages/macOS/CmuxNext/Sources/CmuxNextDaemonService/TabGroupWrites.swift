@@ -19,6 +19,57 @@ public struct TabGroupWrites: Sendable {
     /// The pane the writes act in (surface commands only).
     public let paneHandle: PaneID
 
+    /// The open groups `tab` can join: every group of its machine's `store` but its own. Add Tab
+    /// to Group… lists them; with none it says why, instead of asking for a group from an empty list.
+    ///
+    /// - Parameters:
+    ///   - tab: The tab that would join.
+    ///   - store: The store of `tab`'s own machine.
+    /// - Returns: The groups, in workspace, pane and strip order.
+    @MainActor public static func joinable(by tab: TabModel, in store: DaemonStore) -> [TabGroupModel] {
+        store.workspaces.flatMap(\.screens).flatMap(\.panes).flatMap(\.tabGroups).filter { $0.id != tab.tabGroup }
+    }
+
+    /// Why Add Tab to Group… cannot ask `tab` for a group: no group of its machine's `store` to
+    /// join (``joinable(by:in:)``). Nil when there is one.
+    @MainActor public static func joinRefusal(for tab: TabModel, in store: DaemonStore) -> String? {
+        joinable(by: tab, in: store).isEmpty ? RefusalStrings.noTabGroupToJoin : nil
+    }
+
+    /// The final index of a new tab put right after `anchor` among `others` (the pane's tabs but the new one): never among
+    /// the pinned tabs, and after the anchor's tab group, which the new tab does not join (a duplicate joins it with
+    /// ``join(_:beside:in:daemon:)``). Nil when the anchor left. `NewTabSlot` places new tabs with it.
+    @MainActor public static func slot(after anchor: TabModel, in others: [TabModel]) -> Int? {
+        guard var index = others.firstIndex(where: { $0 === anchor }) else { return nil }
+        if let group = others[index].tabGroup {
+            while index + 1 < others.count, others[index + 1].tabGroup == group { index += 1 }
+        }
+        return max(index + 1, others.prefix { $0.pinned }.count)
+    }
+
+    /// Why `tabs` cannot join a group: every one is pinned (the daemon refuses a pinned tab; a selection groups its others).
+    @MainActor public static func pinnedRefusal(for tabs: [TabModel]) -> String? {
+        tabs.allSatisfy(\.pinned) ? RefusalStrings.pinnedCannotGroup : nil
+    }
+
+    /// `tab` (a duplicate) joins `original`'s tab group right after it, which also puts it there in the strip.
+    ///
+    /// - Parameters:
+    ///   - tab: The new tab.
+    ///   - original: The tab it goes right after.
+    ///   - pane: The pane both are in.
+    ///   - daemon: `pane`'s own daemon.
+    /// - Returns: Nil when there is no group to join beside `original` (it has none or left it, or the daemon has no tab
+    ///   groups), else whether `tab` is in it (it was already, or the daemon took the join).
+    @MainActor public static func join(_ tab: TabModel, beside original: TabModel, in pane: PaneModel, daemon: DaemonService) async -> Bool? {
+        guard let group = original.tabGroup, daemon.supports(DaemonCapability.tabGroups.rawValue) else { return nil }
+        guard tab.tabGroup != group else { return true }
+        // The original left the group or the pane: no slot beside it, so the caller places the tab as any new tab.
+        guard let index = pane.tabs.filter({ $0 !== tab && $0.tabGroup == group }).firstIndex(where: { $0 === original }) else { return nil }
+        let writes = TabGroupWrites(pane: pane, daemon: daemon)
+        return await daemon.runGroupCommand("add-tabs-to-group", intent: nil, writes.add([tab], to: group, index: index + 1))
+    }
+
     /// - Parameters:
     ///   - pane: The pane the tabs and the group are in.
     ///   - daemon: `pane`'s own daemon.

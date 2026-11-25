@@ -87,6 +87,6 @@ import Testing
         #expect(ran.items == ["grp-empty workspaceGroup.newWorkspace"])
         header.isHovered = false
         header.layoutSubtreeIfNeeded()
-        #expect(header.addButton.isHidden, "the header's + stays after the hover ends")
+        #expect(!Self.drawn(header.addButton, in: header), "the header's + stays after the hover ends")
     }
 }

@@ -7,7 +7,7 @@ public nonisolated struct CFManagedPreferenceReader: ManagedPreferenceReader {
     public let domain: String
     public let keys: [String]
 
-    public init(domain: String = ManagedPreferences.domain, keys: [String] = CFManagedPreferenceReader.publishedKeys) {
+    public init(domain: String = ManagedPreferences.domain, keys: [String] = CFManagedPreferenceReader.readKeys) {
         self.domain = domain
         self.keys = keys
     }
@@ -15,6 +15,13 @@ public nonisolated struct CFManagedPreferenceReader: ManagedPreferenceReader {
     /// Every key the published schema lists (docs/mdm).
     public static var publishedKeys: [String] {
         SettingsSchema.all.filter(\.isShownInCmuxNext).map(\.id) + ManagedPreferences.policyKeys.map(\.name)
+    }
+
+    /// The published keys and the older names of renamed ones (``EffectiveSettings/legacyKeys``), so a
+    /// profile that still sets an old name keeps its value and its lock.
+    public static var readKeys: [String] {
+        let published = publishedKeys
+        return published + EffectiveSettings.legacyKeys.keys.sorted().filter { !published.contains($0) }
     }
 
     public func read() -> ManagedPreferences {

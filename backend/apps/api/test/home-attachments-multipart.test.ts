@@ -305,11 +305,17 @@ describe("Home attachments: an R2 multipart upload is never left without a recor
         await gc.runAttachmentWake(deps, undefined, now).catch(() => {})
         return gc.attachmentWakeAt(deps.sql)
       })
+    const queued = () =>
+      runInDurableObject(stub, async (_i, state) =>
+        state.storage.sql.exec<{ upload_id: string }>("SELECT upload_id FROM home_attachment_aborts WHERE dead = 0").toArray().map((r) => r.upload_id))
     const next = await wake({ ...testEnv, HOME_ATTACHMENTS: failing }, Date.now())
-    // The upload still has a record that ends it, and the alarm comes back for it.
+    // The upload still has a record that ends it, and the alarm comes back for it. The record is the
+    // guarantee: asserting the real upload is still open raced the object's own alarm (an outbox retry
+    // runs the wake with the real bucket), which failed under the full suite's load (cmux#32759).
     expect(next).not.toBeNull()
-    await upload.uploadPart(1, new Uint8Array(1))
+    expect(await queued()).toEqual([upload.uploadId])
     await wake(testEnv, Date.now() + 2 * 3_600_000)
+    expect(await queued()).toEqual([])
     await expect(upload.uploadPart(1, new Uint8Array(1))).rejects.toThrow()
   })
 })

@@ -28,6 +28,59 @@ struct PageWebViewEngineNeutralTests {
         return (view, page)
     }
 
+    /// A script called while the Chromium page is still being made runs in Chromium once it is there,
+    /// never in the hidden WebKit view that never loads the document (a cold chat's first
+    /// `debug.agent_pane` call waited 5 s there for a hook that never came, cmuxterm-hq#6338).
+    @Test func aScriptCalledWhileChromiumStartsRunsInChromium() async throws {
+        defer { try? FileManager.default.removeItem(at: root) }
+        let hosting = FakeChromiumHosting()
+        hosting.onMade = { page in
+            page.answer = { method, params in
+                guard method == "Runtime.evaluate", (params["expression"] as? String)?.contains("return 7;") == true else { return nil }
+                return #"{"result":{"type":"number","value":7}}"#
+            }
+        }
+        let view = try #require(PageWebView(descriptor: descriptor, root: root, routes: [], chromium: hosting))
+        view.chromiumClock = PageTestClock.never
+        #expect(!view.showsChromium, "the Chromium page was there before the call: nothing to wait for")
+        let value = try await view.callPageScript("return 7;")
+        let page = try #require(hosting.made.first)
+        #expect(view.showsChromium)
+        #expect(page.calls.contains { $0.method == "Runtime.evaluate" && (($0.params["expression"] as? String)?.contains("return 7;") ?? false) },
+                "the call ran in the hidden WebKit view instead of the Chromium page")
+        #expect((value as? NSNumber)?.intValue == 7)
+        view.close()
+    }
+
+    /// A script that awaits on purpose (`cmux app chat perf`'s timed capture) gets the deadline its
+    /// caller names, not DevTools' 5 s default; a call that names none keeps the default.
+    @Test func aScriptCallPassesItsDeadlineToChromium() async throws {
+        defer { try? FileManager.default.removeItem(at: root) }
+        let hosting = FakeChromiumHosting()
+        let (view, page) = try await started(hosting)
+        let before = page.devToolsTimeouts
+        _ = try await view.callPageScript("return 1;")
+        #expect(page.devToolsTimeouts == before)
+        _ = try await view.callPageScript("return 1;", timeout: .seconds(70))
+        #expect(page.devToolsTimeouts == before + [.seconds(70)])
+        view.close()
+    }
+
+    /// A Chromium page that is never made does not hold a script call for good: once the wait runs
+    /// out the call returns nil, and it never ran in the hidden WebKit view (cmux#34154).
+    @Test(.timeLimit(.minutes(1))) func aScriptCallReturnsNilWhenTheChromiumStartNeverEnds() async throws {
+        defer { try? FileManager.default.removeItem(at: root) }
+        let hosting = FakeChromiumHosting()
+        hosting.hangs = true
+        let view = try #require(PageWebView(descriptor: descriptor, root: root, routes: [], chromium: hosting))
+        view.chromiumClock = PageTestClock.immediate
+        let value = try await view.callPageScript("return 7;")
+        #expect(value == nil)
+        #expect(!view.showsChromium)
+        #expect(view.chromiumStart != nil, "the start ended: the call did not wait on a start in flight")
+        view.close()
+    }
+
     @Test func aPictureOfTheChromiumPageIsItsScreenshot() async throws {
         defer { try? FileManager.default.removeItem(at: root) }
         let hosting = FakeChromiumHosting()
@@ -44,6 +97,42 @@ struct PageWebViewEngineNeutralTests {
         let snapshot = await view.snapshot()
         #expect(snapshot?.size == NSSize(width: 4, height: 3))
         view.close()
+    }
+
+    /// cmux#56141: a hover card's picture of a Chromium page (a chat, a Markdown page) asked Chromium for a scaled
+    /// `clip`, which makes it emulate another viewport for the capture: the page on screen was laid out and rastered
+    /// again and the whole chat flashed white for about a second on every hover. The capture is of the viewport as it
+    /// draws (no clip, no beyond-viewport), and the picture is scaled down here, alpha kept.
+    @Test func aHoverPictureNeverReLaysOutThePageOnScreen() async throws {
+        defer { try? FileManager.default.removeItem(at: root) }
+        let hosting = FakeChromiumHosting()
+        let (view, page) = try await started(hosting)
+        view.frame = NSRect(x: 0, y: 0, width: 400, height: 300)
+        let bitmap = try #require(NSBitmapImageRep(bitmapDataPlanes: nil, pixelsWide: 800, pixelsHigh: 600, bitsPerSample: 8,
+                                                   samplesPerPixel: 4, hasAlpha: true, isPlanar: false, colorSpaceName: .deviceRGB,
+                                                   bytesPerRow: 0, bitsPerPixel: 0))
+        let png = try #require(bitmap.representation(using: .png, properties: [:]))  // all clear
+        page.answer = { method, _ in method == "Page.captureScreenshot" ? #"{"data":"\#(png.base64EncodedString())"}"# : nil }
+        let picture = try #require(await view.picture(maxPixelWidth: 200))
+        #expect(picture.width == 200 && picture.height == 150, "scaled to the width asked, aspect kept")
+        #expect(picture.alphaInfo != .none && picture.alphaInfo != .noneSkipLast && picture.alphaInfo != .noneSkipFirst,
+                "the clear areas stay clear")
+        let shots = page.calls.filter { $0.method == "Page.captureScreenshot" }
+        #expect(shots.count == 1)
+        for shot in shots {
+            #expect(shot.params["clip"] == nil, "a clip makes Chromium emulate another viewport: the page on screen flashes")
+            #expect(shot.params["captureBeyondViewport"] == nil)
+            #expect(shot.params["format"] as? String == "png")
+        }
+        view.close()
+    }
+
+    /// The class of cmux#56141: no picture the app takes on its own (hover, leave, cover, quit) asks Chromium for a
+    /// clip or a beyond-viewport capture, either of which re-lays out the page on screen.
+    @Test func noPassivePictureAsksForAViewportEmulation() {
+        for params in [PageWebView.pictureParams, PageWebView.snapshotParams, PageWebView.clearAreaSnapshotParams] {
+            #expect(params["clip"] == nil && params["captureBeyondViewport"] == nil, "\(params.keys.sorted())")
+        }
     }
 
     @Test func anExtraMessageHandlerHearsTheChromiumPage() async throws {

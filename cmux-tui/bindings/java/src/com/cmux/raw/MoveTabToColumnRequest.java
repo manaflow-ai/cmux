@@ -16,6 +16,7 @@ public final class MoveTabToColumnRequest implements WireValue {
     private final Field<ColumnPin> dock;
     private final Field<Boolean> keepFocus;
     private final Field<UInt64> pane;
+    private final Field<String> paneId;
     private final Field<SplitRespawn> respawn;
     private final Field<UInt64> screen;
     private final UInt64 surface;
@@ -27,6 +28,7 @@ public final class MoveTabToColumnRequest implements WireValue {
         this.dock = builder.dock;
         this.keepFocus = builder.keepFocus;
         this.pane = builder.pane;
+        this.paneId = builder.paneId;
         this.respawn = builder.respawn;
         this.screen = builder.screen;
         if (!builder.surfaceSet) throw new IllegalArgumentException("surface is required");
@@ -41,6 +43,7 @@ public final class MoveTabToColumnRequest implements WireValue {
     public Field<ColumnPin> dock() { return dock; }
     public Field<Boolean> keepFocus() { return keepFocus; }
     public Field<UInt64> pane() { return pane; }
+    public Field<String> paneId() { return paneId; }
     public Field<SplitRespawn> respawn() { return respawn; }
     public Field<UInt64> screen() { return screen; }
     public UInt64 surface() { return surface; }
@@ -65,6 +68,10 @@ public final class MoveTabToColumnRequest implements WireValue {
         Object rawPane = Wire.optional(object, "pane");
         if (!Wire.isMissing(rawPane)) {
             builder.pane(rawPane == null ? null : Wire.uint64(rawPane, "MoveTabToColumnRequest.pane"));
+        }
+        Object rawPaneId = Wire.optional(object, "pane_id");
+        if (!Wire.isMissing(rawPaneId)) {
+            builder.paneId(rawPaneId == null ? null : Wire.string(rawPaneId, "MoveTabToColumnRequest.pane_id"));
         }
         Object rawRespawn = Wire.optional(object, "respawn");
         if (!Wire.isMissing(rawRespawn)) {
@@ -94,6 +101,7 @@ public final class MoveTabToColumnRequest implements WireValue {
         Wire.put(object, "dock", dock);
         Wire.put(object, "keep_focus", keepFocus);
         Wire.put(object, "pane", pane);
+        Wire.put(object, "pane_id", paneId);
         Wire.put(object, "respawn", respawn);
         Wire.put(object, "screen", screen);
         Wire.put(object, "surface", surface);
@@ -105,11 +113,11 @@ public final class MoveTabToColumnRequest implements WireValue {
     @Override
     public boolean equals(Object other) {
         if (!(other instanceof MoveTabToColumnRequest that)) return false;
-        return Objects.equals(afterColumn, that.afterColumn) && Objects.equals(dock, that.dock) && Objects.equals(keepFocus, that.keepFocus) && Objects.equals(pane, that.pane) && Objects.equals(respawn, that.respawn) && Objects.equals(screen, that.screen) && Objects.equals(surface, that.surface) && Objects.equals(transaction, that.transaction) && Objects.equals(width, that.width);
+        return Objects.equals(afterColumn, that.afterColumn) && Objects.equals(dock, that.dock) && Objects.equals(keepFocus, that.keepFocus) && Objects.equals(pane, that.pane) && Objects.equals(paneId, that.paneId) && Objects.equals(respawn, that.respawn) && Objects.equals(screen, that.screen) && Objects.equals(surface, that.surface) && Objects.equals(transaction, that.transaction) && Objects.equals(width, that.width);
     }
 
     @Override
-    public int hashCode() { return Objects.hash(afterColumn, dock, keepFocus, pane, respawn, screen, surface, transaction, width); }
+    public int hashCode() { return Objects.hash(afterColumn, dock, keepFocus, pane, paneId, respawn, screen, surface, transaction, width); }
 
     @Override
     public String toString() { return "MoveTabToColumnRequest" + toWire(); }
@@ -119,6 +127,7 @@ public final class MoveTabToColumnRequest implements WireValue {
         private Field<ColumnPin> dock = Field.omitted();
         private Field<Boolean> keepFocus = Field.omitted();
         private Field<UInt64> pane = Field.omitted();
+        private Field<String> paneId = Field.omitted();
         private Field<SplitRespawn> respawn = Field.omitted();
         private Field<UInt64> screen = Field.omitted();
         private UInt64 surface;
@@ -140,6 +149,10 @@ public final class MoveTabToColumnRequest implements WireValue {
         }
         public Builder pane(UInt64 value) {
             this.pane = Field.ofNullable(value);
+            return this;
+        }
+        public Builder paneId(String value) {
+            this.paneId = Field.ofNullable(value);
             return this;
         }
         public Builder respawn(SplitRespawn value) {

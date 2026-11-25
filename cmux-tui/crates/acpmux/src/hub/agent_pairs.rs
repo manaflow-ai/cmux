@@ -31,7 +31,8 @@
 //! session in between. `0` for either turns the cap off.
 //!
 //! The message that trips the pair, and every later one between the two, is held, not delivered
-//! (at most [`MAX_HELD`] a pair; more are refused): the sender's `session/prompt` is refused
+//! (any number; each costs its prompt and an id, and adding or settling one is constant
+//! time): the sender's `session/prompt` is refused
 //! with `agent_pair.paused` (data `held: true`), whose text tells the agent the user resumes the
 //! pair, so it stops retrying. Both transcripts record `agent_pair_paused`; the receiver's
 //! records each `agent_pair_held`, with all the prompt needs to run and its pair-wide `order`, so
@@ -80,12 +81,8 @@ pub const WINDOW_ENV: &str = "ACPMUX_AGENT_PAIR_WINDOW_SECS";
 
 /// The refusal reason of a held message.
 pub const PAUSED_REASON: &str = "agent_pair.paused";
-/// The refusal reason of a message a paused pair has no room to hold.
-pub const FULL_REASON: &str = "agent_pair.held_full";
 /// The refusal reason of a resume that is not the person's.
 pub const RESUME_REFUSED: &str = "agent_pair.resume_refused";
-/// Messages one paused pair holds.
-pub const MAX_HELD: usize = 50;
 
 /// The person's own sender address on the cmux daemon (`agent_message_store.rs` `CLI_SENDER`).
 const PERSON_SENDER: &str = "cli";
@@ -205,8 +202,37 @@ struct Exchange {
 
 struct Paused {
     held: VecDeque<Held>,
+    /// The prompt ids in `held`, so a resend is found without a scan.
+    ids: HashSet<String>,
     /// A resume is delivering `held`: new messages queue behind it.
     draining: bool,
+}
+
+impl Paused {
+    fn new() -> Self {
+        Self { held: VecDeque::new(), ids: HashSet::new(), draining: false }
+    }
+
+    /// Holds `h` last, unless its prompt id is held already; whether it was added.
+    fn push(&mut self, h: Held) -> bool {
+        let added = self.ids.insert(h.prompt_id.clone());
+        if added {
+            self.held.push_back(h);
+        }
+        added
+    }
+
+    /// Takes `prompt_id` off: the front in a drain, so constant time there.
+    fn settle(&mut self, prompt_id: &str) {
+        if !self.ids.remove(prompt_id) {
+            return;
+        }
+        if self.held.front().is_some_and(|h| h.prompt_id == prompt_id) {
+            self.held.pop_front();
+        } else {
+            self.held.retain(|h| h.prompt_id != prompt_id);
+        }
+    }
 }
 
 /// A message a paused pair holds, with what `prompt_with` needs to deliver it later. Its
@@ -277,6 +303,8 @@ enum Trip {
     Repeating(u32),
     /// More than the cap within its window.
     Capped(u32),
+    /// The person took the receiver over and the sender manages it (`agent_hold.rs`).
+    TakenOver,
 }
 
 impl Trip {
@@ -285,12 +313,14 @@ impl Trip {
             Trip::Alternating(_) => "alternating",
             Trip::Repeating(_) => "repeating",
             Trip::Capped(_) => "cap",
+            Trip::TakenOver => "taken_over",
         }
     }
 
     fn count(self) -> u32 {
         match self {
             Trip::Alternating(n) | Trip::Repeating(n) | Trip::Capped(n) => n,
+            Trip::TakenOver => 0,
         }
     }
 }
@@ -364,8 +394,10 @@ struct Owed {
 /// keeps its first place.
 fn still_held(session: &str, records: Vec<EventRecord>, recorded: &HashSet<String>) -> Owed {
     let mut owed = Owed::default();
-    let held = &mut owed.held;
-    for rec in records {
+    // By first-held place, and each id's place: a hold or a release is O(log n), not a scan.
+    let mut held: std::collections::BTreeMap<usize, Held> = Default::default();
+    let mut places: HashMap<String, usize> = HashMap::new();
+    for (place, rec) in records.into_iter().enumerate() {
         let peer = rec.msg.get("peer").and_then(Value::as_str).map(str::to_owned);
         match rec.kind.as_str() {
             "agent_pair_paused" => {
@@ -377,19 +409,23 @@ fn still_held(session: &str, records: Vec<EventRecord>, recorded: &HashSet<Strin
             "agent_pair_held" => {
                 if let Some(h) = Held::from_record(session, &rec.msg)
                     && !recorded.contains(&h.prompt_id)
-                    && !held.iter().any(|x| x.prompt_id == h.prompt_id)
+                    && !places.contains_key(&h.prompt_id)
                 {
-                    held.push(h);
+                    places.insert(h.prompt_id.clone(), place);
+                    held.insert(place, h);
                 }
             }
             "agent_pair_released" | "agent_pair_dropped" => {
-                if let Some(id) = rec.msg.get("promptId").and_then(Value::as_str) {
-                    held.retain(|h| h.prompt_id != id);
+                if let Some(place) =
+                    rec.msg.get("promptId").and_then(Value::as_str).and_then(|id| places.remove(id))
+                {
+                    held.remove(&place);
                 }
             }
             _ => {}
         }
     }
+    owed.held = held.into_values().collect();
     owed
 }
 
@@ -412,7 +448,8 @@ impl Hub {
     /// `send_message` or `start_session` (`subsession_message`): a session of this daemon, by
     /// its exact id (the cmux daemon writes it `acp:<id>`). `None` for any other prompt, for a
     /// sender that is no session here (the person's `cli`, a terminal, another actor), and for
-    /// acpmux's own withdraw notices.
+    /// acpmux's own withdraw notices. A tool's notice (`notice`) sent from inside a session here
+    /// is that session's, by the `fromSessionId` the daemon bound.
     fn agent_message_sender(&self, provenance: Option<&Value>) -> Option<Arc<Session>> {
         let p = provenance?;
         let kind = p.get("kind").and_then(Value::as_str);
@@ -423,6 +460,7 @@ impl Hub {
                     | "session_message"
                     | super::subsessions::PROVENANCE_KIND
                     | super::lane_reports::KIND
+                    | crate::prompt_provenance::NOTICE_KIND
             )
         ) {
             return None;
@@ -430,7 +468,14 @@ impl Hub {
         if p.get("msgId").and_then(Value::as_str).is_some_and(|id| id.ends_with(".withdrawn")) {
             return None;
         }
-        let from = p.get("from").and_then(Value::as_str)?;
+        // A tool's notice names its sender only by name (`from` is `fromAgent`): the session that
+        // sent it is the one the daemon bound (`fromSessionId`, its proven caller), so a pause or
+        // a take-over holds a notice as it holds that session's other messages.
+        let from = if kind == Some(crate::prompt_provenance::NOTICE_KIND) {
+            p.get(crate::prompt_provenance::FROM_SESSION_ID).and_then(Value::as_str)?
+        } else {
+            p.get("from").and_then(Value::as_str)?
+        };
         let from = from.strip_prefix("acp:").unwrap_or(from);
         if from == PERSON_SENDER {
             return None;
@@ -475,9 +520,6 @@ impl Hub {
         opts: &mut PromptOptions,
     ) -> Result<(), RpcError> {
         let guard = self.agent_pair_guard();
-        if !guard.enabled {
-            return Ok(());
-        }
         let Some(sender) = self.agent_message_sender(opts.provenance.as_ref()) else {
             return Ok(());
         };
@@ -490,6 +532,12 @@ impl Hub {
         {
             return Ok(());
         }
+        // The person took the chat over: its manager's messages wait for Hand back, guard on or
+        // off (`agent_hold.rs`).
+        let taken_over = Self::held_for_person(&sender, session);
+        if !guard.enabled && !taken_over {
+            return Ok(());
+        }
         // A steer-only message the receiver cannot take now is refused unrecorded by
         // `run_prompt` (`steer.unavailable`): it is no exchange, and never pauses. Into a paused
         // pair it is held all the same, so a turn starting meanwhile cannot let it steer in.
@@ -497,7 +545,7 @@ impl Hub {
         let paused = |hub: &Self| {
             hub.pairs_state().pairs.get(&pair_key(&from, &to)).is_some_and(|p| p.paused.is_some())
         };
-        if steer && opts.steer_only && !can_steer && !paused(self) {
+        if steer && opts.steer_only && !can_steer && !paused(self) && !taken_over {
             return Ok(());
         }
         let prompt_id =
@@ -536,24 +584,7 @@ impl Hub {
             held.order = self.next_held_order();
             let pair = state.pairs.entry(key.clone()).or_default();
             if let Some(paused) = pair.paused.as_mut() {
-                if paused.held.iter().any(|h| h.prompt_id == prompt_id) {
-                    resent = true;
-                } else if paused.held.len() >= MAX_HELD {
-                    return Err(RpcError::new(
-                        -32000,
-                        format!(
-                            "{FULL_REASON}: this message to session {to} was NOT delivered and is \
-                             not held: the paused pair already holds {MAX_HELD} messages. Stop \
-                             messaging {to}; tell the user what you need."
-                        ),
-                    )
-                    .with_data(
-                        json!({"reason": FULL_REASON, "held": false, "promptId": prompt_id,
-                                      "sessions": [from, to], "limit": MAX_HELD}),
-                    ));
-                } else {
-                    paused.held.push_back(held.clone());
-                }
+                resent = !paused.push(held.clone());
                 if paused.draining { Hold::Draining } else { Hold::Paused }
             } else {
                 let alternating = if progressed { 0 } else { pair.alternating };
@@ -572,7 +603,9 @@ impl Hub {
                     pair.recent.pop_front();
                 }
                 let in_window = u32::try_from(pair.recent.len()).unwrap_or(u32::MAX) + 1;
-                let trip = if alternating >= guard.alternations {
+                let trip = if taken_over {
+                    Some(Trip::TakenOver)
+                } else if alternating >= guard.alternations {
                     Some(Trip::Alternating(alternating))
                 } else if repeats >= guard.repeats {
                     Some(Trip::Repeating(repeats))
@@ -604,8 +637,9 @@ impl Hub {
                     }));
                     return Ok(());
                 };
-                pair.paused =
-                    Some(Paused { held: VecDeque::from([held.clone()]), draining: false });
+                let mut paused = Paused::new();
+                paused.push(held.clone());
+                pair.paused = Some(paused);
                 Hold::Tripped(trip)
             }
         };
@@ -644,6 +678,10 @@ impl Hub {
                     guard.window.as_secs().div_ceil(60)
                 ),
                 RESUMES,
+            ),
+            Hold::Tripped(Trip::TakenOver) => (
+                format!("the user took over session {to}"),
+                "The user hands it back; held messages are then delivered in order.",
             ),
             Hold::Paused => ("the pair is paused".to_owned(), RESUMES),
             Hold::Draining => (
@@ -766,23 +804,78 @@ impl Hub {
         }
         let mut state = self.pairs_state();
         let mut drains = Vec::new();
+        let mut touched = HashSet::new();
         for h in held {
             let key = pair_key(&h.from, session);
             let drain = resumed.contains(&h.from);
             let pair = state.pairs.entry(key.clone()).or_default();
-            let paused = pair
-                .paused
-                .get_or_insert_with(|| Paused { held: VecDeque::new(), draining: false });
-            if !paused.held.iter().any(|x| x.prompt_id == h.prompt_id) {
-                paused.held.push_back(h);
-            }
-            paused.held.make_contiguous().sort_by_key(|h| h.order);
+            let paused = pair.paused.get_or_insert_with(Paused::new);
+            paused.push(h);
             if drain && !paused.draining {
                 paused.draining = true;
-                drains.push(key);
+                drains.push(key.clone());
+            }
+            touched.insert(key);
+        }
+        // Sorted once a pair, after all its holds are in, not once a hold.
+        for key in touched {
+            if let Some(paused) = state.pairs.get_mut(&key).and_then(|p| p.paused.as_mut()) {
+                paused.held.make_contiguous().sort_by_key(|h| h.order);
             }
         }
         state.restored_drains.extend(drains);
+    }
+
+    /// A copied machine's first start (`clone_boot.rs`), after `restore_agent_pairs` read
+    /// `session`'s log: the messages its pairs held for it were the first machine's to deliver.
+    /// Each is dropped (`agent_pair_dropped`, `reason: clone_boot`, in its log, so no later start
+    /// holds it again), and a pair left holding nothing is forgotten, so neither a restored
+    /// resume (`resume_agent_pair_drains`) nor a later one delivers it here.
+    pub(super) fn drop_cloned_pair_holds(&self, session: &Arc<Session>, from: &str) {
+        let dropped: Vec<Held> = {
+            let mut state = self.pairs_state();
+            let mut dropped = Vec::new();
+            let mut emptied = HashSet::new();
+            for (key, pair) in &mut state.pairs {
+                let Some(paused) = pair.paused.as_mut() else { continue };
+                let before = paused.held.len();
+                let (gone, kept): (Vec<Held>, Vec<Held>) =
+                    std::mem::take(&mut paused.held).into_iter().partition(|h| h.to == session.id);
+                for h in &gone {
+                    paused.ids.remove(&h.prompt_id);
+                }
+                paused.held = kept.into();
+                if before > 0 && paused.held.is_empty() {
+                    emptied.insert(key.clone());
+                }
+                dropped.extend(gone);
+            }
+            state.pairs.retain(|key, _| !emptied.contains(key));
+            state.restored_drains.retain(|key| !emptied.contains(key));
+            dropped
+        };
+        for h in dropped {
+            self.append(
+                session,
+                "mux",
+                "agent_pair_dropped",
+                json!({"promptId": h.prompt_id, "peer": h.from, "reason": "clone_boot", "cloneOf": from}),
+            );
+        }
+    }
+
+    /// Tests: the messages the pairs hold for `session`, and the restored resumes still to run.
+    #[cfg(test)]
+    pub(super) fn pair_holds_for(&self, session: &str) -> (usize, usize) {
+        let state = self.pairs_state();
+        let held = state
+            .pairs
+            .values()
+            .filter_map(|p| p.paused.as_ref())
+            .flat_map(|p| p.held.iter())
+            .filter(|h| h.to == session)
+            .count();
+        (held, state.restored_drains.len())
     }
 
     /// Delivers what the pairs `restore_agent_pairs` found mid-resume still hold (`queue.rs`
@@ -851,29 +944,40 @@ impl Hub {
             .with_data(json!({"reason": RESUME_REFUSED}))
     }
 
-    /// Resumes and resets the pairs; how many were paused, and how many messages they held.
-    fn agent_pair_resume_inner(
+    /// Resumes and resets the pairs; how many were paused, and how many messages they held. A
+    /// person's prompt (`by` = `person`) leaves paused the pairs a taken-over chat holds
+    /// (`agent_hold.rs`): only Hand back or an explicit resume delivers those.
+    pub(super) fn agent_pair_resume_inner(
         self: &Arc<Self>,
         session: &str,
         peer: Option<&str>,
         by: &str,
     ) -> (usize, usize) {
+        let mine = |(a, b): &PairKey| {
+            let other = if a == session {
+                b
+            } else if b == session {
+                a
+            } else {
+                return false;
+            };
+            peer.is_none_or(|p| p == other)
+        };
+        let kept: HashSet<PairKey> = if by == "person" {
+            let keys: Vec<PairKey> =
+                self.pairs_state().pairs.keys().filter(|k| mine(k)).cloned().collect();
+            keys.into_iter().filter(|(a, b)| self.pair_taken_over(a, b)).collect()
+        } else {
+            HashSet::new()
+        };
         let mut resumed: Vec<(PairKey, usize)> = Vec::new();
         {
             let mut state = self.pairs_state();
-            let mine = |(a, b): &PairKey| {
-                let other = if a == session {
-                    b
-                } else if b == session {
-                    a
-                } else {
-                    return false;
-                };
-                peer.is_none_or(|p| p == other)
-            };
             // A pair not paused starts over; a paused one drains, then starts over.
             state.pairs.retain(|key, pair| !mine(key) || pair.paused.is_some());
-            for (key, pair) in state.pairs.iter_mut().filter(|(key, _)| mine(key)) {
+            for (key, pair) in
+                state.pairs.iter_mut().filter(|(key, _)| mine(key) && !kept.contains(*key))
+            {
                 if let Some(paused) = pair.paused.as_mut()
                     && !paused.draining
                 {
@@ -1045,11 +1149,17 @@ impl Hub {
         }
     }
 
+    /// Whether either session of a pair holds the other's messages for the person.
+    fn pair_taken_over(&self, a: &str, b: &str) -> bool {
+        let (Ok(a), Ok(b)) = (self.resolve(a), self.resolve(b)) else { return false };
+        Self::held_for_person(&a, &b) || Self::held_for_person(&b, &a)
+    }
+
     /// Takes a released (or dropped) message off its pair's held queue.
     fn settle_held(&self, key: &PairKey, prompt_id: &str) {
         let mut state = self.pairs_state();
         if let Some(paused) = state.pairs.get_mut(key).and_then(|p| p.paused.as_mut()) {
-            paused.held.retain(|h| h.prompt_id != prompt_id);
+            paused.settle(prompt_id);
         }
     }
 }

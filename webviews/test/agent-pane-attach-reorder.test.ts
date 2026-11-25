@@ -9,6 +9,7 @@ import path from "node:path";
 import { chromium, type Browser, type Page } from "playwright";
 import { requireBrowserLane } from "./support/requireBrowserLane";
 import { warmViteServer } from "./support/warmDevServer";
+import { COMPOSER_EDITOR } from "../src/agent-session/acpmux/composerSelectors";
 
 await requireBrowserLane("agent-pane-attach-reorder.test.ts", async () => {
   setDefaultTimeout(120_000);
@@ -63,21 +64,24 @@ await requireBrowserLane("agent-pane-attach-reorder.test.ts", async () => {
 
   /// Pastes three PNGs 300, 400 and 500 px wide, as one ⌘V of copied images.
   const pasteThree = (page: Page) =>
-    page.evaluate(async () => {
-      const data = new DataTransfer();
-      for (const width of [300, 400, 500]) {
-        const canvas = document.createElement("canvas");
-        canvas.width = width;
-        canvas.height = 200;
-        const context = canvas.getContext("2d")!;
-        context.fillStyle = `hsl(${width}, 60%, 50%)`;
-        context.fillRect(0, 0, width, 200);
-        const blob = await new Promise<Blob>((resolve) => canvas.toBlob((png) => resolve(png!), "image/png"));
-        data.items.add(new File([blob], `Shot ${width}.png`, { type: "image/png" }));
-      }
-      const target = document.querySelector(".acpmux-composer-prompt [contenteditable='true']")!;
-      target.dispatchEvent(new ClipboardEvent("paste", { clipboardData: data, bubbles: true, cancelable: true }));
-    });
+    page.evaluate(
+      async ({ COMPOSER_EDITOR }) => {
+        const data = new DataTransfer();
+        for (const width of [300, 400, 500]) {
+          const canvas = document.createElement("canvas");
+          canvas.width = width;
+          canvas.height = 200;
+          const context = canvas.getContext("2d")!;
+          context.fillStyle = `hsl(${width}, 60%, 50%)`;
+          context.fillRect(0, 0, width, 200);
+          const blob = await new Promise<Blob>((resolve) => canvas.toBlob((png) => resolve(png!), "image/png"));
+          data.items.add(new File([blob], `Shot ${width}.png`, { type: "image/png" }));
+        }
+        const target = document.querySelector(COMPOSER_EDITOR)!;
+        target.dispatchEvent(new ClipboardEvent("paste", { clipboardData: data, bubbles: true, cancelable: true }));
+      },
+      { COMPOSER_EDITOR },
+    );
 
   /// The staged images' widths, in the strip's order (each chip is named for its width).
   const order = (page: Page) =>
@@ -88,7 +92,7 @@ await requireBrowserLane("agent-pane-attach-reorder.test.ts", async () => {
     );
 
   async function staged(page: Page) {
-    await page.locator(".acpmux-composer-prompt [contenteditable='true']").click();
+    await page.locator(COMPOSER_EDITOR).click();
     await pasteThree(page);
     await page.waitForFunction(() => {
       const images = [
@@ -107,6 +111,17 @@ await requireBrowserLane("agent-pane-attach-reorder.test.ts", async () => {
     const chips = page.locator(".acpmux-attachments .acpmux-attachment-image");
     const first = (await chips.nth(0).boundingBox())!;
     const last = (await chips.nth(2).boundingBox())!;
+    // Every slide the strip starts, recorded in the page as it starts (a 160 ms slide may be over
+    // before the test could look for it).
+    await page.evaluate(() => {
+      const record: string[] = [];
+      Object.assign(window, { slidesStarted: record });
+      const animate = Element.prototype.animate;
+      Element.prototype.animate = function (this: Element, ...args: Parameters<Element["animate"]>) {
+        if (this.closest(".acpmux-attachment-slot:not([data-dragging])")) record.push(this.className);
+        return animate.apply(this, args);
+      };
+    });
     await page.mouse.move(first.x + first.width / 2, first.y + first.height / 2);
     await page.mouse.down();
     await page.mouse.move(first.x + first.width / 2 + 10, first.y + first.height / 2, { steps: 3 });
@@ -117,8 +132,30 @@ await requireBrowserLane("agent-pane-attach-reorder.test.ts", async () => {
         .locator(".acpmux-attachments .acpmux-attachment-slot[data-dragging] .acpmux-attachment")
         .evaluate((chip) => getComputedStyle(chip).transform),
     ).not.toBe("none");
+    // Leo, 2026-10-26: "there's no click-and-drag animation or whatever. Like, it has to just look
+    // like a drag-and-drop". The chip rides the pointer: grabbed at its center, it is still centered
+    // under the pointer (clamped inside the strip), not parked in its new slot.
+    const pointerX = last.x + last.width - 4;
+    const ride = await page.evaluate(() => {
+      const strip = document.querySelector(".acpmux-attachments")!.getBoundingClientRect();
+      const chip = document
+        .querySelector(".acpmux-attachments .acpmux-attachment-slot[data-dragging] .acpmux-attachment")!
+        .getBoundingClientRect();
+      return { center: chip.left + chip.width / 2, right: chip.right, stripRight: strip.right };
+    });
+    expect(Math.abs(ride.center - pointerX) < 2 || Math.abs(ride.right - ride.stripRight) < 2).toBe(true);
+    // The chips it passed slide to their new slots instead of jumping there.
+    expect(
+      await page.evaluate(() => (window as unknown as { slidesStarted: string[] }).slidesStarted.length),
+    ).toBeGreaterThan(0);
     await page.mouse.up();
     expect(await order(page)).toEqual(["400", "500", "300"]);
+    // Released, it settles into its slot and keeps no offset of its own.
+    await page.waitForFunction(() =>
+      [...document.querySelectorAll<HTMLElement>(".acpmux-attachments .acpmux-attachment")].every(
+        (chip) => chip.style.translate === "" && chip.getAnimations().length === 0,
+      ),
+    );
     expect(await page.locator(".acpmux-attachments .acpmux-attachment-slot[data-dragging]").count()).toBe(0);
     // Assistive technology hears where it went, while the announcement stays out of the
     // visual strip. Leo, 2026-10-26: the movement hint and status must not be visible UI.

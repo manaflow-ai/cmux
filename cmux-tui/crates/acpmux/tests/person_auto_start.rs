@@ -24,6 +24,7 @@ use std::time::Duration;
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt};
 
 const FAKE: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fake_agent.py");
+const FAKE_CLAUDE: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fake_claude.py");
 const REASON: &str = "permission.person_required";
 /// A caller token a profile or preset env tries to set in place of acpmux's.
 const FORGED_TOKEN: &str = "0000000000000000000000000000000000000000000000000000000000000000";
@@ -171,29 +172,32 @@ impl Daemon {
     /// `wide` also offers `full-access`, the start mode of a new chat
     /// (`hub/start_mode.rs`, `defaultPermissionMode` set for a hermetic run).
     fn start(tag: &str) -> Self {
+        Self::start_with(tag, json!({}))
+    }
+
+    /// [`Self::start`] with `extra` config keys over the shared ones.
+    fn start_with(tag: &str, extra: Value) -> Self {
         let dir = std::env::temp_dir().join(format!("aas-{tag}-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(dir.join("work")).unwrap();
         let dir = std::fs::canonicalize(&dir).unwrap();
-        std::fs::write(
-            dir.join("config.json"),
-            json!({
-                "harnesses": {
-                    "fake": {"argv": ["python3", FAKE]},
-                    "mirror": {"argv": ["python3", FAKE], "family": "mirror"},
-                    "other": {"argv": ["python3", FAKE], "family": "fake", "env": {"FAKE_SESSION_PREFIX": "other-"}},
-                    "gated": {"argv": ["python3", FAKE], "family": "fake", "env": {"FAKE_START_GATE": dir.join("gate")}},
-                    "wide": {"argv": ["python3", FAKE], "family": "wide", "env": {"FAKE_FULL_ACCESS": "1"}},
-                    "forger": {"argv": ["python3", FAKE], "family": "fake", "env": {"ACPMUX_SESSION_TOKEN": FORGED_TOKEN, "ACPMUX_SESSION_TOKEN_SOCKET": "/tmp/acpmux-forged.sock"}},
-                },
-                "defaultHarness": "fake",
-                "permissionPolicy": "ask",
-                "defaultPermissionMode": "fullAccess",
-                "webAskingModes": {"fake": ["normal", "strict"], "mirror": ["normal", "strict"], "wide": ["normal", "strict"]},
-            })
-            .to_string(),
-        )
-        .unwrap();
+        let mut config = json!({
+            "harnesses": {
+                "fake": {"argv": ["python3", FAKE]},
+                "mirror": {"argv": ["python3", FAKE], "family": "mirror"},
+                "other": {"argv": ["python3", FAKE], "family": "fake", "env": {"FAKE_SESSION_PREFIX": "other-"}},
+                "gated": {"argv": ["python3", FAKE], "family": "fake", "env": {"FAKE_START_GATE": dir.join("gate")}},
+                "wide": {"argv": ["python3", FAKE], "family": "wide", "env": {"FAKE_FULL_ACCESS": "1"}},
+                "forger": {"argv": ["python3", FAKE], "family": "fake", "env": {"ACPMUX_SESSION_TOKEN": FORGED_TOKEN, "ACPMUX_SESSION_TOKEN_SOCKET": "/tmp/acpmux-forged.sock"}},
+                "claude": {"argv": ["python3", FAKE_CLAUDE], "kind": "claude-stdio"},
+            },
+            "defaultHarness": "fake",
+            "permissionPolicy": "ask",
+            "defaultPermissionMode": "fullAccess",
+            "webAskingModes": {"fake": ["normal", "strict"], "mirror": ["normal", "strict"], "wide": ["normal", "strict"]},
+        });
+        config.as_object_mut().unwrap().extend(extra.as_object().cloned().unwrap_or_default());
+        std::fs::write(dir.join("config.json"), config.to_string()).unwrap();
         let socket = dir.join("s.sock");
         let mut cmd = daemon_env::command(&dir, daemon_env::Agents::StandIn, &[]);
         cmd.args(["daemon", "run", "--memory", "--ready-fd", "1", "--log", "warn"])
@@ -543,12 +547,15 @@ async fn mode(c: &mut Rpc, id: Value) -> String {
 }
 
 /// The start mode of a new chat (`hub/start_mode.rs`: full access by
-/// default) never widens a caller session: a session in a mode that asks
-/// starts its chats in that mode (`start_mode.rs`, "Inherit"); one in full
-/// access starts them in full access, as the person's chats start.
+/// default) never widens a caller session held to its starter
+/// (`holdAgentStartsToStarter`): a session in a mode that asks starts its
+/// chats in that mode (`start_mode.rs`, "Inherit"); one in full access starts
+/// them in full access, as the person's chats start. Without the key a
+/// flagless agent start takes the configured default instead
+/// (`tests/inherit_start.rs`, user 2026-11-03).
 #[tokio::test]
 async fn auto_start_the_default_full_access_never_widens_a_caller_session_that_asks() {
-    let d = Daemon::start("default");
+    let d = Daemon::start_with("default", json!({"holdAgentStartsToStarter": true}));
     let mut app = Rpc::person(&d.socket, KEY).await;
     let own = app.ok("session/new", new_params(&d, json!({"harness": "wide"}))).await;
     assert_eq!(mode(&mut app, own["sessionId"].clone()).await, "full-access", "{own}");
@@ -560,6 +567,68 @@ async fn auto_start_the_default_full_access_never_widens_a_caller_session_that_a
     let mut agent = Rpc::in_session(&d.socket, &wide, &token).await;
     let child = agent.ok("session/new", new_params(&d, json!({"harness": "wide"}))).await;
     assert_eq!(mode(&mut agent, child["sessionId"].clone()).await, "full-access", "{child}");
+}
+
+/// A running chat may move to the start mode of new chats (`hub/start_mode.rs`, full access by
+/// default) without the person: the person already chose that level for every new chat (user,
+/// 2026-11-04: "set EVERY running ACP chat ... to bypass permissions (yolo) now, not only new
+/// sessions"). Any other mode that does not ask stays the person's to set.
+#[tokio::test]
+async fn auto_start_a_running_chat_moves_to_the_configured_start_mode_without_the_person() {
+    let d = Daemon::start("live");
+    let mut app = Rpc::person(&d.socket, KEY).await;
+    let s = app.ok("session/new", new_params(&d, json!({"harness": "wide"}))).await;
+    let id = s["sessionId"].clone();
+    app.ok("session/set_mode", json!({"sessionId": id, "modeId": "strict"})).await;
+    assert_eq!(mode(&mut app, id.clone()).await, "strict", "{s}");
+    let mut cli = Rpc::plain(&d.socket).await;
+    let r = cli.call("session/set_mode", json!({"sessionId": id, "modeId": "full-access"})).await;
+    assert!(r.get("error").is_none(), "the configured start mode was refused: {r}");
+    assert_eq!(mode(&mut cli, id.clone()).await, "full-access", "{r}");
+    let r = cli.call("session/set_mode", json!({"sessionId": id, "modeId": "yolo"})).await;
+    assert_eq!(reason(&r), REASON, "a mode that is not the start mode: {r}");
+}
+
+/// Claude chats start in Claude Code's own Auto, never Manual, when the person's start level is
+/// the harness's own (`standard`): cmux launched them with `--permission-mode default` and every
+/// tool call waited on the person (2026-11-05: "cmux is launching these workers in Manual").
+#[tokio::test]
+async fn auto_start_a_claude_chat_at_the_harness_level_starts_in_claudes_own_auto() {
+    let d = Daemon::start_with("claude-std", json!({"defaultPermissionMode": "standard"}));
+    let mut cli = Rpc::plain(&d.socket).await;
+    let s = cli.ok("session/new", new_params(&d, json!({"harness": "claude"}))).await;
+    assert_eq!(mode(&mut cli, s["sessionId"].clone()).await, "auto", "{s}");
+}
+
+/// A running Claude chat may move to Claude's own Auto without the person while new chats start
+/// in full access or the harness's own mode: the person's level already covers it (2026-11-05:
+/// "cmux explicitly blocks agents from enabling Auto"). Under `ask` it stays the person's, and so
+/// does any other mode that does not ask.
+#[tokio::test]
+async fn auto_start_a_running_claude_chat_moves_to_auto_without_the_person() {
+    for (tag, level, allowed) in [
+        ("claude-fa", "fullAccess", true),
+        ("claude-st", "standard", true),
+        ("claude-ask", "ask", false),
+    ] {
+        let d = Daemon::start_with(tag, json!({"defaultPermissionMode": level}));
+        let mut app = Rpc::person(&d.socket, KEY).await;
+        let s = app.ok("session/new", new_params(&d, json!({"harness": "claude"}))).await;
+        let id = s["sessionId"].clone();
+        app.ok("session/set_mode", json!({"sessionId": id, "modeId": "default"})).await;
+        assert_eq!(mode(&mut app, id.clone()).await, "default", "{level}: {s}");
+        let mut cli = Rpc::plain(&d.socket).await;
+        let r = cli.call("session/set_mode", json!({"sessionId": id, "modeId": "auto"})).await;
+        if allowed {
+            assert!(r.get("error").is_none(), "{level}: Auto was refused: {r}");
+            assert_eq!(mode(&mut cli, id.clone()).await, "auto", "{level}: {r}");
+        } else {
+            assert_eq!(reason(&r), REASON, "{level}: Auto needs the person: {r}");
+        }
+        let r =
+            cli.call("session/set_mode", json!({"sessionId": id, "modeId": "acceptEdits"})).await;
+        assert_eq!(reason(&r), REASON, "{level}: another mode that does not ask: {r}");
+    }
 }
 
 /// An adopt that finds a session already running never moves it to the

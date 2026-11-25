@@ -5,4 +5,6 @@
 /// `creationFailed`: a creation of the hold failed (the daemon refused it, or the connection ended); no focus landed.
 public nonisolated enum CreationHoldEnd: Equatable, Sendable {
     case focusLanded, limitReached, focusLeft, windowClosed, creationFailed
+    /// A creation's reply did not come within its bound (``CreationInputBuffer/replyWaitBound``, cmux-ad m12).
+    case replyBoundReached
 }

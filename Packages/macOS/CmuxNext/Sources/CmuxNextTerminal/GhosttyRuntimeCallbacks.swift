@@ -24,7 +24,7 @@ nonisolated func ghosttyWakeup(_ userdata: UnsafeMutableRawPointer?) {
     }
 }
 
-nonisolated func ghosttyAction(_ app: ghostty_app_t?, _ target: ghostty_target_s, _ action: ghostty_action_s) -> Bool {
+nonisolated func ghosttyAction(_ app: ghostty_app_t, _ target: ghostty_target_s, _ action: ghostty_action_s) -> Bool {
     // Decode synchronously: strings in the action are valid only for the
     // duration of this callback.
     guard let decoded = GhosttyActionDecoder.decode(action) else { return false }
@@ -33,7 +33,7 @@ nonisolated func ghosttyAction(_ app: ghostty_app_t?, _ target: ghostty_target_s
     } else {
         nil
     }
-    let context = app.flatMap { RuntimeCallbackContext.from(ghostty_app_userdata($0)) }
+    let context = RuntimeCallbackContext.from(ghostty_app_userdata(app))
     if Thread.isMainThread {
         // main-proof: guarded by Thread.isMainThread above
         return MainActor.assumeIsolated {
@@ -55,8 +55,8 @@ nonisolated func ghosttyAction(_ app: ghostty_app_t?, _ target: ghostty_target_s
 nonisolated func ghosttyReadClipboard(
     _ userdata: UnsafeMutableRawPointer?,
     _ clipboard: ghostty_clipboard_e,
-    _ state: UnsafeMutableRawPointer?,
-    _ mimes: UnsafePointer<UnsafePointer<CChar>?>?,
+    _ state: UnsafeMutableRawPointer,
+    _ mimes: UnsafePointer<UnsafePointer<CChar>>,
     _ mimeCount: Int,
     _ listAvailable: Bool
 ) -> ghostty_clipboard_read_result_e {
@@ -65,10 +65,8 @@ nonisolated func ghosttyReadClipboard(
     // Text-like types always arrive as the canonical "text/plain"; the
     // terminal serves text only.
     var wantsText = false
-    if let mimes {
-        for index in 0..<mimeCount where mimes[index].map({ String(cString: $0) }) == "text/plain" {
-            wantsText = true
-        }
+    for index in 0..<mimeCount where String(cString: mimes[index]) == "text/plain" {
+        wantsText = true
     }
     let pointer = UncheckedPointer(raw: state)
     // main-proof: guarded by Thread.isMainThread at the top of this function
@@ -84,18 +82,19 @@ nonisolated func ghosttyReadClipboard(
 /// the text is copied before the sheet opens.
 nonisolated func ghosttyConfirmReadClipboard(
     _ userdata: UnsafeMutableRawPointer?,
-    _ confirm: UnsafePointer<ghostty_clipboard_confirm_s>?,
-    _ state: UnsafeMutableRawPointer?,
+    _ confirm: UnsafePointer<ghostty_clipboard_confirm_s>,
+    _ state: UnsafeMutableRawPointer,
     _ request: ghostty_clipboard_request_e
 ) {
     guard let bridge = SurfaceBridge.from(userdata) else { return }
     var contents = ""
     var contentBytes = 0
     var chosePlainText = false
-    if let confirm = confirm?.pointee, let items = confirm.contents {
-        for index in 0..<confirm.contents_len {
+    let confirmation = confirm.pointee
+    if let items = confirmation.contents {
+        for index in 0..<confirmation.contents_len {
             let item = items[index]
-            let mime = item.mime.map({ String(cString: $0) }) ?? "text/plain"
+            let mime = String(cString: item.mime)
             let text = TerminalClipboardRequests.string(item)
             let (itemBytes, itemOverflow) = mime.utf8.count.addingReportingOverflow(item.len)
             let (next, totalOverflow) = contentBytes.addingReportingOverflow(itemBytes)
@@ -128,16 +127,15 @@ nonisolated func ghosttyConfirmReadClipboard(
 nonisolated func ghosttyWriteClipboard(
     _ userdata: UnsafeMutableRawPointer?,
     _ clipboard: ghostty_clipboard_e,
-    _ contents: UnsafePointer<ghostty_clipboard_content_s>?,
+    _ contents: UnsafePointer<ghostty_clipboard_content_s>,
     _ count: Int,
     _ confirm: Bool
 ) {
-    guard let contents, count > 0 else { return }
+    guard count > 0 else { return }
     var items: [TerminalClipboardItem] = []
     for index in 0..<count {
         let item = contents[index]
-        guard item.data != nil else { continue }
-        let mime = item.mime.map { String(cString: $0) } ?? "text/plain"
+        let mime = String(cString: item.mime)
         items.append(TerminalClipboardItem(mime: mime, text: TerminalClipboardRequests.string(item)))
     }
     guard !items.isEmpty else { return }

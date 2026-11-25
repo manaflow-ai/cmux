@@ -29,6 +29,10 @@ use crate::workspace_registry::personal_store::read_workspaces;
 use crate::workspace_registry::{PersonalWorkspaceUpdate, WorkspaceRegistry};
 
 pub(crate) const WORKSPACE_KIND_CAPABILITY: &str = "workspace-kind-v1";
+/// The raw tree marks the recovery workspace (`Workspace.recovered`, `server/home.rs`): every tab
+/// in it is a terminal the daemon recovered from an orphaned host (`mux/orphan_hosts.rs`), so it is
+/// not a workspace the person made.
+pub(crate) const WORKSPACE_RECOVERED_CAPABILITY: &str = "workspace-recovered-v1";
 pub(crate) const HOME_KIND: &str = "home";
 /// The fixed idempotency key and correlation key of the home creation.
 pub(crate) const HOME_CREATION_KEY: &str = "home";
@@ -104,6 +108,15 @@ impl EmptyWorkspaceMark {
 
     pub(crate) fn writes(&self) -> bool {
         *self != Self::None
+    }
+
+    /// Whether the raw tree reads this mark (`kind`, `app`) from the presentation snapshot. Then
+    /// the creation reloads that snapshot after its commit and before it builds its
+    /// `workspace-added` entity, so the event names the kind every later tree read names
+    /// (`workspace-kind-v1`, `app-screens-v1`): a home announced as `normal` showed as an
+    /// ordinary workspace row until the next tree read.
+    pub(crate) fn shows_in_tree(&self) -> bool {
+        matches!(self, Self::Home | Self::App(_))
     }
 
     /// The field the creation fingerprint carries for this mark.
@@ -257,21 +270,6 @@ pub(crate) fn live_home(connection: &Connection) -> anyhow::Result<Option<(Strin
              WHERE k.kind = 'home' AND rw.deleted_revision IS NULL",
             [],
             |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?)),
-        )
-        .optional()?)
-}
-
-/// The kind a workspace snapshot shows in `extra.kind` and, for an app
-/// workspace, its app (`extra.app`); `None` is normal.
-pub(crate) fn workspace_kind(
-    connection: &Connection,
-    workspace_id: &str,
-) -> anyhow::Result<Option<(String, Option<String>)>> {
-    Ok(connection
-        .query_row(
-            "SELECT kind, app_id FROM workspace_kind WHERE workspace_id = ?1",
-            [workspace_id],
-            |row| Ok((row.get::<_, String>(0)?, row.get::<_, Option<String>>(1)?)),
         )
         .optional()?)
 }

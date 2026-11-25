@@ -109,8 +109,10 @@ Exit 1 when a module or crate gained a hit or a waived hit; with --update-baseli
 a row stays above the baseline; with --baseline-against, when a counted row rose.
 """
 import argparse
+import functools
 import subprocess
 import json
+import multiprocessing
 import os
 import re
 import sys
@@ -266,15 +268,184 @@ def collection_names(lines):
 def collection_kinds(lines):
     """({dictionary names}, {names declared as an indexable non-dictionary: an array type or
     literal, Data, Array(...)}, {names declared any other way: inferred or another type})."""
+    dicts, arrays, others, _ = declarations(lines)
+    return dicts, arrays, others
+
+
+# Every parameter of a func/init list, whatever its type (`func f(_ s: inout State)`); the
+# type text starts at the match end.
+ANY_PARAMETER = re.compile(r"[(,]\s*(?:\w+\s+)?(\w+)\s*:\s*")
+# Closure parameters: `{ state in`, `{ [weak self] a, b in`, `{ (s: State) -> Bool in`.
+CLOSURE_PARAMETERS = re.compile(r"\{\s*(?:\[[^\[\]]*\]\s*)?(\([^(){}]*\)|\w+(?:\s*,\s*\w+)*)"
+                                r"\s*(?:->\s*[^{}]+?)?\s+in\b")
+FOR_IN = re.compile(r"\bfor\s+(?:case\s+(?:let|var)\s+)?(\([^()]*\)|\w+)\s+in\b")
+PARAMETER_NAME = re.compile(r"(?:^|[(,])\s*(\w+)")
+TYPED_PARAMETER = re.compile(r"(?:^|[(,])\s*(?:\w+\s+)?(\w+)\s*:\s*([^,()]*)")
+# A type this file declares (its members are the ones this file's declarations describe).
+TYPE_DECL = re.compile(r"\b(?:struct|class|enum|actor)\s+([A-Z]\w*)")
+# A lock whose withLock closure parameter is its element: `Mutex(State())`, `Mutex<State>`,
+# `OSAllocatedUnfairLock(initialState: State())`.
+LOCK_WRAPPERS = frozenset({"Mutex", "OSAllocatedUnfairLock"})
+WITH_LOCK_BEFORE = re.compile(r"(?<![\w.)\]?!])((?:\w+\.)*\w+)\.withLock\s*\(?\s*$")
+# The head of a type body: its `{` opens the scope that `self.name` resolves in.
+TYPE_HEADER = re.compile(r"\b(?:struct|class|enum|actor|extension)\s+[A-Z][^{}()=]*$")
+TYPE_NAME = r"[A-Z]\w*(?:\.[A-Z]\w*)*"
+ANNOTATED_TYPE = re.compile(r"(?:(?:inout|any|some|borrowing|consuming)\s+|@\w+(?:\([^)]*\))?\s+)*"
+                            r"(" + TYPE_NAME + r")(?:\s*<\s*(" + TYPE_NAME + r"))?")
+CONSTRUCTED_TYPE = re.compile(r"(" + TYPE_NAME + r")\s*(?:<\s*(" + TYPE_NAME + r")[^>]*>\s*)?"
+                              r"(?:\.init\s*)?\(\s*(?:\w+\s*:\s*)?(?:(" + TYPE_NAME + r")\s*(?:\.init\s*)?\()?")
+
+
+def whole_call(text, open_at, end=None):
+    """The call whose "(" is at OPEN_AT in TEXT closes at END (default: the end of TEXT, so
+    nothing follows it: no `.member`, no `.method()`, no operator)."""
+    depth = 0
+    for pos in range(open_at, len(text)):
+        if text[pos] in "([":
+            depth += 1
+        elif text[pos] in ")]":
+            depth -= 1
+            if depth == 0:
+                return (text[pos + 1:].strip() == "") if end is None else pos == end - 1
+    return False
+
+
+def written_type(text, annotated):
+    """(type, element) that TEXT gives a value: a named type (dotted names kept whole) from an
+    annotation (`: inout State`, `: Mutex<State>`) or a constructor call (`= State()`,
+    `= Mutex(State())`); element is a lock's wrapped type. (None, None) when it names no type
+    (an inferred value, a call, a literal, a collection or tuple type)."""
+    if annotated:
+        match = ANNOTATED_TYPE.match(text)
+        if not match:
+            return None, None
+        element = match.group(2)
+    else:
+        match = CONSTRUCTED_TYPE.match(text)
+        if not match or not whole_call(text, text.index("(", match.start(1))):
+            return None, None
+        element = match.group(2) or match.group(3)
+        if match.group(3) and not whole_call(text, text.index("(", match.start(3)), text.rindex(")")):
+            element = None  # `Mutex(State().snapshot())`: the element is not a State
+    return match.group(1), element
+
+
+# Pattern bindings DECLARED_TYPE does not see: a tuple `let (a, b) = x`, `case .a(let a)`,
+# `case let .a(a)`, `catch let e`, `let a` with no `=` or `:`. Their names have no written
+# type, so each hides an outer local of the same name (the module rule applies).
+PATTERN_TUPLE = re.compile(r"\b(?:let|var)\s*\(([^()]*)\)")
+PATTERN_NAME = re.compile(r"\b(?:let|var)\s+(\w+)")
+CASE_LET = re.compile(r"\bcase\s+(?:let|var)\s+[\w.]*\(([^()]*)\)")
+IF_BINDING_BEFORE = re.compile(r"\b(?:if|while)\s+(?:case\s+)?$")
+
+
+class TypeScope(dict):
+    """The bindings of a struct, class, enum, actor or extension body (its properties)."""
+
+
+class FileScopes:
+    """The value bindings of one file by brace scope, to say whether a member chain's receiver
+    at (line, position) has a type this file declares. A var/let binds in the scope it is
+    written in (`if let`/`while let` in the block it opens); func/init parameters, `for` loop
+    variables and closure parameters in the body their brace opens. A receiver resolves to the
+    innermost visible scope that binds its name (`self.name` to the outermost: the property);
+    it is local only when every binding of the name in that scope has a type named in a
+    struct, class, enum or actor declared in this file. A withLock closure parameter has the
+    lock's element type (`Mutex(State())`: State); a lock itself is not local."""
+
+    def __init__(self, local_types):
+        self.local_types = local_types
+        self.checkpoints = {}  # line index -> [(position, scope stack)], position ascending
+
+    def at(self, index):
+        """A callable (name, position, through_self) -> bool for line INDEX."""
+        points = self.checkpoints.get(index, [])
+        def local(name, position, through_self=False):
+            stack = ()
+            for start, scopes in points:
+                if start < position:
+                    stack = scopes
+            return self._local(name, stack, through_self)
+        return local
+
+    @staticmethod
+    def _scopes(stack, through_self):
+        """The scopes NAME may resolve in, innermost first: for `self.name`, only the
+        innermost type body (an extension file whose type body declares no such property
+        resolves nothing, so a function local named the same is never self.name)."""
+        if through_self:
+            return [scope for scope in reversed(stack) if isinstance(scope, TypeScope)][:1]
+        return list(reversed(stack))
+
+    def _local(self, name, stack, through_self=False):
+        for scope in self._scopes(stack, through_self):
+            if name in scope:
+                resolved = [self._resolve(entry) for entry in scope[name]]
+                resolved = [kind for kind in resolved if kind != "lock"]
+                return bool(resolved) and all(self._declared_here(kind) for kind in resolved)
+        return False
+
+    def _declared_here(self, kind):
+        """KIND names a type of this file: every part of a dotted name (`Outer.State`) is a
+        type declared here; `Other.State` with Other from elsewhere is not."""
+        return bool(kind) and all(part in self.local_types for part in kind.split("."))
+
+    def _resolve(self, entry):
+        kind, element = entry[0], entry[1]
+        if kind == "lock-of":
+            return self._element(element, entry[2], entry[3])
+        return "lock" if kind in LOCK_WRAPPERS else kind
+
+    @classmethod
+    def _element(cls, lock, stack, through_self=False):
+        """The element type of the lock named LOCK as seen from STACK, else None."""
+        for scope in cls._scopes(stack, through_self):
+            if lock in scope:
+                entries = scope[lock]
+                elements = {element for kind, element, *_ in entries if kind in LOCK_WRAPPERS}
+                if len(elements) == 1 and all(kind in LOCK_WRAPPERS for kind, *_ in entries):
+                    return elements.pop()
+                return None
+        return None
+
+
+def declarations(lines):
+    """collection_kinds' three sets, and the file's FileScopes (which receivers have a type
+    this file declares). A member chain on such a receiver (`state.tasks[id]` with `state` a
+    `State` and `struct State` here) reads the member's kind from this file; any other
+    receiver uses the module rule, so a same-named array on another file's type still counts."""
     dicts, arrays, others = set(), set(), set()
+    local_types = set()
+    stack = [{}]
+    scopes = FileScopes(local_types)
+    pending = []  # bindings for the next `{`: func parameters, for/if-let variables
+    type_pending = False  # a type header with its `{` on a later line
     signature_depth = 0  # > 0 while a func/init parameter list continues on later lines
-    for line in lines:
+    for index, line in enumerate(lines):
         code = swift_code(line)
+        local_types.update(TYPE_DECL.findall(code))
         found = [(m.group(1), (m.group(2) or m.group(3) or "").strip()) for m in DECLARED_TYPE.finditer(code)]
+        events = []  # (position, order, action, payload)
+        declared_at = {m.start() for m in DECLARED_TYPE.finditer(code)}
+        opens_block = re.search(r"\b(?:if|guard|while|switch|catch|case)\b", code) is not None
+        untyped = [(m.start(), name) for m in PATTERN_NAME.finditer(code)
+                   if m.start() not in declared_at for name in [m.group(1)]]
+        untyped += [(m.start(), name) for pattern in (PATTERN_TUPLE, CASE_LET)
+                    for m in pattern.finditer(code) for name in PARAMETER_NAME.findall(m.group(1))]
+        for start, name in untyped:
+            if name != "_":
+                events.append((start, 1, "bind", (name, (None, None))))
+                if opens_block:
+                    events.append((start, 1, "pend", (name, (None, None))))
+        for m in DECLARED_TYPE.finditer(code):
+            entry = written_type((m.group(2) or m.group(3) or "").strip(), m.group(2) is not None)
+            opens = IF_BINDING_BEFORE.search(code[:m.start()])
+            events.append((m.start(), 1, "pend" if opens else "bind", (m.group(1), entry)))
         head = FUNC_OR_INIT.search(code)
         if head or signature_depth > 0:
             # Only the parameter list: up to the parenthesis that closes it.
             text = code[head.end() - 1:] if head else code
+            offset = head.end() - 1 if head else 0
             depth, stop = (0 if head else signature_depth), len(text)
             for pos, ch in enumerate(text):
                 if ch == "(":
@@ -286,11 +457,72 @@ def collection_kinds(lines):
                         break
             params = text[:stop] if head else "(" + text[:stop]
             found += [(m.group(1), params[m.end():].strip()) for m in PARAMETER_TYPE.finditer(params)]
+            if head:
+                events.append((head.start(), 0, "new-signature", None))
+            for m in ANY_PARAMETER.finditer(params):
+                events.append((offset + stop - 1, 1, "pend", (m.group(1), written_type(params[m.end():], True))))
             signature_depth = max(depth, 0) if stop == len(text) else 0
+        closures = {}
+        for match in CLOSURE_PARAMETERS.finditer(code):
+            group, bound = match.group(1), []
+            if group.startswith("("):
+                inner = group[1:-1]
+                for item in inner.split(","):
+                    typed = TYPED_PARAMETER.match("," + item)
+                    if typed:  # `(_ s: State)`, `(s: State)`: the name after the label
+                        bound.append((typed.group(1), written_type(typed.group(2).strip(), True)))
+                    else:
+                        bound += [(name, (None, None)) for name in PARAMETER_NAME.findall(item)[:1]]
+            else:
+                names = PARAMETER_NAME.findall(group)
+                lock = WITH_LOCK_BEFORE.search(code[:match.start()])
+                chain = lock.group(1) if lock else ""
+                through_self = chain.startswith("self.")
+                lock_name = chain[len("self."):] if through_self else chain
+                for name in names:
+                    if lock and len(names) == 1 and "." not in lock_name:
+                        bound.append((name, ("lock-of", lock_name, tuple(stack), through_self)))
+                    else:
+                        bound.append((name, (None, None)))
+            closures[match.start()] = bound
+        for match in FOR_IN.finditer(code):
+            for name in PARAMETER_NAME.findall(match.group(1)):
+                events.append((match.start(), 1, "pend", (name, (None, None))))
+        for pos, ch in enumerate(code):
+            if ch in "{}":
+                events.append((pos, 2, ch, None))
+        points = [(-1, tuple(stack))]
+        for pos, _, action, payload in sorted(events, key=lambda e: (e[0], e[1])):
+            if action == "new-signature":
+                pending = []
+            elif action == "bind":
+                stack[-1].setdefault(payload[0], []).append(payload[1])
+            elif action == "pend":
+                pending.append(payload)
+            elif action == "{":
+                scope = TypeScope() if (TYPE_HEADER.search(code[:pos]) or type_pending) else {}
+                type_pending = False
+                for name, entry in closures.get(pos, []):
+                    if entry[0] == "lock-of":
+                        entry = ("lock-of", entry[1], tuple(stack), entry[3])
+                    scope.setdefault(name, []).append(entry)
+                for name, entry in pending:
+                    scope.setdefault(name, []).append(entry)
+                pending = []
+                stack.append(scope)
+                points.append((pos, tuple(stack)))
+            elif action == "}":
+                pending = []
+                if len(stack) > 1:
+                    stack.pop()
+                points.append((pos, tuple(stack)))
+        scopes.checkpoints[index] = points
+        if TYPE_HEADER.search(code) and "{" not in code[TYPE_HEADER.search(code).start():]:
+            type_pending = True  # the header continues; its body brace is on a later line
         for name, text in found:
             kind = bracket_kind(text)
             (dicts if kind == "dict" else arrays if kind == "array" else others).add(name)
-    return dicts, arrays, others
+    return dicts, arrays, others, scopes
 
 
 ASSIGNED = re.compile(r"\s*=(?!=)")
@@ -299,10 +531,14 @@ ASSIGNED = re.compile(r"\s*=(?!=)")
 def index_hits(code, dictionaries=frozenset()):
     """Computed subscripts in CODE that can trap (see index_subscript). DICTIONARIES:
     names the module declares only as dictionaries, or (file dictionaries, module
-    dictionaries[, file indexables, module indexables]) from file_dictionaries. An
-    assignment target (`x[k] = v`) counts only on a known indexable name."""
+    dictionaries[, file indexables, module indexables[, file receivers of a type
+    declared in the file]]) from
+    file_dictionaries. An assignment target (`x[k] = v`) counts only on a known indexable name."""
     hits = 0
-    if isinstance(dictionaries, tuple) and len(dictionaries) == 4:
+    local_receiver = None  # (name, position, through_self) -> bool, from FileScopes.at
+    if isinstance(dictionaries, tuple) and len(dictionaries) == 5:
+        local, module, local_arrays, module_arrays, local_receiver = dictionaries
+    elif isinstance(dictionaries, tuple) and len(dictionaries) == 4:
         local, module, local_arrays, module_arrays = dictionaries
     else:
         local, module = dictionaries if isinstance(dictionaries, tuple) else (dictionaries, dictionaries)
@@ -316,9 +552,16 @@ def index_hits(code, dictionaries=frozenset()):
             continue  # a checked accessor, or a dictionary subscript with a default
         chain = re.sub(r"\(\)$", "", match.group(0)[:match.group(0).index("[")])
         base = chain.split(".")[-1]
-        # A file's own declarations decide only for a bare name (or self.name); a
-        # member of another value (`transport.pending[i]`) uses the module rule.
-        qualified = chain not in (base, "self." + base)
+        # A file's own declarations decide for a bare name (or self.name), and for a
+        # member of a value whose type this file declares (`state.tasks[id]` with `state`
+        # typed `State` and `struct State` here, see declarations). A member of any other
+        # value (`transport.pending[i]`, `model.rows[i]` on another file's Model) uses the
+        # module rule.
+        receiver = chain[:-len(base) - 1] if chain != base else ""
+        through_self = receiver.startswith("self.")
+        receiver = receiver[len("self."):] if through_self else receiver
+        qualified = receiver not in ("", "self") and not (
+            local_receiver and "." not in receiver and local_receiver(receiver, match.start(), through_self))
         if base in (module if qualified else local):
             continue
         if local_arrays is not None and ASSIGNED.match(code[match.end():]) and \
@@ -379,11 +622,37 @@ RUST_PATH_ATTR = re.compile(r'#\[path\s*=\s*"(?P<path>[^"]+)"\s*\]')
 UNREACHABLE_INIT = re.compile(r"\binit\??\((coder|rootView)\b")
 
 
+@functools.lru_cache(maxsize=1 << 18)
 def swift_code(line):
     """LINE without its comments and with string literal text blanked (quotes and
     interpolated code kept), so `"Hello! world"` or `// x!` never count and
     `"\\(value!)"` still does. One line at a time: the inside of a multi-line string
-    literal is read as code."""
+    literal is read as code. Cached: several scans strip the same lines (each tree's
+    scan_swift, scan_env_writes and the declaration reads)."""
+    if '"' not in line:
+        # No string literal: only comments to drop, the same as the walk below does.
+        if "/" not in line:
+            return line
+        out, i = [], 0
+        while True:
+            line_comment, block = line.find("//", i), line.find("/*", i)
+            if line_comment < 0 and block < 0:
+                out.append(line[i:])
+                break
+            if block < 0 or 0 <= line_comment < block:
+                out.append(line[i:line_comment])
+                break
+            out.append(line[i:block])
+            end = line.find("*/", block + 2)
+            if end < 0:
+                break
+            out.append(" " * (end + 2 - block))
+            i = end + 2
+        return "".join(out)
+    return _swift_code_walk(line)
+
+
+def _swift_code_walk(line):
     out, i, n = [], 0, len(line)
     in_string, depth = False, 0  # depth > 0: inside \( ... ) of a string
     while i < n:
@@ -568,6 +837,8 @@ def swift_line_hits(lines, index, module=None, dictionaries=frozenset()):
     if found:
         hits["objc_observer"] = found
     if module in INDEX_MODULES:
+        if isinstance(dictionaries, tuple) and len(dictionaries) == 5 and isinstance(dictionaries[4], FileScopes):
+            dictionaries = dictionaries[:4] + (dictionaries[4].at(index),)
         found = index_hits(code, dictionaries)
         if found:
             hits["index_subscript"] = found
@@ -581,6 +852,42 @@ def swift_line_hits(lines, index, module=None, dictionaries=frozenset()):
     return hits
 
 
+def _collections_of_file(item):
+    module, path = item
+    lines = open(path, encoding="utf-8", errors="replace").read().split("\n")
+    return module, collection_kinds(lines)
+
+
+# The scan reads every Swift and Rust source file one after another in pure Python: 54 s on a 4 vCPU
+# Blacksmith runner and 108-121 s on a pool VM, the critical path of cmux-next fast gates (p90 3.5 min against its
+# 3 min budget, 2026-11-22). Files are independent and every total is a sum, so the per-file work fans out over the
+# cores (a fork pool: the workers inherit _CONTEXT) and the parent adds each file's hits in the order of the files,
+# so the counts and the lines are the serial scan's, whatever the worker count. CRASH_RATCHET_JOBS=1 scans serially.
+_CONTEXT = {}
+
+
+def _worker_count(items):
+    try:
+        wanted = int(os.environ.get("CRASH_RATCHET_JOBS") or 0)
+    except ValueError:
+        wanted = 0
+    cores = len(os.sched_getaffinity(0)) if hasattr(os, "sched_getaffinity") else (os.cpu_count() or 1)
+    return max(1, min(wanted or cores, 16, items // 8))
+
+
+def parallel_map(fn, items):
+    """[fn(item) for item in items], in order, over a fork pool when there are cores and files enough."""
+    items = list(items)
+    workers = _worker_count(len(items))
+    if workers > 1:
+        try:
+            with multiprocessing.get_context("fork").Pool(workers) as pool:
+                return pool.map(fn, items, chunksize=max(1, len(items) // (workers * 8)))
+        except Exception:  # noqa: BLE001 - a pool that cannot start: the serial scan below answers, or raises the same
+            pass
+    return [fn(item) for item in items]
+
+
 def module_dictionaries(repo, exported):
     """{index module: names it declares as dictionaries and never as arrays}."""
     return {module: d for module, (d, _) in module_collections(repo, exported).items()}
@@ -590,17 +897,19 @@ def module_collections(repo, exported):
     """{index module: (names it declares as dictionaries and never otherwise, names it declares
     as an indexable non-dictionary anywhere)}."""
     declared = {}
+    items = []
     for root in swift_source_roots(repo):
         sources = os.path.join(repo, root)
         for path in tracked_files(repo, sources, exported):
             module = os.path.relpath(path, sources).split(os.sep)[0]
             if module not in INDEX_MODULES or not path.endswith(".swift") or not os.path.isfile(path):
                 continue
-            dicts, arrays, others = collection_kinds(open(path, encoding="utf-8", errors="replace").read().split("\n"))
-            entry = declared.setdefault(module, (set(), set(), set()))
-            entry[0].update(dicts)
-            entry[1].update(arrays)
-            entry[2].update(others)
+            items.append((module, path))
+    for module, (dicts, arrays, others) in parallel_map(_collections_of_file, items):
+        entry = declared.setdefault(module, (set(), set(), set()))
+        entry[0].update(dicts)
+        entry[1].update(arrays)
+        entry[2].update(others)
     return {module: (frozenset(d - a - o), frozenset(a)) for module, (d, a, o) in declared.items()}
 
 
@@ -610,13 +919,13 @@ def file_dictionaries(lines, module_dicts, module_arrays=None):
     as a dictionary (a property from the type's main file used in an extension file). A
     same-named array or inferred local in another file of the module no longer hides a
     dictionary declared in this one; one declared any other way in this file still counts."""
-    dicts, arrays, others = collection_kinds(lines)
+    dicts, arrays, others, scopes = declarations(lines)
     others = others | arrays
     declared = dicts | others
     local = frozenset((dicts - others) | {name for name in module_dicts if name not in declared})
     if module_arrays is None:
         return local, frozenset(module_dicts)
-    return local, frozenset(module_dicts), frozenset(arrays), frozenset(module_arrays)
+    return local, frozenset(module_dicts), frozenset(arrays), frozenset(module_arrays), scopes
 
 
 class Scan:
@@ -649,29 +958,48 @@ def scan_tree(repo, exported):
 def scan_swift(repo, scan, exported):
     """Ratchet hits per module into SCAN (counted, or waived by a crash-allow); hits of banned
     classes per file (crash-allow ignored) into its banned_files."""
-    banned = banned_kinds("swift")
-    banned_modules = banned_in("swift")
-    collections = module_collections(repo, exported)
+    _CONTEXT.update(repo=repo, banned=banned_kinds("swift"), banned_modules=banned_in("swift"),
+                    collections=module_collections(repo, exported))
+    items = []
     for root in swift_source_roots(repo):
         sources = os.path.join(repo, root)
         for path in tracked_files(repo, sources, exported):
             name = os.path.basename(path)
             if not name.endswith(".swift") or not os.path.isfile(path):
                 continue
-            rel = os.path.relpath(path, sources).split(os.sep)[0]  # the Swift module
-            lines = open(path, encoding="utf-8", errors="replace").read().split("\n")
-            module_dicts, module_arrays = collections.get(rel, (frozenset(), frozenset()))
-            file_dicts = file_dictionaries(lines, module_dicts, module_arrays) if rel in INDEX_MODULES else frozenset()
-            for index, line in enumerate(lines):
-                if line.lstrip().startswith("//"):
-                    continue
-                is_allowed = allowed(lines, index)
-                for kind, hits in swift_line_hits(lines, index, rel, file_dicts).items():
-                    if kind in banned or (kind, rel) in banned_modules:
-                        key = (kind, os.path.relpath(path, repo))
-                        scan.banned_files[key] = scan.banned_files.get(key, 0) + hits
-                        continue
-                    scan.add(is_allowed, "swift", kind, rel, line, hits)
+            items.append((path, os.path.relpath(path, sources).split(os.sep)[0]))  # the path, the Swift module
+    for events in parallel_map(_swift_file_events, items):
+        replay(scan, events)
+
+
+def replay(scan, events):
+    """Add one file's hits (from _swift_file_events or _rust_file_events) to SCAN."""
+    for event in events:
+        if event[0] == "banned":
+            scan.banned_files[event[1]] = scan.banned_files.get(event[1], 0) + event[2]
+        else:
+            scan.add(*event[1:])
+
+
+def _swift_file_events(item):
+    """One Swift file's hits: ("banned", (kind, repo-relative path), hits) or ("add", waived, "swift", kind, module,
+    line, hits), in the file's order."""
+    path, rel = item
+    banned, banned_modules = _CONTEXT["banned"], _CONTEXT["banned_modules"]
+    events = []
+    lines = open(path, encoding="utf-8", errors="replace").read().split("\n")
+    module_dicts, module_arrays = _CONTEXT["collections"].get(rel, (frozenset(), frozenset()))
+    file_dicts = file_dictionaries(lines, module_dicts, module_arrays) if rel in INDEX_MODULES else frozenset()
+    for index, line in enumerate(lines):
+        if line.lstrip().startswith("//"):
+            continue
+        is_allowed = allowed(lines, index)
+        for kind, hits in swift_line_hits(lines, index, rel, file_dicts).items():
+            if kind in banned or (kind, rel) in banned_modules:
+                events.append(("banned", (kind, os.path.relpath(path, _CONTEXT["repo"])), hits))
+                continue
+            events.append(("add", is_allowed, "swift", kind, rel, line, hits))
+    return events
 
 
 def load_allowlist():
@@ -776,7 +1104,7 @@ def rust_test_modules(paths):
         text = open(path, encoding="utf-8", errors="replace").read()
         if "mod " not in text:
             continue
-        here, name = os.path.split(path)
+        here, name = os.path.split(os.path.normpath(path))
         # A mod.rs, lib.rs or main.rs owns its folder; any other file foo.rs owns foo/.
         owner = here if name in ("mod.rs", "lib.rs", "main.rs") else os.path.join(here, name[:-3])
         for decl in TEST_MOD_DECL.finditer(text):
@@ -797,6 +1125,7 @@ def scan_rust(repo, scan, exported):
     skipped_dirs = {"target", "tests", "benches", "examples", "node_modules", "fixtures"}
     paths = tracked_files(repo, crates, exported)
     test_files, test_folders = rust_test_modules(paths)
+    items = []
     for path in paths:
         dirpath, name = os.path.split(path)
         parts = os.path.relpath(dirpath, crates).split(os.sep)
@@ -804,24 +1133,36 @@ def scan_rust(repo, scan, exported):
             continue
         if not name.endswith(".rs") or name in ("tests.rs",) or name.endswith("_tests.rs") or name.endswith("_test.rs"):
             continue
-        if path in test_files or any(path.startswith(folder + os.sep) for folder in test_folders):
+        # rust_test_modules normalises its targets, so compare the normalised path: with a relative
+        # `--repo .` the scanned paths start with `./` and a `#[path]` test module never matched.
+        norm = os.path.normpath(path)
+        if norm in test_files or any(norm.startswith(folder + os.sep) for folder in test_folders):
             continue
-        rel = os.path.relpath(path, crates).split(os.sep)[0]  # the crate
-        text = open(path, encoding="utf-8", errors="replace").read()
-        # Inline test modules (`#[cfg(test)] mod x {`) are cut; a
-        # `#[cfg(test)] mod x;` declaration is not code.
-        inline = INLINE_TESTS.search(text)
-        lines = (text if not inline else text[:inline.start()]).split("\n")
-        for index, line in enumerate(lines):
-            stripped = line.lstrip()
-            if stripped.startswith("//"):
-                continue
-            is_allowed = allowed(lines, index)
-            code = line.split("//", 1)[0] if '"' not in line else line
-            for kind, pattern in RUST.items():
-                hits = len(pattern.findall(code))
-                if hits:
-                    scan.add(is_allowed, "rust", kind, rel, line, hits)
+        items.append((path, os.path.relpath(path, crates).split(os.sep)[0]))  # the path, the crate
+    for events in parallel_map(_rust_file_events, items):
+        replay(scan, events)
+
+
+def _rust_file_events(item):
+    """One Rust file's hits, as _swift_file_events's ("add", ...) events."""
+    path, rel = item
+    events = []
+    text = open(path, encoding="utf-8", errors="replace").read()
+    # Inline test modules (`#[cfg(test)] mod x {`) are cut; a
+    # `#[cfg(test)] mod x;` declaration is not code.
+    inline = INLINE_TESTS.search(text)
+    lines = (text if not inline else text[:inline.start()]).split("\n")
+    for index, line in enumerate(lines):
+        stripped = line.lstrip()
+        if stripped.startswith("//"):
+            continue
+        is_allowed = allowed(lines, index)
+        code = line.split("//", 1)[0] if '"' not in line else line
+        for kind, pattern in RUST.items():
+            hits = len(pattern.findall(code))
+            if hits:
+                events.append(("add", is_allowed, "rust", kind, rel, line, hits))
+    return events
 
 
 # The baseline's path in a tree (a checkout, or a git archive export of a ref).

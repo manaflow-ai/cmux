@@ -32,11 +32,22 @@ extension SidebarListView {
         reload(animated: false, fromModel: true)
     }
 
+    /// Shows a held change once the pointer is over neither the rows nor this list's shown hover card
+    /// (it left the list, or the card it rested on hid).
+    func releaseHeldModelChangeIfPointerLeft() {
+        guard holdsModelChange, !pointerIsOverList(self), !pointerIsOnShownHoverCard else { return }
+        releaseHeldModelChange()
+    }
+
+    /// The pointer rests on the hover card of one of this list's rows: the card follows its row, so
+    /// rows hold still while it is read.
+    var pointerIsOnShownHoverCard: Bool { hoverCard.isVisible && hoverCards.pointerIsOnShownCard }
+
     /// A change waits now: the pointer is over the rows and no drag, drop or landing runs (those
     /// reload at their end, which shows the change).
     private var holdsModelChangeNow: Bool {
         guard window != nil, drag == nil, settling == nil, landing == nil, external == nil, !displayed.rows.isEmpty else { return false }
-        return pointerIsOverList(self)
+        return pointerIsOverList(self) || pointerIsOnShownHoverCard
     }
 
     /// The window's pointer is inside the list's visible part, with the list on screen in the active app

@@ -1,0 +1,120 @@
+/* A background command as a card (BackgroundTaskCard.tsx): Claude Desktop's layout in our tokens. */
+.acpmux-bg-card {
+  min-width: 0;
+  border-radius: var(--grid-cards-radius);
+  background: color-mix(in srgb, var(--ds-color-hover) 50%, transparent);
+}
+.acpmux-bg-card + .acpmux-bg-card {
+  margin-top: var(--ds-space-1);
+}
+.acpmux-bg-card__head {
+  display: flex;
+  align-items: center;
+  gap: var(--ds-space-2);
+  min-height: var(--ds-control-row);
+  padding-right: var(--ds-space-1);
+}
+.acpmux-bg-card__toggle {
+  appearance: none;
+  flex: 1 1 auto;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: var(--ds-space-2);
+  align-self: stretch;
+  border: 0;
+  padding: 0 0 0 var(--ds-space-2);
+  border-radius: var(--ds-radius-popup);
+  background: none;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: default;
+}
+.acpmux-bg-card__toggle:hover {
+  background: var(--ds-color-hover);
+}
+.acpmux-bg-card__toggle:focus-visible {
+  outline: var(--cmux-focus-ring-width) solid var(--ds-color-focus);
+}
+.acpmux-bg-card__disclosure {
+  display: inline-flex;
+  flex: none;
+  color: var(--agent-muted);
+}
+.acpmux-bg-card__title {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.acpmux-bg-card__time {
+  flex: none;
+  color: var(--agent-muted);
+  font-size: var(--text-detail);
+  font-variant-numeric: tabular-nums;
+}
+/* The body lines up under the title, past the disclosure. */
+.acpmux-bg-card__body-inner {
+  display: flex;
+  flex-direction: column;
+  gap: var(--ds-space-1);
+  min-width: 0;
+  padding: 0 var(--ds-space-3) var(--ds-space-2) calc(var(--ds-space-2) * 2 + var(--ds-icon-12));
+}
+/* The whole command, wrapped: never cut to one line. */
+.acpmux-bg-card__command,
+.acpmux-bg-card__output {
+  display: block;
+  min-width: 0;
+  margin: 0;
+  color: var(--agent-muted);
+  font-family: var(--cv-mono, ui-monospace, monospace);
+  font-size: var(--text-detail);
+  line-height: var(--text-detail--line-height);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.acpmux-bg-card__command {
+  color: var(--agent-text);
+}
+.acpmux-bg-card__prompt {
+  color: var(--agent-muted);
+  user-select: none;
+}
+.acpmux-bg-card__output {
+  max-height: calc(var(--text-detail--line-height) * 12);
+  overflow: auto;
+}
+.acpmux-bg-card__empty {
+  margin: 0;
+  color: var(--agent-muted);
+  font-size: var(--text-detail);
+  line-height: var(--text-detail--line-height);
+}
+.acpmux-bg-card__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--ds-space-2);
+}
+.acpmux-bg-card__action {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--ds-space-1);
+  border: 0;
+  padding: 0;
+  color: var(--agent-muted);
+  background: transparent;
+  font: inherit;
+  font-size: var(--text-detail);
+  cursor: default;
+}
+.acpmux-bg-card__action:hover,
+.acpmux-bg-card__action:focus-visible {
+  color: var(--agent-text);
+}
+/* In the composer hat the tail already sits under the row's title: no inset of its own. */
+.acpmux-running-tray__tail .acpmux-bg-card__body-inner {
+  padding: 0;
+}

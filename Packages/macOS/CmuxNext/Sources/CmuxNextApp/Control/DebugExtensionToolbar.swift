@@ -27,7 +27,7 @@ enum DebugExtensionToolbar {
         let target = params["tab"]?.stringValue.map { ActionTargetRef(kind: .tab, id: $0) }
         guard case .browser(let entry)? = ActionScope(services: services, invocation: ActionInvocation(target: target))
             .pane?.currentContent else { return nil }
-        return entry.chrome
+        return entry.chrome  // the pane's chrome, bound to its shown tab
     }
 
     static func toolbar(_ params: [String: JSONValue], _ services: AppServices) -> JSONValue {
@@ -67,8 +67,7 @@ enum DebugExtensionToolbar {
         let items: [JSONValue] = entries.map { entry in
             if entry.title == "-" && entry.identifier == nil { return .string("-") }
             var object: [String: JSONValue] = ["title": .string(entry.title), "enabled": .bool(entry.enabled)]
-            if let id = entry.identifier { object["identifier"] = .string(id) }
-            if let extensionID = entry.extensionID { object["extension"] = .string(extensionID) }
+            for (key, value) in ["identifier": entry.identifier, "extension": entry.extensionID, "tooltip": entry.tooltip] { object[key] = value.map(JSONValue.string) }
             return .object(object)
         }
         if params["dismiss"]?.boolValue == true {

@@ -2,7 +2,7 @@ import CmuxNextActions
 import CmuxNextFocus
 
 // The key routing invariants (K) read the app's `KeyRouter`, so they stay here; the model,
-// transition and world checks are in CmuxNextFocus (`InputInvariants`).
+// transition and world checks run in cmux-focus-core (`InputInvariants`).
 nonisolated extension InputInvariants {
     // MARK: Key routing (K)
 
@@ -32,6 +32,6 @@ nonisolated extension InputInvariants {
 
     /// Model, transition and routing checks for one reduction.
     static func step(from old: FocusState, _ event: FocusEvent, to new: FocusState, window: String? = nil) -> [InputViolation] {
-        model(new, window: window) + transition(from: old, event, to: new, window: window) + routing(new, window: window)
+        reduction(from: old, event, to: new, window: window) + routing(new, window: window)
     }
 }

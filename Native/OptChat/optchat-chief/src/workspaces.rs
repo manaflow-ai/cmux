@@ -58,6 +58,11 @@ pub trait Workspaces: Send + Sync {
     fn close_idle(&self, _key: &str) -> Result<bool, String> {
         Ok(false)
     }
+    /// Moves workspace `key` into ``CHIEF_GROUP_NAME`` (`into_chief_group`), or out of any group
+    /// to the top of the sidebar: `control hide` and `control show` of a subagent.
+    fn move_to(&self, _key: &str, _into_chief_group: bool) -> Result<(), String> {
+        Err("moving a workspace between groups is not supported here".into())
+    }
     /// Where its workspaces live, for the Chief to tell the user (for
     /// example "the cmux app on this Mac").
     fn place(&self) -> String;
@@ -89,7 +94,7 @@ impl WorkspaceRef {
 }
 
 /// The value of a leading `key: value` header line of `task` (`Title:`,
-/// `Group:`), among its first three non-empty lines; any case.
+/// `Group:`, `Sidebar:`), among its first three non-empty lines; any case.
 pub fn header(task: &str, key: &str) -> Option<String> {
     task.lines()
         .map(str::trim)
@@ -102,11 +107,13 @@ pub fn header(task: &str, key: &str) -> Option<String> {
         })
 }
 
-/// Whether `line` is a `Title:` or `Group:` header.
-fn is_header(line: &str) -> bool {
+/// Whether `line` is a `Title:`, `Group:` or `Sidebar:` header.
+pub fn is_header(line: &str) -> bool {
     line.split_once(':').is_some_and(|(k, _)| {
         let k = k.trim();
-        k.eq_ignore_ascii_case("title") || k.eq_ignore_ascii_case("group")
+        k.eq_ignore_ascii_case("title")
+            || k.eq_ignore_ascii_case("group")
+            || k.eq_ignore_ascii_case("sidebar")
     })
 }
 
@@ -256,6 +263,20 @@ fn clip(s: &str) -> String {
 /// "Chief agents" group, when the sidebar has it. The host never makes a group and never picks
 /// one by topic or by a name close to the task's.
 pub const AGENTS_GROUP_NAME: &str = "Chief agents";
+
+/// The one sidebar group the host makes: "Chief's workspaces", where every `chief`-kind subagent
+/// workspace sits (action_lifetime.rs; Aziz, relayed 2026-11-11: "no hidden workspaces at all").
+/// Made collapsed the first time one joins it and reused after (`workspace_group.create` with
+/// `reuse`); its workspaces stay listed and searchable, and the user can expand, rename or
+/// delete it like any group.
+pub const CHIEF_GROUP_NAME: &str = "Chief's workspaces";
+
+/// Whether `name` is ``CHIEF_GROUP_NAME`` (any case, straight or curly apostrophe).
+pub fn is_chief_group(name: &str) -> bool {
+    name.trim()
+        .replace('\u{2019}', "'")
+        .eq_ignore_ascii_case(CHIEF_GROUP_NAME)
+}
 
 /// The group a spawn task asks for: ``AGENTS_GROUP_NAME`` when its `Group:` line names it (any
 /// case; a line that runs on after a full stop, "Chief agents. Repo ~/fun/…", still does), else
@@ -646,6 +667,10 @@ impl Workspaces for AppWorkspaces {
         rename_by_key(&self.daemon, key, name)
     }
 
+    fn move_to(&self, key: &str, into_chief_group: bool) -> Result<(), String> {
+        move_personal(&self.daemon, key, into_chief_group)
+    }
+
     fn place(&self) -> String {
         "the cmux app on this Mac".to_owned()
     }
@@ -745,8 +770,9 @@ fn home_dir() -> PathBuf {
 
 /// The index a workspace takes in the personal group it joins, from the same
 /// `workspaces.newPlacement` the app reads (cmux-next.json, else cmux.json; see
-/// `agent_memory::settings`). `top`, the default, puts it first (index 0); `bottom` and
-/// `afterCurrent` keep the daemon's place, the end. None keeps the daemon default.
+/// `agent_memory::settings`). Only `bottom` keeps the daemon's place, the end; `top` (the
+/// default) and `afterCurrent` put it first (index 0), never at the sidebar's end (Leo 2026-11-06).
+/// None keeps the daemon default.
 pub fn new_group_index(home: &Path) -> Option<usize> {
     let placement = crate::agent_memory::settings::document(home).and_then(|doc| {
         doc.pointer("/workspaces/newPlacement")
@@ -754,8 +780,9 @@ pub fn new_group_index(home: &Path) -> Option<usize> {
             .map(str::to_owned)
     });
     match placement.as_deref() {
-        Some("bottom" | "afterCurrent") => None,
-        // No file, no key, or a value the app does not know: the app's default, `top`.
+        Some("bottom") => None,
+        // `top`, `afterCurrent`, no file, no key, or a value the app does not know (the app's default,
+        // `top`).
         _ => Some(0),
     }
 }
@@ -782,9 +809,14 @@ pub fn place_in_personal_group_from(
         return Ok(());
     }
     let here = || json!({"machine": "current", "session": "current"});
-    let listed = resource_call(daemon, "workspace_group.list", here(), None)?;
-    let Some(group) = agents_group(name, &groups_of(&listed)) else {
-        return Ok(());
+    let group = if is_chief_group(name) {
+        chief_group(daemon)?
+    } else {
+        let listed = resource_call(daemon, "workspace_group.list", here(), None)?;
+        let Some(group) = agents_group(name, &groups_of(&listed)) else {
+            return Ok(());
+        };
+        group
     };
     let workspace = locate_by_key(daemon, key)
         .ok_or("the session does not list the new workspace")?
@@ -806,10 +838,60 @@ pub fn place_in_personal_group_from(
     .map(|_| ())
 }
 
+/// The id of the user's session's ``CHIEF_GROUP_NAME`` group: made collapsed the first time,
+/// the same group after (`reuse` joins one of that name; one the person opened stays open).
+fn chief_group(daemon: &Path) -> Result<String, String> {
+    let mut params = json!({"machine": "current", "session": "current"});
+    params["name"] = json!(CHIEF_GROUP_NAME);
+    params["collapsed"] = json!(true);
+    params["reuse"] = json!(true);
+    let made = resource_call(
+        daemon,
+        "workspace_group.create",
+        params,
+        Some("optchat-chief-workspaces-group"),
+    )?;
+    made["value"]["id"]
+        .as_str()
+        .or_else(|| made["id"].as_str())
+        .map(str::to_owned)
+        .ok_or_else(|| format!("workspace_group.create answered no group id: {made}"))
+}
+
+/// Moves workspace `key` of the user's session (the app's daemon at `daemon`) into
+/// ``CHIEF_GROUP_NAME`` (`into_chief_group`), or out of any group to the top of the sidebar:
+/// `control hide` and `control show` of a subagent.
+pub fn move_personal(daemon: &Path, key: &str, into_chief_group: bool) -> Result<(), String> {
+    let workspace = locate_by_key(daemon, key)
+        .ok_or("the session does not list the workspace")?
+        .id;
+    let mut params = json!({"machine": "current", "session": "current", "workspace": workspace});
+    if into_chief_group {
+        params["group"] = json!(chief_group(daemon)?);
+        if let Some(index) = new_group_index(&home_dir()) {
+            params["index"] = json!(index);
+        }
+    } else {
+        params["group"] = Value::Null;
+        params["index"] = json!(0);
+    }
+    resource_call(
+        daemon,
+        "workspace.place",
+        params,
+        Some(&format!("optchat-subagent-move-{key}-{}", new_key())),
+    )
+    .map(|_| ())
+}
+
 /// Puts the workspace `key` on the session daemon at `daemon` in the group
 /// named `name`, when the daemon has workspace groups.
 fn group_by_key(daemon: &Path, key: &str, name: &str) -> Result<(), String> {
     use cmux::raw::{Client, ClientConfig};
+    // The Chief's own group is a personal group of the user's session, as the app shows it.
+    if is_chief_group(name) {
+        return place_in_personal_group(daemon, key, name);
+    }
     let mut client = Client::connect(ClientConfig::from_socket_path(daemon))
         .map_err(|e| format!("the session daemon: {e}"))?;
     let groups = client
@@ -1016,6 +1098,13 @@ impl Workspaces for DaemonWorkspaces {
 
     fn locate(&self, key: &str) -> Option<WorkspaceRef> {
         self.holders().find_map(|daemon| locate_by_key(daemon, key))
+    }
+
+    fn move_to(&self, key: &str, into_chief_group: bool) -> Result<(), String> {
+        match self.target() {
+            (daemon, true) => move_personal(daemon, key, into_chief_group),
+            _ => Err("this session has no personal sidebar groups".into()),
+        }
     }
 
     fn place(&self) -> String {

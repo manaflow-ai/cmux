@@ -13,7 +13,14 @@ const many = Array.from({ length: 300 }, (_, index) => ({
 const omnibar: OmnibarContext = omnibarContext({
   ...EMPTY_OMNIBAR,
   actions: [
-    { id: "newWindow", title: "New Window", detail: "Windows", keywords: ["window"], keycaps: ["⇧", "⌘", "N"] },
+    {
+      id: "newWindow",
+      title: "New Window",
+      detail: "Windows",
+      keywords: ["window"],
+      keycaps: ["⇧", "⌘", "N"],
+      symbol: "macwindow",
+    },
     { id: "toggleSidebar", title: "Toggle Sidebar", detail: "View", keywords: [] },
     { id: "", title: "No id" },
     ...many,
@@ -28,6 +35,7 @@ test("the host's whole palette list is kept, past the 40-entry cap of the other 
     detail: "Windows",
     keywords: ["window"],
     keycaps: ["⇧", "⌘", "N"],
+    symbol: "macwindow",
   });
 });
 
@@ -39,6 +47,7 @@ test("an action the text names is a row, best match first", () => {
     type: "action",
     id: "newWindow",
     keycaps: ["⇧", "⌘", "N"],
+    symbol: "macwindow",
   });
   // The last of 300 is still found: no cap before the match.
   expect(actionRows("number 299", omnibar)).toEqual([{ type: "action", id: "action.299", title: "Action number 299" }]);
@@ -49,4 +58,83 @@ test("an action the text names is a row, best match first", () => {
 test("the dropdown shows the action rows under the matches", () => {
   const rows = screenRows("toggle sid", { omnibar, ask: { harness: "claude", agent: "Claude" } });
   expect(rows.map((row) => row.type)).toEqual(["ask", "action", "search"]);
+});
+
+// The palette's pick history (`omnibar.uses`, its FrecencyStore by usage key) orders matches of one
+// kind, as the palette does (cmuxterm-hq lenses slack-firefox-frecency.md): the best text match still
+// wins, and among equal matches what the person picks often and lately comes first.
+test("pick history orders actions of one match tier, never above a better match", () => {
+  const bar = omnibarContext({
+    ...EMPTY_OMNIBAR,
+    actions: [
+      { id: "newWindow", title: "New Window", keywords: [] },
+      { id: "newTab", title: "New Tab", keywords: [] },
+      { id: "renameTab", title: "Rename New", keywords: [] },
+    ],
+    uses: { "action:newTab": 4, "action:renameTab": 9, bogus: "x", "action:gone": -1 },
+  })!;
+  expect(bar.uses).toEqual({ "action:renameTab": 9, "action:newTab": 4 });
+  expect(actionRows("new", bar).map((row) => (row as { id: string }).id)).toEqual(["newTab", "newWindow", "renameTab"]);
+});
+
+test("pick history orders open tabs and workspaces inside their kind", () => {
+  const context = (uses?: Record<string, number>) => ({
+    omnibar: omnibarContext({
+      ...EMPTY_OMNIBAR,
+      tabs: [
+        { id: "a", kind: "terminal", title: "api server" },
+        { id: "b", kind: "terminal", title: "api client" },
+      ],
+      workspaces: [
+        { id: "w1", name: "api one" },
+        { id: "w2", name: "api two" },
+      ],
+      ...(uses ? { uses } : {}),
+    })!,
+  });
+  const ids = (uses?: Record<string, number>) =>
+    screenRows("api", context(uses))
+      .filter((row) => row.type === "tab" || row.type === "workspace")
+      .map((row) => (row as { id: string }).id);
+  expect(ids()).toEqual(["a", "b", "w1", "w2"]);
+  expect(ids({ "tab:b": 3, "workspace:w2": 1 })).toEqual(["b", "a", "w2", "w1"]);
+});
+
+test("creation commands need a matching search and do not duplicate native actions", () => {
+  const context = {
+    omnibar: {
+      ...EMPTY_OMNIBAR,
+      actions: [
+        { id: "newSurface", title: "New Terminal Tab", keywords: [] },
+        { id: "openBrowser", title: "New Browser Tab", keywords: [] },
+        { id: "palette.newAgentChat", title: "New Chat", keywords: [] },
+      ],
+    },
+    create: ["terminal", "browser", "chat"] as const,
+  };
+  for (const query of ["", "   ", "unrelated question", "!echo hi"])
+    expect(screenRows(query, context).filter((row) => row.type === "create")).toEqual([]);
+  expect(screenRows("new terminal tab", context).some((row) => row.type === "create" && row.kind === "terminal")).toBe(
+    true,
+  );
+  for (const kind of context.create) {
+    const rows = screenRows(kind, context);
+    expect(rows.filter((row) => row.type === "create")).toEqual([
+      {
+        type: "create",
+        kind,
+        title: context.omnibar.actions[context.create.indexOf(kind)]!.title,
+      },
+    ]);
+    expect(rows.some((row) => row.type === "action")).toBe(false);
+  }
+  expect(screenRows("terminal", { ...context, create: ["chat"] }).some((row) => row.type === "create")).toBe(false);
+});
+
+test("New terminal tab is searchable before the native action catalog arrives", () => {
+  expect(
+    screenRows("new terminal tab", { omnibar: EMPTY_OMNIBAR, create: ["terminal"] }).some(
+      (row) => row.type === "create" && row.kind === "terminal",
+    ),
+  ).toBe(true);
 });

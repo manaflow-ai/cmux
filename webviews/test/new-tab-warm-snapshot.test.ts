@@ -2,7 +2,7 @@
 // of this Mac listed last, so the next page's first frame lists them (Leo 2026-10-19: the recent
 // chats flickered as a new workspace opened). The page lists them until its own list arrives.
 import { afterEach, expect, jest, test } from "bun:test";
-import { newTabHost } from "../src/agent-session/acpmux/NewTabPage";
+import { newTabHost } from "../src/agent-session/acpmux/newTabModel";
 import { deviceChats, setDeviceChats } from "../src/agent-session/acpmux/newtab/deviceChats";
 import {
   publishWarmNewTab,
@@ -52,22 +52,27 @@ test("the carried chats show only until the page's own list arrives", () => {
 test("a local listed snapshot posts its newest chats once, coalesced", () => {
   // The post waits on a fake clock: the coalescing delay is the behavior.
   jest.useFakeTimers();
-  const posts: unknown[] = [];
-  const send = (warm: unknown) => posts.push(warm);
+  const posts: string[] = [];
+  const send = (warm: string) => posts.push(warm);
   // Not listed yet, or another machine's list: nothing to warm this Mac's pages with.
   publishWarmNewTab({ origin: "local", sessions }, send);
   publishWarmNewTab({ origin: "remote", listedSessions: true, sessions }, send);
   publishWarmNewTab({ origin: "local", listedSessions: true, sessions }, send);
   publishWarmNewTab({ origin: "local", listedSessions: true, sessions: [...sessions] }, send);
-  jest.advanceTimersByTime(500);
+  // One post per two seconds while the list changes: not before.
+  jest.advanceTimersByTime(1900);
+  expect(posts).toHaveLength(0);
+  jest.advanceTimersByTime(200);
   expect(posts).toHaveLength(1);
-  const posted = posts[0] as { sessions: { sessionId: string }[]; device: unknown[] };
+  // The post is the JSON text the host keeps as it is (it parses and re-encodes nothing).
+  expect(typeof posts[0]).toBe("string");
+  const posted = JSON.parse(posts[0] ?? "") as { sessions: { sessionId: string }[]; device: unknown[] };
   expect(posted.sessions.map((entry) => entry.sessionId)).toEqual(["newer", "older"]);
   // A device chats push posts again with them.
   setDeviceChats(device);
-  jest.advanceTimersByTime(500);
+  jest.advanceTimersByTime(2100);
   expect(posts).toHaveLength(2);
-  expect((posts[1] as { device: unknown[] }).device).toHaveLength(1);
+  expect((JSON.parse(posts[1] ?? "") as { device: unknown[] }).device).toHaveLength(1);
 });
 
 // Review (#22261): a page whose daemon is down, or that reconnects, must not show the carried chats.

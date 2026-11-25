@@ -206,7 +206,7 @@ pub(crate) async fn peer_step(
             "{name} at {url} stopped before it connected{}",
             last_error(reply.pointer("/wait/peer").unwrap_or(&Value::Null))
         ))
-        .with_fix("`acpmux host ls` shows whether it is still configured; add it again if not."),
+        .with_fix("`acpmux machine ls` shows whether it is still configured; add it again if not."),
         // The daemon's wait ran out before the attempt settled (`Hub::wait_for_peer`): say how
         // far it got, not "does not connect" with no reason.
         Ok(reply) if reply.pointer("/wait/settled") == Some(&Value::Bool(false)) => {
@@ -215,7 +215,7 @@ pub(crate) async fn peer_step(
             let step = if handshaking { "in its handshake" } else { "connecting" };
             let secs = reply["wait"]["waitedMs"].as_u64().unwrap_or(0) / 1000;
             fail(format!("{name} at {url} is still {step} after {secs}s{}", last_error(p)))
-                .with_fix("Check again in a minute; `acpmux host ls` shows when it connects.")
+                .with_fix("Check again in a minute; `acpmux machine ls` shows when it connects.")
         }
         Ok(reply) => match named(&list(&reply), name) {
             Some(p) if connected(p) => {
@@ -229,7 +229,7 @@ pub(crate) async fn peer_step(
     match named(&peers, name) {
         Some(p) if !same_ssh_url(text(p, "url"), &url) => {
             fail(format!("{name} is already the peer at {}", text(p, "url"))).with_fix(format!(
-                "Pick another name for this machine, or remove that peer first (`acpmux host rm {name}`)."
+                "Pick another name for this machine, or remove that peer first (`acpmux machine rm {name}`)."
             ))
         }
         Some(p) if connected(p) && (!fix || !lend || lends_github(p)) => {
@@ -469,7 +469,7 @@ pub(crate) async fn peer_back_with(io: &impl Io, t: &PeerTarget<'_>, fix: bool) 
     {
         return fail(format!("{host} already has a peer named {local} at {}", text(p, "url")))
             .with_fix(format!(
-                "Pick another name for this machine, or remove that peer on {host} (`acpmux host rm {local}` there)."
+                "Pick another name for this machine, or remove that peer on {host} (`acpmux machine rm {local}` there)."
             ));
     }
     // Listed under another name still counts: a second peer would be a duplicate.

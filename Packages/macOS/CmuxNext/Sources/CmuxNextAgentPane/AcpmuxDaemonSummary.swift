@@ -52,7 +52,7 @@ public nonisolated struct AcpmuxDaemonSummary: Sendable, Equatable {
 
     /// The row's title.
     public static var title: String {
-        String(localized: "agentPane.acpmuxDaemon.title", defaultValue: "acpmux daemon", bundle: .module)
+        String(localized: "agentPane.acpmuxDaemon.title", defaultValue: "cmux daemon", bundle: .localizedModule)
     }
 
     /// The row's value: "<build> (up to date)", "<build> (restarting…)", "<build> (not the app's
@@ -62,15 +62,15 @@ public nonisolated struct AcpmuxDaemonSummary: Sendable, Equatable {
         switch state {
         case .upToDate:
             return String(format: String(localized: "agentPane.acpmuxDaemon.upToDate", defaultValue: "%@ (up to date)",
-                                         bundle: .module), build)
+                                         bundle: .localizedModule), build)
         case .restarting:
             return String(format: String(localized: "agentPane.acpmuxDaemon.restarting", defaultValue: "%@ (restarting…)",
-                                         bundle: .module), build)
+                                         bundle: .localizedModule), build)
         case .otherBuild:
             return String(format: String(localized: "agentPane.acpmuxDaemon.otherBuild", defaultValue: "%@ (not the app's build)",
-                                         bundle: .module), build)
+                                         bundle: .localizedModule), build)
         case .notRunning:
-            return String(localized: "agentPane.acpmuxDaemon.notRunning", defaultValue: "Not running", bundle: .module)
+            return String(localized: "agentPane.acpmuxDaemon.notRunning", defaultValue: "Not running", bundle: .localizedModule)
         }
     }
 
@@ -78,7 +78,8 @@ public nonisolated struct AcpmuxDaemonSummary: Sendable, Equatable {
     static let versionBound: Duration = .seconds(2)
 
     /// The daemon of `environment` now: one `--version` call (bounded, ``versionBound``) and one
-    /// `_acpmux/status` call (2 s), so the card waits at most about 4 s. A nil `environment` (no
+    /// `_acpmux/status` call (``AcpmuxEnvironment/answerDeadline``): a loaded daemon's late answer still
+    /// fills the card. A nil `environment` (no
     /// acpmux) is not running. `daemons` is the app's (``AcpmuxLocalDaemons``): its handoff marks.
     @concurrent public static func current(_ environment: AcpmuxEnvironment?, daemons: AcpmuxLocalDaemons) async -> Self {
         await current(environment, daemons: daemons, versionClock: ContinuousClock())

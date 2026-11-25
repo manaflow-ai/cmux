@@ -154,11 +154,16 @@ describe("cmux-next API Worker end to end (workerd)", () => {
     expect((await call("/v1/auth/challenge", undefined, { user, install })).status).toBe(403)
     expect((await op(jwt, "install.rename", { install, name: "after revoke" })).json.error.code).toBe("auth.forbidden")
 
-    // Every committed change wrote an outbox row for the PlanetScale projection.
+    // Signup schedules its Chief and machine alongside every committed projection row.
     const stub = testEnv.USER_DO.get(testEnv.USER_DO.idFromName(user))
     await runInDurableObject(stub, async (_instance, state) => {
       const rows = state.storage.sql.exec("SELECT kind, entity FROM own_outbox ORDER BY id").toArray()
-      expect(rows.map((r) => r.kind)).toEqual(["user.upsert", "install.upsert", "install.upsert", "install.upsert", "install.upsert"])
+      expect(rows.map((r) => r.kind)).toEqual(["user.upsert", "chief.default.ensure", "chief.default.provision", "install.upsert", "install.upsert", "install.upsert", "install.upsert"])
+      expect(rows.slice(0, 3)).toEqual([
+        { kind: "user.upsert", entity: user },
+        { kind: "chief.default.ensure", entity: "chief-hosted-default" },
+        { kind: "chief.default.provision", entity: `chief-default-machine:${user}` }
+      ])
     })
   })
 

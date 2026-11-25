@@ -3,12 +3,9 @@ import Foundation
 /// `terminal.fontFamily` and `terminal.fontSize` in cmux.json: the terminal
 /// font, applied as Ghostty overrides on top of the Ghostty config
 /// (`GhosttyRuntime.fontOverride`), so every terminal follows live. Absent
-/// keys keep the Ghostty config's font.
+/// keys keep the Ghostty config's font. The paths and the size range are generated from
+/// schemas/settings/source/terminal.json (Schema/SettingsSchema+Terminal.generated.swift).
 public struct TerminalFontSetting: Sendable {
-    public let familyPath = ["terminal", "fontFamily"]
-    public let sizePath = ["terminal", "fontSize"]
-    /// Sizes the Ghostty override accepts (`GhosttyRuntime.fontOverrideLines`).
-    public let sizeRange: ClosedRange<Double> = 4...96
     /// Longest family name the Ghostty override accepts.
     public let maximumFamilyLength = 120
 
@@ -26,7 +23,7 @@ public struct TerminalFontSetting: Sendable {
     /// A missing or empty key is the Ghostty config's family with no
     /// diagnostic; a bad value is the same plus a diagnostic.
     func parseFamily(_ root: JSONValue) -> (String?, SettingsDiagnostic?) {
-        guard let value = root.value(at: familyPath) else { return (nil, nil) }
+        guard let value = root.value(at: Self.familyPath) else { return (nil, nil) }
         let problem = SettingsDiagnostic(kind: .invalidValue, path: "terminal.fontFamily",
                                          message: "expected a font family name of at most \(maximumFamilyLength) characters, without # = or \"")
         guard let text = value.stringValue else { return (nil, problem) }
@@ -39,10 +36,10 @@ public struct TerminalFontSetting: Sendable {
     /// A missing key is the Ghostty config's size with no diagnostic; a
     /// value that is not a number from 4 to 96 is the same plus a diagnostic.
     func parseSize(_ root: JSONValue) -> (Double?, SettingsDiagnostic?) {
-        guard let value = root.value(at: sizePath) else { return (nil, nil) }
-        guard let size = value.doubleValue, size.isFinite, sizeRange.contains(size) else {
+        guard let value = root.value(at: Self.sizePath) else { return (nil, nil) }
+        guard let size = value.doubleValue, size.isFinite, Self.sizeRange.contains(size) else {
             return (nil, SettingsDiagnostic(kind: .invalidValue, path: "terminal.fontSize",
-                                            message: "expected a size in points from \(Int(sizeRange.lowerBound)) to \(Int(sizeRange.upperBound))"))
+                                            message: "expected a size in points from \(Int(Self.sizeRange.lowerBound)) to \(Int(Self.sizeRange.upperBound))"))
         }
         return (size, nil)
     }

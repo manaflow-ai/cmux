@@ -10,6 +10,7 @@ import { createRoot, type Root } from "react-dom/client";
 import { JSDOM } from "jsdom";
 import type { AcpmuxSnapshot } from "./model";
 import type { Participant } from "./multiplayer/participants";
+import { settleReact } from "../../../test/support/domTeardown";
 
 const CY: Participant = { id: "guest:sh-1.g-1", name: "Cy Park" };
 const ASK = "Could it also retry on 429?\nAnd honor Retry-After.";
@@ -23,6 +24,7 @@ const KEYS = ["window", "document", "navigator", "Node", "HTMLElement", "Element
 afterEach(async () => {
   if (root) await act(async () => root!.unmount());
   root = undefined;
+  await settleReact();
   dom?.window.close();
   dom = undefined;
   for (const [key, value] of saved)
@@ -127,6 +129,54 @@ test("the client sends queue_approve and queue_decline with the right ids", asyn
   } finally {
     client.close?.();
     delete (globalThis as { cmuxGalleryLog?: unknown }).cmuxGalleryLog;
+  }
+});
+
+test("an approved guest prompt keeps its author when it runs: the owner's row says who sent it", async () => {
+  dom = new JSDOM("<!doctype html>", { url: "http://localhost/" });
+  for (const key of ["window", "document"]) saved.set(key, scope[key]);
+  Object.assign(scope, { window: dom.window, document: dom.window.document });
+  const { AcpmuxDirectClient } = await import("./direct");
+  const { MockAcpmuxSocket, mockHost } = await import("./mock");
+  const socket = new MockAcpmuxSocket(() => Promise.resolve());
+  let shown = {} as AcpmuxSnapshot;
+  const waiters: (() => void)[] = [];
+  const until = async (check: () => boolean) => {
+    while (!check()) await new Promise<void>((resolve) => waiters.push(resolve));
+  };
+  const client = await AcpmuxDirectClient.connect(
+    mockHost,
+    (snapshot) => {
+      shown = snapshot as AcpmuxSnapshot;
+      for (const wake of waiters.splice(0)) wake();
+    },
+    undefined,
+    () => socket as unknown as WebSocket,
+  );
+  try {
+    await until(() => shown.summary !== undefined);
+    const id = mockHost.sessionId!;
+    const fromCy = { provenance: { kind: "person_message", from: CY.id, fromName: CY.name, approval: "owner" } };
+    const daemon = socket as unknown as Daemon;
+    daemon.emit(id, {
+      mux: "queued",
+      msg: { promptId: "g-run", turnId: "t-run", text: ASK, awaitingOwner: true, revision: 0, _meta: fromCy },
+    });
+    await until(() => shown.queue?.some((entry) => entry.id === "g-run") === true);
+    await client.answerHeld("g-run", true, 0);
+    await until(() => shown.queue.find((entry) => entry.id === "g-run")?.awaitingOwner === undefined);
+    // Its turn comes: acpmux takes it out of the queue and records it with the guest's provenance.
+    daemon.emit(id, { mux: "dequeued", msg: { promptId: "g-run", turnId: "t-run" } });
+    daemon.emit(id, {
+      mux: "user_message",
+      msg: { promptId: "g-run", turnId: "t-run", text: ASK, client: "acpmux", _meta: fromCy },
+    });
+    daemon.emit(id, { mux: "turn_started", msg: { promptId: "g-run", turnId: "t-run" } });
+    await until(() => shown.rows?.some((row) => row.kind === "user" && row.promptId === "g-run") === true);
+    const row = shown.rows.find((each) => each.kind === "user" && each.promptId === "g-run");
+    expect(row?.author).toEqual(CY);
+  } finally {
+    client.close?.();
   }
 });
 

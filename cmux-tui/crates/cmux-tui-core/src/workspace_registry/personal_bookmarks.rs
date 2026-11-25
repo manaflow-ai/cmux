@@ -10,31 +10,25 @@
 //! The journal records ids and counts only, never titles or URLs.
 
 use std::collections::BTreeMap;
-use std::fmt;
 
 use rusqlite::{Connection, OptionalExtension, Transaction, params};
-use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 
-use super::personal_store::{subject, validate_browser_profile_ref};
+// The rules, limits and op types live in cmux-bookmarks-core, which the app
+// also links for its optimistic view (layer-ownership.md V-11); this module
+// keeps the SQLite rows, the replay ledger and the journal.
+pub use cmux_bookmarks_core::{
+    BOOKMARKS_BAR, Bookmark, BookmarkError, BookmarkImport, BookmarkImportNode, BookmarkInput,
+    BookmarkOp, BookmarkUpdate, MAX_BOOKMARK_DEPTH, MAX_BOOKMARKS_PER_PROFILE, OTHER_BOOKMARKS,
+    is_root, stored_ms, validate_bookmark_id, validate_import_nodes, validate_key,
+    validate_kind_url, validate_profile_shape, validate_title, validate_url,
+};
+
+use super::personal_store::subject;
 use super::presentation_store::append_presentation_record;
 use super::{JournalSubject, new_uuid_v4, unix_epoch_ms};
 
 const REVISION_META_KEY: &str = "bookmarks_revision";
-/// The Bookmarks Bar root.
-pub const BOOKMARKS_BAR: &str = "bar";
-/// The Other Bookmarks root.
-pub const OTHER_BOOKMARKS: &str = "other";
-/// Most nodes one browser profile may hold.
-pub const MAX_BOOKMARKS_PER_PROFILE: usize = 100_000;
-/// Deepest node: a child of a root has depth 1.
-pub const MAX_BOOKMARK_DEPTH: usize = 64;
-/// Longest title, in bytes.
-pub const MAX_BOOKMARK_TITLE_BYTES: usize = 4096;
-/// Longest URL, in bytes.
-pub const MAX_BOOKMARK_URL_BYTES: usize = 65536;
-/// Longest `favicon_key` or `source_key`, in bytes.
-pub const MAX_BOOKMARK_KEY_BYTES: usize = 4096;
 /// Keyed ops whose replay records are kept; older keys are forgotten.
 pub const BOOKMARK_REPLAY_RETENTION: i64 = 10_000;
 
@@ -80,47 +74,13 @@ pub(super) fn create_bookmark_schema(transaction: &Transaction<'_>) -> anyhow::R
 
 // MARK: Errors
 
-/// A refused bookmark command. `code` is the response envelope's
-/// `error_code`: `invalid_params` or `not_found`.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct BookmarkError {
-    code: &'static str,
-    message: String,
-}
-
-impl BookmarkError {
-    pub const INVALID_PARAMS_CODE: &'static str = "invalid_params";
-    pub const NOT_FOUND_CODE: &'static str = "not_found";
-
-    pub fn code(&self) -> &'static str {
-        self.code
-    }
-}
-
-impl fmt::Display for BookmarkError {
-    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-        if self.code == Self::INVALID_PARAMS_CODE {
-            write!(formatter, "bad request: {}", self.message)
-        } else {
-            formatter.write_str(&self.message)
-        }
-    }
-}
-
-impl std::error::Error for BookmarkError {}
-
+/// A refused op as the command's error (`invalid_params`).
 pub fn invalid_bookmark(message: impl Into<String>) -> anyhow::Error {
-    anyhow::Error::new(BookmarkError {
-        code: BookmarkError::INVALID_PARAMS_CODE,
-        message: message.into(),
-    })
+    anyhow::Error::new(BookmarkError::invalid(message))
 }
 
 fn not_found(message: impl Into<String>) -> anyhow::Error {
-    anyhow::Error::new(BookmarkError {
-        code: BookmarkError::NOT_FOUND_CODE,
-        message: message.into(),
-    })
+    anyhow::Error::new(BookmarkError::not_found(message))
 }
 
 macro_rules! ensure_valid {
@@ -131,122 +91,7 @@ macro_rules! ensure_valid {
     };
 }
 
-// MARK: Records
-
-/// One node as `list-bookmarks` and the bookmark commands return it. Null
-/// optional fields are omitted.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
-pub struct Bookmark {
-    pub id: String,
-    pub browser_profile_id: String,
-    pub parent: String,
-    pub kind: String,
-    pub index: usize,
-    pub title: String,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub url: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub favicon_key: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub source_key: Option<String>,
-    pub created_ms: u64,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub last_used_ms: Option<u64>,
-    /// Folders only (`bookmark-icon-v1`): one emoji, an SF Symbol name or a
-    /// stored asset (`image:sha256-<hex>`, `svg:sha256-<hex>`).
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub icon: Option<String>,
-}
-
-/// Fields of `create-bookmark`.
-#[derive(Debug, Clone, Default, Serialize)]
-pub struct BookmarkInput {
-    pub id: Option<String>,
-    pub browser_profile_id: String,
-    pub parent: String,
-    pub index: Option<usize>,
-    pub kind: String,
-    pub title: String,
-    pub url: Option<String>,
-    pub favicon_key: Option<String>,
-    pub source_key: Option<String>,
-    pub created_ms: Option<u64>,
-}
-
-/// Fields of `update-bookmark`: `None` unchanged, `Some(None)` clears.
-#[derive(Debug, Clone, Default, Serialize)]
-pub struct BookmarkUpdate {
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub title: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub url: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub favicon_key: Option<Option<String>>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub last_used_ms: Option<Option<u64>>,
-    /// Folders only. Skipped when absent, so the fingerprint of an update
-    /// without an icon is the one it had before `bookmark-icon-v1`.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub icon: Option<Option<String>>,
-}
-
-/// One node of `import-bookmarks`.
-#[derive(Debug, Clone, Deserialize, Serialize)]
-#[serde(deny_unknown_fields)]
-pub struct BookmarkImportNode {
-    pub kind: String,
-    pub title: String,
-    #[serde(default)]
-    pub url: Option<String>,
-    #[serde(default)]
-    pub created_ms: Option<u64>,
-    #[serde(default)]
-    pub children: Option<Vec<BookmarkImportNode>>,
-}
-
-/// Fields of `import-bookmarks`.
-#[derive(Debug, Clone, Default, Serialize)]
-pub struct BookmarkImport {
-    pub browser_profile_id: String,
-    pub parent: String,
-    pub index: Option<usize>,
-    pub source_key: Option<String>,
-    pub replace: bool,
-    pub nodes: Vec<BookmarkImportNode>,
-}
-
-/// One bookmark op. Its JSON is the fingerprint of a keyed op.
-#[derive(Debug, Clone, Serialize)]
-#[serde(tag = "op", rename_all = "kebab-case")]
-pub enum BookmarkOp {
-    Create(BookmarkInput),
-    Update {
-        bookmark: String,
-        #[serde(flatten)]
-        update: BookmarkUpdate,
-    },
-    Move {
-        bookmark: String,
-        parent: String,
-        index: usize,
-    },
-    Delete {
-        bookmark: String,
-    },
-    Import(BookmarkImport),
-}
-
-impl BookmarkOp {
-    fn name(&self) -> &'static str {
-        match self {
-            Self::Create(_) => "create-bookmark",
-            Self::Update { .. } => "update-bookmark",
-            Self::Move { .. } => "move-bookmark",
-            Self::Delete { .. } => "delete-bookmark",
-            Self::Import(_) => "import-bookmarks",
-        }
-    }
-}
+// MARK: Outcomes
 
 /// A committed (or replayed) op: the wire result, with `replayed`, and,
 /// when it changed a tree, that browser profile and the committed
@@ -257,112 +102,10 @@ pub struct BookmarkOutcome {
     pub changed: Option<(String, u64)>,
 }
 
-// MARK: Validation
-
-/// `bm_` and 32 lowercase hex digits.
-pub fn validate_bookmark_id(value: &str) -> anyhow::Result<()> {
-    ensure_valid!(
-        value.len() == 35
-            && value.starts_with("bm_")
-            && value[3..]
-                .bytes()
-                .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte)),
-        "bookmark id must be \"bm_\" and 32 lowercase hex digits"
-    );
-    Ok(())
-}
+// MARK: Ids
 
 pub fn new_bookmark_id() -> String {
     format!("bm_{}", new_uuid_v4().replace('-', ""))
-}
-
-fn validate_profile_shape(value: &str) -> anyhow::Result<()> {
-    validate_browser_profile_ref(value)
-        .map_err(|_| invalid_bookmark("browser_profile_id must be \"default\" or a lowercase UUID"))
-}
-
-fn validate_kind(kind: &str) -> anyhow::Result<()> {
-    ensure_valid!(kind == "url" || kind == "folder", "kind must be \"url\" or \"folder\"");
-    Ok(())
-}
-
-fn validate_title(title: &str) -> anyhow::Result<()> {
-    ensure_valid!(
-        title.len() <= MAX_BOOKMARK_TITLE_BYTES,
-        "title exceeds {MAX_BOOKMARK_TITLE_BYTES} bytes"
-    );
-    ensure_valid!(!title.contains('\0'), "title contains NUL");
-    Ok(())
-}
-
-/// An absolute URL (a scheme, then anything) without control characters.
-fn validate_url(url: &str) -> anyhow::Result<()> {
-    ensure_valid!(
-        url.len() <= MAX_BOOKMARK_URL_BYTES,
-        "url exceeds {MAX_BOOKMARK_URL_BYTES} bytes"
-    );
-    ensure_valid!(!url.chars().any(char::is_control), "url contains a control character");
-    ensure_valid!(url::Url::parse(url).is_ok(), "url must be an absolute URL");
-    Ok(())
-}
-
-/// `url` is required for a URL and refused for a folder.
-fn validate_kind_url(kind: &str, url: Option<&str>) -> anyhow::Result<()> {
-    validate_kind(kind)?;
-    match (kind, url) {
-        ("url", Some(url)) => validate_url(url),
-        ("url", None) => Err(invalid_bookmark("a url bookmark needs a url")),
-        (_, Some(_)) => Err(invalid_bookmark("a folder has no url")),
-        _ => Ok(()),
-    }
-}
-
-fn validate_key(label: &str, value: Option<&str>) -> anyhow::Result<()> {
-    if let Some(value) = value {
-        ensure_valid!(
-            value.len() <= MAX_BOOKMARK_KEY_BYTES,
-            "{label} exceeds {MAX_BOOKMARK_KEY_BYTES} bytes"
-        );
-        ensure_valid!(!value.chars().any(char::is_control), "{label} contains a control character");
-    }
-    Ok(())
-}
-
-fn stored_ms(label: &str, value: u64) -> anyhow::Result<i64> {
-    i64::try_from(value).map_err(|_| invalid_bookmark(format!("{label} is out of range")))
-}
-
-fn is_root(parent: &str) -> bool {
-    parent == BOOKMARKS_BAR || parent == OTHER_BOOKMARKS
-}
-
-/// Validated nodes of one import, and the tallest root's height.
-fn validate_import_nodes(nodes: &[BookmarkImportNode]) -> anyhow::Result<(usize, usize)> {
-    let mut count = 0;
-    let mut height = 0;
-    let mut stack = nodes.iter().map(|node| (node, 1usize)).collect::<Vec<_>>();
-    while let Some((node, level)) = stack.pop() {
-        count += 1;
-        ensure_valid!(
-            count <= MAX_BOOKMARKS_PER_PROFILE,
-            "a profile holds at most {MAX_BOOKMARKS_PER_PROFILE} bookmarks"
-        );
-        ensure_valid!(
-            level <= MAX_BOOKMARK_DEPTH,
-            "bookmarks nest at most {MAX_BOOKMARK_DEPTH} deep"
-        );
-        height = height.max(level);
-        validate_kind_url(&node.kind, node.url.as_deref())?;
-        validate_title(&node.title)?;
-        if let Some(created_ms) = node.created_ms {
-            stored_ms("created_ms", created_ms)?;
-        }
-        if let Some(children) = &node.children {
-            ensure_valid!(node.kind == "folder", "only a folder has children");
-            stack.extend(children.iter().map(|child| (child, level + 1)));
-        }
-    }
-    Ok((count, height))
 }
 
 // MARK: Reads

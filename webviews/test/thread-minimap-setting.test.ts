@@ -7,9 +7,8 @@
 import { afterAll, describe, expect, test } from "bun:test";
 import exported from "../../schemas/settings/settings-schema.json";
 import { threadMinimapLayout } from "../src/agent-session/acpmux/threadMinimap/layout.experiment";
-import { MINIMAP_KEY, RAIL_SIDE_KEY, resolveThreadMinimapArm } from "../src/agent-session/acpmux/chatDisplay";
+import { MINIMAP_KEY, resolveThreadMinimapArm } from "../src/agent-session/acpmux/chatDisplay";
 import { armIds } from "../src/experiments/experiment";
-import { rankPalette, type PaletteRankEntry } from "../src/palette/ranker";
 import { installDom } from "../src/pages/settings/testDom";
 
 type Text = { text: string; key: string | null };
@@ -51,45 +50,7 @@ describe("the Chat Minimap row is the experiment's arms", () => {
   });
 });
 
-// The palette's settings rows as SettingsPaletteSource and SettingsPaletteProvider build them: the
-// title, the group as subtitle, the value as accessory, and the keywords plus the key, the section,
-// the group and "setting"; demoted under commands. The palette ranks them with this ranker (the
-// native palette runs the same code through PaletteRankerBridge).
-const sectionTitle = new Map(schema.sections.map((section) => [section.id, section.title.text]));
-const rows = schema.rows.filter((row) => row.consumers.includes("cmux-next"));
-const entries: PaletteRankEntry[] = rows.map((row) => ({
-  title: row.title.text,
-  subtitle: row.group.text,
-  accessory: row.choices?.find((choice) => choice.value === row.default)?.title.text ?? null,
-  keywords: [...row.keywords, row.key, sectionTitle.get(row.section) ?? row.section, row.group.text, "setting"],
-  demoted: true,
-}));
-const palette = (query: string) =>
-  rankPalette({ entries, query, sectionOrders: [0], now: Date.now(), showsRecent: false })
-    .flatMap((section) => section.rows)
-    .map((row) => rows[row.index]!.key);
-
-describe("the palette finds it", () => {
-  for (const query of ["TICK RAIL", "tick rail", "prompt rail", "scroll rail"])
-    test(`"${query}" keeps Chat Minimap beside the rail-side setting`, () => {
-      // Both settings answer a generic rail query; the display choice remains near the top.
-      expect(palette(query).slice(0, 2)).toContain(MINIMAP_KEY);
-      expect(palette(query).slice(0, 2)).toContain(RAIL_SIDE_KEY);
-    });
-
-  for (const query of ["wave rail", "thread minimap"])
-    test(`"${query}" ranks the Chat Minimap row first`, () => {
-      expect(palette(query)[0]).toBe(MINIMAP_KEY);
-    });
-
-  test("a rail-side query ranks Prompt Rail Side first", () => {
-    expect(palette("rail side")[0]).toBe(RAIL_SIDE_KEY);
-  });
-
-  test(`"minimap" lists it in the top three`, () => {
-    expect(palette("minimap").slice(0, 3)).toContain(MINIMAP_KEY);
-  });
-});
+// The palette ranks these rows in Rust: cmux-tui/crates/cmux-palette-ranker/tests/settings_rows.rs.
 
 describe("Settings search finds it", () => {
   const restore = installDom();

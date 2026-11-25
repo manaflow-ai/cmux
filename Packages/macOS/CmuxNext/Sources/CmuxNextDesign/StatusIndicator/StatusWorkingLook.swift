@@ -13,7 +13,7 @@ public nonisolated enum StatusWorkingLook: String, Sendable, CaseIterable, Tunab
     case breathe
     /// The same dot held still; on web pages the working row's words shimmer.
     case shimmer
-    /// The working spinner's stepping spokes (the default, `StatusIndicatorPlan.working`).
+    /// The working spinner's turning 3/4 arc (the default, `StatusIndicatorPlan.working`).
     case spinner
 
     /// The Debug Settings switch (section "Status Indicators").
@@ -24,16 +24,16 @@ public nonisolated enum StatusWorkingLook: String, Sendable, CaseIterable, Tunab
 
     public var tunableTitle: String {
         switch self {
-        case .breathe: String(localized: "statusWorkingLook.breathe", defaultValue: "Breathing Dot", bundle: .module)
-        case .shimmer: String(localized: "statusWorkingLook.shimmer", defaultValue: "Shimmer", bundle: .module)
-        case .spinner: String(localized: "statusWorkingLook.spinner", defaultValue: "Spinner", bundle: .module)
+        case .breathe: String(localized: "statusWorkingLook.breathe", defaultValue: "Breathing Dot", bundle: .localizedModule)
+        case .shimmer: String(localized: "statusWorkingLook.shimmer", defaultValue: "Shimmer", bundle: .localizedModule)
+        case .spinner: String(localized: "statusWorkingLook.spinner", defaultValue: "Spinner", bundle: .localizedModule)
         }
     }
 
     /// `plan` restyled for this look: agent work drawn as the working spinner becomes the accent dot,
     /// breathing for `breathe` and still for `shimmer`. Anything else is unchanged.
     func restyle(_ plan: StatusIndicatorPlan, for state: StatusIndicatorState) -> StatusIndicatorPlan {
-        guard self != .spinner, state.isWorking, state.progress == nil, plan.glyph == .native else { return plan }
+        guard self != .spinner, state.isWorking, state.progress == nil, plan.glyph == StatusIndicatorPlan.workingGlyph else { return plan }
         return StatusIndicatorPlan(glyph: .dot, animation: self == .breathe ? .breathe : nil, tint: .working)
     }
 }

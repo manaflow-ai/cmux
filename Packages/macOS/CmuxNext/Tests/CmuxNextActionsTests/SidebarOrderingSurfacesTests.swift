@@ -13,7 +13,7 @@ import Testing
         "workspaceGroup.moveToTop", "workspaceGroup.moveToBottom", "workspaceGroup.moveUp", "workspaceGroup.moveDown",
         "workspaceGroup.rename", "workspaceGroup.setColor", "toggleFocusedWorkspaceGroupCollapsed", "workspaceGroup.collapseOthers",
         "workspaceGroup.ungroup", "workspaceGroup.closeWorkspaces", "workspaceGroup.duplicate", "workspaceGroup.newWorkspace",
-        "workspaceGroup.sortByName", "workspaceGroup.sortByLastUsed", "workspaceGroup.sortByDirectory",
+        "workspaceGroup.sortByName", "workspaceGroup.sortByLastUsed", "workspaceGroup.sortByDirectory", "workspaceGroup.setSort",
     ]
     /// A workspace row's verbs, as its menu shows them.
     nonisolated static let workspaceMenu: [ActionID] = [

@@ -34,6 +34,21 @@ public struct ProvisionalWorkspace: Sendable, Hashable {
         self.tab = tab
     }
 
+    private init(key: WorkspaceKey, name: String, handle: WorkspaceHandle, screen: ScreenID, pane: PaneID, tab: TabSnapshot) {
+        self.key = key
+        self.name = name
+        self.handle = handle
+        self.screen = screen
+        self.pane = pane
+        self.tab = tab
+    }
+
+    /// The same workspace (key, handles, first tab) under the name `name`: the name a press of the key gives the
+    /// workspace it reserved before the key (``DaemonStore/reserveWorkspace(_:)``).
+    public func named(_ name: String) -> ProvisionalWorkspace {
+        ProvisionalWorkspace(key: key, name: name, handle: handle, screen: screen, pane: pane, tab: tab)
+    }
+
     /// Whether `handle` is a provisional workspace's (never a daemon workspace).
     public static func isProvisional(_ handle: WorkspaceHandle) -> Bool { handle.rawValue >= handleBase }
 
@@ -54,6 +69,57 @@ public struct ProvisionalWorkspace: Sendable, Hashable {
 struct ProvisionalWorkspaceModels {
     var workspacesByID: [String: WorkspaceModel] = [:]
     var screensByID: [String: ScreenModel] = [:]
+    /// The next Cmd-N's workspace, made before its key (``DaemonStore/reserveWorkspace(_:)``). Its own field: the
+    /// prune of settled creates (`releaseSettledProvisionalWorkspaces`) keeps only keys a pending create names.
+    var reserved: ReservedWorkspace?
+    /// Memory pressure: nothing is reserved until it is normal again.
+    var paused = false
+}
+
+/// The next Cmd-N's workspace, made before the key, as Chrome keeps a spare renderer (STATUS 15250): its model holds
+/// its screen, so a window builds the workspace's view before the key, and the key's create intent shows this model
+/// (``ProvisionalWorkspaceOverlay``). Never in `workspaces`, the index or the sidebar until that intent applies.
+public struct ReservedWorkspace {
+    /// The workspace the press shows (its name is the press's: ``ProvisionalWorkspace/named(_:)``).
+    public let provisional: ProvisionalWorkspace
+    /// The model the window builds its view on; the create intent shows this one object.
+    public let model: WorkspaceModel
+    let screen: ScreenModel
+    /// Its first tab's key (the provisional tab id), under which the app keeps its page.
+    public var tabKey: String? { provisional.tab.tabResourceID?.rawValue }
+}
+
+/// What a press of Cmd-N does with its daemon's reservation; ``span`` names it for the bench (`cmdN.reserved.*`).
+public enum ReservedWorkspaceUse: Equatable, Sendable {
+    /// The press shows the reserved workspace under this key.
+    case hit(WorkspaceKey)
+    /// No reservation on the press's daemon; `elsewhere`: the home daemon holds one (the press went to another).
+    case miss(elsewhere: Bool)
+    /// Not a plain Cmd-N: it never takes a reservation.
+    case notPlain
+
+    public var key: WorkspaceKey? {
+        guard case .hit(let key) = self else { return nil }
+        return key
+    }
+
+    public var span: String? {
+        switch self {
+        case .hit: "cmdN.reserved.hit"
+        case .miss(let elsewhere): elsewhere ? "cmdN.reserved.miss.daemon" : "cmdN.reserved.miss.none"
+        case .notPlain: nil
+        }
+    }
+}
+
+/// Why a reservation went (its bench span `cmdN.reserved.released.<reason>`).
+public enum ReservedWorkspaceRelease: String, Sendable {
+    /// Warning or critical memory pressure.
+    case pressure
+    /// A press took its key but did not show it (the key never names another workspace).
+    case unshown
+
+    public var span: String { "cmdN.reserved.released.\(rawValue)" }
 }
 
 extension DaemonStore {
@@ -62,24 +128,82 @@ extension DaemonStore {
         get { intentLog.workspaceModels }
         set { intentLog.workspaceModels = newValue }
     }
+
+    /// The reserved next Cmd-N workspace, if any.
+    public var reservedWorkspace: ReservedWorkspace? { provisionalWorkspaces.reserved }
+
+    /// Memory pressure pauses reserving (the caller lets the reservation go); normal pressure resumes it.
+    public var reservationPaused: Bool {
+        get { provisionalWorkspaces.paused }
+        set { provisionalWorkspaces.paused = newValue }
+    }
+
+    /// The reserved workspace when a press sends its key `key`.
+    public func reservedWorkspace(keyed key: WorkspaceKey) -> ReservedWorkspace? {
+        provisionalWorkspaces.reserved.flatMap { $0.provisional.key == key ? $0 : nil }
+    }
+
+    /// Whether `model` is this store's reserved workspace (a view built on another one is stale).
+    public func reserves(_ model: WorkspaceModel) -> Bool { provisionalWorkspaces.reserved?.model === model }
+
+    /// What a press on this daemon does with the reservation: `plain` (a plain Cmd-N into a window that shows its
+    /// workspace before the daemon) takes it; `home` is the app's own daemon, to tell a miss there from none.
+    public func reservedWorkspaceUse(plain: Bool, home: DaemonStore) -> ReservedWorkspaceUse {
+        guard plain else { return .notPlain }
+        guard let reserved = provisionalWorkspaces.reserved else { return .miss(elsewhere: home !== self && home.reservedWorkspace != nil) }
+        return .hit(reserved.provisional.key)
+    }
+
+    /// Reserves `provisional` as the next Cmd-N's workspace (replacing an earlier reservation): its model and screen are
+    /// made now, the screen inside the model, outside the store's workspaces, index and sidebar.
+    @discardableResult
+    public func reserveWorkspace(_ provisional: ProvisionalWorkspace) -> ReservedWorkspace {
+        let model = WorkspaceModel(provisional.workspaceSnapshot), screen = ScreenModel(provisional.screenSnapshot)
+        model.screens = [screen]
+        let reserved = ReservedWorkspace(provisional: provisional, model: model, screen: screen)
+        provisionalWorkspaces.reserved = reserved
+        return reserved
+    }
+
+    /// Lets the reservation go for `reason` and returns it (nil: there was none). Nothing of it was shown or sent.
+    @discardableResult
+    public func releaseReservedWorkspace(_ reason: ReservedWorkspaceRelease) -> ReservedWorkspace? {
+        defer { provisionalWorkspaces.reserved = nil }
+        return provisionalWorkspaces.reserved
+    }
 }
 
 /// The overlay of `Intent.createWorkspace`. Undone exactly. Three states, by what the confirmed
 /// records hold under the key:
 /// - nothing: the provisional workspace (its one model) is inserted with its screen;
 /// - the daemon's workspace without a tab (`create-workspace` answered, the first tab not yet):
-///   the provisional screen is shown inside it, so the window never draws an empty workspace;
+///   the provisional screen is shown inside it in place of the daemon's own screens, so the window never
+///   draws an empty workspace, nor two screens: the daemon's screen comes with an empty pane, and beside
+///   the stand-in's it showed the screen bar and an empty screen until the first tab (Leo, 2026-11-18: "a 2
+///   part animation going from as if it had an invisible split, then into the main page new page display");
 /// - the daemon's workspace with a tab: nothing (the intent has nothing left to show).
 @MainActor struct ProvisionalWorkspaceOverlay {
     static func apply(_ provisional: ProvisionalWorkspace, index: Int?, to store: DaemonStore) -> IntentUndo? {
+        // The press of a reserved workspace shows the model its window built a view on, named as the press names it.
+        if let reserved = store.provisionalWorkspaces.reserved, reserved.provisional.key == provisional.key {
+            store.provisionalWorkspaces.reserved = nil
+            reserved.model.name = provisional.name
+            store.provisionalWorkspaces.workspacesByID[provisional.key.rawValue] = reserved.model
+            store.provisionalWorkspaces.screensByID[provisional.key.rawValue] = reserved.screen
+        }
         let model = store.provisionalWorkspaces.workspacesByID[provisional.key.rawValue]
         let confirmed = store.workspacesByKey[provisional.key]
         if let confirmed, confirmed.screens.contains(where: { $0.panes.contains { !$0.tabs.isEmpty } }) { return nil }
         if confirmed == nil, store.tabsBySurface[provisional.tab.surface] != nil { return nil }
-        var inserted = false
+        var inserted = false, hidden: [ScreenModel] = []
         let workspace: WorkspaceModel
+        let screen = store.provisionalWorkspaces.screensByID[provisional.key.rawValue] ?? ScreenModel(provisional.screenSnapshot)
         if let confirmed {
             workspace = confirmed
+            // Its screens hold no tab (above): they leave the records while the stand-in shows; the undo puts them back.
+            hidden = confirmed.screens.filter { $0 !== screen }
+            for daemonScreen in hidden { store.index.remove(daemonScreen) }
+            confirmed.screens.removeAll { $0 !== screen }
         } else {
             workspace = model ?? WorkspaceModel(provisional.workspaceSnapshot)
             store.provisionalWorkspaces.workspacesByID[provisional.key.rawValue] = workspace
@@ -89,11 +213,11 @@ extension DaemonStore {
             store.sidebarNeedsRecompute = true
             inserted = true
         }
-        let screen = store.provisionalWorkspaces.screensByID[provisional.key.rawValue] ?? ScreenModel(provisional.screenSnapshot)
         store.provisionalWorkspaces.screensByID[provisional.key.rawValue] = screen
-        workspace.screens.append(screen)
+        // A reserved model already holds its screen (an undo took it out of every other).
+        if !workspace.screens.contains(where: { $0 === screen }) { workspace.screens.append(screen) }
         store.indexed(screen, in: workspace)
-        return .createdWorkspace(key: provisional.key, inserted: inserted)
+        return .createdWorkspace(key: provisional.key, inserted: inserted, hidden: HiddenScreens(hidden))
     }
 
     /// The daemon's pane that took Cmd-N's stand-in pane over: in the daemon's workspace `key`, the pane that holds the
@@ -128,7 +252,7 @@ extension DaemonStore {
         return workspace.tookOverStandIn?.firstTab
     }
 
-    static func undo(key: WorkspaceKey, inserted: Bool, in store: DaemonStore) {
+    static func undo(key: WorkspaceKey, inserted: Bool, hidden: HiddenScreens, in store: DaemonStore) {
         guard let workspace = store.workspacesByKey[key] ?? store.provisionalWorkspaces.workspacesByID[key.rawValue] else {
             return store.reportMirrorViolation("intent overlay undo found workspace \(key) missing")
         }
@@ -136,9 +260,20 @@ extension DaemonStore {
             store.index.remove(screen)
             workspace.screens.removeAll { $0 === screen }
         }
+        workspace.screens.insert(contentsOf: hidden.screens, at: 0)
+        for daemonScreen in hidden.screens { store.indexed(daemonScreen, in: workspace) }
         guard inserted else { return }
         store.index.remove(workspace)
         store.workspaces.removeAll { $0 === workspace }
         store.sidebarNeedsRecompute = true
     }
+}
+
+/// The daemon's tabless screens a create's overlay took out of its workspace while the stand-in shows, in order.
+struct HiddenScreens: Equatable {
+    let screens: [ScreenModel]
+
+    init(_ screens: [ScreenModel]) { self.screens = screens }
+
+    static func == (lhs: Self, rhs: Self) -> Bool { lhs.screens.elementsEqual(rhs.screens, by: ===) }
 }

@@ -1,6 +1,12 @@
+#if canImport(CryptoKit)
 import CryptoKit
+#else
+import Crypto
+#endif
 import Foundation
+#if canImport(Security)
 import Security
+#endif
 
 /// Where the push key and the trust record live: a keychain access group the
 /// app shares with its notification service extension
@@ -11,11 +17,19 @@ public protocol PushSecretStore: Sendable {
     func read(_ account: String) throws -> Data?
     func write(_ data: Data, account: String) throws
     func delete(_ account: String)
+    /// Deletes every item this store holds (sign-out). A store that cannot list its items keeps them.
+    func deleteAll()
 }
 
-/// The shared keychain group.
+public extension PushSecretStore {
+    func deleteAll() {}
+}
+
+/// The shared keychain group. Without the Security framework (a Linux build of the kit's tests) there is
+/// no keychain: no build names a group, so `current` is nil and nothing is stored.
 public struct PushKeychainStore: PushSecretStore {
-    public struct Failure: Error, Equatable { public let status: OSStatus }
+    /// `status` is the keychain's OSStatus (Int32).
+    public struct Failure: Error, Equatable { public let status: Int32 }
 
     public let group: String
     public let service: String
@@ -27,10 +41,16 @@ public struct PushKeychainStore: PushSecretStore {
 
     /// The group this build is signed with; nil when Info.plist names none.
     public static func current(bundle: Bundle = .main) -> PushKeychainStore? {
+        #if !canImport(Security)
+        return nil
+        #else
         guard let group = bundle.object(forInfoDictionaryKey: "CmuxMobileKeychainGroup") as? String,
               !group.isEmpty, !group.hasPrefix("$(") else { return nil }
         return PushKeychainStore(group: group)
+        #endif
     }
+
+    #if canImport(Security)
 
     private func query(_ account: String) -> [String: Any] {
         [kSecClass as String: kSecClassGenericPassword, kSecAttrService as String: service,
@@ -64,6 +84,19 @@ public struct PushKeychainStore: PushSecretStore {
     public func delete(_ account: String) {
         SecItemDelete(query(account) as CFDictionary)
     }
+
+    /// Every item of this service in this group.
+    public func deleteAll() {
+        let all: [String: Any] = [kSecClass as String: kSecClassGenericPassword, kSecAttrService as String: service,
+                                  kSecAttrAccessGroup as String: group, kSecUseDataProtectionKeychain as String: true]
+        SecItemDelete(all as CFDictionary)
+    }
+    #else
+    public func read(_ account: String) throws -> Data? { nil }
+    public func write(_ data: Data, account: String) throws { throw Failure(status: -1) }
+    public func delete(_ account: String) {}
+    public func deleteAll() {}
+    #endif
 }
 
 /// Memory (tests).
@@ -76,6 +109,7 @@ public final class PushMemoryStore: PushSecretStore, @unchecked Sendable { // cr
     public func read(_ account: String) throws -> Data? { lock.withLock { items[account] } }
     public func write(_ data: Data, account: String) throws { lock.withLock { items[account] = data } }
     public func delete(_ account: String) { _ = lock.withLock { items.removeValue(forKey: account) } }
+    public func deleteAll() { lock.withLock { items.removeAll() } }
 }
 
 /// What the service extension needs to open a sealed push: whose phone this
@@ -145,7 +179,7 @@ public final class PushKeys: @unchecked Sendable { // crash-allow: immutable aft
     }
 
     public static var hasEnclave: Bool {
-        #if targetEnvironment(simulator)
+        #if targetEnvironment(simulator) || !canImport(CryptoKit)
         false
         #else
         SecureEnclave.isAvailable
@@ -207,20 +241,27 @@ public final class PushKeys: @unchecked Sendable { // crash-allow: immutable aft
 
     // MARK: Storage
 
+    // swift-crypto (Linux) has no Secure Enclave: only software keys there.
     private enum Key {
+        #if canImport(CryptoKit)
         case enclave(SecureEnclave.P256.KeyAgreement.PrivateKey)
+        #endif
         case software(P256.KeyAgreement.PrivateKey)
 
         var publicKey: Data {
             switch self {
+            #if canImport(CryptoKit)
             case .enclave(let k): k.publicKey.x963Representation
+            #endif
             case .software(let k): k.publicKey.x963Representation
             }
         }
 
         func agree(_ peer: P256.KeyAgreement.PublicKey) throws -> SharedSecret {
             switch self {
+            #if canImport(CryptoKit)
             case .enclave(let k): try k.sharedSecretFromKeyAgreement(with: peer)
+            #endif
             case .software(let k): try k.sharedSecretFromKeyAgreement(with: peer)
             }
         }
@@ -229,6 +270,7 @@ public final class PushKeys: @unchecked Sendable { // crash-allow: immutable aft
     private func key(user: String, create: Bool) throws -> Key {
         let account = Self.account(user)
         let stored = try store.read(account)
+        #if canImport(CryptoKit)
         if enclave {
             if let stored, let key = try? SecureEnclave.P256.KeyAgreement.PrivateKey(dataRepresentation: stored) { return .enclave(key) }
             guard create else { throw Failure.noKey }
@@ -240,6 +282,7 @@ public final class PushKeys: @unchecked Sendable { // crash-allow: immutable aft
             try store.write(made.dataRepresentation, account: account)
             return .enclave(made)
         }
+        #endif
         #if DEBUG || targetEnvironment(simulator)
         if let stored, let key = try? P256.KeyAgreement.PrivateKey(rawRepresentation: stored) { return .software(key) }
         guard create else { throw Failure.noKey }

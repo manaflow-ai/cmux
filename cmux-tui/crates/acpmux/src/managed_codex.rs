@@ -1,7 +1,6 @@
 //! Opt-in managed Codex runtime. The binary is downloaded only on explicit
 //! request and is never preferred over a Codex already found on PATH.
 use anyhow::{Result, bail};
-use sha2::{Digest, Sha256};
 use std::path::{Path, PathBuf};
 
 const CURRENT: &str = "current";
@@ -28,11 +27,20 @@ pub fn ready_path() -> PathBuf {
     root().join("ready.json")
 }
 
+const LINUX_ARM64_URL: &str = "https://github.com/openai/codex/releases/download/rust-v0.156.1/codex-aarch64-unknown-linux-musl.tar.gz";
+const LINUX_ARM64_SHA256: &str = "558e12aaa6dacb335ec47240bf9721db8a54746806d64f01185a403f44f79b72";
+const LINUX_X64_URL: &str = "https://github.com/openai/codex/releases/download/rust-v0.156.1/codex-x86_64-unknown-linux-musl.tar.gz";
+const LINUX_X64_SHA256: &str = "aff46539a83aff86e3c62c592bce2c50d95391f9df289afaf03a50c01d14533d";
+
 fn target() -> (&'static str, &'static str) {
     if cfg!(all(target_os = "macos", target_arch = "aarch64")) {
         (ARM64_URL, ARM64_SHA256)
     } else if cfg!(all(target_os = "macos", target_arch = "x86_64")) {
         (X64_URL, X64_SHA256)
+    } else if cfg!(all(target_os = "linux", target_arch = "aarch64")) {
+        (LINUX_ARM64_URL, LINUX_ARM64_SHA256)
+    } else if cfg!(all(target_os = "linux", target_arch = "x86_64")) {
+        (LINUX_X64_URL, LINUX_X64_SHA256)
     } else {
         ("", "")
     }
@@ -64,28 +72,37 @@ pub fn status() -> serde_json::Value {
 pub async fn install() -> Result<serde_json::Value> {
     let (url, expected) = target();
     if url.is_empty() {
-        bail!("managed Codex is currently supported on macOS only")
+        bail!("managed Codex needs macOS or Linux on arm64 or x86_64")
     }
-    // The workspace builds reqwest with `rustls-no-provider`; a standalone CLI run has no
-    // process-level provider until one is installed (as `catalog/fetch.rs`).
-    let _ = rustls::crypto::ring::default_provider().install_default();
-    let bytes = reqwest::get(url).await?.error_for_status()?.bytes().await?;
-    let got = format!("{:x}", Sha256::digest(&bytes));
-    if got != expected {
-        bail!("Codex archive SHA-256 mismatch: expected {expected}, got {got}")
-    }
+    // One stream first, as before. On a Freestyle VM's IPv4 path one stream from GitHub held about
+    // 0.14 MB/s, so a 100 MB release asset took about 12 minutes (RFD 0067): a stream still under
+    // 2 MB/s after 3 s has the rest read in 16 ranges (what it read is kept), about a minute. The same sha256 is checked before anything is kept.
+    // `ACPMUX_FETCH_RANGES=N` overrides: N ranges at once, 1 for one stream only.
+    let fetched = tempfile::tempdir()?;
+    let archive_path = fetched.path().join("codex.tar.gz");
+    let forced = std::env::var("ACPMUX_FETCH_RANGES").ok().and_then(|v| v.trim().parse().ok());
+    let opts = crate::range_fetch::Options {
+        ranges: forced.unwrap_or(crate::range_fetch::DEFAULT_RANGES),
+        adaptive: forced.is_none().then_some(crate::range_fetch::Adaptive::FALLBACK),
+        sha256: Some(expected.to_owned()),
+        ..Default::default()
+    };
+    crate::range_fetch::fetch_to_file(&crate::range_fetch::client()?, url, &archive_path, &opts)
+        .await
+        .map_err(|e| anyhow::anyhow!("Codex archive: {e:#}"))?;
+    let bytes = std::fs::read(&archive_path)?;
     let base = base();
-    std::fs::create_dir_all(&base)?;
+    crate::home_fs::create_dirs(&base)?;
     let staging = base.join(format!(".staging-{}", std::process::id()));
     if staging.exists() {
-        std::fs::remove_dir_all(&staging)?;
+        crate::home_fs::remove_dir_all(&staging)?;
     }
-    std::fs::create_dir_all(&staging)?;
+    crate::home_fs::create_dirs(&staging)?;
     let archive = staging.join("codex.tar.gz");
-    std::fs::write(&archive, &bytes)?;
+    crate::home_fs::write(&archive, &bytes)?;
     let file = std::fs::File::open(&archive)?;
     tar::Archive::new(flate2::read::GzDecoder::new(file)).unpack(&staging)?;
-    std::fs::remove_file(&archive)?;
+    crate::home_fs::remove_file(&archive)?;
     let extracted = std::fs::read_dir(&staging)?
         .filter_map(|entry| entry.ok().map(|e| e.path()))
         .find(|path| {
@@ -96,31 +113,34 @@ pub async fn install() -> Result<serde_json::Value> {
                     .is_some_and(|n| n == "codex" || n.starts_with("codex-"))
         })
         .ok_or_else(|| anyhow::anyhow!("Codex archive did not contain a target codex binary"))?;
-    std::fs::rename(&extracted, staging.join("codex"))?;
+    crate::home_fs::rename(&extracted, staging.join("codex"))?;
     #[cfg(unix)]
     {
         use std::os::unix::fs::PermissionsExt;
-        std::fs::set_permissions(staging.join("codex"), std::fs::Permissions::from_mode(0o755))?;
+        crate::home_fs::set_permissions(
+            staging.join("codex"),
+            std::fs::Permissions::from_mode(0o755),
+        )?;
     }
     // The marker is written last, inside the staged directory: the swap below makes the binary
     // and its marker current together, and the runtime already in place stays until then.
     let ready = serde_json::json!({"version": VERSION, "sha256": expected, "path": managed_path(), "url": url});
-    std::fs::write(staging.join("ready.json"), serde_json::to_string_pretty(&ready)?)?;
+    crate::home_fs::write(staging.join("ready.json"), serde_json::to_string_pretty(&ready)?)?;
     // Each install gets its own directory; none is ever replaced in place.
     let nanos = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .map_or(0, |elapsed| elapsed.as_nanos());
     let install = base.join(format!("{VERSION}-{}-{nanos}", std::process::id()));
-    std::fs::rename(&staging, &install)?;
+    crate::home_fs::rename(&staging, &install)?;
     activate(&base, &install)?;
     Ok(ready)
 }
 
-/// Only macOS installs a managed runtime (`target`), and the swap below needs a Unix symlink:
+/// macOS and Linux install a managed runtime (`target`); the swap needs a Unix symlink:
 /// elsewhere `install` has already refused before it gets here.
 #[cfg(not(unix))]
 fn activate(_base: &Path, _install: &Path) -> Result<()> {
-    bail!("managed Codex is currently supported on macOS only")
+    bail!("managed Codex needs macOS or Linux on arm64 or x86_64")
 }
 
 /// Points `current` at the finished install directory with one rename over the old link: the
@@ -135,10 +155,10 @@ fn activate(base: &Path, install: &Path) -> Result<()> {
     }
     let link = base.join(CURRENT);
     let pending = base.join(format!(".current-{}", std::process::id()));
-    let _ = std::fs::remove_file(&pending);
-    std::os::unix::fs::symlink(name, &pending)?;
-    if let Err(err) = std::fs::rename(&pending, &link) {
-        let _ = std::fs::remove_file(&pending);
+    let _ = crate::home_fs::remove_file(&pending);
+    crate::home_fs::symlink(name, &pending)?;
+    if let Err(err) = crate::home_fs::rename(&pending, &link) {
+        let _ = crate::home_fs::remove_file(&pending);
         return Err(err.into());
     }
     prune(base);
@@ -170,7 +190,7 @@ fn prune(base: &Path) {
             .and_then(|modified| now.duration_since(modified).ok())
             .is_none_or(|age| age < PRUNE_GRACE);
         if ours && !named && !recent {
-            let _ = std::fs::remove_dir_all(entry.path());
+            let _ = crate::home_fs::remove_dir_all(entry.path());
         }
     }
 }

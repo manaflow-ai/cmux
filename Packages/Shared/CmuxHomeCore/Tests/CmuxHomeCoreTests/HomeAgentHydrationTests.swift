@@ -118,6 +118,72 @@ import CmuxHomeCoreTestSupport
         await refresh.value
         #expect(store.transcript(for: conversation).contains { $0.plainText.hasSuffix("Updated receipt after reconnect") })
     }
+
+    /// An agent the spawn answer queued behind the cap starts later with no word in the chat (a1019's open
+    /// item, 2026-11-06): once the Chief's acpmux lists its session, its pill and its chat say Working at once,
+    /// with no tell, report or session read. Its session ending later leaves it started.
+    @Test func aQueuedAgentThatStartsSilentlySaysWorkingOnceItsSessionShows() async throws {
+        let source = DeferredAgentSnapshotSource()
+        let store = HomeStore(source: source)
+        store.start()
+        defer { store.stop() }
+        await waitUntil { store.isOnline && !store.rows.isEmpty }
+        let conversation = ConversationID("conv_aziz")
+        await store.open(conversation)
+        await waitUntil { store.agentMessageReads[conversation] == nil }
+        let question = try #require(store.transcript(for: conversation).first?.messageID)
+        let chief = ParticipantID("agent_mux")
+        let spawn = HomeAgentRun(conversation: conversation, id: "spawn", author: chief, turn: nil, answers: [question],
+                                 revision: 1, messages: [
+                                     .init(id: "spawn:a1017:1", sequence: 1, revision: 1, peer: "a1017", outgoing: true,
+                                           text: "Chief teleport indicator", date: Date(timeIntervalSince1970: 100), queued: true)
+                                 ])
+        await source.prepare([spawn], deferred: false)
+        store.requestAgentMessages(conversation)
+        let read = try #require(store.agentMessageReads[conversation])
+        await read.value
+        func pillStates() -> [HomeAgentMessageRow.PeerState] {
+            store.transcript(for: conversation).compactMap(\.agentMessage).flatMap(\.peerStates)
+        }
+        #expect(store.agentThread("a1017", in: conversation)?.state == .queued)
+        #expect(pillStates() == [.queued])
+
+        let before = store.transcriptVersion[conversation, default: 0]
+        #expect(store.agentsStarted(["a1017", "a3"]) == true)
+        #expect(store.transcriptVersion[conversation, default: 0] > before)
+        #expect(store.agentThread("a1017", in: conversation)?.state == .told)
+        #expect(pillStates() == [.told])
+
+        // Its session ends (the list no longer names it): it stays started, and nothing redraws.
+        let after = store.transcriptVersion[conversation, default: 0]
+        #expect(store.agentsStarted([]) == false)
+        #expect(store.agentsStarted(["a3"]) == false)
+        #expect(store.transcriptVersion[conversation, default: 0] == after)
+        #expect(pillStates() == [.told])
+
+        // Its session's start (the Chief's acpmux lane, user 2026-11-20): its pill counts from it, not from the tell.
+        func pillStarts() -> [Date?] {
+            store.transcript(for: conversation).compactMap(\.agentMessage).flatMap(\.peerStarted)
+        }
+        #expect(pillStarts() == [Date(timeIntervalSince1970: 100)])
+        let session = Date(timeIntervalSince1970: 700)
+        #expect(store.agentsStarted(["a1017"], startedAt: ["a1017": session]) == true)
+        #expect(pillStarts() == [session])
+        // The same start again changes nothing; a list without it keeps the start it had.
+        #expect(store.agentsStarted(["a1017"], startedAt: ["a1017": session]) == false)
+        #expect(store.agentsStarted([], startedAt: [:]) == false)
+        #expect(pillStarts() == [session])
+    }
+
+    /// The owner's agent starts carry each session's start: the store reads them from ``HomeSource/agentStarts()``.
+    @Test func theOwnersAgentStartsCarryEachSessionsStart() async throws {
+        let source = MockHomeSource(options: .immediate)
+        let session = Date(timeIntervalSince1970: 900)
+        await source.setStartedAgents(HomeAgentStarts(peers: ["a7"], startedAt: ["a7": session]))
+        var starts = await source.agentStarts().makeAsyncIterator()
+        let first = await starts.next()
+        #expect(first == HomeAgentStarts(peers: ["a7"], startedAt: ["a7": session]))
+    }
 }
 
 private actor DeferredAgentSnapshotSource: HomeSource {

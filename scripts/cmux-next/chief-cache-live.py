@@ -20,6 +20,8 @@ Usage: chief-cache-live.py --tag <tag> --app PATH [--turns 5] [--min-hit 87] [--
 Submit the nx-remote job with --allow-agents, under `zsh -lic` (the subrouter route).
 """
 import argparse, glob, json, os, re, shutil, signal, socket, subprocess, sys, tempfile, time
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from safe_log import safe_print  # noqa: E402  (a line before a kill never skips the kill)
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--tag", required=True)
@@ -123,7 +125,7 @@ def end_run(app):
     try:
         app.wait(timeout=60)
     except subprocess.TimeoutExpired:
-        print(f"app {app.pid} did not quit; SIGKILL", flush=True)
+        safe_print(f"app {app.pid} did not quit; SIGKILL", flush=True)
         os.kill(app.pid, signal.SIGKILL)
         app.wait(timeout=10)
     env = {**os.environ, "ACPMUX_HOME": ACPMUX_HOME, "ACPMUX_SOCKET": os.path.join(ACPMUX_HOME, "acpmux.sock")}

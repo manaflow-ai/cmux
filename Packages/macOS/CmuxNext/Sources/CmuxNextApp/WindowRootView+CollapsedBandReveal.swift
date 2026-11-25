@@ -11,6 +11,7 @@ extension WindowRootView {
     func setUpCollapsedBandReveal() {
         collapsedBand.install(in: self)
         collapsedBand.shownPresence = { [weak self] in self?.toolbarBandPresence ?? 0 }
+        collapsedBand.fullWidth = { [weak self] in self?.toolbarBand.slots().width ?? 0 }
         collapsedBand.reveal = titlebarReveal
         titlebarReveal.onStateChange = { [weak self] state in
             guard let band = self?.collapsedBand else { return }
@@ -25,12 +26,5 @@ extension WindowRootView {
     /// lays this view out, so the band and the strip after it move in step,
     /// a change mid-animation retargets from what is on screen, and Reduce
     /// Motion snaps.
-    var toolbarBandPresence: CGFloat { max(sidebarBandShare, collapsedBand.presence) }
-
-    /// The sidebar's on-screen share of its width.
-    var sidebarBandShare: CGFloat {
-        let width = sidebar.model.width
-        guard width > 0 else { return sidebar.model.isHidden ? 0 : 1 }
-        return min(1, max(0, sidebar.frame.width / width))
-    }
+    var toolbarBandPresence: CGFloat { max(sidebar.onScreenShare, collapsedBand.presence) }
 }

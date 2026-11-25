@@ -12,83 +12,15 @@
 //!
 //! The text is the active screen with its scrollback, cut to the last
 //! [`MAX_SCAN_BYTES`], read once per request. Nothing is cached or polled.
-
-use std::net::{Ipv6Addr, SocketAddr, TcpStream};
-use std::sync::LazyLock;
-use std::time::Duration;
-
-use regex::Regex;
+//! The matching and the probe live in `cmux-local-url`.
 
 use super::*;
 
+// The URL matching and the probe are shared with acpmux's process previews.
+pub(crate) use cmux_local_url::{Candidate, candidates, probe, tail};
+
 /// The tail of the terminal text that is scanned.
 pub(crate) const MAX_SCAN_BYTES: usize = 1 << 20;
-/// Distinct ports probed per request, most recently printed first.
-pub(crate) const MAX_CANDIDATES: usize = 32;
-const PROBE_TIMEOUT: Duration = Duration::from_millis(150);
-
-/// A port the terminal text names on a loopback or wildcard host.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) struct Candidate {
-    pub port: u16,
-    /// The host as printed: `localhost`, `127.0.0.1`, `0.0.0.0`, `[::1]`...
-    pub host: String,
-    /// The printed URL, or `http://<host>:<port>/` when the text had no scheme.
-    pub url: String,
-}
-
-static ADDRESS: LazyLock<Regex> = LazyLock::new(|| {
-    Regex::new(
-        r"(?i)(?P<scheme>https?://)?(?P<host>localhost|127(?:\.\d{1,3}){3}|0\.0\.0\.0|\[::1?\]|\[::ffff:127(?:\.\d{1,3}){3}\]|\*):(?P<port>\d{1,5})\b(?P<path>/[^\s'\x22<>()\[\],]*)?",
-    )
-    .expect("static regex") // crash-allow: constant pattern
-});
-
-/// Ports named in `text` on a loopback or wildcard host, the last printed
-/// first, each port once, at most [`MAX_CANDIDATES`].
-pub(crate) fn candidates(text: &str) -> Vec<Candidate> {
-    let mut found: Vec<Candidate> = Vec::new();
-    for capture in ADDRESS.captures_iter(text) {
-        let Ok(port) = capture["port"].parse::<u16>() else {
-            continue;
-        };
-        if port == 0 {
-            continue;
-        }
-        let host = capture["host"].to_ascii_lowercase();
-        let scheme = capture.name("scheme").map_or("http://", |m| m.as_str());
-        let path = capture.name("path").map_or("/", |m| m.as_str());
-        let url_host = if host == "*" { "localhost" } else { host.as_str() };
-        let url = format!("{}{url_host}:{port}{path}", scheme.to_ascii_lowercase());
-        found.retain(|candidate| candidate.port != port);
-        found.push(Candidate { port, host, url });
-    }
-    found.reverse();
-    found.truncate(MAX_CANDIDATES);
-    found
-}
-
-/// The tail of `text` that is at most `max` bytes, cut on a char boundary.
-pub(crate) fn tail(text: &str, max: usize) -> &str {
-    if text.len() <= max {
-        return text;
-    }
-    let mut start = text.len() - max;
-    while !text.is_char_boundary(start) {
-        start += 1;
-    }
-    &text[start..]
-}
-
-/// The loopback address that accepts a TCP connect on `port`, if any.
-pub(crate) fn probe(port: u16) -> Option<&'static str> {
-    let v4 = SocketAddr::from(([127, 0, 0, 1], port));
-    if TcpStream::connect_timeout(&v4, PROBE_TIMEOUT).is_ok() {
-        return Some("127.0.0.1");
-    }
-    let v6 = SocketAddr::from((Ipv6Addr::LOCALHOST, port));
-    TcpStream::connect_timeout(&v6, PROBE_TIMEOUT).is_ok().then_some("::1")
-}
 
 pub(crate) fn report_json(
     surface: SurfaceId,

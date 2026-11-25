@@ -1,44 +1,67 @@
 // The buttons of a message's action row, shared by a prompt's (UserBubble.tsx, PromptActions for
 // the Chief's), another agent's message's (ReceivedActions) and an answer's (TurnRows.tsx TurnFooter), as Claude Code desktop
-// draws them: the message's age ("8 minutes ago"; "Oct 20, 2026, 10:16 PM" above it on hover), a
-// prompt's read receipt, Copy, Retry, Fork from here (its title and what it does), Pin, Read
+// draws them: the message's age ("8 minutes ago"; "Oct 20, 2026, 10:16 PM" above it on hover; MessageTime, the same for a reply), a
+// prompt's read receipt, Copy, Fork from here (its title and what it does), Pin, Read
 // aloud and More (the message's right-click menu), each glyph ROW_ICON px in a 24 px button. The rows show on hover or keyboard focus only,
 // with Claude's fade (conversation.css).
 import { useContext, useRef, useState, type ReactNode } from "react";
-import { useMinuteClock } from "../clock";
+import { useLabelClock } from "../clock";
 import { usePaneLanguage, useT } from "../i18n";
 import { Icon } from "../icons/Icon";
 import type { AcpmuxRow } from "../model";
+import { BookmarkIcon } from "../threadMinimap/BookmarkIcon";
 import { useRowMark } from "../threadMinimap/promptMarks";
-import { AlertCircle, Check, DoubleCheck, Pin, Retry, Speaker, Spinner, StopReading, TurnFork } from "./icons";
+import { AlertCircle, Check, DoubleCheck, Pin, Speaker, Spinner, StopReading, TurnFork, Undo } from "./icons";
 import { canReadAloud, readAloud, useReadingAloud } from "./readAloud";
-import { exactTime, relativeTime } from "./relativeTime";
+import { exactTime, messageAge, nextMessageAge, messageAgeWidest } from "./relativeTime";
 import { CopyButton } from "./CopyButton";
+import { copyMarkdownResult } from "../richClipboard";
 import { hasMessageMenuHost, openMessageMenu, openForkMenu } from "./messageMenu";
-import { RetryModelMenu } from "./RetryModelMenu";
-import { TurnActionsContext } from "./turnActions";
+import { RowReplyButton } from "./SelectionReply";
+import { TurnActionsContext, type QueuedActions } from "./turnActions";
 import { useTranscriptReadOnly } from "./readOnly";
-
-/// A hover row's glyph size: Claude's 16 px icons, each in a 24 px (--cv-meta-row) button.
-export const ROW_ICON = 16;
-
-/// The message's age, relative and live; the exact date and time above it on hover, as Claude's.
-export function MessageTime({ at, className }: { at: number; className: string }) {
-  const now = useMinuteClock();
+import { ROW_ICON } from "./messageActionsModel";
+import { intl } from "../../../ui/intl";
+import { Described } from "../chips/FactsHoverCard";
+import { Slot } from "../../../slots/Slot";
+import { rowHoverSlot } from "../../../slots/rowHover";
+/// The message's age, relative and live ("just now", "8 minutes ago", "yesterday", "Oct 18" past a
+/// week: messageAge), the exact date and time above it on hover, as Claude's. A prompt's, another
+/// agent's and a reply's rows all draw this one label (Leo, 2026-11-08: "the timestamps for the agent
+/// and then the timestamps for the user, they need to be congruent"). `detail` is a second tooltip
+/// line under the exact time (a reply's Worked for and tokens). Every label shares one page timer
+/// (clock.ts useLabelClock, ui/pageClock.ts subscribePageDeadline), woken only at the nearest minute
+/// some label's words change; a date from an earlier year holds none.
+export function MessageTime({ at, className, detail }: { at: number; className: string; detail?: string }) {
+  const now = useLabelClock(at, nextMessageAge);
   const language = usePaneLanguage();
+  const exact = exactTime(at, language);
   return (
     <time
       className={className}
       dateTime={new Date(at).toISOString()}
-      /* tooltip-allow: the row shows the age; the tooltip gives the exact date and time, as Claude's */ title={exactTime(
-        at,
-        language,
-      )}
+      /* tooltip-allow: the row shows the age; the tooltip gives the exact date and time, as Claude's */ title={
+        detail ? `${exact} · ${detail}` : exact
+      }
       data-tooltip-side="top"
+      /* Every age of its first hour, in this language, one per line: the prompt row reserves the
+         widest in the real font (conversation.css .cv-user__time::before), so the minute's words
+         change in place. */
+      data-age-widest={messageAgeWidest(language)}
     >
-      {relativeTime(at, now, language)}
+      {messageAge(at, now, language)}
     </time>
   );
+}
+
+/// A reply's time at the end of its action row, after the buttons, hidden at rest and shown while the
+/// reader points at the reply (conversation.css `.cv-turn-time`; Leo, 2026-11-02: "notice how on
+/// hover it reveals the exact timestamp"): the same relative age a prompt's row writes, its exact
+/// date and time on hover (Leo, 2026-11-08: "Right now it's just, like in our app, only the user has
+/// that sort of relative time thing. The agent in ours only has the exact timestamp."), with
+/// `detail` (the turn's time and tokens) after it on the tooltip's one line when given.
+export function ReplyTime({ at, detail }: { at: number; detail?: string }) {
+  return <MessageTime at={at} className="cv-turn-time" detail={detail} />;
 }
 
 /// Shared footer rail for sent, received and answer rows. Timestamp text and every action stay on
@@ -57,31 +80,36 @@ export function MessageDot() {
 }
 
 /// Copy through CopyButton (its name as a tooltip, a check once the clipboard took the text), at the
-/// row's compact size.
+/// row's compact size. The message goes as Claude's and ChatGPT's do: its Markdown as the plain text
+/// and its HTML beside it, so Notes, Slack, Docs and Mail paste its headings, bullets and code
+/// (richClipboard.ts).
 export function MessageCopy({ text }: { text: string }) {
   const t = useT();
-  return <CopyButton text={text} label={t("turn.copy")} className="cv-iconbtn cv-iconbtn--compact" size={ROW_ICON} />;
-}
-
-/// Use the live host action when the page has one: unlike the turn context's legacy callback, it
-/// returns the fork promise so the button can stay pending until the new agent is ready. Gallery
-/// and unit-test callers keep their injected fallback.
-export function forkWithFeedback(throughSeq: number, fallback: () => unknown): unknown {
-  const action = globalThis.window?.cmuxAcpmuxActions?.["chat.fork"];
-  if (!action) return fallback();
-  return action({ throughSeq }).then((sessionId) => {
-    // direct.fork reports refusal by returning no session id after it has written the localized
-    // transcript notice; turn that sentinel into the button's terminal error state too.
-    // l10n-allow: the button's error state only; the transcript notice already says why.
-    if (sessionId === undefined || sessionId === null || sessionId === false) throw new Error("fork failed");
-    return sessionId;
-  });
+  return (
+    <CopyButton
+      text={text}
+      label={t("turn.copy")}
+      className="cv-iconbtn cv-iconbtn--compact"
+      size={ROW_ICON}
+      copy={copyMarkdownResult}
+    />
+  );
 }
 
 /// Fork from here, with Claude's tooltip: the title, then that this chat stays as it is. The host
 /// operation can take long enough to look inert, so press feedback starts before the promise is
 /// dispatched and a ref closes the same-frame duplicate-click window.
-export function ForkButton({ onFork, throughSeq }: { onFork(): unknown; throughSeq?: number }) {
+/// `unavailable`: why this message cannot be forked (its agent forks only from its latest reply):
+/// the control stays, dimmed, and says so, rather than vanishing from some messages only.
+export function ForkButton({
+  onFork,
+  throughSeq,
+  unavailable,
+}: {
+  onFork(): unknown;
+  throughSeq?: number;
+  unavailable?: string;
+}) {
   const t = useT();
   const inFlight = useRef(false);
   const [state, setState] = useState<"idle" | "pending" | "done" | "failed">("idle");
@@ -123,42 +151,147 @@ export function ForkButton({ onFork, throughSeq }: { onFork(): unknown; throughS
     );
   };
   if (readOnly) return null;
+  if (unavailable)
+    return (
+      <button
+        type="button"
+        className="cv-iconbtn cv-iconbtn--compact cv-fork-button"
+        aria-label={`${t("turn.fork")}: ${unavailable}`}
+        title={unavailable}
+        aria-disabled="true"
+        data-fork-state="unavailable"
+      >
+        <TurnFork size={ROW_ICON} />
+      </button>
+    );
+  return (
+    <Described text={t("turn.forkDetail")}>
+      {(described) => (
+        <button
+          {...described}
+          type="button"
+          className="cv-iconbtn cv-iconbtn--compact cv-fork-button"
+          aria-label={label}
+          title={label}
+          aria-busy={state === "pending"}
+          data-fork-state={state}
+          disabled={state === "pending"}
+          onClick={(event) => {
+            if (event.altKey && throughSeq !== undefined && openForkMenu(throughSeq, event.currentTarget)) return;
+            fork();
+          }}
+        >
+          {state === "pending" ? (
+            <Spinner size={ROW_ICON} loading />
+          ) : state === "done" ? (
+            <Check size={ROW_ICON} />
+          ) : state === "failed" ? (
+            <AlertCircle size={ROW_ICON} />
+          ) : (
+            <TurnFork size={ROW_ICON} />
+          )}
+        </button>
+      )}
+    </Described>
+  );
+}
+
+/// Back to before this turn (TurnActions `rewind`): puts a Cloud chat's machine back to the checkpoint
+/// taken before prompt row `rowId`'s turn ran, so that turn's damage is undone in one click. Only on
+/// a prompt whose checkpoint is ready, never in a read-only transcript. A whole-machine rewind takes
+/// seconds, so the button says it is working (a spinner, "Going back…"), then what it took ("· 9.4
+/// s"); a refused or failed rewind says it could not go back and a second click tries again. A
+/// running or finished rewind keeps the prompt's row shown while the pointer is elsewhere
+/// (conversation.css), in the same 24 px slot, so nothing moves. The gallery's other placements of
+/// the same button (UserBubble.gallery.ts) are page attributes (`data-turn-rewind-look`), CSS only.
+export function RewindButton({ rowId }: { rowId: string }) {
+  const t = useT();
+  const language = usePaneLanguage();
+  const { rewind } = useContext(TurnActionsContext);
+  const readOnly = useTranscriptReadOnly();
+  const inFlight = useRef(false);
+  const [state, setState] = useState<
+    { kind: "idle" } | { kind: "pending" } | { kind: "done"; seconds: number } | { kind: "failed" }
+  >({ kind: "idle" });
+  if (!rewind || !rewind.ready.has(rowId) || readOnly) return null;
+  const label =
+    state.kind === "pending"
+      ? t("turn.rewinding")
+      : state.kind === "done"
+        ? Number.isFinite(state.seconds)
+          ? t("turn.rewound", { seconds: rewindSeconds(state.seconds, language) })
+          : t("turn.rewind")
+        : state.kind === "failed"
+          ? t("turn.rewindFailed")
+          : t("turn.rewind");
+  const go = () => {
+    // A finished rewind has put the machine back already: a second one would only wait again.
+    if (inFlight.current || state.kind === "done") return;
+    inFlight.current = true;
+    setState({ kind: "pending" });
+    rewind.before(rowId).then(
+      ({ seconds }) => {
+        inFlight.current = false;
+        setState({ kind: "done", seconds });
+      },
+      () => {
+        inFlight.current = false;
+        setState({ kind: "failed" });
+      },
+    );
+  };
   return (
     <button
       type="button"
-      className="cv-iconbtn cv-iconbtn--compact cv-fork-button"
+      className="cv-iconbtn cv-iconbtn--compact cv-turn-rewind"
       aria-label={label}
+      // tooltip-allow: an icon button.
       title={label}
-      aria-busy={state === "pending"}
-      data-fork-state={state}
-      disabled={state === "pending"}
-      data-tooltip-detail={t("turn.forkDetail")}
-      onClick={(event) => {
-        if (event.altKey && throughSeq !== undefined && openForkMenu(throughSeq, event.currentTarget)) return;
-        fork();
-      }}
+      aria-busy={state.kind === "pending"}
+      aria-disabled={state.kind === "done" || undefined}
+      data-rewind-state={state.kind}
+      disabled={state.kind === "pending"}
+      onClick={go}
     >
-      {state === "pending" ? (
+      {state.kind === "pending" ? (
         <Spinner size={ROW_ICON} loading />
-      ) : state === "done" ? (
+      ) : state.kind === "done" ? (
         <Check size={ROW_ICON} />
-      ) : state === "failed" ? (
+      ) : state.kind === "failed" ? (
         <AlertCircle size={ROW_ICON} />
       ) : (
-        <TurnFork size={ROW_ICON} />
+        <Undo size={ROW_ICON} />
       )}
+      {/* The labelled placement's words (gallery variant B, `data-turn-rewind-look="label"`); hidden
+          in the row's icon placement, where the tooltip names the button. */}
+      <span className="cv-turn-rewind__label" aria-hidden="true">
+        {state.kind === "idle" ? t("turn.rewindShort") : label}
+      </span>
     </button>
   );
 }
 
+/// A rewind's time in seconds with one decimal, in the pane's language ("9.4", "9,4").
+export function rewindSeconds(seconds: number, language: string): string {
+  return intl.NumberFormat(language, { minimumFractionDigits: 1, maximumFractionDigits: 1 }).format(seconds);
+}
+
 /// Pins the message (row `rowId`): kept with the chat by acpmux; a pinned prompt also shows in the
 /// thread minimap. Nothing for a message acpmux has not logged yet.
-export function PinButton({ rowId }: { rowId: string }) {
+export function PinButton({ rowId, bookmark = false }: { rowId: string; bookmark?: boolean }) {
   const t = useT();
   const mark = useRowMark({ id: rowId });
   const readOnly = useTranscriptReadOnly();
   if (!mark.can || readOnly) return null;
-  const label = t(mark.marked ? "message.unpin" : "message.pin");
+  const label = t(
+    bookmark
+      ? mark.marked
+        ? "minimap.bookmarkRemove"
+        : "minimap.bookmarkAdd"
+      : mark.marked
+        ? "message.unpin"
+        : "message.pin",
+  );
   return (
     <button
       type="button"
@@ -168,7 +301,7 @@ export function PinButton({ rowId }: { rowId: string }) {
       title={label}
       onClick={mark.toggle}
     >
-      <Pin size={ROW_ICON} filled={mark.marked} />
+      {bookmark ? <BookmarkIcon size={ROW_ICON} filled={mark.marked} /> : <Pin size={ROW_ICON} filled={mark.marked} />}
     </button>
   );
 }
@@ -250,34 +383,6 @@ export function ReadReceipt({ row }: { row: AcpmuxRow }) {
   );
 }
 
-/// Retry, and Retry with another model when the harness has several: sends prompt row `rowId`
-/// (`prompt`, as the agent got it) again. Under a prompt it shows on every one, as Claude's; at the
-/// end of another agent's message only on the last ended turn's (VirtualTranscript marks that row
-/// `data-retryable`; conversation.css).
-export function PromptRetry({ rowId, prompt }: { rowId: string; prompt: string }) {
-  const t = useT();
-  const { retry, retryWith } = useContext(TurnActionsContext);
-  const readOnly = useTranscriptReadOnly();
-  if (!retry || !prompt || readOnly) return null;
-  return (
-    <span className="cv-message-retry">
-      <button
-        type="button"
-        className="cv-iconbtn cv-iconbtn--compact"
-        aria-label={t("turn.retry")}
-        title={t("turn.retry")}
-        data-tooltip-detail={t("turn.retryLabel")}
-        onClick={() => retry(rowId, prompt)}
-      >
-        <Retry size={ROW_ICON} />
-      </button>
-      {retryWith && retryWith.models.length > 1 && (
-        <RetryModelMenu retryWith={retryWith} onPick={(model) => retryWith.retry(rowId, prompt, model)} />
-      )}
-    </span>
-  );
-}
-
 /// A Chief prompt uses the same exclusive queue controls and normal hover actions as a user prompt.
 export function PromptActions({
   row,
@@ -286,16 +391,16 @@ export function PromptActions({
 }: {
   row: AcpmuxRow;
   text: string;
-  pending?: (actions: ReactNode) => ReactNode;
+  pending?: (actions: ReactNode, queued: QueuedActions) => ReactNode;
 }) {
   const actions = (
     <MessageFooterRow>
       <MessageTime at={row.at} className="cv-user__time" />
       <MessageCopy text={text} />
-      <PromptRetry rowId={row.id} prompt={row.resend ?? row.text ?? ""} />
+      <PinButton rowId={row.id} bookmark />
     </MessageFooterRow>
   );
-  return <div className="cv-user__actions">{pending ? pending(actions) : actions}</div>;
+  return <div className="cv-user__actions">{pending ? pending(actions, {}) : actions}</div>;
 }
 
 /// The hover row at the end of a message this agent sent another one (MessageCard.tsx): Copy,
@@ -311,7 +416,7 @@ export function SentActions({ text }: { text: string }) {
 }
 
 /// The row at the end of another agent's message line (IncomingMessageCard.tsx IncomingMessageLine):
-/// its age and Retry, then `more` (a waiting steer's ⋯, QueuedMessageCard.tsx) in the same group,
+/// its age, then `more` (a waiting steer's ⋯, QueuedMessageCard.tsx) in the same group,
 /// never a second one beside it. No read receipt: the message is the agent's to read. No Pin and no
 /// hover Copy: another session's message is no prompt of this chat's to pin, and the opened card's
 /// corner Copy (CardCopy) and the right-click menu copy it (Leo, 2026-10-30: "all these weird button
@@ -322,7 +427,6 @@ export function ReceivedActions({ row, more }: { row: AcpmuxRow; more?: ReactNod
       <span className="cv-received-actions">
         <MessageFooterRow>
           <MessageTime at={row.at} className="cv-user__time" />
-          <PromptRetry rowId={row.id} prompt={row.resend ?? row.text ?? ""} />
           {more}
         </MessageFooterRow>
       </span>
@@ -332,22 +436,29 @@ export function ReceivedActions({ row, more }: { row: AcpmuxRow; more?: ReactNod
 
 /// The row under a reply that its turn's footer does not serve (model.ts `hasReplyActions`: a
 /// steer, another agent's message, a sent message or a tool row follows it): the footer's look and
-/// buttons for this reply, Copy, Pin, Read aloud and More, then its age, as Claude desktop draws
+/// buttons for this reply, Copy, Pin, Read aloud and More, then its time (shown on hover), as Claude desktop draws
 /// under every reply. Its line is reserved; it shows on hover or keyboard focus (conversation.css).
 export function ReplyActions({ row }: { row: AcpmuxRow }) {
   const text = row.text ?? "";
   return (
-    // Over a status row this line is the reply's whole bottom room (conversation.css
-    // `--cv-status-gap`), so its own blank box, never its buttons, is a transcript gap a drag
-    // can start from (gutterSelect.ts).
-    <div className="cv-turn-actions cv-reply-actions" data-transcript-gap="blank">
-      <span className="cv-turn-action-group">
-        <MessageCopy text={text} />
-        <PinButton rowId={row.id} />
-        <ReadAloudButton id={row.id} text={text} />
-        <MessageMore rowId={row.id} />
-      </span>
-      <MessageTime at={row.at} className="cv-turn-time" />
-    </div>
+    // The row is the theme slot `row.hover` (slots/rowHover): its default draws the reserved line this
+    // drew before, a transcript gap a drag can start from.
+    <Slot
+      slot={rowHoverSlot}
+      props={{
+        children: (
+          <>
+            <span className="cv-turn-action-group">
+              <MessageCopy text={text} />
+              <PinButton rowId={row.id} />
+              <ReadAloudButton id={row.id} text={text} />
+              <RowReplyButton text={text} />
+              <MessageMore rowId={row.id} />
+            </span>
+            <ReplyTime at={row.at} />
+          </>
+        ),
+      }}
+    />
   );
 }

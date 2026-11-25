@@ -19,6 +19,8 @@ import yaml
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "scripts/ci"))
+sys.path.insert(0, str(ROOT / "tests"))
+import workflow_jobs  # noqa: E402
 
 
 def load(name: str, path: Path):
@@ -1516,6 +1518,16 @@ class SideLanes(unittest.TestCase):
         self.assertFalse(rescue.owned_rerun({"path": rescue.CMUX_NEXT_WORKFLOW_PATH, "run_attempt": 3,
                                              "triggering_actor": {"login": rescue.RESCUE_ACTOR}}))
 
+    def test_every_attempt_side_workflows_are_followed_through_bot_attempt_three(self):
+        for path in sorted(rescue.OWNED_EVERY_ATTEMPT_PATHS):
+            with self.subTest(path=path):
+                for attempt, expected in ((2, True), (3, True), (4, False)):
+                    self.assertEqual(rescue.owned_rerun({
+                        "path": path,
+                        "run_attempt": attempt,
+                        "triggering_actor": {"login": rescue.RESCUE_ACTOR},
+                    }), expected, (path, attempt))
+
     def test_a_refused_side_job_is_rerun(self):
         def jobs(seconds):
             return [refused_job("diagnostic-presentation", labels=(SIDE,)) if seconds >= 60 else
@@ -1684,6 +1696,11 @@ class Nightly(unittest.TestCase):
         self.assertEqual(rescue.job_pool({"labels": [TRUSTED, "glaeda-runner-cmux15-glaeda"]}), TRUSTED)
         self.assertEqual(rescue.job_pool({"labels": ["glaeda-root-trusted-std-xcode-26.6"]}),
                          "glaeda-root-trusted-std-xcode-26.6")
+        # NEXT's all-nightly reservation is not a normal persistent pool, but
+        # its queued app build is still eligible for the nightly rescue.
+        for label in ("glaeda-nightly-only-m4pro", "glaeda-nightly-only-m4pro-builder",
+                      "glaeda-nightly-only-xl-builder"):
+            self.assertEqual(rescue.job_pool({"labels": [label]}), label)
         self.assertIsNone(rescue.job_pool({"labels": ["glaeda-trusted"]}))
         # The pickers never hand it out: it is not a pull request pool.
         self.assertFalse(rescue.persistent(TRUSTED))
@@ -1752,14 +1769,17 @@ class Nightly(unittest.TestCase):
         api = rescue.GitHub("token", "manaflow-ai/cmux")
         workflows = {"ci.yml": [], "cmux-next.yml": [
             {"id": RUN_ID, "path": ".github/workflows/cmux-next.yml", "event": "pull_request", "run_attempt": 2,
+             "triggering_actor": {"login": rescue.RESCUE_ACTOR}}],
+                     "cmux-next-car-guards.yml": [
+            {"id": RUN_ID + 1, "path": ".github/workflows/cmux-next-car-guards.yml", "event": "push", "run_attempt": 2,
              "triggering_actor": {"login": rescue.RESCUE_ACTOR}}]}
 
         def request(method, path, **_):
             name = path.split("/actions/workflows/")[1].split("/")[0]
-            return {"workflow_runs": workflows[name] if "status=queued" in path else []}
+            return {"workflow_runs": workflows.get(name, []) if "status=queued" in path else []}
 
         api.request = request
-        self.assertEqual(api.owned_reruns(20), [(RUN_ID, 2)])
+        self.assertEqual(api.owned_reruns(20), [(RUN_ID, 2), (RUN_ID + 1, 2)])
 
     def test_newer_unfinished_runs_reads_one_page_of_main_s_nightly_runs(self):
         api = rescue.GitHub("token", "manaflow-ai/cmux")
@@ -1899,6 +1919,27 @@ class Nightly(unittest.TestCase):
         self.assertFalse(rescue.nightly_watched({"name": "decide", "labels": ["blacksmith-32vcpu-ubuntu-2404"]}))
         self.assertFalse(rescue.nightly_watched({"name": "other", "labels": ["glaeda-nightly-std-xcode-26.6"]}))
 
+    def test_the_all_nightly_reservation_is_judged(self):
+        self.assertTrue(rescue.nightly_watched({"name": "build-nightly-app",
+                                                 "labels": ["glaeda-nightly-only-m4pro"]}))
+        self.assertTrue(rescue.nightly_watched({"name": "decide",
+                                                "labels": ["glaeda-nightly-only-xl-builder"]}))
+        self.assertFalse(rescue.nightly_watched({"name": "other",
+                                                  "labels": ["glaeda-nightly-only-xl-builder"]}))
+
+    def test_a_queued_all_nightly_build_enters_the_rescue_watch(self):
+        clock = Clock()
+
+        def jobs(_seconds):
+            return [job("decide", status="completed", labels=[BLACKSMITH]),
+                    job("build-nightly-app", labels=["glaeda-nightly-only-m4pro"], status="queued")]
+
+        api = NightlyAPI(clock, jobs, head=HEAD)
+        _, summary = run_main(api, clock, payload=nightly_event(head_branch="nightly-next"),
+                              env_extra={"RESCUE_SECONDS": "30"})
+        self.assertIn("queued on glaeda-nightly-only-m4pro", summary)
+        self.assertIn("cancel", api.calls)
+
     def test_nightly_control_runner_is_rescued_but_hosted_labels_are_not(self):
         control = {"name": "decide", "labels": ["gcp-linux-control"], "status": "queued"}
         self.assertEqual(rescue.queued_pool(control), "gcp-linux-control")
@@ -1907,6 +1948,7 @@ class Nightly(unittest.TestCase):
 
 SESSION = "glaeda-session-std-xcode-26.6"
 IOS_SIM = "glaeda-ios-sim"
+SIM_FIRST = "glaeda-sim-xcode-26.6"
 
 
 class IOSDispatch(unittest.TestCase):
@@ -1948,6 +1990,26 @@ class IOSDispatch(unittest.TestCase):
         self.assertEqual(api.calls[-1], "rerun-failed")  # attempt 2 is on Blacksmith: not watched
         self.assertIn("a dispatch of .github/workflows/test-ios.yml", summary)
         self.assertIn(f"queued on {MINI}", summary)
+
+    def test_a_job_on_the_sim_first_label_is_owned(self):
+        # glaeda#1983's sim-first runner: requested alone, it is still an owned label to watch.
+        self.assertEqual(rescue.job_pool(job("x", labels=[SIM_FIRST])), SIM_FIRST)
+        self.assertEqual(rescue.queued_pool(job("x", labels=[SIM_FIRST])), SIM_FIRST)
+        self.assertIsNone(rescue.job_pool(job("x", labels=["glaeda-sim-xcode"])))
+
+    def test_a_job_waiting_on_the_sim_first_label_moves_to_blacksmith(self):
+        # The picker put the simulator job on the sim-first label and no runner took it.
+        def jobs(seconds):
+            found = [e2e_runner()(seconds)]
+            if seconds >= 40:
+                found.append(job("screenshots", labels=[SIM_FIRST], created=40))
+            return found
+        clock = Clock()
+        api = FakeAPI(clock, jobs, marker=True)
+        code, summary = run_main(api, clock, payload=e2e_event(path=".github/workflows/ios-screenshots.yml"))
+        self.assertEqual(code, 0)
+        self.assertEqual(api.calls[-1], "rerun-failed")
+        self.assertIn(f"queued on {SIM_FIRST}", summary)
 
     def test_a_pull_request_waiting_for_the_simulator_label_is_not_cancelled(self):
         # The same wait on a pull request run: check its head and preserve it.
@@ -2293,7 +2355,7 @@ class Sweeper(unittest.TestCase):
         self.assertIn("swept: 1 done, 4 stopped", text)
 
 class Tokens(unittest.TestCase):
-    """Reads may use the App's token; writes always use GITHUB_TOKEN."""
+    """The workflow keeps Actions reads on its existing token."""
 
     def open_with(self, fail_first_read=False, code=401):
         seen = []
@@ -2349,20 +2411,14 @@ class Tokens(unittest.TestCase):
             rescue.GitHub("repo-token", "o/r").run(1)
         self.assertEqual(seen, [("GET", "Bearer repo-token")])
 
-    def test_the_workflow_mints_a_read_only_token_and_passes_it(self):
+    def test_the_workflow_reuses_the_workflow_token_for_actions_reads(self):
         steps = yaml.safe_load((ROOT / ".github/workflows/ci-owned-pool-rescue.yml").read_text(
             encoding="utf-8"))["jobs"]["rescue"]["steps"]
-        mint = next(step for step in steps if step.get("id") == "read-token")
-        self.assertTrue(mint["continue-on-error"])
-        self.assertEqual({key: value for key, value in mint["with"].items() if key.startswith("permission-")},
-                         # The installation has no contents grant, and asking for one fails the mint
-                         # (422). The one contents read (branch_head, /branches) gets a 403 and retries
-                         # on GITHUB_TOKEN (Tokens.test_a_read_the_app_may_not_make...).
-                         {"permission-actions": "read", "permission-pull-requests": "read"})
+        self.assertFalse(any(step.get("id") == "read-token" for step in steps))
         watch = next(step for step in steps if step.get("name") == "Watch runs on persistent pools")
         self.assertEqual(
             watch["env"]["READ_TOKEN"],
-            "${{ steps.cmux-bot-token.outputs.token || steps.read-token.outputs.token }}",
+            "${{ steps.cmux-bot-token.outputs.token || github.token }}",
         )
         self.assertEqual(watch["env"]["GH_TOKEN"], "${{ steps.cmux-bot-token.outputs.token || github.token }}")
 
@@ -2395,6 +2451,7 @@ class Workflow(unittest.TestCase):
              "cmux-next", "cmux-tui artifacts", "cmux NEXT DEV daily", "cmux-next-ios kit tests",
              "cmux-next", "cmux-tui", "IROH v2", "Relay TLS system trust", "reload-build",
              "SSH remote daemon", "Terminal hang diagnostics", "Feed reply provider verification",
+             "cmux-next car guards", "cmux-rd Windows host", "macOS cross-compile parity",
              "nightly-next launch smoke", "cmux NEXT Stable"},
         )
         paths = self.doc["env"]["SOURCE_WORKFLOW_PATHS"].split()
@@ -2417,6 +2474,12 @@ class Workflow(unittest.TestCase):
                      "github.event.workflow_run.head_repository.full_name == github.repository",
                      "github.event_name != 'workflow_run' || github.event.action != 'completed' || github.event.workflow_run.conclusion == 'failure'"):
             self.assertIn(part, condition)
+        # The NEXT trigger is branch based, rather than gated on the legacy
+        # trusted-pool variables; dedicated all-nightly labels use a separate
+        # reservation and must still wake the rescue.
+        self.assertIn("github.event.workflow_run.head_branch == 'nightly-next' && github.event.workflow_run.event == 'push'",
+                      condition)
+        self.assertNotIn("startsWith(vars.CI_NIGHTLY_NEXT_TRUSTED_POOL", condition)
         step = self.doc["jobs"]["rescue"]["steps"][-1]
         self.assertEqual(step["env"]["WATCH_RUN_ID"], "${{ inputs.run_id }}")
         self.assertIn("inputs.run_id || github.event.workflow_run.id", self.doc["concurrency"]["group"])
@@ -2438,11 +2501,11 @@ class Workflow(unittest.TestCase):
         self.assertEqual(step["env"]["POOL_OWNED"], "${{ vars.CI_PR_POOL_OWNED }}")
 
     def test_polls_from_an_ephemeral_runner(self):
-        # Never from an owned pool it may rescue, and never only from
+        # Never from an owned pool it may rescue (the repair JIT label is one-job VMs), and never only from
         # GitHub-hosted: a GitHub billing block must not stop the rescue.
         self.assertEqual(
-            self.doc["jobs"]["rescue"]["runs-on"],
-            '${{ github.repository_owner != \'manaflow-ai\' && \'ubuntu-24.04\' || contains(fromJSON(\'["ubuntu-24.04","blacksmith-2vcpu-ubuntu-2404","blacksmith-4vcpu-ubuntu-2404"]\'), vars.CI_TRUSTED_RUNNER) && vars.CI_TRUSTED_RUNNER || \'blacksmith-4vcpu-ubuntu-2404\' }}',
+            workflow_jobs.runs_on_cells(self.doc["jobs"]["rescue"]),
+            ['${{ github.repository_owner != \'manaflow-ai\' && \'ubuntu-24.04\' || vars.CI_REPAIR_SKIP_FLEET != \'1\' && \'cmux-gcp-repair-jit-x64\' || contains(fromJSON(\'["blacksmith-2vcpu-ubuntu-2404","blacksmith-4vcpu-ubuntu-2404"]\'), vars.CI_TRUSTED_RUNNER) && vars.CI_TRUSTED_RUNNER || \'blacksmith-4vcpu-ubuntu-2404\' }}'],
         )
 
     def test_marker_steps_never_fail_the_changes_job(self):

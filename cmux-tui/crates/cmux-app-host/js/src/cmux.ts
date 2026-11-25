@@ -18,6 +18,12 @@ export interface Native {
   paletteBatch?(reqId: number, generation: number, itemsJSON: string, isFinal: boolean, replace: boolean): void
   /** The end of palette request `reqId`: ok `{count}` or the detail, error `{code, message, details?}`. */
   paletteDone?(reqId: number, ok: boolean, json: string): void
+  /** An IANA zone's offset at `atMs`: `{offsetMinutes, abbreviation}` or `{error}` (ABI.md). Hosts with Intl may omit it. */
+  zone?(name: string, atMs: number): string
+  /** Joins the daemon's signals cache entry of (name, params) for `mountId` ("" outside a mount); states arrive at `__cmuxAppWatch` (ABI.md, Signals). */
+  watch?(name: string, paramsJSON: string, mountId: string, everySeconds: number): number
+  /** Leaves a watch, or with `refresh` asks its entry for a read now. */
+  unwatch?(watchId: number, refresh: boolean): void
 }
 
 export class CmuxError extends Error {
@@ -50,7 +56,7 @@ export interface CallOptions {
 }
 
 /** Ops the host always provides, whatever the catalog lists. */
-const HOST_OPS = new Set(["action.run", "action.list", "app.storage.get", "app.storage.set", "app.storage.delete", "app.storage.keys", "app.settings.set", "net.fetch", "integration.request", "clipboard.write"])
+export const HOST_OPS = new Set(["action.run", "action.list", "app.storage.get", "app.storage.set", "app.storage.delete", "app.storage.keys", "app.settings.set", "net.fetch", "integration.request", "clipboard.write", "toast.show"])
 
 export interface CallResult<T = unknown> {
   value: T
@@ -68,6 +74,10 @@ export const state = {
   subscriptions: new Map<number, (payload: unknown) => void>(),
   timers: new Map<number, { fn: () => void; repeat: boolean }>(),
   app: { id: "", version: "" },
+  /** The active mount's context while its render or event handler runs. */
+  context: null as Record<string, unknown> | null,
+  /** The active mount's id while its render or event handler runs (a watch's visibility follows it). */
+  mount: null as string | null,
   apiVersion: "0.0.0",
   allowedOps: null as Set<string> | null,
   knownOps: null as Set<string> | null,
@@ -81,6 +91,44 @@ export const state = {
 const native = (): Native => {
   if (!state.native) throw new CmuxError("app.host", "the cmux host is not attached")
   return state.native
+}
+
+export interface ZoneTime {
+  zone: string
+  /** Minutes east of UTC at that instant (Tokyo 540, New York -240 in summer). */
+  offsetMinutes: number
+  /** The zone's short name at that instant (`JST`, `EDT`); a `GMT+9` style name on a host without the zone database's names. */
+  abbreviation: string
+}
+
+/**
+ * `cmux.time.zone(name, at?)`: QuickJS has no Intl and ignores `toLocaleString`'s
+ * `timeZone`, so the host answers from its IANA database (`__cmuxAppNative.zone`).
+ * Engines with Intl and no native function (JavaScriptCore, test hosts) use Intl.
+ */
+export function timeZone(name: string, at: number = Date.now()): ZoneTime {
+  const zone = String(name)
+  const atMs = Number(at)
+  const nativeZone = state.native?.zone
+  if (nativeZone) {
+    const r = JSON.parse(nativeZone.call(state.native, zone, atMs)) as { offsetMinutes?: number; abbreviation?: string; error?: string }
+    if (r.error !== undefined) throw new CmuxError("zone.unknown", r.error)
+    return { zone, offsetMinutes: r.offsetMinutes ?? 0, abbreviation: r.abbreviation ?? "" }
+  }
+  const intl = (globalThis as { Intl?: typeof Intl }).Intl
+  if (!intl?.DateTimeFormat) throw new CmuxError("operation.unsupported", "this cmux has no time zone database")
+  let parts: Intl.DateTimeFormatPart[]
+  try {
+    parts = new intl.DateTimeFormat("en-US", {
+      timeZone: zone, hourCycle: "h23", year: "numeric", month: "numeric", day: "numeric", hour: "numeric", minute: "numeric", second: "numeric", timeZoneName: "short"
+    }).formatToParts(new Date(atMs))
+  } catch {
+    throw new CmuxError("zone.unknown", `${zone} is not an IANA time zone`)
+  }
+  const part = (type: string) => Number(parts.find((p) => p.type === type)?.value ?? 0)
+  const wall = Date.UTC(part("year"), part("month") - 1, part("day"), part("hour"), part("minute"), part("second"))
+  const offsetMinutes = Math.round((wall - Math.floor(atMs / 1000) * 1000) / 60_000)
+  return { zone, offsetMinutes, abbreviation: parts.find((p) => p.type === "timeZoneName")?.value ?? "" }
 }
 
 export function log(level: "debug" | "info" | "warn" | "error", ...parts: unknown[]): void {
@@ -248,6 +296,29 @@ export interface FetchResponse {
   json<T = unknown>(): T
 }
 
+/**
+ * The tone names every color prop accepts (`tint`, `tone`, `color`, `fill`, ...). The host draws each
+ * one with the current theme and follows a theme change live, so a script that uses these never
+ * hard-codes a color. `accent` is the emphasis cmux chrome uses (its primary ink, never system blue).
+ */
+export const theme = Object.freeze({
+  accent: "accent",
+  text: Object.freeze({ primary: "primary", secondary: "secondary", tertiary: "tertiary" }),
+  success: "success",
+  warning: "warning",
+  danger: "danger",
+  separator: "separator",
+  hover: "hover",
+  selected: "selected"
+})
+
+export interface ToastOptions {
+  title: string
+  message?: string
+  /** `success`, `warning`, `danger` or `working` (a spinner until the app's next toast replaces it in place); omitted is a plain notice. */
+  tone?: string
+}
+
 /** Members other modules add to every `cmux` object (`palette`, `act`); set once by index.ts. */
 export const sharedMembers: Record<string, unknown> = {}
 
@@ -309,6 +380,7 @@ export function createCmux(gesture: () => string | undefined): Record<string, un
       get: (_t, provider) => (typeof provider === "string" ? { request: (params: Record<string, unknown>) => c("integration.request", { provider, ...params }) } : undefined)
     }),
     timer: { after: (ms: number, fn: () => void) => setTimer(ms, false, fn), every: (ms: number, fn: () => void) => setTimer(ms, true, fn), clear: clearTimer },
+    time: { zone: timeZone },
     app: {
       get id() {
         return state.app.id
@@ -324,7 +396,17 @@ export function createCmux(gesture: () => string | undefined): Record<string, un
       },
       settings: Object.assign(() => state.settings[0](), {
         set: (values: Record<string, unknown>) => c("app.settings.set", { values })
-      })
+      }),
+      context: () => state.context ?? {}
+    },
+    theme,
+    /** A short notice at the bottom of the window, drawn by the app's own toast presenter. One slot per app: a new toast replaces the app's last. */
+    toast: (options: ToastOptions | string) => {
+      const o = typeof options === "string" ? { title: options } : options
+      const params: Record<string, unknown> = { title: String(o?.title ?? "") }
+      if (o?.message) params.message = String(o.message)
+      if (o?.tone) params.tone = String(o.tone)
+      return c("toast.show", params)
     },
     /** The current user-gesture token: on a command's `ctx.cmux`, the invocation's token while the command runs; otherwise the event token of a user event handler running synchronously; else null. */
     gesture: () => gesture() ?? state.gesture,

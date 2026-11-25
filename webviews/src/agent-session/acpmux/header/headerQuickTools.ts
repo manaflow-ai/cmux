@@ -16,7 +16,6 @@ export interface HeaderQuickToolsInput {
   tabTools: boolean;
   sideTabs: boolean;
   lit: readonly string[];
-  browserOpensPreview: boolean;
   hasChanges: boolean;
   previewUrl?: string;
   onTerminal(mode: QuickActionMode): void;
@@ -36,7 +35,6 @@ export function headerQuickTools(input: HeaderQuickToolsInput): HeaderQuickTool[
     tabTools,
     sideTabs,
     lit,
-    browserOpensPreview,
     hasChanges,
     previewUrl,
     onTerminal,
@@ -50,7 +48,6 @@ export function headerQuickTools(input: HeaderQuickToolsInput): HeaderQuickTool[
   } = input;
   if (!tabTools) return [];
   const on = (action: string, mode: QuickActionMode) => (mode === "toggle" ? lit.includes(action) : undefined);
-  const previewInBrowser = browserOpensPreview && onPreview !== undefined && !actions.some((a) => a.id === "preview");
   const address = () => {
     try {
       const url = new URL(previewUrl!);
@@ -132,21 +129,17 @@ export function headerQuickTools(input: HeaderQuickToolsInput): HeaderQuickTool[
           },
         ];
       case "browser":
+        // Always a new, blank browser, never the chat's local page (https://github.com/manaflow-ai/cmux/issues/49623).
+        // That page was often an address the agent only mentioned (a dev build's Tag Opener link),
+        // and opening it again relaunched the build. The page stays one click away as Preview, a
+        // button or a "..." row.
         return [
           {
             id,
             icon: "browser",
             label: t("header.browser"),
-            title: previewInBrowser ? previewTitle() : undefined,
-            pressed: previewInBrowser && on(HEADER_ACTIONS.preview, mode) ? true : on(HEADER_ACTIONS.browser, mode),
-            run: () => {
-              // The same toggle closes the preview or plain browser it opened. A page closed since
-              // the last state push still opens again, because its address goes along with the click.
-              if (previewInBrowser && on(HEADER_ACTIONS.preview, mode)) return onPreview(previewUrl, mode);
-              if (previewInBrowser && previewUrl && !on(HEADER_ACTIONS.browser, mode))
-                return onPreview(previewUrl, mode);
-              onBrowser(mode);
-            },
+            pressed: on(HEADER_ACTIONS.browser, mode),
+            run: () => onBrowser(mode),
           },
         ];
     }

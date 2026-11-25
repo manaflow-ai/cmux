@@ -221,7 +221,7 @@ pub struct Item {
 }
 
 impl Item {
-    fn new(id: &str, reference: ItemRef, shows_label: bool) -> Self {
+    pub fn new(id: &str, reference: ItemRef, shows_label: bool) -> Self {
         Item { id: id.into(), reference, shows_label, span: None, extra: Map::new() }
     }
 }
@@ -304,6 +304,23 @@ impl<'de, T: Deserialize<'de>> Deserialize<'de> for Update<T> {
     }
 }
 
+/// Keep is never written (a field with `skip_serializing_if = "Update::is_keep"`);
+/// Clear is null.
+impl<T: Serialize> Serialize for Update<T> {
+    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        match self {
+            Update::Keep | Update::Clear => serializer.serialize_none(),
+            Update::Set(value) => serializer.serialize_some(value),
+        }
+    }
+}
+
+impl<T> Update<T> {
+    pub fn is_keep(&self) -> bool {
+        matches!(self, Update::Keep)
+    }
+}
+
 impl<T: Clone> Update<T> {
     fn apply(&self, field: &mut Option<T>) {
         match self {
@@ -314,32 +331,33 @@ impl<T: Clone> Update<T> {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Default, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
 pub struct SectionPatch {
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "Update::is_keep")]
     pub title: Update<String>,
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub look: Option<Look>,
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "Update::is_keep")]
     pub room: Update<String>,
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "Update::is_keep")]
     pub max_rows: Update<i64>,
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub shows_title: Option<bool>,
     /// Arrangement fields, each patched alone (concurrent edits of
     /// different fields both apply).
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub layout: Option<ArrangementLayout>,
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub align: Option<Alignment>,
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "Update::is_keep")]
     pub gap: Update<i64>,
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "Update::is_keep")]
     pub columns: Update<i64>,
 }
 
-/// One change, tagged by `kind` like the app's `SidebarLayoutOp`.
-#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+/// One change, tagged by `kind` like the app's `SidebarLayoutOp` (both
+/// ways: the planners in `sidebar_layout_plan` answer with ops).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "kind")]
 pub enum Op {
     #[serde(rename = "section.add")]

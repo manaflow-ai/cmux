@@ -575,8 +575,16 @@ function expansionEnd(line: string, from: number, runs: string[] = []): number {
       runs.push(UNCLOSED);
       return line.length;
     }
-    // `${V:-$(cmd)}` runs cmd too.
-    runs.push(...(next === "(" ? [line.slice(from + 2, close - 1)] : substitutions(line.slice(from + 2, close - 1))));
+    // `$((…))` is arithmetic text, not a command. A command substitution nested inside the
+    // expression still runs, so scan only its body for actual `$()` or backtick expansions.
+    // `${V:-$(cmd)}` likewise runs cmd too.
+    runs.push(
+      ...(next === "("
+        ? line[from + 2] === "("
+          ? substitutions(line.slice(from + 3, close - 2))
+          : [line.slice(from + 2, close - 1)]
+        : substitutions(line.slice(from + 2, close - 1))),
+    );
     return close;
   }
   const name = /^(?:[A-Za-z_]\w*|[0-9#?$!@*-])/.exec(line.slice(from + 1));
@@ -841,7 +849,28 @@ function readAcpmuxSend(
             !command.stdin &&
             !command.stdinRedirects),
     );
-  if (uncertainControlFlow) {
+  // A send whose output only goes through filters that read nothing else (`… < note.md 2>&1 |
+  // tail -1`) runs no other step that could write the file it reads: the turn's bodies hold.
+  const filteredSend =
+    commands.length > 1 &&
+    commands[0]!.op === "|" &&
+    commands.slice(1).every((command, index, rest) => {
+      const words = unwrapped(command.words);
+      const name = program(words[0]);
+      return (
+        !command.grouped &&
+        !command.writes &&
+        !command.runs?.length &&
+        !command.redirectUnsafe &&
+        !command.stdinUnsafe &&
+        !command.stdin &&
+        !command.stdinRedirects &&
+        (index === rest.length - 1 ? command.op === "" || command.op === ";" : command.op === "|") &&
+        own(FILTERS, name) &&
+        onlyFilters(words.slice(1), FILTERS[name]!)
+      );
+    });
+  if (uncertainControlFlow && !filteredSend) {
     recordedFiles.clear();
     if (!forwardingPipeline) {
       inheritedStdin = undefined;
@@ -867,7 +896,9 @@ function readAcpmuxSend(
       (command.grouped ||
         command.writes ||
         command.runs?.length ||
-        command.redirectUnsafe ||
+        // A redirect that writes no file and leaves stdin alone (`2>&1`, `>/dev/null`) cannot
+        // change what the send reads; `writes` and `stdinUnsafe` cover the ones that can.
+        (command.redirectUnsafe && !isSendCommand) ||
         (command.stdinUnsafe && command.stdin !== "file"))
     ) {
       recordedFiles.clear();

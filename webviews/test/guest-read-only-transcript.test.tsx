@@ -5,6 +5,7 @@
 import { afterAll, expect, test } from "bun:test";
 import { JSDOM, VirtualConsole } from "jsdom";
 import type { AcpmuxRow } from "../src/agent-session/acpmux/model";
+import { teardownDom } from "./support/domTeardown";
 
 const dom = new JSDOM("<!doctype html><div id=root></div>", {
   url: "http://localhost/",
@@ -50,13 +51,9 @@ const { TurnActionsContext } = await import("../src/agent-session/acpmux/convers
 const { setChipHost } = await import("../src/agent-session/acpmux/chips/host");
 const { translate } = await import("../src/agent-session/acpmux/i18n");
 
-afterAll(() => {
+afterAll(async () => {
   setChipHost(undefined);
-  dom.window.close();
-  for (const [key, had, value] of saved) {
-    if (had) scope[key] = value;
-    else delete scope[key];
-  }
+  await teardownDom(saved, { window: dom.window, scope });
 });
 
 // A host that answers every chip question as the owner's machine would: the paths are in the
@@ -225,10 +222,14 @@ async function draw(readOnly: boolean) {
   await act(async () => {
     for (let tick = 0; tick < 8; tick += 1) await Promise.resolve();
   });
-  // A fold's toggle (aria-expanded) and a plain web link (it opens in the reader's own browser) are
-  // the reader's own; every other control is counted.
+  // A fold's toggle (aria-expanded), a plain web link (it opens in the reader's own browser) and a
+  // prompt rail tick (it scrolls the reader's own view; the rail shows from the first prompt, #31713)
+  // are the reader's own; every other control is counted.
   const controls = [...host.querySelectorAll("button, a[href], [role=link], [role=button], textarea, input")].filter(
-    (element) => !element.hasAttribute("aria-expanded") && !/^https?:/.test(element.getAttribute("href") ?? ""),
+    (element) =>
+      !element.hasAttribute("aria-expanded") &&
+      !/^https?:/.test(element.getAttribute("href") ?? "") &&
+      !element.classList.contains("acpmux-minimap__tick"),
   );
   const named = controls.map((element) =>
     [element.getAttribute("aria-label"), element.getAttribute("title"), element.textContent]
@@ -262,6 +263,9 @@ test("read only, no row draws a control that acts on the owner's machine or daem
   const local = [
     translate("turn.copy"),
     translate("turn.failure.copyError"),
+    // Closes a failed turn's card in the reader's own browser (dismissedFailures.ts writes
+    // localStorage only); nothing reaches the owner's machine.
+    translate("toast.dismiss"),
     translate("message.label", { from: "reviewer", to: translate("message.self") }),
   ];
   const left = named.map((name) => name.split(" | ")[0]!.trim()).filter((name) => !local.includes(name));

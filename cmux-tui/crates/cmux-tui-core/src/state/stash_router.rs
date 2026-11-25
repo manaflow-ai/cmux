@@ -224,5 +224,10 @@ pub(crate) fn dispatch(
             ));
         }
     };
-    result(mux, commit.map_err(stash_error)?)
+    let commit = commit.map_err(stash_error)?;
+    // A page relay of the Stashed Tabs page hears it (`stash-changed`).
+    if !commit.replayed {
+        mux.emit(crate::MuxEvent::StashChanged { revision: commit.revision });
+    }
+    result(mux, commit)
 }

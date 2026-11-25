@@ -6,6 +6,10 @@ by default, or View Only from the row's menu or the Viewer setting. The first
 time, the Mac asks its person (Allow once, Always allow, Deny). Once approved,
 its screen opens full screen in CmuxScreenKitUI.
 
+The same list opens from a workspace: its + menu (and the command palette) has
+Screen Sharing, which shows the list as a sheet and connects at once to the Mac
+named like the workspace's Mac (`ScreenSharingEntryUITests`).
+
 | Piece | Where |
 | --- | --- |
 | This iPhone as a hub device (platform `ios`) | `Packages/Shared/CmuxDeviceHub`, a portable copy of the Mac's CmuxNextDevices. The simulator has no Secure Enclave, so it uses software P-256 keys in the Keychain. |

@@ -22,11 +22,35 @@ import Foundation
     var onStep: (() -> Void)?
     /// Bench marks (`debug.omnibar_bench`): nil outside a bench run.
     var probe: ((String) -> Void)?
+    /// The tab that preloads the default match (`BrowserOmniboxPreloading`, Chrome's omnibox
+    /// preconnect and prerender); nil for a page that does not preload.
+    private(set) weak var preloader: (any BrowserOmniboxPreloading)?
+    /// The last request sent: an unchanged one (a caret move, a hover) is not sent again.
+    private(set) var lastPreload: OmnibarPreloadRequest?
+    /// What the tab answered for `lastPreload` (`debug.omnibar`'s `preload`).
+    private(set) var lastPreloadAction: OmniboxPreloadAction?
+    /// The last end sent: the opened URL and whether the predictor learned from it (`debug.omnibar`).
+    private(set) var lastPreloadEnd: (opened: URL?, learn: Bool)?
+    /// The bound tab's last navigation timing read, as JSON (`debug.omnibar`'s `page_timing`).
+    var debugPageTiming: String?
+    /// A `page_timing` read runs: one at a time, so an older read never lands after a newer one.
+    var debugPageTimingReading = false
+
+    /// The omnibar now belongs to `tab`'s page: the page it leaves forgets an edit in progress unlearned.
+    func setPreloader(_ tab: (any BrowserOmniboxPreloading)?) {
+        guard tab !== preloader else { return }
+        if lastPreload != nil { preloader?.omniboxPreloadEnded(opened: nil, learn: false) }
+        lastPreload = nil
+        preloader = tab
+        debugPageTiming = nil
+    }
 
     /// True while the applier writes: field notifications are its echo.
     private(set) var isApplying = false
     private var queue: [OmnibarInput] = []
     private var isRunning = false
+    /// A tab switch's resting state that came while a step ran (`restore`): put back once the step ends.
+    private var restoreAfterRun: OmnibarState?
     private var queryTask: Task<Void, Never>?
 
     init(
@@ -75,8 +99,43 @@ import Foundation
         isRunning = true
         defer { isRunning = false }
         let handled = step(input)
-        while !queue.isEmpty { step(queue.removeFirst()) }
+        putRestored()
+        while !queue.isEmpty {
+            step(queue.removeFirst())
+            putRestored()
+        }
         return handled
+    }
+
+    /// Puts back a resting state another tab left (`BrowserChromeTabState`): no input, no effects;
+    /// the field and the bar show it at once. Only a state with no focus is put back. A switch made by an
+    /// omnibar step (a "switch to tab" row) puts it back when that step ends, and the leaving tab's queued
+    /// inputs are dropped.
+    func restore(_ resting: OmnibarState) {
+        guard !resting.hasFocus else { return }
+        guard !isRunning else {
+            queue.removeAll()
+            restoreAfterRun = resting
+            return
+        }
+        put(resting)
+    }
+
+    /// A restore made inside a step goes back before the inputs queued after it (they are the new tab's).
+    private func putRestored() {
+        guard let resting = restoreAfterRun else { return }
+        restoreAfterRun = nil
+        put(resting)
+    }
+
+    private func put(_ resting: OmnibarState) {
+        queryTask?.cancel()
+        queryTask = nil
+        state = resting
+        isApplying = true
+        applier.apply(OmnibarPresentation(state))
+        isApplying = false
+        onStep?()
     }
 
     /// The query in flight, if any (tests settle on it): it ends after the
@@ -87,6 +146,7 @@ import Foundation
     private func step(_ input: OmnibarInput) -> Bool {
         probe?("step.begin")
         defer { probe?("step.end") }
+        let popupWasOpen = state.isPopupOpen
         let transition = OmnibarReducer.reduce(state, input, resolver: resolver())
         #if DEBUG
         let next = transition.state
@@ -97,9 +157,35 @@ import Foundation
         isApplying = true
         applier.apply(OmnibarPresentation(state))
         isApplying = false
+        // The edit ends before its effects load the page: the predictor learns the opened URL first, and
+        // Enter's navigation then activates a prerender of it.
+        preload(after: input, effects: transition.effects, popupWasOpen: popupWasOpen)
         for effect in transition.effects { run(effect) }
         onStep?()
         return transition.handled
+    }
+
+    /// Chrome's `OnTextChanged` / `OnOmniboxOpenedUrl` for the tab's preloader (`OmnibarPreloadRequest`).
+    private func preload(after input: OmnibarInput, effects: [OmnibarEffect], popupWasOpen: Bool) { // perf-hot: 2ms omnibar-key (every typed key)
+        guard let preloader else { return }
+        if let ending = OmnibarPreloadRequest.ending(effects, input: input, popupWasOpen: popupWasOpen) {
+            if lastPreload != nil || ending.opened != nil {
+                preloader.omniboxPreloadEnded(opened: ending.opened, learn: ending.learn)
+                lastPreloadEnd = ending
+            }
+            lastPreload = nil
+            return
+        }
+        if lastPreload != nil, state.phase != .editing {
+            // The edit ended with no end effect: Escape reverted the typed text (Chrome's OnRevert counts
+            // every match as missed), or the field left editing some other way (forgotten unlearned).
+            preloader.omniboxPreloadEnded(opened: nil, learn: input == .key(.escape))
+            lastPreload = nil
+            return
+        }
+        guard let request = OmnibarPreloadRequest.current(state), request != lastPreload else { return }
+        lastPreload = request
+        lastPreloadAction = preloader.omniboxPreload(text: request.text, matches: request.matches)
     }
 
     private func run(_ effect: OmnibarEffect) {

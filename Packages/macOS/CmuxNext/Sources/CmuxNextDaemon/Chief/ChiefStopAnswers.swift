@@ -51,3 +51,24 @@ public nonisolated struct ChiefRestart: Decodable, Sendable, Equatable {
 
     private enum CodingKeys: String, CodingKey { case restarted, errors }
 }
+
+/// The answer to `chief.stop {start: name}` (Start now on a queued agent in Home).
+public nonisolated struct ChiefStartNow: Decodable, Sendable, Equatable {
+    /// True when the queued agent started.
+    public var started: Bool
+    /// The brain's words ("Started by the user: a7."); nil when it sent none.
+    public var note: String?
+
+    public init(started: Bool, note: String? = nil) {
+        self.started = started
+        self.note = note
+    }
+
+    public init(from decoder: any Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        started = try c.decodeIfPresent(Bool.self, forKey: .started) ?? false
+        note = try c.decodeIfPresent(String.self, forKey: .note)
+    }
+
+    private enum CodingKeys: String, CodingKey { case started, note }
+}

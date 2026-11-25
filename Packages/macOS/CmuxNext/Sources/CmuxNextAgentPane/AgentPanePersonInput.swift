@@ -115,21 +115,31 @@ public struct PersonInputCheck: Sendable {
     /// root builds it with the ledger (`AppServices.personInput`) and hands it to every other person check
     /// (``PersonInputCheck``, each agent pane through ``AgentPaneShared``).
     public let sources: EventSourceProcesses
+    /// The app's one "Computer use can act as me" grant (``AgentPaneActAsMe``), which every agent pane judges
+    /// posted input by; its consent card reads the person's click with ``PersonInputCheck`` over `sources`.
+    public let actAsMe: AgentPaneActAsMe
+    /// The app's host marks of its agent pages (``AgentPaneHostMarks``): each agent pane gets them through
+    /// ``AgentPaneShared``, the key router says its app actions to them, and this ledger's monitor gives them each scroll.
+    public let hostMarks = AgentPaneHostMarks()
     private var monitor: Any?
 
-    /// `sources`: the table the priming events fill (tests that pass none get their own).
-    public init(check: @escaping @MainActor (NSEvent) -> Bool, sources: EventSourceProcesses = EventSourceProcesses()) {
+    /// `sources`: the table the priming events fill (tests that pass none get their own); `actAsMe`: the
+    /// grant (tests get one of their own, off and kept in memory).
+    public init(check: @escaping @MainActor (NSEvent) -> Bool, sources: EventSourceProcesses = EventSourceProcesses(),
+                actAsMe: AgentPaneActAsMe = AgentPaneActAsMe()) {
         self.check = check
         self.sources = sources
+        self.actAsMe = actAsMe
     }
 
-    /// The ledger of ``PersonInputCheck`` over `sources` (`AppServices.personInput`).
+    /// The ledger of ``PersonInputCheck`` over `sources` (`AppServices.personInput`), with the app's grant.
     public convenience init(sources: EventSourceProcesses) {
         let check = PersonInputCheck(sources: sources)
-        self.init(check: { check.isPerson($0) }, sources: sources)
+        self.init(check: { check.isPerson($0) }, sources: sources, actAsMe: .app())
     }
 
     public func start() {
+        actAsMe.start(check: PersonInputCheck(sources: sources))
         guard monitor == nil else { return }
         monitor = NSEvent.addLocalMonitorForEvents(matching: Self.types.union(Self.primingTypes)) { [weak self] event in
             // AppKit calls a local monitor on the main thread; anywhere else, nothing is recorded, so no
@@ -142,6 +152,7 @@ public struct PersonInputCheck: Sendable {
     }
 
     public func stop() {
+        actAsMe.stop()
         if let monitor { NSEvent.removeMonitor(monitor) }
         monitor = nil
     }
@@ -153,7 +164,12 @@ public struct PersonInputCheck: Sendable {
         } else if let pid = AgentPanePersonInput.postingPID(event) {
             sources.prime(pid)
         }
+        if event.type == .scrollWheel { hostMarks.scrolled(event, in: event.window, at: event.locationInWindow) }
     }
+
+    /// SECURITY: whether `event` is the person's own input, by the ledger's check (the app's ledger:
+    /// ``PersonInputCheck``, the strict HID-system check a consent prompt's Allow takes).
+    public func isPerson(_ event: NSEvent) -> Bool { check(event) }
 
     public func record(_ event: NSEvent) {
         last = (event.timestamp > 0 ? event.timestamp : ProcessInfo.processInfo.systemUptime, check(event))
@@ -162,6 +178,9 @@ public struct PersonInputCheck: Sendable {
     /// SECURITY: the page gesture at `uptime` is the person's own: the app's latest input is the person's,
     /// at or before it (within a second, as a page keeps a gesture), and no input of anyone else's came
     /// after it. A click another process posts, even right after one of the person's, backs nothing.
+    /// ``backs(_:)`` now: the person's own input is the app's latest, within the last second.
+    public var backsNow: Bool { backs(ProcessInfo.processInfo.systemUptime) }
+
     public func backs(_ uptime: TimeInterval) -> Bool {
         guard let last, last.person else { return false }
         return last.uptime <= uptime + 0.001 && uptime - last.uptime <= 1

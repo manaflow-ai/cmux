@@ -66,7 +66,7 @@ fn cmux_help_lists_only_the_curated_scopes() {
     {
         assert!(help.contains(&format!("  {scope} ")), "{scope} missing:\n{help}");
     }
-    for hidden in ["raw", "provider", "pairing", "projection", "sidebar", "client"] {
+    for hidden in ["raw", "provider", "pairing", "projection", "sidebar"] {
         assert!(!help.contains(&format!("  {hidden} ")), "{hidden} listed:\n{help}");
     }
     assert!(help.contains("--idempotency-key"), "{help}");
@@ -81,7 +81,6 @@ fn cmux_refuses_hidden_scopes_before_touching_a_socket() {
     let socket = names.missing("mux.sock");
     for args in [
         vec!["raw", "command", "--request-json", "{\"cmd\":\"identify\"}"],
-        vec!["session", "current", "snapshot"],
         vec!["projection", "show"],
         vec!["provider", "authority", "install"],
     ] {
@@ -396,12 +395,14 @@ fn notify_help_names_reply_and_desktop() {
 }
 
 /// `acp` and `link` take their own options, so a cmux global option before
-/// them names the fix instead of calling them unknown scopes.
+/// them names the fix instead of calling them unknown scopes. (`--json`
+/// there is carried after the scope, docs/cli-conventions.md in cmuxterm-hq;
+/// any other global option is refused, under `--json` as the error object.)
 #[test]
 fn global_options_before_acp_or_link_name_the_fix() {
     let names = Names::new("acp-globals");
     for scope in ["acp", "link", "harness"] {
-        let output = names.run("cmux", &["--json", scope, "list"]);
+        let output = names.run("cmux", &["--json", "--socket", "/nonexistent.sock", scope, "list"]);
         assert_eq!(output.status.code(), Some(2));
         let error: serde_json::Value = serde_json::from_slice(&output.stdout)
             .or_else(|_| serde_json::from_slice(&output.stderr))

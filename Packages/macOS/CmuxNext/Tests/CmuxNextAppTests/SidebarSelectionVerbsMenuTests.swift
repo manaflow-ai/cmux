@@ -1,6 +1,7 @@
 import AppKit
 import CmuxNextActions
 @testable import CmuxNextApp
+import CmuxNextAppCore
 import CmuxNextFocus
 import Testing
 
@@ -11,24 +12,24 @@ struct SidebarSelectionVerbsMenuTests {
     private let order = ["a", "b", "c", "d", "e"]
 
     @Test func closeOtherKeepsEverySelectedRow() {
-        #expect(WorkspaceBulkClose.keeping(["b", "d"], id: "palette.closeOtherWorkspaces", order: order) == ["a", "c", "e"])
+        #expect(WorkspaceClose.keeping(["b", "d"], id: "palette.closeOtherWorkspaces", order: order) == ["a", "c", "e"])
     }
 
     @Test func closeBelowClosesTheRowsBelowTheLastSelectedOne() {
-        #expect(WorkspaceBulkClose.keeping(["b", "c"], id: "palette.closeWorkspacesBelow", order: order) == ["d", "e"])
-        #expect(WorkspaceBulkClose.keeping(["b", "e"], id: "palette.closeWorkspacesBelow", order: order).isEmpty)
+        #expect(WorkspaceClose.keeping(["b", "c"], id: "palette.closeWorkspacesBelow", order: order) == ["d", "e"])
+        #expect(WorkspaceClose.keeping(["b", "e"], id: "palette.closeWorkspacesBelow", order: order).isEmpty)
     }
 
     @Test func closeAboveClosesTheRowsAboveTheFirstSelectedOne() {
-        #expect(WorkspaceBulkClose.keeping(["c", "d"], id: "palette.closeWorkspacesAbove", order: order) == ["a", "b"])
+        #expect(WorkspaceClose.keeping(["c", "d"], id: "palette.closeWorkspacesAbove", order: order) == ["a", "b"])
     }
 
     /// One row kept is the one-row verb it always was.
     @Test func oneKeptRowClosesAsBefore() {
-        #expect(WorkspaceBulkClose.keeping(["c"], id: "palette.closeOtherWorkspaces", order: order) == ["a", "b", "d", "e"])
-        #expect(WorkspaceBulkClose.keeping(["c"], id: "palette.closeWorkspacesBelow", order: order) == ["d", "e"])
-        #expect(WorkspaceBulkClose.keeping(["c"], id: "palette.closeWorkspacesAbove", order: order) == ["a", "b"])
-        #expect(WorkspaceBulkClose.keeping(["z"], id: "palette.closeOtherWorkspaces", order: order).isEmpty)
+        #expect(WorkspaceClose.keeping(["c"], id: "palette.closeOtherWorkspaces", order: order) == ["a", "b", "d", "e"])
+        #expect(WorkspaceClose.keeping(["c"], id: "palette.closeWorkspacesBelow", order: order) == ["d", "e"])
+        #expect(WorkspaceClose.keeping(["c"], id: "palette.closeWorkspacesAbove", order: order) == ["a", "b"])
+        #expect(WorkspaceClose.keeping(["z"], id: "palette.closeOtherWorkspaces", order: order).isEmpty)
     }
 
     /// `sidebar.multiSelection` holds only while the sidebar list has the keyboard with two or more rows selected.

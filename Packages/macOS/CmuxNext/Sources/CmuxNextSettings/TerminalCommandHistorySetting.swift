@@ -6,8 +6,6 @@
 /// `terminal-command-history-v1`; a daemon records nothing until told, and
 /// deletes commands older than `history.commandRetentionDays`.
 public nonisolated enum TerminalCommandHistorySetting {
-    public static let configPath = ["history", "terminalCommands"]
-    public static let fallback = false
 
     /// A missing key is the default with no diagnostic; a bad value is the
     /// default plus a diagnostic.

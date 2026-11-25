@@ -1,10 +1,11 @@
+import { envForObject } from "../build-space.ts"
 import { DurableObject } from "cloudflare:workers"
 import { BACKGROUND_CONTEXT } from "@earendil-works/chord/context"
 import type { AssistantMessage } from "@earendil-works/pi-ai"
 import { createRegistry, GenerationTask, Harness, hook, InboxDoc, section, ToolTask } from "@earendil-works/pi-durable"
 import { PiHarness } from "agents/harness/pi"
 import { Lifecycle, type LifecycleJobContext, type LifecycleJobOutcome } from "agents/lifecycle"
-import type { Env } from "../env.ts"
+import type { Env, RawEnv } from "../env.ts"
 import { assertFaultHooks } from "../chief-fault.ts"
 import { ackWake, chiefPrincipal, postReply, readConversation, runChanged, typing } from "../chief-brain/brain-io.ts"
 import { postMessage } from "./post.ts"
@@ -132,7 +133,8 @@ export class ChiefDurableDO extends DurableObject<Env> {
 
   readonly lifecycle = Lifecycle.install(this).use(this.harness)
 
-  constructor(ctx: DurableObjectState, env: Env) {
+  constructor(ctx: DurableObjectState, raw: RawEnv) {
+    const env = envForObject(ctx, raw)
     super(ctx, env)
     for (const q of [...SCHEMA, ...SCHEMA_D]) this.sql.exec(q)
     for (const [t, c, def] of COLUMNS_D) if (!this.sql.exec<{ name: string }>(`PRAGMA table_info(${t})`).toArray().some((r) => r.name === c)) this.sql.exec(`ALTER TABLE ${t} ADD COLUMN ${c} ${def}`)
@@ -155,9 +157,9 @@ export class ChiefDurableDO extends DurableObject<Env> {
 
   // ------------------------------------------------------------------ helpers
 
-  private holder = () => this.env.CHIEF_BRAIN_DO.get(this.env.CHIEF_BRAIN_DO.idFromName(HOLDER)) as unknown as { claudeAuth(): Promise<string>; claudeInvalidate(): Promise<void> }
-  private turns = (owner: string) => this.env.CHIEF_BRAIN_DO.get(this.env.CHIEF_BRAIN_DO.idFromName(turnsObject(owner))) as unknown as { claudeTurn(owner: string, model?: string): Promise<string> }
-  private settingsOf = (agent: string) => this.env.CHIEF_BRAIN_DO.get(this.env.CHIEF_BRAIN_DO.idFromName(agent)) as unknown as { admit(agent: string, owner: string, turn: boolean): Promise<Admission> }
+  private holder = () => this.env.CHIEF_BRAIN_DO.get(this.env.CHIEF_BRAIN_DO.idFromName(HOLDER))
+  private turns = (owner: string) => this.env.CHIEF_BRAIN_DO.get(this.env.CHIEF_BRAIN_DO.idFromName(turnsObject(owner)))
+  private settingsOf = (agent: string) => this.env.CHIEF_BRAIN_DO.get(this.env.CHIEF_BRAIN_DO.idFromName(agent))
   private get(name: string): string | undefined {
     return this.sql.exec<{ value: string }>(`SELECT value FROM cb_config WHERE name = ?`, name).toArray()[0]?.value
   }
@@ -179,8 +181,8 @@ export class ChiefDurableDO extends DurableObject<Env> {
   private async admitted(agent: string, owner: string, turn: boolean): Promise<Admission> {
     const a = await this.settingsOf(agent).admit(agent, owner, turn)
     if (a.ok) {
-      const { agent: ag, owner: ow, enabled, chiefs, ...rest } = a.config
-      writeConfig(this.sql, { agent: ag ?? undefined, owner: ow ?? undefined, enabled: enabled ? "1" : "0", chiefs: chiefs ? "1" : "0", ...rest })
+      const { agent: ag, owner: ow, enabled, chiefs, channel, ...rest } = a.config
+      writeConfig(this.sql, { agent: ag ?? undefined, owner: ow ?? undefined, enabled: enabled ? "1" : "0", chiefs: chiefs ? "1" : "0", channel: channel ?? undefined, ...rest })
     }
     return a
   }
@@ -551,7 +553,7 @@ export class ChiefDurableDO extends DurableObject<Env> {
 
   /** P's conversation brain copies its memory and read cursor here, once, before D's first batch. */
   private async importFromP(w: Wake): Promise<void> {
-    const p = this.env.CHIEF_BRAIN_DO.get(this.env.CHIEF_BRAIN_DO.idFromName(brainName(w.agent, w.conversation))) as unknown as { memoryExport(after: number, limit: number): Promise<MemoryExport> }
+    const p = this.env.CHIEF_BRAIN_DO.get(this.env.CHIEF_BRAIN_DO.idFromName(brainName(w.agent, w.conversation)))
     const head = await p.memoryExport(-1, 500)
     if (head.count > 0 && this.memory.len() === 0) {
       const rows = [...head.messages]

@@ -123,7 +123,7 @@ test("repeating the same append pair reuses the synthetic row", () => {
   expect(secondOut[0]).toBe(firstOut[0]);
 });
 
-test("the transcript batches adjacent read reports within a turn and stops at the next prompt", async () => {
+test("the transcript folds adjacent read reports within a turn and stops at the next prompt", async () => {
   const { turnView } = await import("../src/agent-session/acpmux/conversation/turns");
   const prompt: AcpmuxRow = { id: "prompt", version: 1, at: 1, kind: "user", text: "Review the change" };
   const first = { ...row("r1", reportText("SHIP", sha), { report: true }), continues: true };
@@ -131,8 +131,10 @@ test("the transcript batches adjacent read reports within a turn and stops at th
   const nextPrompt = { ...prompt, id: "next-prompt", at: 10 };
   const third = { ...row("r3", reportText("SHIP", sha), { report: true }), continues: true };
   const drawn = turnView([prompt, first, second, nextPrompt, third], new Set(), { working: true });
-  const batches = drawn.filter((item) => item.laneNoticeBatch);
-  expect(batches).toHaveLength(1);
-  expect(batches[0]!.laneNoticeBatch!.rows.map((item) => item.id)).toEqual([first.id, second.id]);
+  // The two reports fold under one line, as every run of messages between agents does
+  // (conversation/messageRuns.ts), before the lane-notice batching would see them.
+  const runs = drawn.filter((item) => item.messageRun);
+  expect(runs).toHaveLength(1);
+  expect(runs[0]!.messageRun!.rows).toEqual([first.id, second.id]);
   expect(drawn.some((item) => item.id === third.id)).toBe(true);
 });

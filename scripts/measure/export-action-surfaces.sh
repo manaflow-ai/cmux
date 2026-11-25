@@ -4,6 +4,9 @@
 # a laptop), and prints them base64 between BEGIN/END markers:
 #   cmux-ci run --class light --script scripts/measure/export-action-surfaces.sh --ref <sha> [--arg=--catalog-only]
 set -euo pipefail
+# cmux-ci-warm-contract: swiftpm-v1
+# shellcheck source=scripts/cmux-next/lib/warm-swiftpm.sh
+source "$(dirname "${BASH_SOURCE[0]}")/../cmux-next/lib/warm-swiftpm.sh"
 # Fleet steps run with a short PATH; look where bun installs too.
 BUN="$(command -v bun || true)"
 for candidate in "$HOME/.bun/bin/bun" /opt/homebrew/bin/bun /usr/local/bin/bun; do
@@ -23,7 +26,8 @@ elif [[ -z "$BUN" ]]; then
   exit 1
 fi
 export CMUX_UPDATE_ACTION_SURFACES=1
-swift test --package-path Packages/macOS/CmuxNext --filter 'ActionSurfaceParityTests|LinkExportTests'
+cmux_next_warm_build "$PWD/Packages/macOS/CmuxNext"
+swift test ${cmux_next_swift_args[@]+"${cmux_next_swift_args[@]}"} --package-path Packages/macOS/CmuxNext --skip-build --filter 'ActionSurfaceParityTests|LinkExportTests'
 files=(plans/cmux-next/action-surfaces.json plans/cmux-next/actions.md plans/cmux-next/links.json)
 if [[ -n "$BUN" ]]; then
   "$BUN" web/scripts/export-docs-shortcuts.ts

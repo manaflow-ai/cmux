@@ -12,14 +12,18 @@ extension WorkspaceContentController {
     func sendTopology(_ file: StaticString = #fileID, _ line: UInt = #line) {
         guard !isParked, !isApplying else { return }
         focus.topologySent(by: self)
+        DebugLayoutCounters.topologySends &+= 1 // counted in every build (one add): `perf.layout_counters` reads it in Release
         #if DEBUG
-        DebugLayoutCounters.topologySends &+= 1
         debugTopologySends &+= 1
         DebugLayoutCounters.note("topology", file, line)
         #endif
         focus.send(.topology(focusTopology()))
         rekeySurfaceWait() // a tab this topology adds may be the one a surface wait names
     }
+
+    /// Maps each pane strip that lags its record (a tab moved out or in) inside this apply, before its one topology:
+    /// else a moved tab stayed listed in its old pane a job longer and focus did not follow it (dogfood v2.1).
+    func syncStaleStrips() { for pane in panes.values where pane.stripIsStale { pane.syncStripFromStore() } }
 
     /// Topologies name tabs by id only: a wait by a daemon surface takes its tab's id (same target, pane, generation)
     /// once the store has it: at each topology send (a new tab) and at a split's confirm (`terminalConfirmed`).
@@ -35,8 +39,8 @@ extension WorkspaceContentController {
         guard !isParked, !isApplying else { return }
         focus.setNeedsTopology(owner: self) { [weak self] in
             guard let self, !self.isParked, !self.isApplying else { return nil }
+            DebugLayoutCounters.topologySends &+= 1 // counted in every build (one add): `perf.layout_counters` reads it in Release
             #if DEBUG
-            DebugLayoutCounters.topologySends &+= 1
             self.debugTopologySends &+= 1
             DebugLayoutCounters.note("topology", file, line)
             #endif
@@ -50,7 +54,7 @@ extension WorkspaceContentController {
     /// and the remembered selection.
     func focusTopology() -> FocusTopology {
         var panes: [FocusTopology.Pane] = []
-        for id in layoutModel.screens.flatMap(\.layout.panes) {
+        for id in layoutModel.screens.flatMap(\.panes) {
             if let controller = self.panes[id] {
                 panes.append(controller.focusPane)
                 continue
@@ -85,7 +89,7 @@ extension WorkspaceContentController {
 
     /// Focuses the most recently focused pane of `screen`, else its first.
     func focusRememberedPane(on screen: LayoutScreenID) {
-        guard let panes = layoutModel.screens.first(where: { $0.id == screen })?.layout.panes,
+        guard let panes = layoutModel.screens.first(where: { $0.id == screen })?.panes,
               let pane = FocusNavigation.mostRecent(panes, recency: recentPanes) ?? panes.first else { return }
         // Keep the layout model's shown screen and pane in sync immediately.
         // The focus coordinator may not have this newly mirrored pane in its
@@ -137,6 +141,9 @@ extension FocusTopology.Kind {
 }
 
 extension PaneController {
+    /// The strip lags the pane record's tabs (a tab moved out or in since its last apply).
+    var stripIsStale: Bool { !isSuspended && !pane.tabs.lazy.map(\.id).elementsEqual(appliedRecordTabs) }
+
     /// This pane as the focus topology sees it: strip order (pending closes
     /// hidden, session browser tabs included) and the selected tab.
     var focusPane: FocusTopology.Pane {

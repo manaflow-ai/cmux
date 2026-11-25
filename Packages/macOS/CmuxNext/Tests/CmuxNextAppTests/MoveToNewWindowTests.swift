@@ -1,9 +1,11 @@
 import AppKit
 import CmuxNextActions
 @testable import CmuxNextApp
+import CmuxNextBrowser
 import CmuxNextDaemon
 import CmuxNextLayout
 import CmuxNextSidebar
+import CmuxNextTestSupport
 import Foundation
 import Testing
 
@@ -14,7 +16,7 @@ import Testing
 /// new window beside the old one; its terminals keep their daemon terminal
 /// (same id, same incarnation: never restarted); its browser tabs keep their
 /// page entry (reparented, never reloaded); and no window is left empty.
-@MainActor @Suite(.serialized, .timeLimit(.minutes(3)), .enabled(if: SameTreeDaemonBinary.url != nil, "needs the same-tree cmux-tui"))
+@MainActor @Suite(.serialized, .timeLimit(.minutes(3)), .enabled(if: SameTreeDaemonBinary.url != nil, "needs the same-tree cmux-tui"), .closesItsWindows)
 struct MoveToNewWindowTests {
     /// What must survive a move, per tab.
     struct Live {
@@ -32,7 +34,7 @@ struct MoveToNewWindowTests {
     }
 
     @Test func aTabMovesToANewWindowAlive() async throws {
-        try await PinnedPageTests.withApp { services, connection in
+        try await AppHarnessWindows.withApp { services, connection in
             let pane = try Self.firstPane(services)
             let terminal = try #require(pane.tabs.first)
             let browser = try await Self.browserTab(in: pane, services, connection)
@@ -47,7 +49,7 @@ struct MoveToNewWindowTests {
     }
 
     @Test func aTabGroupMovesToANewWindowAlive() async throws {
-        try await PinnedPageTests.withApp { services, connection in
+        try await AppHarnessWindows.withApp { services, connection in
             let pane = try Self.firstPane(services)
             let browser = try await Self.browserTab(in: pane, services, connection)
             #expect(services.registry.perform("tabGroup.create", invocation: Self.on(.tab, browser.id)))
@@ -62,7 +64,7 @@ struct MoveToNewWindowTests {
     }
 
     @Test func aPaneMovesToANewWindowWithAllItsTabsAlive() async throws {
-        try await PinnedPageTests.withApp { services, connection in
+        try await AppHarnessWindows.withApp { services, connection in
             let first = try Self.firstPane(services)
             let workspace = try #require(services.daemon.store.workspaces.first { $0.screens.contains { $0.panes.contains { $0 === first } } })
             let created = try await connection.newTab(in: first.handle)
@@ -90,7 +92,7 @@ struct MoveToNewWindowTests {
     /// A pane that is its workspace's only pane moves the workspace (nothing
     /// is left behind to keep), and the window it leaves, now empty, is gone.
     @Test func aWindowsOnlyPaneMovesItsWorkspaceAndLeavesNoEmptyWindow() async throws {
-        try await PinnedPageTests.withApp { services, _ in
+        try await AppHarnessWindows.withApp { services, _ in
             let workspace = try await Self.newWorkspace(services)
             #expect(services.registry.perform("moveWorkspaceToNewWindow", invocation: Self.on(.workspace, workspace.id)))
             try await PinnedPageTests.until({ services.windows.controllers.count == 2 })
@@ -106,7 +108,7 @@ struct MoveToNewWindowTests {
     }
 
     @Test func aWorkspaceMovesToANewWindowAlive() async throws {
-        try await PinnedPageTests.withApp { services, _ in
+        try await AppHarnessWindows.withApp { services, _ in
             let workspace = try await Self.newWorkspace(services)
             let moving = workspace.screens.flatMap(\.panes).flatMap(\.tabs).map { Live($0, services) }
             let source = try Self.window(ofTab: moving[0].tab, services)
@@ -117,7 +119,7 @@ struct MoveToNewWindowTests {
     }
 
     @Test func aWorkspaceGroupMovesToANewWindowAlive() async throws {
-        try await PinnedPageTests.withApp { services, _ in
+        try await AppHarnessWindows.withApp { services, _ in
             let workspace = try await Self.newWorkspace(services)
             let name = "move-me-\(UUID().uuidString.prefix(6))"
             #expect(services.registry.perform("workspace.moveToNewGroup",
@@ -160,6 +162,26 @@ struct MoveToNewWindowTests {
             let frames = services.windows.controllers.compactMap { $0.window?.frame }
             let origins = Set(frames.map { "\(Int($0.minX)),\(Int($0.minY))" })
             #expect(origins.count == frames.count, "two windows opened on the same frame: \(frames)")
+        }
+    }
+
+    /// notify-banner-click-all-paths: a banner for a chat whose workspace shows in a window behind the one in front
+    /// selected its tab there but left the other window in front with the keys, so the click showed the wrong chat.
+    /// Opening the banner brings the window showing the chat forward, as Global Search's jump does.
+    @Test func openingABannerForAChatInABackWindowBringsThatWindowForward() async throws {
+        try await PinnedPageTests.withApp { services, _ in
+            let moved = try await Self.newWorkspace(services)
+            let tab = try #require(moved.screens.first?.panes.first?.tabs.first)
+            let source = try Self.window(ofTab: tab.id, services)
+            #expect(services.registry.perform("moveWorkspaceToNewWindow", invocation: Self.on(.workspace, moved.id)))
+            try await PinnedPageTests.until({ services.windows.controllers.count == 2 })
+            let owner = try Self.window(ofTab: tab.id, services)
+            #expect(owner != source)
+            // The other window in front, as when the person works there and the chat finishes behind it.
+            services.windows.bringToFront(try #require(services.windows.controller(for: source)))
+            try await PinnedPageTests.until({ services.windows.active?.state.id == source })
+            services.notifications.open(surface: tab.surface)
+            try await PinnedPageTests.until({ services.windows.active?.state.id == owner })
         }
     }
 

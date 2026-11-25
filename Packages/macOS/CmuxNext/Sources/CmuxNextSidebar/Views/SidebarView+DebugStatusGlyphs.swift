@@ -75,7 +75,7 @@ extension SidebarViewComponents {
                     glyph.title = row.title.stringValue
                     glyph.titleCapCenterY = topLeft(row.title).minY + row.title.font.ascender - row.title.font.capHeight / 2
                 }
-                glyph.badge = row.subviews.first { $0 is UnreadBadgeView && !$0.isHidden }.map(topLeft)
+                glyph.badge = row.subviews.first { $0 is UnreadBadgeView && !$0.isHidden && $0.alphaValue > 0 }.map(topLeft)
             }
             glyphs.append(glyph)
         }

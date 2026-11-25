@@ -34,10 +34,18 @@
 //!    in a detached terminal of the machine's own daemon, as the daemon's own
 //!    user, with a fixed argv ([`apply`]): it checks its own checksum again,
 //!    keeps the running binary as `cmux-tui.prev`, renames itself over the
-//!    binary and ends the daemon with SIGTERM, which leaves every terminal
+//!    binary and ends the daemon with SIGTERM (SIGKILL once a minute passes),
+//!    which leaves every terminal
 //!    host and chat running. The supervisor starts the new binary, which
 //!    adopts them. A new daemon that does not serve within 10 minutes is
-//!    rolled back to `cmux-tui.prev`.
+//!    rolled back to `cmux-tui.prev`. On a self-updating image (the daemon runs
+//!    from the store) the step hands the build to the machine's updater
+//!    instead ([`install_target`]). That updater refuses a build older than
+//!    one it applied (`older`); for `--to-bundled` without `--if-older` the
+//!    step then renames the build over the work user's store link and restarts
+//!    the daemon and acpmux on it, which turns the machine's updater off for
+//!    that machine ([`route_args`]); otherwise the machine is left as it is
+//!    (`machine_update_foreign_daemon`).
 //! 4. This command waits for the outcome the apply step records next to the
 //!    binary and answers one JSON line: `{"ok":true,"updated":true,"build":..,
 //!    "previous_build":..}`, `{"ok":true,"updated":false,..}` for a machine
@@ -162,14 +170,14 @@ fn parse(args: &[String]) -> Option<Request> {
 /// older, as `cmux_remote::update_need` counts a remote without facts. A
 /// client that does not know its own time orders nothing. The same time is
 /// the same source tree: not older.
-fn machine_is_older(remote: Option<u64>, local: u64) -> bool {
+pub(super) fn machine_is_older(remote: Option<u64>, local: u64) -> bool {
     local != 0 && remote.is_none_or(|remote| remote == 0 || remote < local)
 }
 
 fn update(request: &Request) -> Result<Value, Failed> {
     let socket = request.socket.as_path();
-    let before = machine_gate::identify(socket)
-        .ok_or_else(|| Failed::new("machine_unreachable", "the machine daemon did not answer"))?;
+    let before = machine_gate::reach(socket)
+        .map_err(|unreached| Failed::new("machine_unreachable", unreached.to_string()))?;
     let previous = machine_gate::build_id(&before).map(str::to_owned);
     let current = if request.to_bundled {
         previous.as_deref() == Some(cmux_build_identity::BUILD_IDENTITY)
@@ -204,7 +212,7 @@ fn update(request: &Request) -> Result<Value, Failed> {
         )
         .about(&before));
     }
-    let install = install_path(&before).ok_or_else(|| {
+    let (install, route) = install_target(&before).ok_or_else(|| {
         Failed::new(
             "machine_update_unsupported",
             "the machine's daemon does not run from ~/.cmux/bin/cmux-tui; recreate the machine",
@@ -230,20 +238,13 @@ fn update(request: &Request) -> Result<Value, Failed> {
         let _ = super::sync_cli::delete_remote(socket, &staged);
         return Err(failed);
     }
-    let argv = apply::argv(&staged, &sha256, &install, daemon_pid, &result);
-    let created = machine_gate::call(
-        socket,
-        json!({"cmd": "create-terminal", "detached": true, "argv": argv, "cwd": folder,
-               "name": "cmux machine update"}),
-    );
-    let terminal = match created {
-        Ok(data) => data["terminal_id"].as_str().map(str::to_owned),
-        Err(error) => {
+    let mut argv = apply::argv(&staged, &sha256, &install, daemon_pid, &result);
+    argv.extend(route_args(route, request));
+    let terminal = match start(socket, &argv, &folder, &staged, &result, daemon_pid) {
+        Ok(terminal) => terminal,
+        Err(failed) => {
             let _ = super::sync_cli::delete_remote(socket, &staged);
-            return Err(Failed::new(
-                "machine_update_failed",
-                format!("the update did not start: {error}"),
-            ));
+            return Err(failed);
         }
     };
     let outcome = wait_for_outcome(socket, &result, daemon_pid);
@@ -255,19 +256,135 @@ fn update(request: &Request) -> Result<Value, Failed> {
     }
     let _ = super::sync_cli::delete_remote(socket, &result);
     let _ = super::sync_cli::delete_remote(socket, &staged);
+    let claim = apply::claim_path(Path::new(&result));
+    if let Some(claim) = claim.to_str() {
+        let _ = super::sync_cli::delete_remote(socket, claim);
+    }
     let build = outcome?;
     Ok(json!({"updated": true, "build": build, "previous_build": previous}))
 }
 
-/// The daemon's binary, `<home>/.cmux/bin/cmux-tui`, from `identify`'s
-/// `cli_path`; None for any other place.
-fn install_path(identity: &Value) -> Option<String> {
-    let path = identity["cli_path"].as_str()?;
-    let plain = path.starts_with('/')
-        && path.ends_with("/.cmux/bin/cmux-tui")
-        && path.split('/').all(|part| part != ".." && part != ".");
-    plain.then(|| path.to_owned())
+/// The apply step's flags past [`apply::argv`] for `route`: `--route store`, and with it
+/// [`apply::IN_PLACE_FLAG`] for the explicit ask (`--to-bundled` without `--if-older`), so
+/// a store that refuses this build as older than one it applied gets it in place. The
+/// automatic update (`--if-older`) never moves a machine back.
+fn route_args(route: apply::Route, request: &Request) -> Vec<String> {
+    if route != apply::Route::Store {
+        return Vec::new();
+    }
+    let mut args = vec!["--route".to_owned(), "store".to_owned()];
+    if request.to_bundled && !request.if_older {
+        args.push(apply::IN_PLACE_FLAG.to_owned());
+    }
+    args
 }
+
+/// How long to wait before each look at a machine whose answer to the start
+/// was lost, and so how many tries the start gets.
+const LOST_START_BACKOFF: [Duration; 3] =
+    [Duration::from_secs(5), Duration::from_secs(10), Duration::from_secs(20)];
+
+/// Starts the apply step in a detached terminal: its terminal id (None when
+/// the daemon named none, or the answer was lost but the step had begun).
+///
+/// A daemon that refuses fails the update. An answer that never came (a
+/// timeout, a close, an answer past the limit) does not say whether the
+/// terminal started: the apply step may already have replaced the daemon,
+/// which ends the connection. So each time the machine is looked at again
+/// after a backoff: a step that began goes on to wait for its outcome, and
+/// one that did not is started again. Still lost after every try is
+/// `machine_unreachable`, a quiet retry for the app, not a failure.
+fn start(
+    socket: &Path,
+    argv: &[String],
+    folder: &str,
+    staged: &str,
+    result: &str,
+    daemon_pid: u64,
+) -> Result<Option<String>, Failed> {
+    let request = json!({"cmd": "create-terminal", "detached": true, "argv": argv, "cwd": folder,
+                         "name": "cmux machine update"});
+    let mut lost = String::new();
+    for (attempt, backoff) in std::iter::once(None).chain(LOST_START_BACKOFF.map(Some)).enumerate()
+    {
+        if let Some(backoff) = backoff {
+            std::thread::sleep(backoff);
+            let seen = AfterLostStart {
+                daemon_pid: machine_gate::identify(socket)
+                    .map(|now| now.get("pid").and_then(Value::as_u64)),
+                apply_seen: !matches!(super::sync_cli::remote_kind(socket, result), Ok(None)),
+                staged_present: matches!(super::sync_cli::remote_kind(socket, staged), Ok(Some(_))),
+            };
+            if lost_start_began(&seen, daemon_pid) {
+                return Ok(None);
+            }
+        }
+        match machine_gate::call_checked(socket, request.clone()) {
+            Ok(data) => return Ok(data["terminal_id"].as_str().map(str::to_owned)),
+            Err(machine_gate::CallFailure::Refused(why)) => {
+                return Err(Failed::new(
+                    "machine_update_failed",
+                    format!("the update did not start: {why}"),
+                ));
+            }
+            Err(machine_gate::CallFailure::Lost(why)) => {
+                lost = format!("{why} (try {})", attempt + 1);
+            }
+        }
+    }
+    Err(Failed::new(
+        "machine_unreachable",
+        format!("the update did not start: {lost}; it is tried again later"),
+    ))
+}
+
+/// What a machine shows a while after a start whose answer was lost.
+struct AfterLostStart {
+    /// The pid `identify` names: `Some(None)` for an answer without one,
+    /// None when the daemon did not answer.
+    daemon_pid: Option<Option<u64>>,
+    /// The apply step's outcome file exists (it writes `running` once it
+    /// holds the update lock), or whether it does is not known.
+    apply_seen: bool,
+    /// The staged build is known to be still at its staged path.
+    staged_present: bool,
+}
+
+/// Whether the apply step began despite the lost answer: its outcome file
+/// exists (`running` from the moment it holds the update lock), the staged
+/// build was renamed over the binary, or the daemon it was to replace no
+/// longer answers or is another process. Anything not known counts as
+/// began. Only the same daemon still serving, the staged build in place and
+/// no outcome file mean it never ran, so starting it again cannot run it
+/// twice (and a second run would find the lock held and leave the first
+/// run's outcome file alone).
+fn lost_start_began(seen: &AfterLostStart, old_pid: u64) -> bool {
+    seen.apply_seen || !seen.staged_present || seen.daemon_pid != Some(Some(old_pid))
+}
+
+/// Where the new build goes and how, from `identify`'s `cli_path` (the daemon's own
+/// binary, its symlinks resolved): a daemon run from `<home>/.cmux/bin/cmux-tui` gets
+/// the build renamed over that file ([`apply::Route::Work`]). A Cloud machine of the
+/// self-updating image runs it from its store (`/opt/cmux/store/<sha>/cmux-tui`, which
+/// the work user's `~/.cmux/bin/cmux-tui` links to through `/opt/cmux/current`): there
+/// the build goes into the store as the machine's next profile, so the session host,
+/// acpmux (which starts every agent) and `cmux host` all run it
+/// ([`apply::Route::Store`], `cmux host update install`). None for any other place.
+fn install_target(identity: &Value) -> Option<(String, apply::Route)> {
+    let path = identity["cli_path"].as_str()?;
+    let plain = path.starts_with('/') && path.split('/').all(|part| part != ".." && part != ".");
+    if plain && path.ends_with("/.cmux/bin/cmux-tui") {
+        return Some((path.to_owned(), apply::Route::Work));
+    }
+    let entry = path.strip_prefix(STORE_PREFIX)?.strip_suffix("/cmux-tui")?;
+    (plain && apply::is_sha256(entry)).then(|| (CLOUD_WORK_LINK.to_owned(), apply::Route::Store))
+}
+
+/// The self-updating image's store (cmux-host `updater::store::STORE_DIR`).
+const STORE_PREFIX: &str = "/opt/cmux/store/";
+/// The Cloud work user's cmux-tui, a link into the store's current profile
+/// (cmux-host `updater::WORK_CMUX_TUI_LINK`).
+const CLOUD_WORK_LINK: &str = "/home/cmux/.cmux/bin/cmux-tui";
 
 /// This client's pinned Linux build, its SHA-256 and the commit that built it.
 fn pinned_payload() -> Result<(PathBuf, String, String), Failed> {
@@ -347,25 +464,7 @@ fn wait_for_outcome(socket: &Path, result: &str, daemon_pid: u64) -> Result<Stri
     while Instant::now() < deadline {
         std::thread::sleep(Duration::from_secs(1));
         if let Some(outcome) = read_outcome(socket, result) {
-            return match outcome["state"].as_str() {
-                Some("updated") => Ok(own.to_owned()),
-                Some("pending") => Err(Failed::new(
-                    "machine_update_pending",
-                    "the new build is installed but the daemon did not stop; it runs after the machine's next restart",
-                )),
-                Some("busy") => Err(Failed::new(
-                    "machine_update_busy",
-                    "another update of this machine is running; try again once it ends",
-                )),
-                Some("rolled_back") => Err(Failed::new(
-                    "machine_update_rolled_back",
-                    format!(
-                        "the new daemon did not serve, so the machine runs its old build again: {}",
-                        detail(&outcome)
-                    ),
-                )),
-                _ => Err(Failed::new("machine_update_failed", detail(&outcome))),
-            };
+            return ended(&outcome, own);
         }
         let Some(now) = machine_gate::identify(socket) else { continue };
         if machine_gate::build_id(&now) == Some(own) && now["pid"].as_u64() != Some(daemon_pid) {
@@ -379,6 +478,35 @@ fn wait_for_outcome(socket: &Path, result: &str, daemon_pid: u64) -> Result<Stri
         "machine_update_unresolved",
         "the machine did not report how the update ended; check it, then run the update again",
     ))
+}
+
+/// The update's end, from the apply step's final outcome: the new build, or
+/// what kept it from the machine.
+fn ended(outcome: &Value, own: &str) -> Result<String, Failed> {
+    match outcome["state"].as_str() {
+        Some("updated") => Ok(own.to_owned()),
+        Some("pending") => Err(Failed::new(
+            "machine_update_pending",
+            "the new build is installed but the daemon did not stop, even after SIGKILL; the next update stops it",
+        )),
+        Some("busy") => Err(Failed::new(
+            "machine_update_busy",
+            format!("not now: {}; try again", detail(outcome)),
+        )),
+        // The daemon runs someone's own build from another path, or the
+        // machine's updater kept its build (off, this build rolled back
+        // before, or a newer one applied for `--if-older`): left as it is,
+        // and no failure (the app shows nothing for it).
+        Some("foreign") => Err(Failed::new("machine_update_foreign_daemon", detail(outcome))),
+        Some("rolled_back") => Err(Failed::new(
+            "machine_update_rolled_back",
+            format!(
+                "the new daemon did not serve, so the machine runs its old build again: {}",
+                detail(outcome)
+            ),
+        )),
+        _ => Err(Failed::new("machine_update_failed", detail(outcome))),
+    }
 }
 
 fn detail(outcome: &Value) -> String {

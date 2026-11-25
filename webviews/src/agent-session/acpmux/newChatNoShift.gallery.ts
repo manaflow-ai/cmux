@@ -47,7 +47,7 @@ export default agentPaneEntry({
         await ctx.press("Enter");
         await ctx.waitFor(() => doc.querySelector(".cv-thinking, .cv-worked"), { capMs: 10_000 });
         // The prompt keeps its place from Thinking to the streamed reply, and the running turn's
-        // line stays its last row, under the reply (agentPane.debug.liveLineBelow).
+        // line stays its last row, under the reply.
         const bubble = doc.querySelector(".cv-user__bubble")?.getBoundingClientRect();
         await ctx.hover({ selector: ".cv-user__bubble" });
         await ctx.waitFor(() => doc.querySelector(".cv-md"), { capMs: 10_000 });

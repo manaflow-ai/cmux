@@ -1,5 +1,6 @@
 import CmuxHomeCore
 import CmuxNextDesign
+import CmuxNextHomeModel
 import SwiftUI
 
 /// One member row of the group info sheet: a monogram avatar, the name with its tags, and Remove.
@@ -26,7 +27,7 @@ struct HomeGroupMemberRow: View {
             Spacer(minLength: Metrics.space2)
             if let onRemove {
                 Button(HomeConversationStrings.infoRemove) { onRemove() }
-                    .buttonStyle(.plain)
+                    .buttonStyle(.cmuxPressFill)
                     .font(Font(Typography.caption))
                     .foregroundStyle(colors.danger)
                     .accessibilityIdentifier("cmux.home.groupInfo.remove.\(member.id.rawValue)")

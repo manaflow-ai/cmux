@@ -1,11 +1,14 @@
 #if os(iOS)
+import CmuxDeviceHub
 import CmuxMobileAgentChat
 import CmuxMobileChief
+import CmuxMobileDesign
 import CmuxMobileLive
 import CmuxMobileModel
 import CmuxMobileNotifications
 import CmuxMobileScreenSharing
 import CmuxMobileSettings
+import CmuxMobileTerminal
 import Foundation
 import OSLog
 import Observation
@@ -81,7 +84,7 @@ public final class NotificationRouter {
     @ObservationIgnored private(set) var routeGeneration: UInt64 = 0
     @ObservationIgnored private var expiryTask: Task<Void, Never>?
     /// Settings → Require Face ID has the app locked (AppLock): replies that
-    /// need Face ID wait, so the two prompts never overlap.
+    /// wait until it is unlocked.
     public internal(set) var appLocked = false {
         didSet { if !appLocked { PushReplies.shared.appStateChanged() } }
     }
@@ -140,6 +143,9 @@ public final class NotificationRouter {
     /// The route was opened (or settled for the Feed).
     func opened() {
         set(nil)
+        #if DEBUG
+        OpenMarks.shared?.note("route_opened")
+        #endif
     }
 
     /// The person went to another screen while a route waited: it is dropped.
@@ -148,14 +154,54 @@ public final class NotificationRouter {
     }
 }
 
+/// Whether an iPhone installation can register with APNs. A permission
+/// changed in the iOS Settings app is just as valid as an in-app grant.
+enum APNsRegistrationDecision {
+    static func shouldRegister(push: Bool, authorization: UNAuthorizationStatus) -> Bool {
+        push && [.authorized, .provisional, .ephemeral].contains(authorization)
+    }
+}
+
+/// The scene-based app delegate does not get applicationDidBecomeActive.
+/// Observe UIApplication's foreground notification once and use the exact
+/// same authorization check at launch and on return from iOS Settings.
+@MainActor
+final class APNsActivationObserver {
+    private let center: NotificationCenter
+    private let refresh: @MainActor () -> Void
+    private var token: NSObjectProtocol?
+
+    init(center: NotificationCenter = .default, refresh: @escaping @MainActor () -> Void) {
+        self.center = center
+        self.refresh = refresh
+    }
+
+    func start() {
+        guard token == nil else { return }
+        token = center.addObserver(forName: UIApplication.didBecomeActiveNotification, object: nil, queue: .main) { [weak self] _ in
+            MainActor.assumeIsolated { self?.refresh() }
+        }
+        refresh()
+    }
+
+    func stop() {
+        if let token { center.removeObserver(token) }
+        token = nil
+    }
+}
+
 /// The app delegate: remote-notification registration and notification
 /// presentation, taps and buttons. Notification permission is asked in setup
-/// (or Settings → Notifications); once granted, every launch registers so the
-/// token stays current.
+/// (or Settings → Notifications); on launch and each foreground return,
+/// register whenever the OS currently permits it.
 @MainActor
 public final class CmuxMobileAppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCenterDelegate {
+    private var apnsObserver: APNsActivationObserver?
+
     public func application(_ application: UIApplication, didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]? = nil) -> Bool {
         UNUserNotificationCenter.current().delegate = self
+        // A terminal page turns with the phone.
+        TerminalPageOrientation.shared.onChange = { ScreenSharingOrientation.shared.terminalShown($0) }
         // The App Group resolves once, off the main thread (its lookup is a synchronous XPC).
         PushAppGroup.prime()
         PushReplies.shared.registerCategories()
@@ -163,20 +209,45 @@ public final class CmuxMobileAppDelegate: NSObject, UIApplicationDelegate, UNUse
         ChiefAlerts.shared.macPushesReplies = { PushRegistration.shared.receivesChiefPushes }
         // A cmux link tapped in a chat, the Feed or Chief opens here, not in Safari.
         CmuxLinkOpener.shared.handler = { NotificationRouter.shared.open(link: $0) }
+        // Mute Chat Notifications: the chats muted on this phone, in the store the notification
+        // extension reads. One task off the main thread reads the list, then writes each change
+        // in order (only the newest waiting one), so a quick mute and unmute ends as the person left it.
+        let mutes = PushChatMutes.live()
+        let (changes, saving) = AsyncStream<Set<String>>.makeStream(bufferingPolicy: .bufferingNewest(1))
+        ChatMuteList.shared.save = { saving.yield($0) }
+        Task.detached(priority: .utility) {
+            let stored = mutes.muted()
+            await MainActor.run { ChatMuteList.shared.load(stored) }
+            for await keys in changes { mutes.save(keys) }
+        }
         #if DEBUG && targetEnvironment(simulator)
         SimulatedServiceExtension.deliverIfAsked()
         SimulatedServiceExtension.registerStandInTokenIfAsked()
         #endif
-        Task {
-            let status = await UNUserNotificationCenter.current().notificationSettings().authorizationStatus
-            if BuildCapabilities.current.push, [.authorized, .provisional, .ephemeral].contains(status) { application.registerForRemoteNotifications() }
-        }
+        // Returning from iOS Settings can be the *first* time permission is on
+        // in this process. Registration is idempotent and refreshes the token.
+        let observer = APNsActivationObserver { [weak self] in self?.registerPushIfAllowed() }
+        apnsObserver = observer
+        observer.start()
         return true
     }
 
-    /// Portrait everywhere but a Mac's shared screen, which turns with the phone.
+    private func registerPushIfAllowed() {
+        guard BuildCapabilities.current.push else { return }
+        Task { @MainActor in
+            let status = await UNUserNotificationCenter.current().notificationSettings().authorizationStatus
+            let registers = APNsRegistrationDecision.shouldRegister(push: true, authorization: status)
+            log.info("APNs: authorization \(status.rawValue, privacy: .public), asks for a token: \(registers, privacy: .public)")
+            if registers {
+                UIApplication.shared.registerForRemoteNotifications()
+            }
+        }
+    }
+
+    /// Portrait on a phone's screen everywhere but a Mac's shared screen, which turns with the
+    /// phone; an unfolded foldable's screen turns everywhere.
     public func application(_ application: UIApplication, supportedInterfaceOrientationsFor window: UIWindow?) -> UIInterfaceOrientationMask {
-        ScreenSharingOrientation.shared.allowed
+        ScreenSharingOrientation.shared.allowed(in: window)
     }
 
     public func application(_ application: UIApplication, didRegisterForRemoteNotificationsWithDeviceToken deviceToken: Data) {
@@ -194,8 +265,15 @@ public final class CmuxMobileAppDelegate: NSObject, UIApplicationDelegate, UNUse
     public nonisolated func userNotificationCenter(_ center: UNUserNotificationCenter, willPresent notification: UNNotification,
                                                    withCompletionHandler completionHandler: @escaping @Sendable (UNNotificationPresentationOptions) -> Void) {
         let route = NotificationRoute(userInfo: notification.request.content.userInfo)
+        let payload = PushPayload(userInfo: notification.request.content.userInfo)
+        let chatMac = payload?.kind == .chief || payload?.kind == .terminal ? nil : payload?.mac
+        let chatSession = payload?.sessionId
         Task { @MainActor in
             let showing = route.map { NotificationRouter.shared.isShowing($0) } ?? false
+            // A chat muted on this phone (Mute Chat Notifications): into Notification Center only.
+            if let chatMac, let chatSession, ChatMuteList.shared.isMuted(mac: chatMac, session: chatSession) {
+                return completionHandler(showing ? [] : [.list])
+            }
             completionHandler(showing ? [] : [.banner, .list, .sound])
         }
     }
@@ -210,6 +288,12 @@ public final class CmuxMobileAppDelegate: NSObject, UIApplicationDelegate, UNUse
     /// NotificationDelegateThreadTests fails if the handler leaves the main thread.
     public nonisolated func userNotificationCenter(_ center: UNUserNotificationCenter, didReceive response: UNNotificationResponse,
                                                    withCompletionHandler completionHandler: @escaping @Sendable () -> Void) {
+        #if DEBUG
+        // The probe's trigger (OpenMarks, LaunchTTIOpenPathsUITests): the tap reached the app.
+        if response.actionIdentifier == UNNotificationDefaultActionIdentifier {
+            Task { @MainActor in OpenMarks.shared?.begin("notification_tap") }
+        }
+        #endif
         // Only Sendable values cross to the main actor.
         let content = response.notification.request.content
         let userInfo = content.userInfo
@@ -243,8 +327,11 @@ public final class CmuxMobileAppDelegate: NSObject, UIApplicationDelegate, UNUse
         // Reply sends what the long look's "+" attached to this notification with its text.
         let requestID = response.notification.request.identifier
         let reply = response.actionIdentifier == PushAction.reply.identifier
+        let opened = response.actionIdentifier == UNNotificationDefaultActionIdentifier
         Task { @MainActor in
             if reply { read.attachments = await PushReplies.stagedAttachments(for: requestID) }
+            // An option row, Submit or answer in the long look of a build without the App Group.
+            if opened { read.handover = await PushReplies.handedOver(for: requestID) }
             await PushReplies.shared.handle(read)
             completionHandler()
         }
@@ -261,6 +348,7 @@ final class LiveDeviceDirectory: SettingsDeviceDirectory {
     }
 
     var relayAvailable: Bool? { live?.relayAvailable }
+    var terminalSizingPeers: TerminalSizingPeers? { live?.terminalSizingPeers }
 
     struct NotSignedIn: Error {}
 
@@ -268,7 +356,7 @@ final class LiveDeviceDirectory: SettingsDeviceDirectory {
 
     /// The service's devices, a phone's link and presence ids folded into one row.
     func devices() async throws -> [SettingsDevice] {
-        guard let live else { return [] }
+        guard let live else { throw NotSignedIn() }
         let all = try await live.myDevices()
         let own = live.ownDeviceIDs
         var out: [SettingsDevice] = []
@@ -311,11 +399,6 @@ final class LiveDeviceDirectory: SettingsDeviceDirectory {
     func removeThisPhoneFromMacs() async {
         await live?.removeThisPhoneFromMacs()
     }
-
-    func openPairingCode(_ text: String) -> Bool {
-        guard let live, let invite = PairInvite(text: text) else { return false }
-        return live.accept(invite)
-    }
 }
 #endif
 
@@ -348,5 +431,15 @@ final class MockDeviceDirectory: SettingsDeviceDirectory {
     func deleteAccountData() async throws {}
 
     func removeThisPhoneFromMacs() async {}
+
+    /// The mock account's Macs as Screen Sharing lists them: each once, sharing its screen,
+    /// online as Devices shows it.
+    static func hubDevices(_ macs: [MacDevice]) -> [HubDevice] {
+        macs.reduce(into: [HubDevice]()) { out, mac in
+            guard !out.contains(where: { $0.id == mac.id }) else { return }
+            out.append(HubDevice(id: mac.id, name: mac.name, platform: .macos, lastSeenAt: mac.lastSeenAt,
+                                 macScreenShared: true, online: mac.isOnline))
+        }
+    }
 }
 #endif

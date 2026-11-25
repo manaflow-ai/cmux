@@ -2,7 +2,7 @@
 //! each file's patch cut to a byte budget.
 
 use std::collections::{HashMap, HashSet};
-use std::fs::{File, OpenOptions};
+use std::fs::File;
 use std::io::Read;
 use std::path::{Component, Path};
 
@@ -11,6 +11,7 @@ use cmux_git::diff::{Comparison, ScopeError, diff_args, untracked_args};
 use cmux_git::run::{GitOutput, GitWindow};
 use serde_json::{Map, Value, json};
 
+use super::work_tree_entry::Tree;
 use super::{Repository, clamp, git_failed, parse};
 use crate::resource::{ResourceError, WireDecimal};
 use cmux_json::JsonSet as _;
@@ -24,10 +25,6 @@ const MAX_PATCH_OUTPUT_BYTES: usize = 16 * 1024 * 1024;
 const MAX_REPLY_PATCH_BYTES: usize = 8 * 1024 * 1024;
 /// Paths per patch run, so a long file list never exceeds the argument limit.
 const PATCH_BATCH: usize = 256;
-/// Untracked files are read to count their lines; past this many the rest
-/// are left out and counted in `untracked_skipped`.
-const MAX_UNTRACKED_FILES: usize = 200;
-const MAX_UNTRACKED_FILE_BYTES: u64 = 2 * 1024 * 1024;
 /// git's own test for a binary file: a NUL in the first 8000 bytes.
 const BINARY_PROBE_BYTES: usize = 8000;
 /// Base64 keeps arbitrary UTF-8 boundaries intact across bounded replies.
@@ -107,7 +104,9 @@ fn capture_key(
         limit(fields, "context_lines", 3).min(MAX_CONTEXT_LINES),
         scope,
         fields.get("from"),
-        fields.get("to")
+        fields.get("to"),
+        fields.get("base"),
+        fields.get("head")
     ])
     .to_string())
 }
@@ -180,8 +179,41 @@ pub(super) fn read(
     if let Some(value) = continuation(repository, fields, OPERATION)? {
         return Ok(value);
     }
-    let comparison = comparison(repository, scope)?;
+    let comparison = match scope {
+        "commits" => commits(repository, fields)?,
+        scope => comparison(repository, scope)?,
+    };
     report(repository, &comparison, OPERATION, fields, json!({"scope":scope}))
+}
+
+/// The commits scope: `head` against its merge base with `base`, both full
+/// commit ids the repository already has (a pull request's head and base, read
+/// with no fetch). A missing one is `commit_missing`, so the caller reads the
+/// diff elsewhere.
+fn commits(
+    repository: &Repository,
+    fields: &Map<String, Value>,
+) -> Result<Comparison, ResourceError> {
+    let field = |name: &'static str| {
+        fields.get(name).and_then(Value::as_str).ok_or_else(|| {
+            ResourceError::validation_invalid(Some(name), "the commits scope needs base and head")
+        })
+    };
+    let (base, head) = (field("base")?, field("head")?);
+    cmux_git::diff::commits(repository, base, head).map_err(|error| match error {
+        ScopeError::MissingCommit { commit } => ResourceError::operation_failed(
+            OPERATION,
+            format!("the repository has no commit {commit}"),
+            json!({"code":"commit_missing","commit":commit}),
+        ),
+        ScopeError::NoMergeBase { .. } => ResourceError::operation_failed(
+            OPERATION,
+            format!("{base} and {head} have no common commit"),
+            json!({"code":"no_merge_base","base":base}),
+        ),
+        ScopeError::Git(failure) => git_failed(OPERATION, &failure),
+        other => ResourceError::validation_invalid(Some("scope"), other.to_string()),
+    })
 }
 
 /// One tree against another.
@@ -239,7 +271,6 @@ fn report(
     }
 
     let mut files = tracked(repository, comparison, operation, &paths)?;
-    let mut untracked_skipped = 0;
     if comparison.untracked {
         let listing = git(repository, operation, &untracked_args(&paths), MAX_LISTING_BYTES)?;
         let mut names = parse::file_list(&listing.stdout);
@@ -247,9 +278,9 @@ fn report(
             // The last name may be cut short.
             names.pop();
         }
-        untracked_skipped = names.len().saturating_sub(MAX_UNTRACKED_FILES);
-        let counted = names.into_iter().take(MAX_UNTRACKED_FILES);
-        files.extend(counted.map(|name| untracked(&repository.root, name)));
+        // One set of open folders for the listing: its names are in order.
+        let mut tree = Tree::open(&repository.root);
+        files.extend(names.into_iter().map(|name| untracked(tree.as_mut(), name)));
     }
     files.sort_by(|left, right| left.path.cmp(&right.path));
     let additions = files.iter().map(|file| file.additions).sum::<u64>();
@@ -259,6 +290,10 @@ fn report(
         files.retain(|file| file.path.as_str() > after_path);
     }
     let page_files = files.len();
+    // The commit preview uses this warning before staging all untracked files.
+    // Count only this page's omissions: every one is available via next_path.
+    let untracked_skipped =
+        files.iter().skip(max_files).filter(|file| file.status == "untracked").count();
     files.truncate(max_files);
     let files_omitted = page_files - files.len();
     let wants_patch = include_patch && page_offset.is_none() && comparison.revisions.is_some();
@@ -425,6 +460,11 @@ fn comparison(repository: &Repository, scope: &str) -> Result<Comparison, Resour
             format!("HEAD and {base} have no common commit"),
             json!({"code":"no_merge_base","base":base}),
         ),
+        ScopeError::MissingCommit { commit } => ResourceError::operation_failed(
+            OPERATION,
+            format!("the repository has no commit {commit}"),
+            json!({"code":"commit_missing","commit":commit}),
+        ),
         ScopeError::Git(failure) => git_failed(OPERATION, &failure),
     })
 }
@@ -545,36 +585,45 @@ fn returned_paths(files: &[ChangedFile]) -> Vec<String> {
         .collect()
 }
 
-/// An untracked file counts its lines as additions; a binary, special or
-/// large one counts none.
-fn untracked(root: &Path, path: String) -> ChangedFile {
+/// Count every text line without retaining the file. Binary and special files
+/// count none, and so does a file that is not in the work tree `tree` any
+/// more; the binary probe has the same 8000-byte scope as git.
+fn untracked(tree: Option<&mut Tree>, path: String) -> ChangedFile {
     let mut file = ChangedFile::new(path, "untracked");
-    let Some(handle) = open_regular(&root.join(&file.path)) else { return file };
-    let mut bytes = Vec::new();
-    if handle.take(MAX_UNTRACKED_FILE_BYTES).read_to_end(&mut bytes).is_err() {
-        return file;
+    let opened = tree.and_then(|tree| open_regular(tree, Path::new(&file.path)));
+    let Some(mut handle) = opened else { return file };
+    let mut buffer = [0_u8; 32 * 1024];
+    let mut probe_remaining = BINARY_PROBE_BYTES;
+    let mut newlines = 0_u64;
+    let mut last = None;
+    loop {
+        let read = match handle.read(&mut buffer) {
+            Ok(0) => break,
+            Ok(read) => read,
+            Err(error) if error.kind() == std::io::ErrorKind::Interrupted => continue,
+            Err(_) => return file,
+        };
+        let Some(bytes) = buffer.get(..read) else { return file };
+        let probe = probe_remaining.min(read);
+        if bytes.get(..probe).is_some_and(|prefix| prefix.contains(&0)) {
+            file.binary = true;
+            return file;
+        }
+        probe_remaining -= probe;
+        newlines += bytes.iter().filter(|byte| **byte == b'\n').count() as u64;
+        last = bytes.last().copied();
     }
-    if bytes[..bytes.len().min(BINARY_PROBE_BYTES)].contains(&0) {
-        file.binary = true;
-        return file;
-    }
-    let newlines = bytes.iter().filter(|byte| **byte == b'\n').count() as u64;
-    file.additions = newlines + u64::from(!bytes.is_empty() && !bytes.ends_with(b"\n"));
+    file.additions = newlines + u64::from(last.is_some_and(|byte| byte != b'\n'));
     file
 }
 
-/// Opens a regular file without following a link or waiting on a FIFO.
-fn open_regular(path: &Path) -> Option<File> {
-    let mut options = OpenOptions::new();
-    options.read(true);
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::OpenOptionsExt;
-        options.custom_flags(libc::O_NONBLOCK | libc::O_NOFOLLOW);
-    }
-    let handle = options.open(path).ok()?;
-    let metadata = handle.metadata().ok()?;
-    (metadata.is_file() && metadata.len() <= MAX_UNTRACKED_FILE_BYTES).then_some(handle)
+/// Opens a regular file of the work tree without following a link, at its
+/// name or at a folder above it, and without waiting on a FIFO. Read its
+/// initial extent so concurrent appends cannot keep this request running.
+fn open_regular(tree: &mut Tree, path: &Path) -> Option<std::io::Take<File>> {
+    let handle = tree.entry(path).ok()?.open_file().ok()?;
+    let length = handle.metadata().ok()?.len();
+    Some(handle.take(length))
 }
 
 /// The request's paths, which must stay inside the repository.

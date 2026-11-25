@@ -9,9 +9,10 @@ public struct TabHoverFacts: Hashable, Sendable {
         case other, terminal, browser, agentChat
     }
 
-    /// What the tab is doing, as its card words it.
+    /// What the tab is doing, as its card words it. `done`: a subagent pane's subagent finished
+    /// (`SubagentTabFacts`).
     public enum Activity: Hashable, Sendable {
-        case working, needsInput, idle, failed, running
+        case working, needsInput, idle, failed, running, done
     }
 
     public var kind: Kind = .other
@@ -26,6 +27,9 @@ public struct TabHoverFacts: Hashable, Sendable {
     /// any output is known; nil while it runs a command, for an agent and for a shell the daemon
     /// reports no prompt for.
     public var lastOutput: Date?
+    /// The name an agent chat's session had before its current one (acpmux `formerNames`' newest): the card's
+    /// title reads "Mango — fka claude-sr2-coord" (Leo: "BUT WHO IS MANGO?"). Nil for a tab the person named.
+    public var formerName: String?
 
     public init(kind: Kind = .other, activity: Activity? = nil, since: Date? = nil, model: String? = nil,
                 branch: String? = nil, lastOutput: Date? = nil) {

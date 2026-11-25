@@ -47,7 +47,7 @@ use cmux_json::JsonSet as _;
 mod agent_launch;
 pub(crate) use agent_launch::{
     AGENT_JOB_ENV_KEYS, AgentLaunch, account_env_key, agent_launch_from_job,
-    job_is_non_interactive, kept_agent_args, resumable_harness,
+    job_is_non_interactive, kept_agent_args, kept_wrapper, resumable_harness,
 };
 
 /// The environment keys a relaunch record keeps, by exact name.
@@ -452,6 +452,9 @@ impl WorkspaceRegistry {
                     record[NON_INTERACTIVE] = json!(true);
                 } else if let Some(launch) = kept {
                     record.set("args", json!(launch.args));
+                    if !launch.wrapper.is_empty() {
+                        record.set("wrapper", json!(launch.wrapper));
+                    }
                     record.set(
                         "env",
                         Value::Object(
@@ -468,12 +471,13 @@ impl WorkspaceRegistry {
             Some(_) => return Ok(()),
             None => None,
         };
+        // Each agent hook reports its session again: only a different record is written.
         self.connection.get().execute(
             "UPDATE terminal_relaunch SET agent_json = ?2, updated_at_ms = ?3
              WHERE terminal_id = (
                SELECT terminal_id FROM resource_terminals
                WHERE public_id = ?1 AND deleted_revision IS NULL
-             )",
+             ) AND agent_json IS NOT ?2",
             params![terminal_public_id, agent, now_ms()?],
         )?;
         Ok(())
@@ -537,7 +541,15 @@ fn stored_agent_launch(agent: &Value) -> Option<AgentLaunch> {
         .filter(|(_, dir)| Path::new(dir).is_absolute() && !dir.chars().any(char::is_control))
         .map(|(key, dir)| vec![(key.to_string(), dir.to_string())])
         .unwrap_or_default();
-    Some(AgentLaunch { args, env })
+    let wrapper = agent
+        .get("wrapper")
+        .and_then(Value::as_array)
+        .and_then(|words| {
+            words.iter().map(|word| word.as_str().map(str::to_string)).collect::<Option<Vec<_>>>()
+        })
+        .map(|words| kept_wrapper(harness, &words, None))
+        .unwrap_or_default();
+    Some(AgentLaunch { args, env, wrapper })
 }
 
 /// The relaunch fields a closed tab keeps for the terminal `terminal_public_id`.

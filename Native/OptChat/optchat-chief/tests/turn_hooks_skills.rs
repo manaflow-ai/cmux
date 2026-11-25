@@ -126,13 +126,19 @@ fn a_chief_turn_keeps_the_named_hooks_skills_and_agent_memory() {
             json!(true),
             "{name}: {settings}"
         );
+        let (rights, named) = split_rights_hooks(&settings["hooks"]);
         assert_eq!(
-            settings["hooks"],
+            named,
             json!({
                 "PreToolUse": [{"matcher": "Bash", "hooks": [guard]}],
                 "UserPromptSubmit": [{"hooks": [log]}]
             }),
             "{name}: only the named hooks"
+        );
+        assert_eq!(
+            rights,
+            ["PostToolUse post", "PreToolUse pre"],
+            "{name}: the rights hook"
         );
     }
     let skills = paths.session.join(".claude").join("skills");
@@ -151,8 +157,11 @@ fn a_chief_turn_keeps_the_named_hooks_skills_and_agent_memory() {
     std::fs::write(&config, "{}").unwrap();
     write(&paths, &setup).unwrap();
     let settings = read("settings.json");
-    assert_eq!(settings["disableAllHooks"], json!(true), "{settings}");
-    assert!(settings.get("hooks").is_none(), "{settings}");
+    // Only the rights hook (rights.rs) is on.
+    assert_eq!(settings["disableAllHooks"], json!(false), "{settings}");
+    let (rights, named) = split_rights_hooks(&settings["hooks"]);
+    assert_eq!(named, json!({}), "{settings}");
+    assert_eq!(rights, ["PostToolUse post", "PreToolUse pre"]);
     assert!(
         std::fs::symlink_metadata(skills.join("guard-skill")).is_err(),
         "a skill no longer named loses its link"
@@ -161,4 +170,38 @@ fn a_chief_turn_keeps_the_named_hooks_skills_and_agent_memory() {
     std::fs::create_dir_all(skills.join("own")).unwrap();
     write(&paths, &setup).unwrap();
     assert!(skills.join("own").is_dir());
+
+    // OPTCHAT_RIGHTS=0: no rights hook, and hooks off as before (the only
+    // test in this binary, so the variable reaches no other test).
+    // SAFETY: no other thread of this test binary reads the environment now.
+    unsafe { std::env::set_var("OPTCHAT_RIGHTS", "0") };
+    write(&paths, &setup).unwrap();
+    unsafe { std::env::remove_var("OPTCHAT_RIGHTS") };
+    let settings = read("settings.json");
+    assert_eq!(settings["disableAllHooks"], json!(true), "{settings}");
+    assert!(settings.get("hooks").is_none(), "{settings}");
+}
+
+/// The rights hook's groups (`"<event> <phase>"`, sorted) and every other
+/// hook group by event (events left empty dropped).
+fn split_rights_hooks(hooks: &Value) -> (Vec<String>, Value) {
+    let mut rights = Vec::new();
+    let mut named = serde_json::Map::new();
+    for (event, groups) in hooks.as_object().into_iter().flatten() {
+        let mut kept = Vec::new();
+        for group in groups.as_array().into_iter().flatten() {
+            let command = group["hooks"][0]["command"].as_str().unwrap_or("");
+            if let Some(rest) = command.split(" rights-hook ").nth(1) {
+                assert_eq!(group["matcher"], "*");
+                rights.push(format!("{event} {}", rest.split(' ').next().unwrap_or("")));
+            } else {
+                kept.push(group.clone());
+            }
+        }
+        if !kept.is_empty() {
+            named.insert(event.clone(), Value::Array(kept));
+        }
+    }
+    rights.sort();
+    (rights, Value::Object(named))
 }

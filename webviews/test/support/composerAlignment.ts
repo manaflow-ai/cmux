@@ -1,6 +1,7 @@
 // Shared measurement for the composer's alignment tests (composer-alignment-centers.test.ts and
 // composer-alignment-measure.test.ts). Runs in the page: every control's drawn box and the
 // centers of what it draws, in CSS pixels of the viewport.
+import { COMPOSER_MD_FIELD, PLUS_PICKER } from "../../src/agent-session/acpmux/composerSelectors";
 
 export type Center = { left: number; right: number; top: number; bottom: number; cx: number; cy: number };
 
@@ -11,6 +12,7 @@ export type ComposerAlignment = {
   plusGlyph: Center | null;
   /// The placeholder's drawn text (the caret's line in an empty prompt).
   placeholder: Center | null;
+  placeholderOptical: { baseline: number; capHeight: number; cy: number; inkLeft: number } | null;
   /// The mic button and its glyph; Send's button when a draft shows it.
   mic: Center | null;
   micGlyph: Center | null;
@@ -29,8 +31,14 @@ export type ComposerAlignment = {
   dom: Record<string, string>;
 };
 
+/** The composer's parts measureComposerAlignment finds; pass it as the page function's argument. */
+export const ALIGNMENT_SELECTORS = { PLUS_PICKER, COMPOSER_MD_FIELD };
+
 /** Runs in the page. */
-export function measureComposerAlignment(): ComposerAlignment {
+export function measureComposerAlignment({
+  PLUS_PICKER,
+  COMPOSER_MD_FIELD,
+}: typeof ALIGNMENT_SELECTORS): ComposerAlignment {
   const boxOf = (element: Element | null | undefined): Center | null => {
     if (!element) return null;
     const rect = element.getBoundingClientRect();
@@ -62,10 +70,31 @@ export function measureComposerAlignment(): ComposerAlignment {
   };
   const q = <T extends Element = HTMLElement>(selector: string): T | null => document.querySelector<T>(selector);
   const box = q(".acpmux-composer-box");
-  const plus = q(".acpmux-composer-plus .acpmux-picker-button");
+  const plus = q(PLUS_PICKER);
   const plusGlyph = plus?.querySelector("svg") ?? null;
   const placeholder = q(".acpmux-composer-box .acpmux-md-placeholder");
   const placeholderText = placeholder?.querySelector(".acpmux-md-placeholder-text") ?? placeholder;
+  const opticalOf = (element: Element | null | undefined) => {
+    if (!element) return null;
+    const style = getComputedStyle(element);
+    const canvas = document.createElement("canvas").getContext("2d")!;
+    canvas.font = style.font;
+    const capHeight = canvas.measureText("H").actualBoundingBoxAscent;
+    const marker = document.createElement("span");
+    marker.style.cssText = "display:inline-block;width:0;height:0;vertical-align:baseline";
+    element.prepend(marker);
+    const baseline = marker.getBoundingClientRect().top;
+    marker.remove();
+    const rect = textOf(element)!;
+    const firstCodePoint = (element.textContent ?? "").codePointAt(0);
+    const first = firstCodePoint === undefined ? "" : String.fromCodePoint(firstCodePoint);
+    return {
+      baseline,
+      capHeight,
+      cy: baseline - capHeight / 2,
+      inkLeft: rect.left - canvas.measureText(first).actualBoundingBoxLeft,
+    };
+  };
   const mic = q(".acpmux-composer-box .acpmux-mic");
   const micGlyph = mic?.querySelector("svg") ?? null;
   const send = q(".acpmux-composer-box .acpmux-send");
@@ -96,10 +125,18 @@ export function measureComposerAlignment(): ComposerAlignment {
   const bar = q(".acpmux-composer-box .acpmux-composer-bar");
   const plusRoot = q(".acpmux-composer-bar .acpmux-composer-plus");
   const fieldMenu = q(".acpmux-composer-box > .acpmux-composer-field-menu");
-  const field = q(".acpmux-composer-box .acpmux-md-field");
+  const field = q(COMPOSER_MD_FIELD);
   const actions = q(".acpmux-composer-box .acpmux-composer-actions");
   const dom: Record<string, string> = {
     boxClass: box?.className ?? "",
+    placeholderText: placeholderText?.textContent ?? "",
+    placeholderFont: css(placeholderText, "font"),
+    placeholderLineHeight: css(placeholderText, "line-height"),
+    placeholderClass: placeholder?.className ?? "",
+    placeholderTop: css(placeholder, "top"),
+    placeholderLeft: css(placeholder, "left"),
+    fieldPadding: css(field, "padding"),
+    boxRadius: css(box, "border-radius"),
     boxDisplay: css(box, "display"),
     boxGridColumns: css(box, "grid-template-columns"),
     boxKids: kids(box),
@@ -159,6 +196,7 @@ export function measureComposerAlignment(): ComposerAlignment {
     plusButton: boxOf(plus),
     plusGlyph: boxOf(plusGlyph),
     placeholder: textOf(placeholderText),
+    placeholderOptical: opticalOf(placeholderText),
     mic: boxOf(mic),
     micGlyph: boxOf(micGlyph),
     send: boxOf(send),

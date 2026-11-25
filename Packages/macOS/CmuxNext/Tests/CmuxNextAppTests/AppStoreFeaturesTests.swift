@@ -22,7 +22,7 @@ import Testing
         try FileManager.default.createDirectory(at: home, withIntermediateDirectories: true)
         let url = home.appending(path: "cmux-next.json")
         try Data(json.utf8).write(to: url)
-        let settings = SettingsController(registry: ActionRegistry(catalog: []), design: DesignSettings(), fileURL: url,
+        let settings = SettingsController(writer: TestSettingsWriter(), registry: ActionRegistry(catalog: []), design: DesignSettings(), fileURL: url,
                                           managedReader: FixedManagedPreferenceReader(ManagedPreferences(recommended: recommended)), managedWatchFiles: [])
         await settings.reload()
         return (settings, home)
@@ -56,7 +56,10 @@ import Testing
             // A choice that is on by default could not be turned off by Remove (it clears the key);
             // a default-on toggle (Now Playing on New Tab) is written false instead.
             if case .choice = feature.on {
-                #expect(descriptor.effectiveValue(in: .object([:])) != SettingsAppFeatures.onValue(feature),
+                let defaultOn = descriptor.effectiveValue(in: .object([:])) == SettingsAppFeatures.onValue(feature)
+                // Default density (`cozy`) is the appearance default. It is still listed as a card so
+                // the complete built-in density family is discoverable; clearing it keeps that default.
+                #expect(!defaultOn || feature.id == "appearance.cozy",
                         "\(feature.id) is on by default, so Remove could not turn it off")
             }
         }
@@ -66,11 +69,13 @@ import Testing
     /// are landed keys, so the tab lists them, each under its own category chip.
     @Test func theOffByDefaultSettingsHaveCardsInTheirCategories() throws {
         let expected: [String: AppFeature.Category] = [
-            "appearance.ultraCompact": .appearance, "appearance.calm": .appearance,
+            "appearance.ultraCompact": .appearance, "appearance.compact": .appearance,
+            "appearance.cozy": .appearance, "appearance.comfortable": .appearance,
+            "appearance.spacious": .appearance, "appearance.calm": .appearance,
             "appearance.brailleStatus": .appearance, "appearance.runningCommands": .appearance,
             "chief.suggestedTasks": .chief, "chief.githubFeed": .chief, "chat.needsYou": .chief,
             "editor.splitDiff": .editor, "editor.minimap": .editor,
-            "devices.phoneAccess": .devices, "devices.globalHotKey": .devices,
+            "devices.globalHotKey": .devices,
         ]
         let bridge = SettingsAppFeatures(settings: { nil })
         for (id, category) in expected {
@@ -201,6 +206,18 @@ import Testing
             return
         }
         let wasOn = bridge.isOn(feature)
+        // Default density (`cozy`) is the default choice. Removing its explicit key leaves the same
+        // effective value, so there is no off state to exercise while preserving that default.
+        if id == "appearance.cozy" && wasOn {
+            try await bridge.set(feature, on: false)
+            #expect(bridge.isOn(feature))
+            // A write of the default stores nothing (#38119, Leo 2026-11-08: "if I'm on the defaults and
+            // the defaults get changed, that should reflect into stuff"), so the card stays on with no
+            // density key in the file, and the person keeps following the default.
+            #expect(settings.fileRoot.value(at: feature.path) == nil)
+            #expect(Self.leafKeys(settings.fileRoot).isEmpty, "\(id) left \(Self.leafKeys(settings.fileRoot)) in the file")
+            return
+        }
         try await bridge.set(feature, on: !wasOn)
         #expect(bridge.isOn(feature) == !wasOn)
         #expect(Self.leafKeys(settings.fileRoot) == [feature.setting], "\(id) wrote another key")

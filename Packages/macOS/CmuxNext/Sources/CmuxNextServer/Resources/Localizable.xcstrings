@@ -9039,6 +9039,402 @@
           }
         }
       }
+    },
+    "refusal.startFailed": {
+      "comment": "Refusal when turning the local cmux server on failed.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Could not start the server. Run `cmux server up` in a terminal to see why."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "サーバーを開始できませんでした。理由を確認するには、ターミナルで `cmux server up` を実行してください。"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "تعذّر تشغيل الخادم. شغّل `cmux server up` في الطرفية لمعرفة السبب."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Server nije moguće pokrenuti. Pokrenite `cmux server up` u terminalu da vidite zašto."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Serveren kunne ikke startes. Kør `cmux server up` i en terminal for at se hvorfor."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Der Server konnte nicht gestartet werden. Führe `cmux server up` in einem Terminal aus, um den Grund zu sehen."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "No se pudo iniciar el servidor. Ejecuta `cmux server up` en una terminal para ver el motivo."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Impossible de démarrer le serveur. Exécutez `cmux server up` dans un terminal pour en voir la raison."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Impossibile avviare il server. Esegui `cmux server up` in un terminale per vedere il motivo."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "មិនអាចចាប់ផ្តើមម៉ាស៊ីនមេបានទេ។ ដំណើរការ `cmux server up` ក្នុងទែមីណាល់ ដើម្បីមើលមូលហេតុ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "서버를 시작할 수 없습니다. 이유를 보려면 터미널에서 `cmux server up`을 실행하세요."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Kunne ikke starte serveren. Kjør `cmux server up` i en terminal for å se hvorfor."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nie można uruchomić serwera. Uruchom `cmux server up` w terminalu, aby zobaczyć przyczynę."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Não foi possível iniciar o servidor. Execute `cmux server up` em um terminal para ver o motivo."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Не удалось запустить сервер. Выполните `cmux server up` в терминале, чтобы узнать причину."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ไม่สามารถเริ่มเซิร์ฟเวอร์ได้ เรียกใช้ `cmux server up` ในเทอร์มินัลเพื่อดูสาเหตุ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Sunucu başlatılamadı. Nedenini görmek için bir terminalde `cmux server up` çalıştırın."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Не вдалося запустити сервер. Виконайте `cmux server up` у терміналі, щоб побачити причину."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Không thể khởi động máy chủ. Chạy `cmux server up` trong terminal để xem lý do."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "无法启动服务器。请在终端中运行 `cmux server up` 查看原因。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "無法啟動伺服器。請在終端機中執行 `cmux server up` 查看原因。"
+          }
+        }
+      }
+    },
+    "refusal.stopFailed": {
+      "comment": "Refusal when turning the local cmux server off failed.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Could not stop the server. Run `cmux server down` in a terminal to see why."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "サーバーを停止できませんでした。理由を確認するには、ターミナルで `cmux server down` を実行してください。"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "تعذّر إيقاف الخادم. شغّل `cmux server down` في الطرفية لمعرفة السبب."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Server nije moguće zaustaviti. Pokrenite `cmux server down` u terminalu da vidite zašto."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Serveren kunne ikke stoppes. Kør `cmux server down` i en terminal for at se hvorfor."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Der Server konnte nicht gestoppt werden. Führe `cmux server down` in einem Terminal aus, um den Grund zu sehen."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "No se pudo detener el servidor. Ejecuta `cmux server down` en una terminal para ver el motivo."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Impossible d'arrêter le serveur. Exécutez `cmux server down` dans un terminal pour en voir la raison."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Impossibile arrestare il server. Esegui `cmux server down` in un terminale per vedere il motivo."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "មិនអាចបញ្ឈប់ម៉ាស៊ីនមេបានទេ។ ដំណើរការ `cmux server down` ក្នុងទែមីណាល់ ដើម្បីមើលមូលហេតុ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "서버를 중지할 수 없습니다. 이유를 보려면 터미널에서 `cmux server down`을 실행하세요."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Kunne ikke stoppe serveren. Kjør `cmux server down` i en terminal for å se hvorfor."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nie można zatrzymać serwera. Uruchom `cmux server down` w terminalu, aby zobaczyć przyczynę."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Não foi possível parar o servidor. Execute `cmux server down` em um terminal para ver o motivo."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Не удалось остановить сервер. Выполните `cmux server down` в терминале, чтобы узнать причину."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ไม่สามารถหยุดเซิร์ฟเวอร์ได้ เรียกใช้ `cmux server down` ในเทอร์มินัลเพื่อดูสาเหตุ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Sunucu durdurulamadı. Nedenini görmek için bir terminalde `cmux server down` çalıştırın."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Не вдалося зупинити сервер. Виконайте `cmux server down` у терміналі, щоб побачити причину."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Không thể dừng máy chủ. Chạy `cmux server down` trong terminal để xem lý do."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "无法停止服务器。请在终端中运行 `cmux server down` 查看原因。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "無法停止伺服器。請在終端機中執行 `cmux server down` 查看原因。"
+          }
+        }
+      }
+    },
+    "refusal.pairStartFailed": {
+      "comment": "Refusal when Show Pairing Code could not start or keep the server pairing.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Could not start pairing. Run `cmux server pair` in a terminal to see why."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ペアリングを開始できませんでした。理由を確認するには、ターミナルで `cmux server pair` を実行してください。"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "تعذّر بدء الاقتران. شغّل `cmux server pair` في الطرفية لمعرفة السبب."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Uparivanje nije moguće pokrenuti. Pokrenite `cmux server pair` u terminalu da vidite zašto."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Parringen kunne ikke startes. Kør `cmux server pair` i en terminal for at se hvorfor."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Die Kopplung konnte nicht gestartet werden. Führe `cmux server pair` in einem Terminal aus, um den Grund zu sehen."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "No se pudo iniciar la vinculación. Ejecuta `cmux server pair` en una terminal para ver el motivo."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Impossible de démarrer l'association. Exécutez `cmux server pair` dans un terminal pour en voir la raison."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Impossibile avviare l'associazione. Esegui `cmux server pair` in un terminale per vedere il motivo."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "មិនអាចចាប់ផ្តើមការផ្គូផ្គងបានទេ។ ដំណើរការ `cmux server pair` ក្នុងទែមីណាល់ ដើម្បីមើលមូលហេតុ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "페어링을 시작할 수 없습니다. 이유를 보려면 터미널에서 `cmux server pair`를 실행하세요."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Kunne ikke starte sammenkoblingen. Kjør `cmux server pair` i en terminal for å se hvorfor."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nie można rozpocząć parowania. Uruchom `cmux server pair` w terminalu, aby zobaczyć przyczynę."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Não foi possível iniciar o pareamento. Execute `cmux server pair` em um terminal para ver o motivo."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Не удалось начать связывание. Выполните `cmux server pair` в терминале, чтобы узнать причину."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ไม่สามารถเริ่มการจับคู่ได้ เรียกใช้ `cmux server pair` ในเทอร์มินัลเพื่อดูสาเหตุ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Eşleme başlatılamadı. Nedenini görmek için bir terminalde `cmux server pair` çalıştırın."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Не вдалося почати під'єднання. Виконайте `cmux server pair` у терміналі, щоб побачити причину."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Không thể bắt đầu ghép nối. Chạy `cmux server pair` trong terminal để xem lý do."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "无法开始配对。请在终端中运行 `cmux server pair` 查看原因。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "無法開始配對。請在終端機中執行 `cmux server pair` 查看原因。"
+          }
+        }
+      }
     }
   },
   "version": "1.0"

@@ -7,7 +7,7 @@ import Testing
 /// Leo 2026-10-28, on the top of the sidebar: "the alignment"; on its glyphs: "i feel like this is misaligned
 /// checkmark :( can we all audit the checkmarks and whatnot"; on the trailing marks: "eg look at this alignment :("
 /// (two blue unread dots right of two red (i) marks). Every leading glyph (a band row's, a pinned row's pin, a
-/// workspace row's icon) centers on one icon column and on its title's center line, and every trailing mark (the
+/// workspace row's icon) starts on one icon column's leading edge and centers on its title's center line, and every trailing mark (the
 /// unread dot, an error, Home's dot) centers on one trailing column.
 @MainActor @Suite(.closesItsWindows, .serialized) struct SidebarIconColumnTests {
     typealias Case = HomePinnedRowAlignmentTests.Case
@@ -82,24 +82,50 @@ import Testing
         return CGPoint(x: CGFloat(minX + maxX + 1) / 2 - half, y: CGFloat(minY + maxY + 1) / 2 - half)
     }
 
-    /// Home's glyph, the pin and a workspace row's icon share one center x.
+    /// Home's glyph starts its height-fitted ink on the optical column's edge (Lucas 2026-11-24) and the narrow pin centers in
+    /// that column (#42431), where a workspace row's icon column starts too
+    /// (https://github.com/manaflow-ai/cmux/issues/38061 lined them up by center; Lawrence 2026-11-09, "home/pin icons not
+    /// left aligned with 'Fix…'", by their left edge, the titles' edge).
     @Test(arguments: HomePinnedRowAlignmentTests.cases)
-    func leadingGlyphsShareOneCenterX(_ c: Case) throws {
+    func leadingGlyphsStartOnOneX(_ c: Case) throws {
         try SidebarGroupRailAlignmentTests.with(c.density, c.minimal) {
             let (list, window) = Self.list(width: c.width)
             defer { window.close() }
             let home = try HomePinnedRowAlignmentTests.item(list, Self.home.id)
             let pin = try HomePinnedRowAlignmentTests.item(list, Self.pinned.id)
             let iconRow = try HomePinnedRowAlignmentTests.row(list, Self.icon)
-            let homeX = Self.center(list, try #require(home.glyphInkFrame, "Home drew no glyph"), in: home).x
-            let pinX = Self.center(list, try #require(pin.pinInkFrame, "the pinned row drew no pin"), in: pin).x
-            let iconX = Self.center(list, iconRow.icon.frame, in: iconRow).x
-            #expect(abs(homeX - iconX) <= Self.tolerance, "\(c.testDescription): Home's glyph centers at \(homeX), a row icon at \(iconX)")
-            #expect(abs(pinX - iconX) <= Self.tolerance, "\(c.testDescription): the pin centers at \(pinX), a row icon at \(iconX)")
+            let homeInk = list.convert(try #require(home.glyphInkFrame, "Home drew no glyph"), from: home)
+            let pinMid = list.convert(try #require(pin.pinInkFrame, "the pinned row drew no pin"), from: pin).midX
+            let columnX = list.convert(home.leadingColumnFrame, from: home).minX
+            let iconColumnX = list.convert(iconRow.icon.frame, from: iconRow).minX
+            let target = SidebarStyle.rowGlyphOpticalSide
+            #expect(abs(homeInk.minX - columnX) <= Self.tolerance,
+                    "\(c.testDescription): Home's ink starts at \(homeInk.minX), its optical column at \(columnX)")
+            #expect(abs(SidebarOpticalGlyph.fittedExtent(homeInk.size) - target) <= Self.tolerance,
+                    "\(c.testDescription): Home's ink keeps the shared optical size")
+            #expect(abs(pinMid - (columnX + target / 2)) <= Self.tolerance,
+                    "\(c.testDescription): the pin centers at \(pinMid), the optical column at \(columnX + target / 2)")
+            #expect(abs(iconColumnX - columnX) <= Self.tolerance, "\(c.testDescription): a row icon's column at \(iconColumnX), Home's at \(columnX)")
         }
     }
 
-    /// Each leading glyph sits on its own title's center line.
+    /// The center line of a title's capitals in the list: the label's baseline less half its cap height, from the
+    /// label's own frame and font, independent of the rows' placement helpers. A title's frame is taller than its
+    /// capitals by the font's ascender and descender, so its frame's middle is off that line by an amount that
+    /// changes with the face (the system font replaced Inter in ab5bc5a1).
+    static func capitalsMidY(_ list: SidebarListView, frame: CGRect, baseline: CGFloat, capHeight: CGFloat, in row: NSView) -> CGFloat {
+        // The rows are flipped: the baseline is `baseline` below the label's top.
+        list.convert(CGPoint(x: frame.midX, y: frame.minY + baseline - capHeight / 2), from: row).y
+    }
+
+    /// The capitals' center line of a band or pinned row's title, in the list.
+    static func capitalsMidY(_ list: SidebarListView, of item: SidebarItemRowView) throws -> CGFloat {
+        let font = try #require(item.title.font)
+        return capitalsMidY(list, frame: item.title.frame, baseline: item.title.firstBaselineOffsetFromTop, capHeight: font.capHeight, in: item)
+    }
+
+    /// Each leading glyph sits on its own title's center line: the line through the middle of its capitals, where
+    /// a row centers its title (#27598).
     @Test(arguments: HomePinnedRowAlignmentTests.cases)
     func leadingGlyphsSitOnTheirTitlesCenterLine(_ c: Case) throws {
         try SidebarGroupRailAlignmentTests.with(c.density, c.minimal) {
@@ -108,18 +134,26 @@ import Testing
             let home = try HomePinnedRowAlignmentTests.item(list, Self.home.id)
             let pin = try HomePinnedRowAlignmentTests.item(list, Self.pinned.id)
             let iconRow = try HomePinnedRowAlignmentTests.row(list, Self.icon)
+            // A marquee title draws its one line from its top, so its baseline is the font's ascender below it.
+            let iconTitle = Self.capitalsMidY(list, frame: iconRow.title.frame, baseline: iconRow.title.font.ascender,
+                                              capHeight: iconRow.title.font.capHeight, in: iconRow)
             let pairs: [(String, CGFloat, CGFloat)] = [
-                ("Home", Self.center(list, try #require(home.glyphInkFrame), in: home).y, Self.center(list, home.titleFrame, in: home).y),
-                ("pin", Self.center(list, try #require(pin.pinInkFrame), in: pin).y, Self.center(list, pin.titleFrame, in: pin).y),
-                ("icon", Self.center(list, iconRow.icon.frame, in: iconRow).y, Self.center(list, iconRow.title.frame, in: iconRow).y),
+                ("Home", Self.center(list, try #require(home.glyphInkFrame), in: home).y, try Self.capitalsMidY(list, of: home)),
+                ("pin", Self.center(list, try #require(pin.pinInkFrame), in: pin).y, try Self.capitalsMidY(list, of: pin)),
+                ("icon", Self.center(list, iconRow.icon.frame, in: iconRow).y, iconTitle),
             ]
+            // Beside a bare glyph (Home's house, a pin) the title drops 0.04 em on the pixel grid, so a mostly lowercase
+            // word sits level with a glyph whose mass is low (Lucas 2026-11-13; SidebarItemRowView's `opticalDrop`).
+            let drop = (SidebarStyle.titleFont.pointSize * 0.04 * 2).rounded() / 2
             for (name, glyph, text) in pairs {
-                #expect(abs(glyph - text) <= Self.tolerance, "\(c.testDescription): \(name) glyph centers at y \(glyph), its title at \(text)")
+                let allowed = name == "icon" ? Self.tolerance : Self.tolerance + drop
+                #expect(abs(glyph - text) <= allowed, "\(c.testDescription): \(name) glyph centers at y \(glyph), its title at \(text)")
             }
         }
     }
 
-    /// The unread dot, an error mark and Home's dot share one trailing center x, each on its row's center line.
+    /// Workspace marks share Home's trailing column (no workspace row has a screen button, ask-035c65b611);
+    /// every mark stays on its row's center line.
     @Test(arguments: HomePinnedRowAlignmentTests.cases)
     func trailingMarksShareOneCenterX(_ c: Case) throws {
         try SidebarGroupRailAlignmentTests.with(c.density, c.minimal) {
@@ -131,7 +165,11 @@ import Testing
             let dot = try Self.markCenter(list, unreadRow.rowBadge), error = try Self.markCenter(list, errorRow.rowBadge)
             let homeDot = try Self.markCenter(list, home.rowBadge)
             #expect(abs(dot.x - error.x) <= Self.tolerance, "\(c.testDescription): the unread dot centers at \(dot.x), the error at \(error.x)")
-            #expect(abs(homeDot.x - error.x) <= Self.tolerance, "\(c.testDescription): Home's dot centers at \(homeDot.x), the error at \(error.x)")
+            for (mark, row) in [(dot, unreadRow), (error, errorRow)] {
+                let column = list.convert(CGPoint(x: SidebarStyle.trailingColumnCenterX(rowWidth: row.bounds.width), y: 0), from: row).x
+                #expect(abs(mark.x - column) <= Self.tolerance, "\(c.testDescription): the status mark sits on the full row's trailing column")
+                #expect(abs(mark.x - homeDot.x) <= Self.tolerance, "\(c.testDescription): the status mark shares Home's trailing column")
+            }
             let rows: [(String, CGPoint, NSView)] = [("unread", dot, unreadRow), ("error", error, errorRow), ("Home", homeDot, home)]
             for (name, mark, row) in rows {
                 let rowMidY = Self.center(list, row.bounds, in: row).y
@@ -173,5 +211,23 @@ import Testing
         // A band row's fill is inset by `horizontalInset` in its frame (`SidebarItemRowView.layoutColumnMark`).
         let rowColumn = itemRow.frame.minX + SidebarStyle.trailingColumnCenterX(rowWidth: itemRow.frame.width - SidebarStyle.horizontalInset)
         #expect(abs(chevronX - rowColumn) <= Self.tolerance, "\(look): the header chevron centers at \(chevronX), its rows' marks at \(rowColumn)")
+    }
+
+    /// Pinned-section titles use the same optical midline as machine headers and row glyphs, at every text size.
+    /// Measure the real label's baseline and cap height, independently of the production positioning helper.
+    @Test(arguments: SidebarDensity.allCases, SidebarTextSize.allCases)
+    func aBandHeaderTitleAndChevronShareTheMidLine(density: SidebarDensity, textSize: SidebarTextSize) throws {
+        try SidebarGroupRailAlignmentTests.with(density, .off, textSize: textSize) {
+            let header = SidebarSectionHeaderView(frame: NSRect(x: 0, y: 0, width: 260, height: SidebarDensityTokens.headerHeight))
+            header.configure(title: "Projects", collapsed: true)
+            header.layout()
+            let label = try #require(header.subviews.compactMap { $0 as? ChromeLabel }.first)
+            let font = try #require(label.font)
+            let inkMidY = label.frame.minY + label.firstBaselineOffsetFromTop - font.capHeight / 2
+            #expect(abs(inkMidY - header.bounds.midY) <= Self.tolerance,
+                    "\(density)/\(textSize): title optical center \(inkMidY), row center \(header.bounds.midY)")
+            #expect(abs(header.chevron.frame.midY - inkMidY) <= Self.tolerance,
+                    "\(density)/\(textSize): title and chevron must share a midline")
+        }
     }
 }

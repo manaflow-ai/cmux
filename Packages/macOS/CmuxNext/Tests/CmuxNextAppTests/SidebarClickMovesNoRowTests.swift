@@ -126,7 +126,7 @@ struct SidebarClickMovesNoRowTests {
     @Test func aMoveChangesTheOrderOnce() {
         let start = Self.sections([1, 2, 3, 4])
         let model = SidebarModel(sections: [])
-        let rows = SidebarRows(model: model)
+        let rows = SidebarRows(model: model, document: { nil })
         var orders: [[String]] = []
         func record() {
             let order = model.sections.flatMap(\.workspaces).map(\.title)

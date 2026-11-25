@@ -1,11 +1,7 @@
 // l10n-allow-file: test fixture prompts, replies, commands and subagent names, not shipped UI.
-// The running turn's line counts the work still going in the background, after Claude's phone
-// app ("Working… · 5 running tasks"): "Read app.ts 3s · 2 subagents · 1 command", on the turn's one
-// live line at its bottom. It counts only
-// subagents still running and background shells that have not ended, each count opens what it
-// counts, and a count never moves the line or the rows under it. That is the presentation with the
-// running tray off (Debug Settings agentPane.debug.subagentTray); with the tray on, the default, the
-// tray above the composer is the count and the line counts nothing. The page is the pane's dev
+// The running tray above the composer is the count of the work still going in the background (the
+// subagents still running and the background shells that have not ended); the turn's one live line
+// at its bottom counts nothing. The page is the pane's dev
 // entry with its browser host, talking JSON-RPC to a stand-in acpmux daemon.
 //
 // Real Chromium from Playwright; CI fails the file when it cannot launch (requireBrowserLane).
@@ -15,6 +11,7 @@ import { chromium, type Browser, type Page } from "playwright";
 import { requireBrowserLane } from "./support/requireBrowserLane";
 import { warmViteServer } from "./support/warmDevServer";
 import { openRunningTray } from "./support/openRunningTray";
+import { CLOCK_ON_LINE, pinArms } from "./support/pinArms";
 
 await requireBrowserLane("agent-pane-working-counts.test.ts", async () => {
   setDefaultTimeout(120_000);
@@ -171,17 +168,15 @@ await requireBrowserLane("agent-pane-working-counts.test.ts", async () => {
     const endpoint = `ws://127.0.0.1:${daemon!.port}/`;
     return `http://127.0.0.1:${port}/#endpoint=${encodeURIComponent(endpoint)}&token=t&session=${session}`;
   };
-  /// The tray off, as the host sends it with the theme, unless `tray`.
-  const open = async (session: string, width = 900, tray = false) => {
+  const open = async (session: string, width = 900) => {
     const page = await browser!.newPage({ viewport: { width, height: 760 } });
+    // The clock beside the line's label, which this file reads with the counts.
+    await pinArms(page, CLOCK_ON_LINE);
     await page.goto(url(session));
     await line(page).waitFor({ timeout: 25_000 });
-    if (!tray)
-      await page.evaluate(() => (window as any).cmuxAcpmuxBridge.applyTheme({ isDark: true, subagentTray: false }));
     return page;
   };
-  // The running turn's one live line at its bottom (Thinking.tsx, Debug toggles codexToolRuns and
-  // liveLineBelow, on by default): it names the read in flight, then the counts.
+  // The running turn's one live line at its bottom (Thinking.tsx): it names the read in flight, then the counts.
   const line = (page: Page) => page.locator(".cv-worked.is-below");
   beforeAll(async () => {
     daemon = Bun.serve({
@@ -222,97 +217,20 @@ await requireBrowserLane("agent-pane-working-counts.test.ts", async () => {
     await daemon?.stop(true);
   });
 
-  test("the line counts the subagents and background shells still running", async () => {
+  test("the line counts nothing: the tray lists the work", async () => {
     const page = await open(BUSY);
-    // The Linter finished and the watcher stopped: neither counts.
-    expect((await line(page).innerText()).replace(/\s+/g, " ").trim()).toMatch(
-      /^Read [^·]+ · 2 subagents · 1 command$/,
-    );
-    await page.close();
-    const plain = await open(QUIET);
-    expect((await line(plain).innerText()).replace(/\s+/g, " ").trim()).toMatch(/^Read [^·]+$/);
-    await plain.close();
-  });
-
-  test("with the tray on, the line counts nothing: the tray lists the same work", async () => {
-    const page = await open(BUSY, 900, true);
     const tray = page.locator(".acpmux-running-tray");
     await tray.waitFor({ timeout: 5_000 });
     // It starts folded to its header (cmux#28875); the person opens it.
     await openRunningTray(page);
-    // What runs is listed first; the Linter that ended stays as a finished card under it
-    // (49acdd1d589d keeps finished cards mounted in the tray).
+    // What runs is listed first, newest first (#33364: Tester started after Reviewer); the Linter
+    // that ended stays as a finished card under it (49acdd1d589d keeps finished cards mounted in the tray).
     const lines = await tray
       .locator("li:not([data-finished]) .acpmux-agent-line .acpmux-summary-agent__name")
       .allInnerTexts();
-    expect(lines).toEqual(["Reviewer", "Tester", "npm run dev"]);
+    expect(lines).toEqual(["Tester", "Reviewer", "npm run dev"]);
     expect(await tray.locator("li[data-finished] .acpmux-summary-agent__name").allInnerTexts()).toEqual(["Linter"]);
-    expect((await line(page).innerText()).replace(/\s+/g, " ").trim()).toMatch(/^Read [^·]+$/);
-    await page.close();
-  });
-
-  test("a count moves nothing: the line keeps its box and its label stays put", async () => {
-    for (const width of [900, 420]) {
-      const measure = async (session: string) => {
-        const page = await open(session, width);
-        const box = await line(page).evaluate((node) => {
-          const label = node.querySelector(".cv-thinking")!.getBoundingClientRect();
-          const row = node.getBoundingClientRect();
-          const style = getComputedStyle(node);
-          const px = (name: string) => parseFloat(style.getPropertyValue(name));
-          return {
-            height: row.height,
-            labelLeft: label.left - row.left,
-            labelHeight: label.height,
-            // The line's box is one meta row plus the turn gap it reserves under it (625f2e3d1b32).
-            oneLine: px("--cv-meta-row") + px("--cv-turn-gap"),
-          };
-        });
-        await page.close();
-        return box;
-      };
-      const busyBox = await measure(BUSY);
-      expect(busyBox).toEqual(await measure(QUIET));
-      // One 20px line, even in a narrow pane: the line's box holds one line and the turn gap it
-      // reserves below it (fec3ac0e5125, 625f2e3d1b32); a second line would grow it by 20px.
-      expect(busyBox.height).toBe(busyBox.oneLine);
-      expect(busyBox.labelHeight).toBe(20);
-    }
-  });
-
-  test("the command count opens the shell's row", async () => {
-    const page = await open(BUSY);
-    const command = line(page).getByRole("button", { name: "1 command" });
-    await command.click();
-    // The first turn's "Worked for" opens, and its Bash row scrolls into view.
-    const row = page.locator(".cv-tool", { hasText: "npm run dev" }).first();
-    await row.waitFor({ timeout: 5_000 });
-    const inView = () =>
-      row.evaluate((node) => {
-        const box = node.getBoundingClientRect();
-        return box.top >= 0 && box.bottom <= window.innerHeight;
-      });
-    // The scroll can glide: wait for the row to come into view, then check it is.
-    await page
-      .waitForFunction(
-        (node) => {
-          const box = node!.getBoundingClientRect();
-          return box.top >= 0 && box.bottom <= window.innerHeight;
-        },
-        await row.elementHandle(),
-        { timeout: 5_000 },
-      )
-      .catch(() => undefined);
-    expect(await inView()).toBe(true);
-    await page.close();
-  });
-
-  test("the agent count opens the list of the chat's agents", async () => {
-    const page = await open(BUSY);
-    await line(page).getByRole("button", { name: "2 subagents" }).click();
-    const list = page.getByRole("region", { name: "Subagents" });
-    await list.waitFor({ timeout: 5_000 });
-    expect(await list.getByText("Reviewer").isVisible()).toBe(true);
+    expect((await line(page).innerText()).replace(/\s+/g, " ").trim()).toMatch(/^Read [^·]+ \d+s$/);
     await page.close();
   });
 });

@@ -115,6 +115,7 @@ impl App {
             let _ = handle.scroll_to_bottom();
         }
         self.render_states.remove(&surface);
+        self.synchronized_output.remove(&surface);
         if self.selection_generation == selection_generation
             && self.selection == selection_at_invocation
             && self.selection.is_some_and(|selection| selection.surface == surface)

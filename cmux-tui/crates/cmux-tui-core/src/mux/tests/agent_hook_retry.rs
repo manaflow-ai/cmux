@@ -21,11 +21,11 @@ fn replayed_agent_hook_events_do_not_rewrite_the_record() {
     )
     .unwrap();
     mux.append_journal_ingress(&started, "test", "hook-replay").unwrap();
-    let working_at = mux.list_agents(Some(surface_id), None)[0].updated_at_ms;
+    let working_at = settled(&mux).list_agents(Some(surface_id), None)[0].updated_at_ms;
 
     let replay = mux.append_journal_ingress(&started, "test", "hook-replay").unwrap();
     assert!(replay.replayed);
-    let record = &mux.list_agents(Some(surface_id), None)[0];
+    let record = &settled(&mux).list_agents(Some(surface_id), None)[0];
     assert_eq!(record.state, AgentState::Working);
     assert_eq!(record.updated_at_ms, working_at);
 }
@@ -142,7 +142,7 @@ fn a_plugin_projection_lost_after_journal_commit_is_reconciled_from_the_roster()
         // projection transaction to model a daemon crash in that window.
         mux.workspace_registry.lock().unwrap().set_resource_patch_failure(true).unwrap();
         mux.fold_agent_roster(&ingress, &commit);
-        assert_eq!(mux.list_agents(Some(surface.id), None).len(), 1);
+        assert_eq!(settled(&mux).list_agents(Some(surface.id), None).len(), 1);
         assert_eq!(mux.resource_agent_projection_count_for_test().unwrap(), 0);
         mux.workspace_registry.lock().unwrap().set_resource_patch_failure(false).unwrap();
 
@@ -177,7 +177,9 @@ fn a_plugin_projection_lost_after_journal_commit_is_reconciled_from_the_roster()
         true,
     )
     .unwrap();
-    let entry = reopened.agent_roster.lock().unwrap().roster.entries[terminal_id.as_str()].clone();
+    let entry = settled(&reopened).agent_roster.lock().unwrap().roster.entries
+        [terminal_id.as_str()]
+    .clone();
     assert_eq!(entry.agent_state(), AgentState::Working);
     assert_eq!(entry.agent_source(), AgentSource::Plugin);
     assert_eq!(entry.agent.as_deref(), Some("codex"));
@@ -226,7 +228,7 @@ fn failed_agent_hook_projection_does_not_consume_sequence() {
         mux.workspace_registry.lock().unwrap().pending_agent_hook_projections().unwrap().len(),
         2
     );
-    assert!(mux.list_agents(Some(surface.id), None).is_empty());
+    assert!(settled(&mux).list_agents(Some(surface.id), None).is_empty());
     mux.workspace_registry.lock().unwrap().set_resource_patch_failure(true).unwrap();
     mux.retry_pending_agent_hooks().unwrap();
     mux.workspace_registry.lock().unwrap().set_resource_patch_failure(false).unwrap();
@@ -240,7 +242,7 @@ fn failed_agent_hook_projection_does_not_consume_sequence() {
     assert!(
         mux.workspace_registry.lock().unwrap().pending_agent_hook_projections().unwrap().is_empty()
     );
-    assert_eq!(mux.list_agents(Some(surface.id), None)[0].state, AgentState::Working);
+    assert_eq!(settled(&mux).list_agents(Some(surface.id), None)[0].state, AgentState::Working);
 }
 
 #[test]
@@ -278,7 +280,7 @@ fn journal_commit_preseeds_hook_retry_before_projection() {
     assert!(
         mux.workspace_registry.lock().unwrap().pending_agent_hook_projections().unwrap().is_empty()
     );
-    assert_eq!(mux.list_agents(Some(surface.id), None)[0].state, AgentState::Working);
+    assert_eq!(settled(&mux).list_agents(Some(surface.id), None)[0].state, AgentState::Working);
 }
 
 #[test]
@@ -315,7 +317,7 @@ fn available_agent_report_wakes_pending_hook_projection_retry() {
     assert!(
         mux.workspace_registry.lock().unwrap().pending_agent_hook_projections().unwrap().is_empty()
     );
-    assert_eq!(mux.list_agents(Some(surface.id), None)[0].source, AgentSource::Hook);
+    assert_eq!(settled(&mux).list_agents(Some(surface.id), None)[0].source, AgentSource::Hook);
 }
 
 #[test]
@@ -442,17 +444,17 @@ fn agent_report_retries_only_pending_hooks_for_its_terminal() {
             .len(),
         1
     );
-    assert_eq!(mux.list_agents(Some(first.id), None)[0].source, AgentSource::Hook);
+    assert_eq!(settled(&mux).list_agents(Some(first.id), None)[0].source, AgentSource::Hook);
     // The roster is journal-derived and folds the second hook even while
     // its public resource projection waits in the retry queue. The
     // terminal-scoped retry must still leave that second hook pending.
-    assert_eq!(mux.list_agents(Some(second.id), None)[0].source, AgentSource::Hook);
+    assert_eq!(settled(&mux).list_agents(Some(second.id), None)[0].source, AgentSource::Hook);
 
     mux.report_agent(second.id, AgentState::Working, AgentSource::Socket, None).unwrap();
     assert!(
         mux.workspace_registry.lock().unwrap().pending_agent_hook_projections().unwrap().is_empty()
     );
-    assert_eq!(mux.list_agents(Some(second.id), None)[0].source, AgentSource::Hook);
+    assert_eq!(settled(&mux).list_agents(Some(second.id), None)[0].source, AgentSource::Hook);
 }
 
 #[test]
@@ -484,7 +486,7 @@ fn terminal_report_drains_more_than_one_pending_retry_page() {
     assert!(
         mux.workspace_registry.lock().unwrap().pending_agent_hook_projections().unwrap().is_empty()
     );
-    assert_eq!(mux.list_agents(Some(surface.id), None)[0].source, AgentSource::Hook);
+    assert_eq!(settled(&mux).list_agents(Some(surface.id), None)[0].source, AgentSource::Hook);
 }
 
 #[test]
@@ -686,4 +688,43 @@ fn sessionless_legacy_hook_identity_survives_restart() {
     mux.shutdown();
     drop(mux);
     std::fs::remove_dir_all(root).unwrap();
+}
+
+/// A projected hook's retry row was deleted in a commit of its own on the
+/// request thread, after the journal writer's batch had committed the hook:
+/// under the registry lock, waiting for the writer's connection between its
+/// batches. With 16 threads of hooks that one commit halved the hook rate
+/// (agent_hook_ingress_throughput_probe, aws-m4pro-6: 800-1050 hooks/s with
+/// it, 1540-2540 without). The clear rides the writer's next batch, which the
+/// request waits for, so the row is still gone when the hook answers.
+#[test]
+fn a_projected_hooks_retry_row_is_cleared_in_the_writer_batch() {
+    const HOOKS: usize = 12;
+    let root = std::env::temp_dir()
+        .join(format!("cmux-hook-clear-batch-{}", crate::workspace_registry::new_uuid_v4()));
+    let mux = open_persistent_test_mux("hook-clear-batch", &root);
+    let surface = mux.new_workspace(None, None).unwrap();
+    let terminal_id = surface.terminal_public_id().cloned().expect("workspace terminal");
+    let before = WorkspaceRegistry::agent_hook_clears_own_commit_for_test();
+    for index in 0..HOOKS {
+        let event = if index % 2 == 0 { "PreToolUse" } else { "PostToolUse" };
+        append_journal_hook(&mux, &terminal_id, event, Some("clear-batch"));
+        assert!(
+            mux.workspace_registry
+                .lock()
+                .unwrap()
+                .pending_agent_hook_projections()
+                .unwrap()
+                .is_empty(),
+            "hook {index} answered with its retry row still pending"
+        );
+    }
+    let own_commits = WorkspaceRegistry::agent_hook_clears_own_commit_for_test() - before;
+    assert_eq!(
+        own_commits, 0,
+        "{own_commits} of {HOOKS} projected hooks cleared their retry row in a commit of its own"
+    );
+    mux.shutdown();
+    drop(mux);
+    let _ = std::fs::remove_dir_all(root);
 }

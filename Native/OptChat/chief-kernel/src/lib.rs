@@ -14,6 +14,13 @@ pub mod tools;
 
 pub use record::{Record, render_record};
 
+/// What a Chief checks at the start and end of each turn (Leo, 2026-11-24: agents are not
+/// ambitious enough, patch instead of fixing the cause, don't think outside the box,
+/// "especially at the beginnings and ends of turns"). One source for every Chief: the local
+/// host puts it in each main turn's tail as a `<turn-checks>` block, after the cache marks;
+/// the Cloud Chief's worker (backend/apps/api/src/chief-brain-cc) carries the same file.
+pub const TURN_CHECKS: &str = include_str!("turn_checks.md");
+
 use prompt::{Tools, chief_system_text};
 use serde_json::Value;
 
@@ -36,9 +43,9 @@ const ENGINES: &[(&str, bool)] = &[
 
 /// The system text of a Chief turn, exactly as the Mac host renders it.
 ///
-/// - `profile_json`: `{person?, instructions?, channels?, record?}`: the
-///   person profile (`person.md`), the instructions file (`AGENTS.md`), the
-///   Channels block, and the Chief's record (`{display_name, role,
+/// - `profile_json`: `{person?, instructions?, channels?, record?, contact?}`:
+///   the person profile (`person.md`), the instructions file (`AGENTS.md`), the
+///   Channels block, the optional coordinator session, and the Chief's record (`{display_name, role,
 ///   personality, instructions, is_default}`), each optional.
 /// - `engine`: one of ``ENGINES``; a `cli` engine needs `tools.chief`.
 /// - `tools_json`: `{mode?: "mcp" | "cli" | "cloud", chief?, offered?, profile_tool?, chiefs_tool?}`;
@@ -116,6 +123,7 @@ pub fn render_system(profile_json: &str, engine: &str, tools_json: &str) -> Resu
         parts.extend(render_record(&record));
     }
     let user = (!parts.is_empty()).then(|| parts.join("\n\n"));
+    let user = prompt::with_coordinator_contact(user, text("contact").as_deref());
     Ok(chief_system_text(
         user.as_deref(),
         &tools_mode,

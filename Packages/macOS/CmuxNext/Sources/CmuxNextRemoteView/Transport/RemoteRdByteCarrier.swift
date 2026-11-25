@@ -6,8 +6,12 @@ public nonisolated enum RemoteRdCarrierEvent: Sendable {
     case ready
     /// Bytes from the host, in order.
     case data(Data)
-    /// The byte path ended or failed (it may come more than once).
-    case closed
+    /// The byte path ended or failed (it may come more than once). `reason` says why in a short
+    /// line (the open's error, the host's end, a failed write); the session reports the first one.
+    case closed(reason: String)
+    /// What the open is waiting on, in one line for a person (a Cloud desktop dial's step and how long
+    /// is left); the connecting card shows the latest until the path is ready.
+    case progress(String)
 }
 
 /// The ordered byte path under `RemoteRdStreamTransport` (cx-2cob slice 2):
@@ -18,7 +22,7 @@ public nonisolated enum RemoteRdCarrierEvent: Sendable {
 public nonisolated protocol RemoteRdByteCarrier: AnyObject, Sendable {
     /// Opens the path. Called once; every event runs on `queue`, in order.
     func start(queue: DispatchQueue, events: @escaping @Sendable (RemoteRdCarrierEvent) -> Void)
-    /// Queues `bytes` after the bytes sent before; a failure is `.closed`.
+    /// Queues `bytes` after the bytes sent before; a failure is `.closed(reason:)`.
     func send(_ bytes: Data)
     /// Ends the path; sends after it are dropped.
     func cancel()

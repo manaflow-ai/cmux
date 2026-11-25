@@ -7,15 +7,16 @@ extension AppServices: WindowHomeHost {
     var windowHomeConnection: DaemonConnection? { daemon.connection }
     var windowHomeStore: DaemonStore { daemon.store }
     func windowHomeApplied(_ connection: DaemonConnection) async { _ = await daemon.appliedThroughReply(on: connection, after: "create window home") }
-    func windowHomeMembers(_ window: String) -> [String] { windows.registry.members(of: window) }
+    func windowHomeMembers(_ window: String) -> [String] { WindowProfiles.visible(windows.registry.members(of: window), profile: windows.states[window]?.profileID ?? .defaultProfile, machines: machines) }
     func windowHomeOpenOwner(of workspace: String) -> String? { windows.openOwner(of: workspace) }
     func windowHomeIsOpen(_ window: String) -> Bool { windows.registry.value.window(window)?.isOpen == true }
     var windowHomeWindows: [String: [String]] { windows.membersByWindow }
     func windowHomeClose(_ workspace: String) { windows.discard([workspace]) }
     func windowHomeWorkspace(_ id: String) -> WorkspaceModel? { workspace(id: id) }
+    func windowHomeRoom(_ window: String) -> ProfileID? { windows.states[window].flatMap { daemon.store.profile($0.profileID)?.id } }
     func windowHomeShow(_ workspace: String, in window: String) { windows.show(workspaceID: workspace, inWindow: window) }
     func windowHomeClaim(_ workspace: String, window: String) { windows.claimNew(workspaceID: workspace, window: window) }
-    func windowHomeDropClaim(_ workspace: String) { windows.pendingClaims[workspace] = nil }
+    func windowHomeDropClaim(_ workspace: String) { windows.claims.pending[workspace] = nil }
     func windowHomeHold(_ workspace: String, _ create: () async throws -> Bool?) async throws { _ = try await FirstTabHold.creating(workspace, windows: windows, create) }
     func windowHomeDock(_ tab: TabModel, _ anchor: PaneModel, _ respawn: SplitRespawn?, _ pinned: Bool, _ done: @escaping @MainActor (Bool) -> Void) { TabMoves.toNewDockColumn(tab, anchor: anchor, edge: .left, role: .agentChat, respawn: respawn, pinned: pinned, services: self, completion: done) }
 }

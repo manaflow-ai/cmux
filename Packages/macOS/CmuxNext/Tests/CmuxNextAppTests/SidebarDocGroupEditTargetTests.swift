@@ -41,10 +41,10 @@ struct SidebarDocGroupEditTargetTests {
 @MainActor @Suite
 struct SidebarDocSubgroupPersonalParentTests {
     @Test func aPersonalParentIDPlansUnderItsDocumentItem() throws {
-        let records = try SidebarDocGroupEditTargetTests.records()
-        let plan = SidebarDocSubgroupPlan(parent: GroupID("grp_1"), id: GroupID("grp_new"), name: "sub", color: .green, records: records)
-        #expect(plan.refusal == nil)
-        let to = plan.ops?.first?["to"] as? [String: Any]
+        let store = SidebarDocStore(remote: nil)
+        #expect(store.loadProvisional(Data(SidebarDocGroupEditTargetTests.document.utf8)))
+        let ops = try store.subgroupOps(parent: GroupID("grp_1"), id: GroupID("grp_new"), name: "sub", color: .palette(.green))
+        let to = ops.first?["to"] as? [String: Any]
         #expect(to?["parent"] as? String == "itm_g_grp_1")
     }
 }

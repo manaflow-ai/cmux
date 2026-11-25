@@ -10,6 +10,7 @@ import { afterAll, expect, test } from "bun:test";
 import { act } from "react";
 import { createRoot } from "react-dom/client";
 import { JSDOM } from "jsdom";
+import { settleReact } from "./support/domTeardown";
 
 const dom = new JSDOM("<!doctype html><html><body><main id=root></main></body></html>", {
   url: "http://localhost/",
@@ -53,7 +54,8 @@ Object.assign(scope, {
   cancelAnimationFrame: (id: number) => clearTimeout(id),
   IS_REACT_ACT_ENVIRONMENT: true,
 });
-afterAll(() => {
+afterAll(async () => {
+  await settleReact();
   for (const [key, value] of saved) {
     if (value === undefined) delete scope[key];
     else scope[key] = value;

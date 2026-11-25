@@ -39,14 +39,14 @@ struct AgentChatPullRequestTests {
         ((try? String(contentsOfFile: gh + ".calls", encoding: .utf8)) ?? "").split(separator: "\n").count
     }
 
-    /// Checks sum to the worst: a failure beats one still running; skipped ones count as passed.
+    /// Checks sum to the worst: a failure beats one still running; skipped ones are not counted.
     @Test func readsThePullRequestAndSumsItsChecks() async throws {
         let rig = try Self.rig()
         let read = try #require(await AgentChatPullRequestReader(gh: rig.gh).read(in: rig.folder))
         #expect(read.url == "https://github.com/o/r/pull/7")
         #expect(read.number == 7)
         #expect(read.state == "open")
-        #expect(read.checks == .init(state: "failing", passed: 3, total: 5))
+        #expect(read.checks == .init(state: "failing", passed: 2, total: 4))
         let pending = AgentPanePullRequest(ghView: Data(#"{"url":"https://github.com/o/r/pull/8","number":8,"state":"OPEN","isDraft":true,"statusCheckRollup":[{"status":"QUEUED"},{"status":"COMPLETED","conclusion":"SUCCESS"}]}"#.utf8))
         #expect(pending?.state == "draft")
         #expect(pending?.checks == .init(state: "pending", passed: 1, total: 2))

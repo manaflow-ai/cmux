@@ -4,10 +4,8 @@ import Foundation
 /// `appearance.density` in cmux.json: a built-in density's id (``DensityPreset``) or the id of
 /// one of the file's `appearance.customDensities` (plans/cmux-next/density-DESIGN.md).
 public nonisolated struct DensitySetting: Sendable {
-    /// The key's path.
-    public let configPath = ["appearance", "density"]
-    /// The density when the key is absent or names no density.
-    public let fallback = DensityPreset.compact.rawValue
+    // The path and the default (`fallback`, the density when the key is absent or names no density)
+    // are generated from schemas/settings/source/appearance.json.
 
     public init() {}
 

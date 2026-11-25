@@ -121,3 +121,17 @@ fn saved_limits_keep_the_windows_a_newer_one_does_not_name() {
     );
     assert_eq!(merge_usage_limits(None, &newer), newer);
 }
+
+#[test]
+fn only_a_used_up_window_is_a_limit_reached() {
+    assert!(!usage_limit_reached(None, 1_000));
+    assert!(!usage_limit_reached(Some(&json!({"windows": []})), 1_000));
+    let some = json!({"windows": [{"id": "session", "usedPercent": 99.5}, {"id": "weekly", "usedPercent": 40.0}]});
+    assert!(!usage_limit_reached(Some(&some), 1_000));
+    let full = json!({"windows": [{"id": "session", "usedPercent": 10.0}, {"id": "weekly", "usedPercent": 100.0}]});
+    assert!(usage_limit_reached(Some(&full), 1_000));
+    // A used-up window whose reset time passed is no longer reached.
+    let resets = json!({"windows": [{"id": "session", "usedPercent": 100.0, "resetsAt": 2_000}]});
+    assert!(usage_limit_reached(Some(&resets), 1_999));
+    assert!(!usage_limit_reached(Some(&resets), 2_000));
+}

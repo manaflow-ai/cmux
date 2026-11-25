@@ -20,16 +20,24 @@ extension StateResourceClient {
         public var closedIDs: [String]
         /// Every tab the close took, of every object.
         public var tabIDs: [ResourceID]
+        /// The workspaces the close took (a workspace-level close).
+        public var workspaceIDs: [ResourceID]
+        /// The ids that were already gone when the close came (`layout-bulk-bare-v1`): closed, as asked.
+        public var goneIDs: [ResourceID]
 
         enum CodingKeys: String, CodingKey {
             case closedIDs = "closed_ids"
             case tabIDs = "tab_ids"
+            case workspaceIDs = "workspace_ids"
+            case goneIDs = "gone_ids"
         }
 
         public init(from decoder: any Decoder) throws {
             let c = try decoder.container(keyedBy: CodingKeys.self)
             closedIDs = try c.decodeIfPresent([String].self, forKey: .closedIDs) ?? []
             tabIDs = try c.decodeIfPresent([ResourceID].self, forKey: .tabIDs) ?? []
+            workspaceIDs = try c.decodeIfPresent([ResourceID].self, forKey: .workspaceIDs) ?? []
+            goneIDs = try c.decodeIfPresent([ResourceID].self, forKey: .goneIDs) ?? []
         }
     }
 
@@ -38,13 +46,17 @@ extension StateResourceClient {
     /// `layout-bulk-v1`): the gesture is ONE closed-history group, so one
     /// Reopen Closed (Cmd-Shift-T) brings every object back to its place.
     ///
-    /// The daemon skips an object with no tab (an empty workspace stays open)
-    /// and never closes the home workspace.
+    /// The daemon never closes the home workspace. A daemon with
+    /// `layout-bulk-bare-v1` closes a chosen workspace with no tab too, counts an
+    /// already-gone id as closed (``BulkClosed/goneIDs``) and skips a tab that left
+    /// before the commit; an older one skips an object with no tab (an empty
+    /// workspace stays open) and refuses an unknown id.
     ///
     /// `bound` (opt-in, a person's workspace close): the close ends on the
     /// daemon's reply or refusal, the connection's end, or `bound` with no
     /// answer (`DaemonError.timedOut`; the caller then decides it from the
-    /// store), never on the 2 s client deadline: a busy daemon commits a close
+    /// store), never on the client request deadline (2 s then, 30 s since
+    /// #35075): a busy daemon commits a close
     /// it answers late, and one that gave up first reported a done close as
     /// failed. Nil keeps the control deadline.
     ///

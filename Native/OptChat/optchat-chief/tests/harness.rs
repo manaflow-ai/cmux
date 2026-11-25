@@ -39,6 +39,37 @@ fn fill(chat: &optchat_host::OptChat, n: usize) {
     assert!(chat.wait_idle(None, Some(WAIT)));
 }
 
+/// A turn's input without its trailing clock line (`Now: ...`, the
+/// person's local time, which changes by the minute) and the turn checks
+/// every main turn ends with (#54039); panics when either is missing or the
+/// checks are not last.
+fn sans_now(blocks: &[Value]) -> Vec<Value> {
+    let checks = format!(
+        "\n\n<turn-checks>\n{}\n</turn-checks>",
+        chief_kernel::TURN_CHECKS.trim()
+    );
+    let last = blocks
+        .last()
+        .and_then(|b| b["text"].as_str())
+        .unwrap_or_default();
+    let last = last
+        .strip_suffix(checks.as_str())
+        .unwrap_or_else(|| panic!("the turn checks are not last: {last:?}"));
+    let (head, tail) = last
+        .split_once("Now: ")
+        .unwrap_or_else(|| panic!("no clock line: {last:?}"));
+    let mut out = blocks.to_vec();
+    let n = out.len() - 1;
+    let rest = tail.split_once("\n\n").map(|(_, r)| r).unwrap_or("");
+    let text = format!("{head}{rest}");
+    if text.is_empty() {
+        out.pop();
+    } else {
+        out[n]["text"] = Value::String(text);
+    }
+    out
+}
+
 fn texts(blocks: &[Value]) -> Vec<String> {
     blocks
         .iter()
@@ -100,7 +131,7 @@ fn a_claude_turn_sends_the_frozen_view_then_the_delta_with_three_marks() {
         vec![(TURN_PRESET.to_owned(), claude_md(None))]
     );
     assert_eq!(inner.systems[0].as_deref(), Some(claude_md(None).as_str()));
-    let blocks = &inner.prompts[0];
+    let blocks = &sans_now(&inner.prompts[0]);
     let t = texts(blocks);
     // Spec 5a: the view (rendered at this first turn, before the message),
     // then the delta: the new message as a line after </chat>.
@@ -147,7 +178,7 @@ fn consecutive_claude_turns_find_the_last_turns_marker_within_the_lookback() {
     assert_eq!(inner.prompt_sets[0], inner.prompt_sets[1]);
     // The second turn has the first turn's marked block at the same place,
     // and its own marker at most 20 blocks later (the API's lookback).
-    let (a, b) = (&inner.prompts[0], &inner.prompts[1]);
+    let (a, b) = (&sans_now(&inner.prompts[0]), &sans_now(&inner.prompts[1]));
     let (ma, mb) = (*markers(a).last().unwrap(), *markers(b).last().unwrap());
     assert_eq!(texts(a)[..=ma], texts(b)[..=ma]);
     assert!(mb >= ma && mb - ma <= 20, "markers {ma} then {mb}");
@@ -167,7 +198,7 @@ fn without_system_prompt_support_a_claude_turn_keeps_the_old_layout_and_its_clau
     assert_eq!(inner.systems[0], None);
     assert_eq!(inner.specs[0].preset, None);
     assert_eq!(
-        inner.prompts[0],
+        sans_now(&inner.prompts[0]),
         input_blocks(&view, &[format!("{id}+1|user: hello\n")], &[], "")
     );
     assert_eq!(
@@ -201,14 +232,19 @@ fn a_codex_turn_sends_the_view_first_and_the_messages_last_with_no_marker_and_no
     assert_eq!(inner.specs[0].harness, "codex");
     assert_eq!(inner.specs[0].preset, None);
     assert_eq!(
-        inner.prompts[0],
+        sans_now(&inner.prompts[0]),
         input_blocks(&view, &[format!("{id}+1|user: one\n")], &[], "")
     );
-    assert!(inner.prompts.iter().all(|b| markers(b).is_empty()));
+    assert!(
+        inner
+            .prompts
+            .iter()
+            .all(|b| markers(&sans_now(b)).is_empty())
+    );
     // Automatic prefix caching (spec 5a): the second turn's input starts
     // with the first turn's whole input, block for block.
-    let first = texts(&inner.prompts[0]);
-    let second = texts(&inner.prompts[1]);
+    let first = texts(&sans_now(&inner.prompts[0]));
+    let second = texts(&sans_now(&inner.prompts[1]));
     assert_eq!(second[..first.len()], first[..]);
     assert!(second.last().unwrap().ends_with("|user: two\n"));
 }
@@ -255,9 +291,12 @@ fn a_four_breakpoint_refusal_reruns_the_turn_without_the_marker_and_later_turns_
             "the refused prompt, then the same turn again"
         );
         // The header's mark, the view's end and the delta's end.
-        assert_eq!(markers(&inner.prompts[0]).len(), 3);
-        assert!(markers(&inner.prompts[1]).is_empty());
-        assert_eq!(texts(&inner.prompts[0]), texts(&inner.prompts[1]));
+        assert_eq!(markers(&sans_now(&inner.prompts[0])).len(), 3);
+        assert!(markers(&sans_now(&inner.prompts[1])).is_empty());
+        assert_eq!(
+            texts(&sans_now(&inner.prompts[0])),
+            texts(&sans_now(&inner.prompts[1]))
+        );
         assert_ne!(
             inner.prompt_ids[0], inner.prompt_ids[1],
             "acpmux runs a prompt id once"
@@ -281,7 +320,7 @@ fn a_four_breakpoint_refusal_reruns_the_turn_without_the_marker_and_later_turns_
     let inner = h.agents.inner.lock().unwrap();
     assert_eq!(inner.prompts.len(), 3);
     assert!(
-        markers(&inner.prompts[2]).is_empty(),
+        markers(&sans_now(&inner.prompts[2])).is_empty(),
         "later turns skip the marker"
     );
 }
@@ -386,6 +425,10 @@ fn a_non_claude_harness_reads_its_instructions_from_agents_md_with_cli_memory_to
             &std::fs::read_to_string(paths.session.join(".claude").join(name)).unwrap(),
         )
         .unwrap();
+        // If cmux MCP is disabled or an older acpmux cannot fold servers,
+        // the standalone server must not expose bg_* or team_* to the turn.
+        let deny = settings["permissions"]["deny"].as_array().unwrap();
+        assert!(deny.iter().any(|v| v == "mcp__acpmux"), "{name}: {deny:?}");
         let allow = settings["permissions"]["allow"].as_array().unwrap();
         for tool in optchat_chief::approval::turn_allowed_tools() {
             assert!(allow.iter().any(|v| v == tool), "{name}: {tool}");
@@ -658,14 +701,18 @@ fn a_codex_turn_preset_carries_the_chiefs_turn_cache_key() {
     );
     assert_eq!(codex.system_prompt, None);
     let bare = turn_preset(&paths, &home, "codex", Family::Codex, false, "SYS").unwrap();
-    // Only acpmux's cmux and agent memory MCP servers in a turn (cx-4a5w2),
+    // cmux, its folded acpmux server and agent memory in a turn (cx-4a5w2),
     // and in cmux only the Chief's cmux tools (no code mode).
     assert_eq!(
         bare.env,
         std::collections::BTreeMap::from([
             (
                 "ACPMUX_AGENT_TOOL_SERVERS".to_owned(),
-                "cmux,cmux-agent-memory".to_owned()
+                "cmux,acpmux,cmux-agent-memory".to_owned()
+            ),
+            (
+                "CMUX_CHIEF_ENGINE".to_owned(),
+                optchat_chief::engine::path(&home).display().to_string(),
             ),
             (
                 "CMUX_MCP_TOOLS".to_owned(),
@@ -965,12 +1012,18 @@ fn the_next_turn_repeats_the_whole_last_input_and_marks_its_ends_within_the_look
     h.settle();
     let inner = h.agents.inner.lock().unwrap();
     assert_eq!(inner.prompts.len(), 2);
-    let (a, b) = (texts(&inner.prompts[0]), texts(&inner.prompts[1]));
+    let (a, b) = (
+        texts(&sans_now(&inner.prompts[0])),
+        texts(&sans_now(&inner.prompts[1])),
+    );
     // Spec 5a: nothing before the last delta's end changes, so the first
     // turn's input is a prefix of the second's, block for block, and the
     // provider reads it from the first turn's last mark.
     assert_eq!(b[..a.len()], a[..]);
-    let (ma, mb) = (markers(&inner.prompts[0]), markers(&inner.prompts[1]));
+    let (ma, mb) = (
+        markers(&sans_now(&inner.prompts[0])),
+        markers(&sans_now(&inner.prompts[1])),
+    );
     assert_eq!(
         ma.len(),
         3,
@@ -1148,7 +1201,10 @@ fn a_user_entry_right_after_the_last_turns_messages_keeps_its_input_a_prefix() {
     h.settle();
     let inner = h.agents.inner.lock().unwrap();
     assert_eq!(inner.prompts.len(), 2);
-    let (a, b) = (texts(&inner.prompts[0]), texts(&inner.prompts[1]));
+    let (a, b) = (
+        texts(&sans_now(&inner.prompts[0])),
+        texts(&sans_now(&inner.prompts[1])),
+    );
     assert_eq!(b[..a.len()], a[..], "the first turn's input is a prefix");
 }
 

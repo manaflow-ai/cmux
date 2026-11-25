@@ -29,7 +29,20 @@ impl SettleStatus {
             "built": status.view_lines.saturating_sub(status.unbuilt),
             "total": status.view_lines,
         });
-        // Through a temporary file and a rename: the app never reads half a file.
+        self.write(&body);
+    }
+
+    /// A turn's session has taken `secs` to start (the machine is busy; acpmux keeps it starting
+    /// while its harness works), so the app says so. None: it no longer starts.
+    pub fn starting(&self, secs: Option<u64>) {
+        match secs {
+            Some(secs) => self.write(&serde_json::json!({"startingSecs": secs})),
+            None => self.clear(),
+        }
+    }
+
+    /// Through a temporary file and a rename: the app never reads half a file.
+    fn write(&self, body: &serde_json::Value) {
         let tmp = self.path.with_extension("json.tmp");
         let written = self
             .path
@@ -67,5 +80,23 @@ impl SettleStatus {
         if written.is_err() {
             let _ = std::fs::remove_file(&tmp);
         }
+    }
+}
+
+#[cfg(test)]
+mod starting_tests {
+    use super::SettleStatus;
+
+    #[test]
+    fn a_slow_start_is_written_for_the_app_and_gone_once_it_ends() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("state/settle.json");
+        let settle = SettleStatus::new(&path);
+        settle.starting(Some(40));
+        let body: serde_json::Value =
+            serde_json::from_slice(&std::fs::read(&path).unwrap()).unwrap();
+        assert_eq!(body, serde_json::json!({"startingSecs": 40}));
+        settle.starting(None);
+        assert!(!path.exists());
     }
 }

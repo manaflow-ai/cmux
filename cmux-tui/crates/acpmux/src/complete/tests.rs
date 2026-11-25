@@ -468,7 +468,7 @@ fn others_pick_the_cheapest_tier_and_gemini_is_not_mini() {
 
 #[test]
 fn only_the_unix_socket_may_complete() {
-    use crate::server::Origin;
+    use crate::conn_origin::Origin;
     assert!(allowed(Origin::Local));
     for origin in [Origin::Web, Origin::LocalApp, Origin::Peer] {
         assert!(!allowed(origin), "{origin:?} may not run a completion");
@@ -602,6 +602,17 @@ async fn run_feeds_stdin_and_reads_stdout() {
         run::run(sh("tr a-z A-Z"), Some(&b"name this"[..]), Duration::from_secs(10)).await.unwrap();
     assert!(out.success);
     assert_eq!(out.stdout, b"NAME THIS");
+}
+
+/// A completion's harness ranks as an agent for the OOM killer, never with
+/// the daemon's lowered value (`oom_rank.rs`).
+#[cfg(target_os = "linux")]
+#[tokio::test]
+async fn a_completion_harness_ranks_as_an_agent_for_the_oom_killer() {
+    let out =
+        run::run(sh("cat /proc/self/oom_score_adj"), None, Duration::from_secs(10)).await.unwrap();
+    let adj: i32 = String::from_utf8_lossy(&out.stdout).trim().parse().unwrap();
+    assert!(adj >= crate::oom_rank::AGENT, "a completion harness ran at {adj}");
 }
 
 #[cfg(unix)]

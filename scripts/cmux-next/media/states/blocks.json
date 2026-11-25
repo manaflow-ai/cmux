@@ -1,0 +1,169 @@
+{
+ "title": "Borderless block chrome, Blocks: every pane its own block on a deeper chrome, no lines: the sidebar, the corner, the tab bar and the top-right tools, light and dark",
+ "launch_args": [
+  "--showcase"
+ ],
+ "settings": {
+  "appearance": {
+   "chromeStyle": "blocks"
+  }
+ },
+ "steps": [
+  {
+   "title": "Launch",
+   "wait": 3
+  },
+  {
+   "title": "Showcase rows: workspaces, an agent chat, unread notifications",
+   "rpc": {
+    "method": "debug.showcase.seed",
+    "params": {
+     "focus": true,
+     "dense": true
+    }
+   },
+   "wait": 4,
+   "optional": "the showcase fixture is DEBUG only"
+  },
+  {
+   "title": "Workspace blocks",
+   "cmux": [
+    "workspace",
+    "new",
+    "--name",
+    "blocks"
+   ],
+   "wait": 2
+  },
+  {
+   "title": "Show it",
+   "cmux": [
+    "workspace",
+    "name:blocks",
+    "focus"
+   ],
+   "wait": 1.5
+  },
+  {
+   "title": "A Markdown file, and a prompt that names no host",
+   "cmux": [
+    "workspace",
+    "name:blocks",
+    "screen",
+    "current",
+    "pane",
+    "current",
+    "tab",
+    "current",
+    "terminal",
+    "current",
+    "write",
+    "--text",
+    "PS1='$ '; printf '# Blocks\\n\\nSolid tonal fills. No strokes, no hairlines.\\n' > /tmp/cmux-blocks.md; clear\r"
+   ],
+   "wait": 2,
+   "daemon": true
+  },
+  {
+   "title": "Open it in a second tab",
+   "cmux": [
+    "open",
+    "/tmp/cmux-blocks.md",
+    "--focus",
+    "true"
+   ],
+   "wait": 3
+  },
+  {
+   "title": "Split right",
+   "cmux": [
+    "action",
+    "run",
+    "splitRight"
+   ],
+   "wait": 2.5
+  },
+  {
+   "title": "The new pane's prompt names no host",
+   "cmux": [
+    "workspace",
+    "name:blocks",
+    "screen",
+    "current",
+    "pane",
+    "current",
+    "tab",
+    "current",
+    "terminal",
+    "current",
+    "write",
+    "--text",
+    "PS1='$ '; clear\r"
+   ],
+   "wait": 1.5,
+   "daemon": true
+  },
+  {
+   "title": "System light",
+   "rpc": {
+    "method": "debug.appearance",
+    "params": {
+     "mode": "light"
+    }
+   },
+   "wait": 2
+  },
+  {
+   "title": "The workspace",
+   "cmux": [
+    "workspace",
+    "name:blocks",
+    "focus"
+   ],
+   "wait": 1.5
+  },
+  {
+   "title": "Blocks: every pane its own block on a deeper chrome, no lines (light)",
+   "rpc": {
+    "method": "debug.window_snapshot",
+    "params": {
+     "kind": "main",
+     "path": "{collect}"
+    }
+   },
+   "wait": 0.3,
+   "collect": "blocks-light.png"
+  },
+  {
+   "title": "System dark",
+   "rpc": {
+    "method": "debug.appearance",
+    "params": {
+     "mode": "dark"
+    }
+   },
+   "wait": 2
+  },
+  {
+   "title": "The workspace",
+   "cmux": [
+    "workspace",
+    "name:blocks",
+    "focus"
+   ],
+   "wait": 1.5
+  },
+  {
+   "title": "Blocks: every pane its own block on a deeper chrome, no lines (dark)",
+   "rpc": {
+    "method": "debug.window_snapshot",
+    "params": {
+     "kind": "main",
+     "path": "{collect}"
+    }
+   },
+   "wait": 0.3,
+   "collect": "blocks-dark.png"
+  }
+ ]
+}

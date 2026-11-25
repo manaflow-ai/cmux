@@ -34,8 +34,13 @@ WORKFLOW = ROOT / ".github" / "workflows" / "nightly-sign.yml"
 NIGHTLY = ROOT / ".github" / "workflows" / "nightly.yml"
 TOOL = ROOT / "scripts" / "ci" / "nightly_sign_admit.py"
 sys.path.insert(0, str(TOOL.parent))
+sys.path.insert(0, str(ROOT / "tests"))
 
 import nightly_sign_admit  # noqa: E402
+import workflow_jobs  # noqa: E402
+from nightly_workflow_text import nightly_text  # noqa: E402
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts" / "ci"))
+import gh_expressions  # noqa: E402  (finds each ${{ }}: a regex cuts at a }} in a string)
 
 SHADOW_GATE = "vars.NIGHTLY_SIGN == 'shadow' && ("
 CHECKOUT = re.compile(r"^actions/checkout@[0-9a-f]{40}$")
@@ -45,8 +50,8 @@ ADMIT_COMMAND = (
     '--source-run-id "$SOURCE_RUN_ID" --source-run-attempt "$SOURCE_RUN_ATTEMPT" '
     '--out "$RUNNER_TEMP/nightly-sign-source"'
 )
-# Literal labels only (no variable moves the job): Blacksmith Linux, a fork the hosted image.
-LINUX_RUNNER = "${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'blacksmith-4vcpu-ubuntu-2404' }}"
+# The route stays on the declared 4-vCPU Linux pool (a fork still uses the hosted image).
+LINUX_RUNNER = "${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || fromJSON(vars.RUNNER_POOLS).linux_4 }}"
 JOB_KEYS = {"name", "if", "runs-on", "timeout-minutes", "permissions", "steps"}
 STEP_KEYS = {"name", "id", "uses", "with", "env", "run"}
 WORKFLOW_KEYS = {"name", "on", True, "permissions", "env", "concurrency", "jobs"}
@@ -55,7 +60,7 @@ WORKFLOW_KEYS = {"name", "on", True, "permissions", "env", "concurrency", "jobs"
 ALLOWED_CONTEXTS = re.compile(
     r"^(github\.token|github\.ref|github\.event_name|github\.repository_owner|"
     r"github\.event\.workflow_run\.(id|run_attempt|conclusion)|"
-    r"inputs\.source_run_(id|attempt)|vars\.NIGHTLY_SIGN)$"
+    r"inputs\.source_run_(id|attempt)|vars\.(NIGHTLY_SIGN|RUNNER_POOLS))$"
 )
 FORBIDDEN_IN_TOOL = re.compile(
     r"\b(subprocess|os\.system|os\.exec\w*|os\.spawn\w*|popen|tarfile|extractall|codesign|notary\w*|"
@@ -93,7 +98,7 @@ def gate_is_shadow_conjunct(expression: str) -> bool:
 
 def contexts(text: str) -> set[str]:
     found: set[str] = set()
-    for expression in re.findall(r"\$\{\{(.*?)\}\}", text, re.DOTALL):
+    for expression in gh_expressions.EXPRESSION.findall(text):
         found.update(re.findall(r"\b(?:github|inputs|vars|secrets|env|steps|needs|matrix|runner|job)\.[A-Za-z0-9_.]+", expression))
     return found
 
@@ -109,7 +114,14 @@ def check_workflow() -> None:
     check(document.get("permissions") == {}, "nightly-sign.yml must grant no workflow-level permissions")
     check(not re.search(r"\bsecrets\b", text), "nightly-sign.yml must not name secrets in any form")
     check(set(document) <= WORKFLOW_KEYS, f"nightly-sign.yml has unexpected top-level keys {sorted(map(str, document))}")
-    check(set(document.get("env") or {}) == {"SOURCE_WORKFLOW_PATHS"}, "nightly-sign.yml workflow env holds only SOURCE_WORKFLOW_PATHS")
+    workflow_env = dict(document.get("env") or {})
+    # The temporary API call log (tests/test_ci_api_call_log_bootstrap.py) sets BASH_ENV in every workflow; only
+    # that bootstrap, which loads scripts/ci/api_call_log/env.sh, may sit beside SOURCE_WORKFLOW_PATHS.
+    bash_env = workflow_env.pop("BASH_ENV", None)
+    check(bash_env is None or "/scripts/ci/api_call_log/env.sh" in str(bash_env),
+          "nightly-sign.yml BASH_ENV may only be the API call log bootstrap")
+    check(set(workflow_env) == {"SOURCE_WORKFLOW_PATHS"},
+          "nightly-sign.yml workflow env holds only SOURCE_WORKFLOW_PATHS (and the API call log's BASH_ENV)")
     check("NIGHTLY_SIGN" in text, "nightly-sign.yml must be gated on vars.NIGHTLY_SIGN")
     check(document.get("env", {}).get("SOURCE_WORKFLOW_PATHS") == ".github/workflows/nightly.yml",
           "nightly-sign.yml must declare SOURCE_WORKFLOW_PATHS")
@@ -123,13 +135,15 @@ def check_workflow() -> None:
         check(gate_is_shadow_conjunct(gate),
               f"{where}: `if` must be `{SHADOW_GATE}...)` so an unset NIGHTLY_SIGN runs nothing (got {gate!r}); "
               "a job for another mode needs this test changed on purpose")
-        check("environment" not in job, f"{where}: a shadow job must not use an environment")
-        check("secrets" not in job, f"{where}: a shadow job must not take secrets")
+        resolved = workflow_jobs.resolve(job, job_id)
+        check(resolved.environment is None, f"{where}: a shadow job must not use an environment")
+        check(not (resolved.inherits_secrets or resolved.passed_secrets or resolved.secrets),
+              f"{where}: a shadow job must not take secrets")
         permissions = job.get("permissions")
         check(isinstance(permissions, dict) and set(permissions) <= READ_PERMISSIONS
               and set(permissions.values()) == {"read"},
               f"{where}: permissions must be read-only actions/checks/contents (got {permissions!r})")
-        check(job.get("runs-on") == LINUX_RUNNER, f"{where}: a shadow job runs on literal Linux labels ({LINUX_RUNNER})")
+        check(resolved.runs_on_cells == [LINUX_RUNNER], f"{where}: a shadow job runs on literal Linux labels ({LINUX_RUNNER})")
         for name in contexts(yaml.safe_dump(job)) | contexts("${{ " + gate + " }}"):
             check(bool(ALLOWED_CONTEXTS.match(name)), f"{where}: reads {name}, which a shadow job must not use")
         steps = job.get("steps") or []
@@ -190,8 +204,10 @@ def check_prepare_job(jobs: dict, job: str) -> None:
 
 
 def check_nightly_producer() -> None:
-    text = NIGHTLY.read_text(encoding="utf-8")
-    check("NIGHTLY_SIGN" not in text, "nightly.yml must not read vars.NIGHTLY_SIGN while nightly-sign.yml is in shadow mode")
+    text = nightly_text()
+    # A whole word: CI_NIGHTLY_SIGN_RUNNER (the nightly-next signing runner label) is another variable.
+    check(re.search(r"\bNIGHTLY_SIGN\b", text) is None,
+          "nightly.yml must not read vars.NIGHTLY_SIGN while nightly-sign.yml is in shadow mode")
     # The preparation runs as a primary job and a fallback job with the same steps.
     jobs = yaml.safe_load(text)["jobs"]
     for job in ("prepare-nightly-variant-primary", "prepare-nightly-variant"):

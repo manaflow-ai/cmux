@@ -74,6 +74,9 @@ fn run(dir: &Path, env: &serde_json::Map<String, Value>, args: &[&str]) -> Ran {
         .env("PATH", "/usr/bin:/bin")
         .env("HOME", dir)
         .env("LANG", "en_US.UTF-8")
+        // The fake app drops every connection, so the CLI resends until its not-run
+        // deadline (30 s since #40147): the test build's short deadline ends it.
+        .env("CMUX_TEST_NOT_RUN_DEADLINE_MS", "500")
         .stdin(Stdio::null())
         .stdout(Stdio::null())
         .stderr(Stdio::piped());

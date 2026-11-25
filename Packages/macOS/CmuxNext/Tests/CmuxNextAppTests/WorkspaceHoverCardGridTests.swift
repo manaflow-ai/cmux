@@ -103,20 +103,29 @@ import Testing
         #expect(abs(chevronX - iconX) <= 0.5, "the Show details chevron centers at x \(chevronX), the header icon at \(iconX)")
     }
 
-    @Test func tabRowsKeepOnePitchAndEachShowsItsDetailLine() throws {
+    /// One gap between every two rows; a row is two lines tall with a detail line and one row tall without
+    /// (Leo 2026-11-06: "you got all these empty things").
+    @Test func tabRowsKeepOneGapAndEachShowsItsDetailLine() throws {
         let mounted = Self.mount()
         defer { mounted.window.closeAfterTest() }
         let card = mounted.card
         let rows = try Self.rows(in: card)
         try #require(rows.count >= 4, "the card lists \(rows.count) tabs")
-        let tops = rows.map { Self.frame($0.view, in: card).minY }
-        let pitches = zip(tops.dropFirst(), tops).map { $0 - $1 }
-        for pitch in pitches {
-            #expect(abs(pitch - pitches[0]) <= 0.5, "tab row pitches \(pitches) are uneven")
+        let frames = rows.map { Self.frame($0.view, in: card) }
+        let gaps = zip(frames.dropFirst(), frames).map { $0.minY - $1.maxY }
+        for gap in gaps {
+            #expect(abs(gap - Metrics.space1) <= 0.5, "tab row gaps \(gaps) are uneven")
+        }
+        let tokens = SidebarRowTokens.current.hoverCard
+        for (row, frame) in zip(rows, frames) {
+            let height = row.detail == nil ? tokens.tabRowHeight : tokens.tabRowHeightTwoLines
+            #expect(abs(frame.height - height) <= 0.5, "\"\(row.title.stringValue)\" is \(frame.height) pt tall, not \(height)")
         }
         for row in rows {
             let detail = row.detail?.stringValue ?? ""
-            #expect(!detail.isEmpty, "\"\(row.title.stringValue)\" shows no detail line")
+            // A blank page has no fact worth a line (Leo 2026-11-01: no "Tab" under "New Tab"); every other row has one.
+            let blank = row.title.stringValue == Strings.hoverCardNewTab
+            #expect(detail.isEmpty == blank, "\"\(row.title.stringValue)\" detail line: \"\(detail)\"")
             // The icon sits on its title's line (the middle of its capitals), not between the two lines.
             let font = try #require(row.title.font)
             let titleFrame = Self.frame(row.title, in: card)
@@ -144,9 +153,14 @@ import Testing
         for (row, tab) in zip(rows, tabs) {
             let labels = Self.descendants(of: row).compactMap { $0 as? ChromeLabel }.filter { Self.shown($0) && !$0.stringValue.isEmpty }
                 .sorted { $0.frame.minY < $1.frame.minY }
+            let now = WorkspaceHoverCardFixture.now
+            // A tab with no fact worth a line (a blank page) shows its title alone.
+            if WorkspaceTabHoverCardLine(tab, style: .standard, now: now).detail.isEmpty {
+                #expect(labels.count == 1, "\(tab.title) shows a line with no fact: \(labels.map(\.stringValue))")
+                continue
+            }
             let detail = try #require(labels.dropFirst().first, "\(tab.title) shows no detail line")
             let text = detail.stringValue
-            let now = WorkspaceHoverCardFixture.now
             for field in [WorkspaceTabHoverCardStyle.Field.state, .time] {
                 if let word = WorkspaceTabHoverCardLine.text(field, of: tab, now: now) {
                     #expect(text.contains(word), "\(tab.title): \"\(text)\" lost \"\(word)\"")
@@ -163,12 +177,16 @@ import Testing
         }
     }
 
-    /// A blank page reads "New Tab", with no "about:blank" or "Blank page".
+    /// A blank page reads "New Tab", with no "about:blank" or "Blank page", and no bare kind word under it
+    /// (Leo 2026-11-01, on "New Tab" over "Tab": "these are not informative enough").
     @Test func aBlankPageReadsNewTab() {
         let line = WorkspaceTabHoverCardLine(SidebarTab(id: TabID("b"), title: "about:blank", kind: .browser), style: .standard,
                                              now: WorkspaceHoverCardFixture.now)
         #expect(WorkspaceTabHoverCardLine.title(SidebarTab(id: TabID("b"), title: "about:blank", kind: .browser)) == Strings.hoverCardNewTab)
-        #expect(line.detail == Strings.hoverCardKindBrowser)
+        #expect(line.detail.isEmpty)
+        let newTab = WorkspaceTabHoverCardLine(SidebarTab(id: TabID("n"), title: "New Tab", kind: .newTab), style: .standard,
+                                               now: WorkspaceHoverCardFixture.now)
+        #expect(newTab.detail.isEmpty, "\(newTab.detail)")
     }
 
     /// The place shortens from its middle and keeps its last path component.

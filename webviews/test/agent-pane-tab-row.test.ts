@@ -1,5 +1,5 @@
 // l10n-allow-file: test fixture prompts and replies, not shipped UI.
-// One row on top (the chrome.tabs.rowTools Debug setting; Leo 2026-10-14, "why is there even a top
+// One row on top (Leo 2026-10-14, "why is there even a top
 // bar"): while the App offers the pane's tab row (`tabRow {height, trailingInset}`), the chat header
 // is that row's height, shows its tools at its right end left of the pane's own "…", and reports
 // their width (`pane.tabRowTools`) so the App narrows the tabs; 0 once the row ends. Without an
@@ -193,13 +193,13 @@ await requireBrowserLane("agent-pane-tab-row.test.ts", async () => {
     await page.locator(".acpmux-header[data-tab-row]").waitFor();
     expect(await header(page)).toEqual({ tabRow: true, height: 28, inset: 40 });
     await page.waitForFunction(() => ((window as Recorder).__tabRowCalls ?? []).length > 0);
-    const reported = (await calls(page)) as { width: number }[];
+    const reported = (await calls(page)) as { width: number; need?: number }[];
     const tools = await page.evaluate(() =>
       Math.round(document.querySelector(".acpmux-handoff-header-tools")!.getBoundingClientRect().width),
     );
     expect(tools).toBeGreaterThan(0);
-    // The tools' width and the gap the tabs keep from them.
-    expect(reported.at(-1)).toEqual({ width: tools + 4 });
+    // The tools' width and the gap the tabs keep from them; with no accessory (header/tabRow.ts) it is all need.
+    expect(reported.at(-1)).toEqual({ width: tools + 4, need: tools + 4 });
     // Only the tools take clicks: the row's left part is the App's tabs.
     expect(await page.evaluate(() => getComputedStyle(document.querySelector(".acpmux-header")!).pointerEvents)).toBe(
       "none",

@@ -26,7 +26,7 @@ extension AgentPaneNavigation {
     /// A cmux app link (``isCmuxAppLink(_:)``) spends the gesture too and goes to `openApp`, the
     /// app's own `link.open` (``LinkRouter/appLink``), never to the system.
     @MainActor static func openOutside(_ url: URL, gestures: AgentPaneUserGestures, open: (URL) -> Void,
-                                       openApp: (URL) -> Bool = { LinkRouter.shared.appLink($0) }) -> Bool {
+                                       openApp: (URL) -> Bool = { LinkRouter.shared.appLink($0, .init()) }) -> Bool {
         if isCmuxAppLink(url) {
             guard gestures.consume() else { return false }
             return openApp(url)
@@ -49,6 +49,6 @@ extension AgentPaneNavigation {
               scheme != AgentPaneSource.bundledScheme,
               url.user == nil, url.password == nil, url.port == nil,
               let host = url.host?.lowercased() else { return false }
-        return ["workspace", "pane", "tab", "session", "chief", "agent"].contains(host)
+        return ["workspace", "pane", "tab", "session", "chief", "agent", "group"].contains(host)
     }
 }

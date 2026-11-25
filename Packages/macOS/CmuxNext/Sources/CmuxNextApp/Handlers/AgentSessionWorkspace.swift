@@ -1,9 +1,11 @@
 import CmuxNextActions
+import CmuxNextAgentActivity
 import CmuxNextAgentLanes
 import CmuxNextBridge
 import CmuxNextCompat
 import CmuxNextDaemon
 import CmuxNextSidebar
+import CmuxNextWindowRules
 import Foundation
 
 /// `agent.openSessionWorkspace`: a new workspace whose selected tab is the
@@ -17,13 +19,7 @@ import Foundation
 /// Closing the tab or the workspace only detaches from the session; the
 /// session ends only when someone ends it.
 ///
-/// Arguments: `session` (required, the acpmux session id), `name` (the
-/// workspace name), `key` (a caller-chosen workspace key, a lowercase UUID,
-/// so the caller can rename the workspace later), `cwd` (unused: the session keeps its own), `host`
-/// (`chief:<home id>`: the session runs in this app's Chief home's acpmux),
-/// `group` (the name of the sidebar group it goes in: any group of that name
-/// that can hold the row, made only when none can; `acpmux new --group` sends
-/// it), `placement` (`top`: first below Home over `workspaces.newPlacement`, `agents chat new --top`).
+/// Arguments: ``AgentSessionWorkspaceRequest``.
 /// A `key` that names a listed workspace opens nothing: a launcher run again finds its row.
 /// A `name` that already has a row in that group (a lane
 /// re-homed to another machine, whose new session has a new key) gets the
@@ -33,6 +29,10 @@ import Foundation
 /// sidebar's session tree nests the new workspace under the caller's even
 /// when the session's daemon lists no lineage (a remote or older daemon).
 enum AgentSessionWorkspace {
+    /// How long an agent-opened workspace keeps asking for its create and first chat tab through late
+    /// daemon replies (one budget for both): a Chief session may be starting on a busy host.
+    static let firstTabBudget: Duration = .seconds(120)
+
     static func bind(into registry: ActionRegistry, context: AppActionContext) {
         registry.bind("agent.openSessionWorkspace", run: { invocation in
             try open(invocation, context: context)
@@ -40,39 +40,16 @@ enum AgentSessionWorkspace {
     }
 
     private static func open(_ invocation: ActionInvocation, context: AppActionContext) throws {
-        let session = (invocation["session"]?.stringValue ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !session.isEmpty else { throw ActionFailure(message: MiscHandlerStrings.sessionRequired) }
-        let name = invocation["name"]?.stringValue.flatMap { $0.isEmpty ? nil : $0 }
-        let given = invocation["key"]?.stringValue?.lowercased()
-        let key = given.flatMap { UUID(uuidString: $0) == nil ? nil : WorkspaceKey(rawValue: $0) } ?? .generate()
-        let cwd = invocation["cwd"]?.stringValue.flatMap { $0.isEmpty ? nil : $0 }
-        // The Chief host's own acpmux runs the session (`chief:<home id>`); absent: this Mac's.
-        let host = invocation["host"]?.stringValue.flatMap { $0.isEmpty ? nil : $0 }
-        let givenGroup = invocation["group"]?.stringValue.flatMap { $0.isEmpty ? nil : $0 }
-        if let givenGroup, !SidebarEdits.validGroupName(givenGroup) {
-            throw ActionFailure(message: "agent.openSessionWorkspace: group must be a non-empty human label, not a cmux id; omit group or use a label such as \"GUI push\"")
-        }
-        let placement = invocation["placement"]?.stringValue ?? ""
-        if !["", "top"].contains(placement) { throw ActionFailure(message: "agent.openSessionWorkspace: placement must be top; omit it for the workspaces.newPlacement setting") }
-        // Looked up as given, so a group whose name has outer spaces is still found exactly; a new group gets
-        // the trimmed name (`join`).
-        let group = givenGroup
+        let request = try AgentSessionWorkspaceRequest(invocation, sessionRequired: MiscHandlerStrings.sessionRequired)
         let parent = invocation.callerAgentSession.flatMap { caller in
-            Self.callerIdentity(caller, in: context.services.agentTabs.listTabs().map {
+            AgentSessionParents.callerIdentity(caller, in: context.services.agentTabs.listTabs().map {
                 AgentSessionRef(host: $0.record.host, session: $0.record.session)
             })
         }
-        let task = try open(session: session, name: name, key: key, cwd: cwd, host: host, group: group,
-                            top: placement == "top", focus: invocation.allowsViewChange, parent: parent, services: context.services)
-        context.services.registry.track(task)
-    }
-
-    /// Resolves a caller only when every tab with its session belongs to one host. Duplicate tabs
-    /// on that host are the same lineage; the same id on two hosts is intentionally ambiguous.
-    @MainActor static func callerIdentity(_ caller: String, in records: [AgentSessionRef]) -> AgentSessionParents.Identity? {
-        let hosts = Set(records.filter { $0.session == caller }.map(\.host))
-        guard hosts.count == 1, let host = hosts.first else { return nil }
-        return AgentSessionParents.identity(host: host, session: caller)
+        let session: String // the chat's acpmux id, never its name or harness session id (AgentLaneStore.localSessionID)
+        do { session = try AgentLaneStore.shared.localSessionID(request.session, host: request.host, localHost: context.services.agentTabs.localHost) } catch { throw ActionFailure(message: error.description) }
+        context.services.registry.track(result: try answering(session: session, name: request.name, defaultName: request.defaultName, key: request.key, cwd: request.cwd,
+                                                              host: request.host, group: request.group, top: request.top, focus: invocation.allowsViewChange, parent: parent, services: context.services))
     }
 
     /// Starts the new workspace for `session` (see the type) and returns its
@@ -81,44 +58,72 @@ enum AgentSessionWorkspace {
     /// (nil for a person), recorded once the chat tab opens. Throws when this
     /// build has no agent page or the daemon is offline.
     @discardableResult
-    static func open(session: String, name: String?, key: WorkspaceKey = .generate(), cwd: String?, host: String? = nil,
+    static func open(session: String, name: String?, defaultName: String? = nil, key: WorkspaceKey = .generate(), cwd: String?, host: String? = nil,
                      group: String? = nil, top: Bool = false, focus: Bool = false, parent: AgentSessionParents.Identity? = nil,
-                     services: AppServices) throws -> ActionWork {
+                     services: AppServices,
+                     beforeFirstTab: (@MainActor @Sendable () async -> Void)? = nil) throws -> ActionWork {
+        try answering(session: session, name: name, defaultName: defaultName, key: key, cwd: cwd, host: host, group: group, top: top, focus: focus, parent: parent, services: services, beforeFirstTab: beforeFirstTab).failureWork
+    }
+
+    /// ``open(session:name:defaultName:key:cwd:host:group:top:focus:parent:services:beforeFirstTab:)``, answering the chat's ids (``AgentSessionOpenAnswer``).
+    static func answering(session: String, name: String?, defaultName: String? = nil, key: WorkspaceKey = .generate(), cwd: String?, host: String? = nil, group: String? = nil, top: Bool = false,
+                          focus: Bool = false, parent: AgentSessionParents.Identity? = nil, services: AppServices, beforeFirstTab: (@MainActor @Sendable () async -> Void)? = nil) throws -> ActionResultWork {
         guard services.agentTabs.canHostChat else { throw ActionFailure(message: MiscHandlerStrings.quickChatUnavailable) }
         let daemon = services.daemon
-        guard let connection = daemon.connection, case let repair = services.emptyWorkspaces else {
+        guard let connection = daemon.connection, services.agentTabs.localHost != nil, case let repair = services.emptyWorkspaces else {
             throw ActionFailure(message: MiscHandlerStrings.daemonOffline)
         }
         let logger = daemon.logger
         let targetHost = host ?? services.agentTabs.localHost ?? ""
-        // A caller's key that names a listed workspace already shows the
-        // session (a launcher run again): nothing is opened twice.
-        if services.machines.workspace(id: key.rawValue) != nil { return Task { nil } }
+        // A caller's key that names a listed workspace already shows the session (a launcher run again), or its stand-in (the key's first run in flight);
+        // a session a live tab of any workspace shows (an agent's open-tab, an open under another key) gets no second workspace either: one session, one
+        // sidebar row (ask-e3ce1c3684). Nothing is opened twice: it answers that chat tab (shown when the run may change the view), else the workspace.
+        let listed = services.machines.workspace(id: key.rawValue)?.0 ?? daemon.store.workspaces.first(where: { $0.key == key })
+        let live = AgentSessionTab.liveTab(showing: session, host: host, services: services, in: listed == nil ? nil : key.rawValue)
+        if listed != nil || live != nil {
+            if focus, listed == nil, let live { _ = services.revealTab(live.tab.id) }
+            let answer = AgentSessionOpenAnswer.fields(session: session, tab: live?.tab, pane: live?.pane, workspace: listed ?? live.flatMap { services.daemon(for: $0.pane).store.workspace(containing: $0.pane.handle) })
+            return Task { .success(answer) }
+        }
         let windows = services.windows
         // Every window's sidebar: each lists only its own workspaces, and the predecessor may be in any.
         if let group, let name,
            let row = SidebarEdits.predecessor(named: name, inGroup: group, inEach: windows.controllers.map(\.sidebar.model.sections)) {
             return reuse(row, session: session, key: key, host: host, focus: focus, parent: parent, services: services)
         }
-        expectPlacement(key.rawValue, group: group, top: top, parent: parent, windows: windows)
-        // The lineage parent before the row lists, so the row nests under its caller from its first frame, never moves
-        // under it once the tab has opened.
-        AgentSessionWorkspace.recordParent(parent, of: AgentSessionParents.identity(host: targetHost, session: session),
-                                             in: SidebarSessionTreeFeed.shared.recordedParents)
+        // A chat its tab would refuse (or, before localHost resolves, could not bind) makes no workspace: made first, its row listed and closed again (Leo, 2026-11-05).
+        if let refusal = WorkspaceCreation.sessionTabRefusal(host: host, on: daemon, tabs: services.agentTabs) { throw ActionFailure(message: refusal) }
+        let placed = expectPlacement(key.rawValue, group: group, top: top, parent: parent, windows: windows)
+        // The lineage parent before the row lists, so the row nests under its caller from its first frame, never moves under it later.
+        SidebarSessionTreeFeed.shared.recordedParents.record(parent, of: AgentSessionParents.identity(host: targetHost, session: session))
+        // No group: workspace and chat show now (P4) with Cmd-N's pending row at their slot, in a window whose space lists them (never drawn elsewhere first).
+        let tabs = services.agentTabs, machine = MachineID(daemon.machineID), shownName = name ?? defaultName ?? SidebarMapping.nextWorkspaceName(in: daemon.store, reserved: PendingWorkspaceRows.shared.reservedNames(on: machine) { services.workspace(id: $0) != nil }), membership = WindowProfiles.membership(services.machines)
+        let window = (group == nil && tabs.showsWorkspaceAtOnce(on: daemon) && AgentTabStore.hostRefusal(host, localHost: tabs.localHost, chiefHost: tabs.chiefHost, daemonIsLocal: daemon.isLocal) == nil ? windows.registry.value.mostRecentOpen() : nil).flatMap { window in membership.flatMap { membership in daemon.store.registryID.map { membership.contains(.init(session: $0, key: key.rawValue), in: windows.controller(for: window)?.state.profileID ?? .defaultProfile) } } ?? true ? window : nil }
+        let instant = window.flatMap { window in PendingWorkspaceRows.shared.add(creating: key.rawValue, window: window, machine: machine, name: shownName, opensPage: true, slot: placed.slot, byDefault: placed.rule, unpinned: true); return tabs.showWorkspace(key, name: shownName, index: nil, cwd: nil, token: nil, session: (session, host, true), firstTabKeyed: true, on: daemon, repair: repair) }
         return Task { @MainActor in
             do {
+                // A Chief session may be starting on a busy host. Keep one generous deadline for
+                // workspace creation and its first chat tab; abandoning the tab after the short
+                // control deadline leaves the daemon's late about:blank commit as a bare row.
+                let giveUp = ContinuousClock.now + Self.firstTabBudget
                 // The session's chat is the workspace's first tab: a workspace store tab bound to
                 // the session (agent-session-tabs-v1), saved and restored with the workspace like any
                 // tab. No terminal first: one running `acpmux attach` landed as a bare "~" shell
                 // whenever its start missed the deadline (Leo, 2026-10-21 and 2026-10-28).
-                let tab = try await WorkspaceCreation.createWithFirstTab(key, name: name, on: connection, repair: repair) { created in
-                    try await WorkspaceCreation.sessionTab(session, in: created, host: host, linked: true, on: daemon, tabs: services.agentTabs)
+                if let instant { do { _ = try await instant.confirm(giveUp) } catch { windows.forgetCreate(key.rawValue); throw error } }
+                let tab = if let instant { tabs.resolve(instant.tabKey) } else {
+                    try await WorkspaceCreation.createWithFirstTab(key, name: name ?? defaultName, on: connection, repair: repair,
+                                                                   giveUp: giveUp) { created in
+                        await beforeFirstTab?()
+                        return try await WorkspaceCreation.sessionTab(session, in: created, host: host, linked: true,
+                                                                      mutationID: created.firstChatTabMutationID, until: giveUp, on: daemon, tabs: tabs)
+                    }
                 }
                 // The workspace's first pane once the store mirrors it, found
                 // by the key chosen here (as CloudHandlers finds its anchor).
                 guard let pane = await daemon.store.firstPane(mirroring: key) else {
                     logger.error("agent.openSessionWorkspace: the pane of workspace \(key.rawValue, privacy: .public) did not appear")
-                    return ActionWorkFailure("agent.openSessionWorkspace: the new workspace's pane did not appear")
+                    return .failure(ActionWorkFailure("agent.openSessionWorkspace: the new workspace's pane did not appear"))
                 }
                 // Selected wherever the workspace is shown later, never shown now.
                 if focus {
@@ -127,12 +132,12 @@ enum AgentSessionWorkspace {
                     }
                 }
                 logger.info("agent.openSessionWorkspace: session \(session, privacy: .public) in workspace \(key.rawValue, privacy: .public) tab \(tab, privacy: .public)")
-                return nil
+                return .success(AgentSessionOpenAnswer.fields(session: session, tab: daemon.store.tab(idOrResource: tab), tabID: tab, pane: pane, workspace: daemon.store.workspace(containing: pane.handle)))
             } catch let refusal as AgentTabRefusal {
-                return ActionWorkFailure("agent.openSessionWorkspace: \(refusal.message)")
+                return .failure(ActionWorkFailure("agent.openSessionWorkspace: \(refusal.message)"))
             } catch {
                 logger.error("agent.openSessionWorkspace failed: \(String(describing: error), privacy: .public)")
-                return ActionWorkFailure("agent.openSessionWorkspace: \(error)")
+                return .failure(ActionWorkFailure(log: "agent.openSessionWorkspace: \(error)"))
             }
         }
     }
@@ -142,42 +147,46 @@ enum AgentSessionWorkspace {
     /// row's only place: Cmd-N's slot in the window's current group first, then a move across to `group`, showed every
     /// agent's session in the wrong group for a moment (Leo, 2026-11-01: "it looks really odd when they pop up into some
     /// existing group on the sidebar as a workspace and then go to wherever they're supposed to go to").
+    /// Returns the slot and the default rule it registered (a stand-in's pending row takes them).
+    @discardableResult
     @MainActor static func expectPlacement(_ id: String, group: String?, top: Bool, parent: AgentSessionParents.Identity?,
-                                           windows: WindowManager) {
+                                           windows: WindowManager) -> (slot: WorkspaceSlot?, rule: NewWorkspaceDefaultSlot?) {
+        // The placement is cmux-window-rules `chat::agent::session_placement`; no answer places it like Cmd-N.
+        let placement = WindowRules().sessionPlacement(group: group != nil, top: top)
         var join: (@MainActor @Sendable (String, any WorkspaceSpawnSidebar) -> Void)?
-        if let group {
+        if let group, placement?.joinsGroup == true {
+            // The daemon lists it loose; the pass that first lists it sends the join (``GroupJoinRows``), or this
+            // placement does when it runs first: one join, and the row draws in its group from its first frame.
+            PendingWorkspaceRows.shared.groupJoins.hold(id, group: group)
             join = { id, sidebar in
-                guard let sidebar = sidebar as? SidebarBridge else { return }
+                guard let sidebar = sidebar as? SidebarBridge, case let joins = PendingWorkspaceRows.shared.groupJoins, joins.holds(id), joins.claim(id) else { return } // released or joined: none
                 AgentSessionWorkspace.join(id, group: group, sidebar: sidebar)
             }
         }
-        let own = group == nil && !top ? AgentSessionParents.workspace(of: parent, in: windows.services.machines.allWorkspaces.map { $0.0 }) : nil
+        let own = placement?.belowCaller == true
+            ? AgentSessionParents.workspace(of: parent, in: windows.services.machines.allWorkspaces.map { $0.0 }) : nil
         let slot = own.flatMap { WorkspaceSlot.belowGrouped($0, in: windows.controllers.flatMap { $0.sidebar.model.sections }) }
-        let rule = top ? NewWorkspaceDefaultSlot(placement: .top, current: nil, named: true) : NewWorkspacePlacements.rule(for: nil, in: windows)
-        NewWorkspacePlacements.expect(id, in: nil, slot: slot, byDefault: group == nil ? rule : nil, then: join, windows: windows)
-    }
-
-    /// Records `caller`, the session of the agent that opened `session`'s
-    /// workspace, as `session`'s lineage parent. The sidebar's tree reads it
-    /// only where the session's daemon lists no lineage of its own, so a
-    /// daemon's `spawnedBy`/`startedBy` still wins. A person's open (no
-    /// caller) records nothing.
-    @MainActor static func recordParent(_ caller: AgentSessionParents.Identity?, of child: AgentSessionParents.Identity,
-                                         in parents: AgentSessionParents) {
-        parents.record(caller, of: child)
+        let defaultSlot: WindowRules.SessionPlacement.DefaultSlot? = if let placement { placement.defaultSlot } else { .newWorkspace }
+        let rule: NewWorkspaceDefaultSlot? = switch defaultSlot {
+        case .top?: NewWorkspaceDefaultSlot(placement: .top, current: nil, named: true)
+        case .newWorkspace?: NewWorkspacePlacements.rule(for: nil, in: windows)
+        case nil: nil
+        }
+        NewWorkspacePlacements.expect(id, in: nil, slot: slot, byDefault: rule, then: join, windows: windows)
+        return (slot, rule)
     }
 
     /// The chat of a re-homed lane's new session as a tab of its predecessor's
     /// row `row`, selected there; the caller's `key` is the tab's creation key,
     /// so a launcher run again gets the same tab.
     private static func reuse(_ row: SidebarWorkspaceID, session: String, key: WorkspaceKey, host: String?, focus: Bool,
-                              parent: AgentSessionParents.Identity?, services: AppServices) -> ActionWork {
+                              parent: AgentSessionParents.Identity?, services: AppServices) -> ActionResultWork {
         let daemon = services.daemon
         let logger = daemon.logger
         return Task { @MainActor in
             do {
                 guard let pane = await daemon.store.firstPane(mirroring: WorkspaceKey(rawValue: row.rawValue)) else {
-                    return ActionWorkFailure("agent.openSessionWorkspace: the pane of workspace \(row.rawValue) did not appear")
+                    return .failure(ActionWorkFailure("agent.openSessionWorkspace: the pane of workspace \(row.rawValue) did not appear"))
                 }
                 let pending = try services.agentTabs.open(in: pane.handle, of: daemon, session: session, linked: true, host: host,
                                                           idempotencyKey: key.rawValue)
@@ -187,14 +196,13 @@ enum AgentSessionWorkspace {
                         window.state.selection.select(created.key, in: pane.id)
                     }
                 }
-                AgentSessionWorkspace.recordParent(parent, of: AgentSessionParents.identity(host: host ?? services.agentTabs.localHost ?? "", session: session),
-                                                     in: SidebarSessionTreeFeed.shared.recordedParents)
+                SidebarSessionTreeFeed.shared.recordedParents.record(parent, of: AgentSessionParents.identity(host: host ?? services.agentTabs.localHost ?? "", session: session))
                 logger.info("agent.openSessionWorkspace: session \(session, privacy: .public) in its predecessor's workspace \(row.rawValue, privacy: .public)")
-                return nil
+                return .success(AgentSessionOpenAnswer.fields(session: session, tab: daemon.store.tab(id: created.key), tabID: created.key, pane: pane, workspace: daemon.store.workspace(containing: pane.handle)))
             } catch let refusal as AgentTabRefusal {
-                return ActionWorkFailure("agent.openSessionWorkspace: \(refusal.message)")
+                return .failure(ActionWorkFailure("agent.openSessionWorkspace: \(refusal.message)"))
             } catch {
-                return ActionWorkFailure("agent.openSessionWorkspace: \(error)")
+                return .failure(ActionWorkFailure(log: "agent.openSessionWorkspace: \(error)"))
             }
         }
     }
@@ -204,7 +212,8 @@ enum AgentSessionWorkspace {
     /// undoable sidebar edit.
     @MainActor static func join(_ id: String, group name: String, sidebar: SidebarBridge) {
         let ids = [SidebarWorkspaceID(id)]
-        if let target = SidebarEdits.group(named: name, accepting: SidebarWorkspaceID(id), in: sidebar.model.sections) {
+        let machine = sidebar.services.machines.daemon(forWorkspace: id).map { MachineID($0.machineID) } // its row is held out of the list
+        if let target = SidebarEdits.group(named: name, accepting: SidebarWorkspaceID(id), in: sidebar.model.sections, machine: machine) {
             sidebar.handle(.move(ids, toGroup: target))
             return
         }

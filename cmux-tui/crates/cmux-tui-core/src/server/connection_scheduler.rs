@@ -38,6 +38,8 @@ pub(super) struct PendingSurfaceRequest {
     pub(super) request: Request,
     pub(super) retained_bytes: usize,
     pub(super) _bytes_permit: ServerSurfaceBytesPermit,
+    /// The request's record in the slow request log, while it waits in the queue.
+    pub(super) slow_log: Option<crate::diagnostics::request_log::Parked>,
 }
 
 #[derive(Default)]
@@ -185,6 +187,7 @@ impl ConnectionSurfaceScheduler {
             request: queued,
             retained_bytes,
             _bytes_permit: bytes_permit,
+            slow_log: crate::diagnostics::request_log::park(),
         });
         self.changed.notify_all();
         drop(state);
@@ -276,6 +279,7 @@ impl ConnectionSurfaceScheduler {
 
     pub(super) fn close(&self) {
         self.cancelled.cancel();
+        self.wake_reply_waiters();
         let mut state = self.state.lock().recover_poison();
         state.closed = true;
         state.requests.clear();
@@ -374,8 +378,27 @@ pub(super) fn run_pending_request(
     pending: PendingSurfaceRequest,
     writer: &MessageWriter,
 ) -> bool {
-    let PendingSurfaceRequest { request, _bytes_permit, .. } = pending;
-    handle_request_with_cancellation(mux, client, request, writer, Some(&scheduler.cancelled))
+    let PendingSurfaceRequest { request, _bytes_permit, slow_log, .. } = pending;
+    let _slow_log = crate::diagnostics::request_log::resume(slow_log);
+    // A handler that panics is answered with an error and the dispatcher goes
+    // on: it is started once per connection, so unwinding out of it left every
+    // later request queued forever on a connection that still answered `ping`
+    // on its reader. The panic hook has logged the panic; whether the
+    // panicked request changed anything is unknown, and the reply says so.
+    let id = request.id.clone();
+    let ran = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        #[cfg(test)]
+        panic_seam::check(mux, client, panic_seam::Site::Dispatch);
+        handle_request_with_cancellation(mux, client, request, writer, Some(&scheduler.cancelled))
+    }));
+    ran.unwrap_or_else(|_| {
+        eprintln!("cmux-tui: a request on connection {client} panicked");
+        send_request_error(
+            writer,
+            id,
+            "internal error: the daemon failed while it ran this request; its outcome is unknown",
+        )
+    })
 }
 
 fn run_connection_surface_dispatcher(
@@ -387,6 +410,8 @@ fn run_connection_surface_dispatcher(
     let _dispatcher = ConnectionDispatcherGuard(scheduler.clone());
     while writer.is_open() {
         let Some(pending) = scheduler.next_request() else { return };
+        writer.input_lane.raise_this_thread_if_marked();
+        super::input_qos::note_thread_qos("mux-control-dispatch");
         if pending.request.cmd.is_clear_history()
             && let Some(surface) = pending.request.cmd.ordering_surface()
         {
@@ -459,10 +484,73 @@ fn run_connection_surface_dispatcher(
                 scheduler.close();
                 return;
             }
-        } else if !run_pending_request(&scheduler, &mux, client, pending, &writer) {
-            scheduler.close();
-            return;
+        } else {
+            // Key-press flows: what the connection's dispatcher runs, so a key's wait in the queue names the request
+            // ahead of it (same thread id as the key's `daemon.send.write`; `CMUX_TRACE_FLOWS` only).
+            let traced = cmux_flow_trace::enabled().then(|| pending.request.cmd.flow_trace_names());
+            if let Some((begin, _)) = traced {
+                cmux_flow_trace::hop(begin, 0, "");
+            }
+            let open = run_pending_request(&scheduler, &mux, client, pending, &writer);
+            if let Some((_, end)) = traced {
+                cmux_flow_trace::hop(end, 0, "");
+            }
+            if !open {
+                scheduler.close();
+                return;
+            }
         }
     }
     scheduler.close();
 }
+
+impl super::Command {
+    /// The key-press flow hops a connection's dispatcher marks around this request (begin, end): the requests a
+    /// terminal view sends by name, every other one as `other` (`CMUX_TRACE_FLOWS` only).
+    fn flow_trace_names(&self) -> (&'static str, &'static str) {
+        use super::Command as C;
+        match self {
+            C::Send(_) => ("daemon.req.begin.send", "daemon.req.end.send"),
+            C::SendKey { .. } => ("daemon.req.begin.send-key", "daemon.req.end.send-key"),
+            C::ResizeAttachedView { .. } => {
+                ("daemon.req.begin.resize-attached-view", "daemon.req.end.resize-attached-view")
+            }
+            C::ResizeSurface { .. } => {
+                ("daemon.req.begin.resize-surface", "daemon.req.end.resize-surface")
+            }
+            C::SetClientSizing { .. } => {
+                ("daemon.req.begin.set-client-sizing", "daemon.req.end.set-client-sizing")
+            }
+            C::SetSizePolicy { .. } => {
+                ("daemon.req.begin.set-size-policy", "daemon.req.end.set-size-policy")
+            }
+            C::SnapshotRequest(_) => {
+                ("daemon.req.begin.snapshot-request", "daemon.req.end.snapshot-request")
+            }
+            C::ReleaseAttachedViewSize { .. } => (
+                "daemon.req.begin.release-attached-view-size",
+                "daemon.req.end.release-attached-view-size",
+            ),
+            C::SetSizeCounts { .. } => {
+                ("daemon.req.begin.set-size-counts", "daemon.req.end.set-size-counts")
+            }
+            C::SetAttachVisibility(_) => {
+                ("daemon.req.begin.set-attach-visibility", "daemon.req.end.set-attach-visibility")
+            }
+            C::DetachAttachedView { .. } => {
+                ("daemon.req.begin.detach-attached-view", "daemon.req.end.detach-attached-view")
+            }
+            C::ScrollSurface { .. } => {
+                ("daemon.req.begin.scroll-surface", "daemon.req.end.scroll-surface")
+            }
+            _ => ("daemon.req.begin.other", "daemon.req.end.other"),
+        }
+    }
+}
+
+/// Tests: make the next request of one connection panic in its handler,
+/// on the connection's reader or on its dispatcher. Keyed by the mux too:
+/// parallel tests number their connections from 1 each.
+#[cfg(test)]
+#[path = "connection_scheduler_panic_seam_tests.rs"]
+pub(super) mod panic_seam;

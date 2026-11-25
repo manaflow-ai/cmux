@@ -73,7 +73,7 @@ enum DebugChatOpenTrace {
     }
 
     /// The traced chat's own clock (`page_timing: true`), in either engine: its navigation timing,
-    /// paint entries, the resources it loaded and when, and the time it marked painted.
+    /// paint entries, the resources it loaded and when, the time it marked painted, and `snapshot` (chatSnapshot/).
     private static func pageTiming(_ params: [String: JSON], _ services: AppServices) async -> JSON {
         guard case .success(let (_, view)) = DebugAgentPane.agentPane(params, services: services) else { return .null }
         let script = """
@@ -86,7 +86,7 @@ enum DebugChatOpenTrace {
               paint: performance.getEntriesByType("paint").map((entry) => [entry.name, round(entry.startTime)]),
               resources: performance.getEntriesByType("resource").map((entry) => [entry.name.split("/").pop(),
                 round(entry.startTime), round(entry.responseEnd), entry.transferSize]),
-              painted: Number(document.documentElement.dataset.cmuxPainted ?? NaN),
+              painted: Number(document.documentElement.dataset.cmuxPainted ?? NaN), snapshot: [window.__cmuxChatSnapshotShown, window.__cmuxChatSnapshotMiss, window.__cmuxChatSnapshotWhy],
             });
             """
         guard let text = try? await view.callPageScript(script) as? String,
@@ -119,6 +119,7 @@ enum DebugChatOpenTrace {
             "frame_count": .number(Double(record.frameCount)),
             "first_content_ms": record.firstContentMilliseconds.map { JSON.number(rounded($0)) } ?? .null,
             "longest_empty_ms": .number(rounded(record.longestEmptyMilliseconds)),
+            "note": record.note.map(JSON.string) ?? .null,
         ])
     }
 }

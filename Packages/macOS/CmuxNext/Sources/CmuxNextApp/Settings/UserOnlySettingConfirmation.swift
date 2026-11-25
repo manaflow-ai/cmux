@@ -1,4 +1,5 @@
 import AppKit
+import CmuxNextAgentPane
 import CmuxNextDesign
 import CmuxNextSettings
 
@@ -13,7 +14,9 @@ enum UserOnlySettingConfirmation {
             let prompt = DestructiveConfirmation.Prompt(
                 title: ConfirmationStrings.userOnlySettingTitle(key), body: Self.body(key: key, value: value),
                 button: ConfirmationStrings.userOnlySettingButton)
-            return await ask(prompt, services: services)
+            // SECURITY: a computerUse.* confirm counts only from the person's own input (``ComputerUseSettings/isPersonOnly(_:)``).
+            let personOnly = ComputerUseSettings.isPersonOnly(CmuxConfigFile.keyPath(from: key))
+            return await ask(prompt, services: services) && (!personOnly || services.personInput.backsNow)
         }
     }
 
@@ -47,7 +50,7 @@ enum UserOnlySettingConfirmation {
     static func body(key: String, value: JSONValue?) -> String {
         let shown = value ?? Self.defaultValue(key)
         let text = ConfirmationStrings.userOnlySettingBody(key, shown.compactText)
-        guard CmuxConfigFile.keyPath(from: key) == HangReportsSetting.path, shown == .bool(true) else { return text }
+        guard CmuxConfigFile.keyPath(from: key) == HangReportsSetting.configPath, shown == .bool(true) else { return text }
         return text + "\n\n" + HangReportsStrings.privacySummary
     }
 

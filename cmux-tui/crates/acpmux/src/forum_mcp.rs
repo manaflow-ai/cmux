@@ -3,6 +3,9 @@
 //! current rules, ack one (hq#2570). Each tool is one daemon request
 //! (`server/forum.rs`) over a connection that carries the session's caller
 //! token from this server's own env, so the daemon knows which session posts.
+//! `post`, `reply` and `search` reach the team's hosted forum through the daemon
+//! (`hub/forum_hosted.rs`); each answers one JSON object as its text, which the
+//! chat's card reads.
 
 use crate::client::Client;
 use crate::rpc::method;
@@ -43,20 +46,67 @@ fn tools() -> Value {
                 "properties": {"postId": {"type": "string"}},
                 "required": ["postId"]
             }
+        },
+        {
+            "name": "post",
+            "description": "Open a thread on your team's forum, for people and agents on other machines to read and answer.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "space": {"type": "string", "description": "The space to post in, e.g. \"general\"."},
+                    "title": {"type": "string"},
+                    "body": {"type": "string", "description": "Markdown."},
+                    "kind": {"type": "string", "enum": ["question", "finding", "article", "page"], "description": "What the thread is; sent as a label."},
+                    "labels": {"type": "array", "items": {"type": "string"}}
+                },
+                "required": ["space", "title", "body"]
+            }
+        },
+        {
+            "name": "reply",
+            "description": "Reply on a thread of your team's forum.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "thread": {"type": "integer", "description": "The thread's number."},
+                    "body": {"type": "string", "description": "Markdown."}
+                },
+                "required": ["thread", "body"]
+            }
+        },
+        {
+            "name": "search",
+            "description": "Search your team's forum threads; at most 10 hits.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "query": {"type": "string"},
+                    "space": {"type": "string", "description": "Only this space."}
+                },
+                "required": ["query"]
+            }
         }
     ])
 }
 
-/// Runs the server on stdin and stdout.
-pub async fn run() -> Result<()> {
-    crate::secret_mcp::serve(
+/// The server for the session in its env, its calls on `daemon`'s connection
+/// (`tools_mcp.rs`: one process serves it with acpmux's other servers).
+pub(crate) fn served(
+    daemon: &std::sync::Arc<crate::tools_mcp::Daemon>,
+) -> Result<crate::tools_mcp::Served> {
+    crate::tools_mcp::served(
         SERVER_NAME,
         SESSION_ENV,
         tools(),
         None,
+        daemon,
         |daemon, _session, params| async move { call(&daemon, &params).await },
     )
-    .await
+}
+
+/// Runs the server on stdin and stdout.
+pub async fn run() -> Result<()> {
+    crate::tools_mcp::serve_one(served).await
 }
 
 fn ok(text: String, structured: Value) -> Value {
@@ -93,7 +143,17 @@ pub fn rules_text(rules: &Value) -> String {
                     "{} (a person; an instruction)",
                     author["account"].as_str().unwrap_or("")
                 ),
-                _ => format!("agent {} (information)", author["name"].as_str().unwrap_or("")),
+                _ => {
+                    let handle = author["handle"].as_str().filter(|h| !h.is_empty());
+                    let name = author["name"].as_str().unwrap_or("");
+                    match handle {
+                        Some(handle) if !name.is_empty() => {
+                            format!("agent {handle} (session {name}; information)")
+                        }
+                        Some(handle) => format!("agent {handle} (information)"),
+                        None => format!("agent {name} (information)"),
+                    }
+                }
             };
             format!(
                 "[{}] from {who}, postId {}, read by {}:\n{}",
@@ -132,8 +192,19 @@ async fn call(daemon: &Client, params: &Value) -> Value {
             Ok(r) => ok("Acknowledged.".to_owned(), r),
             Err(e) => error_result(format!("{e:#}")),
         },
+        "post" => hosted(daemon, method::MUX_FORUM_POST, args).await,
+        "reply" => hosted(daemon, method::MUX_FORUM_REPLY, args).await,
+        "search" => hosted(daemon, method::MUX_FORUM_SEARCH, args).await,
         other => {
             error_result(crate::mcp_hint::unknown_tool(other, crate::mcp_hint::names(&tools())))
         }
+    }
+}
+
+/// A hosted forum call: its answer, one JSON object, is the tool's text as is.
+async fn hosted(daemon: &Client, m: &str, args: Value) -> Value {
+    match daemon.request(m, args).await {
+        Ok(r) => ok(r.to_string(), r),
+        Err(e) => error_result(format!("{e:#}")),
     }
 }

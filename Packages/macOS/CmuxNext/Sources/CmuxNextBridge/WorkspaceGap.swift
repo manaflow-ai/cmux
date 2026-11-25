@@ -20,10 +20,10 @@ public struct WorkspaceGap: Hashable, Sendable {
     public func position(moving: Set<String>, in sections: [SidebarRowSection]) -> DropPosition? {
         guard let members = Self.members(section: section, group: group, in: sections, moving: moving) else { return nil }
         let index: Int
-        if let before, let found = members.firstIndex(of: before) { index = found }
+        if before == nil, after == nil { index = 0 } // captured in an empty container
+        else if let before, let found = members.firstIndex(of: before) { index = found }
         else if let after, let found = members.firstIndex(of: after) { index = found + 1 }
-        else if before == nil, after == nil { index = 0 }
-        else { return nil } // Both neighbors disappeared; do not reuse their old numeric slot.
+        else { return nil } // Every neighbor it had is gone (the gap below a closed last row too): no slot, not index 0.
         return DropPosition(section: section, group: group, index: index)
     }
 

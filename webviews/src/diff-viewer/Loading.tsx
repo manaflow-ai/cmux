@@ -1,5 +1,6 @@
 // Owns the diff viewer's loading placeholders: the file list and diff skeletons and the
 // loading layer.
+import { Spinner } from "../agent-session/acpmux/conversation/Spinner";
 import type { DiffViewerLabelResolver } from "../labels";
 import type { DiffViewerStatus } from "../status";
 
@@ -52,10 +53,23 @@ export function LoadingLayer({ label, status }: { label: DiffViewerLabelResolver
   if (!status.loading && !status.pending && !status.statusOnly && !status.error) {
     return null;
   }
+  // The first frame of a diff still streaming is its final layout: the skeleton alone, with no floating
+  // "Loading diff…" or "Parsing diff…" card over it (a screen reader still hears it). A message of its own (an error, an
+  // empty state, the host's status) still shows.
+  const quiet =
+    (status.loading || status.pending) &&
+    !status.error &&
+    !status.statusOnly &&
+    (!status.message || status.message === label("loadingDiff") || status.message === label("parsingDiff"));
   return (
     <div id="loading-layer" aria-live="polite">
-      <div id="status" data-error={status.error ? "true" : "false"} data-pending={status.pending ? "true" : "false"}>
-        <span id="status-icon" aria-hidden="true" />
+      <div
+        id="status"
+        className={quiet ? "visually-hidden" : undefined}
+        data-error={status.error ? "true" : "false"}
+        data-pending={status.pending ? "true" : "false"}
+      >
+        {status.loading || status.pending ? <Spinner loading size={14} className="status-spinner" /> : null}
         <span id="status-text">{status.message || label("loadingDiff")}</span>
       </div>
       {status.loading || status.pending ? <LoadingDiffSkeleton /> : null}

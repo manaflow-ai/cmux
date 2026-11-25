@@ -98,6 +98,16 @@ fn adopt_locked(
             Err(why) => return Outcome::Deferred(why),
         }
     }
+    // A post-update daemon that stopped without a shutdown left
+    // changes that only its journal holds (a new chat's `session.json` is written by a
+    // checkpoint), and the merge below moves the home's `sessions/` alone. Replayed first, under
+    // its daemon lock; nothing has moved if it fails.
+    if new_exists && let Err(error) = catch_up_journal(home) {
+        return Outcome::Deferred(format!(
+            "replay the event journal of {}: {error:#}",
+            home.display()
+        ));
+    }
     let (stamp, at) = super::now_stamps();
     let mut record = serde_json::json!({
         "from": legacy, "at": at, "by": by, "mode": "rename",
@@ -160,6 +170,14 @@ fn adopt_locked(
         })
         .collect();
     for aside in leftovers {
+        if let Err(error) = catch_up_journal(&aside) {
+            steps.step(format!(
+                "an earlier run left {}: kept for a later run, its event journal did not replay: \
+                 {error:#}",
+                aside.display()
+            ));
+            continue;
+        }
         steps.step(format!("an earlier run left {}: merging it", aside.display()));
         merge_sessions(&aside, home, steps);
         let kept = home.join(format!(
@@ -182,6 +200,12 @@ fn adopt_locked(
     }
     drop(locks);
     Outcome::Adopted(if new_exists { "merge" } else { "rename" })
+}
+
+/// Writes the event journal a daemon of `home` left into its chat folders (acpmux
+/// `store::catch_up_journal`), so moving `sessions/` moves every acknowledged change.
+fn catch_up_journal(home: &Path) -> anyhow::Result<()> {
+    acpmux::store::catch_up_journal(&acpmux::config::StoreConfig::default(), home)
 }
 
 /// A real folder (not a link: an adopted old path is a link).

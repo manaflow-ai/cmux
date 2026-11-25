@@ -1,15 +1,23 @@
+import { envForObject } from "./build-space.ts"
 import type { EventFrame, OpFrame, Principal } from "@cmux/ownership"
 import { feedKindSchemas, FeedList, type FeedItem, type PushTarget } from "@cmux/protocol"
 import { decodeParams } from "./domains/common.ts"
-import { approvalOf, type ApprovalSource } from "./domains/feed-approvals.ts"
+import { approvalAnswerChannel, approvalOf, type ApprovalSource } from "./domains/feed-approvals.ts"
 import { listItems } from "./domains/feed-query.ts"
 import { feedCounts, feedDomain, nextFeedWake, visibleTo, type FeedState } from "./domains/feed.ts"
 import { isUserClient, prunableAt, pushEligible, RETENTION_MS } from "./domains/feed-state.ts"
-import type { Env } from "./env.ts"
-import { OwnerDO, type ReadResult, type SubmitResult } from "./owner-do.ts"
+import type { Env, RawEnv } from "./env.ts"
+import { OwnerDO, type Attachment, type ReadResult, type SubmitResult } from "./owner-do.ts"
 import { FEED_ENGINE_OPTIONS, scrubFeedText } from "./feed-privacy.ts"
 import type { SweepState } from "./feed-sweep.ts"
 import { apnsConfig, sendApns } from "./push/apns.ts"
+
+/** A closing socket must not stop the others (as OwnerDO's own sends). */
+const safeSendFrame = (ws: WebSocket, frame: unknown) => {
+  try {
+    ws.send(typeof frame === "string" ? frame : JSON.stringify(frame))
+  } catch {}
+}
 
 interface Presence {
   readonly active: boolean
@@ -27,7 +35,8 @@ interface Presence {
 export const MAX_POSTS_PER_DAY = 5_000
 
 export class FeedDO extends OwnerDO<FeedState> {
-  constructor(ctx: DurableObjectState, env: Env) {
+  constructor(ctx: DurableObjectState, raw: RawEnv) {
+    const env = envForObject(ctx, raw)
     // Subscribers are the user's own clients; events show the acting install, never email or Stack ids.
     super(ctx, env, feedDomain, "feed", (p) => ({
       identity: p.identity,
@@ -49,7 +58,15 @@ export class FeedDO extends OwnerDO<FeedState> {
   override async submit(entity: string, principal: Principal, frame: OpFrame): Promise<SubmitResult> {
     // Every poster counts (an install, or a session by its identity); system ops do not.
     const poster = principal.kind === "system" ? undefined : (principal.install ?? principal.identity)
-    if ((frame.op !== "feed.post" && frame.op !== "feed.adopt") || poster === undefined) return super.submit(entity, principal, frame)
+    if ((frame.op !== "feed.post" && frame.op !== "feed.adopt") || poster === undefined) {
+      // A Cloud approval's answer (or decline) answers once CloudDO has it, so the caller's same-key retry finds the
+      // approved run in flight or done (approvalAnswerChannel); bounded, the alarm sends what is left. Only that item's
+      // own delivery is waited for: any other answer returns at once, even during another Cloud delivery (#40370 F1).
+      const cloud = frame.op === "feed.answer" || frame.op === "feed.cancel" ? this.cloudApprovalOf(entity, frame.params) : null
+      const res = await super.submit(entity, principal, frame)
+      if (cloud) await this.promptDelivered(() => this.answerDelivered(cloud))
+      return res
+    }
     const day = Math.floor(Date.now() / 86_400_000)
     const sql = this.ctx.storage.sql
     const used = () => {
@@ -83,7 +100,8 @@ export class FeedDO extends OwnerDO<FeedState> {
    */
   protected override systemPrincipal(entity: string, source: string): Principal {
     const base = super.systemPrincipal(entity, source)
-    return source === `user:${entity}` ? { ...base, user: entity } : base
+    // A team's SchedulerDO (stream scheduler:<team>) posts failed-run notices to this feed (schedulerPoster).
+    return source === `user:${entity}` || /^scheduler:[^:]+$/.test(source) ? { ...base, user: entity } : base
   }
 
   /**
@@ -128,6 +146,27 @@ export class FeedDO extends OwnerDO<FeedState> {
       if (a?.request === request) return { team: a.team, source: a.source }
     }
     return null
+  }
+
+  /** The Cloud approval (its team and request) the answered `params.item` carries, or null for any other item. */
+  private cloudApprovalOf(entity: string, params: unknown): { team: string; request: string } | null {
+    const id = (params as { item?: unknown } | null)?.item
+    if (typeof id !== "string" || !this.isBound(entity)) return null
+    const item = this.bind(entity).currentState.items[id]
+    const a = item ? approvalOf(item) : null
+    return a?.source === "cloud" ? { team: a.team, request: a.request } : null
+  }
+
+  /** Whether the answer item for `request` is out of this feed's CloudDO channel (sent, or never queued). */
+  private answerDelivered(a: { team: string; request: string }): boolean {
+    const engine = this.boundEngine
+    if (!engine) return true
+    return !engine.outbox.queued(`CloudDO:${a.team}`, `approval:${a.request}`)
+  }
+
+  /** A Cloud approval's answer goes to CloudDO at commit, not at the next alarm (feed-approvals.ts approvalAnswerChannel). */
+  protected override promptChannel(channel: string): boolean {
+    return super.promptChannel(channel) || approvalAnswerChannel(channel)
   }
 
   /** Text written without the redaction is scrubbed on bind (feed-privacy.ts). */
@@ -205,12 +244,69 @@ export class FeedDO extends OwnerDO<FeedState> {
 
   /** `presence.set {state: {active, client}}` from a connected client (sync-and-transport.md 3.1). */
   protected override onFrame(ws: WebSocket, frame: { readonly t?: string } & Record<string, unknown>): boolean {
+    if (frame.t === "integration.watch") return this.watchIntegration(ws, frame)
     if (frame.t !== "presence.set") return false
     const st = (frame.state ?? {}) as { active?: unknown; client?: unknown }
     const a = (ws.deserializeAttachment() ?? {}) as Record<string, unknown>
     const presence: Presence = { active: st.active === true, client: typeof st.client === "string" ? st.client.slice(0, 16) : "unknown", at: Date.now() }
     ws.serializeAttachment({ ...a, presence })
     return true
+  }
+
+  /**
+   * `integration.watch {provider: "github"}`: this socket wants GitHub changes for its person
+   * (integrations/github-push.ts). The team's ConnectionDO keeps the person as a listener and says
+   * whether a connection there can push; the socket hears `integration.watching {provider, live}`.
+   * Never committed: it is socket state, like presence.
+   */
+  private watchIntegration(ws: WebSocket, frame: Record<string, unknown>): boolean {
+    if (frame.provider !== "github") {
+      safeSendFrame(ws, { t: "error", code: "validation.invalid", message: "integration.watch takes provider github" })
+      return true
+    }
+    const a = (ws.deserializeAttachment() ?? {}) as { principal?: Principal } & Record<string, unknown>
+    const user = a.principal?.user
+    const team = a.principal?.team
+    if (!user || !team) {
+      safeSendFrame(ws, { t: "integration.watching", provider: "github", live: false })
+      return true
+    }
+    ws.serializeAttachment({ ...a, watch: { provider: "github", team } })
+    void this.env.CONNECTION_DO.get(this.env.CONNECTION_DO.idFromName(team))
+      .watchChanges(team, user)
+      .then(
+        (r) => safeSendFrame(ws, { t: "integration.watching", provider: "github", live: r.live }),
+        (e) => {
+          console.error(JSON.stringify({ msg: "integration.watch failed", error: String(e).slice(0, 200) }))
+          safeSendFrame(ws, { t: "integration.watching", provider: "github", live: false })
+        }
+      )
+    return true
+  }
+
+  /** RPC from a team's ConnectionDO: a GitHub change for this person's watching sockets. Never committed. */
+  async integrationChanged(entity: string, frame: { readonly t: "integration.changed"; readonly provider: string }): Promise<{ delivered: number }> {
+    if (!this.isBound(entity) || frame?.t !== "integration.changed") return { delivered: 0 }
+    const text = JSON.stringify(frame)
+    let delivered = 0
+    for (const ws of this.ctx.getWebSockets()) {
+      const a = ws.deserializeAttachment() as (Attachment & { watch?: { provider: string } }) | null
+      if (!a?.subscribed || a.watch?.provider !== frame.provider || a.principal.user !== entity || !this.socketLive(ws, a)) continue
+      safeSendFrame(ws, text)
+      delivered++
+    }
+    return { delivered }
+  }
+
+  /** The last watching socket of this person closed: the team's ConnectionDO forgets the listener. */
+  override async webSocketClose(ws: WebSocket, code: number) {
+    const a = ws.deserializeAttachment() as (Attachment & { watch?: { team: string } }) | null
+    await super.webSocketClose(ws, code)
+    const team = a?.watch?.team
+    const user = a?.principal.user
+    if (!team || !user) return
+    const others = this.ctx.getWebSockets().some((o) => o !== ws && (o.deserializeAttachment() as { watch?: { team: string } } | null)?.watch?.team === team)
+    if (!others) await this.env.CONNECTION_DO.get(this.env.CONNECTION_DO.idFromName(team)).unwatchChanges(team, user).catch(() => undefined)
   }
 
   private macActive(): boolean {

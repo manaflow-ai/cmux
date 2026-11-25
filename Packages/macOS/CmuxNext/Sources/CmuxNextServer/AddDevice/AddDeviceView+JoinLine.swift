@@ -19,6 +19,12 @@ public nonisolated enum JoinLineLayout: String, CaseIterable, Sendable {
 extension AddDeviceView: NSTextFieldDelegate {
     func buildJoinLine(_ width: CGFloat) {
         guard let join = model.joinLine else { return }
+        // Signed in: the invite (a code, no ssh) in place of the ticket line; its card does the rest.
+        if model.offersInvite {
+            stack.addArrangedSubview(label(AddDeviceStrings.joinLineInviteHelp, font: Typography.body, color: Palette.textSecondary, width: width))
+            stack.addArrangedSubview(label(AddDeviceStrings.approvalNote, font: Typography.caption, color: Palette.textTertiary, width: width))
+            return
+        }
         let compact = joinLineLayout == .compact
         // The help is for making and pasting the line; after the flip or the expiry it is noise.
         let helps: Bool = switch join.phase {
@@ -112,7 +118,7 @@ extension AddDeviceView: NSTextFieldDelegate {
         box.spacing = Metrics.space2
         box.edgeInsets = NSEdgeInsets(top: Metrics.space3, left: Metrics.space3, bottom: Metrics.space3, right: Metrics.space3)
         box.wantsLayer = true
-        box.layer?.cornerRadius = 8
+        box.layer?.cornerRadius = Metrics.insetCornerRadius
         box.layer?.backgroundColor = Palette.textPrimary.withAlphaComponent(0.06).cgColor
         box.translatesAutoresizingMaskIntoConstraints = false
         box.addArrangedSubview(field)

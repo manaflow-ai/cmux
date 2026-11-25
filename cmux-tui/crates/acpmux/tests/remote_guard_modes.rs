@@ -107,6 +107,9 @@ async fn a_web_source_is_resolved_like_its_handler_and_refused_when_it_cannot_be
         let created = local.new_on(&d, "fake", json!({"policy": "approve-all", "_meta": {"acpmux": {"harness": "fake", "name": "loose-one"}}})).await;
         let sid = id(&created);
         let _ = local.call("_acpmux/kill", json!({"sessionId": sid})).await;
+        // The old daemon's shutdown seal: in one process the journal's lock passes to the next
+        // open only on it.
+        hub.seal();
         ("loose-one".to_owned(), sid)
     };
     // A new daemon: the session is stored, not live.
@@ -200,7 +203,7 @@ async fn each_harness_starts_and_stays_in_a_reviewed_asking_mode_for_the_web() {
         let r = web.call("session/fork", json!({"sessionId": src})).await;
         // A Claude session the Mac started is refused before its mode (D13).
         assert!(
-            err(&r).contains("does not ask") || err(&r).contains("Mac's Claude permissions"),
+            err(&r).contains("does not ask") || err(&r).contains("Claude chat started on this Mac"),
             "{harness}: {r}"
         );
     }

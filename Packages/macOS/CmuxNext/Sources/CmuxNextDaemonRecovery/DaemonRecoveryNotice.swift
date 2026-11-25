@@ -19,14 +19,15 @@ extension DaemonService {
 /// the launch window's controls (`DaemonRecoveryControls`) show only before the first workspace,
 /// so a daemon that died later left every window on its old content, "disconnected", with
 /// nothing to press. While the local daemon is disconnected after it was connected, Restart
-/// cmux-tui is offered (`DaemonRecovery.offersRestart`) and no restart runs, one notice shows that
+/// cmux-tui is offered (`DaemonRecovery.offersRestart`), its starts keep failing
+/// (`DaemonRecovery.startFailurePersists`) and no restart runs, one notice shows that
 /// stays until it ends: why cmux-tui is not running (a full disk is named) and Restart cmux-tui,
 /// which asks first as the launch window's button does. The raw failure is the notice's detail.
 /// It goes to the workspace window the key or main window acts for, else the frontmost visible
 /// workspace window (as `DaemonUpdateBoard`'s notice does).
 ///
 /// It ends by itself when the daemon is back, a restart starts or the offer ends. Closed by the
-/// person, it stays closed until the daemon has connected again; a cancelled confirm shows it
+/// person, it stays closed until the daemon has connected again; a failed restart shows it
 /// again. It is a standard toast (`CmuxToastCenter`): its motion and keys are the toast's own.
 @MainActor
 final class DaemonRecoveryNotice {
@@ -99,6 +100,10 @@ final class DaemonRecoveryNotice {
         }
         let recovery = daemon.recovery
         guard recovery.offersRestart, !recovery.isRestarting else { return .hidden }
+        // A start that failed once or twice, or only for a short while, is cmux retrying by itself (a daemon that
+        // restarts for a version handoff or on a loaded Mac): no notice until it stays down, or the person's own
+        // Restart failed; a failed automatic restart waits like any failed start (`DaemonRecovery.startFailurePersists`).
+        if recovery.startFailure != nil, !recovery.startFailurePersists, !recovery.requestedRestartFailed { return .hidden }
         let failure = recovery.startFailure
         return .offer(message: DaemonRecoveryStrings.startFailed(failure), detail: failure?.detail ?? recovery.restartFailure)
     }
@@ -126,12 +131,9 @@ final class DaemonRecoveryNotice {
         let shown = toasts.show(toast, in: window)
         handle = shown
         let recovery = daemon.recovery
-        shown.onAction = { [weak self, weak window, weak recovery] in
+        shown.onAction = { [weak recovery] in
             guard let recovery else { return }
-            DaemonRestartPrompt.confirm(recovery, in: window, cancelled: { [weak self] in
-                guard let self, observation != nil else { return }
-                apply(current)
-            })
+            DaemonRestart.restart(recovery)
         }
         shown.onDismiss = { [weak self, weak shown] reason in
             guard let self, let shown, handle === shown else { return }

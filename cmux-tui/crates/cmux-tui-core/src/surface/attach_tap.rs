@@ -294,6 +294,9 @@ impl AttachLifecycle {
 pub(super) struct AttachTap {
     pub(super) state: Arc<AttachTapState>,
     pub(super) lifecycle: AttachLifecycle,
+    /// The history a byte viewer asked for (`replay_history_rows`): a resize or
+    /// resync replays it that window, not the whole history. `None`: all of it.
+    pub(super) history: Option<HistoryWindow>,
 }
 
 pub(super) struct AttachTapState {
@@ -321,6 +324,9 @@ pub(super) struct AttachTapQueue {
     /// The viewer reflows its own history: a resize reaches it as a
     /// local-history READY while it is not behind.
     local_history: bool,
+    /// Set by ``SnapshotRequestHandle::poke``: the worker's wait returns once so it rereads state it keeps outside
+    /// the queue (its viewer was hidden or shown, `set-attach-visibility`).
+    poked: bool,
 }
 
 impl AttachTapQueue {
@@ -371,6 +377,15 @@ impl SnapshotRequestHandle {
         self.state.upgrade().is_some_and(|state| state.queue.lock().unwrap().needs_snapshot)
     }
 
+    /// Wakes the worker's wait once (``AttachFrameReceiver::recv_viewer_event`` returns `Timeout`) so it rereads
+    /// what it keeps outside the queue. Returns false when the viewer is gone.
+    pub(crate) fn poke(&self) -> bool {
+        let Some(state) = self.state.upgrade() else { return false };
+        state.queue.lock().unwrap().poked = true;
+        state.ready.notify_all();
+        true
+    }
+
     /// Returns false when the viewer is gone.
     pub(crate) fn request(&self) -> bool {
         let Some(state) = self.state.upgrade() else { return false };
@@ -411,6 +426,10 @@ impl AttachFrameReceiver {
                 return Err(RecvTimeoutError::Disconnected);
             }
             if interrupt.is_fired() {
+                return Err(RecvTimeoutError::Timeout);
+            }
+            if queue.poked {
+                queue.poked = false;
                 return Err(RecvTimeoutError::Timeout);
             }
             queue = match deadline {
@@ -504,11 +523,12 @@ impl AttachTap {
                 resyncs: 0,
                 snapshot_deferred: false,
                 local_history: false,
+                poked: false,
             }),
             ready: Condvar::new(),
         });
         (
-            Self { state: state.clone(), lifecycle: lifecycle.clone() },
+            Self { state: state.clone(), lifecycle: lifecycle.clone(), history: None },
             AttachFrameReceiver { state, lifecycle },
         )
     }

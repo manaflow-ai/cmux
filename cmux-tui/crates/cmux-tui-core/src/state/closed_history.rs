@@ -194,6 +194,9 @@ fn commit_reopen(
     // A deleted space (SPACE-DELETE-CLOSES-ITS-WORKSPACES) comes back first,
     // so its reopened workspaces get their pins and groups back.
     let room = record.get("room").filter(|room| room.is_object()).cloned();
+    // A close that emptied several spaces (LAST-WORKSPACE-CLOSES-SPACE) keeps
+    // the others in `also_rooms`; they come back with the first.
+    let also_rooms = record["also_rooms"].as_array().cloned().unwrap_or_default();
     // A deleted personal workspace group (Ungroup, Delete Group) has no
     // member: its reopen forms the group again around its open workspaces.
     let group = record.get("group").filter(|group| group.is_object()).cloned();
@@ -233,18 +236,16 @@ fn commit_reopen(
         .context("reopened item has no workspace")?;
     let mut changes = vec![change];
     changes.extend(others);
-    let room_restored = match &room {
-        Some(room) => {
-            let local = crate::state::values::local_registry_id(transaction)?;
-            crate::workspace_registry::personal_mutations::room_archive::restore_room(
-                transaction,
-                room,
-                &local,
-                &reopened.placements,
-            )?
-        }
-        None => false,
-    };
+    let mut room_restored = false;
+    for room in room.iter().chain(also_rooms.iter().filter(|room| room.is_object())) {
+        let local = crate::state::values::local_registry_id(transaction)?;
+        room_restored |= crate::workspace_registry::personal_mutations::room_archive::restore_room(
+            transaction,
+            room,
+            &local,
+            &reopened.placements,
+        )?;
+    }
     for (closed_key, reopened_key) in &reopened.placements {
         changes.extend(restore_placement(transaction, closed_key, reopened_key)?);
     }
@@ -716,38 +717,19 @@ impl Mux {
             }
             Some("browser") => {
                 let url = tab["url"].as_str().unwrap_or("about:blank").to_string();
-                match tab["engine"].as_str() {
-                    Some(engine) => {
+                match frontend_browser_record(tab) {
+                    Some(record) => {
                         let surface = same_id(&mut || {
                             Ok(self
                                 .new_frontend_browser_tab_as(
                                     actor,
                                     Some(pane),
-                                    crate::workspace_registry::FrontendBrowserRecord {
-                                        engine: engine.to_string(),
-                                        url: url.clone(),
-                                        title: None,
-                                        favicon_url: None,
-                                        profile_id: tab["browser_profile_id"]
-                                            .as_str()
-                                            .map(str::to_string),
-                                        // The app that shows the reopened tab claims it.
-                                        owner: None,
-                                    },
+                                    record.clone(),
                                     None,
                                 )?
                                 .id)
                         })?;
-                        // The page restores its back/forward entries and
-                        // scroll from here, as at relaunch (cx-d0d.11).
-                        if let Some(history) = tab["browser_history"].as_str()
-                            && let Err(error) =
-                                self.set_frontend_browser_history(surface, Some(history.into()))
-                        {
-                            eprintln!(
-                                "cmux-tui: reopened browser tab lost its session history: {error}"
-                            );
-                        }
+                        self.restore_frontend_browser_history(surface, tab);
                         surface
                     }
                     None => same_id(&mut || {
@@ -789,8 +771,18 @@ impl Mux {
         Ok(surface)
     }
 
+    /// A reopened frontend browser tab's back/forward entries and scroll:
+    /// the page restores them from here, as at relaunch (cx-d0d.11).
+    pub(super) fn restore_frontend_browser_history(&self, surface: SurfaceId, tab: &Value) {
+        if let Some(history) = tab["browser_history"].as_str()
+            && let Err(error) = self.set_frontend_browser_history(surface, Some(history.into()))
+        {
+            eprintln!("cmux-tui: reopened browser tab lost its session history: {error}");
+        }
+    }
+
     /// The recorded name and pin of a reopened tab.
-    fn restore_tab_details(
+    pub(super) fn restore_tab_details(
         self: &Arc<Self>,
         actor: &Actor,
         surface: SurfaceId,
@@ -827,6 +819,49 @@ impl Mux {
                 super::closed_pane_split::split_neighbor(state, record, &reopened.panes),
             )
         });
+        // An agent or viewer tab whose pane is gone opens straight in that
+        // pane split off its neighbor again: one `pane-added`, no tab in the
+        // neighbor first.
+        let direct = match (home, neighbor) {
+            (None, Some(neighbor)) => self.reopen_tab_split_again(actor, neighbor, record, tab),
+            _ => None,
+        };
+        let (surface, home) = match direct {
+            Some(surface) => (surface, self.with_state(|state| state.pane_of(surface))),
+            None => self.reopen_closed_tab_moved(actor, record, tab, home, neighbor, reopened)?,
+        };
+        if direct.is_some()
+            && let (Some(closed), Some(pane)) = (closed_pane, home)
+            && let Some(split) =
+                self.with_state(|state| super::closed_pane_split::SplitPane::of(state, pane))
+        {
+            reopened.panes.insert(closed.to_string(), split);
+        }
+        self.restore_tab_index(actor, surface, home, record, tab);
+        let pane =
+            self.with_state(|state| state.pane_of(surface)).context("reopened tab has no pane")?;
+        let (workspace, screen) = self.public_screen_of_pane(pane)?;
+        reopened.note_workspace(workspace);
+        reopened.screens.push(screen);
+        // The member names the tab (its record does too since cx-gzh.31).
+        reopened.note_tab(record, self.public_tab_of(surface)?);
+        Ok(())
+    }
+
+    /// [`Mux::reopen_closed_tab`]'s tab created in a pane: its own `home`,
+    /// else `neighbor` (then split off it again, cx-gzh.32), else a pane of
+    /// its workspace or the focused one. Returns the tab and its pane split
+    /// again or `home`.
+    fn reopen_closed_tab_moved(
+        self: &Arc<Self>,
+        actor: &Actor,
+        record: &Value,
+        tab: &Value,
+        home: Option<PaneId>,
+        neighbor: Option<PaneId>,
+        reopened: &mut Reopened,
+    ) -> anyhow::Result<(SurfaceId, Option<PaneId>)> {
+        let closed_pane = record["pane_id"].as_str();
         let fallback = reopened.fallback_pane;
         let pane = self.with_state(|state| {
             home.or(neighbor)
@@ -897,15 +932,7 @@ impl Mux {
             }
             None => home,
         };
-        self.restore_tab_index(actor, surface, home, record, tab);
-        let pane =
-            self.with_state(|state| state.pane_of(surface)).context("reopened tab has no pane")?;
-        let (workspace, screen) = self.public_screen_of_pane(pane)?;
-        reopened.note_workspace(workspace);
-        reopened.screens.push(screen);
-        // The member names the tab (its record does too since cx-gzh.31).
-        reopened.note_tab(record, self.public_tab_of(surface)?);
-        Ok(())
+        Ok((surface, home))
     }
 
     /// Put a tab that reopened in its own pane (`home`) back at its recorded
@@ -1070,7 +1097,7 @@ impl Mux {
         // A known place (the closed workspace's personal row was kept): created
         // last, so the row `restore_placement` drops in the reopen commit moves
         // no other row, and the closed row's place comes back. No known place:
-        // where `workspaces.newPlacement` puts a new workspace (top by default).
+        // where `workspaces.newPlacement` puts a new workspace.
         let known = match record["workspace_key"].as_str() {
             Some(closed_key) => {
                 self.read_registry_state(|connection| place_kept(connection, closed_key))?
@@ -1154,6 +1181,22 @@ impl Mux {
 }
 
 /// The strip index a closed tab member recorded in its pane.
+/// The frontend browser a closed browser tab record names (its `engine`):
+/// None for a page the daemon renders.
+pub(super) fn frontend_browser_record(
+    tab: &Value,
+) -> Option<crate::workspace_registry::FrontendBrowserRecord> {
+    Some(crate::workspace_registry::FrontendBrowserRecord {
+        engine: tab["engine"].as_str()?.to_string(),
+        url: tab["url"].as_str().unwrap_or("about:blank").to_string(),
+        title: None,
+        favicon_url: None,
+        profile_id: tab["browser_profile_id"].as_str().map(str::to_string),
+        // The app that shows the reopened tab claims it.
+        owner: None,
+    })
+}
+
 fn recorded_index(record: &Value) -> Option<usize> {
     record["index"].as_u64().and_then(|index| usize::try_from(index).ok())
 }

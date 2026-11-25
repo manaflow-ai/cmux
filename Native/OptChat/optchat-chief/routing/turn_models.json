@@ -1,0 +1,27 @@
+{
+  "claude": {
+    "triage": {"model": "claude-haiku-5-5", "effort": "low"},
+    "standard": {"model": "claude-sonnet-5-5", "effort": "medium"},
+    "hard": {"model": "claude-opus-5-5", "effort": "medium"}
+  },
+  "native": {
+    "triage": {"model": "claude-haiku-5-5", "effort": "low"},
+    "standard": {"model": "claude-sonnet-5-5", "effort": "medium"},
+    "hard": {"model": "claude-opus-5-5", "effort": "medium"}
+  },
+  "codex": {
+    "triage": {"model": "gpt-6.1-sol", "effort": "low"},
+    "standard": {"model": "gpt-6.1-sol", "effort": "medium"},
+    "hard": {"model": "gpt-6.1-sol", "effort": "high"}
+  },
+  "signals": {
+    "long_chars": 800,
+    "several_asks": 3,
+    "ask_separators": [";", " also "],
+    "question_ends": ["?"],
+    "bullet_prefixes": ["- ", "* ", "+ ", "• "],
+    "number_suffixes": [". ", ") "],
+    "judgment": ["review", "decide", "plan", "design", "why", "compare", "tradeoff", "trade-off", "debug", "root cause", "security"],
+    "triage": ["ok", "okay", "thanks", "thank you", "got it", "ack", "acknowledged", "status", "status update", "any update", "any updates", "ping", "checking in"]
+  }
+}

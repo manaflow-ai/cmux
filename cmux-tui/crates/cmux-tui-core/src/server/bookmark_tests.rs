@@ -919,3 +919,7 @@ fn a_bookmark_folder_icon_survives_a_replacing_import() {
     assert_eq!(folder["title"], "Chrome 2");
     assert_eq!(folder["icon"], "globe");
 }
+
+// The daemon against cmux-bookmarks-core's reducer, which the app links.
+#[path = "bookmark_parity_tests.rs"]
+mod parity;

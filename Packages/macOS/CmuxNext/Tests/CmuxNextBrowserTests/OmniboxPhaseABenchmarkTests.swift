@@ -23,7 +23,7 @@ nonisolated struct OmniboxPhaseABenchmarkTests {
         var tabs = OmniboxQuickIndex(admission: .all)
         tabs.reset(tabRows, now: OmniboxFixtures.now)
         let tabKeys = Dictionary(uniqueKeysWithValues: tabRows.enumerated().map { pair in
-            (BrowserHistoryRanker.dedupeKey(for: pair.element.url), "tab-\(pair.offset)")
+            (BrowserHistoryRanker.dedupeKey(for: pair.element.url), ["tab-\(pair.offset)"])
         })
         let gate = OmniboxGenerationGate()
         let queries = OmniboxFixtures.queries(2_000, from: rows, seed: 77)

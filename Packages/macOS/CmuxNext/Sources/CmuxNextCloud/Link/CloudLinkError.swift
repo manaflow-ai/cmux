@@ -4,8 +4,7 @@ public import Foundation
 /// (`CloudStrings.errorText`); ``description`` is the same in English for
 /// logs and any caller that prints the error, never a Swift dump.
 public enum CloudLinkError: Error, Equatable, Sendable, CustomStringConvertible, LocalizedError {
-    /// The link went down or its connection ended. v1 does not reconnect by
-    /// itself: the user connects again.
+    /// The link went down or its connection ended; it connects again on a click.
     case disconnected(reason: String)
     /// The backend revoked the link.
     case revoked(reason: String)
@@ -24,6 +23,10 @@ public enum CloudLinkError: Error, Equatable, Sendable, CustomStringConvertible,
     case notUp(state: String)
     /// The op failed with the app server's error code.
     case failed(code: String, message: String)
+    /// This Mac's connection helper (`cmux carrier serve`) refused to start, at the step `code`, for a
+    /// reason another connect cannot change (`handshake`: it has no device key, such as a Keychain that
+    /// refused it). A wait for the link ends on it instead of connecting again (``endsWaits(_:)``).
+    case helperRefused(code: String, message: String)
     /// This resolver is not available yet.
     case unsupported
 
@@ -38,12 +41,52 @@ public enum CloudLinkError: Error, Equatable, Sendable, CustomStringConvertible,
         case .unsafeSocket(let detail), .invalidAnswer(let detail):
             "cmux didn't connect: the Cloud app's answer for this machine failed a safety check (\(detail)). Click Connect to try again."
         case .notUp(let state): "The machine's connection isn't ready yet (\(state)). Click Connect to try again."
-        case .failed(let code, let message): "Could not connect to the Cloud machine (\(message.isEmpty ? code : message)). Click Connect to try again."
+        // An empty message leaves only the server's code (`cmux.cloud.x`), which says nothing to a person: the log keeps it.
+        case .failed(_, let message), .helperRefused(_, let message):
+            "Could not connect to the Cloud machine\(Self.because(message)). Click Connect to try again."
         case .unsupported: "This version of cmux can't connect to the Cloud machine this way. Update cmux, then click Connect."
         }
     }
 
     public var errorDescription: String? { description }
+
+    /// A failure no new connect can change (``helperRefused(code:message:)``): a wait for the link ends
+    /// on it with its reason rather than connecting again until its deadline.
+    public static func endsWaits(_ error: any Error) -> Bool {
+        if case .helperRefused? = error as? CloudLinkError { return true }
+        return false
+    }
+
+    /// Why a connect failed, in the link's own words and without the next step ("Click Connect"), for a
+    /// start or a move that says it in its own sentence. Nil when the error says nothing more than that.
+    public static func failureReason(_ error: any Error) -> String? {
+        let reason: String
+        switch error as? CloudLinkError {
+        // A bare code (`cmux.cloud.x`) says nothing to a person: no reason, and the sentence stands alone.
+        case .failed(_, let message)?: reason = message
+        // The helper's own words without its step's name (`handshake: ...`), which says nothing to a person.
+        case .helperRefused(let code, let message)?:
+            reason = message.hasPrefix(code + ": ") ? String(message.dropFirst(code.count + 2)) : message
+        case .helperNotRunning(let why)?: reason = why
+        case .notUp(let state)?: reason = state
+        case .disconnected?, nil: return droppedReason(error)
+        case .revoked(let why)?: reason = why
+        case .unsafeSocket(let detail)?, .invalidAnswer(let detail)?: reason = detail
+        case .openDirectory?, .unsupported?: return nil
+        }
+        var trimmed = reason.trimmingCharacters(in: .whitespacesAndNewlines)
+        while trimmed.hasSuffix(".") { trimmed.removeLast() }
+        return trimmed.isEmpty ? nil : trimmed
+    }
+
+    /// The link went down or was revoked: a machine that ran lost it. Any
+    /// other error (a provider's refusal, a failed check) is not a drop.
+    public static func isDrop(_ error: any Error) -> Bool {
+        switch error as? CloudLinkError {
+        case .disconnected?, .revoked?: true
+        default: false
+        }
+    }
 
     /// The command that closes an ``openDirectory(path:parent:)``: the socket
     /// folder to owner-only, a parent to not writable by others.
@@ -60,19 +103,23 @@ public enum CloudLinkError: Error, Equatable, Sendable, CustomStringConvertible,
 
     /// " (reason)", or nothing for an empty reason.
     private static func because(_ reason: String) -> String { reason.isEmpty ? "" : " (\(reason))" }
-}
 
-/// An app server op failure, as the daemon answered it (`error_code`). It
-/// reads as the server's message, else its code.
-public struct CloudAppOpError: Error, Equatable, Sendable, CustomStringConvertible, LocalizedError {
-    public let code: String
-    public let message: String
-
-    public init(code: String, message: String) {
-        self.code = code
-        self.message = message
+    /// Why a dropped link ended, as a person reads it: a `.disconnected`'s reason, or another error's
+    /// description. Nil for none, or only a state word (`disconnected`, or the `down` a reasonless
+    /// `cloud.link.changed` carries), which adds nothing to the sentence. A NEXT Nightly's Cloud chat
+    /// read only "Disconnected" with nothing logged (2026-11-05).
+    public static func droppedReason(_ error: any Error) -> String? {
+        var reason: String
+        switch error as? CloudLinkError {
+        case .disconnected(let why)?: reason = why
+        case nil: reason = (error as? any LocalizedError)?.errorDescription ?? ""
+        default: return nil
+        }
+        reason = reason.trimmingCharacters(in: .whitespacesAndNewlines)
+        while reason.hasSuffix(".") { reason.removeLast() }
+        return reason.isEmpty || stateWords.contains(reason.lowercased()) ? nil : reason
     }
 
-    public var description: String { message.isEmpty ? code : message }
-    public var errorDescription: String? { description }
+    /// The words a drop carries when it has no reason of its own.
+    static let stateWords: Set<String> = ["disconnected", CloudLinkChange.State.down.rawValue]
 }

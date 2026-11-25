@@ -1,6 +1,7 @@
 import CmuxNextActions
 import CmuxNextDaemon
 import CmuxNextTabs
+import CmuxNextWindowRules
 import Foundation
 
 // The tabs a tab group action acts on. Every entrypoint (the tab menu, the palette, a shortcut, the
@@ -12,12 +13,18 @@ extension AppActionContext {
     func actionTabs(_ invocation: ActionInvocation) -> (tabs: [TabModel], pane: PaneModel)? {
         if let list = invocation["tabs"]?.stringValue {
             var found: [(TabModel, PaneModel)] = []
-            for id in list.split(separator: ",").map({ $0.trimmingCharacters(in: .whitespaces) }) where !id.isEmpty {
+            let rules = WindowRules()
+            for id in rules.tabIDs(list) {
                 guard let hit = targetTab(id, invocation) ?? notFound(RefusalStrings.noTab(id)) else { return nil }
                 found.append(hit)
             }
-            guard let pane = found.first?.1 ?? refuse(RefusalStrings.noTab(list)) else { return nil }
-            guard found.allSatisfy({ $0.1 === pane }) else { return refuse(RefusalStrings.tabsInDifferentPanes) }
+            // One pane's tabs act together (`targets::one_pane`); panes compare by identity.
+            switch rules.onePaneRefusal(found.map { ObjectIdentifier($0.1).debugDescription }) {
+            case nil: break
+            case "tabsInDifferentPanes": return refuse(RefusalStrings.tabsInDifferentPanes)
+            default: return refuse(RefusalStrings.noTab(list))
+            }
+            guard let pane = found.first?.1 else { return refuse(RefusalStrings.noTab(list)) }
             return (found.map(\.0), pane)
         }
         guard let (tab, pane) = daemonTab(invocation) else { return nil }

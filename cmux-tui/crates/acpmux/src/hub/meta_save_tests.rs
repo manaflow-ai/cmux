@@ -2,9 +2,14 @@
 //! hub: `write` copies a shared value and records the copy, as `session.json` would hold it.
 
 use super::{MetaWriter, Wait};
+use cmux_journal::{Crash, SimStorage};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc;
 use std::sync::{Arc, Mutex};
+use std::time::{Duration, Instant};
+
+/// How long a test waits for a writer to reach its hold before it fails instead of hanging.
+const ARRIVE: Duration = Duration::from_secs(30);
 
 /// The value the "metadata" holds now, and every copy written, in order.
 #[derive(Default)]
@@ -56,7 +61,7 @@ fn a_change_that_races_a_running_commit_is_answered_after_a_commit_that_holds_it
             })
         })
     };
-    copied.recv().unwrap();
+    copied.recv_timeout(ARRIVE).expect("the first write never reached its hold after its copy");
     // B: changes the value to 2 while A's copy (1) waits to be written, and commits.
     let b = {
         let (writer, disk) = (writer.clone(), disk.clone());
@@ -136,7 +141,7 @@ fn a_change_nobody_waits_for_is_committed_by_the_writer_at_work() {
             })
         })
     };
-    copied.recv().unwrap();
+    copied.recv_timeout(ARRIVE).expect("the first write never reached its hold after its copy");
     disk.set(2);
     // Returns at once: A is the writer.
     writer.commit(Wait::No, &|| panic!("only the writer at work writes")).unwrap();
@@ -169,7 +174,7 @@ fn a_change_that_came_during_a_failed_commit_is_still_committed() {
             })
         })
     };
-    copied.recv().unwrap();
+    copied.recv_timeout(ARRIVE).expect("the first write never reached its hold after its copy");
     disk.set(2);
     // Returns at once: A is the writer.
     writer.commit(Wait::No, &|| panic!("only the writer at work writes")).unwrap();
@@ -183,15 +188,32 @@ fn a_change_that_came_during_a_failed_commit_is_still_committed() {
     assert_eq!((state.durable, state.writing), (2, false));
 }
 
-/// A hub on the stand-in agent, its store on disk in `dir`, with one chat that runs no agent.
-fn hub_with_chat(dir: &std::path::Path) -> (Arc<crate::hub::Hub>, Arc<crate::hub::Session>) {
+/// The journal store on `dir`, its event journal on `journal` (`cmux_journal::SimStorage`, so a
+/// test sees what a crash keeps).
+fn open_store(dir: &std::path::Path, journal: &SimStorage) -> Box<dyn crate::store::Store> {
+    let config = crate::config::StoreConfig::default();
+    let journal_config = cmux_journal::Config {
+        retry_min: Duration::from_millis(1),
+        retry_max: Duration::from_millis(5),
+        ..cmux_journal::Config::default()
+    };
+    crate::store::open_with_journal(&config, dir, Arc::new(journal.clone()), journal_config)
+        .unwrap_or_else(|e| panic!("open the store: {e:#}"))
+}
+
+/// A hub on the stand-in agent, its store on disk in `dir` and its journal on `journal`, with
+/// one chat that runs no agent.
+fn hub_with_chat(
+    dir: &std::path::Path,
+    journal: &SimStorage,
+) -> (Arc<crate::hub::Hub>, Arc<crate::hub::Session>) {
     use crate::config::{Config, StoreMode};
     let fake = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fake_agent.py");
     let cfg = serde_json::json!({"harnesses": {"fake": {"argv": ["python3", fake]}},
                                  "defaultHarness": "fake"});
     let mut cfg: Config = serde_json::from_value(cfg).unwrap();
     cfg.store.mode = StoreMode::Local;
-    let store = crate::store::open(&cfg.store, dir).unwrap();
+    let store = open_store(dir, journal);
     let hub = crate::hub::Hub::new(cfg, store);
     let id = uuid::Uuid::now_v7().to_string();
     let meta: crate::store::SessionMeta = serde_json::from_value(serde_json::json!({
@@ -212,6 +234,28 @@ fn on_disk(dir: &std::path::Path, id: &str) -> serde_json::Value {
         .unwrap_or(serde_json::Value::Null)
 }
 
+/// What an OS crash leaves once a reply sent now reaches its client: the connection's gate sends
+/// it only when the journal's durable LSN reaches the last acknowledged record appended by then
+/// (`server/durable_gate.rs`). With the event journal a save is a `meta` record, and `session.json`
+/// is written only by a checkpoint (`store/journal_store/meta.rs`).
+fn crash_once_answered(hub: &crate::hub::Hub, journal: &SimStorage) -> SimStorage {
+    let durability = hub.store.durability().expect("the store journals its writes");
+    let acked = durability.acked.load(Ordering::SeqCst);
+    let deadline = Instant::now() + Duration::from_secs(10);
+    while *durability.durable.borrow() < acked {
+        assert!(Instant::now() < deadline, "LSN {acked} was never durable");
+        std::thread::sleep(Duration::from_millis(1));
+    }
+    journal.snapshot(Crash::Os)
+}
+
+/// The chat's metadata as the next open reads it after `crashed`, which replays its journal.
+fn after_crash(dir: &std::path::Path, crashed: &SimStorage, id: &str) -> serde_json::Value {
+    let store = open_store(dir, crashed);
+    let meta = store.load(id).unwrap_or_else(|e| panic!("load {id}: {e:#}"));
+    meta.map_or(serde_json::Value::Null, |meta| serde_json::to_value(meta).unwrap())
+}
+
 /// Holds the chat's next write after its copy; returns once it is held.
 fn hold_next_write(
     hub: &Arc<crate::hub::Hub>,
@@ -222,7 +266,7 @@ fn hold_next_write(
     *session.meta_writer.hold.lock().unwrap() = Some((arrived_tx, release_rx));
     let (hub, session) = (hub.clone(), session.clone());
     let writer = std::thread::spawn(move || hub.save_meta(&session));
-    arrived.recv().unwrap();
+    arrived.recv_timeout(ARRIVE).expect("the chat's next write never reached its hold");
     (release, writer)
 }
 
@@ -232,7 +276,7 @@ fn hold_next_write(
 #[test]
 fn the_shutdown_flush_saves_a_change_made_while_another_save_runs() {
     let dir = std::env::temp_dir().join(format!("acpmux-g2-flush-{}", uuid::Uuid::now_v7()));
-    let (hub, session) = hub_with_chat(&dir);
+    let (hub, session) = hub_with_chat(&dir, &SimStorage::new(70));
     let (release, writer) = hold_next_write(&hub, &session);
     // The chat's last change, made while the older copy waits to be written.
     session.meta.lock().unwrap().unread = true;
@@ -262,31 +306,43 @@ fn the_shutdown_flush_saves_a_change_made_while_another_save_runs() {
     let _ = std::fs::remove_dir_all(&dir);
 }
 
-/// A move's commit answers `committed` only once `movedTo` is on disk: else a crash in between
+/// A move's commit answers `committed` only once `movedTo` is durable: else a crash in between
 /// lets the source reopen the chat it moved. Review of #29311, finding 3.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn a_move_commit_answers_only_once_moved_to_is_on_disk() {
+async fn a_move_commit_answers_only_once_moved_to_is_durable() {
     let dir = std::env::temp_dir().join(format!("acpmux-g2-move-{}", uuid::Uuid::now_v7()));
-    let (hub, session) = hub_with_chat(&dir);
+    let journal = SimStorage::new(71);
+    let (hub, session) = hub_with_chat(&dir, &journal);
     *session.moving.lock().unwrap() = Some("tx-g2".to_owned());
     let (release, writer) = hold_next_write(&hub, &session);
     let mut commit = {
-        let (hub, session, dir) = (hub.clone(), session.clone(), dir.clone());
+        let (hub, session, journal) = (hub.clone(), session.clone(), journal.clone());
         tokio::spawn(async move {
-            let answer = hub.transfer_commit(&session, "tx-g2", serde_json::json!({})).await;
+            let answer = hub
+                .transfer_commit_with_epoch(
+                    &session,
+                    "tx-g2",
+                    serde_json::json!({}),
+                    Some(session.ownership_epoch()),
+                    None,
+                )
+                .await;
             // What a crash right after the answer would leave.
-            (answer, !on_disk(&dir, &session.id)["movedTo"].is_null())
+            (answer, tokio::task::block_in_place(|| crash_once_answered(&hub, &journal)))
         })
     };
     let early = tokio::time::timeout(std::time::Duration::from_millis(500), &mut commit).await;
     release.send(()).unwrap();
     writer.join().unwrap();
-    let (answer, moved_at_answer) = match early {
+    let (answer, crashed) = match early {
         Ok(done) => done.unwrap(),
         Err(_) => commit.await.unwrap(),
     };
     answer.expect("the commit");
-    assert!(moved_at_answer, "transfer_commit answered committed before movedTo was on disk");
+    assert!(
+        !after_crash(&dir, &crashed, &session.id)["movedTo"].is_null(),
+        "transfer_commit answered committed before movedTo was durable"
+    );
     let _ = std::fs::remove_dir_all(&dir);
 }
 
@@ -300,6 +356,25 @@ fn a_no_op_after_a_failed_commit_commits_again() {
     assert!(writer.commit(Wait::Durable, &|| anyhow::bail!("disk full")).is_err());
     writer.barrier(&|| disk.write()).expect("the retried no-op commits again");
     assert_eq!(disk.written(), vec![1]);
+}
+
+/// A kept change (a draft) is saved as a kept copy; a barrier after it (`_acpmux/markUnread` on a
+/// chat that is unread already) saves a durable copy, as the kept copy may hold a change the
+/// barrier answers for. Review of #37137, finding 2.
+#[test]
+fn a_barrier_after_a_kept_copy_saves_a_durable_copy() {
+    use crate::store::ShowAfter;
+    let writer = MetaWriter::default();
+    let saved = Mutex::new(Vec::new());
+    let write = |keep: ShowAfter| {
+        saved.lock().unwrap().push(keep);
+        Ok(())
+    };
+    writer.commit_as(Wait::Durable, ShowAfter::Written, &write).expect("the kept change commits");
+    writer.barrier_as(&write).expect("the barrier commits");
+    // Nothing kept since the durable copy: the next barrier saves nothing.
+    writer.barrier_as(&write).expect("the second barrier");
+    assert_eq!(*saved.lock().unwrap(), vec![ShowAfter::Written, ShowAfter::Durable]);
 }
 
 /// A writer whose write panics still commits the changes nobody waits for that came during it,
@@ -327,7 +402,7 @@ fn a_writer_that_panics_still_commits_a_newer_change() {
             }))
         })
     };
-    copied.recv().unwrap();
+    copied.recv_timeout(ARRIVE).expect("the first write never reached its hold after its copy");
     disk.set(2);
     // Returns at once: A is the writer.
     writer.commit(Wait::No, &|| panic!("only the writer at work writes")).unwrap();
@@ -363,7 +438,7 @@ fn the_writer_answers_its_own_request_after_its_first_commit() {
             })
         })
     };
-    copied.recv().unwrap();
+    copied.recv_timeout(ARRIVE).expect("the first write never reached its hold after its copy");
     let b = {
         let (writer, log, value) = (writer.clone(), log.clone(), value.clone());
         std::thread::spawn(move || {
@@ -387,4 +462,301 @@ fn the_writer_answers_its_own_request_after_its_first_commit() {
         vec![("a", 1), ("b", 2)],
         "the writer served B's commit before it answered its own request"
     );
+}
+
+/// `goal_set` answers only once the goal is durable: the goal outlives a restart, so an answered
+/// goal that a crash right after loses breaks that. Codex review of #36413, finding F2.
+#[test]
+fn a_goal_set_answers_only_once_the_goal_is_durable() {
+    let dir = std::env::temp_dir().join(format!("acpmux-goal-durable-{}", uuid::Uuid::now_v7()));
+    let journal = SimStorage::new(72);
+    let (hub, session) = hub_with_chat(&dir, &journal);
+    let (release, writer) = hold_next_write(&hub, &session);
+    let set = {
+        let (hub, session, journal) = (hub.clone(), session.clone(), journal.clone());
+        std::thread::spawn(move || {
+            let request = crate::generic_goal::GoalRequest {
+                objective: "Make the suite pass".into(),
+                done_when: "cargo test passes".into(),
+                token_budget: None,
+                time_budget_minutes: None,
+            };
+            let answer = hub.goal_set(&session, &request);
+            // What a crash right after the answer would leave.
+            (answer, crash_once_answered(&hub, &journal))
+        })
+    };
+    let deadline = std::time::Instant::now() + std::time::Duration::from_millis(500);
+    while !set.is_finished() && std::time::Instant::now() < deadline {
+        std::thread::sleep(std::time::Duration::from_millis(5));
+    }
+    release.send(()).unwrap();
+    writer.join().unwrap();
+    let (answer, crashed) = set.join().unwrap();
+    answer.expect("the goal");
+    assert!(
+        !after_crash(&dir, &crashed, &session.id)["goal"].is_null(),
+        "goal_set answered before the goal was durable"
+    );
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// Closed chats on disk, loaded without starting the background log pass or any agents.
+fn loaded_closed_chats(
+    count: usize,
+) -> (tempfile::TempDir, Arc<crate::hub::Hub>, Arc<std::sync::atomic::AtomicU64>) {
+    use crate::config::{Config, StoreConfig};
+    use crate::store::{EventRecord, LocalStore, SessionMeta, Store};
+
+    let home = tempfile::tempdir().unwrap();
+    let store = LocalStore::new(home.path().join("sessions"), StoreConfig::default().segment_bytes)
+        .unwrap();
+    for i in 0..count {
+        let meta: SessionMeta = serde_json::from_value(serde_json::json!({
+            "schema": crate::store::META_SCHEMA, "id": format!("chat-{i}"),
+            "name": "closed chat", "harness": "fake", "cwd": "/tmp",
+            "status": "closed", "createdAt": 1, "updatedAt": 2,
+            "lastSeq": 1, "eventCount": 1,
+        }))
+        .unwrap();
+        store.save(&meta).unwrap();
+        store
+            .append(
+                &meta.id,
+                &EventRecord {
+                    seq: 1,
+                    at: 1,
+                    dir: "mux".into(),
+                    kind: "created".into(),
+                    msg: serde_json::json!({}),
+                    host_seq: None,
+                },
+            )
+            .unwrap();
+    }
+    let saves = store.meta_saves.clone();
+    let cfg: Config = serde_json::from_value(serde_json::json!({})).unwrap();
+    let hub =
+        crate::hub::Hub::new_deferred(cfg, Box::new(store), crate::mailbox::Mailbox::memory());
+    assert_eq!(hub.session_count(), count);
+    saves.store(0, Ordering::Relaxed);
+    (home, hub, saves)
+}
+
+/// Loading a closed chat does not change its metadata. Only the unsaved draft is flushed.
+#[test]
+fn shutdown_flush_saves_only_the_changed_chat_among_300_loaded_closed_chats() {
+    use crate::config::StoreConfig;
+    use crate::store::{LocalStore, Store};
+
+    let (home, hub, saves) = loaded_closed_chats(300);
+    let session = hub.resolve_here("chat-17").unwrap();
+    session.meta.lock().unwrap().composer_draft = Some("unsaved draft".into());
+    hub.flush();
+    assert_eq!(saves.load(Ordering::Relaxed), 1);
+    let stored =
+        LocalStore::new(home.path().join("sessions"), StoreConfig::default().segment_bytes)
+            .unwrap();
+    assert_eq!(
+        stored.load(&session.id).unwrap().unwrap().composer_draft.as_deref(),
+        Some("unsaved draft"),
+    );
+    saves.store(0, Ordering::Relaxed);
+    hub.flush();
+    assert_eq!(saves.load(Ordering::Relaxed), 0, "a successful flush left the chat dirty");
+}
+
+#[test]
+fn a_failed_metadata_save_stays_dirty_until_a_successful_save() {
+    let (home, hub, saves) = loaded_closed_chats(1);
+    let session = hub.resolve_here("chat-0").unwrap();
+    assert!(!session.meta_writer.needs_flush(&session));
+    session.meta.lock().unwrap().composer_draft = Some("keep this".into());
+    let path = home.path().join("sessions/chat-0/session.json");
+    let backup = path.with_extension("backup");
+    std::fs::rename(&path, &backup).unwrap();
+    std::fs::create_dir(&path).unwrap();
+    let saved = hub.write_meta(&session);
+    std::fs::remove_dir(&path).unwrap();
+    std::fs::rename(&backup, &path).unwrap();
+    assert!(saved.is_err(), "a file could not replace a directory");
+    assert!(session.meta_writer.needs_flush(&session));
+    // The writer still holds the last good save, the one without the draft.
+    let mut before = session.meta();
+    before.composer_draft = None;
+    assert_eq!(session.meta_writer.state.lock().unwrap().saved, super::Saved::of(&before));
+    hub.flush();
+    assert_eq!(saves.load(Ordering::Relaxed), 2, "one failed attempt and one retry");
+    assert!(!session.meta_writer.needs_flush(&session));
+    assert_eq!(on_disk(home.path(), &session.id)["composerDraft"], "keep this");
+}
+
+/// The writer keeps a digest of its last save, not a copy (CMUX-571): equal metadata gives the
+/// same digest and any change, however small, another.
+#[test]
+fn the_saved_digest_tells_a_changed_chat_from_an_unchanged_one() {
+    let (_home, hub, _saves) = loaded_closed_chats(1);
+    let session = hub.resolve_here("chat-0").unwrap();
+    let meta = session.meta();
+    assert_eq!(super::Saved::of(&meta), super::Saved::of(&meta.clone()));
+    assert_eq!(session.meta_writer.state.lock().unwrap().saved, super::Saved::of(&meta));
+    let mut changed = meta.clone();
+    changed.unread = !changed.unread;
+    assert_ne!(super::Saved::of(&changed), super::Saved::of(&meta));
+    // A change in the parts the digest leaves out (`meta_parts.rs`) is a change too.
+    let mut commands = meta.clone();
+    commands.available_commands =
+        Some(serde_json::json!([{ "name": "a-command-the-save-did-not-hold" }]).into());
+    assert_ne!(super::Saved::of(&commands), super::Saved::of(&meta));
+}
+
+/// Even when memory returns to its saved value, the writer's held copy can be different.
+#[test]
+fn shutdown_flush_keeps_a_change_taken_back_while_an_older_save_runs() {
+    let home = tempfile::tempdir().unwrap();
+    let (hub, session) = hub_with_chat(home.path(), &SimStorage::new(83));
+    hub.write_meta(&session).unwrap();
+    session.meta.lock().unwrap().unread = true;
+    let (release, writer) = hold_next_write(&hub, &session);
+    session.meta.lock().unwrap().unread = false;
+    assert!(session.meta_writer.needs_flush(&session));
+    let shutdown = {
+        let hub = hub.clone();
+        std::thread::spawn(move || hub.flush())
+    };
+    while requested(&session.meta_writer) < 3 {
+        std::thread::yield_now();
+    }
+    release.send(()).unwrap();
+    writer.join().unwrap();
+    shutdown.join().unwrap();
+    assert_eq!(on_disk(home.path(), &session.id)["unread"], false);
+    assert!(!session.meta_writer.needs_flush(&session));
+}
+
+#[test]
+fn startup_repairs_are_dirty_even_before_any_commit_is_requested() {
+    use crate::store::{MemoryStore, SessionMeta};
+
+    let cfg = serde_json::from_value(serde_json::json!({})).unwrap();
+    let hub = crate::hub::Hub::new(cfg, Box::new(MemoryStore::default()));
+    for (id, status, saved) in [("normalized", "running", true), ("failed-repair", "closed", false)]
+    {
+        let meta: SessionMeta = serde_json::from_value(serde_json::json!({
+            "schema": crate::store::META_SCHEMA, "id": id, "name": "chat",
+            "harness": "fake", "cwd": "/tmp", "status": status,
+            "createdAt": 1, "updatedAt": 2,
+        }))
+        .unwrap();
+        hub.install_stored_session(meta, true, false, saved);
+        let session = hub.resolve_here(id).unwrap();
+        assert!(session.meta_writer.needs_flush(&session));
+        hub.flush();
+        assert!(!session.meta_writer.needs_flush(&session));
+    }
+}
+
+#[test]
+fn shutdown_flush_syncs_a_successful_kept_save_without_another_metadata_commit() {
+    let home = tempfile::tempdir().unwrap();
+    let journal = SimStorage::new(84);
+    let (hub, session) = hub_with_chat(home.path(), &journal);
+    hub.write_meta(&session).unwrap();
+    session.meta.lock().unwrap().composer_draft = Some("kept draft".into());
+    hub.save_meta_kept(&session).unwrap();
+    let before = {
+        let state = session.meta_writer.state.lock().unwrap();
+        assert!(!state.writing);
+        assert_eq!(state.requested, state.durable);
+        assert!(state.kept > state.synced);
+        state.requested
+    };
+    hub.flush();
+    assert_eq!(requested(&session.meta_writer), before, "an unchanged kept copy was saved again");
+    assert_eq!(on_disk(home.path(), &session.id)["composerDraft"], "kept draft");
+    let crashed = journal.snapshot(Crash::Os);
+    assert_eq!(after_crash(home.path(), &crashed, &session.id)["composerDraft"], "kept draft");
+}
+
+/// What a hard exit right after `step` leaves of `session`: `step` runs on its own thread while
+/// another save of the chat is held after its copy (`hold_next_write`), the hold goes after
+/// 500 ms whether or not `step` returned, and the journal is cut once `step` returned and the
+/// log it wrote is on disk. The chat's metadata and the kinds of its records as the next open
+/// reads them.
+fn killed_after(
+    dir: &std::path::Path,
+    seed: u64,
+    step: impl FnOnce(&Arc<crate::hub::Hub>, &Arc<crate::hub::Session>) + Send + 'static,
+) -> (serde_json::Value, Vec<String>) {
+    let journal = SimStorage::new(seed);
+    let (hub, session) = hub_with_chat(dir, &journal);
+    hub.write_meta(&session).unwrap();
+    let (release, writer) = hold_next_write(&hub, &session);
+    let stepped = {
+        let (hub, session, journal) = (hub.clone(), session.clone(), journal.clone());
+        std::thread::spawn(move || {
+            // An append may spawn its follow-ups: a runtime is entered, never driven.
+            let runtime = tokio::runtime::Builder::new_current_thread().enable_all().build();
+            let runtime = runtime.unwrap();
+            let _enter = runtime.enter();
+            step(&hub, &session);
+            // Every line the step appended is on disk: what it showed survives the kill.
+            hub.store.flush().unwrap();
+            crash_once_answered(&hub, &journal)
+        })
+    };
+    let deadline = Instant::now() + Duration::from_millis(500);
+    while !stepped.is_finished() && Instant::now() < deadline {
+        std::thread::sleep(Duration::from_millis(5));
+    }
+    release.send(()).unwrap();
+    let crashed = stepped.join().unwrap();
+    writer.join().unwrap();
+    let store = open_store(dir, &crashed);
+    let meta = store.load(&session.id).unwrap().map(|m| serde_json::to_value(m).unwrap());
+    let kinds = store.events(&session.id, 0, usize::MAX).unwrap().into_iter().map(|r| r.kind);
+    (meta.unwrap_or(serde_json::Value::Null), kinds.collect())
+}
+
+/// Leo's design (agent-service-v2, "Stop is exit"): metadata snapshots are written "before
+/// their reply". A change no request waits for (`save_meta`) made while another save of the
+/// chat runs is on disk once `save_meta` returns, so a kill right after it keeps the change.
+/// Before, it returned at once and the writer at work wrote it later.
+#[test]
+fn a_killed_daemon_keeps_a_change_saved_while_another_save_ran() {
+    let dir = std::env::temp_dir().join(format!("acpmux-w3-save-{}", uuid::Uuid::now_v7()));
+    let (meta, _) = killed_after(&dir, 91, |hub, session| {
+        session.meta.lock().unwrap().unread = true;
+        hub.save_meta(session);
+    });
+    assert_eq!(meta["unread"], true, "save_meta returned before its change was on disk");
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// A generated title is on disk once its `titled` line is: a kill right after the line keeps the
+/// title the chat showed.
+#[test]
+fn a_killed_daemon_keeps_the_generated_title_it_showed() {
+    let dir = std::env::temp_dir().join(format!("acpmux-w3-title-{}", uuid::Uuid::now_v7()));
+    let (meta, kinds) = killed_after(&dir, 92, |hub, session| {
+        session.meta.lock().unwrap().title_source = Some("asked".to_owned());
+        hub.apply_generated_title(session, Some("Fix the flaky build".to_owned()));
+    });
+    assert!(kinds.iter().any(|k| k == "titled"), "the title's line was not logged: {kinds:?}");
+    assert_eq!(meta["title"], "Fix the flaky build", "the chat showed a title a kill took back");
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// A title the harness gives (`session_info_update`) is saved when it comes, not at the turn's
+/// end or the stop's flush: a kill right after the update keeps it.
+#[test]
+fn a_killed_daemon_keeps_the_title_the_harness_gave() {
+    let dir = std::env::temp_dir().join(format!("acpmux-w3-harness-{}", uuid::Uuid::now_v7()));
+    let (meta, _) = killed_after(&dir, 93, |hub, session| {
+        let update = serde_json::json!({"sessionId": "agent-session", "update": {
+            "sessionUpdate": "session_info_update", "title": "Harness title"}});
+        hub.on_update(session, Some(&update), false);
+    });
+    assert_eq!(meta["title"], "Harness title", "the harness's title was not saved when it came");
+    let _ = std::fs::remove_dir_all(&dir);
 }

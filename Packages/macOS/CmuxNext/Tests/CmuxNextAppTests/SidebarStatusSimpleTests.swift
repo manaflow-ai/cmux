@@ -106,8 +106,9 @@ import Testing
         let asking = try Self.badge(sidebar, Self.asking)
         #expect(asking.states == [.waiting], "a question is needs you: the yellow dot, not the blue one beside it")
         #expect(asking.look == .plain && !asking.drawsBackdrop, "no disc behind the dot")
-        // The tooltip still says what waits.
-        #expect(asking.themedToolTip?.contains(Strings.unreadCount(2)) == true)
+        // VoiceOver still hears what waits; the row's hover card shows it (no tooltip on a row).
+        #expect(asking.accessibilityHelp()?.contains(Strings.unreadCount(2)) == true)
+        #expect(asking.themedToolTip == nil)
         #expect(try Self.badge(sidebar, Self.failing).states == [.error], "an error is red (Lawrence msg 11983)")
         #expect(try Self.badge(sidebar, Self.busy).states == [.working], "work is the one spinner")
     }
@@ -127,5 +128,18 @@ import Testing
         #expect(try Self.badge(stacked, Self.failing).states == [.error])
         let corner = Self.sidebar(detailed: false, style: .corner, programAsks: true)
         #expect(try Self.badge(corner, Self.asking).states == [.waiting(kind: .question)])
+    }
+
+    /// A done glyph settles in only when the row's work finishes: a spinner showed, none shows now,
+    /// and a done glyph does. Not on an error, a question, an unread that came while work runs on,
+    /// or a row that showed nothing before.
+    @Test func onlyFinishedWorkSettles() {
+        #expect(WorkspaceRowBadges.settles(from: [.working], to: [.success]))
+        #expect(WorkspaceRowBadges.settles(from: [.busy], to: [.success]))
+        #expect(!WorkspaceRowBadges.settles(from: [], to: [.success]))
+        #expect(!WorkspaceRowBadges.settles(from: [.success], to: [.success]))
+        #expect(!WorkspaceRowBadges.settles(from: [.working], to: [.error]))
+        #expect(!WorkspaceRowBadges.settles(from: [.working], to: []))
+        #expect(!WorkspaceRowBadges.settles(from: [.working], to: [.working, .success]))
     }
 }

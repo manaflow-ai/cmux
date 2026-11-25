@@ -1,6 +1,6 @@
 import CmuxHomeCore
 import CmuxNextDaemon
-import CmuxNextHome
+import CmuxNextHomeModel
 @testable import CmuxNextHomeEngine
 import Foundation
 import Testing

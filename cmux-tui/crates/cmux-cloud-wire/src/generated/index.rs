@@ -6,21 +6,30 @@ use super::*;
 
 /// The wire name of every catalog op.
 pub mod op_names {
+    pub const AUTOMATION_AUDIT_LIST: &str = "automation.audit.list";
     pub const AUTOMATION_CREATE: &str = "automation.create";
     pub const AUTOMATION_DELETE: &str = "automation.delete";
     pub const AUTOMATION_DEPLOY: &str = "automation.deploy";
     pub const AUTOMATION_GET: &str = "automation.get";
+    pub const AUTOMATION_IMPORT: &str = "automation.import";
     pub const AUTOMATION_LIST: &str = "automation.list";
     pub const AUTOMATION_RUN: &str = "automation.run";
     pub const AUTOMATION_RUNS_LIST: &str = "automation.runs.list";
+    pub const AUTOMATION_SECRET_LIST: &str = "automation.secret.list";
+    pub const AUTOMATION_SECRET_REMOVE: &str = "automation.secret.remove";
+    pub const AUTOMATION_SECRET_SET: &str = "automation.secret.set";
     pub const AUTOMATION_SETTINGS_GET: &str = "automation.settings.get";
     pub const AUTOMATION_SETTINGS_SET: &str = "automation.settings.set";
+    pub const AUTOMATION_TELEPORT_ABORT: &str = "automation.teleport.abort";
+    pub const AUTOMATION_TELEPORT_BEGIN: &str = "automation.teleport.begin";
+    pub const AUTOMATION_TELEPORT_COMPLETE: &str = "automation.teleport.complete";
     pub const AUTOMATION_UPDATE: &str = "automation.update";
     pub const AUTOMATION_WEBHOOK_GET: &str = "automation.webhook.get";
     pub const CALENDAR_CALENDARS_LIST: &str = "calendar.calendars.list";
     pub const CALENDAR_EVENT_CREATE: &str = "calendar.event.create";
     pub const CALENDAR_EVENT_RESPOND: &str = "calendar.event.respond";
     pub const CALENDAR_EVENTS_LIST: &str = "calendar.events.list";
+    pub const CHANNEL_CREATE: &str = "channel.create";
     pub const CHIEF_ARCHIVE: &str = "chief.archive";
     pub const CHIEF_CREATE: &str = "chief.create";
     pub const CHIEF_DELETE: &str = "chief.delete";
@@ -32,11 +41,13 @@ pub mod op_names {
     pub const CLOUD_ENVIRONMENT_DELETE: &str = "cloud.environment.delete";
     pub const CLOUD_ENVIRONMENT_LIST: &str = "cloud.environment.list";
     pub const CLOUD_ENVIRONMENT_SET: &str = "cloud.environment.set";
+    pub const CLOUD_MACHINE_ARCHIVE_DELETE: &str = "cloud.machine.archive_delete";
     pub const CLOUD_MACHINE_CONNECT_INFO: &str = "cloud.machine.connect_info";
     pub const CLOUD_MACHINE_CREATE: &str = "cloud.machine.create";
     pub const CLOUD_MACHINE_DELETE: &str = "cloud.machine.delete";
     pub const CLOUD_MACHINE_GET: &str = "cloud.machine.get";
     pub const CLOUD_MACHINE_IDLE_POLICY_SET: &str = "cloud.machine.idle_policy.set";
+    pub const CLOUD_MACHINE_KEEP: &str = "cloud.machine.keep";
     pub const CLOUD_MACHINE_LINK_TOKEN: &str = "cloud.machine.link_token";
     pub const CLOUD_MACHINE_LIST: &str = "cloud.machine.list";
     pub const CLOUD_MACHINE_PAUSE: &str = "cloud.machine.pause";
@@ -47,11 +58,16 @@ pub mod op_names {
     pub const CLOUD_MIGRATION_START: &str = "cloud.migration.start";
     pub const CLOUD_MIGRATION_STATUS: &str = "cloud.migration.status";
     pub const CLOUD_PLAN_GET: &str = "cloud.plan.get";
+    pub const CLOUD_RETENTION_SET: &str = "cloud.retention.set";
     pub const CLOUD_SHELL_OPEN: &str = "cloud.shell.open";
     pub const CLOUD_SNAPSHOT_CREATE: &str = "cloud.snapshot.create";
     pub const CLOUD_SNAPSHOT_DELETE: &str = "cloud.snapshot.delete";
     pub const CLOUD_SNAPSHOT_LIST: &str = "cloud.snapshot.list";
     pub const CLOUD_SNAPSHOT_RESTORE: &str = "cloud.snapshot.restore";
+    pub const CLOUD_SURGE_CREATE: &str = "cloud.surge.create";
+    pub const CLOUD_SURGE_PREVIEW: &str = "cloud.surge.preview";
+    pub const CLOUD_USAGE_CURRENT: &str = "cloud.usage.current";
+    pub const CLOUD_VM_ATTENTION_EMIT: &str = "cloud.vm.attention.emit";
     pub const CLOUD_VM_EVENT_EMIT: &str = "cloud.vm.event.emit";
     pub const CLOUD_VM_NETWORK_POLICY: &str = "cloud.vm.network_policy";
     pub const CLOUD_VM_RECEIVER_LIFECYCLE: &str = "cloud.vm.receiver.lifecycle";
@@ -97,12 +113,17 @@ pub mod op_names {
     pub const GROUP_CREATE: &str = "group.create";
     pub const GROUP_GET: &str = "group.get";
     pub const GROUP_LIST: &str = "group.list";
+    pub const GROUP_MEMBERS_LIST: &str = "group.members.list";
+    pub const GROUP_MEMBERS_REMOVE: &str = "group.members.remove";
+    pub const GROUP_MEMBERS_SET: &str = "group.members.set";
     pub const GROUP_RENAME: &str = "group.rename";
     pub const HOME_REQUESTS_LIST: &str = "home.requests.list";
     pub const HOME_SEARCH: &str = "home.search";
     pub const HOME_SETTINGS_SET: &str = "home.settings.set";
     pub const HOST_ENROLL: &str = "host.enroll";
     pub const HOST_NETWORK_BIND: &str = "host.network.bind";
+    pub const HOST_NETWORK_POLICY: &str = "host.network.policy";
+    pub const HOST_NETWORK_TARGET: &str = "host.network.target";
     pub const HOST_REMOVE: &str = "host.remove";
     pub const HOST_REPLICA_PURGE: &str = "host.replica.purge";
     pub const INBOX_ARCHIVE: &str = "inbox.archive";
@@ -159,6 +180,7 @@ pub mod op_names {
     pub const RUN_LIST: &str = "run.list";
     pub const SERVER_NETWORK_CONFIRM: &str = "server.network.confirm";
     pub const SERVER_PAIR_APPROVE: &str = "server.pair.approve";
+    pub const SERVER_PAIR_INVITE: &str = "server.pair.invite";
     pub const SERVER_PAIR_PREVIEW: &str = "server.pair.preview";
     pub const SERVER_REVOKE: &str = "server.revoke";
     pub const SLACK_POST_AS_BOT: &str = "slack.post_as_bot";
@@ -167,10 +189,21 @@ pub mod op_names {
     pub const SSO_CONNECTION_DISABLE: &str = "sso.connection.disable";
     pub const SSO_CONNECTION_LIST: &str = "sso.connection.list";
     pub const SSO_CONNECTION_SET_SECRET: &str = "sso.connection.set_secret";
+    pub const TEAM_AGENT_KEY_REMOVE: &str = "team.agent_key.remove";
+    pub const TEAM_AGENT_KEY_SET: &str = "team.agent_key.set";
+    pub const TEAM_AGENT_KEY_STATUS: &str = "team.agent_key.status";
     pub const TEAM_AI_LIMIT_GET: &str = "team.ai_limit.get";
     pub const TEAM_AI_LIMIT_MEMBER_SET: &str = "team.ai_limit.member.set";
     pub const TEAM_AI_LIMIT_SET: &str = "team.ai_limit.set";
     pub const TEAM_AUDIT_LIST: &str = "team.audit.list";
+    pub const TEAM_CLOUD_SESSION_ARCHIVE: &str = "team.cloud.session.archive";
+    pub const TEAM_CLOUD_SESSION_FOLLOW: &str = "team.cloud.session.follow";
+    pub const TEAM_CLOUD_SESSION_GET: &str = "team.cloud.session.get";
+    pub const TEAM_CLOUD_SESSION_LIST: &str = "team.cloud.session.list";
+    pub const TEAM_CLOUD_SESSION_PUBLISH: &str = "team.cloud.session.publish";
+    pub const TEAM_CLOUD_SESSION_REASSIGN: &str = "team.cloud.session.reassign";
+    pub const TEAM_CLOUD_SESSION_REMOVE: &str = "team.cloud.session.remove";
+    pub const TEAM_CLOUD_SESSION_VIEWING: &str = "team.cloud.session.viewing";
     pub const TEAM_DEVICE_COMPLIANCE: &str = "team.device.compliance";
     pub const TEAM_DEVICE_ENROLL: &str = "team.device.enroll";
     pub const TEAM_DEVICE_POLICY: &str = "team.device.policy";
@@ -184,6 +217,8 @@ pub mod op_names {
     pub const TEAM_INTEGRATION_RELEASE_LOCK: &str = "team.integration.release_lock";
     pub const TEAM_MEMBERS_LIST: &str = "team.members.list";
     pub const TEAM_MEMBERS_REMOVE: &str = "team.members.remove";
+    pub const TEAM_MODELS_POLICY_GET: &str = "team.models_policy.get";
+    pub const TEAM_MODELS_POLICY_SET: &str = "team.models_policy.set";
     pub const TEAM_POLICY_GET: &str = "team.policy.get";
     pub const TEAM_POLICY_HISTORY: &str = "team.policy.history";
     pub const TEAM_POLICY_ROLLBACK: &str = "team.policy.rollback";
@@ -222,21 +257,30 @@ pub mod op_names {
 
     /// Every catalog op name, sorted.
     pub const ALL: &[&str] = &[
+        AUTOMATION_AUDIT_LIST,
         AUTOMATION_CREATE,
         AUTOMATION_DELETE,
         AUTOMATION_DEPLOY,
         AUTOMATION_GET,
+        AUTOMATION_IMPORT,
         AUTOMATION_LIST,
         AUTOMATION_RUN,
         AUTOMATION_RUNS_LIST,
+        AUTOMATION_SECRET_LIST,
+        AUTOMATION_SECRET_REMOVE,
+        AUTOMATION_SECRET_SET,
         AUTOMATION_SETTINGS_GET,
         AUTOMATION_SETTINGS_SET,
+        AUTOMATION_TELEPORT_ABORT,
+        AUTOMATION_TELEPORT_BEGIN,
+        AUTOMATION_TELEPORT_COMPLETE,
         AUTOMATION_UPDATE,
         AUTOMATION_WEBHOOK_GET,
         CALENDAR_CALENDARS_LIST,
         CALENDAR_EVENT_CREATE,
         CALENDAR_EVENT_RESPOND,
         CALENDAR_EVENTS_LIST,
+        CHANNEL_CREATE,
         CHIEF_ARCHIVE,
         CHIEF_CREATE,
         CHIEF_DELETE,
@@ -248,11 +292,13 @@ pub mod op_names {
         CLOUD_ENVIRONMENT_DELETE,
         CLOUD_ENVIRONMENT_LIST,
         CLOUD_ENVIRONMENT_SET,
+        CLOUD_MACHINE_ARCHIVE_DELETE,
         CLOUD_MACHINE_CONNECT_INFO,
         CLOUD_MACHINE_CREATE,
         CLOUD_MACHINE_DELETE,
         CLOUD_MACHINE_GET,
         CLOUD_MACHINE_IDLE_POLICY_SET,
+        CLOUD_MACHINE_KEEP,
         CLOUD_MACHINE_LINK_TOKEN,
         CLOUD_MACHINE_LIST,
         CLOUD_MACHINE_PAUSE,
@@ -263,11 +309,16 @@ pub mod op_names {
         CLOUD_MIGRATION_START,
         CLOUD_MIGRATION_STATUS,
         CLOUD_PLAN_GET,
+        CLOUD_RETENTION_SET,
         CLOUD_SHELL_OPEN,
         CLOUD_SNAPSHOT_CREATE,
         CLOUD_SNAPSHOT_DELETE,
         CLOUD_SNAPSHOT_LIST,
         CLOUD_SNAPSHOT_RESTORE,
+        CLOUD_SURGE_CREATE,
+        CLOUD_SURGE_PREVIEW,
+        CLOUD_USAGE_CURRENT,
+        CLOUD_VM_ATTENTION_EMIT,
         CLOUD_VM_EVENT_EMIT,
         CLOUD_VM_NETWORK_POLICY,
         CLOUD_VM_RECEIVER_LIFECYCLE,
@@ -313,12 +364,17 @@ pub mod op_names {
         GROUP_CREATE,
         GROUP_GET,
         GROUP_LIST,
+        GROUP_MEMBERS_LIST,
+        GROUP_MEMBERS_REMOVE,
+        GROUP_MEMBERS_SET,
         GROUP_RENAME,
         HOME_REQUESTS_LIST,
         HOME_SEARCH,
         HOME_SETTINGS_SET,
         HOST_ENROLL,
         HOST_NETWORK_BIND,
+        HOST_NETWORK_POLICY,
+        HOST_NETWORK_TARGET,
         HOST_REMOVE,
         HOST_REPLICA_PURGE,
         INBOX_ARCHIVE,
@@ -375,6 +431,7 @@ pub mod op_names {
         RUN_LIST,
         SERVER_NETWORK_CONFIRM,
         SERVER_PAIR_APPROVE,
+        SERVER_PAIR_INVITE,
         SERVER_PAIR_PREVIEW,
         SERVER_REVOKE,
         SLACK_POST_AS_BOT,
@@ -383,10 +440,21 @@ pub mod op_names {
         SSO_CONNECTION_DISABLE,
         SSO_CONNECTION_LIST,
         SSO_CONNECTION_SET_SECRET,
+        TEAM_AGENT_KEY_REMOVE,
+        TEAM_AGENT_KEY_SET,
+        TEAM_AGENT_KEY_STATUS,
         TEAM_AI_LIMIT_GET,
         TEAM_AI_LIMIT_MEMBER_SET,
         TEAM_AI_LIMIT_SET,
         TEAM_AUDIT_LIST,
+        TEAM_CLOUD_SESSION_ARCHIVE,
+        TEAM_CLOUD_SESSION_FOLLOW,
+        TEAM_CLOUD_SESSION_GET,
+        TEAM_CLOUD_SESSION_LIST,
+        TEAM_CLOUD_SESSION_PUBLISH,
+        TEAM_CLOUD_SESSION_REASSIGN,
+        TEAM_CLOUD_SESSION_REMOVE,
+        TEAM_CLOUD_SESSION_VIEWING,
         TEAM_DEVICE_COMPLIANCE,
         TEAM_DEVICE_ENROLL,
         TEAM_DEVICE_POLICY,
@@ -400,6 +468,8 @@ pub mod op_names {
         TEAM_INTEGRATION_RELEASE_LOCK,
         TEAM_MEMBERS_LIST,
         TEAM_MEMBERS_REMOVE,
+        TEAM_MODELS_POLICY_GET,
+        TEAM_MODELS_POLICY_SET,
         TEAM_POLICY_GET,
         TEAM_POLICY_HISTORY,
         TEAM_POLICY_ROLLBACK,
@@ -441,21 +511,30 @@ pub mod op_names {
 /// Runs `visitor` with the op named `name`; `None` when the catalog has no such op.
 pub fn visit_op<V: crate::OpVisitor>(name: &str, visitor: V) -> Option<V::Output> {
     Some(match name {
+        "automation.audit.list" => visitor.visit::<AutomationAuditListOp>(),
         "automation.create" => visitor.visit::<AutomationCreateOp>(),
         "automation.delete" => visitor.visit::<AutomationDeleteOp>(),
         "automation.deploy" => visitor.visit::<AutomationDeployOp>(),
         "automation.get" => visitor.visit::<AutomationGetOp>(),
+        "automation.import" => visitor.visit::<AutomationImportOp>(),
         "automation.list" => visitor.visit::<AutomationListOp>(),
         "automation.run" => visitor.visit::<AutomationRunOp>(),
         "automation.runs.list" => visitor.visit::<AutomationRunsListOp>(),
+        "automation.secret.list" => visitor.visit::<AutomationSecretListOp>(),
+        "automation.secret.remove" => visitor.visit::<AutomationSecretRemoveOp>(),
+        "automation.secret.set" => visitor.visit::<AutomationSecretSetOp>(),
         "automation.settings.get" => visitor.visit::<AutomationSettingsGetOp>(),
         "automation.settings.set" => visitor.visit::<AutomationSettingsSetOp>(),
+        "automation.teleport.abort" => visitor.visit::<AutomationTeleportAbortOp>(),
+        "automation.teleport.begin" => visitor.visit::<AutomationTeleportBeginOp>(),
+        "automation.teleport.complete" => visitor.visit::<AutomationTeleportCompleteOp>(),
         "automation.update" => visitor.visit::<AutomationUpdateOp>(),
         "automation.webhook.get" => visitor.visit::<AutomationWebhookGetOp>(),
         "calendar.calendars.list" => visitor.visit::<CalendarCalendarsListOp>(),
         "calendar.event.create" => visitor.visit::<CalendarEventCreateOp>(),
         "calendar.event.respond" => visitor.visit::<CalendarEventRespondOp>(),
         "calendar.events.list" => visitor.visit::<CalendarEventsListOp>(),
+        "channel.create" => visitor.visit::<ChannelCreateOp>(),
         "chief.archive" => visitor.visit::<ChiefArchiveOp>(),
         "chief.create" => visitor.visit::<ChiefCreateOp>(),
         "chief.delete" => visitor.visit::<ChiefDeleteOp>(),
@@ -467,11 +546,13 @@ pub fn visit_op<V: crate::OpVisitor>(name: &str, visitor: V) -> Option<V::Output
         "cloud.environment.delete" => visitor.visit::<CloudEnvironmentDeleteOp>(),
         "cloud.environment.list" => visitor.visit::<CloudEnvironmentListOp>(),
         "cloud.environment.set" => visitor.visit::<CloudEnvironmentSetOp>(),
+        "cloud.machine.archive_delete" => visitor.visit::<CloudMachineArchiveDeleteOp>(),
         "cloud.machine.connect_info" => visitor.visit::<CloudMachineConnectInfoOp>(),
         "cloud.machine.create" => visitor.visit::<CloudMachineCreateOp>(),
         "cloud.machine.delete" => visitor.visit::<CloudMachineDeleteOp>(),
         "cloud.machine.get" => visitor.visit::<CloudMachineGetOp>(),
         "cloud.machine.idle_policy.set" => visitor.visit::<CloudMachineIdlePolicySetOp>(),
+        "cloud.machine.keep" => visitor.visit::<CloudMachineKeepOp>(),
         "cloud.machine.link_token" => visitor.visit::<CloudMachineLinkTokenOp>(),
         "cloud.machine.list" => visitor.visit::<CloudMachineListOp>(),
         "cloud.machine.pause" => visitor.visit::<CloudMachinePauseOp>(),
@@ -482,11 +563,16 @@ pub fn visit_op<V: crate::OpVisitor>(name: &str, visitor: V) -> Option<V::Output
         "cloud.migration.start" => visitor.visit::<CloudMigrationStartOp>(),
         "cloud.migration.status" => visitor.visit::<CloudMigrationStatusOp>(),
         "cloud.plan.get" => visitor.visit::<CloudPlanGetOp>(),
+        "cloud.retention.set" => visitor.visit::<CloudRetentionSetOp>(),
         "cloud.shell.open" => visitor.visit::<CloudShellOpenOp>(),
         "cloud.snapshot.create" => visitor.visit::<CloudSnapshotCreateOp>(),
         "cloud.snapshot.delete" => visitor.visit::<CloudSnapshotDeleteOp>(),
         "cloud.snapshot.list" => visitor.visit::<CloudSnapshotListOp>(),
         "cloud.snapshot.restore" => visitor.visit::<CloudSnapshotRestoreOp>(),
+        "cloud.surge.create" => visitor.visit::<CloudSurgeCreateOp>(),
+        "cloud.surge.preview" => visitor.visit::<CloudSurgePreviewOp>(),
+        "cloud.usage.current" => visitor.visit::<CloudUsageCurrentOp>(),
+        "cloud.vm.attention.emit" => visitor.visit::<CloudVmAttentionEmitOp>(),
         "cloud.vm.event.emit" => visitor.visit::<CloudVmEventEmitOp>(),
         "cloud.vm.network_policy" => visitor.visit::<CloudVmNetworkPolicyOp>(),
         "cloud.vm.receiver.lifecycle" => visitor.visit::<CloudVmReceiverLifecycleOp>(),
@@ -532,12 +618,17 @@ pub fn visit_op<V: crate::OpVisitor>(name: &str, visitor: V) -> Option<V::Output
         "group.create" => visitor.visit::<GroupCreateOp>(),
         "group.get" => visitor.visit::<GroupGetOp>(),
         "group.list" => visitor.visit::<GroupListOp>(),
+        "group.members.list" => visitor.visit::<GroupMembersListOp>(),
+        "group.members.remove" => visitor.visit::<GroupMembersRemoveOp>(),
+        "group.members.set" => visitor.visit::<GroupMembersSetOp>(),
         "group.rename" => visitor.visit::<GroupRenameOp>(),
         "home.requests.list" => visitor.visit::<HomeRequestsListOp>(),
         "home.search" => visitor.visit::<HomeSearchOp>(),
         "home.settings.set" => visitor.visit::<HomeSettingsSetOp>(),
         "host.enroll" => visitor.visit::<HostEnrollOp>(),
         "host.network.bind" => visitor.visit::<HostNetworkBindOp>(),
+        "host.network.policy" => visitor.visit::<HostNetworkPolicyOp>(),
+        "host.network.target" => visitor.visit::<HostNetworkTargetOp>(),
         "host.remove" => visitor.visit::<HostRemoveOp>(),
         "host.replica.purge" => visitor.visit::<HostReplicaPurgeOp>(),
         "inbox.archive" => visitor.visit::<InboxArchiveOp>(),
@@ -594,6 +685,7 @@ pub fn visit_op<V: crate::OpVisitor>(name: &str, visitor: V) -> Option<V::Output
         "run.list" => visitor.visit::<RunListOp>(),
         "server.network.confirm" => visitor.visit::<ServerNetworkConfirmOp>(),
         "server.pair.approve" => visitor.visit::<ServerPairApproveOp>(),
+        "server.pair.invite" => visitor.visit::<ServerPairInviteOp>(),
         "server.pair.preview" => visitor.visit::<ServerPairPreviewOp>(),
         "server.revoke" => visitor.visit::<ServerRevokeOp>(),
         "slack.post_as_bot" => visitor.visit::<SlackPostAsBotOp>(),
@@ -602,10 +694,21 @@ pub fn visit_op<V: crate::OpVisitor>(name: &str, visitor: V) -> Option<V::Output
         "sso.connection.disable" => visitor.visit::<SsoConnectionDisableOp>(),
         "sso.connection.list" => visitor.visit::<SsoConnectionListOp>(),
         "sso.connection.set_secret" => visitor.visit::<SsoConnectionSetSecretOp>(),
+        "team.agent_key.remove" => visitor.visit::<TeamAgentKeyRemoveOp>(),
+        "team.agent_key.set" => visitor.visit::<TeamAgentKeySetOp>(),
+        "team.agent_key.status" => visitor.visit::<TeamAgentKeyStatusOp>(),
         "team.ai_limit.get" => visitor.visit::<TeamAiLimitGetOp>(),
         "team.ai_limit.member.set" => visitor.visit::<TeamAiLimitMemberSetOp>(),
         "team.ai_limit.set" => visitor.visit::<TeamAiLimitSetOp>(),
         "team.audit.list" => visitor.visit::<TeamAuditListOp>(),
+        "team.cloud.session.archive" => visitor.visit::<TeamCloudSessionArchiveOp>(),
+        "team.cloud.session.follow" => visitor.visit::<TeamCloudSessionFollowOp>(),
+        "team.cloud.session.get" => visitor.visit::<TeamCloudSessionGetOp>(),
+        "team.cloud.session.list" => visitor.visit::<TeamCloudSessionListOp>(),
+        "team.cloud.session.publish" => visitor.visit::<TeamCloudSessionPublishOp>(),
+        "team.cloud.session.reassign" => visitor.visit::<TeamCloudSessionReassignOp>(),
+        "team.cloud.session.remove" => visitor.visit::<TeamCloudSessionRemoveOp>(),
+        "team.cloud.session.viewing" => visitor.visit::<TeamCloudSessionViewingOp>(),
         "team.device.compliance" => visitor.visit::<TeamDeviceComplianceOp>(),
         "team.device.enroll" => visitor.visit::<TeamDeviceEnrollOp>(),
         "team.device.policy" => visitor.visit::<TeamDevicePolicyOp>(),
@@ -619,6 +722,8 @@ pub fn visit_op<V: crate::OpVisitor>(name: &str, visitor: V) -> Option<V::Output
         "team.integration.release_lock" => visitor.visit::<TeamIntegrationReleaseLockOp>(),
         "team.members.list" => visitor.visit::<TeamMembersListOp>(),
         "team.members.remove" => visitor.visit::<TeamMembersRemoveOp>(),
+        "team.models_policy.get" => visitor.visit::<TeamModelsPolicyGetOp>(),
+        "team.models_policy.set" => visitor.visit::<TeamModelsPolicySetOp>(),
         "team.policy.get" => visitor.visit::<TeamPolicyGetOp>(),
         "team.policy.history" => visitor.visit::<TeamPolicyHistoryOp>(),
         "team.policy.rollback" => visitor.visit::<TeamPolicyRollbackOp>(),

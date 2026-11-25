@@ -12,25 +12,18 @@ public import Foundation
 /// `/gp/video`. A leading `*.` and a scheme are ignored. The most specific pattern wins (the
 /// longest host, then the longest path). Only `http` and `https` pages match.
 ///
-/// The default sends sites whose protected (DRM) media does not play in cmux's Chromium to WebKit:
-/// the Chromium build has no Widevine CDM that installs, no H.264/AAC (`proprietary_codecs`) and
-/// no VMP signing (plans/cmux-next/browser.md, open question 6). Setting the key replaces the
-/// whole list, so a person can remove a default site.
+/// The default is empty: protected (Widevine) media plays in cmux's Chromium (H.264/AAC from
+/// `proprietary_codecs`, the component updater's CDM loaded by the plain helper,
+/// plans/cmux-next/browser.md, open question 6). Setting the key replaces the whole list.
 public nonisolated struct BrowserSiteEngines: Sendable, Hashable {
     /// Normalized pattern (lowercase host, optional `/path`) to engine.
     public let rules: [String: BrowserDefaultEngine]
 
-    public static let configPath = ["browser", "siteEngines"]
-
-    /// Sites whose protected media needs WebKit (FairPlay) in cmux. `music.youtube.com` is not
-    /// here: it plays in Chromium unless shown otherwise.
-    public static let protectedMediaSites = [
-        "spotify.com", "netflix.com", "disneyplus.com", "max.com", "hulu.com", "primevideo.com",
-        "amazon.com/gp/video", "tv.apple.com", "music.apple.com",
-    ]
-
-    /// Every protected-media site on WebKit.
-    public static let fallback = BrowserSiteEngines(rules: Dictionary(uniqueKeysWithValues: protectedMediaSites.map { ($0, .webkit) }))
+    /// The default rules (none): `siteEnginesDefault`, from
+    /// schemas/settings/source/browser.json (SettingsSchema+Browser.generated.swift).
+    public static let fallback = BrowserSiteEngines(rules: (siteEnginesDefault.objectValue ?? [:]).compactMapValues {
+        $0.stringValue.flatMap(BrowserDefaultEngine.init(rawValue:))
+    })
 
     /// - Parameter rules: Site pattern to engine; patterns are normalized (lowercase, no scheme,
     ///   no `*.`, no trailing `/`), and one that is empty after that is dropped.

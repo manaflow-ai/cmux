@@ -57,6 +57,8 @@ public nonisolated struct ActionInvocation: Sendable, Hashable {
     /// ``origin`` is then only the caller's claim, `user` included, so a handler that gives a
     /// person more than automation (a raw screenshot) checks this, not the origin alone.
     public var viaControlSocket = false
+    /// The one-based line of a local chat citation passed to the configured editor.
+    public var editorLine: Int?
     /// The calling app preserved by the native provider, even during its user gesture.
     /// Nil for direct native/CLI/page calls; attribution never grants execution authority.
     public var callerApp: String?
@@ -87,6 +89,9 @@ public nonisolated struct ActionInvocation: Sendable, Hashable {
     /// `caller.terminal_id`: the terminal whose cmux CLI sent the run (an agent running in a
     /// terminal), nil for any other run. Like ``callerAgentSession``, the caller's own claim.
     public var callerTerminal: String?
+    /// `caller.home_chat`: a Chief turn sent the run (the Chief host sets it); its chat is Home's.
+    /// Like ``callerAgentSession``, the caller's own claim: it names who asks, it grants nothing.
+    public var callerHomeChat = false
     /// A split that opens a terminal even where a person's split opens the New Tab page (the chat
     /// header's Terminal, cx-00n1). In-app only: the control socket never sets it.
     public var opensTerminal = false
@@ -103,13 +108,22 @@ public nonisolated struct ActionInvocation: Sendable, Hashable {
     /// dispatch. The registry stamps it when the gate starts; the run's `action.*` signposts
     /// report its age when no input event is being dispatched at the run. Nil for every other run.
     public var inputTimestamp: Double?
+    /// The person chose this run from an open menu (the main menu or a context menu, `ActionMenuTarget`), not with a key
+    /// equivalent: AppKit runs a chosen item's action after the menu's tracking, outside any input event's dispatch, so no
+    /// event names the person; the run's focus choices count as theirs (`FocusState.personMoveSeq`). In-app only.
+    public var menuPick = false
+    /// The right-click menu the person picked this run from (`ActionMenuPayload.menu`), nil for any other run. One
+    /// action placed in several menus tells them apart by it (Point at Element: a native tab's menu or the chat page's,
+    /// whose targets are both the tab). In-app only: the control socket never sets it.
+    public var menuContext: ActionMenuContext?
 
     public init(target: ActionTargetRef? = nil, arguments: [String: ActionValue] = [:], origin: ActionOrigin = .user,
-                focusRequested: Bool = false) {
+                focusRequested: Bool = false, keyContext: ActionContext? = nil) {
         self.target = target
         self.arguments = arguments
         self.origin = origin
         self.focusRequested = focusRequested
+        self.keyContext = keyContext
     }
 
     /// This run scoped to the machine that owns its target (nil: unscoped). A forked or SSH machine
@@ -132,6 +146,14 @@ public nonisolated struct ActionInvocation: Sendable, Hashable {
 
     public subscript(_ name: String) -> ActionValue? {
         arguments[name]
+    }
+
+    /// A non-empty file path or data source argument `name` (an import or export file, a browser
+    /// to read) as the caller named it, or nil when none is named or a page asks: page script
+    /// never names a file or a source, the person picks it in the action's own panel.
+    public func callerNamedSource(_ name: String) -> String? {
+        guard origin != .page, let text = arguments[name]?.stringValue, !text.isEmpty else { return nil }
+        return text
     }
 
     /// Whether a destructive action was confirmed (`confirm: true`).
@@ -168,7 +190,7 @@ public extension ActionInvocation {
     /// that gets what automation must not (raw screen pixels, a read of a folder macOS guards). A run
     /// the control socket carries is automation even when it claims the `user` origin, and so is a
     /// run that names a caller (an app, an agent chat or a terminal), even during the person's gesture in it.
-    var isPersonsOwnRun: Bool {
+    nonisolated var isPersonsOwnRun: Bool {
         origin == .user && !viaControlSocket && callerApp == nil && callerAgentSession == nil && callerTerminal == nil
     }
 }

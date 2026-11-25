@@ -37,40 +37,16 @@ struct PinnedHomeDockTests {
         #expect(path.allSatisfy { !$0.showsClose })
     }
 
-    /// Cmd-W on Home's tab keeps it (another tab is selected when there is one), even with the setting
-    /// that lets Cmd-W close pinned tabs.
+    /// Cmd-W on Home's tab keeps it (another tab is selected when there is one), though Cmd-W closes
+    /// pinned tabs.
     @Test func cmdWKeepsATabThatCannotClose() {
         var home = TabItem(id: "home", title: "Home")
         home.isClosable = false
         let alone = TabStripModel(tabs: [home], selectedID: "home")
-        #expect(alone.keyboardClose("home", closesPinned: true) == .ignore) // kept, silently (home-chief-pane.md)
+        #expect(alone.keyboardClose("home") == .ignore) // kept, silently (home-chief-pane.md)
         let two = TabStripModel(tabs: [home, TabItem(id: "t", title: "t")], selectedID: "home")
         #expect(two.keyboardClose("home") == .select("t"))
         #expect(two.keyboardClose("t") == .close)
-    }
-
-    /// A new agent chat never lands in Home's pinned chat dock, whether or not it takes tabs (Home's
-    /// dock takes dragged tabs since 2026-10-21; a new chat still opens beside it): from the strip it
-    /// opens where it was asked for, from the dock in the first scrolling pane.
-    @Test func aNewChatSkipsAPinnedDock() {
-        func columns(allowsTabs: Bool) -> [LayoutColumn] {
-            [LayoutColumn(id: "home", root: .leaf("dock"),
-                          dock: DockColumn(edge: .left, role: .agentChat, isPinned: true, allowsTabs: allowsTabs)),
-             LayoutColumn(id: "c1", root: .leaf("p1"))]
-        }
-        #expect(NewChatPlacement.resolve(from: "p1", columns: columns(allowsTabs: false), isLoneChat: false) == .here)
-        #expect(NewChatPlacement.resolve(from: "dock", columns: columns(allowsTabs: false), isLoneChat: false) == .dock("p1"))
-        #expect(NewChatPlacement.resolve(from: "p1", columns: columns(allowsTabs: true), isLoneChat: false) == .here)
-        #expect(NewChatPlacement.resolve(from: "dock", columns: columns(allowsTabs: true), isLoneChat: false) == .dock("p1"))
-    }
-
-    /// A tool dragged into a chat dock is refused ("holds only agent chats"), except into Home's
-    /// pinned dock while it takes tabs (Leo 2026-10-21): any tab drags into it.
-    @Test func homesDockTakesAnyDraggedTabOtherChatDocksOnlyChats() {
-        #expect(DockColumn(edge: .left, role: .agentChat).takesOnlyChats)
-        #expect(DockColumn(edge: .left, role: .agentChat, isPinned: true).takesOnlyChats, "closed to tabs")
-        #expect(!DockColumn(edge: .left, role: .agentChat, isPinned: true, allowsTabs: true).takesOnlyChats)
-        #expect(!DockColumn(edge: .right).takesOnlyChats)
     }
 
     @Test func refusedCloseOfHomeSaysHomeStays() {

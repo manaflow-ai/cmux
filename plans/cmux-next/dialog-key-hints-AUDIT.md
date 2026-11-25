@@ -54,7 +54,7 @@ shows none (no key presses it).
 | Site | Buttons |
 | --- | --- |
 | `HomeSheetController` (Home New Message, Invite, New Chief) | Cancel ⎋, primary ↩ |
-| `CookieImportConsentPanel` | Deny ⎋; Allow has no key on purpose (a consent prompt never allows on Return) |
+| `CookieImportConsentPanel` (`CmuxDialogButtonView`) | Deny ⎋; Show Agent Chat no key; Allow has no key on purpose (a consent prompt never allows on Return), and only the person's own click allows (`CmuxDialogPersonClick`: no Accessibility press, posted click or key) |
 | `CloudMachineProgressView` | Retry ↩; Copy Error / Dismiss no key (the page keeps Escape and typing) |
 | `MachineBrowserPageTab` | Open Locally ↩ |
 | `SiteDataWindow` | Done ↩ |

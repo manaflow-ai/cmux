@@ -77,13 +77,17 @@ async function until(ready: () => boolean, what: string) {
 
 async function connect(daemon: ReturnType<typeof fakeDaemon>) {
   let snapshot: any;
+  let attached = false;
   const client = await AcpmuxDirectClient.connect(
     { protocolVersion: 1, transport: "acpmux-websocket", endpoint: "ws://127.0.0.1:1/", token: "t", sessionId: CHAT },
-    (next: any) => (snapshot = next),
+    (next: any) => {
+      snapshot = next;
+      attached ||= next.connection === "connected";
+    },
     undefined,
     daemon.open,
   );
-  await until(() => snapshot?.connection === "connected", "the attach");
+  await until(() => attached, "the attach");
   const notes = () =>
     (snapshot.rows as AcpmuxRow[])
       .filter((row) => row.id.startsWith("host-notice-"))
@@ -92,6 +96,45 @@ async function connect(daemon: ReturnType<typeof fakeDaemon>) {
 }
 
 const GREW = "Machine grew to 4 vCPU / 8 GiB (it ran out of memory)";
+
+test("old recovery notices stay silent in history and live updates", async () => {
+  const daemon = fakeDaemon(
+    record([
+      ["mux", "user_message", { text: "build it" }],
+      [
+        "mux",
+        "host_notice",
+        {
+          source: "resume",
+          kind: "paused",
+          gapMs: 304920,
+          text: "This machine was paused for 5m 4s; the turn goes on where it was",
+        },
+      ],
+      ["mux", "host_notice", { source: "resume", kind: "stopped", text: "This process resumed" }],
+      ["mux", "host_notice", { source: "cloud", text: GREW }],
+    ]),
+    "claude",
+    "claude",
+  );
+  const { client, notes } = await connect(daemon);
+  try {
+    expect(notes()).toEqual([{ id: "host-notice-4", kind: "notice", text: GREW }]);
+    daemon.push(
+      record(
+        [
+          ["mux", "host_notice", { source: "resume", text: "This machine was paused again" }],
+          ["mux", "host_notice", { source: "cloud", text: "Resized again" }],
+        ],
+        5,
+      ),
+    );
+    await until(() => notes().some((note) => note.text === "Resized again"), "the live cloud notice");
+    expect(notes().map((note) => note.text)).toEqual([GREW, "Resized again"]);
+  } finally {
+    client.close();
+  }
+});
 
 test("a host notice is a muted notice row where acpmux logged it", async () => {
   const daemon = fakeDaemon(
@@ -122,8 +165,10 @@ test("a host notice is a muted notice row where acpmux logged it", async () => {
   }
 });
 
-// A notice that comes mid-reply sits between the text before it and the text after it.
-test("a host notice in the middle of a reply splits the reply around it", async () => {
+// A notice that comes mid-reply never cuts it: the reply streams on whole in its row, the notice
+// under it (Leo, 2026-11-05: "If your text is streaming, I shouldn't be able to interrupt it or,
+// like, break it in between").
+test("a host notice in the middle of a reply draws under the whole reply", async () => {
   const say = (text: string) => ({
     method: "session/update",
     params: { sessionId: "agent-1", update: { sessionUpdate: "agent_message_chunk", content: { type: "text", text } } },
@@ -140,18 +185,22 @@ test("a host notice in the middle of a reply splits the reply around it", async 
     "claude",
   );
   let snapshot: any;
+  let attached = false;
   const client = await AcpmuxDirectClient.connect(
     { protocolVersion: 1, transport: "acpmux-websocket", endpoint: "ws://127.0.0.1:1/", token: "t", sessionId: CHAT },
-    (next: any) => (snapshot = next),
+    (next: any) => {
+      snapshot = next;
+      attached ||= next.connection === "connected";
+    },
     undefined,
     daemon.open,
   );
   try {
-    await until(() => snapshot?.connection === "connected", "the attach");
+    await until(() => attached, "the attach");
     const order = (snapshot.rows as AcpmuxRow[])
       .filter((row) => row.kind === "assistant" || row.id.startsWith("host-notice-"))
       .map((row) => (row.kind === "assistant" ? row.text : `notice: ${row.text}`));
-    expect(order).toEqual(["Building now.", `notice: ${GREW}`, " Done."]);
+    expect(order).toEqual(["Building now. Done.", `notice: ${GREW}`]);
   } finally {
     client.close();
   }

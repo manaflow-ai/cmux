@@ -36,7 +36,7 @@ enum DebugBrowserExternal {
             },
             .mainActor("debug.browser.page_status") { [weak services] call in
                 guard let services else { return .value(.null) }
-                guard let chrome = entry(call.params, services: services)?.chrome else {
+                guard let chrome = entry(call.params, services: services)?.chrome else {  // the tab on screen
                     return .value(.object(["error": .string("no browser tab")]))
                 }
                 var fields = PageStatusDebug(chrome, press: call.params["press"]?.stringValue).fields
@@ -78,7 +78,7 @@ extension DebugBrowserExternal {
             case "deny": .deny
             default: nil
             }
-            let first = tab.pendingPrompts.first
+            let first = tab.pendingPrompts.first { if case .verificationOffer = $0.kind { false } else { true } } // a code offer is the person's alone
             if let response, let first { first.respond(response) }
             result["responded"] = .bool(response != nil && first != nil)
         }

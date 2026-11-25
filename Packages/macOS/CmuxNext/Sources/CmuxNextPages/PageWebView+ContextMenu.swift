@@ -17,7 +17,19 @@ extension PageWebView {
 
     /// The title of Copy in a Chromium page's menu (WebKit titles its own).
     public static var copyTitle: String {
-        String(localized: "pages.chromiumMenu.copy", defaultValue: "Copy", bundle: .module)
+        String(localized: "pages.chromiumMenu.copy", defaultValue: "Copy", bundle: .localizedModule)
+    }
+
+    /// The title of Copy Link in a Chromium page's menu (WebKit titles its own).
+    public static var copyLinkTitle: String {
+        String(localized: "pages.chromiumMenu.copyLink", defaultValue: "Copy Link", bundle: .localizedModule)
+    }
+
+    /// Ends `menu` with Inspect Element (``PageDeveloperTools``), in either engine. A page that
+    /// refuses probes (``refusesProbes``: a revealed password) never offers it.
+    func appendDeveloperTools(to menu: NSMenu) {
+        guard !refusesProbes else { return }
+        developerTools.append(to: menu, for: self)
     }
 
     /// A menu item titled `title` that runs `handler` (the item keeps the handler alive).

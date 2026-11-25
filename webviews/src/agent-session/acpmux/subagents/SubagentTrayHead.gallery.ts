@@ -3,15 +3,16 @@
 // header said "Running in background · N subagents · M commands" behind a chat bubble, with the
 // elapsed time floating in a column of its own far from the words, and the open tray's Stop buttons
 // hung below and right of their lines, off their centre, with the chevrons in two columns. Here the
-// header's fixed mark is work that runs (three arms, trayHead.experiment.ts; view Compare arms), its time
+// header's mark (four arms, trayHead.experiment.ts; view Compare arms), its time
 // follows the counts as quiet meta, every Stop sits in its line on the line's centre, and the
-// header's, every line's and View all's chevrons end on one x.
+// header's and every line's chevrons end on one x.
 import { agentPaneEntry } from "../../../gallery/format";
 import { activity, assistant, chat, row, summary, tool, user } from "../../../gallery/fixtures/acpmux";
 import { minutesAgo } from "../../../gallery/clock";
 import type { PlayContext } from "../../../gallery/play";
 import { SUBAGENTS, type Subagent } from "./subagentFold";
 import { trayHeadLook } from "./trayHead.experiment";
+import { RUNNING_TRAY_LIST_LINE } from "./subagentSelectors";
 
 const running = (name: string, minutes: number, action: string): Subagent => ({
   id: `agent-${name.toLowerCase().replaceAll(" ", "-")}`,
@@ -57,7 +58,7 @@ const head = (ctx: PlayContext) => ctx.document.querySelector<HTMLElement>(".acp
 const open = async (ctx: PlayContext) => {
   await ctx.waitFor(() => head(ctx));
   if (head(ctx)!.getAttribute("aria-expanded") !== "true") await ctx.click({ selector: ".acpmux-running-tray__head" });
-  await ctx.waitFor(() => ctx.document.querySelectorAll(".acpmux-running-tray__list .acpmux-agent-line").length >= 3);
+  await ctx.waitFor(() => ctx.document.querySelectorAll(RUNNING_TRAY_LIST_LINE).length >= 3);
 };
 
 export default agentPaneEntry({

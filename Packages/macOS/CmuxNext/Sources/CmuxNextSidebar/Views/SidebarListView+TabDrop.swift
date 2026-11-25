@@ -16,6 +16,8 @@ extension SidebarListViewComponents {
         /// Collapsed groups the spring-load opened: they close again when the drag leaves or ends, except the one
         /// the drop goes into (a drag never changes a group's fold for good, Leo 2026-10-20).
         var springOpened: [GroupID] = []
+        /// The drag's base layout and tab drop rules (`SidebarListView.tabDragBase`), made once per row set, look and source machine.
+        var base: (key: SidebarDragBaseKey, machine: MachineID?, layout: SidebarLayout, rules: DropResolver.TabDragRules?)?
         /// The slot between two rows the pointer is in, and since when (its gap opens after the dwell).
         var slot: (drop: SidebarTabDrop, since: CFTimeInterval)?
         /// When the slot under a resting pointer opens its gap; nil when none is pending.
@@ -49,17 +51,16 @@ extension SidebarListViewComponents {
             setHovered(nil)
         }
         autoscroll.update(windowPoint: windowPoint)
-        if let baseY = DropResolver.baseY(forDisplayY: point.y, gapY: displayed.gapY, gapHeight: displayed.gapShift) {
-            let base = SidebarLayout.make(sections: listSections, metrics: metrics, options: options(includeGap: false))
-            var proposal = DropResolver.resolveTabDrop(y: baseY, base: base, sections: model.sections, sourceMachine: sourceMachine)
+        if let baseY = DropResolver.baseY(forDisplayY: dropY(point.y), gapY: displayed.gapY, gapHeight: displayed.gapShift) {
+            let (base, rules) = tabDragBase(external)
+            var proposal = rules?.drop(y: baseY)
             external.slotDeadline = nil
             if slotDwell > 0, let slot = proposal, case .newWorkspace = slot {
                 let now = CACurrentMediaTime()
                 if external.slot?.drop != slot { external.slot = (slot, now) }
                 let deadline = (external.slot?.since ?? now) + slotDwell
                 // Only on a row: the empty list below the last row opens its gap at once.
-                if now < deadline, base.row(at: baseY) != nil, let row = DropResolver.resolveTabDrop(
-                    y: baseY, base: base, sections: model.sections, sourceMachine: sourceMachine, wholeRows: true),
+                if now < deadline, base.row(at: baseY) != nil, let row = rules?.drop(y: baseY, wholeRows: true),
                    case .intoWorkspace = row {
                     proposal = row
                     external.slotDeadline = deadline
@@ -70,6 +71,8 @@ extension SidebarListViewComponents {
             if proposal != external.proposal {
                 external.proposal = proposal
                 reload(animated: true)
+                // That reload only drew the proposal's gap, which the base leaves out: the base still holds.
+                if external.base?.key.reloads == reloads &- 1 { external.base?.key.reloads = reloads }
             }
         }
         updateSpringLoad(external)
@@ -82,11 +85,21 @@ extension SidebarListViewComponents {
     func externalDragRefusal(windowPoint: NSPoint, sourceMachine: MachineID?) -> (SidebarTabDropRefusal, NSRect)? {
         guard drag == nil, !model.isFiltering else { return nil }
         let point = convert(windowPoint, from: nil)
-        guard let baseY = DropResolver.baseY(forDisplayY: point.y, gapY: displayed.gapY, gapHeight: displayed.gapShift) else { return nil }
-        let base = SidebarLayout.make(sections: listSections, metrics: metrics, options: options(includeGap: false))
-        guard let (key, reason) = DropResolver.tabDropRefusal(y: baseY, base: base, sections: model.sections, sourceMachine: sourceMachine),
-              let row = displayed.row(for: key) else { return nil }
-        return (reason, frame(for: row))
+        guard let baseY = DropResolver.baseY(forDisplayY: dropY(point.y), gapY: displayed.gapY, gapHeight: displayed.gapShift) else { return nil }
+        let external = self.external ?? ExternalDrag(windowPoint: windowPoint, sourceMachine: sourceMachine)
+        external.sourceMachine = sourceMachine
+        guard let (key, reason) = tabDragBase(external).rules?.refusal(y: baseY), let row = displayed.row(for: key) else { return nil }
+        return (reason, drawnFrame(for: row))
+    }
+    /// A tab drag's base layout (no gap) and its drop rules in the Rust reducer, made again only when the rows, their
+    /// look or the tab's machine change, so a move lays out nothing and crosses into Rust with its y only.
+    private func tabDragBase(_ external: ExternalDrag) -> (layout: SidebarLayout, rules: DropResolver.TabDragRules?) {
+        let key = SidebarDragBaseKey(content: model.contentRevision, reloads: reloads, width: bounds.width, metrics: metrics, ungroupedFirst: false)
+        if let base = external.base, base.key == key, base.machine == external.sourceMachine { return (base.layout, base.rules) }
+        let layout = SidebarLayout.make(sections: listSections, metrics: metrics, options: options(includeGap: false))
+        let rules = DropResolver.TabDragRules(base: layout, sections: model.sections, sourceMachine: external.sourceMachine)
+        external.base = (key, external.sourceMachine, layout, rules)
+        return (layout, rules)
     }
     /// When the slot under a resting pointer opens its gap (`externalDragMoved`'s dwell).
     var externalDragSlotDeadline: CFTimeInterval? { external?.slotDeadline }
@@ -121,9 +134,9 @@ extension SidebarListViewComponents {
     func highlightRect(for proposal: SidebarTabDrop) -> NSRect? {
         switch proposal {
         case let .intoWorkspace(id):
-            return displayed.row(for: .workspace(id)).map(frame(for:))
+            return displayed.row(for: .workspace(id)).map(drawnFrame(for:))
         case let .intoGroup(id):
-            return displayed.groupRow(id).map(frame(for:))
+            return displayed.groupRow(id).map(drawnFrame(for:))
         case .newWorkspace:
             return displayed.gapY.map { NSRect(x: inset, y: $0, width: indentWidth, height: displayed.gapHeight) }
         }

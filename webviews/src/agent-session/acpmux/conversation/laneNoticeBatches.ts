@@ -1,6 +1,13 @@
-import { LANE_NOTICE_BATCH, type AcpmuxRow } from "../model";
-import { inboxText, type InboxNotice } from "./inboxNotice";
-import { laneNotice, type LaneNotice, type LaneNoticeKind, type LaneNoticeThread } from "./laneReport";
+import { isLineRow, LANE_NOTICE_BATCH, type AcpmuxRow } from "../model";
+import { PrefixFilter } from "./prefixFlatMap";
+import { inboxText, senderKey, type InboxNotice } from "./inboxNotice";
+import {
+  laneNotice,
+  type LaneNotice,
+  type LaneNoticeDelivery,
+  type LaneNoticeKind,
+  type LaneNoticeThread,
+} from "./laneReport";
 type LaneNoticeVerdict = NonNullable<LaneNotice["verdict"]>;
 
 export type LaneNoticeBatch = NonNullable<AcpmuxRow["laneNoticeBatch"]>;
@@ -11,20 +18,33 @@ const inboxLaneNotice = (notice: InboxNotice): LaneNotice => {
   const threads: LaneNoticeThread[] = notice.threads.map((thread) => {
     const messages = thread.messages?.map((message) => ({
       sender: message.from,
+      ...(message.sender && { lookup: senderKey(message.from, message.sender) }),
       text: message.text,
       ...(message.promptId ? { promptId: message.promptId } : {}),
+      ...(message.unverified ? { unverified: message.unverified } : {}),
+      ...(message.harness ? { harness: message.harness } : {}),
+      ...(message.sender?.session ? { session: message.sender.session } : {}),
+      ...(message.at !== undefined ? { at: message.at } : {}),
     }));
     const sender = messages?.at(-1)?.sender ?? thread.from.at(-1) ?? "inbox";
+    const lookup = messages?.length ? messages.at(-1)!.lookup : thread.sender && senderKey(sender, thread.sender);
     const preview = messages?.at(-1)?.text ?? thread.preview;
     return {
       id: thread.threadId,
       sender,
+      ...(lookup && { lookup }),
+      ...(thread.sender && { senderRecord: thread.sender }),
       ...(preview ? { preview } : {}),
+      ...(!messages?.length && thread.newest !== undefined ? { newest: thread.newest } : {}),
       ...(messages?.length ? { messages } : {}),
       ...(thread.label ? { label: thread.label } : {}),
       ...(thread.promptIds.length ? { promptIds: thread.promptIds } : {}),
-      ...(thread.fromSession ? { fromSession: thread.fromSession } : {}),
+      // The thread's session, else its sender record's (acpmux may name it only there).
+      ...((thread.fromSession ?? thread.sender?.session)
+        ? { fromSession: thread.fromSession ?? thread.sender?.session }
+        : {}),
       ...(thread.fromHarness ? { fromHarness: thread.fromHarness } : {}),
+      ...(thread.unverified ? { unverified: thread.unverified } : {}),
       count: thread.count,
     };
   });
@@ -77,7 +97,9 @@ const phaseOf = (row: AcpmuxRow): DeliveryPhase => {
 let version = 0;
 const extensionCache = new WeakMap<AcpmuxRow, WeakMap<AcpmuxRow, AcpmuxRow>>();
 const listCache = new WeakMap<readonly AcpmuxRow[], readonly AcpmuxRow[]>();
-type InboxProjection = { rows: readonly AcpmuxRow[]; offsets: readonly number[] };
+/// `offsets`: where each source row's drawn rows start, the end last; the delivered (folded)
+/// projection's only (projectInboxRows reuses it), the flat one has none.
+type InboxProjection = { rows: readonly AcpmuxRow[]; offsets?: readonly number[] };
 const inboxFlattenCache = new WeakMap<readonly AcpmuxRow[], InboxProjection>();
 // Waiting rows already have an outer fold; delivered notices need their own. Search and display
 // may use the same source array, so their flat and folded projections cannot share a cache.
@@ -108,14 +130,16 @@ function threadList(rows: readonly AcpmuxRow[]): readonly { id: string; sender: 
 
 const bodyKey = (sender: string, text: string): string => `${sender.trim().toLocaleLowerCase()}\u0000${text.trim()}`;
 
-const inboxDeliveries = (thread: LaneNoticeThread): readonly { sender: string; text: string; promptId?: string }[] =>
+const inboxDeliveries = (thread: LaneNoticeThread): readonly LaneNoticeDelivery[] =>
   thread.messages?.length
     ? thread.messages
     : [
         {
           sender: thread.sender,
-          text: thread.preview ?? "",
+          ...(thread.lookup && { lookup: thread.lookup }),
+          text: thread.newest ?? thread.preview ?? "",
           ...(thread.promptIds?.length === 1 ? { promptId: thread.promptIds[0] } : {}),
+          ...(thread.unverified ? { unverified: thread.unverified } : {}),
         },
       ];
 
@@ -134,6 +158,7 @@ function inboxChildren(row: AcpmuxRow, notice: LaneNotice): readonly AcpmuxRow[]
         text: delivery.text,
         untyped: true,
         inboxDelivery: true,
+        inboxSource: row.id,
         ...(row.steer ? { steer: row.steer } : {}),
         ...(!thread.messages?.length
           ? {
@@ -141,11 +166,14 @@ function inboxChildren(row: AcpmuxRow, notice: LaneNotice): readonly AcpmuxRow[]
                 threadId: thread.id,
                 ...(thread.label ? { label: thread.label } : {}),
                 sender: delivery.sender,
-                preview: delivery.text,
+                preview: thread.preview ?? delivery.text,
+                ...(thread.newest !== undefined ? { newest: thread.newest } : {}),
                 count: thread.count ?? 1,
                 promptIds: thread.promptIds ?? [],
                 ...(thread.fromSession ? { fromSession: thread.fromSession } : {}),
                 ...(thread.fromHarness ? { fromHarness: thread.fromHarness } : {}),
+                ...(delivery.unverified ? { unverified: delivery.unverified } : {}),
+                ...(thread.senderRecord ? { senderRecord: { ...thread.senderRecord } } : {}),
               },
             }
           : {}),
@@ -153,12 +181,23 @@ function inboxChildren(row: AcpmuxRow, notice: LaneNotice): readonly AcpmuxRow[]
           kind: "message",
           message: {
             name: delivery.sender,
+            ...(delivery.lookup && { lookup: delivery.lookup }),
             text: delivery.text,
             raw: delivery.text,
             threadId: thread.id,
             ...(delivery.promptId ? { msgId: delivery.promptId } : {}),
-            ...(thread.fromSession && delivery.sender === thread.sender ? { sessionId: thread.fromSession } : {}),
-            ...(thread.fromHarness && delivery.sender === thread.sender ? { harness: thread.fromHarness } : {}),
+            ...(delivery.session
+              ? { sessionId: delivery.session }
+              : thread.fromSession && delivery.sender === thread.sender
+                ? { sessionId: thread.fromSession }
+                : {}),
+            ...(delivery.harness
+              ? { harness: delivery.harness }
+              : thread.fromHarness && delivery.sender === thread.sender
+                ? { harness: thread.fromHarness }
+                : {}),
+            ...(delivery.unverified ? { unverified: delivery.unverified } : {}),
+            ...(delivery.at !== undefined ? { at: delivery.at } : {}),
           },
         },
       });
@@ -205,6 +244,74 @@ function projectedBatch(row: AcpmuxRow, children: readonly AcpmuxRow[]): AcpmuxR
   return result;
 }
 
+/// The messages a drawn row adds to a turn's "Received N messages" row, or undefined for a row
+/// that ends it (Leo, 2026-11-02, on "3 inbox threads <names>", "Received 2 messages" and "2 inbox
+/// threads <names>" stacked in one turn: "can't we simply just display most of these as recieved x
+/// messages and all of them get revealed then we can expand the messages"): a delivered inbox batch
+/// (its messages, one row each) and another agent's delivered received line. A lane report, a
+/// person's message and one that still waits stay rows of their own.
+function receivedMessages(row: AcpmuxRow): readonly AcpmuxRow[] | undefined {
+  const batch = row.laneNoticeBatch;
+  if (row.kind === LANE_NOTICE_BATCH)
+    return batch?.kind === "inbox" && batch.rows.length && deliveryPhase(batch.rows[0]!) === "delivered"
+      ? batch.rows
+      : undefined;
+  if (row.kind !== "user" || row.incoming?.kind !== "message" || !isLineRow(row)) return undefined;
+  if (row.queuedMessage || deliveryPhase(row) === "waiting" || row.incoming.message.fromPerson) return undefined;
+  // An inbox delivery's sender may be named "inbox"; any other notice (a lane report) is its own row.
+  if (!row.inboxDelivery && noticeOf(row)) return undefined;
+  return [row];
+}
+
+/// Whether a transcript row, before the display projection, draws in a "Received N messages" row:
+/// an inbox notice, or another agent's delivered message that is no lane report (messageRuns.ts
+/// leaves a run of these to that row).
+export function joinsReceivedRow(row: AcpmuxRow): boolean {
+  if (row.kind !== "user" || !isLineRow(row) || row.queuedMessage || deliveryPhase(row) === "waiting") return false;
+  if (row.incoming?.kind === "inbox") return true;
+  if (row.incoming?.kind !== "message" || row.incoming.message.fromPerson) return false;
+  return (noticeOf(row)?.kind ?? "inbox") === "inbox";
+}
+
+const receivedRuns = new WeakMap<AcpmuxRow, { parts: readonly AcpmuxRow[]; row: AcpmuxRow }>();
+
+/// One "Received N messages" row for drawn rows next to each other that each carry received
+/// messages (`receivedMessages`), the one made before while they are the same rows: an inbox batch
+/// (LaneNoticeBatch.tsx) of every message, under the first part's id when that is a batch.
+function receivedRun(parts: readonly AcpmuxRow[]): AcpmuxRow {
+  const first = parts[0]!;
+  const held = receivedRuns.get(first);
+  if (held && held.parts.length === parts.length && held.parts.every((part, i) => part === parts[i])) return held.row;
+  const rows = parts.flatMap((part) => receivedMessages(part) ?? []);
+  const id = first.kind === LANE_NOTICE_BATCH ? first.id : `received:${first.id}`;
+  const threads = new Map<string, { id: string; sender: string }>();
+  for (const member of rows) {
+    const message = member.incoming?.kind === "message" ? member.incoming.message : undefined;
+    const thread = message?.threadId ?? member.id;
+    if (message) threads.set(thread, { id: thread, sender: message.name });
+  }
+  // Find reaches every part and message through it (chatFind.ts).
+  const joined = new Set<string>();
+  for (const part of [...parts, ...rows]) for (const key of [part.id, ...(part.joined ?? [])]) joined.add(key);
+  joined.delete(id);
+  const row: AcpmuxRow = {
+    ...first,
+    id,
+    kind: LANE_NOTICE_BATCH,
+    incoming: undefined,
+    inboxDelivery: undefined,
+    inboxThread: undefined,
+    inboxQueue: undefined,
+    version: ++version,
+    text: rows.map((member) => member.text ?? "").join("\n"),
+    joined: [...joined],
+    inboxDeliveryBatch: true,
+    laneNoticeBatch: { kind: "inbox", verdicts: {}, rows, threads: [...threads.values()] },
+  };
+  receivedRuns.set(first, { parts, row });
+  return row;
+}
+
 /** Display-only projection: every leaf shares one duplicate context, including leaves inside
  * batches. Source rows keep their turn and queue identity. A batch keeps its one quiet fold, but
  * its children are flat received rows; no harness wrapper is passed to the message renderer.
@@ -217,11 +324,23 @@ function projectAllInboxRows(rows: readonly AcpmuxRow[], foldNotices: boolean): 
   const cache = foldNotices ? deliveredInboxCache : inboxFlattenCache;
   const cached = cache.get(rows);
   if (cached) return cached.rows;
+  // A chat with no inbox row and, folded, no two received lines next to each other draws its rows
+  // as they are: found from a pass that reads only the rows a snapshot changed (prefixFlatMap.ts),
+  // not by reading every row of a long chat on each event.
+  if ((foldNotices ? foldedInboxMarks : flatInboxMarks).read(rows).items.length === 0) {
+    cache.set(rows, foldNotices ? { rows, offsets: identityOffsets(rows.length) } : { rows });
+    return rows;
+  }
   const deliveredIds = new Set<string>();
   const deliveredBodies = new Set<string>();
   let hasInbox = false;
   const collect = (members: readonly AcpmuxRow[]) => {
     for (const row of members) {
+      // A closed message-run line holds its received lines (messageRuns.ts): their ids count as drawn.
+      if (row.messageRun?.messages) {
+        for (const id of row.messageRun.messages) deliveredIds.add(id);
+        continue;
+      }
       if (row.laneNoticeBatch) {
         if (row.laneNoticeBatch.kind === "inbox") hasInbox = true;
         collect(row.laneNoticeBatch.rows);
@@ -238,36 +357,54 @@ function projectAllInboxRows(rows: readonly AcpmuxRow[], foldNotices: boolean): 
     }
   };
   collect(rows);
-  if (!hasInbox) {
-    cache.set(rows, { rows, offsets: rows.map((_, i) => i).concat(rows.length) });
+  // Two received lines next to each other gather into one row even with no notice among them.
+  const gathersLines =
+    foldNotices && !hasInbox && rows.some((row, i) => i > 0 && receivedMessages(row) && receivedMessages(rows[i - 1]!));
+  if (!hasInbox && !gathersLines) {
+    cache.set(rows, foldNotices ? { rows, offsets: identityOffsets(rows.length) } : { rows });
     return rows;
   }
   const seenIds = new Set<string>();
   const seenBodies = new Set<string>();
+  // A delivery is its prompt: its own msgId, else the prompt ids of the preview-only thread it
+  // stands for. Its sender and text identify it only when it names no prompt: a cleaned preview
+  // can be empty, and two threads from one sender would then be one (review of cmux#37653).
   const keepDelivery = (child: AcpmuxRow): boolean => {
     const message = child.incoming?.kind === "message" ? child.incoming.message : undefined;
     if (!message) return false;
-    const id = message.msgId;
+    const ids = message.msgId ? [message.msgId] : (child.inboxThread?.promptIds ?? []);
+    if (ids.length) {
+      if (ids.every((id) => deliveredIds.has(id) || seenIds.has(id))) return false;
+      for (const id of ids) seenIds.add(id);
+      return true;
+    }
     const body = bodyKey(message.name, message.text);
-    if (id ? deliveredIds.has(id) || seenIds.has(id) : deliveredBodies.has(body) || seenBodies.has(body)) return false;
-    if (id) seenIds.add(id);
-    else seenBodies.add(body);
+    if (deliveredBodies.has(body) || seenBodies.has(body)) return false;
+    seenBodies.add(body);
     return true;
   };
   const offsets: number[] = [];
   const project = (members: readonly AcpmuxRow[], insideInbox = false): AcpmuxRow[] => {
     const out: AcpmuxRow[] = [];
-    for (const row of members) {
-      if (!insideInbox) offsets.push(out.length);
+    const push = (row: AcpmuxRow) => {
       if (row.laneNoticeBatch?.kind === "inbox") {
         const children = project(row.laneNoticeBatch.rows, true);
-        if (insideInbox) out.push(...children);
+        // A batch of one message is that message's own line: a head over a lone row names its
+        // sender twice.
+        if (insideInbox || children.length === 1) out.push(...children);
         else if (children.length) out.push(projectedBatch(row, children));
-        continue;
+        return;
       }
       const notice = noticeOf(row);
       if (notice?.kind === "inbox") {
-        const children = attachQueueSource(row, inboxChildren(row, notice).filter(keepDelivery));
+        const parsed = inboxChildren(row, notice);
+        // A notice whose text named no thread this page can read keeps its own line, its text whole
+        // behind the chevron: never no row at all (router-review on cmux#34320).
+        if (!parsed.length) {
+          out.push(row);
+          return;
+        }
+        const children = attachQueueSource(row, parsed.filter(keepDelivery));
         if (foldNotices && !insideInbox && children.length > 1) out.push(projectedBatch(row, children));
         else out.push(...children);
       } else if (row.inboxDelivery) {
@@ -275,7 +412,40 @@ function projectAllInboxRows(rows: readonly AcpmuxRow[], foldNotices: boolean): 
       } else {
         out.push(row);
       }
+    };
+    // Drawn rows next to each other that carry received messages, from `out[run.at]` on, and the
+    // offset of the source row that began them: one row (`receivedRun`) once a row that ends them
+    // comes. That row is the first source row's; the rest draw nothing of their own.
+    let run: { at: number; offset: number } | undefined;
+    const endRun = () => {
+      if (run && out.length - run.at > 1) {
+        const parts = out.splice(run.at);
+        out.push(receivedRun(parts));
+        for (let at = run.offset + 1; at < offsets.length; at += 1) offsets[at] = run.at + 1;
+      }
+      run = undefined;
+    };
+    const gathers = foldNotices && !insideInbox;
+    for (const row of members) {
+      if (!insideInbox) offsets.push(out.length);
+      if (!gathers) {
+        push(row);
+        continue;
+      }
+      const from = out.length;
+      push(row);
+      if (out.length === from) continue;
+      if (out.length === from + 1 && receivedMessages(out[from]!)) {
+        run ??= { at: from, offset: offsets.length - 1 };
+        continue;
+      }
+      // A row that ends the run: the run draws first, then this row.
+      const drawn = out.splice(from);
+      endRun();
+      offsets[offsets.length - 1] = out.length;
+      out.push(...drawn);
     }
+    if (gathers) endRun();
     return out;
   };
   const out = project(rows);
@@ -284,6 +454,21 @@ function projectAllInboxRows(rows: readonly AcpmuxRow[], foldNotices: boolean): 
   cache.set(rows, { rows: result, offsets });
   return result;
 }
+
+/// Whether a row is or holds an inbox notice or delivery (projectAllInboxRows' `collect`).
+function holdsInbox(row: AcpmuxRow): boolean {
+  if (row.laneNoticeBatch) return row.laneNoticeBatch.kind === "inbox" || row.laneNoticeBatch.rows.some(holdsInbox);
+  return noticeOf(row)?.kind === "inbox" || !!row.inboxDelivery;
+}
+/// The rows that keep a projection from being the rows as they are: inbox rows, and folded, a
+/// received line right after another.
+const flatInboxMarks = new PrefixFilter<AcpmuxRow>(holdsInbox);
+const foldedInboxMarks = new PrefixFilter<AcpmuxRow>(
+  (row, index, rows) =>
+    holdsInbox(row) ||
+    (index > 0 && receivedMessages(row) !== undefined && receivedMessages(rows[index - 1]!) !== undefined),
+);
+const identityOffsets = (length: number) => Array.from({ length: length + 1 }, (_, index) => index);
 
 /** Reuse the display projection of the turn prefix that turnViewFrom already reused. Streaming
  * only changes assistant/tool rows: when the tail's incoming rows are the same immutable objects,
@@ -300,26 +485,35 @@ export function projectInboxRows(
   if (cached) return cached.rows;
   const held = previous && deliveredInboxCache.get(previous);
   if (!previous || !held || reusedRows > Math.min(rows.length, previous.length)) return projectAllInboxRows(rows, true);
+  // A message-run line that holds received messages counts too (`collect`): a new one rebuilds.
   const relevant = (row: AcpmuxRow) =>
-    row.laneNoticeBatch !== undefined || row.incoming?.kind === "message" || row.incoming?.kind === "inbox";
-  const oldMessages: { row: AcpmuxRow; index: number }[] = [];
+    row.laneNoticeBatch !== undefined ||
+    row.incoming?.kind === "message" ||
+    row.incoming?.kind === "inbox" ||
+    Boolean(row.messageRun?.messages?.length);
+  // A message right after another (`next`) draws in one "Received N messages" row with it
+  // (`receivedRun`): the same messages next to the same neighbours reuse their rows.
+  const oldMessages: { row: AcpmuxRow; index: number; next: boolean }[] = [];
   for (let i = reusedRows; i < previous.length; i += 1)
-    if (relevant(previous[i]!)) oldMessages.push({ row: previous[i]!, index: i });
+    if (relevant(previous[i]!))
+      oldMessages.push({ row: previous[i]!, index: i, next: i > 0 && relevant(previous[i - 1]!) });
   let at = 0;
   for (let i = reusedRows; i < rows.length; i += 1) {
     if (!relevant(rows[i]!)) continue;
-    if (oldMessages[at++]?.row !== rows[i]) return projectAllInboxRows(rows, true);
+    const old = oldMessages[at++];
+    if (old?.row !== rows[i] || old.next !== (i > 0 && relevant(rows[i - 1]!))) return projectAllInboxRows(rows, true);
   }
   if (at !== oldMessages.length) return projectAllInboxRows(rows, true);
-  const projected = held.rows.slice(0, held.offsets[reusedRows]);
-  const offsets = held.offsets.slice(0, reusedRows);
+  const heldOffsets = held.offsets!;
+  const projected = held.rows.slice(0, heldOffsets[reusedRows]);
+  const offsets = heldOffsets.slice(0, reusedRows);
   at = 0;
   for (let i = reusedRows; i < rows.length; i += 1) {
     offsets.push(projected.length);
     const row = rows[i]!;
     if (relevant(row)) {
       const oldIndex = oldMessages[at++]!.index;
-      projected.push(...held.rows.slice(held.offsets[oldIndex], held.offsets[oldIndex + 1]));
+      projected.push(...held.rows.slice(heldOffsets[oldIndex], heldOffsets[oldIndex + 1]));
     } else projected.push(row);
   }
   offsets.push(projected.length);

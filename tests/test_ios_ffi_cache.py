@@ -12,6 +12,13 @@ import subprocess
 import sys
 import tempfile
 import unittest
+import importlib.util
+
+# tests/git_fixture_env.py turns off git's background maintenance in the temp repos; loaded by path for python3 -I.
+_git_fixture_env = importlib.util.spec_from_file_location(
+    "git_fixture_env", pathlib.Path(__file__).resolve().with_name("git_fixture_env.py"))
+git_fixture_env = importlib.util.module_from_spec(_git_fixture_env)
+_git_fixture_env.loader.exec_module(git_fixture_env)
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 HELPER = ROOT / "scripts/ci/ios_ffi_cache.py"

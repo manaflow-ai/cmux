@@ -72,7 +72,8 @@ export const dispatchable = (state: Pick<SchedulerState, "open_runs">, rows: Row
 export const dueFires = (rows: RowReader | undefined, now: number): Array<{ automation: string; trigger: string; scheduled_at: number }> => {
   const out: Array<{ automation: string; trigger: string; scheduled_at: number }> = []
   for (const a of allAutomations(rows)) {
-    if (!a.enabled) continue
+    // A fenced automation (a teleport in progress) never fires here.
+    if (!a.enabled || a.handoff) continue
     for (const t of a.triggers) if (t.status === "active" && t.next_at !== null && t.next_at <= now) out.push({ automation: a.id, trigger: t.id, scheduled_at: t.next_at })
   }
   return out.sort((x, y) => x.scheduled_at - y.scheduled_at)

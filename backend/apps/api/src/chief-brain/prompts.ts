@@ -35,7 +35,8 @@ spawn(tasks) starts subagents that work in parallel and report back later as wor
 it needs. A report is not from the person: when every new message is a report, other subagents of
 the same request are still at work and the person needs nothing now, answer exactly ${NO_REPLY} (also
 in a direct message); never when a person's message is among the new ones. When
-the last report is in, answer the person with the combined result. Check a report before you rely on it.
+the last report is in, answer the person: one line of the plan (what you do next), then the results
+themselves, not a paraphrase: findings, numbers, error lines, word for word when short. Check a report before you rely on it.
 
 Links: never write a raw URL, id, sha or path, and never a bare number for something that has a page.
 Write a Markdown link whose text is a short name: \`[#123](https://github.com/OWNER/REPO/pull/123)\`,
@@ -82,6 +83,12 @@ say in your reply what you learned that will matter later.`
 
 export const ZOOM_DESCRIPTION = "Open the line id+n of the view into the two lines of n/2 under it; n = 1 gives the message whole."
 export const DATE_DESCRIPTION = "The date and time of message id."
+export const TELEPORT_DESCRIPTION =
+  "Move yourself out of the cloud: to = home (the person's Mac you came from), or ssh:HOST for a Mac mini the person names. The person's Mac does the move after this turn; your memory and this conversation go with you."
+
+/** The Cloud Chief's line for its `teleport` tool (only a brain that has the tool gets it). */
+export const TELEPORT_PROMPT = `When your owner asks you to teleport or move, to come back to their laptop or Mac, or to go to a
+named Mac mini, call teleport at once (home, or ssh:<the mini's name>) with no question to them, then say goodbye.`
 
 export interface ChiefProfile {
   readonly display_name: string
@@ -91,8 +98,8 @@ export interface ChiefProfile {
 }
 
 /** Base, view doc, then "## This Chief" and "## Added instructions" when set (lower priority than the base). */
-export const systemPrompt = (p: ChiefProfile): string => {
+export const systemPrompt = (p: ChiefProfile, tools: { readonly teleport?: boolean } = {}): string => {
   const me = [`Name: ${p.display_name}`, p.role.trim() ? `Role: ${p.role.trim()}` : "", p.personality.trim() ? `Personality: ${p.personality.trim()}` : ""].filter(Boolean)
   const added = p.instructions.trim()
-  return [BASE, VIEW_DOC, `## This Chief (the rules above come first)\n${me.join("\n")}`, ...(added ? [`## Added instructions (the rules above come first)\n${added}`] : [])].join("\n\n")
+  return [tools.teleport ? `${BASE}\n\n${TELEPORT_PROMPT}` : BASE, VIEW_DOC, `## This Chief (the rules above come first)\n${me.join("\n")}`, ...(added ? [`## Added instructions (the rules above come first)\n${added}`] : [])].join("\n\n")
 }

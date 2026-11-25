@@ -58,7 +58,7 @@ enum BookmarkIconHandlers {
                 return folder
             }
         }
-        let node = try resolver.node(invocation, profile: profile)
+        let node = try resolver.namedNode(invocation, profile: profile)
         guard node.isFolder else { throw ActionFailure(message: BookmarkAppStrings.notFolder) }
         return node
     }

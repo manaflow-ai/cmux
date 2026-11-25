@@ -8,11 +8,12 @@ import { useState } from "react";
 import { componentEntry } from "../../../gallery/format";
 import type { Play } from "../../../gallery/play";
 import { tool } from "../../../gallery/fixtures/acpmux";
-import { CardCopyLookContext, CardCopyWriterContext, type CardCopyLook } from "./CardCopy";
+import { CardCopyLookContext, CardCopyWriterContext, type CardCopyLook } from "./cardCopyModel";
 import { IncomingMessageLine } from "./IncomingMessageCard";
 import { SubsessionCallCard } from "./SubsessionCallCard";
 import { subsessionCall } from "./subsessionCalls";
-import { resetTranscriptDisclosure, TranscriptDisclosureProvider } from "./transcriptDisclosure";
+import { TranscriptDisclosureProvider } from "./transcriptDisclosure";
+import { resetTranscriptDisclosure } from "./transcriptDisclosureModel";
 
 type Props = { look: CardCopyLook; card: "prompt" | "message" };
 
@@ -66,14 +67,14 @@ function Stage({ look, card }: Props) {
   );
 }
 
-const PANEL = ".cv-disclosure__panel";
+const PANEL = ":is(.cv-agentmsg__card, .cv-disclosure__panel)";
 const BUTTON = ".cv-card-copy__button";
 
 /// Opens the card: the one line's toggle (a started sub-session's chevron, when its line opens a chat).
 const open: Play = async (ctx) => {
   const toggle =
     ctx.document.querySelector<HTMLButtonElement>(".cv-disclosure__toggle.is-chevron") ??
-    ctx.document.querySelector<HTMLButtonElement>(".cv-disclosure__toggle");
+    ctx.document.querySelector<HTMLButtonElement>(":is(.cv-agentmsg__toggle, .cv-disclosure__toggle)");
   toggle?.click();
   await ctx.waitFor(() => ctx.document.querySelector(BUTTON));
 };

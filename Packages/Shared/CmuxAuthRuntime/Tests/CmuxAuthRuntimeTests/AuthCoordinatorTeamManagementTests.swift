@@ -134,6 +134,62 @@ struct AuthCoordinatorTeamManagementTests {
         #expect(memberships.teams.first?.canDelete == true)
         #expect(memberships.teams.last?.canRename == false)
     }
+
+    /// Accepting an invitation addressed to the user puts the joined team in the list the whole
+    /// app reads and makes it active, so its Cloud machines are the ones cmux shows next.
+    @Test func acceptingAnInvitationJoinsAndActivatesTheTeam() async throws {
+        let (coordinator, client) = try await signedIn(teams: [alpha], selected: "team-a")
+        await client.setReceivedInvitations(["inv-1": beta])
+
+        let received = try await coordinator.receivedTeamInvitations()
+        #expect(received.map(\.teamName) == ["Beta"])
+
+        let joined = try await coordinator.acceptTeamInvitation(id: "inv-1")
+
+        #expect(joined.teamID == "team-b")
+        #expect(coordinator.availableTeams.map(\.id) == ["team-a", "team-b"])
+        #expect(coordinator.resolvedTeamID == "team-b")
+        #expect(try await coordinator.receivedTeamInvitations().isEmpty)
+    }
+
+    /// A team-list read that starts while the accept runs answers without the joined team; it
+    /// must not land over the accept's own re-read and drop the team it joined.
+    @Test func aTeamReadDuringTheAcceptCannotDropTheJoinedTeam() async throws {
+        let (coordinator, client) = try await signedIn(teams: [alpha], selected: "team-a")
+        await client.setReceivedInvitations(["inv-1": beta])
+        let acceptStarted = TestPhaseSignal()
+        let acceptRelease = TestContinuationBlocker()
+        await client.holdNextTeamAccept(started: acceptStarted, release: acceptRelease)
+
+        let accept = Task { try await coordinator.acceptTeamInvitation(id: "inv-1") }
+        await acceptStarted.waitUntilStarted()
+        let listStarted = TestPhaseSignal()
+        let listRelease = TestContinuationBlocker()
+        await client.holdNextTeamList(started: listStarted, release: listRelease)
+        let refresh = Task { await coordinator.refreshTeams() }
+        await listStarted.waitUntilStarted()
+        await acceptRelease.release()
+        let joined = try await accept.value
+        await listRelease.release()
+        await refresh.value
+
+        #expect(joined.teamID == "team-b")
+        #expect(coordinator.availableTeams.map(\.id) == ["team-a", "team-b"])
+        #expect(coordinator.resolvedTeamID == "team-b")
+    }
+
+    @Test func decliningLeavesTheMembershipAlone() async throws {
+        let (coordinator, client) = try await signedIn(teams: [alpha], selected: "team-a")
+        await client.setReceivedInvitations(["inv-1": beta])
+
+        try await coordinator.declineTeamInvitation(id: "inv-1")
+
+        #expect(coordinator.availableTeams.map(\.id) == ["team-a"])
+        #expect(coordinator.resolvedTeamID == "team-a")
+        await #expect(throws: CMUXTeamError.invitationInvalid) {
+            try await coordinator.acceptTeamInvitation(id: "inv-1")
+        }
+    }
 }
 
 /// The fake answers like the cmux team API: the first team is the user's as
@@ -179,5 +235,28 @@ extension FakeAuthClient: TeamManaging {
         guard teams.contains(where: { $0.id == id }) else { throw CMUXTeamError.notFound }
         return CMUXTeamInviteResult(invitations: emails.enumerated().map { .init(id: "i\($0.offset)", email: $0.element, role: role, expiresAt: "") },
                                     failed: [])
+    }
+
+    func receivedTeamInvitations() async throws -> [CMUXReceivedTeamInvitation] {
+        receivedInvitations.sorted { $0.key < $1.key }.map { id, team in
+            CMUXReceivedTeamInvitation(id: id, teamID: team.id, teamName: team.displayName, email: "user@example.com",
+                                       role: .member, invitedBy: "Sam", expiresAt: "")
+        }
+    }
+
+    /// Joins like the server: the user becomes a member and the team the account's selection.
+    func acceptTeamInvitation(id: String) async throws -> CMUXTeamJoin {
+        if let gate = takeTeamAcceptGate() {
+            await gate.started.markStarted()
+            await gate.release.wait()
+        }
+        guard let team = receivedInvitations.removeValue(forKey: id) else { throw CMUXTeamError.invitationInvalid }
+        if !teams.contains(where: { $0.id == team.id }) { teams.append(team) }
+        serverSelectedTeamID = team.id
+        return CMUXTeamJoin(teamID: team.id, role: .member)
+    }
+
+    func declineTeamInvitation(id: String) async throws {
+        guard receivedInvitations.removeValue(forKey: id) != nil else { throw CMUXTeamError.invitationInvalid }
     }
 }

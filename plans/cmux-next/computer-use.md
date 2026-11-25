@@ -11,6 +11,9 @@ User goal (verbatim): "SOTA computer use, for both linux and macOS. we need to i
 - Engine (cmux-cua at the pin): a session is a caller-chosen string (`start_session(session)`), used for the cursor color, per-session config and recording ownership; it is not authenticated. Session state lives in process-global statics (`session.rs`: activity map, `ENDED_SESSIONS` that never shrinks). Recording is one daemon-global `RecordingSession` (per-turn `turn-NNNNN/` folders, off by default; a second session's start replaces the first). There is no durable event log, no session list API and no timeline. `begin_turn`/`finish_turn` in `cmux-cua-core/src/recording.rs` is the one chokepoint every non-read-only tool call passes; it already captures before/after window frames and the click point when recording is on.
 - Reliability: 12.6 percent of agent calls failed in 2026-09-20..29 (idle sweep ending live sessions, 55 s permission stall); fixes are on the pin line.
 
+Posted input and the agent pane's person gate: [person-input-gate.md](person-input-gate.md)
+("Computer use can act as me", off by default).
+
 ## 1. Process model
 
 ```
@@ -195,7 +198,10 @@ Performance: idle pane with no live session: zero wakeups. Live session: one wak
 2. Agent identity by process match (`attribution: process_tree`, pane badge "Matched by process") until launch credentials exist.
 3. JavaScript through `page.execute_javascript` is hidden like typed text by default; a user policy `store_javascript` keeps the first 4 KB.
 4. Fast-mode writes are acceptable (power loss may drop the last events; a process crash loses nothing).
-5. The pane is a tab kind plus a palette action; no floating panel.
+5. The pane is a tab kind plus a palette action; no floating panel. Amended 2026-11-22 for the live preview card (not the Agent activity pane), after Leo: asking where the preview of the running situation was, and for "the ability to drag it around and" hide it (2026-11-22, paraphrased) and "But why can't I click and drag? And why can't I full screen this picture?" (2026-10-29):
+   - The card in an agent chat or terminal pane drags anywhere inside its pane. A press that moves more than 4 px drags; a press that does not move still enlarges the card. It has a Full Size button, and its close button hides it behind a small Show Preview chip that sits where the card was.
+   - The daemon owns where it sits and whether it is hidden, per Computer Use session (`cmux-tui` `remote_host/computer_use_preview_place.rs`). A place is two fractions of the room around the card plus a size (small, large or full). The surfaces send moves as `remote-host-call computer_use.preview {session, x?, y?, size?, hidden?}`, and every relayed preview line carries `card.place` and `card.hidden`. A hidden card sends no frames until it shows again. React and the Swift terminal card only draw it and report the person's moves.
+   - A floating panel is a prototype only. It is behind an off-by-default setting next to `computerUse.livePreview`; it never activates or takes key focus, floats over all windows, and is hidden and shown from the menu bar. Whether it ships is Leo's call after he tries it.
 6. Linux: one headless display per machine first; per workspace later.
 7. Helper build, signing and notarization return to nightly and release CI: coordinate with the release lane's existing jobs, use the release environment secrets, same notarization path via the team App Store Connect API key.
 8. Default layout: split.

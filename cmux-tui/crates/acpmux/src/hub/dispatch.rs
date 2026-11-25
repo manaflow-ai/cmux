@@ -11,6 +11,31 @@ pub(crate) struct Briefs {
 }
 
 impl Briefs {
+    /// A workflow's dispatch identity must be on stable storage before the
+    /// session or prompt can be admitted. Unlike the legacy advisory ledger,
+    /// a failed write refuses the effect and never publishes the new row.
+    pub(crate) fn put_durable(&self, row: Value) -> anyhow::Result<Value> {
+        let id = row
+            .get("briefId")
+            .and_then(Value::as_str)
+            .filter(|id| !id.is_empty())
+            .ok_or_else(|| anyhow::anyhow!("durable brief needs an id"))?;
+        let mut rows = self.rows.lock().unwrap_or_else(|error| error.into_inner());
+        let mut next = rows.clone();
+        next.insert(id.to_owned(), row.clone());
+        if let Some(path) = &self.path {
+            if let Some(parent) = path.parent() {
+                crate::config::private_state_dir(parent)?;
+            }
+            crate::config::write_atomic(path, &serde_json::to_vec(&next)?)?;
+            #[cfg(unix)]
+            if let Some(parent) = path.parent() {
+                std::fs::File::open(parent)?.sync_all()?;
+            }
+        }
+        *rows = next;
+        Ok(row)
+    }
     /// The ledger saved at `path` (`Store::briefs_path`), or one in memory only.
     pub(crate) fn open(path: Option<std::path::PathBuf>) -> Self {
         let Some(path) = path else { return Self::default() };
@@ -67,11 +92,12 @@ impl Briefs {
     fn save(&self, rows: &BTreeMap<String, Value>) {
         let Some(path) = &self.path else { return };
         if let Some(dir) = path.parent() {
-            let _ = std::fs::create_dir_all(dir);
+            let _ = crate::home_fs::create_dirs(dir);
         }
         if let Ok(bytes) = serde_json::to_vec(rows) {
             let tmp = path.with_extension("json.tmp");
-            if let Err(error) = std::fs::write(&tmp, bytes).and_then(|_| std::fs::rename(tmp, path))
+            if let Err(error) =
+                crate::home_fs::write(&tmp, bytes).and_then(|_| crate::home_fs::rename(tmp, path))
             {
                 eprintln!("acpmux: brief persistence warning: {error}");
             }
@@ -87,6 +113,13 @@ impl Briefs {
             .unwrap_or_else(|| format!("brief-{}", uuid::Uuid::now_v7()));
         row.set("briefId", json!(id));
         let mut rows = self.rows.lock().unwrap_or_else(|e| e.into_inner());
+        // Advisory imports (including another peer's colliding brief ID) may
+        // never downgrade or replace a scoped durable dispatch reservation.
+        if let Some(previous) = rows.get(&id)
+            && previous.get("durable").and_then(Value::as_bool) == Some(true)
+        {
+            return previous.clone();
+        }
         rows.insert(id, row.clone());
         self.save(&rows);
         row
@@ -162,23 +195,5 @@ pub(crate) fn event(kind: &str, row: &Value) -> Value {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn brief_identity_keeps_non_claude_harness_pair() {
-        let briefs =
-            Briefs { rows: StdMutex::new(BTreeMap::new()), path: None, load_failed: false };
-        let row = briefs.put(json!({
-            "title": "opencode to pi",
-            "harness": "pi",
-            "fromHarness": "opencode",
-            "status": "running"
-        }));
-        let id = row["briefId"].as_str().expect("brief id");
-        let listed = briefs.list(Some("running"), 10);
-        assert_eq!(listed[0]["briefId"], id);
-        assert_eq!(listed[0]["fromHarness"], "opencode");
-        assert_eq!(listed[0]["harness"], "pi");
-    }
-}
+#[path = "dispatch_tests.rs"]
+mod tests;

@@ -3,35 +3,63 @@ import CmuxNextBridge
 import CmuxNextBrowserTabs
 import CmuxNextDaemon
 import CmuxNextLayout
+import CmuxNextWindowRules
 import Foundation
 
 extension ChatColumnPlacement {
-    /// What a person's new tab from `controller`'s pane becomes. `ignoringPages`: New Tab pages in the
-    /// chat's pane are left out, so a lone chat with a page beside it is still alone (a pick from the page).
-    @MainActor static func resolve(from controller: PaneController, services: AppServices, ignoringPages: Bool = false) -> ChatColumnPlacement {
+    /// The chat rules' read of `controller`'s pane (`chat::read`); nil when no screen shows it or no answer. `ignoringPages`:
+    /// a lone chat with a New Tab page beside it is still alone. `zoomed` defaults to the workspace's zoomed pane.
+    @MainActor static func read(_ controller: PaneController, services: AppServices, ignoringPages: Bool = false,
+                                zoomed: Bool? = nil, moving: WindowRules.ChatMoving? = nil) -> WindowRules.ChatColumnRead? {
         guard let content = controller.workspace,
-              content.daemon.supports(DaemonCapability.dockColumnRole.rawValue),
-              let screen = content.layoutModel.screen(containing: controller.layoutPaneID) else { return .here }
-        let columns = columns(of: screen, containing: controller.layoutPaneID)
-        // A zoomed screen maps to its zoomed pane alone (LayoutMapping).
-        let zoomed = content.workspace.screens.contains { screen in
+              let screen = content.layoutModel.screen(containing: controller.layoutPaneID) else { return nil }
+        let pane = controller.layoutPaneID
+        let zoomed = zoomed ?? content.workspace.screens.contains { screen in
             screen.zoomedPane != nil && screen.panes.contains { $0 === controller.pane }
         }
-        return resolve(from: controller.layoutPaneID, columns: columns, recent: content.recentPanes, zoomed: zoomed) { column in
-            guard column.root.panes.count == 1,
-                  let tabs = content.panes[column.root.panes[0]]?.pane.tabs.filter({ !ignoringPages || !services.agentTabs.isNewTabPage($0.id) }),
-                  tabs.count == 1 else { return false }
-            return isChat(tabs[0], services: services)
+        let columns = columns(of: screen, containing: pane).map { column in
+            WindowRules.ChatColumn(panes: column.root.panes.map(\.rawValue),
+                                   dock: column.dock.map { .init(role: $0.role?.rawValue, pinned: $0.isPinned, allowsTabs: $0.allowsTabs) },
+                                   loneChat: column.root.contains(pane) && isLoneChat(column, in: content, ignoringPages: ignoringPages, services: services))
+        }
+        return WindowRules().chatColumn(pane: pane.rawValue, columns: columns, recent: content.recentPanes.map(\.rawValue),
+                                        zoomed: zoomed, moving: moving)
+    }
+
+    /// Whether `column` is one pane holding one agent chat.
+    @MainActor private static func isLoneChat(_ column: LayoutColumn, in content: WorkspaceContentController, ignoringPages: Bool,
+                                              services: AppServices) -> Bool {
+        guard column.root.panes.count == 1,
+              let tabs = content.panes[column.root.panes[0]]?.pane.tabs.filter({ !ignoringPages || !services.agentTabs.isNewTabPage($0.id) }),
+              tabs.count == 1 else { return false }
+        return isChat(tabs[0], services: services)
+    }
+
+    /// What a person's new tab from `controller`'s pane becomes; `.here` on a daemon without dock roles
+    /// (`dock-column-role-v1`), which never asks the rule: it reads topology only.
+    @MainActor static func resolve(from controller: PaneController, services: AppServices, ignoringPages: Bool = false) -> ChatColumnPlacement {
+        guard controller.workspace?.daemon.supports(DaemonCapability.dockColumnRole.rawValue) == true,
+              let read = read(controller, services: services, ignoringPages: ignoringPages) else { return .here }
+        switch read.placement {
+        case .here: return .here
+        case .tab(let pane): return .tab(in: LayoutPaneID(rawValue: pane))
+        case .dockChat: return .dockChat
+        case .besideDock: return .besideDock
         }
     }
 
-    /// Whether a person's New Tab page from `controller`'s pane opens there (``keepsNewTabPage(from:columns:)``).
-    @MainActor static func keepsNewTabPage(in controller: PaneController) -> Bool { guard let screen = controller.workspace?.layoutModel.screen(containing: controller.layoutPaneID) else { return false }; return keepsNewTabPage(from: controller.layoutPaneID, columns: columns(of: screen, containing: controller.layoutPaneID)) }
-    @MainActor static func isBelowChat(_ controller: PaneController) -> Bool { guard let screen = controller.workspace?.layoutModel.screen(containing: controller.layoutPaneID) else { return false }; return isBelowChat(controller.layoutPaneID, columns: columns(of: screen, containing: controller.layoutPaneID)) }
+    /// Whether a person's New Tab page from `controller`'s pane opens there (the chat dock's top pane), and whether
+    /// `controller` is a pane Split Down made below the chat in the chat dock (#29848).
+    @MainActor static func keepsNewTabPage(in controller: PaneController) -> Bool { read(controller, services: controller.services)?.keepsNewTabPage ?? false }
+    @MainActor static func isBelowChat(_ controller: PaneController) -> Bool { read(controller, services: controller.services)?.belowChat ?? false }
 
-    /// The strip pane a terminal or browser picked on a New Tab page in `controller`'s pane opens in
-    /// (``pagePick(from:columns:recent:zoomed:)``), nil when the pick takes the page's place.
-    @MainActor static func pagePick(from controller: PaneController) -> PaneController? { guard let content = controller.workspace, let screen = content.layoutModel.screen(containing: controller.layoutPaneID) else { return nil }; let zoomed = content.workspace.screens.contains { screen in screen.zoomedPane != nil && screen.panes.contains { $0 === controller.pane } }; let columns = columns(of: screen, containing: controller.layoutPaneID); guard let id = pagePick(from: controller.layoutPaneID, columns: columns, recent: content.recentPanes, zoomed: zoomed), let strip = content.panes[id], strip !== controller else { return nil }; return strip }
+    /// The strip pane a terminal or browser picked on a New Tab page in `controller`'s pane opens in,
+    /// nil when the pick takes the page's place.
+    @MainActor static func pagePick(from controller: PaneController) -> PaneController? {
+        guard let id = read(controller, services: controller.services)?.pagePick, let strip = controller.workspace?.panes[LayoutPaneID(rawValue: id)],
+              strip !== controller else { return nil }
+        return strip
+    }
 
     /// Whether `tab` is an agent chat. The New Tab page is an agent tab too, but not a chat.
     /// Reads `tab` itself: finding it again by id walks every workspace's tabs, once per
@@ -47,7 +75,7 @@ extension ChatColumnPlacement {
                                     kind: RightColumnPlacement.Kind? = nil,
                                     _ make: @escaping LinkOpener.Make) -> Bool {
         guard case .tab = resolve(from: controller, services: services) else { return false }
-        services.linkOpener.open(from: controller, background: background, besideChat: true, kind: kind, make)
+        services.linkOpener.open(from: controller, background: background, besideChat: true, kind: kind, opening: .tool, make)
         return true
     }
 
@@ -72,19 +100,15 @@ extension ChatColumnPlacement {
         case .dockChat:
             guard let respawn, controller.daemon.supports(DaemonCapability.tabColumnRespawn.rawValue),
                   let chat = controller.pane.tabs.first else { return controller }
-            // The new tab left in the pane takes focus, not the docked chat. The chat stays where it
-            // shows; only the pane with the new tab comes in, from the right (as AgentBesidePlacement).
+            // The new tab left in the pane takes focus, not the docked chat (as AgentBesidePlacement).
             let pane = controller.layoutPaneID
-            content.layoutModel.handOffContent(of: pane) { done in
-                TabMoves.toNewDockColumn(chat, anchor: controller.pane, edge: .left, role: .agentChat,
-                                         respawn: respawn, services: services) { [weak content, weak controller] moved in
-                    done(moved)
-                    if moved, let content { PaneHandlers.focus(pane, in: content) }
-                    // A hidden tab bar was the chat's choice: the tab left in the pane shows its tab bar again.
-                    if moved, let controller, services.paneTabBars.choice(for: controller.paneKey) == false {
-                        services.paneTabBars.set(nil, for: controller.paneKey)
-                        controller.apply(controller.snapshot())
-                    }
+            TabMoves.toNewDockColumn(chat, anchor: controller.pane, edge: .left, role: .agentChat,
+                                     respawn: respawn, services: services) { [weak content, weak controller] moved in
+                if moved, let content { PaneHandlers.focus(pane, in: content) }
+                // A hidden tab bar was the chat's choice: the tab left in the pane shows its tab bar again.
+                if moved, let controller, services.paneTabBars.choice(for: controller.paneKey) == false {
+                    services.paneTabBars.set(nil, for: controller.paneKey)
+                    controller.apply(controller.snapshot())
                 }
             }
             return nil

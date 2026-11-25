@@ -68,7 +68,10 @@ for target in "$@"; do
   case "$target" in
     http://*|https://*|HTTP://*|HTTPS://*)
       [ -n "$names" ] || names=$(callers)
-      if [ -x "$cli" ] && printf '%s\n' "$target" | "$cli" open --link --caller "${names:-unknown}" - >/dev/null 2>&1; then
+      # The CLI's stdout stays the caller's (quiet: it prints nothing on success): a terminal
+      # there is a person waiting (gh's "Press Enter to open ... in your browser"), so the
+      # page opens in front. With /dev/null it opened in the background and Enter seemed dead.
+      if [ -x "$cli" ] && printf '%s\n' "$target" | "$cli" --quiet open --link --caller "${names:-unknown}" - 2>/dev/null; then
         continue
       fi
       "$system_open" "$target" || status=$?

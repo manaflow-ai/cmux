@@ -1,7 +1,18 @@
 // Prompts sent while a new chat starts leave the composer at once as queued rows and go out in
 // order once the chat takes the one before (startingSends.ts).
 import { expect, test } from "bun:test";
-import { StartingSends } from "./startingSends";
+import { inlineToken, type ComposerAttachment } from "./attachments";
+import { LIVE_THINKING, turnView } from "./conversation/turns";
+import { inlinePrompt } from "./inlinePrompt";
+import { emptySnapshot } from "./snapshotCache";
+import {
+  queuedStartingSends,
+  StartingSends,
+  startingQueueEntry,
+  withStartingPrompt,
+  type StartingSend,
+  startingIn,
+} from "./startingSends";
 
 /** A send acpmux takes or refuses when the test says. */
 function gate() {
@@ -22,6 +33,7 @@ function harness() {
   const sends = new StartingSends(
     (rows) => shown.push(rows.map((row) => row.text)),
     (text) => given.push(text),
+    () => ({ visit: 1 }),
   );
   const go = (text: string) => {
     sent.push(text);
@@ -116,4 +128,195 @@ test("an edit saved while its prompt goes comes back once it went, and never whe
   // An edit of a prompt in acpmux's own queue that started comes back at once.
   h.sends.lost("acpmux-prompt", "kept");
   expect(h.given).toEqual(["first, edited", "second", "kept"]);
+});
+
+// Leo, 2026-11-06 ("why is this still happening"): a send the composer held for a pasted image
+// bound its Enter at once (composer/heldSendGesture.test.tsx), and the image's upload then spent the
+// host's one grant. When such a send queues behind a chat that is still starting, it goes with the
+// gesture its Enter bound; a prompt queued without one (a script's) goes without.
+test("a queued send goes with the gesture its Enter bound, and one without goes without", async () => {
+  const h = harness();
+  const carried: (string | undefined)[] = [];
+  const go = (text: string, _attachments: unknown, gesture?: { promptId: string }) => {
+    carried.push(gesture?.promptId);
+    return h.go(text);
+  };
+  const ticket = Promise.resolve<string | undefined>("ticket-enter");
+  h.sends.add("first", [], go);
+  h.sends.add("with the screenshot", [], go, { promptId: "held-1", ticket });
+  await h.settle();
+  h.gates.get("first")!.take();
+  await h.settle();
+  h.gates.get("with the screenshot")!.take();
+  await h.settle();
+  expect(h.sent).toEqual(["first", "with the screenshot"]);
+  expect(carried).toEqual([undefined, "held-1"]);
+});
+
+// Leo, 2026-11-09: "there's the gap between when you send off a message versus otherwise, like it's
+// like there's a one-two discontinuity". A new chat's first prompt is the chat's first row from the
+// send, with its Thinking line under it, while the chat still starts: never a queued row first that
+// jumps into the transcript once the agent is up. The chat's own row for it has the same id.
+test("a new chat's first prompt draws as its first row with the Thinking line, and later ones stay queued", () => {
+  const sends = [
+    { id: "p1", text: "first", attachments: [], at: 1, sentIn: { visit: 1 } },
+    { id: "p2", text: "second", attachments: [], at: 2, sentIn: { visit: 1 } },
+  ] satisfies StartingSend[];
+  const drawn = withStartingPrompt(emptySnapshot(), sends);
+  expect(drawn.rows.map((row) => [row.id, row.kind, row.text, row.pending])).toEqual([
+    ["local-p1", "user", "first", true],
+  ]);
+  // The transcript draws the start-look Thinking line under it at once (conversation/turns.ts `waiting`).
+  const shaped = turnView(drawn.rows, new Set(), { now: 10 });
+  expect(shaped.map((row) => row.id)).toEqual(["local-p1", LIVE_THINKING]);
+  // The composer's queue draws only the prompts after it.
+  expect(queuedStartingSends(sends, drawn.rows).map((send) => send.id)).toEqual(["p2"]);
+  // Once the chat's client draws the prompt (the same id), its row is the client's and nothing is added.
+  const started = {
+    ...emptySnapshot(),
+    rows: [{ id: "local-p1", version: 1, at: 3, kind: "user", text: "first", pending: true }],
+  };
+  expect(withStartingPrompt(started, sends)).toBe(started);
+  expect(queuedStartingSends(sends, started.rows).map((send) => send.id)).toEqual(["p2"]);
+  // A chat with prompts of its own draws none.
+  const going = { ...emptySnapshot(), rows: [{ id: "u1", version: 1, at: 0, kind: "user", text: "older" }] };
+  expect(withStartingPrompt(going, sends)).toBe(going);
+  expect(withStartingPrompt(emptySnapshot(), [])).toEqual(emptySnapshot());
+});
+
+test("a starting prompt keeps the id its send goes with", () => {
+  const shown: string[][] = [];
+  const sends = new StartingSends(
+    (rows) => shown.push(rows.map((row) => row.id)),
+    () => undefined,
+    () => ({ visit: 1 }),
+  );
+  sends.add("first", [], () => new Promise(() => undefined), undefined, "prompt-1");
+  sends.add("second", [], () => new Promise(() => undefined));
+  expect(shown.at(-1)![0]).toBe("prompt-1");
+  expect(shown.at(-1)![1]).toStartWith("starting-");
+});
+
+// #41016: a queued row drew the draft as it was, each attachment as U+FFFC, its id, U+FFFC.
+const image = {
+  id: "0ffcff4e-5219-4332-9ceb-9d0acc03a47a",
+  kind: "image",
+  name: "image.png",
+  preview: "data:image/png;base64,AA==",
+  data: "AA==",
+  mimeType: "image/png",
+} as unknown as ComposerAttachment;
+const pasted = {
+  id: "37e67889-51d8-415a-beed-6d890ed57505",
+  kind: "pasted",
+  name: "Pasted text",
+  text: "HELLO",
+} as unknown as ComposerAttachment;
+
+test("a waiting row shows its words and its pictures, never an attachment's id", () => {
+  const row = {
+    id: "starting-1",
+    text: `look ${inlineToken(image.id)} at ${inlineToken(pasted.id)} this`,
+    attachments: [image, pasted],
+  };
+  const entry = startingQueueEntry(row);
+  expect(entry.prompt).toBe("look  at HELLO this");
+  expect(entry.prompt).not.toContain("\uFFFC");
+  expect(entry.images?.length).toBe(1);
+});
+
+test("an edited waiting row keeps its picture in place and sends a pasted chip's text once", async () => {
+  const h = harness();
+  const sent: { text: string; attachments: ComposerAttachment[] }[] = [];
+  h.sends.add("first", [], h.go);
+  h.sends.add(
+    `hi ${inlineToken(image.id)} ${inlineToken(pasted.id)} end`,
+    [image, pasted],
+    async (text, attachments) => {
+      sent.push({ text, attachments });
+    },
+  );
+  const waiting = h.sends.rows[1]!;
+  const shown = startingQueueEntry(waiting).prompt;
+  expect(shown).toBe("hi  HELLO end");
+  expect(h.sends.edit(waiting.id, `${shown}!`)).toBe(true);
+  await h.settle();
+  h.gates.get("first")!.take();
+  await h.settle();
+  expect(sent).toHaveLength(1);
+  const { text, attachments } = sent[0]!;
+  expect(text).toBe(`hi ${inlineToken(image.id)} HELLO end!`);
+  expect(attachments.map((attachment) => attachment.id)).toEqual([image.id]);
+  // The prompt as it goes: HELLO once, the picture in its place.
+  const parts = inlinePrompt(text, attachments);
+  expect(JSON.stringify(parts).split("HELLO").length - 1).toBe(1);
+});
+
+test("an edited waiting row keeps a text file left in the strip apart from its words", async () => {
+  const notes = {
+    id: "5191ce85-b54c-4acd-9a1e-1f2e3d4c5b6a",
+    kind: "text",
+    name: "notes.txt",
+    text: "BODY",
+  } as unknown as ComposerAttachment;
+  const h = harness();
+  const sent: string[] = [];
+  h.sends.add("first", [], h.go);
+  h.sends.add("look", [notes], async (text) => void sent.push(text));
+  await h.settle();
+  const waiting = h.sends.rows[1]!;
+  const shown = startingQueueEntry(waiting).prompt;
+  expect(shown.startsWith("look\n\n")).toBe(true);
+  expect(h.sends.edit(waiting.id, `${shown}!`)).toBe(true);
+  await h.settle();
+  h.gates.get("first")!.take();
+  await h.settle();
+  expect(sent).toHaveLength(1);
+  expect(sent[0]!.startsWith("look\n\n")).toBe(true);
+  expect(sent[0]!.split("BODY").length - 1).toBe(1);
+});
+
+// Review of #39781: a prompt sent in a new chat is that chat's. Another chat opened while it still
+// starts (an empty one too) draws none of it, in its transcript or its queue; the chat the new chat
+// took draws it, as does the new chat itself; a prompt sent in an existing chat stays that chat's.
+test("a starting prompt draws only in the chat it was sent in", () => {
+  const sends = [
+    { id: "p1", text: "first", attachments: [], at: 1, sentIn: { visit: 4 } },
+    { id: "p2", text: "second", attachments: [], at: 2, sentIn: { visit: 4 } },
+  ] satisfies StartingSend[];
+  const ids = (shown: readonly StartingSend[]) => shown.map((send) => send.id);
+  // The new chat, still starting.
+  expect(startingIn(sends, { visit: 4 }, undefined)).toBe(sends);
+  // The chat it took (its select moved the visit).
+  expect(ids(startingIn(sends, { chat: "s-new", visit: 5 }, { sessionId: "s-new", visit: 4 }))).toEqual(["p1", "p2"]);
+  // An empty chat opened while it starts, and another new chat.
+  expect(ids(startingIn(sends, { chat: "s-empty", visit: 5 }, undefined))).toEqual([]);
+  expect(ids(startingIn(sends, { chat: "s-empty", visit: 7 }, { sessionId: "s-new", visit: 4 }))).toEqual([]);
+  expect(ids(startingIn(sends, { visit: 6 }, undefined))).toEqual([]);
+  const empty = startingIn(sends, { chat: "s-empty", visit: 5 }, undefined);
+  expect(withStartingPrompt(emptySnapshot(), empty).rows).toEqual([]);
+  // A chat's own prompts, sent while it was shown, in any later visit of it.
+  const own = [{ id: "p3", text: "third", attachments: [], at: 3, sentIn: { chat: "s-new", visit: 5 } }];
+  expect(ids(startingIn(own, { chat: "s-new", visit: 9 }, undefined))).toEqual(["p3"]);
+  expect(ids(startingIn(own, { chat: "s-other", visit: 9 }, undefined))).toEqual([]);
+});
+
+// Review of #39781: the first prompt's row draws what the chat's own sent row draws once it went
+// (direct.ts `sentPrompt`): a pasted block's text and range, and the attachments a Retry sends again.
+test("a new chat's first prompt row carries its paste and its attachments", () => {
+  const paste = {
+    id: "paste-1",
+    kind: "pasted" as const,
+    name: "log.txt",
+    mimeType: "text/plain",
+    size: 9,
+    text: "line\nline",
+  };
+  const sends = [
+    { id: "p1", text: "see this", attachments: [paste], at: 1, sentIn: { visit: 1 } },
+  ] satisfies StartingSend[];
+  const row = withStartingPrompt(emptySnapshot(), sends).rows[0]!;
+  expect(row.text).toContain("line\nline");
+  expect(row.pasted?.length).toBe(1);
+  expect(row.retryAttachments).toEqual([paste]);
 });

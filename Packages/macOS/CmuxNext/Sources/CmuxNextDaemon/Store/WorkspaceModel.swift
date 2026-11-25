@@ -12,7 +12,27 @@ public final class WorkspaceModel: Identifiable {
     public internal(set) var name: String
     public internal(set) var nameSource: WorkspaceNameSource
     public internal(set) var nameRevision: UInt64
-    public internal(set) var screens: [ScreenModel] { didSet { adoptUnread() } }
+    /// The screens in order. While the store holds them (a pending create's overlay takes its stand-in screen out
+    /// and puts it back around each daemon batch), writes are held and the lift publishes only the net change, once.
+    public internal(set) var screens: [ScreenModel] {
+        get {
+            access(keyPath: \.screens)
+            return screenList
+        }
+        set {
+            guard screensBeforeHold == nil else {
+                screenList = newValue
+                return
+            }
+            withMutation(keyPath: \.screens) { screenList = newValue }
+            adoptUnread()
+        }
+    }
+    @ObservationIgnored private var screenList: [ScreenModel] = []
+    @ObservationIgnored private var screensBeforeHold: [ScreenModel]?
+    /// The pane `handle` of one of its screens: what a view mapped from this model mounts, also while no store indexes
+    /// the model (the next Cmd-N's workspace, reserved before its key: `DaemonStore.reserveWorkspace`).
+    public func pane(_ handle: PaneID) -> PaneModel? { screens.lazy.compactMap { $0.pane(handle) }.first }
     /// Screen group runs in screen order (`screen-groups-v1`).
     public internal(set) var screenGroups: [ScreenGroupSnapshot]
     public internal(set) var group: WorkspaceGroupID?
@@ -31,6 +51,9 @@ public final class WorkspaceModel: Identifiable {
     /// The task lane the person pinned (Mark as Done, Set Workspace Status,
     /// `workspace-status-v1`); nil is automatic. From the daemon's state resources.
     public internal(set) var taskStatus: WorkspaceTaskStatus?
+    /// Who made the workspace and why (`extra.created_by`): the person, an agent session or a
+    /// script; nil on a daemon that does not say. From the daemon's state resources.
+    public internal(set) var createdBy: WorkspaceCreator?
     /// Status line, progress, and newest log line hooks and the CLI report
     /// (`workspace_status.*`); from the daemon's state resources.
     public internal(set) var status: WorkspaceStatus?
@@ -54,6 +77,8 @@ public final class WorkspaceModel: Identifiable {
     /// The app of an app workspace (`app-screens-v1`): its one pane shows the
     /// app without a tab strip.
     public internal(set) var app: String?
+    /// The daemon's recovery workspace (`workspace-recovered-v1`); nil on older daemons.
+    public internal(set) var recovered: Bool?
     /// Daemon rollup (`notification-ack-v1`); nil on older daemons.
     public internal(set) var daemonUnreadCount: Int? { didSet { noteUnreadChange() } }
 
@@ -118,7 +143,8 @@ public final class WorkspaceModel: Identifiable {
     /// rollup while its tree is not mirrored), or 1 when it has none and is marked unread by hand.
     var unreadContribution: UnreadTotals {
         let tabs = screens.isEmpty ? daemonUnreadCount ?? 0 : unread.tabs
-        return UnreadTotals(tabs: tabs == 0 && markedUnread ? 1 : tabs, conversations: screens.isEmpty ? [:] : unread.conversations)
+        return UnreadTotals(tabs: tabs == 0 && markedUnread ? 1 : tabs, conversations: screens.isEmpty ? [:] : unread.conversations,
+                            markedWorkspaces: markedUnread ? 1 : 0)
     }
 
     /// The screens changed: they report to this workspace, which recounts.
@@ -157,7 +183,7 @@ public final class WorkspaceModel: Identifiable {
         name = s.name
         nameSource = s.nameSource
         nameRevision = s.nameRevision
-        screens = s.screens.map(ScreenModel.init)
+        screenList = s.screens.map(ScreenModel.init)
         screenGroups = s.screenGroups
         group = s.group
         color = s.color
@@ -167,6 +193,7 @@ public final class WorkspaceModel: Identifiable {
         markedUnread = s.markedUnread
         kind = s.kind
         app = s.app
+        recovered = s.recovered
         daemonUnreadCount = s.unreadCount
         adoptUnread()
     }
@@ -190,6 +217,7 @@ public final class WorkspaceModel: Identifiable {
         if markedUnread != s.markedUnread { markedUnread = s.markedUnread }
         if kind != s.kind { kind = s.kind }
         if app != s.app { app = s.app }
+        if recovered != s.recovered { recovered = s.recovered }
         if daemonUnreadCount != s.unreadCount { daemonUnreadCount = s.unreadCount }
         if !screenGroupsFromState, screenGroups != s.screenGroups { screenGroups = s.screenGroups }
         if let reordered = reconcile(screens, with: s.screens, id: ScreenModel.identity, make: ScreenModel.init, update: { $0.update($1) }) {
@@ -205,10 +233,23 @@ public final class WorkspaceModel: Identifiable {
         if self.agentFolder != agentFolder { self.agentFolder = agentFolder }
         if workspaceDescription != notes.description { workspaceDescription = notes.description }
         if taskStatus != notes.taskStatus { taskStatus = notes.taskStatus }
+        if createdBy != notes.createdBy { createdBy = notes.createdBy }
         if self.status != status { self.status = status }
         if self.checklist != checklist { self.checklist = checklist }
         screenGroupsFromState = groups != nil
         if let groups, screenGroups != groups { screenGroups = groups }
+    }
+
+    /// Holds the publication of ``screens`` until ``publishHeldScreens()`` (``DaemonStore/withOverlayLifted(writer:snapshot:_:)``).
+    func holdScreens() {
+        if screensBeforeHold == nil { screensBeforeHold = screenList }
+    }
+
+    /// Publishes the held screens once, when they are not the same screens in the same order as when held.
+    func publishHeldScreens() {
+        guard let before = screensBeforeHold else { return }
+        screensBeforeHold = nil
+        if !before.elementsEqual(screenList, by: ===) { screens = screenList }
     }
 
     func setName(_ value: String) { if name != value { name = value } }

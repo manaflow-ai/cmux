@@ -30,6 +30,8 @@ fn serve(home: &Path, seen: Arc<Mutex<Vec<ControlRequest>>>) -> PathBuf {
             chief: None,
             turn: None,
             peers: None,
+            fork: None,
+            mcp: None,
         },
     )
     .unwrap();

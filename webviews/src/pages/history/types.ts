@@ -52,6 +52,10 @@ export interface HistoryListResult {
   entries: HistoryEntry[];
   next_cursor?: string;
   revision: number;
+  /** The asked kinds whose entries are not complete yet (the owner's fold of the session journal is
+   * still behind): `entries` is what it has so far. The page shows that and asks again until the field
+   * is absent; `cmux.history.changed` only makes it sooner (it comes only when an entry of the kind changes). */
+  pending_kinds?: HistoryKind[];
 }
 
 export interface HistoryChanged {
@@ -66,7 +70,26 @@ export const HistoryOps = {
   removeSite: "cmux.history.site.remove",
   clear: "cmux.history.clear",
   changed: "cmux.history.changed",
+  /** The app's cookie backups (an agent's cookie clear in a WebKit tab keeps one): `{backups}`. */
+  cookieBackupsList: "cmux.history.cookie_backups.list",
+  /** Deletes backups for good after the app's own confirmation: `{ids}` -> `{confirmed, deleted}`. */
+  cookieBackupsDelete: "cmux.history.cookie_backups.delete",
 } as const;
+
+/** One cookie backup the app keeps on this Mac (decision D3 on cmux#13742); never a cookie value. */
+export interface CookieBackup {
+  /** The restore id (`app:<32 hex>`). */
+  id: string;
+  /** The host whose cookies the clear removed; absent when this Mac's key no longer opens it. */
+  site?: string;
+  created_at_ms: number;
+}
+
+export interface CookieBackupsDeleted {
+  /** False when the person cancelled the app's confirmation. */
+  confirmed: boolean;
+  deleted?: number;
+}
 
 /** The native UI op that runs a registry action in the hosting app (react-pages.md 1.3). */
 export const ACTION_RUN = "cmux.app.action.run";

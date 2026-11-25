@@ -19,10 +19,8 @@ export type AutomationHost = {
   ready?(method: string): Promise<void>;
   /// The sidebar row's selection path.
   selectSession(sessionId: string): void;
-  /// The edited-files card's "View changes" path.
+  /// The changes pane path: the edited-files card's Open in Changes (in its opened diff).
   openDiff(rowId: string): void;
-  /// The open changes view: whether it shows and the paths it lists.
-  diff(): { open: boolean; paths: string[] };
   /// The location row's folder pick (startFolder.tsx: the host takes it or asks first).
   pickFolder?(cwd: string): void;
   /// The composer itself: what Return sends, and where a new chat runs (composeSend, runMode).
@@ -39,6 +37,11 @@ export type AutomationCompose = {
   setRunMode(mode: RunMode): boolean;
   /// The Cloud start this page sent (cloudStartProgress.ts), or null.
   cloudStart(): unknown;
+  /// Why Send is held now, or undefined: the sign-in notice's words, else `folder_question`,
+  /// `cloud_start_out` or `sandbox_holds_chat`.
+  blocked?(): string | undefined;
+  /// What decides whether the run row is offered now (sandboxOfferable), for the debug `chat_state` verb.
+  runPlace?(): Record<string, unknown>;
 };
 
 /// How long an automation verb waits for the chat's own action (pageAction).
@@ -82,6 +85,9 @@ export function automationState(host: AutomationHost) {
     harness: snapshot.summary?.harness ?? null,
     isWorking: snapshot.isWorking,
     rows: snapshot.rows.length,
+    /// Whether the chat's first frame drew from a kept tail (tailCache.ts, a fork's forkTail.ts):
+    /// on the frame it opened, with no cold fade (scripts/cmux-next/fork-open-bench.py).
+    drewKeptTail: snapshot.drewKeptTail === true,
     /// Whether older history remains to page in, and the oldest event seq the pane holds.
     canLoadOlder: snapshot.canLoadOlder,
     historyFrom: snapshot.historyFrom ?? null,
@@ -135,7 +141,6 @@ export function automationState(host: AutomationHost) {
     /// with no diff, a Write whose old contents are unknown), as the edited-files card lists them:
     /// once per file (model.ts `pathKey`), as its first path names it.
     changedFiles: changedFiles(snapshot.rows),
-    diff: host.diff(),
     /// What has the page's focus: composer, none, or the focused element.
     focus: focusedArea(typeof document === "undefined" ? null : document.activeElement),
   };
@@ -203,14 +208,22 @@ export async function newChat(
 }
 
 /// Sends `text` through the composer's own send, as typing it and pressing Return does (sendPrompt
-/// goes to `chat.send` and so never takes a Cloud start). `{sent: false}`: the composer kept the
-/// prompt, which a Cloud start does until its chat opens on the machine (read `cloudStart`).
+/// goes to `chat.send` and so never takes a Cloud start). A Cloud start takes the prompt as a local
+/// send does (`{sent: true}`) and runs until its chat opens on the machine (read `cloudStart`);
+/// `{sent: false, blocked}`: the composer kept the prompt (refused, or a start already out); `blocked`
+/// names what holds Send, when something does.
 export async function composeSend(host: AutomationHost, text: string) {
   if (!text.trim()) return { error: "empty prompt" };
   if (!host.compose) return { error: "the page has no composer" };
   const sent = await host.compose.send(text);
   if (sent === undefined) return { error: "no composer shows (the New Tab page?)" };
-  return { sent, runMode: host.compose.runMode() ?? null, cloudStart: host.compose.cloudStart() ?? null };
+  return {
+    sent,
+    runMode: host.compose.runMode() ?? null,
+    cloudStart: host.compose.cloudStart() ?? null,
+    // A kept prompt says why, so a harness reads the cause instead of guessing it from the page.
+    ...(sent ? {} : { blocked: host.compose.blocked?.() ?? null }),
+  };
 }
 
 const RUN_MODES: readonly RunMode[] = ["persistent", "sandboxed", "cloud"];
@@ -303,7 +316,7 @@ export function models(host: AutomationHost) {
   };
 }
 
-/// Opens the changes view of the latest turn that edited files, as its "View changes" does.
+/// Opens the changes view of the latest turn that edited files, as its card's Open in Changes does.
 export function openChanges(host: AutomationHost) {
   const rows = host.snapshot().rows;
   const edited = [...rows]

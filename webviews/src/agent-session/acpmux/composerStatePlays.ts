@@ -43,7 +43,12 @@ export function composerStatePlays(field: string): Record<ComposerStateName, { n
         await ready(ctx);
         blur(ctx);
         await ctx.click(MODEL);
-        await ctx.waitFor(() => ctx.document.querySelector('.acpmux-quick-menu [role="menuitemradio"]'));
+        // A menu with a harness rail (New Tab) opens the columns; a started chat's, the list.
+        await ctx.waitFor(() =>
+          ctx.document.querySelector(
+            '.acpmux-quick-menu [role="menuitemradio"], .acpmux-cols [role="listbox"] [role="option"]',
+          ),
+        );
       },
     },
     focus: {

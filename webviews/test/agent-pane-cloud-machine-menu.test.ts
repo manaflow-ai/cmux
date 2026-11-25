@@ -7,14 +7,20 @@
 // checks the click) and reads the account's list again, whatever the app answered. Stop and
 // Pause pauses only once the turn has ended; the list is read until the machine's stage moves.
 import { expect, test } from "bun:test";
-import { chatCloudMachine, cloudMachineRows, createStopWaiter } from "../src/agent-session/acpmux/cloudMachineMenu";
+import {
+  chatCloudMachine,
+  cloudMachineRows,
+  createStopWaiter,
+  EVICT_WARN_MS,
+} from "../src/agent-session/acpmux/cloudMachineMenu";
 import {
   ACTION_READS_MS,
+  cloudMachinesFromReply,
   readUntilMoved,
   setCloudMachinesForTest,
   type CloudMachine,
 } from "../src/agent-session/acpmux/cloudMachines";
-import type { ChatMenuItem } from "../src/agent-session/acpmux/header/ChatHeaderTools";
+import type { ChatMenuItem } from "../src/agent-session/acpmux/header/chatHeaderToolsModel";
 import { translate as t } from "../src/agent-session/acpmux/i18n";
 
 const machines: CloudMachine[] = [
@@ -46,6 +52,7 @@ function rows(
   working: boolean,
   stops = true,
   state: { session: string | undefined; running: boolean } = { session: "s1", running: working },
+  now = Date.now(),
 ) {
   const calls: [string, unknown][] = [];
   let reads = 0;
@@ -68,9 +75,13 @@ function rows(
       return stops;
     },
     "s1",
+    now,
   );
-  const pick = async (index = 0) => {
-    const item = items[index] as Exclude<ChatMenuItem, "separator">;
+  // The first row a click runs (a paused machine's info rows run nothing), or the one of `key`.
+  const pick = async (key?: string) => {
+    const item = items.find(
+      (row) => row !== "separator" && (key ? row.key === key : row.onSelect !== undefined),
+    ) as Exclude<ChatMenuItem, "separator">;
     item.onSelect!();
     await new Promise((resolve) => setImmediate(resolve));
   };
@@ -81,7 +92,7 @@ const label = (item: ChatMenuItem | undefined) => (item && item !== "separator" 
 
 test("a running machine offers Pause, which pauses it and reads the list again", async () => {
   const r = rows(machines[0], false);
-  expect(r.items.map(label)).toEqual([t("chatMenu.pauseMachine")]);
+  expect(r.items.map(label)).toEqual([t("chatMenu.pauseMachine"), t("chatMenu.deleteMachine")]);
   await r.pick();
   expect(r.calls).toEqual([["cloudMachine.pause", { id: "vm_run" }]]);
   expect(r.reads()).toBe(1);
@@ -89,7 +100,7 @@ test("a running machine offers Pause, which pauses it and reads the list again",
 
 test("while the chat's turn runs, Pause says it stops the turn and stops it first", async () => {
   const r = rows(machines[0], true);
-  expect(r.items.map(label)).toEqual([t("chatMenu.stopAndPauseMachine")]);
+  expect(r.items.map(label)).toEqual([t("chatMenu.stopAndPauseMachine"), t("chatMenu.deleteMachine")]);
   await r.pick();
   expect(r.calls).toEqual([
     ["chat.cancel", undefined],
@@ -195,7 +206,11 @@ test("a wait for the turn ends when the turn does, or after its timeout", async 
 
 test("a paused machine offers Resume; one starting or not the account's offers nothing", async () => {
   const r = rows(machines[1], true);
-  expect(r.items.map(label)).toEqual([t("chatMenu.resumeMachine")]);
+  expect(r.items.map(label)).toEqual([
+    t("chatMenu.machinePausedInfo"),
+    t("chatMenu.resumeMachine"),
+    t("chatMenu.deleteMachine"),
+  ]);
   await r.pick();
   // Resume never stops a turn.
   expect(r.calls).toEqual([["cloudMachine.resume", { id: "vm_paused" }]]);
@@ -234,4 +249,90 @@ test("the reads after a pick stop after the last wait when the stage never moves
   };
   await readUntilMoved(machines[0]!, call, async () => undefined);
   expect(reads).toBe(ACTION_READS_MS.length);
+});
+
+// Leo, 2026-11-08: "how would I be able to shut it down?" Delete Machine… in both stages; the app
+// asks before it deletes (Kill Machine's sheet), so the row runs one call and never stops a turn.
+test("Delete Machine… asks the app to delete, running or paused, and reads the list again", async () => {
+  for (const machine of [machines[0]!, machines[1]!]) {
+    const r = rows(machine, true);
+    const row = r.items.find((item) => item !== "separator" && item.key === "deleteMachine");
+    expect(row !== "separator" && row?.destructive).toBe(true);
+    await r.pick("deleteMachine");
+    expect(r.calls).toEqual([["cloudMachine.delete", { id: machine.id }]]);
+    expect(r.reads()).toBe(1);
+  }
+});
+
+test("a paused machine says opening the chat resumes it, and the date it is deleted when known", () => {
+  const now = Date.UTC(2026, 10, 8);
+  const info = (evictAt?: number) =>
+    rows(
+      { id: "vm_p", name: "p", stage: "paused", ...(evictAt === undefined ? {} : { evictAt }) },
+      false,
+      true,
+      undefined,
+      now,
+    ).items.filter((item): item is Exclude<ChatMenuItem, "separator"> => item !== "separator" && !item.onSelect);
+  // No date from the server (warn mode, an older server): only what pausing means.
+  const plain = info();
+  expect(plain.map((item) => [item.label, item.disabled])).toEqual([[t("chatMenu.machinePausedInfo"), true]]);
+  // A date weeks away: a quiet row.
+  const later = info(now + 20 * 24 * 60 * 60 * 1000);
+  expect(later).toHaveLength(2);
+  expect(later[1]!.label).toContain("2026");
+  expect(later[1]!.disabled && !later[1]!.destructive).toBe(true);
+  // Within the last week: a warning.
+  const soon = info(now + EVICT_WARN_MS - 1);
+  expect(soon[1]!.destructive).toBe(true);
+  expect(soon[1]!.icon).toBe("status.warning");
+});
+
+test("the list reads a machine's delete date only as a positive number", () => {
+  const reply = (evictAt: unknown) =>
+    cloudMachinesFromReply({
+      signedIn: true,
+      loaded: true,
+      machines: [{ id: "vm", name: "n", stage: "paused", evictAt }],
+    });
+  expect(reply(1_800_000_000_000)[0]?.evictAt).toBe(1_800_000_000_000);
+  for (const odd of [null, undefined, "soon", -1, Number.NaN])
+    expect(reply(odd)[0]).toEqual({ id: "vm", name: "n", stage: "paused" });
+});
+
+// Review of #38469: a menu kept open across a chat switch must not delete (or pause, or resume)
+// the machine of the chat it was drawn for once the pane shows another chat.
+test("a row picked after the pane switched chats runs nothing, Delete included", async () => {
+  for (const machine of [machines[0]!, machines[1]!]) {
+    let shown = true;
+    const calls: string[] = [];
+    let reads = 0;
+    const items = cloudMachineRows(
+      machine,
+      false,
+      t,
+      async (method) => void calls.push(method),
+      () => (reads += 1),
+      () => ({ session: "s1", running: false }),
+      async () => true,
+      "s1",
+      undefined,
+      () => shown,
+    );
+    // The chat switched while the menu stayed open.
+    shown = false;
+    for (const item of items)
+      if (item !== "separator" && item.onSelect) {
+        item.onSelect();
+        await new Promise((resolve) => setImmediate(resolve));
+      }
+    expect(calls).toEqual([]);
+    expect(reads).toBe(0);
+    // Back on the chat it was drawn for: Delete runs.
+    shown = true;
+    const remove = items.find((item) => item !== "separator" && item.key === "deleteMachine");
+    if (remove !== "separator") remove?.onSelect?.();
+    await new Promise((resolve) => setImmediate(resolve));
+    expect(calls).toEqual(["cloudMachine.delete"]);
+  }
 });

@@ -4,6 +4,7 @@ import CmuxNextBridge
 import CmuxNextDaemon
 import CmuxNextDesign
 import CmuxNextLayout
+import CmuxNextWindowRules
 
 /// Screen group actions (the tab group actions, for the screen bar). The
 /// group is resolved before the capability check, so an unknown group is
@@ -89,7 +90,9 @@ enum ScreenGroupHandlers {
         for (id, forward) in [("screenGroup.moveLeft", false), ("screenGroup.moveRight", true)] as [(ActionID, Bool)] {
             registry.bind(id, invoke: { invocation in
                 guard let ref = group(invocation, ctx) else { return }
-                guard let index = ScreenGroupReorder.targetIndex(of: ref.group.id, forward: forward, in: ref.workspace.screens)
+                // Past the neighboring screen or group, never into the pinned run (`workspaces::screen_group_move`).
+                let screens = ref.workspace.screens.map { (group: $0.group?.rawValue, pinned: $0.pinned) }
+                guard let index = WindowRules().screenGroupMove(ref.group.id.rawValue, forward: forward, screens: screens)
                     ?? ctx.refuse(RefusalStrings.groupAtEdge) else { return }
                 ScreenGroupCommands.move(ref.group.id, to: index, daemon: ref.daemon)
             })
@@ -131,25 +134,5 @@ enum ScreenGroupHandlers {
             let id = SavedScreenGroupID(rawValue: saved)
             ctx.services.activeDaemon.send("delete-saved-screen-group") { try await $0.deleteSavedScreenGroup(id) }
         })
-    }
-}
-
-/// Where Move Screen Group Left/Right puts a group: past the neighboring
-/// screen or group on that side, never into the pinned run.
-enum ScreenGroupReorder {
-    @MainActor
-    static func targetIndex(of group: ScreenGroupID, forward: Bool, in screens: [ScreenModel]) -> Int? {
-        guard let first = screens.firstIndex(where: { $0.group == group }),
-              let last = screens.lastIndex(where: { $0.group == group }) else { return nil }
-        if forward {
-            guard last + 1 < screens.count else { return nil }
-            let neighbor = screens[last + 1]
-            let span = neighbor.group.map { id in screens.filter { $0.group == id }.count } ?? 1
-            return first + span
-        }
-        guard first > 0, !screens[first - 1].pinned else { return nil }
-        let neighbor = screens[first - 1]
-        let span = neighbor.group.map { id in screens.filter { $0.group == id }.count } ?? 1
-        return first - span
     }
 }

@@ -68,10 +68,19 @@ import Testing
     }
 
     @Test func onlyAPersonsRunInTheAppSkipsTheConsentPanel() {
-        #expect(!CookieImportService.needsConsent(ActionInvocation(origin: .user)))
+        #expect(!CookieImportService.needsConsent(ActionInvocation(origin: .user), byPerson: true))
+        #expect(CookieImportService.needsConsent(ActionInvocation(origin: .user), byPerson: false),
+                "a palette or card run that a posted click or key started asks too")
         for origin in [ActionOrigin.cli, .mcp, .script, .remote, .page] {
-            #expect(CookieImportService.needsConsent(ActionInvocation(origin: origin)), "\(origin) asks first")
+            #expect(CookieImportService.needsConsent(ActionInvocation(origin: origin), byPerson: true), "\(origin) asks first")
         }
+        // A cmux app's run during the person's gesture in it, or one the control socket carries, is not the person's own.
+        var app = ActionInvocation(origin: .user)
+        app.callerApp = "com.example.app"
+        #expect(CookieImportService.needsConsent(app, byPerson: true), "a cmux app asks first, even in the person's gesture")
+        var socket = ActionInvocation(origin: .user)
+        socket.viaControlSocket = true
+        #expect(CookieImportService.needsConsent(socket, byPerson: true), "a socket run that claims the user origin asks first")
     }
 
     @Test func agentsMustGiveAReason() {
@@ -80,6 +89,9 @@ import Testing
         var agentAtCLI = ActionInvocation(origin: .cli)
         agentAtCLI.callerAgentSession = "01a15270"
         #expect(CookieImportService.needsReason(agentAtCLI))
+        var chiefAtCLI = ActionInvocation(origin: .cli)
+        chiefAtCLI.callerHomeChat = true
+        #expect(CookieImportService.needsReason(chiefAtCLI), "a Chief turn is an agent")
         #expect(CookieImportService.needsReason(ActionInvocation(origin: .mcp)))
         #expect(CookieImportService.needsReason(ActionInvocation(origin: .script)), "an agent's shell tool has no terminal")
     }
@@ -103,6 +115,19 @@ import Testing
         invocation.callerAgentSession = "closed-session"
         let requester = CookieImportRequester(invocation, among: Self.tabs) { _ in (title: "old chat", preview: nil) }
         #expect(requester == CookieImportRequester(kind: .agentChat, name: "old chat"))
+    }
+
+    /// A Chief's run (`caller.home_chat` with its turn's temporary session, #32960) names the Chief
+    /// and reveals Home's chat, never the turn session's raw id.
+    @Test func requesterOfAChiefTurnIsTheChiefInHome() {
+        var invocation = ActionInvocation(origin: .mcp)
+        invocation.callerAgentSession = "optchat-turn-9f2"
+        invocation.callerHomeChat = true
+        let tabs = Self.tabs + [CookieImportCandidate(tabID: "tab-home", title: "Home", workspace: "Home", agentSession: nil,
+                                                      terminalIDs: [], isHomeChat: true)]
+        let requester = CookieImportRequester(invocation, among: tabs) { _ in (title: "optchat-turn-9f2", preview: "Importing your GitHub sign-in") }
+        #expect(requester == CookieImportRequester(kind: .agentChat, name: "Chief", workspace: "Home", tabID: "tab-home",
+                                                   latestMessage: "Importing your GitHub sign-in"))
     }
 
     @Test func requesterIsTheTerminalTheCallerNames() {

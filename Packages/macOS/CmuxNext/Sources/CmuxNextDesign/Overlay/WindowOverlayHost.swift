@@ -26,10 +26,19 @@ public final class WindowOverlayHost {
     /// The parent window; nil for the app host.
     public private(set) weak var window: NSWindow?
     public let panel: OverlayHostPanel
+    /// Where each press in this window went (`cmux app clicks`, #49788): this host's own take and forward, a divider
+    /// catcher's forward and each page focus grant report here.
+    public let clickTrace = ClickTrace()
     let isAppHost: Bool
     var handles: [OverlayHandle] = []
     /// Dialogs still fading out after their removal: the panel stays until they finish.
     var fadingOut = 0
+    /// Each fade-out still running, with when it began (system uptime) and what ends it: a fade whose completion never
+    /// came (its animation dropped) ends at the next present instead of leaving its card on the panel for good.
+    var fades: [Int: (began: TimeInterval, end: () -> Void)] = [:]
+    var nextFadeID = 1
+    /// A fade-out older than this when the next overlay shows has lost its completion (fades run well under a second).
+    static let staleFadeAge: TimeInterval = 3
     var nextID = 1
     /// The window's layout planes need the panel (pages show) even with no overlay presented.
     var planesWantPanel = false
@@ -68,6 +77,9 @@ public final class WindowOverlayHost {
     weak var forwardTarget: NSWindow?
     /// The button of that click (`NSEvent.buttonNumber`).
     var forwardButton = 0
+    /// The button of a press on an overlay that reached a window under the panel (`takeEventFromBelow`): its drags and
+    /// its release go to the panel too. Nil while no such press is held.
+    var takenButton: Int?
     /// Another window (not the panel nor the overlay's own window) became key while a modal
     /// showed: dismissing it leaves the keyboard there (`focusMoved`).
     var otherWindowTookKey = false
@@ -94,6 +106,19 @@ public final class WindowOverlayHost {
         panel.onCancel = { [weak self] in self?.escape() }
         panel.onCycleKeyView = { [weak self] forward in self?.cycleKeyView(forward: forward) ?? false }
         panel.onMouseEvent = { [weak self] event in self?.panelMouseEvent(event) ?? false }
+        for container in [panel.paneContainer, panel.windowContainer, panel.modalContainer] {
+            container.clickRegions = { [weak self] view in
+                guard let self else { return [] }
+                if let handle = handles.first(where: { ($0.clipView ?? $0.content) === view }) { return clickRegions(of: handle) }
+                // A live dialog's scrim takes every click, so nothing under the dialog reacts.
+                if let scrim = view as? OverlayScrimView, handles.contains(where: { scrim.identifier?.rawValue == "overlay-scrim-\($0.id)" }) { return nil }
+                // Anything else is left from an overlay that ended (a dialog's card fading out, or one whose fade never
+                // finished): it takes no click, so a card on screen whose dialog ended never swallows clicks (Aziz
+                // 2026-11-12, "Close “IOS INTERNAL CI”?" ignored Close, Cancel and its check box).
+                return []
+            }
+        }
+        if let window { clickTrace.startMonitoring(window: window, panel: panel) }
         if isAppHost {
             // Above the app's own windows while cmux is active; hidden while
             // another app is active, so it never covers other apps.
@@ -133,6 +158,14 @@ public final class WindowOverlayHost {
     public static func existingHost(for window: NSWindow) -> WindowOverlayHost? {
         hosts[ObjectIdentifier(window)].flatMap { $0.window === window && !$0.isTearingDown ? $0 : nil }
     }
+
+    /// Every open window's click trace (`input.clicks` merges them).
+    public static var clickTraces: [ClickTrace] {
+        hosts.values.filter { $0.window != nil && !$0.isTearingDown }.map(\.clickTrace)
+    }
+
+    /// The app host if one was made (never makes one).
+    public static var existingAppHost: WindowOverlayHost? { app }
 
     /// The host for overlays with no window (its own small panel, centered on the main screen).
     public static func appHost() -> WindowOverlayHost {
@@ -185,6 +218,7 @@ public final class WindowOverlayHost {
 
     func tearDown() {
         isTearingDown = true
+        clickTrace.stopMonitoring()
         // A detach still waiting for its empty frame is moot: the panel closes below.
         detachGeneration += 1
         detachPending = false
@@ -232,9 +266,10 @@ public final class WindowOverlayHost {
         onPanelChange?()
     }
 
-    /// Child order, bottom to top: page windows, this panel, then app panels
-    /// at the panel's level that are not on the host yet. `order(_:relativeTo:)`
-    /// has no effect on child windows, so reordering re-adds them.
+    /// Child order, bottom to top: page windows, the windows that take the mouse for the window's content
+    /// (``UnderOverlayWindow``: the divider catchers), this panel, then app panels at the panel's level that are not
+    /// on the host yet. Where an overlay takes the mouse (a toast), nothing under it gets the pointer.
+    /// `order(_:relativeTo:)` has no effect on child windows, so reordering re-adds them.
     public func reassertOrder() {
         // Re-adding windows below calls back here (the window's addChildWindow override).
         guard !isReordering, let window, panel.parent === window else { return }
@@ -242,18 +277,32 @@ public final class WindowOverlayHost {
         defer { isReordering = false }
         // AppKit places its own children (the full screen titlebar); they are never re-added.
         let children = (window.childWindows ?? []).filter { !Self.isAppKitChrome($0) }
-        guard let index = children.firstIndex(where: { $0 === panel }) else { return }
-        let visible = children.enumerated().filter { $0.element.isVisible || $0.element === panel }
-        let pageAbove = visible.contains { $0.offset > index && Self.isPageWindow($0.element) }
-        let panelBelow = visible.contains { $0.offset < index && !Self.isPageWindow($0.element) && $0.element.level <= panel.level }
-        guard pageAbove || panelBelow else { return }
+        guard children.contains(where: { $0 === panel }) else { return }
+        // The rank of each child in the wanted order; nil: a window above the panel's level, which stays where it is.
+        let rank: (NSWindow) -> Int? = { [panel] child in
+            if child === panel { return 2 }
+            if Self.isPageWindow(child) { return 0 }
+            if child is any UnderOverlayWindow { return 1 }
+            return child.level <= panel.level ? 3 : nil
+        }
+        let ranks = children.filter { $0.isVisible || $0 === panel }.compactMap(rank)
+        // The lowest rank that sits under a higher one: re-adding that rank and the ranks above it, in rank order,
+        // fixes every such pair and leaves the windows below it alone (pages always stay). A catcher added above the
+        // panel re-adds the panel and the app panels, not every catcher: each re-add is a window server order and
+        // keeps the window in the turn's autorelease pool.
+        var lowest: Int?
+        for (index, upper) in ranks.enumerated() {
+            for lower in ranks[..<index] where lower > upper { lowest = min(lowest ?? lower, lower) }
+        }
+        guard let lowest else { return }
         reorderCount += 1
-        let panels = children.filter { $0 !== panel && !Self.isPageWindow($0) && $0.level <= panel.level }
-        window.removeChildWindow(panel)
-        window.addChildWindow(panel, ordered: .above)
-        for child in panels {
-            window.removeChildWindow(child)
-            window.addChildWindow(child, ordered: .above)
+        autoreleasepool {
+            for wanted in max(1, lowest)...3 {
+                for child in children where rank(child) == wanted {
+                    window.removeChildWindow(child)
+                    window.addChildWindow(child, ordered: .above)
+                }
+            }
         }
         onPanelChange?()
     }

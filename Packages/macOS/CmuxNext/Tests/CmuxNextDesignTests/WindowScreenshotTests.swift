@@ -190,7 +190,8 @@ import CmuxNextTestSupport
         #expect(decoded.pixelsHigh == image?.height)
     }
 
-    @Test(.enabled("this host puts windows on screen") { await WindowScreenshotTests.hostShowsWindows() })
+    @Test(.disabled("Quarantined: CGWindowListCreateImage gives no image of the fixture window on some CI Macs, https://github.com/manaflow-ai/cmux/issues/31530"),
+          .enabled("this host puts windows on screen") { await WindowScreenshotTests.hostShowsWindows() })
     func theWindowServerImageShowsMetalPixels() async throws {
         let fixture = try fixture()
         defer { fixture.close() }

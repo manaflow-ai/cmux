@@ -146,7 +146,8 @@ impl TabMembership {
             Changes::None => None,
             Changes::Resync => Some(TabDeltas::Resync),
             Changes::Tabs(changes) => {
-                let decorations = mux.tree_decorations_in_state(state);
+                let surfaces = changes.iter().map(|(_, surface)| *surface).collect::<Vec<_>>();
+                let decorations = mux.tab_tree_decorations_in_state(state, &surfaces);
                 let deltas = changes
                     .into_iter()
                     .map(|(kind, surface)| tab_delta(state, &decorations, kind, surface))
@@ -272,11 +273,16 @@ impl Mux {
         let Some(deltas) = deltas else { return };
         match deltas {
             TabDeltas::Deltas { deltas, selection_changed } => {
+                // One workspace's selection moved when every delta is in it: `selection-changed` (#32408).
+                let workspace = deltas
+                    .first()
+                    .map(|delta| delta.workspace)
+                    .filter(|workspace| deltas.iter().all(|delta| delta.workspace == *workspace));
                 for delta in deltas {
                     self.emit(MuxEvent::TreeDelta(delta));
                 }
                 if selection_changed {
-                    self.emit(MuxEvent::TreeSelectionChanged);
+                    self.emit(MuxEvent::TreeSelectionChanged(workspace));
                 }
             }
             TabDeltas::Resync => self.emit(MuxEvent::TreeChanged),

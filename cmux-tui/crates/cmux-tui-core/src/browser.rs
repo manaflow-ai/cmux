@@ -24,11 +24,10 @@ mod navigation_hold_tests;
 mod surface_input;
 mod surface_navigation;
 mod surface_paint_verification;
-mod url_input;
 use cdp_events::{
     dialog_response, handle_frame_navigated, handle_same_document_navigated, handle_target_created,
 };
-pub use url_input::normalize_url;
+pub use cmux_url_input::normalize_url;
 mod runtime;
 mod surface_authority;
 mod surface_frames;

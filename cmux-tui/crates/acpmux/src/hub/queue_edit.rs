@@ -29,7 +29,33 @@ fn same_device(run: Option<&str>, editor: Option<&str>) -> Option<String> {
     run.filter(|d| editor == Some(*d)).map(str::to_owned)
 }
 
-/// The stricter of two controls: an edit never runs a prompt under looser rules than either
+/// Whether the waiting prompt `prompt_id` is one of the agent's own slash commands: its first
+/// words name a command of the agent's newest `available_commands_update` (`/compact`, a skill),
+/// never a path or a word the agent does not list.
+fn queued_agent_command(session: &Session, prompt_id: &str) -> bool {
+    let name = {
+        let queue = session.queue.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        let Some(q) = queue.iter().find(|q| q.prompt_id == prompt_id) else { return false };
+        match super::forum::slash_command(&q.run.blocks) {
+            Some(name) => name.to_owned(),
+            None => return false,
+        }
+    };
+    lists_command(session.meta().available_commands.as_deref(), &name)
+}
+
+/// Whether an `available_commands_update` lists the command `name` (case aside).
+fn lists_command(update: Option<&Value>, name: &str) -> bool {
+    update.and_then(|u| u.get("availableCommands")).and_then(Value::as_array).is_some_and(
+        |commands| {
+            commands.iter().any(|c| {
+                c.get("name").and_then(Value::as_str).is_some_and(|n| n.eq_ignore_ascii_case(name))
+            })
+        },
+    )
+}
+
+/// The stricter of two controls:an edit never runs a prompt under looser rules than either
 /// the prompt's sender's or the editor's.
 fn stricter(a: Control, b: Control) -> Control {
     match (a, b) {
@@ -189,6 +215,59 @@ fn checked_display_parts(parts: Option<&Value>, blocks: &[Value]) -> (Option<Val
     ((!valid.is_empty()).then_some(Value::Array(valid)), refused)
 }
 
+/// The fields of another sender's provenance its card is drawn from (`prompt_sender.rs`, the
+/// apps' `incomingMessage.ts` and `AgentIncoming.swift`): who sent it and how sure acpmux is.
+const SENDER_FIELDS: [&str; 14] = [
+    "from",
+    "fromName",
+    "fromShortName",
+    "fromRole",
+    "fromModel",
+    "fromEffort",
+    crate::prompt_provenance::FROM_CHIEF,
+    crate::prompt_provenance::FROM_SESSION_ID,
+    crate::prompt_provenance::FROM_HARNESS,
+    crate::prompt_provenance::DECLARED_LABEL,
+    crate::prompt_provenance::CLAIMED,
+    crate::prompt_provenance::VERIFIED,
+    crate::prompt_provenance::TRANSPORT,
+    crate::prompt_provenance::FORWARDED_BY,
+];
+
+/// What a person's edit keeps of a waiting prompt's provenance. Its author's own edit keeps it
+/// whole, still theirs under the same rules, and names its editor. Another session's message keeps
+/// who sent it and names its editor (`prompt_provenance::edited_by`), and nothing else: no kind or
+/// field that acts on a queued prompt (a restart's or a cleanup's skip of a notice, a retry, an
+/// announcement or a trigger, a family or lane report's gate, a delegator's first work, a goal's
+/// mark, a digest's members) reaches the person's words. Any other prompt is the editor's own.
+fn edited_provenance(
+    provenance: Option<&Value>,
+    editor: crate::author::Editor<'_>,
+) -> Option<Value> {
+    let p = provenance?;
+    if crate::author::of_provenance(Some(p)).is_some_and(|id| editor == Some(Some(id))) {
+        return Some(crate::prompt_provenance::edited_by(p.clone(), editor));
+    }
+    let kind = p.get("kind").and_then(Value::as_str)?;
+    // Each draws as a session's message (`incomingMessage.ts`); `agent_message` as its own.
+    let kind = match kind {
+        "agent_message" => "agent_message",
+        "session_message" | "task_result" => "session_message",
+        k if k == super::subsessions::PROVENANCE_KIND || k == super::lane_reports::KIND => {
+            "session_message"
+        }
+        _ => return None,
+    };
+    let mut kept = serde_json::Map::new();
+    kept.insert("kind".to_owned(), json!(kind));
+    for field in SENDER_FIELDS {
+        if let Some(value) = p.get(field) {
+            kept.insert(field.to_owned(), value.clone());
+        }
+    }
+    Some(crate::prompt_provenance::edited_by(Value::Object(kept), editor))
+}
+
 impl Hub {
     /// `_acpmux/queue_edit {sessionId, promptId, op, prompt?|text?, images?, index?}`, where
     /// `resume` needs no `promptId`. Answers `{sessionId, promptId, op, ok}`, and `send_now` and `interrupt` also how it was sent
@@ -214,7 +293,7 @@ impl Hub {
         self.full_access_hold(&session.meta(), control, device)?;
         // The queue moves as it is (`transfer_out.rs`).
         if session.moving().is_some() {
-            return Err(super::queue::moving_error());
+            return Err(super::queue::moving_error(session));
         }
         // Only its sender changes a prompt (`author.rs`), checked under the lock that changes it;
         // `resume` changes no one prompt.
@@ -239,11 +318,18 @@ impl Hub {
                 json!(self.move_queued(session, prompt_id, index as usize, editor)?)
             }
             "send_now" => {
-                let sent =
+                // One of the agent's own commands (`/compact`) runs only as a turn of its own:
+                // steered in, Claude Code reads it as words and thinks about them instead (Leo,
+                // 2026-11-03: "this should have just started compacting"). Send now on one stops
+                // the running turn and runs it next, as `interrupt` does.
+                let sent = if session.turn().is_some() && queued_agent_command(session, prompt_id) {
+                    self.interrupt_for_queued(session, prompt_id, editor).await?
+                } else {
                     match self.send_queued_now(session, prompt_id, control, device, editor)? {
                         Some(sent) => Some(sent),
                         None => self.step_now(session, prompt_id, control, device, editor).await?,
-                    };
+                    }
+                };
                 reply.set("sent", json!(sent));
                 json!(sent.is_some())
             }
@@ -252,8 +338,15 @@ impl Hub {
                 reply.set("sent", json!(sent));
                 json!(sent.is_some())
             }
-            "resume" => json!(self.resume_queue(session)),
-            "withdraw" => json!(self.withdraw_steer(session, prompt_id, control, editor).await?),
+            "resume" => {
+                let resumed = self.resume_queue(session);
+                // The Stop's hold is over: what the inbox held back goes in (`inbox_review`).
+                self.inbox_review(session);
+                json!(resumed)
+            }
+            "withdraw" => {
+                json!(self.withdraw_steer(session, prompt_id, control, device, editor).await?)
+            }
             _ => {
                 let e = "op must be update, move, send_now, interrupt, resume or withdraw";
                 return Err(RpcError::invalid_params(e));
@@ -291,19 +384,23 @@ impl Hub {
         // reach the log in the order their revisions were given, so a restart restores the last
         // words and never pairs an approval with older ones (`restore_queue`).
         let mut queue = session.queue.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
-        let (turn_id, run, text, revision) = {
+        let (turn_id, run, text, revision, was) = {
             let Some(q) = queue.iter_mut().find(|q| q.prompt_id == prompt_id) else {
                 return Ok(false);
             };
             crate::author::may_change(editor, q.sender())?;
+            // As it was, for an edit a restore's hold could not keep (`append_answered`).
+            let was = (q.run.clone(), q.preview.clone(), q.revision);
             // Approved, it runs the words the owner approved (`queue_approve.rs`).
             let again = crate::author::awaits_owner(q.run.provenance.as_ref());
             if again && !q.awaiting_owner {
                 return Err(super::queue::approved_error());
             }
             let (mut blocks, origin) = edit.blocks(&q.run.blocks);
-            // Only `session/prompt` adds a hidden context (prompt_context.rs).
+            // Only `session/prompt` adds a client's hidden context (prompt_context.rs); the tools
+            // note follows the edited words (`tool_mentions.rs`), so it comes or goes with them.
             crate::prompt_context::strip_marks(&mut blocks);
+            crate::tool_mentions::add_note(&mut blocks);
             let text = prompt_text(&blocks);
             // Its images keep their names and their original files (`moved_display_parts`),
             // checked again against the blocks they name now.
@@ -318,12 +415,16 @@ impl Hub {
                 blocks,
                 display_parts,
                 control: stricter(q.run.control, control),
+                cloud_mobile: q.run.cloud_mobile,
                 trust_gate: q.run.trust_gate || trust_gate,
-                // The person rewrote it: it is no longer the sender's message, unless the sender
-                // is that person.
-                provenance: q.run.provenance.clone().filter(|p| {
-                    crate::author::of_provenance(Some(p)).is_some_and(|id| editor == Some(Some(id)))
-                }),
+                // The person rewrote it: it keeps who sent it and says who edited it, and nothing
+                // of what its provenance did (`edited_provenance`). Its ask (`class`) was the
+                // sender's words' and goes.
+                provenance: edited_provenance(q.run.provenance.as_ref(), editor),
+                // What it does is the person's now, apart from who it names: no agent's message to
+                // clear with an agents-only removal, hold for a stop or fold into a digest
+                // (`queue.rs` `remove_queued_by`, `digest.rs`), as a restart reads the same edit
+                // (`queue_updated` drops `fromAgent`). Its sender stays in `provenance` only.
                 agent: None,
                 class: None,
                 supersede: None,
@@ -331,13 +432,13 @@ impl Hub {
                 message_id: None,
                 message_sender: None,
             });
-            q.preview = short_text(&text, 200);
+            q.preview = short_text(super::inbox::relay_body(&text), 200);
             // Its author's edit of a prompt that waits for the owner is a new revision: an
             // approval names the words the owner saw (`queue_approve.rs`).
             if again {
                 q.revision = q.revision.saturating_add(1);
             }
-            (q.turn_id.clone(), q.run.clone(), text, again.then_some(q.revision))
+            (q.turn_id.clone(), q.run.clone(), text, again.then_some(q.revision), was)
         };
         let mut msg = json!({"promptId": prompt_id, "turnId": turn_id, "text": text, "prompt": run.blocks, "control": run.control.as_str(), "trustGate": run.trust_gate});
         if let Some(revision) = revision {
@@ -360,9 +461,16 @@ impl Hub {
         if let Some(display_parts) = &run.display_parts {
             msg.set("displayParts", display_parts.clone());
         }
+        let mut msg = crate::prompt_provenance::marked(msg, run.provenance.as_ref());
         super::session::mark_pasted(&mut msg, &run.blocks);
-        let msg = crate::prompt_provenance::marked(msg, run.provenance.as_ref());
-        self.append(session, "mux", "queue_updated", msg);
+        // An edit a restore's hold could not keep on disk is undone and refused (review of
+        // #37284 at b7496c3f, F1): b7496c3f answered it made, and a crash lost it.
+        if let Err(e) = self.append_answered(session, "mux", "queue_updated", msg) {
+            if let Some(q) = queue.iter_mut().find(|q| q.prompt_id == prompt_id) {
+                (q.run, q.preview, q.revision) = was;
+            }
+            return Err(e);
+        }
         drop(queue);
         Ok(true)
     }
@@ -376,7 +484,7 @@ impl Hub {
         index: usize,
         editor: crate::author::Editor<'_>,
     ) -> Result<bool, RpcError> {
-        let order: Vec<String> = {
+        {
             let mut queue = session.queue.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
             let Some(from) = queue.iter().position(|q| q.prompt_id == prompt_id) else {
                 return Ok(false);
@@ -389,10 +497,17 @@ impl Hub {
             let q = queue.remove(from);
             let to = index.min(queue.len());
             queue.insert(to, q);
-            queue.iter().map(|q| q.prompt_id.clone()).collect()
-        };
+            let order: Vec<String> = queue.iter().map(|q| q.prompt_id.clone()).collect();
+            // Logged under the lock that moved it, as `update_queued` logs an edit; one a
+            // restore's hold could not keep on disk is moved back and refused.
+            let msg = json!({"promptId": prompt_id, "order": order});
+            if let Err(e) = self.append_answered(session, "mux", "queue_order", msg) {
+                let q = queue.remove(to);
+                queue.insert(from, q);
+                return Err(e);
+            }
+        }
         session.queue_moved.notify_waiters();
-        self.append(session, "mux", "queue_order", json!({"promptId": prompt_id, "order": order}));
         Ok(true)
     }
 
@@ -433,6 +548,7 @@ impl Hub {
                     blocks: q.run.blocks.clone(),
                     display_parts: q.run.display_parts.clone(),
                     control,
+                    cloud_mobile: q.run.cloud_mobile,
                     trust_gate: q.run.trust_gate,
                     provenance: q.run.provenance.clone(),
                     agent: q.run.agent.clone(),
@@ -517,6 +633,7 @@ impl Hub {
         session: &Arc<Session>,
         prompt_id: &str,
         control: Control,
+        device: Option<&str>,
         editor: crate::author::Editor<'_>,
     ) -> Result<bool, RpcError> {
         let waiting = session
@@ -531,7 +648,7 @@ impl Hub {
         };
         mine?;
         // Who may steer may take one back; taking it back raises no turn's control.
-        self.web_control_check(session, control)?;
+        self.web_control_check(session, control, device)?;
         let child = session.child.lock().await.clone();
         let (Some(child), Some(sid)) = (child, session.meta().agent_session_id) else {
             return Ok(false);

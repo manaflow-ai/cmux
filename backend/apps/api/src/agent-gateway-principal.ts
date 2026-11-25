@@ -6,7 +6,7 @@ import { principalForOwner } from "./team-select.ts"
 import { withGrantClasses } from "./auth.ts"
 import { mcpScopesForGrant } from "./mcp-grant.ts"
 
-export const agentGatewayOn = (env: Env) => env.PLATFORM_AGENT_GATEWAY === "on" && (env.ENVIRONMENT === "development" || env.ENVIRONMENT === "test")
+export const agentGatewayOn = (env: Pick<Env, "PLATFORM_AGENT_GATEWAY" | "ENVIRONMENT">) => env.PLATFORM_AGENT_GATEWAY === "on" && (env.ENVIRONMENT === "development" || env.ENVIRONMENT === "test")
 // The stored approval retains the source install/grant and original chief identity (if any).
 // MCP's agent field is an invocation identity, never a chief id to pass to UserDO.installGrant.
 type GatewayPrincipal = Principal & { readonly mcp_session: string; readonly mcp_caller_agent?: string }
@@ -31,7 +31,7 @@ export const resolveConnectionPrincipal = async (env: Env, p: Principal): Promis
   const source = { ...p, kind: "install" as const, identity: p.install!, agent: p.mcp_caller_agent }
   const live = await withGrantClasses(env, source)
   if (!live || !mcpScopesForGrant(live.install_kind, live.grant_classes).includes("mcp:write")) return undefined
-  const team = env.TEAM_DO.get(env.TEAM_DO.idFromName(p.team!)) as unknown as { memberRole(entity: string, user: string): Promise<string | null> }
+  const team = env.TEAM_DO.get(env.TEAM_DO.idFromName(p.team!))
   const role = await team.memberRole(p.team!, p.user!)
   if (!roleHas(role ?? undefined, "team.resources")) return undefined
   return agentGatewayPrincipal(live, p.mcp_session)

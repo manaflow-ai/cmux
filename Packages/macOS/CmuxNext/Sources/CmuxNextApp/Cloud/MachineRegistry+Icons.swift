@@ -2,6 +2,7 @@ import CmuxNextBridge
 import CmuxNextDaemon
 import CmuxNextRemote
 import CmuxNextSidebar
+import CmuxNextTabs
 
 // Machine icons (`session-icon-v1`, cx-qno.11.4): the home daemon's session
 // registry keeps each machine's icon on its session record. The app only
@@ -15,7 +16,7 @@ extension MachineRegistry {
     /// unreachable server), the home record whose `transport` names it.
     func sessionID(machine machineID: String) -> String? {
         if let id = anyDaemon(machine: machineID)?.store.registryID { return id }
-        return local.store.personal.sessions.first { Self.machineID(transport: $0.transport) == machineID }?.id
+        return local.store.personal.sessionIcons.first { Self.machineID(transport: $0.transport) == machineID }?.id
     }
 
     /// The machine a registry `transport` (`SessionRegistrar.transport`)
@@ -35,19 +36,26 @@ extension MachineRegistry {
     /// when it has none or is not recorded yet.
     func icon(machine machineID: String) -> String? {
         guard let session = sessionID(machine: machineID) else { return nil }
-        return local.store.personal.session(session)?.icon
+        return local.store.personal.sessionIcon(session)?.icon
     }
 
-    /// `sections` with each machine header carrying its icon. A stored
-    /// asset is read from the home daemon, which holds machine icons' assets.
+    /// `sections` with each machine header carrying its icon (`PersonalStore.sessionIcons`, no heartbeat; a stored asset
+    /// from the home daemon), else its device (`SidebarMapping.deviceSymbol`: a Cloud machine's cloud, a Mac mini...).
     func withMachineIcons(_ sections: [SidebarRowSection]) -> [SidebarRowSection] {
         let asset = IconAssetImages.shared.sidebarIcon(owner: local)
         return sections.map { section in
             guard case .machine(var machine) = section.kind else { return section }
-            machine.icon = SidebarMapping.machineIcon(icon(machine: machine.id.rawValue), asset: asset)
+            machine.icon = SidebarMapping.machineIcon(icon(machine: machine.id.rawValue), asset: asset, device: SidebarMapping.deviceSymbol(kind: machine.kind, reported: anyDaemon(machine: machine.id.rawValue)?.store.identity?.machineSymbol))
             var drawn = section
             drawn.kind = .machine(machine)
             return drawn
         }
+    }
+
+    /// Machine `machineID`'s icon as its shell tabs draw it (`tabs.shellIconTheme` machine, TabItem+ShellIconTheme):
+    /// its header's icon, else a Cloud machine's cloud, else its device's symbol.
+    func shellTabIcon(machine machineID: String) -> TabIcon? {
+        TabItem.shellMachineIcon(registry: TabUserIcon.shared.icon(icon(machine: machineID), asset: IconAssetImages.shared.tabIcon(owner: local)),
+                                 isCloud: session(machineID) != nil, deviceSymbol: anyDaemon(machine: machineID)?.store.identity?.machineSymbol)
     }
 }

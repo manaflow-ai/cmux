@@ -45,7 +45,7 @@ and are cited by file name only. Do not copy them into the repo.
 | Dark background | #151515 warm gray | #000000 | #000000 | #000000: 2 of 3, OLED, and the brief asks for true black. |
 | Assistant font | Serif (Tiempos-like) | SF Pro | SF Pro | SF Pro `body`. A serif is Claude's brand, not shared language. |
 | User bubble | #2C2C2A gray | #020661 blue tint | #333333 gray | Gray (`bubble` token). No blue. |
-| Primary circle when empty | Voice waveform (white) | Voice waveform (blue) | "Speak" capsule (white) | We have no voice mode: a send arrow, disabled at 30% when empty (ChatGPT's own Scheduled composer, `chatgpt-30-scheduled`). There is no mic button: iOS has no API to start dictation, so the keyboard's own mic dictates into the field. |
+| Primary circle when empty | Voice waveform (white) | Voice waveform (blue) | "Speak" capsule (white) | Voice mode waveform (Aziz 2026-11-03): a GPT Realtime line to the agent that reads its replies aloud, without code. There is no dictation mic: the keyboard's own mic dictates into the field. |
 | `+` | Sheet with photo strip | Menu | Menu | Menu (2 of 3). Photos opens `PhotosPicker` inline. |
 | Sidebar | Push-aside card | Push-aside card | Full-screen page | Push-aside card (2 of 3), section 3.3. |
 | Settings presentation | Sheet, swipe to dismiss | Full-screen, X only | Sheet | It is a tab in cmux-next-ios (the brief), so no presentation question. Sub-pages push. |
@@ -224,8 +224,11 @@ all three apps). Settings row icons 17 pt in a 22 pt frame.
 ### 2.6 Haptics (`CmuxMobileHaptics`)
 
 SwiftUI `.sensoryFeedback`, or `UIFeedbackGenerator` from UIKit code. All gated by Settings >
-Haptic feedback (Claude has this toggle, `claude-08-settings-bottom`; ChatGPT FAQ documents its own).
-Also respect the system haptics switch (automatic) and skip all haptics in Low Power Mode (ChatGPT does).
+Haptic feedback, **default off** (Leo, 2026-11-23: "ive turned off all haptics already, so dont inject
+haptic noise when i havent asked for it. ever."). Also respect the system haptics switch (automatic) and
+skip all haptics in Low Power Mode (ChatGPT does). Every call goes through the gate; no raw
+`UIFeedbackGenerator`, `.sensoryFeedback`, `AudioServicesPlaySystemSound` or `playInputClick` outside
+the gate files (`design/haptics-audit.md` lists every site).
 
 | Event | Feedback |
 | --- | --- |
@@ -239,8 +242,8 @@ Also respect the system haptics switch (automatic) and skip all haptics in Low P
 | Team switch, chip/segment change, picker change | `.selection` |
 | Sidebar crosses the open threshold during a pan | `.impact(weight: .light, intensity: 0.5)` once per crossing |
 | Copy | `.impact(weight: .light, intensity: 0.7)` + icon swap |
-| Joystick step | `.selection`, throttled to 30 Hz |
-| Key bar key | `.impact(weight: .light, intensity: 0.5)` (setting "Key clicks", default on) |
+| Joystick step | none (a key press follows the keyboard's own Keyboard Feedback setting, which no app can read) |
+| Key bar key | none. Setting "Key clicks" (default off) plays the system key click sound only when turned on |
 | Pull to refresh trigger | system |
 | Long press menus, toggles | system |
 
@@ -331,7 +334,7 @@ TabView(selection: $tab) {
 
 ### 3.3 Team sidebar (push-aside drawer)
 
-Scope: team switching only (Stack Auth teams) plus "Invite to team". No navigation destinations,
+Scope: team switching only (Stack Auth teams) plus Invite. No navigation destinations,
 no recents (that is the tab bar's job).
 
 Geometry (measured ChatGPT 330, Claude 320 on a 440 pt screen):
@@ -384,10 +387,12 @@ Swipe rules (app-wide, user decision 2026-10-13, `verify/swipes.md`):
 
 Content (top to bottom):
 
-1. Header row, 20 pt side margin, centered at the toolbar line: "cmux" wordmark text
-   (`sidebarTitle`) leading; trailing 44 pt glass circle `plus` → menu: "Create team",
-   "Join with invite link". (Header layout is `chatgpt-03-sidebar`.)
-2. Section label "Teams" (`meta`, `label2`), 20 pt margin, 24 pt above the first row.
+1. Header row, 20 pt side margin, centered at the toolbar line: the title "Teams"
+   (`sidebarTitle`, one line) leading, no brand wordmark (Aziz 2026-11-18: the app icon
+   already says cmux). Trailing: the 44 pt glass circle `plus` → menu: "Create team",
+   "Join with invite link".
+   (Header layout is `chatgpt-03-sidebar`.)
+2. No section label: the header names the list; 16 pt above the first row.
 3. Team rows (`List` style plain, no separators), each 60 pt:
    - Leading avatar 36 x 36, rounded square radius 10 continuous: team color fill with the
      emoji (22 pt) centered, or the team initial (`headline`, `onAccent`-style white) if no emoji.
@@ -403,14 +408,16 @@ Content (top to bottom):
    - Context menu (long press): "Change color and emoji" (`paintpalette`), "Invite to team"
      (`person.badge.plus`), "Copy team name", divider, "Leave team" (destructive, confirmation
      alert). Pattern: `grok-15-row-context-menu`.
-4. Row "Invite to team" (`person.badge.plus`, `body`), 48 pt, after the team list. Opens the
-   share sheet with the Stack invitation URL from `POST /v1/teams/:teamId/invites` (show a
-   `ProgressView` in the row while fetching).
-5. Bottom bar (pinned, 20 pt margins, 8 pt above the bottom safe area):
-   - Leading: primary capsule "Invite" with `person.badge.plus` (48 h, `accent` fill,
-     `onAccent` text, `cta` font). Measured `claude-01-sidebar` "New session".
-   - Trailing: 48 pt circle avatar of the signed-in user (initials on `surfaceRaised`, like
-     Claude's "AA"), opens Settings > Account and closes the drawer.
+4. No "Invite to team" row under the list (it read as another team and did not say which
+   team it invited to). Instead, a bottom toolbar item at the trailing edge (Aziz
+   2026-11-19): "Invite" (`person.badge.plus` + "Invite" in a 44 pt glass capsule, 20 pt
+   margin, 8 pt above the bottom safe area, for the selected team; VoiceOver "Invite to
+   <team>"; spinner while the link is made; glyph only, in a 44 pt circle, at accessibility
+   text sizes; absent for the personal space). It opens the share sheet with the Stack invitation
+   URL from `POST /v1/teams/:teamId/invites`; another team is invited from its row's
+   context menu.
+5. Bottom bar (pinned, 20 pt margins, 8 pt above the bottom safe area): only Invite, at the
+   trailing edge (item 4). The account lives in Settings, not here.
 
 Team switch: tap row → `.selection` haptic, row highlight moves (`snap`), drawer closes
 (`drawer`), then the shell crossfades (`gentle`) to the new team's data; lists show skeletons
@@ -443,7 +450,7 @@ snapshot test in light and dark at Large and AX3 Dynamic Type.
 | Component | Spec |
 | --- | --- |
 | `GlassCircleButton(symbol:)` | 44 pt, toolbar item where possible; elsewhere `.glassEffect(.regular.interactive(), in: .circle)`. Symbol 17 regular. |
-| `PrimaryCapsule(title:, size: .large/.inline)` | `accent` fill, `onAccent` label, `cta` font; large 52 h full width, inline 40 h. Pressed: opacity 0.85, scale 0.98 (`snap`). Disabled: `fill` background, `label3` text (measured "Continue" gray in `chatgpt-05`, "Pair" in `chatgpt-09`). Loading: label replaced by `ProgressView().tint(onAccent)`, width kept. |
+| `PrimaryCapsule(title:, size: .large/.inline)` | `accent` fill, `onAccent` label, `cta` font; large 52 h full width, inline 40 h. Pressed: opacity 0.85, scale 0.98 (`snap`). Disabled: `fill` background, `label3` text (measured "Continue" gray in `chatgpt-05`, "Pair" in `chatgpt-09`). Loading: label replaced by `CmuxSpinner(tint: onAccent)` (the shared spinner, on the period every cmux spinner turns at), width kept. |
 | `SecondaryCapsule` | `.buttonStyle(.glass)`, same sizes, `label` text. |
 | `TextCTA` | Plain `label` text button, `cta` font (e.g. "Enter code manually", `chatgpt-11`). |
 | `DestructiveRow` | `danger` text and icon in its own inset group ("Log out"). |
@@ -531,10 +538,11 @@ Layout (expanded or focused), inside a `GlassEffectContainer`:
   "Effort" (Low / Medium / High / Max, Picker). Values come from ACP session config; hide the
   pill when the agent exposes none. (ChatGPT's effort slider, `chatgpt-33`, is a custom
   surface; a menu is native and fits ACP's discrete options.)
-- Mic (36 pt, `fill`): starts system dictation into the field
-  (`UITextInputMode` dictation via the keyboard is the fallback; prefer on-device
-  `SpeechAnalyzer` streaming into the field, live text in `label2` until final).
-- Primary (36 pt): `idle-empty` = `arrow.up` on `fill`, glyph `label3` (disabled);
+- Voice mode (36 pt, `waveform`; Aziz 2026-11-03, replaces the dictation mic): starts a GPT
+  Realtime line to the agent. Its new replies are read aloud without code, diffs or tool calls,
+  what the person says is sent as the next prompt; on while it runs (`onAccent` on `accent`).
+  The keyboard's own mic still dictates into the field.
+- Primary (36 pt): `idle-empty` = voice mode `waveform` (agent chat), else `arrow.up` on `fill`, glyph `label3` (disabled);
   `idle-text` = `arrow.up` on `accent`, glyph `onAccent`; `running` = `stop.fill` on `accent`;
   `queued` (text while running) = `arrow.up` on `accent` with a 2 pt `label2` ring; long-press
   → menu "Queue (send after this turn)" / "Steer now (interrupt)" (Codex "Follow-up behavior:
@@ -761,6 +769,11 @@ pill (Chief model is configured on the Mac). Everything below applies to both un
   bottom content inset = composer height + 16.
 - Empty (new session): centered glyph (agent avatar 48) + `title3` "What should <agent> do?"
   + `rowSubtitle` "<workspace> on <Mac>". Composer focused only if the user tapped "new".
+  The first time a new chat shows, the mark, title, subtitle and composer rise in
+  (`NewChatEntrance.rise`: 10-14 pt + fade, mark from 90%, 50 ms apart, spring response 0.5 /
+  damping 0.84, settled by ~450 ms). Render only: the composer takes typing from frame 0; the
+  start pose holds through the first drawn frame; Reduce Motion draws it at rest. At launch the
+  shell arrives from 104% on a 0.55 / 0.86 spring as the launch mark leaves.
   (`claude-05-composer-focused`, Grok "Ask Anything" home `grok-01`.)
 - History loads newest-first in pages of 50 turns; older pages prepend while keeping the scroll
   offset (anchor on the first visible turn id). Top-of-history: `meta` "Session started
@@ -816,8 +829,8 @@ When the agent requests permission (ACP `session/request_permission`):
 
 ### 6.6 Questions (AskUserQuestion / ACP elicitation)
 
-- `QuestionCard`: `surface` radius 20, padding 16; header `questionmark.bubble` + question text
-  (`headline`); optional `rowSubtitle` context.
+- `QuestionCard`: `surface` radius 20, padding 16; header row: the item's header (caption, uppercased) and "1 of N",
+  no icon; then the question text (`headline`); optional `rowSubtitle` context.
 - Single choice: options as 48 h rows inside the card, radius 14, `fill`; selected:
   `fillSelected` + trailing `checkmark` (`label`). Multi-select: trailing `circle` /
   `checkmark.circle.fill`. Last row "Other..." expands an inline text field.
@@ -884,8 +897,9 @@ pulsing (new content below).
 | Alert style (mode change notice) | `claude-04-new-session-alert` |
 
 No reference exists for tool rows, permission and question cards, or plans: compare against
-Claude's and Codex's own mobile session views when captured (TapKit only with explicit
-permission), and against Cursor iOS / T3 Code App Store screenshots.
+Claude's and Codex's own mobile session views when captured (from the user's real phone only
+when the user explicitly asks and the phone is connected), and against Cursor iOS / T3 Code
+App Store screenshots.
 
 ---
 
@@ -937,13 +951,16 @@ in the available area (above the composer when one exists): symbol 28 pt `label`
 
 ### 7.4 Offline and reconnecting
 
-- Connection banner (global overlay under the toolbar, centered, 8 pt below the toolbar line):
-  glass capsule 36 h, padding 14, `footnote` semibold:
-  - Reconnecting: small `ProgressView` + "Reconnecting to <Mac>…". Shown only after 1.5 s of
-    disconnection (most blips heal silently).
-  - Offline (no network): `wifi.slash` + "You're offline".
-  - Mac offline: `moon.zzz` + "<Mac> is offline". Tap → sheet with last seen time and "Wake
-    with Wake-on-LAN" (when supported, future) / "Retry".
+- Connection chip (`ConnectionChip`, a global overlay under the toolbar, centered, 8 pt below
+  the toolbar line): glass capsule 26 h, padding 10, `meta` semibold, one or two words, never a
+  sentence; the sentence is its VoiceOver label. It floats over the content and takes no room:
+  showing or hiding it moves nothing (Leo, 2026-11-21: "stop layout shifting"). Shown only after
+  the 10 s quiet gate (`QuietStatusGate`; most blips heal silently).
+  - Reconnecting: spinner + "Reconnecting".
+  - Offline (no network): `wifi.slash` + "Offline"; the chip is a Retry button.
+  - Mac offline: `moon.zzz` + "Mac offline"; the chip is a Retry button.
+- A state with a sentence to read or an action (signed out, pairing, a failed refresh) is the
+  wider banner (glass, 36 h, `footnote` semibold), also an overlay that moves nothing.
   - Recovered: `checkmark` + "Connected" for 1.5 s then hides.
   Enter/exit: move from y - 12 + opacity, `snappy`. Never more than one banner.
 - Stale data: lists keep the last snapshot visible with rows at full opacity; a `meta` "Updated
@@ -970,6 +987,12 @@ permission requests, errors, PR events.
   Errors (4.1 `Chip`). Chips mirror the filter menu.
 - `List(.plain)` with 0.5 pt separators from the text column (4.2.1), `bg`. New events above the
   viewport: glass capsule "↑ 3 new" centered under the toolbar; tap scrolls to top with `smooth`.
+- Needs you pinned: open questions and permission requests (and terminal agents waiting for input)
+  lead the list, newest first among them, then every other event newest first, as the Mac's Feed
+  pins its open requests. An ask that closes drops to its place in time, and its push leaves
+  Notification Center (`NeedsYouNotices`). The open count is the Feed tab's badge; no app icon
+  badge (HIG Notifications: a badge counts unread notifications, and a badge set to zero clears
+  the app's notifications from Notification Center).
 - Tab bar stays fully visible while the list scrolls (3.2).
 
 ### 8.2 Cell
@@ -1047,7 +1070,7 @@ Tab root, `NavigationStack`, toolbar: leading drawer circle, principal "Settings
 | (Account card, no header) | Avatar 40 (initials) + name (`body` semibold) + email (`footnote` `label2`) + chevron → Account page (name, email, linked sign-in methods with badges Apple / Google / GitHub / Email, "Delete account" red at the bottom). Pattern `claude-07-settings`, `grok-12-settings`. |
 | Team | "<Team name>" row with team avatar (28) → Team page: Color and icon (3.4), Members (read-only list from Stack, owner badge), Invite to team, Leave team (red). Footer: "Color and icon are yours only; teammates choose their own." (prefs are per user per team, PROTOCOL.md) |
 | Connection | Transport: inline `Picker` menu "WebRTC" / "WireGuard" (value trailing with `chevron.up.chevron.down`, like Codex "Follow-up behavior: Queue"). Footer: "Switching reconnects to your Macs." / Paired Macs → page: rows with `StatusDot` + name + `footnote` "Online · WebRTC direct" / "Last seen 3h ago", swipe to Unpair; "Pair a Mac" row with `plus` in `label` (not blue; Codex uses blue "Add connection", `chatgpt-14`); "Disconnect all" trailing in the section header as `label2` text button. / Show connection details (toggle: shows path type, RTT, relay in the terminal title menu). |
-| Terminal | Font size (stepper 9–24, live preview row in the terminal theme), Theme (picker of Ghostty themes with swatches; default follows the Mac's theme), Key bar (page: reorder and toggle keys, 10.4), Composer: "Dismiss keyboard after sending" (toggle, on), "Follow-up while running" (Queue / Steer), "Wrap code and diff lines" (toggle, off), "Key clicks" (toggle, on). |
+| Terminal | Font size (stepper 9–24, live preview row in the terminal theme), Theme (picker of Ghostty themes with swatches; default follows the Mac's theme), Key bar (page: reorder and toggle keys, 10.4), Composer: "Dismiss keyboard after sending" (toggle, on), "Follow-up while running" (Queue / Steer), "Wrap code and diff lines" (toggle, off), "Key clicks" (toggle, off; plays the system key click sound, never a haptic). |
 | Appearance | Three tiles Light / Dark / System (`claude-08-settings-bottom`): 96 x 64 rounded previews radius 14, selected 2 pt `label` stroke and the label in `label` semibold (Claude uses blue; we use label). Haptic feedback toggle. |
 | Notifications | Allow notifications (system status row → opens iOS Settings if denied), Questions and permissions (toggle), Finished tasks (toggle), Errors (toggle), Live Activities ("One per agent" / "Only when waiting" / "Off", menu picker; Codex "Live Activities: One per remote"). |
 | Security | Require Face ID (toggle; footer "Require Face ID or passcode to open mobile on this device.", `chatgpt-15-codex-settings-bottom`). |
@@ -1089,14 +1112,16 @@ dictation). Codex and our own REFERENCES.md: "Terminal screen = chat screen".
 
 From bottom to top, inside one `GlassEffectContainer(spacing: 8)`, side margin 8:
 
-1. Key bar (only while the keyboard is up; hidden when a hardware keyboard is attached, like
-   Blink and Termius): 44 h glass capsule, horizontally scrollable middle with fixed ends:
+1. Key bar (only while the soft keyboard is up; hidden when it is down or a hardware keyboard is
+   attached, like Blink and Termius; Leo, 2026-11-23: "why are those things always showing?"). It is
+   never counted in the terminal's resting height, so the PTY keeps its rows as the keyboard comes and
+   goes. 44 h row, style per `KeyBarStyle` (caps, strip, inset; see `design/terminal-key-row.md`), horizontally scrollable middle with fixed ends:
    - Leading fixed: `esc` (Esc), `ctrl` (sticky modifier: tap = one-shot, highlighted
      `fillSelected`; double tap = lock, `accent` fill), `alt`.
    - Middle (scrolls): `tab`, `⇧tab` (Termius added Shift-Tab for Claude Code modes), `|`, `~`,
      `/`, `-`, `` ` ``, `{`, `}`, `[`, `]`, `^C`, `^D`, `^Z`, `^L`, `^R`, tmux prefix (`^B`).
-     Each key cap 40 x 34, radius 10, `fill`, label `subheadline` mono; press: `fillPressed` +
-     scale 0.92 (`snap`), key-click haptic.
+     Each key target at least 44 x 44 (Leo: "the buttons are really small"), glyph 17 pt, label
+     16 pt mono; press: `fillPressed` + scale 0.92 (`snap`), no haptic.
    - Trailing fixed: joystick (10.3), then `keyboard.chevron.compact.down` (hide keyboard).
 2. Composer row (always visible): a one-line glass capsule 48 h (`CmuxMobileComposer` collapsed metrics)
    with `+` (Photos, Camera, Files → uploads to the Mac and inserts the path; Paste image),
@@ -1115,12 +1140,12 @@ bottom safe area and the key bar is hidden.
 
 ### 10.3 Joystick
 
-- 36 pt glass circle in the key bar with a 14 pt `label2` dot (thumb). Touch and drag: the
-  thumb follows the finger within a 28 pt radius; direction quantized to 4 ways (8 with a
+- 44 pt glass circle in the key bar with a 14 pt `label2` dot (thumb). Touch and drag: the
+  thumb follows the finger within a 22 pt radius; direction quantized to 4 ways (8 with a
   setting); sends arrow keys while held.
 - Gears (Termius): distance from center 8–16 pt = gear 1 (repeat every 160 ms), 16–24 pt =
   gear 2 (80 ms), > 24 pt = gear 3 (30 ms). First key fires immediately on crossing 8 pt.
-  `.selection` haptic per key at gears 1–2, every 4th key at gear 3.
+  No haptic (2.6).
 - Release: thumb returns with `springBack`.
 - Alternative (Termius): long-press-and-slide on the space bar is a system gesture we cannot
   intercept; long press on the terminal surface in direct mode with no selection intent
@@ -1149,13 +1174,13 @@ full spec: `verify/workspaces-design-loop.md`. Code: `CmuxMobileWorkspaces/Works
 (view) and `WorkspaceInbox.swift` (sections, status, search, folding; unit tested).
 
 - Toolbar: leading drawer, inline title "Workspaces" with a `navigationSubtitle`: the
-  filtered Mac and its presence; else "Updating…" when a refresh takes over 1.5 s; else
-  "N need you"; else with 2+ Macs "2 of 3 Macs online". Trailing glass capsule: the Mac
-  filter (only with 2+ Macs) and New Workspace.
+  filtered Mac's name; else "N need you"; else nothing. No presence, link or "2 of 3 Macs
+  online" words (Leo, 2026-11-24: "red dot green dot when you switch between your computers'
+  stuff"). Never that a refresh runs. Trailing glass capsule: the Mac filter (only with 2+
+  Macs) and New Workspace.
 - Mac filter: a toolbar `Menu` of `Toggle`s (a checkmark on the chosen one): All Macs, then
-  each Mac (online first, `desktopcomputer`; the model has no Mac kind) titled with its name
-  and subtitled with its presence ("Online" / "Last seen 2h ago", plus the link line in live
-  mode). Not an inline `Picker`: it drops the subtitles. Filtered fills the symbol
+  each Mac (online first) titled with its name and a green (online) or red (offline) dot; its
+  presence words are the VoiceOver value only. Not an inline `Picker`: it drops the dots. Filtered fills the symbol
   (`line.3.horizontal.decrease.circle.fill`). Remembered per team
   (`cmuxMobile.workspaces.macFilter.<team>`). In live mode, picking an online Mac the phone is not
   linked to links it.
@@ -1202,8 +1227,11 @@ full spec: `verify/workspaces-design-loop.md`. Code: `CmuxMobileWorkspaces/Works
   is opened until it has newer activity. Copy says "is waiting": the Mac does not say
   whether it is a permission or a question.
 - Tap: a needs-you workspace opens on its waiting tab, which shows the pending permission or
-  question card; otherwise the last tab used on this device, else the Mac's active tab
-  (`Workspace.activeTabID`), else the first. Offline: no push; an alert "<Mac> is offline"
+  question card; otherwise the tab left on screen there in this launch (back to the list and
+  in again lands where you were; Leo 2026-11-14), else the active tab of the layout's
+  top-left pane, else the Mac's active tab (`Workspace.activeTabID`), else the first
+  (`WorkspaceOpeningTab`). An open that names a tab (a notification, link, Feed card, row
+  menu or search result) opens that tab. Offline: no push; an alert "<Mac> is offline"
   with last seen.
 - Hold a row: a menu headed "<Mac> · <branch or directory>" ("· Offline"): one item per tab
   (opens that tab; an agent tab is titled with its task, as on the row, with the agent as
@@ -1220,7 +1248,10 @@ full spec: `verify/workspaces-design-loop.md`. Code: `CmuxMobileWorkspaces/Works
 - States (live mode reads each Mac's `MacDataMachine` phase): team loading with no cache, or
   the linked Mac dialing with nothing known → `SkeletonList`. Last-known (snapshot) rows show
   at 55 % opacity with no agent state (never "is waiting" from a cache) until the Mac
-  answers; while the link connects the subtitle reads "Updating…" after 1.5 s. An online Mac
+  answers; while the link connects nothing says it updates (Leo, 2026-11-24: "they dont need
+  to know that it's updating before they KNOW it's updating"): no subtitle, chip or hairline
+  over rows the phone has, on Workspaces, Agent Chats, Home or an agent chat; only a fact the
+  person can act on speaks (the Offline or Mac offline chip, `ConnectionChip.Kind.paints`). An online Mac
   whose dial failed with nothing known is a "<Mac> · Can't connect" line (Retry); filtered to
   it, "Can't connect to <Mac>" + Retry. Team failed → "Couldn't load workspaces" + Retry. Filtered online Mac with none → "No workspaces on <Mac>" + New Workspace; filtered
   offline Mac → "<Mac> is offline"; live, filtered to an online Mac the phone is not linked to

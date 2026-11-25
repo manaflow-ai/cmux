@@ -26,6 +26,49 @@ def run(*argv, **kw):
     return subprocess.run(list(argv), capture_output=True, text=True, timeout=kw.pop("timeout", 120), **kw)
 
 
+def stage_lock_py():
+    """The stage lock helper of austins-day.sh (its stage_lock_py string), run as the mini runs it."""
+    text = open(os.path.join(HERE, "austins-day.sh")).read()
+    return re.search(r"stage_lock_py='(.*?)'\n", text, re.S).group(1)
+
+
+class StagedBuilds(unittest.TestCase):
+    """A run marks each build it stages and the last run to end removes it (cmux24, 2026-11-02: 7 staged
+    builds of 1 GB stayed)."""
+
+    def stage(self, root, *args):
+        r = run(sys.executable, "-I", "-c", stage_lock_py(), os.path.join(root, "builds", "job1"), *args)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        return r.stdout.strip()
+
+    def test_the_last_run_removes_the_stage_and_another_run_keeps_it(self):
+        with tempfile.TemporaryDirectory() as root:
+            stage = os.path.join(root, "builds", "job1")
+            self.stage(root, "run-a", "mark")
+            self.stage(root, "run-b", "mark")
+            app = os.path.join(stage, "cmux DEV t.app", "Contents")
+            os.makedirs(app)
+            os.chmod(os.path.dirname(app), 0o500)  # read-only, as some app copies are
+            self.assertIn("kept", self.stage(root, "run-a", "release"))
+            self.assertTrue(os.path.isdir(app))
+            self.assertIn("removed", self.stage(root, "run-b", "release"))
+            self.assertFalse(os.path.exists(stage))
+            self.assertEqual(sorted(os.listdir(os.path.join(root, "builds"))), ["job1.lock"])
+
+    def test_a_release_without_a_mark_or_a_stage_is_a_no_op(self):
+        with tempfile.TemporaryDirectory() as root:
+            self.stage(root, "run-a", "release")
+            self.assertFalse(os.path.exists(os.path.join(root, "builds", "job1")))
+
+    def test_the_script_marks_before_staging_and_releases_on_every_exit(self):
+        text = open(os.path.join(HERE, "austins-day.sh")).read()
+        on_exit = text[text.index("on_exit() {"):text.index("trap on_exit EXIT")]
+        self.assertIn("release_stages", on_exit)
+        run_arm = text[text.index("run_arm() {"):]
+        self.assertLess(run_arm.index("stage_locked \"$stage\" \"$run_id\" mark"),
+                        run_arm.index("cmux-ci artifact"))
+
+
 class FakeClaude(unittest.TestCase):
     def test_hooks_run_per_tool_call_and_refusals_are_logged(self):
         with tempfile.TemporaryDirectory() as tmp:

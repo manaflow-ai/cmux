@@ -31,22 +31,82 @@ impl Hub {
     /// roots (`launch_roots.rs`) and cmux's tools as this spawn gives them,
     /// with the chat's choices. What Claude Code reported for the last
     /// process stays until its next system/init.
+    /// `reach_or_start` supplies the resolved `Spawn` profile: preset argv,
+    /// including `--system-prompt-file`, is already appended by `spawn_profile`.
     pub(super) async fn record_spawn_inputs(&self, session: &Session, profile: &HarnessProfile) {
         self.record_launch_roots(session, profile).await;
         let claude = profile.kind == crate::config::HarnessKind::ClaudeStdio;
         // Claude Code also leaves them out for `--strict-mcp-config`; an ACP
         // harness gets them in `mcpServers` whatever its args.
         let args: &[String] = if claude { &profile.argv } else { &[] };
-        let remote = session.meta().remote_origin;
+        let meta = session.meta();
+        let remote = meta.remote_origin;
         let left_out = crate::agent_tools::left_out(remote, &profile.env, args);
         session.launched_with_tools.store(if left_out { 2 } else { 1 }, Ordering::SeqCst);
         self.record_preview_format(session, crate::agent::preview_format(profile));
-        let mut cmux = if left_out {
-            Vec::new()
+        // Codex's answer for the person's own `cmux` entry, asked once for this start: the one a
+        // claimed pooled session's claim asked (`pool_claimed_codex_answer`), else the one this
+        // session's creation asked for this same launch (`codex_answer_asked`, taken: a later
+        // start asks again), else asked here off the runtime, remote-origin chats too. Its
+        // `session/new` or `session/load` reads it (`spawn.rs` `acp_params`).
+        let asked = session.codex_answer_asked.lock().unwrap_or_else(|e| e.into_inner()).take();
+        let answer = self
+            .pool_claimed_codex_answer(&session.id)
+            .or_else(|| asked?.for_launch(&meta.cwd, &profile.argv, &profile.env))
+            .unwrap_or_default();
+        *session.codex_answer.lock().unwrap_or_else(|e| e.into_inner()) = answer.clone();
+        let codex = crate::agent_tools::is_codex(&meta, Some(profile));
+        if codex {
+            crate::agent_tools::warm_codex_answer(&meta.cwd, &profile.argv, &profile.env, &answer)
+                .await;
+        }
+        let tools = if left_out {
+            crate::agent_tools::AgentTools::default()
         } else {
-            crate::agent_tools::current().scoped(&profile.env).tool_rows(claude, claude)
+            let tools = crate::agent_tools::current().scoped(&profile.env);
+            // The list a Codex chat gets (`spawn.rs` `acp_params`): no `cmux` beside the
+            // person's own HTTP `cmux` entry.
+            if codex {
+                tools.without_cmux_beside_an_http_entry(
+                    crate::agent_tools::CodexLaunch {
+                        cwd: &meta.cwd,
+                        argv: &profile.argv,
+                        answer: Some(&answer),
+                    },
+                    &profile.env,
+                )
+            } else {
+                tools
+            }
+        };
+        let mut cmux = tools.tool_rows(claude, claude);
+        let all =
+            crate::agent_tools::lists_all_tools(&meta.harness, profile, &profile.env, &meta.cwd);
+        let source_tools = tools.listing(all);
+        // ACP receives its immutable server list without Claude's off switch.
+        let source_tools =
+            if claude { source_tools.without_off(&profile.env) } else { source_tools };
+        // A skill row follows the plugin the session launched with (`fit_skills`, after the
+        // off switch), not the server rows' list.
+        let skill_prefix = format!("skill:{}:", crate::agent_tools::PLUGIN_NAME);
+        cmux.retain(|row| {
+            row.id.strip_prefix(skill_prefix.as_str()).is_none_or(|n| source_tools.lists_skill(n))
+        });
+        let sources = source_tools.context_parts(claude);
+        let preset = if !remote && claude {
+            let argv = profile.argv.clone();
+            tokio::task::spawn_blocking(move || crate::context_inventory::preset_source(&argv))
+                .await
+                .ok()
+                .flatten()
+        } else {
+            None
         };
         let mut m = session.meta.lock().unwrap_or_else(|e| e.into_inner());
+        crate::context_inventory::record_tool_sources(&mut m, sources);
+        if !remote && claude {
+            crate::context_inventory::record_preset_source(&mut m, preset);
+        }
         for row in &mut cmux {
             row.enabled = !m.tools.off.contains(&row.id);
             // What the harness last said of it stays until its next report.
@@ -107,10 +167,10 @@ impl Hub {
                 None => rows.push(ToolRow { can_toggle: toggles, ..row }),
             }
         }
-        if rows == m.tools.rows {
+        if rows == *m.tools.rows {
             return;
         }
-        m.tools.rows = rows;
+        m.tools.rows = rows.into();
         drop(m);
         self.append(session, "mux", "tools", json!({"reported": true}));
         self.save_meta(session);
@@ -166,7 +226,11 @@ impl Hub {
             if !enabled {
                 m.tools.off.push(id.to_owned());
             }
-            if let Some(row) = m.tools.rows.iter_mut().find(|r| r.id == id) {
+            // Rows shared with other chats are copied only when one actually changes.
+            let differs = |r: &ToolRow| r.id == id && r.enabled != enabled;
+            if m.tools.rows.iter().any(differs)
+                && let Some(row) = m.tools.rows.iter_mut().find(|r| differs(r))
+            {
                 row.enabled = enabled;
             }
         }
@@ -258,12 +322,15 @@ impl Hub {
         }
         let changed = {
             let mut m = session.meta.lock().unwrap_or_else(|e| e.into_inner());
-            match m.tools.rows.iter_mut().find(|r| r.id == id) {
-                Some(row) if row.status.as_deref() != Some("connected") => {
-                    row.status = Some("connected".to_owned());
-                    true
-                }
-                _ => false,
+            // Rows shared with other chats are copied only when one actually changes.
+            let stale = |r: &ToolRow| r.id == id && r.status.as_deref() != Some("connected");
+            if m.tools.rows.iter().any(stale)
+                && let Some(row) = m.tools.rows.iter_mut().find(|r| stale(r))
+            {
+                row.status = Some("connected".to_owned());
+                true
+            } else {
+                false
             }
         };
         drop(current);

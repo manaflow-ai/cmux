@@ -47,11 +47,19 @@ import Testing
         var refresh = visible()
         // A warm tab whose page is not in a window (not the active one), and
         // a tab never opened in this launch: both read the Mac's screen.
+        // Only after the Mac says each drew output (`surface-output`).
         let warm = Tab(id: "t2", pageStarted: true, capturable: false, behind: true)
         let cold = Tab(id: "t3", pageStarted: false, capturable: false, behind: false)
+        #expect(refresh.due([warm, cold], now: 1.0) == [])
+        refresh.macOutput("t2", now: 1.0)
+        refresh.macOutput("t3", now: 1.0)
         #expect(refresh.due([warm, cold], now: 1.0) == [.screenText("t2"), .screenText("t3")])
+        refresh.macOutput("t2", now: 1.2)
+        refresh.macOutput("t3", now: 1.2)
         #expect(refresh.due([warm, cold], now: 1.5) == [])
         #expect(refresh.due([warm, cold], now: 2.0) == [.screenText("t2"), .screenText("t3")])
+        // Quiet since: nothing more.
+        #expect(refresh.due([warm, cold], now: 3.0) == [])
     }
 
     @Test func theRefreshKeepsCardsUnderASecondOld() {
@@ -64,14 +72,12 @@ import Testing
 /// one) shows the Mac's screen text once it is newer than its snapshot.
 @Suite struct TerminalCardFresherTextTests {
     @Test func newerScreenTextBeatsAnOlderSnapshotOfAStartedTab() {
-        #expect(TerminalCardContent.choose(sessionStarted: true, connecting: false, hasSnapshot: true,
+        #expect(TerminalCardContent.choose(sessionStarted: true, hasSnapshot: true,
                                            screenText: "$ seq 200\n200", screenTextIsNewer: true) == .screenText)
-        #expect(TerminalCardContent.choose(sessionStarted: true, connecting: false, hasSnapshot: true,
+        #expect(TerminalCardContent.choose(sessionStarted: true, hasSnapshot: true,
                                            screenText: "$ seq 200\n200", screenTextIsNewer: false) == .snapshot)
-        // Connecting still wins, and blank text is not content.
-        #expect(TerminalCardContent.choose(sessionStarted: true, connecting: true, hasSnapshot: true,
-                                           screenText: "x", screenTextIsNewer: true) == .connecting)
-        #expect(TerminalCardContent.choose(sessionStarted: true, connecting: false, hasSnapshot: true,
+        // Blank text is not content.
+        #expect(TerminalCardContent.choose(sessionStarted: true, hasSnapshot: true,
                                            screenText: " \n", screenTextIsNewer: true) == .snapshot)
     }
 

@@ -21,6 +21,7 @@ import argparse, glob, json, os, signal, socket, subprocess, sys, tempfile, time
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from tag_teardown import TagTeardown  # noqa: E402
+from state_wait import wait_stable  # noqa: E402
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--tag", required=True)
@@ -180,7 +181,8 @@ try:
         failures.append("no terminal after workspace new")
         raise SystemExit(1)
     term = new[0]
-    time.sleep(2)  # the shell draws its first prompt (harness wait)
+    if not wait(lambda: cli("terminal", term, "screen", "read").stdout.strip(), 20):  # the shell draws its first prompt
+        print(f"no prompt yet in {term}", flush=True)
 
     # The decision's shell example; sleep keeps the program in the foreground.
     report(term, "state=working:progress=40", "; sleep 6")
@@ -198,7 +200,9 @@ try:
 
     report(term, "state=done:app=demo")
     expect("done", term, lambda r: r.get("", {}).get("state") == "done")
-    time.sleep(2)  # past the next prompt (harness wait)
+    # Past the next prompt: the shell finished the line and its screen stopped changing.
+    wait_stable(lambda: cli("terminal", term, "screen", "read").stdout, "the prompt after done", timeout=15,
+                interval=0.25, reads=4, raise_on_timeout=False)
     expect("done-after-prompt", term, lambda r: r.get("", {}).get("state") == "done")
 
     report(term, "state=error:id=build:title=QnVpbGQ=")
@@ -209,15 +213,15 @@ try:
 
     # The support query: read the reply from a raw tty.
     cli("terminal", term, "write", "--text",
-        "stty raw -echo; printf '\\033]7501;?\\033\\\\'; r=$(dd bs=1 count=10 2>/dev/null | od -An -c | tr -d ' \\n'); "
+        "stty raw -echo; printf '\\033]7501;?\\033\\\\'; r=$(dd bs=1 count=80 2>/dev/null | od -An -c | tr -d ' \\n'); "
         "stty sane; echo \"Q7501=$r\"\n")
     screen = wait(lambda: (lambda s: s if "Q7501=" in s else None)(cli("terminal", term, "screen", "read").stdout), 15)
     line = next((l for l in (screen or "").splitlines() if "Q7501=" in l and "$r" not in l), "")
     evidence["query"] = line.strip()
-    if "033]7501;?033\\" in line:
+    if "033]7501;?:states=idle,working,done,blocked,error:kinds=permission,question,auth033\\" in line:
         print(f"ok   query: {line.strip()}", flush=True)
     else:
-        failures.append(f"query: no ESC ] 7501 ; ? ST reply ({line.strip()!r})")
+        failures.append(f"query: no ESC ] 7501 ; ?:states=...:kinds=... ST reply ({line.strip()!r})")
         print(f"FAIL query: {line.strip()!r}", flush=True)
 
     report(term, "state=clear")

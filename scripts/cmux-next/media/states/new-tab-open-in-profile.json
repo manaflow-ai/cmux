@@ -1,0 +1,21 @@
+{
+  "title": "New Tab: open a typed URL in a browser profile or a new one",
+  "steps": [
+    {"title": "Launch", "wait": 2, "shot": false},
+    {"title": "Profile Work", "cmux": ["action", "run", "browserProfile.new", "--arg", "name=Work"], "wait": 1, "shot": false},
+    {"title": "Profile Personal", "cmux": ["action", "run", "browserProfile.new", "--arg", "name=Personal"], "wait": 1, "shot": false},
+    {"title": "Profile Austin Test", "cmux": ["action", "run", "browserProfile.new", "--arg", "name=Austin Test"], "wait": 1, "shot": false},
+    {"title": "New workspace", "cmux": ["workspace", "new", "--name", "Profiles"], "shot": false},
+    {"title": "Show the Profiles workspace", "cmux": ["workspace", "name:Profiles", "focus"], "wait": 1.5, "shot": false},
+    {"title": "New Tab, typing github.com/manaflow-ai/cmux",
+     "rpc": {"method": "debug.new_tab", "params": {"action": "open_and_type", "text": "github.com/manaflow-ai/cmux"}},
+     "wait": 2, "shot": false},
+    {"title": "New Tab: a typed URL lists Open in Profile… and Open in New Profile under it", "wait": 0.5},
+    {"title": "Down to Open in Profile…", "rpc": {"method": "debug.key", "params": {"key": "down"}}, "wait": 0.3, "shot": false},
+    {"title": "Return opens the profile search", "rpc": {"method": "debug.key", "params": {"key": "return"}}, "wait": 1, "shot": false},
+    {"title": "Open in Profile…: every profile, then a new one", "wait": 0.5},
+    {"title": "Type 'a'", "rpc": {"method": "debug.key", "params": {"key": "a"}}, "wait": 0.1, "shot": false},
+    {"title": "Type 'u'", "rpc": {"method": "debug.key", "params": {"key": "u"}}, "wait": 0.5, "shot": false},
+    {"title": "Open in Profile…: \"au\" finds Austin Test, or makes a profile named au", "wait": 0.5}
+  ]
+}

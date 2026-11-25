@@ -23,6 +23,7 @@ import {
   type ProcessSource,
 } from "../src/agent-session/acpmux/session-info/processes";
 import type { SummaryBackgroundTask } from "../src/agent-session/acpmux/summary/sessionSummary";
+import { settleReact } from "./support/domTeardown";
 
 let dom: JSDOM | undefined;
 let root: Root | undefined;
@@ -57,6 +58,7 @@ beforeEach(() => resetSessionInfoState());
 afterEach(async () => {
   if (root) await act(async () => root!.unmount());
   root = undefined;
+  await settleReact();
   dom?.window.close();
   dom = undefined;
   for (const [key, value] of saved) {
@@ -174,7 +176,7 @@ test("no section before the first background process; then running ones with ela
     "1m 16s",
     "1h 2m 3s",
   ]);
-  expect(tasks.querySelector(".acpmux-session-info-section__meta")?.textContent).toBe("2 running");
+  expect(tasks.querySelector(".acpmux-session-info-section__meta")?.textContent).toBe("2");
 
   // The finished ones fold behind their count; open, each with how long it ran and how it ended.
   const fold = tasks.querySelector<HTMLButtonElement>("button.acpmux-session-info-fold")!;
@@ -195,7 +197,7 @@ test("no section before the first background process; then running ones with ela
   expect(stop.disabled).toBe(true);
 });
 
-test("a dev server heads Background tasks with its port, which opens beside the chat, and Stop", async () => {
+test("a dev server heads Background tasks: the globe, its address, its command; the row opens it, and Stop", async () => {
   setSystemTime(new Date(100_000));
   const container = installDom();
   const opened: string[] = [];
@@ -208,13 +210,15 @@ test("a dev server heads Background tasks with its port, which opens beside the 
   );
   // One section for every background command, a dev server's included (no Servers card of its own).
   const servers = section(container, "tasks")!;
-  expect(servers.querySelector(".acpmux-session-info-section__meta")?.textContent).toBe("1 running");
-  expect(servers.querySelectorAll(".acpmux-session-info-server")).toHaveLength(1);
-  expect(servers.querySelectorAll(".acpmux-session-info-task")).toHaveLength(0);
-  const port = servers.querySelector<HTMLButtonElement>("button.acpmux-session-info-port")!;
-  expect(port.textContent).toBe(":5173");
-  expect(port.getAttribute("aria-label")).toBe("Open http://localhost:5173");
-  await click(port);
+  expect(servers.querySelector(".acpmux-session-info-section__meta")?.textContent).toBe("1");
+  expect(servers.querySelectorAll('.acpmux-session-info-task[data-kind="server"]')).toHaveLength(1);
+  expect(servers.querySelectorAll('.acpmux-session-info-task:not([data-kind="server"])')).toHaveLength(0);
+  const row = servers.querySelector<HTMLButtonElement>('[data-kind="server"] button.acpmux-session-info-task__open')!;
+  expect(row.querySelector(".acpmux-session-info-task__address")?.textContent).toBe("localhost:5173");
+  expect(row.querySelector(".acpmux-session-info-task__command")?.textContent).toBe("bun run dev --port 5173");
+  expect(row.querySelector(".acpmux-session-info-task__time")?.textContent).toBe("1m");
+  expect(row.getAttribute("aria-label")).toBe("Open http://localhost:5173");
+  await click(row);
   expect(opened).toEqual(["http://localhost:5173"]);
   await click(servers.querySelector<HTMLButtonElement>("button.acpmux-session-info-stop")!);
   expect(stopped).toEqual(["s1/a"]);
@@ -415,7 +419,7 @@ test("a background Bash only the transcript knows is a running task, without Sto
     // No start time: it says it runs.
     ["make docs", "Running", false],
   ]);
-  expect(meta(section(container, "tasks"))).toBe("2 running");
+  expect(meta(section(container, "tasks"))).toBe("2");
   // One that finished folds under the count with how it ended.
   await renderSessionInfo(container, { transcriptTasks: [task("call-r", "cargo test", "failed", 1_000)] });
   const tasks = section(container, "tasks")!;
@@ -505,6 +509,6 @@ test("a transcript task a running server stands for is listed once, as the serve
     transcriptTasks: [task("call-a", "bun run dev --port 5173", "running", 1_000)],
   });
   const tasks = section(container, "tasks")!;
-  expect(tasks.querySelectorAll(".acpmux-session-info-server")).toHaveLength(1);
-  expect(tasks.querySelectorAll(".acpmux-session-info-task")).toHaveLength(0);
+  expect(tasks.querySelectorAll('.acpmux-session-info-task[data-kind="server"]')).toHaveLength(1);
+  expect(tasks.querySelectorAll('.acpmux-session-info-task:not([data-kind="server"])')).toHaveLength(0);
 });

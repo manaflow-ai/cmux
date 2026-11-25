@@ -12,6 +12,13 @@ pub(crate) struct CloudServices {
     conversations: OnceLock<CloudConversations>,
     /// `cloud-host-replica-v1` (server/cloud_host_replica.rs).
     host_replica: OnceLock<HostReplica>,
+    /// `feed-client-v1` (feed_client.rs), made on the first `feed.*` op.
+    pub(crate) feed: OnceLock<crate::feed_client::FeedClient>,
+    /// How `feed.reports.reply` reaches acpmux, installed by the binary.
+    pub(crate) feed_reply: OnceLock<crate::feed_client::ReplySender>,
+    /// The Forum page's hosted forum (server/forum_routed.rs), set up on the first `forum.*` op.
+    #[cfg(unix)]
+    pub(crate) forum: OnceLock<crate::server::forum_routed::ForumOwner>,
 }
 
 impl Mux {
@@ -31,6 +38,11 @@ impl Mux {
     /// The installed cloud link, if any.
     pub fn cloud_conversations(&self) -> Option<&CloudConversations> {
         self.cloud.conversations.get()
+    }
+
+    /// The cloud services (the feed client lives here, server/feed_client_ops.rs).
+    pub(crate) fn cloud_services(&self) -> &CloudServices {
+        &self.cloud
     }
 
     /// The host replica publisher, if installed (server/cloud_host_replica.rs).

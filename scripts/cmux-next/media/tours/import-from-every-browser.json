@@ -1,0 +1,44 @@
+{
+  "title": "Import from Browser lists every browser and browser-based app",
+  "env": {
+    "CMUX_NEXT_BROWSER_IMPORT_HOME": "{repo}/scripts/cmux-next/media/fixtures/browser-import-home",
+    "CMUX_NEXT_BROWSER_IMPORT_KEYS": "{repo}/scripts/cmux-next/media/fixtures/browser-import-keys.json"
+  },
+  "steps": [
+    {
+      "title": "Launch",
+      "wait": 2,
+      "shot": false
+    },
+    {
+      "title": "Import from Browser opens on its picker",
+      "rpc": {
+        "method": "debug.onboarding",
+        "params": {
+          "action": "open",
+          "step": "importData"
+        }
+      },
+      "wait": 3,
+      "shot": false
+    },
+    {
+      "title": "Find the browsers in the fixture home",
+      "rpc": {
+        "method": "debug.onboarding",
+        "params": {
+          "action": "detect"
+        }
+      },
+      "wait": 5
+    },
+    {
+      "title": "State: the sources the picker lists",
+      "rpc": {
+        "method": "debug.onboarding",
+        "params": {}
+      },
+      "shot": false
+    }
+  ]
+}

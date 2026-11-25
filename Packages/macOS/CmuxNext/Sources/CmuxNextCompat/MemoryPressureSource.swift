@@ -14,4 +14,15 @@ public protocol MemoryPressureSource: Sendable {
 
     /// Stops the calls (any thread; ``MemoryPressureEvents`` calls it from its deinit).
     func cancel()
+
+    /// The level now, read on demand; nil when the source cannot read it.
+    ///
+    /// The kernel sends its pressure event to some processes only, and none for the level a process
+    /// starts under, so ``MemoryPressureEvents/refresh()`` reads this at the moments a decision needs it.
+    func currentLevel() -> MemoryPressureLevel?
+}
+
+extension MemoryPressureSource {
+    /// A source that only delivers events cannot read the level.
+    public func currentLevel() -> MemoryPressureLevel? { nil }
 }

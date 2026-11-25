@@ -6,10 +6,14 @@ public import CmuxNextDesign
 /// `layout.paneSeparation`, `sidebar.border` and `appearance.sidebarSurface`
 /// (the table: schemas/settings/chrome-styles.json).
 /// A key set in the file still wins over its style. A missing key is
-/// `flat-sidebar-line` (Lawrence 2026-10-16); a bad value is that plus a diagnostic.
+/// `flat`: one faint line between panes, as the sidebar's edge has one (Leo 2026-11-07: "by default,
+/// just simply show the dividers"; `flat-sidebar-line` from 2026-10-16 until then); a bad value is that
+/// plus a diagnostic.
 public nonisolated struct ChromeStyleSetting: Sendable {
-    public static let configPath = ["appearance", "chromeStyle"]
-    public static let fallback: ChromeStyle = .flatSidebarLine
+    // The path and default are generated from schemas/settings/source/appearance.json.
+
+    /// The Settings picker's choices: every style, titled from schemas/settings/chrome-styles.json.
+    static var choices: [SettingChoice] { ChromeStyle.allCases.map { SettingChoice($0.rawValue, title($0)) } }
 
     public init() {}
 
@@ -30,20 +34,6 @@ public nonisolated struct ChromeStyleSetting: Sendable {
             return fallback
         }
         return style
-    }
-
-    static func descriptor(group: SettingText) -> SettingDescriptor {
-        SettingDescriptor(
-            configPath, section: .appearance, group: group,
-            title: SettingsText.keyed("settings.appearance.chromeStyle", "Window Style"),
-            help: SettingsText.keyed("settings.appearance.chromeStyle.help",
-                                     "The look of the window: whether panes sit in one rounded card, and where lines are drawn. Separation, Sidebar Background and the sidebar border still win when you set them."),
-            summary: SettingsText.keyed("settings.appearance.chromeStyle.summary", "Card, lines and sidebar background"),
-            kind: .choice(ChromeStyle.allCases.map { SettingChoice($0.rawValue, title($0)) }),
-            default: .string(fallback.rawValue),
-            keywords: ["window", "style", "chrome", "card", "flat", "border", "borders", "lines", "divider", "outline",
-                       "seam", "sidebar", "two-tone", "minimal", "bare", "floating", "gaps"]
-        )
     }
 }
 

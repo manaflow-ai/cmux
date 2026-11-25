@@ -7,17 +7,20 @@ import { afterAll, afterEach, beforeAll, expect, test } from "bun:test";
 import { JSDOM } from "jsdom";
 import { act, useImperativeHandle, type Ref } from "react";
 import { createRoot, type Root } from "react-dom/client";
+import type { KnownPaths } from "../src/agent-session/acpmux/attachments";
 import type { UploadResult } from "../src/agent-session/acpmux/cloudUploads";
+import { setExperimentSwitches } from "../src/experiments/switches";
 import {
   useAttachmentIntake,
   useSendWhenAttached,
   type AttachmentIntakeOptions,
-} from "../src/agent-session/acpmux/composer/attachmentIntake";
+} from "../src/agent-session/acpmux/composer/attachmentIntakeModel";
 import {
   retryUploadLater,
   UPLOAD_AUTO_RETRIES,
   UPLOAD_RETRY_DELAY_MS,
 } from "../src/agent-session/acpmux/composer/uploadRetry";
+import { teardownDom } from "./support/domTeardown";
 
 const scope = globalThis as Record<string, unknown>;
 const keys = ["window", "document", "navigator", "HTMLElement", "IS_REACT_ACT_ENVIRONMENT", "Node", "Element"] as const;
@@ -42,17 +45,15 @@ beforeAll(() => {
 });
 
 afterEach(() => {
+  setExperimentSwitches({});
+  restoreInput?.();
   act(() => root?.unmount());
   root = undefined;
   host.replaceChildren();
 });
 
-afterAll(() => {
-  dom.window.close();
-  for (const [key, had, value] of saved) {
-    if (had) scope[key] = value;
-    else delete scope[key];
-  }
+afterAll(async () => {
+  await teardownDom(saved, { window: dom.window, scope });
 });
 
 const mp4 = () => new File(["video bytes"], "Sunbringer Menu Animation.mp4", { type: "video/mp4" });
@@ -76,13 +77,56 @@ async function until(check: () => boolean, within = 2_000) {
   expect(check()).toBe(true);
 }
 
-function mount(upload: AttachmentIntakeOptions["upload"]) {
-  const options: AttachmentIntakeOptions = { allowImages: true, scope: "chat", pasteTarget: () => undefined, upload };
+function mount(upload: AttachmentIntakeOptions["upload"], localPaths?: AttachmentIntakeOptions["localPaths"]) {
+  const options: AttachmentIntakeOptions = {
+    allowImages: true,
+    scope: "chat",
+    pasteTarget: () => undefined,
+    upload,
+    localPaths,
+  };
   const handle: { current: Probe | null } = { current: null };
   root = createRoot(host);
   act(() => root!.render(<Harness options={options} handle={handle} />));
   return handle;
 }
+
+test("a delayed native lookup keeps the loading mark while Attachment Type Icons is off (the default)", async () => {
+  const lookup = Promise.withResolvers<KnownPaths>();
+  const handle = mount(
+    () => Promise.resolve({ paths: [] }),
+    () => lookup.promise,
+  );
+  await act(() => void handle.current!.attach([new File(["bytes"], "local.txt")], true, "drop"));
+  expect(handle.current!.pending.map((chip) => chip.resolvingPath)).toEqual([undefined]);
+  await act(async () => lookup.resolve([{ path: "/tmp/local.txt", folder: false }]));
+  expect(handle.current!.attachments.map((chip) => chip.path)).toEqual(["/tmp/local.txt"]);
+});
+
+test("a delayed native lookup keeps its chips local until one file actually needs bytes", async () => {
+  setExperimentSwitches({ attachmentTypeIcons: true });
+  const lookup = Promise.withResolvers<KnownPaths>();
+  const upload = Promise.withResolvers<UploadResult>();
+  const batches: string[][] = [];
+  const handle = mount(
+    (files, _, progress) => {
+      batches.push(files.map((file) => file.name));
+      progress?.(0, 0.5);
+      return upload.promise;
+    },
+    () => lookup.promise,
+  );
+  const files = ["local.txt", "clipboard.bin"].map((name) => new File(["bytes"], name));
+  await act(() => void handle.current!.attach(files, true, "drop"));
+  expect(handle.current!.pending.map((chip) => chip.resolvingPath)).toEqual([true, true]);
+  expect(batches).toEqual([]);
+  await act(async () => lookup.resolve([{ path: "/tmp/local.txt", folder: false }, undefined]));
+  expect(handle.current!.attachments.map((chip) => chip.path)).toEqual(["/tmp/local.txt"]);
+  expect(batches).toEqual([["clipboard.bin"]]);
+  expect(handle.current!.pending).toMatchObject([{ name: "clipboard.bin", resolvingPath: false, progress: 0.5 }]);
+  await act(async () => upload.resolve({ paths: ["/saved/clipboard.bin"] }));
+  expect(handle.current!.pending).toEqual([]);
+});
 
 test("a send made while a pasted video uploads waits for it, then goes once with it", async () => {
   let finish: (result: UploadResult) => void = () => {};
@@ -99,7 +143,8 @@ test("a send made while a pasted video uploads waits for it, then goes once with
   expect(sent).toEqual([["Sunbringer Menu Animation.mp4"]]);
 });
 
-test("a failed upload is tried again on its own; its chip never shows Retry when that works", async () => {
+test("a failed upload is tried again on the person's next key; its chip never shows Retry when that works", async () => {
+  const input = personInput();
   const answers: UploadResult[] = [
     { error: "Couldn't send the file to gcp-codex-lane-2." },
     { paths: ["/remote/clip.mp4"] },
@@ -111,6 +156,9 @@ test("a failed upload is tried again on its own; its chip never shows Retry when
   });
   let shownFailed = false;
   await act(() => void handle.current!.attach([mp4()], true));
+  await until(() => calls === 1);
+  act(() => input.key());
+  input.restore();
   await until(() => {
     if (handle.current!.pending.some((chip) => chip.failed)) shownFailed = true;
     return handle.current!.attachments.length === 1;
@@ -120,6 +168,63 @@ test("a failed upload is tried again on its own; its chip never shows Retry when
   expect(handle.current!.pending).toEqual([]);
   // The send it held goes with the file.
   expect(handle.current!.loading).toBe(0);
+});
+
+/// The person's key or click as the page's retry hears it: jsdom cannot dispatch a trusted event, so
+/// the listener retryUploadLater put on `document` is called with one.
+let restoreInput: (() => void) | undefined;
+function personInput() {
+  const listeners: ((event: Event) => void)[] = [];
+  const add = document.addEventListener.bind(document);
+  document.addEventListener = ((type: string, run: (event: Event) => void, options?: unknown) => {
+    if (type === "keydown" || type === "pointerdown") listeners.push(run);
+    add(type, run as EventListener, options as AddEventListenerOptions);
+  }) as typeof document.addEventListener;
+  const restore = () => {
+    document.addEventListener = add as typeof document.addEventListener;
+    restoreInput = undefined;
+  };
+  restoreInput = restore;
+  return {
+    key: () => {
+      for (const run of listeners.splice(0)) run({ type: "keydown", key: "h", isTrusted: true } as unknown as Event);
+    },
+    restore,
+  };
+}
+
+test("a failed upload never tries again without the person's gesture, and keeps its own words", async () => {
+  // The host starts an upload only on a fresh key or click (AgentPaneModel `uploadStage` spends it
+  // at begin); one sent without that is refused as "The app refused the agent connection.".
+  // Leo, 2026-10-31: "idk what's going on with video attachments" (that refusal beside a recording).
+  const input = personInput();
+  try {
+    let gesture = true;
+    const refused: number[] = [];
+    let calls = 0;
+    const handle = mount(async () => {
+      calls += 1;
+      if (!gesture) {
+        refused.push(calls);
+        return { error: "The app refused the agent connection." };
+      }
+      gesture = false;
+      return calls === 1 ? { error: "The upload timed out: the app did not answer." } : { paths: ["/u/clip.mp4"] };
+    });
+    await act(() => void handle.current!.attach([mp4()], true));
+    await until(() => calls === 1);
+    const quiet = Date.now();
+    await until(() => Date.now() - quiet > UPLOAD_RETRY_DELAY_MS + 200, UPLOAD_RETRY_DELAY_MS * 3);
+    expect(refused).toEqual([]);
+    // The person types: that key is the try's gesture, and the try goes with it.
+    gesture = true;
+    act(() => input.key());
+    await until(() => handle.current!.attachments.length === 1);
+    expect(calls).toBe(2);
+    expect(refused).toEqual([]);
+  } finally {
+    input.restore();
+  }
 });
 
 test("a failed upload that keeps failing shows Retry, and still holds a send until Retry or x", async () => {
@@ -159,6 +264,115 @@ test("an upload the host refused outright shows Retry at once, with no try again
   expect(handle.current!.hold(() => {})).toBe(true);
 });
 
+test("an automatic retry stays in its original chat after a plain chat switch", async () => {
+  const input = personInput();
+  // The composer instance survives a chat switch. Uploading A's file with B's current upload
+  // handler would leak it to B's machine, even though A's pending chip stayed scoped to A.
+  const handle: { current: Probe | null } = { current: null };
+  let aCalls = 0;
+  let bCalls = 0;
+  const makeOptions = (scope: string, upload: AttachmentIntakeOptions["upload"]): AttachmentIntakeOptions => ({
+    allowImages: true,
+    scope,
+    pasteTarget: () => undefined,
+    upload,
+  });
+  const a = makeOptions("chat-a", async () =>
+    ++aCalls === 1 ? { error: "Temporary peer disconnect" } : { paths: ["/chat-a/clip.mp4"] },
+  );
+  const b = makeOptions("chat-b", async () => {
+    bCalls += 1;
+    return { paths: ["/chat-b/clip.mp4"] };
+  });
+  root = createRoot(host);
+  act(() => root!.render(<Harness options={a} handle={handle} />));
+  await act(() => void handle.current!.attach([mp4()], true));
+  await until(() => aCalls === 1 && handle.current!.pending.length === 1);
+  const chip = handle.current!.pending[0]!.id;
+  // An ordinary chat selection, with no explicit draft/attachment carry.
+  act(() => root!.render(<Harness options={b} handle={handle} />));
+  expect(handle.current!.pending).toEqual([]);
+  // The person's next key in chat B: the try it starts must not go through B.
+  act(() => input.key());
+  await act(turn);
+  expect(bCalls).toBe(0);
+  expect(handle.current!.attachments).toEqual([]);
+
+  // Back in chat A, the pending upload is marked failed and can be manually retried using A's
+  // upload handler. Nothing from it was put on B's machine or into B's prompt.
+  act(() => root!.render(<Harness options={a} handle={handle} />));
+  await until(() => handle.current!.pending[0]?.uploadFailed === true);
+  await act(() => handle.current!.retry(chip));
+  await until(() => handle.current!.attachments.some((attached) => attached.name === "Sunbringer Menu Animation.mp4"));
+  expect(aCalls).toBe(2);
+  expect(bCalls).toBe(0);
+  input.restore();
+});
+
+test("a paste whose twin screenshots are compared after a chat switch uploads through its own chat", async () => {
+  const handle: { current: Probe | null } = { current: null };
+  const calls: string[] = [];
+  const makeOptions = (scope: string): AttachmentIntakeOptions => ({
+    allowImages: true,
+    scope,
+    pasteTarget: () => ({ uploads: true }),
+    upload: async () => {
+      calls.push(scope);
+      return { paths: [`/${scope}/shot.png`] };
+    },
+  });
+  const [a, b] = [makeOptions("chat-a"), makeOptions("chat-b")];
+  root = createRoot(host);
+  act(() => root!.render(<Harness options={a} handle={handle} />));
+  // One screenshot twice (attachments.ts filesOnce): its bytes are compared after the paste's task.
+  const bytes = new Uint8Array(600).fill(7);
+  const files = [
+    new File([bytes], "shot.png", { type: "image/png" }),
+    new File([bytes], "copy.png", { type: "image/png" }),
+  ];
+  const event = new dom.window.Event("paste", { bubbles: true, cancelable: true });
+  Object.defineProperty(event, "clipboardData", { value: { files, types: ["Files"], getData: () => "" } });
+  act(() => {
+    dom.window.document.dispatchEvent(event);
+  });
+  // The person moves to chat B before the compare answers, and stays there while A's file uploads.
+  act(() => root!.render(<Harness options={b} handle={handle} />));
+  await until(() => calls.length > 0);
+  expect(calls).toEqual(["chat-a"]);
+});
+
+test("an intentionally carried upload retries through its destination chat", async () => {
+  const input = personInput();
+  const handle: { current: Probe | null } = { current: null };
+  let aCalls = 0;
+  let bCalls = 0;
+  const makeOptions = (scope: string, upload: AttachmentIntakeOptions["upload"]): AttachmentIntakeOptions => ({
+    allowImages: true,
+    scope,
+    pasteTarget: () => undefined,
+    carries: () => true,
+    upload,
+  });
+  const a = makeOptions("chat-a", async () => {
+    aCalls += 1;
+    return { error: "Temporary peer disconnect" };
+  });
+  const b = makeOptions("chat-b", async () => {
+    bCalls += 1;
+    return { paths: ["/chat-b/clip.mp4"] };
+  });
+  root = createRoot(host);
+  act(() => root!.render(<Harness options={a} handle={handle} />));
+  await act(() => void handle.current!.attach([mp4()], true));
+  await until(() => aCalls === 1 && handle.current!.pending.length === 1);
+  act(() => root!.render(<Harness options={b} handle={handle} />));
+  act(() => input.key());
+  input.restore();
+  await until(() => bCalls === 1 && handle.current!.attachments.length === 1);
+  expect(aCalls).toBe(1);
+  expect(handle.current!.pending).toEqual([]);
+});
+
 test("a file the composer refused never holds a send: Retry could never make it", async () => {
   const options: AttachmentIntakeOptions = { allowImages: false, scope: "chat", pasteTarget: () => undefined };
   const handle: { current: Probe | null } = { current: null };
@@ -188,7 +402,7 @@ function fakeDocument() {
   };
 }
 
-test("the first try again goes on its own; the last waits for the person's key or click, never Return", async () => {
+test("every try again waits for the person's key or click, never Return", async () => {
   const { doc, fire, count } = fakeDocument();
   let again = 0;
   let gaveUp = 0;
@@ -198,8 +412,11 @@ test("the first try again goes on its own; the last waits for the person's key o
     () => (gaveUp += 1),
     doc,
   );
-  // fixed-wait: the 1 s before the first try again is the behavior under test.
+  // fixed-wait: no try goes on a timer, without the host's gesture.
   await new Promise((resolve) => setTimeout(resolve, UPLOAD_RETRY_DELAY_MS + 50));
+  expect(again).toBe(0);
+  fire("pointerdown");
+  await turn();
   expect(again).toBe(1);
   retryUploadLater(
     UPLOAD_AUTO_RETRIES - 1,
@@ -207,8 +424,9 @@ test("the first try again goes on its own; the last waits for the person's key o
     () => (gaveUp += 1),
     doc,
   );
-  // Return is the send's own gesture: it never starts an upload.
+  // Return is the send's own gesture, and a lone modifier is none: neither starts an upload.
   fire("keydown", { key: "Enter" });
+  fire("keydown", { key: "Shift" });
   await turn();
   expect(again).toBe(1);
   fire("keydown", { key: "h" });

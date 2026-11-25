@@ -1,14 +1,17 @@
+import CmuxNextCloud
 import CmuxNextCompat
 import CmuxNextControl
 import CmuxNextDaemon
+import CmuxNextDesign
 import CmuxNextHomeEngine
+import CmuxNextOnboarding
 import CmuxNextTerminal
 import CmuxNextUpdater
 import Foundation
 
 /// How this process was launched. Identity (bundle, tag, control socket)
 /// comes from the app bundle only (`LaunchIdentity`); inherited `CMUX_*`
-/// variables were stripped in `CmuxNextApp.shared.main` before this is read.
+/// variables were stripped in `CmuxNextApp.main` before this is read.
 struct AppEnvironment: Sendable {
     let launch: LaunchIdentity
     /// `CMUX_NEXT_NO_ACTIVATE=1`: never take focus from the user's frontmost
@@ -17,6 +20,8 @@ struct AppEnvironment: Sendable {
     let noActivate: Bool
     /// DEBUG showcase profile requested by `--showcase` or `CMUX_NEXT_SHOWCASE=1`.
     let showcase: Bool
+    /// First-run onboarding is off (Lawrence 2026-11-09) unless `--onboarding`; the showcase and `--skip-onboarding` show nothing (``OnboardingWindowPresenter/LaunchSteps``).
+    let launchSteps: OnboardingWindowPresenter.LaunchSteps
     /// DEBUG-only auth capture fixture. This composes isolated, offline auth
     /// dependencies for fleet captures; it is never enabled in release builds.
     let authCaptureFixture: Bool
@@ -29,6 +34,9 @@ struct AppEnvironment: Sendable {
     /// `CMUX_NEXT_TEST_WINDOW_SCREEN` / `CMUX_NEXT_TEST_WINDOW_FRAME` with
     /// no-activate: where windows open for agent screenshots.
     let testWindow: TestWindowPlacement?
+    /// `CMUX_NEXT_LAUNCH_DISPLAY`: the display shell windows open on (`LaunchDisplay`), the
+    /// built-in one by default in a tagged dev build (#51115); nil keeps the usual placement.
+    var launchDisplay: LaunchDisplay?
     /// Mark this run for crash recovery (`AppRunMarker`): only the real app
     /// process, never tests that build `AppServices`.
     var marksRun = false
@@ -42,7 +50,9 @@ struct AppEnvironment: Sendable {
     /// so prompts and tools pick the same colors as in Ghostty. Also the
     /// daemon's launch overrides, so terminals it creates without a
     /// per-terminal `env` match. Resolved once per launch.
-    let terminalEnvironment: [String: String]
+    var terminalEnvironment: [String: String]
+    /// Resolved by the Rust CLI before any credential-bearing service or daemon starts.
+    var cloudConfiguration: CloudConfiguration?
     /// Ghostty resources directory and bundled CLI helper for shell
     /// integration (`GhosttyShellIntegration`). Resolved once per launch.
     var ghosttyResources: String?
@@ -97,43 +107,50 @@ struct AppEnvironment: Sendable {
         #endif
     }
 
-    static func current(_ environment: [String: String] = ProcessInfo.processInfo.environment, openFiles: OpenFileLimit.Change? = nil) -> AppEnvironment {
+    static func current(_ environment: [String: String] = ProcessInfo.processInfo.environment, arguments: [String] = ProcessInfo.processInfo.arguments, openFiles: OpenFileLimit.Change? = nil) -> AppEnvironment {
         let noActivate = environment["CMUX_NEXT_NO_ACTIVATE"] == "1"
 #if DEBUG
-        let showcase = environment["CMUX_NEXT_SHOWCASE"] == "1" || ProcessInfo.processInfo.arguments.contains("--showcase")
-        let authCaptureFixture = environment["CMUX_NEXT_AUTH_CAPTURE_FIXTURE"] == "1"
-            || ProcessInfo.processInfo.arguments.contains("--auth-capture-fixture")
+        let showcase = environment["CMUX_NEXT_SHOWCASE"] == "1" || arguments.contains("--showcase")
+        let authCaptureFixture = environment["CMUX_NEXT_AUTH_CAPTURE_FIXTURE"] == "1" || arguments.contains("--auth-capture-fixture")
 #else
-        let showcase = false
-        let authCaptureFixture = false
+        let (showcase, authCaptureFixture) = (false, false)
 #endif
         let launch = LaunchIdentity.current()
         return AppEnvironment(
             launch: launch,
             noActivate: noActivate,
-            showcase: showcase,
+            showcase: showcase, launchSteps: OnboardingWindowPresenter.LaunchSteps(environment: environment, arguments: arguments, showcase: showcase),
             authCaptureFixture: authCaptureFixture,
             captureShellHome: captureShellHome(environment),
             testWindow: TestWindowPlacement.parse(environment, noActivate: noActivate),
+            launchDisplay: launchDisplay(environment, build: launch.build),
             terminalEnvironment: terminalEnvironment(launch: launch, environment: environment).merging(openFiles?.childEnvironment ?? [:]) { $1 },
+            cloudConfiguration: nil,
             ghosttyResources: GhosttyRuntime.resourcesDirectory(environment: environment),
             ghosttyBinary: GhosttyRuntime.cliHelperPath()
         )
+    }
+
+    /// `CMUX_NEXT_LAUNCH_DISPLAY` for `build`: a tagged DEV build defaults to the built-in display (#51115).
+    /// NIGHTLY (also cmux NEXT's `.cmux-next`, whose bundle id carries a tag too), RC, staging and
+    /// release keep the usual placement unless the variable asks.
+    nonisolated static func launchDisplay(_ environment: [String: String], build: BuildIdentity) -> LaunchDisplay? {
+        LaunchDisplay.parse(environment[LaunchDisplay.environmentKey], isDevBuild: build.kind == .dev && build.tag != nil)
     }
 
     /// The per-terminal `env` provider every local spawn path uses (daemon
     /// connection, new workspaces, the compat CLI): the filtered login
     /// environment, ``terminalEnvironment``, then Ghostty's shell integration
     /// from the config applied at spawn time, so `reload-config` affects
-    /// the next terminal.
-    func terminalEnvironmentProvider() -> @Sendable () async -> [String: String] {
+    /// the next terminal. `prefersGhosttyTerm` reads `terminal.term` per terminal.
+    func terminalEnvironmentProvider(prefersGhosttyTerm: @escaping @MainActor @Sendable () -> Bool) -> @Sendable () async -> [String: String] {
         let resources = ghosttyResources
         let binary = ghosttyBinary
         return TerminalEnvironment.instance.shared(overrides: terminalEnvironment, integration: {
             await MainActor.run {
                 Self.shellIntegration(GhosttyRuntime.shared.shellIntegrationSettings, resources: resources, binary: binary)
             }
-        }, cli: Self.bundledCLI(appResources: Bundle.main.resourceURL?.path, resolvesShellIntegration: resolvesShellIntegration))
+        }, cli: Self.bundledCLI(appResources: Bundle.main.resourceURL?.path, resolvesShellIntegration: resolvesShellIntegration), prefersGhosttyTerm: prefersGhosttyTerm)
     }
 
     /// The bundled `cmux` for this app's terminals: `<Resources>/bin`, and

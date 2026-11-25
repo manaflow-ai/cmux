@@ -34,7 +34,13 @@ const PROVIDER_KEYS: [(&str, &str); 3] = [
 ];
 const BASE_URL: &str = "ANTHROPIC_BASE_URL";
 /// The spawn-env keys remembered per agent (values of token keys are not).
-const REMEMBERED: [&str; 4] = ["CLAUDE_CONFIG_DIR", "HOME", BASE_URL, "SHELL"];
+const REMEMBERED: [&str; 5] = [
+    "CLAUDE_CONFIG_DIR",
+    "HOME",
+    BASE_URL,
+    "SHELL",
+    crate::harness_limits::CLAUDE_AUTOCOMPACT_WINDOW.0,
+];
 
 /// What one environment gives Claude Code.
 #[derive(Debug, Clone, Default)]
@@ -49,6 +55,11 @@ pub struct Found {
     pub endpoint: Option<String>,
     /// Credential keys that came from the environment (not a file).
     pub env_keys: Vec<String>,
+    /// The sole file login is positively expired and cannot refresh. Never set on macOS,
+    /// where an uninspected keychain login can still work, or with another credential source.
+    pub expired_file_login: bool,
+    /// Project context was supplied and all candidate settings could be inspected.
+    pub credential_sources_complete: bool,
 }
 
 impl Found {
@@ -61,7 +72,7 @@ fn truthy(v: Option<&str>) -> bool {
     v.is_some_and(|v| !v.is_empty() && v != "0" && !v.eq_ignore_ascii_case("false"))
 }
 
-fn tilde(path: &Path) -> String {
+pub(crate) fn tilde(path: &Path) -> String {
     if let Some(home) = dirs::home_dir()
         && let Ok(rest) = path.strip_prefix(&home)
     {
@@ -78,7 +89,7 @@ fn endpoint_host(url: &str) -> String {
 
 /// The settings files Claude Code reads env and helpers from, outside a
 /// project: managed settings, then the Claude home's `settings.json`.
-fn settings_files(home: &Path) -> Vec<PathBuf> {
+pub(crate) fn settings_files(home: &Path) -> Vec<PathBuf> {
     let managed = if cfg!(target_os = "macos") {
         "/Library/Application Support/ClaudeCode/managed-settings.json"
     } else {
@@ -90,6 +101,22 @@ fn settings_files(home: &Path) -> Vec<PathBuf> {
 /// The sign-in sources `env` gives Claude Code, from the environment and
 /// files only (never the keychain).
 pub fn find(env: &BTreeMap<String, String>) -> Found {
+    find_sources(env, None)
+}
+
+/// Include project settings when evaluating a session's own credential sources. Helpers are
+/// only recognized, never executed. Ancestor settings conservatively count as alternatives.
+pub fn find_in(env: &BTreeMap<String, String>, cwd: &Path) -> Found {
+    find_sources(env, Some(cwd))
+}
+
+fn find_sources(env: &BTreeMap<String, String>, cwd: Option<&Path>) -> Found {
+    // Claude runs in the resolved directory: lexical ancestors of a symlink can miss its
+    // actual project's settings. Failure to resolve context is never proof of missing auth.
+    let project = cwd
+        .filter(|path| path.is_absolute())
+        .and_then(|path| std::fs::canonicalize(path).ok())
+        .filter(|path| path.is_dir());
     let user_home = env
         .get("HOME")
         .filter(|h| !h.is_empty())
@@ -98,7 +125,12 @@ pub fn find(env: &BTreeMap<String, String>) -> Found {
         .unwrap_or_default();
     let custom = env.get("CLAUDE_CONFIG_DIR").filter(|d| !d.is_empty());
     let home = custom.map(PathBuf::from).unwrap_or_else(|| user_home.join(".claude"));
-    let mut found = Found { home: home.clone(), custom_home: custom.is_some(), ..Found::default() };
+    let mut found = Found {
+        home: home.clone(),
+        custom_home: custom.is_some(),
+        credential_sources_complete: project.is_some(),
+        ..Found::default()
+    };
     for (key, words) in PROVIDER_KEYS {
         if truthy(env.get(key).map(String::as_str)) {
             found.sources.push(words.to_owned());
@@ -114,9 +146,30 @@ pub fn find(env: &BTreeMap<String, String>) -> Found {
     if let Some(url) = env.get(BASE_URL).filter(|v| !v.is_empty()) {
         found.endpoint = Some(endpoint_host(url));
     }
-    for file in settings_files(&home) {
-        let Ok(bytes) = std::fs::read(&file) else { continue };
-        let Ok(json) = serde_json::from_slice::<serde_json::Value>(&bytes) else { continue };
+    let mut settings = settings_files(&home);
+    if let Some(cwd) = project.as_deref() {
+        for dir in cwd.ancestors() {
+            settings.push(dir.join(".claude/settings.json"));
+            settings.push(dir.join(".claude/settings.local.json"));
+        }
+    }
+    for file in settings {
+        let bytes = match std::fs::read(&file) {
+            Ok(bytes) => bytes,
+            Err(error) => {
+                if error.kind() != std::io::ErrorKind::NotFound {
+                    found.credential_sources_complete = false;
+                }
+                continue;
+            }
+        };
+        let Ok(json) = serde_json::from_slice::<serde_json::Value>(&bytes) else {
+            found.credential_sources_complete = false;
+            continue;
+        };
+        if !json.is_object() || json.get("env").is_some_and(|value| !value.is_object()) {
+            found.credential_sources_complete = false;
+        }
         let at = tilde(&file);
         if let Some(senv) = json.get("env").and_then(|e| e.as_object()) {
             let has = |k: &str| {
@@ -158,20 +211,61 @@ pub fn find(env: &BTreeMap<String, String>) -> Found {
         Some(dir) => PathBuf::from(dir).join(".claude.json"),
         None => user_home.join(".claude.json"),
     };
-    if std::fs::read(&config)
-        .ok()
-        .and_then(|b| serde_json::from_slice::<serde_json::Value>(&b).ok())
-        .and_then(|v| v.get("primaryApiKey").and_then(|k| k.as_str()).map(|k| !k.is_empty()))
-        == Some(true)
-    {
-        found.sources.push(format!("the API key saved in {}", tilde(&config)));
+    match std::fs::read(&config) {
+        Ok(bytes) => match serde_json::from_slice::<serde_json::Value>(&bytes) {
+            Ok(json) => {
+                if json
+                    .get("primaryApiKey")
+                    .and_then(|key| key.as_str())
+                    .is_some_and(|key| !key.is_empty())
+                {
+                    found.sources.push(format!("the API key saved in {}", tilde(&config)));
+                }
+                if !json.is_object() {
+                    found.credential_sources_complete = false;
+                }
+            }
+            Err(_) => found.credential_sources_complete = false,
+        },
+        Err(error) if error.kind() != std::io::ErrorKind::NotFound => {
+            found.credential_sources_complete = false
+        }
+        Err(_) => {}
     }
-    if home.join(".credentials.json").is_file() {
+    let credentials = home.join(".credentials.json");
+    if credentials.is_file() {
+        found.expired_file_login = !cfg!(target_os = "macos")
+            && found.sources.is_empty()
+            && std::fs::read(&credentials)
+                .ok()
+                .and_then(|bytes| serde_json::from_slice::<serde_json::Value>(&bytes).ok())
+                .is_some_and(|json| unrefreshable_file_expiry(&json));
         found
             .sources
             .push(format!("the sign-in saved in {}", tilde(&home.join(".credentials.json"))));
     }
     found
+}
+
+/// Only a known OAuth expiry with no usable refresh token proves failure. Unknown fields,
+/// missing timestamps and malformed token shapes retain the existing presence-only evidence.
+fn unrefreshable_file_expiry(json: &serde_json::Value) -> bool {
+    let Some(oauth) = json.get("claudeAiOauth") else { return false };
+    let has_access = oauth
+        .get("accessToken")
+        .and_then(|v| v.as_str())
+        .is_some_and(|token| !token.trim().is_empty());
+    let no_refresh = match oauth.get("refreshToken") {
+        None | Some(serde_json::Value::Null) => true,
+        Some(serde_json::Value::String(token)) => token.trim().is_empty(),
+        _ => false,
+    };
+    let expired = oauth.get("expiresAt").and_then(|v| v.as_u64()).is_some_and(|expiry| {
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .is_ok_and(|now| u128::from(expiry) <= now.as_millis())
+    });
+    has_access && no_refresh && expired
 }
 
 /// The person's terminal: the daemon's environment with the login shell's
@@ -201,9 +295,14 @@ pub fn direct_sign_in() -> bool {
 }
 
 #[derive(Clone)]
-struct Spawned {
-    env: BTreeMap<String, String>,
-    routed: bool,
+pub(crate) struct Spawned {
+    pub env: BTreeMap<String, String>,
+    pub routed: bool,
+    /// The bound route's name, when a route supplied the environment (`hub/route_switch.rs`).
+    pub route: Option<String>,
+    /// Plain Claude Code (family `claude`): its sign-in failures are explained ([`explain`]).
+    /// A launcher family (`claude-sr2`) brings its own sign-in; it is kept for `/status` only.
+    pub explains: bool,
 }
 
 static SPAWNED: Mutex<Option<HashMap<String, Spawned>>> = Mutex::new(None);
@@ -211,9 +310,15 @@ static SPAWNED: Mutex<Option<HashMap<String, Spawned>>> = Mutex::new(None);
 /// Remember a Claude agent's spawn environment for its session: the
 /// Claude home, HOME, the endpoint and shell as they are, and only the
 /// presence of credential keys (their values are replaced), plus whether a route supplied
-/// the environment. Logs a warning
+/// the environment and its name. Logs a warning
 /// when it has no sign-in at all.
-pub fn remember(session_id: &str, env: &[(String, String)], routed: bool) {
+pub fn remember(
+    session_id: &str,
+    env: &[(String, String)],
+    routed: bool,
+    route: Option<String>,
+    explains: bool,
+) {
     let mut kept = BTreeMap::new();
     for (k, v) in env {
         if REMEMBERED.contains(&k.as_str()) || PROVIDER_KEYS.iter().any(|(p, _)| p == k) {
@@ -223,12 +328,17 @@ pub fn remember(session_id: &str, env: &[(String, String)], routed: bool) {
         }
     }
     let found = find(&kept);
-    if !found.signed_in() {
+    if explains && !found.signed_in() {
         tracing::info!(session = session_id, home = %found.home.display(), "Claude agent starts with no sign-in in its env, settings or credentials file (a keychain sign-in is not checked)");
     }
     let mut map = SPAWNED.lock().unwrap_or_else(|e| e.into_inner());
     map.get_or_insert_with(HashMap::new)
-        .insert(session_id.to_owned(), Spawned { env: kept, routed });
+        .insert(session_id.to_owned(), Spawned { env: kept, routed, route, explains });
+}
+
+/// What [`remember`] kept for `session_id`'s agent.
+pub(crate) fn spawned(session_id: &str) -> Option<Spawned> {
+    SPAWNED.lock().unwrap_or_else(|e| e.into_inner()).as_ref()?.get(session_id).cloned()
 }
 
 /// The session now runs another harness: its Claude spawn env no longer applies.
@@ -239,10 +349,13 @@ pub fn forget(session_id: &str) {
 }
 
 /// Claude's own words for "no usable sign-in": a missing login, and the API's refusal of the
-/// credential it sent ("Failed to authenticate. API Error: 401 … authentication_error").
+/// credential it sent ("Failed to authenticate. API Error: 401 … authentication_error"); and the
+/// cmux gateway's 401 for an agent with no team or owner key ("cmux: sign in required
+/// (agent.sign_in_required)", hq#11225), whichever agent shows it.
 pub fn is_sign_in_failure(message: &str) -> bool {
     let m = message.to_lowercase();
-    m.contains("not logged in")
+    m.contains(crate::recovery::SIGN_IN_REQUIRED)
+        || m.contains("not logged in")
         || m.contains("please run /login")
         || m.contains("invalid api key")
         || m.contains("oauth token has expired")
@@ -275,7 +388,7 @@ pub fn is_expired_credential(message: &str) -> bool {
 pub fn is_revoked_token(message: &str) -> bool {
     let m = message.to_lowercase();
     (m.contains("oauth token revoked") || m.contains("token has been revoked"))
-        && !crate::hub::turn_errors::says_unreachable(message)
+        && !crate::turn_errors::says_unreachable(message)
 }
 
 /// Whether [`explain`] rewrites `original`: a sign-in failure it has not explained yet, and not
@@ -283,22 +396,59 @@ pub fn is_revoked_token(message: &str) -> bool {
 /// stays as the agent said it, so its turn is retried and typed as the outage it is.
 fn explains(original: &str) -> bool {
     is_sign_in_failure(original)
-        && !crate::hub::turn_errors::says_unreachable(original)
+        && !crate::turn_errors::says_unreachable(original)
         && !original.starts_with("Claude is not signed in here")
+}
+
+/// Whether [`explain`] would explain `original` for `session_id`'s agent: a sign-in failure of a
+/// plain Claude Code agent acpmux started. A caller asks it before work only such a failure
+/// needs (`hub/turns.rs` asks the Cloud image whether cmux's gateway serves Claude).
+pub fn would_explain(session_id: &str, original: &str) -> bool {
+    explains(original) && spawned(session_id).is_some_and(|s| s.explains)
+}
+
+/// The words that say the sign-in card also offers cmux's gateway ([`compose_cloud`] with
+/// `gateway`): the web's `offersGateway` (cloudAgentLogin.ts) reads them, so the third choice
+/// shows only when the machine's team has the gateway.
+pub const GATEWAY_OFFER: &str = "Use cmux's gateway";
+
+/// The words that say acpmux moved the chat's agent onto cmux's gateway by itself
+/// ([`gateway_fallback_text`]); its first send goes again on them (`first_send.rs`).
+pub const GATEWAY_FALLBACK: &str = "now uses cmux's gateway";
+
+/// The failure of a chat whose Claude had no credential and that acpmux moved onto cmux's gateway
+/// without asking (the gateway fallback, `agent_login::GATEWAY_FALLBACK_ENV`). `original` is
+/// Claude's own text, kept at the end.
+pub fn gateway_fallback_text(original: &str) -> String {
+    format!(
+        "Claude is not signed in here, so this chat {GATEWAY_FALLBACK} (your team's account); the message goes again there. (Claude said: {})",
+        original.trim()
+    )
+}
+
+/// Whether `error` is a failure the gateway fallback answered ([`gateway_fallback_text`]).
+pub fn is_gateway_fallback(error: &str) -> bool {
+    error.starts_with("Claude is not signed in here") && error.contains(GATEWAY_FALLBACK)
 }
 
 /// The explanation for a Claude agent's sign-in failure, or None when this
 /// session is not a Claude agent acpmux started (or the text says another
-/// thing). `original` is Claude's own text, kept at the end.
-pub fn explain(session_id: &str, original: &str) -> Option<String> {
+/// thing). `original` is Claude's own text, kept at the end. `cloud`: this
+/// machine is a cmux Cloud VM (`cloud_host.rs`), signed in from the Mac: the
+/// text says only that ([`compose_cloud`]), never a terminal's sign-in.
+/// `gateway`: the Cloud image says cmux's gateway serves Claude for this machine's team, so
+/// the text names that choice too ([`GATEWAY_OFFER`]).
+pub fn explain(session_id: &str, original: &str, cloud: bool, gateway: bool) -> Option<String> {
     if !explains(original) {
         return None;
     }
-    let spawned =
-        SPAWNED.lock().unwrap_or_else(|e| e.into_inner()).as_ref()?.get(session_id)?.clone();
+    let spawned = spawned(session_id).filter(|s| s.explains)?;
     // File reads block: off a multi-thread runtime's workers.
     let work = || {
         let agent = find(&spawned.env);
+        if cloud {
+            return compose_cloud(&agent, original, gateway);
+        }
         let terminal_env = terminal_env();
         let terminal = find(&terminal_env);
         compose(
@@ -328,6 +478,34 @@ fn rc_file(shell: Option<&str>) -> &'static str {
         Some("fish") => "~/.config/fish/config.fish",
         _ => "~/.zshrc",
     }
+}
+
+/// A Cloud machine's sign-in failure. The machine never holds a Claude login: its Claude reaches
+/// models only through the Cloud service's model route (the machine's coderouter edge), which holds
+/// the sign-in on the team's or the person's behalf. So the fix is never on this machine, never a
+/// terminal or a copy from the Mac: it is the route's account or the person's model gateway.
+/// `gateway`: the machine's team has cmux's gateway, so the text names that choice too.
+fn compose_cloud(agent: &Found, original: &str, gateway: bool) -> String {
+    let mut out = String::from("Claude is not signed in here.");
+    if agent.endpoint.is_none() {
+        out.push_str(&format!(
+            " This Cloud machine's Claude has no model route (Claude home {}); start a new machine to get the current image.",
+            tilde(&agent.home)
+        ));
+    } else {
+        out.push_str(
+            " This Cloud machine reaches Claude through the Cloud service, which has no Claude account or model gateway for you.",
+        );
+        out.push_str(" Set one up with `cmux inference setup`, then send the message again.");
+    }
+    if gateway {
+        // The card's way onto the team's own account (`server/agent_login.rs` `use_gateway`).
+        out.push_str(&format!(
+            " Or click {GATEWAY_OFFER}: this machine's team has an account there."
+        ));
+    }
+    out.push_str(&format!(" (Claude said: {})", original.trim()));
+    out
 }
 
 fn compose(
@@ -364,23 +542,25 @@ fn compose(
         out.push_str(" Your terminal has no Claude sign-in either.");
     }
     let api_key = agent.env_keys.iter().any(|k| k == "ANTHROPIC_API_KEY");
+    // Each fix names `claude auth login`, never `claude /login`: the REPL asks to trust the
+    // folder before it signs in, and on a fresh home that dialog stops a scripted sign-in.
     let fix = if routed && api_key {
         "Replace the credential in the selected model route, or select another route, then start a new chat."
             .to_owned()
     } else if agent.endpoint.is_none() && api_key {
-        // Claude Code prefers ANTHROPIC_API_KEY over a `claude /login` sign-in, so logging in
+        // Claude Code prefers ANTHROPIC_API_KEY over a `claude auth login` sign-in, so logging in
         // again does not help while a rejected key is set. Not with an endpoint: a route or a
         // proxy set that key (routes.rs), and removing it would break the route.
         format!(
-            "Claude uses ANTHROPIC_API_KEY before your `claude /login` sign-in. To use your Claude sign-in, remove ANTHROPIC_API_KEY from {} or this agent's profile and open a new terminal; or replace the key. Then send the message again.",
+            "Claude uses ANTHROPIC_API_KEY before your `claude auth login` sign-in. To use your Claude sign-in, remove ANTHROPIC_API_KEY from {} or this agent's profile and open a new terminal; or replace the key. Then send the message again.",
             rc_file(shell)
         )
     } else if agent.signed_in() {
-        "Run `claude /login` in a terminal, or check that key, then send the message again."
+        "Run `claude auth login` in a terminal, or check that key, then send the message again."
             .to_owned()
     } else if terminal.signed_in() && agent.home != terminal.home {
         format!(
-            "This agent uses the Claude home {}, your terminal uses {}. Remove CLAUDE_CONFIG_DIR from this agent's profile, or sign in for that home with `CLAUDE_CONFIG_DIR={} claude /login`, then send the message again.",
+            "This agent uses the Claude home {}, your terminal uses {}. Remove CLAUDE_CONFIG_DIR from this agent's profile, or sign in for that home with `CLAUDE_CONFIG_DIR={} claude auth login`, then send the message again.",
             tilde(&agent.home),
             tilde(&terminal.home),
             agent.home.display()
@@ -402,7 +582,7 @@ fn compose(
         )
     } else {
         format!(
-            "Run `claude /login` in a terminal, or set ANTHROPIC_API_KEY (or ANTHROPIC_BASE_URL with ANTHROPIC_AUTH_TOKEN) in {} and open a new terminal, then send the message again.",
+            "Run `claude auth login` in a terminal, or set ANTHROPIC_API_KEY (or ANTHROPIC_BASE_URL with ANTHROPIC_AUTH_TOKEN) in {} and open a new terminal, then send the message again.",
             rc_file(shell)
         )
     };
@@ -413,120 +593,5 @@ fn compose(
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    /// A sign-in failure is explained; one that says the provider was unreachable is not.
-    #[test]
-    fn an_outage_that_names_a_token_is_not_explained_as_a_sign_in() {
-        assert!(super::explains("Not logged in · Please run /login"));
-        assert!(super::explains("API Error: 401 OAuth token has expired"));
-        assert!(!super::explains("HTTP 503: OAuth token has expired"));
-        assert!(!super::explains("connection error: Not logged in"));
-        assert!(!super::explains("Claude is not signed in here. Not logged in"));
-    }
-
-    /// Dogfood 2026-10-26: Claude Code's 401 ("Failed to authenticate") reached the person as
-    /// raw API text instead of the sign-in explanation.
-    #[test]
-    fn a_rejected_credential_is_a_sign_in_failure() {
-        let said = r#"Failed to authenticate. API Error: 401 {"type":"error","error":{"type":"authentication_error","message":"invalid x-api-key"}}"#;
-        assert!(is_sign_in_failure(said));
-        assert!(is_sign_in_failure("Not logged in · Please run /login"));
-        assert!(!is_sign_in_failure("API Error: 529 overloaded_error"));
-    }
-
-    /// A rejected ANTHROPIC_API_KEY wins over `claude /login`, so the fix names the key, not a
-    /// login that would not help.
-    #[test]
-    fn a_rejected_env_api_key_says_to_remove_it() {
-        let agent = Found {
-            home: PathBuf::from("/h/.claude"),
-            sources: vec!["an API key (ANTHROPIC_API_KEY)".to_owned()],
-            env_keys: vec!["ANTHROPIC_API_KEY".to_owned()],
-            ..Found::default()
-        };
-        let text = compose(
-            &agent,
-            &agent,
-            Some("/bin/zsh"),
-            "Failed to authenticate. API Error: 401",
-            false,
-        );
-        assert!(text.contains("remove ANTHROPIC_API_KEY from ~/.zshrc"), "{text}");
-        assert!(!text.contains("Run `claude /login`"), "{text}");
-
-        // Review of #25950: a route's key (with its endpoint) is not the person's to remove.
-        let routed = Found { endpoint: Some("router.example:443".to_owned()), ..agent };
-        let text = compose(
-            &routed,
-            &routed,
-            Some("/bin/zsh"),
-            "Failed to authenticate. API Error: 401",
-            false,
-        );
-        assert!(!text.contains("remove ANTHROPIC_API_KEY"), "{text}");
-    }
-
-    #[test]
-    fn a_subscription_route_without_a_key_keeps_login_advice() {
-        let agent = Found::default();
-        let text = compose(&agent, &agent, None, "Not logged in", true);
-        assert!(text.contains("Run `claude /login`"), "{text}");
-        assert!(!text.contains("selected model route"), "{text}");
-    }
-
-    #[test]
-    fn a_routed_api_key_without_an_endpoint_says_to_change_the_route() {
-        let home = tempfile::tempdir().unwrap();
-        let mut profile: crate::config::HarnessProfile =
-            serde_json::from_value(serde_json::json!({
-                "kind": "claude-stdio",
-                "argv": ["claude"],
-                "env": {
-                    "HOME": home.path(),
-                    "CLAUDE_CONFIG_DIR": home.path(),
-                    (crate::agent::REMOTE_ENV_POLICY_KEY): "1"
-                }
-            }))
-            .unwrap();
-        crate::routes::apply(
-            &mut profile.env,
-            &crate::routes::RouteEnv {
-                set: BTreeMap::from([("ANTHROPIC_API_KEY".into(), "rejected-test-key".into())]),
-                unset: crate::routes::SCRUBBED.iter().map(|key| (*key).to_owned()).collect(),
-            },
-        );
-        let id = "claude-auth-routed-key-without-endpoint";
-        let _command = crate::agent::harness_command(
-            "claude",
-            &profile,
-            home.path(),
-            None,
-            Some((id, "route auth test")),
-        )
-        .unwrap();
-        let text = explain(id, "Failed to authenticate. API Error: 401").unwrap();
-        forget(id);
-        assert!(text.contains("route"), "{text}");
-        assert!(!text.contains("remove ANTHROPIC_API_KEY"), "{text}");
-        assert!(!text.contains("rejected-test-key"), "{text}");
-    }
-
-    /// Only a revoked token is one: not an expired or missing sign-in, nor an outage.
-    #[test]
-    fn a_revoked_token_is_told_from_other_sign_in_failures() {
-        use super::is_revoked_token as revoked;
-        assert!(revoked("Failed to authenticate: OAuth token revoked"));
-        assert!(revoked("Failed to authenticate: oauth TOKEN REVOKED"));
-        assert!(revoked(
-            r#"API Error: 401 {"type":"error","error":{"type":"authentication_error","message":"OAuth token has been revoked. Please obtain a new token or refresh your existing token."}}"#
-        ));
-        assert!(!revoked("API Error: 401 OAuth token has expired"));
-        assert!(!revoked("Not logged in · Please run /login"));
-        assert!(!revoked("Invalid API key · Fix external API key"));
-        assert!(!revoked("HTTP 503 service unavailable: OAuth token revoked"));
-        assert!(!revoked("stream disconnected: OAuth token has been revoked"));
-        assert!(!revoked("the revoked token list was refreshed"));
-    }
-}
+#[path = "claude_auth_tests.rs"]
+mod tests;

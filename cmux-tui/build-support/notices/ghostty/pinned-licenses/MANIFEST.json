@@ -1,6 +1,6 @@
 {
   "schema": 1,
-  "description": "Upstream license texts for Ghostty Zig packages whose fetched tree has no license file. scripts/collect-ghostty-licenses.py ships these files from the repository, checks each SHA-256, and never downloads them. Each upstream URL is immutable (a commit, a content-addressed archive, or an archived snapshot). To change a file: copy it byte for byte from its upstream, update its sha256 here, update PINNED_MANIFEST_SHA256 in the collector, and record the review in NOTICES-REVIEW-LEDGER.md. \"vendored\" reviews every Ghostty pkg/<name> and vendor/<name> directory that has no license file of its own (ghostty_vendored.py): Reviewed in Ghostty trees aea262f8, 324c0273, b1a49b60 (manaflow-ai/ghostty) and 68ac618d, bbb7320b (manaflow-ai/ghostty-next). Each file is listed with the sha256 values reviewed.",
+  "description": "Upstream license texts for Ghostty Zig packages whose fetched tree has no license file. An entry with no files (z2d@0.13.2) reviews a package that ships its own MPL-2.0 license files only for its generated source offer; a package with an MPL-2.0 license file and no such entry stops the collection. scripts/collect-ghostty-licenses.py ships these files from the repository, checks each SHA-256, and never downloads them. Each upstream URL is immutable (a commit, a content-addressed archive, or an archived snapshot). To change a file: copy it byte for byte from its upstream, update its sha256 here, update PINNED_MANIFEST_SHA256 in the collector, and record the review in NOTICES-REVIEW-LEDGER.md. \"vendored\" reviews every Ghostty pkg/<name> and vendor/<name> directory that has no license file of its own (ghostty_vendored.py): Reviewed in Ghostty trees aea262f8, 324c0273, b1a49b60 (manaflow-ai/ghostty) and 68ac618d, bbb7320b, a6b9048e (manaflow-ai/ghostty-next). Each file is listed with the sha256 values reviewed.",
   "packages": {
     "dear-bindings": {
       "files": [
@@ -25,10 +25,11 @@
           "upstream": "https://raw.githubusercontent.com/mbadolato/iTerm2-Color-Schemes/c3968b385e8072d61651eb8e32f498703058c2fd/LICENSE"
         }
       ],
-      "note": "mbadolato/iTerm2-Color-Schemes release-20260713-155359-c3968b3 (commit c3968b38), the archive Ghostty's iterm2_themes dependency fetches: https://deps.files.ghostty.org/ghostty-themes-release-20260713-155359-c3968b3.tgz is byte-equal to that release's ghostty-themes.tgz (sha256 14b3044bef67a3cb83523973bd16d3aa0fb0096ddd1e0ecba3916d14d6d67f20). The archive holds the theme files only. The LICENSE is byte-equal at fc73ce39 (release-20260216-151611-fc73ce3, the snapshot in cmux's Resources/ghostty/themes). ghostty-next fetches release-20260921-150923-0b55a9e (https://deps.files.ghostty.org/ghostty-themes-release-20260921-150923-0b55a9e.tgz, sha256 da83fb32fcef53c8cb1dca868fb700a904d5d86420d7588e574a0f81a75008d5, theme files only); its LICENSE at commit 0b55a9e6 is byte-equal to this text.",
+      "note": "mbadolato/iTerm2-Color-Schemes release-20260713-155359-c3968b3 (commit c3968b38), the archive Ghostty's iterm2_themes dependency fetches: https://deps.files.ghostty.org/ghostty-themes-release-20260713-155359-c3968b3.tgz is byte-equal to that release's ghostty-themes.tgz (sha256 14b3044bef67a3cb83523973bd16d3aa0fb0096ddd1e0ecba3916d14d6d67f20). The archive holds the theme files only. The LICENSE is byte-equal at fc73ce39 (release-20260216-151611-fc73ce3, the snapshot in cmux's Resources/ghostty/themes). ghostty-next fetches release-20260921-150923-0b55a9e (https://deps.files.ghostty.org/ghostty-themes-release-20260921-150923-0b55a9e.tgz, sha256 da83fb32fcef53c8cb1dca868fb700a904d5d86420d7588e574a0f81a75008d5, theme files only); its LICENSE at commit 0b55a9e6 is byte-equal to this text. ghostty-next a6b9048e fetches release-20261026-153024-27cbbb5 (https://deps.files.ghostty.org/ghostty-themes-release-20261026-153024-27cbbb5.tgz, sha256 38bb80d98456677bad9a78a76e83a1e4851e88900aec93af74c6251ca32b78a0, byte-equal to that release's ghostty-themes.tgz; theme files only); its LICENSE at commit 27cbbb5e is byte-equal to this text.",
       "packages": [
         "N-V-__8AALZGBAAS5NLVH-c8eC-6VtCdcH-9nUvVfUSkWS__",
-        "N-V-__8AAM94BAAFk_hn4UW0x_OBD2g0vOwexeAAyWNNo4eB"
+        "N-V-__8AAM94BAAFk_hn4UW0x_OBD2g0vOwexeAAyWNNo4eB",
+        "N-V-__8AAIs9BgCF_swp81fS2tAWIJytW8NCUa6EbSOygPE3"
       ]
     },
     "unicode-16": {
@@ -94,6 +95,19 @@
         "upstream_tag": "v0.12.1"
       }
     },
+    "z2d@0.13.2": {
+      "files": [],
+      "note": "vancluever/z2d tag v0.13.2 (commit 8787d71b), the version ghostty-next a6b9048e fetches (https://github.com/vancluever/z2d/archive/8787d71bac42d9aab00428ccb37a4fd453418761.tar.gz). Its build.zig.zon .paths keeps LICENSE and COPYING, so the license-name scan ships them from the fetched package (LICENSE byte-equal to 0.12.1's, c3c0b845...; COPYING byte-equal to 0.11.0's and 0.12.1's, d8d2562a...). No text is pinned; this entry only reviews the package for its MPL-2.0 source offer.",
+      "packages": [
+        "z2d-0.13.2-j5P_HkkVFAAtOSQPRTS7wbZLbYs7oETRn7nUKSUwDjM_"
+      ],
+      "source_offer": {
+        "license": "Mozilla Public License 2.0 (MPL-2.0)",
+        "name": "z2d 0.13.2",
+        "upstream": "https://github.com/vancluever/z2d/tree/8787d71bac42d9aab00428ccb37a4fd453418761",
+        "upstream_tag": "v0.13.2"
+      }
+    },
     "zig-gobject": {
       "files": [
         {
@@ -103,10 +117,11 @@
           "upstream": "https://raw.githubusercontent.com/ghostty-org/zig-gobject/6971b412dc77003c52f5e8d16e7d0a828fc95539/LICENSE"
         }
       ],
-      "note": "ghostty-org/zig-gobject release 0.8.0-2026-04-23-26-1 (commit 6971b412), the generated GTK bindings Ghostty's gobject dependency fetches: https://deps.files.ghostty.org/gobject-2026-04-23-26-1.tar.zst is byte-equal to that release's ghostty-gobject-0.8.0-2026-04-23-26-1.tar.zst (sha256 642e324b3644c00464a2161e4af497f73cbbe8ce02a4c0edb92aacb365748047); its build.zig.zon .paths drops the LICENSE. ghostty-next fetches gobject 0.3.2 (https://deps.files.ghostty.org/gobject-2026-07-28-36-1.tar.zst, release 0.10.0-2026-07-28-36-1, commit 5c8e70b0); its build.zig.zon .paths also drops the LICENSE, and the LICENSE at commit 5c8e70b0 is byte-equal to this text.",
+      "note": "ghostty-org/zig-gobject release 0.8.0-2026-04-23-26-1 (commit 6971b412), the generated GTK bindings Ghostty's gobject dependency fetches: https://deps.files.ghostty.org/gobject-2026-04-23-26-1.tar.zst is byte-equal to that release's ghostty-gobject-0.8.0-2026-04-23-26-1.tar.zst (sha256 642e324b3644c00464a2161e4af497f73cbbe8ce02a4c0edb92aacb365748047); its build.zig.zon .paths drops the LICENSE. ghostty-next fetches gobject 0.3.2 (https://deps.files.ghostty.org/gobject-2026-07-28-36-1.tar.zst, release 0.10.0-2026-07-28-36-1, commit 5c8e70b0); its build.zig.zon .paths also drops the LICENSE, and the LICENSE at commit 5c8e70b0 is byte-equal to this text. ghostty-next a6b9048e fetches gobject 0.3.2 (https://deps.files.ghostty.org/gobject-2026-10-02-38-1.tar.zst, sha256 400fa7fd7bb7d29ec5348e14c70785a23f96926546afc6f02f7086c66b362ba4, byte-equal to release 0.11.0-zig-0.17.0-2026-10-02-38-1's ghostty-gobject-0.11.0-zig-0.17.0-2026-10-02-38-1.tar.zst; the tag is commit 5c8e70b0); its build.zig.zon .paths also drops the LICENSE, and the LICENSE at commit 5c8e70b0 is byte-equal to this text.",
       "packages": [
         "gobject-0.3.1-Skun7E1KnwBGMX5nslHYG1yWHaSevywxQO8oM7tTOgIp",
-        "gobject-0.3.2-Skun7F6HogCMynX2JqeSHS7xr-8pK4ob-qRFIcEasVi3"
+        "gobject-0.3.2-Skun7F6HogCMynX2JqeSHS7xr-8pK4ob-qRFIcEasVi3",
+        "gobject-0.3.2-Skun7LuIogBbEh-6WrLeEzMaRCnOMB3eOf__RaPYSMCZ"
       ]
     },
     "simdutf": {

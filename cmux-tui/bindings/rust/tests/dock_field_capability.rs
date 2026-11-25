@@ -70,6 +70,7 @@ fn docked_move() -> MoveTabToColumnRequest {
         }),
         keep_focus: None,
         pane: Optional::Value(3),
+        pane_id: Optional::Missing,
         respawn: Optional::Missing,
         screen: Optional::Missing,
         surface: 7,

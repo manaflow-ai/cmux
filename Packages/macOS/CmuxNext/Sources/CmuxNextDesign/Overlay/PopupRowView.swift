@@ -25,6 +25,10 @@ open class PopupRowView: NSView {
         public var minHeight: CGFloat = PopupStyle.standard.rowHeight
         /// The highlight's inset from the row's bounds.
         public var fillInset = NSSize.zero
+        /// The highlight's corner radius; nil for the popup row radius (``PopupStyle/rowCornerRadius``).
+        /// A ``GlassMenu`` sets its own, concentric with its panel, or the theme file's
+        /// `appearance.menu.highlightRadius` (``MenuLook``).
+        public var fillRadius: CGFloat?
         /// The pointer over the row draws the highlight. Off when the owner drives the one
         /// highlight itself (a menu that the keyboard and the pointer share): ``onHover`` reports
         /// the pointer.
@@ -34,6 +38,9 @@ open class PopupRowView: NSView {
     }
 
     public let rowLayout: Layout
+    /// The row's padded box: ``Layout/leading`` from its leading edge to ``Layout/trailing`` from
+    /// its trailing edge. A control that spans the row or yields to it (a popup's slider) stays in it.
+    public let contentGuide = NSLayoutGuide()
     public let titleLabel = ThemedLabel(labelWithString: "")
     public let subtitleLabel = ThemedLabel(labelWithString: "")
     public let leadingView: NSView?
@@ -48,6 +55,8 @@ open class PopupRowView: NSView {
         didSet {
             titleLabel.ink = isEnabled ? .primary : .tertiary
             (leadingView as? ThemedLabel)?.ink = isEnabled ? .primary : .tertiary
+            // VoiceOver says "dimmed", as for a disabled menu item or button.
+            setAccessibilityEnabled(isEnabled)
             needsDisplay = true
         }
     }
@@ -86,9 +95,14 @@ open class PopupRowView: NSView {
             view.translatesAutoresizingMaskIntoConstraints = false
             addSubview(view)
         }
+        addLayoutGuide(contentGuide)
         let textLeading = layout.leading + layout.leadingColumn + (layout.leadingColumn > 0 ? layout.gap : 0)
         var constraints = [
             heightAnchor.constraint(greaterThanOrEqualToConstant: layout.minHeight),
+            contentGuide.leadingAnchor.constraint(equalTo: leadingAnchor, constant: layout.leading),
+            contentGuide.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -layout.trailing),
+            contentGuide.topAnchor.constraint(equalTo: topAnchor),
+            contentGuide.bottomAnchor.constraint(equalTo: bottomAnchor),
             texts.leadingAnchor.constraint(equalTo: leadingAnchor, constant: textLeading),
             texts.centerYAnchor.constraint(equalTo: centerYAnchor),
             texts.topAnchor.constraint(greaterThanOrEqualTo: topAnchor, constant: 4),
@@ -159,15 +173,14 @@ open class PopupRowView: NSView {
     open override func draw(_ dirtyRect: NSRect) {
         let pressed = isPressed && isEnabled && isInteractive
         guard pressed || drawsHighlight else { return }
-        let style = PopupStyle.standard
+        let radius = rowLayout.fillRadius ?? PopupStyle.standard.rowCornerRadius
         let rect = bounds.insetBy(dx: rowLayout.fillInset.width, dy: rowLayout.fillInset.height)
-        let path = NSBezierPath(roundedRect: rect, xRadius: style.rowCornerRadius, yRadius: style.rowCornerRadius)
+        let path = NSBezierPath(roundedRect: rect, xRadius: radius, yRadius: radius)
         performWithTheme {
             (pressed ? Palette.pressedFill : Palette.hoverFill).setFill()
             path.fill()
             guard showsFocus else { return }
-            let ring = NSBezierPath(roundedRect: rect.insetBy(dx: 0.75, dy: 0.75), xRadius: style.rowCornerRadius,
-                                    yRadius: style.rowCornerRadius)
+            let ring = NSBezierPath(roundedRect: rect.insetBy(dx: 0.75, dy: 0.75), xRadius: radius, yRadius: radius)
             ring.lineWidth = Metrics.lineWidth(1.5)
             Palette.focusRing.setStroke()
             ring.stroke()
@@ -219,6 +232,26 @@ open class PopupRowView: NSView {
         isPressed = false
         guard isInteractive, isEnabled, bounds.contains(convert(event.locationInWindow, from: nil)) else { return }
         activate()
+    }
+
+    /// A press held from outside the popup (the one that opened it) is over the row
+    /// (``PopupPressRelease``): AppKit sends its drags to the press's own window, so no tracking
+    /// area reports it. The row takes the hover, as under a free pointer.
+    func pressEntered() {
+        guard isInteractive, isEnabled else { return }
+        isHovering = true
+        onHover?()
+    }
+
+    /// That press left the row.
+    func pressLeft() { isHovering = false }
+
+    /// That press is released over the row: it activates. Returns whether it did.
+    func pressReleased() -> Bool {
+        isHovering = false
+        guard isInteractive, isEnabled else { return false }
+        activate()
+        return true
     }
 
     /// Runs ``onActivate`` (subclasses add their own default, a toggle's flip).

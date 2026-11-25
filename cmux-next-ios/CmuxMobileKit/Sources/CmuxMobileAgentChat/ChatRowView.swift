@@ -44,6 +44,19 @@ final class ChatRowContext {
         }
     }
 
+    /// Whether an earlier prompt's Edit and Resend is offered: a workspace tab's chat that
+    /// can fork before it (the Mac's Edit and Resend, cx-ncc.60).
+    func canEditEarlier(turnID: String) -> Bool {
+        guard surface.tabActions != nil, let turn = store.turns.last(where: { $0.id == turnID }) else { return false }
+        return store.editForkSeq(for: turn) != nil
+    }
+
+    /// An earlier prompt's Edit and Resend: its own sheet (the composer's draft stays).
+    func editEarlier(turnID: String) {
+        guard let turn = store.turns.last(where: { $0.id == turnID }) else { return }
+        surface.editEarlier(turn, store: store)
+    }
+
     /// The turn's changes when a diff opens (cached, else computed for the tap).
     func changeSet(turnID: String, fallbackID: String) async -> DiffChangeSet {
         guard let turn = store.turns.last(where: { $0.id == turnID }) else {
@@ -66,6 +79,7 @@ struct ChatRowView: View {
             .environment(\.attachmentLoader, context.attachmentLoader)
             .environment(\.openURL, context.openURL)
             .environment(\.chatDisclosures, context.surface.disclosures)
+            .environment(\.loadFullToolOutput, LoadFullToolOutputAction { [store = context.store] call in await store.loadFullOutput(of: call) })
             .environment(\.transcriptFoldHold, context.foldHold)
     }
 
@@ -82,8 +96,23 @@ struct ChatRowView: View {
                 .padding(.bottom, 20)
         case .prompt(let text, let attachments, let at, let isLast):
             let turnID = row.turnID
-            UserBubble(prompt: text, attachments: attachments, promptAt: at, isLast: isLast) { context.editAndResend(turnID: turnID) }
+            UserBubble(prompt: text, attachments: attachments, promptAt: at, isLast: isLast,
+                       editAndResend: { context.editAndResend(turnID: turnID) },
+                       editEarlier: context.canEditEarlier(turnID: turnID) ? { context.editEarlier(turnID: turnID) } : nil,
+                       polishActions: { ChatPolishMenus.promptItems(turnID: turnID, text: text, store: store) })
                 .frame(maxWidth: .infinity, alignment: .trailing)
+        case .chiefContext(let text, let lines):
+            ChiefContextRow(context: text, lines: lines, id: row.id)
+        case .incoming(let incoming, let attachments, let at):
+            AgentIncomingCard(incoming: incoming, attachments: attachments, at: at, disclosureKey: AgentIncomingCard.key(row.id))
+        case .steer(let message):
+            if let incoming = message.incoming {
+                AgentIncomingCard(incoming: incoming, attachments: message.attachments, at: message.at, disclosureKey: AgentIncomingCard.key(row.id))
+            } else {
+                UserBubble(prompt: message.text, attachments: message.attachments, promptAt: message.at, isLast: false,
+                           editAndResend: {})
+                    .frame(maxWidth: .infinity, alignment: .trailing)
+            }
         case .block(let messageID, let block):
             MarkdownBlockRow(block: block) { context.messageText(messageID) }
         case .thought(let text, let isLive):
@@ -104,7 +133,7 @@ struct ChatRowView: View {
         case .permission(let record, let offersChoices):
             let surface = context.surface
             PermissionCard(record: record, agentName: store.summary.agentName,
-                           showChoices: offersChoices ? { withAnimation(.cmuxMobileSmooth) { surface.showPermissionChoices() } } : nil)
+                           showChoices: offersChoices ? { withAnimation(.cmuxMobileSmooth.unlessReduceMotion) { surface.showPermissionChoices() } } : nil)
         case .question(let question):
             VStack(alignment: .leading, spacing: 10) {
                 QuestionCard(question: question) { store.answer(question, with: $0) }
@@ -127,18 +156,40 @@ struct ChatRowView: View {
         case .stopped:
             Text("Stopped").font(.footnote).foregroundStyle(.tertiary)
         case .failed(_, let errorText):
-            let failure = TurnFailureCopy(message: errorText, harness: store.summary.harness, harnessName: store.summary.agentName)
+            let failure = TurnFailureCopy(message: errorText, harness: store.summary.harness)
             let turn = store.turns.last { $0.id == row.turnID }
             // The latest failed turn retries through acpmux (its input and context kept).
             FailureCard(title: "Agent stopped", message: failure.sentence, detail: failure.detail,
                         canRetry: turn.map { store.canRetryFailedTurn($0) } ?? false,
-                        retryWith: turn.flatMap { RetryModelChoice(store: store, turn: $0) }) {
+                        retryWith: turn.flatMap { RetryModelChoice(store: store, turn: $0) },
+                        leadsWithContinue: turn?.continuesAfterFailure ?? false) {
                 if let turn { store.retryFailedTurn(turn) }
             }
+        case .nextStep(let ask, let answer, let canAnswer):
+            NextStepCard(ask: ask, answer: answer, canAnswer: canAnswer) { option in
+                // The answer goes as the next prompt (`session/prompt`), in the agent's own words,
+                // quoting the ask it answers as the Mac's card does.
+                store.send(prompt: ask.answerPrompt(option.label, asker: store.summary.agentName))
+            }
+        case .whoElse(let id, let call):
+            WhoElseCard(id: id, call: call, open: openWhoElse)
+        case .worked(let fold):
+            WorkedForRow(fold: fold, context: context)
         case .actions(let turn, let isLast):
-            AnswerActionRow(turn: turn, isLast: isLast, insetsTargets: false, retryWith: RetryModelChoice(store: store, turn: turn)) {
+            AnswerActionRow(turn: turn, isLast: isLast, insetsTargets: false, retryWith: RetryModelChoice(store: store, turn: turn),
+                            polish: ChatPolishMenuButtons(store: store, turnID: turn.id, prompt: nil)) {
                 store.retry(turn)
             }
+        }
+    }
+
+    /// A who-else session opens as a tab of this workspace by its id; a peer's session stays a
+    /// name (a phone can't route to another machine's acpmux). Its own member: inline in
+    /// `content`'s switch, the closure was past what the type checker solves in time.
+    private var openWhoElse: (@MainActor (WhoElseCall.Session) -> Void)? {
+        guard !context.store.source.isReadOnly, let open = context.surface.tabActions?.openSession else { return nil }
+        return { session in
+            Task { @MainActor in await open(session.sessionId, session.harness, session.title) }
         }
     }
 }
@@ -151,11 +202,18 @@ struct MarkdownBlockRow: View {
     var body: some View {
         MarkdownBlockView(block: block, margin: 20)
             .frame(maxWidth: .infinity, alignment: .leading)
-            .contextMenu {
-                Button("Copy", systemImage: "doc.on.doc") { UIPasteboard.general.string = message() }
-                Button("Share", systemImage: "square.and.arrow.up") { ChatShare.present(message()) }
-            }
+            .selectionMenu { source in messageSelectionActions(message, from: source) }
     }
+}
+
+/// The system's Copy and Share act on the selected range. These act on the original message.
+@MainActor
+func messageSelectionActions(_ message: @escaping () -> String, from source: UIView) -> [UIMenuElement] {
+    [
+        SelectionMenu.action("Copy Message", "doc.on.doc") { UIPasteboard.general.string = message() },
+        SelectionMenu.action("Select Text", "selection.pin.in.out") { SelectableTextView(message()).present() },
+        SelectionMenu.share(message(), from: source, title: "Share Message"),
+    ]
 }
 
 /// Edit and Resend while the composer holds a draft: replace it only on a choice here, and

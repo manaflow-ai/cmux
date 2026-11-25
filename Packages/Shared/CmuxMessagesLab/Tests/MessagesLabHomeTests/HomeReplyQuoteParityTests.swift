@@ -146,17 +146,20 @@ import Testing
         ],
         lastSeq: 3, createdAt: date(-100), updatedAt: date(0))
 
-    /// My root, another message of mine, then the Chief's reply to the root: the reply gets a quote of the root.
-    static func rows() -> [RowSpec] {
-        let items = [
-            TranscriptItem(key: IdempotencyKey("k1"), seq: 1, author: me, parts: [.text(short)], createdAt: date(2),
-                           delivery: .committed, messageID: root),
-            TranscriptItem(key: IdempotencyKey("k2"), seq: 2, author: me, parts: [.text("it might be wisdom teeth idk")],
-                           createdAt: date(3), delivery: .committed, messageID: MessageID("msg_other")),
-            TranscriptItem(key: IdempotencyKey("k3"), seq: 3, author: chief, parts: [.text("Could be, but where it hurts alone can't tell us.")],
-                           createdAt: date(4), delivery: .committed, replyTo: PartRef(message: root), threadRoot: root,
-                           messageID: MessageID("msg_reply")),
-        ]
+    /// My root, `between` other messages of mine, then the Chief's reply to the root: the reply gets a quote of the root
+    /// when the root is further up than ``ThreadQuoteNearby/messages``.
+    static func rows(between: Int = 5) -> [RowSpec] {
+        var items = [TranscriptItem(key: IdempotencyKey("k1"), seq: 1, author: me, parts: [.text(short)], createdAt: date(2),
+                                    delivery: .committed, messageID: root)]
+        for n in 0..<between {
+            items.append(TranscriptItem(key: IdempotencyKey("k-other-\(n)"), seq: UInt64(2 + n), author: me,
+                                        parts: [.text("it might be wisdom teeth idk \(n)")], createdAt: date(3),
+                                        delivery: .committed, messageID: MessageID("msg_other_\(n)")))
+        }
+        items.append(TranscriptItem(key: IdempotencyKey("k3"), seq: UInt64(2 + between), author: chief,
+                                    parts: [.text("Could be, but where it hurts alone can't tell us.")],
+                                    createdAt: date(4), delivery: .committed, replyTo: PartRef(message: root), threadRoot: root,
+                                    messageID: MessageID("msg_reply")))
         var core = ProjectionCore(me: me)
         let (conv, _) = core.install(id, items: items, summary: summary)
         return Fixture.withRenderScale(2) {
@@ -164,15 +167,23 @@ import Testing
         }
     }
 
-    @Test func theChiefsReplyHangsFromMyQuoteOnAnArc() throws {
+    static func hasQuote(_ rows: [RowSpec]) -> Bool { rows.contains { if case .threadPreview = $0.kind { true } else { false } } }
+
+    /// User 2026-11-05 (msg 23140): the arc from my quote at the far right to the Chief's reply on the left hung
+    /// over nothing; the reply sits under the quote with no arc.
+    @Test func theChiefsReplyUnderAFarQuoteDrawsNoStrayArc() throws {
         let rows = Self.rows()
-        let quote = try #require(rows.first { if case .threadPreview = $0.kind { true } else { false } })
         let reply = try #require(rows.last { if case .part = $0.kind { true } else { false } })
         guard case let .part(p) = reply.kind else { throw CancellationError() }
-        #expect(p.connectorRoot == quote.key, "the Chief's reply under my quote draws no arc (connectorRoot \(String(describing: p.connectorRoot)))")
-        // The arc's level: 2 pt under the quote's middle (Messages: 13.75 pt under a 23.5 pt quote's top).
-        guard case let .threadPreview(pv) = quote.kind else { throw CancellationError() }
-        #expect(abs(quote.connectorAnchorY - (pv.box.height / 2 + 2)) < 0.01)
+        #expect(Self.hasQuote(rows))
+        #expect(p.connectorRoot == nil, "a stray arc runs to \(String(describing: p.connectorRoot))")
+    }
+
+    /// User 2026-11-05 (msg 23140): the Chief answering my last few messages, each in its thread, repeated each one as a
+    /// quote right under it; a root a few messages up shows no quote.
+    @Test(arguments: [0, 1, 3])
+    func aRootJustAboveIsNotQuotedAgain(between: Int) {
+        #expect(!Self.hasQuote(Self.rows(between: between)))
     }
 
     @Test func theReplySits48AndAHalfPointsUnderTheQuoteTop() throws {

@@ -6,9 +6,6 @@ public nonisolated enum NewTerminalWorkspaceSetting {
 }
 
 nonisolated extension NewTerminalWorkspaceSetting {
-    public static let configPath = ["newTerminal", "opensWorkspace"]
-    public static let fallback = false
-
     /// Resolves the persistent preference and the one-shot Option override.
     /// Keeping this rule pure makes the setting behavior easy to verify and
     /// keeps every New Terminal entrypoint on the same decision.

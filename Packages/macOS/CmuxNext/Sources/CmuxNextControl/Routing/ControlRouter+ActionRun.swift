@@ -122,6 +122,7 @@ extension ControlRouter {
         given.callerAgentSession = caller?.agentSession
         given.callerTerminal = caller?.terminalID
         given.callerHomeChat = caller?.homeChat ?? false
+        given.callerWorkspace = caller?.workspaceKey
         return given
     }
 
@@ -129,7 +130,8 @@ extension ControlRouter {
     /// current context, and confirmed when destructive. Runs off the main actor.
     func prepared(_ action: ControlActionInfo, _ given: ControlActionRequest, call: ControlCall) async throws -> ControlActionRequest {
         var placed = given
-        Self.placeBesideCaller(&placed, action: action, topology: call.snapshot.topology)
+        try Self.placeBesideCaller(&placed, action: action, topology: call.snapshot.topology)
+        Self.placeBesideTargetChat(&placed, action: action, topology: call.snapshot.topology)
         try Self.aimBrowserActionAtCaller(&placed, action: action, topology: call.snapshot.topology)
         let request = try await resolvedTargets(placed, snapshot: call.snapshot, deadline: call.deadline)
         guard call.snapshot.catalog.isAvailable(action, target: request.target) || action.unavailableReason != nil else {

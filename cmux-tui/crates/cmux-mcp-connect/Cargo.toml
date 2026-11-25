@@ -1,0 +1,18 @@
+[package]
+name = "cmux-mcp-connect"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+description = "The pure rules of connecting an MCP server by asking (plans/cmux-next/mcp-connect-DESIGN.md): resolve, URL and command checks, tool pins, tool-text screening, tool classes, PKCE and OAuth discovery parsing, redaction. No I/O."
+
+[lints]
+workspace = true
+
+[dependencies]
+base64 = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+sha2 = { workspace = true }
+url = { workspace = true }

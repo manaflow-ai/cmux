@@ -268,10 +268,9 @@ await requireBrowserLane("summary-header-surface.test.ts", async () => {
       const environment = panel.locator('[data-section="environment"]');
       expect(await environment.textContent()).toContain("Development Mac");
       expect(await environment.textContent()).toContain("atlas-web");
-      expect(await environment.locator("a").allTextContents()).toEqual([
-        "example/atlas-web",
-        "feature/session-details",
-      ]);
+      // The branch is the one link: Environment has no repository row (Lucas, 2026-11-05, Session Info
+      // lab: the project row names the folder; the branch links to GitHub).
+      expect(await environment.locator("a").allTextContents()).toEqual(["feature/session-details"]);
       expect(await environment.locator("a").last().getAttribute("href")).toBe(
         "https://github.com/example/atlas-web/tree/feature/session-details",
       );

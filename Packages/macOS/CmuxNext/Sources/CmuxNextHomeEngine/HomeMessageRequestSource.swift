@@ -1,5 +1,5 @@
 public import CmuxHomeCore
-public import CmuxNextHome
+public import CmuxNextHomeModel
 
 /// Where Home's message requests come from and go to (DESIGN 2.3). `CloudHomeSource` is the
 /// real one, over the daemon's `cloud-requests-list` and `cloud-conversation-op`; tests pass a fake.

@@ -458,3 +458,40 @@ fn remote_connect_state_dir_holds_the_client_log() {
         "no client log in --state-dir; stderr: {stderr}"
     );
 }
+
+/// W5-O follow-up (#38956 review): the mux owner `remote-link` starts on an
+/// SSH remote (the Mac app's `remote connect --headless`) got no
+/// `--terminal-reap-grace-seconds`, so it ran no reaper: a remote shell
+/// whose tab closed kept running until the session ended. It reaps with the
+/// default grace, as every owner a local client starts does.
+#[test]
+fn w5o_the_mux_owner_remote_link_starts_reaps() {
+    let fixture = Fixture::new();
+    fixture.link_once_without_stop();
+    let sockets = find_named(&fixture.remote_state(), "mux.sock");
+    let [socket] = sockets.as_slice() else {
+        panic!("one mux owner socket under --state-dir: {sockets:?}");
+    };
+    let output = fixture
+        .command()
+        .args(["--json", "--session", &fixture.session, "--socket"])
+        .arg(socket)
+        .args(["raw", "command", "--request-json", r#"{"id":"who","cmd":"identify"}"#])
+        .stdin(Stdio::null())
+        .output()
+        .unwrap();
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(output.status.success(), "identify failed: {output:?}");
+    let identify: serde_json::Value = serde_json::from_str(stdout.trim())
+        .unwrap_or_else(|error| panic!("identify is not JSON ({error}): {stdout}"));
+    let capabilities = identify
+        .get("capabilities")
+        .or_else(|| identify.pointer("/data/capabilities"))
+        .and_then(serde_json::Value::as_array)
+        .unwrap_or_else(|| panic!("no capabilities in {identify}"));
+    assert!(
+        capabilities.iter().any(|value| value == "terminal-reaper-active-v1"),
+        "the mux owner remote-link starts runs no reaper: {identify}"
+    );
+    fixture.stop_daemons();
+}

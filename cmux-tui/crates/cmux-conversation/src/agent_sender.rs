@@ -31,6 +31,51 @@ pub struct AgentSender {
     pub class: String,
     /// Its thread, when it named one.
     pub thread: Option<String>,
+    /// Who the chat shows it is from, as `APP` or `APP › PERSONA` ("Grok bot ›
+    /// Ada", "Claude Code › 3fa9c1d2@mini-7"; u20190): the label's words, never
+    /// read back from the id. None shows [`AgentSender::name`].
+    pub display: Option<String>,
+}
+
+/// The separator between a sender's app and its persona in a label.
+pub const PERSONA_SEPARATOR: &str = " › ";
+/// The longest app or persona kept in a label.
+pub const MAX_DISPLAY_PART: usize = 48;
+
+/// One display part: one line, no brackets, at most [`MAX_DISPLAY_PART`] characters.
+fn display_part(text: &str) -> Option<String> {
+    let part: String = text
+        .trim()
+        .chars()
+        .map(|c| if c.is_control() || matches!(c, '[' | ']' | '›') { ' ' } else { c })
+        .collect::<String>()
+        .split_whitespace()
+        .collect::<Vec<_>>()
+        .join(" ")
+        .chars()
+        .take(MAX_DISPLAY_PART)
+        .collect();
+    (!part.is_empty()).then_some(part)
+}
+
+/// `APP › PERSONA` from `text`: its parts split at `›` or `>` (`Grok bot > Ada`);
+/// None when nothing is left.
+pub fn display_of(text: &str) -> Option<(String, Option<String>)> {
+    let (app, persona) = match text.split_once(['›', '>']) {
+        Some((app, persona)) => (app, Some(persona)),
+        None => (text, None),
+    };
+    let app = display_part(app)?;
+    Some((app, persona.and_then(display_part)))
+}
+
+/// The label words for `app` and its optional `persona`.
+pub fn display_label(app: &str, persona: Option<&str>) -> Option<String> {
+    let app = display_part(app)?;
+    Some(match persona.and_then(display_part) {
+        Some(persona) => format!("{app}{PERSONA_SEPARATOR}{persona}"),
+        None => app,
+    })
 }
 
 /// A name or thread character kept as is; every other one becomes `-`.
@@ -54,7 +99,7 @@ impl AgentSender {
             class.map(str::trim).filter(|c| CLASSES.contains(c)).unwrap_or("result").to_owned();
         let thread =
             thread.map(|t| clean(t, MAX_THREAD)).filter(|t| !t.trim_matches('-').is_empty());
-        Some(AgentSender { name, class, thread })
+        Some(AgentSender { name, class, thread, display: None })
     }
 
     /// The `client_msg_id` for one message of this sender; `nonce` makes it
@@ -70,14 +115,25 @@ impl AgentSender {
         )
     }
 
-    /// The text the conversation shows: `[from <name>] <text>`.
-    pub fn labelled(&self, text: &str) -> String {
-        format!("[from {}] {text}", self.name)
+    /// This sender shown as `app` (and `persona`): `[from APP › PERSONA]`.
+    pub fn with_display(mut self, app: &str, persona: Option<&str>) -> AgentSender {
+        self.display = display_label(app, persona);
+        self
     }
 
-    /// `text` without the `[from <name>] ` label this sender put on it.
+    /// The words the label names: [`AgentSender::display`], else the name.
+    pub fn shown(&self) -> &str {
+        self.display.as_deref().unwrap_or(&self.name)
+    }
+
+    /// The text the conversation shows: `[from <shown>] <text>`.
+    pub fn labelled(&self, text: &str) -> String {
+        format!("[from {}] {text}", self.shown())
+    }
+
+    /// `text` without the `[from <shown>] ` label this sender put on it.
     pub fn unlabelled<'a>(&self, text: &'a str) -> &'a str {
-        text.strip_prefix(&format!("[from {}] ", self.name)).unwrap_or(text)
+        text.strip_prefix(&format!("[from {}] ", self.shown())).unwrap_or(text)
     }
 }
 
@@ -93,46 +149,5 @@ pub fn of_client_msg_id(id: &str) -> Option<AgentSender> {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn a_marked_id_names_its_sender_class_and_thread() {
-        let sender =
-            AgentSender::new("claude-sr2-coord", Some("question"), Some("pr:123")).unwrap();
-        let id = sender.client_msg_id("0123456789abcdef0123");
-        assert_eq!(id, "agent~claude-sr2-coord~question~pr:123~0123456789abcdef");
-        assert!(crate::valid_token(&id));
-        assert_eq!(of_client_msg_id(&id), Some(sender));
-    }
-
-    #[test]
-    fn an_unmarked_id_is_no_agent() {
-        assert_eq!(of_client_msg_id("cli-0123"), None);
-        assert_eq!(of_client_msg_id("send-1"), None);
-        assert_eq!(of_client_msg_id("agent~~result~~x"), None);
-    }
-
-    #[test]
-    fn names_and_threads_are_cleaned_and_the_class_defaults_to_result() {
-        let long = "x".repeat(200);
-        let sender =
-            AgentSender::new(&format!(" lane a~{long}"), Some("urgent"), Some("t 1")).unwrap();
-        assert_eq!(sender.name.len(), MAX_NAME);
-        assert!(sender.name.starts_with("lane-a-"));
-        assert_eq!(sender.class, "result");
-        assert_eq!(sender.thread.as_deref(), Some("t-1"));
-        let id = sender.client_msg_id(&"f".repeat(64));
-        assert!(id.len() <= 128 && crate::valid_token(&id), "{id}");
-        assert_eq!(of_client_msg_id(&id), Some(sender));
-    }
-
-    #[test]
-    fn the_label_round_trips() {
-        let sender = AgentSender::new("lane-a", None, None).unwrap();
-        let shown = sender.labelled("rebase when free");
-        assert_eq!(shown, "[from lane-a] rebase when free");
-        assert_eq!(sender.unlabelled(&shown), "rebase when free");
-        assert_eq!(sender.unlabelled("plain"), "plain");
-    }
-}
+#[path = "agent_sender_tests.rs"]
+mod tests;

@@ -127,10 +127,30 @@ extension ArtifactContent {
 
 public typealias SessionArtifact = TerminalArtifact
 
+/// An authenticated owner for a thumbnail cached on this iPhone. The
+/// account, machine and resource identify the actual bytes; a file path alone
+/// is shared across Macs, users, working directories and agent sessions.
+public enum ArtifactThumbnailOwner {
+    public static func remote(accountID: String, macID: String, resource: String) -> String? {
+        guard !accountID.isEmpty, !macID.isEmpty, !resource.isEmpty else { return nil }
+        // Length-prefix each component so paths and identifiers cannot alias
+        // by containing the separator. These strings live in an in-memory cache.
+        let parts = [accountID, macID, resource]
+        return parts.map { "\($0.utf8.count):\($0)" }.joined(separator: "|")
+    }
+}
+
 /// Loads artifact contents: from the Mac over the `file` link service
 /// (`LinkFileArtifactSource`), from inline data, or from the mock.
 public protocol ArtifactSource: Sendable {
+    /// An explicit owner for cache reuse. Nil: the caller must read the
+    /// source anew rather than reuse another account or Mac's preview.
+    var thumbnailCacheScope: String? { get }
     func load(_ artifact: TerminalArtifact) async throws -> ArtifactContent
+}
+
+extension ArtifactSource {
+    public var thumbnailCacheScope: String? { nil }
 }
 
 public struct ArtifactNotFound: Error, LocalizedError {

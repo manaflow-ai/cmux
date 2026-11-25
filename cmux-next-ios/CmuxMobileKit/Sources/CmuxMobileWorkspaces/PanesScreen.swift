@@ -1,6 +1,7 @@
 #if os(iOS)
 import CmuxMobileDesign
 import CmuxMobileModel
+import CmuxSpinner
 import SwiftUI
 
 private let theme = CmuxMobileTheme.standard
@@ -29,8 +30,7 @@ struct PanesScreen: View {
                 set: { shown in if !shown { source.renamingPane = nil } }
             ), presenting: source.renamingPane) { pane in
                 TextField(source.title(of: pane), text: $paneName)
-                    // Names are code-like: no autocorrect, no capitals (full verify D5).
-                    .autocorrectionDisabled()
+                    // Names are code-like: no capitals (full verify D5); autocorrect stays on, as on every GUI field (Leo, 2026-11-23).
                     .textInputAutocapitalization(.never)
                     .accessibilityIdentifier("panes.rename.field")
                 Button("Cancel", role: .cancel) {}
@@ -71,6 +71,9 @@ struct PanesScreen: View {
                             .listRowInsets(EdgeInsets(top: 12, leading: 12, bottom: 12, trailing: 12))
                     }
                 }
+                if source.canEditPanes, let screen = layout.activeScreen, !screen.resizableSplits.isEmpty {
+                    resizeSection(screen)
+                }
                 ForEach(layout.screens) { screen in
                     ForEach(screen.panes) { pane in
                         Section {
@@ -79,6 +82,16 @@ struct PanesScreen: View {
                                 Text("No tabs the iPhone shows").foregroundStyle(theme.colors.label2.color)
                             }
                             ForEach(tabs) { tab in row(tab, in: pane, layout: layout) }
+                                // One gesture moves a tab: a long press lifts its row and the
+                                // same touch drags it, in this pane or into another one; the rows
+                                // make room as it passes, and the drop settles in one motion.
+                                .dropDestination(for: String.self) { ids, offset in
+                                    guard source.canEditPanes, let id = ids.first else { return }
+                                    theme.haptics.selection()
+                                    withAnimation(theme.motion.smooth.animation.unlessReduceMotion) {
+                                        _ = source.dropTab(id, into: pane, at: offset)
+                                    }
+                                }
                         } header: {
                             header(pane, screen: screen, layout: layout)
                         }
@@ -87,9 +100,44 @@ struct PanesScreen: View {
             }
             .listStyle(.insetGrouped)
             .scrollContentBackground(.hidden)
+        } else if source.layout == nil, source.awaitsMacList {
+            // The Mac's list is on its way: loading, never "No Panes Yet".
+            // placeholder-ok: this workspace has never had a cached pane layout.
+            CmuxSpinner(label: Text("Loading panes from \(source.macName)…"))
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .accessibilityIdentifier("panes.loading")
+                .placeholderBound("panes.loading", .milliseconds(2000))
         } else {
             ContentUnavailableView("No Panes Yet", systemImage: "rectangle.split.2x1",
                                    description: Text("\(source.macName) hasn't listed this workspace's panes."))
+        }
+    }
+
+    // MARK: Resize Pane
+
+    /// Resize Pane: one stepper per divider of the shown screen. Each step moves the divider 5%
+    /// on the Mac (`set-split-ratio`); the value shown is what the Mac listed.
+    private func resizeSection(_ screen: WorkspaceLayout.Screen) -> some View {
+        Section {
+            ForEach(screen.resizableSplits) { split in
+                // A step past 10% or 90% is off: the button shows disabled, not a tap that does nothing.
+                let more: (() -> Void)? = split.stepped(1) == nil ? nil : { Task { await source.resize(split, 1) } }
+                let less: (() -> Void)? = split.stepped(-1) == nil ? nil : { Task { await source.resize(split, -1) } }
+                Stepper(onIncrement: more, onDecrement: less) {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(source.resizeTitle(split)).lineLimit(1)
+                        Text(split.axis == .horizontal ? "Left side \(split.percent)%" : "Top side \(split.percent)%")
+                            .font(theme.type.meta)
+                            .foregroundStyle(theme.colors.label2.color)
+                    }
+                }
+                .accessibilityIdentifier("panes.resize.\(split.split)")
+                .accessibilityValue("\(split.percent) percent")
+            }
+        } header: {
+            Text("Resize Pane").textCase(nil)
+        } footer: {
+            Text("Each step moves the divider on \(source.macName) by 5%.")
         }
     }
 
@@ -149,6 +197,11 @@ struct PanesScreen: View {
                 source.renamingPane = pane
             }
         }
+        if layout.panes.count > 1, !source.tabs(of: pane).isEmpty {
+            Section {
+                Button("Move Pane to New Workspace", systemImage: "macwindow.badge.plus") { Task { await source.movePaneToNewWorkspace(pane) } }
+            }
+        }
         if screen.panes.count > 1 {
             Section {
                 Button("Close Pane", systemImage: "xmark.rectangle", role: .destructive) { Task { await source.closePane(pane) } }
@@ -180,10 +233,11 @@ struct PanesScreen: View {
             }
             .contentShape(.rect)
         }
-        .buttonStyle(.plain)
+        .buttonStyle(.cmuxPressFill)
         .accessibilityIdentifier("panes.tab.\(tab.id)")
-        .accessibilityHint("Opens the tab")
+        .accessibilityHint("Opens the tab. Touch and hold, then drag to move it.")
         .contextMenu { tabMenu(tab, in: pane, layout: layout) }
+        .draggable(tab.id)
     }
 
     @ViewBuilder private func tabMenu(_ tab: WorkspaceTab, in pane: WorkspaceLayout.Pane, layout: WorkspaceLayout) -> some View {
@@ -202,6 +256,11 @@ struct PanesScreen: View {
                     }
                 }
                 Button("Move Tab to New Column", systemImage: "rectangle.split.3x1") { Task { await source.moveTabToNewColumn(tab) } }
+                Menu("Move Tab to New Dock Column", systemImage: "sidebar.right") {
+                    ForEach(DockEdge.allCases, id: \.self) { edge in
+                        Button(edge.title, systemImage: edge.systemImage) { Task { await source.moveTab(tab, toNewDock: edge) } }
+                    }
+                }
                 let others = layout.otherPanes(than: pane.id)
                 if !others.isEmpty {
                     Menu("Move Tab to Pane", systemImage: "arrow.right.square") {
@@ -212,7 +271,7 @@ struct PanesScreen: View {
                 }
             }
             if tab.kind == .agent {
-                Menu("Fork Conversation", systemImage: "arrow.triangle.branch") {
+                Menu("Fork Conversation", image: CmuxSymbol.forkImage) {
                     ForEach(ChatForkDestination.allCases) { destination in
                         Button(destination.title) { Task { await source.fork(tab.id, to: destination) } }
                     }
@@ -274,7 +333,7 @@ struct PanesScreen: View {
         Group {
             if let title = source.pendingTabTitle {
                 HStack(spacing: 8) {
-                    ProgressView().controlSize(.small)
+                    CmuxSpinner().controlSize(.small)
                     Text(WorkspaceScreen.openingText(title))
                 }
             } else if let text = source.toastText {

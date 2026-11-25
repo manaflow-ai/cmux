@@ -67,6 +67,20 @@ public final class ScreenshotsModel {
         syncWatches()
     }
 
+    /// Stops reading and watching and drops the listing until ``startListing()`` (access was taken back).
+    public func pauseListing() {
+        stop()
+        isListing = false
+        listing = ScreenshotListing()
+        unreadableSourceIDs.removeAll()
+        foldersBySource = Dictionary(sources.map { ($0.id, [$0.folder.path]) }, uniquingKeysWith: { first, _ in first })
+    }
+
+    /// Whether the page lists and every folder's last read failed (missing permission, or removed).
+    public var accessMissing: Bool {
+        isListing && !sources.isEmpty && sources.allSatisfy { unreadableSourceIDs.contains($0.id) }
+    }
+
     /// The files the grid shows: the selected source's (or all), matching the search, newest first.
     public var visibleItems: [FileGridItem] {
         listing.filtered(query: query, sources: selectedSourceID.map { [$0] })

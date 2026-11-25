@@ -2,7 +2,7 @@
 import { useState } from "react";
 import { componentEntry } from "../../gallery/format";
 import type { Play } from "../../gallery/play";
-import type { Choice } from "./ComposerPickers";
+import type { Choice } from "./composerPickerModel";
 import { EffortTrack } from "./EffortTrack";
 
 const efforts: Choice[] = [

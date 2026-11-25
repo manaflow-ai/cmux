@@ -8,6 +8,7 @@ type Props = {
   initial?: string;
   includeDisabled?: boolean;
   disabled?: boolean;
+  overflowing?: boolean;
 };
 
 const OPTIONS: SelectOption[] = [
@@ -16,11 +17,22 @@ const OPTIONS: SelectOption[] = [
   { value: "dense", label: "Dense" },
 ];
 
-function GallerySelect({ initial = "comfortable", includeDisabled = false, disabled = false }: Props) {
+function GallerySelect({
+  initial = "comfortable",
+  includeDisabled = false,
+  disabled = false,
+  overflowing = false,
+}: Props) {
   const [value, setValue] = useState(initial);
-  const options = includeDisabled
-    ? OPTIONS.map((option) => ({ ...option, disabled: option.value === "dense" }))
+  const choices = overflowing
+    ? [
+        ...OPTIONS,
+        ...Array.from({ length: 40 }, (_, index) => ({ value: `choice-${index}`, label: `Choice ${index + 1}` })),
+      ]
     : OPTIONS;
+  const options = includeDisabled
+    ? choices.map((option) => ({ ...option, disabled: option.value === "dense" }))
+    : choices;
   return (
     <div className="select-gallery">
       <Select
@@ -83,6 +95,7 @@ export default componentEntry<Props>({
   variants: {
     closed: { props: {} },
     open: { props: {}, play: open },
+    overflowing: { props: { overflowing: true }, play: open },
     keyboard: { props: {}, play: keyboard },
     disabled: { props: { includeDisabled: true }, play: disabled },
     "disabled-control": { props: { disabled: true } },

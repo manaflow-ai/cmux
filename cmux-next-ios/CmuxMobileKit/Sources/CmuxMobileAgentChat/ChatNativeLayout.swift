@@ -66,6 +66,8 @@ struct ChatNativeLayout: @unchecked Sendable {
         var file: Int?
         /// The region is a disclosure ("collapsed" until opened).
         var isDisclosure = false
+        /// The identifier UI tests find the region by.
+        var identifier: String?
     }
 
     /// Text runs, SF symbols, boxes, separators and tap regions, positioned in the row.
@@ -206,15 +208,20 @@ struct ChatNativeLayout: @unchecked Sendable {
                 let markerFont = item.ordinal != nil ? UIFont.monospacedDigitSystemFont(ofSize: body.pointSize, weight: .regular) : body
                 let marker = NSAttributedString(string: item.ordinal.map { "\($0)." } ?? (item.depth == 0 ? "•" : "◦"),
                                                 attributes: [.font: markerFont, .foregroundColor: UIColor.secondaryLabel])
-                let size = measure(marker, width: .greatestFiniteMagnitude)
+                // As drawn (no leading), so its line sits where the item's first line does.
+                let size = measureDrawn(marker, width: .greatestFiniteMagnitude)
                 markerWidth = max(14, size.width)
                 drawn.texts.append(Text(text: marker, frame: CGRect(x: lead + markerWidth - size.width, y: y, width: size.width, height: size.height)))
             }
             let x = lead + markerWidth + 8
             let text = ChatInlineText.make(item.text, font: body, color: .label)
-            let size = measure(text, width: max(width - x, 20))
-            drawn.texts.append(Text(text: text, frame: CGRect(x: x, y: y, width: max(width - x, 20), height: size.height)))
-            y += size.height
+            // The label hugs the text it draws: `measure` adds the font's leading to every line,
+            // which UILabel does not draw, and UILabel centers its text in a taller frame. That
+            // pushed an item's first line down by half a leading per line, below its marker. Items
+            // are 8 pt apart, as `MarkdownListView`, whatever their length.
+            let drawnHeight = measureDrawn(text, width: max(width - x, 20)).height
+            drawn.texts.append(Text(text: text, frame: CGRect(x: x, y: y, width: max(width - x, 20), height: drawnHeight)))
+            y += drawnHeight
             if index < list.items.count - 1 { y += 8 }
         }
         return ChatNativeLayout(content: .drawn(drawn), height: y)
@@ -365,11 +372,28 @@ struct ChatNativeLayout: @unchecked Sendable {
         return max(lines, 1)
     }
 
+    /// How every native row's label breaks lines: none of UILabel's default `.standard` strategy
+    /// (push-out of a last short line, hyphenation, Hangul word priority), which `measure` and
+    /// `lineCount` (TextKit, `boundingRect`) do not apply. With it, a long pasted log wrapped into
+    /// more lines than its row was laid out for and drew over the rows below.
+    static let labelLineBreakStrategy: NSParagraphStyle.LineBreakStrategy = []
+
     /// Text laid out at `width` as UILabel draws it, rounded up to the pixel grid.
     static func measure(_ text: NSAttributedString, width: CGFloat) -> CGSize {
         guard text.length > 0 else { return .zero }
         let rect = text.boundingRect(with: CGSize(width: width, height: .greatestFiniteMagnitude),
                                      options: [.usesLineFragmentOrigin, .usesFontLeading], context: nil)
+        return CGSize(width: (rect.width * 3).rounded(.up) / 3, height: (rect.height * 3).rounded(.up) / 3)
+    }
+
+    /// Text at `width` exactly as a multi-line UILabel draws it: lines at their glyphs' own heights
+    /// plus the paragraph's line spacing between them, with no font leading (UILabel draws none; a
+    /// fleet probe at body 17 pt matched UILabel's `textRect` to the pixel from 1 to 2,500 lines),
+    /// rounded up to the pixel grid. For a label whose frame must hug its text.
+    static func measureDrawn(_ text: NSAttributedString, width: CGFloat) -> CGSize {
+        guard text.length > 0 else { return .zero }
+        let rect = text.boundingRect(with: CGSize(width: width, height: .greatestFiniteMagnitude),
+                                     options: [.usesLineFragmentOrigin], context: nil)
         return CGSize(width: (rect.width * 3).rounded(.up) / 3, height: (rect.height * 3).rounded(.up) / 3)
     }
 }

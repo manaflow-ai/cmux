@@ -112,7 +112,7 @@ export function installLatencyProbe(): void {
             .map((e) => ({
               name: e.name,
               durationMs: e.duration,
-              interactionId: (e as PerformanceEventTiming).interactionId,
+              interactionId: (e as PerformanceEventTiming & { interactionId: number }).interactionId,
             }))
         : null,
       reactCommits: typeof commits === "number" && typeof counter === "number" ? counter - commits : null,

@@ -20,22 +20,28 @@ import type { AcpmuxSessionEntry } from "../../src/agent-session/acpmux/sessionL
 
 globalThis.__cmuxPaneStrings = { en: strings.en };
 document.documentElement.dataset.cmuxMotion = "off";
-const theme = new URLSearchParams(location.search).get("theme") === "light" ? "light" : "dark";
+const requested = new URLSearchParams(location.search).get("theme");
+const theme = requested === "light" || requested === "mocha" ? requested : "dark";
 // The pane's theme colours, as the host's theme sets them (transcript-glyph-alignment.harness.tsx).
+// `mocha` is Catppuccin Mocha's palette, a theme whose own bright blue (ANSI 12) is set, so a chip
+// that still took the link blue would show it.
 const themes = {
-  dark: { page: "#202124", text: "#f5f5f1", muted: "#c9c9c4", soft: "#95958f" },
-  light: { page: "#f7f7f2", text: "#242420", muted: "#55554f", soft: "#77776f" },
+  dark: { scheme: "dark", page: "#202124", text: "#f5f5f1", muted: "#c9c9c4", soft: "#95958f", blue: "" },
+  light: { scheme: "light", page: "#f7f7f2", text: "#242420", muted: "#55554f", soft: "#77776f", blue: "" },
+  mocha: { scheme: "dark", page: "#1e1e2e", text: "#cdd6f4", muted: "#bac2de", soft: "#a6adc8", blue: "#89b4fa" },
 } as const;
 for (const [key, value] of Object.entries({
   "--agent-page-bg": themes[theme].page,
   "--agent-text": themes[theme].text,
   "--agent-muted": themes[theme].muted,
   "--agent-soft": themes[theme].soft,
+  "--agent-ansi-12": themes[theme].blue,
   "--font-ui": "system-ui",
 }))
-  document.documentElement.style.setProperty(key, value);
-// The links take their own blue for the scheme (styles.css `--agent-link-base: light-dark(...)`).
-document.documentElement.style.colorScheme = theme;
+  if (value) document.documentElement.style.setProperty(key, value);
+// Prose links take their own blue for the scheme (styles.css `--agent-link-base: light-dark(...)`);
+// the session chip takes the theme's text tokens.
+document.documentElement.style.colorScheme = themes[theme].scheme;
 document.body.style.background = themes[theme].page;
 document.body.style.margin = "0";
 
@@ -60,11 +66,14 @@ const shellSend: Tool = {
   output: "queued",
 };
 
+/// A transcript row's frame in flow, as transcript-glyph-alignment.harness.tsx draws one.
+const ROW = { position: "relative", left: 0, right: 0, width: "100%" } as const;
+
 function App() {
   return (
     <main
       className="acpmux-shell"
-      data-theme={theme}
+      data-theme={themes[theme].scheme}
       style={{
         display: "flex",
         flexDirection: "column",
@@ -75,7 +84,9 @@ function App() {
       }}
     >
       <SubsessionContext.Provider value={{ store, open }}>
-        <div data-chip-row="received">
+        {/* Each line in a transcript row's frame (`.acpmux-row`, VirtualTranscript.tsx), which gives a
+            message line its muted rest tone (AgentMessageRow.css, #34724), in flow rather than placed. */}
+        <div className="acpmux-row" style={ROW} data-chip-row="received">
           <IncomingMessageLine
             id="chip-received"
             message={{
@@ -86,14 +97,14 @@ function App() {
             onOpen={open}
           />
         </div>
-        <div data-chip-row="received-plain">
+        <div className="acpmux-row" style={ROW} data-chip-row="received-plain">
           <IncomingMessageLine
             id="chip-received-plain"
             message={{ name: "gone-lane", text: "Done here.", raw: "[gone-lane] Done here." }}
             onOpen={open}
           />
         </div>
-        <div data-chip-row="sent">
+        <div className="acpmux-row" style={ROW} data-chip-row="sent">
           <AcpmuxSendLine tool={shellSend} send={acpmuxSendCall(shellSend)!} />
         </div>
         <p className="cv-md" data-chip-row="reply">

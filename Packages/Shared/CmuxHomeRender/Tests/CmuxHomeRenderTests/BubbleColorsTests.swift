@@ -37,12 +37,31 @@ import Testing
         }
     }
 
-    @Test func chosenTextIsKeptAsChosen() throws {
-        let fill = try #require(HomeColor(hex: "#FFD60A")), ink = try #require(HomeColor(hex: "#5856D6"))
+    /// A chosen text colour that reads on its bubble (4.5:1) is kept exactly as chosen.
+    @Test func chosenTextThatReadsIsKeptAsChosen() throws {
+        let fill = try #require(HomeColor(hex: "#FFD60A")), ink = try #require(HomeColor(hex: "#3634A3"))
         for (name, p) in Self.palettes() {
             let q = p.applying(HomeBubbleColors(sent: fill, sentText: ink, received: fill, receivedText: ink))
             #expect(q.outgoingText == ink, "\(name): sent text replaced")
             #expect(q.incomingText == ink, "\(name): received text replaced")
+        }
+    }
+
+    /// User 2026-11-03 ("every single theme, all the UI elements are colored properly"): a chosen text
+    /// colour that does not read on its bubble (purple on yellow 4.0:1, light yellow on yellow 1.1:1, a blue
+    /// on Messages' blue 1.0:1) keeps its hue and is raised to 4.5:1 on every shade of the bubble it is drawn on.
+    @Test(arguments: [("#FFD60A", "#5856D6"), ("#FFD60A", "#FFE066"), ("#1C2A4A", "#2C3E66"), ("", "#0A84FF"), ("", "#7FBFFF")])
+    func chosenTextThatDoesNotReadIsRaisedToReadOnItsBubble(_ fillHex: String, _ inkHex: String) throws {
+        let ink = try #require(HomeColor(hex: inkHex))
+        let fill = HomeColor(hex: fillHex)
+        for (name, p) in Self.palettes() {
+            let q = p.applying(HomeBubbleColors(sent: fill, sentText: ink, received: fill, receivedText: ink))
+            for stop in q.outgoingGradient {
+                #expect(q.outgoingText.contrast(with: stop.color.with(alpha: 1)) >= HomePalette.minimumTextContrast - 0.01,
+                        "\(name) \(inkHex) on \(fillHex): sent text \(q.outgoingText.contrast(with: stop.color)):1")
+            }
+            #expect(q.incomingText.contrast(with: q.incomingBubble.with(alpha: 1)) >= HomePalette.minimumTextContrast - 0.01,
+                    "\(name) \(inkHex) on \(fillHex): received text \(q.incomingText.contrast(with: q.incomingBubble)):1")
         }
     }
 

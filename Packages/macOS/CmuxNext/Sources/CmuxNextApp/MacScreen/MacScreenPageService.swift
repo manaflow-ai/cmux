@@ -3,8 +3,10 @@ import CmuxNextActions
 import CmuxNextBridge
 import CmuxNextCloud
 import CmuxNextCompat
+import CmuxNextComputerUse
 import CmuxNextControl
-import typealias CmuxNextDaemon.SurfaceID
+import CmuxNextDaemonService
+import CmuxNextDaemon
 import CmuxNextDevices
 import CmuxNextIcons
 import CmuxNextMacScreen
@@ -53,6 +55,11 @@ final class MacScreenPageService: InternalPageProvider {
             }
         }
         events.replaceTab = { [weak self] record, key in self?.replace(key, with: record) ?? false }
+        // Sign In on a Mac Screen card or the home page: the app's one cmux sign-in (msg 3790).
+        events.signIn = { [weak self] in
+            guard let services = self?.services else { return }
+            CmuxSignInOffer(registry: services.registry, isSignedIn: { services.cloud.isSignedIn }).signIn()
+        }
         events.storeTabID = { [weak self] key in
             guard let self, let services = self.services, let pane = services.paneController(showingTab: key),
                   let id = services.pages.stripID(showing: key, in: pane), id.rawValue != key else { return nil }
@@ -105,11 +112,11 @@ final class MacScreenPageService: InternalPageProvider {
     func open(_ record: MacScreenRecord, in pane: PaneController, focus: Bool, byPerson: Bool,
               created: (@MainActor () -> Void)? = nil) -> String {
         let key = LocalPageTab.makeKey(.macScreen)
-        pages.prepare(key, record: record, byPerson: byPerson)
+        pages.prepareOpen(key, record: record, byPerson: byPerson)
         guard let services else { return key }
         let window = services.windowController(showing: pane)
-        var onCreated: (@MainActor (SurfaceID) -> Void)?
-        if let created { onCreated = { _ in created() } }
+        let made = pages.whenCreated(key, focus: focus, then: created)
+        let onCreated: (@MainActor (SurfaceID) -> Void)? = if let made { { (_: SurfaceID) in made() } } else { nil }
         if let window, services.pages.openStoreTab(.macScreen, in: pane, window: window, focus: focus, key: key,
                                                    created: onCreated) != nil {
             return key
@@ -118,7 +125,7 @@ final class MacScreenPageService: InternalPageProvider {
                             window: window, key: key)
         pane.apply(pane.snapshot())
         if focus { services.pages.reveal(key, in: pane) }
-        created?()
+        made?()
         return key
     }
 
@@ -149,9 +156,8 @@ final class MacScreenPageService: InternalPageProvider {
 
 extension AppServices {
     static func makeMacScreenPages(_ services: AppServices) -> MacScreenPages {
-        let pages = MacScreenPages(store: .forApplication(bundleIdentifier: services.environment.launch.bundleID), work: services.work)
-        pages.useShortcuts(of: services.registry)
-        pages.hubHost.indicatorMenuItem = { [weak registry = services.registry] in registry?.makeMenuItem(for: $0) }
+        let pages = MacScreenPages(store: .forApplication(bundleIdentifier: services.environment.launch.bundleID, loginKeychain: services.loginKeychain), work: services.work)
+        pages.useActions(of: services.registry, isPersonEvent: services.personInput.isPerson)
         // SECURITY: a joined Mac serves only what its person allowed here (with the model gone, nothing),
         // and a session stops once that no longer allows it.
         let consent = services.joinConsent
@@ -159,16 +165,14 @@ extension AppServices {
         consent.changed = { [weak consent, weak host = pages.hubHost] in
             host?.consentChanged { consent?.macScreenPermits($0) ?? false }
         }
+        pages.deviceSetup.runner = MacScreenDeviceSetup.runner(daemon: services.daemon)
         return pages
     }
 
     /// The device hub follows the cmux account (CloudAuth).
     static func makeDeviceHub(_ services: AppServices) -> DeviceHubService {
-        let auth = services.cloud.auth
-        let account = DeviceHubService.Account(awaitRestored: { await auth.awaitRestored() },
-                                                userID: { auth.isSignedIn ? (auth.user?.id ?? "") : nil },
-                                                accessToken: { try await auth.tokens().access })
-        return DeviceHubService(pages: services.macScreenPages, account: account, bundleIdentifier: services.environment.launch.bundleID, loginKeychain: services.loginKeychain)
+        DeviceHubService(pages: services.macScreenPages, auth: services.cloud.auth, configuration: services.cloud.configuration,
+                         bundleIdentifier: services.environment.launch.bundleID, loginKeychain: services.loginKeychain)
     }
 
     /// Mac Screen follows its settings (Send System Shortcuts; DEV: Relay Only).
@@ -177,9 +181,9 @@ extension AppServices {
     }
 
     /// Screen Sharing (`macScreen.open`): the home page in the pane the action ran on, else the active window's focused pane.
-    func openMacScreen(in target: PaneController?) {
+    func openMacScreen(for device: String = "", in target: PaneController?) {
         guard let pane = target ?? windows.active?.focusedPane else { return registry.refuse(RefusalStrings.noWindowOpen) }
-        macScreenTabs.open(MacScreenRecord(macID: nil), in: pane, focus: true, byPerson: true)
+        macScreenTabs.open(macScreenPages.record(forDevice: device, requesting: .view), in: pane, focus: true, byPerson: true)
     }
 
     /// The pane whose strip lists tab `key` (any kind of tab).
@@ -188,11 +192,60 @@ extension AppServices {
     }
 
     func registerMacScreenDebug(on router: ControlRouter?) {
-        macScreenPages.registerDebug(on: router) { [weak self] record, key in self?.openDebugMacScreen(record, pane: key, byPerson: false) ?? "no pane" }
+        macScreenPages.registerControl(on: router) { [weak self] record, key in self.map { $0.openDebugMacScreen(record, pane: key, byPerson: false) } ?? "no pane" }
+    }
+
+    var cmuxRemoteActions: CmuxRemoteActionEnvironment {
+        CmuxRemoteActionEnvironment(remote: cmuxRemote, screenHost: macScreenPages.hubHost, hub: { [weak self] in self?.macScreenPages.hub }, window: { [weak self] in self?.windows.active?.window },
+                                    openDevices: { [weak self] in try? self?.settingsWindow.show(section: nil, route: "devices") }, shareConsent: .setting({ [weak self] in self?.settings },
+                                    ownJoin: CmuxRemoteOwnJoin(last: { [weak self] in self?.joinConsent.ownsJoin(self?.cloud.auth) ?? false }, now: { [weak self] in await self?.joinConsent.readOwnJoin(self?.cloud.auth) ?? false })))
+    }
+
+    /// cmux Remote (docs/cmux-remote.md): the daemon's signed host for Computer Use and Screen
+    /// Sharing; ``CmuxRemoteService`` does the work, this only passes it the app's parts.
+    func startCmuxRemote(_ settings: SettingsController) {
+        let auth = cloud.auth
+        guard let devices = cmuxRemote.start(bundleID: environment.launch.bundleID ?? "com.cmuxterm.app.next", loginKeychain: loginKeychain, deviceHub: deviceHub, pages: macScreenPages,
+                                             tokens: { try await auth.tokens().access }) else { return }
+        let consent = joinConsent, previous = consent.changed
+        let syncConsent = cmuxRemote.bindConsent(devices) { [weak consent] in
+            guard let consent else { return (true, false, false) }
+            return (consent.enabled, consent.permitsMacScreen(control: false), consent.permitsMacScreen(control: true))
+        }
+        consent.changed = {
+            previous()
+            syncConsent()
+        }
+        cmuxRemote.follow(settings) { [weak self] in
+            guard let self else { return (false, false) }
+            _ = daemon.identity?.capabilities.count // a reconnected daemon sends the switches again
+            return (cloud.isSignedIn, !registry.disabledFeatures.contains(.computerUse))
+        }
+        // The person's Computer Use policy and the cursor's animation switches go to cmux Remote's
+        // worker, from the first settings load on (``CmuxRemoteService/followComputerUse(_:)`` waits for it).
+        cmuxRemote.followComputerUse { [weak self, weak settings] in
+            guard let self, let settings else { return nil }
+            _ = daemon.identity?.capabilities.count // a reconnected daemon gets the policy again
+            let snapshot = settings.snapshot
+            let speed = snapshot.animationSpeed
+            let animates = snapshot.motionCategories.enabled && !snapshot.motionCategories.disabled.contains(.cursor) && speed != .off
+            return CmuxRemoteComputerUsePolicy(policy: snapshot.computerUse.policyConfigJSON(), cursorAnimates: animates,
+                                               cursorSpeed: speed.timeScale > 0 ? 1 / speed.timeScale : 1)
+        }
+        // The worker's agent sessions: the menu bar icon's dot while one acts, and an open menu's row.
+        cmuxRemote.followComputerUseActivity(daemon.store) { [weak self] acting in
+            self?.menuBarExtra.computerUseActive = acting
+            self?.menuBarExtra.computerUseSessionsChanged()
+        }
+        // The window each agent drives, live, in that agent's own chat or terminal pane.
+        computerUsePreviews.follow(daemon.store)
     }
 
     /// The device hub follows the hub address (`deviceHub.url` in DEV builds) and the cmux account.
     func startDeviceHub(_ settings: SettingsController) {
+        // cmux Remote (its hub is made with its device identity), then the acpmux daemon's share host, which owns this Mac's device.
+        startCmuxRemote(settings)
+        ShareHostDevice.prefer(in: deviceHub, build: environment.build, bundleID: environment.launch.bundleID, loginKeychain: loginKeychain) { [auth = cloud.auth] in try await auth.tokens().access }
         deviceHub.start(settings: settings)
         cloud.willSignOut.append { [weak self] in self?.deviceHub.willSignOut() }
     }
@@ -200,7 +253,7 @@ extension AppServices {
     /// `debug.device_hub` (DEV builds).
     func registerDeviceHubDebug(on router: ControlRouter?) {
         macScreenPages.registerDeviceHubDebug(on: router, settings: deviceHub.settingsModel) { [weak self] record, key in
-            self?.openDebugMacScreen(record, pane: key, byPerson: true) ?? "no pane"
+            self.map { $0.openDebugMacScreen(record, pane: key, byPerson: true) } ?? "no pane"
         }
     }
 

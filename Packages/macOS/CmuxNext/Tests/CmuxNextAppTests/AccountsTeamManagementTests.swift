@@ -1,3 +1,4 @@
+import CMUXAuthCore
 import CmuxNextAccounts
 import CmuxNextCloud
 import Testing
@@ -192,5 +193,77 @@ import Testing
         #expect(AccountsPageAction(action: "team.create", provider: nil, account: nil, secret: nil) == nil)
         #expect(AccountsPageAction(action: "team.bogus", provider: nil, account: nil, secret: nil) == nil)
         #expect(AccountsPageAction(action: "team.new", provider: nil, account: nil, secret: nil) == .team(.new))
+        #expect(AccountsPageAction(action: "team.accept", provider: nil, account: nil, secret: nil) == nil)
+        #expect(AccountsPageAction(action: "team.accept", provider: nil, account: nil, secret: nil, team: "inv") == .team(.accept("inv")))
+    }
+
+    private static let research = CMUXReceivedTeamInvitation(
+        id: "inv-research", teamID: "team-research", teamName: "Research", email: "demo@example.com", role: .member,
+        invitedBy: "Ada Lovelace", expiresAt: "2026-11-09T10:00:00.000Z")
+
+    /// An invitation to one of the person's verified emails shows under Invitations to You; Join
+    /// Team adds the team to the list as the active team, the team every Cloud machine list reads.
+    @Test func acceptingAnInvitationJoinsTheTeamAndMakesItActive() async throws {
+        let services = MockAccountsServices()
+        services.receivedInvitations = [Self.research]
+        let model = await loaded(services)
+        let received = try #require(model.pageState.teamList?.received)
+        #expect(received.title == "Invitations to You")
+        #expect(received.rows.map(\.team) == ["Research"])
+        #expect(received.rows.first?.detail == "Ada Lovelace invited you as Member, sent to demo@example.com")
+        #expect(received.rows.first?.accept.id == "team.accept")
+
+        #expect(try await run(model, "team.accept", team: "inv-research") == nil)
+
+        let list = try #require(model.pageState.teamList)
+        #expect(list.received == nil)
+        #expect(list.rows.map(\.name) == ["Personal", "Acme", "Research"])
+        #expect(list.rows.last?.active == "Active")
+        #expect(list.rows.last?.role == "Member")
+        #expect(list.notice?.text == "You joined “Research”. It is now your active team.")
+        #expect(services.activeTeam?.team?.id == "team-research")
+    }
+
+    /// When the switch to the joined team fails, the person is still in the team but their
+    /// previous team stays active, and the notice does not claim otherwise.
+    @Test func aJoinWhoseSwitchFailsDoesNotSayTheTeamIsActive() async throws {
+        let services = MockAccountsServices()
+        services.receivedInvitations = [Self.research]
+        let model = await loaded(services)
+        services.teamFailure = CMUXTeamError.unavailable
+
+        #expect(try await run(model, "team.accept", team: "inv-research") == nil)
+
+        let list = try #require(model.pageState.teamList)
+        #expect(list.rows.map(\.name) == ["Personal", "Acme", "Research"])
+        #expect(list.notice?.text == "You joined “Research”.")
+        #expect(services.activeTeam?.team?.id == "team-personal")
+    }
+
+    @Test func decliningRemovesTheInvitationAndJoinsNothing() async throws {
+        let services = MockAccountsServices()
+        services.receivedInvitations = [Self.research]
+        let model = await loaded(services)
+
+        #expect(try await run(model, "team.decline", team: "inv-research") == nil)
+
+        #expect(model.pageState.teamList?.received == nil)
+        #expect(model.pageState.teamList?.rows.map(\.name) == ["Personal", "Acme"])
+        #expect(services.activeTeam?.team?.id == "team-personal")
+    }
+
+    /// An invitation answered elsewhere (another device, the emailed link) is refused with a reason
+    /// and leaves the list on the re-read.
+    @Test func anAnsweredInvitationSaysWhyAndLeavesTheList() async throws {
+        let services = MockAccountsServices()
+        services.receivedInvitations = [Self.research]
+        let model = await loaded(services)
+        services.receivedInvitations = []
+
+        let failure = try await run(model, "team.accept", team: "inv-research")
+
+        #expect(failure == "This invitation was already answered, withdrawn or has expired.")
+        #expect(model.pageState.teamList?.received?.error == failure)
+        #expect(model.pageState.teamList?.received?.rows.isEmpty == true)
     }
 }

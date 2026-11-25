@@ -176,10 +176,15 @@ async fn a_moved_chat_keeps_its_bookmarks_and_the_source_keeps_none() {
         dst.request("_acpmux/transfer_receive", json!({"manifest": begin})).await.unwrap();
     let receive_id = received["receiveId"].as_str().unwrap().to_owned();
     super::super::transfer::copy_bundle(&mut src, &mut dst, &begin, &receive_id).await;
-    dst.request("_acpmux/transfer_finish", json!({"receiveId": receive_id})).await.unwrap();
+    dst.request(
+        "_acpmux/transfer_finish",
+        json!({"receiveId": receive_id, "epoch": begin["epoch"]}),
+    )
+    .await
+    .unwrap();
     src.request(
         "_acpmux/transfer_commit",
-        json!({"sessionId": id, "transferId": begin["transferId"], "to": {"sessionId": id}}),
+        json!({"sessionId": id, "transferId": begin["transferId"], "to": {"sessionId": id}, "epoch": begin["epoch"]}),
     )
     .await
     .unwrap();

@@ -19,6 +19,8 @@ pub struct Daemon {
     child: Child,
     pub client: Arc<Client>,
     listen: String,
+    /// The local socket, for a CLI or MCP server process run against this daemon.
+    pub socket: PathBuf,
 }
 impl Daemon {
     pub async fn new() -> Self {
@@ -39,10 +41,10 @@ impl Daemon {
             std::fs::Permissions::from_mode(0o600),
         )
         .unwrap();
-        let (child, client, listen) = Self::start(dir.path()).await;
-        Self { dir, child, client, listen }
+        let (child, client, listen, socket) = Self::start(dir.path()).await;
+        Self { dir, child, client, listen, socket }
     }
-    pub async fn start(home: &std::path::Path) -> (Child, Arc<Client>, String) {
+    pub async fn start(home: &std::path::Path) -> (Child, Arc<Client>, String, PathBuf) {
         let mut child = daemon_env::tokio_command(home, daemon_env::Agents::StandIn)
             .env("ACPMUX_HOME", home)
             .env("ACPMUX_LOGIN_ENV", "0")
@@ -76,13 +78,13 @@ impl Daemon {
         .await
         .unwrap();
         tokio::spawn(async move { while lines.next_line().await.ok().flatten().is_some() {} });
-        let client =
-            Client::connect(&PathBuf::from(ready["socket"].as_str().unwrap())).await.unwrap();
-        (child, client, ready["listen"].as_str().unwrap().into())
+        let socket = PathBuf::from(ready["socket"].as_str().unwrap());
+        let client = Client::connect(&socket).await.unwrap();
+        (child, client, ready["listen"].as_str().unwrap().into(), socket)
     }
     pub async fn restart(&mut self) {
         self.child.kill().await.unwrap();
-        (self.child, self.client, self.listen) = Self::start(self.dir.path()).await;
+        (self.child, self.client, self.listen, self.socket) = Self::start(self.dir.path()).await;
     }
     pub async fn call(&self, method: &str, params: Value) -> Value {
         tokio::time::timeout(Duration::from_secs(30), self.client.request(method, params))
@@ -225,7 +227,7 @@ impl Daemon {
         self.child.kill().await.unwrap();
     }
     pub async fn start_again(&mut self) {
-        (self.child, self.client, self.listen) = Self::start(self.dir.path()).await;
+        (self.child, self.client, self.listen, self.socket) = Self::start(self.dir.path()).await;
     }
 }
 pub async fn quiet(notes: &mut mpsc::Receiver<Message>) {

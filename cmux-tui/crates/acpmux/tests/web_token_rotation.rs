@@ -78,6 +78,14 @@ fn token_of(url: &str) -> String {
     url.split("token=").nth(1).unwrap().to_owned()
 }
 
+/// A WebSocket request to the listener with `token` as its bearer token.
+fn bearer(port: u16, token: &str) -> tokio_tungstenite::tungstenite::handshake::client::Request {
+    use tokio_tungstenite::tungstenite::client::IntoClientRequest;
+    let mut req = format!("ws://127.0.0.1:{port}/").into_client_request().unwrap();
+    req.headers_mut().insert("authorization", format!("Bearer {token}").parse().unwrap());
+    req
+}
+
 fn port_of(url: &str) -> u16 {
     let rest = url.split("://").nth(1).unwrap();
     let hostport = rest.split('/').next().unwrap();
@@ -94,11 +102,15 @@ fn saved_token(home: &std::path::Path) -> String {
     v["websocket"]["token"].as_str().unwrap().to_owned()
 }
 
-/// The dashboard page's status code for `token`.
-fn page_status(port: u16, token: &str) -> u16 {
+/// The status code of a WebSocket upgrade with `token` as its bearer token.
+fn upgrade_status(port: u16, token: &str) -> u16 {
     let mut s = std::net::TcpStream::connect(("127.0.0.1", port)).unwrap();
     s.set_read_timeout(Some(Duration::from_secs(5))).unwrap();
-    write!(s, "GET /?token={token} HTTP/1.1\r\nHost: 127.0.0.1:{port}\r\n\r\n").unwrap();
+    write!(
+        s,
+        "GET / HTTP/1.1\r\nHost: 127.0.0.1:{port}\r\nAuthorization: Bearer {token}\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==\r\nSec-WebSocket-Version: 13\r\n\r\n"
+    )
+    .unwrap();
     let mut buf = [0u8; 256];
     let n = s.read(&mut buf).unwrap();
     let head = String::from_utf8_lossy(&buf[..n]);
@@ -126,13 +138,12 @@ async fn rotate_token_replaces_the_live_and_saved_token_and_closes_web_connectio
     // Stored owner-only once the daemon runs, whatever mode it found.
     assert_eq!(mode(&home), 0o600, "config.json holds the token: 0600");
     let port = port_of(&url);
-    assert_eq!(page_status(port, OLD), 200);
+    assert_eq!(upgrade_status(port, OLD), 101);
 
     // A remote-origin (Web) client on the old token.
-    let (mut web, _) =
-        tokio_tungstenite::connect_async(format!("ws://127.0.0.1:{port}/?token={OLD}"))
-            .await
-            .expect("the old token connects before the rotation");
+    let (mut web, _) = tokio_tungstenite::connect_async(bearer(port, OLD))
+        .await
+        .expect("the old token connects before the rotation");
     // It may not rotate the token itself.
     let req =
         json!({"jsonrpc": "2.0", "id": 7, "method": "_acpmux/web_token_rotate", "params": {}});
@@ -171,12 +182,10 @@ async fn rotate_token_replaces_the_live_and_saved_token_and_closes_web_connectio
     assert_eq!(mode(&home), 0o600);
 
     // The old token stops working at once; the new one works.
-    assert_eq!(page_status(port, OLD), 401);
-    assert_eq!(page_status(port, &new), 200);
+    assert_eq!(upgrade_status(port, OLD), 401);
+    assert_eq!(upgrade_status(port, &new), 101);
     assert!(
-        tokio_tungstenite::connect_async(format!("ws://127.0.0.1:{port}/?token={OLD}"))
-            .await
-            .is_err(),
+        tokio_tungstenite::connect_async(bearer(port, OLD)).await.is_err(),
         "the old token still upgrades"
     );
     // The connection that authenticated with the old token is closed.

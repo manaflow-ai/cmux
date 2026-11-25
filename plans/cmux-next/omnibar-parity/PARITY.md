@@ -15,7 +15,7 @@ Both engines (Chromium and WebKit) use this one omnibar (`BrowserChromeView`).
 How it was checked: the baseline build `omnibar-base-v1` (feat-cmux-next `ef7a7d84e4f`,
 fleet job `c7cec5f7e22ec1a7fcca89c3`) driven with `debug.key` / `debug.omnibar` /
 `debug.focus` on a Chromium tab and a WebKit tab, plus reading both sources. Tests:
-`Tests/CmuxNextBrowserTests/OmnibarChromeParityTests.swift`, `OmnibarChromeGapsTests.swift`, `Tests/CmuxNextAppTests/OmnibarFocusMemoryTests.swift`.
+`Tests/CmuxNextBrowserTests/OmnibarChromeParityTests.swift`, `OmnibarChromeGapsTests.swift`, `cmux-tui/crates/cmux-focus-core/tests/focus_rules/ported/omnibar_memory.rs`.
 
 Status: **match** (same behavior), **fixed** (gap closed by this work), **gap** (still
 different), **n/a** (no Mac equivalent).
@@ -31,7 +31,7 @@ different), **n/a** (no Mac equivalent).
 | Cmd-L focuses, full URL, select all | `OVV::SetFocus(true)` | `.focusLocation` | match |
 | Opt-Cmd-F focuses a search with the default engine | `IDC_FOCUS_SEARCH`, `EnterKeywordModeForDefaultSearchProvider` | `browser.focusSearch` (palette, no default key: Opt-Cmd-F stays Search All Windows) → `.searchWithDefaultEngine`, chip "Search Google" | **fixed**; tests `searchTheWebSearchesWithTheDefaultEngine`, `beginSearchWaitsForTheFocus`. Ctrl-K is Chrome's key on Windows and Linux only; on the Mac it stays the field's kill-line |
 | Focus lost keeps typed text; next focus restores it, all selected | `OVV::OnBlur`, `SaveStateToTab` | `retainedText` | match |
-| Return to a tab that was being edited restores omnibox focus | `OmniboxEditModel::RestoreState` (`focus_state`) | `OmnibarFocusMemory` in `FocusCoordinator`: a tab left from its address bar gets `focusTarget(.addressBar)` back when a tab, pane or workspace change returns to it; a click in its page forgets it. The focus core's corpus is unchanged | **fixed**; tests `OmnibarFocusMemoryTests` |
+| Return to a tab that was being edited restores omnibox focus | `OmniboxEditModel::RestoreState` (`focus_state`) | cmux-focus-core's `omnibar_memory`, run by the focus machine for `FocusCoordinator`: a tab left from its address bar gets `focusTarget(.addressBar)` back when a tab, pane or workspace change returns to it; a click in its page forgets it. The focus core's corpus is unchanged | **fixed**; tests `ported::omnibar_memory` (cmux-focus-core) |
 
 ## Typing
 

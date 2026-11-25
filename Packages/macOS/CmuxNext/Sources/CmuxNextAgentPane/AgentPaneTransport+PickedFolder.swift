@@ -15,6 +15,9 @@ extension AgentPaneTransport {
         guard let picked, picked != "/" else { return path }
         if let home, AcpmuxPathPolicy.contains(root: picked, path: home) { return path }
         grant(picked)
+        // The panel's Open is the person's click however long the panel stayed open (past the gesture's lifetime): it
+        // goes on to the chat that starts there, a Cloud start sent from the pick included (``pickCredit``).
+        if socket != nil { pickCredit.give(connection: current, at: gestures.uptime) }
         // The native Open panel is an explicit user folder-open action. Record the same choice in
         // acpmux so its harness trust gate does not ask a second time for this folder.
         await trustPicked(picked)

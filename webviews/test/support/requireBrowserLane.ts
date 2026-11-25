@@ -1,10 +1,14 @@
 import { describe, test } from "bun:test";
 
+import { NO_PLAYWRIGHT_ON_MACS, playwrightRefusedHere } from "./systemChrome";
+
 /** The engines CI installs for the browser lane (ci-web.yml react-apps-check). */
 const CI_ENGINES = ["chromium", "webkit"] as const;
 
 type BrowserLaneOptions = {
   env?: Record<string, string | undefined>;
+  /** The host's platform (process.platform); a Mac outside GitHub Actions never runs the lane. */
+  platform?: string;
   report?: (message: string) => void;
   skip?: (name: string) => void;
   /** The CI engines that cannot launch here. */
@@ -55,14 +59,22 @@ export async function probeEngineOrSkip(
   engine: BrowserEngine,
   {
     env = process.env,
+    platform = process.platform,
     report = console.warn,
     skip = (suite) => describe.skip(suite, () => test(engineName, () => {})),
   }: {
     env?: Record<string, string | undefined>;
+    platform?: string;
     report?: (message: string) => void;
     skip?: (name: string) => void;
   } = {},
 ): Promise<boolean> {
+  // A Mac outside GitHub Actions launches nothing (no Playwright on Macs): the file skips.
+  if (playwrightRefusedHere(env, platform)) {
+    report(NO_PLAYWRIGHT_ON_MACS);
+    skip(name);
+    return false;
+  }
   const why = (error: unknown) => String(error).split("\n")[0];
   let browser: Awaited<ReturnType<BrowserEngine["launch"]>>;
   try {
@@ -107,11 +119,19 @@ export async function requireBrowserLane(
   register: () => void | Promise<void>,
   {
     env = process.env,
+    platform = process.platform,
     report = console.log,
     skip = (name) => describe.skip(name, () => test("browser lane", () => {})),
     unlaunchable = unlaunchableEngines,
   }: BrowserLaneOptions = {},
 ): Promise<void> {
+  // No Playwright on Macs (Lawrence, 2026-11-02), whatever CI, CMUX_CI_STEP_KEY or
+  // CMUX_BROWSER_TESTS say: Playwright turns the Chromium sandbox off, system Chrome included.
+  if (playwrightRefusedHere(env, platform)) {
+    report(NO_PLAYWRIGHT_ON_MACS);
+    skip(name);
+    return;
+  }
   if (env.CI !== "true" && env.CMUX_BROWSER_TESTS !== "1") {
     report("browser test skipped: runs only in CI or on a Freestyle VM (set CMUX_BROWSER_TESTS=1 there)");
     skip(name);

@@ -6,13 +6,23 @@
 // goes when the element unmounts.
 import { useEffect, useRef, useState, type CSSProperties } from "react";
 import "./avatars.css";
-import { avatarTrack, type AvatarFacing, type AvatarState } from "./format";
+import {
+  avatarTrack,
+  directionTrack,
+  type AvatarDirection,
+  type AvatarFacing,
+  type AvatarMotion,
+  type AvatarState,
+} from "./format";
 import type { AvatarSet } from "./sets";
 
 export type AnimatedAvatarProps = {
   set: AvatarSet;
   state?: AvatarState;
   facing?: AvatarFacing;
+  /** A direction row drawn instead of the state's (`look` or `drag` toward `toward`), when the set has it. */
+  motion?: AvatarMotion;
+  toward?: AvatarDirection;
   /** The drawn width in px; the height keeps the frame's ratio. Pixel art scales by whole steps. */
   size?: number;
   /** Draws this frame of the row and nothing moves. */
@@ -54,13 +64,17 @@ export function AnimatedAvatar({
   set,
   state = "idle",
   facing = "right",
+  motion,
+  toward,
   size,
   frame,
   still = false,
   label,
 }: AnimatedAvatarProps) {
   const { manifest, sheet, size: full } = set;
-  const track = avatarTrack(manifest, state, facing);
+  const directed = motion && toward ? directionTrack(manifest, motion, toward, facing) : null;
+  const track = directed ?? avatarTrack(manifest, state, facing);
+  const key = directed ? `${motion}-${toward}-${facing}` : `${state}-${facing}`;
   const width = size ?? manifest.frame.width;
   // Whole-pixel steps keep pixel art crisp: 32 px frames at 88 px draw at 64.
   const scale =
@@ -71,7 +85,7 @@ export function AnimatedAvatar({
   const h = manifest.frame.height * scale;
   const element = useRef<HTMLSpanElement>(null);
   const animatable = frame === undefined && !still && track.frames > 1;
-  const onScreen = useOnScreen(element, animatable, `${state}-${facing}`);
+  const onScreen = useOnScreen(element, animatable, key);
   const moving = animatable && onScreen;
   const style = {
     width: w,
@@ -87,8 +101,8 @@ export function AnimatedAvatar({
   } as CSSProperties;
   return (
     <span
-      // A new state or facing starts its row from the first frame.
-      key={`${state}-${facing}`}
+      // A new state, direction or facing starts its row from the first frame.
+      key={key}
       ref={element}
       className="cmux-avatar"
       role={label ? "img" : undefined}
@@ -97,6 +111,7 @@ export function AnimatedAvatar({
       data-avatar={manifest.id}
       data-state={state}
       data-facing={facing}
+      data-direction={directed ? `${motion}-${toward}` : undefined}
       data-moving={moving ? "true" : "false"}
       data-mirrored={track.mirrored ? "true" : "false"}
       data-pixel={manifest.pixelArt ? "true" : "false"}

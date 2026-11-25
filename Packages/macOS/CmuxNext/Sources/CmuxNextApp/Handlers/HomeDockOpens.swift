@@ -1,7 +1,6 @@
 import CmuxNextBridge
 import CmuxNextDaemon
 import CmuxNextFocus
-import struct CmuxNextLayout.DockColumn
 
 /// home-chief-pane.md H1 and H5. Home's pinned dock takes the tabs a person drags in (`allow_tabs`,
 /// Leo 2026-10-21) but opens nothing in itself, whoever asks: a person, the CLI, MCP or a script.
@@ -42,18 +41,10 @@ enum HomeDockOpens {
         nonisolated deinit {}
     }
 
-    /// The pinned dock column holding `pane` in `store`, if any.
-    static func pinnedDock(holding pane: PaneModel, in store: DaemonStore) -> DockColumn? {
-        let handle = pane.handle
-        let column = store.workspace(containing: handle)?.screens.lazy.flatMap(\.columns).first { $0.layout.paneIDs.contains(handle) }
-        guard let dock = column?.dock.map({ LayoutMapping.dock($0) }), dock.isPinned else { return nil }
-        return dock
-    }
-
     /// Whether a new tab made in `pane` moves beside it: `pane` is in Home's pinned dock while it
     /// takes tabs. A dock closed to tabs takes none (`dock-column-pinned`): its creators open beside it themselves.
     static func opensBeside(_ pane: PaneModel, services: AppServices) -> Bool {
-        pinnedDock(holding: pane, in: services.daemon(for: pane).store)?.allowsTabs == true
+        services.daemon(for: pane).store.pinnedDock(holding: pane.handle)?.allowsTabs == true
     }
 
     /// The `then` of a new tab made in `pane`: `then` runs, and a tab made in Home's dock then moves

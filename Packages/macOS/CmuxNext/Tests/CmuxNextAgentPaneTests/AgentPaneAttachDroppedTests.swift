@@ -1,4 +1,5 @@
 import AppKit
+import CmuxNextSettings
 import Foundation
 import Testing
 @testable import CmuxNextAgentPane
@@ -17,6 +18,8 @@ struct AgentPaneAttachDroppedTests {
     /// The clock the stash reads, moved by the test.
     private final class Uptime {
         var now: TimeInterval = 1000
+        /// The wall clock (seconds since 1970) the page's `Date.now()` reads too.
+        var wall: TimeInterval = 1_800_000_000
     }
 
     /// A pane whose App says its chat is on this Mac (`local`), or says nothing (nil).
@@ -26,12 +29,14 @@ struct AgentPaneAttachDroppedTests {
 
         init(local: Bool? = true) {
             let clock = clock
-            model.droppedPaths = AgentPaneDroppedPaths(now: { clock.now })
+            model.droppedPaths = AgentPaneDroppedPaths(now: { clock.now }, wall: { clock.wall })
             if let local { model.onLocalPaths = { local } }
         }
 
-        func ask(_ kind: String, _ names: [String]) async -> [String: Any] {
-            await model.respond(to: AgentPaneRequest(body: ["method": "chat.attach.dropped", "params": ["kind": kind, "names": names]]))
+        func ask(_ kind: String, _ names: [String], gestureAt: TimeInterval? = nil) async -> [String: Any] {
+            var params: [String: Any] = ["kind": kind, "names": names]
+            if let gestureAt { params["gestureAt"] = gestureAt * 1000 }
+            return await model.respond(to: AgentPaneRequest(body: ["method": "chat.attach.dropped", "params": params]))
         }
     }
 
@@ -61,6 +66,8 @@ struct AgentPaneAttachDroppedTests {
         #expect(String(describing: request) == "attachDropped")
         #expect(AgentPaneRequest(body: ["method": "chat.attach.dropped", "params": ["kind": "paste", "names": ["a.mov"]]])
             == .attachDropped(.paste, names: ["a.mov"]))
+        #expect(AgentPaneRequest(body: ["method": "chat.attach.dropped", "params": ["kind": "drop", "names": ["a.png"], "gestureAt": 1_800_000_000_250]])
+            == .attachDropped(.drop, names: ["a.png"], gestureAt: 1_800_000_000.25))
     }
 
     @Test func refusesAMalformedRequest() {
@@ -68,7 +75,6 @@ struct AgentPaneAttachDroppedTests {
         for params: [String: Any] in [
             ["kind": "pick", "names": ["a.zip"]],
             ["kind": "drop", "names": [String]()],
-            ["kind": "drop", "names": Array(repeating: "a.zip", count: AgentPaneDroppedPaths.maximumNames + 1)],
             ["kind": "drop", "names": ["a/b.zip"]],
             ["kind": "drop", "names": [".."]],
             ["kind": "drop", "names": ["."]],
@@ -76,6 +82,38 @@ struct AgentPaneAttachDroppedTests {
         ] {
             #expect(AgentPaneRequest(body: ["method": method, "params": params]) == .unsupported(method), "\(params)")
         }
+    }
+
+    @Test func aLargeBatchKeepsEveryPathInThePagesOrder() async throws {
+        let rig = Rig()
+        let urls = (0..<1024).map { URL(fileURLWithPath: "/tmp/attachment-\($0).bin") }
+        for kind in [AgentPaneDroppedPaths.Kind.drop, .paste, .choose] {
+            rig.model.droppedPaths.stash(urls, kind: kind)
+            let ordered = Array(urls.reversed())
+            let reply = await rig.ask(kind.rawValue, ordered.map(\.lastPathComponent))
+            #expect(Self.errorCode(reply) == nil, "\(reply)")
+            let items = try #require(Self.items(reply))
+            #expect(items.compactMap { $0["path"] as? String } == ordered.map(\.path))
+            #expect(Self.items(await rig.ask(kind.rawValue, ordered.map(\.lastPathComponent)))?.isEmpty == true)
+        }
+    }
+
+    @Test func aLargeBatchSourceRequestStillConsumesOnlyItsOwnGesture() async throws {
+        let rig = Rig()
+        let names = (0..<1024).map { "attachment-\($0).bin" }
+        rig.model.droppedPaths.stashSource([], items: names.count, claimed: "com.apple.finder", kind: .drop, madeAt: 1000)
+        func request(at milliseconds: Int) -> AgentPaneRequest {
+            AgentPaneRequest(body: ["method": "chat.attach.source", "params": ["kind": "drop", "names": names, "gestureAt": milliseconds]])
+        }
+        #expect(request(at: 1_000_000) == .attachSource(.drop, names: names, gestureAt: 1000))
+        let reply = await rig.model.respond(to: request(at: 999_000))
+        #expect(Self.errorCode(reply) == nil)
+        let sources = try #require((reply["value"] as? [String: Any])?["sources"] as? [Any])
+        #expect(sources.count == names.count)
+        #expect(sources.allSatisfy { $0 is NSNull })
+        // The stale request did not take the current gesture. Its own request still can, once.
+        #expect(rig.model.droppedPaths.source(.drop, names: names, gestureAt: 1000)?.claimed == "com.apple.finder")
+        #expect(rig.model.droppedPaths.source(.drop, names: names, gestureAt: 1000) == nil)
     }
 
     /// A drop of a folder and a file answers each one's path, and whether it is a folder.
@@ -89,6 +127,44 @@ struct AgentPaneAttachDroppedTests {
         let items = try #require(Self.items(reply))
         #expect(items.compactMap { $0["path"] as? String } == [folder.path, file.path])
         #expect(items.compactMap { $0["folder"] as? Bool } == [true, false])
+    }
+
+    /// What a new chat's first send may carry to Cloud (``AgentPaneModel/cloudCarriedFiles(_:)``):
+    /// a file or folder the person's own drop handed the page, and a file this app saved under Chat
+    /// Uploads; never a path page script made up, a folder the drop didn't name, or a `saved` chip
+    /// outside Chat Uploads.
+    @Test func aFirstCloudSendCarriesOnlyFilesThisPaneAuthorized() async throws {
+        let (base, folder, file) = try Self.dropped()
+        defer { try? FileManager.default.removeItem(at: base) }
+        let uploads = base.appendingPathComponent("Chat Uploads")
+        let saved = uploads.appendingPathComponent("sessions/s1/\(UUID().uuidString)/notes.txt")
+        try FileManager.default.createDirectory(at: saved.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try Data("notes".utf8).write(to: saved)
+        let outside = base.appendingPathComponent("outside.txt")
+        try Data("secret".utf8).write(to: outside)
+        let rig = Rig()
+        rig.model.chatUploadFolders = ChatUploadFolders(root: uploads)
+        func chip(_ path: String, saved: Bool = false) -> JSONValue {
+            var chip: [String: JSONValue] = ["id": .string("link:" + path), "kind": .string("link"), "name": .string((path as NSString).lastPathComponent), "path": .string(path)]
+            if saved { chip["saved"] = .bool(true) }
+            return .object(chip)
+        }
+        #expect(await rig.model.cloudCarriedFiles([chip(file.path)]).files.isEmpty, "a path the page named before any drop")
+        rig.model.droppedPaths.stash([folder, file], kind: .drop)
+        _ = await rig.ask("drop", ["docs", "build.zip"])
+        #expect(rig.model.droppedPaths.linkedFiles == [folder.path, file.path], "the drop's folder and file")
+        let carried = await rig.model.cloudCarriedFiles([
+            chip(file.path), chip(folder.path), chip(outside.path), chip(saved.path, saved: true), chip(outside.path, saved: true),
+            chip(uploads.path + "/../outside.txt", saved: true), chip(base.path), chip(uploads.path, saved: true),
+        ])
+        #expect(carried.files == [file.path, folder.path, saved.path], "a folder the drop never named, or a saved one, isn't carried")
+        #expect(carried.saved == [saved.path], "a Chat Uploads file is staged first: the upload CLI never reads ~/Library")
+        // A drop of more files than one batch held before still authorizes every one.
+        let many = (0..<1500).map { "/tmp/many-\($0).bin" }
+        rig.model.droppedPaths.linked(many)
+        #expect(Set(rig.model.droppedPaths.linkedFiles).isSuperset(of: many))
+        rig.model.droppedPaths.clearForSessionChange()
+        #expect(rig.model.droppedPaths.linkedFiles.isEmpty)
     }
 
     /// Files picked in + > Attach files are linked where they are, as a drop's are: a several-GB
@@ -174,6 +250,43 @@ struct AgentPaneAttachDroppedTests {
         rig.model.droppedPaths.stash([folder, file], kind: .drop)
         rig.clock.now += AgentPaneDroppedPaths.lifetime + 1
         #expect(Self.items(await rig.ask("drop", ["docs", "build.zip"]))?.isEmpty == true)
+    }
+
+    /// Two fast pastes (or drops) of files with the same names from different folders: each page ask
+    /// says when it took its gesture, and gets that gesture's paths, in either order. A late ask for
+    /// the first never takes the second's record (the doubled-screenshots follow-up, cmux#48809).
+    @Test func eachFastGestureGetsItsOwnPaths() async throws {
+        let first = try Self.dropped(), second = try Self.dropped()
+        defer { [first.base, second.base].forEach { try? FileManager.default.removeItem(at: $0) } }
+        for kind in ["paste", "drop"] {
+            for lateFirst in [false, true] {
+                let rig = Rig()
+                let gesture = AgentPaneDroppedPaths.Kind(rawValue: kind)!
+                let firstAt = rig.clock.wall
+                rig.model.droppedPaths.stash([first.folder, first.file], kind: gesture)
+                rig.clock.wall += 0.2
+                let secondAt = rig.clock.wall
+                rig.model.droppedPaths.stash([second.folder, second.file], kind: gesture)
+                // The page reads its clock after the record was made: a few ms later.
+                let askFirst = { await rig.ask(kind, ["docs", "build.zip"], gestureAt: firstAt + 0.004) }
+                let askSecond = { await rig.ask(kind, ["docs", "build.zip"], gestureAt: secondAt + 0.004) }
+                let paths = { (reply: [String: Any]) in Self.items(reply)?.compactMap { $0["path"] as? String } }
+                if lateFirst {
+                    #expect(paths(await askSecond()) == [second.folder.path, second.file.path])
+                    #expect(paths(await askFirst()) == [first.folder.path, first.file.path])
+                } else {
+                    #expect(paths(await askFirst()) == [first.folder.path, first.file.path])
+                    #expect(paths(await askSecond()) == [second.folder.path, second.file.path])
+                }
+                // Each record answered once.
+                #expect(Self.items(await askSecond())?.isEmpty == true)
+            }
+        }
+        // A gesture taken before any record of its kind finds none, and leaves the record.
+        let rig = Rig()
+        rig.model.droppedPaths.stash([first.folder, first.file], kind: .drop)
+        #expect(Self.items(await rig.ask("drop", ["docs", "build.zip"], gestureAt: rig.clock.wall - 1))?.isEmpty == true)
+        #expect(Self.items(await rig.ask("drop", ["docs", "build.zip"], gestureAt: rig.clock.wall))?.count == 2)
     }
 
     /// A paste asks for the paste's files: the drop's stay for the drop.

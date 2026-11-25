@@ -133,6 +133,31 @@ import Testing
         #expect(Set(deleted(engine)) == [Self.session, Self.admin])
     }
 
+    /// A URL-valued cookie selector describes a web request, including for get and
+    /// clear. An FTP/WebSocket host is not a cookie-bearing HTTP(S) request and must
+    /// never select a foreign profile's cookie or write one by its host.
+    @Test func cookieURLsRequireHTTPOrHTTPSForReadWriteAndClear() async throws {
+        let (router, engine) = install()
+        for url in ["ftp://other.test/private", "ws://app.example.com/socket",
+                    "file://example.com/local", "javascript://app.example.com/x"] {
+            let operations: [(String, [String: JSONValue])] = [
+                ("browser.page.cookies.get", ["url": .string(url)]),
+                ("browser.page.cookies.set", ["name": "demo", "value": "1", "url": .string(url)]),
+                ("browser.page.cookies.clear", ["url": .string(url)]),
+            ]
+            for (method, params) in operations {
+                let answer = await call(router, method, params)
+                #expect(answer.failure?.code == "invalid_params", "\(method): \(url)")
+                #expect(answer.failure?.data?["param"] == "url", "\(method): \(url)")
+            }
+        }
+        // Refusal occurs at argument validation, before reading or changing the profile.
+        #expect(engine.operations.isEmpty)
+        let allowed = try await call(router, "browser.page.cookies.get",
+                                     ["url": "https://app.example.com/home"]).get()
+        #expect(names(allowed) == ["sid@app.example.com", "pref@.example.com"])
+    }
+
     @Test func setRefusesACookieThatIsAlreadyExpired() async throws {
         let (router, engine) = install()
         let expired = await call(router, "browser.page.cookies.set", ["name": "a", "value": "1", "expires": 1])

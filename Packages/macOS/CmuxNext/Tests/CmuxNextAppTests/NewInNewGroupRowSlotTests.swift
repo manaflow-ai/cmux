@@ -21,7 +21,7 @@ struct NewInNewGroupRowSlotTests {
         let services = launched.services
         let url = launched.root.appendingPathComponent("cmux.json")
         try Data(#"{"workspaces":{"newPlacement":"top"}}"#.utf8).write(to: url)
-        let settings = SettingsController(registry: ActionRegistry(catalog: []), design: DesignSettings(), fileURL: url,
+        let settings = SettingsController(writer: TestSettingsWriter(), registry: ActionRegistry(catalog: []), design: DesignSettings(), fileURL: url,
                                           managedReader: FixedManagedPreferenceReader(ManagedPreferences()), managedWatchFiles: [])
         await settings.reload()
         services.settings = settings
@@ -29,8 +29,8 @@ struct NewInNewGroupRowSlotTests {
         let window = try #require(services.windows.active?.state.id)
         let controller = try #require(services.windows.controller(for: window))
         let list = controller.sidebar.container.sidebarView.list
-        await RapidWorkspaceCreateTests.wait(within: .seconds(30)) { SidebarDocStore.current?.shown != nil }
-        try #require(SidebarDocStore.current?.shown != nil, "the same-tree daemon serves the sidebar document")
+        await RapidWorkspaceCreateTests.wait(within: .seconds(30)) { services.sidebarDoc.store?.shown != nil }
+        try #require(services.sidebarDoc.store?.shown != nil, "the same-tree daemon serves the sidebar document")
         func rows(_ layout: SidebarLayout) -> [String] {
             layout.rows.compactMap { if case let .workspace(id) = $0.key { id.rawValue } else { nil } }
         }

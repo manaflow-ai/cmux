@@ -1,8 +1,10 @@
 import CmuxNextBridge
 import CmuxNextDaemon
+import CmuxNextDaemonService
 import CmuxNextDesign
 import CmuxNextHomeEngine
 import enum CmuxNextLayout.DockEdge
+import enum CmuxNextLayout.DropTarget
 import enum CmuxNextLayout.DockMode
 import enum CmuxNextLayout.DockRole
 import CmuxNextWorkspaceNaming
@@ -18,25 +20,46 @@ enum TabMoves {
 
     /// Reorder or cross-pane move to `index` (final display index), shown
     /// at once as an intent in the store's intent log.
-    static func move(_ tab: TabModel, to pane: PaneModel, index: Int, services: AppServices,
+    static func move(_ tab: TabModel, to pane: PaneModel, index: Int, services: AppServices, from source: PaneController? = nil,
                      transaction: ClientTransactionID = .generate(), completion: @escaping Completion = { _ in }) {
         let daemon = services.machines.daemon(forTab: tab)
         // Workspaces never mix machines: a drop onto another machine's pane is refused.
         guard services.daemon(for: pane) === daemon else { return refuseOtherMachine(services, completion) }
         guard !refusesIncognitoCrossing(tab, to: pane, services: services),
               !ChatDockRules.refusesMove(tab, to: pane, services: services) else { return completion(false) }
-        let surface = tab.surface, target = pane.handle
-        let current = pane.tabs.firstIndex { $0.surface == surface }
-        let wire = TabMoveIndex.wireIndex(finalIndex: index, currentIndex: current)
+        let surface = tab.surface, target = pane.handle, crosses = services.locateTab(model: tab)?.1 !== pane
+        let (final, current) = daemon.store.daemonMoveIndex(index, moving: surface, in: pane) // the daemon still lists closing tabs
+        let wire = TabMoveIndex.wireIndex(finalIndex: final, currentIndex: current)
         let echoes = daemon.supports(DaemonCapability.tabDrag.rawValue)
+        // The tab shows in its new pane in this turn (the intent), and a pane it empties leaves in it. Marked first (where the tab is).
+        // A cross-pane move the daemon refuses answers `moved: false` (Home's pinned tab), not an error: it fails as one, the pane shows again.
+        let leave = depart(tab, into: pane, from: source, services: services), send = daemon.intendNow("move-tab", .moveTab(surface: surface, toPane: target, index: index), transaction: transaction) { connection -> Void in
+            if try await connection.moveTab(surface, to: target, index: wire, transaction: echoes ? transaction : nil).moved == false, crosses { throw DaemonError.command(cmd: "move-tab", message: "not moved", code: nil) }
+        }, completion = leave(true, completion)
         services.registry.track(Task {
-            let ok = await daemon.intend("move-tab", .moveTab(surface: surface, toPane: target, index: index),
-                                         transaction: transaction) { connection -> Void in
-                _ = try await connection.moveTab(surface, to: target, index: wire, transaction: echoes ? transaction : nil)
-            } != nil
+            let ok = await send() != nil
             completion(ok)
             return ok ? nil : "move-tab failed (see the app log)"
         })
+    }
+
+    /// `tab` leaves its pane by this move, not a close (Leo 2026-11-07): its strip drops it with no close (`TabStripModel.departures`),
+    /// marked now. `target`: the pane it moves into (nil: one the move makes); `source`: the pane's controller when the caller has it.
+    /// The returned step runs after the move's intent: with `closesPane` a pane whose store records then hold no tab, and whose strip no
+    /// app-local tab, leaves in this turn on the close's one motion. It returns `completion` behind the outcome (a refusal shows it again).
+    @MainActor static func depart(_ tab: TabModel, into target: PaneModel? = nil, from source: PaneController? = nil,
+                                  services: AppServices) -> (_ closesPane: Bool, _ then: @escaping Completion) -> Completion {
+        guard let pane = services.locateTab(model: tab)?.1, pane !== target, let source = source.flatMap({ $0.pane === pane ? $0 : nil }) ?? services.paneController(for: pane) else { return { $1 } }
+        let id = StripTabID(tab.id), store = services.daemon(for: pane).store
+        source.stripModel.departures.insert(id)
+        return { closesPane, completion in
+            let close = closesPane && pane.tabs.isEmpty && !source.stripModel.tabs.contains { $0.id != id && store.tab(idOrResource: $0.id.rawValue) == nil } ? source.showPaneClose() : nil
+            return { ok in
+                if !ok { source.stripModel.departures.remove(id) }
+                source.finishPaneClose(close, failed: !ok)
+                completion(ok)
+            }
+        }
     }
 
     /// The new tab a split of `tab`'s own pane spawns there when `tab` is
@@ -106,6 +129,8 @@ enum TabMoves {
         // tab still in its pane: the sizing then goes once the reply's events are in the store (below).
         let from = services.locateTab(model: tab)?.1.handle
         if echoes { daemon.store.whenApplied(transaction) { if let now = services.locateTab(model: tab)?.1.handle, now != from { sizing() } } }
+        // Its new split shows with the daemon's tree, and an emptied pane leaves in that same layout.
+        let completion = depart(tab, services: services)(false, completion)
         services.registry.track(Task {
             let ok = await daemon.request("move-tab-to-split") { connection -> Void in
                 do {
@@ -135,6 +160,7 @@ enum TabMoves {
         let surface = tab.surface, paneHandle = pane.handle
         let echoes = daemon.supports(DaemonCapability.tabDrag.rawValue)
         let width = services.newColumnWidth(nextTo: pane, movingFrom: services.locateTab(model: tab)?.1)
+        let completion = depart(tab, services: services)(false, completion)
         services.registry.track(Task {
             // The daemon's reason reaches the caller (a CLI run's reply, the sweep's row), not only the log.
             let failure = await daemon.failure("move-tab-to-column") { connection in
@@ -184,17 +210,12 @@ enum TabMoves {
         let beside = edge.isBand || width != nil || half != nil ? nil
             : services.newColumnWidth(nextTo: pane, movingFrom: services.locateTab(model: tab)?.1)
         let width = width ?? half ?? beside ?? 0.3
+        let completion = depart(tab, services: services)(false, completion)
+        // A lone chat's dock shows in the input's turn (`tab-column-client-pane-v1`, ``DockColumnCommand``).
+        let move = MoveTabToColumnRequest(surface: surface, target: .pane(paneHandle), width: width, dock: pin, transaction: transaction)
+        let send = DockColumnCommand(move, respawn: respawn).start(on: daemon)
         services.registry.track(Task {
-            let ok = await daemon.request("move-tab-to-column") { connection -> Void in
-                if let respawn {
-                    let move = MoveTabToColumnRequest(surface: surface, target: .pane(paneHandle), width: width, dock: pin,
-                                                      transaction: transaction)
-                    try await MoveTabToColumnRespawnRequest(move, respawn: respawn).send(on: connection)
-                } else {
-                    _ = try await connection.moveTabToColumn(surface, target: .pane(paneHandle), width: width, dock: pin,
-                                                             transaction: transaction)
-                }
-            } != nil
+            let ok = await send()
             completion(ok)
             return ok ? nil : "move-tab-to-column failed (see the app log)"
         })
@@ -213,6 +234,7 @@ enum TabMoves {
         let name = newWorkspaceName(for: tab, services: services)
         // The daemon names the workspace in the move's commit when it can.
         let inCommit = daemon.supports(DaemonCapability.tabWorkspaceName.rawValue)
+        let departed = depart(tab, services: services)(false) { _ in }
         let key = await daemon.request("move-tab-to-new-workspace") { connection -> WorkspaceKey? in
             let result = try await connection.moveTabToNewWorkspace(surface, group: nil, index: index, name: inCommit ? name : nil,
                                                                     transaction: echoes ? transaction : nil)
@@ -229,6 +251,7 @@ enum TabMoves {
             if !inCommit, let created, let name { _ = try? await connection.renameWorkspace(created, to: name) }
             return created
         }
+        departed((key ?? nil) != nil)
         return key ?? nil
     }
 
@@ -252,6 +275,12 @@ enum TabMoves {
     /// incognito page's title stays in memory (R102): the daemon stores the
     /// workspace name and keeps it in closed history.
     static func nameInput(_ tab: TabModel, services: AppServices) -> NewWorkspaceName.Tab {
+        nameInput(tab, services: services, incognito: nil)
+    }
+
+    /// `nameInput` with the tab's incognito answer when the caller knows it (a sidebar row's workspace), so a browser
+    /// tab skips the lookup that reads every tab list (TYPING UNDER LOAD F6); nil looks it up. The one browser rule.
+    static func nameInput(_ tab: TabModel, services: AppServices, incognito: Bool?) -> NewWorkspaceName.Tab {
         // A conversation, page or app tab's record is titled `about:blank`, a placeholder (a New
         // Tab page dragged to the sidebar named its workspace "about:blank"): only a name the tab
         // shows of its own names the workspace.
@@ -265,7 +294,7 @@ enum TabMoves {
         // A conversation or a kind this app does not know: its title still names it.
         case .conversation, .other: .terminal
         }
-        let offTheRecord = tab.kind == .browser && services.cache.browserTabs.isIncognitoTab(tab.id) == true
+        let offTheRecord = tab.kind == .browser && (incognito ?? (services.cache.browserTabs.isIncognitoTab(tab.id) == true))
         let pageTitle = tab.kind == .browser && !offTheRecord ? services.cache.existingBrowser(tab.id)?.tab.state.title : nil
         return NewWorkspaceName.Tab(kind: kind, userName: tab.name, title: tab.titleText, pageTitle: pageTitle,
                                     url: tab.url, cwd: tab.cwd)
@@ -283,15 +312,35 @@ enum TabMoves {
         }
         if tab.page != nil { return services.pages.storeTabItem(tab)?.title }
         let title = services.home.tabTitle(for: tab)
-        return title == HomeStrings.title ? nil : title
+        return title == HomeStrings.title || title == HomeStrings.legacyTitle ? nil : title
     }
 
-    /// The other tabs of a multi-tab move follow the first into the workspace its move made (`key`), in order.
+    /// The other tabs of a multi-tab move follow the first into the workspace its move made (`key`), in order: one move at a time,
+    /// each after the one before finished, and the join returns (its caller docks or opens the window) once the last has.
     static func join(_ tabs: ArraySlice<TabModel>, workspace key: WorkspaceKey, services: AppServices) async {
         guard let daemon = tabs.first.map(services.machines.daemon(forTab:)) else { return }
         if services.workspace(id: key.rawValue) == nil { await daemon.store.refresh() }
-        guard let handle = services.workspace(id: key.rawValue)?.handle else { return }
-        for surface in tabs.map(\.surface) { _ = await daemon.request("move-tab-to-workspace") { connection -> Void in _ = try await connection.moveTab(surface, toWorkspace: handle) } }
+        guard let target = services.workspace(id: key.rawValue) else { return }
+        for tab in tabs { _ = await withCheckedContinuation { done in toWorkspace(tab, workspace: target, services: services) { done.resume(returning: $0) } } }
+    }
+
+    /// `WorkspaceModel.id` of the workspace that holds `pane` (Move Pane to Dock); nil with no pane.
+    static func paneWorkspace(_ pane: PaneModel?, services: AppServices) -> String? {
+        pane.flatMap { services.daemon(for: $0).store.workspace(containing: $0.handle)?.id }
+    }
+
+    /// Move Pane to Dock: every tab of `pane`, in order, into workspace `id`; false when either is gone.
+    static func pane(_ pane: PaneModel?, toWorkspace id: String, services: AppServices) -> Bool {
+        guard let tabs = pane?.tabs, !tabs.isEmpty, let target = services.workspace(id: id) else { return false }
+        for tab in tabs { toWorkspace(tab, workspace: target, services: services) }
+        return true
+    }
+
+    /// Move Pane to Dock with no dock: every tab of `pane`, in order, into a new workspace; its id, nil on failure.
+    static func paneToNewWorkspace(_ pane: PaneModel?, services: AppServices) async -> String? {
+        guard let tabs = pane?.tabs, let first = tabs.first, let key = await toNewWorkspace(first, services: services) else { return nil }
+        await join(tabs.dropFirst(), workspace: key, services: services)
+        return key.rawValue
     }
 
     static func toWorkspace(_ tab: TabModel, workspace: WorkspaceModel, services: AppServices,
@@ -312,9 +361,10 @@ enum TabMoves {
         // Where the daemon appends the tab, shown now as an intent (tab-move-tearing); a workspace
         // with no pane yet waits for the daemon's layout.
         if let intent = daemon.store.workspaceMoveIntent(surface: surface, into: handle) {
+            let leave = depart(tab, services: services)
             let send = daemon.intendNow("move-tab-to-workspace", intent, transaction: transaction) { connection -> Void in
                 _ = try await connection.moveTab(surface, toWorkspace: handle, transaction: echoes ? transaction : nil)
-            }
+            }, completion = leave(true, completion)
             services.registry.track(Task {
                 let ok = await send() != nil
                 completion(ok)
@@ -322,6 +372,7 @@ enum TabMoves {
             })
             return
         }
+        let stays = services.locateTab(model: tab).map { daemon.store.workspace(containing: $0.1.handle) === workspace } ?? false, completion = stays ? completion : depart(tab, services: services)(false, completion)
         services.registry.track(Task {
             let ok = await daemon.request("move-tab-to-workspace") { connection -> Void in
                 _ = try await connection.moveTab(surface, toWorkspace: handle, transaction: echoes ? transaction : nil)
@@ -388,5 +439,63 @@ enum TabMoves {
             throw DaemonError.malformedResponse("pane for surface \(surface) not found")
         }
         return pane.id
+    }
+}
+
+/// Whole-pane move commits (RFD 0022 item 2): a pane dragged by its header lands on every target a tab can
+/// (a split on a pane's edge, a new column, an edge dock) by the tab drag's own commits. The pane's first tab
+/// takes the move (it makes the destination pane), and the rest follow it there in order, so the surfaces are
+/// reparented and never recreated. A single-tab pane (the common case) is one daemon command.
+extension TabMoves {
+    /// Moves every tab of `controller`'s pane to `target`, the drop a tab drag's preview showed (`updateTabDrag` with the
+    /// pane as the one the drag empties). A target on the pane itself, or one that cannot take the move, is refused.
+    @MainActor static func movePane(_ controller: PaneController, to target: DropTarget, completion: @escaping Completion = { _ in }) {
+        let services = controller.services, source = controller.pane
+        guard let lead = source.tabs.first, let content = controller.workspace else { return completion(false) }
+        let rest = Array(source.tabs.dropFirst())
+        let landed: Completion = { ok in
+            guard ok, !rest.isEmpty, let home = services.locateTab(model: lead)?.1 else { return completion(ok && rest.isEmpty) }
+            follow(rest[...], into: home, services: services, completion: completion)
+        }
+        switch target {
+        case .pane(let id, let zone):
+            guard let edge = zone.edge?.paneEdge, let pane = layoutPane(id, in: content), pane !== source else { return completion(false) }
+            TabMoves.toNewSplit(lead, pane: pane, edge: edge, services: services, roomDecided: true, completion: landed)
+        case .newColumn(let screenID, let after):
+            guard let after, let (anchor, column) = columnAnchor(screenID, after: after, avoiding: source, in: content) else { return completion(false) }
+            TabMoves.toNewColumn(lead, anchor: anchor, afterColumn: column, services: services, completion: landed)
+        case .newDock(let screenID, let edge):
+            guard let anchor = screenAnchor(screenID, avoiding: source, in: content) else { return completion(false) }
+            TabMoves.toNewDockColumn(lead, anchor: anchor, edge: edge, services: services, completion: landed)
+        }
+    }
+
+    /// The remaining tabs, one after another, to the end of `home` (a move whose reply has not come has not moved the next tab's
+    /// pane yet). A failed one stops the chain: what moved stays, and the failure is the move's.
+    @MainActor private static func follow(_ tabs: ArraySlice<TabModel>, into home: PaneModel, services: AppServices, completion: @escaping Completion) {
+        guard let tab = tabs.first else { return completion(true) }
+        TabMoves.move(tab, to: home, index: home.tabs.count, services: services) { ok in
+            guard ok else { return completion(false) }
+            follow(tabs.dropFirst(), into: home, services: services, completion: completion)
+        }
+    }
+
+    @MainActor private static func layoutPane(_ id: LayoutPaneID, in content: WorkspaceContentController) -> PaneModel? {
+        content.handles.panes[id].flatMap { content.daemon.store.pane($0) }
+    }
+
+    /// A pane of the screen that is not the one the move empties (the daemon refuses a pane's only tab leaving through itself).
+    @MainActor private static func screenAnchor(_ screenID: LayoutScreenID, avoiding source: PaneModel, in content: WorkspaceContentController) -> PaneModel? {
+        content.layoutModel.screens.first { $0.id == screenID }?.layout.panes.lazy.compactMap { layoutPane($0, in: content) }.first { $0 !== source }
+    }
+
+    /// The pane to anchor a new column on (the last pane of the column the new one follows, else any other) and that column's daemon id.
+    @MainActor private static func columnAnchor(_ screenID: LayoutScreenID, after: LayoutColumnID, avoiding source: PaneModel,
+                                     in content: WorkspaceContentController) -> (PaneModel, DaemonColumnID?)? {
+        guard let screen = content.layoutModel.screens.first(where: { $0.id == screenID }),
+              let column = screen.layout.columns.first(where: { $0.id == after }),
+              let anchor = column.root.panes.reversed().lazy.compactMap({ layoutPane($0, in: content) }).first(where: { $0 !== source })
+                  ?? screenAnchor(screenID, avoiding: source, in: content) else { return nil }
+        return (anchor, content.handles.columns[column.id])
     }
 }

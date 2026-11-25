@@ -59,11 +59,12 @@ import Testing
     @Test func theHomeTranscriptKeepsItsMinimumThroughResizes() throws {
         _ = NSApplication.shared
         let suite = "cmux.tests.resize.\(UUID().uuidString)"
-        let defaults = try #require(UserDefaults(suiteName: suite))
+        let defaults = try #require(UserDefaults(testSuiteName: suite))
         defer { defaults.removePersistentDomain(forName: suite) }
         let sidebar = HomeSidebarView(frame: NSRect(x: 0, y: 0, width: 320, height: 600))
         sidebar.update(HomeLoneChiefRailTests.model(chiefs: 2))
         let split = HomeSidebarSplitView(sidebar: sidebar, content: NSView(), widths: HomeSidebarWidth(defaults: defaults))
+        split.showsList = true // the person showed the list (folded by default: ChiefReplacesHomeTests)
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 1000, height: 600), styleMask: [.borderless],
                               backing: .buffered, defer: false)
         window.isReleasedWhenClosed = false
@@ -76,16 +77,16 @@ import Testing
             return (split.arrangedSubviews[0].frame.width, split.arrangedSubviews[1].frame.width)
         }
         let wide = resize(1000)
-        #expect(abs(wide.list - 320) < 1, "the list does not start at its standard width")
+        #expect(abs(wide.list - HomeSidebarWidth.standard) < 1, "the list does not start at its standard width")
         for width: CGFloat in [700, 520, 420, 380] {
             let shown = resize(width)
             #expect(shown.transcript >= 280 - 1, "the transcript is \(shown.transcript) pt in a \(width) pt Home column")
-            #expect(shown.list >= 76 - 0.5)
+            #expect(shown.list >= HomeSidebarWidth.minimum - 0.5)
         }
         let narrowest = resize(300)
-        #expect(abs(narrowest.list - 76) < 1, "a column too narrow for both keeps the list at its minimum")
+        #expect(abs(narrowest.list - HomeSidebarWidth.minimum) < 1, "a column too narrow for both keeps the list at its minimum")
         let back = resize(1000)
-        #expect(abs(back.list - 320) < 1, "the list does not grow back to its saved width (\(back.list) pt)")
+        #expect(abs(back.list - HomeSidebarWidth.standard) < 1, "the list does not grow back to its saved width (\(back.list) pt)")
     }
 
     /// A docked agent chat column never gets narrower than the Home list's minimum plus a usable

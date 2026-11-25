@@ -27,8 +27,13 @@ pub(super) fn prompt_line(text: &str, client: &str, provenance: Option<&Value>) 
 pub(super) fn is_notice(provenance: Option<&Value>) -> bool {
     let kind = provenance.and_then(|p| p.get("kind")).and_then(Value::as_str);
     kind.is_some_and(|k| {
-        [super::inbox::NOTICE_KIND, super::digest::DIGEST_KIND, super::digest::inbox_digest::KIND]
-            .contains(&k)
+        [
+            super::inbox::NOTICE_KIND,
+            super::digest::DIGEST_KIND,
+            super::digest::inbox_digest::KIND,
+            super::touched::NOTICE_KIND,
+        ]
+        .contains(&k)
     })
 }
 
@@ -56,6 +61,13 @@ fn message(text: &str, client: &str, provenance: Option<&Value>) -> Option<(Stri
         provenance?.get(key)?.as_str().map(str::trim).filter(|s| !s.is_empty()).map(str::to_owned)
     };
     match provenance.and_then(|p| p.get("kind")).and_then(Value::as_str) {
+        // A tool's notice reads as its sender and its title, not the rendered `[notice from …]`
+        // line its agent got (`prompt_provenance::notice_text`).
+        Some(crate::prompt_provenance::NOTICE_KIND | super::touched::NOTICE_KIND) => {
+            let name = field("fromName")?;
+            let title = provenance?.pointer("/notice/title")?.as_str()?.trim().to_owned();
+            Some((name, title))
+        }
         Some("session_message" | "subsession_message") => {
             let name =
                 field("fromShortName").or_else(|| field("fromName")).or_else(|| field("from"))?;
@@ -159,6 +171,16 @@ fn cross_session(text: &str) -> Option<(String, String)> {
     {
         let close = format!("</{tag}>");
         rest = rest[rest.find(&close)? + close.len()..].trim_start();
+    }
+    // Claude Code's line before the envelope, in either wording, by itself or with the agent busy.
+    for lead in ["Another Claude session sent a message", "A peer session sent a message"] {
+        if let Some(after) = rest.strip_prefix(lead) {
+            let after = after.strip_prefix(" while you were working").unwrap_or(after);
+            if let Some(after) = after.strip_prefix(':') {
+                rest = after.trim_start();
+            }
+            break;
+        }
     }
     let open = rest.strip_prefix("<cross-session-message")?;
     let (attributes, after) = open.split_once('>')?;
@@ -272,6 +294,16 @@ mod tests {
         // The person's own words, and an envelope typed in a live chat, stay as they are.
         assert_eq!(prompt_line("Fix the grid", "adopt", None), "Fix the grid");
         assert_eq!(prompt_line(text, "acpmux-cli#1", None), text);
+        // Claude Code's line before the envelope, in either wording, is no part of the message.
+        for preface in [
+            "Another Claude session sent a message:\n",
+            "A peer session sent a message while you were working:\n",
+        ] {
+            let text = format!(
+                "{preface}<cross-session-message from=\"abc\" from-name=\"coord\">hi</cross-session-message>\n\nThis came from another Claude session."
+            );
+            assert_eq!(prompt_line(&text, "adopt", None), "coord: hi", "{preface}");
+        }
     }
 
     #[test]

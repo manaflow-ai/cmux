@@ -1,6 +1,6 @@
 package import AppKit
 package import CmuxNextActions
-package import CmuxNextHome
+package import CmuxNextHomeModel
 
 /// Home's first-run "Switching" card for the app: the keys from the live
 /// binding table, whether the person hid the card (kept on this Mac), and

@@ -538,6 +538,12 @@ describe("shellCommands", () => {
     expect(command!.words.map((word) => word.literal)).toEqual([true, false, false]);
     expect(shellCommands('x "$(a | b; c)"')).toHaveLength(1);
   });
+
+  test("arithmetic expansion stays text while nested command substitutions still run", () => {
+    expect(shellCommands("sleep $((60 * 5))")[0]!.runs).toBeUndefined();
+    expect(shellCommands('printf "%s" "$(git rev-parse HEAD)"')[0]!.runs).toEqual(["git rev-parse HEAD"]);
+    expect(shellCommands('echo "$(( $(git rev-parse HEAD) + 1 ))"')[0]!.runs).toEqual(["git rev-parse HEAD"]);
+  });
 });
 
 describe("acpmuxSendCall", () => {

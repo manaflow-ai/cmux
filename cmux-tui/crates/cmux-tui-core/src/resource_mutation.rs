@@ -17,6 +17,13 @@ use crate::{PaneId, State, SurfaceId};
 
 type StateApply = Box<dyn FnOnce(&mut State) + Send + 'static>;
 
+#[cfg(test)]
+thread_local! {
+    /// Whole state clones that [`ResourceMutationPlan::stage`] made on this
+    /// thread for a closure step.
+    static STAGED_STATE_CLONES: std::cell::Cell<u64> = const { std::cell::Cell::new(0) };
+}
+
 /// State rows written in the plan's transaction after its patch applies.
 /// It may finalize the result and add changes (state resources and fresh
 /// upserts of resources whose only change is a state field).
@@ -55,6 +62,19 @@ pub(crate) struct ResourceMutationPlan {
     /// The reducer op this plan performs, which the daemon checks the
     /// plan's result against before the commit.
     pub(crate) layout_op: Option<cmux_layout_reducer::LayoutOpKind>,
+    /// The state step changes no column, dock flag, column membership or
+    /// pane tab list (see [`Self::keeping_dock_columns`]).
+    keeps_dock_columns: bool,
+    /// The deltas restate every live topology resource (a full projection):
+    /// the commit may seed the registry's public fold with them.
+    pub(crate) restates_all: bool,
+    /// The deltas are a topology projection's: the commit drops the upserts
+    /// the journal already states (the registry's public fold).
+    pub(crate) prunes_stated: bool,
+    /// The workspaces of which the deltas state each live value again
+    /// (`ResourceEffectProjection::restated`): the commit marks them whole in
+    /// the registry's public fold.
+    pub(crate) restated: Vec<crate::resource::WorkspacePublicId>,
     state_step: StateStep,
 }
 
@@ -73,6 +93,10 @@ impl ResourceMutationPlan {
             workspace_ledger: None,
             state_write: None,
             layout_op: None,
+            keeps_dock_columns: false,
+            restates_all: false,
+            prunes_stated: false,
+            restated: Vec::new(),
             state_step: StateStep::Apply(Box::new(apply)),
         }
     }
@@ -98,6 +122,8 @@ impl ResourceMutationPlan {
     pub(crate) fn stage(&mut self, state: &mut State) -> State {
         match std::mem::replace(&mut self.state_step, StateStep::Staged) {
             StateStep::Apply(apply) => {
+                #[cfg(test)]
+                STAGED_STATE_CLONES.with(|clones| clones.set(clones.get() + 1));
                 let before = state.clone();
                 apply(state);
                 before
@@ -108,6 +134,26 @@ impl ResourceMutationPlan {
                 state.clone()
             }
         }
+    }
+
+    /// Whole state clones that [`Self::stage`] made on this thread for a
+    /// closure step (test hook).
+    #[cfg(test)]
+    pub(crate) fn staged_state_clones_for_test() -> u64 {
+        STAGED_STATE_CLONES.with(std::cell::Cell::get)
+    }
+
+    /// Declare that the state step adds, removes or reorders no column, dock
+    /// flag, column pane or pane tab. It changes only focus (the active
+    /// workspace, screen, pane and tab, a stack's expanded pane and focus
+    /// stamps), or only the sizes, the divider flags or the zoom of one
+    /// screen. No dock rule can refuse such a step, so
+    /// [`Self::stage_checked`] skips scanning every workspace's columns and
+    /// cloning the state (a cost that grew with the session,
+    /// ask-bdd706af47).
+    pub(crate) fn keeping_dock_columns(mut self) -> Self {
+        self.keeps_dock_columns = true;
+        self
     }
 
     /// Declare the reducer op this plan performs.
@@ -132,6 +178,9 @@ impl ResourceMutationPlan {
         operation: &str,
     ) -> anyhow::Result<Option<State>> {
         use crate::mux::layout_invariants as layout;
+        if self.keeps_dock_columns && !layout::conserves_tabs(operation) {
+            return Ok(None);
+        }
         // `permanent-dock-v1`: with a permanent column anywhere, every plan is
         // staged before the commit and refused if it removed one. With an
         // agent chat dock anywhere, it is refused if it split that dock.
@@ -171,6 +220,27 @@ impl ResourceMutationPlan {
             return Err(error);
         }
         Ok(Some(before))
+    }
+
+    /// Declare that the deltas are a topology projection's
+    /// (`ResourceEffectProjection::changes`): the commit drops the upserts
+    /// the journal already states, and a full projection's (`restates_all`),
+    /// unpruned, may seed the registry's public fold. Every plan built from
+    /// a projection declares it: one that did not journaled an upsert of
+    /// every live resource on each commit (2.5 MB for one `tab.update` in a
+    /// session of 826 workspaces).
+    pub(crate) fn projected(mut self, restates_all: bool) -> Self {
+        self.restates_all = restates_all;
+        self.prunes_stated = true;
+        self
+    }
+
+    /// Declare the workspaces that the projection's deltas state again, each
+    /// live value of them (`ResourceEffectProjection::restated`): the commit
+    /// marks them whole in the registry's public fold.
+    pub(crate) fn restating(mut self, workspaces: Vec<crate::resource::WorkspacePublicId>) -> Self {
+        self.restated = workspaces;
+        self
     }
 
     /// Write state rows in the patch's transaction.

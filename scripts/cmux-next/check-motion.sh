@@ -50,7 +50,7 @@ exempt = (os.path.join(sources, "CmuxNextDesign", "Motion") + os.sep,
 # The MotionGate members (Sources/CmuxNextDesign/Motion): every one decides with a category.
 GATE_MEMBERS = "|".join([
     "animates", "animatesMovement", "animatesPaneLayout", "animatesFades", "animatesLoops", "spring", "duration",
-    "period", "dividerReleaseProjection", "animate", "animateTimed", "animateExit", "transaction", "set",
+    "period", "animate", "animateTimed", "animateExit", "transaction", "set",
     "springAnimation", "scheduledFade", "spinAnimation", "stepAnimation", "framesAnimation", "pulseAnimation",
     "flashAnimation", "passOverAnimation", "crossfadeInPlace", "animation", "attentionAnimation",
     "revealLaunchMark", "concealLaunchMark", "marqueeAnimation", "policy", "sweepAnimation", "agentCursorGlideDuration",

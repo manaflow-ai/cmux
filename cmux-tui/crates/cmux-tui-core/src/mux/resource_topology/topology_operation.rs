@@ -17,12 +17,35 @@ impl Mux {
             self.workspace_registry.lock().unwrap().interrupted_resource_creation_recoveries()?;
         let mut pending = false;
         for recovery in recoveries {
+            // A creation whose terminal waits for a late terminal holder
+            // stays pending and does not count here: the start does not wait
+            // for that holder, and the late thread settles the creation when
+            // the terminal re-attached or ended (mux/holder_late.rs). So
+            // does a creation whose terminal is kept for the next start,
+            // which settles it.
+            let late = self.creation_waits_on_late_holder(&recovery.intent);
             pending |= matches!(
                 self.settle_resource_creation(recovery, None)?,
                 ResourceCreationSettlement::Pending
-            );
+            ) && !late;
         }
         Ok(pending)
+    }
+
+    /// Whether the terminal that the creation `intent` reserved is one the
+    /// start kept, for a late terminal holder or for the next start.
+    fn creation_waits_on_late_holder(&self, intent: &Value) -> bool {
+        let Some(terminal_id) = intent
+            .get("terminal_reservation")
+            .and_then(|reservation| reservation.get("terminal_id"))
+            .and_then(Value::as_str)
+        else {
+            return false;
+        };
+        self.late_holder_terminals
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .contains(terminal_id)
     }
 
     pub(super) fn reconcile_interrupted_resource_creation(
@@ -65,8 +88,10 @@ impl Mux {
         if let Some(name) = name.as_deref() {
             Self::validate_workspace_name(name)?;
         }
-        // Read before the state lock: `surface_notifications` locks state.
-        let notifications = self.tree_decorations();
+        // Read before the state lock (it locks state). The delta serializes the new empty
+        // workspace only: no surface of the session.
+        let mut notifications = self.tree_decorations_of_new_empty_workspace();
+        let reloads_presentation = mark.shows_in_tree();
         let mut registry = self.workspace_registry.lock().unwrap();
         let mut state = self.lock_state_pinned(&registry).unwrap();
         self.resolve_resource_path_in_state(&state, &registry, ResourceTarget::Session, &selectors)
@@ -102,6 +127,11 @@ impl Mux {
                 });
             }
             ResourceCreationPreparation::Blocked { idempotency_key, operation } => {
+                self.report_resource_effect_indeterminate(
+                    &idempotency_key,
+                    &operation,
+                    BLOCKED_CREATION_CAUSE,
+                );
                 return Err(anyhow::Error::new(resource_effect_indeterminate(
                     &idempotency_key,
                     &operation,
@@ -112,10 +142,6 @@ impl Mux {
             }
             ResourceCreationPreparation::Execute { intent, .. } => intent,
         };
-        anyhow::ensure!(
-            state.workspaces.len() < WORKSPACE_REGISTRY_LIMIT,
-            "workspace limit reached ({WORKSPACE_REGISTRY_LIMIT})"
-        );
         let workspace_slot = self.next_id();
         let public_id = WorkspacePublicId::parse(
             intent["workspace_public_id"]
@@ -254,6 +280,11 @@ impl Mux {
                 .then_some(&write_mark as crate::workspace_registry::RegistryTransactionWrite<'_>),
         )?;
         plan.apply(&mut state, &commit, workspace_revision);
+        // The commit wrote the mark's kind row; the entity reads it from presentation.
+        if reloads_presentation {
+            self.reload_presentation(&registry)?;
+            notifications.presentation = self.presentation_snapshot();
+        }
         // Push the same coarse tree event a terminal-bearing create emits
         // (`emit_committed_workspace_delta` in the legacy create path), so
         // `subscribe` clients see the empty workspace now instead of when
@@ -278,6 +309,7 @@ impl Mux {
                 entity,
                 workspace_revision,
                 transaction: None,
+                mutation: None,
             },
             index > 0,
         );
@@ -378,6 +410,9 @@ impl Mux {
         if selector_candidates.len() > 1 {
             fingerprint.set("selector_fallbacks", json!(&selector_candidates[1..]));
         }
+        // This creation does not go through `commit_resource_topology_operation`, so an agent's split or new
+        // pane marks the views here, as that function does.
+        let agent_layout = self.mark_agent_layout_change(&mutation.actor, operation);
         let commit = self.resource_correlated_creation_operation(
             operation,
             selector_candidates,
@@ -385,7 +420,11 @@ impl Mux {
             None,
             mutation,
             &fingerprint,
-        )?;
+        );
+        if let Some(marks) = &agent_layout {
+            self.settle_agent_layout_marks(marks, operation, &commit);
+        }
+        let commit = commit?;
         if !commit.replayed {
             self.emit_resource_topology_legacy_events(operation, &commit);
         }
@@ -393,8 +432,32 @@ impl Mux {
         Ok((surface, commit.replayed))
     }
 
-    #[allow(clippy::too_many_arguments)]
     pub(in crate::mux) fn commit_resource_topology_operation(
+        self: &Arc<Self>,
+        operation: ResourceOperation,
+        selectors: ResourceSelectors,
+        fields: Map<String, Value>,
+        expected_revision: Option<u64>,
+        mutation: &WorkspaceMutation,
+    ) -> anyhow::Result<ResourcePatchCommit> {
+        // An agent's layout change marks the views it can make smaller before the commit: a view's report can
+        // arrive before the commit returns.
+        let agent_layout = self.mark_agent_layout_change(&mutation.actor, operation);
+        let result = self.commit_unmarked_topology_operation(
+            operation,
+            selectors,
+            fields,
+            expected_revision,
+            mutation,
+        );
+        if let Some(marks) = &agent_layout {
+            self.settle_agent_layout_marks(marks, operation, &result);
+        }
+        result
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn commit_unmarked_topology_operation(
         self: &Arc<Self>,
         operation: ResourceOperation,
         selectors: ResourceSelectors,
@@ -463,6 +526,13 @@ impl Mux {
                 mutation,
                 &fingerprint,
             )?,
+            ResourceOperation::PaneMove => self.resource_move_pane(
+                selectors,
+                &fields,
+                expected_revision,
+                mutation,
+                &fingerprint,
+            )?,
             ResourceOperation::PaneZoom => self.resource_zoom_pane(
                 selectors,
                 fields.get("enabled").and_then(Value::as_bool),
@@ -470,6 +540,23 @@ impl Mux {
                 mutation,
                 &fingerprint,
             )?,
+            // `set-divider-visible`: the internal field replaces the ratio.
+            ResourceOperation::PaneSplitRatioSet if fields.contains_key(DIVIDER_HIDDEN_FIELD) => {
+                self.resource_set_split_divider_hidden(
+                    selectors,
+                    required_str(&fields, "split_id")?,
+                    fields
+                        .get(DIVIDER_HIDDEN_FIELD)
+                        .and_then(Value::as_bool)
+                        .context("field \"divider_hidden\" must be a boolean")?,
+                    LayoutMutationContext {
+                        coalesce: None,
+                        expected_revision,
+                        mutation,
+                        fingerprint: &fingerprint,
+                    },
+                )?
+            }
             ResourceOperation::PaneSplitRatioSet => self.resource_set_split_ratio(
                 selectors,
                 required_str(&fields, "split_id")?,
@@ -538,10 +625,25 @@ impl Mux {
         if matches!(operation, ResourceOperation::PaneCreate | ResourceOperation::PaneSplit) {
             return;
         }
-        self.emit(MuxEvent::TreeChanged);
+        // A terminal or browser tab create sends its exact deltas itself (workspace-added, screen-added
+        // or tab-added, with its selection, and a later name as tab-changed): the workspace create path,
+        // `create_terminal_in_workspace_impl` and its hosted binding, `effect_add_terminal_tab`, and the
+        // browser creates of `effect_execution`. A coarse `tree-changed` on top made every delta
+        // client read the whole tree again for each create: O(session) per create (#32408).
+        if !matches!(
+            operation,
+            ResourceOperation::WorkspaceCreate
+                | ResourceOperation::TabCreateTerminal
+                | ResourceOperation::TabCreateBrowser
+                | ResourceOperation::WorkspaceRun
+                | ResourceOperation::PaneRun
+        ) {
+            self.emit(MuxEvent::TreeChanged);
+        }
         if matches!(
             operation,
             ResourceOperation::PaneSwap
+                | ResourceOperation::PaneMove
                 | ResourceOperation::PaneZoom
                 | ResourceOperation::PaneSplitRatioSet
                 | ResourceOperation::PaneViewportWidthSet

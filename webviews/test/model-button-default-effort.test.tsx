@@ -7,6 +7,8 @@ import { afterAll, afterEach, beforeAll, expect, test } from "bun:test";
 import { JSDOM } from "jsdom";
 import { act, useState } from "react";
 import type { Root } from "react-dom/client";
+import { teardownDom } from "./support/domTeardown";
+import { MODEL_PICKER } from "../src/agent-session/acpmux/composerSelectors";
 
 const scope = globalThis as Record<string, unknown>;
 const keys = [
@@ -40,6 +42,13 @@ let host: HTMLElement;
 
 beforeAll(() => {
   dom = new JSDOM("<!doctype html><div id=root></div>", { pretendToBeVisual: true, url: "https://cmux.test/" });
+  Object.assign(dom.window, {
+    ResizeObserver: class {
+      observe() {}
+      unobserve() {}
+      disconnect() {}
+    },
+  });
   Object.assign(scope, {
     window: dom.window,
     document: dom.window.document,
@@ -72,15 +81,11 @@ afterEach(() => {
   root = undefined;
   host.replaceChildren();
   dom.window.localStorage.clear();
-  for (const popup of dom.window.document.querySelectorAll(".acpmux-quick-menu")) popup.remove();
+  for (const popup of dom.window.document.querySelectorAll(".acpmux-cols, .acpmux-quick-menu")) popup.remove();
 });
 
-afterAll(() => {
-  dom.window.close();
-  for (const [key, had, value] of saved) {
-    if (had) scope[key] = value;
-    else delete scope[key];
-  }
+afterAll(async () => {
+  await teardownDom(saved, { window: dom.window, scope });
 });
 
 /// A chat on Claude Code's profile `claude-sr2` (a second account's harness id the model catalog
@@ -200,54 +205,28 @@ async function mount(chat: Chat) {
 
 const doc = () => dom.window.document;
 const settle = () => act(async () => await new Promise((resolve) => setTimeout(resolve, 0)));
-const modelButton = () => host.querySelector<HTMLButtonElement>(".acpmux-model .acpmux-picker-button")!;
-const menus = () => [...doc().querySelectorAll<HTMLElement>(".acpmux-quick-menu")];
-const effortRow = () =>
-  [...menus()[0]!.querySelectorAll<HTMLElement>('[role="menuitem"]')].find((item) =>
-    item.textContent?.startsWith("Effort"),
-  );
+const modelButton = () => host.querySelector<HTMLButtonElement>(MODEL_PICKER)!;
+// Every chat's model chip opens the one shared columns picker (cmux#55750); its Reasoning column
+// lists the shown model's levels, the running model's when the menu opens.
+const menu = () => doc().querySelector<HTMLElement>(".acpmux-cols");
 
 async function openEffort() {
+  if (menu()) await act(async () => modelButton().click());
   await act(async () => modelButton().click());
   await settle();
-  const opened = menus()[0]!;
-  const current = opened.querySelector<HTMLElement>('.acpmux-quick-item[role="menuitemradio"][aria-checked="true"]');
-  // The running model's effort item opens its levels as a side dropdown beside the row.
-  const trigger = (
-    current?.closest(".acpmux-quick-model-effort") ?? opened.querySelector(".acpmux-quick-model-effort[data-running]")
-  )?.querySelector<HTMLElement>(".acpmux-quick-effort-trigger");
-  if (trigger) {
-    await act(async () => trigger.click());
-    await settle();
-    return doc().querySelector<HTMLElement>(".acpmux-quick-effort-menu")!;
-  }
-  const row = effortRow();
-  expect(row).toBeDefined();
-  await act(async () => row!.click());
-  await settle();
-  return menus().at(-1)!;
+  const tune = menu()?.querySelector<HTMLElement>(".acpmux-cols-tune");
+  expect(tune).not.toBeNull();
+  return tune!;
 }
 
+const levelRows = (popup: HTMLElement) => [...popup.querySelectorAll<HTMLElement>('[role="radio"]')];
+const levelName = (row: HTMLElement) => row.querySelector(".acpmux-cols-name")?.textContent ?? "";
 const checked = (popup: HTMLElement) =>
-  [...popup.querySelectorAll<HTMLElement>('[role="menuitemradio"][aria-checked="true"]')].map(
-    (item) => item.querySelector(".acpmux-menu-label")?.textContent,
-  );
-/// The level the menu names for the running model: its effort item's own text (the side dropdown's
-/// trigger), else the Effort row's value.
-const shownEffort = (popup: HTMLElement) => {
-  if (popup.matches(".acpmux-quick-effort-menu")) {
-    const now = doc().querySelector<HTMLElement>(
-      ".acpmux-quick-effort-trigger[data-popup-open] .acpmux-quick-effort-now",
-    );
-    const text = [...(now?.childNodes ?? [])]
-      .filter((node) => !(node instanceof dom.window.HTMLElement && node.classList.contains("sr-only")))
-      .map((node) => node.textContent)
-      .join("")
-      .trim();
-    return text || undefined;
-  }
-  return popup.querySelector<HTMLElement>(".acpmux-quick-value")?.textContent;
-};
+  levelRows(popup)
+    .filter((row) => row.getAttribute("aria-checked") === "true")
+    .map(levelName);
+/// The level the menu names for the running model: its Reasoning column's checked level.
+const shownEffort = (popup: HTMLElement) => checked(popup)[0];
 
 // The profile's probed Opus 5.5 row names no default level; the catalog's Opus 5.5 does (Medium).
 // Inline effort controls use the catalogued level when the model is resolved.
@@ -265,16 +244,14 @@ test("its inline effort control names that level and checks it", async () => {
   expect(shownEffort(levels)).toBe("Medium");
   expect(checked(levels)).toEqual(["Medium"]);
   // The check is the menus' own glyph, not a dot or a badge.
-  const medium = levels.querySelector<HTMLElement>('[role="menuitemradio"][aria-checked="true"]')!;
-  expect(medium.querySelector(".ui-menu-check")).not.toBeNull();
+  const medium = levels.querySelector<HTMLElement>('[role="radio"][aria-checked="true"]')!;
+  expect(medium.querySelector(".acpmux-cols-check svg")).not.toBeNull();
 });
 
 test("a level the chat picked wins over the model's default", async () => {
   const { sent } = await mount({ harness: "claude-sr2", family: "claude-sr2", effort: "default" });
   const levels = await openEffort();
-  const high = [...levels.querySelectorAll<HTMLElement>('[role="menuitemradio"]')].find(
-    (item) => item.textContent?.replace("✓", "").trim() === "High",
-  )!;
+  const high = levelRows(levels).find((row) => levelName(row) === "High")!;
   await act(async () => high.click());
   await settle();
   expect(sent).toEqual(["high"]);
@@ -345,6 +322,8 @@ for (const running of ["opus", "claude-opus-9-9"]) {
     });
     expect(host.querySelector(".acpmux-model-detail")?.textContent).toBeUndefined();
     const levels = await openEffort();
+    // The column lists the levels; none is checked.
+    expect(levelRows(levels).length).toBeGreaterThan(0);
     expect(shownEffort(levels)).toBeUndefined();
     expect(checked(levels)).toEqual([]);
   });

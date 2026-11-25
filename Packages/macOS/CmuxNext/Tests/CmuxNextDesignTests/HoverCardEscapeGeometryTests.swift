@@ -4,8 +4,8 @@ import Testing
 import CmuxNextDesignTokens
 
 /// Leo 2026-10-20: dismissing a sidebar row's hover card took too much travel. The escape-slot
-/// layout (`HoverCardEscapeGeometry.RowAlignment.middle`, a Debug Settings switch since the card
-/// lines up with its row's top by default) leaves an empty slot beside the row: the slot
+/// layout (`HoverCardEscapeGeometry.RowAlignment.middle`; the sidebar's card lines up with its
+/// row's top instead) leaves an empty slot beside the row: the slot
 /// dismisses, the straight path from the row into the card keeps it, and anywhere off both
 /// dismisses. The default, top-aligned layout: `HoverCardRowAlignmentTests`.
 @Suite struct HoverCardEscapeGeometryTests {

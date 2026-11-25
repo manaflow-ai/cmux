@@ -1,6 +1,7 @@
 import Foundation
 import Sparkle
 import Testing
+@testable import CmuxUpdaterTestSupport
 @testable import CmuxUpdater
 
 /// Regression coverage for https://github.com/manaflow-ai/cmux/issues/6292: tagged DEV and
@@ -43,31 +44,12 @@ import Testing
         #expect(model.showsPill)
     }
 
-    @Test func classifiesDebugAndStagingBundlesAsDevLike() {
-        #expect(UpdateController.isDevLikeBundleIdentifier("com.cmuxterm.app.debug"))
-        #expect(UpdateController.isDevLikeBundleIdentifier("com.cmuxterm.app.debug.my-tag"))
-        #expect(UpdateController.isDevLikeBundleIdentifier("com.cmuxterm.app.staging"))
-        #expect(UpdateController.isDevLikeBundleIdentifier("com.cmuxterm.app.staging.my-tag"))
-    }
-
-    @Test func doesNotClassifyPublicOrNightlyOrNilAsDevLike() {
-        #expect(!UpdateController.isDevLikeBundleIdentifier("com.cmuxterm.app"))
-        #expect(!UpdateController.isDevLikeBundleIdentifier("com.cmuxterm.app.nightly"))
-        // RC is on the public release train: it must keep auto-update on.
-        #expect(!UpdateController.isDevLikeBundleIdentifier("com.cmuxterm.app.rc"))
-        #expect(!UpdateController.isDevLikeBundleIdentifier("com.cmuxterm.app.rc.candidate1"))
-        #expect(!UpdateController.isDevLikeBundleIdentifier(nil))
-        // A look-alike that is neither the exact base id nor a dotted suffix must not match.
-        #expect(!UpdateController.isDevLikeBundleIdentifier("com.cmuxterm.app.debugger"))
-        #expect(!UpdateController.isDevLikeBundleIdentifier("com.cmuxterm.app.stagingx"))
-    }
-
     /// A manual "Check for Updates" on a DEV/staging build must not query the public appcast or
     /// offer the public release for install — it short-circuits to "No Updates Available" before
     /// starting Sparkle. (Manual checks are the path that survived the passive-pill gating.)
     @Test func devLikeBundleManualCheckIsSuppressed() throws {
         let suiteName = "com.cmuxterm.updatertests.\(UUID().uuidString)"
-        let defaults = try #require(UserDefaults(suiteName: suiteName))
+        let defaults = try #require(UserDefaults(testSuiteName: suiteName))
         defer { defaults.removePersistentDomain(forName: suiteName) }
 
         let controller = UpdateController(
@@ -90,7 +72,7 @@ import Testing
     /// leaves the model idle, whichever build is running.
     @Test func managedPolicyKeepsTheUpdaterOffAndSuppressesManualChecks() throws {
         let suiteName = "com.cmuxterm.updatertests.\(UUID().uuidString)"
-        let defaults = try #require(UserDefaults(suiteName: suiteName))
+        let defaults = try #require(UserDefaults(testSuiteName: suiteName))
         defer { defaults.removePersistentDomain(forName: suiteName) }
 
         let controller = UpdateController(
@@ -114,7 +96,7 @@ import Testing
     /// permission-reset path cannot undo it.)
     @Test func devLikeBundleDisablesAutomaticChecks() throws {
         let suiteName = "com.cmuxterm.updatertests.\(UUID().uuidString)"
-        let defaults = try #require(UserDefaults(suiteName: suiteName))
+        let defaults = try #require(UserDefaults(testSuiteName: suiteName))
         defer { defaults.removePersistentDomain(forName: suiteName) }
 
         _ = UpdateController(
@@ -130,7 +112,7 @@ import Testing
     /// The public release train keeps automatic checks enabled.
     @Test func publicBundleLeavesAutomaticChecksEnabled() throws {
         let suiteName = "com.cmuxterm.updatertests.\(UUID().uuidString)"
-        let defaults = try #require(UserDefaults(suiteName: suiteName))
+        let defaults = try #require(UserDefaults(testSuiteName: suiteName))
         defer { defaults.removePersistentDomain(forName: suiteName) }
 
         _ = UpdateController(

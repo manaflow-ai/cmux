@@ -1,0 +1,13 @@
+import { memo } from "react";
+import { RenderToolCard } from "../conversation/RenderCard";
+import { canRender } from "../conversation/renderCardModel";
+import { type RowProps } from "./rowProps";
+
+/// An ended turn's render call, live (conversation/RenderCard.tsx).
+export const RenderRow = memo(
+  function RenderRow({ row }: RowProps) {
+    const tool = row.items?.[0]?.tool;
+    return tool && canRender() ? <RenderToolCard tool={tool} /> : null;
+  },
+  (a, b) => a.row.id === b.row.id && a.row.version === b.row.version,
+);

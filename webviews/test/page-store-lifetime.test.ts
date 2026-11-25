@@ -237,3 +237,47 @@ for (const fixture of cases) {
     }
   });
 }
+
+// cmux#37302 review: an owner without the change stream (`unknown_op`) is remembered only for its
+// link. After the link drops and comes back (an upgraded daemon), the store asks for the stream again.
+const { StashStore } = await import("../src/pages/stash/store");
+const { MockStashProvider } = await import("../src/pages/stash/mockProvider");
+const { StashOps } = await import("../src/pages/stash/types");
+
+const reconnectCases = [
+  {
+    name: "History",
+    make: (client: PageClient) => new HistoryStore(client),
+    provider: () => new MockHistoryProvider(),
+    watch: HistoryOps.changed,
+  },
+  {
+    name: "Stash",
+    make: (client: PageClient) => new StashStore(client),
+    provider: () => new MockStashProvider(),
+    watch: StashOps.changed,
+  },
+];
+
+for (const fixture of reconnectCases) {
+  test(`${fixture.name}: a reconnect asks again for a change stream the old owner did not have`, async () => {
+    const client = new DelayedClient(fixture.provider());
+    client.unknownWatch = true;
+    const store = fixture.make(client);
+    await store.start();
+    const watches = () => client.subscriptions.filter((sub) => sub.stream === fixture.watch);
+    expect(watches()).toHaveLength(0);
+    expect(store.getSnapshot().connection).toBe("connected");
+    const link = client.subscriptions.find((sub) => sub.stream === PAGE_CONNECTION)!;
+    link.emit({ connected: false });
+    expect(store.getSnapshot().connection).toBe("disconnected");
+    // The daemon came back upgraded: it has the stream now.
+    client.unknownWatch = false;
+    link.emit({ connected: true });
+    for (let turn = 0; turn < 10 && watches().length === 0; turn++) await Promise.resolve();
+    expect(watches()).toHaveLength(1);
+    for (let turn = 0; turn < 20 && store.getSnapshot().connection !== "connected"; turn++) await Promise.resolve();
+    expect(store.getSnapshot().connection).toBe("connected");
+    store.stop();
+  });
+}

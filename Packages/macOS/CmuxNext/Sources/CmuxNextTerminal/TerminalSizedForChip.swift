@@ -9,7 +9,7 @@ import CmuxNextDesign
 /// ``TerminalStatusBanner``; only the button takes clicks.
 final class TerminalSizedForChip: NSView {
     private let label = ThemedLabel(labelWithString: "")
-    private let button: NSButton
+    private let button: TerminalSizedForChipButton
     private let stack = NSStackView()
     /// Called with ``TerminalSizedFor/takeOverSetsLatest`` of the shown notice.
     var onTakeOver: (@MainActor (Bool) -> Void)?
@@ -17,18 +17,15 @@ final class TerminalSizedForChip: NSView {
 
     init() {
         let title = ModuleResourceBundle.terminal.text("terminal.sizedFor.takeOver", defaultValue: "Take over")
-        button = NSButton(title: title, target: nil, action: nil)
+        button = TerminalSizedForChipButton(title: title)
         super.init(frame: .zero)
         wantsLayer = true
-        layer?.cornerRadius = 8
+        layer?.cornerCurve = .continuous
         layer?.borderWidth = Metrics.lineWidth(1)
         label.font = .systemFont(ofSize: TypeScale.detail, weight: TypeScale.emphasis)
         label.ink = .secondary
         label.lineBreakMode = .byTruncatingTail
         label.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
-        button.bezelStyle = .rounded
-        button.controlSize = .small
-        button.font = .systemFont(ofSize: TypeScale.caption, weight: TypeScale.emphasis)
         button.setAccessibilityLabel(title)
         button.target = self
         button.action = #selector(takeOver)
@@ -36,7 +33,9 @@ final class TerminalSizedForChip: NSView {
         stack.orientation = .horizontal
         stack.alignment = .centerY
         stack.spacing = 8
-        stack.edgeInsets = NSEdgeInsets(top: 3, left: 12, bottom: 3, right: 4)
+        // Take over sits the same gap from the chip's top, bottom and trailing edges.
+        let gap = Self.buttonGap
+        stack.edgeInsets = NSEdgeInsets(top: gap, left: 10, bottom: gap, right: gap)
         stack.translatesAutoresizingMaskIntoConstraints = false
         addSubview(stack)
         NSLayoutConstraint.activate([
@@ -44,7 +43,7 @@ final class TerminalSizedForChip: NSView {
             stack.trailingAnchor.constraint(equalTo: trailingAnchor),
             stack.topAnchor.constraint(equalTo: topAnchor),
             stack.bottomAnchor.constraint(equalTo: bottomAnchor),
-            heightAnchor.constraint(greaterThanOrEqualToConstant: 24),
+            heightAnchor.constraint(equalToConstant: TerminalSizedForChipButton.height + gap * 2),
         ])
         isHidden = true
         setAccessibilityElement(true)
@@ -67,12 +66,51 @@ final class TerminalSizedForChip: NSView {
     }
 
     private func applyThemeColors() {
+        // The button draws its title and bezel for its own appearance, not the theme's colors: on a
+        // dark terminal theme in a light app it drew a dark title on the dark chip. It takes the
+        // theme's light or dark appearance, as the chip's fill and label do.
+        let dark = themeTokens.isDark
+        if Self.isDark(button.appearance) != dark { button.appearance = NSAppearance(named: dark ? .darkAqua : .aqua) }
         performWithTheme {
             layer?.backgroundColor = Palette.elevatedBackground.cgColor
             layer?.borderColor = Palette.separator.cgColor
-            button.contentTintColor = Palette.textSecondary
-            button.bezelColor = Palette.selectionFill
+            button.applyColors(fill: Palette.selectionFill, title: Palette.textPrimary,
+                               font: .systemFont(ofSize: TypeScale.caption, weight: TypeScale.emphasis))
         }
+    }
+
+    override func layout() {
+        super.layout()
+        let radii = Self.cornerRadii(paneCornerRadius: Self.paneCornerRadius, chipInset: Metrics.panelInset,
+                                     chipHeight: bounds.height, buttonGap: Self.buttonGap)
+        if layer?.cornerRadius != radii.chip { layer?.cornerRadius = radii.chip }
+        if button.cornerRadius != radii.button { button.cornerRadius = radii.button }
+    }
+
+    // MARK: Concentric corners
+
+    /// The gap between Take over and the chip's top, bottom and trailing edges.
+    static let buttonGap: CGFloat = 3
+
+    /// The corner of the pane the chip sits in, by the window-concentric rule (a1050): a floating
+    /// pane's card, else the main pane's corner, concentric with the window across its gutter.
+    static var paneCornerRadius: CGFloat {
+        Metrics.floatingPanes ? Metrics.floatingPaneCornerRadius
+            : Metrics.mainPaneCornerRadius(windowCornerRadius: Metrics.standardWindowCornerRadius)
+    }
+
+    /// The chip's and Take over's radii, each nested in the corner around it: the chip
+    /// `chipInset` inside a pane corner of `paneCornerRadius` (at most half its height), Take over
+    /// `buttonGap` inside the chip. A 10 pt main pane with a 6 pt inset and a 3 pt gap: 4 and 1.
+    static func cornerRadii(paneCornerRadius: CGFloat, chipInset: CGFloat, chipHeight: CGFloat,
+                            buttonGap: CGFloat) -> (chip: CGFloat, button: CGFloat) {
+        // Each nested radius is the one around it less the gap between them (ConcentricCorners' rule).
+        let chip = max(0, min(paneCornerRadius - chipInset, chipHeight / 2))
+        return (chip, max(0, chip - buttonGap))
+    }
+
+    private static func isDark(_ appearance: NSAppearance?) -> Bool? {
+        appearance.map { $0.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua }
     }
 
     /// Only Take over is a target; the rest of the chip lets clicks reach the terminal.

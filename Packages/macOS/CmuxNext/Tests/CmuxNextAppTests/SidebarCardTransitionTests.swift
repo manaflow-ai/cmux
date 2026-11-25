@@ -20,7 +20,7 @@ import Testing
     /// A notice card shown once and laid out at a real size, outside a window (so it may animate).
     static func shownCard(_ policy: MotionPolicy) -> SidebarNoticeCardView {
         let card = SidebarNoticeCardView(motionPolicy: { policy })
-        card.frame = NSRect(x: 0, y: 0, width: 240, height: SidebarNoticeCardView.height(for: checking))
+        card.frame = NSRect(x: 0, y: 0, width: 240, height: SidebarNoticeCardView.height(for: checking, width: 240))
         card.configure(checking)
         card.layoutSubtreeIfNeeded()
         return card

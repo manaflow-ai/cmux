@@ -16,7 +16,7 @@ import {
   stableUrls,
   withHeader,
 } from "../src/agent-session/acpmux/session-info/changesStatus";
-import { rowState } from "../src/agent-session/acpmux/session-info/ChangesSection";
+import { rowState } from "../src/agent-session/acpmux/session-info/changesSectionModel";
 import { pageClocks } from "../src/ui/pageClock";
 
 afterEach(() => {

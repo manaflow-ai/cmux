@@ -23,8 +23,8 @@ enum QuitFailureContent {
 
 /// "Some sessions did not end" after Quit's end choice, as a cmux dialog
 /// (R96): Retry (default, Return) runs the end again, Quit Anyway (Escape)
-/// quits with what did not end still running. It blocks the window like
-/// `QuitAlert`, else shows app-wide; a closed window or SIGTERM answers
+/// quits with what did not end still running. It blocks the active window,
+/// else shows app-wide; a closed window or SIGTERM answers
 /// Quit Anyway.
 @MainActor
 final class QuitFailureAlert {
@@ -48,7 +48,7 @@ final class QuitFailureAlert {
     }
 
     var spec: CmuxDialogSpec {
-        CmuxDialogSpec(title: QuitStrings.failedTitle, lines: body,
+        CmuxDialogSpec(usesTransientMaterial: true, title: QuitStrings.failedTitle, lines: body,
                        buttons: [CmuxDialogButton(id: Self.quitAnywayID, title: QuitStrings.quitAnyway, role: .cancel),
                                  CmuxDialogButton(id: Self.retryID, title: QuitStrings.retry, role: .default)],
                        identifier: "cmux.dialog.quitFailure")

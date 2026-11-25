@@ -1,22 +1,27 @@
+import CmuxEgress
+import CmuxNextCompat
 import Foundation
 
 /// A GitHub owner's avatar for a project with no icon file of its own (`project.icon`): a repository
 /// whose `origin` is on GitHub draws its organization's or user's picture instead of letters.
 ///
 /// Fetched once per owner and kept on disk for a week, so a picker opening does not reach the
-/// network each time. A failure (offline, no such owner, not an image) is kept for this run only:
-/// the next launch asks again.
+/// network each time. A failure (offline, a timeout, no such owner, not an image) is kept for
+/// ``retryAfter`` only, so one miss at launch does not leave every repository of that owner on the
+/// plain folder until the next launch (Leo 2026-10-28: "why are there so many default icons?").
 actor AgentPaneOwnerAvatars {
     static let shared = AgentPaneOwnerAvatars()
     static let lifetime: TimeInterval = 7 * 24 * 60 * 60
     static let timeout: TimeInterval = 5
+    static let retryAfter: TimeInterval = 60
 
     typealias Fetch = @Sendable (URL) async -> Data?
 
     private let folder: URL?
     private let fetch: Fetch
     private let now: @Sendable () -> Date
-    private var known: [String: String?] = [:]
+    private var known: [String: String] = [:]
+    private var failed: [String: Date] = [:]
     private var pending: [String: Task<String?, Never>] = [:]
 
     init(folder: URL? = AgentPaneOwnerAvatars.defaultFolder, fetch: @escaping Fetch = AgentPaneOwnerAvatars.live,
@@ -26,22 +31,26 @@ actor AgentPaneOwnerAvatars {
         self.now = now
     }
 
-    static var defaultFolder: URL? {
-        FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask).first?
-            .appendingPathComponent("cmux/project-avatars", isDirectory: true)
-    }
+    /// `~/Library/Caches/cmux-next/project-avatars`, a DEV build's own (``BuildStatePaths/projectAvatarsCache``).
+    static var defaultFolder: URL? { BuildStatePaths.current.projectAvatarsCache }
 
     /// The avatar of `owner` as a data URL, or nil.
     func avatar(for owner: String) async -> String? {
         guard Self.valid(owner) else { return nil }
         let key = owner.lowercased()
         if let known = known[key] { return known }
+        if let since = failed[key], now().timeIntervalSince(since) < Self.retryAfter { return nil }
         if let started = pending[key] { return await started.value }
         let task = Task { await self.load(owner: owner, key: key) }
         pending[key] = task
         let value = await task.value
         pending[key] = nil
-        known[key] = value
+        if let value {
+            known[key] = value
+            failed[key] = nil
+        } else {
+            failed[key] = now()
+        }
         return value
     }
 
@@ -82,7 +91,7 @@ actor AgentPaneOwnerAvatars {
         let configuration = URLSessionConfiguration.ephemeral
         configuration.timeoutIntervalForRequest = timeout
         configuration.timeoutIntervalForResource = timeout
-        let session = URLSession(configuration: configuration)
+        let session = CmuxEgress.session(site: "CmuxNextAgentPane.AgentPaneOwnerAvatars", configuration: configuration)
         defer { session.finishTasksAndInvalidate() }
         guard let (data, response) = try? await session.data(from: url),
               (response as? HTTPURLResponse)?.statusCode == 200,

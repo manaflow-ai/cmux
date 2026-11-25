@@ -1,3 +1,4 @@
+import CmuxNextTestSupport
 import Foundation
 import Testing
 @testable import CmuxNextUpdater
@@ -26,7 +27,7 @@ struct ServerSettingsReportTests {
 
     private static func coordinator(defaults: UserDefaults? = nil) -> ServerUpdateCoordinator {
         let name = "ServerSettingsReportTests.\(UUID().uuidString)"
-        let suite = defaults ?? UserDefaults(suiteName: name)!
+        let suite = defaults ?? UserDefaults(testSuiteName: name)!
         return ServerUpdateCoordinator(policy: ServerSkewPolicy(catalog: catalog), restarter: NeverRestarter(),
                                        snoozes: ServerUpdateSnoozeStore(defaults: suite))
     }
@@ -73,7 +74,7 @@ struct ServerSettingsReportTests {
         let restarter = NeverRestarter()
         let center = ServerUpdateCoordinator(
             policy: ServerSkewPolicy(catalog: Self.catalog), restarter: restarter,
-            snoozes: ServerUpdateSnoozeStore(defaults: UserDefaults(suiteName: "ServerSettingsReportTests.\(UUID().uuidString)")!))
+            snoozes: ServerUpdateSnoozeStore(defaults: UserDefaults(testSuiteName: "ServerSettingsReportTests.\(UUID().uuidString)")!))
         center.report(Self.old(), appCapabilities: Self.app, bundledBuild: "new5678")
         _ = center.settingsReport(socketPath: nil, tailnetAddress: nil)
         #expect(restarter.calls == 0)

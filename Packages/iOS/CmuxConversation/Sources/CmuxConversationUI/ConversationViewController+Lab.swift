@@ -63,12 +63,18 @@ extension ConversationViewController {
             }
             return "ok"
         case "longpress", "doubletap":
-            // The long-press menu or the double-tap tapback bar on a message.
+            // A simulated hold lands in the middle of the visible message text.
             guard let message = labMessage(matching: argument),
                   let indexPath = indexPath(for: message.rowID),
                   let cell = collectionView.cellForItem(at: indexPath) as? MessageCell,
                   let model = cell.model else { return "error no row" }
-            presentActions(for: model, cell: cell, mode: verb == "longpress" ? .menu : .tapbacks)
+            if verb == "longpress", let label = cell.selectableLabel {
+                let middle = CGPoint(x: label.bounds.midX, y: label.bounds.midY)
+                beginTextSelection(rowID: model.rowID, at: label.convert(middle, to: collectionView))
+                textSelection?.finishHold()
+            } else {
+                presentActions(for: model, cell: cell, mode: verb == "longpress" ? .menu : .tapbacks)
+            }
             return "ok"
         case "notunsent":
             // Taps the newest "(!) Not Unsent" notice.
@@ -114,6 +120,29 @@ extension ConversationViewController {
         case "endtextselect":
             endTextSelection()
             return "ok"
+        case "replyselection":
+            // The selection menu's Reply with Selection, optionally over
+            // `location,length` of the bubble's text first.
+            guard let selection = textSelection else { return "error no text selection" }
+            let bounds = argument.split(separator: ",").compactMap { Int($0.trimmingCharacters(in: .whitespaces)) }
+            if bounds.count == 2 { selection.selectedRange = NSRange(location: bounds[0], length: bounds[1]) }
+            guard onReplyWithSelection != nil else { return "error no reply hook" }
+            return selection.replyWithSelection() ? "ok" : "error nothing to quote"
+        case "replystate":
+            return "replying=\(replyTarget?.id ?? "none") composer=\(composer.text.replacingOccurrences(of: "\n", with: "|"))"
+        case "textsize":
+            // Reads (no argument) or sets the host text size (a
+            // `ConversationTextSize` case, or `system`).
+            if !argument.isEmpty {
+                if argument == "system" {
+                    textSize = nil
+                } else if let size = ConversationTextSize(rawValue: argument) {
+                    textSize = size
+                } else {
+                    return "error unknown size"
+                }
+            }
+            return "size=\(textSize?.rawValue ?? "system") body=\(ConversationTheme.bubbleFont.pointSize)"
         case "forward":
             guard isSelecting, !selectedRowIDs.isEmpty else { return "error nothing selected" }
             forwardSelection()

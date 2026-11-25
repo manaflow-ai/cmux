@@ -59,6 +59,9 @@ public final class ObservedMap<Key: Hashable & Sendable, Value: Equatable> {
         }
     }
 
+    /// The value of `key` (the subscript as a call); observes `key` only.
+    public func value(of key: Key) -> Value? { slot(key).value }
+
     /// The value of `key`, or `fallback` when it has none; observes `key` only.
     public subscript(key: Key, default fallback: @autoclosure () -> Value) -> Value {
         get { slot(key).value ?? fallback() }

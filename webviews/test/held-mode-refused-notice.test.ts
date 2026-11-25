@@ -33,8 +33,9 @@ test("a held mode the agent refuses when the new chat starts says so", async () 
   expect(store.pickMode("bypassPermissions")).toBe(true);
   expect(await opened).toBe("s1");
   expect(notices).toHaveLength(1);
-  expect(notices[0]).toContain("bypassPermissions");
-  expect(notices[0]).toContain("managed settings");
+  // Said plainly; the agent's own words go to the log (Leo, 2026-11-12: "we want good error states.
+  // We don't want busted errors.").
+  expect(notices[0]).toBe("Couldn't switch to bypassPermissions.");
 });
 
 test("a held mode the agent takes shows no notice", async () => {

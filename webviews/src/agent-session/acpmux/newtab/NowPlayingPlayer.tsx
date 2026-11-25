@@ -9,20 +9,17 @@
 // Next, Previous, Open in the app that plays, then Hide Now Playing (`tabs.newTabNowPlaying` off,
 // with an Undo in its place) and Now Playing Settings…. Items the source cannot do are disabled.
 // The bars and the progress line hold still under prefers-reduced-motion (screen.css).
-import React, { useState } from "react";
-import { ContextMenu, type ContextMenuItem } from "../../../ui/ContextMenu";
+import { useState } from "react";
+import { ContextMenu } from "../../../ui/ContextMenu";
 import { usePageNow } from "../../../ui/pageClock";
 import { type NowPlayingTrack, progress, useNowPlaying } from "./nowPlaying";
-import { type NewTabTranslate, useNt } from "./strings";
-
-/// The transport controls, and the menu's page actions: `open` brings the app that plays forward,
-/// `hide` turns the New Tab player off (`tabs.newTabNowPlaying`), `show` undoes that, and
-/// `settings` opens Settings at that row.
-export type NowPlayingCommand = "playPause" | "previous" | "next" | "open" | "hide" | "show" | "settings";
-
+import { useNt } from "./strings";
+import { type NowPlayingCommand, nowPlayingMenuItems } from "./nowPlayingPlayerModel";
 function Glyph({ name }: { name: "play" | "pause" | "previous" | "next" | "note" }) {
   const paths = {
-    play: "M8 5.5v13a1 1 0 0 0 1.5.86l10.6-6.5a1 1 0 0 0 0-1.72L9.5 4.64A1 1 0 0 0 8 5.5Z",
+    // Its ink centred in the Play disc (a hair right of centre, where a triangle's weight reads as
+    // centred), not 2.3 units right of it (the person, 2026-11-24).
+    play: "M6.3 5.5v13a1 1 0 0 0 1.5.86l10.6-6.5a1 1 0 0 0 0-1.72L7.8 4.64A1 1 0 0 0 6.3 5.5Z",
     pause: "M7 5h3.5v14H7zM13.5 5H17v14h-3.5z",
     previous: "M6 5h2v14H6zM19 5.8v12.4a.8.8 0 0 1-1.25.66L9.5 12.66a.8.8 0 0 1 0-1.32l8.25-6.2A.8.8 0 0 1 19 5.8Z",
     next: "M16 5h2v14h-2zM5 5.8v12.4a.8.8 0 0 0 1.25.66l8.25-6.2a.8.8 0 0 0 0-1.32L6.25 5.14A.8.8 0 0 0 5 5.8Z",
@@ -40,31 +37,6 @@ function Glyph({ name }: { name: "play" | "pause" | "previous" | "next" | "note"
 function useProgress(track: NowPlayingTrack): number | null {
   const now = usePageNow(track.playing && track.duration !== undefined);
   return progress(track, Math.max(now, track.positionDate));
-}
-
-/// The card's right-click menu, in the order of the transport row, then the page's own items.
-export function nowPlayingMenuItems(
-  track: NowPlayingTrack,
-  nt: NewTabTranslate,
-  onCommand: (command: NowPlayingCommand) => void,
-): ContextMenuItem[] {
-  const { labels } = track;
-  const items: ContextMenuItem[] = [
-    { id: "playPause", label: track.playing ? labels.pause : labels.play, onSelect: () => onCommand("playPause") },
-    { id: "next", label: labels.next, disabled: !track.canNext, onSelect: () => onCommand("next") },
-    { id: "previous", label: labels.previous, disabled: !track.canPrevious, onSelect: () => onCommand("previous") },
-  ];
-  if (track.source)
-    items.push({
-      id: "open",
-      label: nt("nowPlaying.openIn", { app: track.source }),
-      onSelect: () => onCommand("open"),
-    });
-  items.push(
-    { id: "hide", label: nt("nowPlaying.hide"), separatorBefore: true, onSelect: () => onCommand("hide") },
-    { id: "settings", label: nt("nowPlaying.settings"), onSelect: () => onCommand("settings") },
-  );
-  return items;
 }
 
 export function NowPlayingCard({

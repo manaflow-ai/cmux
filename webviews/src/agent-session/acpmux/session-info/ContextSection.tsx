@@ -12,107 +12,48 @@
 import { useState } from "react";
 import { useT } from "../i18n";
 import { Icon } from "../icons/Icon";
-import type { AcpmuxContextBreakdown } from "../model";
+import { Button } from "../../../ui/Button";
+import "../../../ui/controls.css";
+
 import "./sessionInfo.css";
 import "./ContextSection.css";
-
-/// One part of the context window: its tokens and its share of the window (0 to 1).
-export type ContextPart = { readonly id: "used" | "free"; readonly tokens: number; readonly share: number };
-
-/// The window's parts, used first, whose shares add up to 1. Usage past the window counts as full.
-export function contextParts(usage: { used: number; size: number }): ContextPart[] {
-  const size = Math.max(0, usage.size);
-  const used = Math.min(size, Math.max(0, usage.used));
-  const share = (tokens: number) => (size > 0 ? tokens / size : 0);
-  return [
-    { id: "used", tokens: used, share: share(used) },
-    { id: "free", tokens: size - used, share: share(size - used) },
-  ];
-}
-
-type Kind = AcpmuxContextBreakdown["categories"][number]["kind"];
-/// A breakdown row: `share` is of the window (0 to 1), none for a deferred category, which takes no
-/// room until it loads; `tone` picks a used category's color (0 to TONES - 1, largest first).
-export type BreakdownRow = { name: string; tokens: number; kind: Kind; share?: number; tone?: number };
-export type BreakdownItem = { name: string; detail?: string; tokens: number };
-export type Breakdown = {
-  rows: BreakdownRow[];
-  lists: { id: "mcpTools" | "memoryFiles" | "skills"; items: BreakdownItem[] }[];
-};
-
-/// How many colors the used categories cycle through (ContextSection.css `data-tone`).
-const TONES = 6;
-const KINDS: readonly Kind[] = ["used", "buffer", "deferred", "free"];
-const count = (value: unknown) => (typeof value === "number" && Number.isFinite(value) ? Math.max(0, value) : 0);
-const named = (value: unknown) => (typeof value === "string" && value.trim() ? value.trim() : undefined);
-const records = (value: unknown): Record<string, unknown>[] =>
-  Array.isArray(value) ? value.filter((row) => row !== null && typeof row === "object") : [];
-const tail = (path: string) => path.split("/").filter(Boolean).pop() ?? path;
-
-/// The rows and folds a breakdown draws, or none when it is malformed or names no window. Used
-/// categories come largest first, then the buffer, the deferred ones and the free space last; each
-/// share is of the window, clamped to it. A category without a name or a known kind is dropped.
-export function contextBreakdown(value: unknown): Breakdown | undefined {
-  if (value === null || typeof value !== "object") return undefined;
-  const source = value as Record<string, unknown>;
-  const max = count(source.maxTokens);
-  if (max <= 0 || !Array.isArray(source.categories)) return undefined;
-  const rows = records(source.categories).flatMap((category): BreakdownRow[] => {
-    const name = named(category.name);
-    const kind = KINDS.find((known) => known === category.kind);
-    return name && kind ? [{ name, kind, tokens: count(category.tokens) }] : [];
-  });
-  if (rows.length === 0) return undefined;
-  const ordered = KINDS.flatMap((kind) =>
-    rows.filter((row) => row.kind === kind).sort((a, b) => (kind === "used" ? b.tokens - a.tokens : 0)),
-  ).map((row, index) => ({
-    ...row,
-    ...(row.kind === "deferred" ? {} : { share: Math.min(1, row.tokens / max) }),
-    ...(row.kind === "used" ? { tone: index % TONES } : {}),
-  }));
-  const items = (list: unknown, name: (row: Record<string, unknown>) => BreakdownItem | undefined) =>
-    records(list).flatMap((row) => name(row) ?? []);
-  const lists: Breakdown["lists"] = [
-    {
-      id: "mcpTools" as const,
-      items: items(source.mcpTools, (row) => {
-        const tool = named(row.name);
-        const server = named(row.serverName);
-        // Claude Code names an MCP tool `mcp__<server>__<tool>`: its server is the row's detail.
-        const short = server && tool?.startsWith(`mcp__${server}__`) ? tool.slice(server.length + 7) : tool;
-        return short ? { name: short, detail: server, tokens: count(row.tokens) } : undefined;
-      }),
-    },
-    {
-      id: "memoryFiles" as const,
-      items: items(source.memoryFiles, (row) => {
-        const path = named(row.path);
-        return path ? { name: tail(path), detail: path, tokens: count(row.tokens) } : undefined;
-      }),
-    },
-    {
-      id: "skills" as const,
-      items: items(source.skills, (row) => {
-        const skill = named(row.name);
-        return skill ? { name: skill, tokens: count(row.tokens) } : undefined;
-      }),
-    },
-  ].filter((list) => list.items.length > 0);
-  return { rows: ordered, lists };
-}
-
+import { type ContextPart, contextParts, type Breakdown, contextBreakdown } from "./contextSectionModel";
+import { intl } from "../../../ui/intl";
 const LIST_LABEL = {
   mcpTools: "sessionInfo.context.mcpTools",
   memoryFiles: "sessionInfo.context.memoryFiles",
   skills: "sessionInfo.context.skills",
 } as const;
 
+/// The bar's segments: each used category and the autocompact buffer, in the rows' order, with the
+/// neighbours of one color as one segment, so the greys read as one block as Claude Code desktop's do.
+function barSegments(breakdown: Breakdown) {
+  const segments: { kind: string; hue?: string; share: number }[] = [];
+  for (const row of breakdown.rows) {
+    if ((row.kind !== "used" && row.kind !== "buffer") || (row.share ?? 0) <= 0) continue;
+    const last = segments.at(-1);
+    if (last && last.kind === row.kind && last.hue === row.hue) last.share += row.share ?? 0;
+    else segments.push({ kind: row.kind, hue: row.hue, share: row.share ?? 0 });
+  }
+  return segments;
+}
+
+/// The space above a row that starts a group, as Claude Code desktop's Context card spaces them: a
+/// row's height before the buffer and free space, a gap before the deferred categories.
+function groupGap(rows: Breakdown["rows"], index: number): "group" | "deferred" | undefined {
+  const row = rows[index];
+  const before = rows[index - 1];
+  if (!before || before.kind === row.kind) return undefined;
+  if (row.kind === "deferred") return "deferred";
+  return before.kind === "used" ? "group" : undefined;
+}
+
 /// The breakdown's bar, its rows and its folds, as Session Info and the ring's details draw them.
 export function ContextBreakdownView({ breakdown }: { breakdown: Breakdown }) {
   const t = useT();
   const [open, setOpen] = useState<ReadonlySet<string>>(new Set());
-  const tokens = new Intl.NumberFormat(undefined, { notation: "compact", maximumFractionDigits: 1 });
-  const share = new Intl.NumberFormat(undefined, { style: "percent", maximumFractionDigits: 1 });
+  const tokens = intl.NumberFormat(undefined, { notation: "compact", maximumFractionDigits: 1 });
+  const share = intl.NumberFormat(undefined, { style: "percent", maximumFractionDigits: 1 });
   const toggle = (id: string) =>
     setOpen((was) => {
       const next = new Set(was);
@@ -122,24 +63,27 @@ export function ContextBreakdownView({ breakdown }: { breakdown: Breakdown }) {
   return (
     <div className="acpmux-context-breakdown">
       <div className="acpmux-session-info-context__bar" aria-hidden="true">
-        {breakdown.rows
-          .filter((row) => (row.kind === "used" || row.kind === "buffer") && (row.share ?? 0) > 0)
-          .map((row, index) => (
-            <span
-              key={`${row.name}-${index}`}
-              data-kind={row.kind}
-              data-tone={row.tone}
-              style={{ width: `${(row.share ?? 0) * 100}%` }}
-            />
-          ))}
+        {barSegments(breakdown).map((segment, index) => (
+          <span
+            key={index}
+            data-kind={segment.kind}
+            data-hue={segment.hue}
+            style={{ width: `${segment.share * 100}%` }}
+          />
+        ))}
       </div>
       <ul className="acpmux-session-info-list">
         {breakdown.rows.map((row, index) => (
-          <li key={`${row.name}-${index}`} className="acpmux-session-info-row" data-kind={row.kind}>
+          <li
+            key={`${row.name}-${index}`}
+            className="acpmux-session-info-row"
+            data-kind={row.kind}
+            data-gap={groupGap(breakdown.rows, index)}
+          >
             <span
               className="acpmux-session-info-context__swatch"
               data-kind={row.kind}
-              data-tone={row.tone}
+              data-hue={row.hue}
               aria-hidden="true"
             />
             <span className="acpmux-session-info-row__name">{row.name}</span>
@@ -160,7 +104,7 @@ export function ContextBreakdownView({ breakdown }: { breakdown: Breakdown }) {
             aria-expanded={open.has(list.id)}
             onClick={() => toggle(list.id)}
           >
-            <Icon name={open.has(list.id) ? "disclosure.expanded" : "disclosure.collapsed"} size={12} />
+            <Icon name="disclosure.collapsed" size={16} />
             <span className="acpmux-session-info-row__name">{t(LIST_LABEL[list.id])}</span>
             <span className="acpmux-session-info-row__end">{list.items.length}</span>
           </button>
@@ -196,8 +140,8 @@ export function ContextSection({
   onCompact?: () => void;
 }) {
   const t = useT();
-  const tokens = new Intl.NumberFormat(undefined, { notation: "compact", maximumFractionDigits: 1 });
-  const share = new Intl.NumberFormat(undefined, { style: "percent", maximumFractionDigits: 1 });
+  const tokens = intl.NumberFormat(undefined, { notation: "compact", maximumFractionDigits: 1 });
+  const share = intl.NumberFormat(undefined, { style: "percent", maximumFractionDigits: 1 });
   const parts = contextParts(usage);
   const breakdown = contextBreakdown(reported);
   // Claude Code's free space is what is left before its autocompact buffer: the tokens until it
@@ -246,9 +190,9 @@ export function ContextSection({
               {t("sessionInfo.context.untilAutoCompact", { tokens: tokens.format(free.tokens) })}
             </span>
           )}
-          <button type="button" className="acpmux-session-info-context__compact" onClick={onCompact}>
+          <Button size="sm" variant="subtle" className="acpmux-session-info-context__compact" onClick={onCompact}>
             {t("sessionInfo.context.compactSession")}
-          </button>
+          </Button>
         </div>
       )}
     </div>

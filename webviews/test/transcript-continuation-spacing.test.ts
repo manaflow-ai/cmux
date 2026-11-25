@@ -3,6 +3,7 @@ import { afterAll, beforeAll, expect, setDefaultTimeout, test } from "bun:test";
 import { mkdir } from "node:fs/promises";
 import path from "node:path";
 import { chromium, type Browser, type Page } from "playwright";
+import { gridLength, TRANSCRIPT_FOOTER_CONTROL } from "../src/agent-session/acpmux/transcriptGrid";
 import { galleryFrame, warmGalleryFrame } from "./support/galleryFrame";
 import { requireBrowserLane } from "./support/requireBrowserLane";
 
@@ -44,40 +45,53 @@ await requireBrowserLane("transcript-continuation-spacing.test.ts", async () => 
   const measure = (page: Page) =>
     page.evaluate(() => {
       const node = (id: string) => document.querySelector<HTMLElement>(`[data-row-id="continuation-${id}"]`)!;
-      const gap = (id: string, next: string) =>
-        node(next).getBoundingClientRect().top -
-        node(id).querySelector(".cv-turn-actions")!.getBoundingClientRect().bottom;
+      const box = (id: string) => node(id).getBoundingClientRect();
+      const actions = (id: string) => node(id).querySelector(".cv-turn-actions")!.getBoundingClientRect();
       return {
-        same: gap("footer-a", "b"),
-        peer: gap("footer-b", "peer"),
-        user: gap("footer-c", "user"),
+        // Reply to reply: each finished reply keeps its action row under it, the footer gap below
+        // it, and the same agent's next reply comes the block gap after that row (Leo, 2026-11-14:
+        // "the copy sometimes disappears entirely? which causes big shifts. it happens often when
+        // scrolling up and stuff loads": these replies come before any prompt, as a history page
+        // that starts mid-chat draws them, and their rows were missing until the prompt paged in).
+        same: box("b").top - box("footer-a").bottom,
+        rowUnderReply: box("footer-a").top - box("a").bottom,
+        replyFooters: ["footer-a", "footer-b"].map((id) => ({
+          actions: Boolean(node(id).querySelector(".cv-turn-actions:not(.cv-turn-actions--empty)")),
+          height: box(id).height,
+        })),
+        peer: box("peer").top - box("footer-b").bottom,
+        footerUnderReply: box("footer-c").top - box("c").bottom,
+        user: box("user").top - actions("footer-c").bottom,
         paddings: ["footer-a", "footer-b", "footer-c", "footer-d"].map((id) =>
           parseFloat(getComputedStyle(node(id)).paddingBottom),
         ),
       };
     });
-  test("same assistant uses the half-gap token; user and different-agent boundaries keep the full token", async () => {
+  // The virtual stack owns every gap between rows (#27580, design/grid.md 5.5): the same agent's next
+  // reply takes the block gap, a prompt the turn gap, and a reply's footer row sits the footer gap
+  // under it; every finished reply keeps that row, those before the first prompt too. Another agent's
+  // line under a footer row keeps the block gap (transcriptGrid.ts footer-to-received); after a bare
+  // reply it is a status row (model.ts isStatusRow) and sits the run gap
+  // from the reply over it (#31879, design/transcript-spacing.md rule 4). The half gap between one
+  // agent's replies (#26755) and the footer's centring drop inside its row (#29860) went with #27580;
+  // rows carry no padding of their own.
+  test("each finished reply keeps its action row; the same assistant's next reply and another agent's line take the block gap; a prompt keeps the turn gap", async () => {
     const page = await open();
     await page.waitForFunction(
       () => document.querySelector('[data-row-id="continuation-b"]')!.getBoundingClientRect().top > 0,
     );
     const actual = await measure(page);
-    // A footer's line moves down inside its row (--cv-footer-drop: 2px over the same agent, else
-    // 4px) to sit centred between the reply and the next row; the drop comes off the bottom padding.
-    // The footer that ends the chat (footer-d) has no next row and keeps the full turn gap.
-    expect(actual.same).toBeCloseTo(6, 1);
-    expect(actual.peer).toBeCloseTo(12, 1);
-    expect(actual.user).toBeCloseTo(12, 1);
-    expect(actual.paddings).toEqual([6, 12, 12, 16]);
-    await page.evaluate(() => {
-      const root = document.documentElement;
-      root.style.setProperty("--ds-space-2", "10px");
-      root.style.setProperty("--ds-space-4", "20px");
-    });
-    await page.waitForFunction(
-      () => getComputedStyle(document.querySelector('[data-row-id="continuation-footer-a"]')!).paddingBottom === "8px",
-    );
-    expect((await measure(page)).paddings).toEqual([8, 16, 16, 20]);
+    expect(actual.same).toBeCloseTo(gridLength("gap-block"), 1);
+    expect(actual.rowUnderReply).toBeCloseTo(gridLength("gap-footer"), 1);
+    expect(actual.replyFooters).toEqual([
+      { actions: true, height: TRANSCRIPT_FOOTER_CONTROL },
+      { actions: true, height: TRANSCRIPT_FOOTER_CONTROL },
+    ]);
+    // Under a reply's footer row another agent's line keeps the block gap (transcriptGrid.ts footer-to-received).
+    expect(actual.peer).toBeCloseTo(gridLength("gap-block"), 1);
+    expect(actual.footerUnderReply).toBeCloseTo(gridLength("gap-footer"), 1);
+    expect(actual.user).toBeCloseTo(gridLength("gap-turn"), 1);
+    expect(actual.paddings).toEqual([0, 0, 0, 0]);
     await page.close();
   });
   test("public gallery before/after capture", async () => {

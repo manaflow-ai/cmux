@@ -11,6 +11,7 @@ public struct ConversationBubbleInputs: Sendable, Hashable {
     public var meID: String?
     public var runs: [ConversationTextRun]
     public var links: [ConversationTextLink]
+    public var tables: [ConversationTextTable]
 
     public init(
         text: String,
@@ -18,7 +19,8 @@ public struct ConversationBubbleInputs: Sendable, Hashable {
         mentions: [ConversationMention] = [],
         meID: String? = nil,
         runs: [ConversationTextRun] = [],
-        links: [ConversationTextLink] = []
+        links: [ConversationTextLink] = [],
+        tables: [ConversationTextTable] = []
     ) {
         self.text = text
         self.outgoing = outgoing
@@ -26,6 +28,7 @@ public struct ConversationBubbleInputs: Sendable, Hashable {
         self.meID = meID
         self.runs = runs
         self.links = links
+        self.tables = tables
     }
 
     /// A text message's bubble: its text, minus a URL a link card took out
@@ -39,7 +42,8 @@ public struct ConversationBubbleInputs: Sendable, Hashable {
             mentions: linkSplit.map { $0.bodyMentions(message.mentions) } ?? message.mentions,
             meID: meID,
             runs: linkSplit.map { $0.bodyRuns(message.textRuns) } ?? message.textRuns,
-            links: ConversationTextLink.bubbleLinks(message.links, offset: linkSplit?.bodyOffset ?? 0, bodyLength: body.utf16.count)
+            links: ConversationTextLink.bubbleLinks(message.links, offset: linkSplit?.bodyOffset ?? 0, bodyLength: body.utf16.count),
+            tables: ConversationTextTable.bubbleTables(message.tables, offset: linkSplit?.bodyOffset ?? 0, bodyLength: body.utf16.count)
         )
     }
 

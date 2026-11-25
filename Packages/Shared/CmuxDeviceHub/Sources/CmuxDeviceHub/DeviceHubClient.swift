@@ -1,4 +1,8 @@
+import CmuxEgress
 public import Foundation
+#if canImport(FoundationNetworking)
+public import FoundationNetworking
+#endif
 
 /// Where the device hub gets the account: the app's Stack Auth access token
 /// (CloudAuth's `tokens().access`), exchanged once for a hub session.
@@ -15,6 +19,15 @@ public struct DeviceHubAccountToken: DeviceHubAccountTokenProvider {
     }
 
     public func stackAccessToken() async throws -> String { try await body() }
+}
+
+/// Where a client's account sessions come from.
+public enum DeviceHubAccountSource: Sendable {
+    /// The signed-in app: its Stack access token, exchanged at `POST /v1/auth/stack` (a full session).
+    case stack(any DeviceHubAccountTokenProvider)
+    /// cmux Remote with the app quit: device-key renewal (`POST /v1/auth/device`), a host-scoped
+    /// session for this device of `userID` while the app's anchor holds (PROTOCOL.md, Device renewal).
+    case deviceRenewal(userID: String)
 }
 
 /// The hub's account session (`POST /v1/auth/stack`), sent as `Authorization: Bearer`.
@@ -34,8 +47,10 @@ public struct DeviceHubAccountSession: Sendable, Equatable {
 /// when the server refuses it.
 public actor DeviceHubClient {
     public nonisolated let baseURL: URL
+    /// The build space every request and socket upgrade carries (``DeviceHubBuildSpace``).
+    public nonisolated let buildSpace: DeviceHubBuildSpace
     private nonisolated let signerBox: Mutex<DeviceRequestSigner>
-    let tokens: any DeviceHubAccountTokenProvider
+    let source: DeviceHubAccountSource
     let session: URLSession
     nonisolated let now: @Sendable () -> Date
     private var account: DeviceHubAccountSession?
@@ -52,10 +67,17 @@ public actor DeviceHubClient {
     }
 
     public init(baseURL: URL, identity: DeviceIdentity, tokens: any DeviceHubAccountTokenProvider,
+                buildSpace: DeviceHubBuildSpace = .nightly,
+                session: URLSession = DeviceHubClient.transport, now: @escaping @Sendable () -> Date = { Date() }) {
+        self.init(baseURL: baseURL, identity: identity, source: .stack(tokens), buildSpace: buildSpace, session: session, now: now)
+    }
+
+    public init(baseURL: URL, identity: DeviceIdentity, source: DeviceHubAccountSource, buildSpace: DeviceHubBuildSpace = .nightly,
                 session: URLSession = DeviceHubClient.transport, now: @escaping @Sendable () -> Date = { Date() }) {
         self.baseURL = baseURL
+        self.buildSpace = buildSpace
         signerBox = Mutex(DeviceRequestSigner(identity: identity, now: now))
-        self.tokens = tokens
+        self.source = source
         self.session = session
         self.now = now
     }
@@ -67,7 +89,7 @@ public actor DeviceHubClient {
         configuration.requestCachePolicy = .reloadIgnoringLocalCacheData
         configuration.httpCookieStorage = nil
         configuration.timeoutIntervalForRequest = 30
-        return URLSession(configuration: configuration)
+        return CmuxEgress.session(site: "CmuxDeviceHub.DeviceHubClient", configuration: configuration)
     }()
 
     // MARK: Account
@@ -76,7 +98,7 @@ public actor DeviceHubClient {
     public func accountSession() async throws -> DeviceHubAccountSession {
         if let account, account.expiresAt.timeIntervalSince(now()) > 60 { return account }
         if let exchange { return try await exchange.value }
-        let task = Task { try await self.exchangeStackToken() }
+        let task = Task { try await self.exchange() }
         exchange = task
         defer { exchange = nil }
         let fresh = try await task.value
@@ -91,13 +113,26 @@ public actor DeviceHubClient {
         exchange = nil
     }
 
-    private func exchangeStackToken() async throws -> DeviceHubAccountSession {
-        let stack: String
-        do { stack = try await tokens.stackAccessToken() } catch { throw DeviceHubError.notSignedIn }
-        var request = URLRequest(url: url("/v1/auth/stack"))
-        request.httpMethod = "POST"
-        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        request.httpBody = try JSONEncoder().encode(["token": stack])
+    private func exchange() async throws -> DeviceHubAccountSession {
+        var request: URLRequest
+        switch source {
+        case let .stack(tokens):
+            let stack: String
+            do { stack = try await tokens.stackAccessToken() } catch { throw DeviceHubError.notSignedIn }
+            request = URLRequest(url: url("/v1/auth/stack"))
+            request.httpMethod = "POST"
+            request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+            request.httpBody = try JSONEncoder().encode(["token": stack])
+        case let .deviceRenewal(userID):
+            // No account token: this device's signature over the request is the credential.
+            request = URLRequest(url: url("/v1/auth/device"))
+            request.httpMethod = "POST"
+            request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+            request.httpBody = try JSONEncoder().encode(["userId": userID])
+            do { try signer.sign(&request) } catch { throw DeviceHubError.identity("\(error)") }
+        }
+        // The session is the space's: the hub binds it to this header and refuses it in any other space.
+        try buildSpace.apply(to: &request)
         let data = try await perform(request)
         struct Answer: Decodable {
             var session: String
@@ -119,16 +154,28 @@ public actor DeviceHubClient {
 
     // MARK: Endpoints
 
+    /// Lets this device renew its own host-scoped session for 30 days (`POST /v1/auth/device/anchor`;
+    /// a full session and this device's signature). The signed-in app calls it for cmux Remote's device.
+    public func anchorDevice() async throws -> Date {
+        struct Answer: Decodable {
+            var anchoredUntil: Double
+        }
+        let answer = try await call("POST", "/v1/auth/device/anchor", body: [String: String](), as: Answer.self)
+        return Date(timeIntervalSince1970: answer.anchoredUntil / 1000)
+    }
+
     public func me() async throws -> HubMe {
         try await call("GET", "/v1/me", as: HubMe.self)
     }
 
-    /// Registers or updates this device, signed by the key it registers.
+    /// Registers or updates this device, signed by the key it registers, with the Mac it runs on
+    /// (`machine`, ``DeviceMachine``): the hub reads the host's answers about this Mac across every
+    /// device id it has (each tagged build, each renewed identity, cmux Remote's and the app's).
     public func registerDevice(name: String, platform: DevicePlatform) async throws -> HubDevice {
-        struct Body: Encodable { var id, name: String; var platform: DevicePlatform; var signingKey, agreementKey: String }
+        struct Body: Encodable { var id, name: String; var platform: DevicePlatform; var signingKey, agreementKey: String; var machine: String? }
         let identity = signer.identity
         let body = Body(id: identity.id, name: name, platform: platform, signingKey: identity.signingKey,
-                        agreementKey: identity.agreementKey)
+                        agreementKey: identity.agreementKey, machine: DeviceMachine.current(in: buildSpace).id)
         return try await call("POST", "/v1/devices", body: body, as: DeviceAnswer.self).device
     }
 
@@ -158,6 +205,16 @@ public actor DeviceHubClient {
                        as: DeviceAnswer.self).device
     }
 
+    /// Carries a signed `cmux.share-approval.v1` (`approvalJSON`, one JSON object) to the host
+    /// `target`: `POST /v1/devices/:target/share-approval {approval}` (cmuxterm-hq#18912 cut 2). The
+    /// hub pushes it to the target, which admits it and turns its own sharing on.
+    public func sendShareApproval(target: String, approvalJSON: String) async throws {
+        struct Delivered: Decodable { var delivered: Bool? }
+        let body = Data("{\"approval\":".utf8) + Data(approvalJSON.utf8) + Data("}".utf8)
+        _ = try await call("POST", "/v1/devices/\(segment(target))/share-approval", query: [], bodyData: body,
+                           as: Delivered.self)
+    }
+
     public func permissions(host: String) async throws -> [HubPermission] {
         struct Answer: Decodable { var permissions: [HubPermission] }
         return try await call("GET", "/v1/permissions", query: [URLQueryItem(name: "host", value: host)], as: Answer.self).permissions
@@ -173,6 +230,13 @@ public actor DeviceHubClient {
     public func requestSession(host: String, scope: SessionScope) async throws -> HubSession {
         struct Body: Encodable { var hostId: String; var scope: SessionScope }
         return try await call("POST", "/v1/sessions", body: Body(hostId: host, scope: scope), as: SessionAnswer.self).session
+    }
+
+    /// Renews admission for the same viewer/host session after a transient stream drop.
+    /// The hub checks the original pair and scope and returns a short-lived viewer ticket.
+    public func reattachSession(_ id: String) async throws -> SessionTicket {
+        struct Answer: Decodable { var ticket: SessionTicket }
+        return try await call("POST", "/v1/sessions/\(segment(id))/reattach", body: [String: String](), as: Answer.self).ticket
     }
 
     /// From the host: answers a pending request. `always` stores the permission with `scope`.
@@ -229,6 +293,7 @@ public actor DeviceHubClient {
             throw DeviceHubError.identity("\(error)")
         }
         headers["Authorization"] = "Bearer \(account.token)"
+        try buildSpace.apply(to: &headers)
         return DeviceHubHandshake(url: url, headers: headers)
     }
 
@@ -242,6 +307,7 @@ public actor DeviceHubClient {
             request.httpBody = body
             request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         }
+        try buildSpace.apply(to: &request)
         let account = try await accountSession()
         request.setValue("Bearer \(account.token)", forHTTPHeaderField: "Authorization")
         do { try signer.sign(&request) } catch { throw DeviceHubError.identity("\(error)") }

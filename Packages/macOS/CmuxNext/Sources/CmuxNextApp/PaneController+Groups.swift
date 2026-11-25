@@ -73,7 +73,7 @@ extension PaneController {
             }
         case .newTab(let id):
             let groupTabs = stripModel.orderedTabs.filter { $0.groupID == id }.map(\.id.rawValue)
-            StripNewTab.requestInGroup(selected: stripModel.selectedID?.rawValue, groupTabs: groupTabs, pane: paneKey) {
+            StripNewTab.requestInGroup(selected: stripModel.selectedID?.rawValue, groupTabs: groupTabs, pane: paneKey, machineID: daemon.machineID) {
                 _ = services.registry.perform($0, invocation: $1)
             }
         case .ungroup:

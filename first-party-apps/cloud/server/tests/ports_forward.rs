@@ -17,7 +17,7 @@ use std::time::Duration;
 const FIXTURES: &[&str] = &["vm-get"];
 
 fn forward(port: u16, key: &str) -> Request {
-    Request::new("cloud.port.forward", json!({"machine": "vm-alpha01", "port": port})).key(key)
+    Request::new("cloud.port.forward", json!({"machine": "vm_alpha01", "port": port})).key(key)
 }
 
 fn local(answer: &Value) -> SocketAddr {
@@ -46,7 +46,7 @@ fn a_forward_binds_127_0_0_1_only_and_carries_bytes_through_the_link() {
     let opened = rig.tunnel.log().opened.clone();
     assert_eq!(opened.len(), 1);
     assert_eq!((opened[0].host.as_str(), opened[0].port), ("localhost", 3000));
-    assert_eq!(opened[0].carrier, "cloud-vm/vm-alpha01#1");
+    assert_eq!(opened[0].carrier, "cloud-vm/vm_alpha01#1");
     // Not on any other address of this machine.
     for other in non_loopback_addresses() {
         let target = SocketAddr::new(other, addr.port());
@@ -92,7 +92,7 @@ fn link_down_marks_forwards_down_and_a_later_connect_does_not_resurrect_bytes() 
     let mut one = [0u8; 1];
     open.read_exact(&mut one).unwrap();
 
-    rig.spawner.exit("vm-alpha01", 1);
+    rig.spawner.exit("vm_alpha01", 1);
     let list = rig.server.handle(&Request::new("cloud.port.list", json!({}))).unwrap();
     assert_eq!(list["forwards"][0]["state"], "down");
     assert!(list["forwards"][0]["reason"].as_str().unwrap().contains("down"));
@@ -116,19 +116,19 @@ fn close_ends_the_listener_and_forward_needs_a_key_and_a_valid_port() {
     let mut rig = rig(FIXTURES);
     let answer = rig.server.handle(&forward(3000, "f-1")).unwrap();
     let addr = local(&answer);
-    let close = Request::new("cloud.port.close", json!({"machine": "vm-alpha01", "port": 3000}));
+    let close = Request::new("cloud.port.close", json!({"machine": "vm_alpha01", "port": 3000}));
     let closed = rig.server.handle(&close.clone().key("c-1")).unwrap();
     assert_eq!(closed["closed"], true);
     assert!(TcpStream::connect(addr).is_err());
     assert_eq!(rig.server.handle(&close.key("c-2")).unwrap()["closed"], false);
     let unkeyed =
-        Request::new("cloud.port.forward", json!({"machine": "vm-alpha01", "port": 3000}));
+        Request::new("cloud.port.forward", json!({"machine": "vm_alpha01", "port": 3000}));
     assert_eq!(
         rig.server.handle(&unkeyed).unwrap_err().code,
         "cmux.cloud.idempotency_key_required"
     );
     for bad in [json!(0), json!(65_536), json!("3000"), json!(-1)] {
-        let req = Request::new("cloud.port.forward", json!({"machine": "vm-alpha01", "port": bad}))
+        let req = Request::new("cloud.port.forward", json!({"machine": "vm_alpha01", "port": bad}))
             .key("f-bad");
         assert_eq!(rig.server.handle(&req).unwrap_err().code, "cmux.cloud.invalid_args");
     }
@@ -159,8 +159,8 @@ fn a_replaced_link_socket_is_not_the_same_link() {
     let socket = dir.join("link.sock");
     std::fs::write(&socket, b"").unwrap();
     let carrier = Carrier {
-        id: "cloud-vm/vm-alpha01#1".into(),
-        target: "vm-alpha01".into(),
+        id: "cloud-vm/vm_alpha01#1".into(),
+        target: "vm_alpha01".into(),
         generation: 1,
         socket: socket.clone(),
     };

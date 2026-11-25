@@ -6,6 +6,20 @@ source ~/imsgreply/udids
 A=~/.local/bin/axe
 export PATH=/opt/homebrew/bin:$PATH
 mkdir -p "$OUT"
+# Background processes these helpers start (recorders, gesture servers) record their PIDs in
+# pidfiles here, and are stopped by those PIDs only: never by name, so another run's recorder or
+# test runner on this Mac is left alone.
+PIDDIR=$HOME/imsgreply/pids
+mkdir -p "$PIDDIR"
+# _pid_of FILE MATCH: the PID recorded in FILE, if that process still runs and its command line
+# contains MATCH (a recycled PID is not ours).
+_pid_of() { local p; p=$(cat "$1" 2>/dev/null) || return 1
+  [ -n "$p" ] && ps -p "$p" -o command= 2>/dev/null | grep -qF -- "$2" && echo "$p"; }
+# _pid_stop FILE MATCH [SIGNAL]: signal the recorded process and wait (up to 20 s) for it to exit.
+_pid_stop() { local p i; p=$(_pid_of "$1" "$2") && { kill -"${3:-TERM}" "$p" 2>/dev/null
+    for i in $(seq 1 100); do kill -0 "$p" 2>/dev/null || break; sleep 0.2; done; }
+  rm -f "$1"; }
+SIMCTL=$(xcrun -f simctl)
 both() {
   $A "$@" --udid "$REF" >/dev/null 2>&1 & local a=$!
   $A "$@" --udid "$OURS" >/dev/null 2>&1 & wait $a $!
@@ -20,10 +34,11 @@ shot() {
 rec_start() {
   REC=$1
   # A recorder left by an interrupted run holds the display ("Host recording is already in progress").
-  pkill -INT -f "simctl io $REF recordVideo" 2>/dev/null; pkill -INT -f "simctl io $OURS recordVideo" 2>/dev/null
-  while pgrep -f "simctl io ($REF|$OURS) recordVideo" >/dev/null; do sleep 0.2; done
+  _pid_stop "$PIDDIR/rec-$REF.pid" "recordVideo" INT; _pid_stop "$PIDDIR/rec-$OURS.pid" "recordVideo" INT
   for s in ref ours; do u=$REF; [ $s = ours ] && u=$OURS
-    xcrun simctl io "$u" recordVideo --codec h264 --force "$OUT/$1-$s.mp4" >"$OUT/$1-$s.reclog" 2>&1 &
+    # simctl itself (not the xcrun shim), so the recorded PID is the recorder's.
+    "$SIMCTL" io "$u" recordVideo --codec h264 --force "$OUT/$1-$s.mp4" >"$OUT/$1-$s.reclog" 2>&1 &
+    echo $! > "$PIDDIR/rec-$u.pid"
   done
   for i in $(seq 1 100); do
     grep -q "Recording started" "$OUT/$1-ref.reclog" && grep -q "Recording started" "$OUT/$1-ours.reclog" && return 0
@@ -34,8 +49,7 @@ rec_start() {
   return 1
 }
 rec_stop() {
-  pkill -INT -f "recordVideo --codec h264 --force $OUT/$REC-" || true
-  while pgrep -f "recordVideo --codec h264 --force $OUT/$REC-" >/dev/null; do sleep 0.2; done
+  _pid_stop "$PIDDIR/rec-$REF.pid" "$OUT/$REC-" INT; _pid_stop "$PIDDIR/rec-$OURS.pid" "$OUT/$REC-" INT
   rm -f "$OUT/$REC"-*.reclog
   ffmpeg -loglevel error -y -i "$OUT/$REC-ref.mp4" -i "$OUT/$REC-ours.mp4" -filter_complex "[0]scale=440:-2,fps=30[a];[1]scale=440:-2,fps=30[b];[a][b]hstack=inputs=2" -c:v libx264 -pix_fmt yuv420p "$OUT/$REC-sbs.mp4"
 }
@@ -65,21 +79,21 @@ bdrag() { fdrag $REF $1 $2 $3 $2 ${@:5} & local a=$!; fdrag $OURS $1 $4 $3 $4 ${
 GDIR=$HOME/imsgreply/gest
 serve_start() {
   local dd=${1:-$HOME/imsgreply/dd-base}
-  pkill -f "GestureServerUITests" 2>/dev/null; sleep 0.5
+  _pid_stop "$PIDDIR/gest-ref.pid" GestureServerUITests; _pid_stop "$PIDDIR/gest-ours.pid" GestureServerUITests; sleep 0.5
   for s in ref ours; do
     local u=$REF; [ $s = ours ] && u=$OURS
     rm -rf $GDIR/$s; mkdir -p $GDIR/$s; echo 0 > $GDIR/$s.n
     TEST_RUNNER_GESTURE_DIR=$GDIR/$s nohup xcodebuild test-without-building -xctestrun $(ls $dd/Build/Products/*.xctestrun | head -1) \
       -destination "id=$u" -only-testing:CmuxMobileAppUITests/GestureServerUITests/testServe -test-timeouts-enabled NO \
       > $GDIR/$s.log 2>&1 &
+    echo $! > "$PIDDIR/gest-$s.pid"
   done
 }
 _bundle() { [ $1 = ref ] && echo com.apple.MobileSMS || echo dev.cmux.mobile; }
 _gsend() { local s=$1; shift; local n=$(( $(cat $GDIR/$s.n) + 1 )); echo $n > $GDIR/$s.n
   local c=$1; shift; echo "$c $(_bundle $s) $*" > $GDIR/$s/$n.tmp; mv $GDIR/$s/$n.tmp $GDIR/$s/$n.cmd; echo $n; }
 # Alive = its xcodebuild runs and the log has no end-of-run line after the last start.
-_galive() { local u=$REF; [ $1 = ours ] && u=$OURS
-  pgrep -f "destination id=$u " >/dev/null || return 1
+_galive() { _pid_of "$PIDDIR/gest-$1.pid" GestureServerUITests >/dev/null || return 1
   ! tail -40 $GDIR/$1.log | grep -q -E "TEST EXECUTE FAILED|Executed 0 tests|Restarting after unexpected exit"; }
 # Waits for one command; a dead or stuck runner (under host load) is restarted and the command resent once.
 _gwait() { local s=$1 n=$2 i
@@ -101,10 +115,11 @@ gb() { local c=$1; shift; local ra=() oa=() side=r
 serve_one() {
   local s=$1 dd=${2:-$HOME/imsgreply/dd-base} u=$REF
   [ $s = ours ] && u=$OURS
-  pkill -f "destination id=$u " 2>/dev/null; pkill -f "destination id=$u\$" 2>/dev/null; sleep 0.3
+  _pid_stop "$PIDDIR/gest-$s.pid" GestureServerUITests; sleep 0.3
   rm -rf $GDIR/$s; mkdir -p $GDIR/$s; echo 0 > $GDIR/$s.n
   DEVELOPER_DIR=/Applications/Xcode_26.6.app/Contents/Developer TEST_RUNNER_GESTURE_DIR=$GDIR/$s nohup xcodebuild test-without-building -xctestrun $(ls $dd/Build/Products/*.xctestrun | head -1) \
     -destination "id=$u" -only-testing:CmuxMobileAppUITests/GestureServerUITests/testServe -test-timeouts-enabled NO > $GDIR/$s.log 2>&1 &
+  echo $! > "$PIDDIR/gest-$s.pid"
   until grep -q "testServe\]' started" $GDIR/$s.log; do sleep 0.5; done; sleep 1.5
 }
 

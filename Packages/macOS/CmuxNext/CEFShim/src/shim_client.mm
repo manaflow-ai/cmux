@@ -72,6 +72,8 @@
     case CMUX_SHIM_PAGE_RESOURCE:
     case CMUX_SHIM_PAGE_DRAG_ENTER:
     case CMUX_SHIM_FILE_DIALOG:
+    case CMUX_SHIM_STATUS_MESSAGE:
+    case CMUX_SHIM_AUTH_PROMPT:
       return true;
   }
   return false;
@@ -277,6 +279,22 @@ class Client : public CefClient,
     return true;
   }
 
+  // A server's 401 (basic, digest, NTLM): the host asks the person in the tab's own prompt, as for WebKit
+  // (BrowserHTTPAuth), and answers with cmux_shim_auth_continue. Chromium's own dialog needs a toolbar cmux
+  // never shows, so without this the challenge never ended and the page stayed blank. A proxy's challenge keeps
+  // Chromium's default.
+  bool GetAuthCredentials(CefRefPtr<CefBrowser> browser, const CefString& origin_url, bool is_proxy,
+                          const CefString& host, int port, const CefString& realm, const CefString& scheme,
+                          CefRefPtr<CefAuthCallback> callback) override {
+    if (is_proxy || !browser) return false;
+    const int token = AddAuthPrompt(callback);
+    std::string shown = host.ToString();
+    const bool secure = origin_url.ToString().rfind("https:", 0) == 0;
+    if (port != 0 && port != (secure ? 443 : 80)) shown += ":" + std::to_string(port);
+    Emit(CMUX_SHIM_AUTH_PROMPT, browser->GetIdentifier(), token, secure ? 1 : 0, 0, shown, realm.ToString());
+    return true;
+  }
+
   // MARK: Remote localhost
 
   // A main-frame navigation that would leave its store (a loopback origin of
@@ -313,7 +331,7 @@ class Client : public CefClient,
 
   // MARK: Chrome Web Store, local file scope
 
-  CefRefPtr<CefResourceRequestHandler> GetResourceRequestHandler(CefRefPtr<CefBrowser>, CefRefPtr<CefFrame> frame,
+  CefRefPtr<CefResourceRequestHandler> GetResourceRequestHandler(CefRefPtr<CefBrowser> browser, CefRefPtr<CefFrame> frame,
                                                                  CefRefPtr<CefRequest> request, bool, bool,
                                                                  const CefString&, bool&) override {
     const std::string url = request->GetURL().ToString();
@@ -330,7 +348,10 @@ class Client : public CefClient,
       static CefRefPtr<CefResourceRequestHandler> refusal = new LocalFileRefusal();
       return refusal;
     }
-    return WebStoreRequestHandler(url);
+    // The page that asks: its top document (the Google bar's promo API gets the store's
+    // headers only from a store page, webstore_headers.h).
+    CefRefPtr<CefFrame> top = browser ? browser->GetMainFrame() : nullptr;
+    return WebStoreRequestHandler(url, top ? top->GetURL().ToString() : (frame ? frame->GetURL().ToString() : std::string()));
   }
 
   // MARK: Certificate errors
@@ -515,6 +536,8 @@ class Client : public CefClient,
     // A page opened by a page is past a new tab's first paint: Chromium's
     // white default (PageBackground; cmux also sets it on adoption).
     settings.background_color = 0xFFFFFFFF;
+    // A popup's tab draws its hovered link in cmux too (cmux_shim_create_window).
+    settings.chrome_status_bubble = STATE_DISABLED;
     RememberPopup(browser->GetIdentifier(), popup_id, target_url.ToString(), disposition, user_gesture, features);
     Emit(CMUX_SHIM_POPUP, browser->GetIdentifier(), 0, disposition, user_gesture ? 1 : 0, target_url.ToString());
     return false;
@@ -527,11 +550,11 @@ class Client : public CefClient,
   }
 
   void OnBeforeDevToolsPopup(CefRefPtr<CefBrowser> browser, CefWindowInfo& window_info, CefRefPtr<CefClient>& client,
-                             CefBrowserSettings&, CefRefPtr<CefDictionaryValue>&, bool* use_default_window) override {
+                             CefBrowserSettings& settings, CefRefPtr<CefDictionaryValue>&, bool* use_default_window) override {
     // Every DevTools of this page (ShowDevTools, Chromium's DevTools
     // commands, the context menu's Inspect) gets its own client, so it is
     // never adopted as a tab and never reports this page's URL or title.
-    PrepareDevToolsPopup(browser->GetIdentifier(), window_info, client, use_default_window);
+    PrepareDevToolsPopup(browser->GetIdentifier(), window_info, client, settings, use_default_window);
   }
 
   bool DoClose(CefRefPtr<CefBrowser> browser) override {
@@ -548,6 +571,7 @@ class Client : public CefClient,
     TakeUnresponsiveCallback(id);
     DropBeforeUnload(id);
     CancelFileDialogs(id);
+    ForgetFileDialogRoute(id);
     TakeHostClose(id);
     ForgetNavigationGuard(id);
     ForgetCertificateState(id);
@@ -576,6 +600,13 @@ class Client : public CefClient,
     Emit(CMUX_SHIM_FAVICON, browser->GetIdentifier(), 0, 0, 0, urls.empty() ? "" : urls.front().ToString());
   }
 
+  // The hovered link (or a page's status text); "" when the pointer left it.
+  // Chrome's own bubble is off (chrome_status_bubble), so cmux draws this in
+  // the page area of the tab's pane.
+  void OnStatusMessage(CefRefPtr<CefBrowser> browser, const CefString& value) override {
+    Emit(CMUX_SHIM_STATUS_MESSAGE, browser->GetIdentifier(), 0, 0, 0, value.ToString());
+  }
+
   void OnFullscreenModeChange(CefRefPtr<CefBrowser> browser, bool fullscreen) override {
     Emit(CMUX_SHIM_FULLSCREEN, browser->GetIdentifier(), 0, fullscreen ? 1 : 0);
   }
@@ -591,7 +622,22 @@ class Client : public CefClient,
     // first activation; by its first load it does (the fork watches each
     // window once).
     if (fork_api().side_panel_watch) fork_api().side_panel_watch(browser->GetIdentifier());
-    Emit(CMUX_SHIM_LOADING_STATE, browser->GetIdentifier(), 0, (loading ? 1 : 0) | (back ? 2 : 0) | (forward ? 4 : 0));
+    // s1: the address Chrome's omnibox shows while this load is pending. CEF
+    // reports an address only at commit (OnAddressChange runs from
+    // DidFinishNavigation), so a tab a page opened (target=_blank,
+    // window.open) showed no address until its first response. Chrome shows
+    // the visible entry (NavigationControllerImpl::GetVisibleEntry): the
+    // pending entry of a browser-initiated load or of an unmodified new tab,
+    // else the committed one, which keeps a page from spoofing the address
+    // of a load it started. The pending entry exists before loading starts
+    // (Navigator::OnBeginNavigation makes it before TakeNavigationRequest).
+    std::string visible;
+    if (loading) {
+      CefRefPtr<CefNavigationEntry> entry = browser->GetHost()->GetVisibleNavigationEntry();
+      if (entry && entry->IsValid()) visible = DisplayAddress(browser, entry->GetURL().ToString());
+    }
+    Emit(CMUX_SHIM_LOADING_STATE, browser->GetIdentifier(), 0, (loading ? 1 : 0) | (back ? 2 : 0) | (forward ? 4 : 0), 0,
+         visible);
   }
 
   void OnLoadStart(CefRefPtr<CefBrowser> browser, CefRefPtr<CefFrame> frame, TransitionType) override {

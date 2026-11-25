@@ -1,166 +1,63 @@
 //! Snapshot files of the output store: one per terminal, the screen plus
-//! about [`super::SNAPSHOT_HISTORY_LINES`] recent lines as a VT replay,
+//! up to [`super::SNAPSHOT_HISTORY_LINES`] recent lines as a VT replay,
 //! gzip-compressed, replaced atomically (temporary file, fsync, rename).
 //!
 //! A terminal's snapshot is written only when its content changed: the
 //! writer compares a digest of the visible text, the size, the active
-//! screen and the history epoch (which moves when rows enter or leave the
-//! scrollback) with the digest of the last write. A program that only
-//! redraws its cursor or repaints the same frame changes none of them, so it
-//! writes nothing. The writer thread sleeps until a terminal prints, then
-//! waits out the interval, so a changed terminal is written at most once per
-//! interval and an idle session wakes nothing.
+//! screen, the history epoch (which moves when rows enter or leave the
+//! scrollback) and the cursor position with the digest of the last write. A
+//! program that redraws its cursor in place or repaints the same frame
+//! changes none of them, so it writes nothing. The writer thread sleeps until a terminal prints, then
+//! waits out the mode's interval, so an idle session wakes nothing.
+//!
+//! In snapshot mode the output after a snapshot goes to the terminal's tail
+//! file each [`super::TAIL_FLUSH_INTERVAL`] (`tail.rs`), and a snapshot is
+//! written at most once per [`super::SNAPSHOT_INTERVAL`] while the content
+//! changes, at once for a terminal this daemon has no snapshot of (a new
+//! generation), after a resize and when the tail passes its cap (at most
+//! once per [`super::TAIL_COMPACT_SPACING`] while it stays under
+//! [`super::TAIL_FLOOD_MAX_BYTES`]). The tail files written since their
+//! last sync are synced together every [`super::TAIL_SYNC_INTERVAL`]
+//! (`sync_due_tails`). At quit the tail takes the last bytes
+//! (synced), and a snapshot is written only where the tail cannot carry
+//! them, a terminal on the alternate screen included (`quit_pass_tests.rs`).
+//! The snapshot records the stream offset its screen ends at, read under
+//! the parser lock with no parsed chunk in flight, so the tail continues it
+//! byte for byte; then the tail file goes.
 //!
 //! File: `<terminal id>.snap` =
-//! `CMUXSNAP1\n` + one JSON line (`generation`, `cols`, `rows`,
+//! `CMUXSNAP1\n` + one JSON line (`generation`, `stream_end`, `cols`, `rows`,
 //! `written_at_ms`) + gzip of the replay bytes.
 
+use std::collections::HashSet;
 use std::fs;
 use std::hash::{Hash, Hasher};
 use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
-use std::sync::{Arc, Condvar, Mutex, PoisonError, Weak};
+use std::sync::{Arc, PoisonError};
 use std::time::{Duration, Instant};
 
 use flate2::Compression;
 use flate2::read::GzDecoder;
 use flate2::write::GzEncoder;
 
-use super::{OutputStore, PersistenceMode, PersistencePolicy, SNAPSHOT_HISTORY_LINES};
+use super::{OutputStore, PersistenceMode, PersistencePolicy, SNAPSHOT_HISTORY_LINES, TerminalLog};
 use crate::Mux;
 use crate::resource::TerminalPublicId;
 use crate::workspace_registry::terminal_respawn_store::TerminalReplay;
 
-const MAGIC: &[u8] = b"CMUXSNAP1\n";
-const SUFFIX: &str = "snap";
-/// The largest uncompressed replay one snapshot holds.
-pub(crate) const MAX_SNAPSHOT_REPLAY_BYTES: usize = 4 * 1024 * 1024;
+pub(super) const MAGIC: &[u8] = b"CMUXSNAP1\n";
+pub(super) const SUFFIX: &str = "snap";
+/// The largest uncompressed replay one snapshot holds: the respawn seed's
+/// own budget ([`crate::surface::SEED_REPLAY_MAX_BYTES`]), so a snapshot that
+/// fills it still seeds the respawned terminal whole. It was 4 MiB (and a
+/// 2,000-line estimate below it), which cut a long terminal's history at
+/// the snapshot well before its live scrollback did.
+pub(crate) const MAX_SNAPSHOT_REPLAY_BYTES: usize = crate::surface::SEED_REPLAY_MAX_BYTES;
 /// The smallest replay budget, so a narrow terminal still keeps its lines.
 const MIN_SNAPSHOT_REPLAY_BYTES: usize = 256 * 1024;
 /// A snapshot file larger than this is not read back (corrupt or foreign).
 const MAX_SNAPSHOT_FILE_BYTES: u64 = 16 * 1024 * 1024;
-
-#[derive(Default)]
-struct WriterState {
-    /// When the pending changes are due; `None` while nothing changed.
-    due: Option<Instant>,
-    /// A terminal's history grew by a step: its measurement (and a budget
-    /// pass when the total is over the trigger) is due now
-    /// (`memory_budget.rs`), apart from `due`.
-    memory_due: bool,
-    stop: bool,
-}
-
-/// The background writer: one thread, woken by the first output after a
-/// write and by stop.
-#[derive(Default)]
-pub(super) struct Writer {
-    state: Arc<(Mutex<WriterState>, Condvar)>,
-    thread: Mutex<Option<std::thread::JoinHandle<()>>>,
-}
-
-impl Writer {
-    pub(super) fn start(&self, mux: Weak<Mux>) -> anyhow::Result<()> {
-        let state = self.state.clone();
-        let thread = std::thread::Builder::new()
-            .name("mux-output-store-writer".into())
-            .spawn(move || run(&mux, &state))?;
-        *self.thread.lock().unwrap_or_else(PoisonError::into_inner) = Some(thread);
-        Ok(())
-    }
-
-    /// A terminal printed after the writer last looked at it: a pass is due
-    /// `interval` from now, unless one is due sooner.
-    pub(super) fn mark_dirty(&self, interval: Duration) {
-        let (lock, changed) = &*self.state;
-        let mut state = lock.lock().unwrap_or_else(PoisonError::into_inner);
-        let due = Instant::now() + interval;
-        if state.due.is_none_or(|current| due < current) {
-            state.due = Some(due);
-            changed.notify_all();
-        }
-    }
-
-    /// A terminal's history grew by a step: measure it at once. Requests
-    /// coalesce until the writer wakes, so a flood asks for one pass at a
-    /// time.
-    pub(super) fn request_memory_pass(&self) {
-        let (lock, changed) = &*self.state;
-        let mut state = lock.lock().unwrap_or_else(PoisonError::into_inner);
-        if !state.memory_due {
-            state.memory_due = true;
-            changed.notify_all();
-        }
-    }
-
-    pub(super) fn stop(&self) {
-        {
-            let (lock, changed) = &*self.state;
-            lock.lock().unwrap_or_else(PoisonError::into_inner).stop = true;
-            changed.notify_all();
-        }
-        if let Some(thread) = self.thread.lock().unwrap_or_else(PoisonError::into_inner).take() {
-            // The writer can hold the last Mux handle, so the Mux may drop
-            // (and stop the writer) on the writer thread itself.
-            if thread.thread().id() != std::thread::current().id() {
-                let _ = thread.join();
-            }
-        }
-    }
-}
-
-fn run(mux: &Weak<Mux>, state: &(Mutex<WriterState>, Condvar)) {
-    let (lock, changed) = state;
-    loop {
-        let memory_only = {
-            let mut guard = lock.lock().unwrap_or_else(PoisonError::into_inner);
-            loop {
-                if guard.stop {
-                    return;
-                }
-                // A due snapshot pass goes first (it measures too), so a
-                // stream of measurement requests never starves snapshots.
-                if guard.due.is_some_and(|due| Instant::now() >= due) {
-                    guard.due = None;
-                    guard.memory_due = false;
-                    break false;
-                }
-                if std::mem::take(&mut guard.memory_due) {
-                    break true;
-                }
-                match guard.due {
-                    None => guard = changed.wait(guard).unwrap_or_else(PoisonError::into_inner),
-                    Some(due) => {
-                        let now = Instant::now();
-                        if now >= due {
-                            guard.due = None;
-                            break false;
-                        }
-                        guard = changed
-                            .wait_timeout(guard, due - now)
-                            .unwrap_or_else(PoisonError::into_inner)
-                            .0;
-                    }
-                }
-            }
-        };
-        let Some(mux) = mux.upgrade() else { return };
-        if memory_only {
-            memory_pass(&mux, &mux.output_store);
-        } else {
-            write_pass(&mux, &mux.output_store);
-        }
-    }
-}
-
-/// Between write passes: measure the terminals whose history grew, and run
-/// the budget pass when the total is over its trigger; the snapshots keep
-/// their own interval.
-fn memory_pass(mux: &Arc<Mux>, store: &OutputStore) {
-    let policy = store.cached_policy().unwrap_or_else(|| PersistencePolicy::current(mux));
-    let _pass = store.lock_pass();
-    super::memory_budget::measure_due(mux, store, policy.memory_total_bytes);
-}
 
 /// Write the snapshot of every terminal that printed since the last pass and
 /// whose content changed (full mode: also its new bytes as a segment frame);
@@ -170,9 +67,16 @@ pub(super) fn write_pass(mux: &Arc<Mux>, store: &OutputStore) {
     let previous = store.cached_policy();
     store.cache_policy(policy);
     if previous.is_some_and(|previous| previous.mode != policy.mode) {
-        // The mode changed at runtime: drop what the new mode does not keep.
+        // The mode changed at runtime: drop what the new mode does not keep,
+        // and start each terminal's files again from a snapshot.
         eprintln!("cmux-tui: terminal output store: mode {}", policy.mode.as_str());
         store.prune_pending.store(true, std::sync::atomic::Ordering::Release);
+        for log in store.logs.lock().unwrap_or_else(PoisonError::into_inner).values() {
+            let mut state = log.state.lock().unwrap_or_else(PoisonError::into_inner);
+            state.force_snapshot = true;
+            state.tail_end = None;
+            state.dirty = true;
+        }
     }
     write_pass_at(mux, store, policy, false);
 }
@@ -186,13 +90,17 @@ fn write_pass_at(mux: &Mux, store: &OutputStore, policy: PersistencePolicy, quit
     let Some(directory) = store.directory() else { return };
     let _pass = store.lock_pass();
     let full = policy.mode == PersistenceMode::Full;
+    let tail = policy.mode == PersistenceMode::Snapshot;
     store.full.set_enabled(full);
+    store.set_tail_enabled(tail);
     if !full {
-        // Unflushed bytes belong to full mode only.
         for log in store.logs.lock().unwrap_or_else(PoisonError::into_inner).values() {
             let mut state = log.state.lock().unwrap_or_else(PoisonError::into_inner);
-            state.pending = Vec::new();
-            state.pending_start = state.next_offset();
+            if !tail {
+                // Unflushed bytes belong to full mode and the tail only.
+                state.pending = Vec::new();
+                state.pending_start = state.next_offset();
+            }
             // The files miss this stretch: back in full mode, the first
             // flush writes whatever the screen shows.
             state.segment_digest = None;
@@ -201,9 +109,9 @@ fn write_pass_at(mux: &Mux, store: &OutputStore, policy: PersistencePolicy, quit
         // place a terminal's stream later (Full -> other -> Full).
         store.segment_resume.lock().unwrap_or_else(PoisonError::into_inner).clear();
     }
-    let dirty = store.take_dirty();
+    let dirty = store.without_private(mux, store.take_dirty());
     let prune_pending = store.prune_pending.swap(false, std::sync::atomic::Ordering::AcqRel);
-    if !dirty.is_empty() {
+    if !dirty.is_empty() && store.enforce_due(full) {
         // Memory grows only when terminals print.
         super::memory_budget::enforce(mux, store, policy.memory_total_bytes);
     }
@@ -223,58 +131,612 @@ fn write_pass_at(mux: &Mux, store: &OutputStore, policy: PersistencePolicy, quit
             digests.push((log, None));
             continue;
         };
-        let (previous, snapshot_due) = {
-            let state = log.state.lock().unwrap_or_else(PoisonError::into_inner);
-            let due = quitting
-                || !full
-                || state.snapshot_at.is_none_or(|at| at.elapsed() >= store.snapshot_interval);
-            (state.snapshot_digest, due)
-        };
-        let captured = surface.try_with_terminal(|terminal| {
-            let digest = content_digest(terminal)?;
-            if previous == Some(digest) || !snapshot_due {
-                return Some((digest, None));
+        let plan = Plan::of(&log, store.snapshot_interval);
+        // Snapshot mode while writes fail: a terminal whose tail does not
+        // continue needs a snapshot, and none is tried before the backoff
+        // ends. Its bytes wait in memory, bounded.
+        if tail
+            && !quitting
+            && !plan.tail_continues
+            && let Some(wait) = plan.retry_wait
+        {
+            log.state.lock().unwrap_or_else(PoisonError::into_inner).fall_back_to_snapshot();
+            store.mark_log_dirty_after(&log, wait);
+            digests.push((log, None));
+            continue;
+        }
+        // A flood the next snapshot covers, and that snapshot is not due: no
+        // capture (it reads the screen under the parser lock), no tail write.
+        if tail && !quitting && plan.flooded && !plan.compaction_spaced && plan.retry_wait.is_none()
+        {
+            let wait = {
+                let mut state = log.state.lock().unwrap_or_else(PoisonError::into_inner);
+                state.pending = Vec::new();
+                state.pending_start = state.next_offset();
+                state.compaction_wait().max(super::TAIL_FLUSH_INTERVAL)
+            };
+            store.mark_log_dirty_after(&log, wait);
+            digests.push((log, None));
+            continue;
+        }
+        let mut attempt = 0;
+        let captured = loop {
+            attempt += 1;
+            let captured = surface.try_with_terminal(|terminal| {
+                let size = (terminal.cols(), terminal.rows());
+                let Some(digest) = content_digest(terminal) else {
+                    // No digest: the screen cannot be read now. It names no
+                    // stored byte (not settled), and the tail takes the bytes.
+                    let end =
+                        log.state.lock().unwrap_or_else(PoisonError::into_inner).next_offset();
+                    let seen =
+                        Seen { digest: 0, settled: false, end, size: Some(size), upload: false };
+                    return Some((seen, size, Capture::Failed));
+                };
+                // A chunk the reader parsed but has not handed to the store
+                // yet (an odd journal capture epoch; the reader flips it under
+                // this lock) puts the screen ahead of the stream end: the
+                // digest then names no stored byte, and a snapshot would
+                // replay that chunk twice with the tail.
+                let settled =
+                    surface.terminal_journal_capture_epoch().is_some_and(|epoch| epoch & 1 == 0);
+                let (generation, end, size_settled, gaps) = {
+                    let mut state = log.state.lock().unwrap_or_else(PoisonError::into_inner);
+                    (
+                        state.generation.clone(),
+                        state.next_offset(),
+                        state.note_size(size),
+                        state.gaps,
+                    )
+                };
+                let upload = terminal.kitty_upload_in_progress();
+                let seen = Seen { digest, settled, end, size: Some(size), upload };
+                let alternate = terminal.active_screen() != ghostty_vt::Screen::Primary;
+                let screen = ScreenNow { digest, size, alternate };
+                if !plan.wants_snapshot(screen, size_settled, full, tail, quitting) {
+                    return Some((seen, size, Capture::None));
+                }
+                if !settled {
+                    return Some((seen, size, Capture::Busy));
+                }
+                let budget = replay_budget(size.0, size.1, policy.max_bytes_per_terminal);
+                // A screen that cannot be replayed now (an unfinished Kitty
+                // upload larger than the budget) cannot be a snapshot.
+                let Ok(replay) = terminal.vt_replay_bounded(budget) else {
+                    return Some((seen, size, Capture::Failed));
+                };
+                let replay = replay.into_self_contained_bytes();
+                Some((seen, size, Capture::Snapshot { replay, generation, stream_end: end, gaps }))
+            });
+            // The reader hands its chunk over right after it releases the
+            // parser lock: a short wait usually finds the terminal settled.
+            if attempt < BUSY_ATTEMPTS && matches!(captured, Ok(Some((_, _, Capture::Busy)))) {
+                std::thread::sleep(BUSY_RETRY);
+                continue;
             }
-            let (cols, rows) = (terminal.cols(), terminal.rows());
-            let budget = replay_budget(cols, rows, policy.max_bytes_per_terminal);
-            let replay = terminal.vt_replay_bounded(budget).ok()?.into_self_contained_bytes();
-            Some((digest, Some((cols, rows, replay))))
-        });
-        let Ok(Some((digest, replay))) = captured else {
+            break captured;
+        };
+        let Ok(Some((seen, size, capture))) = captured else {
             digests.push((log, None));
             continue;
         };
-        if previous != Some(digest) && !snapshot_due {
-            // Full mode writes at most one snapshot per interval.
-            store.mark_log_dirty(&log);
-        }
-        if let Some((cols, rows, replay)) = replay {
-            let (generation, stream_end) = {
-                let state = log.state.lock().unwrap_or_else(PoisonError::into_inner);
-                (state.generation.clone(), state.next_offset())
-            };
-            match write(directory, &log.terminal_id, &generation, stream_end, cols, rows, &replay) {
-                Ok(()) => {
-                    let mut state = log.state.lock().unwrap_or_else(PoisonError::into_inner);
-                    state.snapshot_digest = Some(digest);
-                    state.snapshot_at = Some(Instant::now());
-                    wrote = true;
+        let digest = seen.digest;
+        let changed = plan.snapshot_digest != Some(digest);
+        match capture {
+            Capture::Snapshot { replay, generation, stream_end, gaps } => {
+                match write(
+                    directory,
+                    &log.terminal_id,
+                    &generation,
+                    stream_end,
+                    size.0,
+                    size.1,
+                    &replay,
+                ) {
+                    Ok(()) => {
+                        wrote = true;
+                        log.state.lock().unwrap_or_else(PoisonError::into_inner).store_succeeded();
+                        snapshot_written(
+                            directory,
+                            &log,
+                            tail,
+                            digest,
+                            size,
+                            SnapshotEnd { generation: &generation, stream_end, gaps },
+                        );
+                    }
+                    Err(error) => {
+                        report_store_error(&log, "output snapshot", &error);
+                        if tail {
+                            // One backoff step per pass: a failing append
+                            // in flush_tail does not double it again.
+                            log.state.lock().unwrap_or_else(PoisonError::into_inner).store_failed();
+                            flush_tail(store, directory, &log, seen, quitting);
+                        }
+                    }
                 }
-                Err(error) => eprintln!(
-                    "cmux-tui: terminal {} output snapshot was not written: {error:#}",
-                    log.terminal_id
-                ),
+            }
+            Capture::Failed => {
+                if !tail {
+                    // As before: the next output asks again.
+                    digests.push((log, None));
+                    continue;
+                }
+                // Snapshot mode: the tail still takes the bytes, after the
+                // stored snapshot it continues, and the snapshot is tried
+                // again after a backoff step (it can stay unreplayable).
+                log.state.lock().unwrap_or_else(PoisonError::into_inner).store_failed();
+                flush_tail_now(store, directory, &log, seen, quitting);
+            }
+            Capture::Busy => {
+                store.mark_log_dirty(&log);
+                if tail {
+                    flush_tail(store, directory, &log, seen, quitting);
+                }
+            }
+            Capture::None => {
+                if full && changed {
+                    // Full mode writes at most one snapshot per interval.
+                    store.mark_log_dirty(&log);
+                }
+                if tail {
+                    flush_tail(store, directory, &log, seen, quitting);
+                }
+            }
+        }
+        // Snapshot mode: a snapshot this log still needs is tried again at
+        // the earliest time it may be written, whether or not the terminal
+        // prints again (an idle terminal after a resize, a failed write).
+        if tail {
+            let retry =
+                log.state.lock().unwrap_or_else(PoisonError::into_inner).snapshot_retry_in();
+            if let Some(wait) = retry {
+                store.mark_log_dirty_after(&log, wait);
             }
         }
         digests.push((log, Some(digest)));
     }
     // A failed segment write tries again at the next flush, output or not
     // (a terminal gone idle still gets its bytes stored).
-    if full && super::segments::flush_logs(&store.full, directory, &digests, policy, quitting) {
-        store.writer.mark_dirty(super::FULL_FLUSH_INTERVAL);
+    if full {
+        let outcome =
+            super::segments::flush_logs(&store.full, directory, &digests, policy, quitting);
+        if outcome.flooded {
+            // A flood: the next frame goes at once.
+            store.writer.mark_dirty(Duration::ZERO);
+        } else if outcome.failed {
+            store.writer.mark_dirty(super::FULL_FLUSH_INTERVAL);
+        }
     }
     if wrote {
         enforce_total(directory, SUFFIX, snapshot_total_cap(policy));
+    }
+    if tail {
+        sync_due_tails(store, directory);
+    }
+}
+
+/// The end of a write pass in snapshot mode. Once
+/// [`super::TAIL_SYNC_INTERVAL`] has passed since the first tail write after
+/// the last sync, every tail file written since is synced, in this one pass
+/// (`tail::sync_ordered`). Before that, the writer is asked for the pass
+/// that does it (each turn of the writer forgets the request of the last
+/// one), so the sync runs whether or not a terminal prints again, and a
+/// session whose tails are all synced wakes nothing.
+///
+/// No pass but the quit pass syncs a tail in [`flush_tail`]: one fsync per
+/// printing terminal per second made the writer thread the daemon's top
+/// file system caller (`tail_sync_tests.rs`). A kill of every process needs
+/// no sync, so what it loses does not change.
+fn sync_due_tails(store: &OutputStore, directory: &Path) {
+    let Some(wait) = store.tail_sync_wait() else { return };
+    if !wait.is_zero() {
+        store.writer.mark_dirty(wait);
+        return;
+    }
+    for log in store.take_unsynced_tails() {
+        if super::tail::sync_ordered(directory, &log.terminal_id) {
+            store.count_tail_sync();
+        }
+    }
+}
+
+/// Tries of one terminal's capture while a parsed chunk is in flight.
+const BUSY_ATTEMPTS: usize = 4;
+const BUSY_RETRY: Duration = Duration::from_millis(1);
+
+/// What a capture saw under the parser lock: the content digest, whether no
+/// parsed chunk was in flight, and the stream end then. The digest names
+/// the stored bytes up to `end` only when `settled`.
+#[derive(Clone, Copy)]
+struct Seen {
+    digest: u64,
+    settled: bool,
+    end: u64,
+    /// The terminal's size at the capture (`None`: not read).
+    size: Option<(u16, u16)>,
+    /// A Kitty image upload was being assembled at the capture: its bytes
+    /// change nothing the digest sees, but they are content.
+    upload: bool,
+}
+
+/// Print a store write error once until the next success (a disk that keeps
+/// failing would print it on every pass).
+fn report_store_error(log: &TerminalLog, what: &str, error: &anyhow::Error) {
+    let mut state = log.state.lock().unwrap_or_else(PoisonError::into_inner);
+    if !std::mem::replace(&mut state.store_error, true) {
+        eprintln!("cmux-tui: terminal {} {what} was not written: {error:#}", log.terminal_id);
+    }
+}
+
+/// What one log asks of a pass, read under its lock before the capture.
+struct Plan {
+    generation: Arc<str>,
+    snapshot_digest: Option<u64>,
+    snapshot_generation: Option<Arc<str>>,
+    snapshot_size: Option<(u16, u16)>,
+    interval_due: bool,
+    force: bool,
+    tail_bytes: u64,
+    /// A tail-cap compaction may be written now (its spacing has passed).
+    compaction_spaced: bool,
+    /// A flood the next snapshot covers (`LogState::flooded`).
+    flooded: bool,
+    pending: usize,
+    /// The digest of the last stored byte (`LogState::tail_digest`): pending
+    /// bytes under a screen of this digest are held redraws.
+    tail_digest: Option<u64>,
+    /// The tail file continues the stored snapshot up to the unwritten bytes.
+    tail_continues: bool,
+    /// Snapshot mode: the time left in a write backoff.
+    retry_wait: Option<Duration>,
+}
+
+impl Plan {
+    fn of(log: &TerminalLog, interval: Duration) -> Self {
+        let state = log.state.lock().unwrap_or_else(PoisonError::into_inner);
+        Self {
+            generation: state.generation.clone(),
+            snapshot_digest: state.snapshot_digest,
+            snapshot_generation: state.snapshot_generation.clone(),
+            snapshot_size: state.snapshot_size,
+            interval_due: state.snapshot_at.is_none_or(|at| at.elapsed() >= interval),
+            force: state.force_snapshot,
+            tail_bytes: state.tail_bytes,
+            compaction_spaced: state.compaction_wait().is_zero(),
+            flooded: state.flooded,
+            pending: state.pending.len(),
+            tail_digest: state.tail_digest,
+            tail_continues: state.snapshot_generation.as_deref() == Some(&*state.generation)
+                && state.tail_end == Some(state.pending_start),
+            retry_wait: state.retry_wait(),
+        }
+    }
+
+    /// Whether this pass writes the terminal's snapshot.
+    /// `size_settled`: the terminal's size has held for `RESIZE_SETTLE`.
+    fn wants_snapshot(
+        &self,
+        screen: ScreenNow,
+        size_settled: bool,
+        full: bool,
+        tail: bool,
+        quitting: bool,
+    ) -> bool {
+        let ScreenNow { digest, size, alternate } = screen;
+        let changed = self.snapshot_digest != Some(digest);
+        if !tail {
+            // Full mode: at most once per interval, at once at quit.
+            return changed && (quitting || !full || self.interval_due);
+        }
+        // Snapshot mode: the tail continues only a snapshot of this
+        // generation and size that this daemon wrote; it is compacted at the
+        // interval, when it grows past its cap (once per spacing, at once
+        // past the flood cap) and when unchanged redraws pile up in memory.
+        // Never during a write backoff, except
+        // at quit and at a journal checkpoint (`write_now`, at most every
+        // checkpoint interval): the last or a rare chance.
+        if self.retry_wait.is_some() && !quitting {
+            return false;
+        }
+        let new_generation = self.snapshot_generation.as_deref() != Some(&*self.generation);
+        if quitting {
+            // At quit the tail takes the unwritten bytes whenever it can: no
+            // daemon answers until the next one adopts the hosts, and that
+            // daemon reads a snapshot and its tail alike. A snapshot is only
+            // for what the tail cannot carry (no snapshot of this generation
+            // from this daemon, a new size, a cap); compaction waits for the
+            // next daemon (quit_pass_tests.rs). Nor a terminal on the
+            // alternate screen: a build before ed6ab5728d8c (2026-11-10), an
+            // update rolled back, rebuilds a snapshot plus a tail that ends
+            // there without the primary screen and its scrollback; this
+            // build's snapshot keeps both, and that build replays it as is.
+            let carries = self.tail_continues
+                && !self.flooded
+                && !new_generation
+                && !alternate
+                && self.snapshot_size == Some(size)
+                && self.tail_bytes < super::TAIL_HARD_MAX_BYTES
+                && self.pending <= super::TAIL_MAX_UNWRITTEN_BYTES;
+            return self.force
+                || (!carries && (changed || self.pending > 0 || self.tail_bytes > 0));
+        }
+        // A resized terminal waits until its new size holds (a divider drag
+        // writes one snapshot at its end, not one per pass), whatever else
+        // asks for one.
+        let resized = !new_generation && self.snapshot_size != Some(size);
+        if resized && !size_settled {
+            return false;
+        }
+        self.force
+            || new_generation
+            || resized
+            || (changed && self.interval_due)
+            || (self.tail_bytes >= super::TAIL_MAX_BYTES && self.compaction_spaced)
+            || (self.flooded && self.compaction_spaced)
+            // Held redraws past the idle cap only: a flood's pending bytes
+            // change the screen and go to the tail (then to the flood hold),
+            // not to a snapshot at every pass.
+            || (self.pending >= super::TAIL_IDLE_BYTES && self.tail_digest == Some(digest))
+    }
+}
+
+/// What a pass read of a terminal's screen under its parser lock.
+#[derive(Clone, Copy)]
+struct ScreenNow {
+    /// [`content_digest`] of the screen.
+    digest: u64,
+    /// Columns and rows.
+    size: (u16, u16),
+    /// The alternate screen is active (a full-screen program).
+    alternate: bool,
+}
+
+/// The result of one log's capture under its parser lock.
+enum Capture {
+    /// A snapshot is due, but the screen cannot be read or replayed now.
+    Failed,
+    /// No snapshot is due.
+    None,
+    /// A snapshot is due, but a parsed chunk is not in the store yet.
+    Busy,
+    Snapshot {
+        replay: Vec<u8>,
+        generation: Arc<str>,
+        stream_end: u64,
+        /// The log's stream-gap count at the capture.
+        gaps: u64,
+    },
+}
+
+/// Where a written snapshot ends in its terminal's stream: the incarnation,
+/// the stream offset and the log's stream-gap count at the capture.
+#[derive(Clone, Copy)]
+struct SnapshotEnd<'a> {
+    generation: &'a Arc<str>,
+    stream_end: u64,
+    gaps: u64,
+}
+
+/// The snapshot at `end.stream_end` is in place: record it, and in snapshot
+/// mode drop the tail it covers (the file, then the unwritten bytes before it).
+fn snapshot_written(
+    directory: &Path,
+    log: &TerminalLog,
+    tail: bool,
+    digest: u64,
+    size: (u16, u16),
+    end: SnapshotEnd<'_>,
+) {
+    let SnapshotEnd { generation, stream_end, gaps } = end;
+    let mut state = log.state.lock().unwrap_or_else(PoisonError::into_inner);
+    state.snapshot_digest = Some(digest);
+    state.snapshot_at = Some(Instant::now());
+    if state.generation != *generation {
+        // A new incarnation started meanwhile: its own snapshot comes next.
+        return;
+    }
+    state.snapshot_end = Some(stream_end);
+    state.snapshot_generation = Some(generation.clone());
+    state.snapshot_size = Some(size);
+    // Bytes after the snapshot's end that `append` dropped while it was
+    // written are in neither file: the next pass writes another snapshot.
+    // So are a stream gap's (a host reconnect replaced the screen after the
+    // capture; the offset does not move for it).
+    // A flood hold keeps no bytes: the stream moves on past every snapshot's
+    // end, and the next snapshot (after its spacing) covers them.
+    let held = tail && state.flooded && state.pending_start > stream_end;
+    state.flooded = held;
+    state.force_snapshot =
+        tail && ((state.pending_start > stream_end && !held) || state.gaps != gaps);
+    if !tail {
+        drop(state);
+        // The snapshot covers a tail file left from snapshot mode. Off the
+        // log's lock (the reader needs it); only the writer touches tails,
+        // under the pass lock.
+        super::tail::remove(directory, &log.terminal_id);
+        return;
+    }
+    let covered = usize::try_from(stream_end.saturating_sub(state.pending_start))
+        .unwrap_or(usize::MAX)
+        .min(state.pending.len());
+    state.pending.drain(..covered);
+    state.pending_start += covered as u64;
+    state.tail_end = Some(stream_end);
+    state.tail_bytes = 0;
+    // The digest names the stored content only when nothing was dropped
+    // after the snapshot's end.
+    state.tail_digest = (state.pending_start == stream_end && state.gaps == gaps).then_some(digest);
+    state.tail_unsynced = false;
+    drop(state);
+    // The snapshot covers the tail file. Off the log's lock (the reader
+    // needs it); only the writer touches tails, under the pass lock.
+    super::tail::remove(directory, &log.terminal_id);
+}
+
+/// [`flush_tail`] without the redraw hold: the snapshot that would replace
+/// held bytes cannot be taken, so the tail takes them now.
+fn flush_tail_now(
+    store: &OutputStore,
+    directory: &Path,
+    log: &TerminalLog,
+    seen: Seen,
+    quitting: bool,
+) {
+    // A digest no stored byte has: nothing is held as a redraw.
+    log.state.lock().unwrap_or_else(PoisonError::into_inner).tail_digest = None;
+    flush_tail(store, directory, log, Seen { settled: false, ..seen }, quitting);
+}
+
+/// Snapshot mode: append the terminal's unwritten bytes to its tail, unless
+/// they only redraw content already stored (the digest the capture saw is
+/// the one of the last stored byte: cursor redraws of an idle TUI wait in
+/// memory, up to [`super::TAIL_IDLE_BYTES`], then a snapshot replaces them).
+/// The quit pass fsyncs the tail here; any other pass leaves the sync to
+/// [`sync_due_tails`].
+fn flush_tail(
+    store: &OutputStore,
+    directory: &Path,
+    log: &TerminalLog,
+    seen: Seen,
+    quitting: bool,
+) {
+    let job = {
+        let mut state = log.state.lock().unwrap_or_else(PoisonError::into_inner);
+        // At quit the last bytes are synced now: no later pass syncs them.
+        // Any other pass only writes; `sync_due_tails` syncs.
+        let sync_due = quitting;
+        // An unfinished Kitty upload's bytes change nothing the digest sees
+        // but are content: never held as redraws.
+        let redraw = state.tail_digest == Some(seen.digest) && !seen.upload;
+        if state.pending.is_empty() || (redraw && !quitting) {
+            // Everything is stored and the capture saw exactly it: its
+            // digest names the stored content, so the next redraw waits.
+            if state.pending.is_empty()
+                && seen.settled
+                && !seen.upload
+                && seen.end == state.pending_start
+            {
+                state.tail_digest = Some(seen.digest);
+            }
+            // Held redraws past the idle cap (a snapshot would replace them,
+            // but none can be written now): the snapshot covers them.
+            if state.pending.len() >= super::TAIL_IDLE_BYTES {
+                state.fall_back_to_snapshot();
+                // The snapshot that covers them, at the next pass (after a
+                // backoff when one runs).
+                let wait = state.retry_wait();
+                drop(state);
+                match wait {
+                    Some(wait) => store.mark_log_dirty_after(log, wait),
+                    None => store.mark_log_dirty(log),
+                }
+                return;
+            }
+            if state.tail_unsynced && sync_due {
+                state.tail_unsynced = false;
+                drop(state);
+                store.count_tail_sync();
+                super::tail::sync(directory, &log.terminal_id);
+            }
+            return;
+        }
+        // A flood past the tail's flood cap inside one compaction spacing:
+        // writing it (gzip of every byte) only to compact it away a moment
+        // later is the cost of the flood. The snapshot, once its spacing has
+        // passed, covers it.
+        if !quitting
+            && state.tail_bytes + state.pending.len() as u64 >= super::TAIL_FLOOD_MAX_BYTES
+            && !state.compaction_wait().is_zero()
+        {
+            state.start_flood_hold();
+            let wait = state.compaction_wait().max(super::TAIL_FLUSH_INTERVAL);
+            drop(state);
+            store.mark_log_dirty_after(log, wait);
+            return;
+        }
+        // The tail continues a snapshot of this generation and size only (a
+        // resize while snapshots fail must not replay new output at the old
+        // size), up to the hard cap.
+        let continues = state.snapshot_generation.as_deref() == Some(&*state.generation)
+            && state.tail_end == Some(state.pending_start)
+            && seen.size.is_none_or(|size| state.snapshot_size == Some(size))
+            && state.tail_bytes < super::TAIL_HARD_MAX_BYTES;
+        let Some(base) = state.snapshot_end.filter(|_| continues) else {
+            // The bytes do not continue the stored snapshot: the next pass
+            // writes one (it covers them). Bounded while snapshot writes
+            // fail: the snapshot holds the screen, not these bytes.
+            state.fall_back_to_snapshot();
+            let wait = state.retry_wait();
+            drop(state);
+            match wait {
+                Some(wait) => store.mark_log_dirty_after(log, wait),
+                None => store.mark_log_dirty(log),
+            }
+            return;
+        };
+        // A flood past the cap (the writer fell behind): not one huge frame,
+        // the snapshot covers it.
+        if state.pending.len() > super::TAIL_MAX_UNWRITTEN_BYTES {
+            state.fall_back_to_snapshot();
+            drop(state);
+            store.mark_log_dirty(log);
+            return;
+        }
+        (state.generation.clone(), base, state.pending_start, state.pending.clone(), sync_due)
+    };
+    let (generation, base, start, bytes, sync) = job;
+    let result =
+        super::tail::append(directory, &log.terminal_id, &generation, base, start, &bytes, sync);
+    if sync && result.is_ok() {
+        store.count_tail_sync();
+    }
+    let mut state = log.state.lock().unwrap_or_else(PoisonError::into_inner);
+    let ours = state.generation == generation
+        && state.pending_start == start
+        && state.pending.len() >= bytes.len();
+    match result {
+        Ok(()) if ours => {
+            // The append went through; a snapshot backoff stays until a
+            // snapshot is written (a nearly full disk can take small appends
+            // and refuse a whole replay).
+            state.store_error = false;
+            state.pending.drain(..bytes.len());
+            state.pending_start = start + bytes.len() as u64;
+            state.tail_end = Some(state.pending_start);
+            state.tail_bytes += bytes.len() as u64;
+            // The digest names these bytes only when the capture saw exactly
+            // them: a chunk in flight, or bytes that came after the capture,
+            // must not be taken for redraws of stored content.
+            let exact = seen.settled && !seen.upload && seen.end == state.pending_start;
+            state.tail_digest = exact.then_some(seen.digest);
+            let more = !state.pending.is_empty() || !exact;
+            state.tail_unsynced = !sync;
+            drop(state);
+            if !sync {
+                store.tail_written();
+            }
+            if more {
+                store.mark_log_dirty(log);
+            }
+        }
+        Ok(()) => {
+            // A new generation or a clear replaced the bytes meanwhile.
+            state.force_snapshot = true;
+            drop(state);
+            store.mark_log_dirty(log);
+        }
+        Err(error) => {
+            // A failed append can leave a cut frame, which ends every read of
+            // the file: nothing more goes behind it. The next snapshot
+            // starts the tail again; the bytes wait for it, bounded.
+            state.fall_back_to_snapshot();
+            // One backoff step per pass (the snapshot write may have taken it).
+            let wait = state.retry_wait().unwrap_or_else(|| state.store_failed());
+            drop(state);
+            report_store_error(log, "output tail", &error);
+            store.mark_log_dirty_after(log, wait);
+        }
     }
 }
 
@@ -288,21 +750,25 @@ fn snapshot_total_cap(policy: PersistencePolicy) -> u64 {
     }
 }
 
-/// Text, size, screen and history epoch: what a cursor redraw does not move.
+/// Text, size, screen, history epoch and cursor position: what a cursor
+/// redrawn in place does not move.
 fn content_digest(terminal: &mut ghostty_vt::Terminal) -> Option<u64> {
-    let text = terminal.viewport_text().ok()?;
+    let text = terminal.active_text().ok()?;
     let mut hasher = std::collections::hash_map::DefaultHasher::new();
     terminal.cols().hash(&mut hasher);
     terminal.rows().hash(&mut hasher);
     (terminal.active_screen() == ghostty_vt::Screen::Primary).hash(&mut hasher);
     terminal.history_epoch().hash(&mut hasher);
+    // A cursor that moved is content to restore; one redrawn in place is not.
+    terminal.cursor_position().hash(&mut hasher);
     text.hash(&mut hasher);
     Some(hasher.finish())
 }
 
-/// Bytes for the screen plus about [`SNAPSHOT_HISTORY_LINES`] lines (a VT
-/// replay is bounded in bytes; it keeps the newest rows that fit).
-fn replay_budget(cols: u16, rows: u16, max_per_terminal: u64) -> usize {
+/// Bytes for the screen plus up to [`SNAPSHOT_HISTORY_LINES`] lines. The VT
+/// replay remains bounded by the configured per-terminal byte cap and keeps
+/// the newest rows that fit.
+pub(super) fn replay_budget(cols: u16, rows: u16, max_per_terminal: u64) -> usize {
     let lines = SNAPSHOT_HISTORY_LINES + usize::from(rows);
     let estimate = lines.saturating_mul(usize::from(cols).max(1)).saturating_mul(3);
     let cap = usize::try_from(max_per_terminal)
@@ -311,11 +777,16 @@ fn replay_budget(cols: u16, rows: u16, max_per_terminal: u64) -> usize {
     estimate.clamp(MIN_SNAPSHOT_REPLAY_BYTES.min(cap), cap)
 }
 
-fn path(directory: &Path, terminal_id: &TerminalPublicId) -> PathBuf {
+/// Remove terminal `terminal_id`'s snapshot (an incognito terminal).
+pub(super) fn remove(directory: &Path, terminal_id: &TerminalPublicId) {
+    let _ = fs::remove_file(path(directory, terminal_id));
+}
+
+pub(super) fn path(directory: &Path, terminal_id: &TerminalPublicId) -> PathBuf {
     directory.join(format!("{}.{SUFFIX}", terminal_id.as_str()))
 }
 
-fn write(
+pub(super) fn write(
     directory: &Path,
     terminal_id: &TerminalPublicId,
     generation: &str,
@@ -346,11 +817,30 @@ fn write(
         file.sync_all()?;
     }
     fs::rename(&staged, &target)?;
+    // The rename is durable before the caller removes the tail it covers:
+    // an OS crash must not bring back the old snapshot without its tail.
+    fs::File::open(directory)?.sync_all()?;
     Ok(())
 }
 
+#[cfg(test)]
+thread_local! {
+    /// What the calling thread read from the store's directory: (lists of the directory through [`list`], reads
+    /// of a snapshot header). The count tests of the start read it: counts, no clock.
+    pub(super) static DISK_READS: std::cell::Cell<(usize, usize)> = const { std::cell::Cell::new((0, 0)) };
+}
+
+/// The entries of the store's directory, for a pass over the snapshot files.
+pub(super) fn list(directory: &Path) -> std::io::Result<fs::ReadDir> {
+    #[cfg(test)]
+    DISK_READS.with(|reads| reads.set((reads.get().0 + 1, reads.get().1)));
+    fs::read_dir(directory)
+}
+
 /// The header line of a snapshot file (it is short; the replay follows).
-fn read_header(file: &Path) -> Option<serde_json::Value> {
+pub(super) fn read_header(file: &Path) -> Option<serde_json::Value> {
+    #[cfg(test)]
+    DISK_READS.with(|reads| reads.set((reads.get().0, reads.get().1 + 1)));
     let mut reader = std::io::BufReader::new(fs::File::open(file).ok()?);
     let mut magic = [0_u8; MAGIC.len()];
     reader.read_exact(&mut magic).ok()?;
@@ -360,31 +850,51 @@ fn read_header(file: &Path) -> Option<serde_json::Value> {
     serde_json::from_slice(line.strip_suffix(b"\n")?).ok()
 }
 
-/// The stream end each snapshot recorded, by terminal: (generation, end).
-pub(super) fn stream_ends(
+/// One snapshot file as [`scan`] read it: its terminal and its header.
+#[derive(Debug)]
+pub(super) struct Scanned {
+    pub(super) terminal_id: TerminalPublicId,
+    pub(super) header: serde_json::Value,
+    entry: fs::DirEntry,
+}
+
+impl Scanned {
+    /// The size of the file on disk.
+    pub(super) fn bytes(&self) -> Option<u64> {
+        Some(self.entry.metadata().ok()?.len())
+    }
+}
+
+/// One list of the directory and one read of the header of each snapshot file whose terminal is `wanted`. A
+/// file with no readable header is not in it. The count: the entries of the directory that the list gave.
+pub(super) fn scan(
     directory: &Path,
-) -> std::collections::HashMap<TerminalPublicId, (String, u64)> {
-    let Ok(entries) = fs::read_dir(directory) else { return Default::default() };
-    entries
+    wanted: impl Fn(&TerminalPublicId) -> bool,
+) -> (usize, Vec<Scanned>) {
+    let Ok(entries) = list(directory) else { return (0, Vec::new()) };
+    let mut listed = 0_usize;
+    let scanned = entries
         .flatten()
+        .inspect(|_| listed += 1)
         .filter_map(|entry| {
             let path = entry.path();
             (path.extension()? == SUFFIX).then_some(())?;
             let terminal_id = TerminalPublicId::parse(path.file_stem()?.to_str()?).ok()?;
+            wanted(&terminal_id).then_some(())?;
             let header = read_header(&path)?;
-            let generation = header.get("generation")?.as_str()?.to_owned();
-            let end = header.get("stream_end")?.as_u64()?;
-            Some((terminal_id, (generation, end)))
+            Some(Scanned { terminal_id, header, entry })
         })
-        .collect()
+        .collect();
+    (listed, scanned)
 }
 
-/// The terminal's last snapshot and the generation it belongs to, `None`
-/// when absent or unreadable.
+/// The terminal's last snapshot, the generation it belongs to and the stream
+/// offset it ends at (`None` in a file written before it was recorded),
+/// `None` when absent or unreadable.
 pub(super) fn read(
     directory: &Path,
     terminal_id: &TerminalPublicId,
-) -> Option<(TerminalReplay, String)> {
+) -> Option<(TerminalReplay, String, Option<u64>)> {
     let file = path(directory, terminal_id);
     if fs::metadata(&file).ok()?.len() > MAX_SNAPSHOT_FILE_BYTES {
         return None;
@@ -403,6 +913,7 @@ pub(super) fn read(
         return None;
     }
     let generation = header.get("generation")?.as_str()?.to_owned();
+    let stream_end = header.get("stream_end").and_then(serde_json::Value::as_u64);
     Some((
         TerminalReplay {
             cols: u16::try_from(header.get("cols")?.as_u64()?).ok()?,
@@ -410,14 +921,48 @@ pub(super) fn read(
             bytes,
         },
         generation,
+        stream_end,
     ))
+}
+
+/// The writer's prune (a mode change, a forgotten terminal, once a day): [`remove_unowned`], then the parked trim.
+pub(super) fn prune(mux: &Mux, store: &OutputStore, policy: PersistencePolicy) {
+    let Some(directory) = store.directory() else { return };
+    let Some(parked) = remove_unowned(mux, store, directory, policy) else { return };
+    let now_ms = crate::workspace_registry::unix_epoch_ms().unwrap_or(0);
+    super::parked_trim::run(
+        directory,
+        &parked,
+        now_ms,
+        policy.parked_max_total_bytes,
+        policy.min_free_disk_bytes,
+    );
+}
+
+/// Removes the saved shell states (`crate::shell_state`) of terminals no
+/// longer in the session: a closed tab's, and any a crash left behind.
+fn remove_unowned_shell_states(mux: &Mux, live: &HashSet<TerminalPublicId>) {
+    let Some(dir) = mux.shell_state_dir() else { return };
+    let removed = dir.remove_unowned(live);
+    if removed > 0 {
+        eprintln!(
+            "cmux-tui: removed {removed} shell-state file(s) of terminals that left the session"
+        );
+    }
 }
 
 /// Remove files the policy does not allow: everything in memory mode, and
 /// the files of terminals that are no longer in the session otherwise.
-pub(super) fn prune(mux: &Mux, store: &OutputStore, policy: PersistencePolicy) {
-    let Some(directory) = store.directory() else { return };
-    let Ok(entries) = fs::read_dir(directory) else { return };
+/// Returns the parked terminals of the session, for the parked trim; `None`
+/// when no trim follows (memory mode, a directory or a registry that cannot
+/// be read).
+pub(super) fn remove_unowned(
+    mux: &Mux,
+    store: &OutputStore,
+    directory: &Path,
+    policy: PersistencePolicy,
+) -> Option<HashSet<TerminalPublicId>> {
+    let entries = list(directory).ok()?;
     if policy.mode == PersistenceMode::Memory {
         let mut removed = 0_usize;
         for entry in entries.flatten() {
@@ -426,20 +971,31 @@ pub(super) fn prune(mux: &Mux, store: &OutputStore, policy: PersistencePolicy) {
                 if path.is_dir() { fs::remove_dir_all(&path) } else { fs::remove_file(&path) };
             removed += usize::from(result.is_ok());
         }
+        store.full.forget_all();
         if removed > 0 {
             eprintln!(
                 "cmux-tui: terminal output store removed {removed} file(s): \
                  terminal.persistence.mode is memory"
             );
         }
-        return;
+        // Shell state is not screen output: memory mode keeps a parked tab's.
+        if let Ok(live) = mux
+            .workspace_registry
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .live_terminal_public_ids()
+        {
+            remove_unowned_shell_states(mux, &live);
+        }
+        return None;
     }
     let live = mux
         .workspace_registry
         .lock()
         .unwrap_or_else(PoisonError::into_inner)
-        .live_terminal_public_ids();
-    let Ok(live) = live else { return };
+        .live_terminal_public_ids()
+        .ok()?;
+    remove_unowned_shell_states(mux, &live);
     for entry in entries.flatten() {
         let name = entry.file_name();
         let Some(name) = name.to_str() else { continue };
@@ -450,10 +1006,14 @@ pub(super) fn prune(mux: &Mux, store: &OutputStore, policy: PersistencePolicy) {
         }
         let path = entry.path();
         let _ = if path.is_dir() { fs::remove_dir_all(&path) } else { fs::remove_file(&path) };
+        store.full.forget(directory, &terminal_id);
     }
     if policy.mode != PersistenceMode::Full {
         super::segments::remove_all(directory);
+        store.full.forget_all();
     }
+    // Parked: a kept tab and no running shell (after a daemon restart too).
+    Some(mux.parked_terminal_ids(live))
 }
 
 /// Delete the oldest files with `suffix` until their total is at most `cap`.
@@ -481,3 +1041,15 @@ pub(super) fn enforce_total(directory: &Path, suffix: &str, cap: u64) {
         }
     }
 }
+
+#[cfg(test)]
+#[path = "snapshot_tests.rs"]
+mod tests;
+
+#[cfg(test)]
+#[path = "quit_pass_tests.rs"]
+mod quit_pass_tests;
+
+#[cfg(test)]
+#[path = "tail_sync_tests.rs"]
+mod tail_sync_tests;

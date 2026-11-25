@@ -1,4 +1,5 @@
 import CmuxNextSettings
+import CmuxNextTestSupport
 import Foundation
 import Testing
 @testable import CmuxNextAgentPane
@@ -10,9 +11,13 @@ import Testing
 struct AgentPaneFeatureTipsTests {
     private static let browserTip = "agents-drive-visible-browser-tabs"
 
+    private actor NoHost: AgentPaneHostProviding {
+        func handshake(sessionId: String?) async throws -> AgentPaneHandshake { throw AgentPaneHostError.daemonStopped }
+    }
+
     private func defaults() throws -> UserDefaults {
         let suite = "AgentPaneFeatureTipsTests.\(UUID().uuidString)"
-        let defaults = try #require(UserDefaults(suiteName: suite))
+        let defaults = try #require(UserDefaults(testSuiteName: suite))
         defaults.removePersistentDomain(forName: suite)
         return defaults
     }
@@ -111,5 +116,38 @@ struct AgentPaneFeatureTipsTests {
     @Test func theChatFollowsTheToggle() {
         let root = JSONValue.object(["updates": .object(["showFeatureTips": .bool(false)])])
         #expect(AgentPaneDisplaySetting(fileRoot: root).values["updates.showFeatureTips"] == .bool(false))
+    }
+
+    /// A page reads its tip records on every mount, the prewarmed New Tab spare's too: that read is
+    /// boot traffic and leaves the page untouched, so an existing chat's open (a subagent, a side
+    /// chat, a sender's chat on the right) still adopts the spare instead of making a cold page.
+    /// Every subagent open was refused the spare as "touched by featureTips". Leo, 2026-11-05:
+    /// "things just don't [freaking] open up fast enough on the right. / links. subagents. all".
+    @MainActor @Test func readingTheTipsLeavesTheSpareUntouched() async throws {
+        let model = AgentPaneModel(host: NoHost())
+        model.featureTipRecords = AgentPaneFeatureTipRecords(defaults: try defaults())
+        _ = await model.respond(to: .featureTips(.read))
+        #expect(!model.userTouched, "touched by \(model.touchedBy ?? "?")")
+    }
+
+    /// A claim is the page's own question and the X of a tip keeps one record: both change the app's records and
+    /// leave the page as it was, so a closed New Tab page that sent them goes back to the spare pool
+    /// (`NewTabSpareStaysInWindowTests`). A claim the app refuses and one it grants are the same to the page.
+    /// `used` is the person's use of the tip's control in this page (a Cloud pick): that page holds the pick and
+    /// is touched.
+    @MainActor @Test func aClaimAndTheXLeaveThePageUntouchedAndAUseTouchesIt() async throws {
+        let model = AgentPaneModel(host: NoHost())
+        model.featureTipRecords = AgentPaneFeatureTipRecords(defaults: try defaults())
+        let granted = await model.respond(to: .featureTips(.claim(id: "cloud-chat", feature: nil)))
+        #expect((granted["value"] as? [String: Any])?["claimed"] as? Bool == true, "fixture: a fresh install grants its first claim: \(granted)")
+        #expect(!model.userTouched, "a granted claim: touched by \(model.touchedBy ?? "?")")
+        _ = await model.respond(to: .featureTips(.claim(id: Self.browserTip, feature: nil)))
+        #expect(!model.userTouched, "a refused claim: touched by \(model.touchedBy ?? "?")")
+        _ = await model.respond(to: .featureTips(.keep(id: "cloud-chat", state: "closed")))
+        #expect(!model.userTouched, "the X: touched by \(model.touchedBy ?? "?")")
+        #expect(model.featureTipRecords.records["cloud-chat"] == "closed")
+        _ = await model.respond(to: .featureTips(.keep(id: Self.browserTip, state: "used")))
+        #expect(model.userTouched)
+        #expect(model.touchedBy == "featureTips")
     }
 }

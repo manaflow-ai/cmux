@@ -1,15 +1,17 @@
 import AppKit
 import CmuxNextDesign
-/// Renders one screen: a split tree, or a horizontally scrolling strip of
-/// columns. Pane and divider frames are springs in content space; the
+/// Renders one screen: a split tree, or a horizontally scrolling strip of columns. Pane and divider frames are springs
+/// in content space (a ratio or width change moves them; a structural change puts each at its place in one frame); the
 /// displayed frame subtracts the scroll offset.
 final class ScreenContentView: NSView {
     let screenID: ScreenID
     let context: LayoutViewContext
-    private(set) var layout: ScreenLayout
+    private(set) var layout: ScreenLayout { didSet { layoutRevision &+= 1 } }
+    /// Bumped on every layout change: what the tab-drop answers (`DropAnswerMemo`) were worked out for.
+    private(set) var layoutRevision: UInt64 = 0
     /// The layout is one zoomed pane (`LayoutScreen.zoomed`).
     private(set) var zoomed = false
-    /// Where the panes a structural change carries showed (view x), set again
+    /// Where the panes an animated width or ratio change carries showed (view x), set again
     /// once `syncScroll` has moved the camera for the new layout (`settleCarried`).
     var carriedShown: [PaneID: CGFloat] = [:]
     /// The same for the strip's dividers and column edges.
@@ -21,33 +23,36 @@ final class ScreenContentView: NSView {
     var geometry: ScreenGeometry
     internal(set) var paneFrames: [PaneID: AnimatedFrame] = [:]
     private(set) var dividerViews: [DividerHandleView.Kind: DividerHandleView] = [:]
+    /// The screen's splits whose divider draws no line (``LayoutScreen/hiddenDividers``); set by the root before each update.
+    var hiddenDividers: Set<SplitID> = [] {
+        didSet { if hiddenDividers != oldValue { hiddenDividersDidChange(from: oldValue) } }
+    }
+    /// The hover and resize cursor of those handles from one tracking area (`ScreenDividerPointer`).
+    private(set) lazy var dividerPointer = ScreenDividerPointer(screen: self)
     internal(set) var dividerFrames: [DividerHandleView.Kind: AnimatedFrame] = [:]
-    /// Panes growing in from a split's edge (`PaneArrival.split`), and the dock columns that change added.
-    var arriving: Set<PaneID> = [], newDockColumns: Set<ColumnID> = []
-    /// A zoom or unzoom: the pane that owns the motion, and the panes a zoom covers, unchanged under it.
-    internal(set) var zoomMotion = PaneZoomMotion()
-    var covered: Set<PaneID> { zoomMotion.covered }
-    /// A close: the strip camera and each row column's move on the panes' (close) spring until
-    /// everything rests, so a column whose strip move the camera cancels (the one right of a
-    /// closed column, as the focus goes left) stays still instead of sliding in and out on two
-    /// springs, and the shift after the last column or row closed is the close's own curve. A user
-    /// scroll takes the camera back to the scroll spring.
-    var scrollRidesFrames = false
-    /// A close waits for `syncScroll` to place its camera, then takes its first frame (`leadIfPending`).
-    var leadsFrame = false
-    /// A split's or a close's panes spring to their new sizes: their terminals keep their grids
-    /// until every pane landed (`LayoutViewContext.gridHoldScreens`, the PTY resizes once at rest).
-    /// A press during the motion (rapid Cmd-D) keeps the hold, so the grids go once for the whole chain.
+    /// A keyboard resize press moves this screen (`LayoutRootView.keyboardResizeWillChange`): until its spring lands,
+    /// every pane is on the key hold (``PaneHostView``): content with a hold area follows its pane in every frame.
+    var holdsContentForKeyResize = false { didSet { if oldValue, !holdsContentForKeyResize { releasePaneFrameNoticesIfSettled() } } }
+    /// The layout change that `update` just applied is structural, and its scroll sync has not run yet (`syncScroll`
+    /// follows every update): that sync puts each camera at its place with the change, in the same frame.
+    var scrollSyncIsStructural = false
+    /// The dim over the other panes around a zoom of this screen.
+    let zoomDim = PaneZoomDim()
+    /// The terminals of this screen keep their grids until its panes land (`LayoutViewContext.gridHoldScreens`).
+    /// Nothing sets it now: a split or a close shows in one frame, and its terminals take their grids with that
+    /// frame. It stays, with its observers, until its own removal.
     var holdsGrids = false {
         didSet {
             guard holdsGrids != oldValue else { return }
             if holdsGrids { context.gridHoldScreens.insert(screenID) } else { context.gridHoldScreens.remove(screenID) }
         }
     }
-    var motionState: ScreenPaneMotionState
+    /// The pane a whole-pane drag carries (RFD 0022 item 2) and how far the pointer moved it from rest: its real host
+    /// follows the pointer at full size with its live content, placed in `applyPresentation` (never a snapshot).
+    var lift: (pane: PaneID, offset: CGVector)?
     /// A divider released with this pointer velocity (pt/s along its axis): the next layout's
     /// spring starts from it (`SplitMotion.seed`).
-    var releasedDivider: (kind: DividerHandleView.Kind, velocity: CGFloat, time: CFTimeInterval)?
+    var releasedDivider: (kind: DividerHandleView.Kind, velocity: CGFloat, time: CFTimeInterval, sharedEdges: Bool)?
     /// Column scroll rules and state (`ColumnScrollState.reduce`).
     var scrollState = ColumnScrollState()
     /// Each column whose rows overflow scrolls vertically with its own
@@ -74,6 +79,15 @@ final class ScreenContentView: NSView {
     var resizeGesture = PaneResizeGesturePhase.idle
     /// The pane contents that heard the drag start; the end goes to them.
     var resizeGestureListeners: [PaneResizeGestureListener] = []
+    /// The pane contents that follow a person's live resize of the window as they follow a divider drag
+    /// (`ScreenContentView+WindowLiveResize`); nil outside one.
+    var windowResizeListeners: [PaneResizeGestureListener]?
+    /// A presentation during the window's live resize kept a pane out of the viewport at its old size
+    /// (`applyPresentation`, `ScreenContentView+WindowLiveResize`): the resize's end lays it out at its final one.
+    var deferredOffscreenLayout = false
+    /// The pane views a resize drag or a key resize's spring moves post no frame notice until it ends
+    /// (``FrameNoticeHold``): no titlebar drag-shape walk in each of its frames' commits.
+    let paneFrameNotices = FrameNoticeHold()
     /// Overlay docked columns' glass rims, keyed by column.
     var backdrops: [ColumnID: DockBackdropView] = [:]
     /// The strip scrollbar; created on first use.
@@ -86,22 +100,24 @@ final class ScreenContentView: NSView {
     var canvasState = ScreenCanvasState()
     /// A user pan of this screen stepped the layout and has not ended yet (`applyPresentation`).
     var userMotionActive = false
-    /// A strip pan event showed in the current display frame (``presentPan()``); the frame's tick
-    /// clears it (``displayFrameBegan()``).
-    var panPresentedInFrame = false
-    /// Strip pan events reduced but not shown yet: the next frame tick shows them in one presentation.
-    var panPresentationPending = false
-    /// Frame ticks the pan still keeps after its last event (``displayFrameBegan()``).
-    var panTicksLeft = 0
+    /// What the screen shows once per display frame: a strip pan's events, a presentation the frame's input held.
+    var frameInput = ScreenFrameInput()
     /// Pane strip clips computed and presentation passes run, cumulative (PaneMotionWorkTests: per frame the clips
     /// are the panes that moved or whose covers changed; `LayoutWorkProbe`), and a structural change's next pass re-places all.
     var stripClipsComputed = 0, presentationPasses = 0, forcesPresentation = false
-    init(screenID: ScreenID, layout: ScreenLayout, context: LayoutViewContext,
-         paneMotionVariant: @escaping () -> PaneMotionVariant = { LayoutTunables.paneMotionVariant.value }) {
+    /// Panes that showed their ground because a surface of theirs was not ready when its layout change showed
+    /// (`ScreenContentView+SnapFrame`), cumulative.
+    var lateSurfaceCommits = 0
+    /// Whole-screen geometry computes a tab drop's hit test made (room check and edge preview; HOT PATH AUDIT drag-frame).
+    var dropGeometryComputes = 0
+    /// The room checks and edge previews of this layout, viewport and style: a pointer move inside one zone computes none.
+    var dropAnswers = DropAnswerMemo()
+    /// The screen's floating panes, their cards and a pointer's move or resize of one (ScreenContentView+Floating).
+    var floatState = FloatingPanesState()
+    init(screenID: ScreenID, layout: ScreenLayout, context: LayoutViewContext) {
         self.screenID = screenID
         self.layout = layout
         self.context = context
-        self.motionState = ScreenPaneMotionState(provider: paneMotionVariant)
         self.baseGeometry = ScreenGeometry.compute(layout, viewport: .zero, style: context.style)
         self.geometry = baseGeometry
         super.init(frame: .zero)
@@ -120,7 +136,8 @@ final class ScreenContentView: NSView {
     override func setFrameSize(_ newSize: NSSize) {
         let changed = newSize != frame.size
         super.setFrameSize(newSize)
-        guard changed else { return }
+        // Never laid out: its first pass (the root's sync, `update(layout:)`) lays out at this size, once.
+        guard changed, reconciledScale != nil else { return }
         // A hidden screen (another of the workspace's screens shows) lays out once, when it shows:
         // each live-resize tick re-ran its full geometry, pane and divider reconcile.
         if isHidden { needsReconcileOnShow = true } else { reconcileAndScroll(keepsMotion: hasMotion && window?.inLiveResize != true) }
@@ -152,9 +169,12 @@ final class ScreenContentView: NSView {
     /// Only a real scale change (the window moved to a display of another scale) lays out again.
     /// AppKit also calls this inside `setBoundsSize`, which the canvas camera sets (`applyCamera`):
     /// reconciling there set the bounds again and recursed until the stack overflowed (Crash D, #24998).
+    /// A new screen joining its window is not one: it has no frames yet, and the root's sync lays it out next, at its
+    /// size (SWITCH STALL 3: that join reconciled every new screen at viewport zero, its pane hosts made and placed at
+    /// zero rects, then twice more in the same turn).
     override func viewDidChangeBackingProperties() {
         super.viewDidChangeBackingProperties()
-        guard !isApplyingCamera, window != nil, reconciledScale != scale else { return }
+        guard !isApplyingCamera, window != nil, let reconciledScale, reconciledScale != scale else { return }
         reconcileAndScroll()
     }
 
@@ -162,54 +182,92 @@ final class ScreenContentView: NSView {
     /// A pane spring left mid-flight could park its pane off screen. Column and row camera
     /// springs may resume when the workspace shows (Lucas 2026-10-19).
     func settleMotion() {
+        // Landed at once (window out of sight, Reduce Motion turned on): the key-resize hold ends with the motion.
+        defer { holdsContentForKeyResize = false }
+        defer { releasePaneFrameNoticesIfSettled() }
         defer { if resizeGesture == .landing { finishResizeGesture() } }
+        presentHeldSnap()
+        zoomDim.end() // out of sight, or with no motion from now on: a zoom's dim that still goes leaves too
         guard hasMotion else { return }
         reconcileAndScroll()
     }
 
-    /// A window resize: frames snap (or, `keepsMotion`, a running spring retargets), and the scroll keeps the
-    /// focused column in place on screen, then fits it (L7).
+    /// A window resize: frames snap (or, `keepsMotion`, a running spring is carried into the new size: each frame and
+    /// its target move together, `AnimatedFrame.rebase`, so the panes follow the resize in this frame and only what
+    /// the spring had left still springs), and the scroll keeps the focused column in place on screen, then fits it (L7).
     fileprivate func reconcileAndScroll(keepsMotion: Bool = false) {
-        reconcile(animated: keepsMotion, presents: false)
-        syncScroll(focused: lastFocused, source: .programmatic, mode: context.model.centerFocusedColumn, animated: keepsMotion)
+        zoomDim.end() // the screen's size changed: the dim was placed for the old one
+        reconcile(animated: keepsMotion, rebasing: keepsMotion, presents: false)
+        if !(syncScroll(focused: lastFocused, source: .programmatic, mode: context.model.centerFocusedColumn, animated: keepsMotion) && hasMotion) { holdsContentForKeyResize = false } // a snap
     }
 
     // MARK: Model updates
 
     /// Applies a new layout. Returns true if springs need frames.
     ///
-    /// A split or a new dock column grows in from its edge (`PaneArrival`, cx-f6i7;
-    /// a dock moves the strip's origin, so strip frames start where they show), and the panes
-    /// left by a close or a move away spring to their places (`PaneArrival.departing`); a zoom and
-    /// an unzoom move as `PaneZoomMotion` says (the zooming pane covers the others, which stay still).
-    /// Every moving pane lays out live at its spring rect on every frame (`applyPresentation`).
-    /// Other structural changes snap.
+    /// A structural change (a split, a close, a zoom, an unzoom, a pane moved, a new dock column) is one commit: its
+    /// end is known when it starts, so every pane and divider snaps to its place in the new layout and the screen shows
+    /// them all in one presented frame (`ScreenContentView+SnapFrame`). No frame shows a pane between the two layouts,
+    /// or content at another size than its pane gives it. A zoom keeps the panes it leaves, hidden, for the unzoom
+    /// (`LayoutViewContext.Retirement.zoom`).
     /// Ratio and width changes (equalize, width presets, another client's
-    /// divider drag) keep their spring. The strip scroll (including the
-    /// spring back after the last column closes) is `syncScroll`'s.
+    /// divider drag) keep their spring. The cameras are `syncScroll`'s: a removed column or row leaves no camera past
+    /// the end of what stays (`ColumnScrollState.reduce`), and a reveal of the focused pane inside that range moves
+    /// whole panes and changes no size.
+    /// `snapWaitsForFrame`: the root runs frames, so a change that snaps and resizes a pane shows at the next tick, its
+    /// content drawn at its new size (`ScreenContentView+SnapFrame`).
     @discardableResult
-    func update(layout: ScreenLayout, zoomed: Bool = false, canvas: CanvasScreen? = nil, animated: Bool) -> Bool {
-        // Into or out of a canvas, frames change coordinate space (the camera is the bounds): they snap.
-        let animated = updateCanvas(canvas, animated: animated) && animated
-        let structural = !self.layout.hasSameStructure(as: layout)
+    func update(layout: ScreenLayout, zoomed: Bool = false, canvas: CanvasScreen? = nil, animated: Bool, snapWaitsForFrame: Bool = false) -> Bool {
+        let floatChange = floatState.takeChange()
+        let tiledChange = !self.layout.hasSameStructure(as: layout)
+        let structural = tiledChange || floatChange == .panes
+        // Only a floating pane moved or changed its place in the order: it shows at once and stops no spring of a tiled pane.
+        let floatsOnly = floatChange == .frames && self.layout == layout && self.zoomed == zoomed
         let unzooming = self.zoomed && !zoomed
         let zooming = !self.zoomed && zoomed
+        // A newer change, or a second zoom key, ends a dim that still shows; a zoom whose pane moves gets one with the move.
+        // The dim hears the tiled layout's change only: a floating pane that comes or goes brings no dim and ends none.
+        zoomDim.layoutWillChange(on: self, to: layout, zoomed: zoomed, structural: tiledChange, onCanvas: canvasState.canvas != nil || canvas != nil, waitsForFrame: snapWaitsForFrame)
+        // Into or out of a canvas, frames change coordinate space (the camera is the bounds): they snap.
+        let animated = updateCanvas(canvas, animated: animated) && animated
         #if DEBUG
         let shapeBefore = structural && !isHidden && canvas == nil && !self.zoomed && !zoomed ? restColumns : nil
         #endif
+        // A structural change during a key-resize spring takes the screen over: the panes on that spring keep moving
+        // on the new one without starting it, so their key hold ends here (one pass per change, not per frame).
+        if structural || zooming || unzooming, holdsContentForKeyResize {
+            holdsContentForKeyResize = false
+            for pane in self.layout.panes {
+                guard let host = context.hosts[pane], host.superview === self else { continue }
+                host.endKeyResizeHold()
+            }
+        }
         self.layout = layout
         self.zoomed = zoomed
+        scrollSyncIsStructural = structural
         // The release's intent is in this layout (or was refused).
         if activeDrag == nil { rowDragPreview = nil }
-        let moving = reconcile(animated: animated, structural: structural, unzooming: unzooming, zooming: zooming, presents: false)
+        let moving = reconcile(animated: animated, structural: structural, zooming: zooming, floatsOnly: floatsOnly, presents: false,
+                               snapWaitsForFrame: snapWaitsForFrame)
+        // A structural change took the screen over from a key resize's spring: its pane views post again.
+        if structural { releasePaneFrameNoticesIfSettled() }
         #if DEBUG
         if let shapeBefore { columnWidths.noteChange(from: shapeBefore, to: restColumns, viewportWidth: bounds.width) }
         #endif
+        // The key-resize hold is the press's own: a structural change (a split, a close, a zoom) takes the screen over,
+        // and a press that did not spring (Reduce Motion, pane animations off, a snap) ends it now.
+        if structural || !moving { holdsContentForKeyResize = false } else if holdsContentForKeyResize, !paneFrameNotices.isHolding { paneFrameNotices.hold(displayedHosts) }
         return moving || canvasState.camera.isMoving
     }
 
     @discardableResult
-    func reconcile(animated: Bool, structural: Bool = false, unzooming: Bool = false, zooming: Bool = false, presents: Bool = true) -> Bool {
+    /// `rebasing`: the change is the viewport's, not the layout's (the sidebar's slide resizing the screen under a
+    /// running split): a frame on a spring moves with its target (`AnimatedFrame.rebase`) instead of chasing it, so
+    /// the panes ride the moving edge in its frame (Leo 2026-11-05: "the main pane waits for the right pane").
+    /// `floatsOnly`: the pass is for the floating panes only (the model's list or a pointer's drag): a tiled pane or a
+    /// divider that keeps its target keeps its spring.
+    func reconcile(animated: Bool, rebasing: Bool = false, structural: Bool = false, zooming: Bool = false,
+                   floatsOnly: Bool = false, presents: Bool = true, snapWaitsForFrame: Bool = false) -> Bool {
         let shown = rowDragPreview.map { layout.settingRowHeights($0.heights, for: $0.column) } ?? layout
         let before = geometry
         // One style read per pass: it is resolved from the settings.
@@ -217,40 +275,19 @@ final class ScreenContentView: NSView {
         reconcilePasses += 1
         applyCamera()
         reconciledScale = scale
-        baseGeometry = canvasGeometry ?? ScreenGeometry.compute(shown, viewport: bounds.size, style: style, scale: scale)
+        baseGeometry = canvasGeometry ?? ScreenGeometry.compute(shown, viewport: bounds.size, style: style, scale: scale).placingFloating(floatState.shown, scale: scale)
         geometry = baseGeometry.shiftingAreas(areaOffsets).shiftingRows(rowOffsets)
-        let animate = animated && !context.reduceMotion && bounds.width > 0
-        // `ui.paneAnimations` (default on): a split, a close and a released divider spring only with it on.
+        // A structural change (a split, a close, a zoom, an unzoom, a pane moved) is one commit: its end is known when
+        // it starts, so no pane and no divider of it shows between the two layouts. Every frame snaps to its place in
+        // the new layout, and the screen shows them all in one pass (`ScreenContentView+SnapFrame`).
+        let animate = animated && !context.reduceMotion && bounds.width > 0 && !structural
+        // `ui.paneAnimations` (default on): a released divider springs only with it on.
         let splits = animate && context.animatesPaneLayout
-        var arrivals = splits && structural && !unzooming
-            ? PaneArrival.split(paneFrames.mapValues(\.targetRect), from: before, to: baseGeometry, offset: scroll.value) : [:]
-        // A pane that hands what it shows to the pane this change adds (`LayoutModel.handOffContent`): the
-        // added pane shows in place and the giver slides in (`PaneArrival.handoff`). A pane added on the
-        // giver's screen spends it.
-        var handoff: (pane: PaneID, slide: CGRect)?
-        if structural, let giver = context.model.pendingContentHandoff, before.panes[giver] != nil,
-           baseGeometry.panes.keys.contains(where: { before.panes[$0] == nil }) {
-            context.model.contentHandoff = nil
-            if let played = PaneArrival.handoff(arrivals, giver: giver, from: before, to: baseGeometry, offset: scroll.value) {
-                (arrivals, handoff) = (played.arrivals, (giver, played.slide))
-            }
-        }
-        let departing = (zooming ? animate : splits) && structural && arrivals.isEmpty
-            && PaneArrival.departing(paneFrames.keys, to: baseGeometry.panes.keys)
-        // An unzoom: the other panes come back in place under the zoomed one, which springs back to its slot.
-        let returning = animate && structural && unzooming
-        // A zoom: the zoomed pane covers the other panes, which stay as they are under it (`PaneZoomMotion`).
-        let covering = animate && structural && zooming
-        if structural { zoomMotion.begin(covering ? baseGeometry.panes.keys.first : returning ? paneFrames.keys.first { baseGeometry.panes[$0] != nil } : nil, in: baseGeometry, variant: motionState.current) }
-        // A split still springing when the next structural update lands (the daemon's echo of the
-        // split moves the tab into the new pane ~75 ms in) keeps springing from where it shows,
-        // with its velocity, instead of snapping to the end (hq-1d: Cmd-D measured 4 frames).
-        let wasMoving = hasMotion, targetsBefore = (panes: paneFrames.mapValues(\.targetRect), dividers: dividerFrames.mapValues(\.targetRect)) // M1, M4
-        let inFlight = splits && structural && arrivals.isEmpty && !departing
-            && paneFrames.values.contains { $0.rect != $0.targetRect }
-        motionState.retarget(structural: structural, inFlight: inFlight, departing: departing, zooming: zooming, splitting: !arrivals.isEmpty, hasFrames: paneFrames.values.contains { $0.rect != $0.targetRect })
-        // An animated width or ratio change (a preset, an equalize) is carried too: its camera may re-anchor (M8).
-        let carried = !arrivals.isEmpty || departing || returning || (animate && !structural)
+        let targetsBefore = (panes: paneFrames.mapValues(\.targetRect), dividers: dividerFrames.mapValues(\.targetRect)) // M4
+        // An animated width or ratio change (a preset, an equalize) is carried: its camera may re-anchor (M8).
+        // A viewport resize under a spring (`rebasing`) is not: each frame moves with its target, and putting it
+        // back where it showed (`settleCarried`) would undo that and leave it chasing the moved target.
+        let carried = animate && !rebasing
         // Strip springs run in strip coordinates and fixed ones in the view's: a moved strip origin (a dock
         // that came or went) or a pane changing sides (a zoom shows its pane fixed) keeps it where it showed.
         let offset = scroll.value
@@ -259,52 +296,58 @@ final class ScreenContentView: NSView {
         (carriedShown, carriedDividers) = ([:], [:])
         // A release seeds only the layout it made (`releasedDivider` from this gesture, not a stale one).
         if let released = releasedDivider, CACurrentMediaTime() - released.time > 0.5 { releasedDivider = nil }
-        let animateFrames = animate && (!structural || carried || inFlight) && (releasedDivider == nil || splits)
-        if structural, !inFlight { (arriving, newDockColumns) = (Set(arrivals.keys), PaneArrival.newDocks(arrivals, from: before, to: baseGeometry)) }
+        let animateFrames = animate && (releasedDivider == nil || splits)
+        // A structural change that snaps may show at the next tick, its terminals drawn ahead (CLOSE MOTION 3); so may a
+        // keyboard resize press that snaps (Reduce Motion, pane animations off), its terminals drawn ahead with their grids
+        // (RESIZE P0 13, KEY SNAP GRID).
+        let keySnap = holdsContentForKeyResize && !structural
+        let holdsSnap = snapWaitsForFrame && (structural || keySnap) && !animateFrames && !floatsOnly
 
-        // Panes. A new pane's sliver rides its neighbour's edge as it showed before this change.
-        let shownBefore = arrivals.isEmpty ? [:] : paneFrames
+        // Panes.
         for (pane, target) in baseGeometry.panes {
             if var existing = paneFrames[pane] {
-                if carried {
+                // A floating pane has no spring, and no shown place of it is carried.
+                let tiled = baseGeometry.floatingCards[pane] == nil
+                if carried, tiled {
                     carriedShown[pane] = existing.x.value + shift(before, pane)
                     existing.x.value += shift(before, pane) - shift(baseGeometry, pane)
                 }
-                if let handoff, handoff.pane == pane {
-                    // At its new size past the screen edge, from where it slides in.
-                    existing = AnimatedFrame(handoff.slide.offsetBy(dx: -shift(baseGeometry, pane), dy: 0))
-                    carriedShown[pane] = handoff.slide.minX
-                }
-                place(&existing, at: target, animated: animateFrames)
+                if rebasing, !structural, existing.rect != existing.targetRect { existing.rebase(onto: target) }
+                place(&existing, at: target, animated: tiled && (animateFrames || floatsOnly && existing.targetRect == target))
                 paneFrames[pane] = existing
             } else {
+                // A pane the layout gets: a new one, a close taken back before its host went, or one a zoom covered. One
+                // that comes back hidden shows in the pass that places it (`showSnapReturning`), never a frame before
+                // it at the place it had.
                 let host = context.host(for: pane)
+                if host.isHidden { frameInput.snapReturning.append(pane) }
                 if host.superview !== self {
-                    // Under the zooming pane and the dividers: `reconcileDock` ranks it (`ensureStacking`).
+                    // Under the dividers: the pass that shows this change ranks it (`beginShowingChange`, `ensureStacking`).
                     addSubview(host, positioned: .below, relativeTo: firstDividerView)
                 }
-                // Opaque from its first frame: an arriving pane grows in from its edge, never fades.
-                var frame = AnimatedFrame(arrivals[pane]?.seed ?? target)
-                if arrivals[pane] != nil { SplitMotion.ride(&frame, panes: shownBefore, skipping: Set(arrivals.keys)) }
-                zoomMotion.returning(pane)
-                frame.setTarget(target, alpha: 1)
-                paneFrames[pane] = frame
+                // Opaque and in its place from the first frame that shows it.
+                paneFrames[pane] = AnimatedFrame(target)
             }
-            if let handoff, handoff.pane == pane {
-                // PaneHostView must distinguish this from an ordinary moving shrink: both have a
-                // nonzero rest offset, but only a handoff's first frame is already at its target size.
-                context.hosts[pane]?.isContentHandoff = true
+            // A floating pane's shape is its card's (`FloatingPanesState.present`).
+            if baseGeometry.floatingCards[pane] == nil {
+                context.hosts[pane]?.applyShape(padding: style.panePadding, cornerRadius: style.paneCornerRadius, wholeCard: style.floatingPanes)
             }
-            context.hosts[pane]?.applyShape(padding: style.panePadding, cornerRadius: style.paneCornerRadius, wholeCard: style.floatingPanes)
         }
+        // Out of a zoom: the covered panes it kept that this layout did not take back (closed while zoomed) go now.
+        if structural, !zoomed { context.releaseRetired(of: screenID, until: .zoom) }
         for pane in paneFrames.keys where baseGeometry.panes[pane] == nil {
-            let frame = paneFrames.removeValue(forKey: pane)
-            if covering, context.hosts[pane]?.superview === self, frame != nil {
-                zoomMotion.leave(pane)
-                continue
+            paneFrames[pane] = nil
+            // A pane that moved to another screen belongs to that screen now. A pane that left the layout stays as it
+            // shows until this change shows (`hideSnapDeparted`: no frame shows the old layout without it) and hides in
+            // that pass. A zoom keeps the panes it leaves, hidden, for the unzoom (`LayoutViewContext.Retirement.zoom`);
+            // a close's go (`releaseDeparted`).
+            guard zooming || !context.livePanes.contains(pane) else { continue }
+            if context.hosts[pane]?.superview === self {
+                context.retire(pane, from: screenID, until: zooming ? .zoom : .landing)
+                frameInput.snapDeparted.append(pane)
+            } else if !zooming {
+                context.release(pane)
             }
-            // A pane that moved to another screen belongs to that screen now.
-            if !context.livePanes.contains(pane) { context.release(pane) }
         }
 
         // Dividers and column edges.
@@ -328,19 +371,23 @@ final class ScreenContentView: NSView {
             } else {
                 view = DividerHandleView(kind: kind, axis: target.axis)
                 view.onDrag = { [weak self] event in self?.handleDrag(kind: kind, event: event) }
-                view.onPointerChange = { [weak self] in self?.context.invalidateHoverTopmost(); self?.refreshDividerHover() }
+                if case let .split(split) = kind {
+                    view.contextMenu = { [weak self] in self?.context.dividerMenu?(split) }
+                    view.isLineHidden = hiddenDividers.contains(split)
+                }
                 addSubview(view)
                 dividerViews[kind] = view
             }
             view.lineThickness = style.dividerThickness
-            view.showsIdleLine = kind.usesRowSeparator ? style.showsRowSeparator : style.showsDividerLine
+            view.showsIdleLine = showsIdleLine(kind)
             view.showsActiveLine = style.showsDividerFeedback
             if var frame = dividerFrames[kind] {
                 if scrolls(kind) {
                     if carried { carriedDividers[kind] = frame.x.value + before.viewShift(offset: offset) }
                     frame.x.value += drift
                 }
-                place(&frame, at: target.rect, animated: animateFrames)
+                if rebasing, !structural, frame.rect != frame.targetRect { frame.rebase(onto: target.rect) }
+                place(&frame, at: target.rect, animated: animateFrames || floatsOnly && frame.targetRect == target.rect)
                 dividerFrames[kind] = frame
             } else if case .columnEdge = kind,
                       let index = renamedEdges.firstIndex(where: { abs($0.targetRect.minX - target.rect.minX) < 0.5 && abs($0.targetRect.width - target.rect.width) < 0.5 }) {
@@ -348,27 +395,18 @@ final class ScreenContentView: NSView {
                 place(&frame, at: target.rect, animated: animateFrames)
                 dividerFrames[kind] = frame
             } else {
-                // A split's new divider starts on the edge of the pane beside it, where that edge shows now
-                // (an even split may put it past the new pane, on the next pane's edge); an unzoom's are
-                // there at once, under the zoomed pane springing back (it ranks above them).
-                // A handoff's added pane is in place already and its giver comes from the screen edge: its
-                // dividers are in place too.
-                let start = arrivals.isEmpty || handoff != nil ? nil : SplitMotion.startShift(of: target.rect, axis: target.axis, panes: paneFrames,
-                                                                                              skipping: Set(arrivals.keys))
-                let edge = arrivals.isEmpty || handoff != nil ? .zero : start?.shift ?? arrivals.values.first?.edgeOffset ?? .zero
-                var frame = AnimatedFrame(target.rect.offsetBy(dx: edge.dx, dy: edge.dy), alpha: 1)
-                frame.setTarget(target.rect, alpha: 1)
-                // It moves with that edge from its first frame (a split landing mid-motion).
-                if let velocity = start?.velocity {
-                    if target.axis == .horizontal { frame.x.velocity = velocity } else { frame.y.velocity = velocity }
-                }
-                dividerFrames[kind] = frame
+                // A new divider is in its place in the first frame that shows it.
+                dividerFrames[kind] = AnimatedFrame(target.rect, alpha: 1)
             }
         }
         for kind in dividerViews.keys where targets[kind] == nil {
             // The handle under a drag goes away: its mouse-up never comes.
             if activeDrag?.kind == kind { endDrag() }
-            dividerViews.removeValue(forKey: kind)?.removeFromSuperview()
+            // It shows where it was, and takes no drag, until this change shows (`hideSnapDeparted`).
+            if let view = dividerViews.removeValue(forKey: kind) {
+                view.onDrag = nil
+                frameInput.snapDepartedDividers.append(view)
+            }
             dividerFrames[kind] = nil
         }
 
@@ -377,54 +415,28 @@ final class ScreenContentView: NSView {
             if animateFrames, splits, let divider = dividerFrames[released.kind] {
                 SplitMotion.seed(velocity: released.velocity, along: dividerViews[released.kind]?.axis ?? .horizontal, divider: divider,
                                  panes: &paneFrames, dividers: &dividerFrames, moved: Set(paneFrames.keys.filter { targetsBefore.panes[$0] != paneFrames[$0]?.targetRect }),
-                                 movedDividers: Set(dividerFrames.keys.filter { targetsBefore.dividers[$0] != dividerFrames[$0]?.targetRect }))
+                                 movedDividers: Set(dividerFrames.keys.filter { targetsBefore.dividers[$0] != dividerFrames[$0]?.targetRect }), edges: released.sharedEdges ? targetsBefore : nil)
             }
         }
 
-        if structural { scrollRidesFrames = departing && animateFrames && !covering }
-        // A close's neighbours start covering the closed pane's space in the frame it leaves:
-        // no frame shows the hole before they move (`leadIfPending`, after `syncScroll`).
-        leadsFrame = departing && animateFrames && !covering && !wasMoving
-        // A split's or a close's terminals no longer keep their grids until the spring lands (Lawrence
-        // 2026-10-23: they resize at the start): each resized pane hears its final size in the step that
-        // starts or retargets its spring (`PaneHostView.announceRest`, `PaneMotionTargeting`).
-        reconcileDock()
-        reconcileCanvasStacking()
+        // The docks' backdrops, the stacking order and the rings and dims are part of what a frame shows: they change in
+        // the pass that shows this change, with its panes (`beginShowingChange`), not here.
+        frameInput.changeIsUnshown = true
         // The scroll follows in `syncScroll`, which the root calls with the focus after every update, and presents.
         // Only a structural change re-places everything: a ratio, width or row-height change (every divider
         // drag step, an equalize) moves only the panes whose frames changed, and every per-pane input (frame,
         // alpha, clip range, covers, divider clips) is compared in the pass (`applyPresentation`).
-        if structural { forcesPresentation = true }
+        // So does a new order of the floating panes: each pane is clipped by the panes in front of it.
+        if structural || before.floating != baseGeometry.floating { forcesPresentation = true }
+        // A change that snaps shows at the next frame tick when it resizes a pane. Else it shows in this turn, or, when
+        // the turn holds its presentations (a key's sync, a frame tick's input), in the pass that turn asked for. What
+        // the change took out goes in the pass that places the panes, never a turn before it.
+        if holdsSnap { zoomDim.sizesWillChange(on: self); _ = holdsSnapForContent(keyPress: keySnap) } // a zoom's sizes too: no dim comes before them
+        if !frameInput.snapWaitsForContent, !context.holdsPresentations { beginShowingChange() }
         if presents { applyPresentation() }
-        let moving = animate && hasMotion
+        let moving = (animate || floatsOnly) && hasMotion
         if !(moving && holdsGrids) { holdsGrids = false }
         return moving
-    }
-
-    /// Lets go of the panes a zoom covered once it landed (every one with `all`).
-    func releaseCovered(all: Bool = false) {
-        for pane in zoomMotion.settled(all: all) where paneFrames[pane] == nil && !context.livePanes.contains(pane) {
-            context.release(pane)
-        }
-    }
-
-    /// The panes and strip dividers a structural change carried start where they showed before it, now that the
-    /// camera is where the new layout puts it: a zoom resets the scroll, an unzoom snaps it to
-    /// the focused column, and a close left of the focus moves the anchor along at once.
-    func settleCarried() {
-        guard !carriedShown.isEmpty || !carriedDividers.isEmpty else { return }
-        let shift = stripShift
-        for (pane, shown) in carriedShown {
-            guard var frame = paneFrames[pane] else { continue }
-            frame.x.value = shown - (geometry.scrolls(pane: pane) ? shift : 0)
-            paneFrames[pane] = frame
-        }
-        for (kind, shown) in carriedDividers {
-            guard var frame = dividerFrames[kind] else { continue }
-            frame.x.value = shown - shift
-            dividerFrames[kind] = frame
-        }
-        (carriedShown, carriedDividers) = ([:], [:])
     }
 
     fileprivate var firstDividerView: NSView? {
@@ -438,14 +450,19 @@ final class ScreenContentView: NSView {
 
     /// Releases every hosted pane that is not live elsewhere (screen removed).
     func tearDown() {
+        zoomDim.end()
         // A drag on a screen that goes away gets no release either.
         endDrag()
         finishResizeGesture()
+        paneFrameNotices.release()
         holdsGrids = false
         for pane in paneFrames.keys where !context.livePanes.contains(pane) {
             context.release(pane)
         }
         paneFrames.removeAll()
-        releaseCovered(all: true)
+        frameInput.snapWaitsForContent = false
+        hideSnapDeparted()
+        // Every host the screen kept goes with it, now: a close's, and the panes a zoom kept for its unzoom.
+        releaseDeparted(until: nil)
     }
 }

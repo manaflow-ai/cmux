@@ -13,6 +13,13 @@ public struct CloudAccessToken: Sendable, Equatable {
     public var team: String
     /// The token's `sub` (the backend user id), when the token says.
     public var user: String?
+
+    /// A mint that gave no token, and the backend team it was for (nil when even that is unknown), so the
+    /// refusal names the team cmux Cloud refused, never the team the caller asked for (nil: the app's own).
+    public struct Refusal: Error, Equatable, Sendable {
+        public var failure: Failure
+        public var team: String?
+    }
     /// The token's `exp`, when the token says.
     public var expiresAt: Date?
 
@@ -29,8 +36,12 @@ public struct CloudAccessToken: Sendable, Equatable {
         case clientTooOld(minimumVersion: String?)
         /// The owner did not answer.
         case unreachable
-        /// The owner answered something this client will not use.
-        case badReply
+        /// The owner answered something this client will not use; the detail says what (`unexpected_challenge`,
+        /// `malformed_reply`).
+        case badReply(String)
+        /// This Mac could not mint: the Keychain refused the install key, the mint was cancelled, or the app's own
+        /// rules did not answer. The detail names the cause (`keychain(-25244: …)`), never a token.
+        case local(String)
         /// The device is restricted to a managed team (`RestrictToManagedTeam`) and the ask
         /// names another team, or the managed team is not the active one.
         case managed
@@ -45,84 +56,103 @@ public struct CloudAccessToken: Sendable, Equatable {
             case .clientTooOld: "client_too_old"
             case .unreachable: "unavailable"
             case .badReply: "bad_reply"
+            case .local: "local_failure"
             case .managed: "managed"
             }
         }
 
-        /// The owner's refusal code, or the minimum app version, when there is one.
+        /// The owner's refusal code, the minimum app version, or what went wrong, when there is one.
         public var detail: String? {
             switch self {
             case .refused(let code): String(code.prefix(80))
             case .clientTooOld(let minimum): minimum
+            case .badReply(let why), .local(let why): why
             default: nil
             }
         }
     }
 
-    /// `token` with its claims read (unverified: the API verifies it).
+    /// `token` with its claims read (unverified: the API verifies it; Rust's `identity::claims`).
     public init(token: String, team: String) {
+        struct Claims: Decodable { var user: String?, expiresAt: Double? }
         accessToken = token
         self.team = team
-        let claims = Self.claims(of: token)
-        user = (claims?["sub"] as? String).flatMap { $0.isEmpty ? nil : $0 }
-        expiresAt = (claims?["exp"] as? NSNumber).map(\.doubleValue)
-            .flatMap { $0.isFinite && $0 > 0 ? Date(timeIntervalSince1970: $0) : nil }
+        let claims = CloudStartCore().call("cloud_identity_token", ["token": token], as: Claims.self)
+        user = claims?.user
+        expiresAt = claims?.expiresAt.map { Date(timeIntervalSince1970: $0) }
     }
 
-    /// A backend team id: `team_` and 20 lowercase hex digits (the owner's form).
+    private struct Check: Decodable { var isTeam: Bool?, transient: Bool? }
+
+    /// A backend team id: `team_` and 20 lowercase hex digits (Rust's `identity::is_team`).
     public static func isTeam(_ value: String) -> Bool {
-        value.utf8.count == 25 && value.hasPrefix("team_") && value.dropFirst(5).allSatisfy { "0123456789abcdef".contains($0) }
+        CloudStartCore().call("cloud_identity_check", ["team": value], as: Check.self)?.isTeam ?? false
     }
 
-    /// The backend team to mint for, from the app's team state (Stack ids): the asked team, else
-    /// the active team, else nil (the install's own, personal team). A device restricted to a
-    /// managed team mints only for that team, and only while it is the active one, as every other
-    /// Cloud call on it (ActiveTeam.refusal(requesting:)).
+    /// The backend team to mint for, from the app's team state (Stack ids; Rust's `identity::mint_team`): the asked
+    /// team, else the active team, else nil (the install's own, personal team). A device restricted to a managed team
+    /// mints only for that team, and only while it is the active one, as every other Cloud call on it.
     public static func team(requested: String?, activeStackTeam: String?, managedStackTeam: String?,
                             stackProjectID: String) throws -> String? {
-        let backend = { backendTeamID(stackProjectID: stackProjectID, stackTeamID: $0) }
-        if let managed = managedStackTeam {
-            guard activeStackTeam == managed else { throw Failure.managed }
-            let only = backend(managed)
-            if let requested, requested != only { throw Failure.managed }
-            return only
+        struct Request: Encodable { var requested: String?, activeStackTeam: String?, managedStackTeam: String?, stackProjectId: String }
+        struct Reply: Decodable { var team: String?, refusal: String? }
+        let request = Request(requested: requested, activeStackTeam: activeStackTeam, managedStackTeam: managedStackTeam,
+                              stackProjectId: stackProjectID)
+        guard let reply = CloudStartCore().call("cloud_identity_mint_team", request, as: Reply.self) else {
+            throw Failure.local("cloud_identity_mint_team: the app's Rust rules did not answer")
         }
-        return requested ?? activeStackTeam.map(backend)
+        if reply.refusal != nil { throw Failure.managed }
+        return reply.team
     }
 
-    /// The backend's id for a Stack team (the API's `stackTeamIdFor`; CloudIdentity.workerTeamID).
-    public static func backendTeamID(stackProjectID: String, stackTeamID: String) -> String {
-        let digest = SHA256.hash(data: Data("stack-team:\(stackProjectID):\(stackTeamID.lowercased())".utf8))
-        return "team_" + digest.map { String(format: "%02x", $0) }.joined().prefix(20)
+    /// The backend team the platform's machine routes act in (join-token mint, credentials list, revoke, doctor):
+    /// nil, the install's own (personal) team, where the app makes and lists its Cloud machines
+    /// (`CloudAPIClient.workerMachines`' `x-cmux-team`). Never the active Stack team: a Mac joined there sits in another
+    /// team's mesh than the Cloud machines its ssh backup carrier dials, and its tunnel answers "no mesh"
+    /// (cloud-carrier-ssh-failover, 2026-11-15T21:18Z: joined in the account's Stack sign-up team, while its machines
+    /// and its mesh were in its personal team). A device restricted to a managed team uses only that team, only while
+    /// it is the active one, as every other Cloud call on it.
+    public static func machineRoutesTeam(activeStackTeam: String?, managedStackTeam: String?,
+                                         stackProjectID: String) throws -> String? {
+        guard managedStackTeam != nil else { return nil }
+        return try team(requested: nil, activeStackTeam: activeStackTeam, managedStackTeam: managedStackTeam,
+                        stackProjectID: stackProjectID)
     }
 
-    /// The failure an install mint threw, as one of ours.
+    /// The backend's id for a Stack user (the API's `userIdFor`, as CloudIdentity.workerUserID): the `creator` a
+    /// cmux-next machine record names. Rust has the same rule (cmux-tui-core `cloud_conversations`), but not yet over
+    /// the pinned app FFI.
+    public static func backendUserID(stackProjectID: String, stackUserID: String) -> String {
+        let digest = SHA256.hash(data: Data("stack:\(stackProjectID):\(stackUserID)".utf8))
+        return "user_" + digest.map { String(format: "%02x", $0) }.joined().prefix(20)
+    }
+
+    /// The failure an install mint threw, as one of ours. Every other error is ``Failure/local(_:)`` naming its cause
+    /// (a Keychain status, a cancellation), never a bare bad reply (probe cloud-signed-in-after-update-production,
+    /// 2026-11-15: a Keychain refusal read "cmux Cloud sent an answer cmux can't use").
     static func failure(_ error: any Error) -> Failure {
         if let failure = error as? Failure { return failure }
         if error as? MacInstallIdentity.Failure == .signedOut { return .signedOut }
-        guard let install = error as? InstallAuthError else { return .badReply }
+        if error is CancellationError { return .local("cancelled") }
+        guard let install = error as? InstallAuthError else { return .local(cause(error)) }
         switch install {
         case .noSession, .userMismatch: return .signedOut
         case .refused(let code): return isTransient(code) ? .unreachable : .refused(code)
         case .clientTooOld(let minimum): return .clientTooOld(minimumVersion: minimum)
         case .transport: return .unreachable
-        case .invalidPublicKey, .unexpectedChallenge, .malformedReply: return .badReply
+        case .unexpectedChallenge: return .badReply("unexpected_challenge")
+        case .malformedReply: return .badReply("malformed_reply")
+        case .invalidPublicKey: return .local(install.description)
         }
     }
 
-    /// A refusal that is the service's trouble, not the account's: a 5xx or 429 status with no
-    /// owner code (`http_503`), or a rate limit. The caller retries those; it never reads them
-    /// as "not a member of the team".
-    static func isTransient(_ code: String) -> Bool {
-        if code == "http_429" || code.contains("rate_limit") { return true }
-        guard code.hasPrefix("http_5"), code.count == 8 else { return false }
-        return code.dropFirst(5).allSatisfy(\.isNumber)
-    }
+    /// An error's own words, cut to 160 characters: what a failed mint names. No error a mint throws carries a token.
+    static func cause(_ error: any Error) -> String { String(String(describing: error).prefix(160)) }
 
-    private static func claims(of token: String) -> [String: Any]? {
-        let parts = token.split(separator: ".", omittingEmptySubsequences: false)
-        guard parts.count == 3, let payload = Data(base64URLEncoded: String(parts[1])) else { return nil }
-        return (try? JSONSerialization.jsonObject(with: payload)) as? [String: Any]
+    /// A refusal that is the service's trouble, not the account's (Rust's `identity::is_transient`: a 5xx or 429 with
+    /// no owner code, or a rate limit). The caller retries those; it never reads them as "not a member of the team".
+    static func isTransient(_ code: String) -> Bool {
+        CloudStartCore().call("cloud_identity_check", ["refusalCode": code], as: Check.self)?.transient ?? false
     }
 }
 
@@ -153,5 +183,46 @@ extension CloudAuth {
     public func accessTokenTeam(requested: String?) throws -> String? {
         try CloudAccessToken.team(requested: requested, activeStackTeam: activeTeam.id, managedStackTeam: managedTeamID,
                                   stackProjectID: configuration.stackProjectID)
+    }
+
+    /// The bearer the platform's machine routes take (join-token mint, credentials list, revoke, rotate,
+    /// doctor): a cmux access token for ``CloudAccessToken/machineRoutesTeam(activeStackTeam:managedStackTeam:stackProjectID:)``,
+    /// the install's own team, where this Mac's Cloud machines are: the join, its mesh and the machines are one team.
+    /// Never ``tokens()``'s session token: those routes refuse it with 401 `machine.unauthorized`
+    /// (cloud-carrier-ssh-failover, 2026-11-15). Nil signed out or refused.
+    ///
+    /// The install is registered first when sign-in has not bound it yet (`signedIn` reuses a bound one): the
+    /// sign-in enroll asks as soon as the sign-in finishes, which can be before `CloudService` binds it, and a
+    /// nil then would leave the enroll waiting for a report that never comes (#43841 review F1).
+    public func machineRoutesToken(identity: MacInstallIdentity) async -> String? {
+        guard isSignedIn, let stackUser = user?.id else { return nil }
+        do {
+            try await identity.signedIn(stackUser: stackUser, session: { [weak self] in
+                guard let self else { throw MacInstallIdentity.Failure.signedOut }
+                return try await self.tokens().access
+            })
+            let team = try CloudAccessToken.machineRoutesTeam(activeStackTeam: activeTeam.id, managedStackTeam: managedTeamID,
+                                                              stackProjectID: configuration.stackProjectID)
+            let token = try await identity.accessToken(team: team).accessToken
+            // An account switch meanwhile: never the old account's token.
+            return user?.id == stackUser ? token : nil
+        } catch {
+            return nil
+        }
+    }
+
+    /// `cmux auth token`'s mint: a fresh token from `identity` for the team ``accessTokenTeam(requested:)`` picks.
+    /// Throws only ``CloudAccessToken/Refusal``, naming the team it was for: the picked one, else the install
+    /// token's own (`cmux whoami` said "team -" for the app's own team, Leo's NIGHTLY, 2026-11-11).
+    public func accessToken(requested: String?, identity: MacInstallIdentity) async throws -> CloudAccessToken {
+        var team = requested
+        do {
+            team = try accessTokenTeam(requested: requested)
+            return try await identity.accessToken(team: team)
+        } catch {
+            let failure = CloudAccessToken.failure(error)
+            if team == nil, let own = try? await identity.installToken() { team = MacInstallIdentity.team(ofToken: own) }
+            throw CloudAccessToken.Refusal(failure: failure, team: team)
+        }
     }
 }

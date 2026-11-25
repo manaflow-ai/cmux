@@ -2,6 +2,7 @@ import AppKit
 import CmuxNextBrowser
 import class CmuxNextDaemon.PaneModel
 import CmuxNextHistory
+import CmuxNextWindowRules
 import Foundation
 
 /// The restore actions of history entries (plans/cmux-next/history.md 5):
@@ -70,7 +71,7 @@ struct HistoryRestorer {
     /// focused pane when it is on that machine.
     func resume(_ session: AgentSession) {
         // A session still running shows its terminal instead of a second resume.
-        if session.endedAt == nil, let harness = TerminalChatRoute.harness(of: session.provider),
+        if session.endedAt == nil, let harness = WindowRules().agentHarness(session.provider),
            services.revealAgentSession(harness: harness, session: session.sessionID) { return }
         guard let command = session.resumeCommand else { return services.registry.refuse(HistoryAppStrings.noResume) }
         guard services.machines.daemons.contains(where: { $0.machineID == session.machine }) else {

@@ -32,6 +32,9 @@ public nonisolated struct IconPack: Sendable, Decodable {
         overlayName.withLock { $0 = name }
     }
 
+    /// The family overlay in use (nil: the shipped pack).
+    static var overlay: String? { overlayName.withLock { $0 } }
+
     private static let overlayName = Mutex<String?>(nil)
     private static let shipped: IconPack = load("cmux-icons") ?? IconPack(icons: [:])
     private static let overlaid: IconPack = {

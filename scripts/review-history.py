@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Mine merged cmux PRs for review comments that led to fix commits.
 
-REVIEW.md is drafted from the output. A review comment "led to a fix" when a
+The review section of cmuxterm-hq's docs/handbook/before-you-ship.md is drafted from the output. A review comment "led to a fix" when a
 non-merge commit landed on the PR after the comment, and its thread was then
 marked outdated (the commented lines changed) or resolved. Review bodies and
 plain PR comments are left out: they rarely point at one change.

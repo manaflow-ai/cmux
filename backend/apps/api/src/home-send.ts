@@ -35,10 +35,6 @@ export interface SendOutcome {
   readonly provider_id: string | null
 }
 
-interface PreviewStub {
-  invitePreview(entity: string, secret: string): Promise<{ state: string; inviter?: string; kind?: "dm" | "group"; title?: string }>
-}
-
 export type Fetch = invites.Fetch
 
 /** The production Worker (wrangler.jsonc env.production.name). */
@@ -108,7 +104,7 @@ export const sendInvite = async (
     }
     return deliver({ channel: "sms", variant: "A", body: "", mediaUrl: `${origin}${CARD_PATH}` }, `${target.invite}:card`)
   }
-  const stub = env.CONVERSATION_DO.get(env.CONVERSATION_DO.idFromName(target.conversation)) as unknown as PreviewStub
+  const stub = env.CONVERSATION_DO.get(env.CONVERSATION_DO.idFromName(target.conversation))
   const preview = await stub.invitePreview(target.conversation, target.secret!)
   if (preview.state !== "ok") {
     log("failed", { reason: `invite is ${preview.state}` })

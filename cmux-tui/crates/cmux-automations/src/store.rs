@@ -3,10 +3,15 @@
 //! ```text
 //! <root>/
 //!   .runner.lock              file lock: one runner per machine
+//!   .runner.json              the runner's heartbeat (atomic replace, about once a minute)
 //!   auto_…/automation.json    the definition (atomic replace)
 //!   auto_…/state.json         the schedule cursor (atomic replace)
+//!   auto_…/seen.json          when a person last looked at its runs (atomic replace)
 //!   auto_…/runs.jsonl         run history, append-only, locked while appending
 //!   auto_…/logs/run_….log     each run's output
+//!   auto_…/logs/watch.log     a watch command's stderr
+//!   auto_…/moved.json         a tombstone: it moved away (teleport) and never fires
+//!   .imports/tp_….json        imported handoffs (import is idempotent by handoff id)
 //!   .deleted/auto_…-<time>/   deleted automations, history kept
 //! ```
 //!
@@ -21,9 +26,13 @@ use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
 
-use crate::automation::{Automation, AutomationSpec, new_automation_id};
+use crate::automation::{
+    Automation, AutomationSpec, Handoff, LOCAL_HOME, Origin, Tombstone, new_automation_id,
+    new_handoff_id,
+};
 use crate::run::Run;
 use crate::sys::{create_private_dir, private_file, sync_dir};
+use crate::teleport::{ImportHandoff, Imported};
 
 /// A store operation that failed.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -64,18 +73,92 @@ impl From<std::io::Error> for StoreError {
 pub struct AutomationState {
     /// Every scheduled time up to here has a run row (or was paused over).
     pub handled_through: i64,
+    /// Watch events dropped by the guardrails since the last run started;
+    /// the next run's prompt says how many.
+    #[serde(default)]
+    pub dropped: u64,
 }
+
+/// The runner's heartbeat: it rewrites this at least once a minute, so a
+/// runner that holds its lock but stopped looping (hung) shows as stalled.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct RunnerBeat {
+    pub pid: u32,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub host: Option<String>,
+    /// When this runner process started (unix seconds).
+    pub started_at: i64,
+    /// Its last beat (unix seconds).
+    pub beat_at: i64,
+    /// The cmux version that runs it.
+    #[serde(default)]
+    pub version: String,
+}
+
+/// A runner that has not beaten for this long while holding its lock is stalled.
+pub const STALL_SECONDS: i64 = 180;
+
+/// Whether this machine's runner starts anything.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum RunnerHealth {
+    /// It holds the lock and beats.
+    Running,
+    /// It holds the lock but has not beaten for [`STALL_SECONDS`]: hung.
+    Stalled,
+    /// Nothing holds the lock: no schedule or event starts a run.
+    Stopped,
+}
+
+impl RunnerHealth {
+    /// The lowercase name (`running`).
+    pub fn name(self) -> &'static str {
+        match self {
+            RunnerHealth::Running => "running",
+            RunnerHealth::Stalled => "stalled",
+            RunnerHealth::Stopped => "stopped",
+        }
+    }
+}
+
+/// The runner's health from whether its lock is held and its last beat. A
+/// runner from before heartbeats (lock held, no beat file) counts as running.
+pub fn runner_health(lock_held: bool, beat: Option<&RunnerBeat>, now: i64) -> RunnerHealth {
+    match (lock_held, beat) {
+        (false, _) => RunnerHealth::Stopped,
+        (true, Some(b)) if now - b.beat_at > STALL_SECONDS => RunnerHealth::Stalled,
+        (true, _) => RunnerHealth::Running,
+    }
+}
+
+#[derive(Default, Serialize, Deserialize)]
+struct Seen {
+    seen_at: i64,
+}
+
+/// How long `moved` lists a tombstone, in milliseconds (30 days).
+pub const TOMBSTONE_MS: i64 = 30 * 86_400 * 1000;
 
 /// The store at one root folder.
 #[derive(Clone, Debug)]
 pub struct Store {
     root: PathBuf,
+    /// The `home` new automations get (`mac:<machine id>`).
+    home: String,
 }
 
-/// The machine's runner lock; held until dropped.
+/// The machine's runner lock; held until dropped. The drop unlocks before the
+/// file closes: a child another thread forked meanwhile shares the open file
+/// until it execs, and a close alone would leave the lock held in that copy.
 #[derive(Debug)]
 pub struct RunnerLock {
-    _file: File,
+    file: File,
+}
+
+impl Drop for RunnerLock {
+    fn drop(&mut self) {
+        let _ = self.file.unlock();
+    }
 }
 
 impl RunnerLock {
@@ -86,7 +169,7 @@ impl RunnerLock {
         // std's lock is flock on Unix (as runners before it took) and
         // LockFileEx on Windows.
         match file.try_lock() {
-            Ok(()) => Ok(Some(RunnerLock { _file: file })),
+            Ok(()) => Ok(Some(RunnerLock { file })),
             Err(fs::TryLockError::WouldBlock) => Ok(None),
             Err(fs::TryLockError::Error(e)) => Err(e.into()),
         }
@@ -117,14 +200,14 @@ impl Drop for Flock {
     }
 }
 
-fn is_automation_id(name: &str) -> bool {
+pub(crate) fn is_automation_id(name: &str) -> bool {
     name.len() == 25
         && name
             .strip_prefix("auto_")
             .is_some_and(|id| id.bytes().all(|b| b.is_ascii_lowercase() || b.is_ascii_digit()))
 }
 
-fn write_atomic(path: &Path, bytes: &[u8]) -> std::io::Result<()> {
+pub(crate) fn write_atomic(path: &Path, bytes: &[u8]) -> std::io::Result<()> {
     let dir = path.parent().unwrap_or(Path::new("."));
     let tmp = dir.join(format!(
         ".{}.tmp-{}",
@@ -142,19 +225,33 @@ fn write_atomic(path: &Path, bytes: &[u8]) -> std::io::Result<()> {
 }
 
 impl Store {
-    /// The default root: `$CMUX_AUTOMATIONS_DIR`, else `~/.config/cmux/automations`.
+    /// The default root: `$CMUX_AUTOMATIONS_DIR`, else `~/.config/cmux/automations`
+    /// (`~/.config/cmux-next/automations` on macOS, where `cmux` is cmux Classic's).
     pub fn default_root() -> Option<PathBuf> {
         if let Some(dir) = std::env::var_os("CMUX_AUTOMATIONS_DIR").filter(|d| !d.is_empty()) {
             return Some(PathBuf::from(dir));
         }
         let home = std::env::var_os("HOME").filter(|h| !h.is_empty())?;
-        Some(PathBuf::from(home).join(".config/cmux/automations"))
+        let dir = if cfg!(target_os = "macos") { "cmux-next" } else { "cmux" };
+        Some(PathBuf::from(home).join(".config").join(dir).join("automations"))
     }
 
     /// Open (and make) the store at `root`.
     pub fn open(root: &Path) -> Result<Store, StoreError> {
         create_private_dir(root)?;
-        Ok(Store { root: root.to_path_buf() })
+        Ok(Store { root: root.to_path_buf(), home: LOCAL_HOME.to_string() })
+    }
+
+    /// The same store, naming this machine `home` (`mac:<machine id>`) on
+    /// what it creates or imports.
+    pub fn with_home(mut self, home: impl Into<String>) -> Store {
+        self.home = home.into();
+        self
+    }
+
+    /// The `home` this store gives its automations.
+    pub fn home(&self) -> &str {
+        &self.home
     }
 
     /// The root folder.
@@ -164,6 +261,16 @@ impl Store {
 
     fn dir(&self, id: &str) -> PathBuf {
         self.root.join(id)
+    }
+
+    /// An automation's folder (its definition, runs, logs and secrets).
+    pub(crate) fn dir_of(&self, id: &str) -> PathBuf {
+        self.dir(id)
+    }
+
+    /// The stderr of an automation's watch command.
+    pub fn watch_log_path(&self, automation: &str) -> PathBuf {
+        self.dir(automation).join("logs").join("watch.log")
     }
 
     /// The output file of one run.
@@ -204,7 +311,18 @@ impl Store {
     /// Make an automation. Its schedule counts from `now`.
     pub fn create(&self, spec: AutomationSpec, now: i64) -> Result<Automation, StoreError> {
         self.check(&spec, None)?;
-        let id = new_automation_id()?;
+        self.create_as(new_automation_id()?, spec, now, 1, None, now)
+    }
+
+    fn create_as(
+        &self,
+        id: String,
+        spec: AutomationSpec,
+        now: i64,
+        epoch: u64,
+        last_slot: Option<i64>,
+        handled_through: i64,
+    ) -> Result<Automation, StoreError> {
         create_private_dir(&self.dir(&id).join("logs"))?;
         let a = Automation {
             id,
@@ -215,10 +333,16 @@ impl Store {
             body: spec.body,
             catch_up: spec.catch_up,
             timeout_seconds: spec.timeout_seconds,
+            gate: spec.gate,
             created_at: now,
             updated_at: now,
+            home: self.home.clone(),
+            epoch,
+            last_slot,
+            handoff: None,
+            origin: None,
         };
-        self.set_handled_through(&a.id, now)?;
+        self.set_handled_through(&a.id, handled_through)?;
         self.save(&a)?;
         Ok(a)
     }
@@ -231,6 +355,9 @@ impl Store {
         now: i64,
     ) -> Result<Automation, StoreError> {
         let old = self.get(id)?;
+        if let Some(h) = &old.handoff {
+            return Err(moving(&old, h));
+        }
         self.check(&spec, Some(id))?;
         let a = Automation {
             name: spec.name.trim().to_string(),
@@ -240,6 +367,7 @@ impl Store {
             body: spec.body,
             catch_up: spec.catch_up,
             timeout_seconds: spec.timeout_seconds,
+            gate: spec.gate,
             updated_at: now,
             ..old
         };
@@ -283,7 +411,7 @@ impl Store {
             let entry = entry?;
             let name = entry.file_name();
             let Some(name) = name.to_str() else { continue };
-            if !is_automation_id(name) {
+            if !is_automation_id(name) || entry.path().join("moved.json").exists() {
                 continue;
             }
             if let Ok(bytes) = fs::read(entry.path().join("automation.json"))
@@ -324,6 +452,200 @@ impl Store {
         }
     }
 
+    // ---------------------------------------------------------------- teleport
+
+    /// Fence `id` for a move to `to`: it stops firing here until the move is
+    /// released or aborted. A pending move to the same place answers the same
+    /// handoff (a re-run resumes it); one to another place is refused.
+    pub fn fence(&self, id: &str, to: &str, now_ms: i64) -> Result<Handoff, StoreError> {
+        let mut a = self.get(id)?;
+        if let Some(h) = &a.handoff {
+            return if h.to == to { Ok(h.clone()) } else { Err(moving(&a, h)) };
+        }
+        let h =
+            Handoff { id: new_handoff_id()?, to: to.to_string(), epoch: a.epoch + 1, at: now_ms };
+        a.handoff = Some(h.clone());
+        self.save(&a)?;
+        Ok(h)
+    }
+
+    /// Abort a pending move: the automation fires here again.
+    pub fn clear_fence(&self, id: &str) -> Result<Automation, StoreError> {
+        let mut a = self.get(id)?;
+        if a.handoff.take().is_some() {
+            self.save(&a)?;
+        }
+        Ok(a)
+    }
+
+    /// Release a move the destination accepted: the automation becomes a
+    /// tombstone naming `moved_id`. A second release answers the first one's.
+    pub fn release(
+        &self,
+        id: &str,
+        handoff: &str,
+        moved_to: &str,
+        moved_id: &str,
+        now_ms: i64,
+    ) -> Result<Tombstone, StoreError> {
+        if let Some(t) = self.tombstone(id)? {
+            return Ok(t);
+        }
+        let a = self.get(id)?;
+        let Some(h) = a.handoff.as_ref().filter(|h| h.id == handoff) else {
+            return Err(StoreError::Invalid(format!(
+                "\"{}\" has no pending move {handoff}",
+                a.name
+            )));
+        };
+        let t = Tombstone {
+            id: a.id.clone(),
+            name: a.name.clone(),
+            moved_to: moved_to.to_string(),
+            moved_id: moved_id.to_string(),
+            epoch: h.epoch,
+            moved_at: now_ms,
+        };
+        let json = serde_json::to_vec_pretty(&t).map_err(|e| StoreError::Io(e.to_string()))?;
+        write_atomic(&self.dir(id).join("moved.json"), &json)?;
+        fs::rename(
+            self.dir(id).join("automation.json"),
+            self.dir(id).join("automation.moved.json"),
+        )?;
+        sync_dir(&self.dir(id))?;
+        Ok(t)
+    }
+
+    fn tombstone(&self, id: &str) -> Result<Option<Tombstone>, StoreError> {
+        if !is_automation_id(id) {
+            return Ok(None);
+        }
+        match fs::read(self.dir(id).join("moved.json")) {
+            Ok(bytes) => serde_json::from_slice(&bytes)
+                .map(Some)
+                .map_err(|e| StoreError::Io(format!("{id}: {e}"))),
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(None),
+            Err(e) => Err(e.into()),
+        }
+    }
+
+    fn tombstones(&self) -> Result<Vec<Tombstone>, StoreError> {
+        let mut out = Vec::new();
+        for entry in fs::read_dir(&self.root)? {
+            let name = entry?.file_name();
+            if let Some(name) = name.to_str()
+                && let Ok(Some(t)) = self.tombstone(name)
+            {
+                out.push(t);
+            }
+        }
+        out.sort_by(|a, b| (a.moved_at, &a.id).cmp(&(b.moved_at, &b.id)));
+        Ok(out)
+    }
+
+    /// The automations that moved away in the 30 days before `now_ms`.
+    pub fn moved(&self, now_ms: i64) -> Result<Vec<Tombstone>, StoreError> {
+        Ok(self.tombstones()?.into_iter().filter(|t| now_ms - t.moved_at <= TOMBSTONE_MS).collect())
+    }
+
+    /// A tombstone by id or name (any case), however old.
+    pub fn find_moved(&self, query: &str) -> Result<Option<Tombstone>, StoreError> {
+        let q = query.trim();
+        Ok(self
+            .tombstones()?
+            .into_iter()
+            .rev()
+            .find(|t| t.id == q || t.name.eq_ignore_ascii_case(q)))
+    }
+
+    /// Move tombstones older than 30 days to `.deleted/`. Returns how many.
+    pub fn prune_moved(&self, now_ms: i64) -> Result<usize, StoreError> {
+        let mut n = 0;
+        for t in self.tombstones()? {
+            if now_ms - t.moved_at > TOMBSTONE_MS {
+                let trash = self.root.join(".deleted");
+                create_private_dir(&trash)?;
+                fs::rename(self.dir(&t.id), trash.join(format!("{}-moved-{}", t.id, t.moved_at)))?;
+                n += 1;
+            }
+        }
+        Ok(n)
+    }
+
+    /// Accept an automation another store sends (teleport). The handoff id
+    /// is the idempotency key: a retried import answers the first one's
+    /// automation. The copy keeps the handoff's epoch and `last_slot`, and
+    /// its schedule continues after `last_slot` (else from `now`), so the
+    /// catch-up policy decides a slot that fell inside the move.
+    pub fn import(
+        &self,
+        spec: AutomationSpec,
+        handoff: &ImportHandoff,
+        now: i64,
+    ) -> Result<Imported, StoreError> {
+        let key = &handoff.id;
+        if key.is_empty()
+            || key.len() > 64
+            || !key.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'_' || b == b'-')
+        {
+            return Err(StoreError::Invalid("a handoff id is 1 to 64 of A-Z a-z 0-9 _ -".into()));
+        }
+        let ledger = self.root.join(".imports");
+        create_private_dir(&ledger)?;
+        let entry = ledger.join(format!("{key}.json"));
+        let id = match fs::read(&entry) {
+            Ok(bytes) => {
+                let v: serde_json::Value =
+                    serde_json::from_slice(&bytes).map_err(|e| StoreError::Io(e.to_string()))?;
+                let id = v
+                    .get("automation")
+                    .and_then(serde_json::Value::as_str)
+                    .unwrap_or_default()
+                    .to_string();
+                if let Ok(a) = self.get(&id) {
+                    return Ok(Imported { automation: a, replayed: true });
+                }
+                if let Some(t) = self.tombstone(&id)? {
+                    return Err(StoreError::Invalid(format!(
+                        "handoff {key} was imported as {id}, which moved on to {}",
+                        t.moved_to
+                    )));
+                }
+                id
+            }
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
+                self.check(&spec, None)?;
+                let id = new_automation_id()?;
+                let json = serde_json::to_vec(&serde_json::json!({"automation": id, "from": handoff.from, "source_id": handoff.source_id}))
+                    .map_err(|e| StoreError::Io(e.to_string()))?;
+                write_atomic(&entry, &json)?;
+                id
+            }
+            Err(e) => return Err(e.into()),
+        };
+        self.check(&spec, Some(&id))?;
+        let since = handoff.last_slot.map(|ms| ms.div_euclid(1000)).unwrap_or(now);
+        let mut a = self.create_as(id, spec, now, handoff.epoch, handoff.last_slot, since)?;
+        a.origin = Some(Origin {
+            handoff: handoff.id.clone(),
+            from: handoff.from.clone(),
+            source_id: handoff.source_id.clone(),
+        });
+        self.save(&a)?;
+        Ok(Imported { automation: a, replayed: false })
+    }
+
+    /// Record that the scheduled time `t` (seconds) got a run row.
+    pub(crate) fn note_slot(&self, id: &str, t: i64) -> Result<(), StoreError> {
+        let mut a = self.get(id)?;
+        let ms = t.saturating_mul(1000);
+        if a.last_slot.is_none_or(|old| old < ms) {
+            a.last_slot = Some(ms);
+            self.save(&a)?;
+        }
+        Ok(())
+    }
+
     /// The schedule cursor.
     pub fn state(&self, id: &str) -> Result<AutomationState, StoreError> {
         match fs::read(self.dir(id).join("state.json")) {
@@ -333,13 +655,69 @@ impl Store {
         }
     }
 
-    /// Move the schedule cursor.
-    pub fn set_handled_through(&self, id: &str, t: i64) -> Result<(), StoreError> {
+    fn put_state(&self, id: &str, state: &AutomationState) -> Result<(), StoreError> {
         create_private_dir(&self.dir(id))?;
-        let json = serde_json::to_vec(&AutomationState { handled_through: t })
-            .map_err(|e| StoreError::Io(e.to_string()))?;
+        let json = serde_json::to_vec(state).map_err(|e| StoreError::Io(e.to_string()))?;
         write_atomic(&self.dir(id).join("state.json"), &json)?;
         Ok(())
+    }
+
+    /// Move the schedule cursor.
+    pub fn set_handled_through(&self, id: &str, t: i64) -> Result<(), StoreError> {
+        let state = AutomationState { handled_through: t, ..self.state(id)? };
+        self.put_state(id, &state)
+    }
+
+    /// Count one more dropped watch event. Only the runner writes state, so
+    /// the read and the write do not race.
+    pub fn add_dropped(&self, id: &str) -> Result<u64, StoreError> {
+        let mut state = self.state(id)?;
+        state.dropped = state.dropped.saturating_add(1);
+        self.put_state(id, &state)?;
+        Ok(state.dropped)
+    }
+
+    /// The dropped count, reset to zero (a run is starting).
+    pub fn take_dropped(&self, id: &str) -> Result<u64, StoreError> {
+        let mut state = self.state(id)?;
+        let n = std::mem::take(&mut state.dropped);
+        if n > 0 {
+            self.put_state(id, &state)?;
+        }
+        Ok(n)
+    }
+
+    /// Write the runner's heartbeat.
+    pub fn put_beat(&self, beat: &RunnerBeat) -> Result<(), StoreError> {
+        let json = serde_json::to_vec(beat).map_err(|e| StoreError::Io(e.to_string()))?;
+        Ok(write_atomic(&self.root.join(".runner.json"), &json)?)
+    }
+
+    /// The runner's last heartbeat, if any runner ever wrote one.
+    pub fn beat(&self) -> Result<Option<RunnerBeat>, StoreError> {
+        match fs::read(self.root.join(".runner.json")) {
+            Ok(bytes) => Ok(serde_json::from_slice(&bytes).ok()),
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(None),
+            Err(e) => Err(e.into()),
+        }
+    }
+
+    /// A person looked at this automation's runs at `now`: failures before it
+    /// are read. Its own file, so the runner's cursor writes never undo it.
+    pub fn mark_seen(&self, id: &str, now: i64) -> Result<(), StoreError> {
+        create_private_dir(&self.dir(id))?;
+        let seen = Seen { seen_at: now.max(self.seen_at(id)?) };
+        let json = serde_json::to_vec(&seen).map_err(|e| StoreError::Io(e.to_string()))?;
+        Ok(write_atomic(&self.dir(id).join("seen.json"), &json)?)
+    }
+
+    /// When a person last looked at this automation's runs (0: never).
+    pub fn seen_at(&self, id: &str) -> Result<i64, StoreError> {
+        match fs::read(self.dir(id).join("seen.json")) {
+            Ok(bytes) => Ok(serde_json::from_slice::<Seen>(&bytes).map(|s| s.seen_at).unwrap_or(0)),
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(0),
+            Err(e) => Err(e.into()),
+        }
     }
 
     fn runs_file(&self, id: &str) -> std::io::Result<File> {
@@ -413,5 +791,74 @@ impl Store {
     pub fn put_run(&self, run: &Run) -> Result<(), StoreError> {
         let mut lock = Flock::exclusive(self.runs_file(&run.automation)?)?;
         Self::append_locked(&mut lock, run)
+    }
+}
+
+/// The refusal for changing an automation that is moving.
+pub(crate) fn moving(a: &Automation, h: &Handoff) -> StoreError {
+    StoreError::Invalid(format!(
+        "\"{}\" is moving to {} (handoff {}); finish it with `cmux automation teleport {} --to {}`, or cancel it with `--abort`",
+        a.name, h.to, h.id, a.id, h.to
+    ))
+}
+
+#[cfg(all(test, unix))]
+mod runner_lock_tests {
+    use super::*;
+
+    /// A forked child that keeps a copy of every descriptor of this process, the way a child that
+    /// another thread forks keeps them until it execs; dropping this kills and reaps it.
+    ///
+    /// Fork safety: a test binary runs many threads, so the child of `fork` may make only
+    /// async-signal-safe calls. It calls `pause` in a loop and nothing else: it never returns
+    /// from [`Keeper::fork`], allocates, takes a lock, unwinds or calls `_exit` or `exit` itself.
+    /// The parent's drop ends it with SIGKILL (from outside the child) and reaps it with
+    /// `waitpid`.
+    struct Keeper(libc::pid_t);
+
+    impl Keeper {
+        fn fork() -> Keeper {
+            // SAFETY: the child runs only async-signal-safe `pause` until SIGKILL ends it.
+            let child = unsafe { libc::fork() };
+            assert!(child >= 0, "fork failed");
+            if child == 0 {
+                loop {
+                    // SAFETY: as above.
+                    unsafe { libc::pause() };
+                }
+            }
+            Keeper(child)
+        }
+    }
+
+    impl Drop for Keeper {
+        fn drop(&mut self) {
+            let mut status = 0;
+            // SAFETY: `self.0` is this test's own child and `status` outlives the call.
+            unsafe {
+                libc::kill(self.0, libc::SIGKILL);
+                libc::waitpid(self.0, &mut status, 0);
+            }
+        }
+    }
+
+    /// A runner lock let go (the `cmux automation` probe takes one and drops it at once) is free,
+    /// also while a child forked meanwhile keeps its descriptor: else the next probe reports a
+    /// runner that does not exist and the next runner start exits as "runner is running".
+    #[test]
+    fn a_dropped_runner_lock_is_free_while_a_forked_child_keeps_its_descriptor() {
+        let root = std::env::temp_dir().join(format!(
+            "cmux-automations-runner-lock-{}-{:?}",
+            std::process::id(),
+            std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap_or_default()
+        ));
+        let store = Store::open(&root).unwrap();
+        let lock = RunnerLock::acquire(&store).unwrap().expect("a free runner lock");
+        let keeper = Keeper::fork();
+        drop(lock);
+        let again = RunnerLock::acquire(&store).unwrap();
+        drop(keeper);
+        let _ = fs::remove_dir_all(&root);
+        assert!(again.is_some(), "a dropped runner lock stayed held through a forked child's copy");
     }
 }

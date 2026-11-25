@@ -72,7 +72,7 @@ final class TabDragSession: NSObject {
         let content = pane?.view.bounds ?? window?.content?.layoutView.bounds ?? .zero
         let aspect = content.width > 0 ? (content.height - Metrics.tabStripHeight) / content.width : nil
         let scale = window?.window?.backingScaleFactor ?? 2
-        let ghost = TabDragGhostPanel(tabImage: image, tabSize: frame.size, grabOffset: grabOffset, aspect: aspect, scale: scale, onGlass: onGlass)
+        let ghost = TabDragGhostPanel(tabImage: image, tabSize: frame.size, grabOffset: grabOffset, aspect: aspect, scale: scale, onGlass: onGlass, source: pane?.view.stripView, payload: payload)
         var motion = TabDragGhostMotion(rect: frame, cardness: 0, reduceMotion: !Motion.tabs.animatesMovement,
                                         rectSpring: Motion.tabs.spring(.track), morphSpring: Motion.tabs.spring(.appear))
         // The card unfolds once its content preview arrives (`loadThumbnail`).
@@ -111,7 +111,7 @@ final class TabDragSession: NSObject {
             self.settleGhost(drag)
         }) { [weak self, weak drag] tick in
             guard let self, let drag else { return false }
-            return self.tick(drag, elapsed: tick.elapsed)
+            return self.tick(drag, elapsed: tick.frameElapsed)
         }
         drag.link?.activate()
         update(point)
@@ -122,7 +122,7 @@ final class TabDragSession: NSObject {
         guard let tab else { return }
         let cache = services.cache
         Task { [weak drag] in
-            let image = await TabPreviewSource.shown(cache.previewImage(for: tab, maxPixelSize: TabPreviewFitting.cachedPixelSize, captureIfMissing: true),
+            let image = await TabPreviewSource.shown(cache.previewImage(for: tab, maxPixelSize: PreviewImageCache.pagePixelSize, captureIfMissing: true),
                                                      key: tab, cache: cache)
             guard let drag, let image else { return }
             drag.ghost.setThumbnail(image)

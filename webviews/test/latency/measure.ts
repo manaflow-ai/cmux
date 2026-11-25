@@ -97,6 +97,7 @@ export interface ActionResult {
   reactCommits: number | null;
   framesSummary: { count: number | null; dropped: number | null; maxGapMs: number | null; droppedSource: string };
   trace: TraceBreakdown | null;
+  rawTrace?: { path: string; bytes: number; sha256: string; source: string };
   idle?: IdleResult;
   unsupportedReasons: Partial<Record<Instrumentation | "eventTiming" | "frameCadence", string>>;
 }

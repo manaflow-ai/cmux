@@ -26,6 +26,8 @@ export type GridPoint = {
 export type GridLine = {
   name: string;
   all?: boolean;
+  /** Measure inward from a trailing/bottom origin instead of outward from the lead. */
+  inward?: boolean;
   actual: GridPoint;
   origin?: GridPoint;
   expected: string | GridPoint;
@@ -166,7 +168,11 @@ export function measureGridLines(scene: GridScene): GridResult[] {
     const length = (expression: string) => {
       const names = expression.match(/--(?:grid|cmux-menu)-[\w-]+/g) ?? [];
       if (!names.length) throw new Error(`expected expression must use grid/menu tokens: ${expression}`);
-      for (const name of names)
+      // Each custom property that the expression reads with no fallback must resolve, not only the
+      // grid/menu tokens. One that does not makes the probe's width invalid (0 px wide) and can make
+      // the measured property invalid in the same way: 0 would equal 0 and a wrong line would pass.
+      const bare = [...expression.matchAll(/var\(\s*(--[\w-]+)\s*\)/g)].map((match) => match[1]!);
+      for (const name of [...names, ...bare])
         if (!getComputedStyle(root).getPropertyValue(name).trim()) throw new Error(`missing token ${name}`);
       const probe = document.createElement("span");
       probe.style.cssText =
@@ -186,7 +192,8 @@ export function measureGridLines(scene: GridScene): GridResult[] {
         let expected: number | null = null;
         try {
           expected = typeof line.expected === "string" ? length(line.expected) : metric(line.expected);
-          const actual = metric(line.actual, selected) - (line.origin ? metric(line.origin) : 0);
+          const actual =
+            (metric(line.actual, selected) - (line.origin ? metric(line.origin) : 0)) * (line.inward ? -1 : 1);
           if (!Number.isFinite(expected) || !Number.isFinite(actual)) throw new Error("non-finite measurement");
           return {
             line: `${index + 1}/${line.name}${line.all ? `/${matchIndex + 1}` : ""}`,

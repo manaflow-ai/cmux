@@ -1,5 +1,6 @@
 @testable import CmuxNextAgentPane
 @testable import CmuxNextApp
+import CmuxNextTestSupport
 import Foundation
 import Testing
 
@@ -20,7 +21,7 @@ struct NewTabStartedProjectTests {
 
     @Test func aStartedProjectReachesTheNextLaunchsNewTabContext() async throws {
         let suite = "NewTabStartedProjectTests.\(UUID().uuidString)"
-        let defaults = try #require(UserDefaults(suiteName: suite))
+        let defaults = try #require(UserDefaults(testSuiteName: suite))
         defer { defaults.removePersistentDomain(forName: suite) }
         let memory = NewTabChoiceMemory(defaults: defaults)
         let model = AgentPaneModel(host: NoHost(), allowsTabConversion: true)
@@ -43,7 +44,7 @@ struct NewTabStartedProjectTests {
     /// A workspace an agent or the CLI makes in a folder never sends `started`: the default stays.
     @Test func aPageWithoutAStartNamesNoStartedProject() throws {
         let suite = "NewTabStartedProjectTests.\(UUID().uuidString)"
-        let defaults = try #require(UserDefaults(suiteName: suite))
+        let defaults = try #require(UserDefaults(testSuiteName: suite))
         defer { defaults.removePersistentDomain(forName: suite) }
         let memory = NewTabChoiceMemory(defaults: defaults)
         memory.remember(AgentPaneRememberedPick(agent: "codex", model: "gpt-6-astra", folder: "/Users/you/Projects/lane"))

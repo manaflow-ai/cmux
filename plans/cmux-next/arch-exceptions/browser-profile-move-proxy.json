@@ -1,0 +1,11 @@
+{
+  "date": "2026-11-12",
+  "row": "app_lines",
+  "allow": 7,
+  "why": "The palette's browser profile move and proxy actions return DaemonService.commandEffect so a daemon refusal shows; the daemon-only check stays beside BrowserProfileService's other record edits until the BrowserProfiles folder moves to its package. The index math and proxy check moved to CmuxNextDaemon.",
+  "author": "stall-reconciler",
+  "owner": "stall-reconciler",
+  "receipt": "Review (coord-deputy-2): SHIP at 8494509a90f3976c47d6c17a29e2a37da7956dcb",
+  "expiry": "2026-12-12",
+  "applied_sha": "a85ec3631770a91c48265f27288b53ceaaec5b2d"
+}

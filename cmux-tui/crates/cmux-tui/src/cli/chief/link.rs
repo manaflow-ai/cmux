@@ -1,25 +1,27 @@
 //! The session daemon, as `cmux chief` uses it: the `cmux.protocol/2`
 //! conversation operations (`conversation.list`, `get`, `history`, `send`
-//! and the stream `conversation.events`), the same API every SDK and script
-//! uses. An unbound trusted local connection is `user_local`, the person
-//! Home writes as; the daemon admits it only to conversations it takes part
-//! in.
+//! and the stream `conversation.events`) and the older `cmd` lines the
+//! Chief's bootstrap and cloud chats still use, both through the cmux SDK,
+//! the client every SDK user and the app share. An unbound trusted local
+//! connection is `user_local`, the person Home writes as; the daemon admits
+//! it only to conversations it takes part in.
 
-use std::io::{self, BufRead, BufReader, Read, Write};
-use std::path::Path;
+use std::io;
+use std::path::{Path, PathBuf};
+use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::Sender;
 use std::time::Duration;
 
-use cmux_tui_core::platform::transport::Stream;
-use serde_json::{Value, json};
+use cmux::raw::{Client as RawClient, ClientConfig as RawConfig, StreamCloser};
+use cmux::{CallKind, Error as SdkError, MutationOptions, StreamCancellation};
+use serde_json::{Map, Value, json};
 
 use super::adapter::AGENT_MUX;
-use cmux_json::JsonSet as _;
 
 /// The largest response line read.
 const LINE_LIMIT: usize = 16 << 20;
 const REQUEST_TIMEOUT: Duration = Duration::from_secs(15);
-const PROTOCOL: &str = "cmux.protocol/2";
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(super) enum LinkError {
@@ -39,10 +41,12 @@ impl std::fmt::Display for LinkError {
     }
 }
 
+/// One session's connections: the SDK's `cmux.protocol/2` client, and the
+/// older command lines' client, opened on the first command.
 pub(super) struct Link {
-    reader: BufReader<Box<dyn Stream>>,
-    writer: Box<dyn Stream>,
-    next_id: u64,
+    client: cmux::Client,
+    raw: Option<RawClient>,
+    socket: PathBuf,
     /// The socket came from `--socket` (not derived): a timeout hints at a wrong socket.
     given: bool,
 }
@@ -55,164 +59,102 @@ pub(super) fn is_brain_socket(path: &Path) -> bool {
     parts.windows(2).any(|pair| pair[0] == ".cmux" && pair[1] == "brains")
 }
 
-/// The request line of `operation` on the current session.
-pub(super) fn envelope(id: &str, operation: &str, params: Value, key: Option<&str>) -> Value {
-    let mut params = match params {
-        Value::Object(map) => map,
-        _ => serde_json::Map::new(),
-    };
-    params.insert("machine".into(), json!("current"));
-    params.insert("session".into(), json!("current"));
-    let mut line = json!({"protocol": PROTOCOL, "type": "request", "id": id, "operation": operation, "params": params});
-    if super::super::federation::agent_marker(|key| std::env::var(key).ok()).is_some() {
-        // A request-origin claim may only narrow the daemon-derived origin;
-        // it gives history a durable agent/person distinction without
-        // granting an agent any additional rights.
-        line.set("origin", json!({"claim": "agent"}));
-    }
-    if let Some(key) = key {
-        line.set("idempotency_key", json!(key));
-    }
-    line
+/// The request-origin claim the CLI makes: `agent` when an agent runs it.
+/// A claim may only narrow the daemon-derived origin; it gives history a
+/// durable agent/person distinction without granting an agent any rights.
+fn origin_claim() -> Option<&'static str> {
+    super::super::federation::agent_marker(|key| std::env::var(key).ok()).map(|_| "agent")
 }
 
 impl Link {
     pub(super) fn connect(socket: &Path, derived: bool) -> io::Result<Self> {
-        let stream = cmux_tui_core::server::connect_session_socket(socket, derived)?;
-        stream.set_read_timeout(Some(REQUEST_TIMEOUT))?;
-        let writer = stream.try_clone_box()?;
-        Ok(Self { reader: BufReader::new(stream), writer, next_id: 1, given: !derived })
+        if derived {
+            cmux_tui_core::server::verify_session_socket_directory(socket)?;
+        }
+        let config = cmux::Config::from_socket_path(socket)
+            .with_timeout(REQUEST_TIMEOUT)
+            .with_response_limit(LINE_LIMIT);
+        let client = cmux::Client::connect(config).map_err(io_error)?;
+        let client = match origin_claim() {
+            Some(claim) => client.with_origin_claim(claim).map_err(io_error)?,
+            None => client,
+        };
+        Ok(Self { client, raw: None, socket: socket.to_owned(), given: !derived })
     }
 
-    /// Sends `operation` and waits for its response, skipping other lines.
+    /// Sends `operation` (a mutation when it has an idempotency `key`) and
+    /// waits for its result.
     pub(super) fn call(
         &mut self,
         operation: &str,
         params: Value,
         key: Option<&str>,
     ) -> Result<Value, LinkError> {
-        let id = format!("chief-{}", self.next_id);
-        self.next_id += 1;
-        let line = envelope(&id, operation, params, key).to_string();
-        self.writer
-            .write_all(line.as_bytes())
-            .and_then(|()| self.writer.write_all(b"\n"))
-            .and_then(|()| self.writer.flush())
-            .map_err(|e| LinkError::Transport(e.to_string()))?;
-        loop {
-            let value = read_line(&mut self.reader)
-                .map_err(|e| read_failed(e, self.given))?
-                .ok_or_else(|| LinkError::Transport(super::messages::messages().lost.into()))?;
-            if value.get("type").and_then(Value::as_str) != Some("response")
-                || value.get("id").and_then(Value::as_str) != Some(&id)
-            {
-                continue;
-            }
-            if value.get("ok").and_then(Value::as_bool) == Some(true) {
-                return Ok(value.get("result").cloned().unwrap_or(Value::Null));
-            }
-            let error = value.get("error").cloned().unwrap_or(Value::Null);
-            let text = |key: &str| error.get(key).and_then(Value::as_str).unwrap_or("").to_owned();
-            let reason = error.pointer("/details/reason").and_then(Value::as_str);
-            let code = match reason {
-                Some(reason) if !reason.is_empty() => format!("{}: {reason}", text("code")),
-                _ => text("code"),
-            };
-            // cx-8mla8: operation.failed carries the reason as its message and
-            // the daemon's own words in details.extra.message; show those.
-            let detail = error
-                .pointer("/details/extra/message")
-                .and_then(Value::as_str)
-                .filter(|m| !m.trim().is_empty());
-            let mut message =
-                detail.map_or_else(|| text("message"), crate::cli::wire::sanitize_remote_text);
-            if let Some(id) = error.pointer("/details/extra/request_id").and_then(Value::as_str) {
-                let id = crate::cli::wire::sanitize_remote_text(id);
-                message.push_str(&format!(" (Request ID {id})"));
-            }
-            return Err(LinkError::Rejected { code, message });
-        }
+        let kind = match key {
+            Some(key) => CallKind::Mutation(
+                MutationOptions::new(key).map_err(|e| LinkError::Transport(e.to_string()))?,
+            ),
+            None => CallKind::Read,
+        };
+        let mut params = match params {
+            Value::Object(map) => map,
+            _ => Map::new(),
+        };
+        params.insert("machine".into(), json!("current"));
+        params.insert("session".into(), json!("current"));
+        self.client
+            .call(operation, kind, Value::Object(params))
+            .map_err(|e| sdk_failed(e, self.given))
     }
 
     /// Sends a raw session command (`conversation-agent-token`,
     /// `conversation-create`: the Chief's bootstrap, which has no v2
     /// operation) and waits for its answer.
     pub(super) fn command(&mut self, cmd: &str, params: Value) -> Result<Value, LinkError> {
-        let id = format!("chief-{}", self.next_id);
-        self.next_id += 1;
-        let mut body = match params {
-            Value::Object(map) => map,
-            _ => serde_json::Map::new(),
-        };
-        body.insert("id".into(), json!(id));
-        body.insert("cmd".into(), json!(cmd));
-        let line = Value::Object(body).to_string();
-        self.writer
-            .write_all(line.as_bytes())
-            .and_then(|()| self.writer.write_all(b"\n"))
-            .and_then(|()| self.writer.flush())
-            .map_err(|e| LinkError::Transport(e.to_string()))?;
-        loop {
-            let value = read_line(&mut self.reader)
-                .map_err(|e| read_failed(e, self.given))?
-                .ok_or_else(|| LinkError::Transport(super::messages::messages().lost.into()))?;
-            if value.get("id").and_then(Value::as_str) != Some(&id) || value.get("type").is_some() {
-                continue;
-            }
-            if value.get("ok").and_then(Value::as_bool) == Some(true) {
-                return Ok(value.get("data").cloned().unwrap_or(Value::Null));
-            }
-            let text = |key: &str| value.get(key).and_then(Value::as_str).unwrap_or("").to_owned();
-            // A cloud refusal names its reason beside the code (home-cloud-proxy.md section 4).
-            let code = match text("reason") {
-                reason if reason.is_empty() => text("error_code"),
-                reason => format!("{}: {reason}", text("error_code")),
-            };
-            return Err(LinkError::Rejected { code, message: text("error") });
+        let given = self.given;
+        if self.raw.is_none() {
+            self.raw = Some(connect_raw(&self.socket, given)?);
         }
+        let raw = self.raw.as_mut().ok_or_else(|| LinkError::Transport("closed".into()))?;
+        command(raw, cmd, params, given)
     }
 
-    /// Turns this connection into the conversation's event stream: opens
+    /// Turns this link into the conversation's event stream: opens
     /// `conversation.events` (`tail` messages in its snapshot item), then a
     /// thread forwards every item to `sink` until the stream ends (or the
     /// returned handle is dropped).
     pub(super) fn into_events(
-        mut self,
+        self,
         conversation: &str,
         tail: usize,
         sink: Sender<super::Input>,
     ) -> Result<EventsHandle, LinkError> {
-        let stream_id = format!("stream_{}", uuid::Uuid::new_v4().simple());
-        let params =
-            json!({"conversation": conversation, "stream_id": stream_id, "tail": tail.min(500)});
-        self.call("conversation.events", params, None)?;
-        let _ = self.reader.get_ref().set_read_timeout(None);
-        let handle = EventsHandle::of(self.writer.as_ref())?;
-        let mut reader = self.reader;
+        let params = json!({"machine": "current", "session": "current",
+                            "conversation": conversation, "tail": tail.min(500)});
+        let mut stream = self
+            .client
+            .subscribe("conversation.events", params)
+            .map_err(|e| sdk_failed(e, self.given))?;
+        let handle = EventsHandle::stream(stream.cancellation());
+        let dropped = Arc::clone(&handle.dropped);
         std::thread::Builder::new()
             .name("chief-events".into())
             .spawn(move || {
                 let mut reason = String::from("closed");
-                while let Ok(Some(value)) = read_line(&mut reader) {
-                    if value.get("stream_id").and_then(Value::as_str) != Some(&stream_id) {
-                        continue;
-                    }
-                    match value.get("type").and_then(Value::as_str) {
-                        Some("stream_item") => {
-                            let item = value.get("item").cloned().unwrap_or(Value::Null);
-                            if sink.send(super::Input::Daemon(item)).is_err() {
+                while !dropped.load(Ordering::Acquire) {
+                    match stream.recv() {
+                        Ok(Some(item)) if !dropped.load(Ordering::Acquire) => {
+                            if sink.send(super::Input::Daemon(item.value)).is_err() {
                                 return;
                             }
                         }
-                        Some("stream_end") => {
-                            reason = value
-                                .get("reason")
-                                .and_then(Value::as_str)
-                                .unwrap_or("closed")
-                                .to_owned();
+                        Ok(Some(_)) | Err(_) => break,
+                        Ok(None) => {
+                            if let Some(end) = stream.end() {
+                                reason = end_reason(end.reason).to_owned();
+                            }
                             break;
                         }
-                        _ => {}
                     }
                 }
                 let _ = sink.send(super::Input::Closed(reason));
@@ -221,144 +163,239 @@ impl Link {
             .map_err(|e| LinkError::Transport(e.to_string()))
     }
 
-    /// The cloud counterpart of `into_events`: `subscribe` with typing
-    /// (`set-client-info`), `cloud-conversation-subscribe`, then a snapshot of
-    /// the last `tail` messages; a thread forwards each cloud event of
-    /// `conversation` as a `conversation.events` item (`backend::cloud_item`).
-    /// Events that come before the snapshot answer follow it.
+    /// The cloud counterpart of `into_events`: on a connection of its own,
+    /// `subscribe` with typing (`set-client-info`),
+    /// `cloud-conversation-subscribe`, then a snapshot of the last `tail`
+    /// messages; a thread forwards each cloud event of `conversation` as a
+    /// `conversation.events` item (`backend::cloud_item`). Events that come
+    /// before the snapshot answer follow it.
     pub(super) fn into_cloud_events(
-        mut self,
+        self,
         conversation: &str,
         tail: usize,
         sink: Sender<super::Input>,
     ) -> Result<EventsHandle, LinkError> {
+        let given = self.given;
+        let mut raw = match self.raw {
+            Some(raw) => raw,
+            None => connect_raw(&self.socket, given)?,
+        };
         let capabilities = super::backend::cloud_event_capabilities();
         // Best effort: an older daemon without typing still streams the rest.
-        let _ = self.command("set-client-info", json!({"capabilities": capabilities}));
-        self.command("subscribe", json!({}))?;
-        self.command("cloud-conversation-subscribe", json!({"conversation": conversation}))?;
-        let snapshot_id = format!("chief-{}", self.next_id);
-        self.next_id += 1;
-        let request = json!({"id": snapshot_id, "cmd": "cloud-conversation-snapshot",
-                             "conversation": conversation, "tail": tail.clamp(1, 50)});
-        self.writer
-            .write_all(format!("{request}\n").as_bytes())
-            .and_then(|()| self.writer.flush())
-            .map_err(|e| LinkError::Transport(e.to_string()))?;
-        let _ = self.reader.get_ref().set_read_timeout(None);
-        let handle = EventsHandle::of(self.writer.as_ref())?;
-        let mut reader = self.reader;
+        let _ = command(&mut raw, "set-client-info", json!({"capabilities": capabilities}), given);
+        command(&mut raw, "subscribe", json!({}), given)?;
+        command(
+            &mut raw,
+            "cloud-conversation-subscribe",
+            json!({"conversation": conversation}),
+            given,
+        )?;
+        let handle = EventsHandle::raw(raw.closer().map_err(|e| sdk_failed(e, given))?);
         let conversation = conversation.to_owned();
         std::thread::Builder::new()
             .name("chief-cloud-events".into())
             .spawn(move || {
-                let mut early: Option<Vec<Value>> = Some(Vec::new());
-                let mut reason = String::from("closed");
-                while let Ok(Some(value)) = read_line(&mut reader) {
-                    if value.get("event").is_none() {
-                        if value.get("id").and_then(Value::as_str) != Some(&snapshot_id) {
-                            continue;
-                        }
-                        if value.get("ok").and_then(Value::as_bool) != Some(true) {
-                            reason = value
-                                .get("error")
-                                .and_then(Value::as_str)
-                                .unwrap_or("snapshot refused")
-                                .to_owned();
-                            break;
-                        }
-                        let data = value.get("data").cloned().unwrap_or(Value::Null);
-                        let snapshot = super::backend::cloud_snapshot_item(&data);
-                        if sink.send(super::Input::Daemon(snapshot)).is_err() {
-                            return;
-                        }
-                        for item in early.take().unwrap_or_default() {
-                            if sink.send(super::Input::Daemon(item)).is_err() {
-                                return;
-                            }
-                        }
-                        continue;
-                    }
-                    if value.get("event").and_then(Value::as_str)
-                        == Some("cloud-subscription-state")
-                        && value.get("conversation").and_then(Value::as_str) == Some(&conversation)
-                        && value.get("state").and_then(Value::as_str) == Some("closed")
-                    {
-                        reason = "closed".into();
-                        break;
-                    }
-                    let Some(item) = super::backend::cloud_item(&value, &conversation) else {
-                        continue;
-                    };
-                    match early.as_mut() {
-                        Some(waiting) => waiting.push(item),
-                        None => {
-                            if sink.send(super::Input::Daemon(item)).is_err() {
-                                return;
-                            }
-                        }
-                    }
+                let reason = forward_cloud_events(&mut raw, &conversation, tail, &sink);
+                if let Some(reason) = reason {
+                    let _ = sink.send(super::Input::Closed(reason));
                 }
-                let _ = sink.send(super::Input::Closed(reason));
             })
             .map(|_| handle)
             .map_err(|e| LinkError::Transport(e.to_string()))
     }
 }
 
-/// Ends an event stream's connection when dropped (a chat switch, the end of
-/// a script), so its thread ends too.
-pub(super) struct EventsHandle(Box<dyn Stream>);
+/// The cloud event thread's work: the snapshot, then every event of
+/// `conversation` until the subscription closes. Returns the reason to
+/// report, or none when the sink is gone.
+fn forward_cloud_events(
+    raw: &mut RawClient,
+    conversation: &str,
+    tail: usize,
+    sink: &Sender<super::Input>,
+) -> Option<String> {
+    let request = json!({"cmd": "cloud-conversation-snapshot",
+                         "conversation": conversation, "tail": tail.clamp(1, 50)});
+    let Value::Object(request) = request else { return Some("closed".into()) };
+    let reply = match raw.request_raw_reply(request) {
+        Ok(reply) => reply,
+        Err(_) => return Some("closed".into()),
+    };
+    if reply.get("ok").and_then(Value::as_bool) != Some(true) {
+        let reason = reply.get("error").and_then(Value::as_str).unwrap_or("snapshot refused");
+        return Some(reason.to_owned());
+    }
+    let data = reply.get("data").cloned().unwrap_or(Value::Null);
+    sink.send(super::Input::Daemon(super::backend::cloud_snapshot_item(&data))).ok()?;
+    while let Ok(value) = raw.recv_event_frame() {
+        if value.get("event").and_then(Value::as_str) == Some("cloud-subscription-state")
+            && value.get("conversation").and_then(Value::as_str) == Some(conversation)
+            && value.get("state").and_then(Value::as_str) == Some("closed")
+        {
+            break;
+        }
+        if let Some(item) = super::backend::cloud_item(&value, conversation) {
+            sink.send(super::Input::Daemon(item)).ok()?;
+        }
+    }
+    Some("closed".into())
+}
+
+/// A raw command on `raw`: its `data`, or the refusal as the CLI says it.
+fn command(raw: &mut RawClient, cmd: &str, params: Value, given: bool) -> Result<Value, LinkError> {
+    let mut body = match params {
+        Value::Object(map) => map,
+        _ => Map::new(),
+    };
+    body.insert("cmd".into(), json!(cmd));
+    let value = raw.request_raw_reply(body).map_err(|e| sdk_failed(e, given))?;
+    if value.get("ok").and_then(Value::as_bool) == Some(true) {
+        return Ok(value.get("data").cloned().unwrap_or(Value::Null));
+    }
+    let text = |key: &str| value.get(key).and_then(Value::as_str).unwrap_or("").to_owned();
+    // A cloud refusal names its reason beside the code (home-cloud-proxy.md section 4).
+    let code = match text("reason") {
+        reason if reason.is_empty() => text("error_code"),
+        reason => format!("{}: {reason}", text("error_code")),
+    };
+    Err(LinkError::Rejected { code, message: text("error") })
+}
+
+fn connect_raw(socket: &Path, given: bool) -> Result<RawClient, LinkError> {
+    let config = RawConfig::from_socket_path(socket)
+        .with_timeout(REQUEST_TIMEOUT)
+        .with_max_frame_bytes(LINE_LIMIT);
+    RawClient::connect(config).map_err(|e| sdk_failed(e, given))
+}
+
+/// Ends an event stream when dropped (a chat switch, the end of a script):
+/// its thread forwards nothing more and ends.
+pub(super) struct EventsHandle {
+    dropped: Arc<AtomicBool>,
+    stop: Stop,
+}
+
+enum Stop {
+    Stream(StreamCancellation),
+    Raw(StreamCloser),
+}
 
 impl EventsHandle {
-    fn of(stream: &dyn Stream) -> Result<Self, LinkError> {
-        stream.try_clone_box().map(Self).map_err(|e| LinkError::Transport(e.to_string()))
+    fn stream(cancellation: StreamCancellation) -> Self {
+        Self { dropped: Arc::default(), stop: Stop::Stream(cancellation) }
+    }
+
+    fn raw(closer: StreamCloser) -> Self {
+        Self { dropped: Arc::default(), stop: Stop::Raw(closer) }
     }
 }
 
 impl Drop for EventsHandle {
     fn drop(&mut self) {
-        let _ = self.0.shutdown(std::net::Shutdown::Both);
+        self.dropped.store(true, Ordering::Release);
+        match &self.stop {
+            Stop::Stream(cancellation) => {
+                let _ = cancellation.cancel();
+            }
+            Stop::Raw(closer) => closer.close(),
+        }
     }
 }
 
-/// A read error as the CLI says it: a request that met the read timeout
-/// (EAGAIN on macOS) names the timeout, not "Resource temporarily
-/// unavailable"; on a `--socket` the CLI did not derive, it also names a
-/// wrong socket.
-fn read_failed(error: io::Error, given: bool) -> LinkError {
+fn end_reason(reason: cmux::StreamEndReason) -> &'static str {
+    match reason {
+        cmux::StreamEndReason::Completed => "completed",
+        cmux::StreamEndReason::Canceled => "canceled",
+        cmux::StreamEndReason::Closed => "closed",
+        cmux::StreamEndReason::Gap => "gap",
+        cmux::StreamEndReason::Error => "error",
+    }
+}
+
+/// A connect failure as an I/O error, keeping its kind (a missing or
+/// refused socket reads as one in `wire::connect_failure`).
+fn io_error(error: SdkError) -> io::Error {
+    match error {
+        SdkError::ConnectionIo { message, kind } => io::Error::new(kind, message),
+        other => io::Error::other(other.to_string()),
+    }
+}
+
+/// An SDK failure as the CLI says it. A refusal keeps the daemon's code
+/// (with its reason) and words; a request that met the timeout names the
+/// timeout, not "Resource temporarily unavailable", and on a `--socket` the
+/// CLI did not derive, a wrong socket too; a closed connection says so.
+fn sdk_failed(error: SdkError, given: bool) -> LinkError {
     let m = super::messages::messages();
-    match error.kind() {
-        io::ErrorKind::WouldBlock | io::ErrorKind::TimedOut => LinkError::Transport(
+    match error {
+        SdkError::Protocol { code, message, details, .. } => rejected(code, message, &details),
+        SdkError::MutationTransport { source, .. } => sdk_failed(*source, given),
+        SdkError::Timeout(_) => LinkError::Transport(
             if given { m.no_answer_socket } else { m.no_answer }
                 .replace("{secs}", &REQUEST_TIMEOUT.as_secs().to_string()),
         ),
-        _ => LinkError::Transport(error.to_string()),
+        SdkError::ConnectionIo {
+            kind: io::ErrorKind::WouldBlock | io::ErrorKind::TimedOut,
+            ..
+        } => sdk_failed(SdkError::Timeout(String::new()), given),
+        SdkError::Connection(message) if message == "session socket closed" => {
+            LinkError::Transport(m.lost.into())
+        }
+        SdkError::Closed => LinkError::Transport(m.lost.into()),
+        other => match other.error_code() {
+            Some(code) => LinkError::Rejected { code: code.to_owned(), message: other.to_string() },
+            None => LinkError::Transport(other.to_string()),
+        },
     }
 }
 
-fn read_line(reader: &mut BufReader<Box<dyn Stream>>) -> io::Result<Option<Value>> {
-    let mut bytes = Vec::new();
-    let read = reader.by_ref().take(LINE_LIMIT as u64 + 1).read_until(b'\n', &mut bytes)?;
-    if read == 0 {
-        return Ok(None);
+/// A `cmux.protocol/2` refusal: the code with its reason, and the daemon's
+/// own words (cx-8mla8: `operation.failed` carries the reason as its
+/// message and the daemon's words in `details.extra.message`).
+fn rejected(code: String, message: String, details: &Value) -> LinkError {
+    let code = match details.pointer("/reason").and_then(Value::as_str) {
+        Some(reason) if !reason.is_empty() => format!("{code}: {reason}"),
+        _ => code,
+    };
+    let detail =
+        details.pointer("/extra/message").and_then(Value::as_str).filter(|m| !m.trim().is_empty());
+    let mut message = detail.map_or(message, crate::cli::wire::sanitize_remote_text);
+    if let Some(id) = details.pointer("/extra/request_id").and_then(Value::as_str) {
+        let id = crate::cli::wire::sanitize_remote_text(id);
+        message.push_str(&format!(" (Request ID {id})"));
     }
-    if bytes.len() > LINE_LIMIT {
-        return Err(io::Error::other("response line exceeds 16 MiB"));
-    }
-    serde_json::from_slice(&bytes).map(Some).map_err(io::Error::other)
+    LinkError::Rejected { code, message }
 }
 
 /// The Chief conversation by the rule Home and the brain share: the oldest
 /// conversation with `agent_mux`, by `created_at`, then id.
 pub(super) fn select_chief(conversations: &[Value]) -> Option<&Value> {
+    select_chief_of(conversations, AGENT_MUX)
+}
+
+/// Chief `chief`'s own conversation by the brain's rule (optchat-chief
+/// `daemon::select_chief_of`): for agent_mux the oldest with it; for another
+/// Chief its oldest DM with the person (the person, their paired devices and
+/// the Chief only), never a group it is in.
+pub(super) fn select_chief_of<'a>(conversations: &'a [Value], chief: &str) -> Option<&'a Value> {
     let text = |c: &Value, key: &str| c.get(key).and_then(Value::as_str).unwrap_or("").to_owned();
+    let id = |p: &Value| p.get("id").and_then(Value::as_str).map(str::to_owned);
+    let person = |p: &Value| {
+        id(p).as_deref() == Some("user_local")
+            || p.get("person").and_then(Value::as_str) == Some("user_local")
+    };
     conversations
         .iter()
         .filter(|c| {
-            c.get("participants").and_then(Value::as_array).is_some_and(|ps| {
-                ps.iter().any(|p| p.get("id").and_then(Value::as_str) == Some(AGENT_MUX))
-            })
+            let ps = c.get("participants").and_then(Value::as_array);
+            let ps: &[Value] = ps.map_or(&[], Vec::as_slice);
+            let has = |who: &str| ps.iter().any(|p| id(p).as_deref() == Some(who));
+            if chief == AGENT_MUX {
+                return has(chief);
+            }
+            has(chief)
+                && has("user_local")
+                && ps.iter().all(|p| id(p).as_deref() == Some(chief) || person(p))
         })
         .min_by_key(|c| (text(c, "created_at"), text(c, "id")))
 }

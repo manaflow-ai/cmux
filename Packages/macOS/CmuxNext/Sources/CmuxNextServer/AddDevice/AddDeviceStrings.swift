@@ -1,3 +1,4 @@
+import CmuxNextDesign
 import Foundation
 
 /// Text of the Add Device card (Resources/AddDevice.xcstrings). Plain words for a person who
@@ -5,7 +6,7 @@ import Foundation
 public nonisolated struct AddDeviceStrings {
     public nonisolated init() {}
     private static func s(_ key: StaticString, _ value: String.LocalizationValue) -> String {
-        String(localized: key, defaultValue: value, table: "AddDevice", bundle: .module)
+        String(localized: key, defaultValue: value, table: "AddDevice", bundle: .localizedModule)
     }
 
     static var title: String { s("addDevice.title", "Add a Device") }
@@ -75,15 +76,24 @@ public nonisolated struct AddDeviceStrings {
         case .copyJoinLine: copied ? s("addDevice.copied", "Copied") : s("addDevice.copyLine", "Copy Line")
         case .makeJoinLine: s("addDevice.joinLine.makeLine", "Make Line")
         case .newJoinLine: s("addDevice.joinLine.newLine", "New Line")
-        case .showMachines: s("addDevice.joinLine.showMachines", "Show in Machines")
+        case .signIn: SignInButton.defaultTitle
+        case .pairAnotherMachine: s("addDevice.joinLine.pairAnotherMachine", "Pair Another Machine…")
+        case .toggleAdvanced: advanced
         case .done: s("addDevice.done", "Done")
         case .cancel: s("addDevice.cancel", "Cancel")
         }
     }
 
-    // "Any machine: one line" (Labs labs.machineJoin).
+    /// The disclosure over the ssh way (Add Machine's enroll), which the pair code replaced as the default.
+    static var advanced: String { s("addDevice.advanced", "Advanced: add over SSH") }
+
+    // "Any machine": the pair code signed in, the one line signed out.
     static var joinLineHelp: String {
         s("addDevice.joinLine.help", "Paste this line in a terminal on any Mac or Linux machine. It installs what that machine needs and joins it to your team's machines.")
+    }
+    /// Signed in, the way offers the invite (Pair Another Machine) in place of the ticket line.
+    static var joinLineInviteHelp: String {
+        s("addDevice.joinLine.inviteHelp", "Pair any Mac or Linux machine with a code: run one line there, then confirm its four words here. No SSH needed.")
     }
     static var joinLineName: String { s("addDevice.joinLine.name", "Name (optional)") }
     static var joinLineNamePlaceholder: String { s("addDevice.joinLine.namePlaceholder", "e.g. build-box") }

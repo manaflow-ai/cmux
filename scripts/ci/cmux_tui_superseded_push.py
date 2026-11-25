@@ -18,20 +18,39 @@ Superseded means, for a push event only:
   - a lane branch (any ref but main, feat-cmux-next, next-batch/* and
     cmux-tui-pin-*) whose head is no longer SHA;
   - a cmux-tui-pin-* ref at GitHub's merge commit for a pull request
-    ("Merge <head> into <base>", made by cmux-next-pr-merge-tree.yml) whose
+    ("Merge <head> into <base>", made by the retired PR merge-tree publisher) whose
     pull request is open with a different head now, and no pull request has
     that head any more;
   - such a pin whose pull request merged into feat-cmux-next at that head, and
     no open pull request has it: feat-cmux-next's push of the merge tests its own tree, and the pin's
     daemon tests held the side lane for hours after the merge (2026-10-21);
-  - a push to a cp/*, lane/* or perf/* agent branch whose head is no open pull
-    request's head, unless its head commit asks for the daemon tests
-    (Cmux-Daemon-Tests: run). On 2026-10-26 those branches started about 215
-    cmux-tui artifacts runs an hour, 93% of them at a head no open pull request
-    had, while the workflow token's hourly budget ran out. A pull request's
-    same-tree checks use its merge tree (cmux-next-pr-merge-tree.yml) or the
-    base tree, never the lane head, so nobody needs those trees.
-main, feat-cmux-next and next-batch/* runs gate latest/ and nightly-next
+  - a push to any other branch (not a trunk ref, see TRUNK_REFS) whose head is
+    no open pull request's head, unless its head commit asks for the daemon
+    tests (Cmux-Daemon-Tests: run) or a cmux-next dispatch asked for it. On
+    2026-10-26 cp/*, lane/* and perf/* branches started about 215 cmux-tui
+    artifacts runs an hour, 93% of them at a head no open pull request had,
+    while the workflow token's hourly budget ran out, and only those three
+    families got this rule. On 2026-11-02 the other families (fix/*,
+    rust-migration/*, test/*, scratch/*, dogfood-train/*, base-red/* and the
+    like) built about 85% of the non-trunk build minutes, and a fifth of the
+    branches that built had no pull request at all. A pull request's same-tree
+    checks read its own head's publication only while that head is open; fleet
+    builds request a missing tree themselves (cmux-tui-tree-request.yml), so a
+    head nobody opened a pull request for has no reader.
+With --trunk-tip-only (tree-preflight only), a feat-cmux-next push's first
+attempt is superseded once feat-cmux-next has moved: the newer push's run
+builds and publishes the tip, so every intermediate trunk commit no longer
+builds three targets of its own (cmux-tui artifacts was the largest workflow,
+about 47,000 runner-minutes on 2026-11-19; ask-f0b851df7a). A re-run is
+never superseded: cmux-tui-tree-request.yml re-runs a commit's own run when a
+dev build, base-red bisect or anything else asks for that commit's tree. Nor
+is the one push of a coalescing window that builds (--coalesce-base, from
+base-coalesce.yml): every later push of its window is coalesced and builds
+nothing, so no newer run builds the tip. On 2026-11-23 05:48-07:50Z windows
+whose first push was superseded within minutes built no tree, and the nightly
+cut commits 40-87 minutes old.
+nightly-next and release-next pushes keep their own rule below.
+Otherwise main, feat-cmux-next and next-batch/* runs gate latest/ and nightly-next
 promotion and are never superseded here, nor is a dispatch, a pull request run,
 or a pin of anything other than a pull request merge commit (pin-cmux-tui.sh,
 next_batch.py). With --key, a run that another run of the key deferred to
@@ -44,12 +63,13 @@ A lane branch's head is read over git (`git ls-remote` on CMUX_TUI_REF_REMOTE,
 which the workflow sets to the repository's clone URL), not the REST API: a
 git ref read spends none of the installation's GITHUB_TOKEN budget, which ran
 out every hour on 2026-10-26 with this workflow at about 260 runs an hour.
-Without CMUX_TUI_REF_REMOTE the REST read is used, as before. For cp/, lane/
-and perf/ branches the head is read first, so a moved branch is superseded
+Whether a pull request has the head is read the same way (refs/pull/*/head), not
+commits/{sha}/pulls. Without CMUX_TUI_REF_REMOTE the REST reads are used, as before. For every
+non-trunk branch the head is read first, so a moved branch is superseded
 without the pull request and dispatch lookups.
 
 Usage: cmux_tui_superseded_push.py --event E --ref REF --sha SHA [--key KEY --run-id ID]
-Environment: GH_TOKEN (contents, pull-requests and actions read),
+Environment: GH_TOKEN (contents, pull-requests and actions read), GH_TOKEN_SPARES (tried in order on 403 or 429),
 GITHUB_REPOSITORY, GITHUB_API_URL (default https://api.github.com).
 Prints the reason and writes stale=true|false to $GITHUB_OUTPUT. Exits 0.
 """
@@ -69,8 +89,19 @@ import urllib.request
 
 PROTECTED = ("refs/heads/main", "refs/heads/feat-cmux-next")
 PIN_PREFIX = "refs/heads/cmux-tui-pin-"
-# Agent branches whose pushes publish nothing unless an open pull request has that head.
-UNREVIEWED_PREFIXES = ("refs/heads/cp/", "refs/heads/lane/", "refs/heads/perf/")
+# Trunk and integration refs keep the plain moved-branch rule: nightly-next and
+# release-next are promoted only to published feat-cmux-next trees, and a
+# feat-cmux-next-* integration branch is a base other heads build on. Every
+# other branch publishes nothing unless an open pull request has that head (or
+# a cmux-next dispatch or the Cmux-Daemon-Tests trailer asks for it).
+TRUNK_REFS = ("refs/heads/nightly-next", "refs/heads/release-next")
+TRUNK_PREFIXES = ("refs/heads/feat-cmux-next-",)
+
+
+def needs_open_pull_request(ref: str) -> bool:
+    """Whether a push of REF publishes only a head an open pull request (or a dispatch) asked for."""
+    return (ref.startswith("refs/heads/") and ref not in TRUNK_REFS
+            and not ref.startswith(TRUNK_PREFIXES) and not ref.startswith(PIN_PREFIX))
 
 
 class ApiError(Exception):
@@ -78,38 +109,67 @@ class ApiError(Exception):
 
 
 def api(path: str) -> tuple[int, object]:
+    """GET PATH with GH_TOKEN, then each of GH_TOKEN_SPARES while the answer is 403 or 429.
+
+    A rate-limited github.token answered 403 to the cmux-next dispatch lookup on most branch pushes
+    (2026-11-24 23Z..11-25 01Z): "could not tell" kept the run, and an on-request head nobody asked
+    for built its three targets (about 100 runner-min) anyway. tree-preflight mints CI pool tokens
+    (scripts/ci/ci_pool_tokens.py) and lists github.token last among the spares."""
     base = os.environ.get("GITHUB_API_URL", "https://api.github.com").rstrip("/")
     repo = os.environ["GITHUB_REPOSITORY"]
-    request = urllib.request.Request(
-        f"{base}/repos/{repo}/{path}",
-        headers={
-            "Authorization": f"Bearer {os.environ.get('GH_TOKEN', '')}",
-            "Accept": "application/vnd.github+json",
-        },
-    )
+    tokens = list(dict.fromkeys(t for t in [os.environ.get("GH_TOKEN", ""),
+                                            *os.environ.get("GH_TOKEN_SPARES", "").split()] if t)) or [""]
+    status = 0
+    for token in tokens:
+        request = urllib.request.Request(
+            f"{base}/repos/{repo}/{path}",
+            headers={
+                "Authorization": f"Bearer {token}",
+                "Accept": "application/vnd.github+json",
+            },
+        )
+        try:
+            with urllib.request.urlopen(request, timeout=20) as response:
+                return response.status, json.loads(response.read().decode() or "null")
+        except urllib.error.HTTPError as error:
+            status = error.code
+            if status not in (403, 429):
+                return status, None
+        except (urllib.error.URLError, OSError, ValueError) as error:
+            raise ApiError(f"GET {path}: {error}") from error
+    return status, None
+
+
+def ls_remote(remote: str, *patterns: str) -> str:
+    command = ["git"]
+    token = os.environ.get("GH_TOKEN", "")
+    if token and remote.startswith("https://"):
+        basic = base64.b64encode(f"x-access-token:{token}".encode()).decode()
+        command += ["-c", f"http.extraHeader=Authorization: Basic {basic}"]
+    command += ["ls-remote", remote, *patterns]
     try:
-        with urllib.request.urlopen(request, timeout=20) as response:
-            return response.status, json.loads(response.read().decode() or "null")
-    except urllib.error.HTTPError as error:
-        return error.code, None
-    except (urllib.error.URLError, OSError, ValueError) as error:
-        raise ApiError(f"GET {path}: {error}") from error
+        return subprocess.run(command, capture_output=True, text=True, timeout=30, check=True).stdout
+    except (OSError, subprocess.SubprocessError) as error:
+        raise ApiError(f"git ls-remote {' '.join(patterns)}: {type(error).__name__}") from error
+
+
+def has_pull_request_head(sha: str) -> bool | None:
+    """Whether some pull request's head ref (refs/pull/N/head, over git) is SHA; None without
+    CMUX_TUI_REF_REMOTE. The refs stay after a pull request closes and include forks', so a
+    closed or fork pull request at SHA also keeps the run: a lookup that can only keep extra
+    runs, at no REST cost (it replaced commits/{sha}/pulls, ~200 calls an hour)."""
+    remote = os.environ.get("CMUX_TUI_REF_REMOTE", "")
+    if not remote:
+        return None
+    listed = ls_remote(remote, "refs/pull/*/head")
+    return any(line.partition("\t")[0] == sha for line in listed.splitlines())
 
 
 def branch_head(branch: str) -> str | None:
     """BRANCH's head sha, or None when the branch does not exist."""
     remote = os.environ.get("CMUX_TUI_REF_REMOTE", "")
     if remote:
-        command = ["git"]
-        token = os.environ.get("GH_TOKEN", "")
-        if token and remote.startswith("https://"):
-            basic = base64.b64encode(f"x-access-token:{token}".encode()).decode()
-            command += ["-c", f"http.extraHeader=Authorization: Basic {basic}"]
-        command += ["ls-remote", "--heads", remote, f"refs/heads/{branch}"]
-        try:
-            listed = subprocess.run(command, capture_output=True, text=True, timeout=20, check=True).stdout
-        except (OSError, subprocess.SubprocessError) as error:
-            raise ApiError(f"git ls-remote {branch}: {type(error).__name__}") from error
+        listed = ls_remote(remote, "--heads", f"refs/heads/{branch}")
         for line in listed.splitlines():
             head, _, name = line.partition("\t")
             if name == f"refs/heads/{branch}" and re.fullmatch(r"[0-9a-f]{40}", head):
@@ -148,13 +208,22 @@ def unreviewed_verdict(ref: str, sha: str) -> tuple[bool, str] | None:
     """Superseded when no open pull request of this repository has SHA at its head; None asks lane_verdict."""
     if asks_for_daemon_tests(sha):
         return None
-    status, data = api(f"commits/{sha}/pulls?per_page=100")
-    if status != 200 or not isinstance(data, list):
-        raise ApiError(f"GET commits/{sha}/pulls: HTTP {status}")
-    repo = os.environ["GITHUB_REPOSITORY"]
-    if any(pr.get("state") == "open" and (pr.get("head") or {}).get("sha") == sha
-           and ((pr.get("head") or {}).get("repo") or {}).get("full_name") == repo for pr in data):
+    # Build on request (ci-min-per-pr-30): an open pull request's head used to be enough. It was 343 runs and
+    # 29.8k runner-min a day (11-22 21Z..11-23 21Z, 25.8 per merged PR), three ~28-min target builds per head,
+    # for trees only the hot verify rust look reads. That look now dispatches the build itself, so a head
+    # no dispatch asked for is not built. CMUX_TUI_BRANCH_ON_REQUEST=0 keeps the old open-PR-head rule.
+    on_request = os.environ.get("CMUX_TUI_BRANCH_ON_REQUEST", "1") != "0"
+    has_pull = None if on_request else has_pull_request_head(sha)
+    if has_pull:
         return None
+    if has_pull is None and not on_request:
+        status, data = api(f"commits/{sha}/pulls?per_page=100")
+        if status != 200 or not isinstance(data, list):
+            raise ApiError(f"GET commits/{sha}/pulls: HTTP {status}")
+        repo = os.environ["GITHUB_REPOSITORY"]
+        if any(pr.get("state") == "open" and (pr.get("head") or {}).get("sha") == sha
+               and ((pr.get("head") or {}).get("repo") or {}).get("full_name") == repo for pr in data):
+            return None
     # A cmux-next dispatch on the branch (#22303) probes this exact commit's tree with no base fallback,
     # so a head some dispatch already asked about keeps its publisher.
     status, data = api(f"actions/workflows/cmux-next.yml/runs?head_sha={sha}&event=workflow_dispatch&per_page=1")
@@ -163,6 +232,12 @@ def unreviewed_verdict(ref: str, sha: str) -> tuple[bool, str] | None:
     if data.get("total_count") or data.get("workflow_runs"):
         return None
     branch = ref.removeprefix("refs/heads/")
+    if on_request:
+        return True, (f"{sha[:12]} ({branch}) is built on request only: nobody asked for its tree. "
+                      "A pull request's same-tree checks use its merge tree or the base tree, and a hot verify "
+                      "rust look dispatches this workflow on the branch itself. To publish this tree anyway, add "
+                      "the trailer Cmux-Daemon-Tests: run, dispatch cmux-tui-artifacts.yml on the branch, "
+                      "or dispatch cmux-next.yml before pushing")
     return True, (f"no open pull request has {sha[:12]} ({branch}) at its head and no cmux-next dispatch "
                   "asked for it; a pull request's same-tree checks use its merge tree or the base tree. "
                   "To publish this tree anyway, add the trailer Cmux-Daemon-Tests: run, dispatch "
@@ -213,12 +288,29 @@ def deferred_to(key: str, run_id: str) -> str:
     return ""
 
 
-def verdict(event: str, ref: str, sha: str, key: str, run_id: str) -> tuple[bool, str]:
+TRUNK_TIP_REF = "refs/heads/feat-cmux-next"
+
+
+def verdict(event: str, ref: str, sha: str, key: str, run_id: str,
+            trunk_tip_only: bool = False, attempt: int = 1,
+            coalesce_base: str = "") -> tuple[bool, str]:
     if event != "push":
         return False, f"a {event} run is never superseded here"
+    if trunk_tip_only and ref == TRUNK_TIP_REF:
+        if attempt > 1:
+            return False, f"attempt {attempt} of a {ref} push is a requested build of this commit; kept"
+        if coalesce_base:
+            return False, (f"this {ref} push is its coalesce window's one build (the window's later pushes "
+                           "build nothing, so no newer run builds the tip); kept")
+        stale, reason = lane_verdict(ref, sha)
+        if stale and key:
+            waiting = deferred_to(key, run_id)
+            if waiting:
+                return False, f"{reason}, but run {waiting} deferred tree {key[:12]} to this run; keeping it"
+        return stale, reason
     if ref in PROTECTED or ref.startswith("refs/heads/next-batch/"):
         return False, f"{ref} gates promotion; its runs are kept"
-    if ref.startswith(UNREVIEWED_PREFIXES):
+    if needs_open_pull_request(ref):
         # A moved branch is superseded whatever its pull requests say, so its
         # head (a free git read) goes first and the API lookups only follow
         # for a current head or a deleted branch.
@@ -243,12 +335,18 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--sha", required=True)
     parser.add_argument("--key", default="")
     parser.add_argument("--run-id", default="")
+    parser.add_argument("--trunk-tip-only", action="store_true",
+                        help="a feat-cmux-next push's first attempt is superseded once the branch moved")
+    parser.add_argument("--attempt", type=int, default=1, help="github.run_attempt")
+    parser.add_argument("--coalesce-base", default="",
+                        help="base-coalesce.yml's base output: set when this push is its window's one build")
     args = parser.parse_args(argv)
     if not re.fullmatch(r"[0-9a-f]{40}", args.sha) or (args.key and not re.fullmatch(r"[0-9a-f]{40}", args.key)):
         print("error: --sha and --key must be 40-hex", file=sys.stderr)
         return 2
     try:
-        stale, reason = verdict(args.event, args.ref, args.sha, args.key, args.run_id)
+        stale, reason = verdict(args.event, args.ref, args.sha, args.key, args.run_id,
+                                args.trunk_tip_only, args.attempt, args.coalesce_base)
     except (ApiError, KeyError) as error:
         stale, reason = False, f"could not tell ({error}); keeping the run"
         print(f"::warning title=superseded check::{reason}")

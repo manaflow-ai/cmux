@@ -24,7 +24,7 @@ extension BrowserFileImport {
         var failures: [String] = []
         let bookmarks = BookmarkFiles(services: services)
         for html in archive.bookmarksHTML {
-            if let failure = bookmarks.importHTML(html, profile: profile) { failures.append(failure.message) }
+            if let failure = await bookmarks.importHTML(html, profile: profile) { failures.append(failure.message) }
         }
         for json in archive.historyJSON {
             failures += await importHistory(json, from: url, profile: profile)
@@ -46,7 +46,7 @@ extension BrowserFileImport {
     }
 
     private func importHistory(_ json: Data, from url: URL, profile: String) async -> [String] {
-        guard let read = await Task.detached(operation: { ExportedHistory(json: json) }).value else {
+        guard let read = try? await services.browserDataReader.exportedHistory(json) else {
             return [BrowserFileImportStrings.notAnExport(url.lastPathComponent)]
         }
         let browser = ImportBrowser(rawValue: read.format == .safari ? "safari" : "chrome")

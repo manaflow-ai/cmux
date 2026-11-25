@@ -8,10 +8,10 @@
 // are its alternatives.
 import { useMemo } from "react";
 import { componentEntry } from "../../../gallery/format";
-import { mergeToolItem, textFromContent } from "../direct";
+import { mergeToolItem, textFromContent } from "../toolActivity";
 import { ImageViewerContext } from "./imageViewerContext";
 import type { McpCallRows as McpCallRowsComponent } from "./McpCallRows";
-import type { VideoFramesLayout, VideoFramesLayoutContext as LayoutContext } from "./VideoFramesCard";
+import type { VideoFramesLayout, VideoFramesLayoutContext as LayoutContext } from "./videoFramesCardModel";
 
 type Props = { layout: VideoFramesLayout; frames: number; named: boolean };
 
@@ -113,12 +113,12 @@ export default componentEntry<Props>({
   height: 420,
   covers: [
     "agent-session/acpmux/conversation/VideoFramesCard.tsx#VideoFramesCard",
-    "agent-session/acpmux/conversation/VideoFramesCard.tsx#VideoFramesLayoutContext",
+    "agent-session/acpmux/conversation/videoFramesCardModel.ts#VideoFramesLayoutContext",
   ],
   load: async () => {
     const [{ McpCallRows }, { VideoFramesLayoutContext }] = await Promise.all([
       import("./McpCallRows"),
-      import("./VideoFramesCard"),
+      import("./videoFramesCardModel"),
     ]);
     return galleryVideoFrames(McpCallRows, VideoFramesLayoutContext);
   },

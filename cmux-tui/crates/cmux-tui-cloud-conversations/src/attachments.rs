@@ -17,7 +17,7 @@ use cmux_json::JsonSet as _;
 pub const MAX_RANGE_BYTES: u64 = 4 * 1024 * 1024;
 
 /// The owner's `value` of an `{ok, value}` route reply (refusals as cloud errors).
-fn route_value(reply: super::service::HttpReply) -> Result<Value, CloudError> {
+pub(super) fn route_value(reply: super::service::HttpReply) -> Result<Value, CloudError> {
     mutation_data(reply).map(|mut data| data.get_mut("value").map(Value::take).unwrap_or_default())
 }
 
@@ -32,7 +32,11 @@ fn is_loopback(url: &url::Url) -> bool {
 /// A URL the owner returned: on the lease's origin when `same_origin`;
 /// otherwise `https` and not loopback (a presigned object URL), unless the
 /// lease itself is a loopback development Worker.
-fn transport_url(raw: &str, api_origin: &str, same_origin: bool) -> Result<url::Url, CloudError> {
+pub(super) fn transport_url(
+    raw: &str,
+    api_origin: &str,
+    same_origin: bool,
+) -> Result<url::Url, CloudError> {
     let bad = |why: &str| CloudError::Unavailable(format!("the owner returned {why}"));
     let url = url::Url::parse(raw).map_err(|_| bad("a malformed URL"))?;
     if url.origin().ascii_serialization() == api_origin {
@@ -60,6 +64,7 @@ impl CloudConversations {
         require_conversation(conversation)?;
         let mut body = declaration.clone();
         body.set("conversation", json!(conversation));
+        body.set("multipart", json!(true));
         route_value(self.post("/v1/home/attachments/intent", &body)?)
     }
 

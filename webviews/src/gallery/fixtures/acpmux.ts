@@ -225,7 +225,8 @@ export const CONTEXT_BREAKDOWN: AcpmuxContextBreakdown = {
     { id: "system_tools", name: "System tools", tokens: 14_800, kind: "used" },
     { id: "memory_files", name: "Memory files", tokens: 15_000, kind: "used" },
     { id: "skills", name: "Skills", tokens: 10_000, kind: "used" },
-    { id: "messages", name: "Messages", tokens: 120_900, kind: "used" },
+    { id: "mcp_tools", name: "MCP tools", tokens: 2_800, kind: "used" },
+    { id: "messages", name: "Messages", tokens: 118_100, kind: "used" },
     { id: "autocompact_buffer", name: "Autocompact buffer", tokens: 33_000, kind: "buffer" },
     { id: "free_space", name: "Free space", tokens: 195_600, kind: "free" },
     { id: "system_tools_deferred", name: "System tools (deferred)", tokens: 20_800, kind: "deferred" },
@@ -270,7 +271,8 @@ export function fleetPeers(): Pick<AcpmuxSnapshot, "peers" | "peerKinds" | "peer
   return {
     peers: names,
     peerKinds: by((name) => (name === "Cloud machine" ? "cloud" : "ssh")),
-    peerConnected: by((name) => state(name) === "connected" || state(name) === "degraded"),
+    // acpmux says connected only once the handshake finished: a degraded link is not (peer_link.rs).
+    peerConnected: by((name) => state(name) === "connected"),
     peerStates: by(state),
   };
 }

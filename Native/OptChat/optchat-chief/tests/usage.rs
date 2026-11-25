@@ -502,3 +502,506 @@ fn the_cli_reads_every_home_and_backfills_first() {
 
     assert!(usage::run(&["--by".into(), "nope".into()]).is_err());
 }
+
+#[test]
+fn credit_meter_preserves_identity_route_and_prompt_keys() {
+    let lines = fold_all(&[
+        json!({"ev":"turn.start", "turn":"t", "person":"user_alice", "team":"team_one", "chief":"chief_one", "harness":"native", "base_url":"https://coderouter.dev/v1"}),
+        turn_end(T0, "t", 0.1, 1, 3, 0, 2),
+        json!({"ev":"subagent.start", "id":"a1", "session":"s", "harness":"codex", "peer":"cloud-vm-1", "person":"user_alice", "chief":"chief_one"}),
+        json!({"ev":"subagent.answer", "id":"a1", "prompt_id":"p1", "ts":T0+1, "usage":{"input":1}}),
+        json!({"ev":"subagent.answer", "id":"a1", "prompt_id":"p2", "ts":T0+2, "usage":{"input":1}}),
+    ]);
+    let a = serde_json::to_value(&lines[0]).unwrap();
+    assert_eq!(a["person"], "user_alice");
+    assert_eq!(a["team"], "team_one");
+    assert_eq!(a["chief"], "chief_one");
+    assert_eq!(a["payer"], "platform");
+    assert_eq!(a["provider"], "cmux-router");
+    let sub = serde_json::to_value(&lines[1]).unwrap();
+    assert_eq!(sub["machine"], "cloud-vm-1");
+    assert_eq!(sub["harness"], "codex");
+    assert_eq!(sub["payer"], "own");
+    assert_ne!(lines[1].key, lines[2].key);
+}
+
+#[test]
+fn credit_export_and_person_summary_are_cli_json() {
+    let tmp = tempfile::tempdir().unwrap();
+    let home = tmp.path();
+    std::fs::write(home.join("chief-id"), "chief_one").unwrap();
+    let trace = Trace::open(&home.join("optchat/traces"), false).unwrap();
+    trace.emit("turn.end", json!({"turn":"k", "person":"user_alice", "team":"team_one", "chief":"chief_one", "harness":"claude", "model":"opus", "status":"ok", "cost_usd":0.1, "usage":{"input":2,"cache_read":3,"cache_write":4,"output":5}}));
+    let args = |extra: &[&str]| {
+        let mut a: Vec<String> = extra.iter().map(|s| (*s).into()).collect();
+        a.extend([
+            "--mux-home".into(),
+            home.display().to_string(),
+            "--since".into(),
+            "30d".into(),
+        ]);
+        a
+    };
+    let text = usage::run(&args(&["export", "--json", "--person", "user_alice"])).unwrap();
+    let row: Value = serde_json::from_str(text.trim()).unwrap();
+    assert_eq!(row["stack_user_id"], "user_alice");
+    assert_eq!(row["team_id"], "team_one");
+    assert_eq!(row["provider"], "anthropic");
+    assert_eq!(row["agent"], "claude");
+    assert_eq!(row["cached_input_tokens"], 3);
+    assert_eq!(row["input_tokens"], 9);
+    assert_eq!(row["output_tokens"], 5);
+    assert_eq!(row["total_tokens"], 14);
+    assert_eq!(row["api_equivalent_usd"], 0.1);
+    assert_eq!(row["request_id"], "chief:chief_one:turn:k");
+    assert!(chrono::DateTime::parse_from_rfc3339(row["event_time"].as_str().unwrap()).is_ok());
+    assert_eq!(usage::run(&args(&["export", "--json"])).unwrap(), text);
+    assert!(
+        usage::run(&args(&["export", "--person", "user_bob"]))
+            .unwrap()
+            .is_empty()
+    );
+    let summary: Value =
+        serde_json::from_str(&usage::run(&args(&["--by", "person", "--json"])).unwrap()).unwrap();
+    assert_eq!(summary["by_kind"], "person");
+    assert_eq!(summary["by"][0]["key"], "user_alice");
+}
+
+#[test]
+fn credit_meter_old_v1_and_secrets_do_not_leak() {
+    let old: Line =
+        serde_json::from_str(r#"{"v":1,"ts":1,"kind":"turn","key":"old","input":1}"#).unwrap();
+    assert!(serde_json::to_value(old).unwrap()["person"].is_null());
+    let tmp = tempfile::tempdir().unwrap();
+    let trace = Trace::open(&tmp.path().join("traces"), false).unwrap();
+    let secret = "sk-secret-do-not-record";
+    trace.emit("turn.end", json!({"turn":"t", "harness":"native", "base_url":format!("https://user:{secret}@coderouter.dev/v1?key={secret}"), "api_key":secret, "token":secret, "usage":{"input":1}}));
+    let lines = usage::read(&usage::dir(tmp.path()), 0, u64::MAX).unwrap();
+    assert_eq!(lines.len(), 1);
+    let written = std::fs::read_dir(usage::dir(tmp.path()))
+        .unwrap()
+        .flatten()
+        .find(|e| e.path().extension().is_some_and(|s| s == "jsonl"))
+        .unwrap();
+    let text = std::fs::read_to_string(written.path()).unwrap();
+    assert!(!text.contains(secret));
+    assert!(!text.contains("base_url"));
+    assert!(!text.contains("api_key"));
+    assert!(!text.contains("\"token\""));
+}
+
+#[test]
+fn credit_meter_payer_uses_harness_and_parsed_host() {
+    for (harness, base, payer, provider) in [
+        ("claude", "", "own", "anthropic"),
+        ("codex", "", "own", "openai"),
+        ("cmux", "", "platform", "cmux-router"),
+        (
+            "native",
+            "https://coderouter.dev/v1",
+            "platform",
+            "cmux-router",
+        ),
+        ("native", "https://api.anthropic.com", "own", "anthropic"),
+        (
+            "native",
+            "https://api.deepinfra.com/v1/openai",
+            "own",
+            "deepinfra",
+        ),
+        (
+            "native",
+            "https://coderouter.dev.evil.test/v1",
+            "own",
+            "unknown",
+        ),
+        (
+            "claude",
+            "https://coderouter.dev",
+            "platform",
+            "cmux-router",
+        ),
+    ] {
+        let line =
+            fold_all(&[json!({"ev":"turn.end","turn":"t","harness":harness,"base_url":base})])
+                .pop()
+                .unwrap();
+        let row = serde_json::to_value(line).unwrap();
+        assert_eq!(row["payer"], payer, "{harness} {base}");
+        assert_eq!(row["provider"], provider, "{harness} {base}");
+    }
+}
+
+#[test]
+fn credit_backfill_preserves_unknown_people_and_existing_month_bytes() {
+    let tmp = tempfile::tempdir().unwrap();
+    let home = tmp.path();
+    let root = home.join("optchat");
+    let trace = Trace::open(&root.join("traces"), false).unwrap();
+    trace.emit(
+        "usage.identity",
+        json!({"person":"user_owner", "chief":"chief_one"}),
+    );
+    trace.emit("turn.end", json!({"turn":"old", "harness":"claude"}));
+    trace.emit(
+        "turn.end",
+        json!({"turn":"other", "person":"user_other", "harness":"claude"}),
+    );
+    // Simulate a pre-identity line in a private month file.
+    let file = std::fs::read_dir(usage::dir(&root))
+        .unwrap()
+        .flatten()
+        .find(|e| e.path().extension().is_some_and(|s| s == "jsonl"))
+        .unwrap()
+        .path();
+    let text = std::fs::read_to_string(&file).unwrap();
+    let mut rows: Vec<Value> = text
+        .lines()
+        .map(|s| serde_json::from_str(s).unwrap())
+        .collect();
+    rows[0].as_object_mut().unwrap().remove("person");
+    std::fs::write(
+        &file,
+        rows.iter().map(|r| format!("{r}\n")).collect::<String>(),
+    )
+    .unwrap();
+    let before = std::fs::read(&file).unwrap();
+    usage::run(&[
+        "backfill".into(),
+        "--mux-home".into(),
+        home.display().to_string(),
+    ])
+    .unwrap();
+    let rows = usage::read(&usage::dir(&root), 0, u64::MAX).unwrap();
+    assert_eq!(
+        serde_json::to_value(&rows[0]).unwrap()["person"],
+        Value::Null
+    );
+    assert_eq!(
+        serde_json::to_value(&rows[1]).unwrap()["person"],
+        "user_other"
+    );
+    assert_eq!(std::fs::read(&file).unwrap(), before);
+}
+
+#[test]
+fn credit_meter_multiplayer_keeps_queued_spawn_owner_and_machine() {
+    let rows = fold_all(&[
+        json!({"ev":"usage.identity", "person":"user_owner", "chief":"chief_one"}),
+        json!({"ev":"usage.message", "id":"m1", "person":"user_guest"}),
+        json!({"ev":"turn.start", "turn":"t1", "message_keys":["m1"], "harness":"claude"}),
+        json!({"ev":"spawn", "ids":["a1","a2"], "peers":[null,"vm-one"], "harness":"codex"}),
+        turn_end(T0, "t1", 0.1, 1, 0, 0, 2),
+        json!({"ev":"turn.start", "turn":"t2", "harness":"claude"}),
+        json!({"ev":"subagent.start", "id":"a2", "session":"s2", "harness":"codex", "peer":"vm-one"}),
+        answer(T0 + 1, "a2", 0.1),
+        turn_end(T0 + 2, "t2", 0.1, 1, 0, 0, 2),
+    ]);
+    let rows: Vec<Value> = rows
+        .iter()
+        .map(|r| serde_json::to_value(r).unwrap())
+        .collect();
+    assert_eq!(rows[0]["person"], "user_guest");
+    assert_eq!(rows[1]["person"], "user_guest");
+    assert_eq!(rows[1]["machine"], "vm-one");
+    assert_eq!(rows[2]["person"], "user_owner");
+}
+
+#[test]
+fn credit_meter_native_route_does_not_change_harness_subscriptions() {
+    let rows = fold_all(&[
+        json!({"ev":"usage.native_route", "payer":"platform", "provider":"cmux-router"}),
+        json!({"ev":"turn.start", "turn":"native", "harness":"native"}),
+        json!({"ev":"turn.end", "turn":"native", "usage":{"input":1}}),
+        json!({"ev":"turn.start", "turn":"own", "harness":"claude"}),
+        json!({"ev":"turn.end", "turn":"own", "usage":{"input":1}}),
+    ]);
+    assert_eq!(serde_json::to_value(&rows[0]).unwrap()["payer"], "platform");
+    assert_eq!(serde_json::to_value(&rows[1]).unwrap()["payer"], "own");
+}
+
+#[test]
+fn credit_meter_cli_backfill_never_copies_credential_environment() {
+    let tmp = tempfile::tempdir().unwrap();
+    let root = tmp.path().join("optchat");
+    let ts = chrono::Utc::now().timestamp_millis() as u64;
+    write_trace(
+        &root.join("traces"),
+        "2026-11-03",
+        &[json!({"ev":"turn.end", "ts":ts, "turn":"t", "harness":"claude", "usage":{"input":1}})],
+    );
+    let secret = "sk-test-env-token-not-for-the-ledger";
+    let out = std::process::Command::new(env!("CARGO_BIN_EXE_optchat-chief"))
+        .args([
+            "usage",
+            "backfill",
+            "--mux-home",
+            tmp.path().to_str().unwrap(),
+        ])
+        .env("ANTHROPIC_API_KEY", secret)
+        .env("OPENAI_API_KEY", secret)
+        .env("CMUX_CLOUD_SESSION_TOKEN", secret)
+        .output()
+        .unwrap();
+    assert!(
+        out.status.success(),
+        "{}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let lines = usage::read(&usage::dir(&root), 0, u64::MAX).unwrap();
+    assert_eq!(lines.len(), 1);
+    for entry in std::fs::read_dir(usage::dir(&root)).unwrap().flatten() {
+        if entry.path().extension().is_some_and(|s| s == "jsonl") {
+            assert!(
+                !std::fs::read_to_string(entry.path())
+                    .unwrap()
+                    .contains(secret)
+            );
+        }
+    }
+}
+
+#[test]
+fn credit_meter_resumed_subagent_keeps_the_original_person_and_route() {
+    let tmp = tempfile::tempdir().unwrap();
+    let path = tmp.path().join("traces");
+    {
+        let trace = Trace::open(&path, false).unwrap();
+        trace.emit("usage.identity", json!({"person":"user_owner"}));
+        trace.emit(
+            "subagent.start",
+            json!({"id":"a1","session":"s1","person":"user_guest","harness":"cmux","peer":"vm1"}),
+        );
+        trace.emit(
+            "subagent.answer",
+            json!({"id":"a1","cost_usd":1.0,"usage":{"input":1}}),
+        );
+        trace.emit("subagent.answer", json!({"id":"a1","usage":{"input":1}}));
+    }
+    let trace = Trace::open(&path, false).unwrap();
+    trace.emit("usage.identity", json!({"person":"user_owner"}));
+    trace.emit(
+        "subagent.answer",
+        json!({"id":"a1","cost_usd":2.0,"usage":{"input":1}}),
+    );
+    let rows = usage::read(&usage::dir(tmp.path()), 0, u64::MAX).unwrap();
+    let row = serde_json::to_value(rows.last().unwrap()).unwrap();
+    assert_eq!(row["person"], "user_guest");
+    assert_eq!(row["harness"], "cmux");
+    assert_eq!(row["payer"], "platform");
+    assert_eq!(row["machine"], "vm1");
+    assert_eq!(row["usd"], 1.0);
+}
+
+#[test]
+fn legacy_resumed_subagent_never_inherits_the_current_owner() {
+    let tmp = tempfile::tempdir().unwrap();
+    let dir = usage::dir(tmp.path());
+    std::fs::create_dir_all(&dir).unwrap();
+    std::fs::write(
+        dir.join("2026-10.jsonl"),
+        format!(
+            "{}\n",
+            json!({"v":1,"ts":T0,"kind":"subagent","key":"old","agent":"a1","harness":"cmux","usd_cum":1.0})
+        ),
+    )
+    .unwrap();
+    let ledger = usage::Ledger::open(&dir).unwrap();
+    ledger.observe(&json!({"ev":"usage.identity","person":"account-owner"}));
+    ledger.observe(&answer(T0 + 1, "a1", 2.0));
+    let rows = usage::read(&dir, 0, u64::MAX).unwrap();
+    let line = rows.last().unwrap();
+    assert_eq!(line.person.as_deref(), Some("unknown"));
+    assert_eq!(line.usd, Some(1.0));
+    let chief = Chief {
+        id: "c".into(),
+        label: "Chief".into(),
+        home: "/h".into(),
+    };
+    let row = usage::export_row(&chief, line);
+    assert_eq!(row["stack_user_id"], "unknown");
+    assert_eq!(row["billable"], false);
+}
+
+#[test]
+fn credit_backfill_history_does_not_lock_out_live_turns() {
+    let tmp = tempfile::tempdir().unwrap();
+    let traces = tmp.path().join("traces");
+    let trace = Trace::open(&traces, false).unwrap();
+    let fifo = traces.join("2026-11-03.jsonl");
+    assert!(
+        std::process::Command::new("mkfifo")
+            .arg(&fifo)
+            .status()
+            .unwrap()
+            .success()
+    );
+    let root = tmp.path().to_owned();
+    let backfill = std::thread::spawn(move || usage::backfill(&root, false));
+    // Opening the writer proves backfill is now blocked reading history.
+    let writer = std::fs::OpenOptions::new().write(true).open(&fifo).unwrap();
+    let (sent, received) = std::sync::mpsc::channel();
+    // Use a separate trace date file, so the test's live event cannot write
+    // into the historical FIFO itself.
+    let live = usage::Ledger::open(&usage::dir(tmp.path())).unwrap();
+    let thread = std::thread::spawn(move || {
+        live.observe(&json!({"ev":"turn.end","ts":T0,"turn":"live","usage":{"input":1}}));
+        sent.send(()).unwrap();
+    });
+    let responsive = received
+        .recv_timeout(std::time::Duration::from_secs(2))
+        .is_ok();
+    drop(writer);
+    backfill.join().unwrap().unwrap();
+    thread.join().unwrap();
+    drop(trace);
+    assert!(responsive, "historical scanning blocked a live Chief event");
+}
+
+#[test]
+fn unresolved_accounts_are_unknown_and_never_billable() {
+    for person in [
+        None,
+        Some("user_local"),
+        Some("remote_install"),
+        Some("unknown"),
+        Some(""),
+    ] {
+        let line = fold_all(&[json!({"ev":"turn.end", "turn":"t", "person":person, "harness":"cmux", "usage":{"input":1}})]).pop().unwrap();
+        assert_eq!(serde_json::to_value(&line).unwrap()["person"], "unknown");
+        let chief = Chief {
+            id: "c".into(),
+            label: "Chief".into(),
+            home: "/h".into(),
+        };
+        let row = usage::export_row(&chief, &line);
+        assert_eq!(row["stack_user_id"], "unknown");
+        assert_eq!(row["billable"], false);
+    }
+    let chief = Chief {
+        id: "c".into(),
+        label: "Chief".into(),
+        home: "/h".into(),
+    };
+    let legacy: Line = serde_json::from_str(r#"{"v":1,"kind":"turn","key":"old"}"#).unwrap();
+    assert_eq!(usage::export_row(&chief, &legacy)["billable"], false);
+    let line =
+        fold_all(&[json!({"ev":"turn.end", "turn":"t", "person":"account-id", "harness":"cmux"})])
+            .pop()
+            .unwrap();
+    assert_eq!(usage::export_row(&chief, &line)["billable"], true);
+}
+
+#[test]
+fn legacy_export_ids_are_scoped_to_each_chief_home() {
+    let a = tempfile::tempdir().unwrap();
+    let b = tempfile::tempdir().unwrap();
+    let line: Line =
+        serde_json::from_value(json!({"v":1,"kind":"compactor","key":"5236+4"})).unwrap();
+    let chief = |home: &Path| Chief {
+        id: "default".into(),
+        label: "Chief".into(),
+        home: home.display().to_string(),
+    };
+    let first = usage::export_row(&chief(a.path()), &line);
+    let again = usage::export_row(&chief(a.path()), &line);
+    let other = usage::export_row(&chief(b.path()), &line);
+    assert_eq!(first["request_id"], again["request_id"]);
+    assert_ne!(first["request_id"], other["request_id"]);
+}
+
+#[test]
+fn compactor_probe_and_description_exports_are_unique_per_unit() {
+    let chief = Chief {
+        id: "c".into(),
+        label: "Chief".into(),
+        home: "/h".into(),
+    };
+    for key in ["probe", "describe", "5236+4"] {
+        let a: Line =
+            serde_json::from_value(json!({"v":1,"kind":"compactor","key":key,"ts":1})).unwrap();
+        let b = Line { ts: 2, ..a.clone() };
+        assert_eq!(usage::export_row(&chief, &a), usage::export_row(&chief, &a));
+        assert_ne!(
+            usage::export_row(&chief, &a)["request_id"],
+            usage::export_row(&chief, &b)["request_id"]
+        );
+    }
+}
+
+#[test]
+fn concurrent_compactor_units_keep_their_trace_unit_keys() {
+    let rows = fold_all(&[
+        json!({"ev":"node","ts":T0,"node":"describe","usage_key":"node1:session1","usage":{"input":1}}),
+        json!({"ev":"node","ts":T0,"node":"describe","usage_key":"node2:session2","usage":{"input":1}}),
+    ]);
+    assert_ne!(rows[0].key, rows[1].key);
+    let chief = Chief {
+        id: "c".into(),
+        label: "Chief".into(),
+        home: "/h".into(),
+    };
+    assert_ne!(
+        usage::export_row(&chief, &rows[0])["request_id"],
+        usage::export_row(&chief, &rows[1])["request_id"]
+    );
+}
+
+#[test]
+fn unknown_message_sender_never_falls_back_to_the_owner() {
+    for person in [Value::Null, json!("user_local"), json!("remote_install")] {
+        let rows = fold_all(&[
+            json!({"ev":"usage.identity","person":"account-owner"}),
+            json!({"ev":"usage.message","id":"first","person":person}),
+            json!({"ev":"usage.message","id":"later","person":"account-guest"}),
+            json!({"ev":"turn.start","turn":"t","message_keys":["first","later"],"harness":"cmux"}),
+            json!({"ev":"spawn","ids":["a1"],"harness":"cmux"}),
+            json!({"ev":"turn.end","turn":"t"}),
+            json!({"ev":"subagent.answer","id":"a1","usage":{"input":1}}),
+        ]);
+        for line in rows {
+            assert_eq!(serde_json::to_value(line).unwrap()["person"], "unknown");
+        }
+    }
+    let row = fold_all(&[
+        json!({"ev":"usage.identity","person":"account-owner"}),
+        json!({"ev":"turn.start","turn":"t","message_keys":["unseen"],"harness":"cmux"}),
+        json!({"ev":"turn.end","turn":"t"}),
+    ])
+    .pop()
+    .unwrap();
+    assert_eq!(serde_json::to_value(row).unwrap()["person"], "unknown");
+}
+
+#[test]
+fn legacy_native_payer_is_unknown_and_current_identity_cannot_backfill_history() {
+    let chief = Chief {
+        id: "c".into(),
+        label: "Chief".into(),
+        home: "/h".into(),
+    };
+    let line: Line = serde_json::from_value(
+        json!({"v":1,"kind":"turn","key":"t","harness":"native","person":"account-owner"}),
+    )
+    .unwrap();
+    let row = usage::export_row(&chief, &line);
+    assert_eq!(row["payer"], "unknown");
+    assert_eq!(row["billable"], false);
+    let tmp = tempfile::tempdir().unwrap();
+    std::fs::create_dir_all(usage::dir(tmp.path())).unwrap();
+    std::fs::write(
+        usage::dir(tmp.path()).join("identity.json"),
+        r#"{"person":"current-owner"}"#,
+    )
+    .unwrap();
+    write_trace(
+        &tmp.path().join("traces"),
+        "2026-10-18",
+        &[turn_end(T0, "old", 0.1, 1, 0, 0, 1)],
+    );
+    usage::backfill(tmp.path(), false).unwrap();
+    let rows = usage::read(&usage::dir(tmp.path()), 0, u64::MAX).unwrap();
+    assert_eq!(rows.len(), 1);
+    assert_eq!(serde_json::to_value(&rows[0]).unwrap()["person"], "unknown");
+    assert_eq!(usage::export_row(&chief, &rows[0])["billable"], false);
+}

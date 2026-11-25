@@ -13,7 +13,8 @@ pub mod security {
     pub const APPLE_DH: u8 = 30;
 }
 
-/// VeNCrypt subtypes this client can finish without TLS.
+/// VeNCrypt subtypes: None and VNC can be used over RFB. Plain is recognized
+/// only to report an explicit refusal: its account password requires TLS.
 pub mod vencrypt {
     pub const NONE: u32 = 1;
     pub const VNC: u32 = 2;
@@ -72,77 +73,25 @@ pub fn choose_vencrypt(offered: &[u32], credentials: &Credentials) -> Result<u32
     if offered.contains(&vencrypt::NONE) {
         return Ok(vencrypt::NONE);
     }
-    let (user, pass) = (credentials.username.is_some(), credentials.password.is_some());
-    if offered.contains(&vencrypt::PLAIN) && user && pass {
-        return Ok(vencrypt::PLAIN);
-    }
+    let pass = credentials.password.is_some();
+    // This client has no TLS transport. VeNCrypt Plain puts the full user name and
+    // reusable password on the wire; never select it, including when offered beside VNC.
     if offered.contains(&vencrypt::VNC) && pass {
         return Ok(vencrypt::VNC);
-    }
-    if offered.contains(&vencrypt::PLAIN) {
-        return Err(crate::VncError::CredentialsRequired { username: true });
     }
     if offered.contains(&vencrypt::VNC) {
         return Err(crate::VncError::CredentialsRequired { username: false });
     }
+    if offered.contains(&vencrypt::PLAIN) {
+        return Err(crate::VncError::Protocol(
+            "VeNCrypt Plain would send your account password without encryption; the server must offer VNC authentication or a TLS-protected method".into(),
+        ));
+    }
     Err(crate::VncError::Protocol(format!(
-        "VeNCrypt offers only TLS subtypes {offered:?}; allow VncAuth or None on the server"
+        "VeNCrypt offers only unsupported TLS subtypes {offered:?}; configure VncAuth or None on the server"
     )))
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::VncError;
-
-    fn creds(user: Option<&str>, pass: Option<&str>) -> Credentials {
-        Credentials { username: user.map(Into::into), password: pass.map(Into::into) }
-    }
-
-    #[test]
-    fn choice_per_guest_os() {
-        // Linux devbox (TigerVNC, SecurityTypes None).
-        assert_eq!(choose(&[1], &creds(None, None)).unwrap(), 1);
-        // macOS Screen Sharing.
-        assert_eq!(choose(&[30, 33, 36, 35], &creds(Some("me"), Some("pw"))).unwrap(), 30);
-        assert!(matches!(
-            choose(&[30, 33, 36, 35], &creds(None, Some("pw"))),
-            Err(VncError::CredentialsRequired { username: true })
-        ));
-        // macOS with "VNC viewers may control screen with password".
-        assert_eq!(choose(&[30, 2], &creds(None, Some("pw"))).unwrap(), 2);
-        // Windows TightVNC / UltraVNC.
-        assert_eq!(choose(&[2], &creds(None, Some("pw"))).unwrap(), 2);
-        assert!(matches!(
-            choose(&[2], &creds(None, None)),
-            Err(VncError::CredentialsRequired { username: false })
-        ));
-        // RealVNC with only its own RA2 types.
-        assert!(matches!(
-            choose(&[5, 6], &creds(None, None)),
-            Err(VncError::UnsupportedSecurity(_))
-        ));
-        // TigerVNC default: VeNCrypt.
-        assert_eq!(choose(&[19, 2], &creds(None, None)).unwrap(), 19);
-    }
-
-    #[test]
-    fn vencrypt_refuses_tls_only() {
-        assert_eq!(choose_vencrypt(&[257, 2], &creds(None, Some("p"))).unwrap(), 2);
-        assert_eq!(choose_vencrypt(&[256], &creds(Some("u"), Some("p"))).unwrap(), 256);
-        assert!(matches!(
-            choose_vencrypt(&[257, 258, 262], &creds(None, None)),
-            Err(VncError::Protocol(_))
-        ));
-        assert!(matches!(
-            choose_vencrypt(&[2], &creds(None, None)),
-            Err(VncError::CredentialsRequired { username: false })
-        ));
-    }
-
-    #[test]
-    fn debug_never_prints_the_password() {
-        let text = format!("{:?}", creds(Some("u"), Some("secret")));
-        assert!(!text.contains("secret"));
-    }
-}
+#[path = "tests.rs"]
+mod tests;

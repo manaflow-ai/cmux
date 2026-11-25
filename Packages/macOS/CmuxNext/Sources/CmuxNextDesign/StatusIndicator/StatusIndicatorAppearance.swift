@@ -26,7 +26,8 @@ public nonisolated struct StatusIndicatorConfig: Hashable, Sendable {
     public var pulsePeriod: Double?
     /// The terminal font the braille style draws in (`terminal.fontFamily`).
     public var terminalFontFamily: String?
-    /// The status icon set (Debug Settings `status.iconSet`, cx-kxa2).
+    /// The status icon set (`appearance.statusIndicator.iconSet`, or the Debug Settings
+    /// `status.iconSet` override, cx-kxa2).
     public var iconSet: StatusIconSet
     /// System Reduce Motion (or its test override).
     public var reduceMotion: Bool
@@ -85,7 +86,7 @@ public nonisolated struct StatusIndicatorConfig: Hashable, Sendable {
             spinnerPeriod: Motion.indicators.period(.spinner),
             pulsePeriod: Motion.indicators.period(.pulse),
             terminalFontFamily: DesignSettings.shared.terminalFontFamily,
-            iconSet: StatusIconSet.tunable.value,
+            iconSet: StatusIconSet.resolved(setting: DesignSettings.shared.statusIndicator.iconSet),
             reduceMotion: Motion.reduceMotion,
             staticShapes: StatusIndicatorPlan.staticShapes.value,
             workingLook: StatusWorkingLook.tunable.value)
@@ -121,11 +122,21 @@ public final class StatusIndicatorAppearance {
     private var reduceMotionObserver: MainActorObservation?
     private var reduceMotionOverrideObserver: (any NSObjectProtocol)?
     private var resyncObservers: [MainActorObservation] = []
+    /// Makes the view that plays a row's particles glyph (``SidebarRowGlyphPlayer``); the app layer
+    /// sets it. Unset, rows keep their loading indicator.
+    public var glyphPlayer: (@MainActor () -> any SidebarRowGlyphPlayer)?
+    /// The look's thinking glyph (`agentPane.display.thinking.glyph`) as compact JSON, which
+    /// `indicator: "glyph"` plays; the app layer sets it from the settings. Nil while none is set.
+    public var lookGlyph: @MainActor () -> String? = { nil }
 
     /// - Parameters:
     ///   - appCenter: Where the app and window notices arrive (tests post to their own).
     ///   - workspaceCenter: Where the wake notices arrive.
-    init(appCenter: NotificationCenter = .default, workspaceCenter: NotificationCenter = NSWorkspace.shared.notificationCenter) {
+    ///   - endOfTurn: runs a block at the end of this main run loop turn (``resync()``'s once-per-turn mark; tests end
+    ///     the turn themselves).
+    init(appCenter: NotificationCenter = .default, workspaceCenter: NotificationCenter = NSWorkspace.shared.notificationCenter,
+         endOfTurn: @escaping @MainActor (_ block: @escaping @MainActor () -> Void) -> Void = { MainRunLoopBlock.perform($0) }) {
+        self.endOfTurn = endOfTurn
         config = StatusIndicatorConfig.current
         startObserving()
         // Reduce Motion is not observable through Observation.
@@ -158,8 +169,17 @@ public final class StatusIndicatorAppearance {
         }
     }
 
-    /// Tells every client to check its indicator again (`statusIndicatorResync`).
-    public func resync() {
+    /// A resync ran in this main run loop turn: the turn's other moments are the same moment.
+    private var resyncedThisTurn = false
+    private let endOfTurn: @MainActor (_ block: @escaping @MainActor () -> Void) -> Void
+
+    /// Tells every client to check its indicator again (`statusIndicatorResync`), once per main run loop turn: one
+    /// Cmd-Tab posts both `didBecomeActive` and `didBecomeMain`, and each walked every indicator of the session (HOT
+    /// PATH AUDIT frames, cmd-tab). The first moment of a turn runs at once, so nothing waits.
+    public func resync() { // perf-hot: 0.5ms cmd-tab (every app activation; once per turn)
+        guard !resyncedThisTurn else { return }
+        resyncedThisTurn = true
+        endOfTurn { [weak self] in self?.resyncedThisTurn = false }
         for case let client as any StatusIndicatorConfigClient in clients.allObjects {
             client.statusIndicatorResync()
         }

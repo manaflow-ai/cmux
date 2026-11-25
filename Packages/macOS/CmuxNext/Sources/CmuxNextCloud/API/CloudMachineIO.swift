@@ -1,6 +1,7 @@
 public import CmuxNextWakeups
 public import Foundation
 import CmuxNextCompat
+import CmuxNextDaemon
 import Darwin
 
 /// A Worker machine's exec and file routes through the bundled cmux-tui (`cmux cloud machine-io`,
@@ -33,13 +34,21 @@ public struct CloudMachineIO: Sendable {
         self.work = work
     }
 
-    /// The app's: the bundled cmux at `bundleResources/bin/cmux` and its client sessions in `cloudRoot/client-sessions`.
+    /// The app's: the bundled cmux at `bundleResources/bin/cmux` (or the cmux-tui built from source that
+    /// `environment`'s `CMUX_NEXT_TUI_BIN` names) and its client sessions in `cloudRoot/client-sessions`.
     /// It touches no file (the Cloud service makes it on the main thread at start): whether that cmux is there is
     /// asked by the first call's probe, off the main thread (``speaksMachineIO()``), and a build without it sends every
     /// call over HTTP.
-    public init?(bundleResources: URL?, cloudRoot: URL, work: BackgroundWork) {
-        guard let resources = bundleResources else { return nil }
-        self.init(binary: resources.appendingPathComponent("bin/cmux"),
+    public init?(bundleResources: URL?, cloudRoot: URL, work: BackgroundWork,
+                 environment: [String: String] = ProcessInfo.processInfo.environment) {
+        let binary: URL
+        if let override = environment[DaemonLauncher.binaryOverrideKey], !override.isEmpty {
+            binary = URL(fileURLWithPath: override)
+        } else {
+            guard let resources = bundleResources else { return nil }
+            binary = resources.appendingPathComponent("bin/cmux")
+        }
+        self.init(binary: binary,
                   cacheDirectory: cloudRoot.appendingPathComponent("client-sessions", isDirectory: true), work: work)
     }
 
@@ -84,6 +93,12 @@ public struct CloudMachineIO: Sendable {
         guard route == "direct" || route == "proxy" else { throw NoAnswer(dispatched: route != "none") }
         let body = object["body"].flatMap { $0 is NSNull ? nil : try? JSONSerialization.data(withJSONObject: $0, options: .fragmentsAllowed) }
         return Answer(status: status, code: object["code"] as? String, body: body ?? Data(), route: route)
+    }
+
+    /// One `cmux cloud api` call (cmux-tui `cli/cloud_api.rs`): `input` (the request JSON) on the child's stdin,
+    /// its stdout back (one answer line). Throws ``NoAnswer`` as ``run(_:arguments:stdin:timeout:work:)`` does.
+    @concurrent func cloudAPI(_ input: Data, timeout: Duration) async throws -> Data {
+        try await Self.run(binary, arguments: ["cloud", "api"], stdin: input, timeout: timeout, work: work)
     }
 
     /// Whether this binary has `cloud machine-io`: an empty request makes one that does answer
@@ -161,6 +176,7 @@ public struct CloudMachineIO: Sendable {
                 // while it is written, and the write blocks only that thread. It ends when the child has read it all
                 // or closed its stdin (EPIPE, never SIGPIPE), which a kill at the deadline or a cancel also does.
                 let feeder = Thread {
+                    // concurrency-allow: on its own feeder thread after launch; a kill at the deadline or a cancel ends it (EPIPE)
                     try? writer.write(contentsOf: stdin)
                     try? writer.close()
                 }
@@ -203,6 +219,7 @@ private final class Child: Sendable {
             if state.killed { return false }
             state.process.terminationHandler = { exited($0.terminationStatus) }
             do {
+                OpenDescriptors.noteBudgetSoon()  // every child launch: a leak shows in the log as it passes the bound
                 try state.process.run()
             } catch {
                 state.process.terminationHandler = nil
@@ -241,5 +258,60 @@ private struct TemporaryOutput: Sendable {
     func contents() -> Data {
         // concurrency-allow: a local temp file read once after the child exited, on the BackgroundWork files lane (run)
         (try? handle.seek(toOffset: 0)).flatMap { _ in try? handle.blockingReadToEnd() } ?? Data()
+    }
+}
+
+// MARK: CloudDaemon transport
+
+/// ``CloudDaemon``'s one transport: each call is one `cmux cloud api` child run through ``CloudMachineIO``.
+extension CloudDaemon {
+    /// `cloud.<call>` with `args`: answers its body as JSON, or throws its failure as a ``CloudAPIError``.
+    /// No bundled cmux is `transport` ("cmux is not available"); there is no HTTP fallback. `timeout` bounds the
+    /// child (a child past it is killed: `timedOut`, since the call may have run).
+    func daemon(_ call: String, _ args: [String: any Sendable], timeout: Duration) async throws -> Data {
+        let run: @Sendable (Data, Duration) async throws -> Data
+        if let daemonCall {
+            run = daemonCall
+        } else if let machineIO {
+            run = { input, timeout in try await machineIO.cloudAPI(input, timeout: timeout) }
+        } else {
+            throw CloudAPIError.transport("cmux is not available")
+        }
+        let access: String
+        do { access = try await tokens().access } catch { throw CloudAPIError.notSignedIn }
+        var request: [String: any Sendable] = ["call": call, "api": baseURL.absoluteString, "auth": "owner", "credential": access,
+                                               "app_version": appVersion, "args": args]
+        if let team = await teamID() { request["team"] = team }
+        let output: Data
+        do {
+            output = try await run(try JSONSerialization.data(withJSONObject: request), timeout)
+        } catch let noAnswer as CloudMachineIO.NoAnswer {
+            // Never started: nothing ran. Started and then killed or crashed: the call may have run.
+            if noAnswer.dispatched { throw CloudAPIError.timedOut("cloud.\(call)") }
+            throw CloudAPIError.transport("cmux is not available")
+        }
+        guard let line = output.split(separator: UInt8(ascii: "\n")).last(where: { !$0.isEmpty }),
+              let object = (try? JSONSerialization.jsonObject(with: Data(line))) as? [String: Any] else {
+            throw CloudAPIError.transport("cmux did not answer cloud.\(call)")
+        }
+        guard object["ok"] as? Bool == true else { throw Self.daemonFailure(object["error"] as? [String: Any] ?? [:], call: call, baseURL: baseURL) }
+        return try JSONSerialization.data(withJSONObject: object["body"] ?? NSNull(), options: .fragmentsAllowed)
+    }
+
+    /// `cmux_cloud_api`'s `Failure` JSON (`kind` and its fields) as the ``CloudAPIError`` case it names.
+    static func daemonFailure(_ error: [String: Any], call: String, baseURL: URL) -> CloudAPIError {
+        func text(_ name: String) -> String? { (error[name] as? String).flatMap { $0.isEmpty ? nil : $0 } }
+        switch text("kind") {
+        case "timed_out": return .timedOut(text("path") ?? "cloud.\(call)")
+        case "transport": return .transport(text("message") ?? "cmux did not answer cloud.\(call)")
+        case "no_backend": return .noBackend(baseURL)
+        case "http":
+            guard let status = error["status"] as? Int else { return .decoding("cloud.\(call): no status") }
+            return .http(status: status, code: text("code"), message: text("message"), action: text("action"), traceId: text("trace_id"))
+        case "plan_required":
+            return .planRequired(message: text("message"), upgradeURL: text("upgrade_url").flatMap { URL(string: $0) }, plan: text("plan") ?? "pro")
+        case "decoding": return .decoding(text("message") ?? "cloud.\(call)")
+        default: return .decoding("cloud.\(call): unreadable failure")
+        }
     }
 }

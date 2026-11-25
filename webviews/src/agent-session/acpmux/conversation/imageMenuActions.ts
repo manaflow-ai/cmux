@@ -4,7 +4,7 @@
 // keeps a named copy and acts on it (AgentPaneImageCopies.swift), so the pasteboard, the saved file
 // and Finder all get a real file. The user, 2026-10-21: "right click any image/video etc 'copy'".
 import { postNative } from "../native";
-import { dataUrl } from "./ImageViewer";
+import { dataUrl } from "./imageViewerModel";
 import { takeReportedPicture } from "./messageMenu";
 
 export type ReportedImageMethod = "image.copy" | "image.save" | "image.quickLook" | "image.reveal";

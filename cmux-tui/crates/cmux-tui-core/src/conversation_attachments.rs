@@ -44,6 +44,8 @@ pub(crate) const ATTACHMENTS_DIRECTORY: &str = "attachments";
 /// 5.6 MiB of base64, well inside a 16 MiB request line.
 pub(crate) const MAX_CHUNK_BYTES: usize = 4 * 1024 * 1024;
 /// Uploads open at once across every connection.
+/// Measured: open file descriptors; each upload holds one partial file per piece (original,
+/// poster, preview), so 32 uploads hold at most 96 fds.
 const MAX_UPLOADS: usize = 32;
 /// An upload not committed within this time is dropped.
 const UPLOAD_TTL: Duration = Duration::from_secs(15 * 60);
@@ -323,6 +325,28 @@ impl Attachments {
         Ok(())
     }
 
+    /// Stores bytes the owner made itself (a spilled message, `conversation_spill`)
+    /// under their SHA-256, through the same partial-then-rename path as an
+    /// upload. A hash already stored keeps its bytes.
+    pub(crate) fn store_bytes(&mut self, hash: &str, bytes: &[u8]) -> anyhow::Result<()> {
+        if self.has_blob(hash) {
+            return Ok(());
+        }
+        let mut sink = self.new_sink(&new_upload_id()?, Piece::Original)?;
+        match &mut sink {
+            Sink::File { file, .. } => file.write_all(bytes)?,
+            Sink::Memory(buffer) => buffer.extend_from_slice(bytes),
+        }
+        self.store_piece(PendingPiece {
+            piece: Piece::Original,
+            hash: hash.to_owned(),
+            byte_count: bytes.len() as u64,
+            received: bytes.len() as u64,
+            hasher: Sha256::new(),
+            sink,
+        })
+    }
+
     fn drop_upload(upload: Upload) {
         for piece in upload.pieces {
             if let Sink::File { path, file } = piece.sink {
@@ -452,10 +476,14 @@ fn load_record(
     }))
 }
 
+/// Whether a sent message here references `hash`. A Send Later message's
+/// references (`sch_` ids, conversation_scheduled.rs) keep the bytes from the
+/// sweep but share nothing: until it is sent, only its author may use them.
 fn referenced(connection: &Connection, conversation: &str, hash: &str) -> anyhow::Result<bool> {
     Ok(connection
         .query_row(
-            "SELECT 1 FROM attachment_ref WHERE conversation = ?1 AND hash = ?2 LIMIT 1",
+            "SELECT 1 FROM attachment_ref WHERE conversation = ?1 AND hash = ?2
+               AND message_id NOT LIKE 'sch\\_%' ESCAPE '\\' LIMIT 1",
             params![conversation, hash],
             |_| Ok(()),
         )

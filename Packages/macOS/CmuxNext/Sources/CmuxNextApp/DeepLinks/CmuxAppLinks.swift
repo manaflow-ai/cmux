@@ -1,8 +1,10 @@
 import CmuxNextActions
 import CmuxNextLayout
+import CmuxNextPages
 import Foundation
 import CmuxNextWakeups
 import CmuxNextCompat
+import CmuxNextDesign
 
 /// A click on a cmux app link in rendered Markdown (the Home transcript, an agent chat, a
 /// Markdown file page) or a terminal: a path (`file:///…`, ``openPath(_:services:)``),
@@ -13,17 +15,37 @@ import CmuxNextCompat
 /// to another app through the system: the plain `cmux` scheme belongs to the Release app.
 enum CmuxAppLinks {
     /// Runs `link.open` on `url` when ``link(for:linkScheme:chiefHost:)`` accepts it; false
-    /// (nothing runs) for any other URL.
+    /// (nothing runs) for any other URL. `click`: how it was clicked (Cmd-click, Shift-Cmd, its tab).
     @MainActor
     @discardableResult
-    static func open(_ url: URL, services: AppServices) -> Bool {
+    static func open(_ url: URL, services: AppServices, click: LinkRouter.Click = .init()) -> Bool {
         if url.isFileURL { return openPath(url, services: services) }
-        if let action = settingsAction(for: url, linkScheme: services.linkScheme) {
-            return services.registry.perform(action, invocation: ActionInvocation(origin: .user))
+        if let route = DeepLink.settingsRoute(for: url, linkScheme: services.linkScheme) { return (try? services.settingsWindow.show(section: nil, route: route)) != nil }
+        if let action = DeepLink.linkAction(for: url, linkScheme: services.linkScheme) { // settings, Fork and customize
+            return services.registry.perform(action.id, invocation: ActionInvocation(arguments: action.arguments, origin: .user))
         }
+        if let agent = openAgentWeb(url, services: services, click: click) { return agent }
+        // A pull request link clicked in an agent chat: the native GitHub page when `browser.openPullRequestsInGitHubPage` is on.
+        if !click.otherTarget, !click.background, let tab = click.source, services.agentTabs.isAgentTab(tab),
+           let pane = services.linkOpener.source(tab: tab), let opened = WebPageTab.openGitHub(url, from: pane, services: services) { return opened }
         guard let link = link(for: url, linkScheme: services.linkScheme, chiefHost: services.agentTabs.chiefHost),
               let text = link.url(scheme: services.linkScheme)?.absoluteString else { return false }
-        return services.registry.perform("link.open", invocation: ActionInvocation(arguments: ["url": .string(text)], origin: .user))
+        return services.registry.perform("link.open", invocation: ActionInvocation(arguments: ["url": .string(text)].merging(click.source.map { ["source": .string($0)] } ?? [:]) { $1 }, origin: .user))
+    }
+
+    /// An agent session link's web form (`https://cmux.com/deeplink/agent?harness=&session=…`, or
+    /// `?host=&session=` with no harness) clicked in the app opens the chat here, with no question
+    /// since the person clicked it in cmux; only a chat acpmux does not list (not theirs) opens its
+    /// web page, where `click` would have sent it (Cmd-click in the background, Shift-Cmd the other
+    /// browser, beside its tab). A Cmd-click opens the chat without taking the keys. Nil for any other
+    /// URL; false with agent links off.
+    @MainActor
+    static func openAgentWeb(_ url: URL, services: AppServices, click: LinkRouter.Click = .init()) -> Bool? {
+        let (link, bare) = (DeepLink.parseAgentWeb(url), DeepLink.agentWebSession(url) ?? DeepLink.agentReference(url, linkScheme: services.linkScheme))
+        guard link != nil || bare != nil else { return nil }
+        let web = { @MainActor in LinkRouter.shared.open(url, as: click) }
+        let intent: WindowActivation.Intent = click.background ? .bringForward : .raise
+        return (try? DeepLinkNavigator(services: services).openAgentLink(link, bare: bare, intent, asking: false, notFound: bare.map(DeepLink.isAgentReference) == true ? nil : web)) != nil
     }
 
     /// A path link (`file:///…`: Home's form of a path an agent wrote): a file opens in the
@@ -56,9 +78,6 @@ enum CmuxAppLinks {
         }
         return true
     }
-
-    /// The action a settings link runs (``DeepLink/settingsAction(for:linkScheme:)``).
-    static func settingsAction(for url: URL, linkScheme: String) -> ActionID? { DeepLink.settingsAction(for: url, linkScheme: linkScheme) }
 
     /// The link `url` opens in this app (``DeepLink/appLink(for:linkScheme:chiefHost:)``).
     static func link(for url: URL, linkScheme: String, chiefHost: String?) -> DeepLink? {

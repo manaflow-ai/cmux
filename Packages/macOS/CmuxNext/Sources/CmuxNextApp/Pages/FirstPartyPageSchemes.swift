@@ -1,6 +1,11 @@
 import CmuxNextAgentPane
+import CmuxNextBookmarks
 import CmuxNextBrowser
+import CmuxNextCloudUI
 import CmuxNextPages
+import CmuxNextServer
+import CmuxNextSidebar
+import CmuxNextTaskManagerPage
 import Foundation
 
 /// The cmux-page:// pages the app ships, which Chromium serves. A reserved host
@@ -20,16 +25,13 @@ enum FirstPartyPageSchemes {
         case outsideBundle(String)
     }
 
-    /// The agent pane's bundled page folder (`agent-pane`).
-    @MainActor static var agentPaneRoot: URL? { AgentPaneView.bundledPage?.deletingLastPathComponent() }
-
     /// The bundled root of each first-party page that ships one.
     ///
     /// - Parameter registered: The root another module registered for a page id (the viewer pages'
     ///   shared `webviews-app` folder in the app's resources, `PageID.bundledRoot(for:)`).
     @MainActor static func bundledRoots(registered: (String) -> URL? = PageID.bundledRoot(for:)) -> [String: URL] {
         var roots: [String: URL] = [:]
-        roots[PageDescriptor.agent.id] = agentPaneRoot
+        roots[PageDescriptor.agent.id] = AgentPaneView.bundledPage?.deletingLastPathComponent()
         for page in descriptors where page != .agent { roots[page.id] = page.pagesBundleRoot ?? registered(page.id) }
         return roots.filter { id, _ in descriptors.contains { $0.id == id } }
     }
@@ -51,9 +53,39 @@ enum FirstPartyPageSchemes {
     /// and the app's other `cmux.` pages, so each can show in Chromium (`PageEnginePolicy` still
     /// keeps a page that cannot on WebKit, with its reason).
     static let descriptors: [PageDescriptor] = [
-        .agent, .history, .cloud, .apps, .settings, .keybindings, .diff, .markdown, .iconPicker, .passwords, .editor,
-        .chiefInspector, .debugSettings, .homeChannels,
-        .changelog, .coderouter, .files, .stats, .chiefUsage, .mobilePairing, .agentActivity,
+        .agent,
+        .agentActivity,
+        .apps,
+        .artifacts,
+        .bookmarks,
+        .changelog,
+        .chiefInspector,
+        .chiefUsage,
+        .cloud,
+        .cloudProgress,
+        .coderouter,
+        .debugSettings,
+        .diff,
+        .editor,
+        .feed,
+        .files,
+        .github, .glassParity,
+        .groupEditor,
+        .history,
+        .homeChannels,
+        .iconPicker,
+        .keybindings,
+        .machines,
+        .markdown,
+        .onboarding,
+        .passwords,
+        .serverCards,
+        .settings,
+        .setupCard,
+        .stats,
+        .taskManager,
+        .tasks,
+        .terminalHistory,
     ]
 
     /// The accepted entries of `roots`, each with its page's own CSP.
@@ -61,7 +93,7 @@ enum FirstPartyPageSchemes {
         var out: [String: CEFPageSchemes.Entry] = [:]
         for (id, root) in accepted(roots: roots, bundleResources: bundleResources) {
             guard let page = descriptors.first(where: { $0.id == id }) else { continue }
-            out[id] = CEFPageSchemes.Entry(root: root, csp: page.csp.header, dynamicPrefixes: page.dynamicPrefixes.sorted(),
+            out[id] = CEFPageSchemes.Entry(root: root, csp: page.csp.header, dynamicPrefixes: page.dynamicPrefixes.union(["__shared"]).sorted(),
                                            entry: page.entry)
         }
         return out
@@ -71,6 +103,14 @@ enum FirstPartyPageSchemes {
     @MainActor static func install(bundle: Bundle = .main) {
         guard let resources = bundle.resourceURL else { return }
         CEFPageSchemes.firstParty = entries(roots: bundledRoots(), bundleResources: resources)
+        // A browser tab without a page host uses this for shared chunks and the live web loop.
+        CEFPageSchemes.liveFallback = { url, range, live in
+            guard let id = url.host?.lowercased(), let entry = CEFPageSchemes.firstParty[id],
+                  let page = descriptors.first(where: { $0.id == id }) else { return .notFound }
+            let answer = await PageWebView.liveChromiumResource(url, range: range, page: page, root: entry.root, bundledOnly: !live)
+            return CEFPageResponse(status: answer.status, mimeType: answer.mimeType, body: answer.body,
+                                   rangeHeaders: answer.rangeHeaders, csp: answer.csp)
+        }
     }
 
     /// Real paths, compared component by component (`Resources2` is not inside `Resources`).

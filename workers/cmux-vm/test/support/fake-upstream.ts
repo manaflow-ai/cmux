@@ -26,6 +26,8 @@ export interface FakeSnapshot {
   readonly ttlSeconds?: number | null;
   readonly slug?: string;
   readonly displayName?: string;
+  /** The size of the VM the snapshot was taken from: a VM created from it boots at this size (the default size without it). */
+  readonly resources?: { readonly cpu: number; readonly memory: number; readonly storage: number };
 }
 
 /** One upstream call as the fake saw it. `json` is the parsed JSON body, if any. */
@@ -38,6 +40,9 @@ export interface UpstreamCall {
 }
 
 export type UpstreamOperation =
+  | "listFirewallRules"
+  | "createFirewallRule"
+  | "deleteFirewallRule"
   | "create"
   | "get"
   | "list"
@@ -100,17 +105,40 @@ const notFound = () => Response.json({ code: "NOT_FOUND", message: "no such VM" 
 const conflict = (message: string) => Response.json({ code: "CONFLICT", message }, { status: 409 });
 
 export function makeFakeUpstream(apiKey: string) {
-  const faults = { lostCreateResponses: 0, lostSnapshotResponses: 0 };
+  const faults: {
+    lostCreateResponses: number;
+    lostSnapshotResponses: number;
+    /** A create still joins the network it names, but its answer does not list the VM's networks. */
+    hideCreateNetworks: boolean;
+    /** The create answer lists the joined network under `vpcs` and a second, different list under `networks`. */
+    splitCreateNetworks: boolean;
+    /** The create answer's `debug` object (the provider's own phase timings), when set. */
+    createDebug: unknown;
+  } = { lostCreateResponses: 0, lostSnapshotResponses: 0, hideCreateNetworks: false, splitCreateNetworks: false, createDebug: undefined };
+  /**
+   * Private networks belong to mesh-fakes.ts, which sets this: a create that names a network joins it here. Answers the
+   * VM's attachments, or null when the account has no such network (the create is then refused, as the provider's).
+   */
+  const hooks: { attachOnCreate: ((vmId: string, vpc: string) => NonNullable<FakeVm["vpcs"]> | null) | null } = { attachOnCreate: null };
   const vms = new Map<string, FakeVm>();
   const snapshots = new Map<string, FakeSnapshot>();
   const tlsRules = new Map<string, Record<string, unknown>>();
+  /** Public egress rules by id, with the VM each names (a create's inline rule has an empty source, as the provider's). */
+  const firewallRules = new Map<string, { readonly vmId: string; readonly rule: Record<string, unknown> }>();
+  /** Run one per rule list answered, in order, after the page is cut: a change between two pages. */
+  const afterRuleList: Array<(() => void) | undefined> = [];
   const files = new Map<string, Uint8Array>();
   const fileStats = new Map<string, Record<string, unknown>>();
   const calls: UpstreamCall[] = [];
   const identities = new Map<string, FakeIdentity>();
   const failures = new Map<UpstreamOperation, Array<{ readonly status: number; readonly body?: unknown }>>();
   /** Exec responses by command; the default echoes the command. */
-  const execReplies = new Map<string, () => Response>();
+  const execReplies = new Map<string, (request: Request) => Response>();
+  /**
+   * Background requests (x-freestyle-background-after-secs): the answers a GET of
+   * /v5/background-requests/{id} gives, in order; the last one repeats.
+   */
+  const backgroundRequests = new Map<string, Array<() => Response>>();
   const resizeReplies = new Map<string, () => Response>();
   const updateReplies = new Map<string, () => Response>();
 
@@ -174,8 +202,10 @@ export function makeFakeUpstream(apiKey: string) {
           id: `vm-${crypto.randomUUID()}`,
           slug: typeof slug === "string" ? slug : null,
           state: "starting",
-          resources: { ...(base ?? DEFAULT_RESOURCES) },
-          idleTimeoutSeconds: typeof read("idleTimeoutSeconds") === "number" ? Number(read("idleTimeoutSeconds")) : null,
+          resources: { ...(base ?? (typeof snapshotId === "string" ? snapshots.get(snapshotId)?.resources : undefined) ?? DEFAULT_RESOURCES) },
+          // Like the provider: its Vm schema has idleTimeoutSeconds minimum 0, so a create with -1 ("never pause")
+          // reads back as null (production, 2026-11-04).
+          idleTimeoutSeconds: typeof read("idleTimeoutSeconds") === "number" && Number(read("idleTimeoutSeconds")) >= 0 ? Number(read("idleTimeoutSeconds")) : null,
           displayName: typeof read("displayName") === "string" ? String(read("displayName")) : null,
           metadata:
             typeof metadata === "object" && metadata !== null
@@ -183,6 +213,14 @@ export function makeFakeUpstream(apiKey: string) {
               : {},
           snapshotId: typeof snapshotId === "string" ? snapshotId : null,
         };
+        const wanted = read("networks");
+        const first: unknown = Array.isArray(wanted) ? wanted[0] : undefined;
+        const vpc: unknown = typeof first === "object" && first !== null ? Reflect.get(first, "vpc") : undefined;
+        if (typeof vpc === "string") {
+          const attachments = hooks.attachOnCreate?.(created.id, vpc) ?? null;
+          if (attachments === null) return Response.json({ code: "NOT_FOUND", message: "no such network" }, { status: 404 });
+          created.vpcs = attachments;
+        }
         vms.set(created.id, created);
         const tls = read("tls");
         const inline = typeof tls === "object" && tls !== null && "rules" in tls && Array.isArray(tls.rules) ? tls.rules : [];
@@ -191,8 +229,20 @@ export function makeFakeUpstream(apiKey: string) {
           const id = `tls-${crypto.randomUUID()}`;
           tlsRules.set(id, { ...value, id, protocol: "http", source: { vmId: created.id } });
         }
+        const firewall = read("firewall");
+        const inlineFirewall = typeof firewall === "object" && firewall !== null && "rules" in firewall && Array.isArray(firewall.rules) ? firewall.rules : [];
+        for (const value of inlineFirewall) {
+          if (typeof value !== "object" || value === null) continue;
+          const id = `fwr-${crypto.randomUUID()}`;
+          firewallRules.set(id, { vmId: created.id, rule: { ...value, id, createdAt: "2026-11-03T00:00:00Z", updatedAt: "2026-11-03T00:00:00Z" } });
+        }
         if (faults.lostCreateResponses > 0) { faults.lostCreateResponses--; throw new TypeError("lost provider create response"); }
-        return Response.json(vmBody(created), { status: 201 });
+        const { vpcs: joined, ...answer } = vmBody(created);
+        return Response.json({
+          ...answer,
+          ...(joined === undefined || faults.hideCreateNetworks ? {} : { vpcs: joined, networks: faults.splitCreateNetworks ? [...joined, { vpc: "vpc-some-other-network", ipv4: "10.99.0.2" }] : joined }),
+          ...(faults.createDebug === undefined ? {} : { debug: faults.createDebug }),
+        }, { status: 201 });
       }
       case "get":
         return vm === undefined ? notFound() : Response.json(vmBody(vm));
@@ -200,6 +250,31 @@ export function makeFakeUpstream(apiKey: string) {
         const id = decodeURIComponent(url.pathname.slice("/v5/snapshots/".length));
         const snapshot = snapshots.get(id) ?? [...snapshots.values()].find((s) => s.slug === id);
         return snapshot === undefined ? notFound() : Response.json(snapshot);
+      }
+      case "listFirewallRules": {
+        const forVm = url.searchParams.get("vmId");
+        const offset = Number(url.searchParams.get("offset") ?? 0);
+        const limit = Number(url.searchParams.get("limit") ?? 100);
+        const listed = [...firewallRules.values()].filter((entry) => forVm === null || entry.vmId === forVm).map((entry) => entry.rule);
+        const page = Response.json({ rules: listed.slice(offset, offset + limit), totalCount: listed.length });
+        afterRuleList.shift()?.();
+        return page;
+      }
+      case "createFirewallRule": {
+        const body: unknown = await request.json();
+        const source: unknown = typeof body === "object" && body !== null ? Reflect.get(body, "source") : undefined;
+        const ruleVm: unknown = typeof source === "object" && source !== null ? Reflect.get(source, "vmId") : undefined;
+        if (typeof ruleVm !== "string" || !vms.has(ruleVm)) return notFound();
+        const id = `fwr-${crypto.randomUUID()}`;
+        const fields = typeof body === "object" && body !== null ? Object.fromEntries(Object.entries(body)) : {};
+        const rule = { ...fields, id, createdAt: "2026-11-03T00:00:00Z", updatedAt: "2026-11-03T00:00:00Z" };
+        firewallRules.set(id, { vmId: ruleVm, rule });
+        return Response.json(rule);
+      }
+      case "deleteFirewallRule": {
+        const id = decodeURIComponent(url.pathname.slice("/v5/firewall/rules/".length));
+        if (!firewallRules.delete(id)) return notFound();
+        return new Response(null, { status: 204 });
       }
       case "listTlsRules": {
         // Deliberately return unrelated/shared rules too: the client must verify exact source ownership.
@@ -219,6 +294,7 @@ export function makeFakeUpstream(apiKey: string) {
       case "delete":
         if (vm === undefined) return notFound();
         vms.delete(vm.id);
+        for (const [id, entry] of firewallRules) if (entry.vmId === vm.id) firewallRules.delete(id);
         return new Response(null, { status: 204 });
       case "start":
         if (vm === undefined) return notFound();
@@ -289,9 +365,14 @@ export function makeFakeUpstream(apiKey: string) {
         const body: unknown = await request.clone().json();
         const command = typeof body === "object" && body !== null && "command" in body ? String(body.command) : "";
         const reply = execReplies.get(command);
-        if (reply !== undefined) return reply();
+        if (reply !== undefined) return reply(request);
         if (vm.state !== "running") return conflict("the VM is not running");
         if (command === "poweroff") {
+          // As in the guest image: only root may power it off; the default user (ubuntu) is refused and the VM runs on.
+          const user = typeof body === "object" && body !== null && "linuxUser" in body ? String(body.linuxUser) : "ubuntu";
+          if (user !== "root") {
+            return Response.json({ statusCode: 1, stdout: "", stderr: "Call to PowerOff failed: Interactive authentication required.\n", vmId: vm.id, node: "host-leak-check" });
+          }
           vm.state = "stopped";
           return conflict("VM_NON_RESPONSIVE");
         }
@@ -352,6 +433,9 @@ export function makeFakeUpstream(apiKey: string) {
   };
 
   const operationOf = (method: string, url: URL): { operation: UpstreamOperation; vmId: string | null } | null => {
+    if (url.pathname === "/v5/firewall/rules" && method === "GET") return { operation: "listFirewallRules", vmId: null };
+    if (url.pathname === "/v5/firewall/rules" && method === "POST") return { operation: "createFirewallRule", vmId: null };
+    if (url.pathname.startsWith("/v5/firewall/rules/") && method === "DELETE") return { operation: "deleteFirewallRule", vmId: null };
     if (url.pathname === "/v5/tls" && method === "GET") return { operation: "listTlsRules", vmId: null };
     if (url.pathname.startsWith("/v5/tls/") && method === "PUT") return { operation: "replaceTlsRule", vmId: null };
     if (url.pathname === "/v5/vms") return method === "POST" ? { operation: "create", vmId: null } : { operation: "list", vmId: null };
@@ -400,6 +484,13 @@ export function makeFakeUpstream(apiKey: string) {
     if (request.headers.get("authorization") !== `Bearer ${apiKey}`) {
       return Response.json({ code: "UNAUTHORIZED", message: "bad key" }, { status: 401 });
     }
+    const background = /^\/v5\/background-requests\/([^/]+)$/.exec(url.pathname);
+    if (background !== null && request.method === "GET") {
+      const answers = backgroundRequests.get(decodeURIComponent(background[1] ?? ""));
+      if (answers === undefined) return Response.json({ code: "NOT_FOUND", message: "no such background request" }, { status: 404 });
+      const next = answers.length > 1 ? answers.shift() : answers[0];
+      return next === undefined ? Response.json({ code: "NOT_FOUND" }, { status: 404 }) : next();
+    }
     const route = operationOf(request.method, url);
     if (route === null) return Response.json({ code: "NOT_FOUND", message: "no route" }, { status: 404 });
     return handle(route.operation, request, url, route.vmId);
@@ -407,6 +498,7 @@ export function makeFakeUpstream(apiKey: string) {
 
   return {
     faults,
+    hooks,
     fetch,
     vms,
     snapshots,
@@ -414,6 +506,8 @@ export function makeFakeUpstream(apiKey: string) {
     fileStats,
     calls,
     tlsRules,
+    firewallRules,
+    afterRuleList,
     resizeReplies,
     updateReplies,
     /** Makes the next `times` calls of `operation` answer `status`. */
@@ -422,9 +516,31 @@ export function makeFakeUpstream(apiKey: string) {
       for (let index = 0; index < times; index += 1) queue.push(body === undefined ? { status } : { status, body });
       failures.set(operation, queue);
     },
-    /** Answers exec of exactly `command` with `reply()`. */
-    replyToExec(command: string, reply: () => Response) {
+    /** Answers exec of exactly `command` with `reply(request)`. */
+    replyToExec(command: string, reply: (request: Request) => Response) {
       execReplies.set(command, reply);
+    },
+    /**
+     * Exec of `command` as the provider runs one that outlives its edge: held open without a
+     * background header, the edge cuts it (524, as Freestyle's did at about 120 s); with
+     * x-freestyle-background-after-secs it answers 202 with a request id, whose GET answers
+     * `pending` 202s, then `result`.
+     */
+    longExec(command: string, result: () => Response, pending = 2) {
+      const id = `bg-${crypto.randomUUID()}`;
+      execReplies.set(command, (request) => {
+        if (request.headers.get("x-freestyle-background-after-secs") === null) {
+          return new Response("error code: 524", { status: 524 });
+        }
+        const accepted = () => Response.json({ requestId: id, status: "pending" }, { status: 202 });
+        backgroundRequests.set(id, [...Array.from({ length: pending }, () => accepted), result]);
+        return Response.json({ requestId: id }, { status: 202, headers: { "x-freestyle-background-request-id": id } });
+      });
+      return id;
+    },
+    /** Puts `answers` in front of background request `id`'s remaining answers. */
+    backgroundAnswers(id: string, ...answers: Array<() => Response>) {
+      backgroundRequests.set(id, [...answers, ...(backgroundRequests.get(id) ?? [])]);
     },
     addVm(state: string): FakeVm {
       const vm: FakeVm = {

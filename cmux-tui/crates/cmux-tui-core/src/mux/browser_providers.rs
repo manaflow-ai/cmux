@@ -211,10 +211,10 @@ impl Mux {
                                                 mux.emit(MuxEvent::Status(format!(
                                                     "cmux-browser provider unavailable: {message}"
                                                 )));
-                                                mux.emit(MuxEvent::TitleChanged {
-                                                    surface: id,
-                                                    title: thread_surface.title().into(),
-                                                });
+                                                mux.emit(MuxEvent::page_title(
+                                                    id,
+                                                    thread_surface.title().into(),
+                                                ));
                                                 mux.emit(MuxEvent::SurfaceOutput(id));
                                             }
                                         }
@@ -261,10 +261,7 @@ impl Mux {
                         && !thread_surface.is_dead()
                     {
                         mux.emit(MuxEvent::Status(format!("browser failed: {err}")));
-                        mux.emit(MuxEvent::TitleChanged {
-                            surface: id,
-                            title: thread_surface.title().into(),
-                        });
+                        mux.emit(MuxEvent::page_title(id, thread_surface.title().into()));
                         mux.emit(MuxEvent::SurfaceOutput(id));
                     }
                 }

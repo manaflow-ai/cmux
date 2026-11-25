@@ -111,7 +111,8 @@ function copyChildren(
     const copy = document.createElement(tag);
     for (const attribute of Array.from(element.attributes)) {
       const name = attribute.name.toLowerCase();
-      if (!ATTRIBUTES.has(name)) continue;
+      // Preserve an authored name on an image-only link; keep all other attributes allowlisted.
+      if (!ATTRIBUTES.has(name) && !(tag === "a" && name === "aria-label")) continue;
       let value = attribute.value;
       if (name === "href" && /^\s*(javascript|data|vbscript):/i.test(value)) continue;
       if (name === "src") {

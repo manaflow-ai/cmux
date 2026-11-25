@@ -5,8 +5,10 @@ import React, { act, useRef, useState } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { JSDOM } from "jsdom";
 import { OnNewTab } from "./newTabComposer";
-import type { QuickFamily, QuickModel, QuickProviderLook, QuickSearchField } from "./QuickModelMenu";
+import type { QuickFamily, QuickModel, QuickProviderLook, QuickSearchField } from "./quickModelMenuModel";
+import type { SessionAuth } from "./sessionAuth";
 import { effortLevel, openEffort } from "../../../test/support/effortDropdown";
+import { settleReact } from "../../../test/support/domTeardown";
 
 let QuickModelMenu: typeof import("./QuickModelMenu").QuickModelMenu;
 const loadQuickModelMenu = async () => {
@@ -37,7 +39,7 @@ function installDom(): HTMLElement {
     "cancelAnimationFrame",
     "IS_REACT_ACT_ENVIRONMENT",
   ])
-    saved.set(key, scope[key]);
+    if (!saved.has(key)) saved.set(key, scope[key]);
   Object.assign(scope, {
     window: dom.window,
     document: dom.window.document,
@@ -62,6 +64,7 @@ afterEach(async () => {
     });
   root = undefined;
   await new Promise((resolve) => setTimeout(resolve, 0));
+  await settleReact();
   dom?.window.close();
   dom = undefined;
   for (const [key, value] of saved) {
@@ -92,8 +95,13 @@ const family = (id: string, name: string): QuickFamily => ({
   })),
 });
 
-type HarnessOptions = { onAddHarness?: () => void; noMore?: boolean; searchField?: QuickSearchField };
-function Harness({ newTab, onAddHarness, noMore, searchField }: { newTab: boolean } & HarnessOptions) {
+type HarnessOptions = {
+  onAddHarness?: () => void;
+  noMore?: boolean;
+  searchField?: QuickSearchField;
+  auth?: { verdict: SessionAuth; onLogin(): void };
+};
+function Harness({ newTab, onAddHarness, noMore, searchField, auth }: { newTab: boolean } & HarnessOptions) {
   const [open, setOpen] = useState(false);
   const trigger = useRef<HTMLButtonElement | null>(null);
   const [fast, setFast] = useState(false);
@@ -105,6 +113,7 @@ function Harness({ newTab, onAddHarness, noMore, searchField }: { newTab: boolea
         trigger={trigger}
         chip={{ "data-menu": "model", label: "Model", title: "Model" }}
         menu={{
+          auth,
           ...(searchField ? { searchField, search: { find: () => [], pick() {} } } : {}),
           models: [],
           current: "claude-a",
@@ -141,6 +150,45 @@ async function openMenu(newTab: boolean, options: HarnessOptions = {}) {
 const list = () => document.querySelector<HTMLElement>(".acpmux-quick-list")!;
 const labels = (scope: ParentNode) => [...scope.querySelectorAll(".acpmux-menu-label")].map((node) => node.textContent);
 const disclosure = () => document.querySelector<HTMLElement>(".acpmux-quick-disclosure");
+
+for (const newTab of [false, true]) {
+  for (const state of ["expired", "signedOut"] as const) {
+    test(`${newTab ? "New Tab" : "chat"} keeps ${state} recovery available while searching before send`, async () => {
+      let logins = 0;
+      await openMenu(newTab, {
+        searchField: "always",
+        auth: {
+          verdict: {
+            state,
+            source: "turn",
+            evidenceAt: 1,
+            harness: "claude",
+            host: null,
+            login: { kind: "terminal", command: "claude auth login" },
+          },
+          onLogin: () => logins++,
+        },
+      });
+      const recovery = () =>
+        [...document.querySelectorAll<HTMLElement>('[role="menuitem"]')].find(
+          (row) => row.textContent?.trim() === "Sign in to Claude Code",
+        );
+      expect(recovery()).toBeDefined();
+      const input = document.querySelector<HTMLInputElement>(".acpmux-quick-search input")!;
+      expect(list().querySelectorAll('[role="menuitemradio"]').length).toBeGreaterThan(0);
+      for (const key of "opus")
+        await act(async () => {
+          list().dispatchEvent(new dom!.window.KeyboardEvent("keydown", { key, bubbles: true }));
+        });
+      await settle();
+      expect(input.value).toBe("opus");
+      expect(list().querySelectorAll('[role="menuitemradio"]')).toHaveLength(0);
+      expect(recovery()).toBeDefined();
+      await act(async () => recovery()!.click());
+      expect(logins).toBe(1);
+    });
+  }
+}
 
 test("a chat's menu keeps its key hints and More models submenu", async () => {
   await openMenu(false);
@@ -333,7 +381,7 @@ test("inline effort picks a different model and its level together; model names 
           },
           families: {
             current: "claude",
-            onPick: (row) => picks.push(row),
+            onPick: (row) => void picks.push(row),
             list: [
               {
                 id: "claude",
@@ -441,7 +489,7 @@ test.each([
           fast: { checked: false, onChange: (value) => fastPicks.push(value) },
           families: {
             current: "claude",
-            onPick: (model) => combos.push(model),
+            onPick: (model) => void combos.push(model),
             list: [
               {
                 id: "claude",
@@ -906,7 +954,7 @@ test("another tab whose models honor Fast mode draws the Fast row and lands its 
           fast: { checked: false, onChange() {} },
           families: {
             current: "claude",
-            onPick: (model) => picks.push(model),
+            onPick: (model) => void picks.push(model),
             list: [
               {
                 id: "claude",
@@ -986,7 +1034,7 @@ const familyRail = [
 ];
 
 test("familyTabs: one tab per model family, its routes in rail order", async () => {
-  const { familyTabs } = await import("./QuickModelMenu");
+  const { familyTabs } = await import("./quickModelMenuModel");
   const tabs = familyTabs(familyRail);
   expect(tabs.map((tab) => [tab.key, tab.name, tab.routes.map((entry) => entry.id)])).toEqual([
     ["claude", "Claude Code", ["claude", "claude-sr2", "claude-work"]],
@@ -996,7 +1044,7 @@ test("familyTabs: one tab per model family, its routes in rail order", async () 
 });
 
 test("searchGroups: a family's routes share one heading and list a model once", async () => {
-  const { searchGroups } = await import("./QuickModelMenu");
+  const { searchGroups } = await import("./quickModelMenuModel");
   const found: QuickModel[] = [
     { id: "opus", name: "Opus", family: "claude-sr2" },
     { id: "opus", name: "Opus", family: "claude" },
@@ -1083,4 +1131,35 @@ test("the symbols row draws one tab per family and the Account row switches its 
   await settle();
   expect(labels(list())).toContain("Codex model");
   expect(account().textContent).toContain("Codex");
+});
+
+test("ordinary placement changes the open picker and resetting it restores the legacy choice", async () => {
+  const { setComposerSettings } = await import("./composerSettings");
+  const { setChatDisplay } = await import("./chatDisplay");
+  const { HARNESS_PLACEMENT_KEY } = await import("../../ui/harnessPlacement");
+  setComposerSettings({ harnessPlacement: "left" });
+  setChatDisplay({});
+  try {
+    await openMenu(false);
+    const placement = () =>
+      [...(document.querySelector(".acpmux-quick-railed")?.classList ?? [])]
+        .find((name) => name.startsWith("acpmux-quick-placement-"))
+        ?.replace("acpmux-quick-placement-", "");
+    expect(placement()).toBe("left");
+    for (const value of ["symbols", "top", "compact"]) {
+      await act(async () => setChatDisplay({ [HARNESS_PLACEMENT_KEY]: value }));
+      expect(placement()).toBe(value);
+    }
+    await act(async () => setChatDisplay({}));
+    expect(placement()).toBe("left");
+    await act(async () =>
+      setChatDisplay({ [HARNESS_PLACEMENT_KEY]: "left", [`${HARNESS_PLACEMENT_KEY}.managed`]: "top" }),
+    );
+    expect(placement()).toBe("top");
+  } finally {
+    await act(async () => {
+      setChatDisplay({});
+      setComposerSettings({ harnessPlacement: "symbols" });
+    });
+  }
 });

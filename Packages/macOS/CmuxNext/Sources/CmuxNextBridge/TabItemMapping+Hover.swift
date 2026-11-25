@@ -25,6 +25,8 @@ extension TabItemMapping {
             default: nil
             }
             facts.since = detail?.laneSinceMs.map(SidebarMapping.date(ms:))
+            // Who the chat was before its rename; a tab the person named reads as their name only.
+            if tab.name?.isEmpty ?? true { facts.formerName = turns.formerName(for: ref) }
             return (facts, detail?.cwd.map(SidebarMapping.shared.abbreviate))
         case .pty:
             facts.kind = .terminal

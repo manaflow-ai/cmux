@@ -31,23 +31,8 @@ final class DebugWindowRecord {
     /// Every window `--record-launch` has started on, so each is recorded once.
     private var launchSeen: Set<ObjectIdentifier> = []
 
-    /// What `--record-launch DIR [--record-launch-seconds S]` asks for: every
-    /// window recorded from the moment it is made, for S seconds (6 by default,
-    /// at most 12), into `DIR/window-N`. nil without the argument or its folder.
-    struct LaunchRequest: Equatable {
-        let dir: String
-        let seconds: Double
-
-        init?(arguments: [String]) {
-            guard let flag = arguments.firstIndex(of: "--record-launch"), flag + 1 < arguments.count,
-                  !arguments[flag + 1].hasPrefix("--") else { return nil }
-            dir = (arguments[flag + 1] as NSString).expandingTildeInPath
-            let asked = arguments.firstIndex(of: "--record-launch-seconds").flatMap { index in
-                index + 1 < arguments.count ? Double(arguments[index + 1]) : nil
-            }
-            seconds = min(12, max(0.1, asked ?? 6))
-        }
-    }
+    /// What `--record-launch DIR [--record-launch-seconds S]` asks for (``LaunchRecordRequest``).
+    typealias LaunchRequest = LaunchRecordRequest
 
     private static let launchRequest = LaunchRequest(arguments: ProcessInfo.processInfo.arguments)
     /// Looks for new windows once a display frame while the launch is recorded.
@@ -96,6 +81,21 @@ final class DebugWindowRecord {
         return .object(["dir": .string(dir), "seconds": .number(seconds)])
     }
 
+    /// One moved view of a launch frame: its type name and its rect before and after, `[x, y, w, h]` in window points.
+    private struct MovedRect: Sendable {
+        let name: String
+        let from: [Double]
+        let to: [Double]
+
+        init(name: String, from: CGRect, to: CGRect) {
+            self.name = name
+            self.from = [from.minX, from.minY, from.width, from.height].map { Double($0) }
+            self.to = [to.minX, to.minY, to.width, to.height].map { Double($0) }
+        }
+
+        var json: [String: Any] { ["name": name, "from": from, "to": to] }
+    }
+
     @MainActor
     private final class Recorder {
         let window: NSWindow
@@ -108,13 +108,30 @@ final class DebugWindowRecord {
         private var start0: CFTimeInterval?
         private var times: [Double] = []
         private var processMs: [Double] = []
+        /// Launch recordings only, one entry per frame: the window's frame on screen, how many views moved, appeared or
+        /// went away since the frame before (``WindowViewGeometry``) and the first few of them by name, and the view
+        /// layouts and window layout passes since the frame before (``LayoutPassGuard``).
+        private var windowFrames: [[Double]] = []
+        private var moved: [Int] = []
+        private var movedViews: [[String]] = []
+        /// Per frame, the views that moved since the frame before with their old and new rects (`movedRects`, at most
+        /// ``WindowViewGeometry/moves(since:limit:)``'s 24), and the window's alpha (`alpha`): launch_shift.py's
+        /// shift score and alpha changes.
+        private var movedRects: [[MovedRect]] = []
+        private var alphas: [Double] = []
+        private var viewLayouts: [Int] = []
+        private var windowLayouts: [Int] = []
+        private var geometry: WindowViewGeometry?
+        private var layoutMark = (view: 0, window: 0)
+        /// How the recording ended: `time` (its seconds ran out) or `closed` (the window closed first).
+        private var endedBy = "time"
         private var finished = false
         /// A launch recording ends with its window: the launch closes its
         /// window once the restored windows take every workspace.
         private var closeObserver: MainActorObservation?
         private let encoder = DispatchQueue(label: "debug.window_record", qos: .userInitiated)
         /// Per-frame brightness, touched only on `encoder`.
-        private let brightness = Brightness()
+        private let brightness: WindowFrameBrightness
 
         init(window: NSWindow, dir: URL, seconds: Double, sinceLaunch: Bool = false, done: @escaping () -> Void) {
             self.window = window
@@ -122,6 +139,8 @@ final class DebugWindowRecord {
             self.seconds = seconds
             self.sinceLaunch = sinceLaunch
             self.done = done
+            // A launch recording also keeps each frame's 16x16 luminance grid: what changed where after the first frame.
+            brightness = WindowFrameBrightness(grid: sinceLaunch)
         }
 
         func start() {
@@ -131,7 +150,10 @@ final class DebugWindowRecord {
             self.client = client
             client.activate()
             guard sinceLaunch else { return }
-            closeObserver = MainActorObservation(NSWindow.willCloseNotification, object: window) { [weak self] in self?.finish() }
+            closeObserver = MainActorObservation(NSWindow.willCloseNotification, object: window) { [weak self] in
+                self?.endedBy = "closed"
+                self?.finish()
+            }
             // Found on the app's frame: this frame of the window may be its first.
             _ = tick(at: CACurrentMediaTime())
         }
@@ -155,7 +177,10 @@ final class DebugWindowRecord {
             start0 = t0
             let index = times.count
             times.append(now - t0)
-            if sinceLaunch { processMs.append(DebugTimings.millisecondsSinceProcessStart()) }
+            if sinceLaunch {
+                processMs.append(DebugTimings.millisecondsSinceProcessStart())
+                recordLayout()
+            }
             let url = dir.appendingPathComponent(String(format: "frame-%05d.jpg", index))
             let brightness = brightness
             encoder.async {
@@ -170,6 +195,25 @@ final class DebugWindowRecord {
                 CGImageDestinationFinalize(dest)
             }
             return true
+        }
+
+        /// This frame's geometry and layout work against the frame before (the first frame: 0 moved, 0 layouts).
+        private func recordLayout() {
+            let frame = window.frame
+            windowFrames.append([frame.minX, frame.minY, frame.width, frame.height].map { $0.rounded() })
+            let now = WindowViewGeometry(window: window)
+            let change: (total: Int, lines: [String]) = geometry.map { now.changes(since: $0) } ?? (0, [])
+            let moves = geometry.map { now.moves(since: $0) } ?? []
+            geometry = now
+            moved.append(change.total)
+            movedViews.append(change.lines)
+            movedRects.append(moves.map { MovedRect(name: $0.name, from: $0.from, to: $0.to) })
+            alphas.append((Double(window.alphaValue) * 1000).rounded() / 1000)
+            let guardian = LayoutPassGuard.shared
+            let first = viewLayouts.isEmpty
+            viewLayouts.append(first ? 0 : guardian.viewLayoutCalls &- layoutMark.view)
+            windowLayouts.append(first ? 0 : guardian.windowLayoutPasses &- layoutMark.window)
+            layoutMark = (guardian.viewLayoutCalls, guardian.windowLayoutPasses)
         }
 
         /// The app's visible panels over the window that are not its children
@@ -191,65 +235,22 @@ final class DebugWindowRecord {
             let times = self.times
             let processMs = self.processMs
             let brightness = brightness
+            let launch: [String: any Sendable] = sinceLaunch ? ["window": windowFrames, "moved": moved, "movedViews": movedViews,
+                                                                "viewLayouts": viewLayouts, "windowLayouts": windowLayouts,
+                                                                "alpha": alphas, "endedBy": endedBy,
+                                                                // The launch marks so far: launch_shift.py's tti.
+                                                                "launchMarks": DebugTimings.launchMarkTimes()] : [:]
+            let movedRects = sinceLaunch ? self.movedRects : []
             encoder.async {
                 let series = brightness.series
-                var frames: [String: [Double]] = ["times": times, "luminance": series.means, "peak": series.peaks]
+                var frames: [String: Any] = ["times": times, "luminance": series.means, "peak": series.peaks]
                 if !processMs.isEmpty { frames["processMs"] = processMs }
+                if !series.cells.isEmpty { frames["cells"] = series.cells }
+                for (key, value) in launch { frames[key] = value }
+                if !movedRects.isEmpty { frames["movedRects"] = movedRects.map { frame in frame.map { $0.json } } }
                 if let data = try? JSONSerialization.data(withJSONObject: frames) { try? data.write(to: index) }
             }
             done()
-        }
-    }
-
-    /// Each frame's brightness, in frame order. The recorder's `encoder` queue
-    /// is serial, so the order is the frames' order.
-    private final class Brightness: Sendable {
-        nonisolated struct Series: Sendable {
-            var means: [Double] = []
-            var peaks: [Double] = []
-        }
-
-        private let samples = Mutex(Series())
-
-        /// What every frame measured so far, in frame order.
-        /// Nonisolated, like every member here: the module's default isolation
-        /// is MainActor, and the encoder queue is the only caller.
-        nonisolated var series: Series { samples.withLock { $0 } }
-
-        nonisolated func measure(_ image: CGImage) {
-            let reading = Self.brightness(of: image)
-            samples.withLock {
-                $0.means.append(reading.mean)
-                $0.peaks.append(reading.peak)
-            }
-        }
-
-        /// How bright `image` is: `mean`, its mean Rec. 709 luminance, and
-        /// `peak`, the brightest of its 64 cells, so a white flash over part
-        /// of the window shows even when the mean stays low. Core Graphics
-        /// resamples the frame down to 8x8, which averages every pixel into a
-        /// cell. Both are 0...1, and 0 when the draw fails.
-        nonisolated static func brightness(of image: CGImage) -> (mean: Double, peak: Double) {
-            let side = 8
-            var pixels = [UInt8](repeating: 0, count: side * side * 4)
-            guard let space = CGColorSpace(name: CGColorSpace.sRGB) else { return (0, 0) }
-            let drawn = pixels.withUnsafeMutableBytes { bytes -> Bool in
-                guard let context = CGContext(data: bytes.baseAddress, width: side, height: side, bitsPerComponent: 8,
-                                              bytesPerRow: side * 4, space: space,
-                                              bitmapInfo: CGImageAlphaInfo.noneSkipLast.rawValue) else { return false }
-                context.interpolationQuality = .high
-                context.draw(image, in: CGRect(x: 0, y: 0, width: side, height: side))
-                return true
-            }
-            guard drawn else { return (0, 0) }
-            var total = 0.0, peak = 0.0
-            for cell in 0..<(side * side) {
-                func channel(_ offset: Int) -> Double { Double(pixels[cell * 4 + offset]) / 255 }
-                let luminance = 0.2126 * channel(0) + 0.7152 * channel(1) + 0.0722 * channel(2)
-                total += luminance
-                peak = max(peak, luminance)
-            }
-            return (total / Double(side * side), peak)
         }
     }
 }

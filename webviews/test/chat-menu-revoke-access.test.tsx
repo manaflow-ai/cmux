@@ -1,7 +1,7 @@
 // l10n-allow-file: test fixture folder names, not shipped UI.
 // A granted folder trust stays revocable with default settings (the #28617 review's P1). The
 // composer's mode menu no longer lists grants (Leo, 2026-10-29: "What is this bottom fucking
-// bullshit?"), Session Info shows only with Debug Settings `agent.inspector` on (off by default), and
+// bullshit?"), Session Info shows only with Debug Settings `agent.sessionInfo` on (off by default), and
 // once trust is decided the trust bar is gone. The chat menu (…), in every chat, keeps the way back:
 // Revoke Granted Access names each grant, and picking one revokes it.
 import { afterEach, expect, test } from "bun:test";
@@ -14,6 +14,8 @@ import { setHeaderState } from "../src/agent-session/acpmux/header/headerState";
 import { configureQuickActions } from "../src/agent-session/acpmux/header/quickActions";
 import { translate } from "../src/agent-session/acpmux/i18n";
 import { resetSessionInfoState } from "../src/agent-session/acpmux/session-info/sessionInfoState";
+import { settleReact } from "./support/domTeardown";
+import { SESSION_INFO } from "../src/agent-session/acpmux/session-info/sessionInfoSelectors";
 
 let dom: JSDOM | undefined;
 let root: Root | undefined;
@@ -25,7 +27,7 @@ function installDom(): HTMLElement {
     url: "http://localhost/",
     pretendToBeVisual: true,
   });
-  // Debug Settings `agent.inspector` at its default: off, so Session Info never shows.
+  // Debug Settings `agent.sessionInfo` at its default: off, so Session Info never shows.
   setHeaderState({ inspector: false });
   class FakeResizeObserver {
     observe() {}
@@ -62,6 +64,7 @@ afterEach(async () => {
   resetSessionInfoState();
   configureQuickActions({});
   setHeaderState({ inspector: false });
+  await settleReact();
   dom?.window.close();
   dom = undefined;
   for (const [key, value] of saved) {
@@ -109,7 +112,7 @@ test("with Session Info off and a decided trust grant, the chat menu revokes it"
   });
   const document = container.ownerDocument;
   // Session Info is off: nothing else on screen lists the grant.
-  expect(document.querySelector("aside.acpmux-session-info")).toBeNull();
+  expect(document.querySelector(SESSION_INFO)).toBeNull();
   expect(document.querySelector("[data-grant]")).toBeNull();
 
   const menuButton = [...container.querySelectorAll<HTMLElement>("button")].find(

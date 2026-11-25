@@ -14,10 +14,14 @@ import Testing
 /// thing"). Both gaps are measured from the edge the eye reads: under Floating Panes the pane
 /// card's own edges, elsewhere the pane cell's edges. One exception keeps the 2026-10-01 rule:
 /// where each pane is outlined (Panes, Card Outlined), the first tab starts on the outline's left
-/// line, the line drawn right under it. The trailing end follows the same rule: the "…" button
-/// keeps as much room to the trailing edge as above it.
+/// line, the line drawn right under it. The trailing "…" sits on the pane's one trailing control
+/// column, above the browser toolbar's ⋮ (9d31a6eb78b, Lawrence msg 19627: "the three vertical dots,
+/// there are 2 of them, and they are different sizes"), not at its top gap from the edge.
 @MainActor @Suite(.serialized, .closesItsWindows) struct PaneChromeEvenInsetTests {
     private func load(_ style: ChromeStyle?, density: Density) {
+        // These sweeps check the tab pill's geometry in every style; the flush corner, the default over
+        // flat and default chrome, has its own (`CornerFlushTests`).
+        MainPaneGutterSuites.pinsCornerFlushOff(style != nil)
         let appearance: JSONValue = style.map { .object(["chromeStyle": .string($0.rawValue)]) } ?? .object([:])
         let snapshot = CmuxConfigSnapshot.parse(.object(["appearance": appearance]), validDensities: SettingsApplier.validDensities,
                                                 validMetrics: SettingsApplier.validMetrics)
@@ -44,7 +48,7 @@ import Testing
     nonisolated static let variants: [(ChromeStyle, Density)] = ChromeStyle.allCases.flatMap { style in Density.allCases.map { (style, $0) } }
 
     @Test(arguments: variants)
-    func theFirstTabSitsAsFarFromTheLeadingEdgeAsFromTheTop(style: ChromeStyle, density: Density) throws {
+    func theFirstTabKeepsTheStripsEndGap(style: ChromeStyle, density: Density) throws {
         defer { reset() }
         load(style, density: density)
         let model = TabStripModel(tabs: (0..<2).map { TabItem(id: TabID("tab\($0)"), title: "Tab \($0)") }, selectedID: TabID("tab0"))
@@ -63,29 +67,24 @@ import Testing
         strip.layoutSubtreeIfNeeded()
         let pill = topLeft(try #require(strip.firstTabPillFrame), in: strip, window: window)
         let stripRect = topLeft(strip.bounds, in: strip, window: window)
-        if Metrics.paneBorder != .none {
-            #expect(abs(pill.minX - stripRect.minX) <= 0.01, "\(style) \(density): the first tab starts \(pill.minX - stripRect.minX) pt off the outline")
-            return
-        }
-        // Floating Panes: the card is the content rect; elsewhere the cell is the edge.
-        let visible = Metrics.floatingPanes ? stripRect.minX : 0
-        let visibleTop = Metrics.floatingPanes ? stripRect.minY : 0
-        let leading = pill.minX - visible, top = pill.minY - visibleTop
-        #expect(top > 0, "\(style) \(density): the tab touches the top edge")
-        #expect(abs(leading - top) <= 0.01, "\(style) \(density): \(leading) pt before the first tab, \(top) pt above it")
+        // Lucas 2026-11-15: one gap before the first tab at every density and in every style (`Metrics.tabStripEndGap`),
+        // outlined panes and the flush corner too.
+        let leading = pill.minX - stripRect.minX
+        #expect(abs(leading - TabStripMetrics().endGap(scale: scale)) <= 0.01, "\(style) \(density): \(leading) pt before the first tab")
     }
 
     @Test(arguments: Density.allCases)
-    func theMoreButtonKeepsAsMuchRoomToTheTrailingEdgeAsAboveIt(density: Density) {
+    func theTrailingButtonSitsOnThePanesTrailingControlColumn(density: Density) throws {
         defer { reset() }
         load(.floating, density: density)
         let toolbar = PaneToolbarView(frame: NSRect(x: 0, y: 0, width: 120, height: PaneChromeMetrics.current.resolvedStripHeight(scale: 2)))
-        toolbar.show(more: true, lit: false)
+        toolbar.show([PaneToolbarItem(id: "splitRight", title: "Split Right", symbol: "rectangle.split.2x1", shortcut: nil)])
         toolbar.layoutSubtreeIfNeeded()
-        // The fixed trailing slot, at rest and throughout the hover fade.
-        let more = toolbar.moreFrame()
-        let trailing = toolbar.bounds.maxX - more.maxX, top = more.minY
-        #expect(top > 0)
-        #expect(abs(trailing - top) <= 0.01, "\(density): \(trailing) pt after \"…\", \(top) pt above it")
+        // The trailing slot (a pin, or a zoomed pane's Exit Zoom), at rest and throughout the hover fade.
+        let last = try #require(toolbar.buttons.last).frame
+        let center = toolbar.bounds.maxX - last.midX
+        #expect(last.minY > 0)
+        #expect(abs(center - Metrics.paneTrailingControlCenter) <= 0.01,
+                "\(density): the trailing button centered \(center) pt from the trailing edge, the column is \(Metrics.paneTrailingControlCenter) pt")
     }
 }

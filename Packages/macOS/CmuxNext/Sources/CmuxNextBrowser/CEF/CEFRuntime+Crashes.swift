@@ -31,6 +31,8 @@ extension CEFRuntime {
         logger.error("helper ended type=\(type, privacy: .public) sub=\(exit.subType ?? "-", privacy: .public) pid=\(exit.pid) reason=\(reason.rawValue, privacy: .public) status=\(exit.status)")
         crashLog.append(BrowserCrashRecord(processType: type, subType: exit.subType, pid: exit.pid, reason: reason,
                                            code: Int(exit.status), source: .process))
+        failureReports.noteHelperExit(processKind: type, subType: exit.subType, reason: reason, status: exit.status,
+                                      runtime: self)
     }
 
     /// Nil for a normal end (exit 0, or SIGTERM, which Chromium sends to

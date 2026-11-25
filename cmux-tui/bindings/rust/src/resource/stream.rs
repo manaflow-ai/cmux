@@ -4,7 +4,7 @@ use super::ops;
 use super::wire::{self, Params};
 use crate::codec::UnixStream;
 use crate::{Error, Result};
-use serde_json::{Value, json};
+use serde_json::Value;
 use std::collections::VecDeque;
 use std::io::Write;
 use std::net::Shutdown;
@@ -31,6 +31,9 @@ pub(crate) struct StreamParts {
     pub(crate) cleanup_timeout: Duration,
     pub(crate) item_validator: StreamItemValidator,
     pub(crate) initial_envelopes: VecDeque<(Value, usize)>,
+    /// The opening handle's request-origin claim, carried by every request
+    /// this stream sends (its cancel and its controls).
+    pub(crate) origin: Option<&'static str>,
 }
 
 struct CancellationInner {
@@ -39,6 +42,7 @@ struct CancellationInner {
     cancel_params: Params,
     max_request_bytes: usize,
     cancel_state: AtomicU8,
+    origin: Option<&'static str>,
 }
 
 /// Thread-safe cancellation handle for an owned resource stream.
@@ -75,13 +79,13 @@ impl StreamCancellation {
             return Ok(false);
         }
         let request_id = self.request_id();
-        let envelope = json!({
-            "protocol": "cmux.protocol/2",
-            "type": "request",
-            "id": request_id,
-            "operation": ops::STREAM_CANCEL,
-            "params": self.inner.cancel_params.clone().into_value(),
-        });
+        let envelope = super::client::request_envelope(
+            &request_id,
+            ops::STREAM_CANCEL,
+            self.inner.cancel_params.clone().into_value(),
+            None,
+            self.inner.origin,
+        );
         let result = self.write_envelope(&envelope, "stream cancel");
         // A write error closes the shared transport. It can also follow a
         // partial write, so another attempt could append a duplicate request
@@ -160,6 +164,7 @@ impl ResourceStream {
                 cancel_params: parts.cancel_params,
                 max_request_bytes: parts.max_request_bytes,
                 cancel_state: AtomicU8::new(CANCELLATION_READY),
+                origin: parts.origin,
             }),
         };
         let mut stream = Self {
@@ -265,9 +270,10 @@ impl ResourceStream {
                         ));
                     }
                     let result = super::client::decode_response(envelope, &request_id)?;
-                    if result.as_object().is_none_or(|result| !result.is_empty()) {
+                    // Fields a newer daemon adds to the result are ignored, not refused.
+                    if !result.is_object() {
                         return Err(Error::UnexpectedEnvelope(
-                            "stream cancel result must be an empty object".to_string(),
+                            "stream cancel result must be an object".to_string(),
                         ));
                     }
                     response_seen = true;
@@ -331,6 +337,7 @@ impl ResourceStream {
             operation,
             self.control_params.clone().extend(params).into_value(),
             None,
+            self.cancellation.inner.origin,
         );
         self.cancellation.write_envelope(&envelope, "stream connection control")?;
         loop {
@@ -363,7 +370,9 @@ impl ResourceStream {
         }
     }
 
-    pub(crate) fn recv_timeout(&mut self, timeout: Duration) -> Result<StreamPoll<StreamItem>> {
+    /// The next item within `timeout`: an item, the stream's end
+    /// ([`Self::end`] says why), or `TimedOut` with the stream still open.
+    pub fn recv_timeout(&mut self, timeout: Duration) -> Result<StreamPoll<StreamItem>> {
         if timeout.is_zero() {
             return Err(Error::InvalidArgument(
                 "stream poll timeout must be greater than zero".to_string(),
@@ -478,23 +487,7 @@ impl ResourceStream {
             ));
         }
         validate_stream_id(object, &self.id)?;
-        let mut unknown = object
-            .keys()
-            .filter(|field| {
-                !matches!(
-                    field.as_str(),
-                    "protocol" | "type" | "stream_id" | "sequence" | "cursor" | "item"
-                )
-            })
-            .cloned()
-            .collect::<Vec<_>>();
-        unknown.sort();
-        if !unknown.is_empty() {
-            return Err(Error::UnexpectedEnvelope(format!(
-                "stream item contains unknown fields: {}",
-                unknown.join(", ")
-            )));
-        }
+        // Fields a newer daemon adds are ignored, not refused.
         let sequence = wire::parse_decimal(
             object.get("sequence").ok_or_else(|| {
                 Error::UnexpectedEnvelope("stream item sequence is required".to_string())
@@ -532,23 +525,7 @@ impl ResourceStream {
             ));
         }
         validate_stream_id(object, &self.id)?;
-        let mut unknown = object
-            .keys()
-            .filter(|field| {
-                !matches!(
-                    field.as_str(),
-                    "protocol" | "type" | "stream_id" | "reason" | "cursor" | "error" | "recovery"
-                )
-            })
-            .cloned()
-            .collect::<Vec<_>>();
-        unknown.sort();
-        if !unknown.is_empty() {
-            return Err(Error::UnexpectedEnvelope(format!(
-                "stream end contains unknown fields: {}",
-                unknown.join(", ")
-            )));
-        }
+        // Fields a newer daemon adds are ignored, not refused.
         let reason = object
             .get("reason")
             .and_then(Value::as_str)
@@ -569,20 +546,7 @@ impl ResourceStream {
                 let object = error.as_object().ok_or_else(|| {
                     Error::UnexpectedEnvelope("stream error must be an object".to_string())
                 })?;
-                let mut unknown = object
-                    .keys()
-                    .filter(|field| {
-                        !matches!(field.as_str(), "code" | "message" | "details" | "retryable")
-                    })
-                    .cloned()
-                    .collect::<Vec<_>>();
-                unknown.sort();
-                if !unknown.is_empty() {
-                    return Err(Error::UnexpectedEnvelope(format!(
-                        "stream error contains unknown fields: {}",
-                        unknown.join(", ")
-                    )));
-                }
+                // Fields a newer daemon adds are ignored, not refused.
                 Ok(super::model::ProtocolFailure {
                     code: object
                         .get("code")

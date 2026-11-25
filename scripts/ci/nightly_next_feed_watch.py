@@ -31,7 +31,7 @@ import sys
 import urllib.parse
 import urllib.request
 
-FEED_URL = "https://files-next.cmux.com/nightly-next/next/appcast-arm64.xml"  # cmux NEXT (cx-x7hwx)
+FEED_URL = "https://files-next.cmux.com/nightly-next/appcast-arm64.xml"  # the one feed, cmux NIGHTLY (hq#7156)
 CLASSIC_FEED_URL = "https://files.cmux.com/nightly/appcast-arm64.xml"
 # The compatibility appcast is the feed installed cmux NIGHTLY clients poll.
 # It is written only by the legacy-identity jobs, so a queued or failed signer
@@ -140,6 +140,7 @@ class GitHub:
             self.base + path, method=method, data=json.dumps(body).encode() if body is not None else None,
             headers={"Authorization": f"Bearer {self.token}", "Accept": "application/vnd.github+json",
                      "X-GitHub-Api-Version": "2022-11-28"})
+        # user-agent: GitHub's API, no CDN
         with urllib.request.urlopen(request, timeout=30) as response:
             data = response.read()
         return json.loads(data) if data else None

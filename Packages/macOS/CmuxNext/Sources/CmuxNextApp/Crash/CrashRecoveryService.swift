@@ -2,6 +2,7 @@ import AppKit
 import CmuxNextBrowser
 import CmuxNextControl
 import CmuxNextCrashReporting
+import CmuxNextDesign
 import Foundation
 import os
 import CmuxNextCompat
@@ -22,7 +23,7 @@ final class CrashRecoveryService {
     private var crashObserver: UUID?
     private weak var crashLog: BrowserCrashLog?
     private let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "crash")
-    private var notice: RestartNoticePanel?
+    private var notice: CmuxToastHandle?
     private var noticeShown = false
     private var reportTask: Task<Void, Never>?
     /// Keeps this run's `CrashContext` in the run marker; nil without a marker.
@@ -51,12 +52,12 @@ final class CrashRecoveryService {
         }
     }
 
-    /// Writes a report for each Chromium failure from now on.
-    func observe(_ log: BrowserCrashLog) {
+    /// Writes a report for each Chromium failure from now on; the ones a person saw also go to Sentry, deduplicated.
+    func observe(_ engine: CEFEngine, reporter: CrashReporter) {
         guard crashLog == nil else { return }
-        crashLog = log
-        let writer = writer
-        crashObserver = log.addObserver { record in writer.writeInBackground(record) }
+        crashLog = engine.crashLog
+        engine.onEngineFailure = { [failures = BrowserFailureReporter(reporter: reporter)] in _ = failures.note($0) }
+        crashObserver = engine.crashLog.addObserver { [writer = writer] record in writer.writeInBackground(record) }
     }
 
     /// Records what this run is doing on every action run (`CrashContextRecorder`), for the next
@@ -81,13 +82,20 @@ final class CrashRecoveryService {
         // The report paths are found off the main thread after launch; the
         // button reads them when clicked (the same path as Help > Show
         // Crash Logs).
-        let panel = RestartNoticePanel(text: text, onShowLog: { [weak self] in
-            self?.showCrashLogs()
-        }, onReport: { [weak self] in
-            self?.reportCrash()
-        })
-        panel.show(on: window)
-        notice = panel
+        notice = Self.presentRestartNotice(text: text, on: window, center: .shared,
+                                           onShowLog: { [weak self] in self?.showCrashLogs() }, onReport: { [weak self] in self?.reportCrash() })
+    }
+
+    /// The restart notice as a shared toast in `window` (it takes the picked toast style, Lawrence
+    /// 2026-11-13): Report and Show Crash Log, waiting until the person answers or closes it.
+    static func presentRestartNotice(text: String, on window: NSWindow, center: CmuxToastCenter,
+                                     onShowLog: @escaping () -> Void, onReport: @escaping () -> Void) -> CmuxToastHandle {
+        let toast = CmuxToast(id: "app.restartNotice", message: text, action: CmuxToast.Action(title: CrashStrings.report),
+                              secondaryAction: CmuxToast.Action(title: CrashStrings.showLog), duration: CmuxToast.untilClosed, tone: .warning)
+        let handle = center.show(toast, in: window)
+        handle.onAction = onReport
+        handle.onSecondaryAction = onShowLog
+        return handle
     }
 
     /// Help > Show Crash Logs, the palette, `cmux settings show-crash-logs`
@@ -147,7 +155,7 @@ final class CrashRecoveryService {
     }
 
     /// The restart notice's text while it is shown (`debug.crashes`).
-    var noticeText: String? { notice?.isShown == true ? notice?.text : nil }
+    var noticeText: String? { notice.flatMap { $0.isDismissed ? nil : $0.toast.message } }
 
     /// A requested quit has begun (`AppRunMarker.markQuitting`); returns
     /// once that is on disk or its deadline passed.

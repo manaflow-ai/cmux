@@ -85,8 +85,10 @@ export function slashTriggerAt(state: EditorState): SlashTrigger | undefined {
 }
 
 /// The edit that writes `/name ` over the `/word` the caret ends (and the rest of that word after
-/// it), the caret after the space: its own undo step. Undefined with no `/word` at the caret.
-export function commandEdit(state: EditorState, name: string): Transaction | undefined {
+/// it), the caret after the space: its own undo step. With `insert` (an extension's command,
+/// slashCommands.ts `insertsText`) the word becomes that text, each line break a hard break, the
+/// caret after it. Undefined with no `/word` at the caret.
+export function commandEdit(state: EditorState, name: string, insert?: string): Transaction | undefined {
   const trigger = slashTriggerAt(state);
   if (!trigger) return undefined;
   const { $from } = state.selection;
@@ -94,16 +96,42 @@ export function commandEdit(state: EditorState, name: string): Transaction | und
   const offset = $from.parentOffset;
   const hi = Math.min(block.content.size, offset + SLASH_WORD_MAX + 1);
   const after = blockText(state.doc, block, $from.start(), offset, hi);
-  const splice = commandSplice(after, trigger, name, hi < block.content.size);
+  const splice = commandSplice(after, trigger, name, hi < block.content.size, insert);
   const from = $from.pos - splice.back;
+  const to = $from.pos + splice.forward;
   // A new undo step, not merged into the letters typed just before it.
-  const tr = closeHistory(state.tr).insertText(splice.text, from, $from.pos + splice.forward);
-  return tr.setSelection(TextSelection.create(tr.doc, from + splice.text.length)).scrollIntoView();
+  const tr = closeHistory(state.tr);
+  const hardbreak = state.schema.nodes.hardbreak;
+  if (splice.text.includes("\n") && hardbreak) {
+    const nodes = splice.text
+      .split("\n")
+      .flatMap((line, index) => [...(index ? [hardbreak.create()] : []), ...(line ? [state.schema.text(line)] : [])]);
+    tr.replaceWith(from, to, nodes);
+    const size = nodes.reduce((sum, node) => sum + node.nodeSize, 0);
+    return tr.setSelection(TextSelection.create(tr.doc, from + size)).scrollIntoView();
+  }
+  const text = splice.text.replace(/\n/g, " ");
+  tr.insertText(text, from, to);
+  return tr.setSelection(TextSelection.create(tr.doc, from + text.length)).scrollIntoView();
 }
 
 type Meta = { names: SlashNames };
 type TokenState = { names: SlashNames; set: DecorationSet; lead: number | undefined };
 const key = new PluginKey<TokenState>("acpmuxSlashTokens");
+
+/// A command word's attributes: the blue, and for a skill with a description, that description as
+/// the app's tooltip above it (ui/titleTooltips.ts reads `data-tooltip`) and for assistive tech.
+function tokenAttrs(name: string, names: SlashNames): Record<string, string> {
+  const description = names.descriptions?.get(name);
+  return description
+    ? {
+        class: SLASH_TOKEN_CLASS,
+        "data-tooltip": description,
+        "data-tooltip-side": "top",
+        "aria-description": description,
+      }
+    : { class: SLASH_TOKEN_CLASS };
+}
 
 /// Tells the plugin the command names changed: every command word is read again (rare: a chat's
 /// list arriving or changing).
@@ -144,7 +172,7 @@ function redecorate(
   return next.add(
     doc,
     found.tokens.map(([tokenFrom, tokenTo]) =>
-      Decoration.inline(lo + tokenFrom, lo + tokenTo, { class: SLASH_TOKEN_CLASS }),
+      Decoration.inline(lo + tokenFrom, lo + tokenTo, tokenAttrs(text.slice(tokenFrom + 1, tokenTo), names)),
     ),
   );
 }

@@ -55,6 +55,20 @@ pub(super) const EXAMPLES: &[(&str, &[Example])] = &[
         ],
     ),
     (
+        "session route",
+        &[
+            (
+                "Decide the next step for a dead session from its facts",
+                "acpmux session route --facts facts.json",
+            ),
+            ("Read the facts from stdin", "acpmux session route --facts -"),
+            (
+                "Ask what to do with a dead session: restart, move or a successor",
+                "acpmux session route --facts /tmp/review-27-death.json",
+            ),
+        ],
+    ),
+    (
         "session cancel",
         &[
             ("Cancel the turn coord is running", "acpmux session cancel coord"),
@@ -80,6 +94,29 @@ pub(super) const EXAMPLES: &[(&str, &[Example])] = &[
         ],
     ),
     (
+        "session pause",
+        &[
+            (
+                "Pause an idle review's agent; it resumes on its next prompt",
+                "acpmux session pause review-27310",
+            ),
+            ("Pause a session on another machine", "acpmux session pause mini-3/review-27"),
+        ],
+    ),
+    (
+        "session wake",
+        &[
+            (
+                "Resume a paused session now, on the same conversation",
+                "acpmux session wake review-27310",
+            ),
+            (
+                "The same, and print how long it took as JSON",
+                "acpmux session wake review-27310 --json",
+            ),
+        ],
+    ),
+    (
         "session restart",
         &[
             ("Restart coord's agent on the installed version", "acpmux session restart coord"),
@@ -100,6 +137,25 @@ pub(super) const EXAMPLES: &[(&str, &[Example])] = &[
         ],
     ),
     (
+        "session icon",
+        &[
+            ("Give the session this shell runs in a mango icon", "acpmux session icon @ 🥭"),
+            ("Use an SF Symbol", "acpmux session icon @ sf:leaf.fill"),
+            ("Print a session's icon", "acpmux session icon Mango"),
+            ("Clear it", "acpmux session icon @ none"),
+        ],
+    ),
+    (
+        "session detach",
+        &[
+            (
+                "Stop a session you started from this one from showing its turns here",
+                "acpmux session detach mac-studio-ultras",
+            ),
+            ("The same, and print the result as JSON", "acpmux session detach helper-2 --json"),
+        ],
+    ),
+    (
         "session inbox",
         &[
             (
@@ -107,6 +163,17 @@ pub(super) const EXAMPLES: &[(&str, &[Example])] = &[
                 "acpmux session inbox coord",
             ),
             ("Send them to coord now as one prompt", "acpmux session inbox coord --digest"),
+        ],
+    ),
+    (
+        "session rebalance",
+        &[
+            (
+                "Say which chats would leave this over-full machine, and where",
+                "acpmux session rebalance --dry-run",
+            ),
+            ("Move them, at most two this pass", "acpmux session rebalance --max-moves 2"),
+            ("Move one back", "acpmux session rebalance --undo rb-1790000000000-0"),
         ],
     ),
     (
@@ -123,6 +190,14 @@ pub(super) const EXAMPLES: &[(&str, &[Example])] = &[
             (
                 "Move every idle chat to the placement's pick",
                 "acpmux session move --all-idle --machine auto",
+            ),
+            (
+                "Move coord from mini-3 to a cloud VM that mini-3 cannot reach",
+                "acpmux session move coord --from mini-3 --machine cloud-vm",
+            ),
+            (
+                "Bring coord back to this machine from the cloud VM",
+                "acpmux session move coord --from cloud-vm --machine local",
             ),
         ],
     ),
@@ -274,6 +349,20 @@ pub(super) const EXAMPLES: &[(&str, &[Example])] = &[
         &[
             ("List coord's last 20 turns", "acpmux session history coord"),
             ("List the last 5 turns of a review", "acpmux session history review-27310 -n 5"),
+        ],
+    ),
+    (
+        "session search",
+        &[
+            (
+                "Find coord's own replies that named a merge sha",
+                "acpmux session search coord merged sha --role assistant",
+            ),
+            (
+                "Search a peer session's last day",
+                "acpmux session search mini-3/review-27310 base red --since 24h",
+            ),
+            ("The newest 5 hits as JSON", "acpmux --json session search coord broker quota -n 5"),
         ],
     ),
     (

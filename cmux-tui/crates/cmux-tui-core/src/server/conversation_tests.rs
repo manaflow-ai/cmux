@@ -365,6 +365,79 @@ fn conversation_typing_is_broadcast_and_never_stored() {
     assert_eq!(snapshot["conversation"]["rev"], 1);
 }
 
+/// cmux#32727: typing ends with the connection that turned it on. A Chief's
+/// brain is not its only connection bound as the Chief (its profile and tool
+/// clients bind too), so a brain that crashed or was stopped mid-turn left
+/// its typing on for as long as any of those stayed: Home kept the dots and
+/// Stop with no turn running.
+#[test]
+fn typing_ends_when_the_connection_that_set_it_closes() {
+    let (mux, client) = conversation_mux();
+    let conversation = create(&mux, client);
+    // One token, as a Chief's connections share its token file: minting
+    // another would replace it and unbind the first connection.
+    let minted =
+        run(&mux, client, json!({"cmd":"conversation-agent-token","participant":"agent_mux"}))
+            .unwrap();
+    let bind = || {
+        let bound = mux.control_clients.register(ClientTransport::Unix, writer());
+        let token = minted["token"].clone();
+        run(
+            &mux,
+            bound,
+            json!({"cmd":"conversation-bind","participant":"agent_mux","token":token}),
+        )
+        .unwrap();
+        bound
+    };
+    let typing =
+        |on: bool| json!({"cmd":"conversation-typing","conversation":conversation,"on":on});
+    let brain = bind();
+    let tools = bind();
+    run(&mux, brain, typing(true)).unwrap();
+    let events = mux.subscribe();
+    assert!(disconnect_client(&mux, brain, false));
+    assert_eq!(
+        changed_events(&events),
+        vec![json!({"event":"conversation-typing","conversation":conversation,
+                    "participant":"agent_mux","on":false})],
+        "the brain's typing ends with its connection, though the tools client stays bound"
+    );
+    assert!(mux.conversation_typing(&conversation).is_empty());
+
+    // A connection that never turned typing on does not end another's when it closes.
+    let brain = bind();
+    run(&mux, brain, typing(true)).unwrap();
+    let events = mux.subscribe();
+    assert!(disconnect_client(&mux, tools, false));
+    assert!(changed_events(&events).is_empty(), "the running brain still types");
+    assert_eq!(mux.conversation_typing(&conversation), vec!["agent_mux".to_owned()]);
+
+    // An off from any connection of the participant ends it, as before.
+    let tools = bind();
+    run(&mux, tools, typing(false)).unwrap();
+    assert!(mux.conversation_typing(&conversation).is_empty());
+    let events = mux.subscribe();
+    assert!(disconnect_client(&mux, brain, false));
+    assert!(changed_events(&events).is_empty(), "nothing left to end: {conversation}");
+
+    // Two connections hold it on: it ends with the second to close.
+    let brain = bind();
+    run(&mux, brain, typing(true)).unwrap();
+    run(&mux, tools, typing(true)).unwrap();
+    let events = mux.subscribe();
+    assert!(disconnect_client(&mux, brain, false));
+    assert!(changed_events(&events).is_empty(), "the tools client's on still holds");
+    assert_eq!(mux.conversation_typing(&conversation), vec!["agent_mux".to_owned()]);
+    assert!(disconnect_client(&mux, tools, false));
+    assert_eq!(
+        changed_events(&events),
+        vec![json!({"event":"conversation-typing","conversation":conversation,
+                    "participant":"agent_mux","on":false})]
+    );
+    assert!(mux.conversation_typing(&conversation).is_empty());
+}
+
 /// `ws-conversations-v1` (cmux#13742): an authenticated WebSocket client is
 /// the person for reads and writes (tests/cli/ws_conversations.rs), but the
 /// agent-identity commands and history import stay on the Unix socket.

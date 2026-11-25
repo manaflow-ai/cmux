@@ -1,7 +1,7 @@
 public import AppKit
 
-/// The layout's non-interactive overlays (focus ring, inactive dim, drop
-/// highlight) live in one plane that covers the layout root exactly. Items
+/// The layout's non-interactive overlays (focus ring, inactive dim, zoom dim,
+/// drop highlight) live in one plane that covers the layout root exactly. Items
 /// are placed in the root's coordinates, so the plane works in either home:
 ///
 /// - inside the root (default, and whenever the window has no content child
@@ -15,7 +15,6 @@ public import AppKit
 public final class OverlayPlane: NSView {
     /// The view whose bounds the plane mirrors (the layout root).
     public private(set) weak var home: NSView?
-
     init(home: NSView) {
         self.home = home
         super.init(frame: home.bounds)
@@ -99,8 +98,7 @@ public final class OverlayPlane: NSView {
     }
 
     /// The nearest view at or above `view` whose layer clips with a corner
-    /// radius, or above `view` clips square (the main pane while a sidebar
-    /// slide holds content at another width, `MainPaneCardView.contentHold`): its
+    /// radius, or above `view` clips square: its
     /// bounds in window coordinates and its radius. `view`'s own square clip
     /// is its bounds, which the plane's frame already is.
     static func roundedClip(around view: NSView) -> (rect: CGRect, radius: CGFloat)? {

@@ -71,9 +71,13 @@ public nonisolated struct DaemonHistoryEntry: Decodable, Sendable, Equatable {
 
     /// The app's entry for the restore paths (history.open, palette pages). A location comes from the
     /// daemon's trail (`location` and `window`); the caller marks whether its tab is reachable.
-    /// `untitled`: the app's localized title of a closed terminal the daemon left untitled.
-    public func historyEntry(untitled: String) -> HistoryEntry? {
-        let title = kind == .closed && self.title.isEmpty ? untitled : self.title
+    /// `untitled`: the app's localized title of a closed terminal the daemon left untitled; `untitledChat`:
+    /// of a closed chat (a closed row with the chat's session, cmux-tui `closed_entry`), `untitled` when nil.
+    public func historyEntry(untitled: String, untitledChat: String? = nil) -> HistoryEntry? {
+        // The daemon names a closed tab's chat (session id and harness); a container never has one.
+        let closedAgent = kind == .closed && (sessionID != nil || provider != nil)
+            ? ClosedItem.AgentSession(sessionID: sessionID, harness: provider) : nil
+        let title = kind == .closed && self.title.isEmpty ? (closedAgent == nil ? untitled : untitledChat ?? untitled) : self.title
         let payload: HistoryEntry.Payload
         switch kind {
         case .location:
@@ -93,7 +97,7 @@ public nonisolated struct DaemonHistoryEntry: Decodable, Sendable, Equatable {
             // The daemon's entry id is `closed:<closed history id>`; the app's closed item id is the rest.
             let itemID = id.hasPrefix("closed:") ? String(id.dropFirst("closed:".count)) : id
             payload = .closed(ClosedItem(id: itemID, kind: itemKind, title: title, machine: machine ?? "local",
-                                         workspace: workspace, cwd: cwd, url: url))
+                                         workspace: workspace, cwd: cwd, url: url, agentSession: closedAgent))
         case .agent:
             guard let sessionID, let provider else { return nil }
             payload = .agent(AgentSession(machine: machine ?? "local", provider: provider, sessionID: sessionID, cwd: cwd,
@@ -108,8 +112,36 @@ public nonisolated struct DaemonHistoryEntry: Decodable, Sendable, Equatable {
     }
 }
 
+/// The answer of `history.entries.list`: the entries, and the asked kinds whose entries are not
+/// complete yet (`pending_kinds`: the daemon's fold of the session journal is still behind, and the
+/// list did not wait for it). A reader that gets a pending kind asks again until it gets none.
 public nonisolated struct DaemonHistoryList: Decodable, Sendable {
     public var entries: [DaemonHistoryEntry]
+    public var pendingKinds: Set<HistoryEntry.Kind>
+
+    enum CodingKeys: String, CodingKey {
+        case entries
+        case pendingKinds = "pending_kinds"
+    }
+
+    public init(entries: [DaemonHistoryEntry], pendingKinds: Set<HistoryEntry.Kind> = []) {
+        self.entries = entries
+        self.pendingKinds = pendingKinds
+    }
+
+    public init(from decoder: any Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        entries = try c.decode([DaemonHistoryEntry].self, forKey: .entries)
+        // A kind this build does not know is left out: it lists no entry of that kind.
+        pendingKinds = Set(try c.decodeIfPresent([String].self, forKey: .pendingKinds)?.compactMap(HistoryEntry.Kind.init(rawValue:)) ?? [])
+    }
+
+    /// Whether `id` is not among the entries only because its kind's entries are not complete yet:
+    /// the entry is then not known, which is not "gone".
+    public func isStillLoading(id: String) -> Bool {
+        guard let kind = id.split(separator: ":").first.flatMap({ HistoryEntry.Kind(rawValue: String($0)) }), pendingKinds.contains(kind) else { return false }
+        return !entries.contains { $0.id == id }
+    }
 }
 
 /// `history.visit.summaries` row: the omnibox seed of a browser profile.

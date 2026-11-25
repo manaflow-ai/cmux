@@ -14,7 +14,7 @@ import Testing
 
     private func laidOut() -> SidebarNoticeCardView {
         _ = NSApplication.shared
-        let card = SidebarNoticeCardView(frame: NSRect(x: 0, y: 0, width: 216, height: SidebarNoticeCardView.height(for: Self.notice)))
+        let card = SidebarNoticeCardView(frame: NSRect(x: 0, y: 0, width: 216, height: SidebarNoticeCardView.height(for: Self.notice, width: 216)))
         card.configure(Self.notice)
         card.layoutSubtreeIfNeeded()
         return card
@@ -28,7 +28,7 @@ import Testing
         let button = try #require(card.actionButtons.first)
         #expect(toggle.frame.minX > button.frame.maxX, "the switch sits right of Archive")
         #expect(toggle.frame.maxX <= card.bounds.width, "inside the card")
-        let title = ("Always" as NSString).size(withAttributes: [.font: Typography.caption]).width
+        let title = ("Always" as NSString).size(withAttributes: [.font: Typography.cardBody]).width
         #expect(toggle.frame.width >= title + 20, "the title shows whole beside the switch (a capture read \"Alw…\")")
     }
 
@@ -43,7 +43,7 @@ import Testing
     @Test func aCardWithoutASwitchShowsNone() {
         _ = NSApplication.shared
         let plain = SidebarNoticeCard(id: "tip", title: "Tip", actions: [SidebarNoticeCard.Action(id: "ok", title: "OK", prominent: true)])
-        let card = SidebarNoticeCardView(frame: NSRect(x: 0, y: 0, width: 216, height: SidebarNoticeCardView.height(for: plain)))
+        let card = SidebarNoticeCardView(frame: NSRect(x: 0, y: 0, width: 216, height: SidebarNoticeCardView.height(for: plain, width: 216)))
         card.configure(plain)
         card.layoutSubtreeIfNeeded()
         #expect(card.actionSwitch?.isHidden ?? true)

@@ -1,8 +1,11 @@
 import AppKit
 import CmuxNextActions
+import CmuxNextAppCore
+import CmuxNextAppTry
 import CmuxNextCompat
 import CmuxNextErrorJournal
 import CmuxNextSettings
+import CmuxNextSettingsWindow
 import CmuxNextTerminal
 import os
 
@@ -16,15 +19,12 @@ enum SettingsHandlers {
     private static let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "app.actions")
 
     static func bind(into registry: ActionRegistry, context: AppActionContext) {
-        let previewTitle = SettingsSchema.descriptor(for: CmuxConfigSnapshot.previewFeaturesPath)?.title
-            ?? CmuxConfigSnapshot.previewFeaturesPath.joined(separator: ".")
+        SettingsCustomizationActions().bind(into: registry, effect: { route, focus in
+            try context.services.settingsWindow.show(section: nil, focus: focus, route: route)
+            return .done
+        }, refuse: { [weak registry] in registry?.refuse(thrown: $0) })
         registry.bind("palette.openCmuxSettingsFile", run: { _ in try openCmuxConfig(context) })
         registry.bind("palette.openGhosttySettings", run: { _ in try openGhosttyConfig(context) })
-        // Showing the Settings tab is local and immediate: the effect is done on this turn.
-        registry.bindEffect("settings.customizeMenus", requires: nil, effect: { invocation in
-            try context.services.settingsWindow.show(section: nil, focus: invocation.allowsViewChange, route: "#/settings/menus")
-            return .done
-        })
         // R92: Settings > Terminal shows the Ghostty config diagnostics.
         registry.bind("ghostty.showDiagnostics", run: { invocation in
             try context.services.settingsWindow.show(section: .terminal, focus: invocation.allowsViewChange)
@@ -51,23 +51,27 @@ enum SettingsHandlers {
         // The changelog page's provider exists from launch, so a What's New tab that the session
         // restores (or Reopen Closed brings back) shows its title and page (cx-warpr).
         ChangelogPageTab.register(context.services)
+        WebPageTab.registerGitHub(context.services)
         UpdateHandlers.bind(into: registry, updater: context.services.updater,
                             openWhatsNew: { [weak services = context.services] in services.map { WhatsNewPage.open($0) } ?? false },
-                            stateDirectories: { [weak services = context.services] in services?.environment.daemonStateDirectories ?? [nil] })
-        OnboardingHandlers.bind(into: registry, context: context)
-        // Keep the App Store out of menus and the palette while Labs is off (What's New is not
-        // behind Labs). Compose this with the browser import gate installed above so unrelated
-        // settings remain intact.
-        let previousSettingOffReason = registry.settingOffReason
-        registry.settingOffReason = { [weak services = context.services] id in
-            if services?.settings?.snapshot.previewFeatures != true,
-               id == "appStore.show" || id == "appStore.showInstalled" {
-                return previewTitle
+                            stateDirectories: { [weak services = context.services] in services?.environment.daemonStateDirectories ?? [nil] },
+                            openLink: { [weak services = context.services] url in services.map { SidebarCardFeed.openUpdateLink(url, services: $0) } })
+        // Install an Earlier Nightly…: Settings > Updates at its Channels card, whose Switch installs any
+        // recent build (`cmux nightly install` is the CLI form); a new focus each open scrolls back to it.
+        registry.bind("updates.installEarlierBuild", unavailable: { [weak services = context.services] in
+            services?.updater.installEarlierBuildUnavailableReason
+        }, invoke: { [weak registry, weak services = context.services] invocation in
+            do {
+                try services?.settingsWindow.show(section: nil, focus: invocation.allowsViewChange, route: "#/settings/updates?focus=channels:\(UUID().uuidString.prefix(8))")
+            } catch {
+                registry?.refuse(String(describing: error))
             }
-            return previousSettingOffReason(id)
-        }
+        })
+        OnboardingHandlers.bind(into: registry, context: context)
         SessionMoveFromBuild.bind(into: registry, context: context)
         CLIInstallHandlers.bind(into: registry, context: context)
+        LiveWebHandlers.bind(into: registry, context: context)
+        AppTryActions.bind(into: registry, bundled: context.services.bundledCLI, window: { context.activeWindow?.window })
         KeymapHandlers.bind(into: registry, context: context)
 
         registry.bind("palette.restartSocketListener", run: { [weak services = context.services] _ in
@@ -120,7 +124,7 @@ enum SettingsHandlers {
 
     private static func logsDirectory(_ context: AppActionContext) -> URL {
         context.services.errorJournal?.journal.directory
-            ?? ErrorJournalService.directory(bundleID: context.services.environment.launch.bundleID ?? Bundle.main.bundleIdentifier ?? "com.cmuxterm.app")
+            ?? ErrorJournalService.directory(bundleID: context.services.environment.launch.bundleID ?? Bundle.main.bundleIdentifier ?? "com.cmuxterm.app.next")
     }
 
     static func requireSettings(_ context: AppActionContext) throws -> SettingsController {
@@ -183,7 +187,7 @@ enum SettingsHandlers {
         try AppearanceHandlers.requireUnmanaged(path, context)
         let explicit = invocation["on"]?.boolValue
         let writer = SettingWriter(invocation.origin)
-        Task {
+        context.services.registry.track(Task { // a capturing caller (`action.run`, the CLI) answers once the write applied
             do {
                 let root = try await settings.file.document()
                 if let descriptor {
@@ -191,10 +195,9 @@ enum SettingsHandlers {
                 } else {
                     try await settings.set(.bool(explicit ?? !(root.value(at: path)?.boolValue ?? false)), at: path)
                 }
-            } catch {
-                logger.error("toggle setting \(setting, privacy: .public) failed: \(String(describing: error), privacy: .public)")
-            }
-        }
+            } catch { logger.error("toggle setting \(setting, privacy: .public) failed: \(String(describing: error), privacy: .public)") }
+            return nil
+        })
     }
 
     /// `browser.defaultEngine`: applies at once (the next new tab uses it),

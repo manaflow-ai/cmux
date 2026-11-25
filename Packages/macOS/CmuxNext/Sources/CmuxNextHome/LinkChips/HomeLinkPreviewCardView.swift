@@ -7,7 +7,7 @@ import MessagesLabHome
 /// is reused for every chip; the app's one hover card panel hosts it.
 final class HomeLinkPreviewCardView: NSView, HoverCardTextReporting {
     static let cardWidth: CGFloat = 300
-    private static var padding: CGFloat { Metrics.space4 }
+    private static var padding: CGFloat { HoverCardStyle.shared.padding }
     private static let thumbnailHeight: CGFloat = 150
 
     let icon = NSImageView()
@@ -17,17 +17,22 @@ final class HomeLinkPreviewCardView: NSView, HoverCardTextReporting {
     let linesLabel = ChromeLabel(wrappingLabelWithString: "")
     private let thumbnail = NSView()
     private var thumbnailHeight: NSLayoutConstraint?
-    private var linesTop: NSLayoutConstraint?
+    /// The content lines' top: under the place row, or under the title while there is no place, so a link
+    /// with no place keeps no empty line (a hidden row keeps its size under plain constraints).
+    private var linesUnderPlace: NSLayoutConstraint?
+    private var linesUnderTitle: NSLayoutConstraint?
+    /// The content lines' zero height while there are none.
+    private var linesCollapsed: NSLayoutConstraint?
     private var thumbnailTop: NSLayoutConstraint?
     private(set) var preview: HomeLinkPreview?
 
     init() {
         super.init(frame: .zero)
-        titleLabel.font = Typography.bodyEmphasized
+        titleLabel.font = HoverCardStyle.shared.titleFont
         titleLabel.maximumNumberOfLines = 2
         titleLabel.lineBreakMode = .byTruncatingTail
         titleLabel.preferredMaxLayoutWidth = Self.cardWidth - 2 * Self.padding - 80
-        statusLabel.font = Typography.body
+        statusLabel.font = HoverCardStyle.shared.secondaryFont
         linesLabel.maximumNumberOfLines = 6
         linesLabel.lineBreakMode = .byTruncatingTail
         linesLabel.preferredMaxLayoutWidth = Self.cardWidth - 2 * Self.padding
@@ -42,8 +47,10 @@ final class HomeLinkPreviewCardView: NSView, HoverCardTextReporting {
             addSubview(view)
         }
         let p = Self.padding, iconSize = HoverCardRowView.iconSize
-        let linesTop = linesLabel.topAnchor.constraint(equalTo: placeRow.bottomAnchor, constant: Metrics.space2)
-        let thumbnailTop = thumbnail.topAnchor.constraint(equalTo: linesLabel.bottomAnchor, constant: Metrics.space2)
+        let style = HoverCardStyle.shared
+        let linesUnderPlace = linesLabel.topAnchor.constraint(equalTo: placeRow.bottomAnchor, constant: style.rowGap)
+        linesUnderTitle = linesLabel.topAnchor.constraint(equalTo: titleLabel.bottomAnchor, constant: style.titleGap)
+        let thumbnailTop = thumbnail.topAnchor.constraint(equalTo: linesLabel.bottomAnchor, constant: style.mediaGap)
         let height = thumbnail.heightAnchor.constraint(equalToConstant: 0)
         NSLayoutConstraint.activate([
             widthAnchor.constraint(equalToConstant: Self.cardWidth),
@@ -56,10 +63,10 @@ final class HomeLinkPreviewCardView: NSView, HoverCardTextReporting {
             titleLabel.trailingAnchor.constraint(lessThanOrEqualTo: statusLabel.leadingAnchor, constant: -Metrics.space2),
             statusLabel.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -p),
             statusLabel.firstBaselineAnchor.constraint(equalTo: titleLabel.firstBaselineAnchor),
-            placeRow.topAnchor.constraint(equalTo: titleLabel.bottomAnchor, constant: Metrics.space2),
+            placeRow.topAnchor.constraint(equalTo: titleLabel.bottomAnchor, constant: style.titleGap),
             placeRow.leadingAnchor.constraint(equalTo: leadingAnchor, constant: p),
             placeRow.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -p),
-            linesTop,
+            linesUnderPlace,
             linesLabel.leadingAnchor.constraint(equalTo: leadingAnchor, constant: p),
             linesLabel.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -p),
             thumbnailTop,
@@ -68,7 +75,8 @@ final class HomeLinkPreviewCardView: NSView, HoverCardTextReporting {
             thumbnail.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -p),
             height,
         ])
-        self.linesTop = linesTop
+        self.linesUnderPlace = linesUnderPlace
+        linesCollapsed = linesLabel.heightAnchor.constraint(equalToConstant: 0)
         self.thumbnailTop = thumbnailTop
         thumbnailHeight = height
         statusLabel.setContentCompressionResistancePriority(.required, for: .horizontal)
@@ -89,14 +97,21 @@ final class HomeLinkPreviewCardView: NSView, HoverCardTextReporting {
         } else {
             placeRow.isHidden = true
         }
-        linesLabel.font = preview.monospaced ? Typography.system(.monospaced, size: Typography.caption.pointSize, weight: .regular) : Typography.body
+        linesLabel.font = preview.monospaced ? Typography.system(.monospaced, size: Typography.caption.pointSize, weight: .regular) : HoverCardStyle.shared.secondaryFont
         linesLabel.stringValue = preview.lines.joined(separator: "\n")
         linesLabel.isHidden = preview.lines.isEmpty
-        linesTop?.constant = preview.lines.isEmpty ? 0 : Metrics.space2
+        linesCollapsed?.isActive = preview.lines.isEmpty
+        // Deactivate before activating, so the two tops never both hold.
+        let style = HoverCardStyle.shared
+        if placeRow.isHidden { linesUnderPlace?.isActive = false } else { linesUnderTitle?.isActive = false }
+        linesUnderPlace?.constant = preview.lines.isEmpty ? 0 : style.rowGap
+        linesUnderTitle?.constant = preview.lines.isEmpty ? 0 : style.titleGap
+        linesUnderPlace?.isActive = !placeRow.isHidden
+        linesUnderTitle?.isActive = placeRow.isHidden
         thumbnail.layer?.contents = preview.thumbnail
         thumbnail.isHidden = preview.thumbnail == nil
         thumbnailHeight?.constant = preview.thumbnail == nil ? 0 : Self.thumbnailHeight
-        thumbnailTop?.constant = preview.thumbnail == nil ? 0 : Metrics.space2
+        thumbnailTop?.constant = preview.thumbnail == nil ? 0 : HoverCardStyle.shared.mediaGap
         applyColors()
     }
 

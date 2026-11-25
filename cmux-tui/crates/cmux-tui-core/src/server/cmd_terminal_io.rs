@@ -4,6 +4,7 @@
 //! `Command` arm of `handle_command_with_cancellation`.
 
 use crate::Rgb;
+use crate::surface::InputReply;
 
 use super::styled_run_json;
 use base64::Engine;
@@ -16,6 +17,7 @@ use super::get_surface;
 use super::image_paste;
 use super::optional_surface_size;
 use super::require_pty;
+use super::send_once;
 use super::terminal_snapshot;
 use crate::Actor;
 use crate::DefaultColors;
@@ -29,7 +31,6 @@ use ghostty_vt::KeyEncoder;
 use ghostty_vt::KeyInput;
 use ghostty_vt::key_input_from_chord;
 use ghostty_vt::rows_to_runs;
-use regex::Regex;
 use serde_json::Value;
 use serde_json::json;
 use std::collections::BTreeMap;
@@ -47,6 +48,7 @@ pub(super) fn paste_image(
     upload_id: String,
     op: String,
     mime: Option<String>,
+    filename: Option<String>,
     size: Option<usize>,
     offset: Option<usize>,
     data: Option<String>,
@@ -58,6 +60,7 @@ pub(super) fn paste_image(
         upload_id,
         op,
         mime,
+        filename,
         size,
         offset,
         data,
@@ -70,8 +73,30 @@ pub(super) const SEND_EXPECT_FOREGROUND_CAPABILITY: &str = "send-expect-foregrou
 
 /// `send-expect-agent-v1`: `send` takes `expect_agent` and `submit`, so a reply typed from
 /// somewhere that cannot see the screen (the phone's Feed) reaches only the agent that waits at
-/// its prompt, and is submitted with no gap between the text and Return.
+/// its prompt, and is submitted by a Return of its own. The PTY writer gives it its own read once
+/// the program read the text (`paste_pacing`): sent right behind a paste, an agent TUI took it as
+/// part of the paste.
 pub(super) const SEND_EXPECT_AGENT_CAPABILITY: &str = "send-expect-agent-v1";
+
+/// `send-typed-submit-v1`: a `send` with `submit` and typed text (no `paste`) writes Return
+/// [`TYPED_SUBMIT_GAP`] after the text, in the same request. The phone's composer sends a one-line
+/// draft for a full-screen program that way (typed, not pasted: vim takes a bracketed paste as
+/// text even in normal mode). It was the text, then Return as a second request 250 ms later from
+/// the phone; across a link blip the text arrived and the Return did not (Leo, 2026-11-21: "the
+/// text goes through. But then the send doesn't go through"). One keyed request goes once or not
+/// at all, and the gap keeps an agent's paste-burst detection (Codex: about 120 ms after a burst
+/// of unbracketed characters) from taking the Return for a newline.
+pub(super) const SEND_TYPED_SUBMIT_CAPABILITY: &str = "send-typed-submit-v1";
+
+/// How long Return waits after typed text in a `submit` send (`send-typed-submit-v1`): past an
+/// agent TUI's paste-burst window, the phone's old typed-Enter delay.
+pub(super) const TYPED_SUBMIT_GAP: Duration = Duration::from_millis(250);
+
+/// The wait before a `submit`'s Return: after typed text, [`TYPED_SUBMIT_GAP`]; after a paste
+/// (the PTY writer's `paste_pacing` waits for it) or with nothing written, none.
+pub(super) fn submit_wait(paste: bool, wrote_text: bool) -> Duration {
+    if !paste && wrote_text { TYPED_SUBMIT_GAP } else { Duration::ZERO }
+}
 
 /// `send` `expect_agent`: the terminal's agent must wait at its prompt (`idle`, never `working`,
 /// `blocked` on an approval or a question, or `done`), in this harness session.
@@ -116,9 +141,102 @@ pub(super) struct SendParams {
     /// flows); only recorded, never acted on. An older daemon ignores it.
     #[serde(default)]
     pub(super) flow: Option<u64>,
+    /// `send-key-v1`: an id for this input. A `send` whose key the daemon already applied is
+    /// answered with the same success reply and writes nothing (`send_once`), so a client that
+    /// lost the reply can send it again safely. Applies to `text` and `bytes` alike. An older
+    /// daemon ignores it.
+    #[serde(default)]
+    pub(super) key: Option<String>,
+}
+
+/// The terminal a key (`send`, `send-key`) goes to. A client attached to it (the app's terminal view) keeps its handle
+/// from the first key on, so the person's typing never waits for the session lock that the lists, snapshots and
+/// durable mutations of agents, the CLI and MCP hold (TYPING UNDER LOAD F4: a key waited up to 475 ms there). Anyone
+/// else looks it up.
+///
+/// A key from a client that can type into its terminal (attached, not only through read-only views) is the person's:
+/// its connection's threads then run at user-interactive QoS (server/input_qos.rs, TYPING FIX 2 F7). A read-only
+/// viewer's keys are automation's and keep the default QoS.
+///
+/// Also how the write answers on the input lane (R-DAEMON-STATE S1.6b): the person's key returns when the terminal's
+/// input port took it ([`InputReply::Accepted`]); anyone else's write answers when the port wrote it, with its error
+/// ([`InputReply::Written`]), as the old path answered. Off the lane the write answers after the write either way.
+pub(super) fn input_surface(
+    mux: &Arc<Mux>,
+    client: u64,
+    writer: &MessageWriter,
+    id: SurfaceId,
+) -> anyhow::Result<(Arc<crate::Surface>, InputReply)> {
+    if mux.control_clients.input_lane.on() {
+        // R-DAEMON-STATE stage S1: the session's published routes give the terminal `id` routes to now (a respawn,
+        // close or move included) and the client registry's published facts say whether the client types into it.
+        // Neither takes a lock, so nothing is kept and nothing has to be invalidated.
+        let surface = get_surface(mux, id)?;
+        if mux.control_clients.types_into(client, id) {
+            writer.input_lane.mark_person_input();
+            return Ok((surface, InputReply::Accepted));
+        }
+        return Ok((surface, InputReply::Written));
+    }
+    if let Some((surface, can_type)) =
+        mux.control_clients.attached_input_surface(client, id, &mux.route_generations)
+    {
+        if can_type {
+            writer.input_lane.mark_person_input();
+        }
+        return Ok((surface, InputReply::Written));
+    }
+    let generation = mux.route_generations.of(id);
+    let surface = get_surface(mux, id)?;
+    if mux.control_clients.remember_attached_input(client, id, &surface, generation) {
+        writer.input_lane.mark_person_input();
+    }
+    Ok((surface, InputReply::Written))
 }
 
 pub(super) fn send(
+    mux: &Arc<Mux>,
+    client: u64,
+    writer: &MessageWriter,
+    mut params: SendParams,
+) -> anyhow::Result<Value> {
+    let Some(key) = params.key.take() else {
+        return send_unkeyed(mux, client, writer, params);
+    };
+    if key.is_empty() || key.len() > send_once::MAX_KEY_LEN {
+        return Err(DeliveryClassifiedError::known_not_delivered(anyhow::anyhow!(
+            "bad request: key must be 1 to {} bytes",
+            send_once::MAX_KEY_LEN
+        )));
+    }
+    let claimed = send_once::sent_keys()
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
+        .claim(&key, Instant::now());
+    if !claimed {
+        // Applied already (the client lost the first reply): the same success, nothing written.
+        return Ok(json!({}));
+    }
+    let result = send_unkeyed(mux, client, writer, params);
+    if let Err(error) = &result
+        && known_not_delivered(error)
+    {
+        send_once::sent_keys()
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .forget(&key);
+    }
+    result
+}
+
+/// The error says nothing was written (a refused check), so the same key may write later.
+fn known_not_delivered(error: &anyhow::Error) -> bool {
+    error.downcast_ref::<DeliveryClassifiedError>().is_some_and(|classified| {
+        matches!(classified.delivery, super::ResponseErrorDelivery::KnownNotDelivered)
+    })
+}
+
+fn send_unkeyed(
     mux: &Arc<Mux>,
     client: u64,
     writer: &MessageWriter,
@@ -134,6 +252,7 @@ pub(super) fn send(
         expect_agent,
         submit,
         flow,
+        key: _,
     } = params;
     let surface = match (surface, terminal_id) {
         (Some(surface), None) => surface,
@@ -155,7 +274,7 @@ pub(super) fn send(
         }
         _ => anyhow::bail!("bad request: send takes exactly one of surface and terminal_id"),
     };
-    let surface = get_surface(mux, surface)?;
+    let (surface, reply) = input_surface(mux, client, writer, surface)?;
     require_pty(&surface)?;
     // Bytes queued for this terminal while it was being created go first.
     mux.wait_for_creating_input_flush(&surface);
@@ -170,6 +289,16 @@ pub(super) fn send(
         }
     }
     if let Some(expected) = expect_agent {
+        // While the start's roster replay runs in the background, the roster holds older states
+        // (an `idle` from before the agent's last prompt) next to the current session id, so the
+        // check below could pass for an agent that works or asks. Refused until the replay and its
+        // reconcile are done: nothing was written, and the same send succeeds then.
+        if mux.agent_roster_settling() {
+            return Err(DeliveryClassifiedError::known_not_delivered(anyhow::anyhow!(
+                "agent roster replay in progress: agent states are still being restored; retry \
+                 the send shortly"
+            )));
+        }
         // Only this surface's own terminal's record: a surface with no terminal id fails closed
         // (an unfiltered roster would name another terminal's agent).
         let agent = surface.terminal_public_id().cloned().and_then(|terminal| {
@@ -192,15 +321,16 @@ pub(super) fn send(
             )));
         }
     }
+    let wrote_text = text.as_deref().is_some_and(|text| !text.is_empty()) || bytes.is_some();
     if paste {
         let mut payload = text.unwrap_or_default().into_bytes();
         if let Some(b64) = bytes {
             payload.extend(base64::engine::general_purpose::STANDARD.decode(b64)?);
         }
-        surface.write_paste(&payload)?;
+        surface.write_paste_replying(&payload, reply)?;
     } else {
         if let Some(text) = text {
-            surface.write_bytes(text.as_bytes())?;
+            surface.write_bytes_replying(text.as_bytes(), reply)?;
         }
         if let Some(b64) = bytes {
             let raw = base64::engine::general_purpose::STANDARD.decode(b64)?;
@@ -209,7 +339,7 @@ pub(super) fn send(
                 flow.unwrap_or(0),
                 surface.flow_terminal_id(),
             );
-            surface.write_bytes(&raw)?;
+            surface.write_bytes_replying(&raw, reply)?;
             cmux_flow_trace::hop(
                 "daemon.send.written",
                 flow.unwrap_or(0),
@@ -219,20 +349,26 @@ pub(super) fn send(
     }
     if submit {
         // Return as its own key: a full-screen agent editor reads a pasted newline as a line
-        // break, not a submit.
+        // break, not a submit. The PTY writer holds it until the program read the paste
+        // (`paste_pacing`).
+        // Typed text: Return waits past an agent's paste-burst window (`send-typed-submit-v1`).
+        let wait = submit_wait(paste, wrote_text);
+        if !wait.is_zero() {
+            std::thread::sleep(wait);
+        }
         // The text is already in: a failed Return must not read as "nothing was written".
-        surface.write_bytes(b"\r").map_err(|error| {
+        surface.write_bytes_replying(b"\r", reply).map_err(|error| {
             anyhow::anyhow!("submit failed after the text was written: {error}")
         })?;
     }
-    mux.note_terminal_input(surface.id, client);
+    mux.note_terminal_input(&surface, client);
     Ok(json!({}))
 }
 
 pub(super) fn read_screen(mux: &Arc<Mux>, surface: SurfaceId) -> anyhow::Result<Value> {
     let surface = get_surface(mux, surface)?;
     require_pty(&surface)?;
-    let text = surface.try_with_terminal(|t| t.viewport_text())??;
+    let text = surface.try_with_terminal(|t| t.active_text())??;
     Ok(json!({ "text": text }))
 }
 
@@ -302,10 +438,11 @@ pub(super) fn wait_for(
     }
     let surface = get_surface(mux, surface)?;
     require_pty(&surface)?;
-    let regex = Regex::new(&pattern).map_err(|err| anyhow::anyhow!("bad regex: {err}"))?;
+    let regex = crate::wait_pattern::compile(&pattern)
+        .map_err(|err| anyhow::anyhow!("bad regex: {err}"))?;
     let start = Instant::now();
     let check = || -> anyhow::Result<Option<String>> {
-        let text = surface.try_with_terminal(|t| t.viewport_text())??;
+        let text = surface.try_with_terminal(|t| t.active_text())??;
         Ok(regex.is_match(&text).then_some(text))
     };
     if timeout_ms == 0 {
@@ -428,10 +565,12 @@ pub(super) fn run(
 pub(super) fn send_key(
     mux: &Arc<Mux>,
     client: u64,
+    writer: &MessageWriter,
     surface: SurfaceId,
     keys: Vec<String>,
 ) -> anyhow::Result<Value> {
-    let surface = get_surface(mux, surface)?;
+    // The same kept terminal and route rules as `send`: a named key takes no session lock (TYPING FIX 2).
+    let (surface, reply) = input_surface(mux, client, writer, surface)?;
     require_pty(&surface).map_err(|_| anyhow::anyhow!("surface does not support key input"))?;
     if keys.is_empty() {
         anyhow::bail!("bad request: keys must be non-empty");
@@ -450,8 +589,8 @@ pub(super) fn send_key(
         Ok::<(), anyhow::Error>(())
     })??;
     mux.wait_for_creating_input_flush(&surface);
-    surface.write_bytes(&encoded)?;
-    mux.note_terminal_input(surface.id, client);
+    surface.write_bytes_replying(&encoded, reply)?;
+    mux.note_terminal_input(&surface, client);
     Ok(json!({}))
 }
 
@@ -459,7 +598,7 @@ pub(super) fn copy(mux: &Arc<Mux>, surface: SurfaceId, mode: String) -> anyhow::
     let surface = get_surface(mux, surface)?;
     require_pty(&surface)?;
     let text = match mode.as_str() {
-        "screen" => surface.try_with_terminal(|t| t.viewport_text())??,
+        "screen" => surface.try_with_terminal(|t| t.active_text())??,
         "scrollback" => surface.try_with_terminal(|t| t.plain_text())??,
         "selection" => surface.selection_text().ok_or_else(|| anyhow::anyhow!("no selection"))?,
         other => anyhow::bail!("bad mode {other}"),

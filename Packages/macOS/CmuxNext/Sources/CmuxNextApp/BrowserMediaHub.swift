@@ -2,8 +2,8 @@ import CmuxNextBrowser
 import Observation
 
 /// Every browser tab's media, for the toolbar's media hub (cx-6qwm.2):
-/// the tabs whose page script reports media (`BrowserTabState.media`),
-/// playing first. Reading `sessions` while observing tracks those tabs'
+/// the tabs whose page script reports media (`BrowserTabState.media`) with
+/// an element to control (not `isSoundOnly`), playing first. Reading `sessions` while observing tracks those tabs'
 /// states and, through `tabsVersion`, tabs created or closed later.
 @Observable
 final class BrowserMediaHub {
@@ -15,7 +15,7 @@ final class BrowserMediaHub {
     func sessions(in cache: TabContentCache) -> [(entry: BrowserEntry, media: BrowserMediaState)] {
         _ = tabsVersion
         return cache.browsers.values
-            .compactMap { entry in entry.tab.state.media.map { (entry: entry, media: $0) } }
+            .compactMap { entry in entry.tab.state.media.flatMap { $0.isSoundOnly ? nil : (entry: entry, media: $0) } } // Web Audio: speaker only
             .sorted { first, second in
                 first.media.isPlaying != second.media.isPlaying
                     ? first.media.isPlaying : first.entry.tab.id.rawValue < second.entry.tab.id.rawValue

@@ -17,7 +17,8 @@ public final class AgentPaneNowPlaying {
     public var track: Track? {
         didSet {
             guard track != oldValue else { return }
-            for view in views.allObjects { send(to: view) }
+            // Held per pane to one per turn, and while nobody sees it: the artwork is a data URL.
+            for view in views.allObjects { view.shownPushes.push("nowPlaying", to: view) { [weak self] in self?.send(to: $0) } }
         }
     }
     /// Runs a page's control (`nowPlaying.command`) on what plays.

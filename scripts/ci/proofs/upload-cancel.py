@@ -7,6 +7,15 @@ import subprocess
 import sys
 import tempfile
 import threading
+sys.path.append(os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', '..', 'cmux-next'))
+try:
+    from safe_log import safe_print  # noqa: E402  (a line in a cleanup path never skips the kill)
+except ImportError:  # a copy of this script outside scripts/: the same helper (scripts/cmux-next/safe_log.py)
+    def safe_print(*args, **kwargs):
+        try:
+            print(*args, **kwargs)
+        except (BrokenPipeError, OSError, ValueError):
+            pass
 
 binary = str(Path(sys.argv[1]).resolve())
 with tempfile.TemporaryDirectory(prefix="upload-cancel-proof-") as scratch:
@@ -94,7 +103,7 @@ with tempfile.TemporaryDirectory(prefix="upload-cancel-proof-") as scratch:
             assert not errors, errors
             assert files == {"/work/local/uploads/ffffffffffffffffffffffffffffffff/keep.bin": 7}, files
             assert not any(identity in path for path in dirs), dirs
-            print(json.dumps({"result": "PASS", "source_bytes": source.stat().st_size, "killed_status": child.returncode, "partial_before": partial, "files_after": files, "cleanup": json.loads(cleaned.stdout.splitlines()[-1]), "requests": requests}))
+            safe_print(json.dumps({"result": "PASS", "source_bytes": source.stat().st_size, "killed_status": child.returncode, "partial_before": partial, "files_after": files, "cleanup": json.loads(cleaned.stdout.splitlines()[-1]), "requests": requests}))
         finally:
             release.set()
             if child.poll() is None:

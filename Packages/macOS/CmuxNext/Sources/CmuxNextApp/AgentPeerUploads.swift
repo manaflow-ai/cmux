@@ -10,7 +10,11 @@ import Foundation
 /// app sends each one through this Mac's acpmux to the daemon that owns the chat
 /// (`_acpmux/file_put`), which saves it owner-only on that machine and answers where. The composer
 /// puts those paths in the prompt and the agent opens them there. An acpmux from before that
-/// method, here or on the peer, answers `unsupported`, so the composer keeps its own note.
+/// method, here or on the peer, answers `unsupported`, so the composer keeps its own note. A chat
+/// of this Mac's own acpmux never comes here: its files are already on this disk, so they are kept
+/// where the composer staged them (``AgentChatUploads``), never streamed again through the acpmux
+/// socket (Leo, 2026-11-22: "IT'S ON FUCKING DISK WE DONT NEED TO MOVE AND RE-RENDER A FUCKING
+/// SCREENSHARED VIDEO IT SHOULD ALL BE INSTANT"; a 188 MB recording took 128 s that way).
 @MainActor
 struct AgentPeerUploads {
     /// The peer chat tab `tab` shows: its session, the peer's name and the pane's acpmux.
@@ -56,7 +60,7 @@ struct AgentPeerUploads {
                 if let batch = begun.batchToken { reply["batchToken"] = batch }
                 return AgentPaneReply.success(reply)
             case .chunk(let token, let offset, let data):
-                guard let received = stages.chunk(token, offset: offset, data: data, owns: owns, work: services.work) else { return failed }
+                guard let received = await stages.chunk(token, offset: offset, data: data, owns: owns, work: services.work) else { return failed }
                 return AgentPaneReply.success(["offset": received])
             case .finish(let token):
                 let result = await stages.finish(token, owns: owns, work: services.work) { staged -> Result<String, AgentPaneFilePutFailure> in
@@ -123,9 +127,9 @@ struct AgentPeerUploads {
 /// beside the Cloud and local chat uploads'.
 enum AgentPeerUploadStrings {
     static func failed(_ machine: String) -> String {
-        String(localized: "chat.upload.peerFailed", defaultValue: "Couldn't send the file to \(machine).", table: "Cloud", bundle: .module)
+        machine.isEmpty ? AgentChatUploadStrings.failed : String(localized: "chat.upload.peerFailed", defaultValue: "Couldn't send the file to \(machine).", table: "Cloud", bundle: .module.inAppLanguage)
     }
     static func tooLarge(_ machine: String) -> String {
-        String(localized: "chat.upload.peerTooLarge", defaultValue: "This file is too large to send to \(machine).", table: "Cloud", bundle: .module)
+        machine.isEmpty ? AgentChatUploadStrings.failed : String(localized: "chat.upload.peerTooLarge", defaultValue: "This file is too large to send to \(machine).", table: "Cloud", bundle: .module.inAppLanguage)
     }
 }

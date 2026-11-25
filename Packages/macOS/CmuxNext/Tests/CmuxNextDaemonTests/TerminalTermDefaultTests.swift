@@ -22,9 +22,13 @@ struct TerminalTermDefaultTests {
     }
 
     @Test func usesGhosttyTermWhenInstalledInSystemTerminfo() {
+        // xterm-ghostty is opt-in (terminal.term); installed alone keeps xterm-256color (f0da2e68b213).
+        let installed = { (path: String) in path == "/usr/share/terminfo/78/xterm-ghostty" }
         let env = TerminalEnvironment.instance.ghostty(
-            resourcesDirectory: resources, version: nil, fileExists: { $0 == "/usr/share/terminfo/78/xterm-ghostty" })
+            resourcesDirectory: resources, version: nil, prefersGhosttyTerm: true, fileExists: installed)
         #expect(env["TERM"] == "xterm-ghostty")
         #expect(env["TERMINFO"] == nil)
+        let notOptedIn = TerminalEnvironment.instance.ghostty(resourcesDirectory: resources, version: nil, fileExists: installed)
+        #expect(notOptedIn["TERM"] == "xterm-256color")
     }
 }

@@ -1,8 +1,8 @@
 // l10n-allow-file: test fixture prompts and replies, not shipped UI.
 // A reopened Codex chat shows each turn's work (hq#2569 item 3): the turn that ran three commands
-// and edited two files opens its "Worked for 1m 32s" line to those calls, grouped as the pane
-// groups a live turn's ("Ran 3 commands", "Edited 2 files +4 -1"), and each command opens to its
-// line.
+// and edited two files opens its "Worked for 1m 32s" line to those calls, one step each as the
+// pane draws a live turn's mixed run (each command, then "Edited 2 files +4 -1"), and each command
+// opens to its line.
 //
 // Before: adopting a Codex chat replayed only the prompt and the final answer, so the turn showed
 // the answer and a "Worked for 1m 32s" footer that opened nothing.
@@ -148,19 +148,24 @@ await requireBrowserLane("agent-pane-adopted-tool-calls.test.ts", async () => {
     await worked.click();
     expect(await worked.getAttribute("aria-expanded")).toBe("true");
 
-    // The default Codex-style run summarizes the replay's commands and edits together. Open it
-    // before inspecting the same command and edit groups it holds.
-    const run = page.locator("button.cv-tool", { hasText: "Ran 3 commands, edited 2 files" });
+    // The default run summarizes the replay's commands and edits together. Open it before
+    // inspecting the calls it holds.
+    const run = page.locator("button.cv-tool", { hasText: "Ran 3 commands and edited 2 files" });
     await run.waitFor();
     expect(await run.getAttribute("aria-expanded")).toBe("false");
     await run.click();
-    const commands = page.locator(".cv-tool-run button.cv-tool", { hasText: "Ran 3 commands" });
-    const edits = page.locator(".cv-tool-run button.cv-tool", { hasText: "Edited 2 files" });
-    await commands.waitFor();
-    await expect(edits.textContent()).resolves.toBe("Edited 2 files+4-1");
+    // A mixed run opens straight to its calls (ToolRunSteps.tsx): each command, then the edit.
+    const steps = page.locator("[data-mixed-tool-steps]");
+    await steps.waitFor();
+    // No group line of its own for the commands: they are steps of the run.
+    expect(await steps.locator("button.cv-tool", { hasText: "Ran 3 commands" }).count()).toBe(0);
+    const edit = steps.locator("button.cv-tool", { hasText: "Edited 2 files" });
+    await expect(edit.textContent()).resolves.toBe("Edited 2 files+4-1");
 
-    const lines = await page.locator(".cv-command__line").allTextContents();
-    expect(lines).toEqual(["git status --short", "grep -n '^version' Cargo.toml", "sed -n 1,8p CHANGELOG.md"]);
+    // `git status --short`, `grep -n '^version' Cargo.toml` and `sed -n 1,8p CHANGELOG.md`, each as
+    // what it did (commandActions.ts).
+    const lines = await page.locator(".cv-command__text").allTextContents();
+    expect(lines).toEqual(["Checked git status", "Searched for “^version”", "Read CHANGELOG.md"]);
     // The answer stays outside the fold, after the work.
     await page.getByText(ANSWER).waitFor();
     await page.close();
@@ -169,8 +174,8 @@ await requireBrowserLane("agent-pane-adopted-tool-calls.test.ts", async () => {
   test("a patch whose files only its input names counts each file, not one", async () => {
     const page = await open(PATCH_CHAT);
     await page.locator("button.cv-worked").click();
-    await page.locator("button.cv-tool", { hasText: "Ran 3 commands, edited 2 files" }).click();
-    await page.locator(".cv-tool-run button.cv-tool", { hasText: "Ran 3 commands" }).waitFor();
+    await page.locator("button.cv-tool", { hasText: "Ran 3 commands and edited 2 files" }).click();
+    await page.locator("[data-mixed-tool-steps]").waitFor();
     // With no diff the edit keeps its own row; it names both files' count, not the first file. Its
     // label, not the whole row: the row also holds the call's check and time, shown on hover.
     const edit = page.locator(".cv-tool .cv-tool__text", { hasText: /^Edit \d+ files$/ });

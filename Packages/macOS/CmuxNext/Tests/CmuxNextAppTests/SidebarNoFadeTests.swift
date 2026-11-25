@@ -37,10 +37,12 @@ import Testing
         #expect(h.sidebar.searchButton.isHidden)
         #expect(h.saved("noFade") == true)
 
+        // Off is the default: the write removes the key (#38119), so cmux.json keeps no copy.
         _ = h.services.registry.perform("sidebar.noFade.off")
-        await h.until { h.sidebar.edgeFade.fades && !h.sidebar.searchButton.isHidden && h.saved("noFade") == false }
+        await h.until { h.sidebar.edgeFade.fades && !h.sidebar.searchButton.isHidden && h.fileParses() && h.saved("noFade") == nil }
         #expect(h.sidebar.edgeFade.fades)
         #expect(!h.sidebar.searchButton.isHidden)
-        #expect(h.saved("noFade") == false)
+        #expect(h.fileParses(), "cmux.json is missing or does not parse")
+        #expect(h.saved("noFade") == nil, "off is the default: sidebar.noFade leaves cmux.json")
     }
 }

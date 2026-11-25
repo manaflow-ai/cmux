@@ -33,8 +33,9 @@ import Testing
     /// Every row carries values Swift accepts or refuses, so another validator
     /// has something to agree with; portable kinds carry both.
     @Test func everyRowHasConformanceSamples() throws {
+        let text: (String, String?) -> [String: Any] = { text, key in ["text": text, "key": key as Any] }
         for descriptor in SettingsSchema.all {
-            let samples = SettingsSchemaSamples.samples(for: descriptor)
+            let samples = SettingsSchemaSamples.samples(row: SettingsSchemaExport().row(for: descriptor, text: text))
             let accepted = samples.accept.filter(descriptor.accepts)
             let refused = samples.refuse.filter { !descriptor.accepts($0) }
             #expect(refused.count == samples.refuse.count, "\(descriptor.id): a refuse sample is accepted")
@@ -66,6 +67,8 @@ import Testing
         #expect(unknown.isEmpty, "agent policy names unknown keys: \(unknown.sorted())")
         #expect(SettingsSchema.agentSettableKeys.contains("appearance.backgroundOpacity"))
         #expect(SettingsSchema.agentSettableKeys.contains("appearance.backgroundBlur"))
+        #expect(SettingsSchema.agentSettableKeys.contains("appearance.displayBackgrounds"))
+        #expect(SettingsSchema.agentSettableKeys.contains("appearance.displayBackgroundRotations"))
     }
 
     /// The checked-in schema is the descriptor registry consumed by the

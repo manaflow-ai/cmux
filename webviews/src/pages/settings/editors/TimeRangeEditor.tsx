@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { Input } from "../../../ui/Input";
 import { useStore } from "../context";
 import { t } from "../strings";
 import { isTime } from "../validate";
@@ -20,7 +21,7 @@ export function TimeRangeEditor({ row, value, disabled, labelId }: EditorProps) 
   };
   return (
     <fieldset className="time-range" aria-labelledby={labelId}>
-      <input
+      <Input
         className="field time"
         type="time"
         value={shown.start}
@@ -29,7 +30,7 @@ export function TimeRangeEditor({ row, value, disabled, labelId }: EditorProps) 
         onChange={(event) => change({ ...shown, start: event.currentTarget.value })}
       />
       <span className="time-separator">–</span>
-      <input
+      <Input
         className="field time"
         type="time"
         value={shown.end}

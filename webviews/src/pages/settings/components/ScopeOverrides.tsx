@@ -3,6 +3,7 @@
 // levels of the active window; Reset runs the level's clear action (the palette's path). A space or
 // workspace theme colors its window's chrome too, so with an App Theme set its note says it replaces
 // that as well (a terminal's own theme colors only the terminal).
+import { Button } from "../../../ui/Button";
 import { useSettingsState, useStore } from "../context";
 import { Icon } from "../icons";
 import { valueOf } from "../store";
@@ -34,14 +35,16 @@ export function ScopeOverrides() {
     <div className="row row-note" key={level} data-override={level}>
       <Icon name="layers" />
       <span className="row-note-text">{label}</span>
-      <button
+      <Button
         type="button"
+        variant="ghost"
+        size="sm"
         className="link-button"
         disabled={!connected}
         onClick={() => void store.setTheme(level, null)}
       >
         {t("settingsPage.reset")}
-      </button>
+      </Button>
     </div>
   ));
 }

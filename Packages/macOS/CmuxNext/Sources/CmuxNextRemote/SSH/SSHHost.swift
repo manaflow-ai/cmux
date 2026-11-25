@@ -7,6 +7,9 @@ public import Foundation
 /// password, key or token (authentication is the user's OpenSSH).
 public struct SSHHost: Hashable, Sendable {
     public static let defaultRemoteBinary = "~/.local/bin/cmux-tui"
+    /// The binary install-static.sh puts on a machine, which the person runs by hand over ssh.
+    /// The app never replaces it while a session server runs it; it stages a newer build beside it.
+    public static let staticInstallBinary = "~/.cmux/bin/cmux"
     public static let transportKind = "ssh"
 
     public let destination: SSHDestination

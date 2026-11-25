@@ -4,6 +4,7 @@ import Foundation
 nonisolated extension RefusalStrings {
     public static func noOpenTabGroup(_ id: String) -> String { text("handlers.refusal.tabGroupGone", "That tab group is no longer open.") }
     public static var tabNotInGroup: String { text("handlers.refusal.tabNotInGroup", "the tab is not in a group") }
+    public static var noTabGroupToJoin: String { text("handlers.refusal.noTabGroupToJoin", "There is no other tab group to add this tab to.") }
     public static var pinnedCannotGroup: String { text("handlers.refusal.pinnedCannotGroup", "pinned tabs cannot be grouped") }
     public static var tabsInDifferentPanes: String { text("handlers.refusal.tabsInDifferentPanes", "the tabs are in different panes") }
     public static var groupArgumentRequired: String { text("handlers.refusal.groupArgumentRequired", "a group argument is required") }
@@ -19,7 +20,6 @@ nonisolated extension RefusalStrings {
     static var browserReopenNeedsWindow: String { text("handlers.refusal.browserReopenNeedsWindow", "browser tabs reopen only in a pane shown in a window") }
     public static var browserFindClosesWithEscape: String { text("handlers.refusal.browserFindClosesWithEscape", "the browser find bar closes with Escape") }
     public static var nothingSelected: String { text("handlers.refusal.nothingSelected", "nothing is selected") }
-    public static var noActiveFind: String { text("handlers.refusal.noActiveFind", "no find is active; use Find first") }
     public static var textArgumentRequired: String { text("handlers.refusal.textArgumentRequired", "a text argument is required") }
     public static var noScreenshot: String { text("handlers.refusal.noScreenshot", "no screenshot found in the screenshot folder") }
     public static var noWorkingDirectory: String { text("handlers.refusal.noWorkingDirectory", "the tab has no known working directory") }

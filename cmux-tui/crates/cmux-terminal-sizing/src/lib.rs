@@ -17,6 +17,8 @@
 
 use serde::{Deserialize, Deserializer, Serialize};
 
+pub mod claim;
+
 /// A terminal grid in cells.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct TerminalGridSize {
@@ -314,6 +316,13 @@ struct Entry {
     activity: u64,
 }
 
+/// The narrowest grid a shared terminal takes while some counting view is at
+/// least this wide: an iPhone's portrait terminal page. A narrower view (a
+/// split pane, another device) gets the wider grid instead of squeezing every
+/// view below a phone (Leo, 2026-11-15: "i dont see the point of a
+/// narrower-than-iphone terminal"). `fixed` and `held` keep their grid.
+pub const MIN_SHARED_COLS: u16 = 40;
+
 /// Decides the PTY grid of one shared terminal.
 #[derive(Clone, Debug)]
 pub struct TerminalSizingEngine {
@@ -453,6 +462,27 @@ impl TerminalSizingEngine {
         self.entries.iter().map(|entry| entry.participant.id.as_str())
     }
 
+    /// The participant whose last activity is later than every other participant's, if one is. Noting activity
+    /// for it changes no decision: under every policy the newest of any set of views that holds it is still it,
+    /// and the newest of a set without it does not move. `None` while two views tie (handheld attaches, activity 0).
+    pub fn sole_latest(&self) -> Option<&str> {
+        let mut latest: Option<&Entry> = None;
+        let mut tied = false;
+        for entry in &self.entries {
+            match latest {
+                Some(current) if entry.activity < current.activity => {}
+                Some(current) if entry.activity == current.activity => tied = true,
+                _ => {
+                    latest = Some(entry);
+                    tied = false;
+                }
+            }
+        }
+        latest
+            .filter(|entry| !tied && entry.activity > 0)
+            .map(|entry| entry.participant.id.as_str())
+    }
+
     pub fn is_empty(&self) -> bool {
         self.entries.is_empty()
     }
@@ -549,8 +579,26 @@ impl TerminalSizingEngine {
                         values.into_iter().max().expect("non-empty")
                     }
                 };
-                let cols = pick(viewports.iter().map(|size| size.cols).collect());
+                let mut cols = pick(viewports.iter().map(|size| size.cols).collect());
                 let rows = pick(viewports.iter().map(|size| size.rows).collect());
+                if smallest {
+                    // The phone floor: a counting phone or tablet (one that
+                    // shows the terminal now) never gets a grid narrower than
+                    // itself; a narrower desktop view clips instead. Columns
+                    // only: a shorter desktop pane cut at the bottom would
+                    // hide the prompt and cursor rows, and a phone's rows
+                    // swing with its keyboard (docs/shared-terminal-sizing.md).
+                    if let Some(floor) = counting
+                        .iter()
+                        .filter(|entry| entry.participant.device_kind.is_handheld())
+                        .filter_map(|entry| {
+                            entry.participant.viewport.map(|viewport| viewport.cols)
+                        })
+                        .min()
+                    {
+                        cols = cols.max(floor);
+                    }
+                }
                 let owners = counting
                     .iter()
                     .filter(|entry| {
@@ -573,8 +621,14 @@ impl TerminalSizingEngine {
     fn publish(&mut self) -> bool {
         let counting =
             self.entries.iter().filter(|entry| self.entry_counts(entry)).collect::<Vec<_>>();
-        let (size, owners, reason) = self.decide(&counting);
+        let (mut size, owners, reason) = self.decide(&counting);
         if reason != TerminalSizingReason::Held && reason != TerminalSizingReason::Fixed {
+            let phone_wide = counting.iter().any(|entry| {
+                entry.participant.viewport.is_some_and(|viewport| viewport.cols >= MIN_SHARED_COLS)
+            });
+            if phone_wide {
+                size.cols = size.cols.max(MIN_SHARED_COLS);
+            }
             self.held = size;
         }
         let participants = self
@@ -615,6 +669,29 @@ mod tests {
             value["cols"].as_u64().unwrap() as u16,
             value["rows"].as_u64().unwrap() as u16,
         )
+    }
+
+    #[test]
+    fn the_sole_latest_participant_is_the_one_that_acted_last_and_none_on_a_tie() {
+        let mut engine = TerminalSizingEngine::new(
+            TerminalGridSize::new(80, 24),
+            TerminalSizingPolicy::default(),
+        );
+        assert_eq!(engine.sole_latest(), None, "no participant");
+        let view = |id: &str, device_kind| TerminalSizingParticipant {
+            id: id.to_owned(),
+            device_kind,
+            ..TerminalSizingParticipant::default()
+        };
+        engine.attach(view("phone-a", TerminalDeviceKind::Iphone));
+        engine.attach(view("phone-b", TerminalDeviceKind::Iphone));
+        assert_eq!(engine.sole_latest(), None, "two handheld attaches tie at activity 0");
+        engine.attach(view("mac", TerminalDeviceKind::Mac));
+        assert_eq!(engine.sole_latest(), Some("mac"));
+        engine.note_activity("phone-a");
+        assert_eq!(engine.sole_latest(), Some("phone-a"));
+        engine.detach("phone-a");
+        assert_eq!(engine.sole_latest(), Some("mac"));
     }
 
     #[test]

@@ -215,7 +215,7 @@ async fn a_window_over_three_thousand_chats_is_sorted_filtered_and_one_change_is
 }
 
 /// acpmux groups its own index into each harness's project folders (`_acpmux/chat_projects`), so
-/// the app relays a few rows to the cmux daemon instead of walking every chat.
+/// the cmux daemon reads a few rows instead of walking every chat.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn chat_projects_are_each_folder_with_its_newest_chat() {
     const N: usize = 120;
@@ -456,4 +456,72 @@ async fn a_query_window_ranks_past_choices_first_and_a_counted_window_reports_it
     assert_eq!(keys(&full).len(), 5, "{full}");
     assert_eq!(keys(&full)[0], key(N - 1), "newest first: {full}");
     assert_eq!(full["total"], N, "a counted window reports its total: {full}");
+}
+
+/// A-7 (rust-migration, rm-chat-lists): the sidebar history's Show More comes from acpmux's
+/// `hasMore`, not from one more row the app asks for and cuts. These are the cases of the Swift
+/// rule it replaces (SidebarChatHistoryTests, `SidebarChatHistoryState.make`): the excluded chats
+/// (open in a workspace, or pinned) never count, a page that holds the last chat has no more, and a
+/// window that excludes every chat is empty.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_window_says_whether_more_chats_pass_past_its_page() {
+    const N: usize = 10;
+    let base = PathBuf::from("/tmp").join(format!("acpmux-window-more-{}", uuid::Uuid::now_v7()));
+    std::fs::create_dir_all(&base).unwrap();
+    let home = Home(std::fs::canonicalize(&base).unwrap());
+    let projects = home.0.join(".claude/projects");
+    // Chat i was last used i seconds after a day ago: chat N - 1 is the newest.
+    let day_ago = std::time::SystemTime::now() - Duration::from_secs(86_400);
+    for i in 0..N {
+        let file = session_file(&projects, i);
+        std::fs::create_dir_all(file.parent().unwrap()).unwrap();
+        std::fs::write(&file, format!("{}\n", record(i, i, &format!("chat {i}")))).unwrap();
+        let at = day_ago + Duration::from_secs(i as u64);
+        std::fs::File::options().write(true).open(&file).unwrap().set_modified(at).unwrap();
+    }
+    let hub = hub();
+    hub.start_chats(ChatSources {
+        home: home.0.clone(),
+        acpmux_home: home.0.join(".acpmux"),
+        env: Arc::new(|_: &str| None),
+        launch_roots: Vec::new(),
+        user_roots: Vec::new(),
+    })
+    .await
+    .unwrap();
+    let (in_tx, in_rx) = mpsc::channel(64);
+    let (out_tx, out_rx) = mpsc::channel(4096);
+    tokio::spawn(serve_connection_with(hub.clone(), in_rx, out_tx, Origin::Local));
+    let mut c = Client(in_tx, out_rx, 0, VecDeque::new());
+    let newest = |i: usize| key(N - 1 - i);
+    let mut generation = 0;
+    let mut window = |limit: usize, exclude: Vec<String>| {
+        generation += 1;
+        json!({"window": "earlier", "gen": generation, "limit": limit, "topLevel": true, "exclude": exclude})
+    };
+
+    // Two chats open in workspaces and two pinned: the page is the next three, and more wait.
+    let excluded = vec![newest(0), newest(2), newest(5), newest(1)];
+    c.ok("_acpmux/chats_window", window(3, excluded)).await;
+    let full = c.next_window().await;
+    assert_eq!(keys(&full), vec![newest(3), newest(4), newest(6)], "{full}");
+    assert_eq!(full["hasMore"], true, "{full}");
+
+    // Nine chats pass and the page holds all nine: the last page has no Show More.
+    c.ok("_acpmux/chats_window", window(9, vec![newest(0)])).await;
+    let full = c.next_window().await;
+    assert_eq!(keys(&full).len(), 9, "{full}");
+    assert_eq!(full["hasMore"], false, "the page holds the last chat: {full}");
+
+    // One more chat passes than the page holds: Show More.
+    c.ok("_acpmux/chats_window", window(8, vec![newest(0)])).await;
+    let full = c.next_window().await;
+    assert_eq!(keys(&full).len(), 8, "{full}");
+    assert_eq!(full["hasMore"], true, "{full}");
+
+    // Every chat excluded: no row, nothing more (Earlier has no chat).
+    c.ok("_acpmux/chats_window", window(3, (0..N).map(key).collect())).await;
+    let full = c.next_window().await;
+    assert!(keys(&full).is_empty(), "{full}");
+    assert_eq!(full["hasMore"], false, "{full}");
 }

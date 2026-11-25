@@ -77,6 +77,12 @@ const draw = () =>
   if (shouldScrollToBottomAfterSend(scrollToBottomOnSend, following)) sends += 1;
   draw();
 };
+// A send whose prompt row lands in the same commit, as the composer's send and its optimistic row do.
+(window as unknown as { __sendWith(rows: AcpmuxRow[]): void }).__sendWith = (rows) => {
+  if (shouldScrollToBottomAfterSend(scrollToBottomOnSend, following)) sends += 1;
+  shown = rows;
+  draw();
+};
 (window as unknown as { __sendState(): { following: boolean; sends: number } }).__sendState = () => ({
   following,
   sends,

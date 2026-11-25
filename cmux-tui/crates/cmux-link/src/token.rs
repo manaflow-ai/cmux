@@ -51,6 +51,55 @@ pub enum TokenRefused {
     ReplayCapacity,
 }
 
+impl TokenRefused {
+    /// A stable snake_case name for logs and the dialer's refusal line.
+    pub fn name(self) -> &'static str {
+        match self {
+            Self::Missing => "missing",
+            Self::Invalid => "invalid",
+            Self::Expired => "expired",
+            Self::Replayed => "replayed",
+            Self::ServiceNotAllowed => "service_not_allowed",
+            Self::NoVerifier => "no_verifier",
+            Self::UnknownKey => "unknown_key",
+            Self::ReplayCapacity => "replay_capacity",
+        }
+    }
+}
+
+/// A refusal and the specific check that failed, for the host's log and the
+/// dialer's refusal line. It never carries token, signature or key bytes.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TokenRefusal {
+    pub kind: TokenRefused,
+    /// A stable snake_case name of the failed check (`issuer`, `audience`, ...).
+    pub reason: &'static str,
+    /// Non-secret context, such as the expected and received issuer.
+    pub detail: Option<String>,
+}
+
+impl TokenRefusal {
+    pub fn new(kind: TokenRefused, reason: &'static str) -> Self {
+        Self { kind, reason, detail: None }
+    }
+}
+
+impl From<TokenRefused> for TokenRefusal {
+    fn from(kind: TokenRefused) -> Self {
+        Self::new(kind, kind.name())
+    }
+}
+
+impl std::fmt::Display for TokenRefusal {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(formatter, "{}", self.reason)?;
+        if let Some(detail) = &self.detail {
+            write!(formatter, " ({detail})")?;
+        }
+        Ok(())
+    }
+}
+
 /// Checks one token for one stream. A verifier must refuse a token used
 /// twice (single use).
 pub trait TokenVerifier: Send + Sync + 'static {
@@ -69,6 +118,16 @@ pub trait TokenVerifier: Send + Sync + 'static {
     /// The peer and signed issue time, or why the token was refused.
     /// Never substitute the verification or stream-delivery time for `iat`.
     fn verify(&self, token: &str, expected: &Expected<'_>) -> Result<VerifiedToken, TokenRefused>;
+
+    /// [`TokenVerifier::verify`] with the specific failed check. It accepts
+    /// and refuses exactly the tokens `verify` does.
+    fn verify_explained(
+        &self,
+        token: &str,
+        expected: &Expected<'_>,
+    ) -> Result<VerifiedToken, TokenRefusal> {
+        self.verify(token, expected).map_err(TokenRefusal::from)
+    }
 }
 
 /// The caller's machine role signed by CloudDO for this individual dial.
@@ -200,13 +259,30 @@ pub fn mode_log_line(
     };
     let reason = match (choice.reason, checks) {
         (_, Err(refused)) => format!("refused at start: {refused}"),
-        (VerifierReason::Absent, Ok(_)) => format!("{VERIFIER_ENV} is not set"),
+        (VerifierReason::Absent, Ok(_)) => absent_reason(),
         (VerifierReason::Named, Ok(_)) => format!("named by {VERIFIER_ENV}"),
         (VerifierReason::Unrecognized, Ok(_)) => {
             format!("{VERIFIER_ENV} holds an unrecognized value (not shown)")
         }
     };
     format!("cmux link: token verifier mode {mode}: {reason}")
+}
+
+/// The reason for an unset [`VERIFIER_ENV`], in plain words: what deny_all
+/// means, that it is the normal state, and what turns a verifier on.
+fn absent_reason() -> String {
+    let enable = if cfg!(any(target_os = "linux", target_os = "android")) {
+        format!(
+            "{VERIFIER_ENV}=control_plane would check control-plane link tokens, \
+             but this platform does not support it yet"
+        )
+    } else {
+        format!("set {VERIFIER_ENV}=control_plane to check control-plane link tokens")
+    };
+    format!(
+        "{VERIFIER_ENV} is not set, so this host refuses link tokens. This is normal \
+         for a host that pairs by invitation or enrollment, which works as usual; {enable}"
+    )
 }
 
 /// How this build binds a recorded check to its source and time.
@@ -405,10 +481,25 @@ mod tests {
             let choice = VerifierChoice::from_daemon_config(value.map(OsStr::new));
             mode_log_line(choice, &StampChecks::at_daemon_start(choice.config))
         };
-        assert_eq!(
-            line(None),
-            "cmux link: token verifier mode deny_all: CMUX_LINK_TOKEN_VERIFIER is not set"
+        let absent = line(None);
+        assert!(
+            absent.starts_with(
+                "cmux link: token verifier mode deny_all: CMUX_LINK_TOKEN_VERIFIER is not set, \
+                 so this host refuses link tokens. This is normal for a host that pairs by \
+                 invitation or enrollment, which works as usual; "
+            ),
+            "{absent}"
         );
+        if cfg!(any(target_os = "linux", target_os = "android")) {
+            assert!(absent.ends_with("but this platform does not support it yet"), "{absent}");
+        } else {
+            assert!(
+                absent.ends_with(
+                    "set CMUX_LINK_TOKEN_VERIFIER=control_plane to check control-plane link tokens"
+                ),
+                "{absent}"
+            );
+        }
         assert_eq!(
             line(Some("deny_all")),
             "cmux link: token verifier mode deny_all: named by CMUX_LINK_TOKEN_VERIFIER"

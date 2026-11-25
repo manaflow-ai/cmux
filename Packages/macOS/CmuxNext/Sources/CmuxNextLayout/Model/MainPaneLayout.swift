@@ -23,17 +23,6 @@ public nonisolated struct MainPaneLayout {
         }
     }
 
-    /// Where what `pane` opens goes in main pane layout: a tab in the strip pane right of the chat
-    /// dock (``ChatColumnPlacement/tab(in:)``), or the lone chat docks left and the tab stays in its
-    /// pane (``ChatColumnPlacement/dockChat``). Nil when `pane` is not a main pane (not the chat
-    /// dock, not a chat alone on its screen, a zoomed screen, or Home's pinned dock alone, which
-    /// opens beside itself already): the usual rules apply. Arguments are
-    /// ``ChatColumnPlacement/resolve(from:columns:recent:zoomed:isLoneChat:)``'s.
-    public static func side(from pane: PaneID, columns: [LayoutColumn], recent: [PaneID] = [], zoomed: Bool = false,
-                            isLoneChat: (LayoutColumn) -> Bool) -> ChatColumnPlacement? {
-        side(of: ChatColumnPlacement.resolve(from: pane, columns: columns, recent: recent, zoomed: zoomed, isLoneChat: isLoneChat))
-    }
-
     /// `placement` when it puts the new tab beside the chat, else nil.
     public static func side(of placement: ChatColumnPlacement) -> ChatColumnPlacement? {
         switch placement {

@@ -7,17 +7,25 @@
 // not the person's queue row's: Deliver now, Copy, Dismiss (QueuedMessageCard.tsx). Once acpmux
 // starts it, the queue drops it and the prompt's own row is its card, delivered. The composer's queue, its fold and its count, are the person's own
 // prompts alone (ComposerQueue.tsx).
+// acpmux's inbox notice (provenance `inbox_notice`) is no prompt of the person's either (Leo,
+// 2026-11-03, on one drawn as a queued prompt with Steer, × and a trash can: "have it be rendered
+// differently than just a regular queued message. we don't really wanna be cancelling agent back and
+// forth messages 99% of the time"): it joins the same group as its threads, each its sender's line
+// (laneNoticeBatches.ts `flattenInboxRows`), and goes in when the turn ends as the queue drains.
 // A guest's prompt is not the owner's either (design/chat-multiplayer.md, "Held message card"): it
 // draws here as a message from that person, held with Approve and Decline while it waits for the
 // owner (acpmux `awaitingOwner`), then with the queue's label once approved.
+import { TRANSIENT_SHOW_MS, useSettledItems } from "../afterDelay";
 import type { ComposerAttachment } from "../attachments";
 import { isGuest } from "../multiplayer/participants";
+import { inboxText } from "./inboxNotice";
 import { QUEUED_MESSAGE, type AcpmuxRow, type AcpmuxSnapshot, type QueuedPromptImage } from "../model";
 
 type QueuedEntry = AcpmuxSnapshot["queue"][number];
 
-/// Whether a queue entry is another agent's message (direct.ts `queuedMessage` named its sender).
-export const isAgentEntry = (entry: QueuedEntry) => entry.message !== undefined;
+/// Whether a queue entry is another agent's message (direct.ts `queuedMessage` named its sender),
+/// or acpmux's inbox notice of such messages (direct.ts `queuedInbox`).
+export const isAgentEntry = (entry: QueuedEntry) => entry.message !== undefined || entry.inbox !== undefined;
 
 /// Whether a queue entry is a guest's prompt: held for the owner, or a guest's the owner approved.
 /// A teammate's prompt stays a composer-queue row under their name (ComposerQueue.tsx).
@@ -26,9 +34,46 @@ export const isHeldEntry = (entry: QueuedEntry) => entry.awaitingOwner === true 
 /// Whether a queue entry draws in the transcript rather than as a composer-queue row.
 const inTranscript = (entry: QueuedEntry) => isAgentEntry(entry) || isHeldEntry(entry);
 
+/// Whether a queue entry is acpmux's own prompt to the chat's agent (a surge digest, a subagent's
+/// resume, a cut turn's continuation: model.ts `system`, acpmux hub/queue_origin.rs). Leo,
+/// 2026-11-24: "why would a user steer or whatever on these? they should be separated out from the
+/// user visible steer ui area. maybe not even interactable?" It draws as a quiet note apart from the
+/// steer rows, with none of the person's actions (ComposerQueue.tsx `SystemNotes`).
+export const isSystemEntry = (entry: QueuedEntry) => entry.system !== undefined || entry.retry !== undefined;
+
+const notOwn = (entry: QueuedEntry) => inTranscript(entry) || isSystemEntry(entry);
+
 /// The person's own queued prompts, in the queue's order: the composer's queue rows.
 export function ownQueue(queue: AcpmuxSnapshot["queue"]): AcpmuxSnapshot["queue"] {
-  return queue.some(inTranscript) ? queue.filter((entry) => !inTranscript(entry)) : queue;
+  return queue.some(notOwn) ? queue.filter((entry) => !notOwn(entry)) : queue;
+}
+
+/// acpmux's own prompts waiting in the queue, in its order: the notes apart from the steer rows.
+export function systemQueue(queue: AcpmuxSnapshot["queue"]): AcpmuxSnapshot["queue"] {
+  return queue.filter((entry) => !inTranscript(entry) && isSystemEntry(entry));
+}
+
+/// Whether a queue entry shows at once. A person's prompt does: one the person just sent is a whole
+/// queued row in the frame the composer clears (Leo, 2026-11-11; test/agent-pane-queue-collapse),
+/// and a held one waits on someone (the folder's trust, a waking machine, the owner), never on the
+/// turn. So does another agent's message a Stop holds: it waits for the person, not for a batch.
+const showsAtOnce = (entry: QueuedEntry) =>
+  (!isAgentEntry(entry) && !isSystemEntry(entry)) || entry.heldByStop === true;
+
+const entryKey = (entry: QueuedEntry) => entry.id;
+
+/// The queue as the pane draws it, the composer's queue rows and the transcript's waiting card
+/// alike (App.tsx): another agent's message or acpmux's inbox notice that comes and goes within
+/// TRANSIENT_SHOW_MS (queued at a turn's end and started in the next batch) never paints (Leo,
+/// 2026-11-17: "i also dont like seeing the flicker flash of the Queued blah blah blah something").
+/// The queue there when chat `scope` first draws shows at once; the same array comes back while
+/// nothing shown changed.
+export function useShownQueue(
+  queue: AcpmuxSnapshot["queue"],
+  scope: unknown,
+  ms: number = TRANSIENT_SHOW_MS,
+): AcpmuxSnapshot["queue"] {
+  return useSettledItems(queue, entryKey, scope, ms, showsAtOnce) as AcpmuxSnapshot["queue"];
 }
 
 /// The transcript row id of queued message `promptId`.
@@ -48,7 +93,10 @@ export function queuedMessageRows(queue: AcpmuxSnapshot["queue"], last?: readonl
     const message = isHeldEntry(entry)
       ? { name: person?.name ?? "", text: entry.prompt, raw: entry.prompt, fromPerson: true as const }
       : entry.message;
-    if (!message) continue;
+    // An inbox notice draws as its threads, each another agent's line, never its text for the agent.
+    // One that names no thread (direct.ts `mergeQueue`) has nothing to draw.
+    const notice = !message && !isHeldEntry(entry) && entry.inbox?.threads.length ? entry.inbox : undefined;
+    if (!message && !notice) continue;
     // The first message may explain a Stop hold, once for the run.
     const lead = rows.length === 0;
     let row = rowsByEntry.get(entry);
@@ -58,8 +106,8 @@ export function queuedMessageRows(queue: AcpmuxSnapshot["queue"], last?: readonl
         version: ++version,
         at: 0,
         kind: QUEUED_MESSAGE,
-        text: message.text,
-        incoming: { kind: "message", message },
+        text: message ? message.text : inboxText(notice!),
+        incoming: message ? { kind: "message", message } : { kind: "inbox", notice: notice! },
         queuedMessage: {
           promptId: entry.id,
           ...(entry.next ? { next: true } : {}),

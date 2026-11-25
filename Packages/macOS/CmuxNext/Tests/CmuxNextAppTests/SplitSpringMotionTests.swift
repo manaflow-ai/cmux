@@ -7,10 +7,11 @@ import CmuxNextDesign
 @testable import CmuxNextLayout
 import Testing
 
-/// Cmd-D and Cmd-Shift-D as one motion (Lawrence 2026-10-19: "resize all of them while adding a
-/// new one"; plans/cmux-next/split-spring-animation/DESIGN.md). The split and the even sizing of
-/// its chain show in the key's frame, so every pane and divider of the chain moves on one spring
-/// from the first frame to rest; the daemon's reply, ~100 ms in, changes nothing on screen. Frames
+/// Cmd-D and Cmd-Shift-D with even sizing (plans/cmux-next/split-spring-animation/DESIGN.md): the split
+/// and the even sizing of its chain are one layout change, in the key's turn, so every pane and divider
+/// of the chain is at its place in the split's one frame (`PaneLayoutCommitTests`); the daemon's reply,
+/// ~100 ms later, changes nothing on screen. A split has no spring: these tests keep the rules of the
+/// sizing (when it shows, when it goes to the daemon, a refused split) and of the row's tiling. Frames
 /// step at a fixed 120 Hz dt, so every assertion is about frame N, not wall time.
 @MainActor
 @Suite(.closesItsWindows)
@@ -157,35 +158,11 @@ struct SplitSpringMotionTests {
         #expect(screen.intents.isEmpty)
     }
 
-    // MARK: The spring
-
-    /// The split's spring (`split`, response 0.23 s, damping 0.95): slow enough to read as one
-    /// fluid motion (about a third of the way at 50 ms, where `move` was past 60%), no visible
-    /// overshoot, and at rest at exactly its target within 0.75 s.
-    @Test(arguments: [SplitAxis.horizontal, .vertical])
-    func aSplitRunsOnTheSplitSpringWithoutOvershootAndLandsExactly(axis: SplitAxis) throws {
-        let screen = Screen(.leaf("p1"))
-        defer { screen.window.closeAfterTest() }
-        screen.show(.split("v", axis: axis, ratio: 0.5, a: .leaf("p1"), b: .leaf("p2")))
-        let target = try #require(screen.target("p2"))
-        let extent: (CGRect) -> CGFloat = { axis == .horizontal ? $0.width : $0.height }
-        var sizes: [CGFloat] = [], rest: Int?
-        for frame in 1...180 {
-            let moving = screen.step()
-            sizes.append(extent(try #require(screen.rect("p2"))))
-            if rest == nil, !moving { rest = frame }
-        }
-        let early = sizes[Int((0.05 * Self.scale / Self.dt).rounded()) - 1] / extent(target)
-        #expect(early > 0.2 && early < 0.45, "at 50 ms the new pane is at \(early) of its size")
-        #expect(zip(sizes, sizes.dropFirst()).allSatisfy { $1 >= $0 - 0.1 }, "the new pane shrank on its way in")
-        #expect(sizes.allSatisfy { $0 <= extent(target) + 0.25 }, "the new pane overshot: \(sizes.max() ?? 0) > \(extent(target))")
-        #expect(screen.rect("p2") == target)
-        #expect((rest ?? .max) <= Int((0.75 * Self.scale / Self.dt).rounded(.up)), "at rest at frame \(rest.map(String.init) ?? "never")")
-    }
+    // MARK: The row
 
     /// Every frame, the panes of the chain tile the row: no gap opens, nothing overlaps, the left
     /// edge never moves and the right one never leaves a hole (the panes and dividers fill the
-    /// container); every pane starts in frame 1 and they land together.
+    /// container).
     @Test func everyFrameOfAnEvenSplitTilesTheRow() throws {
         let screen = Screen(Self.pair)
         defer { screen.window.closeAfterTest() }
@@ -193,47 +170,17 @@ struct SplitSpringMotionTests {
         let order = Self.chain
         let targets = try order.map { try #require(screen.target($0)) }
         let gaps = zip(targets, targets.dropFirst()).map { $1.minX - $0.maxX }
-        var moved: [PaneID: Int] = [:], landed: [PaneID: Int] = [:]
         for frame in 1...120 {
             screen.step()
             let rects = try order.map { try #require(screen.rect($0)) }
-            // The left edge stays; the right one never leaves a hole (the new pane starts as a
-            // zero-width sliver one gap past the split pane's old edge, `PaneArrival`).
+            // The left edge stays; the right one never leaves a hole.
             #expect(abs(rects[0].minX - targets[0].minX) < 0.01 && rects[2].maxX >= targets[2].maxX - 0.01,
                     "frame \(frame): an outer edge moved in")
             for (index, gap) in gaps.enumerated() {
                 #expect(abs(rects[index + 1].minX - rects[index].maxX - gap) < 0.01, "frame \(frame): the gap after \(order[index]) changed")
             }
-            for (pane, rect) in zip(order, rects) {
-                let target = targets[order.firstIndex(of: pane) ?? 0]
-                if moved[pane] == nil, rect != target { moved[pane] = frame }
-                if rect == target, landed[pane] == nil { landed[pane] = frame }
-                if rect != target { landed[pane] = nil }
-            }
+            #expect(rects == targets, "frame \(frame): a pane of the chain is not at its place: \(rects)")
         }
-        #expect(Set(moved.values) == [1], "not every pane moved from frame 1: \(moved)")
-        let ends = Set(landed.values)
-        #expect((ends.max() ?? 0) - (ends.min() ?? 0) <= 1, "the panes landed apart: \(landed)")
-    }
-
-    /// A second Cmd-D while the first still moves carries on from what shows, with its velocity.
-    @Test func aSplitDuringASplitKeepsTheMotionsVelocity() throws {
-        let screen = Screen(.leaf("p1"))
-        defer { screen.window.closeAfterTest() }
-        screen.show(.split("v", axis: .horizontal, ratio: 0.5, a: .leaf("p1"), b: .leaf("p2")))
-        for _ in 1...4 { screen.step() }
-        let shown = try #require(screen.rect("p1"))
-        let velocity = try #require(screen.screen?.paneFrames["p1"]?.width.velocity)
-        #expect(velocity < 0)
-        let changes = screen.model.splitSizingChanges(splitting: "p2", axis: .horizontal)
-        _ = screen.model.showSplitSizing(changes)
-        screen.show(.split("v", axis: .horizontal, ratio: 0.5, a: .leaf("p1"),
-                           b: .split("w", axis: .horizontal, ratio: 0.5, a: .leaf("p2"), b: .leaf("p3"))))
-        #expect(screen.rect("p1") == shown, "p1 jumped on the second split")
-        #expect(screen.screen?.paneFrames["p1"]?.width.velocity == velocity, "the second split restarted p1 from rest")
-        for _ in 1...120 { screen.step() }
-        let widths = try Self.chain.map { try #require(screen.rect($0)).width }
-        #expect((widths.max() ?? 0) - (widths.min() ?? 0) <= 1.5, "not even after two splits: \(widths)")
     }
 
     @Test func reduceMotionShowsTheEvenSplitInOneFrame() throws {
@@ -271,8 +218,7 @@ struct SplitSpringMotionTests {
         screen.show(chainTree(count + 1, model: screen.model))
     }
 
-    /// A split's terminals resize at the start (Lawrence 2026-10-23): the layout holds no grid while the chain
-    /// springs; each resized pane hears its final size at the start (PaneMotionFinalSizeTests).
+    /// A split's terminals resize with the split: the layout holds no grid for it.
     @Test func aSplitHoldsNoTerminalGrid() throws {
         let screen = Screen(Self.pair)
         defer { screen.window.closeAfterTest() }
@@ -284,23 +230,18 @@ struct SplitSpringMotionTests {
         #expect(screen.holds.isEmpty, "hold changes: \(screen.holds)")
     }
 
-    /// Five Cmd-D presses 100 ms apart (a person pressing as fast as they can) are one motion:
-    /// every press retargets from what shows, keeping each edge's velocity (no pane jumps), every frame tiles
-    /// the row, no grid is held (each press hands its panes their newest final size), the row lands even within the split spring's settle time after the last press,
-    /// and no frame takes the main thread past a 120 Hz frame (8.3 ms).
-    @Test func fiveRapidSplitsAreOneMotion() throws {
+    /// Five Cmd-D presses 100 ms apart (a person pressing as fast as they can): every frame tiles the row, no
+    /// grid is held, the row is even after the last press with nothing left moving, and no frame takes the
+    /// main thread past a 120 Hz frame (8.3 ms).
+    @Test func fiveRapidSplitsTileTheRowInEachFrameAndEndEven() throws {
         let screen = Screen(.leaf("p1"))
         defer { screen.window.closeAfterTest() }
         let pressEvery = Int((0.1 / Self.dt).rounded())
         let clock = ContinuousClock()
         var slowest = Duration.zero, frames = 0, lastPress = 0
         for press in 1...5 {
-            let before = (screen.screen?.paneFrames ?? [:]).mapValues(\.rect)
             let took = clock.measure { Self.splitLast(screen, count: press) }
             slowest = max(slowest, took)
-            for (pane, rect) in before {
-                #expect(screen.rect(pane) == rect, "press \(press): \(pane) jumped from \(rect) to \(String(describing: screen.rect(pane)))")
-            }
             #expect(!screen.root.holdsTerminalGrids, "press \(press): the grids are held")
             lastPress = frames
             for _ in 0..<(press == 5 ? 240 : pressEvery) {
@@ -310,9 +251,7 @@ struct SplitSpringMotionTests {
                 frames += 1
                 let panes = (1...(press + 1)).map { PaneID("p\($0)") }
                 let rects = try panes.map { try #require(screen.rect($0)) }
-                // The row tiles: each pane starts one constant gap after the one before it, also in
-                // the first frame after a press that lands while the row still moves (the new pane
-                // rides the moving edge it opens from, at that edge's velocity).
+                // The row tiles: each pane starts one constant gap after the one before it.
                 let gaps = zip(rects, rects.dropFirst()).map { $1.minX - $0.maxX }
                 #expect((gaps.max() ?? 0) - (gaps.min() ?? 0) < 0.01, "frame \(frames): the gaps differ \(gaps)")
                 if !moving { break }
@@ -358,9 +297,10 @@ struct SplitSpringMotionTests {
         #expect(slowest < .milliseconds(16), "a frame of the split took \(slowest)")
     }
 
-    /// While a split springs, a terminal's grid changes every frame; its PTY gets at most one
-    /// grid per echo (`ResizeCoordinator`), and the last one is the size it rests at.
-    @Test func aSpringingTerminalResizesItsPTYAtMostOncePerEcho() {
+    /// While a pane's size changes on every frame (a keyboard resize, a drag), a terminal's grid changes
+    /// every frame; its PTY gets at most one grid per echo (`ResizeCoordinator`), and the last one is the
+    /// size it rests at.
+    @Test func aTerminalWhoseGridChangesEachFrameResizesItsPTYAtMostOncePerEcho() {
         final class Terminal: ResizeTarget {
             var applied: [CellSize] = []
             var echoIn = 0

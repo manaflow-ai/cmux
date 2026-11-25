@@ -71,6 +71,45 @@ const command = "cd /Users/you/fun/cmux-wt/chromium-transparency && RED=cb8f4178
     </section>,
   );
 };
+// The same command with its tail open as a host that reads output and opens terminals shows it
+// (`window.__showOpenCommand`): the command, then one line of its time, state and Open in terminal.
+(window as unknown as { __showOpenCommand: (width?: number, line?: string) => void }).__showOpenCommand = (
+  width = 720,
+  line = command,
+) => {
+  const items = trayItems(
+    [],
+    [
+      {
+        id: "s/1",
+        command: line,
+        state: "running",
+        processId: "s/1",
+        toolCallId: "call-1",
+        startedAt: Date.now() - 33_000,
+      },
+    ],
+    [],
+    true,
+  );
+  view.render(
+    <section className="acpmux-shell" style={{ width }}>
+      <div className="acpmux-main">
+        <div className="acpmux-dock">
+          <SubagentTray
+            items={items}
+            working
+            waiting={new Set()}
+            onOpen={() => {}}
+            onOpenCommand={() => {}}
+            canReadTail
+            stopProcess={async () => {}}
+          />
+        </div>
+      </div>
+    </section>,
+  );
+};
 // Leo's panel (2026-10-25) at 118 agents: 2 running, 116 ended, in a dock `height` tall that
 // squeezes the tray as a short pane does.
 (window as unknown as { __showPanel: (height: number) => void }).__showPanel = (height) => {
@@ -102,6 +141,110 @@ const command = "cd /Users/you/fun/cmux-wt/chromium-transparency && RED=cb8f4178
             working
             waiting={new Set()}
             onOpen={() => {}}
+          />
+        </div>
+      </div>
+    </section>,
+  );
+};
+// Leo's hat (2026-11-07): a running subagent with a long task, a finished one, and a running command
+// whose shell line runs long (`window.__showRows`). What a line's click calls is kept in
+// `window.__opened`, so a test can tell a line that expands in place from one that navigates.
+const opened: string[] = [];
+(window as unknown as { __opened: string[] }).__opened = opened;
+(window as unknown as { __showRows: (width?: number) => void }).__showRows = (width = 720) => {
+  const now = Date.now();
+  const agents = [
+    {
+      id: "long",
+      parent: null,
+      name: "Reviewer",
+      task: "Audit every background task row in the composer hat for clipped titles and misaligned trailing columns",
+      state: "running",
+      startedAt: now - 374_000,
+    },
+    {
+      id: "done",
+      parent: null,
+      name: "Tester",
+      task: "Run the tray tests",
+      state: "completed",
+      startedAt: now - 90_000,
+      endedAt: now - 54_000,
+    },
+  ];
+  const wait = "glaeda-gh wait file ~/Projects/checkouts/cmux/composer-hat-row-check/.done --timeout 3600";
+  view.render(
+    <section className="acpmux-shell" style={{ width }}>
+      <div className="acpmux-main">
+        <div className="acpmux-dock">
+          <SubagentTray
+            items={trayItems(
+              agents,
+              [
+                {
+                  id: "w/1",
+                  command: wait,
+                  state: "running",
+                  processId: "w/1",
+                  toolCallId: "call-w",
+                  startedAt: now - 60_000,
+                },
+              ],
+              [],
+              true,
+            )}
+            finished={finishedTrayItems(agents, [])}
+            working
+            waiting={new Set()}
+            onOpen={(id) => opened.push(`agent:${id}`)}
+            onOpenCommand={(entry) => opened.push(`command:${entry.id}`)}
+            stop={async () => {}}
+            stopProcess={async () => {}}
+          />
+        </div>
+      </div>
+    </section>,
+  );
+};
+// A subagent's command (Leo, 2026-11-07: "me clicking this, the entire box, it just feels like, okay, I
+// would be expanding this"): its title names the subagent, and a click anywhere on the line, the title
+// included, expands it; the way to the subagent is the detail's Open chat. `terminal` says whether the
+// host opens terminals; where it does not, the detail shows no Open in terminal
+// (`window.__showOwnedCommand`).
+(window as unknown as { __showOwnedCommand: (terminal: boolean) => void }).__showOwnedCommand = (terminal) => {
+  const now = Date.now();
+  const agents = [
+    { id: "owner", parent: null, name: "Reviewer", task: "Review the tray", state: "running", startedAt: now - 90_000 },
+  ];
+  view.render(
+    <section className="acpmux-shell" style={{ width: 720 }}>
+      <div className="acpmux-main">
+        <div className="acpmux-dock">
+          <SubagentTray
+            items={trayItems(
+              agents,
+              [
+                {
+                  id: "o/1",
+                  command: "bun test test/running-strip.test.ts",
+                  state: "running",
+                  processId: "o/1",
+                  toolCallId: "call-o",
+                  subagent: "owner",
+                  startedAt: now - 30_000,
+                },
+              ],
+              [],
+              true,
+            )}
+            working
+            waiting={new Set()}
+            onOpen={(id) => opened.push(`agent:${id}`)}
+            onOpenCommand={(entry) => opened.push(`command:${entry.id}`)}
+            canOpenTerminal={terminal}
+            stop={async () => {}}
+            stopProcess={async () => {}}
           />
         </div>
       </div>

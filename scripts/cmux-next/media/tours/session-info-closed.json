@@ -12,7 +12,7 @@
     "method": "debug.tunables",
     "params": {
      "action": "set",
-     "key": "agent.inspector",
+     "key": "agent.sessionInfo",
      "value": true
     }
    },

@@ -1,0 +1,40 @@
+/* A Claude Task or Agent call as its subagent (AgentCallCard.tsx): DisclosureRow's line and panel,
+   with the subagent's kind before its words and its report and prompt in SubsessionCallCard.css's
+   Markdown cut. */
+.cv-agentcall__type {
+  font-weight: var(--weight-emphasis);
+  color: var(--cv-text);
+}
+.cv-agentcall__status {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--ds-space-1);
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.cv-agentcall__status[data-state="failed"] {
+  color: var(--agent-status-failure);
+}
+.cv-agentcall__prompt {
+  display: flex;
+  flex-direction: column;
+  gap: var(--grid-gap-inner);
+  min-width: 0;
+}
+.cv-agentcall__rule {
+  margin: 0;
+  border: 0;
+  border-top: var(--cmux-hairline, 0.5px) solid color-mix(in srgb, var(--cv-text) 12%, transparent);
+}
+/* The status says state, time, tool uses and tokens: it may take the line's room before the words,
+   which ellipsize first. */
+.cv-agentcall .cv-disclosure__status {
+  flex: 0 1 auto;
+  max-width: none;
+}
+/* In the panel the report and the prompt start at its edge, as Show prompt does. */
+.cv-agentcall .cv-disclosure__panel .cv-subsession__cut {
+  padding-inline-start: 0;
+}

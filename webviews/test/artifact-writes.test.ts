@@ -2,7 +2,7 @@
 import { expect, test } from "bun:test";
 import type { AcpmuxActivity } from "../src/agent-session/acpmux/model";
 import { mergeToolItem } from "../src/agent-session/acpmux/direct";
-import { toolArtifacts } from "../src/agent-session/acpmux/conversation/writtenArtifacts";
+import { toolArtifacts } from "../src/agent-session/acpmux/conversation/artifactWrites";
 import { artifactKind, type Artifact } from "../src/agent-session/acpmux/conversation/artifactPreview";
 
 type Tool = NonNullable<AcpmuxActivity["tool"]>;

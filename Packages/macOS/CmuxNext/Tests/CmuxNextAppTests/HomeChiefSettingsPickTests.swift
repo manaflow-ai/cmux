@@ -1,6 +1,6 @@
 import AppKit
 @testable import CmuxNextDaemon
-import CmuxNextHome
+import CmuxNextHomeModel
 @testable import CmuxNextHomeEngine
 import Testing
 

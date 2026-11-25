@@ -18,8 +18,8 @@ public struct PushReply: Codable, Sendable, Equatable, Identifiable {
         /// A text reply; `attachments` are file names in the outbox's attachments folder.
         case text(String, attachments: [String])
 
-        /// Signed with the approval key after Face ID (verify/phone-approvals.md).
-        public var needsFaceID: Bool {
+        /// Signed with the approval key (verify/phone-approvals.md).
+        public var isSigned: Bool {
             switch self {
             case .option, .answers, .allow: true
             case .deny, .text: false
@@ -73,6 +73,14 @@ public struct PushReply: Codable, Sendable, Equatable, Identifiable {
                   permissionId: payload.permissionId, conversationId: payload.conversationId, workspaceId: payload.workspaceId,
                   tabId: payload.tabId, eventId: payload.eventId, notificationId: payload.notificationId,
                   decisionNonce: payload.decisionNonce, personInstance: payload.personInstance, action: action, createdAt: now)
+    }
+
+    /// This reply answers `payload` exactly: the same Mac, kind and target (session, permission,
+    /// event, notification, decision nonce), so a handed-over Allow never reaches another request.
+    public func answers(_ payload: PushPayload) -> Bool {
+        mac == payload.mac && kind == payload.kind && sessionId == payload.sessionId
+            && permissionId == payload.permissionId && eventId == payload.eventId
+            && notificationId == payload.notificationId && decisionNonce == payload.decisionNonce
     }
 
     /// The reply a notification button means, or nil for the default tap,

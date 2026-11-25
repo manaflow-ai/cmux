@@ -32,6 +32,26 @@ struct AgentPaneLaunchImageReadTests {
         return directory
     }
 
+    /// Two machines' tabs of one id each get their own page back (#36767 review at dde50546): this Mac's
+    /// under the bare id it always used, the other's under its machine's slot, never each other's.
+    @Test func twoMachinesTabsOfOneIDKeepTheirOwnPages() async throws {
+        let directory = FileManager.default.temporaryDirectory.appending(path: "launch-images-\(UUID().uuidString)", directoryHint: .isDirectory)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let saving = AgentPaneLaunchImages(directory: directory)
+        saving.localMachine = { "this-mac" }
+        let local = saving.slot("tab_a", machine: "this-mac"), remote = saving.slot("tab_a", machine: "other-mac")
+        #expect(local == "tab_a" && remote != local, "slots \(local) and \(remote)")
+        let wide = try Self.page()
+        wide.size = NSSize(width: 8, height: 8) // saved at 1x: it reads back 8 points wide
+        await saving.save([local: try Self.page(), remote: wide])
+        let images = AgentPaneLaunchImages(directory: directory)
+        images.localMachine = { "this-mac" }
+        let read = try #require(images.prefetch(on: Self.work))
+        await read.value
+        #expect(images.take(images.slot("tab_a", machine: "other-mac"))?.size == NSSize(width: 8, height: 8))
+        #expect(images.take(images.slot("tab_a", machine: "this-mac"))?.size == NSSize(width: 4, height: 4))
+    }
+
     @Test func theLaunchReadsEverySavedPageOffTheMainThread() async throws {
         let directory = try await Self.saved(["tab_a", "tab_b"])
         defer { try? FileManager.default.removeItem(at: directory) }
@@ -67,5 +87,32 @@ struct AgentPaneLaunchImageReadTests {
         #expect(marks.names == ["agent_pane.launch_image_missed", "agent_pane.launch_images_read"])
         #expect(images.take("tab_b") != nil, "a pane shown after the read did not get its saved page")
         #expect(probe.reads == [false, false], "a saved page was read on the main thread")
+    }
+
+    /// A restored chat's pane built before the read ended used to keep its loading state until the live page
+    /// painted (~2.2 s on a relaunch), though its saved page landed moments later. It now hears when the read
+    /// ends, once per key, and gets its page then; once the read has ended nothing waits.
+    @Test func aPaneThatAskedTooEarlyGetsItsPageWhenTheReadEnds() async throws {
+        let directory = try await Self.saved(["tab_a", "tab_b"])
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let probe = LaunchReadProbe(held: true)
+        let images = AgentPaneLaunchImages(directory: directory, reader: probe.reader)
+        let read = try #require(images.prefetch(on: Self.work), "the launch read did not start")
+        let started = await probe.waitForStart()
+        #expect(started, "the read never started")
+        #expect(images.take("tab_a") == nil, "a pane got a page before the read ended")
+        var redrawn: [NSSize?] = []
+        let (ended, signal) = AsyncStream.makeStream(of: Void.self)
+        #expect(images.whenReadEnds("tab_a") { redrawn.append(images.take("tab_a")?.size); signal.yield() },
+                "a pane that missed its page was not told when the read ends")
+        #expect(images.whenReadEnds("tab_a") { redrawn.append(nil) }, "a second ask for a waiting key was refused")
+        #expect(redrawn.isEmpty, "the pane was told before the read ended")
+        probe.release()
+        probe.release()
+        await read.value
+        var waits = ended.makeAsyncIterator()
+        _ = await waits.next()
+        #expect(redrawn == [NSSize(width: 4, height: 4)], "the pane did not get its page once, when the read ended")
+        #expect(!images.whenReadEnds("tab_b") {}, "a key asked for after the read ended still waits")
     }
 }

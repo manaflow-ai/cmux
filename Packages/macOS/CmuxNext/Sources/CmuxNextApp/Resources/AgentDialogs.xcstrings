@@ -531,127 +531,127 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "No agent daemon (acpmux) answers in this app"
+            "value": "No agent daemon answers in this app"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "このアプリではエージェントデーモン（acpmux）が応答しません"
+            "value": "このアプリではエージェントデーモンが応答しません"
           }
         },
         "ar": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "لا يستجيب أي برنامج وكيل (acpmux) في هذا التطبيق"
+            "value": "لا يستجيب أي برنامج وكيل في هذا التطبيق"
           }
         },
         "bs": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Nijedan agentski daemon (acpmux) ne odgovara u ovoj aplikaciji"
+            "value": "Nijedan agentski daemon ne odgovara u ovoj aplikaciji"
           }
         },
         "da": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Ingen agentdæmon (acpmux) svarer i denne app"
+            "value": "Ingen agentdæmon svarer i denne app"
           }
         },
         "de": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "In dieser App antwortet kein Agent-Daemon (acpmux)"
+            "value": "In dieser App antwortet kein Agent-Daemon"
           }
         },
         "es": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Ningún daemon de agentes (acpmux) responde en esta app"
+            "value": "Ningún daemon de agentes responde en esta app"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Aucun démon d’agents (acpmux) ne répond dans cette app"
+            "value": "Aucun démon d’agents ne répond dans cette app"
           }
         },
         "it": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Nessun daemon degli agenti (acpmux) risponde in questa app"
+            "value": "Nessun daemon degli agenti risponde in questa app"
           }
         },
         "km": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "គ្មាន daemon ភ្នាក់ងារ (acpmux) ឆ្លើយតបក្នុងកម្មវិធីនេះទេ"
+            "value": "គ្មាន daemon ភ្នាក់ងារ ឆ្លើយតបក្នុងកម្មវិធីនេះទេ"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "이 앱에서 응답하는 에이전트 데몬(acpmux)이 없습니다"
+            "value": "이 앱에서 응답하는 에이전트 데몬이 없습니다"
           }
         },
         "nb": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Ingen agentdemon (acpmux) svarer i denne appen"
+            "value": "Ingen agentdemon svarer i denne appen"
           }
         },
         "pl": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "W tej aplikacji nie odpowiada żaden demon agentów (acpmux)"
+            "value": "W tej aplikacji nie odpowiada żaden demon agentów"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Nenhum daemon de agentes (acpmux) responde neste app"
+            "value": "Nenhum daemon de agentes responde neste app"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "В этом приложении не отвечает ни один демон агентов (acpmux)"
+            "value": "В этом приложении не отвечает ни один демон агентов"
           }
         },
         "th": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "ไม่มีเดมอนเอเจนต์ (acpmux) ตอบสนองในแอปนี้"
+            "value": "ไม่มีเดมอนเอเจนต์ ตอบสนองในแอปนี้"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Bu uygulamada yanıt veren bir ajan arka plan programı (acpmux) yok"
+            "value": "Bu uygulamada yanıt veren bir ajan arka plan programı yok"
           }
         },
         "uk": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "У цьому застосунку не відповідає жоден демон агентів (acpmux)"
+            "value": "У цьому застосунку не відповідає жоден демон агентів"
           }
         },
         "vi": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Không có daemon tác nhân (acpmux) nào phản hồi trong ứng dụng này"
+            "value": "Không có daemon tác nhân nào phản hồi trong ứng dụng này"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "此应用中没有响应的代理守护进程（acpmux）"
+            "value": "此应用中没有响应的代理守护进程"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "此 App 中沒有回應的代理常駐程式（acpmux）"
+            "value": "此 App 中沒有回應的代理常駐程式"
           }
         }
       }
@@ -1055,127 +1055,127 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "acpmux did not take this app's person proof; answer the question in cmux"
+            "value": "cmux couldn't confirm the answer came from you; answer the question in the cmux window"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "acpmux がこのアプリの本人証明を受け付けませんでした。cmux で質問に回答してください"
+            "value": "回答があなたからのものか cmux で確認できませんでした。cmux のウインドウで質問に答えてください"
           }
         },
         "ar": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "لم يقبل acpmux إثبات الشخص لهذا التطبيق؛ أجب عن السؤال في cmux"
+            "value": "تعذّر على cmux التأكد من أن الإجابة منك؛ أجب عن السؤال في نافذة cmux"
           }
         },
         "bs": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "acpmux nije prihvatio dokaz osobe ove aplikacije; odgovorite na pitanje u cmux-u"
+            "value": "cmux nije mogao potvrditi da je odgovor od vas; odgovorite na pitanje u prozoru cmuxa"
           }
         },
         "da": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "acpmux accepterede ikke denne apps personbevis; besvar spørgsmålet i cmux"
+            "value": "cmux kunne ikke bekræfte, at svaret kom fra dig; besvar spørgsmålet i cmux-vinduet"
           }
         },
         "de": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "acpmux hat den Personennachweis dieser App nicht angenommen; beantworte die Frage in cmux"
+            "value": "cmux konnte nicht bestätigen, dass die Antwort von dir kam; beantworte die Frage im cmux-Fenster"
           }
         },
         "es": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "acpmux no aceptó la prueba de persona de esta app; responde la pregunta en cmux"
+            "value": "cmux no pudo confirmar que la respuesta fuera tuya; responde la pregunta en la ventana de cmux"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "acpmux n’a pas accepté la preuve de personne de cette app ; répondez à la question dans cmux"
+            "value": "cmux n’a pas pu confirmer que la réponse venait de vous ; répondez à la question dans la fenêtre cmux"
           }
         },
         "it": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "acpmux non ha accettato la prova di persona di questa app; rispondi alla domanda in cmux"
+            "value": "cmux non ha potuto confermare che la risposta venga da te; rispondi alla domanda nella finestra di cmux"
           }
         },
         "km": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "acpmux មិនបានទទួលភស្តុតាងមនុស្សរបស់កម្មវិធីនេះទេ; សូមឆ្លើយសំណួរនៅក្នុង cmux"
+            "value": "cmux មិនអាចបញ្ជាក់ថាចម្លើយមកពីអ្នកបានទេ សូមឆ្លើយសំណួរនៅក្នុងបង្អួច cmux"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "acpmux가 이 앱의 본인 증명을 받아들이지 않았습니다. cmux에서 질문에 답하세요"
+            "value": "cmux가 답변이 본인에게서 왔는지 확인하지 못했습니다. cmux 창에서 질문에 답하세요"
           }
         },
         "nb": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "acpmux godtok ikke denne appens personbevis; svar på spørsmålet i cmux"
+            "value": "cmux kunne ikke bekrefte at svaret kom fra deg; svar på spørsmålet i cmux-vinduet"
           }
         },
         "pl": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "acpmux nie przyjął dowodu osoby tej aplikacji; odpowiedz na pytanie w cmux"
+            "value": "cmux nie mógł potwierdzić, że odpowiedź pochodzi od Ciebie; odpowiedz na pytanie w oknie cmux"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "O acpmux não aceitou a prova de pessoa deste app; responda à pergunta no cmux"
+            "value": "O cmux não conseguiu confirmar que a resposta veio de você; responda à pergunta na janela do cmux"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "acpmux не принял подтверждение человека от этого приложения; ответьте на вопрос в cmux"
+            "value": "cmux не смог подтвердить, что ответ от вас; ответьте на вопрос в окне cmux"
           }
         },
         "th": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "acpmux ไม่ยอมรับหลักฐานบุคคลของแอปนี้ โปรดตอบคำถามใน cmux"
+            "value": "cmux ยืนยันไม่ได้ว่าคำตอบมาจากคุณ ตอบคำถามในหน้าต่าง cmux"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "acpmux bu uygulamanın kişi kanıtını kabul etmedi; soruyu cmux'ta yanıtlayın"
+            "value": "cmux yanıtın sizden geldiğini doğrulayamadı; soruyu cmux penceresinde yanıtlayın"
           }
         },
         "uk": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "acpmux не прийняв підтвердження особи від цього застосунку; дайте відповідь у cmux"
+            "value": "cmux не зміг підтвердити, що відповідь від вас; дайте відповідь у вікні cmux"
           }
         },
         "vi": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "acpmux không chấp nhận bằng chứng người dùng của ứng dụng này; hãy trả lời câu hỏi trong cmux"
+            "value": "cmux không xác nhận được câu trả lời là của bạn; hãy trả lời câu hỏi trong cửa sổ cmux"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "acpmux 未接受此应用的本人证明；请在 cmux 中回答问题"
+            "value": "cmux 无法确认回答来自你；请在 cmux 窗口中回答问题"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "acpmux 未接受此 App 的本人證明；請在 cmux 中回答問題"
+            "value": "cmux 無法確認回答來自你；請在 cmux 視窗中回答問題"
           }
         }
       }

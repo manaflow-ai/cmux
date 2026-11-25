@@ -63,6 +63,43 @@ import Testing
         #expect(spinner.frame.midY == cell.iconLayer.position.y)
     }
 
+    @Test func identityTintsTheHarnessWithoutMovingItAndUserTintWins() throws {
+        var item = TabItem(id: TabID("subagent"), title: "Reviewer", icon: .agentMark("claude"))
+        item.agentTone = 0
+        let cell = TabCell(item: item)
+        cell.frame = CGRect(x: 0, y: 0, width: 220, height: 32)
+        cell.layoutLayers()
+        let frame = cell.iconLayer.frame
+        let first = try iconPixels(cell)
+        item.agentTone = 1
+        cell.update(item: item)
+        let second = try iconPixels(cell)
+        #expect(first != second)
+        #expect(cell.iconLayer.frame == frame)
+        item.tint = .red
+        cell.update(item: item)
+        let custom = try iconPixels(cell)
+        item.agentTone = 2
+        cell.update(item: item)
+        let overridden = try iconPixels(cell)
+        #expect(overridden == custom, "the person's tab colour must win")
+        #expect(cell.iconLayer.frame == frame)
+    }
+
+    private func iconPixels(_ cell: TabCell) throws -> Data {
+        let icon = cell.iconLayer
+        _ = try #require(icon.contents)
+        let width = Int(ceil(icon.bounds.width))
+        let height = Int(ceil(icon.bounds.height))
+        let context = try #require(CGContext(data: nil, width: width, height: height,
+                                           bitsPerComponent: 8, bytesPerRow: width * 4,
+                                           space: CGColorSpaceCreateDeviceRGB(),
+                                           bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue))
+        icon.render(in: context)
+        let image = try #require(context.makeImage())
+        return try #require(NSBitmapImageRep(cgImage: image).tiffRepresentation)
+    }
+
     @Test(arguments: ["Aleksandra Wiśniewska-Kowalczyk — release verification", "🦊 Fox", "王秀英的发布验证会话", "Đặng Thị Ngọc Hân", "J", ""])
     func worstCaseNamesDoNotMoveTheIdentityOrWorkingMark(title: String) throws {
         let fixture = HarnessIconSurfacesTests()

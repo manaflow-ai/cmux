@@ -1,4 +1,5 @@
 import { Schema } from "effect"
+import { isPattern } from "./json-checks.ts"
 import { def, mutationErrors, type CloudOpDef } from "./op-def.ts"
 import { DisplayName, HostId, InstallId, PairingCode, Platform, PublicJwk, ServerCapabilities, TeamId, UserId } from "./schemas.ts"
 import { NativeDeviceId, NativeMeshId, ServerNetworkBinding, ServerNetworkProof, ServerNetworkReservation } from "./server-network.ts"
@@ -65,6 +66,36 @@ export const ServerPairApprove = def({
   mcp: { expose: "never", group: "servers" }
 })
 
+/** Invite code: 10 Crockford base32 symbols (50 bits), shown as XXXXX-XXXXX. Never the length of a PairingCode. */
+export const PairingInviteCode = Schema.String.check(isPattern(/^[0-9A-HJKMNP-TV-Z]{10}$/)).annotate({
+  identifier: "PairingInviteCode",
+  description: "A normalized invite code: 10 Crockford base32 symbols, no hyphen."
+})
+
+export const PairingInvite = Schema.Struct({
+  invite: PairingInviteCode,
+  /** `ABCDE-12345`, for a person to read or type. */
+  display: Schema.String,
+  expires_at: Schema.Int,
+  /** Opens `GET /v1/pair/invite/wait?invite=CODE` (subprotocols `cmux.pair-invite.v1, watch.<secret>`). Never shown or logged. */
+  watch_secret: Schema.String
+}).annotate({ identifier: "PairingInvite" })
+
+export const ServerPairInvite = def({
+  name: "server.pair.invite",
+  owner: "cloud:PairingDO",
+  class: "mutation",
+  risk: "mutate-shared",
+  target: "pairing",
+  principals: ["session"],
+  params: Schema.Struct({ team: TeamId }),
+  result: PairingInvite,
+  errors: [...mutationErrors, "owner.unreachable"],
+  docs: "Make a 10-minute, single-use invite code that a new machine types (`cmux pair CODE`) to ask to join the team. Only the person who made it can approve that machine, after comparing its four words; making another invite voids this one. Origin user only.",
+  cli: { path: "servers invite", visible: false },
+  mcp: { expose: "never", group: "servers" }
+})
+
 export const ServerRevoke = def({
   name: "server.revoke",
   owner: "cloud:TeamDO",
@@ -95,4 +126,4 @@ export const ServerNetworkConfirm = def({
   mcp: { expose: "never", group: "servers" }
 })
 
-export const serverOps = [ServerPairPreview, ServerPairApprove, ServerNetworkConfirm, ServerRevoke] as const satisfies readonly CloudOpDef[]
+export const serverOps = [ServerPairPreview, ServerPairApprove, ServerPairInvite, ServerNetworkConfirm, ServerRevoke] as const satisfies readonly CloudOpDef[]

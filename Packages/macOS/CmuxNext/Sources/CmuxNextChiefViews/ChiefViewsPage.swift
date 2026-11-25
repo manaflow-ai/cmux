@@ -4,7 +4,7 @@ public import CmuxNextDaemonService
 public import CmuxNextDesign
 public import Foundation
 import CmuxNextAgentActivity
-import CmuxNextHome
+import CmuxNextHomeModel
 public import CmuxNextPages
 
 extension PageDescriptor {
@@ -27,6 +27,9 @@ public struct ChiefViewsHost {
     var revealTab: @MainActor (String) -> Bool
     /// Opens a pull request on Home's right side.
     var openURL: @MainActor (URL) -> Void
+    /// The reader of `appearance.agentGlow` on these machines (``followingAgentGlow(_:theme:)``),
+    /// alive as long as the app keeps this host.
+    var agentGlow: AgentGlowReader?
 
     public init(workspaces: @escaping @MainActor () -> [(WorkspaceModel, DaemonService)],
                 machineName: @escaping @MainActor (DaemonService) -> String?,
@@ -121,6 +124,6 @@ nonisolated enum ChiefViewsStrings {
     static var untitledTerminal: String { t("chiefViews.terminal.untitled", "Terminal") }
 
     private static func t(_ key: StaticString, _ value: String.LocalizationValue) -> String {
-        String(localized: key, defaultValue: value, table: "ChiefViews", bundle: .module)
+        String(localized: key, defaultValue: value, table: "ChiefViews", bundle: .localizedModule)
     }
 }

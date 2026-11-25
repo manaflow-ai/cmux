@@ -10,6 +10,8 @@ import GhosttyNextKit
 /// still be inside `io_write_cb`.
 nonisolated final class SurfaceBridge: @unchecked Sendable {
     let input: TerminalInputSink
+    /// The terminal's predictive echo engine (nil: it does not predict): it sees each write before it goes out.
+    let prediction: TerminalEchoPrediction?
     /// Main-actor only. Weak so a late callback after the view deinitializes
     /// is a no-op.
     @MainActor weak var view: TerminalSurfaceView?
@@ -23,9 +25,13 @@ nonisolated final class SurfaceBridge: @unchecked Sendable {
 
     /// The cached answers to Ghostty's link filter (cx-do47.1).
     let linkFilter = TerminalLinkFilter()
+    /// Each frame Ghostty shows on the surface's layer (Ghostty's present callback).
+    let presents: TerminalPresents
 
-    init(input: TerminalInputSink) {
+    init(input: TerminalInputSink, prediction: TerminalEchoPrediction? = nil) {
         self.input = input
+        self.prediction = prediction
+        presents = TerminalPresents(prediction: prediction)
         // An answer that changed shows at once: the pointer goes to Ghostty again.
         linkFilter.onChange { [weak self] in
             MainDelivery().run { self?.sendPointerAgain() }
@@ -42,6 +48,7 @@ nonisolated final class SurfaceBridge: @unchecked Sendable {
 /// so a resize never overtakes input typed before it.
 nonisolated enum TerminalOutgoing: Sendable {
     case bytes(Data)
+    case filePaste(TerminalFilePaste)
     case resize(TerminalGridSize, pixelWidth: Int, pixelHeight: Int)
     case focusGained
     /// Take over from the "Sized for" chip.
@@ -64,6 +71,10 @@ nonisolated struct TerminalInputSink: Sendable {
 
     func send(_ data: Data) {
         continuation.yield(.bytes(data))
+    }
+
+    func pasteFiles(_ pasteboard: TerminalFilePaste) {
+        continuation.yield(.filePaste(pasteboard))
     }
 
     func resize(_ grid: TerminalGridSize, pixelWidth: Int, pixelHeight: Int) {
@@ -93,8 +104,10 @@ nonisolated struct TerminalInputSink: Sendable {
 
 /// `io_write_cb`: runs on Ghostty's IO thread. Copies the bytes and hands them
 /// to the session's ordered writer.
-nonisolated func ghosttyIOWrite(_ userdata: UnsafeMutableRawPointer?, _ bytes: UnsafePointer<CChar>?, _ length: UInt) {
-    guard let bridge = SurfaceBridge.from(userdata), let bytes, length > 0 else { return }
+nonisolated func ghosttyIOWrite(_ userdata: UnsafeMutableRawPointer?, _ bytes: UnsafePointer<CChar>, _ length: UInt) {
+    guard let bridge = SurfaceBridge.from(userdata), length > 0 else { return }
     TypingLatencyProbe.shared.mark(.ioWrite)
-    bridge.input.send(Data(bytes: bytes, count: Int(length)))
+    let data = Data(bytes: bytes, count: Int(length))
+    bridge.prediction?.sent(data)
+    bridge.input.send(data)
 }

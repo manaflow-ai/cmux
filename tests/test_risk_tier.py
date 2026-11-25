@@ -2,6 +2,7 @@
 import contextlib
 import importlib.util
 import io
+import json
 import os
 import subprocess
 import sys
@@ -9,6 +10,13 @@ import tempfile
 import time
 import unittest
 from pathlib import Path
+# tests/git_fixture_env.py, loaded by path: `python3 -I` puts no script folder on sys.path.
+import importlib.util as _git_fixture_importlib  # noqa: E402
+from os import path as _git_fixture_path  # noqa: E402
+_git_fixture_spec = _git_fixture_importlib.spec_from_file_location(
+    "git_fixture_env", _git_fixture_path.join(_git_fixture_path.dirname(_git_fixture_path.abspath(__file__)), "git_fixture_env.py"))
+git_fixture_env = _git_fixture_importlib.module_from_spec(_git_fixture_spec)
+_git_fixture_spec.loader.exec_module(git_fixture_env)
 
 ROOT = Path(__file__).resolve().parents[1]
 spec = importlib.util.spec_from_file_location("risk_tier", ROOT / "scripts/ci/risk_tier.py")
@@ -62,29 +70,17 @@ class ClassifyTests(unittest.TestCase):
             "cmux-tui/crates/cmux-link/src/caller.rs",
             "cmux-tui/crates/cmux-link/src/caller_macos.rs",
             "cmux-tui/crates/cmux-link/src/app_caller.rs",
-            "Packages/macOS/CmuxComputerUseHelper/Sources/CmuxCuaHelperCore/HostVerifier.swift",
-            NEXT + "CmuxNextAgentActivity/CuaHelperIdentity.swift",
             NEXT + "CmuxNextBrowser/CEF/SecCodeCEFCodeSignatureChecker.swift",
             NEXT + "CmuxNextBrowser/CEF/CEFCodeSignatureChecking.swift",
             NEXT + "CmuxNextChromiumRuntime/SecCodeChromiumRuntimeSignatureChecker.swift",
             NEXT + "CmuxNextChromiumRuntime/ChromiumRuntimeSignatureChecking.swift",
-            "Packages/macOS/CmuxComputerUseHelper/Sources/CmuxCuaHelperCore/Admission.swift",
-            "Packages/macOS/CmuxComputerUseHelper/Sources/CmuxCuaHelperCore/AdmissionState.swift",
-            "Packages/macOS/CmuxComputerUseHelper/Sources/CmuxCuaHelperCore/HelperController.swift",
-            "Packages/macOS/CmuxComputerUseHelper/Sources/CmuxCuaHelperCore/HelperSocketServer.swift",
-            "Packages/macOS/CmuxComputerUseHelper/Sources/CmuxCuaHelperCore/HostConsentServer.swift",
-            NEXT + "CmuxNextComputerUse/ComputerUseHelperV2+Secret.swift",
             NEXT + "CmuxNextApp/AgentTabs+PaneSource.swift",
             NEXT + "CmuxNextAgentPane/AcpmuxEnvironment+Resolve.swift",
             NEXT + "CmuxNextAgentPane/AcpmuxEnvironment+DebugOverride.swift",
-            "cmux-tui/crates/acpmux/src/agent_tools/cua_helper.rs",
-            "scripts/cmux-cua-helper-trust.sh",
-            NEXT + "CmuxNextComputerUse/ComputerUseHelperStaging.swift",
             NEXT + "CmuxNextServerHelper/ServerHelperListener.swift",
             NEXT + "CmuxNextServerHelper/ServerHelperProtocol.swift",
-            NEXT + "CmuxNextComputerUse/ComputerUseHelperV2HostLink.swift",
-            NEXT + "CmuxNextComputerUse/ComputerUseHelperV2+Admission.swift",
             NEXT + "CmuxNextApp/Server/ServerHelperClient.swift",
+            "cmux-tui/crates/cmux-computer-use/src/server.rs",
         ):
             with self.subTest(path=path):
                 self.assertEqual(risk.classify_path(path), ("high", "peer identity or code-signature trust"))
@@ -95,8 +91,8 @@ class ClassifyTests(unittest.TestCase):
             ("cmux-tui/crates/cmux-link/src/caller_macos_sign_clone_tests.rs", "low"),
             ("cmux-tui/crates/cmux-pane-protocol/src/token.rs", "normal"),
             ("Native/OptChat/optchat-chief/src/cloud/signature_cache.rs", "normal"),
-            # The launcher itself: its acpmux admission rule lives in ComputerUseHelperV2+Admission.swift.
-            (NEXT + "CmuxNextComputerUse/ComputerUseHelperV2.swift", "normal"),
+            # The Computer Use engine's other files; only the worker socket's admission is high.
+            ("cmux-tui/crates/cmux-computer-use/src/engine.rs", "normal"),
             # Where the daemon lives and its environment: the executable choice is in +Resolve.
             (NEXT + "CmuxNextAgentPane/AcpmuxEnvironment.swift", "normal"),
         ):
@@ -146,6 +142,30 @@ class ClassifyTests(unittest.TestCase):
                      "scripts/ci/risk_tier.py", ".github/workflows/risk-tier.yml", ".github/CODEOWNERS"):
             with self.subTest(path=path):
                 self.assertEqual(risk.classify_path(path), ("high", "the risk gate itself"))
+
+    # The pre-push hook's trust boundary (docs/contributor-verification.md): the code that decides which check code
+    # the hook runs on a push (the web lint and the cmux-next gate, which each pick the reviewed copy or the pushed
+    # code), the hook itself, and how its reviewed copy is installed and refreshed. A normal change could make the hook
+    # run code a push controls (#34124 finds and closes several such routes). The lint rules themselves stay normal.
+    PREPUSH_TRUST = ("scripts/web_lint_prepush.py", "scripts/cmux-next/prepush-gate.py", "scripts/cmux-next/push_range.py",
+                     "scripts/git-hooks/pre-push", "scripts/git-hooks/post-merge", "scripts/git-hooks/refresh_checks.py",
+                     "scripts/install-git-hooks.sh", "scripts/git-hooks/hook_python.sh",
+                     "scripts/git-hooks/merge_python.sh")
+
+    def test_the_pre_push_trust_boundary_is_high(self):
+        for path in self.PREPUSH_TRUST:
+            with self.subTest(path=path):
+                self.assertEqual(risk.classify_path(path), ("high", "the pre-push hook's trust boundary"))
+                self.assertEqual(self.tier(path, "webviews/src/app.ts"), "high")
+
+    def test_the_hooks_lint_rules_stay_normal(self):
+        # run-check-pieces.py runs `bun run check` by hand and in CI; the hook expands the pieces itself, never runs it.
+        for path in ("scripts/cmux-next/check-text-focus-rings.py", "scripts/cmux-next/gen-type-scale.py",
+                     "scripts/cmux-next/run-check-pieces.py", "scripts/cmux-next/guardrails.py",
+                     "scripts/cmux-next/check-system-blue.py", "webviews/package.json", "config/vite-plus/check.ts",
+                     "webviews/scripts/check-design-tokens.ts", "scripts/web-lint.sh"):
+            with self.subTest(path=path):
+                self.assertEqual(self.tier(path), "normal")
 
     def test_docs_copy_and_logs_are_low_even_in_a_high_directory(self):
         for path in (
@@ -235,6 +255,81 @@ class ClassifyTests(unittest.TestCase):
         self.assertEqual(self.tier(test, patches={test: "+ try FileManager.default.removeItem(at: tmp)"}), "low")
         ci = "scripts/ci/clean.sh"
         self.assertEqual(self.tier(ci, patches={ci: "+ rm -rf build; python -c 'shutil.rmtree(x)'"}), "normal")
+
+    def test_audit_false_highs_grade_below_high(self):
+        # The 2026-11-25 audit of open risk:high pull requests: named like a high path, but not one.
+        for path in (
+            ".github/workflows/nightly-speed.yml", ".github/workflows/billing-nightly.yml",
+            ".github/workflows/webviews-sampled-nightly.yml", "scripts/measure/nightly-fresh-launch.sh",
+            ".github/workflows/docs-deploy-reusable.yml", "scripts/repo-archive/publish.sh",
+            NEXT + "CmuxNextUpdater/GitHubStar/GitHubStarPrompt.swift", NEXT + "CmuxNextUpdater/UpdaterStrings.swift",
+            "cmux-next-ios/AppStoreReview/screenshots/en-US/iphone/06-sign-in.png",
+            ".github/workflows/auth-refresh-tests.yml", ".github/workflows/vercel-auth-health.yml",
+            "cmux-tui/crates/cmux-tui-core/src/login_shell.rs",
+            "cmux-tui/crates/cmux-tui/src/localization/auth_token.rs",
+            "cmux-tui/relays/cloudflare-do/Cargo.toml", "cmux-tui/crates/cmux-auth-coordinator/Cargo.toml",
+            "Native/OptChat/optchat-chief/src/migrate_cloud.rs", "cmux-tui/crates/cmux-migrate/src/plan.rs",
+        ):
+            with self.subTest(path=path):
+                self.assertEqual(self.tier(path), "normal")
+        self.assertEqual(self.tier("plans/cmux-next/arch-exceptions/relay-chat-harness-login.json"), "low")
+
+    def test_audit_true_highs_stay_high(self):
+        for path in (
+            ".github/workflows/nightly.yml", ".github/workflows/nightly-next-tick.yml",
+            ".github/workflows/ios-internal-nightly.yml", ".github/workflows/sdk-publish-crates.yml",
+            ".github/workflows/mobile-worker-prod-deploy.yml", "scripts/sign-cmux-bundle-helpers.sh",
+            NEXT + "CmuxNextUpdater/UpdaterService.swift",
+            "cmux-tui/crates/acpmux/src/login.rs", "cmux-tui/crates/cmux-git-cache/src/auth.rs",
+            "cmux-tui/relays/cloudflare-do/src/index.ts", "cmux-tui/relays/cloudflare-do/wrangler.toml",
+            NEXT + "CmuxNextApp/AppOnboardingServices+ClassicMigration.swift",
+            "cmux-tui/crates/acpmux/src/hub/place_migrate.rs", "web/drizzle/0001_x.sql",
+            NEXT + "CmuxNextDaemon/Conversations/ChiefSecureStore.swift",
+        ):
+            with self.subTest(path=path):
+                self.assertEqual(self.tier(path), "high")
+
+    def test_harness_code_and_own_temp_file_cleanup_are_not_new_deletes(self):
+        cases = {
+            "webviews/bench/send-pop-frames.bench.ts": "+  rmSync(outDir, { recursive: true, force: true });",
+            "cmux-tui/crates/cmux-machine-provider/examples/machine_provider_bench.rs":
+                "+    let _ = std::fs::remove_dir_all(&dir);",
+            "cmux-tui/frontends/web/e2e/ghostty-terminal.e2e.mjs": "+  fs.rmSync(dir, { recursive: true });",
+            "cmux-tui/crates/coord-sim/src/fanin/ramp.rs": "+    std::fs::remove_dir_all(&out)?;",
+            "cmux-tui/crates/acpmux/src/settings/write.rs": "+        let _ = std::fs::remove_file(&temp);",
+            "cmux-tui/crates/acpmux/src/settings/store.rs": "+        let _ = fs::remove_file(&self.staged);",
+            NEXT + "CmuxLiveCode/LiveEngine.swift": "+        defer { try? FileManager.default.removeItem(at: copy) }",
+        }
+        for path, line in cases.items():
+            with self.subTest(path=path):
+                self.assertNotEqual(self.tier(path, patches={path: line}), "high")
+        rs = "cmux-tui/crates/acpmux/src/settings/write.rs"
+        for line in ("+    std::fs::remove_file(&path)?;", "+    std::fs::remove_dir_all(&temp_root_of_user)?;"):
+            with self.subTest(line=line):
+                self.assertEqual(self.tier(rs, patches={rs: line}), "high")
+        swift = NEXT + "CmuxNextHistory/HistoryStore.swift"
+        self.assertEqual(self.tier(swift, patches={swift: "+ try FileManager.default.removeItem(at: storeURL)"}), "high")
+        mixed = "+    let _ = std::fs::remove_file(&temp); std::fs::remove_dir_all(&user_dir)?;"
+        self.assertEqual(self.tier(rs, patches={rs: mixed}), "high")
+        self.assertEqual(self.tier(swift, patches={swift: "+ try FileManager.default.removeItem(at: temp)"}), "high")
+        self.assertEqual(self.tier(swift, patches={swift: "+ defer { try? FileManager.default.removeItem(at: userDataDir) }"}), "high")
+        self.assertEqual(self.tier(rs, patches={rs: "+    std::fs::remove_file(&copy)?;"}), "high")
+        self.assertEqual(self.tier("webviews/src/store.ts", patches={"webviews/src/store.ts": "+  await db.delete(chats)"}), "high")
+
+    def test_unlink_bare_remove_and_keychain_deletes_count(self):
+        rs = "cmux-tui/crates/cmux-sign-clone-sweep/src/at.rs"
+        for line in ("+    let rc = unsafe { libc::unlinkat(dirfd, name.as_ptr(), libc::AT_REMOVEDIR) };",
+                     "+    unsafe { libc::unlink(path.as_ptr()) };", "+    remove_file(&path)?;", "+    remove_dir(&dir)?;"):
+            with self.subTest(line=line):
+                self.assertEqual(self.tier(rs, patches={rs: line}), "high")
+        ts = "webviews/src/agent-pane/files.ts"
+        self.assertEqual(self.tier(ts, patches={ts: "+  await fs.promises.unlink(file);"}), "high")
+        swift = NEXT + "CmuxNextApp/CredentialCache.swift"
+        self.assertEqual(self.tier(swift, patches={swift: "+    let status = SecItemDelete(query as CFDictionary)"}), "high")
+        # A method or a function named remove_file is not a delete.
+        for line in ("+    self.remove_file(id);", "+fn remove_file(&mut self, id: Id) {"):
+            with self.subTest(line=line):
+                self.assertEqual(self.tier(rs, patches={rs: line}), "normal")
 
     def test_a_new_privileged_workflow_trigger_is_high(self):
         # 16c570b576 put a cargo cache on pull_request_target: a fork could poison it.
@@ -353,7 +448,7 @@ class ClassifyTests(unittest.TestCase):
     def test_an_update_channel_setting_is_normal_and_the_update_path_stays_high(self):
         # Leo, 2026-10-21: a settings-only channel toggle that reuses the signed feeds is normal;
         # updater install, signing and feed-verification code stays high.
-        setting = ("Packages/macOS/CmuxUpdater/Sources/CmuxUpdater/UpdateRing.swift",
+        setting = ("Packages/macOS/CmuxUpdater/Sources/CmuxUpdaterCore/UpdateRing.swift",
                    NEXT + "CmuxNextUpdater/UpdatePreferences.swift",
                    NEXT + "CmuxNextSettings/UpdatesSettings.swift",
                    NEXT + "CmuxNextSettings/Schema/SettingsSchema+Updates.generated.swift",
@@ -371,21 +466,21 @@ class ClassifyTests(unittest.TestCase):
         # Signature verification, the feed resolver, the Sparkle driver and the install code must never
         # grade normal; only the ring above is a setting. Its tests stay low.
         updater = "Packages/macOS/CmuxUpdater/"
-        for path in ("Sources/CmuxUpdater/ChannelSwitch/AppSignatureVerification.swift",
+        for path in ("Sources/CmuxUpdaterCore/ChannelSwitch/AppSignatureVerification.swift",
                      "Sources/CmuxUpdater/ChannelSwitch/SecurityAppSignatureInspector.swift",
-                     "Sources/CmuxUpdater/ChannelSwitch/AppChannelSwitcher.swift",
-                     "Sources/CmuxUpdater/UpdateFeedResolver.swift",
+                     "Sources/CmuxUpdaterCore/ChannelSwitch/AppChannelSwitcher.swift",
+                     "Sources/CmuxUpdaterCore/UpdateFeedResolver.swift",
                      "Sources/CmuxUpdater/UpdateDriver.swift",
                      "Sources/CmuxUpdater/UpdateDriver+SPUUpdaterDelegate.swift",
                      "Sources/CmuxUpdater/UpdateDriver+BackgroundInstall.swift",
                      "Sources/CmuxUpdater/UpdateController+InstallAttempt.swift",
                      "Sources/CmuxUpdater/UpdateController+BackgroundInstall.swift",
-                     "Sources/CmuxUpdater/InstallWatchdog.swift",
+                     "Sources/CmuxUpdaterCore/InstallWatchdog.swift",
                      "Package.swift"):
             with self.subTest(path=path):
                 self.assertEqual(self.tier(updater + path), "high")
-        self.assertEqual(self.tier(updater + "Sources/CmuxUpdater/UpdateRing.swift"), "normal")
-        self.assertEqual(self.tier(updater + "Tests/CmuxUpdaterTests/UpdateFeedResolverTests.swift"), "low")
+        self.assertEqual(self.tier(updater + "Sources/CmuxUpdaterCore/UpdateRing.swift"), "normal")
+        self.assertEqual(self.tier(updater + "Tests/CmuxUpdaterCoreTests/UpdateFeedResolverTests.swift"), "low")
 
     def test_highest_path_wins(self):
         self.assertEqual(self.tier("docs/x.md", NEXT + "CmuxNextSidebar/A.swift",
@@ -654,6 +749,84 @@ class RecentRevertTests(unittest.TestCase):
         # A pure addition taken out again is a revert.
         self.assertTrue(risk.undoes("@@ -1,3 +1,1 @@\n-.a{}\n-.b{}\n ctx", "@@ -1 +1,3 @@\n+.a{}\n+.b{}\n ctx"))
 
+    def test_a_reflowed_list_does_not_take_back_the_line_it_rewraps(self):
+        # PR #38436 (2026-11-08): two exports added to a `pub use listen::{...}` list made rustfmt rewrap it.
+        # #37363 had added the line `verify_session_socket_directory,`; after the rewrap that name sits on a
+        # longer line, so line matching read the PR as taking #37363 back and held it.
+        commit = ("@@ -2746,6 +2746,7 @@ mod listen;\n pub use listen::{\n"
+                  "     connect_session_socket, prepare_socket_parent, serve, serve_bound, serve_paused,\n"
+                  "+    verify_session_socket_directory,\n };")
+        pr = ("@@ -2769,11 +2769,13 @@ mod listen;\n pub use listen::{\n"
+              "-    connect_session_socket, prepare_socket_parent, serve, serve_bound, serve_paused,\n"
+              "-    verify_session_socket_directory,\n"
+              "+    connect_session_socket, prepare_socket_parent, remove_socket_start_lock, serve, serve_bound,\n"
+              "+    serve_paused, socket_start_lock_path, verify_session_socket_directory,\n };")
+        self.assertFalse(risk.undoes(pr, commit))
+        # Really deleting the line still takes it back.
+        self.assertTrue(risk.undoes("@@ -2769,3 +2769,2 @@\n pub use listen::{\n"
+                                    "-    verify_session_socket_directory,\n };", commit))
+        # A line that loses a token is not a reflow: `foo(a, b)` to `foo(a)`, then back, is a revert.
+        shortened = "@@ -1,2 +1,2 @@\n-    foo(a, b);\n+    foo(a);\n ctx"
+        self.assertTrue(risk.undoes("@@ -1,2 +1,2 @@\n-    foo(a);\n+    foo(a, b);\n ctx", shortened))
+        widened = "@@ -1,2 +1,2 @@\n-    foo(a);\n+    foo(a, b);\n ctx"
+        self.assertTrue(risk.undoes("@@ -1,2 +1,2 @@\n-    foo(a, b);\n+    foo(a);\n ctx", widened))
+
+    def test_a_reworded_line_is_an_edit_not_a_takeback(self):
+        # PR #54943 (2026-11-25) reworded the skills index row #53846 had added; the row stays, in new words.
+        commit = ("@@ -57,6 +57,7 @@\n | Edit cmux's own web UI while it runs | [cmux-live](cmux-live/SKILL.md) |\n"
+                  "+| Doing UI work: frames show in the chat on their own, `look` to check, Try it on at turn end"
+                  " | [cmux-ui-preview](cmux-ui-preview/SKILL.md) |\n ")
+        pr = ("@@ -57,3 +57,3 @@\n | Edit cmux's own web UI while it runs | [cmux-live](cmux-live/SKILL.md) |\n"
+              "-| Doing UI work: frames show in the chat on their own, `look` to check, Try it on at turn end"
+              " | [cmux-ui-preview](cmux-ui-preview/SKILL.md) |\n"
+              "+| Doing UI work: live mode, a preview tab cmux pictures before and after each turn, how to try it at"
+              " turn end | [cmux-ui-preview](cmux-ui-preview/SKILL.md) |\n ")
+        self.assertFalse(risk.undoes(pr, commit))
+        # Deleting the row with nothing in its place still takes it back.
+        self.assertTrue(risk.undoes("@@ -57,3 +57,2 @@\n | Edit cmux's own web UI while it runs |\n"
+                                    "-| Doing UI work: frames show in the chat on their own, `look` to check, Try it on"
+                                    " at turn end | [cmux-ui-preview](cmux-ui-preview/SKILL.md) |\n ", commit))
+        # So does replacing it with an unrelated line of the pull request's own.
+        self.assertTrue(risk.undoes("@@ -57,3 +57,3 @@\n ctx\n"
+                                    "-| Doing UI work: frames show in the chat on their own, `look` to check, Try it on"
+                                    " at turn end | [cmux-ui-preview](cmux-ui-preview/SKILL.md) |\n"
+                                    "+| Forum posts: read and reply | [cmux-forum](cmux-forum/SKILL.md) |\n ", commit))
+        # Putting back the wording the commit replaced is still a revert.
+        replaced = ("@@ -1,2 +1,2 @@\n-| Doing UI work: open the preview pane by hand |\n"
+                    "+| Doing UI work: frames show in the chat on their own |\n ctx")
+        self.assertTrue(risk.undoes("@@ -1,2 +1,2 @@\n-| Doing UI work: frames show in the chat on their own |\n"
+                                    "+| Doing UI work: open the preview pane by hand |\n ctx", replaced))
+
+    def test_a_duplicate_dropped_beside_the_entry_that_stays_is_not_a_takeback(self):
+        # PR #50003 (2026-11-25) dropped #54487's `cmux-deadline.workspace = true`, a second key for the
+        # dependency already declared with features, and folded its comment into that entry.
+        commit = ("@@ -136,6 +136,8 @@\n cmux-tag-cache.workspace = true\n"
+                  "+# One deadline per wait (daemon/watchdog.rs: a hello waits until systemd's own limit).\n"
+                  "+cmux-deadline.workspace = true\n cmux-supervise-core.workspace = true")
+        pr = ("@@ -99,4 +99,5 @@\n cmux-json.workspace = true\n"
+              "-# Deadlines on silence since the last progress, not a wall clock (peer frame writes, mesh reads).\n"
+              "+# Deadlines on silence since the last progress, not a wall clock (peer frame writes, mesh reads),\n"
+              "+# and one deadline per wait (daemon/watchdog.rs: a hello waits until systemd's own limit).\n"
+              " cmux-deadline = { workspace = true, features = [\"tokio\"] }\n"
+              "@@ -136,8 +137,6 @@\n cmux-tag-cache.workspace = true\n"
+              "-# One deadline per wait (daemon/watchdog.rs: a hello waits until systemd's own limit).\n"
+              "-cmux-deadline.workspace = true\n cmux-supervise-core.workspace = true")
+        self.assertFalse(risk.undoes(pr, commit))
+        # With no other entry left, dropping them is a takeback.
+        self.assertTrue(risk.undoes("@@ -136,8 +136,6 @@\n cmux-tag-cache.workspace = true\n"
+                                    "-# One deadline per wait (daemon/watchdog.rs: a hello waits until systemd's own limit).\n"
+                                    "-cmux-deadline.workspace = true\n cmux-supervise-core.workspace = true", commit))
+
+    def test_a_short_line_is_not_still_said_by_a_long_unrelated_one(self):
+        # Review F1 on #55358: `let x = 1;` taken back beside `let x = compute(a, b, 1);` is still a takeback.
+        commit = "@@ -1,2 +1,3 @@\n ctx\n+    let x = 1;\n ctx"
+        pr = "@@ -1,4 +1,3 @@\n ctx\n-    let x = 1;\n     let x = compute(a, b, 1);\n ctx"
+        self.assertTrue(risk.undoes(pr, commit))
+        # A line replaced by a much longer one that merely shares half its words is not a reword of it.
+        summed = "@@ -1,2 +1,3 @@\n ctx\n+    let total = sum(a);\n ctx"
+        reword = "@@ -1,3 +1,3 @@\n ctx\n-    let total = sum(a);\n+    let total_count = sum(x, y, z, w, v, u);\n ctx"
+        self.assertTrue(risk.undoes(reword, summed))
+
     def test_a_revert_of_last_weeks_change_names_its_pull_request(self):
         now = time.time()
         with tempfile.TemporaryDirectory() as repo:
@@ -676,6 +849,44 @@ class RecentRevertTests(unittest.TestCase):
             unread = []
             self.assertEqual(risk.recent_reverts([stale], repo, base, own=21194, now=now, unread=unread, budget=0), {})
             self.assertEqual(unread, ["App.tsx"])
+
+
+class MergeBaseTests(unittest.TestCase):
+    """The merge base comes from git when the base history has both ends, not a `compare` call."""
+
+    def test_the_merge_base_comes_from_git_and_falls_back_to_compare(self):
+        env = dict(os.environ, GIT_AUTHOR_NAME="t", GIT_AUTHOR_EMAIL="t@t", GIT_COMMITTER_NAME="t",
+                   GIT_COMMITTER_EMAIL="t@t")
+
+        def git(repo, *args):
+            return subprocess.run(["git", "-C", repo, *args], check=True, capture_output=True, text=True,
+                                  env=env).stdout.strip()
+        compared = []
+
+        def fake_json(*args):
+            compared.append(args[1])
+            return {"sha": "c" * 40}
+        saved = risk.gh_json
+        risk.gh_json = fake_json
+        try:
+            with tempfile.TemporaryDirectory() as repo:
+                git(repo, "init", "-q")
+                git(repo, "commit", "-q", "--allow-empty", "-m", "fork")
+                fork = git(repo, "rev-parse", "HEAD")
+                git(repo, "commit", "-q", "--allow-empty", "-m", "base")
+                base = git(repo, "rev-parse", "HEAD")
+                git(repo, "checkout", "-q", "-b", "pr", fork)
+                git(repo, "commit", "-q", "--allow-empty", "-m", "head")
+                head = git(repo, "rev-parse", "HEAD")
+                pr = {"base": {"sha": base}, "head": {"sha": head}}
+                self.assertEqual(risk.merge_base_of("o/r", pr, repo), fork)
+                self.assertEqual(compared, [])
+                # The head was not fetched: compare answers.
+                missing = {"base": {"sha": base}, "head": {"sha": HEAD}}
+                self.assertEqual(risk.merge_base_of("o/r", missing, repo), "c" * 40)
+                self.assertEqual(compared, [f"repos/o/r/compare/{base}...{HEAD}"])
+        finally:
+            risk.gh_json = saved
 
 
 class RenderTests(unittest.TestCase):
@@ -728,6 +939,38 @@ class EvidenceTests(unittest.TestCase):
         self.assertTrue(risk.missing_evidence("high", blocked=True))
         self.assertEqual(risk.unowned_takebacks("", []), [])
 
+    def test_a_held_takeback_names_the_line_to_paste_in_its_error(self):
+        """cmux#41154, a revert of #41113: land-judge quoted only the check's error annotation, which said "the job
+        summary says how", so the revert sat refused until someone opened the summary. The annotation now carries the
+        line itself, its PR number filled in."""
+        self.assertEqual(risk.takeback_fix([41113]), "If the base is stale, merge it and push; if it's on purpose, "
+                                                     "add a line `Takes back #41113: <why>`")
+        self.assertIn("`Takes back #1: <why>` and `Takes back #2: <why>`", risk.takeback_fix([1, 2]))
+
+        def run(body):
+            saved = risk.gh_json, risk.gh_items, risk.recent_reverts, risk.merge_base_of
+            risk.gh_json = lambda *args: {"head": {"sha": HEAD}, "base": {"sha": "c" * 40}, "body": body,
+                                          "labels": [], "user": {"login": "a"}}
+            risk.gh_items = lambda endpoint: ([{"filename": "scripts/ci/base_red_excuse.py", "patch": "@@ -1 +1 @@\n-a\n+b"}]
+                                              if "/files" in endpoint else [])
+            risk.recent_reverts = lambda *args, **kwargs: {41113: ["scripts/ci/base_red_excuse.py"]}
+            risk.merge_base_of = lambda *args: "c" * 40
+            try:
+                with tempfile.TemporaryDirectory() as tmp, contextlib.redirect_stdout(io.StringIO()):
+                    out = Path(tmp) / "out"
+                    risk.main(["pr", "--repo", "o/r", "--number", "41154", "--github-output", str(out),
+                               "--repo-dir", tmp])
+                    return out.read_text()
+            finally:
+                risk.gh_json, risk.gh_items, risk.recent_reverts, risk.merge_base_of = saved
+        out = run("Reverts #41113.")
+        self.assertIn("takes_back=true", out)
+        self.assertIn("takes_back_fix=If the base is stale, merge it and push; if it's on purpose, add a line "
+                      "`Takes back #41113: <why>`\n", out)
+        out = run("Takes back #41113: its rule reached base before its purpose split")
+        self.assertIn("takes_back=false", out)
+        self.assertIn("takes_back_fix=\n", out)
+
     def test_the_last_labeler_counts_and_a_removal_clears_it(self):
         added = {"event": "labeled", "label": {"name": "risk:human-ok"}, "actor": {"login": "leo"}}
         removed = {"event": "unlabeled", "label": {"name": "risk:human-ok"}, "actor": {"login": "leo"}}
@@ -754,9 +997,15 @@ class EvidenceTests(unittest.TestCase):
 
 
 class ShipReceiptTests(unittest.TestCase):
+    # The receipts here come from another account than the pull request's author (teamleaderleo): the rule
+    # from before Author-agent. SameAccountReceiptTests covers a receipt from the author's own account.
     def comment(self, body, at="2026-10-21T20:00:00Z", association="MEMBER", kind="User"):
         return {"body": body, "created_at": at, "author_association": association,
-                "user": {"login": "teamleaderleo", "type": kind}}
+                "user": {"login": "lawrencecchen", "type": kind}}
+
+    @staticmethod
+    def signed(comments, reviews, head=HEAD, author="teamleaderleo"):
+        return risk.signed_off(comments, reviews, head, author)
 
     def review(self, body="", state="COMMENTED", at="2026-10-21T20:00:00Z", login="lawrencecchen"):
         return {"body": body, "state": state, "commit_id": HEAD, "submitted_at": at,
@@ -764,50 +1013,217 @@ class ShipReceiptTests(unittest.TestCase):
 
     def test_an_independent_ship_at_the_full_head_signs_off(self):
         comments = [self.comment(f"Review (subagent, correctness first): SHIP at {HEAD}\n\ndetails")]
-        self.assertEqual(risk.signed_off(comments, [], HEAD), "review (subagent, correctness first)")
+        self.assertEqual(self.signed(comments, [], HEAD), "review (subagent, correctness first)")
 
-    def test_a_short_sha_another_head_or_a_self_review_does_not(self):
+    def test_a_short_sha_or_another_head_does_not(self):
         for line in (f"Review (subagent): SHIP at {HEAD[:12]}", "Review (subagent): SHIP at " + "f" * 40,
-                     f"Review (self): SHIP at {HEAD}", f"Addressed review: nothing blocking at {HEAD}"):
-            self.assertIsNone(risk.signed_off([self.comment(line)], [], HEAD), line)
+                     f"Addressed review: nothing blocking at {HEAD}"):
+            self.assertIsNone(self.signed([self.comment(line)], [], HEAD), line)
+        # A self-review is a review like any other (Leo, 2026-11-14: "this is no longer a requirement").
+        self.assertEqual(self.signed([self.comment(f"Review (self): SHIP at {HEAD}")], [], HEAD), "review (self)")
 
     def test_the_receipt_must_lead_the_comment(self):
-        self.assertIsNone(risk.signed_off([self.comment(f"Notes\nReview (subagent): SHIP at {HEAD}")], [], HEAD))
+        self.assertIsNone(self.signed([self.comment(f"Notes\nReview (subagent): SHIP at {HEAD}")], [], HEAD))
 
     def test_a_newer_block_beats_an_earlier_ship(self):
         comments = [self.comment(f"Review (subagent): SHIP at {HEAD}", at="2026-10-21T20:00:00Z"),
                     self.comment(f"Review (codex): BLOCK at {HEAD}: races", at="2026-10-21T20:05:00Z")]
-        self.assertIsNone(risk.signed_off(comments, [], HEAD))
+        self.assertIsNone(self.signed(comments, [], HEAD))
         comments.append(self.comment(f"Review (codex): SHIP at {HEAD}", at="2026-10-21T20:10:00Z"))
-        self.assertEqual(risk.signed_off(comments, [], HEAD), "review (codex)")
+        self.assertEqual(self.signed(comments, [], HEAD), "review (codex)")
 
     def test_a_block_in_a_review_body_or_a_change_request_beats_an_earlier_ship(self):
         ship = [self.comment(f"Review (subagent): SHIP at {HEAD}", at="2026-10-21T20:00:00Z")]
         later = "2026-10-21T20:05:00Z"
-        self.assertIsNone(risk.signed_off(ship, [self.review(f"Review (codex): BLOCK at {HEAD}", at=later)], HEAD))
-        self.assertIsNone(risk.signed_off(ship, [self.review(state="CHANGES_REQUESTED", at=later)], HEAD))
-        self.assertEqual(risk.signed_off(ship, [self.review(f"Review (codex): SHIP at {HEAD}", at=later)], HEAD),
+        self.assertIsNone(self.signed(ship, [self.review(f"Review (codex): BLOCK at {HEAD}", at=later)], HEAD))
+        self.assertIsNone(self.signed(ship, [self.review(state="CHANGES_REQUESTED", at=later)], HEAD))
+        self.assertEqual(self.signed(ship, [self.review(f"Review (codex): SHIP at {HEAD}", at=later)], HEAD),
                          "review (codex)")
 
     def test_a_newer_block_comment_beats_an_approval(self):
         approval = [self.review(state="APPROVED", at="2026-10-21T20:00:00Z")]
         block = [self.comment(f"Review (subagent): BLOCK at {HEAD}", at="2026-10-21T20:05:00Z")]
-        self.assertIsNone(risk.signed_off(block, approval, HEAD, "teamleaderleo"))
+        self.assertIsNone(self.signed(block, approval, HEAD, "teamleaderleo"))
 
     def test_a_block_wins_a_tie(self):
         comments = [self.comment(f"Review (codex): BLOCK at {HEAD}"), self.comment(f"Review (subagent): SHIP at {HEAD}")]
-        self.assertIsNone(risk.signed_off(comments, [], HEAD))
+        self.assertIsNone(self.signed(comments, [], HEAD))
 
     def test_bots_and_outside_accounts_do_not_count(self):
         line = f"Review (subagent): SHIP at {HEAD}"
-        self.assertIsNone(risk.signed_off([self.comment(line, kind="Bot")], [], HEAD))
-        self.assertIsNone(risk.signed_off([self.comment(line, association="CONTRIBUTOR")], [], HEAD))
+        self.assertIsNone(self.signed([self.comment(line, kind="Bot")], [], HEAD))
+        self.assertIsNone(self.signed([self.comment(line, association="CONTRIBUTOR")], [], HEAD))
+
+
+class PrivateMemberReceiptTests(unittest.TestCase):
+    """PR #38436 (2026-11-08): `risk evidence` said "no review verdict on the head commit yet" after a valid
+    `Review (claude-17-review-w3h, started by claude-17): SHIP at <head>` comment, while the same classifier run
+    on a person's token signed it off. The poster, lawrencecchen, is a private member of the organization.
+    A person's token reads that comment's author_association as MEMBER; the workflow's GITHUB_TOKEN and App
+    token cannot see a private membership and read CONTRIBUTOR, so the receipt was not trusted. A login whose
+    association is not trusted now counts when its permission on the repository is write or higher."""
+
+    BODY = "Author-agent: claude-opus-5-5 (W3-H)"
+    LINE = f"Review (claude-17-review-w3h, started by claude-17): SHIP at {HEAD}"
+
+    def comment(self, association="CONTRIBUTOR", login="lawrencecchen"):
+        return {"body": self.LINE, "created_at": "2026-11-08T20:08:13Z", "author_association": association,
+                "user": {"login": login, "type": "User"}}
+
+    def pull(self):
+        return {"body": self.BODY, "author_association": "CONTRIBUTOR", "head": {"sha": HEAD},
+                "user": {"login": "lawrencecchen", "type": "User"}, "labels": []}
+
+    def test_a_write_role_counts_whatever_the_token_reads_as_association(self):
+        roles = {"lawrencecchen": "admin", "drive-by": "read"}
+        signed = risk.signed_off([self.comment()], [], HEAD, "lawrencecchen", self.pull(), permission=roles.get)
+        self.assertEqual(signed, "review (claude-17-review-w3h, started by claude-17)")
+        self.assertIsNone(risk.signed_off([self.comment(login="drive-by")], [], HEAD, "lawrencecchen", self.pull(),
+                                          permission=roles.get))
+        # Without a permission reader the association alone decides, as before.
+        self.assertIsNone(risk.signed_off([self.comment()], [], HEAD, "lawrencecchen", self.pull()))
+
+    def test_human_ok_by_reads_the_permission_of_an_untrusted_association(self):
+        asked = []
+
+        def fake_json(*args):
+            asked.append(args[-1])
+            if args[-1].endswith("/collaborators/lawrencecchen/permission"):
+                return {"role_name": "admin"}
+            raise AssertionError(f"unexpected read {args}")
+        answers = {"repos/o/r/issues/7/comments?per_page=100": [self.comment(), self.comment()],
+                   "repos/o/r/pulls/7/reviews?per_page=100": []}
+        saved = risk.gh_items, risk.gh_json
+        risk.gh_items, risk.gh_json = answers.__getitem__, fake_json
+        try:
+            who, blocked = risk.human_ok_by("o/r", "7", self.pull())
+        finally:
+            risk.gh_items, risk.gh_json = saved
+        self.assertFalse(blocked)
+        self.assertEqual(who, f"review (claude-17-review-w3h, started by claude-17) shipped {HEAD[:12]}")
+        # One read per login, however many comments it posted.
+        self.assertEqual(asked, ["repos/o/r/collaborators/lawrencecchen/permission"])
+
+
+class SameAccountReceiptTests(unittest.TestCase):
+    """A SHIP from the pull request author's own account counts from any reviewer: any model family, any starter,
+    the pull request's own agent included. Leo, 2026-11-14, on the review rule "need a review from a model family
+    other than": "this is no longer a requirement". Before, the cmux-ad m25 item 7 rule (#36311, #36941) refused a
+    same-account SHIP unless it named `<reviewer agent id>, started by <agent id>`, neither the description's
+    `Author-agent:` or `Agent session:` aid. A BLOCK at the head still holds it."""
+
+    AUTHOR = "lawrencecchen"
+
+    def pr(self, body="Author-agent: claude-author\n\n## Summary\nx"):
+        return {"body": body, "author_association": "MEMBER", "head": {"sha": HEAD},
+                "user": {"login": self.AUTHOR, "type": "User"}, "labels": []}
+
+    def comment(self, body, login=AUTHOR, at="2026-10-21T20:00:00Z"):
+        return {"body": body, "created_at": at, "author_association": "MEMBER",
+                "user": {"login": login, "type": "User"}}
+
+    def signed(self, *comments, body="Author-agent: claude-author\n\n## Summary\nx"):
+        return risk.signed_off(list(comments), [], HEAD, self.AUTHOR, self.pr(body))
+
+    def test_a_ship_from_the_pull_requests_own_agent_counts(self):
+        # Each shape the old rule refused: the author agent as reviewer, a reviewer it started (any case or markup),
+        # the #36311 shape with no starter, and the #38430 shape where the author lane started router-review.
+        for line in (f"Review (claude-author, started by lead): SHIP at {HEAD}",
+                     f"Review (claude-review-subagent): SHIP at {HEAD}",
+                     f"Review (claude-review-subagent, started by claude-author): SHIP at {HEAD}",
+                     f"Review (claude-review-subagent, started by Claude-Author): SHIP at {HEAD}",
+                     f"Review (codex, router-review, started by claude-author): SHIP at {HEAD}",
+                     f"Review (claude-opus-5-5, self-review): SHIP at {HEAD}"):
+            label = line[len("Review ("):line.index("):")]
+            self.assertEqual(self.signed(self.comment(line)), f"review ({label})", line)
+            self.assertEqual(self.signed(self.comment(line), body="- **Author-agent:** `claude-author`\n"),
+                             f"review ({label})", line)
+            self.assertEqual(risk.refusal(risk.parse(line, HEAD), True, {"claude-author"}), None, line)
+
+    def test_any_model_family_counts_with_or_without_an_author_agent_line(self):
+        footer_author = "aid-98f665da0f19e1e599c6"
+        footer = f"## Summary\nx\n\nAgent session: [agent session](https://cmux.com/deeplink/agent?id={footer_author})"
+        for body in ("Author-agent: claude-author\n\n## Summary\nx", "## Summary\nx", footer,
+                     "## Summary\nx\n<!-- Author-agent: claude-author -->"):
+            for line in (f"Review (codex gpt-6-astra high, started by lead): SHIP at {HEAD}",
+                         f"Review (claude-opus-5-5, started by claude-author): SHIP at {HEAD}",
+                         f"Review (codex, router-review, started by {footer_author}): SHIP at {HEAD}"):
+                self.assertIsNotNone(self.signed(self.comment(line), body=body), (body, line))
+        # The same line in the description counts too.
+        self.assertEqual(self.signed(body=f"Author-agent: claude-author\nReview (claude-author): SHIP at {HEAD}"),
+                         "review (claude-author) in the description")
+
+    def test_a_block_at_the_head_still_refuses(self):
+        ship = self.comment(f"Review (claude-author): SHIP at {HEAD}", at="2026-10-21T20:00:00Z")
+        other = self.comment(f"Review (codex): SHIP at {HEAD}", login="austinywang", at="2026-10-21T20:00:00Z")
+        block = self.comment(f"Review (claude-review-subagent, started by claude-author): BLOCK at {HEAD}",
+                             at="2026-10-21T20:05:00Z")
+        self.assertIsNone(self.signed(ship, block))
+        self.assertIsNone(self.signed(other, block, body="## Summary\nx"))
+        # A BLOCK wins a tie, and a later own-agent SHIP clears it.
+        self.assertIsNone(self.signed(dict(ship, created_at="2026-10-21T20:05:00Z"), block))
+        later = self.comment(f"Review (claude-author): SHIP at {HEAD}", at="2026-10-21T20:10:00Z")
+        self.assertEqual(self.signed(ship, block, later), "review (claude-author)")
+
+    def test_the_agent_session_footer_still_names_the_author_agent(self):
+        # #42066: author_agents() reads the footer's aid as well as Author-agent (for readers outside this gate).
+        author = "aid-98f665da0f19e1e599c6"
+        footer = f"## Summary\nx\n\nAgent session: [agent session](https://cmux.com/deeplink/agent?id={author})"
+        session = "Agent session: [lane](https://cmux.com/deeplink/agent?harness=claude&session=616eb19f&host=lane-6)"
+        self.assertEqual(risk.author_agents(session), set())
+        self.assertEqual(risk.author_agents(f"Author-agent: Claude-Author\n{footer}"), {"claude-author", author})
+
+    # The review service an author lane asks for (`router-review OWNER/REPO N --request`): next-review reviews the
+    # head and the cmux-bot App posts its receipt, so the author neither starts the reviewer nor writes the line.
+    def bot(self, body, at="2026-10-21T20:00:00Z", node_id="BOT_kgDOFMYsLQ", login="cmux-bot[bot]", kind="Bot"):
+        return {"body": body, "created_at": at, "submitted_at": at, "author_association": "NONE", "commit_id": HEAD,
+                "user": {"login": login, "type": kind, "node_id": node_id}}
+
+    def test_the_review_service_receipt_counts_and_so_does_an_author_started_one(self):
+        service = self.bot(f"Review (codex gpt-6.1-sol xhigh, next-review): SHIP at {HEAD}")
+        self.assertEqual(self.signed(service), "review (codex gpt-6.1-sol xhigh, next-review)")
+        # Posted as a review body too.
+        self.assertEqual(risk.signed_off([], [dict(service, state="COMMENTED")], HEAD, self.AUTHOR, self.pr()),
+                         "review (codex gpt-6.1-sol xhigh, next-review)")
+        # The #38430 shape: the author lane started router-review itself; that counts too now.
+        self.assertEqual(self.signed(
+            self.comment(f"Review (codex, router-review, started by claude-author): SHIP at {HEAD}")),
+            "review (codex, router-review, started by claude-author)")
+
+    def test_only_the_cmux_bot_app_by_node_id_counts_and_never_its_approval(self):
+        line = f"Review (codex gpt-6.1-sol xhigh, next-review): SHIP at {HEAD}"
+        for item in (self.bot(line, node_id="BOT_wrong"), self.bot(line, login="other-bot[bot]"),
+                     self.bot(line, kind="User")):
+            self.assertIsNone(self.signed(item), item["user"])
+        approval = dict(self.bot("cmux-bot approves it"), state="APPROVED")
+        self.assertIsNone(risk.signed_off([], [approval], HEAD, self.AUTHOR, self.pr()))
+        # An approval whose body mirrors a self-started receipt never counts, and never beats a BLOCK.
+        mirrored = dict(self.bot(f"Review (codex, router-review, started by claude-author): SHIP at {HEAD}",
+                                 at="2026-10-21T20:10:00Z"), state="APPROVED")
+        self.assertIsNone(risk.signed_off([], [mirrored], HEAD, self.AUTHOR, self.pr()))
+        block = self.comment(f"Review (codex-reviewer-7, started by lead): BLOCK at {HEAD}")
+        self.assertIsNone(risk.signed_off([block], [mirrored], HEAD, self.AUTHOR, self.pr()))
+
+    def test_a_later_service_block_beats_an_earlier_ship(self):
+        ship = self.comment(f"Review (codex-reviewer-7, started by lead): SHIP at {HEAD}", at="2026-10-21T20:00:00Z")
+        block = self.bot(f"Review (codex gpt-6.1-sol xhigh, next-review): BLOCK at {HEAD}", at="2026-10-21T20:05:00Z")
+        self.assertIsNone(self.signed(ship, block))
+
+    def test_a_receipt_counts_from_another_account_and_from_the_authors_own(self):
+        line = f"Review (claude-review-subagent): SHIP at {HEAD}"
+        self.assertEqual(self.signed(self.comment(line, login="austinywang")), "review (claude-review-subagent)")
+        self.assertEqual(self.signed(self.comment(line, login="austinywang"), body="no agent line"),
+                         "review (claude-review-subagent)")
+        self.assertEqual(self.signed(self.comment(line)), "review (claude-review-subagent)")
 
 
 class DescriptionVerdictTests(unittest.TestCase):
-    """A review verdict in the PR description, so a review needs no receipt comment."""
+    """A review verdict in the PR description, so a review needs no receipt comment. The description is the
+    author's own account, so its SHIP lines name the reviewer agent and who started it, and the description
+    names its Author-agent (risk_tier.py)."""
 
     def pr(self, body, association="MEMBER", kind="User"):
+        body = f"Author-agent: claude-author\n{body}"
         return {"body": body, "author_association": association, "head": {"sha": HEAD},
                 "user": {"login": "teamleaderleo", "type": kind}, "labels": []}
 
@@ -825,21 +1241,22 @@ class DescriptionVerdictTests(unittest.TestCase):
             risk.pending_review("high", who is not None, blocked)
 
     def test_a_ship_line_at_the_head_in_the_description_signs_off(self):
-        body = f"## Summary\nFixes the gate.\n\nReview (codex gpt-6-astra xhigh): SHIP at {HEAD}\n"
+        body = f"## Summary\nFixes the gate.\n\nReview (codex gpt-6-astra xhigh, started by lead): SHIP at {HEAD}\n"
         who, blocked, missing, pending = self.state(body)
-        self.assertEqual(who, "review (codex gpt-6-astra xhigh) in the description")
+        self.assertEqual(who, "review (codex gpt-6-astra xhigh, started by lead) in the description")
         self.assertEqual((blocked, missing, pending), (False, [], ""))
         # A list item or quote around it still counts.
-        self.assertIsNotNone(self.state(f"- Review (codex): SHIP at {HEAD}")[0])
+        self.assertIsNotNone(self.state(f"- Review (codex, started by lead): SHIP at {HEAD}")[0])
 
     def test_a_ship_at_an_older_head_is_no_verdict_and_only_warns(self):
         who, blocked, missing, pending = self.state("Review (codex): SHIP at " + "f" * 40)
         self.assertEqual((who, blocked, missing), (None, False, []))
         self.assertIn("no review verdict", pending)
-        # Nor does a short sha, a self-review, or a line inside an HTML comment.
-        for body in (f"Review (codex): SHIP at {HEAD[:12]}", f"Review (self): SHIP at {HEAD}",
-                     f"<!--\nReview (codex): SHIP at {HEAD}\n-->"):
+        # Nor does a short sha or a line inside an HTML comment.
+        for body in (f"Review (codex): SHIP at {HEAD[:12]}", f"<!--\nReview (codex): SHIP at {HEAD}\n-->"):
             self.assertEqual(self.state(body)[:3], (None, False, []), body)
+        # A self-review in the description counts (Leo, 2026-11-14: "this is no longer a requirement").
+        self.assertEqual(self.state(f"Review (self): SHIP at {HEAD}")[0], "review (self) in the description")
 
     def test_a_fix_or_block_at_the_head_holds(self):
         for word in ("FIX", "BLOCK"):
@@ -853,12 +1270,12 @@ class DescriptionVerdictTests(unittest.TestCase):
         self.assertEqual(self.state("## Summary\nNothing about a review here.")[:3], (None, False, []))
 
     def test_a_comment_ship_still_signs_off_and_a_later_comment_block_beats_the_description(self):
-        ship = self.comment(f"Review (subagent): SHIP at {HEAD}")
-        self.assertEqual(self.state("no verdict here", [ship])[0], "review (subagent)")
+        ship = self.comment(f"Review (subagent, started by lead): SHIP at {HEAD}")
+        self.assertEqual(self.state("no verdict here", [ship])[0], "review (subagent, started by lead)")
         block = self.comment(f"Review (codex): BLOCK at {HEAD}: races")
-        self.assertTrue(self.state(f"Review (codex): SHIP at {HEAD}", [block])[1])
+        self.assertTrue(self.state(f"Review (codex, started by lead): SHIP at {HEAD}", [block])[1])
         # And a comment SHIP clears a FIX line left in the description.
-        self.assertEqual(self.state(f"Review (codex): FIX at {HEAD}", [ship])[0], "review (subagent)")
+        self.assertEqual(self.state(f"Review (codex): FIX at {HEAD}", [ship])[0], "review (subagent, started by lead)")
 
     def test_the_description_author_is_trusted_like_a_commenter(self):
         line = f"Review (codex): SHIP at {HEAD}"
@@ -866,49 +1283,259 @@ class DescriptionVerdictTests(unittest.TestCase):
         self.assertIsNone(self.state(line, association="NONE")[0])
         self.assertIsNone(self.state(line, kind="Bot")[0])
 
+    def grade_end_to_end(self, body, comments=()):
+        """pr_mode with the API stubbed: (GITHUB_OUTPUT text, summary). `comments=None` makes the comments read fail."""
+        pull = dict(self.pr(body), base={"sha": "b" * 40})
+        answers = {
+            "repos/o/r/pulls/7/files?per_page=100": [{"filename": "scripts/ci/risk_tier.py", "patch": ""}],
+            "repos/o/r/issues/7/comments?per_page=100": None if comments is None else list(comments),
+            "repos/o/r/pulls/7/reviews?per_page=100": [],
+            "repos/o/r/issues/7/events?per_page=100": [],
+        }
+        saved = risk.gh_items, risk.gh_json
+
+        def items(endpoint):
+            if answers[endpoint] is None:
+                raise subprocess.CalledProcessError(1, ["gh", "api", endpoint])
+            return answers[endpoint]
+        risk.gh_items = items
+        risk.gh_json = lambda *args: pull
+        try:
+            with tempfile.TemporaryDirectory() as tmp:
+                out, summary = Path(tmp) / "out", Path(tmp) / "summary"
+                risk.main(["pr", "--repo", "o/r", "--number", "7", "--github-output", str(out),
+                           "--summary", str(summary)])
+                return out.read_text(), summary.read_text()
+        finally:
+            risk.gh_items, risk.gh_json = saved
+
     def test_the_grade_passes_with_a_warning_and_holds_on_a_block(self):
         """pr_mode end to end with the API stubbed: ready is false only for a BLOCK or FIX on the head."""
-        def grade(body, comments=()):
-            pull = dict(self.pr(body), base={"sha": "b" * 40})
-            answers = {
-                "repos/o/r/pulls/7/files?per_page=100": [{"filename": "scripts/ci/risk_tier.py", "patch": ""}],
-                "repos/o/r/issues/7/comments?per_page=100": None if comments is None else list(comments),
-                "repos/o/r/pulls/7/reviews?per_page=100": [],
-                "repos/o/r/issues/7/events?per_page=100": [],
-            }
-            saved = risk.gh_items, risk.gh_json
-
-            def items(endpoint):
-                if answers[endpoint] is None:
-                    raise subprocess.CalledProcessError(1, ["gh", "api", endpoint])
-                return answers[endpoint]
-            risk.gh_items = items
-            risk.gh_json = lambda *args: pull
-            try:
-                with tempfile.TemporaryDirectory() as tmp:
-                    out, summary = Path(tmp) / "out", Path(tmp) / "summary"
-                    risk.main(["pr", "--repo", "o/r", "--number", "7", "--github-output", str(out),
-                               "--summary", str(summary)])
-                    return out.read_text(), summary.read_text()
-            finally:
-                risk.gh_items, risk.gh_json = saved
-
-        out, summary = grade(f"Review (codex): SHIP at {HEAD}")
+        grade = self.grade_end_to_end
+        out, summary = grade(f"Review (codex, started by lead): SHIP at {HEAD}")
         self.assertIn("tier=high", out)
         self.assertIn("ready=true", out)
-        self.assertIn("Signed off: review (codex) in the description shipped", summary)
+        self.assertIn("Signed off: review (codex, started by lead) in the description shipped", summary)
         out, summary = grade("no verdict")
         self.assertIn("ready=true", out)
         self.assertIn("Warning: no review verdict", summary)
         out, summary = grade(f"Review (codex): FIX at {HEAD}")
         self.assertIn("ready=false", out)
-        out, _ = grade("no verdict", [self.comment(f"Review (subagent): SHIP at {HEAD}")])
+        out, _ = grade("no verdict", [self.comment(f"Review (subagent, started by lead): SHIP at {HEAD}")])
         self.assertIn("ready=true", out)
         # An unreadable comment read could hide a BLOCK: it holds, and never only warns.
         out, summary = grade("no verdict", None)
         self.assertIn("ready=false", out)
         self.assertIn("could not be read", summary)
         self.assertNotIn("Warning:", summary)
+
+    def test_only_a_refused_sign_off_read_asks_for_a_second_grade(self):
+        """risk-tier.yml grades on the glaeda-route App's read and grades again on GITHUB_TOKEN only when this says
+        the sign-off read was refused. It used to grade every held pull request twice: a FIX on the head, read
+        fine, spent about ten more GITHUB_TOKEN calls (files, comments, reviews, label events) on the
+        self-hosted runners' token hour, the one the production promote gates read (2026-11-21)."""
+        out, _ = self.grade_end_to_end(f"Review (codex): FIX at {HEAD}")
+        self.assertIn("ready=false", out)
+        self.assertIn("signoff_unread=false", out.splitlines())
+        out, _ = self.grade_end_to_end(f"Review (codex, started by lead): SHIP at {HEAD}")
+        self.assertIn("signoff_unread=false", out.splitlines())
+        out, _ = self.grade_end_to_end("no verdict", None)
+        self.assertIn("ready=false", out)
+        self.assertIn("signoff_unread=true", out.splitlines())
+
+
+class StandaloneCheckoutTests(unittest.TestCase):
+    """risk-tier.yml runs from main and checks out only scripts/ci/risk_tier.py from the base, so the script must
+    run with no other file beside it. #36941 moved the receipt grammar into its own module and every `risk evidence`
+    run failed with "ModuleNotFoundError: No module named 'receipt_grammar'"."""
+
+    def test_risk_tier_runs_from_a_directory_holding_only_that_file(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            alone = Path(tmp) / "scripts" / "ci"
+            alone.mkdir(parents=True)
+            (alone / "risk_tier.py").write_text((ROOT / "scripts/ci/risk_tier.py").read_text(encoding="utf-8"),
+                                                encoding="utf-8")
+            files = Path(tmp) / "files.txt"
+            files.write_text("scripts/ci/risk_tier.py\n", encoding="utf-8")
+            result = subprocess.run([sys.executable, "-I", str(alone / "risk_tier.py"), "classify", "--files", str(files)],
+                                    cwd=tmp, capture_output=True, text=True)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertIn("high", result.stdout)
+
+
+class EventPayloadTests(unittest.TestCase):
+    """pr_mode reads the pull request from the event payload, so a run makes no GET pulls/N call."""
+
+    def run_pr(self, event, attempt="1"):
+        calls = []
+        saved_attempt = os.environ.get("GITHUB_RUN_ATTEMPT")
+        os.environ["GITHUB_RUN_ATTEMPT"] = attempt
+        self.addCleanup(lambda: os.environ.pop("GITHUB_RUN_ATTEMPT", None) if saved_attempt is None
+                        else os.environ.__setitem__("GITHUB_RUN_ATTEMPT", saved_attempt))
+
+        def fake_json(*args):
+            calls.append(args[1])
+            return {"head": {"sha": HEAD}, "base": {"sha": "c" * 40}, "body": "from the API"}
+
+        saved = risk.gh_json, risk.gh_items
+        risk.gh_json, risk.gh_items = fake_json, lambda endpoint: [{"filename": "docs/a.md", "patch": ""}]
+        try:
+            with tempfile.TemporaryDirectory() as tmp:
+                out, payload = Path(tmp) / "out", Path(tmp) / "event.json"
+                args = ["pr", "--repo", "o/r", "--number", "7", "--github-output", str(out)]
+                if event is not None:
+                    payload.write_text(event)
+                    args += ["--event", str(payload)]
+                with contextlib.redirect_stdout(io.StringIO()):
+                    risk.main(args)
+                return calls, out.read_text()
+        finally:
+            risk.gh_json, risk.gh_items = saved
+
+    def test_the_event_s_pull_request_replaces_the_pulls_call(self):
+        event = json.dumps({"pull_request": {"number": 7, "head": {"sha": HEAD}, "base": {"sha": "c" * 40},
+                                             "body": "", "labels": [], "user": {"login": "a"}}})
+        calls, out = self.run_pr(event)
+        self.assertEqual(calls, [])
+        self.assertIn("tier=low", out)
+
+    def test_a_re_run_reads_the_pull_request_live(self):
+        """A re-run gets the first attempt's frozen payload: it must grade today's pull request."""
+        event = json.dumps({"pull_request": {"number": 7, "head": {"sha": HEAD}, "base": {"sha": "c" * 40}}})
+        calls, _ = self.run_pr(event, attempt="2")
+        self.assertEqual(calls, ["repos/o/r/pulls/7"])
+
+    def test_no_payload_another_pull_request_or_a_broken_file_reads_the_api(self):
+        other = json.dumps({"pull_request": {"number": 8, "head": {"sha": HEAD}, "base": {"sha": "c" * 40}}})
+        no_head = json.dumps({"pull_request": {"number": 7, "base": {"sha": "c" * 40}}})
+        for event in (None, other, no_head, "not json", json.dumps({"issue": {}})):
+            calls, out = self.run_pr(event)
+            self.assertEqual(calls, ["repos/o/r/pulls/7"], event)
+            self.assertIn("tier=low", out)
+
+
+class mock_sleep(contextlib.ContextDecorator):
+    """time.sleep as a no-op inside the block."""
+    def __enter__(self):
+        self.saved = risk.time.sleep
+        risk.time.sleep = lambda s: None
+    def __exit__(self, *exc):
+        risk.time.sleep = self.saved
+
+
+class RateLimitedPrModeTests(unittest.TestCase):
+    """#49215's "risk evidence" went red on `gh api pulls/49215/files` exiting 1 with "API rate limit exceeded for
+    installation": no verdict on the pull request, yet a red a lander had to override. Now it ends green and
+    ungraded with the reason, and RISK_TIER_RATE_LIMIT_FAILS=1 turns it red again."""
+
+    def run_pr(self, env=None):
+        saved = risk.gh_items
+
+        def limited(endpoint):
+            raise risk.RateLimited(1, ["gh", "api", endpoint], output="",
+                                   stderr="gh: API rate limit exceeded for installation ID 1.")
+        risk.gh_items = limited
+        self.addCleanup(lambda: setattr(risk, "gh_items", saved))
+        old = os.environ.pop(risk.RATE_LIMIT_FAILS_ENV, None)
+        self.addCleanup(lambda: os.environ.__setitem__(risk.RATE_LIMIT_FAILS_ENV, old) if old is not None
+                        else os.environ.pop(risk.RATE_LIMIT_FAILS_ENV, None))
+        os.environ.update(env or {})
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        out, summary = Path(tmp.name) / "out", Path(tmp.name) / "summary"
+        with contextlib.redirect_stdout(io.StringIO()):
+            code = risk.main(["pr", "--repo", "o/r", "--number", "7", "--github-output", str(out),
+                              "--summary", str(summary)])
+        return code, out.read_text(), summary.read_text()
+
+    def test_a_rate_limit_ends_ungraded_green_with_the_reason(self):
+        code, out, summary = self.run_pr()
+        self.assertEqual(code, 0)
+        for line in ("tier=ungraded", "label=", "ready=true", "takes_back=false"):
+            self.assertIn(line + "\n", out)
+        self.assertIn("API rate limit exceeded", summary)
+        self.assertIn("not a verdict", summary)
+
+    def test_the_off_switch_turns_a_rate_limit_red_again(self):
+        with self.assertRaises(risk.RateLimited):
+            self.run_pr({risk.RATE_LIMIT_FAILS_ENV: "1"})
+
+
+class GhFailureTests(unittest.TestCase):
+    """A gh call that fails names its reason on the job's log, and a rate limit stops the retries.
+
+    #50881's "risk evidence" job was red with nothing in the log but "CalledProcessError ... returned non-zero
+    exit status 1": gh's stderr went into capture_output and was dropped, so neither a person nor
+    base_red_excuse.py could tell a drained API budget from a graded pull request."""
+
+    def run_gh(self, returncode, stderr, attempts=3):
+        calls, slept = [], []
+        saved_run, saved_sleep = subprocess.run, time.sleep
+
+        def fake_run(args, **kwargs):
+            calls.append(args)
+            return subprocess.CompletedProcess(args, returncode, stdout="", stderr=stderr)
+
+        risk.subprocess.run, risk.time.sleep = fake_run, lambda s: slept.append(s)
+        self.addCleanup(lambda: (setattr(risk.subprocess, "run", saved_run),
+                                 setattr(risk.time, "sleep", saved_sleep)))
+        err = io.StringIO()
+        with contextlib.redirect_stderr(err):
+            with self.assertRaises(subprocess.CalledProcessError):
+                risk.gh_run(["gh", "api", "repos/o/r/pulls/7/files"], attempts=attempts)
+        return calls, slept, err.getvalue()
+
+    def test_a_rate_limit_far_from_its_reset_stops_at_once_and_says_it_is_not_a_verdict(self):
+        risk._rate_waited = 0.0
+        saved = risk.rate_limit_reset_in
+        risk.rate_limit_reset_in = lambda why: 1800.0
+        self.addCleanup(lambda: setattr(risk, "rate_limit_reset_in", saved))
+        calls, slept, err = self.run_gh(1, "gh: API rate limit exceeded for installation ID 1.")
+        self.assertEqual(len(calls), 1, "no retry inside this job outlasts an hourly reset")
+        self.assertEqual(slept, [])
+        self.assertIn("API rate limit exceeded", err)
+        self.assertIn("not a verdict", err)
+
+    def test_a_rate_limit_that_resets_soon_waits_once_then_raises_rate_limited(self):
+        risk._rate_waited = 0.0
+        saved = risk.rate_limit_reset_in
+        risk.rate_limit_reset_in = lambda why: 50.0
+        self.addCleanup(lambda: setattr(risk, "rate_limit_reset_in", saved))
+        calls, slept, err = self.run_gh(1, "gh: API rate limit exceeded for installation ID 1.")
+        self.assertEqual(len(calls), 2, "one wait for the budget, then no more")
+        self.assertEqual(slept, [51.0])
+        self.assertIn("waiting 50s", err)
+        # The wait is bounded across the whole job (50 s spent of 90): another 50 s wait would pass it, so the next
+        # limit raises at once.
+        calls, slept, _ = self.run_gh(1, "gh: API rate limit exceeded for installation ID 1.")
+        self.assertEqual((len(calls), slept), (1, []))
+
+    def test_a_rate_limit_raises_rate_limited_and_another_failure_does_not(self):
+        risk._rate_waited = risk.RATE_LIMIT_WAIT_SECONDS
+        saved_run = subprocess.run
+        self.addCleanup(lambda: setattr(risk.subprocess, "run", saved_run))
+        for stderr, kind in (("gh: API rate limit exceeded", risk.RateLimited), ("gh: Not Found (HTTP 404)", None)):
+            risk.subprocess.run = lambda args, **kw: subprocess.CompletedProcess(args, 1, stdout="", stderr=stderr)
+            with contextlib.redirect_stderr(io.StringIO()), mock_sleep():
+                with self.assertRaises(subprocess.CalledProcessError) as caught:
+                    risk.gh_run(["gh", "api", "x"])
+            self.assertEqual(isinstance(caught.exception, risk.RateLimited), kind is not None, stderr)
+
+    def test_another_failure_retries_and_still_prints_gh_s_words(self):
+        calls, slept, err = self.run_gh(1, "gh: Not Found (HTTP 404)")
+        self.assertEqual(len(calls), 3)
+        self.assertEqual(slept, [2, 4])
+        self.assertIn("Not Found (HTTP 404)", err)
+        self.assertNotIn("not a verdict", err)
+
+    def test_a_successful_call_prints_nothing(self):
+        saved = subprocess.run
+        risk.subprocess.run = lambda args, **kwargs: subprocess.CompletedProcess(args, 0, stdout="[]", stderr="")
+        self.addCleanup(lambda: setattr(risk.subprocess, "run", saved))
+        err = io.StringIO()
+        with contextlib.redirect_stderr(err):
+            self.assertEqual(risk.gh_run(["gh", "api", "x"]), "[]")
+        self.assertEqual(err.getvalue(), "")
 
 
 if __name__ == "__main__":

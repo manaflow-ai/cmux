@@ -40,10 +40,6 @@ const finish = (status: number, reason: string, body: Record<string, unknown>, f
 
 const failure = (code: string, message: string, retryable: boolean) => ({ error: { code, message, retryable } })
 
-interface TeamWebhookStub {
-  stackWebhook(entity: string, event: { svix_id: string; type: string; stack_team: string; stack_user?: string }): Promise<StackSyncReply>
-}
-
 export const handleStackWebhook = async (request: Request, env: Env, nowMs: number = Date.now()): Promise<Response> => {
   // The svix-id as logged (the delivery's id in the Svix dashboard, not a secret), cut to 64 characters.
   const svix_id = (request.headers.get("svix-id") ?? "").slice(0, 64)
@@ -83,7 +79,7 @@ export const handleStackWebhook = async (request: Request, env: Env, nowMs: numb
   const stackUser = MEMBERSHIP_EVENTS.has(type) ? data.user_id : undefined
   if (typeof stackTeam !== "string" || !STACK_ID.test(stackTeam) || (MEMBERSHIP_EVENTS.has(type) && (typeof stackUser !== "string" || !STACK_ID.test(stackUser)))) return ignoredShape({ event_type, shape: "ids" })
   const team = stackTeamIdFor(env.STACK_PROJECT_ID, normalId(stackTeam))
-  const stub = env.TEAM_DO.get(env.TEAM_DO.idFromName(team)) as unknown as TeamWebhookStub
+  const stub = env.TEAM_DO.get(env.TEAM_DO.idFromName(team))
   let reply: StackSyncReply
   try {
     reply = await stub.stackWebhook(team, { svix_id: check.messageId, type, stack_team: normalId(stackTeam), ...(typeof stackUser === "string" ? { stack_user: normalId(stackUser) } : {}) })

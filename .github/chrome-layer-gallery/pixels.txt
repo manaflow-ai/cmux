@@ -1,0 +1,4 @@
+dark-default: sidebar #1E1E1E (base #1E1E1E), footer #1E1E1E (base #1E1E1E), titlebar #1E1E1E (base #1E1E1E)
+light-default: sidebar #FEFFFF (base #FEFFFF), footer #FEFFFF (base #FEFFFF), titlebar #FEFFFF (base #FEFFFF)
+dark-image: sidebar #333C47 (base #454545), footer #272C3B (base #454545), titlebar #485049 (base #454545)
+dark-dim-0.2: sidebar #181818 (base #1E1E1E), footer #181818 (base #1E1E1E), titlebar #1E1E1E (base #1E1E1E)

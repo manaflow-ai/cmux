@@ -79,10 +79,11 @@ public struct ArtifactsBrowser: View {
             Group {
                 if state.grid {
                     ScrollView {
-                        LazyVGrid(columns: [GridItem(.flexible(), spacing: 8), GridItem(.flexible(), spacing: 8)], spacing: 8) {
+                        // Two square tiles across a phone; a wider screen (an unfolded foldable) adds columns.
+                        LazyVGrid(columns: [GridItem(.adaptive(minimum: 160, maximum: 240), spacing: 8)], spacing: 8) {
                             ForEach(shown) { artifact in
                                 NavigationLink(value: artifact) { ArtifactTile(artifact: artifact, source: source) }
-                                    .buttonStyle(.plain)
+                                    .buttonStyle(.cmuxPressFill)
                             }
                         }
                         .padding(.horizontal, 20)
@@ -124,7 +125,7 @@ public struct ArtifactsBrowser: View {
             .toolbar {
                 ToolbarItem(placement: .topBarLeading) {
                     Button(state.grid ? "List" : "Grid", systemImage: state.grid ? "list.bullet" : "square.grid.2x2") {
-                        withAnimation(.snappy) { state.grid.toggle() }
+                        withAnimation(.snappy.unlessReduceMotion) { state.grid.toggle() }
                     }
                     .accessibilityIdentifier("artifacts.layout")
                 }
@@ -141,18 +142,19 @@ public struct ArtifactsBrowser: View {
                 ForEach(filters) { item in
                     let count = counts[item] ?? 0
                     Button {
-                        withAnimation(.snappy) { state.filter = item }
+                        withAnimation(.snappy.unlessReduceMotion) { state.filter = item }
                     } label: {
                         Text(item == .all ? "All \(count)" : item.rawValue)
                             .font(.subheadline.weight(.medium))
                             .padding(.horizontal, 14)
-                            .frame(height: 34)
-                            .background(Color.primary.opacity(state.filter == item ? 0.16 : 0.06), in: .capsule)
+                            .padding(.vertical, 6)
+                            .frame(minHeight: 34)
+                            .cmuxMobilePressBackground(Color.primary.opacity(state.filter == item ? 0.16 : 0.06), in: .capsule)
                             // 44 pt target around the 34 pt capsule.
                             .frame(minHeight: 44)
                             .contentShape(.rect)
                     }
-                    .buttonStyle(.plain)
+                    .buttonStyle(.cmuxPressFillInLabel)
                     .accessibilityAddTraits(state.filter == item ? .isSelected : [])
                 }
             }
@@ -162,7 +164,7 @@ public struct ArtifactsBrowser: View {
         .trailingOverflowFade(width: 24)
         .textCase(nil)
         .foregroundStyle(.primary)
-        .sensoryFeedback(.selection, trigger: state.filter)
+        .cmuxMobileSensoryFeedback(.selection, trigger: state.filter)
     }
 }
 
@@ -183,7 +185,7 @@ public struct ArtifactRow: View {
             VStack(alignment: .leading, spacing: 2) {
                 Text(artifact.name).font(.body).lineLimit(1)
                 HStack(spacing: 4) {
-                    if let detail = artifact.detail {
+                    if let detail = artifact.detail, !detail.isEmpty {
                         Text(detail).foregroundStyle(.secondary)
                         Text("·").foregroundStyle(.tertiary)
                     }
@@ -228,14 +230,21 @@ final class ArtifactGridMotion {
 struct ArtifactTile: View {
     let artifact: TerminalArtifact
     let source: any ArtifactSource
-    /// Starts from the cache, so a tile scrolled back into view draws its thumbnail at once.
+    /// Starts from this Mac/account's cache, so a tile scrolled back into
+    /// view draws its own thumbnail immediately.
     @State private var thumbnail: ArtifactThumbnail?
     @Environment(\.displayScale) private var displayScale
+
+    var cacheTaskID: String {
+        // Uncached sources still need a new task after an edit. An empty
+        // owner keeps that discriminator without enabling shared caching.
+        ArtifactMemo<ArtifactThumbnail>.key(artifact, scope: source.thumbnailCacheScope ?? "") as String
+    }
 
     init(artifact: TerminalArtifact, source: any ArtifactSource) {
         self.artifact = artifact
         self.source = source
-        _thumbnail = State(initialValue: ArtifactThumbnail.cache.cached(artifact) ?? nil)
+        _thumbnail = State(initialValue: ArtifactThumbnail.cache.cached(artifact, scope: source.thumbnailCacheScope) ?? nil)
     }
 
     var body: some View {
@@ -253,15 +262,18 @@ struct ArtifactTile: View {
                     .accessibilityHidden(true)
                 Text(artifact.name).font(.footnote).lineLimit(2)
             }
-            if let detail = artifact.detail {
+            if let detail = artifact.detail, !detail.isEmpty {
                 Text(detail).font(.caption).foregroundStyle(.secondary).lineLimit(1)
             }
         }
         .accessibilityElement(children: .combine)
         // Keyed as the cache is: a new order keeps the thumbnail, an edit makes a new one.
-        .task(id: ArtifactMemo<ArtifactThumbnail>.key(artifact) as String) {
+        .task(id: cacheTaskID) {
             guard artifact.kind != .link else { return }
-            if let cached = ArtifactThumbnail.cache.cached(artifact) {
+            // SwiftUI may retain a tile while its source changes from Mac A to
+            // Mac B. Discard the old visible image before looking up B's key.
+            thumbnail = nil
+            if let cached = ArtifactThumbnail.cache.cached(artifact, scope: source.thumbnailCacheScope) {
                 thumbnail = cached
                 return
             }

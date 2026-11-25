@@ -16,9 +16,9 @@ export const replayVm = <C>(caller: Named<C, Principal>, scope: KeyHasScope<C, "
     if (Option.isNone(parsed)) return yield* Effect.fail(vmNotFound());
     return yield* name(parsed.value, (vm) =>
       Effect.gen(function* () {
-        const owns = yield* tenantOwnsVm(caller, vm).pipe(Effect.mapError(() => unavailable()));
+        const owns = yield* tenantOwnsVm(caller, vm).pipe(Effect.mapError(unavailable));
         if (owns === null) return yield* Effect.fail(vmNotFound());
-        const current = yield* upstream.getVmForWrite(vm, { owns, scope }).pipe(Effect.mapError((error) => error.status === 404 ? vmNotFound() : unavailable()));
+        const current = yield* upstream.getVmForWrite(vm, { owns, scope }).pipe(Effect.mapError((error) => error.status === 404 ? vmNotFound() : unavailable(error)));
         return toVm(vm.value, owns, current);
       }),
     );

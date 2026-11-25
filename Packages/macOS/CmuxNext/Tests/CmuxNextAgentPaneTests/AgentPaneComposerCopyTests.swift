@@ -56,7 +56,7 @@ struct AgentPaneComposerCopyTests {
 
     // MARK: The contract
 
-    @Test func theRequestTakesTextAndOneToSixtyFourItemsOfOnePayloadEach() throws {
+    @Test func theRequestTakesTextAndAnyNumberOfItemsOfOnePayloadEach() throws {
         let png = ["name": "chart.png", "mimeType": "image/png", "data": Self.png.base64EncodedString()]
         let request = try #require(AgentPaneReplyRequest(method: "composer.copy", params: [
             "text": "see these",
@@ -71,13 +71,13 @@ struct AgentPaneComposerCopyTests {
         #expect(!request.isPassive)
         // The text may be empty: a selection of attachments only.
         #expect(AgentPaneReplyRequest(method: "composer.copy", params: ["text": "", "items": [png]]) != nil)
+        #expect(AgentPaneReplyRequest(method: "composer.copy", params: ["text": "", "items": Array(repeating: png, count: 128)]) != nil)
 
         let refused: [[String: Any]] = [
             [:],
             ["text": "x"],
             ["items": [png]],
             ["text": "x", "items": []],
-            ["text": "x", "items": Array(repeating: png, count: 65)],
             ["text": "x", "items": [png], "extra": 1],
             ["text": 1, "items": [png]],
             ["text": "a\u{0}b", "items": [png]],
@@ -126,6 +126,9 @@ struct AgentPaneComposerCopyTests {
         // The text first, alone.
         #expect(items[0].string(forType: .string) == "look at these")
         #expect(items[0].string(forType: .fileURL) == nil)
+        let copyID = try #require((reply["value"] as? [String: Any])?["copyID"] as? String)
+        #expect(UUID(uuidString: copyID) != nil)
+        #expect(items[0].string(forType: .html)?.contains("data-cmux-composer-copy=\"\(copyID)\"") == true)
         // The image: its named copy, its bytes and a TIFF.
         let image = try #require(Self.fileURL(items[1]))
         // Its own plain name, so a paste anywhere shows "chart.png".
@@ -145,6 +148,20 @@ struct AgentPaneComposerCopyTests {
             #expect(hex)
             #expect(place.deletingLastPathComponent().lastPathComponent == "Composer Copies")
         }
+    }
+
+    @Test func copiedHTMLKeepsPromptMarkupAsText() async throws {
+        let folder = try Self.folder()
+        defer { try? FileManager.default.removeItem(at: folder) }
+        let (model, effects) = Self.model(folder)
+        let reply = await Self.ask(model, [
+            "text": "<img src=x onerror=alert(1)> & </span>",
+            "items": [["name": "chart.png", "mimeType": "image/png", "data": Self.png.base64EncodedString()]],
+        ])
+        #expect(Self.errorCode(reply) == nil)
+        let html = try #require(effects.copied.first?.first?.string(forType: .html))
+        #expect(html.contains("&lt;img src=x onerror=alert(1)&gt; &amp; &lt;/span&gt;"))
+        #expect(!html.contains("<img"))
     }
 
     @Test func twoAttachmentsOfOneNameKeepItAndLandApart() async throws {

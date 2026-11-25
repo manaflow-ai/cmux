@@ -7,7 +7,7 @@ import Testing
 /// `cmux-agent://pane` request goes to.
 struct AgentPaneDevServerTests {
     /// The server a `web-dev.json` names (PageDevServer's initializer is the page module's own).
-    private let server = WebDevOverride.parse(Data(#"{"server": "http://127.0.0.1:4181/"}"#.utf8), home: URL(fileURLWithPath: "/")).server
+    private let server = WebDevOverride.parse(Data(#"{"server": "http://127.0.0.1:4181/", "token": "0123456789abcdef0123456789abcdef01234567"}"#.utf8), home: URL(fileURLWithPath: "/")).server
 
     @Test func theDocumentIsTheServersAgentPanePage() throws {
         let server = try #require(server)

@@ -19,6 +19,7 @@ export const promptBytes = (text: string) => new TextEncoder().encode(text).leng
 export const isOpen = (prompt: GuestPrompt) => prompt.state === "sending" || prompt.state === "held";
 
 const key = (shareId: string) => `cmux.guest.${shareId}.prompts`;
+const draftKey = (shareId: string) => `cmux.guest.${shareId}.draft`;
 const STATES = new Set(["sending", "held", "approved", "declined", "removed", "refused"]);
 
 function read(storage: Storage, shareId: string): GuestPrompt[] {
@@ -49,6 +50,24 @@ export class GuestPrompts {
     private readonly now: () => number = Date.now,
   ) {
     this.prompts = read(storage, shareId);
+  }
+
+  /** The unsent draft, kept in this tab across a reload (a Retry that reloads the page included). */
+  draft(): string {
+    try {
+      return this.storage.getItem(draftKey(this.shareId)) ?? "";
+    } catch {
+      return "";
+    }
+  }
+
+  keepDraft(text: string): void {
+    try {
+      if (text) this.storage.setItem(draftKey(this.shareId), text);
+      else this.storage.removeItem(draftKey(this.shareId));
+    } catch {
+      // A full or refused storage only loses the draft across a reload.
+    }
   }
 
   /** The messages, oldest first; a new array after each change (useSyncExternalStore). */
@@ -91,6 +110,17 @@ export class GuestPrompts {
   /** Messages the room never acknowledged: sent again, with the same client id, on each snapshot. */
   unsent(): GuestPrompt[] {
     return this.prompts.filter((prompt) => prompt.state === "sending");
+  }
+
+  /** Retry an explicitly refused send with its original id and saved text. */
+  retry(clientId: string): void {
+    this.set(
+      this.prompts.map((prompt) =>
+        prompt.clientId === clientId && prompt.state === "refused"
+          ? { ...prompt, state: "sending", reason: undefined }
+          : prompt,
+      ),
+    );
   }
 
   private set(next: GuestPrompt[]): void {

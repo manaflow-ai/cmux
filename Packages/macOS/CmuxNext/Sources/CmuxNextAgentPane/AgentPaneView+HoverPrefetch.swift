@@ -2,6 +2,15 @@ import CmuxNextDesignTokens
 import Foundation
 
 extension AgentPaneView {
+    /// The page that reads a sidebar hover ahead: the agent chat on screen (`shown`), which hands the
+    /// chat's tail to the host (``AgentPaneTailCache``) that the click's page draws first; with no agent
+    /// chat on screen (a terminal, a browser page), the parked New Tab `spare`: it is connected to this
+    /// Mac's acpmux and it is the page that click adopts (``AgentPaneSpareAdoption``), so the switch draws
+    /// the chat from the spare's own read-ahead tier. Before, nothing read a hover from such a screen.
+    public static func hoverReader(shown: AgentPaneView?, spare: AgentPaneView?) -> AgentPaneView? {
+        shown ?? spare
+    }
+
     /// The sidebar's pointer is on chat `session`'s row (nil: on no chat's row, or on one whose tab
     /// already has a page), forwarded to this page, the agent chat on screen, as its `chat.prefetch`
     /// with `hover` (HQ#5914, finding 2). Only the forward: whether the hover rests long enough to

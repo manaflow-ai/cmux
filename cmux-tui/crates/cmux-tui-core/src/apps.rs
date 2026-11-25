@@ -18,16 +18,38 @@
 #[cfg(unix)]
 mod actions;
 #[cfg(unix)]
+mod activation;
+#[cfg(unix)]
+mod app_settings;
+#[cfg(unix)]
+mod budget;
+#[cfg(unix)]
 mod calls;
 #[cfg(unix)]
 mod cancel;
 #[cfg(unix)]
 mod catalog;
 #[cfg(unix)]
+mod chat_actions;
+#[cfg(unix)]
+mod chat_widgets;
+#[cfg(unix)]
+mod cli_commands;
+#[cfg(unix)]
+mod community;
+#[cfg(unix)]
+mod composer;
+#[cfg(unix)]
 mod deploy;
 #[cfg(unix)]
 mod egress;
 pub(crate) mod envelope;
+#[cfg(unix)]
+mod git_install;
+#[cfg(unix)]
+mod git_source;
+#[cfg(unix)]
+mod github_gateway;
 #[cfg(unix)]
 mod grants;
 #[cfg(unix)]
@@ -37,19 +59,62 @@ mod host_ops;
 #[cfg(unix)]
 mod hosts;
 #[cfg(unix)]
+mod http_cache;
+#[cfg(unix)]
+mod load_trial;
+#[cfg(unix)]
 mod local_reload;
+#[cfg(unix)]
+mod locale;
+#[cfg(unix)]
+mod signals_cache;
+
+/// The person's locale as a BCP-47 tag (`ja-JP`), read once (`locale::current`): the language of Home's
+/// preview words (`server::conversations`).
+#[cfg(unix)]
+pub(crate) fn person_locale() -> &'static str {
+    locale::current()
+}
+
+#[cfg(unix)]
+mod mcp_tools;
+#[cfg(unix)]
+mod meters;
 #[cfg(unix)]
 mod mirror;
 #[cfg(unix)]
 mod open_tokens;
 #[cfg(unix)]
+mod openers;
+#[cfg(unix)]
+mod overlay;
+#[cfg(unix)]
+// The `render: web` page bridge: `page_calls` runs each page's calls through it
+// (`allowed_ops` and the rate-limited count are read only by tests).
+#[cfg_attr(not(test), allow(dead_code))]
+mod page_bridge;
+#[cfg(unix)]
+mod page_calls;
+#[cfg(unix)]
+mod page_keys;
+#[cfg(unix)]
 mod provider;
 #[cfg(unix)]
 mod relay;
 #[cfg(unix)]
+mod rollback;
+#[cfg(unix)]
 pub(crate) mod routing;
 #[cfg(unix)]
 mod runs;
+#[cfg(unix)]
+mod safe_mode;
+#[cfg(unix)]
+mod safe_mode_bisect;
+#[cfg(unix)]
+mod scene_nodes;
+#[cfg(unix)]
+mod server_external;
 #[cfg(unix)]
 mod server_tmp;
 #[cfg(unix)]
@@ -57,17 +122,33 @@ mod servers;
 #[cfg(unix)]
 mod serves;
 #[cfg(unix)]
-mod storage;
+mod sidebar;
+#[cfg(all(test, unix))]
+mod sidebar_integration_tests;
+#[cfg(unix)]
+mod signal_sources;
+#[cfg(unix)]
+mod status_items;
+#[cfg(unix)]
+pub(crate) mod storage;
 #[cfg(unix)]
 mod store;
 #[cfg(unix)]
 mod store_panels;
 #[cfg(unix)]
+mod store_sections;
+#[cfg(unix)]
+mod store_trust;
+#[cfg(unix)]
 mod subscriptions;
 #[cfg(unix)]
 mod supervisor;
+#[cfg(unix)]
+mod supervisor_signals;
 #[cfg(all(test, unix))]
 mod supervisor_tests;
+#[cfg(unix)]
+mod system_calendar;
 #[cfg(unix)]
 mod terminal_backends;
 #[cfg(unix)]
@@ -76,9 +157,19 @@ mod terminal_links;
 mod terminal_ops;
 #[cfg(unix)]
 pub(crate) mod timer;
+#[cfg(unix)]
+mod toolbar;
+#[cfg(unix)]
+mod widgets;
 
-use std::sync::{Arc, OnceLock};
+use std::sync::{Arc, Mutex, OnceLock};
 
+use crate::panic_free::RecoverPoison;
+
+#[cfg(unix)]
+pub(crate) use chat_actions::{ChatActionRequest, ChatMessage};
+#[cfg(unix)]
+pub(crate) use git_install::store_op_fetches;
 #[cfg(unix)]
 pub(crate) use mirror::{HiddenAccess, Origin, SetOp};
 #[cfg(unix)]
@@ -86,9 +177,13 @@ pub(crate) use provider::{ProviderClaim, admit_origin, hosting_app_connection};
 #[cfg(unix)]
 pub(crate) use runs::{Caller, RunRequest};
 #[cfg(unix)]
+pub(crate) use safe_mode_bisect::bisect_step_runs_extensions;
+#[cfg(unix)]
 pub(crate) use store::store_op_mutates;
 #[cfg(unix)]
-pub(crate) use subscriptions::AGENT_INVENTORY_INVALIDATION_CAPABILITY;
+pub(crate) use subscriptions::{
+    AGENT_INVENTORY_INVALIDATION_CAPABILITY, PROVIDER_CHANGED_CAPABILITY,
+};
 #[cfg(unix)]
 pub(crate) use supervisor::{ApiError, Supervisor};
 
@@ -105,6 +200,10 @@ pub const CANCEL_REQUEST_CAPABILITY: &str = "cancel-request-v1";
 #[cfg(unix)]
 const MUX_EVENTS_SINK: u64 = u64::MAX;
 
+/// Called after an app server starts or stops (the owner's keepers watch,
+/// server/owner_keepers.rs).
+type ServerObservers = Arc<Mutex<Vec<Box<dyn Fn() + Send + Sync>>>>;
+
 /// The supervisor of one daemon, created on the first `apps-*` command.
 #[derive(Default)]
 pub(crate) struct AppsSlot {
@@ -112,14 +211,29 @@ pub(crate) struct AppsSlot {
     supervisor: OnceLock<Arc<Supervisor>>,
     #[cfg(not(unix))]
     supervisor: OnceLock<Arc<()>>,
+    /// Told of each app server start and stop; the supervisor gets them
+    /// when it is created and calls them outside its lock.
+    server_observers: ServerObservers,
 }
 
 impl AppsSlot {
     #[cfg(unix)]
     pub(crate) fn get_or_init(&self, mux: &Arc<crate::Mux>) -> Arc<Supervisor> {
-        self.supervisor
+        let mut created = false;
+        let supervisor = self
+            .supervisor
             .get_or_init(|| {
+                created = true;
                 let state_dir = mux.session_state_directory();
+                // The flag file sits at the state root, next to the session
+                // folders, where `cmux safe-mode` finds it with no daemon.
+                let safe_mode_file = state_dir
+                    .as_deref()
+                    .and_then(std::path::Path::parent)
+                    .map(crate::safe_mode_flag::path_in);
+                let safe_mode_env = crate::safe_mode_flag::env_requests(
+                    std::env::var(crate::safe_mode_flag::ENV).ok().as_deref(),
+                );
                 let idle = std::env::var("CMUX_APPS_IDLE_STOP_SECONDS")
                     .ok()
                     .and_then(|s| s.parse().ok())
@@ -134,10 +248,16 @@ impl AppsSlot {
                         idle_stop: std::time::Duration::from_secs(idle),
                         provider_deadline: std::time::Duration::from_secs(30),
                         provider_user_deadline: std::time::Duration::from_secs(600),
+                        safe_mode_file,
+                        safe_mode_env,
                     },
                     Box::new(routing::MuxRouter::new(mux)),
                     Box::new(egress::HttpFetcher),
                 );
+                // Apps' GitHub reads run as the person's own gh sign-in.
+                supervisor.set_github_gateway(github_gateway::GitHubGateway::new(Arc::new(
+                    crate::feed_client::ProcessGh,
+                )));
                 // A page relay calls the store through the v2 page router,
                 // which makes it no apps client: it hears `apps-changed`
                 // from `subscribe` (page-router.json `events`), so the open
@@ -154,9 +274,20 @@ impl AppsSlot {
                         true
                     }),
                 );
+                supervisor.observe_kept_servers(self.server_observers.clone());
                 supervisor
             })
-            .clone()
+            .clone();
+        if created {
+            // Its `always` servers started before it had the observers, and
+            // `kept_servers` read 0 until this slot held it: the owner's
+            // watch reads the count again now. Later changes reach the
+            // observers from `Supervisor::emit`.
+            for observer in self.server_observers.lock().recover_poison().iter() {
+                observer();
+            }
+        }
+        supervisor
     }
 
     /// `client` cancels its own request `target` (`cancel-request`). Before
@@ -189,6 +320,28 @@ impl AppsSlot {
         }
         #[cfg(not(unix))]
         let _ = (client, &self.supervisor);
+    }
+
+    /// App servers that keep the daemon's owner (the supervisor's
+    /// `kept_servers`; none before the supervisor exists, and none off Unix,
+    /// where apps never run).
+    pub(crate) fn kept_servers(&self) -> usize {
+        #[cfg(unix)]
+        {
+            self.supervisor.get().map_or(0, |supervisor| supervisor.kept_servers())
+        }
+        #[cfg(not(unix))]
+        {
+            0
+        }
+    }
+
+    /// Calls `observer` each time [`Self::kept_servers`] changes (a server
+    /// starts or stops, a crash restart is scheduled, fired or cancelled).
+    /// It runs from the supervisor's event delivery, outside the
+    /// supervisor's lock, and must not call back into the supervisor.
+    pub(crate) fn add_server_observer(&self, observer: impl Fn() + Send + Sync + 'static) {
+        self.server_observers.lock().recover_poison().push(Box::new(observer));
     }
 }
 

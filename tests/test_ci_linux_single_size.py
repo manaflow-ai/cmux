@@ -30,10 +30,14 @@ falling only to a [...] Blacksmith that isn't available". Same ratchet: it only 
 from __future__ import annotations
 
 import re
+import sys
 import unittest
 from pathlib import Path
 
 import yaml
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import workflow_jobs  # noqa: E402
 
 ROOT = Path(__file__).resolve().parents[1]
 WORKFLOWS = ROOT / ".github" / "workflows"
@@ -52,184 +56,150 @@ LIVE_SOURCE = re.compile(r"\b(?:needs|matrix|inputs|steps|env)\.|vars\.(?!LINUX_
 # workflow file -> jobs that still read LINUX_RUNNER as their one size. Lower a count when a job
 # moves to fromJSON(vars.RUNNER_POOLS).<pool> or a picker; never raise one.
 SINGLE_SIZE: dict[str, int] = {
-    "actions-artifact-prune.yml": 1,
+    "actions-artifact-prune.yml": 0,
     "agent-brands.yml": 0,
-    "app-ffi-release.yml": 3,
-    "auto-resume-nightly-notarization.yml": 6,
+    "app-ffi-release.yml": 0,
+    "auto-resume-nightly-notarization.yml": 0,
     "automation-bench.yml": 0,
     "backend.yml": 0,
-    "ci-artifact-canary.yml": 1,
-    "ci-artifact-transport.yml": 0,
-    "ci-cache-receipts.yml": 0,
-    "ci-compile-attribution.yml": 1,
-    "ci-fast-guards.yml": 0,
-    "ci-guard-attribution.yml": 1,
+    "ci-artifact-canary.yml": 0,
+    "ci-compile-attribution.yml": 0,
     "ci-guards.yml": 0,
-    "ci-health-report.yml": 1,
-    "ci-hosted-queue-rescue.yml": 1,
-    "ci-queue-janitor.yml": 1,
-    "ci-repo-variables.yml": 0,
+    "ci-health-report.yml": 0,
+    "ci-queue-janitor.yml": 0,
     "ci-web.yml": 0,
     "ci.yml": 0,
-    "cloud-capture-provision.yml": 1,
-    "cloud-devbox-image-rebake.yml": 1,
-    "cloud-image-staleness.yml": 1,
-    "cloud-vm-canary.yml": 1,
-    "cloud-vm-env-audit.yml": 1,
+    "cloud-capture-provision.yml": 0,
+    "cloud-devbox-image-rebake.yml": 0,
+    "cloud-vm-canary.yml": 0,
+    "cloud-vm-env-audit.yml": 0,
     "cloud-vm-guest-install.yml": 0,
-    "cloud-vm-image-bake.yml": 3,
-    "cloud-vm-image-contract.yml": 1,
+    "cloud-vm-image-bake.yml": 0,
     "cloud-vm-image-lock.yml": 0,
-    "cloud-vm-image-promote.yml": 2,
-    "cloud-vm-image-reachability.yml": 1,
-    "cloud-vm-migrate.yml": 3,
-    "cloud-vm-runtime-promotion.yml": 1,
-    "cloud-vm-smoke.yml": 1,
-    "cmux-art-publish.yml": 1,
-    "cmux-browser-host-release.yml": 2,
-    "cmux-next-chromium-staleness.yml": 1,
-    "cmux-next-batch.yml": 2,
+    "cloud-vm-image-promote.yml": 0,
+    "cloud-vm-migrate.yml": 0,
+    "cloud-vm-smoke.yml": 0,
+    "cmux-art-publish.yml": 0,
+    "cmux-browser-host-release.yml": 0,
+    "cmux-next-chromium-staleness.yml": 0,
+    "cmux-next-batch.yml": 0,
     "cmux-next-crash-class.yml": 0,
-    "cmux-next-dev-daily-dispatch.yml": 1,
-    "cmux-next-docs-shortcuts.yml": 0,
+    "cmux-next-dev-daily-dispatch.yml": 0,
     "cmux-next-fast-gates.yml": 0,
-    "cmux-next-frame-pacing.yml": 1,
-    "cmux-next-guards.yml": 4,
-    "cmux-next-media.yml": 3,
-    "cmux-next-motion-golden.yml": 1,
+    "cmux-next-frame-pacing.yml": 0,
+    "cmux-next-guards.yml": 0,
+    "cmux-next-media.yml": 0,
+    "cmux-next-motion-golden.yml": 0,
     "cmux-next-notices.yml": 0,
-    "cmux-next-perf-budgets.yml": 3,
-    "cmux-next-pr-merge-tree.yml": 0,
+    "cmux-next-perf-budgets.yml": 0,
     "cmux-next-remote-daemon.yml": 0,
     "cmux-next-shell-integration.yml": 0,
-    "cmux-next-tip-test-compile.yml": 2,
-    "cmux-next-web-bundle-publish.yml": 2,
+    "cmux-next-tip-test-compile.yml": 0,
+    "cmux-next-web-bundle-publish.yml": 0,
     "cmux-next-web-bundles.yml": 0,
-    "cmux-next-web.yml": 1,
-    "cmux-next.yml": 3,
-    "cmux-skill-contract.yml": 0,
-    "cmux-terminal-client-xcframework.yml": 1,
-    "cmux-tui-artifacts-retry.yml": 1,
-    "cmux-tui-nightly.yml": 1,
-    "cmux-tui-release-cut.yml": 1,
-    "cmux-tui-release-delivery.yml": 1,
-    "cmux-tui-release.yml": 2,
+    "cmux-next-web.yml": 0,
+    "cmux-next.yml": 0,
+    "cmux-tui-release-cut.yml": 0,
+    "cmux-tui-release-delivery.yml": 0,
+    "cmux-tui-release.yml": 0,
     "cmux-tui-sdks.yml": 0,
     "cmux-tui-spec.yml": 0,
-    "cmux-tui-tree-request.yml": 1,
-    "cmux-tui.yml": 1,
-    "cmux-vm.yml": 7,
-    "coderouter-release.yml": 3,
-    "coderouter-verify-release.yml": 1,
-    "docs-deploy-reusable.yml": 1,
-    "dogfood-artifact-publish.yml": 1,
-    "feature-flag-review-drift.yml": 1,
-    "fleet-artifact-cdn.yml": 2,
+    "cmux-tui-tree-request.yml": 0,
+    "cmux-tui.yml": 0,
+    "cmux-vm.yml": 0,
+    "coderouter-release.yml": 0,
+    "coderouter-verify-release.yml": 0,
+    "docs-deploy-reusable.yml": 0,
+    "feature-flag-review-drift.yml": 0,
+    "fleet-artifact-cdn.yml": 0,
     "fleet-test-compile.yml": 0,
-    "git-mirror-bundle.yml": 1,
-    "indexnow-tests.yml": 0,
+    "git-mirror-bundle.yml": 0,
     "indexnow.yml": 0,
-    "ios-app-store.yml": 2,
-    "ios-appstore-upload.yml": 2,
-    "ios-e2e.yml": 2,
-    "ios-internal-nightly.yml": 3,
-    "ios-screenshots.yml": 1,
-    "ios-testflight.yml": 2,
-    "iroh-release-gate.yml": 1,
-    "iroh-v2-production-drift.yml": 1,
-    "iroh-v2.yml": 1,
+    "ios-app-store.yml": 0,
+    "ios-appstore-upload.yml": 0,
+    "ios-e2e.yml": 0,
+    "ios-internal-nightly.yml": 0,
+    "ios-screenshots.yml": 0,
+    "ios-testflight.yml": 0,
+    "iroh-release-gate.yml": 0,
+    "iroh-v2.yml": 0,
     "labels-sync.yml": 0,
-    "main-submodule-pin-watch.yml": 1,
-    "merge-group-policy-checks.yml": 2,
+    "merge-group-policy-checks.yml": 0,
     "mux.yml": 0,
-    "nightly-next-canary.yml": 2,
-    "nightly-next-feed-watch.yml": 1,
-    "nightly-next-rollback.yml": 3,
-    "nightly-next-train.yml": 2,
-    "nightly-next-verdict.yml": 1,
-    "nightly-tag-permission-probe.yml": 1,
-    "pr-capture-check.yml": 0,
-    "pr-design-spec-check.yml": 0,
-    "pr-media-prune.yml": 1,
-    "pr-perf-section-check.yml": 0,
-    "pr-red-checks-comment.yml": 1,
-    "presence.yml": 1,
-    "r2-binaries-prune.yml": 1,
-    "r2-cache-prune.yml": 1,
-    "r2-storage-census.yml": 3,
-    "r2-upload-tests.yml": 0,
-    "relay-publish-npm.yml": 1,
-    "release-rails.yml": 2,
-    "release.yml": 1,
+    "nightly-next-canary.yml": 0,
+    "nightly-next-feed-watch.yml": 0,
+    "nightly-next-rollback.yml": 0,
+    "nightly-next-train.yml": 0,
+    "nightly-next-verdict.yml": 0,
+    "nightly-tag-permission-probe.yml": 0,
+    "pr-media-prune.yml": 0,
+    "pr-red-checks-comment.yml": 0,
+    "presence.yml": 0,
+    "r2-binaries-prune.yml": 0,
+    "r2-cache-prune.yml": 0,
+    "r2-storage-census.yml": 0,
+    "relay-publish-npm.yml": 0,
+    "release-rails.yml": 0,
+    "release.yml": 0,
     "remote-daemon.yml": 0,
-    "repair-nightly-appcast-content-types.yml": 2,
+    "repair-nightly-appcast-content-types.yml": 0,
     "required-checks-drift.yml": 0,
-    "resolve-dispatch-ref.yml": 1,
+    "resolve-dispatch-ref.yml": 0,
     "risk-tier-tests.yml": 0,
-    "sdk-bootstrap-crates.yml": 5,
-    "sdk-bootstrap-npm.yml": 3,
-    "sdk-bootstrap-pypi.yml": 4,
-    "sdk-publish-crates.yml": 1,
-    "sdk-publish-go.yml": 1,
-    "sdk-publish-java.yml": 2,
-    "sdk-publish-npm.yml": 1,
-    "sdk-publish-python.yml": 2,
-    "sdk-release-cut.yml": 9,
-    "seed-derived-data.yml": 1,
+    "sdk-publish-crates.yml": 0,
+    "sdk-publish-go.yml": 0,
+    "sdk-publish-java.yml": 0,
+    "sdk-publish-npm.yml": 0,
+    "sdk-publish-python.yml": 0,
     "signing-keychain-macos.yml": 0,
-    "stable-next.yml": 4,
+    "stable-next.yml": 0,
     "terminal-hang-diagnostics.yml": 0,
-    "test-ios.yml": 3,
-    "testbox-broker-guard.yml": 0,
-    "tui-publish-npm.yml": 1,
-    "tui-publish-pypi.yml": 2,
-    "update-homebrew.yml": 2,
-    "vendored-agent-cursor.yml": 0,
-    "vercel-auth-health.yml": 1,
+    "test-ios.yml": 0,
+    "tui-publish-npm.yml": 0,
+    "tui-publish-pypi.yml": 0,
+    "update-homebrew.yml": 0,
+    "vercel-auth-health.yml": 0,
 }
 
 
 # workflow file -> jobs whose runs-on ends in FIXED_PAIR_TAIL. Lower a count when a job moves to
 # fromJSON(vars.RUNNER_POOLS).<pool> or a picker; never raise one.
 FIXED_PAIR: dict[str, int] = {
-    "backend.yml": 1,
-    "ci-web.yml": 5,
-    "cloudflare-relay.yml": 1,
-    "cmux-actions.yml": 1,
-    "cmux-browser-host-chromium.yml": 1,
-    "cmux-cloud-cli.yml": 1,
-    "cmux-mobile-ffi.yml": 2,
-    "cmux-next-car-guards.yml": 1,
-    "cmux-next-fast-gates.yml": 1,
-    "cmux-next-guards.yml": 1,
-    "cmux-next-shim-cpp.yml": 1,
-    "cmux-next-source-archive.yml": 1,
-    "cmux-next-web-bundle-publish.yml": 1,
-    "cmux-next-web-bundles.yml": 2,
-    "cmux-next.yml": 2,
-    "cmux-tui-artifacts.yml": 16,
-    "cmux-tui-headless-debug.yml": 1,
-    "cmux-tui-sdks.yml": 4,
-    "cmux-tui-spec.yml": 3,
-    "cmux-tui-windows-check.yml": 1,
-    "cmux-tui.yml": 3,
-    "cmux-vm-clients.yml": 2,
-    "cmux-vm-cloud.yml": 1,
-    "cmux-vm.yml": 1,
-    "coderouter-ci.yml": 1,
-    "iroh-relay-minter.yml": 1,
-    "iroh-v2.yml": 1,
-    "nightly-next-launch-smoke.yml": 3,
-    "presence.yml": 1,
-    "remote-daemon.yml": 1,
-    "rust-workspaces.yml": 1,
-    "sdk-bootstrap-crates.yml": 1,
-    "sdk-publish-crates.yml": 1,
-    "sdk-publish-go.yml": 3,
-    "sdk-publish-java.yml": 1,
-    "sdk-publish-npm.yml": 1,
-    "sdk-publish-python.yml": 1,
-    "swift-packages-linux.yml": 1,
+    "backend.yml": 0,
+    "ci-web.yml": 0,
+    "cloudflare-relay.yml": 0,
+    "cmux-actions.yml": 0,
+    "cmux-browser-host-chromium.yml": 0,
+    "cmux-cloud-cli.yml": 0,
+    "cmux-mobile-ffi.yml": 0,
+    "cmux-next-car-guards.yml": 0,
+    "cmux-next-guards.yml": 0,
+    "cmux-next-shim-cpp.yml": 0,
+    "cmux-next-source-archive.yml": 0,
+    "cmux-next-web-bundle-publish.yml": 0,
+    "cmux-next-web-bundles.yml": 0,
+    "cmux-next.yml": 0,
+    "cmux-tui-artifacts.yml": 0,
+    "cmux-tui-headless-debug.yml": 0,
+    "cmux-tui-sdks.yml": 0,
+    "cmux-tui-spec.yml": 0,
+    "cmux-tui-windows-check.yml": 0,
+    "cmux-tui.yml": 0,
+    "cmux-vm-clients.yml": 0,
+    "cmux-vm-cloud.yml": 0,
+    "cmux-vm.yml": 0,
+    "coderouter-ci.yml": 0,
+    "iroh-v2.yml": 0,
+    "nightly-next-launch-smoke.yml": 0,
+    "presence.yml": 0,
+    "remote-daemon.yml": 0,
+    "rust-workspaces.yml": 0,
+    "sdk-publish-crates.yml": 0,
+    "sdk-publish-go.yml": 0,
+    "sdk-publish-java.yml": 0,
+    "sdk-publish-npm.yml": 0,
+    "sdk-publish-python.yml": 0,
+    "swift-linux-packages.yml": 0,
 }
 
 
@@ -256,12 +226,22 @@ def fixed_pair(runs_on: object) -> bool:
     return tail is not None and LIVE_SOURCE.search(expression[:tail.start()]) is None
 
 
+def runs_on_cells(job: dict, workflow: str, job_id: str) -> list[str]:
+    """The job's runs-on per matrix cell. A matrix nothing resolves fails, unless audited by name ([])."""
+    cells = workflow_jobs.runs_on_cells(job)
+    if cells is None:
+        if workflow_jobs.audited_matrix(workflow, job_id):
+            return []
+        raise AssertionError(f"{workflow} {job_id}: runs-on has a matrix value nothing resolves")
+    return cells
+
+
 def counts(rule=single_size) -> dict[str, int]:
     found: dict[str, int] = {}
     for path in sorted(WORKFLOWS.glob("*.y*ml")):
         document = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
-        for job in (document.get("jobs") or {}).values():
-            if isinstance(job, dict) and rule(job.get("runs-on")):
+        for job_id, job in (document.get("jobs") or {}).items():
+            if isinstance(job, dict) and any(rule(cell) for cell in runs_on_cells(job, path.name, job_id)):
                 found[path.name] = found.get(path.name, 0) + 1
     return found
 
@@ -303,20 +283,26 @@ class FixedPairRuleTests(unittest.TestCase):
 
 
 class WorkflowTests(unittest.TestCase):
-    def test_the_ghosttykit_release_check_reads_the_linux_pool(self) -> None:
+    def test_the_ghosttykit_release_check_takes_the_persistent_linux_pool(self) -> None:
+        # Linux CI is one persistent pool (hq decisions/junctions.md 2026-11-20): never one Blacksmith size.
         document = yaml.safe_load((WORKFLOWS / "ci.yml").read_text(encoding="utf-8"))
-        runs_on = document["jobs"]["ghosttykit-release-check"]["runs-on"]
+        cells = runs_on_cells(document["jobs"]["ghosttykit-release-check"], "ci.yml", "ghosttykit-release-check")
+        self.assertEqual(len(cells), 1, cells)
+        runs_on = cells[0]
         self.assertFalse(single_size(runs_on))
-        self.assertTrue(runs_on.rstrip().endswith("fromJSON(vars.RUNNER_POOLS).linux }}"), runs_on)
+        self.assertNotRegex(runs_on, r"vars\.LINUX_RUNNER(?!\w)")  # vars.CI_FORK_LINUX_RUNNER is the fork branch
+        self.assertTrue(runs_on.rstrip().endswith("|| 'cmux-linux' }}"), runs_on)
 
     def test_web_subarea_scope_reads_the_linux_pool(self) -> None:
         # Run 41275619982 (2026-11-01): job 124762739841 waited 50 minutes unassigned on LINUX_RUNNER's
         # stalled 32 vCPU size while every webview shard waited behind it.
         document = yaml.safe_load((WORKFLOWS / "ci-web.yml").read_text(encoding="utf-8"))
-        runs_on = document["jobs"]["web-subarea-scope"]["runs-on"]
+        cells = runs_on_cells(document["jobs"]["web-subarea-scope"], "ci-web.yml", "web-subarea-scope")
+        self.assertEqual(len(cells), 1, cells)
+        runs_on = cells[0]
         self.assertFalse(single_size(runs_on))
-        self.assertNotIn("LINUX_RUNNER", runs_on)
-        self.assertTrue(runs_on.rstrip().endswith("|| fromJSON(vars.RUNNER_POOLS).linux }}"), runs_on)
+        self.assertNotRegex(runs_on, r"vars\.LINUX_RUNNER(?!\w)")  # vars.CI_FORK_LINUX_RUNNER is the fork branch
+        self.assertTrue(runs_on.rstrip().endswith("|| 'cmux-linux' }}"), runs_on)
 
     def test_no_workflow_adds_a_single_size_linux_job(self) -> None:
         found = counts()

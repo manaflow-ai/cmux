@@ -169,10 +169,12 @@ def samples_every_action(doc):
 
 
 def samples_typing(doc):
-    """typing-frame-bench.py: one replicate per round per surface.phase (key_to_frame_ms p50/p95/p99/max)."""
+    """typing-frame-bench.py: one replicate per round per surface.phase (key_to_frame_ms p50/p95/p99/max). With
+    --modes, several modes run in the same phase (every mode but L0 is the load phase), so the mode names the row."""
     out = {}
     for r in doc.get("runs") or []:
-        key = f"{r.get('session', 'light')}/{r.get('surface')}.{r.get('phase')}"
+        under = r.get("mode") or r.get("phase")
+        key = f"{r.get('session', 'light')}/{r.get('surface')}.{under}"
         for st, v in (r.get("key_to_frame_ms") or {}).items():
             if st in ("p50", "p95", "p99", "max"):
                 _add(out, key, f"key_to_frame.{st}", v)
@@ -197,14 +199,18 @@ def samples_launch(doc):
 
 def samples_resize(doc):
     """bench-terminal-resize.py: one replicate per drag round (frame intervals, missed, main-thread time); the idle
-    cursor layout's frame count."""
+    cursor layout's frame count. A round of an --ab run (its `arm`: the tunable off or on in the same launch) goes to its
+    arm's series, `<layout>/off` or `<layout>/on`: the two arms are never one series."""
     out = {}
     for r in doc.get("layouts") or []:
         key = str(r.get("layout") or "?")
         for rnd in r.get("rounds") or []:
+            series = key
+            if "arm" in rnd:
+                series = f"{key}/{'build' if rnd['arm'] is None else ('on' if rnd['arm'] else 'off')}"
             fr = rnd.get("frames") or {}
             for m in ("p95_ms", "p99_ms", "max_ms", "missed", "main_p95_ms", "main_max_ms"):
-                _add(out, key, "frames." + m, fr.get(m))
+                _add(out, series, "frames." + m, fr.get(m))
         if not isinstance(r.get("frames"), dict):
             _add(out, key, "ghostty_frames", r.get("frames"))
     return out

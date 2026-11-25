@@ -85,6 +85,168 @@ struct PageWebViewChromiumTests {
         view.close()
     }
 
+    /// A page out of sight (a New Tab spare or a kept closed chat in an off-screen parking) draws until it painted at
+    /// its size there, then reports hidden, so Chromium stops drawing it and it can be frozen and released (CMUX-571,
+    /// cmux#43767: 3 of 4 live pages reported visible 150 s after the last chat opened, the GPU process at 93
+    /// wakeups/s). Resized there or pictured it draws again; held away by its owner it keeps drawing; adopted on
+    /// screen it shows.
+    @Test func aPaintedPageOutOfSightReportsHiddenOnceItDrewThere() async throws {
+        defer { try? FileManager.default.removeItem(at: root) }
+        let hosting = FakeChromiumHosting()
+        let view = try makeView(hosting)
+        view.chromiumClock = PageTestClock.never
+        await view.chromiumStart?.value
+        let page = try #require(hosting.made.first)
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 800, height: 600), styleMask: .borderless,
+                              backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        defer { view.close(); window.close() }
+        let host = try #require(window.contentView)
+        let parking = PageOffscreenParking()
+        host.addSubview(parking)
+        parking.fit(to: NSSize(width: 400, height: 300))
+        view.frame = parking.bounds
+        parking.addSubview(view)
+        view.layoutSubtreeIfNeeded()
+        #expect(page.visibility.last == true, "a spare paints before it is adopted")
+
+        let painted: Bool? = await PageTestWait.value("paint") { done in
+            view.whenPainted { done(true) }
+            page.onEvent?(.devTools(FakeChromiumPage.bindingCall(["name": PagePaintProbe.handlerName, "body": 5])))
+        }
+        #expect(painted == true)
+        #expect(await Self.settles { page.visibility.last == false }, "drawn at its parked size, a page out of sight is hidden")
+
+        parking.fit(to: NSSize(width: 500, height: 300))
+        #expect(page.visibility.last == true, "resized out of sight, it draws at the new size")
+        #expect(await Self.settles { page.visibility.last == false })
+
+        let capture = VisibilityAtCall()
+        page.answer = { method, _ in
+            if method == "Page.captureScreenshot" { capture.visible = page.visibility.last }
+            return nil
+        }
+        _ = await view.snapshot()
+        #expect(capture.visible == true, "its picture (a spare's cover) is taken while it draws")
+        #expect(await Self.settles { page.visibility.last == false })
+
+        view.drawsWhileAway = true
+        #expect(page.visibility.last == true, "a page its owner holds away until it shows keeps drawing")
+        view.drawsWhileAway = false
+        #expect(page.visibility.last == false)
+
+        view.removeFromSuperview()
+        view.frame = NSRect(x: 0, y: 0, width: 500, height: 300)
+        host.addSubview(view)
+        view.layoutSubtreeIfNeeded()
+        #expect(page.visibility.last == true, "adopted on screen, it shows")
+    }
+
+    /// A page out of sight that never paints (a New Tab spare whose renderer hung, or whose document never painted)
+    /// used to report visible for as long as it stayed parked, keeping the GPU process drawing it and out of reach of
+    /// the hidden hung page bound. It draws ``PageAwayDrawing/unpaintedBound`` at most, then reports hidden; a hold
+    /// draws it again, and shown on screen it shows with the bound reset.
+    @Test func anUnpaintedPageOutOfSightReportsHiddenPastItsBound() async throws {
+        defer { try? FileManager.default.removeItem(at: root) }
+        let hosting = FakeChromiumHosting()
+        let view = try makeView(hosting)
+        view.chromiumClock = PageTestClock.never
+        view.awayDrawing.clock = PageTestClock.immediate
+        await view.chromiumStart?.value
+        let page = try #require(hosting.made.first)
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 800, height: 600), styleMask: .borderless,
+                              backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        defer { view.close(); window.close() }
+        let host = try #require(window.contentView)
+        let parking = PageOffscreenParking()
+        host.addSubview(parking)
+        parking.fit(to: NSSize(width: 400, height: 300))
+        view.frame = parking.bounds
+        parking.addSubview(view)
+        view.layoutSubtreeIfNeeded()
+        #expect(!view.hasPainted)
+        #expect(await Self.settles { page.visibility.last == false }, "an unpainted page out of sight stops drawing past its bound")
+        #expect(view.awayDrawing.unpaintedExpired)
+
+        #expect(view.holdAwayDrawing())
+        #expect(page.visibility.last == true, "a frame wait or picture draws it again")
+        view.releaseAwayDrawing()
+        #expect(page.visibility.last == false)
+
+        view.removeFromSuperview()
+        view.frame = NSRect(x: 0, y: 0, width: 500, height: 300)
+        host.addSubview(view)
+        view.layoutSubtreeIfNeeded()
+        #expect(page.visibility.last == true, "adopted on screen, it shows")
+        #expect(!view.awayDrawing.unpaintedExpired, "shown, the next stay out of sight gets the whole bound")
+    }
+
+    /// The bound's clock that never ends: the unpainted page keeps drawing out of sight (the behavior before the bound).
+    @Test func anUnpaintedPageOutOfSightDrawsWithinItsBound() async throws {
+        defer { try? FileManager.default.removeItem(at: root) }
+        let hosting = FakeChromiumHosting()
+        let view = try makeView(hosting)
+        view.chromiumClock = PageTestClock.never
+        view.awayDrawing.clock = PageTestClock.never
+        await view.chromiumStart?.value
+        let page = try #require(hosting.made.first)
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 800, height: 600), styleMask: .borderless,
+                              backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        defer { view.close(); window.close() }
+        let host = try #require(window.contentView)
+        let parking = PageOffscreenParking()
+        host.addSubview(parking)
+        parking.fit(to: NSSize(width: 400, height: 300))
+        view.frame = parking.bounds
+        parking.addSubview(view)
+        view.layoutSubtreeIfNeeded()
+        #expect(page.visibility.last == true, "a spare paints before it is adopted")
+        #expect(view.awayDrawing.unpaintedTimer.isScheduled, "its bound runs while it draws unpainted out of sight")
+        #expect(!view.awayDrawing.unpaintedExpired)
+    }
+
+    /// The visibility the fake page had when a call reached it.
+    @MainActor private final class VisibilityAtCall {
+        var visible: Bool?
+    }
+
+    /// Whether `condition` holds within about 3 s (the page's frame wait and its visibility pass are tasks).
+    private static func settles(_ condition: @MainActor () -> Bool) async -> Bool {
+        for _ in 0..<300 where !condition() {
+            try? await Task.sleep(for: .milliseconds(10))
+        }
+        return condition()
+    }
+
+    @Test func anOffscreenPageStartsRenderingWhenItsFirstLayoutGivesItArea() async throws {
+        defer { try? FileManager.default.removeItem(at: root) }
+        let hosting = FakeChromiumHosting()
+        let view = try makeView(hosting)
+        view.chromiumClock = PageTestClock.never
+        await view.chromiumStart?.value
+        let page = try #require(hosting.made.first)
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 1280, height: 600), styleMask: .borderless,
+                              backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        defer { view.close(); window.close() }
+        let host = try #require(window.contentView)
+        let prewarm = NSView(frame: host.bounds.offsetBy(dx: -100_000, dy: -100_000))
+        prewarm.alphaValue = 0
+        host.addSubview(prewarm)
+        view.frame = .zero
+        prewarm.addSubview(view)
+        #expect(page.visibility.last == false, "window entry has no page area yet")
+
+        view.frame = prewarm.bounds
+        view.needsLayout = true
+        view.layoutSubtreeIfNeeded()
+        #expect(page.visibility.last == true, "the full-size reserved page must render before Cmd-N")
+        #expect(view.frame.size == host.bounds.size)
+        #expect(prewarm.alphaValue == 0)
+    }
+
     /// A route asked for before the Chromium page exists (the composer's Open Cloud… opens a new
     /// Cloud tab at `#/get`) is the one the page loads, not the route the view was made with.
     @Test func aRouteOpenedBeforeChromiumStartsIsTheOneItLoads() async throws {
@@ -160,6 +322,25 @@ struct PageWebViewChromiumTests {
         view.close()
     }
 
+    /// A video in a Chromium page asks one byte range at a time: a ranged source gets the request's
+    /// Range header and its 206 reaches Chromium with only Content-Range and Accept-Ranges (#34726).
+    @Test func aChromiumPageGetsByteRangesFromARangedSource() async throws {
+        defer { try? FileManager.default.removeItem(at: root) }
+        let dynamic = PageDescriptor(id: "test.chromium-ranged", resource: "chromium-page", namespaces: [], dynamicPrefixes: ["media"])
+        let hosting = FakeChromiumHosting()
+        let source = RangedResource()
+        let view = try #require(PageWebView(descriptor: dynamic, root: root, routes: [], dynamicResources: source, chromium: hosting))
+        view.chromiumClock = PageTestClock.never
+        await view.chromiumStart?.value
+        let resources = try #require(hosting.made.first?.resources)
+        let url = try #require(URL(string: "cmux-page://test.chromium-ranged/media/clip.mov"))
+        let slice = await resources(url, "bytes=2-3")
+        #expect(slice == PageChromiumResponse(status: 206, mimeType: "video/quicktime", body: Data([2, 3]),
+                                              rangeHeaders: ["Content-Range": "bytes 2-3/8", "Accept-Ranges": "bytes"]))
+        #expect(source.ranges == ["bytes=2-3"])
+        view.close()
+    }
+
     /// A Chromium page asks the host for its dynamic paths, as the WebKit scheme handler does: the
     /// page's source answers a path under one of its prefixes; anything else is a 404 that never
     /// reaches the source.
@@ -174,13 +355,13 @@ struct PageWebViewChromiumTests {
         await view.chromiumStart?.value
         let page = try #require(hosting.made.first)
         let resources = try #require(page.resources)
-        let png = await resources(try #require(URL(string: "cmux-page://test.chromium-dynamic/asset/a.png")))
+        let png = await resources(try #require(URL(string: "cmux-page://test.chromium-dynamic/asset/a.png")), nil)
         #expect(png == PageChromiumResponse(status: 200, mimeType: "image/png", body: Data([1, 2, 3])))
-        let typeFromName = await resources(try #require(URL(string: "cmux-page://test.chromium-dynamic/asset/b.json")))
+        let typeFromName = await resources(try #require(URL(string: "cmux-page://test.chromium-dynamic/asset/b.json")), nil)
         #expect(typeFromName == PageChromiumResponse(status: 200, mimeType: "application/json", body: Data("{}".utf8)))
-        #expect(await resources(try #require(URL(string: "cmux-page://test.chromium-dynamic/asset/none.png"))).status == 404)
-        #expect(await resources(try #require(URL(string: "cmux-page://test.chromium-dynamic/index.html"))).status == 404)
-        #expect(await resources(try #require(URL(string: "cmux-page://other.page/asset/a.png"))).status == 404)
+        #expect(await resources(try #require(URL(string: "cmux-page://test.chromium-dynamic/asset/none.png")), nil).status == 404)
+        #expect(await resources(try #require(URL(string: "cmux-page://test.chromium-dynamic/index.html")), nil).status == 404)
+        #expect(await resources(try #require(URL(string: "cmux-page://other.page/asset/a.png")), nil).status == 404)
         #expect(source.asked.map(\.path) == [["a.png"], ["b.json"], ["none.png"]])
         view.close()
     }
@@ -314,6 +495,30 @@ extension PageWebViewChromiumTests {
         #expect(finished == 3)
         view.close()
     }
+
+    /// Leo, 2026-11-09: "feel like this should have a copy link button". A right-click on a link in
+    /// the Chromium page offers Copy Link, as WebKit's page menu keeps it, and it copies the href.
+    @Test func aRightClickOnALinkInTheChromiumPageOffersCopyLink() async throws {
+        defer { try? FileManager.default.removeItem(at: root) }
+        let hosting = FakeChromiumHosting()
+        let view = try makeView(hosting)
+        view.chromiumClock = PageTestClock.never
+        await view.chromiumStart?.value
+        let page = try #require(hosting.made.first)
+        var shown: NSMenu?
+        view.chromiumMenuPresenter = { menu, _, _ in shown = menu }
+        let link = try #require(URL(string: "https://github.com/manaflow-ai/cmux/commit/50a4e17d"))
+        page.onEvent?(.contextMenu(PageChromiumContextMenu(location: .zero, selection: "", isEditable: false, link: link) {}))
+        await PageMenuCallout.drain { shown != nil }
+        #expect(shown?.items.map(\.title) == [PageWebView.copyLinkTitle])
+        #expect(shown?.items.first?.identifier?.rawValue == PageSelectionMenu.copyLinkItem)
+
+        let pasteboard = NSPasteboard(name: NSPasteboard.Name("cmux.test.copyLink.\(UUID().uuidString)"))
+        defer { pasteboard.releaseGlobally() }
+        PageWebView.copyLink(link, to: pasteboard)
+        #expect(pasteboard.string(forType: .string) == link.absoluteString)
+        view.close()
+    }
 }
 
 extension PageWebViewChromiumTests {
@@ -332,6 +537,22 @@ extension PageWebViewChromiumTests {
         #expect(call.params["awaitPromise"] as? Bool == true)
         #expect(call.params["returnByValue"] as? Bool == true)
         view.close()
+    }
+}
+
+/// A ranged source with one 8-byte clip; it answers every range with bytes 2-3.
+@MainActor
+private final class RangedResource: PageDynamicResourceSource, PageRangedResourceSource {
+    private(set) var ranges: [String?] = []
+
+    func resource(for request: PageResourceRequest) async -> PageResource? { nil }
+
+    func rangedResource(for request: PageResourceRequest, range: String?) async -> PageRangedResource? {
+        ranges.append(range)
+        return PageRangedResource(status: 206, headers: [
+            "Content-Type": "video/quicktime", "Content-Range": "bytes 2-3/8", "Accept-Ranges": "bytes",
+            "Content-Security-Policy": "default-src *", "Content-Length": "2",
+        ], data: Data([2, 3]))
     }
 }
 

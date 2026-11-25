@@ -4,13 +4,9 @@
 /// window open and `app.hideDockIconWithoutWindows` on, background mode's own item still shows,
 /// so there is always a way back to cmux.
 nonisolated extension CmuxConfigSnapshot {
-    public static let showMenuBarIconPath = ["app", "showMenuBarIcon"]
-    /// On when unset or invalid.
-    public static let showMenuBarIconFallback = true
-
     /// `app.showMenuBarIcon`.
     public var showMenuBarIcon: Bool {
-        root.value(at: Self.showMenuBarIconPath)?.boolValue ?? Self.showMenuBarIconFallback
+        root.value(at: Self.showMenuBarIconPath)?.boolValue ?? Self.showMenuBarIconDefault
     }
 
     /// A diagnostic when `app.showMenuBarIcon` is set to something other than a bool.

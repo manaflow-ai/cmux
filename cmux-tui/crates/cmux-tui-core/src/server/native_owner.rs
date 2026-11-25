@@ -27,6 +27,8 @@ const COMMANDS: &[&str] = &[
     "new-conversation-tab",
     "set-client-info",
     "agent-session-start",
+    // The owner's refreshed model credential: owner-Cloud only in its handler.
+    "agent-session-credentials",
     "agent-session-trust",
     "agent-session-attach",
     "agent-session-events",
@@ -35,9 +37,30 @@ const COMMANDS: &[&str] = &[
     "agent-session-permission",
     "agent-session-detach",
     "agent-session-children",
+    "agent-session-fork",
+    "agent-session-side",
     "agent-session-media",
     "agent-session-typing",
     "agent-session-view",
+    "agent-session-context",
+    // A Cloud chat's held guest prompts and its share links: the owner decides and shares on
+    // their own machine (cloud multiplayer lane C). `-share-redeem` stays the room bridge's.
+    "agent-session-queue-approve",
+    "agent-session-queue-decline",
+    "agent-session-team-list",
+    "agent-session-of",
+    "agent-session-share-create",
+    "agent-session-share-list",
+    "agent-session-share-revoke",
+    "agent-session-share-kick",
+    "agent-session-share-room",
+    "agent-session-share-invite",
+    "agent-session-share-invite-chat",
+    "agent-session-share-uninvite",
+    "agent-session-share-request-approve",
+    "agent-session-share-request-decline",
+    // The owner's `/btw` on its Cloud chat (`agent-session-btw-v1`): owner-only in its handler.
+    "agent-session-btw",
     "agent-transfer-receive",
     "agent-transfer-write",
     "agent-transfer-finish",
@@ -50,6 +73,48 @@ const COMMANDS: &[&str] = &[
     "agent-inventory",
     "agent-inventory-refresh",
     "agent-inventory-watch",
+    // The app's terminal theme on connect (`set-default-colors`): the owner's own machine.
+    "set-default-colors",
+    // The owner's own terminals and layout (`cmux cloud ssh` opens a tab with new-tab, then types into
+    // it): the commands the app's terminal panes send. Host administration (shutdown-daemon,
+    // apps-*, remote-host-*, pairing, credentials) stays local only.
+    "new-tab",
+    "new-pane",
+    "new-pane-right",
+    "new-row",
+    "split",
+    "close-pane",
+    "close-surface",
+    "close-tabs",
+    "close-terminal",
+    "rename-surface",
+    "rename-workspace",
+    "rename-pane",
+    "set-split-ratio",
+    "set-divider-visible",
+    "set-viewport-pane-width",
+    // The values of `set-split-ratio` and `set-viewport-pane-width` as one change.
+    "set-layout-sizes",
+    "set-row-heights",
+    "undo-layout",
+    "zoom-pane",
+    "swap-pane",
+    "move-tab",
+    "set-tab-pinned",
+    "read-screen",
+    "read-scrollback",
+    "terminal-find",
+    "send-key",
+    "list-terminals",
+    "set-attach-visibility",
+    "restart-tab",
+    "clear-history",
+    "terminal-clipboard-reply",
+    "terminal-clipboard-subscribe",
+    // Shell mode of a chat on this machine (`shell_wire.rs`): the owner's `!` commands run here.
+    "shell-run",
+    "shell-read",
+    "shell-stop",
 ];
 
 const CAPABILITIES: &[&str] = &[
@@ -61,9 +126,21 @@ const CAPABILITIES: &[&str] = &[
     terminal_snapshot::TERMINAL_SNAPSHOT_CAPABILITY,
     terminal_snapshot::TERMINAL_SNAPSHOT_HISTORY_CAPABILITY,
     terminal_snapshot::TERMINAL_SNAPSHOT_LOCAL_HISTORY_CAPABILITY,
-    terminal_snapshot::TERMINAL_SNAPSHOT_IMAGES_CAPABILITY,
     WORKSPACE_REGISTRY_CAPABILITY,
+    // The rest of what the app requires (`DaemonCapability.required`): the commands behind them
+    // (`split`, `set-viewport-pane-width`, `undo-layout`) are in COMMANDS. A link that left them out
+    // read as a refused daemon, and the app updated the machine on every reconnect, also one already
+    // on its own build (2026-11-07: "started but its agent didn't (cmux-tui connection closed: EOF)").
+    VIEWPORT_SPLITS_CAPABILITY,
+    VIEWPORT_COLUMN_RESIZE_CAPABILITY,
+    LAYOUT_UNDO_CAPABILITY,
     LAYOUT_DELTA_CAPABILITY,
+    // `set-layout-sizes` is in COMMANDS. The app sends it only where identify lists this name;
+    // without it here a resize gesture's values go as single commands, each its own commit.
+    LAYOUT_SIZES_BATCH_CAPABILITY,
+    // Both ride commands this carrier already admits (`set-divider-visible`, `split`).
+    crate::mux::SPLIT_DIVIDER_VISIBILITY_CAPABILITY,
+    split_kind::SPLIT_AROUND_CAPABILITY,
     SESSION_IDENTITY_CAPABILITY,
     TERMINAL_ENV_CAPABILITY,
     TERMINAL_PLACEMENT_ENV_CAPABILITY,
@@ -71,24 +148,72 @@ const CAPABILITIES: &[&str] = &[
     crate::state::conversation_tabs_store::AGENT_SESSION_TABS_CAPABILITY,
     conversation_tabs_wire::CONVERSATION_TAB_TRANSACTION_CAPABILITY,
     "machine-identity-v1",
+    SCREEN_DEVICE_IDENTITY_CAPABILITY,
     AGENT_SESSION_ATTACH_CAPABILITY,
+    agent_session_attach::AGENT_SESSION_CONTENT_CAPABILITY,
     AGENT_SESSION_START_CAPABILITY,
+    // A start with no folder (`agent-session-start`, already admitted): the machine makes
+    // `~/chats/<id>`. Without it here the app refuses a no-folder start before sending it.
+    AGENT_SESSION_START_NO_CWD_CAPABILITY,
     AGENT_SESSION_TRUST_CAPABILITY,
     AGENT_SESSION_TRUST_VM_KIND_CAPABILITY,
     AGENT_SESSION_START_KEYED_REASON_CAPABILITY,
     AGENT_SESSION_START_VM_KIND_CAPABILITY,
     AGENT_SESSION_START_MODEL_CAPABILITY,
+    AGENT_SESSION_START_MODE_CAPABILITY,
     agent_session_attach::AGENT_SESSION_PRESENCE_CAPABILITY,
+    agent_session_attach::AGENT_SESSION_ATTENTION_CAPABILITY,
+    agent_session_attach::AGENT_SESSION_CONTEXT_CAPABILITY,
+    agent_session_attach::AGENT_SESSION_BTW_CAPABILITY,
+    agent_session_attach::AGENT_SESSION_PAGE_BYTES_CAPABILITY,
     agent_session_attach::agent_session_children::AGENT_SESSION_CHILDREN_CAPABILITY,
+    agent_session_attach::member::AGENT_SESSION_MEMBER_CAPABILITY,
+    agent_session_attach::member::AGENT_SESSION_STEER_CAPABILITY,
+    agent_session_attach::member::AGENT_SESSION_QUEUE_DECISION_CAPABILITY,
+    AGENT_SESSION_FORK_CAPABILITY,
+    agent_session_attach::AGENT_SESSION_SIDE_CAPABILITY,
     agent_transfer::AGENT_TRANSFER_CAPABILITY,
     agent_transfer::AGENT_TRANSFER_VM_KIND_CAPABILITY,
+    agent_transfer::AGENT_TRANSFER_CREDENTIALS_CAPABILITY,
+    agent_transfer::AGENT_TRANSFER_BUNDLE_FILE_CAPABILITIES[0],
+    agent_transfer::AGENT_TRANSFER_BUNDLE_FILE_CAPABILITIES[1],
     agent_inventory::CAPABILITY,
     agent_inventory::OWNER_CAPABILITY,
     agent_inventory::REFRESH_CAPABILITY,
     agent_inventory::watch::CAPABILITY,
     agent_inventory::watch::FENCED_CAPABILITY,
     agent_inventory::watch::ADMISSION_CAPABILITY,
+    // A Cloud chat's folder copy (`cmux link start-chat copy`, `seed push`, `sync push`) reaches
+    // the owner's own machine over this carrier. Its frames pass the entry's `FsGate` and the
+    // fs_wire principal check as on the classic entry; only the owner's Native dial may send them
+    // (`fs_wire::native_dial_admits`). Listed only while the host serves them (identify's own
+    // advertised set is filtered through this list), so a host without the file owner says so.
+    crate::fs_ops::FS_CAPABILITY,
+    crate::fs_ops::FS_SYMLINK_CAPABILITY,
+    crate::fs_ops::FS_WRITE_DEFLATE_CAPABILITY,
+    crate::fs_ops::FS_WRITE_NOFOLLOW_CAPABILITY,
+    crate::fs_ops::FS_READ_NOFOLLOW_CAPABILITY,
+    crate::git_seed::GIT_SEED_CAPABILITY,
+    crate::git_seed::GIT_SEED_EXPORT_CAPABILITY,
+    crate::git_seed::GIT_SEED_HOLD_CAPABILITY,
+    crate::git_seed::GIT_SEED_CARRY_CAPABILITY,
+    crate::blob_fetch::BLOB_FETCH_CAPABILITY,
+    // A projected folder on the owner's own machine: its stream dial passes
+    // `fs_wire::remote_dial_admits` for the owner's Native dial only.
+    crate::projection::PROJECTION_CAPABILITY,
+    crate::shell_runs::CAPABILITY,
 ];
+
+/// Whether identify on this carrier lists `capability` (tests read the policy through this).
+#[cfg(test)]
+pub(super) fn commands() -> &'static [&'static str] {
+    COMMANDS
+}
+
+#[cfg(test)]
+pub(super) fn carries(capability: &str) -> bool {
+    CAPABILITIES.contains(&capability)
+}
 
 pub(super) fn admits(frame: &str) -> bool {
     let Ok(Value::Object(fields)) = serde_json::from_str::<Value>(frame) else { return false };
@@ -148,6 +273,10 @@ pub(super) fn try_handle(
     {
         return Some(handle_request(mux, client, request, writer));
     }
+    if command == "agent-session-team-list" {
+        let data = agent_session_attach::member::team_list(mux, client);
+        return Some(writer.send_control(&json!({"id": id, "ok": true, "data": data})).is_ok());
+    }
     agent_session_attach::try_handle(mux, client, message, writer)
         .or_else(|| agent_transfer::try_handle(mux, client, message, writer))
         .or_else(|| agent_inventory::try_handle(mux, client, message, writer))
@@ -203,10 +332,50 @@ fn handshake(mux: &Arc<Mux>, client: u64, command: &str, fields: Value) -> anyho
 pub(super) fn raw_command(mux: &Mux, client: u64, command: &Command) -> bool {
     match command {
         Command::Subscribe { surface: None, .. }
-        | Command::ListWorkspaces
+        | Command::ListWorkspaces { .. }
         | Command::CreateWorkspace { .. }
-        | Command::CreateTerminal { .. } => true,
+        | Command::CreateTerminal { .. }
+        | Command::SetDefaultColors { .. }
+        | Command::NewTab { .. }
+        | Command::NewPane { .. }
+        | Command::NewPaneRight { .. }
+        | Command::NewRow { .. }
+        | Command::Split { .. }
+        | Command::ClosePane { .. }
+        | Command::CloseSurface { .. }
+        | Command::CloseTabs { .. }
+        | Command::CloseTerminal { .. }
+        | Command::RenameSurface { .. }
+        | Command::RenameWorkspace { .. }
+        | Command::RenamePane { .. }
+        | Command::SetSplitRatio { .. }
+        | Command::SetDividerVisible { .. }
+        | Command::SetViewportPaneWidth { .. }
+        | Command::SetLayoutSizes { .. }
+        | Command::SetRowHeights { .. }
+        | Command::UndoLayout { .. }
+        | Command::ZoomPane { .. }
+        | Command::SwapPane { .. }
+        | Command::MoveTab { .. }
+        | Command::SetTabPinned { .. }
+        | Command::ReadScreen { .. }
+        | Command::ReadScrollback { .. }
+        | Command::TerminalFind { .. }
+        | Command::SendKey { .. }
+        | Command::ListTerminals
+        | Command::SetAttachVisibility { .. }
+        | Command::RestartTab { .. }
+        | Command::ClearHistory { .. }
+        | Command::TerminalClipboardReply { .. }
+        | Command::TerminalClipboardSubscribe { .. }
+        | Command::ShellRun(_)
+        | Command::ShellRead(_)
+        | Command::ShellStop(_) => true,
         Command::NewConversationTab(params) => params.native_agent_tab(mux),
         _ => terminal::allows(mux, client, command),
     }
 }
+
+#[cfg(test)]
+#[path = "native_owner_fork_admission_tests.rs"]
+mod fork_admission_tests;

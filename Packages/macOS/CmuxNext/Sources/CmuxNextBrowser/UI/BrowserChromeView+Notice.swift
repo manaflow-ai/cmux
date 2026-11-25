@@ -63,6 +63,18 @@ extension BrowserChromeView {
     /// Places the floating page cards over the page area (or takes them
     /// off screen while this chrome is out of a window or hidden).
     func syncPageOverlays() {
+        // The cookie import card shows only while the tab shown has the keyboard; a chrome with no bound tab
+        // state (a single page) keeps it shown.
+        if let card = currentCookieImportCard {
+            let waits = boundState.map { !$0.hasKeyboard } ?? false
+            // Seen and then left: it goes, never to come back on refocus (``BrowserCookieImportCard/wasSeen``).
+            if waits, card.wasSeen {
+                hideCookieImportOffer()
+            } else {
+                card.waitsForFocus = waits
+                if !waits, card.isMeasured, !card.isHidden { card.wasSeen = true }
+            }
+        }
         pageOverlays.sync()
     }
 }

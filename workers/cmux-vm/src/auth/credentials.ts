@@ -57,7 +57,7 @@ const stackOrigin = (apiUrl: string): string => {
   return url.origin;
 };
 
-const isTokenRejection = (error: unknown): boolean =>
+export const isTokenRejection = (error: unknown): boolean =>
   error instanceof joseErrors.JWTExpired ||
   error instanceof joseErrors.JWTClaimValidationFailed ||
   error instanceof joseErrors.JWTInvalid ||
@@ -68,7 +68,7 @@ const isTokenRejection = (error: unknown): boolean =>
   error instanceof joseErrors.JWKSNoMatchingKey ||
   error instanceof joseErrors.JWKSMultipleMatchingKeys;
 
-const looksLikeCompactJws = (value: string): boolean => {
+export const looksLikeCompactJws = (value: string): boolean => {
   if (value.length < 20 || value.length > 8192) return false;
   const parts = value.split(".");
   return parts.length === 3 && parts.every((part) => part.length > 0);
@@ -93,11 +93,11 @@ const Jwk = Schema.Struct({
 const JwksDocument = Schema.Struct({ keys: Schema.mutable(Schema.Array(Jwk)) });
 
 /**
- * Stack's JWKS, cached as data (never as a pending promise): a Worker must
+ * A JWKS (Stack's, or GitHub Actions' for CI trust), cached as data (never as a pending promise): a Worker must
  * not await I/O that another request started. Each fetch happens inside the
  * request that needs it; an unknown `kid` refetches at most every 30 s.
  */
-function stackJwks(url: URL, send: (request: Request) => Promise<Response>): JWTVerifyGetKey {
+export function cachedJwks(url: URL, send: (request: Request) => Promise<Response>): JWTVerifyGetKey {
   let cached: { readonly verify: JWTVerifyGetKey; readonly fetchedAt: number } | undefined;
   const refresh = async (): Promise<JWTVerifyGetKey> => {
     const response = await send(new Request(url, { headers: { accept: "application/json" }, redirect: "manual", signal: AbortSignal.timeout(3000) }));
@@ -132,7 +132,7 @@ export function makeStackSessionVerifier(
   const origin = stackOrigin(config.apiUrl);
   const issuer = `${origin}/api/v1/projects/${config.projectId}`;
   const getKey =
-    config.getKey ?? stackJwks(new URL(`${issuer}/.well-known/jwks.json`), config.fetch ?? ((request) => fetch(request)));
+    config.getKey ?? cachedJwks(new URL(`${issuer}/.well-known/jwks.json`), config.fetch ?? ((request) => fetch(request)));
   const decodeUser = Schema.decodeUnknownOption(UserId);
 
   return {

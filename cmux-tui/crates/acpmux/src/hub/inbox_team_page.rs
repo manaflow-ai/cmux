@@ -1,6 +1,6 @@
 //! Part of `Hub`; see `hub/mod.rs`. A chat's inbox through the team mailbox's methods
-//! (`_acpmux/team/inbox`, `/read`, `/ack`), for its own agent while team messaging (Labs
-//! `meshRelay.teamMessaging`) is off (`server/team.rs` `chat_inbox`).
+//! (`_acpmux/team/inbox`, `/read`, `/ack`), for its own agent while team messaging
+//! (`meshRelay.teamMessaging`) is off (`server/team.rs` `chat_inbox`).
 //!
 //! An agent started before the inbox (#27686) has no `inbox_read` tool: its tools are fixed at
 //! its start, and a daemon update does not restart it. Told of its inbox, it reaches for
@@ -23,14 +23,14 @@
 use super::*;
 
 /// The note a page carries: what these messages are, and the tool that reads them.
-const NOTE: &str = "Team messaging is off in Labs: these are this chat's own inbox messages, \
+const NOTE: &str = "Team messaging is off on this daemon: these are this chat's own inbox messages, \
 whole. inbox_read reads a thread (its threadId), inbox_reply answers in it.";
 
 impl Hub {
     /// `_acpmux/team/inbox` of the chat's own agent: its inbox's messages, newest first, every
     /// one or only the unread ones. It marks none read.
     pub fn inbox_team_page(&self, session: &Session, unread_only: bool) -> Value {
-        let inbox = session.inbox.lock().unwrap_or_else(|e| e.into_inner());
+        let inbox = session.inbox();
         let messages: Vec<Value> = inbox
             .items
             .iter()
@@ -45,7 +45,7 @@ impl Hub {
     /// thread's id, the thread's messages joined (newest first) as one body.
     pub fn inbox_team_read(&self, session: &Session, id: &str) -> Result<Value, RpcError> {
         let (message, marked) = {
-            let mut inbox = session.inbox.lock().unwrap_or_else(|e| e.into_inner());
+            let mut inbox = session.inbox();
             if let Some(item) = inbox.items.iter_mut().find(|i| i.prompt_id == id) {
                 let marked = (!item.read).then(|| (item.thread.clone(), vec![id.to_owned()]));
                 item.read = true;
@@ -81,7 +81,7 @@ impl Hub {
     /// `_acpmux/team/ack` of the chat's own agent: message `id` read.
     pub fn inbox_team_ack(&self, session: &Session, id: &str) -> Result<Value, RpcError> {
         let marked = {
-            let mut inbox = session.inbox.lock().unwrap_or_else(|e| e.into_inner());
+            let mut inbox = session.inbox();
             let Some(item) = inbox.items.iter_mut().find(|i| i.prompt_id == id) else {
                 return Err(not_in_inbox(id));
             };
@@ -116,13 +116,17 @@ impl Hub {
 
     /// The `inbox_read` records of what a read or an ack marked read, one per thread.
     fn log_read(&self, session: &Session, marked: Vec<(String, Vec<String>)>) {
+        let any = !marked.is_empty();
         for (thread, ids) in marked {
             self.append(
                 session,
                 "mux",
-                "inbox_read",
+                super::super::surge_triage::READ_KIND,
                 json!({"threadId": thread, "promptIds": ids}),
             );
+        }
+        if any {
+            self.surge_after_read(session, None);
         }
     }
 }
@@ -173,7 +177,7 @@ pub(super) fn whole_notice(items: &[&Item]) -> String {
     for item in items {
         text.push_str(&format!(
             "\n\n--- From {} ({}, thread {}):\n{}",
-            item.from,
+            super::display_sender(&item.sender, &item.from),
             kind_of(item.class),
             item.thread,
             item.text

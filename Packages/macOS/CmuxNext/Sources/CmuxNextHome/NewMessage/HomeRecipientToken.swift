@@ -1,3 +1,5 @@
+public import CmuxNextHomeModel
+
 /// One token of New Message's To: field: what the person typed, and the
 /// recipient it stands for. A token with no recipient (a name nobody has,
 /// an address that does not parse) draws red, as in Messages, and blocks

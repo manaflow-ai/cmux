@@ -36,8 +36,8 @@ interface OwnerStub {
 }
 
 const ownerStub = (env: Env, owner: string, team: string): OwnerStub | undefined => {
-  if (owner === "cloud:SchedulerDO") return env.SCHEDULER_DO.get(env.SCHEDULER_DO.idFromName(team)) as unknown as OwnerStub
-  if (owner === "cloud:UsageMeterDO") return env.USAGE_METER_DO.get(env.USAGE_METER_DO.idFromName(team)) as unknown as OwnerStub
+  if (owner === "cloud:SchedulerDO") return env.SCHEDULER_DO.get(env.SCHEDULER_DO.idFromName(team))
+  if (owner === "cloud:UsageMeterDO") return env.USAGE_METER_DO.get(env.USAGE_METER_DO.idFromName(team))
   return undefined
 }
 

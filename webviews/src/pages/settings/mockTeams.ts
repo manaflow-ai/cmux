@@ -8,6 +8,7 @@ import type { AccountsButton, AccountsRun, AccountsTeamForm, AccountsTeamList, A
 type Role = "admin" | "member";
 type MockTeam = { id: string; name: string; role: Role; subscribed: boolean };
 type Form = { kind: "create" } | { kind: "rename" | "delete"; team: string };
+type MockInvitation = { id: string; teamId: string; team: string; invitedBy: string | null; email: string };
 
 const button = (id: string, title: string, disabled = false, destructive = false): AccountsButton => ({
   id,
@@ -31,6 +32,9 @@ export class MockTeams {
   form: Form | null = null;
   formError: string | null = null;
   notice: string | null = null;
+  /** Invitations addressed to you (none unless a test or gallery state sets them). */
+  received: MockInvitation[] = [];
+  receivedError: string | null = null;
   private created = 0;
 
   /** The state the host sends (`teamList`). */
@@ -44,6 +48,23 @@ export class MockTeams {
         this.teams.length === 0 ? "You are not in a team yet. Create one to share Cloud machines and settings." : null,
       create,
       notice: this.notice ? { kind: "success", text: this.notice } : null,
+      received:
+        this.received.length > 0 || this.receivedError
+          ? {
+              title: "Invitations to You",
+              rows: this.received.map((invitation) => ({
+                id: invitation.id,
+                team: invitation.team,
+                detail: invitation.invitedBy
+                  ? `${invitation.invitedBy} invited you as Member, sent to ${invitation.email}`
+                  : `As Member, sent to ${invitation.email}`,
+                expires: "Expires Nov 9, 2026",
+                accept: button("team.accept", "Join Team"),
+                decline: button("team.decline", "Decline"),
+              })),
+              error: this.receivedError,
+            }
+          : null,
     };
   }
 
@@ -76,9 +97,32 @@ export class MockTeams {
         return this.rename(run.team ?? "", run.name ?? "");
       case "confirmDelete":
         return this.delete(run.team ?? "");
+      case "accept":
+      case "decline":
+        return this.answer(gesture, run.team ?? "");
       default:
         return null;
     }
+  }
+
+  private answer(gesture: "accept" | "decline", id: string): string | null {
+    const invitation = this.received.find((candidate) => candidate.id === id);
+    if (!invitation) {
+      this.receivedError = "This invitation was already answered, withdrawn or has expired.";
+      return this.receivedError;
+    }
+    this.received = this.received.filter((candidate) => candidate.id !== id);
+    this.receivedError = null;
+    if (gesture === "decline") {
+      this.notice = `Declined the invitation to “${invitation.team}”.`;
+      return null;
+    }
+    if (!this.teams.some((candidate) => candidate.id === invitation.teamId)) {
+      this.teams = [...this.teams, { id: invitation.teamId, name: invitation.team, role: "member", subscribed: false }];
+    }
+    this.active = invitation.teamId;
+    this.notice = `You joined “${invitation.team}”. It is now your active team.`;
+    return null;
   }
 
   private fail(message: string): string {

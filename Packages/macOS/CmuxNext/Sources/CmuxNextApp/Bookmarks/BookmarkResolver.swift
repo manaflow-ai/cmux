@@ -42,9 +42,48 @@ struct BookmarkResolver {
         }
         if let node = tree.node(text) { return node }
         if let url = URL(string: text), url.scheme != nil, let node = tree.bookmarks(for: url).first { return node }
-        if let match = BookmarkRanker.matches(in: tree.bookmarks, for: text, now: Date(), limit: 1).first { return match.node }
-        if let folder = BookmarkSearch.results(tree, text: text).first { return folder }
+        throw Unresolved(text: text)
+    }
+
+    /// ``node(_:profile:)`` without the daemon's text match: unmatched text is not found.
+    func namedNode(_ invocation: ActionInvocation, profile: String) throws -> BookmarkNode {
+        do { return try node(invocation, profile: profile) } catch is Unresolved {
+            throw ActionFailure(message: BookmarkAppStrings.notFound)
+        }
+    }
+
+    /// Text that names no id or URL: the home daemon matches it (``matched(_:profile:)``).
+    struct Unresolved: Error {
+        var text: String
+    }
+
+    /// The bookmark the omnibar would rank first for `text`, else the first node (a folder
+    /// too) whose title or URL holds it, both on the home daemon (cmux-bookmarks-ops).
+    func matched(_ text: String, profile: String) async throws -> BookmarkNode {
+        let service = services.bookmarks
+        if let node = try await service.routed.rank(text, profile: profile, limit: 1).first { return node }
+        if let node = try await service.routed.search(text, profile: profile, limit: 1).first { return node }
         throw ActionFailure(message: BookmarkAppStrings.notFound)
+    }
+
+    /// Runs `body` on the invocation's bookmark: at once when an id, a target or a URL names it,
+    /// else after the daemon matched the text (tracked work, so the CLI waits for it).
+    func withNode(_ invocation: ActionInvocation, _ body: @escaping @MainActor (BookmarkNode, String) throws -> Void) throws {
+        let profile = profile(invocation)
+        do {
+            return try body(try node(invocation, profile: profile), profile)
+        } catch let unresolved as Unresolved {
+            services.registry.track(Task {
+                do {
+                    try body(try await matched(unresolved.text, profile: profile), profile)
+                    return nil
+                } catch let failure as ActionFailure {
+                    return ActionWorkFailure(failure.message)
+                } catch {
+                    return ActionWorkFailure(BookmarkAppStrings.failure(error))
+                }
+            })
+        }
     }
 
     /// The `folder` argument: `bar`, `other`, a folder id, or a folder title

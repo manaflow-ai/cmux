@@ -24,6 +24,8 @@ process left from the tag's bundle by exact PID.
 Usage: terminal-cmd-click-e2e.py --tag <tag> --app PATH [--file] [--captured] [--out DIR]
 """
 import argparse, glob, json, os, plistlib, re, signal, socket, subprocess, sys, tempfile, time
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from safe_log import safe_print  # noqa: E402  (a line before a kill never skips the kill)
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--tag", required=True)
@@ -153,12 +155,24 @@ def click_check(label, pane_key, ref, shell, prefix, opened):
         return
     rpc("debug.hangs", {"clear": True})
     rpc("debug.mouse", {"pane": pane_key, "action": "move", "modifiers": ["cmd"]})
-    time.sleep(0.3)  # test harness: hover reaches libghostty
+    # The hover reaches libghostty: the terminal reports a hovered link (debug.terminal.links).
+    tab = next((p.get("selected_tab") for p in panes() if p.get("pane") == pane_key), None)
+
+    def hovered():
+        state = rpc("debug.terminal.links", {"tab": tab})
+        if not isinstance(state, dict) or "error" in state:
+            return "unsupported"
+        return state.get("hovered")
+
+    if not wait(hovered, 5, step=0.05):
+        print(f"--- {label}: no hovered link reported before the click", flush=True)
+    elif hovered() == "unsupported":
+        time.sleep(0.3)  # sleep-ok: a build without debug.terminal.links has no hover readback; the old fixed wait
     sent = time.time()
     reply = rpc("debug.mouse", {"pane": pane_key, "action": "click", "modifiers": ["cmd"]})
     done = wait(opened, 10, step=0.05)
     elapsed = (time.time() - sent) * 1000
-    time.sleep(0.5)  # test harness: let the watchdog see the frames after the open
+    time.sleep(0.5)  # sleep-ok: a measurement window; the watchdog records stalls in the frames right after the open
     hangs = rpc("debug.hangs") or {}
     print(f"--- {label}: debug.mouse {json.dumps(reply)[:300]}", flush=True)
     print(f"debug.hangs {json.dumps({k: v for k, v in hangs.items() if k != 'records'})}", flush=True)
@@ -201,7 +215,7 @@ app = None
 
 
 def cleanup():
-    print("cleanup", flush=True)
+    safe_print("cleanup", flush=True)
     if os.environ.get("CMDCLICK_E2E_KEEP") or not LAUNCHED:
         return  # never another run's app (the fresh-tag guard exits before launching)
     rpc("action.run", {"action": "quitEndSessions"}, timeout=10)
@@ -217,7 +231,7 @@ def cleanup():
         for line in ps.splitlines():
             parts = line.split(None, 2)
             if len(parts) == 3 and parts[2].startswith(APP + "/") and int(parts[0]) != os.getpid():
-                print("leftover", line[:160], flush=True)
+                safe_print("leftover", line[:160], flush=True)
                 try:
                     os.kill(int(parts[0]), signal.SIGTERM)
                 except OSError:
@@ -265,8 +279,10 @@ def main():
             break
     if not wait(lambda: (focused_pane() or {}).get("kind") == "terminal", 30):
         print("panes:", json.dumps(panes())[:1500], flush=True)
-    time.sleep(2)  # test harness: shell prompt
     pane = focused_pane() or {}
+    # The shell prompt draws.
+    if pane.get("kind") == "terminal" and not wait(lambda: viewport(pane["pane"]).strip(), 20, step=0.1):
+        print("no shell prompt in the terminal", flush=True)
     if pane.get("kind") != "terminal" or not terminal:
         row("setup", "a focused terminal", f"focused={pane.get('kind')}", False)
         return

@@ -16,14 +16,31 @@ public struct ScreenPreferences: Codable, Hashable, Sendable {
     /// How touches drive the pointer: where the finger is (direct, the
     /// default) or a cursor moved like a laptop trackpad.
     public var inputMode = ScreenInputMode.direct
+    /// The trackpad under the screen is up (the default): dragging its notch
+    /// down tucks it away to a strip and gives the screen the room, dragging
+    /// it up brings it back. Remembered with the rest; landscape starts tucked away.
+    public var showTrackpad = true
+    /// Customize: the highest bitrate the stream may use, in kbit/s (nil: Auto, the host's own
+    /// cap). A cmux.rd host takes it as the offer's `a=cmux-rd-max-kbps`.
+    public var maxKbps: Int?
+    /// Customize: the stream shows the cursor (the default). Off, a cmux.rd host leaves it out
+    /// of the stream altogether (`a=cmux-rd-cursor:0`).
+    public var showCursorInStream = true
+
+    /// The bitrate caps the Customize menu offers, in kbit/s (nil is Auto).
+    public static let maxKbpsChoices: [Int?] = [nil, 2_000, 5_000, 10_000, 20_000]
 
     public init(localCursor: Bool = true, showStats: Bool = true, fitToDisplay: Bool = true, quality: ScreenQuality = .auto,
-                inputMode: ScreenInputMode = .direct) {
+                inputMode: ScreenInputMode = .direct, showTrackpad: Bool = true, maxKbps: Int? = nil,
+                showCursorInStream: Bool = true) {
         self.localCursor = localCursor
         self.showStats = showStats
         self.fitToDisplay = fitToDisplay
         self.quality = quality
         self.inputMode = inputMode
+        self.showTrackpad = showTrackpad
+        self.maxKbps = maxKbps
+        self.showCursorInStream = showCursorInStream
     }
 
     public init(from decoder: any Decoder) throws {
@@ -33,6 +50,9 @@ public struct ScreenPreferences: Codable, Hashable, Sendable {
         fitToDisplay = try container.decodeIfPresent(Bool.self, forKey: .fitToDisplay) ?? true
         quality = (try? container.decodeIfPresent(ScreenQuality.self, forKey: .quality)) ?? .auto
         inputMode = (try? container.decodeIfPresent(ScreenInputMode.self, forKey: .inputMode)) ?? .direct
+        showTrackpad = try container.decodeIfPresent(Bool.self, forKey: .showTrackpad) ?? true
+        maxKbps = try? container.decodeIfPresent(Int.self, forKey: .maxKbps)
+        showCursorInStream = try container.decodeIfPresent(Bool.self, forKey: .showCursorInStream) ?? true
     }
 }
 

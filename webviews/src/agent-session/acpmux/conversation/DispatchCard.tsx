@@ -4,13 +4,14 @@
 import { useId, useMemo } from "react";
 import type { AcpmuxActivity } from "../model";
 import { useFindReveal } from "./chatFind";
-import { ChevronRight, Envelope, Spinner, ToolGroup } from "./icons";
+import { ChevronRight, Envelope, ToolGroup } from "./icons";
 import { CopyButton } from "./CopyButton";
-import { useTranscriptDisclosure } from "./transcriptDisclosure";
-import { useT, type Translate } from "../i18n";
-import type { DispatchCall } from "./dispatchCalls";
-import { messagePreview } from "./AgentMessageRow";
+import { useTranscriptDisclosure } from "./transcriptDisclosureModel";
+import { useT } from "../i18n";
+import { dispatchDestination, type DispatchCall } from "./dispatchCalls";
+import { messagePreview } from "./agentMessageRowModel";
 import "./DispatchCard.css";
+import { lineLabel, briefAnchor } from "./dispatchCardModel";
 
 export function DispatchCard({ item, call }: { item: AcpmuxActivity; call: DispatchCall }) {
   const t = useT();
@@ -22,8 +23,7 @@ export function DispatchCard({ item, call }: { item: AcpmuxActivity; call: Dispa
   );
   const tool = item.tool;
   const running = call.status === "running" || tool?.status === "pending" || tool?.status === "in_progress";
-  const target = call.to ?? call.sessionId ?? call.host;
-  const destination = target && call.host && target !== call.host ? `${target} · ${call.host}` : target;
+  const destination = dispatchDestination(call);
   const preview = messagePreview(call.text ?? call.summary ?? "");
   const title = call.title ? `'${call.title}'` : preview ? `'${preview}'` : t("message.unknown");
   const line = lineLabel(t, call, title, destination);
@@ -57,15 +57,9 @@ export function DispatchCard({ item, call }: { item: AcpmuxActivity; call: Dispa
         aria-label={line}
         onClick={() => setOpen((value) => !value)}
       >
-        <span className="cv-tool__icon">
-          {running ? <Spinner size={16} /> : call.kind === "report" ? <Envelope /> : <ToolGroup />}
-        </span>
+        <span className="cv-tool__icon">{call.kind === "report" ? <Envelope /> : <ToolGroup />}</span>
         <span className="cv-tool__text">{line}</span>
-        <ChevronRight
-          size={14}
-          strokeWidth={1.2}
-          className={`cv-tool__chevron cv-rotor${open ? " is-open" : " is-hover"}`}
-        />
+        <ChevronRight size={14} className={`cv-tool__chevron cv-rotor${open ? " is-open" : " is-hover"}`} />
       </button>
       {call.kind === "report" && anchor && (
         <a
@@ -107,42 +101,4 @@ export function DispatchCard({ item, call }: { item: AcpmuxActivity; call: Dispa
       )}
     </div>
   );
-}
-
-export function lineLabel(t: Translate, call: DispatchCall, title: string, destination: string | undefined): string {
-  const target = destination ? ` → ${destination}` : "";
-  switch (call.kind) {
-    case "dispatch":
-      return t("message.sentTo", { to: `${title}${target}` });
-    case "steer":
-      return `${t("subsession.sent", { name: destination ?? t("message.unknown"), text: title })}${statusLabel(t, call.status)}`;
-    case "report":
-      return `${t("message.label", {
-        from: call.from ?? t("message.self"),
-        to: call.title ?? call.briefId ?? t("message.unknown"),
-      })}${statusLabel(t, call.status)}`;
-    case "briefs":
-      return t("tools.mcp.list", {
-        target: call.summary ?? (call.count === undefined ? t("message.unknown") : call.count),
-      });
-  }
-}
-
-function statusLabel(t: Translate, status: string | undefined): string {
-  if (!status) return "";
-  const label =
-    status === "running"
-      ? t("tools.runningUnnamed")
-      : status === "failed"
-        ? t("tools.failed")
-        : status === "merged"
-          ? t("summary.pr.merged")
-          : status === "reported" || status === "steered"
-            ? t("message.sent")
-            : "";
-  return label ? ` · ${label}` : "";
-}
-
-export function briefAnchor(id: string): string {
-  return `brief-${id.replace(/[^a-zA-Z0-9_-]/g, "-")}`;
 }

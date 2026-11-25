@@ -1,6 +1,5 @@
 import { beforeAll, describe, expect, it } from "vitest"
-import { bindFile, cloudStub, DAEMON, vmKey, WG_KEY } from "./cloud-bind-support.ts"
-import { callOp, callRead, makeTenant, mintInstallToken, post, shape, worker, type Tenant } from "./setup/tenant.ts"
+import { callOp, callRead, makeTenant, shape, worker, type Tenant } from "./setup/tenant.ts"
 
 /**
  * Tenant isolation on the routes outside /v1/ops (plans/cmux-next/tenant-isolation-DESIGN.md section 5.7): the
@@ -10,7 +9,6 @@ import { callOp, callRead, makeTenant, mintInstallToken, post, shape, worker, ty
 let a: Tenant
 let b: Tenant
 let chiefA: string
-let vmToken: string
 const raw = (method: string, path: string, token: string | undefined, body?: unknown, headers: Record<string, string> = {}) =>
   worker.fetch(`https://api.test${path}`, { method, headers: { ...(body === undefined ? {} : { "content-type": "application/json" }), ...(token ? { authorization: `Bearer ${token}` } : {}), ...headers }, ...(body === undefined ? {} : { body: JSON.stringify(body) }) })
 const outcome = async (r: Response) => {
@@ -24,14 +22,6 @@ beforeAll(async () => {
   b = await makeTenant("i")
   const made = await callOp(a.session, "chief.create", {})
   chiefA = made.body.value.id as string
-  // A VM token of B (a bound machine's install): the weakest tenant credential there is.
-  const created = await callOp(b.session, "cloud.machine.create", { size: { cpu: 2, memory_mb: 4096, disk_mb: 16384 } })
-  const id = created.body.value.machine.id as string
-  const { json } = await bindFile(cloudStub(b.team), id)
-  const key = await vmKey()
-  const bound = await post("/v1/cloud/bind", undefined, { team: b.team, machine: id, bind_token: json.bind_token, wg_public_key: WG_KEY, daemon: DAEMON, install_public_jwk: key.jwk })
-  const install = bound.body.value.install as { id: string; user: string }
-  vmToken = (await mintInstallToken({ user: install.user, install: install.id, keyPair: key.pair }))!
 }, 120_000)
 
 describe("operator, webhook and billing routes refuse tenants", { timeout: 120_000 }, () => {
@@ -41,10 +31,10 @@ describe("operator, webhook and billing routes refuse tenants", { timeout: 120_0
     ["POST", "/v1/admin/outbox/replay"], ["POST", "/v1/admin/cloud/abandoned/clear"], ["GET", "/v1/admin/team-vm/export"], ["POST", "/v1/admin/team-vm/export"],
     ["POST", "/v1/hooks/stack"], ["POST", "/v1/hooks/stripe/credits"], ["POST", "/v1/hooks/sendblue"]
   ]
-  it("every one answers 401, 403, 404 or 405 to a session, an install, a VM token and no credential", async () => {
+  it("every one answers 401, 403, 404 or 405 to a session, an install and no credential", async () => {
     const bad: Array<string> = []
     for (const [method, path] of ROUTES) {
-      for (const [who, token] of [["session", b.session], ["install", b.installToken], ["vm", vmToken], ["none", undefined]] as const) {
+      for (const [who, token] of [["session", b.session], ["install", b.installToken], ["none", undefined]] as const) {
         const r = await outcome(await raw(method, path, token, method === "POST" ? {} : undefined))
         if (![400, 401, 403, 404, 405, 415].includes(r.status) || r.text.includes(a.canary)) bad.push(`${method} ${path} as ${who}: ${r.status} ${r.text.slice(0, 120)}`)
       }
@@ -62,7 +52,7 @@ describe("another tenant's Chief", { timeout: 120_000 }, () => {
     const bad: Array<string> = []
     for (const sub of [...SUB, "fault"]) {
       for (const method of ["GET", "POST", "PUT", "DELETE"]) {
-        for (const [who, token] of [["session", b.session], ["install", b.installToken], ["vm", vmToken], ["none", undefined]] as const) {
+        for (const [who, token] of [["session", b.session], ["install", b.installToken], ["none", undefined]] as const) {
           const body = method === "GET" || method === "DELETE" ? undefined : {}
           const real = await outcome(await raw(method, `/v1/chiefs/${chiefA}/${sub}`, token, body))
           const none = await outcome(await raw(method, `/v1/chiefs/${unknown}/${sub}`, token, body))

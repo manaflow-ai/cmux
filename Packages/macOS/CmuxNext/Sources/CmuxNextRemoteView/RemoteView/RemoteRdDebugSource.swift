@@ -1,10 +1,9 @@
-#if DEBUG
 package import CmuxNextRemoteView
 package import Foundation
 package import CmuxNextCompat
 
-/// Development builds only (cx-wb5.75): the stream source, input sink and
-/// upstream control of a real rd desktop session, over a transport that is
+/// The stream source, input sink and upstream control of a real rd desktop
+/// session (cx-wb5.75; in Release only for a Cloud machine's desktop), over a transport that is
 /// replaced for each connection. A `RemoteRdStreamTransport` serves one
 /// session: after Stop, a hidden tab or a host end it cannot connect again,
 /// so Reconnect and a resumed tab get a new one (`replace`). The pane keeps
@@ -70,4 +69,3 @@ package final class RemoteRdDebugInputSink: RemoteViewInputSink {
 
     package func send(_ event: RemoteInputEvent) { source.transport.send(event) }
 }
-#endif

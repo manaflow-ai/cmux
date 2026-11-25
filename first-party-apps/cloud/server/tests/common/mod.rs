@@ -2,12 +2,14 @@
 //! come from the vectors fake (`wire_common`, `backend/catalog/cloud-vectors.json`)
 //! plus the link-test names below. It never touches a network.
 //!
-//! The link tests name their machines `vm-alpha01` and `vm-beta02`, which no
+//! The link tests name their machines `vm_alpha01` and `vm_beta02`, which no
 //! vector holds. Three names in [`FakeControlPlane::with`] serve them:
 //! `vm-get` (every `cloud.machine.get` answers a running machine of that id),
-//! `vm-list` (`cloud.machine.list {}` answers `vm-alpha01` running and
-//! `vm-beta02` paused) and `vm-resume` (every `cloud.machine.start` answers
-//! the machine running).
+//! `vm-list` (`cloud.machine.list {}` answers `vm_alpha01` running and
+//! `vm_beta02` paused) and `vm-resume` (every `cloud.machine.start` answers
+//! the machine running). `vm-start-not-paused` answers every start with
+//! `cloud.machine.not_paused` (state running): something else, such as
+//! inbound traffic, woke the machine first.
 
 #![allow(dead_code)]
 
@@ -28,6 +30,9 @@ pub struct FakeControlPlane {
     get_any: bool,
     list_two: bool,
     start_any: bool,
+    /// `vm-start-not-paused`: every `cloud.machine.start` answers
+    /// `cloud.machine.not_paused`, and the machine runs from then on.
+    start_not_paused: bool,
     /// `vm-get-unbound`: every `cloud.machine.get` answers a provisioning
     /// machine with no host yet.
     get_unbound: bool,
@@ -39,6 +44,8 @@ pub struct FakeControlPlane {
     vm_kind: Option<&'static str>,
     /// `connect_info` answers this error code instead (access ended).
     connect_info_error: Option<&'static str>,
+    /// `connect_info` never gets an answer: the host's relay to Cloud failed.
+    connect_info_unreachable: bool,
     connect_info_action: Option<Box<dyn FnOnce() + Send>>,
     /// The current host-reported team identity for auth status tests.
     session_team: Option<String>,
@@ -46,14 +53,34 @@ pub struct FakeControlPlane {
     session_action: Option<Box<dyn FnOnce() + Send>>,
     /// Machines `vm-resume` started.
     started: Vec<String>,
+    /// The machines whose carrier socket was asked for, in order.
+    pub carrier_asks: Vec<String>,
+    /// The app refuses the carrier ask with this `(code, message)`.
+    carrier_refusal: Option<(&'static str, &'static str)>,
+    /// Fault `http` (design remote-cloud-durability, F11): the next
+    /// `cloud.machine.start` calls answer these refusals, in order, before
+    /// the machine starts.
+    start_faults: std::collections::VecDeque<WireError>,
+    /// Every `cloud.machine.start` answers this refusal (a fault that never
+    /// clears).
+    start_fault_always: Option<WireError>,
+    /// The app's answer has this socket instead of [`carrier_socket_of`].
+    carrier_socket: Option<std::path::PathBuf>,
+}
+
+/// The Mac app's carrier socket of `machine` as the fake answers it.
+pub fn carrier_socket_of(machine: &str) -> std::path::PathBuf {
+    std::path::PathBuf::from(format!("/tmp/cmux-test/carrier-{machine}.sock"))
 }
 
 /// A link-test machine record (contract 1.2 shape).
 pub fn link_machine(id: &str, status: &str) -> Value {
-    json!({ "id": id, "team": "team_t0000000000000000001", "name": id, "status": status,
-        "size": { "cpu": 2, "memory_mb": 4096, "disk_mb": 16384 },
+    json!({ "id": id, "team": "team_t0000000000000000001", "creator": "user_u0000000000000000001",
+        "name": id, "status": status, "size": { "cpu": 2, "memory_mb": 4096, "disk_mb": 16384 },
+        "image": { "id": "img_i0000000000000000001", "daemon_version": "0.40.0" },
         "host": if status == "running" { json!(format!("host-{id}")) } else { Value::Null },
-        "classic": false, "revision": "1" })
+        "classic": false, "created_at": 1_790_000_001_000i64, "last_active_at": null,
+        "idle_policy": { "idle_seconds": 1800 }, "error": null, "revision": "1" })
 }
 
 /// A `cloud.machine.connect_info` answer (contract 1.7) for a bound,
@@ -76,21 +103,29 @@ impl FakeControlPlane {
             get_any: false,
             list_two: false,
             start_any: false,
+            start_not_paused: false,
             get_unbound: false,
             connect_info: None,
             vm_kind: None,
             connect_info_error: None,
+            connect_info_unreachable: false,
             connect_info_action: None,
             session_team: None,
             session_unavailable: false,
             session_action: None,
             started: Vec::new(),
+            carrier_asks: Vec::new(),
+            carrier_refusal: None,
+            carrier_socket: None,
+            start_faults: std::collections::VecDeque::new(),
+            start_fault_always: None,
         };
         for name in names {
             match *name {
                 "vm-get" => fake.get_any = true,
                 "vm-list" => fake.list_two = true,
                 "vm-resume" => fake.start_any = true,
+                "vm-start-not-paused" => fake.start_not_paused = true,
                 "vm-get-unbound" => fake.get_unbound = true,
                 "connect-info-nofs" => fake.connect_info = Some(false),
                 "connect-info-fs" => fake.connect_info = Some(true),
@@ -132,6 +167,48 @@ impl FakeControlPlane {
         self.connect_info_error = Some(code);
     }
 
+    /// While `down`, `connect_info` calls get no answer: the host's relay to
+    /// Cloud is down (`RelayError::Unavailable`, `cmux.cloud.relay_unavailable`),
+    /// the way a transient owner read fails.
+    pub fn set_connect_info_relay_down(&mut self, down: bool) {
+        self.connect_info_unreachable = down;
+    }
+
+    /// `vm-get-unbound` ends: the machine is bound and runs from now on
+    /// (every get and `connect_info` answers it running).
+    pub fn bind_now(&mut self) {
+        self.get_unbound = false;
+        self.get_any = true;
+    }
+
+    /// Later carrier asks are refused by the app with `code` (a `cmux
+    /// carrier` step, `cloud.machine.not_found` or `unavailable`).
+    pub fn refuse_carrier(&mut self, code: &'static str, message: &'static str) {
+        self.carrier_refusal = Some((code, message));
+    }
+
+    /// Later carrier asks answer `socket` (a real listener in a test).
+    pub fn set_carrier_socket(&mut self, socket: std::path::PathBuf) {
+        self.carrier_socket = Some(socket);
+    }
+
+    /// Fault `http`: the next `cloud.machine.start` calls answer `faults`, one
+    /// each, in order; the fault then clears.
+    pub fn fault_start(&mut self, faults: impl IntoIterator<Item = WireError>) {
+        self.start_faults.extend(faults);
+    }
+
+    /// Fault `http` that never clears: every `cloud.machine.start` answers
+    /// `fault`.
+    pub fn fault_start_always(&mut self, fault: WireError) {
+        self.start_fault_always = Some(fault);
+    }
+
+    /// The `cloud.machine.start` calls that reached the backend, in order.
+    pub fn starts(&self) -> Vec<WireCall> {
+        self.wire.calls.iter().filter(|c| c.op == "cloud.machine.start").cloned().collect()
+    }
+
     /// True when nothing reached the backend.
     pub fn no_calls(&self) -> bool {
         self.wire.calls.is_empty()
@@ -145,7 +222,7 @@ impl FakeControlPlane {
     /// The link-test answer for a call no vector holds. `connect_info`
     /// answers every link-test machine (bound, no capabilities) unless a
     /// `connect-info-*` name sets its capabilities; `vm-get-unbound` makes it
-    /// `cloud.machine.not_bound`; `vm-beta02` of `vm-list` is paused until a
+    /// `cloud.machine.not_bound`; `vm_beta02` of `vm-list` is paused until a
     /// start.
     fn link_answer(&mut self, call: &WireCall) -> Option<WireReply> {
         let machine = call.params.get("machine").and_then(Value::as_str);
@@ -177,12 +254,25 @@ impl FakeControlPlane {
                 if let Some(kind) = self.vm_kind {
                     info["vm_kind"] = json!(kind);
                 }
-                if self.list_two && id == "vm-beta02" && !self.started.iter().any(|s| s == id) {
+                if self.list_two && id == "vm_beta02" && !self.started.iter().any(|s| s == id) {
                     info["state"] = json!("paused");
                 }
                 info
             }
+            ("cloud.machine.get", Some(id)) if self.list_two && id == "vm_beta02" => link_machine(
+                id,
+                if self.started.iter().any(|s| s == id) { "running" } else { "paused" },
+            ),
             ("cloud.machine.get", Some(id)) if self.get_any => link_machine(id, "running"),
+            ("cloud.machine.start", Some(id)) if self.start_not_paused => {
+                self.started.push(id.to_owned());
+                return Some(WireReply::Error(WireError {
+                    code: "cloud.machine.not_paused".into(),
+                    message: "only a paused machine can be started".into(),
+                    details: Some(json!({ "machine": id, "state": "running" })),
+                    retryable: false,
+                }));
+            }
             ("cloud.machine.start", Some(id)) if self.start_any => {
                 self.started.push(id.to_owned());
                 let mut running = link_machine(id, "running");
@@ -190,12 +280,17 @@ impl FakeControlPlane {
                 json!({ "machine": running })
             }
             ("cloud.machine.list", None) if self.list_two && call.params == json!({}) => {
-                json!({ "machines": [link_machine("vm-alpha01", "running"),
-                    link_machine("vm-beta02", "paused")], "next_cursor": null, "revision": "1" })
+                json!({ "machines": [link_machine("vm_alpha01", "running"),
+                    link_machine("vm_beta02", "paused")], "next_cursor": null, "revision": "1" })
             }
             _ => return None,
         };
-        Some(WireReply::Result(WireResult { value, revision: Some("1".into()), replayed: false }))
+        let revision = if call.op == "cloud.machine.start" { "2" } else { "1" };
+        Some(WireReply::Result(WireResult {
+            value,
+            revision: Some(revision.into()),
+            replayed: false,
+        }))
     }
 }
 
@@ -205,6 +300,18 @@ impl ControlPlane for FakeControlPlane {
             && let Some(action) = self.connect_info_action.take()
         {
             action();
+        }
+        if call.op == "cloud.machine.connect_info" && self.connect_info_unreachable {
+            self.wire.calls.push(call.clone());
+            return Err(RelayError::Unavailable("the relay to cmux Cloud did not answer".into()));
+        }
+        if self.wire.signed_in
+            && call.op == "cloud.machine.start"
+            && let Some(fault) =
+                self.start_faults.pop_front().or_else(|| self.start_fault_always.clone())
+        {
+            self.wire.calls.push(call.clone());
+            return Ok(WireReply::Error(fault));
         }
         // The link-test names answer first: `vm-list` replaces the vectors'
         // `list {}` for the tests that name it.
@@ -229,5 +336,28 @@ impl ControlPlane for FakeControlPlane {
             status.team = self.session_team.clone();
         }
         Ok(status)
+    }
+
+    /// The Mac app's `credential.carrier_socket`: `{"socket"}` for a
+    /// signed-in host, never a credential.
+    fn carrier_socket(&mut self, machine: &str) -> Result<WireReply, RelayError> {
+        self.carrier_asks.push(machine.to_owned());
+        if !self.wire.signed_in {
+            return Err(RelayError::NotSignedIn);
+        }
+        if let Some((code, message)) = self.carrier_refusal {
+            return Ok(WireReply::Error(WireError {
+                code: code.into(),
+                message: message.into(),
+                details: None,
+                retryable: false,
+            }));
+        }
+        let socket = self.carrier_socket.clone().unwrap_or_else(|| carrier_socket_of(machine));
+        Ok(WireReply::Result(WireResult {
+            value: json!({ "socket": socket }),
+            revision: None,
+            replayed: false,
+        }))
     }
 }

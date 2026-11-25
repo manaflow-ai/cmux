@@ -3,13 +3,17 @@
 // dim. A pointer over a dot shows its name over it; a pick shows the picked name for a moment, then
 // fades it. Keyboard focus keeps the name visible until blur. Native radios carry the names and fill each dot's
 // hit target, larger than the dot. The row never changes size or place, so nothing shifts. The
-// composer's look dots (newtab/PageDots.tsx, LookSwitch.tsx; Leo 2026-10-22) are the same dots
-// (DotSwitch) over other options.
+// accent dot is the shared sliding indicator (ui/motion,
+// useSlidingIndicator): placed with no motion in its first frame, it slides on transform over the
+// scale's standard step (180 ms) on a pick, from where it is drawn if a pick interrupts a slide, and
+// is placed at once with Reduce Motion, motion off or a hidden page.
 import { useEffect, useId, useLayoutEffect, useRef, useState } from "react";
 import { ChoiceGroup } from "../../../ui/ChoiceGroup";
-import { FOCUS_LOCATION_EVENT } from "../NewTabPage";
+import { type IndicatorTravel, useSlidingIndicator } from "../../../ui/motion/SlidingIndicator";
+import { FOCUS_LOCATION_EVENT } from "../newTabModel";
 import { useNt } from "./strings";
 import { PAGE_STYLES, type PageStyle } from "./templates";
+import { focusRingShown } from "../../../ui/focusModality";
 
 /// How long a pick's name stays before it fades.
 const PICKED_NAME_MS = 1100;
@@ -38,7 +42,7 @@ export function StyleSwitch({
   );
 }
 
-/// The dots over any options: the page's styles (StyleSwitch), or its and a chat's composer looks.
+/// The dots for picking among page styles.
 export function DotSwitch<Option extends string>({
   options,
   current,
@@ -46,10 +50,10 @@ export function DotSwitch<Option extends string>({
   name,
   radioName,
   className = "nt-style",
-  nameAside = false,
   onPick,
   onCancel,
-  onPointerPick = () => onCancel(),
+  onPointerPick,
+  travel = "ease",
 }: {
   options: readonly Option[];
   current: Option;
@@ -60,13 +64,14 @@ export function DotSwitch<Option extends string>({
   /// The radios' group name; unset, one of the switch's own.
   radioName?: string;
   className?: string;
-  /// The name shows after the row, not over the dot (a chat's bottom area has no room over it).
-  nameAside?: boolean;
   onPick(option: Option): void;
   /// Escape or Return in the group.
   onCancel(): void;
   /// After a pick by the pointer, in the dots' window: back to the field (unset, as onCancel).
   onPointerPick?(view: Window & typeof globalThis): void;
+  /// How the accent dot travels to a pick: the scale's ease-out over 180 ms (the spec), the spring,
+  /// or not at all (gallery variants).
+  travel?: IndicatorTravel;
 }) {
   const ownName = useId();
   const group = useRef<HTMLDivElement>(null);
@@ -74,8 +79,6 @@ export function DotSwitch<Option extends string>({
   const label = useRef<HTMLSpanElement>(null);
   // A pointer pressed a dot and no key has gone down since: the next pick is the pointer's.
   const pressed = useRef(false);
-  // The mark slides only after its first placement, so the page never opens with a slide.
-  const [settled, setSettled] = useState(false);
   // The dot whose name shows: pointer hover, keyboard focus, then a recent pick.
   const [hovered, setHovered] = useState<Option | undefined>();
   const [picked, setPicked] = useState<Option | undefined>();
@@ -91,30 +94,19 @@ export function DotSwitch<Option extends string>({
     return () => clearTimeout(timer);
   }, [picked]);
 
-  useLayoutEffect(() => {
-    const option = group.current?.querySelector<HTMLElement>(`[data-style="${current}"]`);
-    if (!option || !mark.current) return;
-    mark.current.style.transform = `translateX(${option.offsetLeft}px)`;
-    const view = option.ownerDocument.defaultView;
-    if (settled || !view) return;
-    const frame = view.requestAnimationFrame(() => setSettled(true));
-    return () => view.cancelAnimationFrame(frame);
-  }, [current, settled]);
+  // The accent dot sits on the current dot (its label carries data-selected) and slides to a pick.
+  useSlidingIndicator(mark, { selected: current, travel });
 
   useLayoutEffect(() => {
     const option = shown && group.current?.querySelector<HTMLElement>(`[data-style="${shown}"]`);
-    if (option && label.current)
-      label.current.style.left = nameAside
-        ? `${group.current!.offsetWidth}px`
-        : `${option.offsetLeft + option.offsetWidth / 2}px`;
-  }, [shown, nameAside]);
+    if (option && label.current) label.current.style.left = `${option.offsetLeft + option.offsetWidth / 2}px`;
+  }, [shown]);
 
   return (
     <ChoiceGroup label={groupLabel} className={className} onSubmit={onCancel} onCancel={onCancel}>
       <div
         ref={group}
         className="nt-style-options"
-        data-settled={settled ? "" : undefined}
         onPointerOut={(event) => {
           if (!event.currentTarget.contains(event.relatedTarget as Node | null)) setHovered(undefined);
         }}
@@ -128,6 +120,7 @@ export function DotSwitch<Option extends string>({
             key={style}
             className="nt-style-option"
             data-style={style}
+            data-selected={style === current ? "" : undefined}
             onPointerOver={() => setHovered(style)}
             onPointerDown={() => {
               pressed.current = true;
@@ -142,7 +135,7 @@ export function DotSwitch<Option extends string>({
               aria-label={name(style)}
               checked={style === current}
               onFocus={(event) => {
-                if (event.currentTarget.matches(":focus-visible")) {
+                if (focusRingShown(event.currentTarget)) {
                   setFocused(style);
                   setHovered(undefined);
                 }
@@ -173,7 +166,9 @@ export function DotSwitch<Option extends string>({
                 // from Classic) has focused its field: arrow keys keep moving through the styles; a
                 // click goes back to the field.
                 const view = input.ownerDocument.defaultView;
-                view?.requestAnimationFrame(() => (fromKeys ? input.focus() : onPointerPick(view)));
+                view?.requestAnimationFrame(() =>
+                  fromKeys ? input.focus() : onPointerPick ? onPointerPick(view) : onCancel(),
+                );
               }}
             />
           </label>

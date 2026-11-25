@@ -1,5 +1,5 @@
 import CmuxHomeCore
-import CmuxNextHome
+import CmuxNextHomeModel
 @testable import CmuxNextHomeEngine
 import Foundation
 import Testing

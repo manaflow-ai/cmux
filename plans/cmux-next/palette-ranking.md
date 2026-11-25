@@ -6,7 +6,7 @@ Status: design and landing log, bead cx-9ce.27, 2026-10-08. Lawrence: "cmd shift
 
 The root page (`PaletteController+Pages.swift` `commandsPage()`) has these providers: catalog actions (846 palette-offered, `RegistryPaletteProvider`, keywords = descriptor keywords + the action id), workspaces, tabs, settings rows, app rows, and scope rows (typing only). Workspaces, tabs, settings and apps appear only when the user types. There are no file, chat, bookmark or history rows in the root.
 
-Ranking runs once, in `webviews/src/palette/ranker.ts`, through JavaScriptCore (`PaletteRankerBridge`), for the app, the web palette and the headless `palette.query` socket verb (agents, scripts). Score = per-token fuzzy score over title (weight 100), keywords (80), subtitle (65), accessory (50), plus a phrase bonus, minus a length penalty, plus `rankBias`, plus a frecency boost (at most 60), plus 500 when the title is the whole query, minus 1000 when the row is disabled.
+Ranking runs once, in the Rust crate `cmux-tui/crates/cmux-palette-ranker`: the app calls it over its C ABI (`PaletteRankerBridge`), for the app palette and the headless `palette.query` socket verb (agents, scripts), and web pages call it through the daemon's `palette.rank`. Score = per-token fuzzy score over title (weight 100), keywords (80), subtitle (65), accessory (50), plus a phrase bonus, minus a length penalty, plus `rankBias`, plus a frecency boost (at most 60), plus 500 when the title is the whole query, minus 1000 when the row is disabled.
 
 Usage history (`FrecencyStore`: +1 per use, half-life 3 days, 500 keys) is recorded only for rows run from the palette, and persists in UserDefaults of the app bundle.
 
@@ -23,9 +23,9 @@ Usage history (`FrecencyStore`: +1 per use, half-life 3 days, 500 keys) is recor
 
 ## 3. Eval set (measured, not guessed)
 
-- Fixture: `webviews/test/fixtures/palette-eval/root-entries.json`, the exact ranker input of a tagged build's root page, written by `debug.palette.entries` (DEBUG socket verb) through `scripts/cmux-next/palette-eval-live.py`. `overlay.json` adds the workspace and tab rows a real session has (fresh builds have one workspace), in the providers' shape.
-- Cases: `cases.json`, 111 queries with expected rows (any listed id is correct; the first is the best): exact titles, partial words, concepts and synonyms, acronyms, typos, workspaces and tabs, Lawrence's real usage profile (aggregated read-only from the frecency keys of his dogfood builds; action ids only), and the empty query.
-- Metrics: top-1 rate, top-3 rate and MRR over the rows in display order (sections flattened as shown). `bun scripts/palette-eval.ts` prints the report and every miss; `--live FILE` scores rows a real build returned through `palette.query`. `webviews/test/palette-eval.test.ts` fails when a metric drops below the recorded floor, so every ranking change reports before and after numbers.
+- Fixture: `cmux-tui/crates/cmux-palette-eval/tests/eval/root-entries.json`, the exact ranker input of a tagged build's root page, written by `debug.palette.entries` (DEBUG socket verb) through `scripts/cmux-next/palette-eval-live.py`. `overlay.json` adds the workspace and tab rows a real session has (fresh builds have one workspace), in the providers' shape.
+- Cases: `cases.json`, 169 queries with expected rows (any listed id is correct; the first is the best): exact titles, partial words, concepts and synonyms, acronyms, typos, workspaces and tabs, Lawrence's real usage profile (aggregated read-only from the frecency keys of his dogfood builds; action ids only), and the empty query.
+- Metrics: top-1 rate, top-3 rate and MRR over the rows in display order (sections flattened as shown). `cargo run -p cmux-palette-eval --example eval` (in cmux-tui) prints the report and every miss; `-- --live FILE` scores rows a real build returned through `palette.query`. `cmux-palette-eval/tests/eval.rs` fails when a metric drops below the recorded floor, so every ranking change reports before and after numbers.
 
 ## 4. Research summary
 
@@ -37,7 +37,7 @@ Usage history (`FrecencyStore`: +1 per use, half-life 3 days, 500 keys) is recor
 
 ## 5. Design
 
-One scorer, match class first (`matchTier` in ranker.ts; 1000 points per unit, so nothing else crosses a class):
+One scorer, match class first (`tier.rs` in cmux-palette-ranker; 1000 points per unit, so nothing else crosses a class):
 
 | tier | match |
 | --- | --- |
@@ -68,15 +68,17 @@ Lawrence 2026-10-09: "think from first principles how raycast does sorting/order
 - Frecency: +1 per run, half-life 3 days, a capped boost inside a match class.
 - Recent (empty query): the most used rows of any kind (an action, a workspace, a tab, a setting), up to 5, then the categories. A row that matches only behind a query prefix never shows in Recent.
 - Row controls (local, in the daemon's history): a row's Actions offer Hide from Palette (a hidden row is gone from Recent and every match except a query that is its whole title, whose Actions then offer Show in Palette) and Reset Ranking (forgets the row's uses and learned picks). Ops `palette_usage.hide {key, hidden}` and `palette_usage.forget {key}`.
+- Sidebar place (Go to Workspace, Cmd-P; Lawrence 2026-11-05: "account for how far up the sidebar something is, but also based on history"): a workspace row's `rankBias` gains `PaletteSidebarPrior.bias(rank:)`, 16 points for the sidebar's top row, halving every 6 rows; a pane, tab or group row gets its workspace's (a group: its first workspace's). It stays below one fresh use's frecency boost (18), so history outranks place, and a learned pick lifts over both; it never crosses a match class. The empty Cmd-P lists the workspaces in sidebar order.
+- Memory switch and clear: cmux.json `palette.searchHistory` (default on; agents refused, privacy) turns recording and history ranking off (hidden rows stay hidden). `palette.clearSearchHistory` (palette, the General Settings button, `cmux settings clear-palette-history`) forgets every use and learned pick: the mirror empties at once and the daemon gets one `palette_usage.forget` per row it held. A local history (an older daemon, tests) learns and saves picks with the daemon's rules (`FrecencyStore.recordPick`).
 - Next: Suggested on the empty query, aliases and pins (cmux.json), and a 30-day frequency half-life beside the 3-day one.
 
-The eval has learning cases (cases.json `replay`: a sequence of runs, then a query) with a 100% floor; `replayHistory` in eval.ts models the daemon's record for the eval.
+The eval has learning cases (cases.json `replay`: a sequence of runs, then a query) with a 100% floor; `replay_history` in `cmux-palette-eval/tests/support/eval.rs` models the daemon's record for the eval.
 
 ### 5.3 Ownership
 
-- The scorer is a product rule and lives once, in `webviews/src/palette/ranker.ts`, which the app (JavaScriptCore), the web palette and `palette.query` (app, CLI, agents, scripts) all call. The candidate rows are assembled by the Swift app from the catalog data file, the daemon mirror (workspaces, tabs), the settings schema and apps, so the ranker sits with that assembly. Moving it into the daemon would mean sending every candidate row to the daemon per keystroke; not worth it while the candidates are app-side.
+- The scorer is a product rule and lives once, in `cmux-tui/crates/cmux-palette-ranker`, which the app (C ABI), web pages (the daemon's `palette.rank`) and `palette.query` (app, CLI, agents, scripts) all call. The TypeScript ranker it was ported from was deleted on 2026-11-06: on the crate's 402-request corpus the Rust ranker answered identically in 139 µs median and 461 µs p95 per request, against 492 µs and 2183 µs for the TypeScript ranker on JavaScriptCore. The candidate rows are assembled by the Swift app from the catalog data file, the daemon mirror (workspaces, tabs), the settings schema and apps, so the app ranks them in process. Moving app ranking into the daemon would mean sending every candidate row to the daemon per keystroke; not worth it while the candidates are app-side.
 - The Swift fuzzy matcher (`CmuxNextActions/Fuzzy*`, the uncalled `ActionRegistry.search` and the unused `FuzzyCorpus` in `PaletteSearchIndex`) is deleted (manaflow-ai/cmuxterm-hq#1850 candidate 5). The shared ranker scores every palette page; only the Cmd-K Actions menu filters its few commands in Swift, by word subsequence (`PaletteActionsMenuState.visibleCommands`).
-- Usage history and learned picks are durable per-user state, owned by the daemon (`palette-usage-v1`: `palette_usage.get`, `.record {key, query}`, `.import {source, entries}`; cmux-tui-core state/palette_usage*.rs). One writer, stamped with the daemon's clock, bounded (500 rows, 512 starts x 8 picks, faded entries forgotten), local to the Mac: events carry only the revision, MCP and the CLI do not offer the ops, and `palette_usage:*` are restricted app scopes. The app keeps a read mirror (`DaemonPaletteUsageStore`) and sends runs; the ranking rules stay in ranker.ts. On first connect the app imports every former per-build UserDefaults history on this Mac once per source (the daemon remembers the sources). Each tagged build runs its own daemon session, so a new dogfood tag starts from that import; the release app has one history for every client. An older daemon without the capability keeps the former local history (no picks).
+- Usage history and learned picks are durable per-user state, owned by the daemon (`palette-usage-v1`: `palette_usage.get`, `.record {key, query}`, `.import {source, entries}`; cmux-tui-core state/palette_usage*.rs). One writer, stamped with the daemon's clock, bounded (500 rows, 512 starts x 8 picks, faded entries forgotten), local to the Mac: events carry only the revision, MCP and the CLI do not offer the ops, and `palette_usage:*` are restricted app scopes. The app keeps a read mirror (`DaemonPaletteUsageStore`) and sends runs; the ranking rules stay in cmux-palette-ranker. On first connect the app imports every former per-build UserDefaults history on this Mac once per source (the daemon remembers the sources). Each tagged build runs its own daemon session, so a new dogfood tag starts from that import; the release app has one history for every client. An older daemon without the capability keeps the former local history (no picks).
 - Pins, hidden rows and aliases are user settings (cmux.json, the config actor), FREEZE settings paths, landed with a token in a later step.
 
 ### 5.4 Tiers and families (the palette audit, 2026-10-20)
@@ -91,7 +93,7 @@ Leo 2026-10-20: keep the useful commands, push the rest down, consolidate; nothi
 
 ## 6. Landings
 
-Eval: `bun scripts/palette-eval.ts` in webviews (fixture), and the same cases against a live tagged build (`--live`). The "before" row is the ranker at the fork point on the original dump.
+Eval: `cargo run -p cmux-palette-eval --example eval` in cmux-tui (fixture), and the same cases against a live tagged build (`--live`). The "before" row is the ranker at the fork point on the original dump.
 
 | step | what | top-1 | top-3 | MRR |
 | --- | --- | --- | --- | --- |

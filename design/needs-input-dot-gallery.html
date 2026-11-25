@@ -1,0 +1,157 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8"><title>Needs-input dot: sidebar and tab, four looks</title>
+<style>
+body{margin:0;padding:24px;background:#141416;color:#ececf0;font:13px/1.45 -apple-system,BlinkMacSystemFont,sans-serif}
+h1{font-size:18px;margin:0 0 4px} p.lead{color:#9a9aa2;max-width:820px} h2{font-size:14px;margin:22px 0 8px} .mode{color:#9a9aa2;font-weight:400}
+.grid{display:grid;grid-template-columns:repeat(4,minmax(220px,1fr));gap:14px}
+.var{border:1px solid #2a2a2e;border-radius:10px;padding:10px;background:#1b1b1e} .var.rec{border-color:#5e8bff;box-shadow:0 0 0 1px #5e8bff55}
+.vh{margin-bottom:6px} .side{border-radius:8px;padding:6px}
+.row,.tab{display:flex;align-items:center;justify-content:space-between;height:28px;padding:0 10px;border-radius:8px;font-size:13px}
+.tab{margin-top:8px;border-radius:7px;height:26px;gap:8px} .tab .dot{margin-left:auto} .x{opacity:.6;font-size:11px}
+.dot{width:8px;height:8px;border-radius:50%;display:inline-block;flex:none}
+.meta{color:#9a9aa2;font-size:11px;margin-top:6px} code{font:11px ui-monospace,Menlo,monospace;color:#c9c9d1}
+</style></head><body>
+<h1>Needs input: one yellow dot for the sidebar and the tab strip</h1>
+<p class="lead">Leo, 2026-11-05: "What if we try that yellow dot thing that we currently have in the horizontal tab and put that in the sidebar?" Each card draws a sidebar row, a selected row and a tab in a real Ghostty theme (colours from <code>Resources/ghostty/themes</code>, contrast computed like <code>ThemeTokens.statusDot</code>; selection and pressed fills approximated as the foreground at 10%/14% dark, 8%/11% light). Dot diameter is <code>SidebarStyle.statusDotSize</code> (8 pt). Picked: <b>B</b>.</p>
+<ul><li><b>A</b> systemOrange hue at 3:1 (Palette.statusAttention before this change). The tab drew a different colour.</li><li><b>B</b> ThemeTokens.attention (the tab&#x27;s bright dot) moved only as far as 3:1 on bare, selected and pressed rows. Tab and sidebar read one token.</li><li><b>C</b> systemYellow hue at 3:1 in every theme, ignoring the theme&#x27;s own yellow. Tab would change too.</li><li><b>D</b> The picked yellow with an 18% ring, like the chat&#x27;s needs-you dot.</li></ul>
+<section><h2>Ghostty Default Style Dark <span class="mode">dark</span></h2><div class="grid"><div class="var"><div class="vh"><b>A</b> Before: sidebar today</div>
+<div class="side" style="background:#282c34;color:#ffffff">
+<div class="row">Fix login flow <span class="dot" style="background:#ff9f0a;"></span></div>
+<div class="row" style="background:#3e4148">Ship sidebar dot <span class="dot" style="background:#ff9f0a;"></span></div>
+<div class="tab" style="background:#3e4148">claude: tests <span class="dot" style="background:#ff9f0a;"></span><span class="x">&#x2715;</span></div></div>
+<div class="meta"><code>#ff9f0a</code> contrast bare/selected/pressed 6.8 / 5.0 / 4.4</div></div><div class="var rec"><div class="vh"><b>B</b> Theme yellow at 3:1 (picked)</div>
+<div class="side" style="background:#282c34;color:#ffffff">
+<div class="row">Fix login flow <span class="dot" style="background:#f0c674;"></span></div>
+<div class="row" style="background:#3e4148">Ship sidebar dot <span class="dot" style="background:#f0c674;"></span></div>
+<div class="tab" style="background:#3e4148">claude: tests <span class="dot" style="background:#f0c674;"></span><span class="x">&#x2715;</span></div></div>
+<div class="meta"><code>#f0c674</code> contrast bare/selected/pressed 8.7 / 6.3 / 5.6</div></div><div class="var"><div class="vh"><b>C</b> One system yellow everywhere</div>
+<div class="side" style="background:#282c34;color:#ffffff">
+<div class="row">Fix login flow <span class="dot" style="background:#ffd60a;"></span></div>
+<div class="row" style="background:#3e4148">Ship sidebar dot <span class="dot" style="background:#ffd60a;"></span></div>
+<div class="tab" style="background:#3e4148">claude: tests <span class="dot" style="background:#ffd60a;"></span><span class="x">&#x2715;</span></div></div>
+<div class="meta"><code>#ffd60a</code> contrast bare/selected/pressed 9.9 / 7.2 / 6.3</div></div><div class="var"><div class="vh"><b>D</b> B with a soft halo</div>
+<div class="side" style="background:#282c34;color:#ffffff">
+<div class="row">Fix login flow <span class="dot" style="background:#f0c674;box-shadow:0 0 0 3px #f0c6742e;"></span></div>
+<div class="row" style="background:#3e4148">Ship sidebar dot <span class="dot" style="background:#f0c674;box-shadow:0 0 0 3px #f0c6742e;"></span></div>
+<div class="tab" style="background:#3e4148">claude: tests <span class="dot" style="background:#f0c674;box-shadow:0 0 0 3px #f0c6742e;"></span><span class="x">&#x2715;</span></div></div>
+<div class="meta"><code>#f0c674</code> contrast bare/selected/pressed 8.7 / 6.3 / 5.6</div></div></div></section><section><h2>Dracula <span class="mode">dark</span></h2><div class="grid"><div class="var"><div class="vh"><b>A</b> Before: sidebar today</div>
+<div class="side" style="background:#282a36;color:#f8f8f2">
+<div class="row">Fix login flow <span class="dot" style="background:#ff9f0a;"></span></div>
+<div class="row" style="background:#3d3f49">Ship sidebar dot <span class="dot" style="background:#ff9f0a;"></span></div>
+<div class="tab" style="background:#3d3f49">claude: tests <span class="dot" style="background:#ff9f0a;"></span><span class="x">&#x2715;</span></div></div>
+<div class="meta"><code>#ff9f0a</code> contrast bare/selected/pressed 6.9 / 5.1 / 4.5</div></div><div class="var rec"><div class="vh"><b>B</b> Theme yellow at 3:1 (picked)</div>
+<div class="side" style="background:#282a36;color:#f8f8f2">
+<div class="row">Fix login flow <span class="dot" style="background:#f1fa8c;"></span></div>
+<div class="row" style="background:#3d3f49">Ship sidebar dot <span class="dot" style="background:#f1fa8c;"></span></div>
+<div class="tab" style="background:#3d3f49">claude: tests <span class="dot" style="background:#f1fa8c;"></span><span class="x">&#x2715;</span></div></div>
+<div class="meta"><code>#f1fa8c</code> contrast bare/selected/pressed 12.7 / 9.4 / 8.3</div></div><div class="var"><div class="vh"><b>C</b> One system yellow everywhere</div>
+<div class="side" style="background:#282a36;color:#f8f8f2">
+<div class="row">Fix login flow <span class="dot" style="background:#ffd60a;"></span></div>
+<div class="row" style="background:#3d3f49">Ship sidebar dot <span class="dot" style="background:#ffd60a;"></span></div>
+<div class="tab" style="background:#3d3f49">claude: tests <span class="dot" style="background:#ffd60a;"></span><span class="x">&#x2715;</span></div></div>
+<div class="meta"><code>#ffd60a</code> contrast bare/selected/pressed 10.1 / 7.5 / 6.6</div></div><div class="var"><div class="vh"><b>D</b> B with a soft halo</div>
+<div class="side" style="background:#282a36;color:#f8f8f2">
+<div class="row">Fix login flow <span class="dot" style="background:#f1fa8c;box-shadow:0 0 0 3px #f1fa8c2e;"></span></div>
+<div class="row" style="background:#3d3f49">Ship sidebar dot <span class="dot" style="background:#f1fa8c;box-shadow:0 0 0 3px #f1fa8c2e;"></span></div>
+<div class="tab" style="background:#3d3f49">claude: tests <span class="dot" style="background:#f1fa8c;box-shadow:0 0 0 3px #f1fa8c2e;"></span><span class="x">&#x2715;</span></div></div>
+<div class="meta"><code>#f1fa8c</code> contrast bare/selected/pressed 12.7 / 9.4 / 8.3</div></div></div></section><section><h2>Catppuccin Mocha <span class="mode">dark</span></h2><div class="grid"><div class="var"><div class="vh"><b>A</b> Before: sidebar today</div>
+<div class="side" style="background:#1e1e2e;color:#cdd6f4">
+<div class="row">Fix login flow <span class="dot" style="background:#ff9f0a;"></span></div>
+<div class="row" style="background:#303042">Ship sidebar dot <span class="dot" style="background:#ff9f0a;"></span></div>
+<div class="tab" style="background:#303042">claude: tests <span class="dot" style="background:#ff9f0a;"></span><span class="x">&#x2715;</span></div></div>
+<div class="meta"><code>#ff9f0a</code> contrast bare/selected/pressed 8.0 / 6.3 / 5.6</div></div><div class="var rec"><div class="vh"><b>B</b> Theme yellow at 3:1 (picked)</div>
+<div class="side" style="background:#1e1e2e;color:#cdd6f4">
+<div class="row">Fix login flow <span class="dot" style="background:#f9e2af;"></span></div>
+<div class="row" style="background:#303042">Ship sidebar dot <span class="dot" style="background:#f9e2af;"></span></div>
+<div class="tab" style="background:#303042">claude: tests <span class="dot" style="background:#f9e2af;"></span><span class="x">&#x2715;</span></div></div>
+<div class="meta"><code>#f9e2af</code> contrast bare/selected/pressed 12.9 / 10.1 / 9.1</div></div><div class="var"><div class="vh"><b>C</b> One system yellow everywhere</div>
+<div class="side" style="background:#1e1e2e;color:#cdd6f4">
+<div class="row">Fix login flow <span class="dot" style="background:#ffd60a;"></span></div>
+<div class="row" style="background:#303042">Ship sidebar dot <span class="dot" style="background:#ffd60a;"></span></div>
+<div class="tab" style="background:#303042">claude: tests <span class="dot" style="background:#ffd60a;"></span><span class="x">&#x2715;</span></div></div>
+<div class="meta"><code>#ffd60a</code> contrast bare/selected/pressed 11.6 / 9.1 / 8.2</div></div><div class="var"><div class="vh"><b>D</b> B with a soft halo</div>
+<div class="side" style="background:#1e1e2e;color:#cdd6f4">
+<div class="row">Fix login flow <span class="dot" style="background:#f9e2af;box-shadow:0 0 0 3px #f9e2af2e;"></span></div>
+<div class="row" style="background:#303042">Ship sidebar dot <span class="dot" style="background:#f9e2af;box-shadow:0 0 0 3px #f9e2af2e;"></span></div>
+<div class="tab" style="background:#303042">claude: tests <span class="dot" style="background:#f9e2af;box-shadow:0 0 0 3px #f9e2af2e;"></span><span class="x">&#x2715;</span></div></div>
+<div class="meta"><code>#f9e2af</code> contrast bare/selected/pressed 12.9 / 10.1 / 9.1</div></div></div></section><section><h2>GitHub Dark <span class="mode">dark</span></h2><div class="grid"><div class="var"><div class="vh"><b>A</b> Before: sidebar today</div>
+<div class="side" style="background:#101216;color:#8b949e">
+<div class="row">Fix login flow <span class="dot" style="background:#ff9f0a;"></span></div>
+<div class="row" style="background:#1c1f24">Ship sidebar dot <span class="dot" style="background:#ff9f0a;"></span></div>
+<div class="tab" style="background:#1c1f24">claude: tests <span class="dot" style="background:#ff9f0a;"></span><span class="x">&#x2715;</span></div></div>
+<div class="meta"><code>#ff9f0a</code> contrast bare/selected/pressed 9.1 / 8.0 / 7.6</div></div><div class="var rec"><div class="vh"><b>B</b> Theme yellow at 3:1 (picked)</div>
+<div class="side" style="background:#101216;color:#8b949e">
+<div class="row">Fix login flow <span class="dot" style="background:#e3b341;"></span></div>
+<div class="row" style="background:#1c1f24">Ship sidebar dot <span class="dot" style="background:#e3b341;"></span></div>
+<div class="tab" style="background:#1c1f24">claude: tests <span class="dot" style="background:#e3b341;"></span><span class="x">&#x2715;</span></div></div>
+<div class="meta"><code>#e3b341</code> contrast bare/selected/pressed 9.6 / 8.5 / 8.0</div></div><div class="var"><div class="vh"><b>C</b> One system yellow everywhere</div>
+<div class="side" style="background:#101216;color:#8b949e">
+<div class="row">Fix login flow <span class="dot" style="background:#ffd60a;"></span></div>
+<div class="row" style="background:#1c1f24">Ship sidebar dot <span class="dot" style="background:#ffd60a;"></span></div>
+<div class="tab" style="background:#1c1f24">claude: tests <span class="dot" style="background:#ffd60a;"></span><span class="x">&#x2715;</span></div></div>
+<div class="meta"><code>#ffd60a</code> contrast bare/selected/pressed 13.3 / 11.7 / 11.0</div></div><div class="var"><div class="vh"><b>D</b> B with a soft halo</div>
+<div class="side" style="background:#101216;color:#8b949e">
+<div class="row">Fix login flow <span class="dot" style="background:#e3b341;box-shadow:0 0 0 3px #e3b3412e;"></span></div>
+<div class="row" style="background:#1c1f24">Ship sidebar dot <span class="dot" style="background:#e3b341;box-shadow:0 0 0 3px #e3b3412e;"></span></div>
+<div class="tab" style="background:#1c1f24">claude: tests <span class="dot" style="background:#e3b341;box-shadow:0 0 0 3px #e3b3412e;"></span><span class="x">&#x2715;</span></div></div>
+<div class="meta"><code>#e3b341</code> contrast bare/selected/pressed 9.6 / 8.5 / 8.0</div></div></div></section><section><h2>Catppuccin Latte <span class="mode">light</span></h2><div class="grid"><div class="var"><div class="vh"><b>A</b> Before: sidebar today</div>
+<div class="side" style="background:#eff1f5;color:#4c4f69">
+<div class="row">Fix login flow <span class="dot" style="background:#b86b00;"></span></div>
+<div class="row" style="background:#e2e4ea">Ship sidebar dot <span class="dot" style="background:#b86b00;"></span></div>
+<div class="tab" style="background:#e2e4ea">claude: tests <span class="dot" style="background:#b86b00;"></span><span class="x">&#x2715;</span></div></div>
+<div class="meta"><code>#b86b00</code> contrast bare/selected/pressed 3.6 / 3.2 / 3.1</div></div><div class="var rec"><div class="vh"><b>B</b> Theme yellow at 3:1 (picked)</div>
+<div class="side" style="background:#eff1f5;color:#4c4f69">
+<div class="row">Fix login flow <span class="dot" style="background:#b07017;"></span></div>
+<div class="row" style="background:#e2e4ea">Ship sidebar dot <span class="dot" style="background:#b07017;"></span></div>
+<div class="tab" style="background:#e2e4ea">claude: tests <span class="dot" style="background:#b07017;"></span><span class="x">&#x2715;</span></div></div>
+<div class="meta"><code>#b07017</code> contrast bare/selected/pressed 3.6 / 3.2 / 3.0</div></div><div class="var"><div class="vh"><b>C</b> One system yellow everywhere</div>
+<div class="side" style="background:#eff1f5;color:#4c4f69">
+<div class="row">Fix login flow <span class="dot" style="background:#997a00;"></span></div>
+<div class="row" style="background:#e2e4ea">Ship sidebar dot <span class="dot" style="background:#997a00;"></span></div>
+<div class="tab" style="background:#e2e4ea">claude: tests <span class="dot" style="background:#997a00;"></span><span class="x">&#x2715;</span></div></div>
+<div class="meta"><code>#997a00</code> contrast bare/selected/pressed 3.6 / 3.2 / 3.1</div></div><div class="var"><div class="vh"><b>D</b> B with a soft halo</div>
+<div class="side" style="background:#eff1f5;color:#4c4f69">
+<div class="row">Fix login flow <span class="dot" style="background:#b07017;box-shadow:0 0 0 3px #b070172e;"></span></div>
+<div class="row" style="background:#e2e4ea">Ship sidebar dot <span class="dot" style="background:#b07017;box-shadow:0 0 0 3px #b070172e;"></span></div>
+<div class="tab" style="background:#e2e4ea">claude: tests <span class="dot" style="background:#b07017;box-shadow:0 0 0 3px #b070172e;"></span><span class="x">&#x2715;</span></div></div>
+<div class="meta"><code>#b07017</code> contrast bare/selected/pressed 3.6 / 3.2 / 3.0</div></div></div></section><section><h2>GitHub Light Default <span class="mode">light</span></h2><div class="grid"><div class="var"><div class="vh"><b>A</b> Before: sidebar today</div>
+<div class="side" style="background:#ffffff;color:#1f2328">
+<div class="row">Fix login flow <span class="dot" style="background:#bd6e00;"></span></div>
+<div class="row" style="background:#ededee">Ship sidebar dot <span class="dot" style="background:#bd6e00;"></span></div>
+<div class="tab" style="background:#ededee">claude: tests <span class="dot" style="background:#bd6e00;"></span><span class="x">&#x2715;</span></div></div>
+<div class="meta"><code>#bd6e00</code> contrast bare/selected/pressed 3.9 / 3.3 / 3.1</div></div><div class="var rec"><div class="vh"><b>B</b> Theme yellow at 3:1 (picked)</div>
+<div class="side" style="background:#ffffff;color:#1f2328">
+<div class="row">Fix login flow <span class="dot" style="background:#4d2d00;"></span></div>
+<div class="row" style="background:#ededee">Ship sidebar dot <span class="dot" style="background:#4d2d00;"></span></div>
+<div class="tab" style="background:#ededee">claude: tests <span class="dot" style="background:#4d2d00;"></span><span class="x">&#x2715;</span></div></div>
+<div class="meta"><code>#4d2d00</code> contrast bare/selected/pressed 12.4 / 10.6 / 10.0</div></div><div class="var"><div class="vh"><b>C</b> One system yellow everywhere</div>
+<div class="side" style="background:#ffffff;color:#1f2328">
+<div class="row">Fix login flow <span class="dot" style="background:#9e7e00;"></span></div>
+<div class="row" style="background:#ededee">Ship sidebar dot <span class="dot" style="background:#9e7e00;"></span></div>
+<div class="tab" style="background:#ededee">claude: tests <span class="dot" style="background:#9e7e00;"></span><span class="x">&#x2715;</span></div></div>
+<div class="meta"><code>#9e7e00</code> contrast bare/selected/pressed 3.8 / 3.3 / 3.1</div></div><div class="var"><div class="vh"><b>D</b> B with a soft halo</div>
+<div class="side" style="background:#ffffff;color:#1f2328">
+<div class="row">Fix login flow <span class="dot" style="background:#4d2d00;box-shadow:0 0 0 3px #4d2d002e;"></span></div>
+<div class="row" style="background:#ededee">Ship sidebar dot <span class="dot" style="background:#4d2d00;box-shadow:0 0 0 3px #4d2d002e;"></span></div>
+<div class="tab" style="background:#ededee">claude: tests <span class="dot" style="background:#4d2d00;box-shadow:0 0 0 3px #4d2d002e;"></span><span class="x">&#x2715;</span></div></div>
+<div class="meta"><code>#4d2d00</code> contrast bare/selected/pressed 12.4 / 10.6 / 10.0</div></div></div></section><section><h2>One Half Light <span class="mode">light</span></h2><div class="grid"><div class="var"><div class="vh"><b>A</b> Before: sidebar today</div>
+<div class="side" style="background:#fafafa;color:#383a42">
+<div class="row">Fix login flow <span class="dot" style="background:#bd6e00;"></span></div>
+<div class="row" style="background:#eaebeb">Ship sidebar dot <span class="dot" style="background:#bd6e00;"></span></div>
+<div class="tab" style="background:#eaebeb">claude: tests <span class="dot" style="background:#bd6e00;"></span><span class="x">&#x2715;</span></div></div>
+<div class="meta"><code>#bd6e00</code> contrast bare/selected/pressed 3.7 / 3.3 / 3.1</div></div><div class="var rec"><div class="vh"><b>B</b> Theme yellow at 3:1 (picked)</div>
+<div class="side" style="background:#fafafa;color:#383a42">
+<div class="row">Fix login flow <span class="dot" style="background:#ae7701;"></span></div>
+<div class="row" style="background:#eaebeb">Ship sidebar dot <span class="dot" style="background:#ae7701;"></span></div>
+<div class="tab" style="background:#eaebeb">claude: tests <span class="dot" style="background:#ae7701;"></span><span class="x">&#x2715;</span></div></div>
+<div class="meta"><code>#ae7701</code> contrast bare/selected/pressed 3.7 / 3.2 / 3.1</div></div><div class="var"><div class="vh"><b>C</b> One system yellow everywhere</div>
+<div class="side" style="background:#fafafa;color:#383a42">
+<div class="row">Fix login flow <span class="dot" style="background:#9e7e00;"></span></div>
+<div class="row" style="background:#eaebeb">Ship sidebar dot <span class="dot" style="background:#9e7e00;"></span></div>
+<div class="tab" style="background:#eaebeb">claude: tests <span class="dot" style="background:#9e7e00;"></span><span class="x">&#x2715;</span></div></div>
+<div class="meta"><code>#9e7e00</code> contrast bare/selected/pressed 3.7 / 3.2 / 3.0</div></div><div class="var"><div class="vh"><b>D</b> B with a soft halo</div>
+<div class="side" style="background:#fafafa;color:#383a42">
+<div class="row">Fix login flow <span class="dot" style="background:#ae7701;box-shadow:0 0 0 3px #ae77012e;"></span></div>
+<div class="row" style="background:#eaebeb">Ship sidebar dot <span class="dot" style="background:#ae7701;box-shadow:0 0 0 3px #ae77012e;"></span></div>
+<div class="tab" style="background:#eaebeb">claude: tests <span class="dot" style="background:#ae7701;box-shadow:0 0 0 3px #ae77012e;"></span><span class="x">&#x2715;</span></div></div>
+<div class="meta"><code>#ae7701</code> contrast bare/selected/pressed 3.7 / 3.2 / 3.1</div></div></div></section>
+</body></html>

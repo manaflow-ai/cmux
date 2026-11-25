@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { projectKind } from "../src/agent-session/acpmux/ProjectBadge";
+import { projectKind } from "../src/agent-session/acpmux/projectBadgeModel";
 
 test("project badge kind is deterministic from the project location", () => {
   expect(projectKind({ cwd: "/Users/leo/src/cmux" })).toBe("local");

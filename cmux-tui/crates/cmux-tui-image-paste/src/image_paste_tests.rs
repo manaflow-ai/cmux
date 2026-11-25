@@ -467,3 +467,25 @@ fn cloud_image_paste_a_live_upload_survives_an_expired_receipt() {
     assert!(!path.exists(), "recovery kept a crashed daemon's image past its retention");
     assert!(!path.parent().unwrap().exists());
 }
+
+#[test]
+fn cloud_file_paste_recovery_reaps_named_file_after_committed_retention() {
+    let shared = SharedStorage::new();
+    let clock = WallClock::manual(1_000_000);
+    let store = ImagePasteStore::with_storage(&shared.temporary, clock.clone());
+    let bytes = b"not an image\0binary attachment";
+    store.begin_file(owner(), ID, "report ' final.bin", bytes.len()).unwrap();
+    chunk(&store, 0, bytes);
+    store.commit(&owner(), ID, |_| Ok(())).unwrap();
+    let upload = store.shared.state.lock().unwrap().uploads.remove(&(1, ID.into())).unwrap();
+    let path = upload.file.path().unwrap();
+    upload.file.abandon_for_test();
+    drop(store);
+    clock.advance(IMAGE_TTL.as_secs() - 1);
+    shared.sweep(&clock);
+    assert_eq!(fs::read(&path).unwrap(), bytes);
+    clock.advance(2);
+    shared.sweep(&clock);
+    assert!(!path.exists(), "named attachments must not escape crash recovery cleanup");
+    assert!(!path.parent().unwrap().exists());
+}

@@ -3,7 +3,7 @@ public import AppKit
 /// A text field for short-lived editors (inline renames, dialog fields) that keeps its colors in
 /// its theme scope while it is open: a theme change repaints the scope and calls
 /// `viewDidChangeEffectiveAppearance`, which re-applies the field's colors and those of its
-/// active field editor (text, caret, selection). Its placeholder is the scope's hint ink, never
+/// active field editor (text, caret, selection). Its placeholder is the scope's secondary ink, never
 /// macOS's gray. It draws no focus ring: it sits inside a styled container whose own state shows
 /// focus, and AppKit's ring is a system-blue square around the field (cx-ncc.57).
 public final class ThemedTextField: NSTextField, ThemedTextInput {
@@ -34,7 +34,8 @@ public final class ThemedTextField: NSTextField, ThemedTextInput {
         focusRingType = .none
     }
 
-    /// Drawn in the scope's hint ink (`Palette.textTertiary`).
+    /// Drawn in the scope's secondary ink (`Palette.textSecondary`): a placeholder names what the
+    /// field takes, so it reads at 4.5:1 (the tertiary ink held 3.61:1 in the browser's Find bar).
     public override var placeholderString: String? {
         get { placeholderText }
         set {
@@ -103,7 +104,8 @@ public final class ThemedSecureTextField: NSSecureTextField, ThemedTextInput {
         focusRingType = .none
     }
 
-    /// Drawn in the scope's hint ink (`Palette.textTertiary`).
+    /// Drawn in the scope's secondary ink (`Palette.textSecondary`): a placeholder names what the
+    /// field takes, so it reads at 4.5:1 (the tertiary ink held 3.61:1 in the browser's Find bar).
     public override var placeholderString: String? {
         get { placeholderText }
         set {
@@ -153,7 +155,7 @@ public protocol ThemedTextInput: NSTextField {
 
 extension NSTextField {
     /// Sets `placeholder` as the field's placeholder in the active scope's hint ink
-    /// (`Palette.textTertiary`) and the field's font, for a stock field whose host re-applies its
+    /// (`Palette.textSecondary`) and the field's font, for a stock field whose host re-applies its
     /// colors on a theme change; nil removes it. theme-scoped
     public func applyThemedPlaceholder(_ placeholder: String?) {
         guard let placeholder, !placeholder.isEmpty else {
@@ -161,7 +163,7 @@ extension NSTextField {
             return
         }
         setPlaceholderKeepingEdit(NSAttributedString(string: placeholder, attributes: [
-            .foregroundColor: Palette.textTertiary,
+            .foregroundColor: Palette.textSecondary,
             .font: font ?? Typography.body,
         ]))
     }
@@ -169,6 +171,11 @@ extension NSTextField {
     /// The field's setter ends and restarts an active edit, which runs the end-editing and focus
     /// paths mid-typing; the cell's only redraws.
     public func setPlaceholderKeepingEdit(_ placeholder: NSAttributedString?) {
+        // This cell draws its own placeholder, on the editor's line; AppKit's would sit above it.
+        if let aligned = cell as? EditorAlignedTextFieldCell {
+            aligned.drawnPlaceholder = placeholder
+            return
+        }
         guard currentEditor() != nil, let cell = cell as? NSTextFieldCell else {
             placeholderAttributedString = placeholder
             return

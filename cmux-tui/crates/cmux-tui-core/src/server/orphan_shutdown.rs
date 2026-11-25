@@ -54,6 +54,30 @@ impl ClientRegistry {
         state.clients.values().filter(|record| !record.owner_plugin).count()
     }
 
+    /// A connection that declared role `main` (the app's frontend) is
+    /// connected now (the reaper's relaunch hold, terminal_reap.rs).
+    pub(crate) fn main_frontend_connected(&self) -> bool {
+        let state = self.state.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        state
+            .clients
+            .values()
+            .any(|record| record.origin.role == crate::request_origin::HelloRole::Main)
+    }
+
+    /// Records that a connection declared role `main` (the app's frontend)
+    /// and tells the presence observers the first time: an app session's
+    /// owner is held only by its keepers from then on (owner_keepers.rs).
+    pub(super) fn note_frontend(&self) {
+        if !self.frontend_seen.swap(true, Ordering::AcqRel) {
+            self.notify_client_presence();
+        }
+    }
+
+    /// Whether a role-main hello came since this owner started.
+    pub(crate) fn frontend_seen(&self) -> bool {
+        self.frontend_seen.load(Ordering::Acquire)
+    }
+
     /// Reserves the daemon handoff for an orphan exit, atomically with the
     /// check that no client is connected. While it is held, a new
     /// connection is closed at registration. False when a client other
@@ -75,6 +99,7 @@ impl ClientRegistry {
             return false;
         }
         state.daemon_handoff = Some(DaemonHandoffReservation::Pending(ORPHAN_SHUTDOWN_REQUESTER));
+        state.daemon_handoff_restart = None;
         true
     }
 }
@@ -95,6 +120,13 @@ impl Mux {
     /// connects or leaves, along with every observer added before it.
     pub fn add_client_presence_observer(&self, observer: impl Fn() + Send + Sync + 'static) {
         self.control_clients.add_client_presence_observer(observer);
+    }
+
+    /// Whether the app's frontend (a role-main hello) connected since this
+    /// owner started: proof its tag's app ran (dev_orphan_exit's closed-app
+    /// rule).
+    pub fn control_clients_frontend_seen(&self) -> bool {
+        self.control_clients.frontend_seen()
     }
 
     /// Live hosted terminals (launching, adopting or running).

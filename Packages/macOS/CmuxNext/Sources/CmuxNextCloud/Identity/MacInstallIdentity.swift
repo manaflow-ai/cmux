@@ -1,4 +1,6 @@
+public import CMUXAuthCore
 public import CmuxInstallAuthCore
+import CryptoKit
 public import Foundation
 import os
 
@@ -25,19 +27,26 @@ public actor MacInstallIdentity {
     private let transport: any InstallAuthTransport
     private let deviceName: String
     private let clientVersion: String?
+    private let buildSpace: CMUXBuildSpaceState
     private var client: InstallAuthClient?
     private var user: String?
     private var generation: UInt64 = 0
     /// Set by ``signOut(stackUser:session:)`` until the session ends
     /// (``unbind()``): a late sign-in callback registers nothing.
     private var signingOut = false
+    /// Callers of ``installToken(awaitingBind:)`` waiting for the first bind (or a drop) of this launch.
+    private var bindWaiters: [UUID: CheckedContinuation<Void, Never>] = [:]
     private let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "cloud.install")
 
-    public init(store: MacInstallStore, transport: any InstallAuthTransport, deviceName: String, clientVersion: String?) {
+    /// `buildSpace`: the build's cloud data space (``CloudConfiguration/buildSpace``): a tagged dev build's header is
+    /// in ``requestHeaders``; a misconfigured dev build mints no install token (``installToken()`` throws).
+    public init(store: MacInstallStore, transport: any InstallAuthTransport, deviceName: String, clientVersion: String?,
+                buildSpace: CMUXBuildSpaceState = .nightly) {
         self.store = store
         self.transport = transport
         self.deviceName = deviceName
         self.clientVersion = clientVersion
+        self.buildSpace = buildSpace
     }
 
     /// The user signed in: binds them and registers (or reuses) the install
@@ -49,32 +58,71 @@ public actor MacInstallIdentity {
     }
 
     /// The headers every install-token request carries (the client
-    /// version, so the owner can refuse a too-old app).
-    public nonisolated var requestHeaders: [String: String] { InstallAuthClient.headers(clientVersion: clientVersion) }
+    /// version, so the owner can refuse a too-old app, and a tagged dev
+    /// build's `X-Cmux-Build-Space`). A misconfigured dev build has no header here, and never gets a token to send
+    /// with these: ``installToken()`` refuses first.
+    public nonisolated var requestHeaders: [String: String] {
+        InstallAuthClient.headers(clientVersion: clientVersion).merging(buildSpace.space?.headers ?? [:]) { $1 }
+    }
 
     /// The `team` claim of an install token (the owner's own token over
     /// TLS; read for consistency, never trusted as a credential). Nil when
-    /// the token is not a JWT with a team.
+    /// the token is not a JWT with a team (Rust's `identity::claims`).
     public nonisolated static func team(ofToken token: String) -> String? {
-        let parts = token.split(separator: ".")
-        guard parts.count == 3 else { return nil }
-        var payload = parts[1].replacingOccurrences(of: "-", with: "+").replacingOccurrences(of: "_", with: "/")
-        payload += String(repeating: "=", count: (4 - payload.count % 4) % 4)
-        guard let data = Data(base64Encoded: payload),
-              let claims = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-              let team = claims["team"] as? String, !team.isEmpty else { return nil }
-        return team
+        struct Claims: Decodable { var team: String? }
+        return CloudStartCore().call("cloud_identity_token", ["token": token], as: Claims.self)?.team
     }
 
-    /// A valid install token for the signed-in user.
+    /// The backend team of ``installToken()`` (``team(ofToken:)``): the install's own team, where the app makes its Cloud
+    /// machines. Nil when there is no token or it names no team.
+    public func installTeam() async -> String? {
+        (try? await installToken()).flatMap(Self.team(ofToken:))
+    }
+
+    /// A valid install token for the signed-in user. A misconfigured dev build gets none (``CMUXBuildSpaceError``):
+    /// a token already held would otherwise reach nightly's data through every install-token caller (the relay,
+    /// the feed, `cmux link`, the host replica).
     public func installToken() async throws -> String {
+        try buildSpace.check()
         guard let client else { throw Failure.signedOut }
         return try await client.installToken()
+    }
+
+    /// ``installToken()`` for a caller that knows the app is signed in: when the user is not bound yet (the first
+    /// Cloud call of a launch can come before the restored session reaches ``signedIn(stackUser:session:)``; Leo's
+    /// NIGHTLY logged `install token mint failed: signedOut` on a relaunch), it waits up to `wait` for the bind
+    /// instead of answering signed out.
+    public func installToken(awaitingBind wait: Duration) async throws -> String {
+        if client == nil, !signingOut {
+            let id = UUID()
+            await withCheckedContinuation { continuation in
+                bindWaiters[id] = continuation
+                // task-owner: one bounded wait per waiter; the bind, a drop or this deadline resumes it once.
+                Task { [weak self] in
+                    // wakeup-allow: the one deadline of this wait; it ends earlier when a bind wakes the waiter.
+                    try? await Task.sleep(for: wait)
+                    await self?.wake(id)
+                }
+            }
+        }
+        return try await installToken()
+    }
+
+    /// How many ``installToken(awaitingBind:)`` callers wait for a bind now.
+    var pendingBindWaiters: Int { bindWaiters.count }
+
+    private func wake(_ id: UUID) { bindWaiters.removeValue(forKey: id)?.resume() }
+
+    private func wakeAll() {
+        let waiters = bindWaiters
+        bindWaiters = [:]
+        for waiter in waiters.values { waiter.resume() }
     }
 
     /// A fresh token for one backend team, using this install's existing signer and grant.
     /// The personal client stays bound to its own scope; team refusals never rotate its key.
     public func installToken(team: String) async throws -> String {
+        try buildSpace.check()
         guard let client, let stackUser = user else { throw Failure.signedOut }
         let bound = generation
         _ = try await client.installToken()
@@ -84,7 +132,8 @@ public actor MacInstallIdentity {
             transport: transport, signer: store.signer(for: stackUser), sessionToken: nil, stackUser: stackUser,
             deviceName: deviceName, clientVersion: clientVersion, record: record,
             profile: .mac, team: team, expectedEnvironment: environment)
-        let token = try await scoped.installToken()
+        // In this task, so a caller that is cancelled (a superseded lend) stops the mint too.
+        let token = try await scoped.installTokenInCallerTask()
         guard bound == generation, user == stackUser, await client.currentRecord == record else { throw Failure.signedOut }
         return token
     }
@@ -126,6 +175,7 @@ public actor MacInstallIdentity {
         let dropped = client
         client = nil
         user = nil
+        wakeAll()
         await dropped?.reset()
     }
 
@@ -165,6 +215,7 @@ public actor MacInstallIdentity {
             deviceName: deviceName, clientVersion: clientVersion, record: store.record(for: stackUser),
             profile: .mac, onRecord: { [weak self] record in await self?.recordChanged(record, for: stackUser, generation: bound) }
         )
+        wakeAll()
     }
 
     private func recordChanged(_ record: InstallRecord?, for stackUser: String, generation bound: UInt64) {

@@ -27,7 +27,7 @@ public final class RestartTabRequest implements WireValue {
         Map<String, Object> object = Wire.object(value, "RestartTabRequest");
         Builder builder = builder();
         Object rawSurface = Wire.required(object, "surface", "tab");
-        builder.surface(Wire.immutableJson(rawSurface));
+        builder.surface(Wire.immutableJson(ProtocolSupport.nonNull(rawSurface, "RestartTabRequest.surface")));
         return builder.build();
     }
 

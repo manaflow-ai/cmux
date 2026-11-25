@@ -7,6 +7,7 @@
 // the worker pool resolves `./diff-worker.mjs` beside that chunk.
 // DESKTOP-FEEL (R139): the shared desktop layer loads first.
 import "../shared/desktop";
+import "../../ui/ui.css";
 const root = document.getElementById("root");
 if (!root) throw new Error("Missing cmux webview root");
 import("../../surfaces/diffSurface")

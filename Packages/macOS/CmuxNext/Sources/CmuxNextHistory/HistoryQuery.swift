@@ -102,49 +102,6 @@ public nonisolated enum HistoryRange: String, CaseIterable, Hashable, Sendable, 
     }
 }
 
-/// Entries grouped for display, newest group first.
-public nonisolated enum HistoryGrouping: String, CaseIterable, Hashable, Sendable {
-    case day, workspace, machine
-
-    public struct Group: Hashable, Sendable, Identifiable {
-        public var id: String
-        /// The day's start for `.day`, else the newest entry's time.
-        public var date: Date
-        /// The workspace or machine name; nil for `.day`.
-        public var name: String?
-        public var entries: [HistoryEntry]
-    }
-
-    /// Groups `entries` (already newest first) keeping their order inside
-    /// each group; groups are ordered by their newest entry.
-    public func groups(_ entries: [HistoryEntry], calendar: Calendar = .current) -> [Group] {
-        var order: [String] = []
-        var byKey: [String: Group] = [:]
-        for entry in entries {
-            let (key, date, name) = keyed(entry, calendar: calendar)
-            if byKey[key] == nil {
-                order.append(key)
-                byKey[key] = Group(id: key, date: date, name: name, entries: [])
-            }
-            byKey[key]?.entries.append(entry)
-        }
-        return order.compactMap { byKey[$0] }
-    }
-
-    private func keyed(_ entry: HistoryEntry, calendar: Calendar) -> (String, Date, String?) {
-        switch self {
-        case .day:
-            let day = calendar.startOfDay(for: entry.time)
-            return ("day:\(Int(day.timeIntervalSince1970))", day, nil)
-        case .workspace:
-            let name = entry.workspaceName
-            return ("workspace:\(name ?? "")", entry.time, name)
-        case .machine:
-            return ("machine:\(entry.machineName ?? "")", entry.time, entry.machineName)
-        }
-    }
-}
-
 nonisolated extension HistoryEntry {
     /// The workspace an entry belongs to, when it has one.
     public var workspaceName: String? {

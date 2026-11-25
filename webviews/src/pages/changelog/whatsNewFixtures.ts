@@ -171,3 +171,228 @@ export const journalNotes: ReleaseNotes[] = [
     items: [{ title: "cmux NEXT: a restored terminal pane comes back without a key press", pr: 23145 }],
   },
 ];
+
+/** One day of nightlies as published on 2026-11-01: each build's digest is made from its summary
+    lines, so every build names its entries summary-0, summary-1, … (Leo 2026-11-01 saw rows twice
+    on What's New: the page keyed its rows by those ids). One title was cut inside its parentheses
+    by an older pipeline. Newest first. */
+const digestBuild = (build: string, lines: [WhatsNewEntry["category"], string, string][]): ReleaseNotes => ({
+  build,
+  shortVersion: `1.0.0-nightly.${build}`,
+  date: "2026-11-01",
+  highlights: [],
+  changes: [],
+  whatsNew: {
+    version: `1.0.0-nightly.${build}`,
+    channel: "nightly",
+    date: "2026-11-01",
+    headline: { en: lines[0]![1] },
+    entries: lines.map(([category, title, summary], index) => entry(`summary-${index}`, category, title, summary)),
+  },
+});
+
+export const dayOfNightlies: ReleaseNotes[] = [
+  digestBuild("4134492295001", [
+    ["new", "Show the Feed in Chief draws in Settings > Chief > Look", ""],
+    ["improved", "Ultracode and Fast mode do not block Bring Back Local", ""],
+    ["improved", "Drop saved incognito task ids whose tasks ended", "While the app was stopped."],
+    ["improved", "Routing follow-ups (trim recovered route", "Prepared presets only, cap before split)."],
+    ["fixed", "A title or preview cut with an ellipsis never ends inside an emoji", ""],
+  ]),
+  digestBuild("4134335440201", [
+    ["improved", "Cloud start replaces rejected Claude logins", "Cloud start replaces rejected Claude logins."],
+    ["improved", "A message's More menu opens upward when it does not fit below", ""],
+  ]),
+  digestBuild("4133822529301", [
+    ["improved", "Replace a Claude login the provider rejects", ""],
+    ["improved", "A pinned harness still takes a model", "A queued subagent keeps its model after a restart."],
+  ]),
+  digestBuild("4132569907101", [
+    ["improved", "Each machine's projects carry its own colored computer", "Not one globe."],
+    ["improved", "An attached video's speech goes to the agent", "Transcribed on this Mac."],
+  ]),
+  digestBuild("4132418488301", [
+    ["improved", "Copy again on the machine's new link after updating it", ""],
+    ["fixed", "A key right after an arrow key sees the caret the arrow moved", ""],
+  ]),
+  digestBuild("4131908227901", [
+    ["improved", "A look at a video's frames draws as a filmstrip card", ""],
+    ["improved", "Inbox rows share the tool rows' icon column", "A sender's mark is its real harness."],
+  ]),
+];
+
+/** One day of nightlies as the sheet showed it on 2026-11-02 (Leo: "why is the what's new the 0
+    information density one"): work-tracking codes in titles and lines ("P0 RESIZE KEYS K4: …",
+    "(REOPEN-F7 part A2)", "P0 RESIZE F1 part 1 of 2"), "cmux …:" work-stream labels, the generic
+    "Fixes and improvements" entry, lines that repeat their title, and infrastructure (ad hoc
+    builds, failing runs). The page shows it grouped by area, one clean line each. Newest first. */
+export const denseDay: ReleaseNotes[] = [
+  {
+    ...digestBuild("4142100000001", [
+      [
+        "new",
+        "Star your favorite themes",
+        "Click the star on any theme in Settings > Theme to list it first in every theme picker.",
+      ],
+      ["improved", "Fixes and improvements", "This build brings fixes and improvements."],
+      ["improved", "Cmux NEXT agent pane: a file drag rings the composer in the accent", ""],
+      ["improved", "Start the Native link in ad hoc builds", "And name the check that refuses it."],
+      ["improved", "Cmux link sync push: copy repos that borrow objects", "(alternates) to Cloud."],
+      ["improved", "Chrome glyphs come from one shared bitmap per glyph", "Size and scale (REOPEN-F7 part A2)."],
+      ["improved", "Cancelled, skipped and superseded runs are not counted as failing", ""],
+      ["improved", "The last turn's Copy row shows at rest when it ended on work", ""],
+      ["improved", "Bound the Feed", "Its connect reads, Cloud chats and chat replay."],
+    ]),
+    date: "2026-11-02",
+  },
+  {
+    ...digestBuild("4141900000001", [
+      ["improved", "Make built-in density toggles discoverable in Customize", ""],
+      [
+        "improved",
+        "P0 RESIZE KEYS K4: Ctrl-Shift-J/K and Ctrl-Cmd-Down/Up move a row edge one exact step",
+        "Fixes and improvements.",
+      ],
+      ["improved", "A new chat's text comes back in the window's next New Tab page", ""],
+      ["improved", "Sources lists the images you pasted", ""],
+      [
+        "improved",
+        "Typing under load",
+        "A read-only terminal viewer that sends keys no longer gets the typing person's priority.",
+      ],
+      [
+        "improved",
+        "P0 RESIZE F1 part 1 of 2",
+        "Closing a pane no longer tears down its terminal during the close animation.",
+      ],
+      [
+        "improved",
+        "Cmux-tui + app: hidden terminals' scroll events no longer wake the app (SWITCH FRAMES SF-5 B)",
+        "Terminals that print while their workspace is hidden no longer wake cmux many times a second.",
+      ],
+      [
+        "improved",
+        "The host pressure warning is off by default",
+        "Host pressure warning is off by default; turn it on from the Command Palette.",
+      ],
+      [
+        "fixed",
+        "A held guest message's line has no gray patch at rest",
+        "A guest's held message no longer shows a gray box behind Approve and Decline.",
+      ],
+    ]),
+    date: "2026-11-02",
+  },
+];
+
+/** A day with one long area: twelve sidebar changes fold after the first six behind "Show more". */
+export const longAreaDay: ReleaseNotes[] = [
+  {
+    ...digestBuild(
+      "4142200000001",
+      [
+        "Sidebar rows keep their place while you rename them",
+        "A sidebar group's color follows its first workspace",
+        "Dragging a sidebar row past the edge scrolls the list",
+        "The sidebar remembers which groups you folded",
+        "A pinned sidebar group stays after its last workspace closes",
+        "Sidebar badges count unread agent replies",
+        "The sidebar's search keeps its text when you switch windows",
+        "Sidebar rows show the branch of their workspace",
+        "A sidebar row's menu opens on the click",
+        "Sidebar groups made by automation take a palette color",
+        "The sidebar width survives a restart",
+        "Sidebar rows dim while their machine is offline",
+      ].map((title): [WhatsNewEntry["category"], string, string] => ["improved", title, ""]),
+    ),
+    date: "2026-11-02",
+  },
+  {
+    ...digestBuild("4142000000001", [
+      ["fixed", "A terminal's scrollback keeps its colors after a resize", ""],
+      ["new", "Each Cloud machine shows its cost", "Next to its name."],
+    ]),
+    date: "2026-11-02",
+  },
+];
+
+/** The day Leo called "the 0 information density one" (2026-11-02), as its nightlies published it:
+    the generic "Fixes and improvements" entry, titles with work-stream codes ("P0 RESIZE KEYS K4:",
+    "(SWITCH FRAMES SF-5 B)", "part 1 of 2"), lines that are the rest of their title ("And name the
+    check that refuses it", "(alternates) to Cloud"), a line that repeats its title, and a PR
+    description fallback of "Fixes and improvements.". Every pipeline line was "improved", so every
+    row drew the same arrow. Newest first; the curated theme-star entry is a person's. */
+export const lowDensityDay: ReleaseNotes[] = [
+  {
+    ...digestBuild("4144000000301", [
+      [
+        "improved",
+        "Fixes and improvements",
+        "This build brings fixes and improvements. The link lists every change in it.",
+      ],
+    ]),
+    date: "2026-11-02",
+  },
+  {
+    ...digestBuild("4143900000201", [
+      [
+        "improved",
+        "Cmux NEXT agent pane: a file drag rings the composer in the accent, with the copy + (no dashed frame, no pill)",
+        "",
+      ],
+      ["improved", "Start the Native link in ad hoc builds", "And name the check that refuses it"],
+      ["improved", "Cmux link sync push: copy repos that borrow objects", "(alternates) to Cloud"],
+      ["improved", "Chrome glyphs come from one shared bitmap per glyph", "Size and scale (REOPEN-F7 part A2)"],
+      ["improved", "The last turn's Copy row shows at rest when it ended on work", "8 under the run"],
+      ["improved", "Bound the Feed", "Its connect reads, Cloud chats and chat replay."],
+      ["improved", "Make built-in density toggles discoverable in Customize", ""],
+      [
+        "improved",
+        "P0 RESIZE KEYS K4: Ctrl-Shift-J/K and Ctrl-Cmd-Down/Up move a row edge one exact step",
+        "Fixes and improvements.",
+      ],
+      [
+        "improved",
+        "P0 RESIZE F1 part 1 of 2",
+        "Closing a pane no longer tears down its terminal during the close animation.",
+      ],
+      [
+        "improved",
+        "Cmux-tui + app: hidden terminals' scroll events no longer wake the app's event pump (SWITCH FRAMES SF-5 B)",
+        "Terminals that print while their workspace is hidden no longer wake cmux many times a second.",
+      ],
+      [
+        "improved",
+        "The host pressure warning is off by default",
+        "Host pressure warning is off by default; turn it on from the Command Palette.",
+      ],
+      [
+        "improved",
+        "A held guest message's line has no gray patch at rest",
+        "A guest's held message no longer shows a gray box behind Approve and Decline when the pointer isn't on it.",
+      ],
+    ]),
+    date: "2026-11-02",
+  },
+  {
+    build: "4143800000101",
+    shortVersion: "1.0.0-nightly.4143800000101",
+    date: "2026-11-02",
+    highlights: [],
+    changes: [],
+    whatsNew: {
+      version: "1.0.0-nightly.4143800000101",
+      channel: "nightly",
+      date: "2026-11-02",
+      headline: { en: "Star your favorite themes" },
+      entries: [
+        entry(
+          "theme-favorites",
+          "new",
+          "Star your favorite themes",
+          "Click the star on any theme in Settings > Theme to list it first in every theme picker.",
+        ),
+      ],
+    },
+  },
+];

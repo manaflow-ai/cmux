@@ -1,0 +1,59 @@
+{
+  "id": "teleport-a963-home",
+  "owner": "a963",
+  "about": "\"come back to my laptop\" from a mini is a move to home, no question",
+  "stubs": [
+    {
+      "cmd": "move",
+      "stdout": "{\"dry_run\": true, \"error\": null, \"steps\": [{\"step\": \"preflight\", \"ok\": true, \"ms\": 10, \"detail\": \"lawbook carries out the move\"}]}",
+      "match": "\"dry_run\":true"
+    },
+    {
+      "cmd": "move",
+      "match": "\"to\"",
+      "stdout": "{\"scheduled\": true, \"request\": \"tp-1\", \"by\": \"lawbook\", \"note\": \"lawbook moves you to home within about a minute; answer the person now and say goodbye: your next answer comes from there\"}"
+    }
+  ],
+  "turns": [
+    {
+      "text": "ok come back to my laptop now",
+      "checks": [
+        {
+          "type": "called",
+          "cmd": "move",
+          "re": "\"to\"\\s*:\\s*\"home\""
+        },
+        {
+          "type": "called",
+          "cmd": "move",
+          "re": "\"dry_run\"\\s*:\\s*true"
+        },
+        {
+          "type": "no_question"
+        },
+        {
+          "type": "max_words",
+          "n": 60
+        },
+        {
+          "type": "judge",
+          "rubric": "PASS when the Chief starts the teleport itself this turn (a real move after the dry run) and tells the person in a line or two where it is going, without asking for a token, a confirmation or any step. FAIL when it asks the person anything, asks them to run a command or provide a token, or only describes how to move."
+        }
+      ]
+    }
+  ],
+  "history": [
+    {
+      "kind": "user",
+      "text": "teleport to cmux-mini-7"
+    },
+    {
+      "kind": "talk",
+      "text": "Moving to cmux-mini-7 now; my next answer comes from there."
+    },
+    {
+      "kind": "note",
+      "text": "You run on cmux-mini-7 since the move from the person's laptop (lawbook)."
+    }
+  ]
+}

@@ -89,14 +89,8 @@ extension ScreenContentView {
     private func finalLayoutPreview(splitting pane: PaneID, zone: PaneDropZone, removing: PaneID?) -> (newPane: CGRect, resized: [CGRect])? {
         // The drop sends this prediction's ratios once its move landed (`LayoutModel.dropSizingChanges`,
         // TabMoves.toNewSplit), so the preview shows exactly the layout that lands.
-        guard let predicted = DropPreviewLayout(splitting: pane, zone: zone, in: layout, removing: removing,
-                                                evenSizing: context.model.splitSizing == .even, equalizesClose: !zoomed) else { return nil }
-        // A drop that closes a column moves the strip's camera after it; show the half rather than guess.
-        if case let .columns(before) = layout, case let .columns(after) = predicted.layout, before.map(\.id) != after.map(\.id) {
-            return nil
-        }
         let style = context.style
-        let after = ScreenGeometry.compute(predicted.layout, viewport: bounds.size, style: style, scale: window?.backingScaleFactor ?? 2)
+        guard let after = predictedGeometry(splitting: pane, zone: zone, removing: removing) else { return nil }
         let offset = scroll.value
         func shown(_ cell: CGRect, _ pane: PaneID, in geometry: ScreenGeometry) -> CGRect {
             let content = PaneChromeGeometry.contentRect(forCell: cell, style: style)
@@ -118,11 +112,44 @@ extension ScreenContentView {
         return (newPane, resized.sorted { ($0.minX, $0.minY) < ($1.minX, $1.minY) })
     }
 
-    /// Where splitting `pane` along `axis` goes on this screen right now.
+    /// The screen's geometry after a split of `pane` at `zone` (the edge preview), or nil when no preview shows: once
+    /// per layout, viewport, style and target (`dropAnswers`), not once per pointer move.
+    private func predictedGeometry(splitting pane: PaneID, zone: PaneDropZone, removing: PaneID?) -> ScreenGeometry? { // perf-hot: 0.05ms drag-frame (every tab-drag move over a pane edge)
+        let evenSizing = context.model.splitSizing == .even
+        dropAnswers.validate(for: answerKey(evenSizing: evenSizing))
+        let key = DropAnswerMemo.Target(pane: pane, zone: zone, axis: nil, removing: removing)
+        if let known = dropAnswers.previews[key] { return known }
+        var after: ScreenGeometry?
+        if let predicted = DropPreviewLayout(splitting: pane, zone: zone, in: layout, removing: removing,
+                                             evenSizing: evenSizing, equalizesClose: !zoomed) {
+            // A drop that closes a column moves the strip's camera after it; show the half rather than guess.
+            if case let .columns(before) = layout, case let .columns(next) = predicted.layout, before.map(\.id) != next.map(\.id) {
+                after = nil
+            } else {
+                dropGeometryComputes &+= 1
+                after = ScreenGeometry.compute(predicted.layout, viewport: bounds.size, style: context.style, scale: window?.backingScaleFactor ?? 2)
+            }
+        }
+        dropAnswers.previews[key] = .some(after)
+        return after
+    }
+
+    private func answerKey(evenSizing: Bool) -> DropAnswerMemo.Key {
+        DropAnswerMemo.Key(layoutRevision: layoutRevision, viewport: bounds.size, style: context.style,
+                           scale: window?.backingScaleFactor ?? 2, zoomed: zoomed, evenSizing: evenSizing)
+    }
+
+    /// Where splitting `pane` along `axis` goes on this screen right now (once per layout, viewport and style).
     func splitPlacement(splitting pane: PaneID, axis: SplitAxis, removing: PaneID?) -> SplitPlacement {
         // A canvas places a split's new pane beside the old one at its size: there is always room.
         if isCanvas { return .split }
-        return SplitRoom.placement(splitting: pane, axis: axis, in: layout, viewport: bounds.size, style: context.style, removing: removing)
+        dropAnswers.validate(for: answerKey(evenSizing: context.model.splitSizing == .even))
+        let key = DropAnswerMemo.Target(pane: pane, zone: nil, axis: axis, removing: removing)
+        if let known = dropAnswers.placements[key] { return known }
+        if case .columns = layout { dropGeometryComputes &+= 1 } // SplitRoom computes the screen's geometry for columns
+        let placement = SplitRoom.placement(splitting: pane, axis: axis, in: layout, viewport: bounds.size, style: context.style, removing: removing)
+        dropAnswers.placements[key] = placement
+        return placement
     }
 
     /// An edge drop that cannot split for lack of room becomes a new column
@@ -143,5 +170,38 @@ extension ScreenContentView {
         case .refused:
             return .pane(pane, .center)
         }
+    }
+}
+
+/// A screen's tab-drop answers that depend only on its layout, viewport and style (the room check and the edge
+/// preview's predicted geometry): kept until one of those changes, so the pointer moves of a drag compute them once
+/// per target. Chrome's tab strip drop index reads cached bounds the same way.
+struct DropAnswerMemo {
+    struct Key: Equatable {
+        var layoutRevision: UInt64
+        var viewport: CGSize
+        var style: LayoutStyle
+        var scale: CGFloat
+        var zoomed: Bool
+        var evenSizing: Bool
+    }
+
+    struct Target: Hashable {
+        var pane: PaneID
+        var zone: PaneDropZone?
+        var axis: SplitAxis?
+        var removing: PaneID?
+    }
+
+    private var key: Key?
+    var placements: [Target: SplitPlacement] = [:]
+    var previews: [Target: ScreenGeometry?] = [:]
+
+    /// Forgets every answer when the inputs changed.
+    mutating func validate(for next: Key) {
+        guard key != next else { return }
+        key = next
+        placements.removeAll(keepingCapacity: true)
+        previews.removeAll(keepingCapacity: true)
     }
 }

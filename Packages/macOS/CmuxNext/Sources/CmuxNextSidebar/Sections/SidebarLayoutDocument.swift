@@ -134,11 +134,17 @@ public nonisolated struct SidebarLayoutDocument: Hashable, Sendable, Codable {
 
     public func item(_ id: LayoutItemID) -> LayoutItem? { locate(id).map { sections[$0.section].items[$0.item] } }
 
+    /// The region of the section that holds item `id`.
+    public func region(of id: LayoutItemID) -> SidebarRegion? { locate(id).map { sections[$0.section].region } }
+
     /// The first item with `ref`, in document order.
     public func firstItem(with ref: LayoutItemRef) -> LayoutItem? {
         for section in sections { if let item = section.items.first(where: { $0.ref == ref }) { return item } }
         return nil
     }
+
+    /// The Home item is in the sidebar, so it stands for the home workspace and that workspace's own row is hidden.
+    public var hidesHome: Bool { firstItem(with: Self.homeRef) != nil }
 
     /// The first item of the first top-region section shown in `room`
     /// (what Cmd-1 runs), or nil when the top region is empty.

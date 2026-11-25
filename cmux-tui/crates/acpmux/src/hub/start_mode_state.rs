@@ -52,6 +52,9 @@ pub(crate) struct StartModeState {
     /// The `sessions.allowFullAccess` MDM or the team policy forces, as the app pushed it
     /// (`false` for a forced value that is not `true`). Only `false` acts: an upper bound.
     pub full_access_managed: Option<bool>,
+    /// The `agents.promptSuggestions` MDM or the team policy forces, as the app pushed it
+    /// (`claude_stdio::prompt_suggestions::set_managed`); `None` when nothing forces it.
+    pub prompt_suggestions_managed: Option<bool>,
 }
 
 impl StartModeState {
@@ -124,6 +127,9 @@ impl StartModeCell {
     /// first update.
     pub(super) fn load(path: Option<&Path>) -> Self {
         let state = path.map(|p| StartModeState::load(Some(p)));
+        if let Some(state) = &state {
+            crate::claude_stdio::prompt_suggestions::set_managed(state.prompt_suggestions_managed);
+        }
         Self(StdMutex::new(state), tokio::sync::watch::channel(0).0)
     }
 }
@@ -204,6 +210,17 @@ impl Hub {
         }
     }
 
+    /// The `agents.promptSuggestions` MDM or the team policy forces (`None`: nothing forces it),
+    /// from the app's push: it beats the settings file at each later Claude or Codex start, and is
+    /// kept in `start-mode.json` so it holds across a daemon restart before the app pushes again.
+    pub async fn apply_prompt_suggestions_push(&self, managed: Option<bool>) {
+        let path = state_file(&*self.config.read().await);
+        self.update_start_mode_state(path.as_deref(), |state| {
+            state.prompt_suggestions_managed = managed;
+        });
+        crate::claude_stdio::prompt_suggestions::set_managed(managed);
+    }
+
     /// The app's push (`_acpmux/chat_settings`): the effective setting and
     /// whether policy forces it. Forced with no value is a forced value
     /// acpmux does not know. Tells watchers when what a new chat starts in
@@ -224,3 +241,7 @@ impl Hub {
         }
     }
 }
+
+#[cfg(test)]
+#[path = "start_mode_state_prompt_suggestions_state_tests.rs"]
+mod prompt_suggestions_state_tests;

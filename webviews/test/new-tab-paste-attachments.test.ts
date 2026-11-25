@@ -76,7 +76,7 @@ await requireBrowserLane("new-tab-paste-attachments.test.ts", async () => {
     }, classic);
     const { port } = vite!.httpServer!.address() as { port: number };
     await page.goto(`http://127.0.0.1:${port}/`);
-    await page.locator(classic ? "input.acpmux-newtab-field" : ".nt-field").waitFor();
+    await page.locator(classic ? ".acpmux-newtab-field .ProseMirror" : ".nt-field").waitFor();
     return page;
   }
 
@@ -129,9 +129,10 @@ await requireBrowserLane("new-tab-paste-attachments.test.ts", async () => {
       // The page became the chat; its first message carries the text and the image.
       const bubble = page.locator(".cv-user__bubble", { hasText: "what is this" });
       await bubble.waitFor({ timeout: 30_000 });
-      // Placed attachments keep their position in the sent bubble; only attachment-only prompts
-      // use the legacy image band above it.
-      const image = bubble.locator(".cv-user__inline-image img");
+      // A sent message draws its attachments where the composer placed them, inline in its text
+      // (Leo, 2026-11-22: "the inline attachments being sent as they were when sent"), never in the
+      // legacy band.
+      const image = page.locator("[data-inline-content] .cv-user__inline-image img");
       await image.waitFor({ timeout: 30_000 });
       expect(await image.getAttribute("src")).toStartWith("data:image/png");
       expect(await page.locator(".cv-user__images img").count()).toBe(0);
@@ -166,7 +167,9 @@ await requireBrowserLane("new-tab-paste-attachments.test.ts", async () => {
       );
       await page.locator(INLINE_IMAGES).waitFor();
       await page.keyboard.press("Enter");
-      await page.locator(".cv-user__images img").first().waitFor({ timeout: 30_000 });
+      // An image-only prompt draws its image in the sent row's attachment strip (UserBubble.tsx), or in
+      // the legacy band when acpmux recorded no parts for it.
+      await page.locator(".cv-user__inline-image img, .cv-user__images img").first().waitFor({ timeout: 30_000 });
       await page.close();
     },
   );
@@ -281,7 +284,8 @@ await requireBrowserLane("new-tab-paste-attachments.test.ts", async () => {
     "%s: on the Classic New Tab page, Backspace undoes a prefix first, then removes the last image",
     async (name) => {
       const page = await newTab(name, true);
-      const field = page.locator("input.acpmux-newtab-field");
+      // Its field is the composer's Markdown prompt too (MarkdownField).
+      const field = page.locator(".acpmux-newtab-field .ProseMirror");
       await field.click();
       for (const file of ["One.png", "Two.png"]) {
         const data = await transfer(page, file);
@@ -299,7 +303,7 @@ await requireBrowserLane("new-tab-paste-attachments.test.ts", async () => {
       await page.waitForFunction(
         () => document.querySelector(".acpmux-newtab")?.getAttribute("data-kind") === "terminal",
       );
-      expect(await field.inputValue()).toBe("");
+      expect(await field.evaluate((node) => node.textContent ?? "")).toBe("");
       // A frame after the press, so a chip removed by mistake is gone before the count.
       await page.keyboard.press("Backspace");
       await page.waitForFunction(() => document.querySelector(".acpmux-newtab")?.getAttribute("data-kind") === "agent");
@@ -332,7 +336,7 @@ await requireBrowserLane("new-tab-paste-attachments.test.ts", async () => {
       await page.keyboard.press("Enter");
       const bubble = page.locator(".cv-user__bubble", { hasText: "example.com" });
       await bubble.waitFor({ timeout: 30_000 });
-      await bubble.locator(".cv-user__inline-image img").waitFor({ timeout: 30_000 });
+      await page.locator("[data-inline-content] .cv-user__inline-image img").waitFor({ timeout: 30_000 });
       await page.close();
     },
   );

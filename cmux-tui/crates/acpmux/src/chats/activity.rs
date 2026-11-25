@@ -5,23 +5,15 @@
 //! can change either reaches every chats watcher as
 //! `_acpmux/chat_changed {kind: "activity", key, attention, preview}`
 //! (no index read, so a scan holding the index lock never delays it).
+//!
+//! This half is what the chat lists read: [`ChatActivity`] and which records change it. The
+//! sessions' half (reading a session's attention and preview, the hub's cache of the closed
+//! sessions' part) is the hub's, `hub/chat_activity.rs`.
 
 use std::collections::HashMap;
+use std::sync::Arc;
 
-use cmux_chat_index::{AdapterKind, ChatKey};
 use serde_json::{Value, json};
-
-use super::key_text;
-use crate::hub::{Hub, Session};
-use crate::store::SessionStatus;
-use cmux_json::JsonSet as _;
-
-#[cfg(test)]
-#[path = "activity_tests.rs"]
-mod tests;
-
-/// The longest preview sent, in characters: one sidebar line and some.
-const PREVIEW_CHARS: usize = 160;
 
 /// The record kinds after which a session's attention or preview may differ:
 /// a status change (running, waiting, read), the end of a turn, and every
@@ -36,126 +28,75 @@ pub fn changes_activity(kind: &str) -> bool {
             | "permission_request"
             | "permission_decision"
             | "permission_auto"
+            // A sub-session below it started or stopped waiting on the person (`hub/asks_below.rs`).
+            | "subsessions_waiting"
             | "purged"
             // `spawnedBy` names the chat's parent (`Hub::spawned_by`).
             | "tags"
     )
 }
 
-/// The indexed chat a session continues: the store of its profile's family
-/// and the agent's session id. Only adoptable families have one.
-pub fn session_chat_key(session: &Session) -> Option<ChatKey> {
-    session.read_meta(|meta| {
-        let harness = match meta.family.as_deref()? {
-            "claude" => AdapterKind::ClaudeCode,
-            "codex" => AdapterKind::Codex,
-            _ => return None,
-        };
-        Some(ChatKey { harness, session_id: meta.agent_session_id.clone()? })
-    })
-}
+/// One chat's newest session: its `updated_at`, its id (the larger id wins a tie) and its fields.
+pub(crate) type Newest = (u64, String, Value);
 
-/// What the session needs from the person, most urgent first; None while
-/// it needs nothing (idle, working, or closed).
-pub fn attention(session: &Session) -> Option<&'static str> {
-    let (status, failed, unread) = session.read_meta(|meta| {
-        (
-            meta.status,
-            meta.last_turn.as_ref().and_then(|t| t.get("status")).and_then(Value::as_str)
-                == Some("failed"),
-            meta.unread,
-        )
-    });
-    match status {
-        SessionStatus::Closed => return None,
-        SessionStatus::Waiting => return Some("needsInput"),
-        _ if session.has_pending_permissions() => return Some("needsInput"),
-        SessionStatus::Running => return None,
-        _ => {}
-    }
-    if failed {
-        Some("failed")
-    } else if unread {
-        Some("unread")
-    } else {
-        None
-    }
+/// The activity of every chat a session continues, by chat key: the closed sessions' part built
+/// once and shared until one of them changes (`ActivityCache`), the live sessions' part read now.
+/// Decorating stays one lookup per chat.
+#[derive(Default)]
+pub struct ChatActivity {
+    closed: Arc<HashMap<String, Newest>>,
+    live: HashMap<String, Newest>,
+    /// When the first session tag that had not expired when this was read expires: past it, a
+    /// `parent` or fold read from this may be out of date with no record saying so.
+    expires_at: Option<u64>,
 }
-
-/// The `attention` and `preview` fields of a session's chat.
-pub fn activity_fields(session: &Session) -> Value {
-    let preview = session.read_meta(|meta| {
-        meta.preview.as_deref().filter(|p| !p.trim().is_empty()).map(|p| {
-            let line = p.split_whitespace().collect::<Vec<_>>().join(" ");
-            line.chars().take(PREVIEW_CHARS).collect::<String>()
-        })
-    });
-    json!({"attention": attention(session), "preview": preview})
-}
-
-/// The `_acpmux/chat_changed` params of a session's chat activity, when the
-/// session continues an indexable chat.
-pub fn activity_change(hub: &Hub, session: &Session) -> Option<Value> {
-    let key = session_chat_key(session)?;
-    let mut change = hub.chat_activity_fields(session);
-    change.set("kind", json!("activity"));
-    change.set("key", json!(key_text(&key)));
-    Some(change)
-}
-
-/// The activity of every chat a live session continues, by chat key: built
-/// once per page or change, so decorating stays one lookup per chat.
-pub struct ChatActivity(HashMap<String, (u64, Value)>);
 
 impl ChatActivity {
-    /// The chat was started by another chat's agent (`parent`): lists fold it under that chat.
-    pub fn has_parent(&self, key: &str) -> bool {
-        self.0.get(key).is_some_and(|(_, fields)| !fields.get("parent").is_none_or(Value::is_null))
+    /// The closed sessions' part, the live sessions' part, and when the first tag read for it
+    /// expires (the hub builds it, `hub/chat_activity.rs`).
+    pub(crate) fn new(
+        closed: Arc<HashMap<String, Newest>>,
+        live: HashMap<String, Newest>,
+        expires_at: Option<u64>,
+    ) -> Self {
+        Self { closed, live, expires_at }
     }
 
-    /// Adds `attention`, `preview` and `parent` to a chat value (`chat_value`); a chat
-    /// no session continues gets nulls, so a client clears what it had.
+    /// When the first tag read for this activity expires (`expires_at`).
+    pub fn expires_at(&self) -> Option<u64> {
+        self.expires_at
+    }
+
+    /// The fields of the newest session continuing `key`, closed or live.
+    fn fields(&self, key: &str) -> Option<&Value> {
+        match (self.closed.get(key), self.live.get(key)) {
+            (Some(closed), Some(live)) if (closed.0, &closed.1) > (live.0, &live.1) => {
+                Some(&closed.2)
+            }
+            (_, Some(live)) => Some(&live.2),
+            (closed, None) => closed.map(|n| &n.2),
+        }
+    }
+
+    /// The chat was started by another chat's agent (`parent`): lists fold it under that chat.
+    pub fn has_parent(&self, key: &str) -> bool {
+        self.fields(key).is_some_and(|fields| !fields.get("parent").is_none_or(Value::is_null))
+    }
+
+    /// Adds `attention`, `preview`, `parent`, `displayName` and `icon` to a chat value
+    /// (`chat_value`); a chat no session continues gets nulls, so a client clears what it had.
     pub fn decorate(&self, chat: &mut Value) {
         let fields = chat
             .get("key")
             .and_then(Value::as_str)
-            .and_then(|key| self.0.get(key))
-            .map(|(_, fields)| fields.clone())
-            .unwrap_or_else(|| json!({"attention": null, "preview": null, "parent": null}));
+            .and_then(|key| self.fields(key))
+            .cloned()
+            .unwrap_or_else(|| {
+                json!({"attention": null, "preview": null, "parent": null, "displayName": null,
+                       "icon": null})
+            });
         if let (Some(chat), Value::Object(fields)) = (chat.as_object_mut(), fields) {
             chat.extend(fields);
         }
-    }
-}
-
-impl Hub {
-    /// A chat's `attention` and `preview`, and `parent`: the chat of the session that started
-    /// this one (`Hub::spawned_by`; its chat key, else its session id), so lists fold it under
-    /// that chat instead of listing it on its own (Leo 2026-10-13). Null for a chat nobody started.
-    pub fn chat_activity_fields(&self, session: &Session) -> Value {
-        let mut fields = activity_fields(session);
-        let parent = self.spawned_by_session(session).map(|parent| match self.resolve(&parent) {
-            Ok(parent_session) => {
-                session_chat_key(&parent_session).map_or(parent, |key| key_text(&key))
-            }
-            Err(_) => parent,
-        });
-        fields.set("parent", json!(parent));
-        fields
-    }
-
-    /// Every live session's chat activity; the newest session wins a chat
-    /// two sessions continue.
-    pub fn chat_activity(&self) -> ChatActivity {
-        let mut by_key: HashMap<String, (u64, Value)> = HashMap::new();
-        for session in self.sessions() {
-            let Some(key) = session_chat_key(&session) else { continue };
-            let updated = session.read_meta(|meta| meta.updated_at);
-            let key = key_text(&key);
-            if by_key.get(&key).is_none_or(|(newest, _)| updated >= *newest) {
-                by_key.insert(key, (updated, self.chat_activity_fields(&session)));
-            }
-        }
-        ChatActivity(by_key)
     }
 }

@@ -10,14 +10,25 @@ import CmuxNextCompat
 ///
 /// - One connection at a time; `open` closes the previous one. Each has an id the page names.
 /// - Inbound frames queue off the main thread in a bounded queue and reach the page in batches,
-///   one bridge call per flush (``pacer``). Overflow closes the socket with
-///   ``AgentPaneTransportError/inboundOverflow``; the page then reconnects and resyncs.
+///   one bridge call per flush (``pacer``). A page that falls a full queue behind loses stream
+///   notifications, not its connection: they are shed until it catches up, and it then reads what
+///   it missed after one `_acpmux/lagged` (``AcpmuxPaneShedding``). Only frames past the ceiling
+///   close the socket with ``AgentPaneTransportError/inboundOverflow``.
 /// - Outbound sends are bounded too (``AgentPaneTransportError/outboundOverflow``).
 /// - Nothing here blocks the main thread: the socket's callbacks run on its own queue.
 @MainActor public final class AgentPaneTransport {
     public nonisolated struct Limits: Sendable {
+        /// Past these, the page is a full queue behind: stream notifications are shed until it
+        /// catches up, then it gets one `_acpmux/lagged` and reads what it missed
+        /// (``AcpmuxPaneShedding``). Replies and requests still queue.
         public var maximumQueuedFrames = 8192
         public var maximumQueuedBytes = 32 << 20
+        /// The ceiling for what still queues past the bounds above (replies, requests, observed
+        /// notifications): only past it does the socket close with
+        /// ``AgentPaneTransportError/inboundOverflow``. Above the daemon's largest frame (31 MiB),
+        /// so one whole reply never ends a connection.
+        public var ceilingQueuedFrames = 32768
+        public var ceilingQueuedBytes = 128 << 20
         public var maximumFramesPerFlush = 512
         public var maximumBytesPerFlush = 4 << 20
         public var maximumOutstandingSends = 8192
@@ -32,10 +43,31 @@ import CmuxNextCompat
     /// once the page has run it (it paces the next push).
     public var deliver: (@MainActor (AgentPaneTransportEvent, _ done: @escaping @MainActor @Sendable () -> Void) -> Void)?
     /// Runs right before anything reaches the page: a push here, a script call or a picture
-    /// (``AgentPaneView/callPageScript(_:arguments:)``, ``AgentPaneView/pageSnapshot()``). A hidden page
+    /// (``AgentPaneView/callPageScript(_:arguments:timeout:)``, ``AgentPaneView/pageSnapshot()``). A hidden page
     /// that froze (the app's hibernation) thaws first, so the work runs now instead of waiting on a
-    /// page that runs no script (a push's completion paces the next one).
-    public var beforePageWork: (@MainActor () -> Void)?
+    /// page that runs no script (a push's completion paces the next one). Set exactly while the page is
+    /// frozen: meanwhile other chats' rows are left out, not queued (``AcpmuxPaneSocket/setAsleep(_:)``).
+    public var beforePageWork: (@MainActor () -> Void)? {
+        didSet { syncSight() }
+    }
+    /// How much of the pane anyone can see (its pacer's probe, ``AgentPaneFramePacer/onSightChange``). Unseen: other
+    /// chats' rows are left out until it shows, as for a frozen page. Hidden: its chat's stream is left out too.
+    public var pageSight = AgentPaneSight.seen {
+        didSet { if pageSight != oldValue { syncSight() } }
+    }
+    /// Whether nobody can see the pane (``pageSight``).
+    public var pageUnseen: Bool { pageSight.unseen }
+
+    /// What the page hears now: other chats' rows (``AcpmuxPaneSocket/setAsleep(_:)``) and its chat's stream
+    /// (``AcpmuxPaneSocket/setHidden(_:)``). A frozen page hears neither: any push would thaw it.
+    func syncSight() {
+        let frozen = beforePageWork != nil
+        socket?.setAsleep(frozen || pageSight.unseen)
+        socket?.setHidden(frozen || pageSight.hidden)
+    }
+    /// Tests: runs on the main actor after a pass's frames were read off it and before the main
+    /// actor decides the next one, where a reconnect can land. Nil in the app.
+    var afterAnalyze: (@MainActor () async -> Void)?
     /// Counts pushes, so a late completion of a previous connection's push is ignored.
     private var deliveries = 0
     private var pacerStorage: any AgentPaneTransportPacer
@@ -66,6 +98,9 @@ import CmuxNextCompat
     var pendingTrustFolders: [AgentPanePromptJournal.PendingTrust] = []
     var trustDaemon: String?
     var draining = false
+    /// Batches the send line has handed over so far: ``lineDrained(quiet:limit:)`` reads a change
+    /// as the line moving.
+    var drainedBatches = 0
     /// Waiting on the send line to drain (``lineDrained(within:)``).
     var drainWaiters: [CheckedContinuation<Void, Never>] = []
     /// The user's gestures in this pane; a granting frame consumes one.
@@ -104,6 +139,9 @@ import CmuxNextCompat
     private(set) var remoteWire = false
     /// The current remote chat's host reader, installed from the same wire that carries its ACP.
     var remoteImageLoader: (@Sendable (String) async throws -> Data)?
+    /// The same wire's video range reader (`path, offset, length, handle`), for
+    /// ``AgentPaneRemoteMedia``.
+    var remoteMediaRange: (@Sendable (String, Int, Int, String?) async throws -> Data)?
     /// Cloud repository actions use the current machine/attachment daemon frame connection.
     public var cloudRepository: (@Sendable (String, [String: any Sendable], Duration?) async throws -> Data)?
     /// A `session/new` took the person's send gesture: the first `session/prompt` on that
@@ -119,6 +157,9 @@ import CmuxNextCompat
     /// A folder pick took the person's gesture (``grantPicked(_:)``): the next `session/new` on this
     /// Mac on that connection carries it as its own (``startCredit``). Nothing else spends it.
     var pickCredit = AgentPaneGestureCredit()
+    /// A Cloud chat's Sign in took the person's click (`_acpmux/agent_login/start`): it also opens
+    /// that sign-in's page once (``takeSignInPage(_:)``), so Sign in is one click.
+    var signInPageCredit = AgentPaneGestureCredit()
     /// Home folders of the chat's machine the person chose by Use Home Folder (cx-1bhjj): only
     /// these may be trusted or started in there. Never this Mac's roots (``addedRoots``).
     public internal(set) var remoteHomeChosen: Set<String> = []
@@ -142,6 +183,10 @@ import CmuxNextCompat
     public var gestureRoots: @MainActor () -> [String] = { [] }
     /// The pane's workspace root, the cwd of a `session/new` that names none.
     public var primaryRoot: @MainActor () -> String? = { nil }
+    /// The folders the host itself handed the page (handshake, tab, workspace, store start folder):
+    /// a `session/new` cwd that is one of them and no longer exists was never the person's pick, so
+    /// the relay re-resolves it (``AcpmuxPathPolicy/Scope/inheritedCwds``).
+    public var inheritedFolders: @MainActor () -> [String] = { [] }
     /// The workspace's agent-home folder: a root once it exists, and the cwd of a `session/new`
     /// that names none when there is no ``primaryRoot`` (AGENT-CWD-FOR-FOLDERLESS-WORKSPACE).
     public var agentHome: @MainActor () -> AgentHomeFill? = { nil }
@@ -195,6 +240,20 @@ import CmuxNextCompat
     /// Told at each connect whether the pane runs on another cmux install's acpmux (its allows
     /// are refused here: the pane says so).
     public var onOtherInstall: (@MainActor (Bool) -> Void)?
+    /// Told after each local connection's person proof whether the daemon took it: false while
+    /// prompts typed here would reach the agent as an unverified sender's, true once a connection
+    /// proved the person. The pane shows nothing for it (Leo, 2026-11-22).
+    public var onPersonProof: (@MainActor (Bool) -> Void)?
+    /// Gets this launch's person key to the daemon again (the host's full lookup: it hands off a
+    /// daemon an update replaced, then enrolls). True when the lookup finished, so a new
+    /// connection may prove; the transport then reconnects. Nil: the pane only says it is unproven.
+    public var recoverPersonProof: (@MainActor () async -> Bool)?
+    /// Reconnects made for the person proof since one last proved; bounded so a daemon that can
+    /// never take the key does not reconnect the pane forever.
+    var personRecoveries = 0
+    static let personRecoveryReconnects = 3
+    /// The recovery running for the current unproven connection.
+    var personRecovery: Task<Void, Never>?
     /// `_acpmux/markUnread` on the host's socket (Mark as Unread, cx-ncc.78). Replaced in tests.
     public var markUnread: @MainActor (_ sessionId: String) async throws -> Void = { _ in
         throw AcpmuxStatusClient.Failure.closed
@@ -247,18 +306,19 @@ import CmuxNextCompat
     public func open(_ connection: AcpmuxConnection) async throws(AgentPaneTransportError) -> Int {
         close(connection: current)
         pacer.reset()
-        // A reconnect drops every ticket of the old connection.
-        gestures.clearTickets()
         questionKeyCredit = nil
         questionKeyTickets.removeAll()
         current += 1
         let id = current
+        // A reconnect drops every ticket of the old connection but the person's own send tickets.
+        gestures.carrySendTickets(to: id)
         localAppToken = connection.localAppToken
         socketPath = connection.socketPath
         remoteApprovals = connection.remote?.approvals
         remoteHostID = connection.remote?.hostID
         remoteWire = connection.remote != nil
         trustDaemon = remoteWire ? nil : (connection.socketPath ?? connection.url.absoluteString)
+        AgentPaneLaunchTimings.shared.mark("agent_pane.transport_open_start")
         if let daemon = trustDaemon {
             bindPreOpenTrust(to: daemon)
             guard await restorePendingTrust(daemon: daemon, connection: id) else { throw .closed }
@@ -267,16 +327,21 @@ import CmuxNextCompat
         let wire = connection.remote?.makeWire()
         if let wire {
             remoteImageLoader = { path in try await wire.loadRemoteImage(path) }
+            remoteMediaRange = { path, offset, length, handle in
+                try await wire.loadRemoteMediaRange(path, offset: offset, length: length, handle: handle)
+            }
             cloudRepository = { method, params, timeout in
                 try await wire.cloudRepository(method: method, params: params, timeout: timeout)
             }
         } else {
             remoteImageLoader = nil
+            remoteMediaRange = nil
             cloudRepository = nil
         }
         if !remoteWire { remoteHomeChosen = [] }
         startCredit.clear()
         pickCredit.clear()
+        signInPageCredit.clear()
         decisions.reset()
         sentFirst = false
         promptRelay = AgentPanePromptRelay(connection, journal: promptJournal)
@@ -291,6 +356,8 @@ import CmuxNextCompat
             Task { @MainActor [weak self] in self?.arrived(id) }
         }
         self.socket = socket
+        // A page hidden or frozen before this connection opened: its list notices wait for its show too.
+        syncSight()
         onQuestionStateChanged?()
         // cx-fcaq: the local WebSocket goes only to a port the acpmux this app runs listens on.
         if connection.remote == nil, let executable = connection.executable, let port = connection.url.port,
@@ -298,6 +365,7 @@ import CmuxNextCompat
             if self.socket === socket { self.socket = nil; localAppToken = nil; trustDaemon = nil }
             throw .connectFailed
         }
+        AgentPaneLaunchTimings.shared.mark("agent_pane.transport_listener_checked")
         do {
             try await socket.start(timeout: limits.connectTimeout)
         } catch {
@@ -317,11 +385,13 @@ import CmuxNextCompat
         } else {
             onOtherInstall?(false)
         }
+        AgentPaneLaunchTimings.shared.mark("agent_pane.transport_accepted_checked")
         // P1: the daemon's mode fields, once per connection, before the page's first frame.
         modeFields = nil
         let answer = await webModes(nil, nil, nil)
         guard self.socket === socket, id == current else { throw .staleConnection }
         modeFields = answer?.modeFields
+        AgentPaneLaunchTimings.shared.mark("agent_pane.transport_open")
         Self.logger.info("agent pane transport open connection=\(id, privacy: .public) localApp=\(self.localAppToken != nil, privacy: .public)")
         return id
     }
@@ -362,7 +432,9 @@ import CmuxNextCompat
     }
 
     /// `transport.gesture`: reserves the current gesture for one pick sent later on this connection.
-    public func reserveGesture(_ intent: AgentPaneGestureIntent) -> String? {
+    /// `personOnly`: only the person's own gesture pays for it, never input another process posted under
+    /// "Computer use can act as me" (a credential transfer rides on a Send ticket, but the grant never covers it).
+    public func reserveGesture(_ intent: AgentPaneGestureIntent, personOnly: Bool = false) -> String? {
         guard socket != nil else { return nil }
         // A send ticket bound to a chat only for a chat of this pane.
         if let session = intent.sessionId, !sessions.contains(session) { return nil }
@@ -376,13 +448,24 @@ import CmuxNextCompat
             if let ticket = takeQuestionKeyTicket(intent) { return ticket }
             guard gestures.hasFreshAnswerGesture else { return nil }
         }
-        // A prompt held for the folder trust answer right after a new chat's start: the start took
-        // the send's gesture, and its credit becomes the prompt's ticket (the ticket outlives it).
-        if intent.method == "session/prompt", !gestures.isAvailable,
-           let fresh = startCredit.take(connection: current, now: gestures.uptime, lifetime: Self.startCreditLifetime) {
+        // A plan build answers the chat's plan approval or starts the plan in new worktrees: only
+        // right after the person's own click, as an answer (its chat is bound above).
+        if intent.method == "_acpmux/plan/build", !gestures.hasFreshAnswerGesture { return nil }
+        // A prompt held for the trust answer after a new chat's start takes the start's credit; a Cloud start sent from a
+        // folder pick's acceptance (#40957's too-big card) takes the pick's (``grantPicked(_:)`` spent the click). Tickets outlive both.
+        if !gestures.isAvailable, let fresh = intent.method == "session/prompt" ? startCredit.take(connection: current, now: gestures.uptime, lifetime: Self.startCreditLifetime)
+            : intent.method == "cloud.startChat" ? pickCredit.take(connection: current, now: gestures.uptime, lifetime: AgentPaneUserGestures.lifetime) : nil,
+            fresh || intent.method != "session/prompt" {
             return fresh ? gestures.reserve(connection: current, intent: intent, paid: true) : nil
         }
-        return gestures.reserve(connection: current, intent: intent)
+        let reserved = gestures.reserve(connection: current, intent: intent, paid: false, personOnly: personOnly)
+        // A Send needs no key press or click (Leo, 2026-11-17: "go remove this"): it always gets its
+        // ticket, which its large attachments' uploads ride on. A credential transfer's (`personOnly`) does not,
+        // nor an automation seed's (``AgentPaneUserGestures/automationSeedWaits``).
+        if reserved == nil, intent.method == "session/prompt", !personOnly, !gestures.automationSeedWaits {
+            return gestures.reserve(connection: current, intent: intent, paid: true)
+        }
+        return reserved
     }
 
     /// `uploads.begin {sessionId, promptId, ticket}`: the upload `upload` of the person's send holds
@@ -408,7 +491,7 @@ import CmuxNextCompat
         decisions.reset()
         onQuestionStateChanged?()
         localAppToken = nil
-        promptRelay?.ended(byDaemon: false)
+        promptRelay?.ended()
     }
 
     func offerQuestionKeyCredit(target: PageQuestionKeyTarget, intent: AgentPaneGestureIntent,
@@ -450,6 +533,8 @@ import CmuxNextCompat
         for answer in decisions.takeAnswers() where !remoteWire {
             switch answer {
             case .refused(let peer): onPeerApprovalsOff?(.notEnrolled(peer: peer))
+            case .enrollThenRetry(let peer, let pageID, let frame): enrollThenRetry(peer: peer, pageID: pageID, frame: frame)
+            case .unproved: onPeerApprovalsOff?(.notRecorded)
             case .counted: onPeerApprovalsOff?(nil)
             }
         }
@@ -471,11 +556,18 @@ import CmuxNextCompat
             trustDaemon = nil
             gestures.clearTickets(connection: current)
             localAppToken = nil
-            // A connection the daemon closed: the page was told, so its prompts are the page's again
-            // (Retry), unless Debug Settings agentPane.debug.lostPromptReplay sends them again.
-            promptRelay?.ended(byDaemon: deliver != nil && !AgentPaneTunables.lostPromptReplay.value)
+            // A connection the daemon closed: its prompts go again on the next connection, where the
+            // page waits for them.
+            promptRelay?.ended()
             // Kept in the log (notice, not info): the page's "connection interrupted" needs its reason.
-            Self.logger.notice("agent pane transport closed connection=\(self.current, privacy: .public) code=\(batch.closed?.code ?? 0, privacy: .public) error=\(batch.closed?.error?.rawValue ?? "-", privacy: .public)")
+            // A close this host decided (an overflow, a duplicate key) is an error, so the error
+            // journal (`cmux errors`) counts it: as a notice, 1,635 overflow closes on 2026-11-11 reached
+            // no report and Leo found the reconnect loop himself (AcpmuxPaneShedding).
+            if let error = batch.closed?.error {
+                Self.logger.error("agent pane transport closed connection=\(self.current, privacy: .public) code=\(batch.closed?.code ?? 0, privacy: .public) error=\(error.rawValue, privacy: .public)")
+            } else {
+                Self.logger.notice("agent pane transport closed connection=\(self.current, privacy: .public) code=\(batch.closed?.code ?? 0, privacy: .public) error=-")
+            }
         }
         let more = batch.more && self.socket != nil
         guard let deliver else { return AgentPaneFlush(delivered: false, more: more) }

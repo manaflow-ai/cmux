@@ -25,7 +25,7 @@ import type { CreateVmSpec } from "../../src/upstream/client.ts";
 import { UpstreamClient } from "../../src/upstream/client.ts";
 
 const journalFixture: CreateVmSpec["journal"] = {
-  context: null, beforeSend: () => Effect.void, beginSend: () => Effect.succeed("send"),
+  context: null, minted: true, source: null, request: null, beforeSend: () => Effect.void, beginSend: () => Effect.succeed("send"),
   rejected: () => Effect.void, active: Effect.void,
 };
 
@@ -273,5 +273,21 @@ export const forkSnapshotMisuse = (principal: Principal, first: import("../../sr
     yield* snapshots.recoverCapture(a, { capture, scope });
     // @ts-expect-error Fork A's delegation and capture proof cannot inspect snapshot B.
     yield* snapshots.recoverCapture(b, { capture, scope: access });
+  }));
+});
+
+export const publicEgressMisuse = (principal: Principal, vmA: VmId, vmB: VmId) => Effect.gen(function* () {
+  const upstream = yield* UpstreamClient;
+  yield* name(principal, vmA, vmB, (caller, a, b) => Effect.gen(function* () {
+    const owns = yield* tenantOwnsVm(caller, a);
+    const scope = keyHasScope(caller, "vm:network");
+    const write = keyHasScope(caller, "vm:write");
+    if (owns === null || scope === null || write === null) return;
+    yield* upstream.allowVmPublicEgress(a, { owns, scope });
+    yield* upstream.readVmPublicEgress(a, { owns, scope });
+    // @ts-expect-error VM A's ownership does not open VM B to the Internet
+    yield* upstream.allowVmPublicEgress(b, { owns, scope });
+    // @ts-expect-error ordinary VM write permission cannot change network policy
+    yield* upstream.allowVmPublicEgress(a, { owns, scope: write });
   }));
 });

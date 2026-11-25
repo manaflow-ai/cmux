@@ -29,7 +29,7 @@ The host decides how the real code receives the data:
 
 | helper               | host                                                            | a variant is                                                                                                                    |
 | -------------------- | --------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------- |
-| `agentPaneEntry`     | the whole agent pane (`acpmux/main.tsx`) on the pane bridge     | `{ ready?, snapshot }`: the `ready` answer fields and an `AcpmuxSnapshot`                                                       |
+| `agentPaneEntry`     | the whole agent pane (`acpmux/mount.tsx`) on the pane bridge    | `{ ready?, snapshot }`: the `ready` answer fields and an `AcpmuxSnapshot`                                                       |
 | `markdownPageEntry`  | the markdown page entry on an in-page cmuxPage host             | `{ path, text, readOnly?, settings?, files? }`                                                                                  |
 | `diffPageEntry`      | the diff page entry on an in-page cmuxPage host                 | `{ files: [{ path, before?, after? }] }` or `{ patch }`, `layout?`                                                              |
 | `settingsPageEntry`  | the settings page on its real mock provider through cmuxPage    | `{ section, focus?, options?, host?, accounts?, steps? }`                                                                       |
@@ -213,6 +213,109 @@ bun run typecheck
 The allowlist's `owners` names the lane that writes the entries under a path prefix (Leo's lanes
 own the composer pickers, the subagent group, render cards, Sources and Changes, and the docked
 chat). Do not write those entries yourself.
+
+## The mock app: the whole window by URL
+
+`mock-app.html` is cmux NEXT's whole window in a browser: the sidebar, each pane's tab strip, and each
+pane's real surface (the agent pane with its transcript, composer, menus and Session Info, New Tab,
+Home) in its own stage frame, as each pane is its own web view in the app. Only the native parts
+around the panes (sidebar, tab strip, traffic lights) are approximated, from the app's metrics
+(`MetricTunables.swift`) and the fixture's chats. The gallery shows one entry at a time; the mock
+app shows one state of the whole app per URL, which is what the UI judge (review council,
+`ui-climb`) and the native preview window drive.
+
+`app.html` ("Whole app" in the shell header, #35270) is the lighter page: one window over the `app.window`
+scenes in React. The mock app takes any fixture and every axis below.
+
+```
+mock-app.html?fixture=app.window/chat-session-info&window=pro14&density=compact&theme=Catppuccin%20Mocha&script=streaming
+mock-app.html?windows=pro14,air13,1280x800&layout=two&fixture2=app.window/new-tab
+mock-app.html?fixture=agent-pane.turn-error-card/disk-full&cpu=4&slot=custom-element&colorScheme=light
+```
+
+Every key is an axis in `src/gallery/mock-app/axes.ts` (`AXES`). A `frame` axis goes to every pane's
+`frame.html` unchanged, so any control a stage reads (env.ts) works here too; a `main pane` axis
+goes only to the pane `fixture` names (the panes share one main thread, so a script plays and CPU
+contention runs once); an `app` axis shapes the window. Adding an axis the stage already reads is one row in `AXES`; a new script or extension
+slot is one entry in `SCRIPTS` or `SLOTS` (`src/gallery/frame/scripts.ts`), and the URL then names
+it. `script=` also works on a plain `frame.html` stage.
+
+| Key                                                                                                        | Applies to | What it sets                                                                                                                                                                 |
+| ---------------------------------------------------------------------------------------------------------- | ---------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `fixture`, `fixture2`                                                                                      | app        | the main and second pane: `<entry id>/<variant>` of any agent-pane entry (default `app.window/chat-session-info`, `app.window/new-tab`)                                      |
+| `window`, `windows`                                                                                        | app        | the window size (a `WINDOW_PRESETS` name or `<w>x<h>`); `windows=` lists several, each the whole app, side by side (offscreen ones mount as they scroll in)                  |
+| `layout`                                                                                                   | app        | `one`, `two` or `agent-right`                                                                                                                                                |
+| `sidebar`                                                                                                  | app        | `hidden` hides the sidebar                                                                                                                                                   |
+| `zoom`                                                                                                     | app        | `fit` (default) scales each window with one transform; a number is a fixed scale                                                                                             |
+| `chrome`                                                                                                   | app        | `web` (default) draws the window frame in the page; `native` lets a native host window (the view shell, `cmux preview open`) draw the frame and glass, and the page fills it |
+| `density`, `scale`, `interfaceScale`, `fontFamily`, `fontSize`                                             | frame      | density and size, as in the gallery                                                                                                                                          |
+| `theme`, `colorScheme`, `accent`, `background`, `titleAreaTone`, `locale`, `reducedMotion`, `highContrast` | frame      | theme and customization, as in the gallery; the chrome takes the same theme                                                                                                  |
+| `script`, `loop`                                                                                           | main pane  | `streaming`, `tools` or `error`: the chat comes alive on a loop through the pane's real `receive` (`loop=0` plays once)                                                      |
+| `cpu`                                                                                                      | main pane  | simulated main-thread contention: each pane gets 1/N of its thread (a harness can also throttle with CDP)                                                                    |
+| `slot`                                                                                                     | main pane  | `custom-element`: an extension's renderer (a custom element) through the pane's real registry, with a row of its kind                                                        |
+| `exp`, `arm`                                                                                               | frame      | an experiment's arm                                                                                                                                                          |
+
+The page sets `data-mock-app-ready="1"` on its root and posts `{type: "cmux-mock-app", status:
+"ready"}` to its parent when the first window's panes are ready. It runs no timer or animation
+frame while idle (only a `script` or `cpu` does, and those stop while the page is hidden).
+
+Open it from `bun run gallery:dev` at `http://127.0.0.1:4210/gallery/mock-app.html`, from a static build
+(`dist/gallery/mock-app.html`), or on the live tailnet gallery (`.../live/mock-app.html`).
+
+### Open-and-idle cost
+
+`scripts/gallery-matrix/app-perf.ts` measures a built gallery in Chrome: first frame, ready, long
+tasks after ready, idle CPU (CDP `TaskDuration` over a 5 s window), idle rAF and timer calls per
+second with where they came from, JS heap, DOM nodes and layout shift after first paint. The
+scenarios and budgets (first frame under 500 ms, no long task over 50 ms after ready, about 0%
+idle CPU, no layout shift after first paint) are in `app-perf-budgets.json`. It is lane-run, not a
+CI gate: run it before and after a change and put its `table.md` in the PR.
+
+```sh
+cmux-ci test --setup playwright --artifact /tmp/perf -- bash -c '
+  cd webviews && bun install --frozen-lockfile && CMUX_GALLERY_OUT_DIR=$PWD/../dist-gallery bun run gallery:build &&
+  cd ../scripts/gallery-matrix && bun install --frozen-lockfile &&
+  eval "$(../ci/ensure-system-chrome.sh | grep ^CMUX_CHROME_HEADLESS_SHELL= | sed "s/^/export /")";
+  bun app-perf.ts --gallery-dir ../../dist-gallery --out "$FAST_CHECKS_OUT" --cpu 4'
+```
+
+## The golden screen: every look side by side
+
+`looks.golden` (`src/gallery/golden/golden.gallery.ts`) is one chat that holds every part a look
+changes: a prompt bubble, a reply with headings, a list, inline code, a code block and a link, tool
+rows done, failed and running, the edited-files card, a permission prompt with its diff, and the
+composer with its chips and a draft. In the mock app the window around it adds the sidebar's two
+projects (a selected, a waiting, a working, an unread and a failed chat, ages where the look shows
+them) and a strip of four tabs. Each variant is one look of `src/gallery/golden/looks.json`; the
+stage's `colorScheme` picks the look's light or dark theme file.
+
+A look there is what a setup carries: per scheme a theme file (a repo path, or its keys inline),
+`settings` (`agentPane.*` go to the chat's `display` push, `sidebar.*` to the mock window), a
+composer look, and an `agent-pane/theme.css`; or `setup`, a setup folder (`examples/looks/NAME`). The
+dev server resolves it (`dev-server/goldenLooks.ts`, `virtual:cmux-gallery/looks`); a look whose files
+this checkout lacks is skipped. A variant of any agent-pane entry can carry a `look` the same way.
+
+`bun run golden:looks` captures each look in light and dark in the mock app's window and writes
+`sheet.png` with every look side by side. A look PR posts it from its base and its head:
+
+```sh
+cmux-ci test --setup playwright --artifact /tmp/golden -- bash -c 'cd webviews && bun install --frozen-lockfile &&
+  bun run golden:looks --out "$FAST_CHECKS_OUT/golden"'
+bun run golden:looks --looks cmux,codex --setup ~/src/my-look   # an outside look beside the built-in ones
+bun run golden:looks --native DIR   # adds the native sidebar and tab bar (AAGoldenLookGalleryTests' PNGs) per look
+bun run golden:looks --every        # every look the checkout carries, as the contrast test draws them
+bun run golden:looks --setup ~/src/my-look --preview   # also writes ~/src/my-look/preview/golden-{light,dark}.png, the stills the Settings looks gallery shows
+```
+
+`looks.golden-menus` (`src/gallery/golden/GoldenMenus.gallery.tsx`) is the golden screen's menus and
+popover, which portal outside the chat: an open menu with a section label, shortcuts, an open submenu,
+a disabled and a red destructive row, beside the plan usage popover, a variant per look.
+
+The golden screen is the sample every look's contrast is checked on (`test/browser/golden-look-contrast-{0,1,2,3}.test.ts` (one suite, `test/support/goldenLookContrastSuite.ts`)):
+both entries under every look the checkout carries, found rather than listed (`discoverLooks`: each
+shipped theme file, each setup folder and theme file under `examples/`, past the registry), in each
+scheme it draws. Every text under 4.5:1 (3:1 large text and icons) fails with its look, element, text,
+colors and ratio, past the default chat's known pairs (`test/support/contrastKnown.ts`).
 
 ## Seeing it
 

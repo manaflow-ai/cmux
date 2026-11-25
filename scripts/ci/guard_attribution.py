@@ -67,6 +67,7 @@ from collections.abc import Callable, Iterable, Mapping
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
+import glaeda_log  # noqa: E402
 import pr_status  # noqa: E402
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -435,7 +436,7 @@ def fix_test_registry(failure: TestFailure, tree: Tree) -> Fix | None:
     if "validate_test_execution_registry.py --write" not in failure.message:
         return None
     command = "python3 scripts/ci/validate_test_execution_registry.py --write"
-    return Fix(f"Run `{command}`, which registers the new test in `tests/test-execution.toml`, and commit "
+    return Fix(f"Run `{command}`, which registers the new test in its `tests/test-execution.d/` area file, and commit "
                "the result.", command=command)
 
 
@@ -585,7 +586,9 @@ class GitHub:
         return self.job_log_for_id(job["id"]) if job else ""
 
     def job_log_for_id(self, job_id: int) -> str:
-        return str(self.request("GET", f"repos/{self.repo}/actions/jobs/{job_id}/logs", text=True))
+        kept = glaeda_log.cached_job_log(self.repo, job_id)  # this host's glaeda-gh kept it: no API call
+        return kept if kept is not None else str(
+            self.request("GET", f"repos/{self.repo}/actions/jobs/{job_id}/logs", text=True))
 
     def failed_log(self, run_id: int, *, run_attempt: int | None = None,
                    job_name: str | None = None) -> str:

@@ -50,21 +50,11 @@ public struct CmuxSidebarEntry: Hashable, Sendable {
     /// A short tag after the name (the engine a Home Chief runs on, "UniiChat"); nil shows none.
     /// The vendored row draws only the name, so the tag is part of the name it is given.
     public var badge: String?
-    /// How the conversation's own `avatar` moves: nil stands still (``SidebarAvatarMotion``).
-    public var avatarMotion: AvatarMotion?
-
-    /// A moving avatar: a Chief's slow idle loop, livelier while it works.
-    public enum AvatarMotion: Hashable, Sendable {
-        case idle
-        case working
-    }
 
     public init(id: String, title: String, people: [Person], preview: String, previewSender: String?, lastAt: Date,
                 unreadCount: Int, pinned: Bool, muted: Bool = false, typing: Bool = false,
-                knownSender: Bool = true, spam: Bool = false, deletedAt: Date? = nil, avatar: Avatar? = nil, badge: String? = nil,
-                avatarMotion: AvatarMotion? = nil) {
+                knownSender: Bool = true, spam: Bool = false, deletedAt: Date? = nil, avatar: Avatar? = nil, badge: String? = nil) {
         self.avatar = avatar
-        self.avatarMotion = avatarMotion
         self.badge = badge
         self.knownSender = knownSender
         self.spam = spam
@@ -105,7 +95,6 @@ public struct CmuxSidebarEntry: Hashable, Sendable {
         s.knownSender = knownSender
         s.spam = spam
         s.deletedAt = deletedAt
-        s.avatarMotion = own == nil ? nil : avatarMotion.map { $0 == .working ? .working : .idle }
         return s
     }
 }
@@ -126,6 +115,9 @@ public final class CmuxSidebarView: NSView {
     /// there). The host changes its order and calls `show` before returning, so the tiles land
     /// from where they were drawn. A tile dragged onto the list goes to `onSetPinned(false, _)`.
     public var onPlacePinned: (String, Int) -> Void = { _, _ in }
+    /// A row or tile drag left the list sideways (the conversation's id, the pointer on screen): true takes
+    /// it over (cmux: the Chief dragged into the app's sidebar); the list puts the drag back and stops.
+    public var onDragOut: (String, CGPoint) -> Bool = { _, _ in false }
     /// Mark as Read (true) on an unread conversation, Mark as Unread (false) on a read one.
     public var onSetRead: (Bool, String) -> Void = { _, _ in }
     /// Host items for a conversation's context menu after Pin and Read (MessagesLab v1.1
@@ -185,9 +177,9 @@ public final class CmuxSidebarView: NSView {
     }
     /// The x's tooltip and accessibility label ("Close New Message").
     public var closeTitle: String {
-        get { rowClose.button.toolTip ?? "" }
+        get { rowClose.button.accessibilityLabel() ?? "" }
         set {
-            rowClose.button.toolTip = newValue
+            rowClose.button.setSidebarToolTip(newValue)
             rowClose.button.setAccessibilityLabel(newValue)
         }
     }
@@ -302,6 +294,20 @@ public final class CmuxSidebarView: NSView {
         set { controller.filter = newValue ? .unread : .all }
     }
 
+    /// The empty list's Show All was clicked: the filter is off (``unreadOnly`` is false) and the
+    /// host's own filter controls follow.
+    public var onShowAll: (() -> Void)? {
+        get { controller.onShowAll }
+        set { controller.onShowAll = newValue }
+    }
+
+    /// Points added to the empty list's text (No Results, No Unread Chats and Show All): the host's
+    /// sidebar Text Size step. 0, the default, keeps MessagesLab's sizes.
+    public var emptyTextStep: CGFloat {
+        get { controller.emptyTextStep }
+        set { controller.emptyTextStep = newValue }
+    }
+
     /// Ends a search: the field empties and the list shows every conversation again.
     public func clearSearch() {
         guard !controller.searchField.stringValue.isEmpty else { return }
@@ -376,7 +382,7 @@ public struct CmuxSidebarSearchSection: Hashable, Sendable {
 /// The controller's data source, delegate and search provider (it holds them weakly).
 @MainActor
 private final class SidebarLink: @preconcurrency SidebarDataSource, @preconcurrency SidebarDelegate, @preconcurrency SidebarSearchProvider,
-    @preconcurrency SidebarPinPlacing {
+    @preconcurrency SidebarPinPlacing, @preconcurrency SidebarDragOutHandling {
     weak var owner: CmuxSidebarView?
 
     func sidebarSnapshot(_ sidebar: SidebarController) -> ConversationListSnapshot {
@@ -388,6 +394,9 @@ private final class SidebarLink: @preconcurrency SidebarDataSource, @preconcurre
     func sidebar(_ sidebar: SidebarController, setPinned pinned: Bool, for id: ConversationID) { owner?.onSetPinned(pinned, id) }
     func sidebar(_ sidebar: SidebarController, setRead read: Bool, for id: ConversationID) { owner?.onSetRead(read, id) }
     func sidebar(_ sidebar: SidebarController, place id: ConversationID, at index: Int) { owner?.onPlacePinned(id, index) }
+    func sidebar(_ sidebar: SidebarController, dragOut id: ConversationID, at screenPoint: CGPoint) -> Bool {
+        owner?.onDragOut(id, screenPoint) ?? false
+    }
     // v1.2: MessagesLab's own tile reorder reports its drop here; the same placement as a pin drag.
     func sidebar(_ sidebar: SidebarController, movePinned id: ConversationID, to index: Int) { owner?.onPlacePinned(id, index) }
     // Pin, and Mark as Read on an unread conversation or Mark as Unread on a read one (the

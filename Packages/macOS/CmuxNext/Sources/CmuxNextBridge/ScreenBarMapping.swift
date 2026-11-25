@@ -27,7 +27,7 @@ public struct ScreenBarMapping {
         }
         let groups = workspace.screenGroups.map { group in
             TabGroupItem(id: TabGroupID(group.id.rawValue), name: group.name,
-                         tint: group.color.flatMap(GroupTint.init(wire:)) ?? .palette(.grey),
+                         tint: group.color.flatMap(GroupTint.init(wire:)) ?? .none,
                          isCollapsed: group.collapsed, isSaved: group.savedID != nil,
                          // A group with no icon maps to nil: its chip draws as before.
                          icon: icon(group.icon, emoji: emojiIcon, asset: assetIcon))

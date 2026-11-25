@@ -1,4 +1,5 @@
 public import CmuxHomeCore
+public import CmuxNextHomeModel
 
 /// One row of New Message's list under To: (``HomeRecipientSuggestionsView``): a section header,
 /// a recipient, or an action row (New Chief, Invite) that runs instead of adding a token.

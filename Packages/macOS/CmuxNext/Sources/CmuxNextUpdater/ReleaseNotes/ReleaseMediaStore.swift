@@ -76,7 +76,7 @@ nonisolated public struct ReleaseMediaStore: Sendable {
         for index in notes.highlights.indices {
             notes.highlights[index].media = notes.highlights[index].media.compactMap { media in
                 resolved[.highlight(sha256: media.sha256.lowercased(), url: media.url)].map {
-                    ReleaseNotes.Media(url: $0, sha256: media.sha256, kind: Self.kindName(for: $0), alt: media.alt)
+                    ReleaseNotes.Media(url: $0, sha256: media.sha256, kind: Self.kindName(for: $0), alt: media.alt, role: media.role)
                 }
             }
         }

@@ -33,7 +33,7 @@ extension SettingsPageProvider {
     @discardableResult
     func useBackdropImage(_ url: URL) async throws -> String {
         guard let backdropImages else { throw PageError(code: "cmux.page.unavailable", message: "no backgrounds folder") }
-        guard let descriptor = SettingsSchema.descriptor(for: BackdropSelectionSetting().configPath) else {
+        guard let descriptor = SettingsSchema.descriptor(for: BackdropSelectionSetting.configPath) else {
             throw PageError(code: "cmux.page.unavailable", message: "no background setting")
         }
         let selection: BackdropSelection
@@ -41,7 +41,7 @@ extension SettingsPageProvider {
             // Checked to decode or play, then copied off the main actor.
             selection = try await backdropImages.images.adoptChecked(url)
         } catch {
-            throw PageError(code: "cmux.settings.invalid", message: "\(url.lastPathComponent) cannot be used as a background")
+            throw PageError(code: (error as? BackdropUserImages.ImportError)?.code ?? "cmux.settings.invalid", message: "\(url.lastPathComponent) cannot be used as a background")
         }
         // concurrency-allow: the settings owner writes through its CmuxConfigFile actor, off the main actor
         try await write(descriptor, .string(selection.id), by: .user)

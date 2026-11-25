@@ -1,8 +1,8 @@
 // Shared by the run sheet and the full inline transcript; every stored step stays in order.
 import { memo, useMemo } from "react";
-import { AgentNamesContext } from "../../agent-session/acpmux/conversation/agentNames";
 import { Markdown } from "../../agent-session/acpmux/conversation/Markdown";
-import { ToolRows } from "../../agent-session/acpmux/conversation/TurnRows";
+import { UrlChip } from "../../agent-session/acpmux/chips/LinkChips";
+import { HomeToolGroup } from "./HomeToolGroup";
 import { useT as usePaneT } from "../../agent-session/acpmux/i18n";
 import { runBlocks } from "./runBlocks";
 import { safeLink } from "./runs";
@@ -25,9 +25,9 @@ export const RunSteps = memo(function RunSteps({
         {step.links
           .filter((link) => safeLink(link.url))
           .map((link, index) => (
-            <a key={`${index}-${link.url}`} href={link.url} target="_blank" rel="noreferrer">
+            <UrlChip key={`${index}-${link.url}`} href={link.url} target="_blank">
               {link.label}
-            </a>
+            </UrlChip>
           ))}
       </p>
     );
@@ -58,16 +58,25 @@ export const RunSteps = memo(function RunSteps({
       {blocks.map((block) =>
         block.kind === "tools" ? (
           <div key={block.key} className="lg-run-block">
-            <AgentNamesContext.Provider value={agentNames}>
-              <ToolRows row={block.row} />
-            </AgentNamesContext.Provider>
+            <HomeToolGroup
+              row={block.row}
+              steps={(block.row.items ?? []).flatMap((item) => {
+                const step = item.tool ? byId.get(item.tool.id) : undefined;
+                return step ? [step] : [];
+              })}
+              agentNames={agentNames}
+            />
             {extras(block)}
           </div>
         ) : block.kind === "thought" ? (
           <Thought key={block.key} text={block.step.text ?? ""} />
         ) : (
           <div key={block.key} className={`lg-run-block ${block.kind}`}>
-            {block.step.text && <Markdown className="hc-md">{block.step.text}</Markdown>}
+            {block.step.text && (
+              <Markdown className="hc-md" messageAt={block.step.at}>
+                {block.step.text}
+              </Markdown>
+            )}
             {stepLinks(block.step)}
           </div>
         ),

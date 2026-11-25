@@ -77,6 +77,7 @@ async fn an_unknown_subagent_retry_is_refused_and_never_retries_the_parent_turn(
 #[tokio::test]
 async fn a_failed_turn_with_no_output_is_sent_again_as_the_same_prompt() {
     let (hub, mut c) = setup_queue(PermissionPolicy::ApproveAll).await;
+    hub.config.write().await.context_overrides.user = Some("GUIDANCE-ON-RETRY".into());
     // No automatic retry: the failure stays failed until the person retries it.
     hub.config.write().await.auto_resume_delays_ms = Some(vec![]);
     let id = new_session(&mut c, "retry-same").await;

@@ -3,6 +3,8 @@
 // acpmux's `usageStats` on the session summary, and every session acpmux lists, this Mac's and its
 // peers', sorted by 24h cost or by context. Leo, 2026-10-30: "that visibility into huge-blue guys
 // was (and is?) pretty bad i feel like we can make more improvements to acpmux/cmux-next".
+// Every section in view (`setSessionInfoMore(true)`): the panel's compact default view is
+// session-info-compact-default.test.tsx's.
 import { afterEach, beforeEach, expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import path from "node:path";
@@ -10,11 +12,23 @@ import { act, type ReactNode } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { JSDOM } from "jsdom";
 import { SessionInfo } from "../src/agent-session/acpmux/session-info/SessionInfo";
-import { DEFAULT_SECTIONS, resetSessionInfoState } from "../src/agent-session/acpmux/session-info/sessionInfoState";
-import { DEFAULT_ORDER, GROUP_SECTIONS } from "../src/agent-session/acpmux/session-info/sectionOrder";
+import {
+  DEFAULT_SECTIONS,
+  resetSessionInfoState,
+  setSessionInfoMore,
+} from "../src/agent-session/acpmux/session-info/sessionInfoState";
+import { DEFAULT_ORDER } from "../src/agent-session/acpmux/session-info/sectionOrder";
 import { sessionEntry } from "../src/agent-session/acpmux/sessionList";
-import { byUsage, sameUsageStats, usageCost, usageStatsOf } from "../src/agent-session/acpmux/usageStats";
+import {
+  byUsage,
+  sameUsageStats,
+  usageCallCost,
+  usageCost,
+  usageShare,
+  usageStatsOf,
+} from "../src/agent-session/acpmux/usageStats";
 import { SessionPager, withUsage } from "../src/agent-session/acpmux/sessionPages";
+import { settleReact } from "./support/domTeardown";
 
 const scope = globalThis as Record<string, unknown>;
 const saved = new Map<string, unknown>();
@@ -41,6 +55,7 @@ beforeEach(() => {
   for (const key of Object.keys(replacements)) saved.set(key, scope[key]);
   Object.assign(scope, replacements);
   resetSessionInfoState();
+  setSessionInfoMore(true);
   host = dom.window.document.getElementById("root")!;
 });
 
@@ -48,6 +63,8 @@ afterEach(async () => {
   if (root) await act(async () => root!.unmount());
   root = undefined;
   resetSessionInfoState();
+  setSessionInfoMore(true);
+  await settleReact();
   dom.window.close();
   for (const [key, value] of saved) {
     if (value === undefined) delete scope[key];
@@ -145,6 +162,17 @@ test("usageStatsOf reads acpmux's usageStats; null numbers are unknown, and only
   expect(SESSIONS[3]!.usageStats).toBeUndefined();
 });
 
+test("usageStatsOf reads the prompt cache's share and cost per call; a share outside 0 to 1 is not one", () => {
+  const read = usageStatsOf(stats({ calls24h: 182, cacheReadShare24h: 0.981, costPerCallUsd24h: 0.3363 }));
+  expect([read?.calls24h, read?.cacheReadShare24h, read?.costPerCallUsd24h]).toEqual([182, 0.981, 0.3363]);
+  expect(usageStatsOf(stats({ cacheReadShare24h: 1.5 }))?.cacheReadShare24h).toBeUndefined();
+  expect(usageStatsOf(stats({ cacheReadShare24h: null }))?.cacheReadShare24h).toBeUndefined();
+  expect(usageShare(0.9431, "en")).toBe("94.3%");
+  // A call under a cent keeps two significant digits, never $0.00.
+  expect(usageCallCost(0.0042, "en")).toBe("$0.0042");
+  expect(usageCallCost(0.3363, "en")).toBe("$0.34");
+});
+
 test("sameUsageStats keeps the previous object while acpmux's numbers are the same, so a snapshot per token redraws no Usage row", () => {
   const first = sameUsageStats(stats({ costUsd24h: 3.5 }), undefined);
   // A new raw object from the next session_changed, the same numbers: the same decoded object.
@@ -162,9 +190,8 @@ test("byUsage ranks by 24h cost or by context, highest first, and leaves out ses
   expect(usageCost(12.4, "en")).toBe("$12.40");
 });
 
-test("Usage is a folded row in the top block, after Context, valued at this chat's 24h cost", async () => {
-  expect(GROUP_SECTIONS.about).toEqual(["environment", "context", "usage", "connectors"]);
-  expect(DEFAULT_ORDER.indexOf("usage")).toBe(DEFAULT_ORDER.indexOf("context") + 1);
+test("Usage is a folded row under the Show more line, valued at this chat's 24h cost", async () => {
+  expect(DEFAULT_ORDER.indexOf("usage")).toBeGreaterThan(DEFAULT_ORDER.indexOf("more"));
   expect(DEFAULT_SECTIONS.usage).toBe(false);
   await render(
     <SessionInfo
@@ -186,7 +213,16 @@ test("open, Usage lists this chat's numbers, then every host's sessions by 24h c
         sessionId: "this-chat",
         cwd: "/repo",
         usageStats: usageStatsOf(
-          stats({ costUsd24h: 12.4, tokens24h: 4_000_000, subagentsLive: 2, subagents1h: 5, subagents24h: 14 }),
+          stats({
+            costUsd24h: 12.4,
+            tokens24h: 4_000_000,
+            subagentsLive: 2,
+            subagents1h: 5,
+            subagents24h: 14,
+            calls24h: 40,
+            cacheReadShare24h: 0.9431,
+            costPerCallUsd24h: 0.31,
+          }),
         ),
       }}
       allSessions={SESSIONS}
@@ -200,8 +236,13 @@ test("open, Usage lists this chat's numbers, then every host's sessions by 24h c
     row.dataset.usage,
     row.querySelector(".acpmux-session-info-row__end")?.textContent,
   ]);
+  // Flush on the icon column, where the section's title starts: no empty leading slot.
+  expect(usage.querySelector("li[data-usage] .acpmux-session-info-usage__lead-slot")).toBeNull();
   expect(own).toEqual([
     ["cost", "$12.40"],
+    // The prompt cache's share of the prompt tokens and one call's cost (the 1h cache's win).
+    ["cache-read", "94.3%"],
+    ["call-cost", "$0.31"],
     ["tokens", "4M"],
     // acpmux sent no context for it: unknown, never 0.
     ["context", "—"],
@@ -279,7 +320,16 @@ test("unknown numbers show an em dash, never 0 or $0.00, and an unread cap offer
       row.querySelector(".acpmux-session-info-row__end")?.textContent,
     ]),
   );
-  expect(values).toEqual({ cost: "—", tokens: "—", context: "—", cap: "—", compactions: "—", subagents: "—" });
+  expect(values).toEqual({
+    cost: "—",
+    "cache-read": "—",
+    "call-cost": "—",
+    tokens: "—",
+    context: "—",
+    cap: "—",
+    compactions: "—",
+    subagents: "—",
+  });
   expect(host.querySelectorAll("li[data-usage] button").length).toBe(0);
   // Folded, the section names no value rather than a made-up one.
   expect(host.querySelector('section[data-section="usage"] .acpmux-session-info-section__meta')).toBeNull();
@@ -323,13 +373,16 @@ test("sorted by 24h cost, a session whose cost is unknown shows an em dash, neve
   ]);
 });
 
-test("a chat with no usage of its own still shows Usage while another session reports some; none at all shows none", async () => {
+test("a chat with no usage of its own still shows Usage while another session reports some; none at all reads None", async () => {
   await render(<SessionInfo summary={{ sessionId: "fresh", cwd: "/repo" }} allSessions={SESSIONS} />);
   const usage = host.querySelector<HTMLElement>('section[data-section="usage"]');
   expect(usage).not.toBeNull();
   expect(usage?.querySelector(".acpmux-session-info-section__meta")).toBeNull();
+  // Nothing read yet (acpmux reads a new chat's records a few minutes in): one plain line, no fold.
   await render(<SessionInfo summary={{ sessionId: "fresh", cwd: "/repo" }} allSessions={[SESSIONS[3]!]} />);
-  expect(host.querySelector('section[data-section="usage"]')).toBeNull();
+  const none = host.querySelector<HTMLElement>('section[data-section="usage"]')!;
+  expect(none.querySelector(".acpmux-session-info-section__meta")?.textContent).toBe("None");
+  expect(none.querySelector(".ui-disclosure-trigger")).toBeNull();
 });
 
 test("more than five sessions fold behind View all", async () => {
@@ -374,6 +427,78 @@ test("the usage read asks _acpmux/sessions for usage on every page, as the cmux 
     for (const key of Object.keys(ask.params)) expect(policy.known_params["_acpmux/sessions"]!.params).toContain(key);
   }
   expect([...usage.keys()]).toEqual(["dep-fleet", "dep-land"]);
+});
+
+// At 10,000 chats the pages were 50 requests and every row's bytes on each Session Info show, for the
+// stats of the hundred or so chats of the last day. An acpmux with session-usage-v1 answers them alone
+// (`_acpmux/usage`, acpmux hub/usage_answer.rs), and `unchanged` while the digest the pane holds is current.
+test("with session-usage-v1 the usage read is one _acpmux/usage; shown again it sends its digest and keeps its stats", async () => {
+  const policy = JSON.parse(
+    readFileSync(path.resolve(import.meta.dir, "../../cmux-tui/crates/cmux-agent-pane-policy/policy.json"), "utf8"),
+  ) as { requests: string[]; known_params: Record<string, { params: string[] }> };
+  const asked: Array<{ method: string; params: Record<string, unknown> }> = [];
+  let digest = "run-1";
+  let usage: Record<string, unknown> = { "dep-fleet": stats({ costUsd24h: 1_500 }) };
+  const pager = new SessionPager(async (method, params) => {
+    asked.push({ method, params });
+    if (params.known === digest) return { digest, unchanged: true };
+    return { digest, usage };
+  });
+  pager.usageAlone = true;
+
+  const first = await pager.usage();
+  expect([...first.keys()]).toEqual(["dep-fleet"]);
+  const second = await pager.usage();
+  expect(second).toBe(first);
+  digest = "run-2";
+  usage = { "dep-fleet": stats({ costUsd24h: 1_600 }), "dep-land": stats({ costUsd24h: 10 }) };
+  const third = await pager.usage();
+  expect([...third.keys()]).toEqual(["dep-fleet", "dep-land"]);
+
+  expect(asked).toEqual([
+    { method: "_acpmux/usage", params: {} },
+    { method: "_acpmux/usage", params: { known: "run-1" } },
+    { method: "_acpmux/usage", params: { known: "run-1" } },
+  ]);
+  // The host refuses a method or param its policy lacks (#20644).
+  expect(policy.requests).toContain("_acpmux/usage");
+  for (const ask of asked)
+    for (const key of Object.keys(ask.params)) expect(policy.known_params["_acpmux/usage"]!.params).toContain(key);
+});
+
+test("a _acpmux/usage reply without stats (past a reply page) or a failed one reads the list's pages that time only", async () => {
+  const asked: string[] = [];
+  const replies: Array<() => unknown> = [
+    () => ({ digest: "run-1" }),
+    () => {
+      throw new Error("timed out");
+    },
+    () => ({ digest: "run-1", usage: { "dep-land": stats({ costUsd24h: 2 }) } }),
+  ];
+  const pager = new SessionPager(async (method) => {
+    asked.push(method);
+    if (method === "_acpmux/usage") return replies.shift()!();
+    return { sessions: [{ sessionId: "dep-fleet", usageStats: stats({ costUsd24h: 1 }) }], nextCursor: null };
+  });
+  pager.usageAlone = true;
+  expect([...(await pager.usage()).keys()]).toEqual(["dep-fleet"]);
+  expect([...(await pager.usage()).keys()]).toEqual(["dep-fleet"]);
+  expect([...(await pager.usage()).keys()]).toEqual(["dep-land"]);
+  expect(asked).toEqual(["_acpmux/usage", "_acpmux/sessions", "_acpmux/usage", "_acpmux/sessions", "_acpmux/usage"]);
+  expect(pager.usageAlone).toBe(true);
+});
+
+test("a host that refuses _acpmux/usage (its pane policy predates it) gets the list's pages, now and after", async () => {
+  const asked: string[] = [];
+  const pager = new SessionPager(async (method) => {
+    asked.push(method);
+    if (method === "_acpmux/usage") throw { code: -32601, message: "Refused by the cmux host" };
+    return { sessions: [{ sessionId: "dep-fleet", usageStats: stats({ costUsd24h: 1 }) }], nextCursor: null };
+  });
+  pager.usageAlone = true;
+  expect([...(await pager.usage()).keys()]).toEqual(["dep-fleet"]);
+  expect([...(await pager.usage()).keys()]).toEqual(["dep-fleet"]);
+  expect(asked).toEqual(["_acpmux/usage", "_acpmux/sessions", "_acpmux/sessions"]);
 });
 
 test("withUsage lays newer numbers over the list, keeps a turn's newer ones, and keeps the array when nothing moved", () => {

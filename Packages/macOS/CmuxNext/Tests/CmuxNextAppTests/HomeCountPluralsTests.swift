@@ -1,4 +1,5 @@
 @testable import CmuxNextHome
+@testable import CmuxNextHomeModel
 import Foundation
 import Testing
 
@@ -6,14 +7,14 @@ import Testing
 /// members header ("1 member", "2 members") and the unread part of a row's VoiceOver label
 /// (French "1 non lu", "2 non lus"; Arabic's own one and two forms).
 ///
-/// Each case reads one language's table from CmuxNextHome's bundle (`<lang>.lproj`), so it does
+/// Each case reads one language's table from the catalog that holds the key (`<lang>.lproj`: the
+/// members header's in CmuxNextHomeModel, the unread label's in CmuxNextHome), so it does
 /// not depend on the test runner's language. Before the plural fix the members header said
 /// "1 members" (the helper passed a preformatted String through "%@", which cannot pick a form),
 /// and both keys had one flat value per language ("1 non lus" in French).
 @Suite struct HomeCountPluralsTests {
-    /// One language's table in CmuxNextHome's catalog and its locale.
-    func table(_ language: String) throws -> (bundle: Bundle, locale: Locale) {
-        let bundle = HomeConversationStrings.bundle
+    /// One language's table in a module's catalog (CmuxNextHome's by default) and its locale.
+    func table(_ language: String, in bundle: Bundle = HomeConversationStrings.bundle) throws -> (bundle: Bundle, locale: Locale) {
         let table = try #require(bundle.url(forResource: language, withExtension: "lproj").flatMap(Bundle.init(url:)),
                                  "\(bundle.bundlePath) has no \(language).lproj")
         return (table, Locale(identifier: language))
@@ -22,15 +23,15 @@ import Testing
     /// The members header in English, through the helper the group info sheet uses.
     @Test(arguments: [(1, "1 member"), (2, "2 members"), (5000, "5,000 members")])
     func theMembersHeaderPicksTheEnglishForm(count: Int, expected: String) throws {
-        let english = try table("en")
-        #expect(HomeConversationStrings.infoMemberCount(count, bundle: english.bundle, locale: english.locale) == expected)
+        let english = try table("en", in: HomeModelStrings.bundle)
+        #expect(HomeModelStrings.infoMemberCount(count, bundle: english.bundle, locale: english.locale) == expected)
     }
 
     /// German has its own singular, and the count keeps the locale's grouping.
     @Test(arguments: [(1, "1 Mitglied"), (2, "2 Mitglieder"), (5000, "5.000 Mitglieder")])
     func theMembersHeaderPicksTheGermanForm(count: Int, expected: String) throws {
-        let german = try table("de")
-        #expect(HomeConversationStrings.infoMemberCount(count, bundle: german.bundle, locale: german.locale) == expected)
+        let german = try table("de", in: HomeModelStrings.bundle)
+        #expect(HomeModelStrings.infoMemberCount(count, bundle: german.bundle, locale: german.locale) == expected)
     }
 
     /// French's "one" form is singular: "1 non lu", but "2 non lus".
@@ -48,8 +49,9 @@ import Testing
         let unreadTwo = HomeConversationStrings.unread(2, bundle: arabic.bundle, locale: arabic.locale)
         #expect(unreadOne.hasPrefix("رسالة واحدة"), "Arabic unread for 1 is \(unreadOne)")
         #expect(unreadTwo.hasPrefix("رسالتان"), "Arabic unread for 2 is \(unreadTwo)")
-        let membersOne = HomeConversationStrings.infoMemberCount(1, bundle: arabic.bundle, locale: arabic.locale)
-        let membersTwo = HomeConversationStrings.infoMemberCount(2, bundle: arabic.bundle, locale: arabic.locale)
+        let arabicMembers = try table("ar", in: HomeModelStrings.bundle)
+        let membersOne = HomeModelStrings.infoMemberCount(1, bundle: arabicMembers.bundle, locale: arabicMembers.locale)
+        let membersTwo = HomeModelStrings.infoMemberCount(2, bundle: arabicMembers.bundle, locale: arabicMembers.locale)
         #expect(membersOne.hasPrefix("عضو واحد"), "Arabic members for 1 is \(membersOne)")
         #expect(membersTwo.hasPrefix("عضوان"), "Arabic members for 2 is \(membersTwo)")
     }
@@ -58,14 +60,14 @@ import Testing
     /// the plain "Members" without a count, else the counted form.
     @Test(arguments: [(nil, "Members"), (1, "1 member"), (2, "2 members")] as [(Int?, String)])
     func theSheetsHeaderPicksTheEnglishForm(count: Int?, expected: String) throws {
-        let english = try table("en")
+        let english = try table("en", in: HomeModelStrings.bundle)
         #expect(HomeGroupInfo.membersHeader(count: count, bundle: english.bundle, locale: english.locale) == expected)
     }
 
     /// The sheet's header in German: "Mitglieder" without a count, "1 Mitglied" for one.
     @Test(arguments: [(nil, "Mitglieder"), (1, "1 Mitglied")] as [(Int?, String)])
     func theSheetsHeaderPicksTheGermanForm(count: Int?, expected: String) throws {
-        let german = try table("de")
+        let german = try table("de", in: HomeModelStrings.bundle)
         #expect(HomeGroupInfo.membersHeader(count: count, bundle: german.bundle, locale: german.locale) == expected)
     }
 }

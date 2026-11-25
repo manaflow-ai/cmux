@@ -32,7 +32,7 @@ const askStyles: Record<Exclude<AskStyle, "current">, string> = {
     [data-ask-style="text"] .acpmux-ask-action.is-secondary { box-shadow: none; }`,
 };
 
-const request = (title: string, command: string, path: string) => ({
+const request = (title: string, command: string | string[], path: string) => ({
   toolCall: {
     title,
     kind: "execute",
@@ -71,6 +71,37 @@ const baseState: PermissionClientState = {
   loading: false,
   busy: false,
 };
+
+// A subagent's shell ask as acpmux sends it: the command carries acpmux's caller line, and the item
+// carries the call's description (`summary`) and the command without that line (`command`).
+const subagentBare = "cmux agent last desktop-helper --json";
+const subagentState = (summary?: string): PermissionClientState => ({
+  ...baseState,
+  groups: [
+    {
+      ...pendingGroup,
+      items: [
+        {
+          permissionId: "permission-gallery-subagent",
+          state: "pending",
+          ...(summary ? { summary } : {}),
+          command: subagentBare,
+          request: {
+            toolCall: {
+              title: subagentBare,
+              kind: "execute",
+              rawInput: {
+                command: `export ACPMUX_CALLER_SUBAGENT=general-purpose:a1b2c3\n${subagentBare}`,
+                ...(summary ? { description: summary } : {}),
+                cwd: "/Users/you/src/cmux",
+              },
+            },
+          },
+        },
+      ],
+    },
+  ],
+});
 
 const resolvedState: PermissionClientState = {
   ...baseState,
@@ -270,6 +301,45 @@ export default componentEntry<Props>({
       note: "A click on a row opens its full command, folder and scope in plain words; the answers stay on the row.",
       props: { state: baseState, ...callbacks },
       play: expandDetails,
+    },
+    "argv-command": {
+      note: "A Codex argv command opens as a shell block, quoting arguments with spaces and apostrophes.",
+      props: {
+        state: {
+          ...baseState,
+          groups: [
+            {
+              ...pendingGroup,
+              items: [
+                {
+                  permissionId: "permission-gallery-argv",
+                  state: "pending",
+                  request: request(
+                    "Read the release notes",
+                    ["cat", "docs/release notes.md", "docs/what's next.md"],
+                    "docs",
+                  ),
+                },
+              ],
+            },
+          ],
+        },
+        ...callbacks,
+      },
+      play: expandDetails,
+    },
+    "subagent-described": {
+      note: "Leo 2026-11-23: a subagent's ask says what the call does, in plain text, not acpmux's caller line in code.",
+      props: { state: subagentState("Read the newest desktop-helper message"), ...callbacks },
+    },
+    "subagent-described-expanded": {
+      note: "Opened: the command as the agent wrote it, without the export line acpmux put before it.",
+      props: { state: subagentState("Read the newest desktop-helper message"), ...callbacks },
+      play: expandDetails,
+    },
+    "subagent-undescribed": {
+      note: "A subagent's ask with no description: the verb and the command, without acpmux's caller line.",
+      props: { state: subagentState(), ...callbacks },
     },
     "allow-once": {
       note: "Allow records the selected decision while the host owns the eventual state update.",

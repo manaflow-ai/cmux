@@ -81,15 +81,15 @@ Sibling: `plans/cmux-next/nightly-builder-DESIGN.md` (the Mac nightly on cmux22)
      (any change), so non-iOS shared changes still ship twice a day.
    An unknown diff (compare failed, history missing) builds (fail open).
    **A failing builder holds** (cmuxterm-hq#5424: 58 failures in a row, every
-   new head rebuilt, 23.2 Mac hours a day). Before any of the rules above the
-   plan runs `check-tabskit-sync.sh`'s comparison on Linux (trees only); a head
-   whose shared packages drift from upstream is never dispatched, because the
-   archive refuses it. While the newest completed build failed: no dispatch
+   new head rebuilt, 23.2 Mac hours a day). (Until 2026-11-11 the plan and the
+   archive also refused a head whose Packages/iOS differed from their old upstream
+   branches; the packages now live in feat-cmux-next only, so neither compares.)
+   While the newest completed build failed: no dispatch
    while a build still runs; a head whose change since the failed SHA touches
    no iOS path waits 6 hours (one retry for an infra failure); otherwise the
    second failure in a row starts a backoff of 30 minutes after the newest
    failure, doubling per failure to 6 hours. A success resets it. A manual
-   dispatch of the trigger skips the backoff, never the drift check. A held
+   dispatch of the trigger skips the backoff. A held
    plan writes `BLOCKED: <why>` as an error annotation on the decide run, and
    the red builder shows in ci-dash's alerts (`ios_internal_red`, from the
    builder's newest completed run), so a hold is never silent.
@@ -191,6 +191,12 @@ ssh cmux23 'python3 ~/ios-internal-builder/ios_internal_builder.py status'
   the pre-push web lint covers other agents' files in that range, so set
   `CMUX_WEB_LINT_SKIP_REASON`). The push also registers the dispatch-only
   workflow with GitHub, which refuses to dispatch a workflow it never ran.
+  What the builder judges an archive with stays the built commit's:
+  `testflight-build.sh` runs `check-production-binary.sh` and
+  `check-app-store-rules.py` from `$sha`, not from the builder checkout, so a
+  rule changed on feat-cmux-next applies at once (the builder's stale copy
+  failed every nightly's signing from 2026-11-24 until it moved;
+  `tests/test_testflight_build_checkers.py`).
 - After `scripts/ci/ios_internal_builder.py` changes, copy it to the mini:
   `scp scripts/ci/ios_internal_builder.py cmux23:ios-internal-builder/` (the
   admission hook and watch loop run that copy; a stale copy refuses jobs).

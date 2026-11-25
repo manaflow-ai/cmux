@@ -192,17 +192,9 @@ fn vencrypt_auth<R: Read, W: Write>(
     match chosen {
         vencrypt::NONE => Ok(()),
         vencrypt::VNC => vnc_auth(reader, writer, credentials),
-        _ => {
-            let (Some(user), Some(pass)) = (&credentials.username, &credentials.password) else {
-                return Err(VncError::CredentialsRequired { username: true });
-            };
-            writer.write_all(&(user.len() as u32).to_be_bytes())?;
-            writer.write_all(&(pass.len() as u32).to_be_bytes())?;
-            writer.write_all(user.as_bytes())?;
-            writer.write_all(pass.as_bytes())?;
-            writer.flush()?;
-            Ok(())
-        }
+        // An unknown subtype must never fall through into a plaintext
+        // username/password exchange, even if the selector gains new cases.
+        _ => Err(VncError::protocol("unsupported VeNCrypt security subtype")),
     }
 }
 
@@ -211,17 +203,5 @@ fn random(buf: &mut [u8]) -> Result<()> {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn versions_negotiate_like_real_servers() {
-        assert_eq!(Version::negotiate(b"RFB 003.008\n").unwrap(), Version::V3_8);
-        assert_eq!(Version::negotiate(b"RFB 003.889\n").unwrap(), Version::V3_8, "macOS");
-        assert_eq!(Version::negotiate(b"RFB 003.007\n").unwrap(), Version::V3_7);
-        assert_eq!(Version::negotiate(b"RFB 003.006\n").unwrap(), Version::V3_3, "UltraVNC 1.0");
-        assert_eq!(Version::negotiate(b"RFB 003.003\n").unwrap(), Version::V3_3);
-        assert_eq!(Version::negotiate(b"RFB 004.001\n").unwrap(), Version::V3_8);
-        assert!(Version::negotiate(b"SSH-2.0-Open").is_err());
-    }
-}
+#[path = "handshake_tests.rs"]
+mod tests;

@@ -2,6 +2,7 @@ import AppKit
 import CmuxNextActions
 import CmuxNextAgentActivity
 import CmuxNextAgentPane
+import CmuxNextDaemonService
 import CmuxNextOnboarding
 import CmuxNextSettings
 
@@ -19,6 +20,8 @@ final class ExternalOpenController {
     /// The `ssh://` link question: acpmux peers and saved SSH machines are known hosts, and
     /// "Always allow this host" writes `ssh.linkAllowedHosts` (Settings > Privacy and Security).
     private(set) lazy var sshGate = makeSSHGate()
+    /// Files from another app into a chat's composer (``attachToChat(_:from:)``).
+    let chatAttach = AgentPaneExternalAttach()
 
     private func makeSSHGate() -> ExternalLinkGate {
         let services = services
@@ -73,6 +76,17 @@ final class ExternalOpenController {
         return true
     }
 
+    /// The route every door from another app takes to put files into an agent chat as an unsent
+    /// draft (an image opened with cmux, the Send to cmux Chat service; a capture shortcut and the
+    /// Share menu later): the focused agent chat of the current window, else the one focused most
+    /// recently there, else a new agent chat, brought forward with its composer focused
+    /// (``AgentPaneExternalAttach``). `source`: the bundle id of the app they came from, when known; a
+    /// file's own metadata (a screenshot's) still names its source first.
+    func attachToChat(_ urls: [URL], from source: String?) {
+        guard !urls.isEmpty else { return }
+        perform(.attachImages(urls, from: source))
+    }
+
     /// Finder service "New cmux Tab Here" with the selected paths.
     func newTabHere(_ paths: [String]) {
         for path in paths { perform(router.newTabHere(path)) }
@@ -105,7 +119,7 @@ final class ExternalOpenController {
         // shows a workspace so the tab shows, as a shown internal page does.
         // Without this the open waited until the user left Home.
         controller.leaveTopPage()
-        // Chief's Home workspace keeps its layout (#27897): its focused pane is the chat's pinned
+        // A Home (the store's or a window's own) keeps its layout (#27897, #38063): its focused pane is the chat's pinned
         // dock, which moves a tab made there into a new column beside it. A tab from another app
         // opens in a workspace of the person's instead, as from the Home page. A link in this
         // build's scheme runs `link.open`, which places what it shows itself (a Chief session on Home).
@@ -114,15 +128,20 @@ final class ExternalOpenController {
         let onHome = { leavesHome && controller.showsHomeWorkspace }
         if controller.focusedPane == nil || onHome(), !controller.showOpenableWorkspace() { createWorkspaceForPending(in: controller) }
         guard let pane = controller.focusedPane, !onHome() else { return pending.append(route) }
+        // Routes parked for a pane run first, in order, once one can take them: a cold launch's open
+        // that missed the content flushes was otherwise parked for good (screenshot-into-chat "lost").
+        // Not from Home, where a parked non-link route would park again under a deep link.
+        if !pending.isEmpty, !controller.showsHomeWorkspace {
+            let routes = pending + [route]
+            pending = []
+            return routes.forEach(perform)
+        }
         if case .deepLink(let url) = route {
             // The user clicked it in another app: their run, which brings
             // cmux forward. Agent links are addresses published in public
-            // trailers, so they must not put an agent composer or terminal
-            // under the next keystroke from the opening app.
-            let isAgent = DeepLink.read(url, scheme: services.linkScheme).map { link in
-                if case .agent = link.link.target { return true }
-                return false
-            } == true
+            // trailers (opaque `?id=aid-…` ones too), so they must not put an agent
+            // composer or terminal under the next keystroke from the opening app.
+            let isAgent = DeepLink.opensAgentChat(url, linkScheme: services.linkScheme)
             var arguments: [String: ActionValue] = ["url": .string(url.absoluteString)]
             if isAgent { arguments["background"] = .bool(true) }
             services.registry.perform("link.open", invocation: ActionInvocation(arguments: arguments))
@@ -149,14 +168,18 @@ final class ExternalOpenController {
         Task { [weak self] in
             do {
                 _ = try await windows.createWorkspace(WorkspaceSpawn(), into: target)
+                self?.creatingWorkspace = false
+                // The window may still show Home or not have mounted the workspace's pane: run the queue
+                // (it shows the made workspace; its first pane's mount runs the rest).
+                self?.flush()
             } catch {
                 logger.error("create workspace for an opened file failed: \(String(describing: error), privacy: .public)")
+                self?.creatingWorkspace = false
             }
-            self?.creatingWorkspace = false
         }
     }
 
-    /// A window installed its content: run what waited for one.
+    /// A window installed its content, or a workspace made for the queue was created: run what waited for one.
     func flush() {
         guard !pending.isEmpty, services.windows.active?.focusedPane != nil else { return }
         let routes = pending
@@ -181,34 +204,29 @@ final class ExternalOpenController {
             }
         // The one file path every opener takes (Open File..., `file.open`); a refusal shows its reason.
         case .file(let url): services.viewers.openFile(url, in: pane, markdown: false)
+        case .shareLink(let url): AgentShareLinks(host: services).open(url) { [weak pane] in pane?.newBrowserTab(url: $0) }
+        case .attachImages(let urls, let source):
+            // The pane's chat, else the one shown in the workspace's most recently focused pane; a New Tab page is no chat; a chat not made answers nil, so its files go with the next.
+            let recent = pane.workspace.map { content in content.recentPanes.compactMap { content.panes[$0] } } ?? []
+            let target = ([pane] + recent).lazy.compactMap { candidate in candidate.shownChat.map { (pane: candidate, view: $0) } }.first
+            let shown = target?.pane ?? pane, tabs = services.agentTabs, machine = pane.daemon.machineID
+            chatAttach.attach(urls, claimed: source, target: target?.view, openChat: { made in
+                pane.openAgentTab(seed: pane.agentSeedFromSelectedTab(), then: { made(tabs.existingView($0, machine: machine) ?? tabs.view(for: $0, machine: machine)) }, failed: { made(nil) })
+            }, show: { [weak shown, services] view in
+                // The pane that shows the chat: a new one may have been placed beside the pane it opened from.
+                guard let shown, case let pane = shown.workspace?.panes.values.first(where: { $0.shownChat === view }) ?? shown,
+                      let key = pane.currentTabKey else { return }
+                _ = services.registry.perform("tab.focus", invocation: ActionInvocation(target: ActionTargetRef(kind: .tab, id: key), origin: .user).onMachine(pane.daemon.isLocal ? nil : pane.daemon.machineID))
+            })
         case .deepLink, .unsupported: return
         }
     }
 }
 
-/// Where `AppDelegate` sends a URL macOS hands cmux: the sign-in callback
-/// goes to Cloud auth first (`<scheme>://auth-callback` and the path forms
-/// auth accepts), so it never reaches `link.open`; everything else goes to
-/// `ExternalOpenController`, which refuses what it does not open.
-enum OpenedURLRouting {
-    enum Destination: Equatable {
-        /// Cloud auth's `handleCallback`.
-        case auth
-        /// `ExternalOpenController` opened it (a tab, or `link.open`).
-        case opened
-        /// Nothing cmux opens.
-        case ignored
-    }
-
-    static func route(_ url: URL, isAuthCallback: (URL) -> Bool, open: (URL) -> Bool) -> Destination {
-        if isAuthCallback(url) { return .auth }
-        return open(url) ? .opened : .ignored
-    }
-}
-
 /// The Finder services (`NSServices` in Info.plist): New cmux Tab Here,
 /// New cmux Workspace Here, New cmux Window Here. AppKit calls these with
-/// the selected folders or files (a file opens in its folder).
+/// the selected folders or files (a file opens in its folder). Send to cmux
+/// Chat takes images: files, or a picture another app selected.
 @MainActor
 final class CmuxServicesProvider: NSObject {
     private let open: ExternalOpenController
@@ -229,6 +247,17 @@ final class CmuxServicesProvider: NSObject {
         for path in Self.paths(pasteboard) { open.newWorkspace(at: path, newWindow: true) }
     }
 
+    /// Send to cmux Chat: the image files selected (in Finder), else the picture the app selected
+    /// (PNG or TIFF data, kept as a file under Chat Uploads), go into an agent chat's composer
+    /// (``ExternalOpenController/attachToChat(_:from:)``), named as coming from the app that sent them.
+    @objc(sendToChat:userData:error:) func sendToChat(_ pasteboard: NSPasteboard, userData: String?, error: AutoreleasingUnsafeMutablePointer<NSString?>) {
+        // The service's caller is still the frontmost app: cmux is not activated until the route runs.
+        let source = NSWorkspace.shared.frontmostApplication?.bundleIdentifier, files = AgentPaneDroppedPaths.imageFiles(Self.paths(pasteboard))
+        if !files.isEmpty { return open.attachToChat(files, from: source) }
+        guard let picture = AgentPaneDroppedPaths.imageData(on: pasteboard), let folders = ChatUploadFolders.standard else { return }
+        Task { [open] in if let saved = await AgentPaneDroppedPaths.save(picture.data, ext: picture.ext, in: folders) { open.attachToChat([saved], from: source) } } // task-owner: one write of the service's picture
+    }
+
     /// File URLs, legacy filename lists, or absolute paths as plain text.
     static func paths(_ pasteboard: NSPasteboard) -> [String] {
         if let urls = pasteboard.readObjects(forClasses: [NSURL.self], options: [.urlReadingFileURLsOnly: true]) as? [URL], !urls.isEmpty {
@@ -241,11 +270,19 @@ final class CmuxServicesProvider: NSObject {
     }
 }
 
-extension WindowController {
-    /// Whether the window shows Chief's Home workspace (`kind == "home"`) as a workspace.
-    var showsHomeWorkspace: Bool { content?.workspace.kind == "home" }
+extension PaneController {
+    /// The agent chat this pane shows, not a New Tab page; nil for any other tab.
+    var shownChat: AgentPaneView? {
+        guard case .agent(let view) = currentContent, view.model.newTab == nil else { return nil }
+        return view
+    }
+}
 
-    /// Shows this window's most recently used workspace that is not Home,
+extension WindowController {
+    /// Whether the window shows a Home as a workspace: the store's (`kind == "home"`) or its own (cmux#27880, #38063).
+    var showsHomeWorkspace: Bool { content?.workspace.isAnyHome == true }
+
+    /// Shows this window's most recently used workspace that is not a Home (`isAnyHome`),
     /// for something opened from another app while Home is shown. False when
     /// the window lists no other workspace. A workspace whose content is not
     /// installed yet runs the queue when it is (`ExternalOpenController.flush`).
@@ -254,7 +291,7 @@ extension WindowController {
         let members = services.windows.registry.members(of: state.id)
         let openable = { (id: String) -> Bool in
             guard let (workspace, _) = machines.workspace(id: id) else { return false }
-            return workspace.kind != "home"
+            return !workspace.isAnyHome
         }
         guard let id = (state.workspaceRecency + members).first(where: openable) else { return false }
         state.showWorkspace(id)

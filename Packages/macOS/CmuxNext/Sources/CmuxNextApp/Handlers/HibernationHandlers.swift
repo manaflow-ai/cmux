@@ -13,7 +13,7 @@ enum HibernationHandlers {
         registry.bind("browser.hibernation.off", run: { _ in set(.off, context) })
         registry.bind("browser.hibernation.moderate", run: { _ in set(.moderate, context) })
         registry.bind("browser.hibernation.aggressive", run: { _ in set(.aggressive, context) })
-        for radius in BrowserHibernationSetting.neighborRadiusRange {
+        for radius in BrowserHibernationSetting.neighborRadii {
             registry.bind(ActionID(rawValue: "browser.keepNeighborTabsAwake.\(radius)"), run: { _ in setNeighbors(radius, context) })
         }
         registry.bind("hibernateTab", invoke: { invocation in
@@ -30,11 +30,14 @@ enum HibernationHandlers {
             guard let host = hibernation.host(of: id.rawValue) else { return context.refuse(RefusalStrings.neverHibernateNoSite) }
             neverHibernate(host: host, context)
         })
-        // Workspace hibernation (plans/cmux-next/workspace-hibernation-DESIGN.md).
+        // Workspace hibernation (plans/cmux-next/workspace-hibernation-DESIGN.md). The shown workspace's row is disabled, no toast.
         registry.bindEffect("workspace.hibernate") { invocation in
             guard let (model, _) = try? context.workspace(invocation) else { return .refused(RefusalStrings.noWorkspaceToActOn) }
             do { try context.services.workspaceHibernation.hibernateNow(model.id) } catch { return .refused(WorkspaceHibernationActionStrings.shownRefusal) }
             return .done
+        }
+        ActionTargetVisibility.gate("workspace.hibernate", in: registry) { invocation in
+            (try? context.workspace(invocation)).map { context.services.workspaceHibernation.isShown($0.model.id) } == true ? WorkspaceHibernationActionStrings.shownRefusal : nil
         }
         registry.bindEffect("workspace.toggleKeepAwake") { invocation in
             guard let (model, _) = try? context.workspace(invocation) else { return .refused(RefusalStrings.noWorkspaceToActOn) }

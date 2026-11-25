@@ -4,6 +4,7 @@ use std::sync::{Condvar, LockResult, Mutex, MutexGuard};
 use std::time::Duration;
 
 use super::DisconnectState;
+use crate::session::DaemonShutdownNotice;
 
 /// How long a request the daemon refused during a pending shutdown waits for
 /// the shutdown notice. The daemon sends the notice to other clients after
@@ -38,9 +39,24 @@ pub(super) fn log_missing_shutdown_notice() {
 pub(super) struct DisconnectCell {
     state: Mutex<DisconnectState>,
     changed: Condvar,
+    /// What the daemon's shutdown notice said, once it came.
+    shutdown_notice: Mutex<Option<DaemonShutdownNotice>>,
 }
 
 impl DisconnectCell {
+    /// Keeps the first shutdown notice the daemon sent.
+    pub(super) fn record_shutdown_notice(&self, notice: DaemonShutdownNotice) {
+        let mut slot = self.shutdown_notice.lock().unwrap_or_else(|poison| poison.into_inner());
+        if slot.is_none() {
+            *slot = Some(notice);
+        }
+    }
+
+    /// The daemon's shutdown notice, or `None` when it sent none.
+    pub(super) fn shutdown_notice(&self) -> Option<DaemonShutdownNotice> {
+        *self.shutdown_notice.lock().unwrap_or_else(|poison| poison.into_inner())
+    }
+
     pub(super) fn lock(&self) -> LockResult<MutexGuard<'_, DisconnectState>> {
         self.state.lock()
     }

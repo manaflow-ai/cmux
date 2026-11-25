@@ -36,6 +36,15 @@ struct GroupHoverCardSummaryTests {
         #expect(card.blocks[4].lines == ["Ports: :3000, :5173"])
     }
 
+    /// Leo 2026-11-06: "you got all these empty things". A member with no title still counts, but lists no
+    /// empty bullet line.
+    @Test func aMemberWithNoTitleListsNoEmptyLine() {
+        let members = [GroupHoverCardMember(title: "api"), GroupHoverCardMember(title: " ")]
+        let card = GroupHoverCardSummary.make(title: "Agents", kind: .workspaceGroup, members: members, options: Self.options(), now: Self.now)
+        let block = card.blocks.first { $0.section == .members }
+        #expect(block?.lines == ["Workspaces: 2", "\u{2022} api"])
+    }
+
     @Test(arguments: [(GroupHoverCardOptions.Order.members, GroupHoverCardOptions.Section.members),
                       (.activity, .activity), (.status, .status)])
     func theOrderSettingPicksTheLeadingPart(order: GroupHoverCardOptions.Order, lead: GroupHoverCardOptions.Section) {

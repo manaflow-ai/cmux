@@ -31,6 +31,13 @@
    "family": "action"
   },
   {
+   "name": "action.add.circle",
+   "meaning": "Add (in a circle)",
+   "sf": "plus.circle",
+   "family": "action.add",
+   "alias": false
+  },
+  {
    "name": "action.close",
    "meaning": "Close / dismiss / stop loading",
    "sf": "xmark",
@@ -103,6 +110,12 @@
    "family": "action"
   },
   {
+   "name": "action.quote",
+   "meaning": "Quote selected text",
+   "sf": "questionmark.square.dashed",
+   "family": "action"
+  },
+  {
    "name": "action.reload",
    "meaning": "Reload / refresh / reconnect",
    "sf": "arrow.clockwise",
@@ -113,6 +126,13 @@
    "meaning": "Remove / declined / forget",
    "sf": "minus.circle",
    "family": "action"
+  },
+  {
+   "name": "action.remove.line",
+   "meaning": "Remove, decrease (a bare minus)",
+   "sf": "minus",
+   "family": "action.remove",
+   "alias": false
   },
   {
    "name": "action.reset",
@@ -133,9 +153,21 @@
    "family": "action"
   },
   {
+   "name": "action.retry",
+   "meaning": "Retry prompt",
+   "sf": "questionmark.square.dashed",
+   "family": "action"
+  },
+  {
    "name": "action.review",
    "meaning": "Review / about this page",
    "sf": "doc.text.magnifyingglass",
+   "family": "action"
+  },
+  {
+   "name": "action.save",
+   "meaning": "Save to file",
+   "sf": "questionmark.square.dashed",
    "family": "action"
   },
   {
@@ -187,6 +219,12 @@
    "family": "agent"
   },
   {
+   "name": "agent.bot",
+   "meaning": "Agent",
+   "sf": "questionmark.square.dashed",
+   "family": "agent"
+  },
+  {
    "name": "agent.chat",
    "meaning": "Agent chat: new agent chat action, agent tab, sidebar row.",
    "sf": "bubble.left.and.text.bubble.right",
@@ -218,14 +256,23 @@
   },
   {
    "name": "agent.fork",
-   "meaning": "Fork the agent conversation into a new chat (to the right/left/above/below).",
-   "sf": "arrow.triangle.branch",
-   "family": "agent"
+   "meaning": "Fork the agent conversation into a new chat (to the right/left/above/below): the split arrow Claude and Codex draw for branching a chat, a stem that runs on up and right while a detached arm peels off down and right.",
+   "sf": "arrow.branch",
+   "family": "agent",
+   "overrides": [
+    "arrow.branch"
+   ]
   },
   {
    "name": "agent.handoff",
    "meaning": "Hand the conversation off to another agent or location (Continue in..., Feed handoff).",
    "sf": "arrow.turn.up.right",
+   "family": "agent"
+  },
+  {
+   "name": "agent.paused",
+   "meaning": "Paused agent",
+   "sf": "questionmark.square.dashed",
    "family": "agent"
   },
   {
@@ -239,6 +286,13 @@
    "meaning": "Agent session as a history kind (History page and palette rows, next to terminal/browser kinds).",
    "sf": "sparkles",
    "family": "agent"
+  },
+  {
+   "name": "alarm",
+   "meaning": "Alarm",
+   "sf": "alarm",
+   "family": "alarm",
+   "alias": false
   },
   {
    "name": "app.cmux",
@@ -364,7 +418,11 @@
    "name": "browser",
    "meaning": "Browser / web page / site",
    "sf": "globe",
-   "family": "browser"
+   "family": "browser",
+   "overrides": [
+    "globe",
+    "globe.badge.chevron.backward"
+   ]
   },
   {
    "name": "browser.extensions.manage",
@@ -460,7 +518,7 @@
   },
   {
    "name": "browser.omnibox.search",
-   "meaning": "Address bar search (Chrome kSearchChromeRefreshOldIcon)",
+   "meaning": "Address bar and suggestion row search: the rounded loupe Helium draws (Chrome kSearchIcon, search.icon at tag 157.0.8103.79)",
    "sf": "magnifyingglass",
    "family": "browser.omnibox",
    "source": "chromium",
@@ -682,6 +740,20 @@
    "sf": "questionmark.square.dashed",
    "family": "browserprofile",
    "denseStyle": "solid"
+  },
+  {
+   "name": "calendar",
+   "meaning": "Calendar, date",
+   "sf": "calendar",
+   "family": "calendar",
+   "alias": false
+  },
+  {
+   "name": "calendar.clock",
+   "meaning": "Calendar event time",
+   "sf": "calendar.badge.clock",
+   "family": "calendar",
+   "alias": false
   },
   {
    "name": "checkbox.off",
@@ -973,6 +1045,13 @@
    "family": "filter"
   },
   {
+   "name": "flag",
+   "meaning": "Flag, important",
+   "sf": "flag",
+   "family": "flag",
+   "alias": false
+  },
+  {
    "name": "folder",
    "meaning": "Folder / directory / reveal in Finder.",
    "sf": "folder",
@@ -985,10 +1064,46 @@
    "family": "git"
   },
   {
+   "name": "git.issue",
+   "meaning": "Open issue (a GitHub issue link's card and chip).",
+   "sf": "questionmark.square.dashed",
+   "family": "git"
+  },
+  {
+   "name": "git.issue.closed",
+   "meaning": "Issue closed as completed.",
+   "sf": "questionmark.square.dashed",
+   "family": "git.issue"
+  },
+  {
+   "name": "git.issue.notplanned",
+   "meaning": "Issue closed as not planned.",
+   "sf": "questionmark.square.dashed",
+   "family": "git.issue"
+  },
+  {
    "name": "git.pullrequest",
    "meaning": "Pull request (session PR, workspace PR links).",
    "sf": "arrow.triangle.pull",
    "family": "git"
+  },
+  {
+   "name": "git.pullrequest.closed",
+   "meaning": "Closed pull request, or one GitHub can't merge for conflicts (Session Info Changes).",
+   "sf": "questionmark.square.dashed",
+   "family": "git.pullrequest"
+  },
+  {
+   "name": "git.pullrequest.draft",
+   "meaning": "Draft pull request (Session Info Changes).",
+   "sf": "questionmark.square.dashed",
+   "family": "git.pullrequest"
+  },
+  {
+   "name": "git.pullrequest.merged",
+   "meaning": "Merged pull request (Session Info Changes).",
+   "sf": "questionmark.square.dashed",
+   "family": "git.pullrequest"
   },
   {
    "name": "git.worktree",
@@ -1020,6 +1135,13 @@
    "meaning": "Ungroup workspaces",
    "sf": "square.stack.3d.up.slash",
    "family": "group"
+  },
+  {
+   "name": "heart",
+   "meaning": "Favorite, health",
+   "sf": "heart",
+   "family": "heart",
+   "alias": false
   },
   {
    "name": "history",
@@ -1184,6 +1306,24 @@
    "family": "media"
   },
   {
+   "name": "media.stop.circle",
+   "meaning": "Stop reading aloud",
+   "sf": "questionmark.square.dashed",
+   "family": "media.stop"
+  },
+  {
+   "name": "message.delivered",
+   "meaning": "Delivered message",
+   "sf": "questionmark.square.dashed",
+   "family": "message"
+  },
+  {
+   "name": "message.send",
+   "meaning": "Send message",
+   "sf": "questionmark.square.dashed",
+   "family": "message"
+  },
+  {
    "name": "mobile.pair",
    "meaning": "Mobile pairing",
    "sf": "iphone",
@@ -1211,6 +1351,12 @@
    "name": "nav.back",
    "meaning": "Back",
    "sf": "arrow.left",
+   "family": "nav"
+  },
+  {
+   "name": "nav.down",
+   "meaning": "Down",
+   "sf": "questionmark.square.dashed",
    "family": "nav"
   },
   {
@@ -1362,6 +1508,26 @@
    "sf": "questionmark.square.dashed",
    "family": "profile",
    "denseStyle": "solid"
+  },
+  {
+   "name": "prompt.save",
+   "meaning": "Save a message as a prompt for the / menu",
+   "sf": "questionmark.square.dashed",
+   "family": "prompt"
+  },
+  {
+   "name": "radio.off",
+   "meaning": "Option not chosen, todo not done (an empty ring)",
+   "sf": "circle",
+   "family": "radio",
+   "alias": false
+  },
+  {
+   "name": "radio.on",
+   "meaning": "Chosen option (filled dot in a ring)",
+   "sf": "largecircle.fill.circle",
+   "family": "radio",
+   "alias": false
   },
   {
    "name": "remote.display",
@@ -1586,6 +1752,12 @@
    "family": "site.permission"
   },
   {
+   "name": "sources.connected",
+   "meaning": "Connected sources",
+   "sf": "questionmark.square.dashed",
+   "family": "sources"
+  },
+  {
    "name": "space",
    "meaning": "Space (room) / folder of bookmarks",
    "sf": "person.2",
@@ -1634,6 +1806,13 @@
    "denseStyle": "solid"
   },
   {
+   "name": "status.check",
+   "meaning": "Finished, as a bare check after the total (a done line's end)",
+   "sf": "questionmark.square.dashed",
+   "family": "status",
+   "denseStyle": "solid"
+  },
+  {
    "name": "status.complete",
    "meaning": "Completed / toggled on",
    "sf": "checkmark.circle.fill",
@@ -1669,6 +1848,13 @@
    "denseStyle": "solid"
   },
   {
+   "name": "status.failure",
+   "meaning": "Failed turn",
+   "sf": "questionmark.square.dashed",
+   "family": "status",
+   "denseStyle": "solid"
+  },
+  {
    "name": "status.info",
    "meaning": "Info / about / details",
    "sf": "info.circle",
@@ -1692,6 +1878,13 @@
   {
    "name": "status.progress",
    "meaning": "Busy with known progress: ring",
+   "sf": "questionmark.square.dashed",
+   "family": "status",
+   "denseStyle": "solid"
+  },
+  {
+   "name": "status.question",
+   "meaning": "An agent's question waits for your answer (Needs your input)",
    "sf": "questionmark.square.dashed",
    "family": "status",
    "denseStyle": "solid"
@@ -1730,6 +1923,13 @@
    "family": "system"
   },
   {
+   "name": "tab.browser",
+   "meaning": "Browser tab without a favicon, at tab size",
+   "sf": "globe",
+   "family": "tab",
+   "alias": false
+  },
+  {
    "name": "tab.close",
    "meaning": "Close tab (drawn X on hover)",
    "sf": "questionmark.square.dashed",
@@ -1740,6 +1940,20 @@
    "meaning": "New tab / new workspace",
    "sf": "plus.square",
    "family": "tab"
+  },
+  {
+   "name": "tab.terminal",
+   "meaning": "Terminal, at tab size (the tab strip and vertical tabs)",
+   "sf": "terminal",
+   "family": "tab",
+   "alias": false
+  },
+  {
+   "name": "tab.terminal.dead",
+   "meaning": "Terminal process exited, at tab size",
+   "sf": "xmark.octagon",
+   "family": "tab.terminal",
+   "alias": false
   },
   {
    "name": "tabgroup.save",
@@ -1805,7 +2019,10 @@
    "name": "terminal",
    "meaning": "Terminal",
    "sf": "terminal",
-   "family": "terminal"
+   "family": "terminal",
+   "overrides": [
+    "terminal"
+   ]
   },
   {
    "name": "terminal.copymode",
@@ -1857,6 +2074,12 @@
    "family": "theme"
   },
   {
+   "name": "time.waiting",
+   "meaning": "Waiting for delivery",
+   "sf": "questionmark.square.dashed",
+   "family": "time"
+  },
+  {
    "name": "tool.edit",
    "meaning": "Transcript tool row: edit a file.",
    "sf": "questionmark.square.dashed",
@@ -1865,6 +2088,12 @@
   {
    "name": "tool.group",
    "meaning": "Transcript row: a run of mixed tool calls folded into one row.",
+   "sf": "questionmark.square.dashed",
+   "family": "tool"
+  },
+  {
+   "name": "tool.multiple",
+   "meaning": "Several kinds of tools",
    "sf": "questionmark.square.dashed",
    "family": "tool"
   },
@@ -1887,6 +2116,12 @@
    "family": "tool"
   },
   {
+   "name": "tool.thought",
+   "meaning": "A thought (the agent's reasoning)",
+   "sf": "questionmark.square.dashed",
+   "family": "tool"
+  },
+  {
    "name": "tool.web",
    "meaning": "Transcript tool row: web fetch / browser.",
    "sf": "questionmark.square.dashed",
@@ -1897,6 +2132,12 @@
    "meaning": "Tools (cloud machine tools, Feed tool item).",
    "sf": "wrench.and.screwdriver",
    "family": "tools"
+  },
+  {
+   "name": "transcript.summary",
+   "meaning": "Transcript summary",
+   "sf": "questionmark.square.dashed",
+   "family": "transcript"
   },
   {
    "name": "trust.invalid",
@@ -2044,6 +2285,12 @@
    "denseStyle": "solid"
   },
   {
+   "name": "view.expand",
+   "meaning": "Expand view",
+   "sf": "questionmark.square.dashed",
+   "family": "view"
+  },
+  {
    "name": "view.grid",
    "meaning": "Grid / apps / templates",
    "sf": "square.grid.2x2",
@@ -2056,6 +2303,144 @@
    "family": "view"
   },
   {
+   "name": "view.list.short",
+   "meaning": "Two-row list: the chat header's Session Info panel toggle",
+   "sf": "questionmark.square.dashed",
+   "family": "view.list"
+  },
+  {
+   "name": "view.tab.trailing",
+   "meaning": "Open in trailing tab",
+   "sf": "questionmark.square.dashed",
+   "family": "view.tab"
+  },
+  {
+   "name": "weather.cloud.bolt",
+   "meaning": "Thunderstorm",
+   "sf": "cloud.bolt",
+   "family": "weather.cloud",
+   "alias": false
+  },
+  {
+   "name": "weather.cloud.bolt.rain",
+   "meaning": "Thunderstorm with rain",
+   "sf": "cloud.bolt.rain",
+   "family": "weather.cloud.bolt",
+   "alias": false
+  },
+  {
+   "name": "weather.cloud.drizzle",
+   "meaning": "Drizzle",
+   "sf": "cloud.drizzle",
+   "family": "weather.cloud",
+   "alias": false
+  },
+  {
+   "name": "weather.cloud.fog",
+   "meaning": "Fog",
+   "sf": "cloud.fog",
+   "family": "weather.cloud",
+   "alias": false
+  },
+  {
+   "name": "weather.cloud.heavyrain",
+   "meaning": "Heavy rain",
+   "sf": "cloud.heavyrain",
+   "family": "weather.cloud",
+   "alias": false
+  },
+  {
+   "name": "weather.cloud.moon",
+   "meaning": "Partly cloudy (night)",
+   "sf": "cloud.moon",
+   "family": "weather.cloud",
+   "alias": false
+  },
+  {
+   "name": "weather.cloud.rain",
+   "meaning": "Rain",
+   "sf": "cloud.rain",
+   "family": "weather.cloud",
+   "alias": false
+  },
+  {
+   "name": "weather.cloud.sleet",
+   "meaning": "Sleet",
+   "sf": "cloud.sleet",
+   "family": "weather.cloud",
+   "alias": false
+  },
+  {
+   "name": "weather.cloud.snow",
+   "meaning": "Snow",
+   "sf": "cloud.snow",
+   "family": "weather.cloud",
+   "alias": false
+  },
+  {
+   "name": "weather.cloud.sun",
+   "meaning": "Partly cloudy (day)",
+   "sf": "cloud.sun",
+   "family": "weather.cloud",
+   "alias": false
+  },
+  {
+   "name": "weather.humidity",
+   "meaning": "Humidity",
+   "sf": "humidity",
+   "family": "weather",
+   "alias": false
+  },
+  {
+   "name": "weather.moon.stars",
+   "meaning": "Clear night",
+   "sf": "moon.stars",
+   "family": "weather.moon",
+   "alias": false
+  },
+  {
+   "name": "weather.snowflake",
+   "meaning": "Snow, freezing",
+   "sf": "snowflake",
+   "family": "weather",
+   "alias": false
+  },
+  {
+   "name": "weather.sunrise",
+   "meaning": "Sunrise",
+   "sf": "sunrise",
+   "family": "weather",
+   "alias": false
+  },
+  {
+   "name": "weather.sunset",
+   "meaning": "Sunset",
+   "sf": "sunset",
+   "family": "weather",
+   "alias": false
+  },
+  {
+   "name": "weather.thermometer",
+   "meaning": "Temperature",
+   "sf": "thermometer.medium",
+   "family": "weather",
+   "alias": false
+  },
+  {
+   "name": "weather.umbrella",
+   "meaning": "Chance of rain",
+   "sf": "umbrella",
+   "family": "weather",
+   "alias": false
+  },
+  {
+   "name": "weather.wind",
+   "meaning": "Wind",
+   "sf": "wind",
+   "family": "weather",
+   "alias": false
+  },
+  {
    "name": "window.new",
    "meaning": "Move to a new window / new window",
    "sf": "macwindow.badge.plus",
@@ -2065,7 +2450,10 @@
    "name": "workspace",
    "meaning": "Workspace",
    "sf": "rectangle.stack",
-   "family": "workspace"
+   "family": "workspace",
+   "overrides": [
+    "rectangle.stack"
+   ]
   },
   {
    "name": "workspace.new",

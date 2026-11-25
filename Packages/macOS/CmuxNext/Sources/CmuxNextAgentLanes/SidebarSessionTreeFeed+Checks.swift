@@ -19,10 +19,10 @@ extension SidebarSessionTreeFeed {
         sections.sessionTree || sections.priorityViewEnabled
     }
 
-    /// The badge reads run for the rows: `sidebar.pullRequestBadges` and some row shows pull requests
+    /// The badge reads run for the rows: some row shows pull requests
     /// (`sidebar.workspaceRow.pullRequest`, off by default), so a sidebar that draws none asks GitHub nothing.
     static func readsBadges(_ sections: SidebarSectionsPreferences) -> Bool {
-        SidebarTunables.pullRequestBadges.value && sections.workspaceRow.showsAnywhere(.pullRequest)
+        sections.workspaceRow.showsAnywhere(.pullRequest)
     }
 
     /// Whether any of `lane`'s answers (its folder's branch's pull request, each one it opened) is

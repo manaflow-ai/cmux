@@ -57,3 +57,27 @@ export const collectSecretValid = async (env: Pick<Env, "ENVIRONMENT" | "JWT_PRI
   if (parts.length !== 2 || !NONCE.test(parts[0]!) || !MAC.test(parts[1]!)) return false
   return timingSafeEqual(parts[1]!, await collectMac(env, code, parts[0]!))
 }
+
+/**
+ * Watch secrets for `GET /v1/pair/invite/wait` (the inviter's socket): the same shape and key as a
+ * collect secret, over a separate message (`cmux-pair-invite-watch`), so a collect secret never
+ * passes as a watch secret or the other way round, and a forged one wakes no Durable Object.
+ */
+const watchMac = async (env: Pick<Env, "ENVIRONMENT" | "JWT_PRIVATE_JWK">, invite: string, nonce: string) =>
+  hmacHex(await collectKey(env as Env), `cmux-pair-invite-watch\n${invite}\n${nonce}`)
+
+/**
+ * The watch secret for one person's one request key: its nonce is derived from (user, key) with the
+ * same key, so a replay of that request answers the same secret without the secret being stored.
+ */
+export const watchSecret = async (env: Pick<Env, "ENVIRONMENT" | "JWT_PRIVATE_JWK">, invite: string, user: string, keyHash: string): Promise<string> => {
+  const seed = await hmacHex(await collectKey(env as Env), `cmux-pair-invite-nonce\n${user}\n${keyHash}`)
+  const nonce = b64u(Uint8Array.from(seed.slice(0, 32).match(/../g)!, (h) => parseInt(h, 16)))
+  return `${nonce}.${await watchMac(env, invite, nonce)}`
+}
+
+export const watchSecretValid = async (env: Pick<Env, "ENVIRONMENT" | "JWT_PRIVATE_JWK">, invite: string, secret: string): Promise<boolean> => {
+  const parts = secret.split(".")
+  if (parts.length !== 2 || !NONCE.test(parts[0]!) || !MAC.test(parts[1]!)) return false
+  return timingSafeEqual(parts[1]!, await watchMac(env, invite, parts[0]!))
+}

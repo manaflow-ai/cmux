@@ -199,3 +199,95 @@ test("a send in the same turn as the pick leaves the gesture to the start it jus
   await turn;
   expect(pane.sent).toEqual([{ text: "new tab ask", promptId: expect.any(String) }]);
 });
+
+// Leo, 2026-11-06 ("why is this still happening"): a send the composer held for a pasted image
+// bound its Enter at once (composer/heldSendGesture.test.tsx); the image's upload then spent the
+// host's one grant. A harness switch that holds that send must go with the ticket the composer
+// bound, not ask the host again when it has none left.
+test("a send the composer held for its files goes through the switch with the ticket its Enter bound", async () => {
+  const pane = harness();
+  // The host's one grant per key press or click: the image's upload spent the Enter's.
+  const asked: GestureIntent[] = [];
+  pane.store.setHandlers({
+    gesture: async (intent: GestureIntent) => {
+      asked.push(intent);
+      return undefined;
+    },
+  });
+  pane.store.connect(pane.port(pane.slowStart));
+  const opened = pane.store.switchTo("claude", "/Users/dev");
+  await laterTurn();
+  const bound = Promise.resolve("ticket-enter");
+  const turn = pane.store.send("with the screenshot", [], undefined, "held-1", true, bound);
+  pane.start("s1");
+  await opened;
+  await turn;
+  expect(asked).toEqual([]);
+  expect(pane.sent).toEqual([{ text: "with the screenshot", promptId: "held-1", ticket: "ticket-enter" }]);
+});
+
+test("a held send that waits for the switch's Trust answer keeps the ticket its Enter bound", async () => {
+  const pane = harness();
+  const holds: string[] = [];
+  pane.store.setHandlers({ gesture: async () => undefined, holdPrompt: (promptId: string) => holds.push(promptId) });
+  let attempts = 0;
+  let refuse!: (error: unknown) => void;
+  pane.store.connect(
+    pane.port(() => {
+      attempts += 1;
+      if (attempts === 1) return new Promise<string | undefined>((_, fail) => (refuse = fail));
+      return Promise.resolve("s1");
+    }),
+  );
+  const opened = pane.store.switchTo("claude", "/Users/dev");
+  await laterTurn();
+  refuse(Object.assign(new Error("trust"), { reason: "trust.pending", cwd: "/Users/dev" }));
+  for (let step = 0; step < 10 && pane.store.view().intent?.phase !== "trust"; step += 1) await Promise.resolve();
+  expect(pane.store.view().intent?.phase).toBe("trust");
+  const turn = pane.store.send("after trust", [], undefined, "held-2", true, Promise.resolve("ticket-enter"));
+  // The bound ticket is the prompt's: the switch asks the pane to keep no other gesture for it.
+  expect(holds).toEqual([]);
+  pane.store.resumeAfterTrust();
+  await opened;
+  await turn;
+  expect(pane.sent).toEqual([{ text: "after trust", promptId: "held-2", ticket: "ticket-enter" }]);
+});
+
+test("two held sends behind the switch each go with the ticket their own Enter bound", async () => {
+  const pane = harness();
+  pane.store.setHandlers({ gesture: async () => undefined });
+  pane.store.connect(pane.port(pane.slowStart));
+  const opened = pane.store.switchTo("claude", "/Users/dev");
+  await laterTurn();
+  const first = pane.store.send("first", [], undefined, "held-1", true, Promise.resolve("ticket-1"));
+  const second = pane.store.send("second", [], undefined, "held-2", true, Promise.resolve("ticket-2"));
+  pane.start("s1");
+  await opened;
+  await Promise.all([first, second]);
+  expect(pane.sent).toEqual([
+    { text: "first", promptId: "held-1", ticket: "ticket-1" },
+    { text: "second", promptId: "held-2", ticket: "ticket-2" },
+  ]);
+});
+
+test("a held send that joins the switch while the tickets resolve goes with its own ticket too", async () => {
+  const pane = harness();
+  pane.store.setHandlers({ gesture: async () => undefined });
+  pane.store.connect(pane.port(pane.slowStart));
+  const opened = pane.store.switchTo("claude", "/Users/dev");
+  await laterTurn();
+  let resolveFirst!: (ticket: string) => void;
+  const firstTicket = new Promise<string | undefined>((resolve) => (resolveFirst = resolve));
+  const first = pane.store.send("first", [], undefined, "held-1", true, firstTicket);
+  pane.start("s1");
+  // The drain waits for the first prompt's ticket; the second is sent meanwhile.
+  for (let step = 0; step < 10; step += 1) await Promise.resolve();
+  const second = pane.store.send("second", [], undefined, "held-2", true, Promise.resolve("ticket-2"));
+  resolveFirst("ticket-1");
+  await opened;
+  await Promise.all([first, second]);
+  expect(pane.sent).toEqual([
+    { text: "first", promptId: "held-1", ticket: "ticket-1" },
+    { text: "second", promptId: "held-2", ticket: "ticket-2" },
+  ]);
+});

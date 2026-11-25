@@ -11,6 +11,13 @@ public struct AgentChatDestinations {
         public let symbol: String
         public let isReady: Bool
         public let route: Route
+
+        /// The link is coming up or redialing on its own: the picker lists it like a connected one, never greyed or
+        /// labelled, and a chat opened on it waits for the link (Leo, 2026-11-24: "all the connecting... indicators
+        /// and the graying out of workspaces, nah let's not do that").
+        public var isOnItsWay: Bool { state == "connecting" || state == "reconnecting" }
+        /// Whether a new chat may open here now: ready, or on its way.
+        public var opens: Bool { isReady || isOnItsWay }
     }
 
     private var peers: () async throws -> [AgentChatPeer]
@@ -104,7 +111,7 @@ public struct AgentChatDestinations {
     /// The notice row: this Mac's acpmux has not listed the other Macs yet.
     static var peersPending: Destination {
         .init(id: peersPendingID, title: String(localized: "agentPane.chatDestinations.peersPending",
-                                                defaultValue: "Other Macs not loaded yet", bundle: .module),
+                                                defaultValue: "Other Macs not loaded yet", bundle: .localizedModule),
               state: nil, symbol: "hourglass", isReady: false, route: .pending)
     }
 
@@ -114,7 +121,7 @@ public struct AgentChatDestinations {
     /// The notice row: this Mac's acpmux could not list the other Macs (not running, refused).
     static var peersFailed: Destination {
         .init(id: peersFailedID, title: String(localized: "agentPane.chatDestinations.peersFailed",
-                                               defaultValue: "Other Macs could not be loaded", bundle: .module),
+                                               defaultValue: "Other Macs could not be loaded", bundle: .localizedModule),
               state: nil, symbol: "exclamationmark.triangle", isReady: false, route: .pending)
     }
 

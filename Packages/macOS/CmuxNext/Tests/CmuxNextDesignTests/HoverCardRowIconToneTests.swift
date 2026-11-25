@@ -25,8 +25,8 @@ import CmuxNextDesignTokens
         let (row, scope) = try themedRow()
         row.configure(HoverCardRowContent(text: "#42 Fix the card", status: "Merged", statusTone: .merged, iconTone: .merged),
                       image: Self.image)
-        let magenta = try #require(scope.tokens.ansi.dropFirst(5).first).nsColor
-        #expect(Self.same(try #require(row.icon.contentTintColor), magenta))
+        let purple = scope.perform { GroupColor.purple.markColor }
+        #expect(Self.same(try #require(row.icon.contentTintColor), purple))
         // Without a tone of its own the icon keeps the metadata ink.
         row.configure(HoverCardRowContent(text: "cmux"), image: Self.image)
         #expect(Self.same(try #require(row.icon.contentTintColor), scope.perform { Palette.textSecondary }))
@@ -39,8 +39,8 @@ import CmuxNextDesignTokens
         row.configure(HoverCardRowContent(text: machine, iconMachine: machine), image: Self.image)
         #expect(Self.same(try #require(row.icon.contentTintColor), scope.perform { Palette.textSecondary }))
         row.configure(HoverCardRowContent(text: machine, iconTone: .merged, iconMachine: machine), image: Self.image)
-        let magenta = try #require(scope.tokens.ansi.dropFirst(5).first).nsColor
-        #expect(Self.same(try #require(row.icon.contentTintColor), magenta))
+        let purple = scope.perform { GroupColor.purple.markColor }
+        #expect(Self.same(try #require(row.icon.contentTintColor), purple))
     }
 
     private static func same(_ lhs: NSColor, _ rhs: NSColor) -> Bool {

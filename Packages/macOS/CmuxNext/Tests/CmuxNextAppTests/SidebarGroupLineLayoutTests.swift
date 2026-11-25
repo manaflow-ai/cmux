@@ -52,24 +52,29 @@ import Testing
         return (sidebar, window)
     }
 
-    /// Leo's numbers: a 2 pt line, a 6 pt cut; `inside` sets it about 4 to 5 pt in from the header's left edge.
+    /// Compact scales Default's spacing and corners: a 2 pt line, a 5.5 pt cut and a 2 pt item corner.
     @Test func theShapeIsChromesMeasuredOne() {
         #expect(SidebarGroupLineLayout.tunable.defaultValue == .edge, "the line at the header bar's left edge is the default")
         #expect(SidebarStyle.groupBarWidth == 2)
-        #expect(SidebarStyle.groupLineCut == 6)
+        #expect(SidebarStyle.groupLineCut == 5.5)
         let inset = SidebarStyle.groupLineCornerInset
-        #expect(inset >= 4 && inset <= 5, "about 4 to 5 pt inside the header: \(inset)")
-        #expect(inset + SidebarStyle.groupBarWidth == SidebarStyle.rowCornerRadius, "the line's right edge is off the corner arc's end")
+        #expect(Metrics.itemCornerRadius == 2, "the Compact item corner, two levels inside the 7 pt pane corner")
+        #expect(inset == 0, "the line meets the header's edge: \(inset)")
+        #expect(inset + SidebarStyle.groupBarWidth == Metrics.itemCornerRadius, "the line's right edge is off the item corner arc's end")
     }
 
-    @Test func theRailRoundsOnlyItsRightCorners() {
-        let path = SidebarGroupLineShape.line(width: 2, height: 20)
-        #expect(path.contains(CGPoint(x: 0.1, y: 0.1)), "the left edge stays straight at the top")
-        #expect(path.contains(CGPoint(x: 0.1, y: 19.9)), "the left edge stays straight at the bottom")
-        #expect(!path.contains(CGPoint(x: 1.9, y: 0.1)), "the top-right corner rounds inward")
-        #expect(path.contains(CGPoint(x: 1.9, y: 3)), "the top reaches full width after one radius")
-        #expect(!path.contains(CGPoint(x: 1.9, y: 19.9)), "the bottom-right corner rounds inward")
-        #expect(path.contains(CGPoint(x: 1.9, y: 17)), "the bottom reaches full width before one radius")
+    /// Lawrence 2026-11-17 ("it needs proper even roundness"): the body is a plain bar and the layer's corner clip rounds
+    /// both ends by half the bar's width (SidebarGroupRailKatanaTests draws it); a rail joined to its bar keeps its top square.
+    @Test func theRailIsAnEvenCapsule() {
+        let path = SidebarGroupLineShape.body(width: 2, height: 20)
+        for point in [CGPoint(x: 0.1, y: 0.1), CGPoint(x: 1.9, y: 0.1), CGPoint(x: 1.9, y: 19.9), CGPoint(x: 0.1, y: 19.9)] {
+            #expect(path.contains(point), "the body is a full bar: \(point)")
+        }
+        #expect(SidebarGroupLineShape.cornerRadius(width: 2) == 1)
+        let all: CACornerMask = [.layerMinXMinYCorner, .layerMaxXMinYCorner, .layerMinXMaxYCorner, .layerMaxXMaxYCorner]
+        #expect(SidebarGroupLineShape.capCorners(flipped: true) == all && SidebarGroupLineShape.capCorners(flipped: false) == all)
+        #expect(SidebarGroupLineShape.capCorners(flipped: true, joined: true) == [.layerMinXMaxYCorner, .layerMaxXMaxYCorner])
+        #expect(SidebarGroupLineShape.capCorners(flipped: false, joined: true) == [.layerMinXMinYCorner, .layerMaxXMinYCorner])
     }
 
     @Test @MainActor func theCutMaskRetainsCoverageWhenARailShrinks() {
@@ -99,16 +104,23 @@ import Testing
             let head = header.frame
             #expect(line.width == 2, "\(layout): the line is \(line.width) pt")
             view.layoutSubtreeIfNeeded()
-            #expect(view.layer?.cornerRadius == 0 && view.layer?.masksToBounds == true && view.railShape.path != nil,
-                    "\(layout): the line has the clipped Chrome corner cut")
+            #expect(view.layer?.cornerRadius == 1
+                    && view.layer?.maskedCorners == SidebarGroupLineShape.capCorners(flipped: view.layer?.contentsAreFlipped() == true,
+                                                                                    joined: GroupLineView.joinsBar)
+                    && view.layer?.masksToBounds == true && view.railShape.path != nil,
+                    "\(layout): the line is a clipped capsule")
             #expect(view.railShape.frame.width == 2 && view.railShape.frame.height >= 4096,
                     "\(layout): the cut shape covers a rail during its bounds spring")
 
             let railPadding = layout == .inside ? 0 : SidebarStyle.groupEdgePadding
-            #expect(line.minX == max(loose.frame.minX - SidebarStyle.groupRailReach, railPadding), "\(layout): the line left the rail, at \(line.minX)")
+            let laneInset = layout == .edge ? SidebarStyle.groupRailInset : 0
+            #expect(line.minX == max(loose.frame.minX - SidebarStyle.groupRailReach, railPadding) + laneInset, "\(layout): the line left the rail, at \(line.minX)")
             #expect(header.pill.frame.minX == 0 && header.pill.frame.width == head.width, "\(layout): the bar spans \(header.pill.frame)")
             switch layout {
-            case .edge, .joined:
+            case .edge:
+                // Centred in its lane (Lawrence 2026-11-17: "slight padding on left as well").
+                #expect(head.minX + SidebarStyle.groupRailInset == line.minX, "\(layout): the bar starts at \(head.minX), the line at \(line.minX)")
+            case .joined:
                 #expect(head.minX == line.minX, "\(layout): the bar starts at \(head.minX), the line at \(line.minX)")
             case .inside:
                 // Inside keeps the corner overhang until the list edge; its rail stays clear of member fills.
@@ -131,7 +143,9 @@ import Testing
                 #expect(line.maxX <= member.frame.minX, "\(layout): \(id.rawValue)'s fill covers the line")
             }
 
-            // One color: the line is the bar's rest color.
+            // One color: the line is the solid bar's rest color (on glass it is the pane's vivid tint, `GroupHeaderGlassTests`).
+            TunableStore.shared.set(SidebarGroupGlass.tunable.key, SidebarGroupGlass.solid.tunableValue)
+            defer { TunableStore.shared.set(SidebarGroupGlass.tunable.key, nil) }
             header.updateLayer()
             view.updateLayer()
             let barColor = try GroupPaletteDefaultTests.rgb(header.pill.backgroundColor)
@@ -211,6 +225,7 @@ import Testing
                     // A top-level rail keeps `groupEdgePadding` from the list's edge (b5400e7e342f4).
                     let railPadding = layout == .inside ? 0 : SidebarStyle.groupEdgePadding
                     let rail = max(list.frame(for: member).minX - SidebarStyle.groupRailReach, railPadding)
+                        + (layout == .edge ? SidebarStyle.groupRailInset : 0)
                     #expect(line.frame.minX == rail, "\(layout): \(line.group.rawValue) left its rail")
                 }
                 for row in list.displayed.rows {

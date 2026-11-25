@@ -2,7 +2,7 @@ public import Foundation
 public import CmuxHomeCore
 public import CmuxNextDaemon
 import CmuxNextDesign
-public import CmuxNextHome
+public import CmuxNextHomeModel
 import CmuxNextWakeups
 import os
 

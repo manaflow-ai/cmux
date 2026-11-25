@@ -10,6 +10,17 @@ public nonisolated enum AppSceneOp: Sendable, Hashable {
     case remove(id: String)
     case root(id: String)
 
+    /// The wire representation used when a page forwards a scene stream.
+    public var json: AppJSON {
+        switch self {
+        case let .create(id, type, props): ["op": "create", "id": .string(id), "type": .string(type), "props": .object(props)]
+        case let .update(id, props): ["op": "update", "id": .string(id), "props": .object(props)]
+        case let .children(id, children): ["op": "children", "id": .string(id), "children": .array(children.map(AppJSON.string))]
+        case let .remove(id): ["op": "remove", "id": .string(id)]
+        case let .root(id): ["op": "root", "id": .string(id)]
+        }
+    }
+
     /// Decodes one op; nil for a malformed or unknown op (skipped).
     public init?(json: AppJSON) {
         guard let op = json["op"]?.stringValue, let id = json["id"]?.stringValue else { return nil }
@@ -38,9 +49,12 @@ public nonisolated enum AppSceneNodeType: String, Sendable, Hashable, CaseIterab
     case group = "Group", forEach = "ForEach", reorderable = "Reorderable"
     case text = "Text", icon = "Icon", image = "Image", button = "Button", menu = "Menu"
     case spacer = "Spacer", divider = "Divider"
-    case circle = "Circle", capsule = "Capsule", rectangle = "Rectangle", roundedRectangle = "RoundedRectangle"
+    case circle = "Circle", capsule = "Capsule", rectangle = "Rectangle", roundedRectangle = "RoundedRectangle", line = "Line"
     case progressView = "ProgressView", textField = "TextField"
     case row = "Row", badge = "Badge", emptyState = "EmptyState"
+    case toggle = "Toggle", slider = "Slider", panel = "Panel"
+    /// A host-run particle field (`preset`, `colors`, `rate`, `burst`) that fills its frame.
+    case particles = "Particles"
 
     /// Lays its children out inline in the parent's stack.
     public var isInline: Bool { self == .group || self == .forEach }

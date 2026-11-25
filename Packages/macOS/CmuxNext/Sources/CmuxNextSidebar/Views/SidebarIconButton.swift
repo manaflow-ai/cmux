@@ -10,15 +10,23 @@ final class SidebarIconButton: ClickableButton {
     var onPress: (() -> Void)?
     /// A fixed glyph color for a button on a colored surface (the group
     /// header's ink); nil uses the secondary text color, primary on hover.
-    var tintOverride: NSColor? { didSet { if tintOverride != oldValue { needsDisplay = true } } }
+    var tintOverride: NSColor? {
+        didSet {
+            guard tintOverride != oldValue else { return }
+            plusLook?.inkOverride = tintOverride
+            needsDisplay = true
+        }
+    }
 
     /// Replacing the icon or label redraws the button (a disclosure's chevron).
     var icon: IconName { didSet { if icon != oldValue { renderedSize = 0; renderIcon() } } }
+    /// The icon's form: the outline (default) or the filled one, as a row's hover pin draws Pin and Unpin.
+    var iconStyle: IconStyle = .line { didSet { if iconStyle != oldValue { renderedSize = 0; renderIcon() } } }
     var label: String {
         didSet {
             guard label != oldValue else { return }
             setAccessibilityLabel(label)
-            themedToolTip = showsLabelToolTip ? label : nil
+            applyToolTip()
             renderedSize = 0
             renderIcon()
         }
@@ -26,7 +34,7 @@ final class SidebarIconButton: ClickableButton {
     /// Hovering shows the label as the themed tooltip. Off for a glyph that names itself (a card's
     /// ×, media controls), which keeps the label for VoiceOver only (Leo, 2026-10-20).
     var showsLabelToolTip = true {
-        didSet { if showsLabelToolTip != oldValue { themedToolTip = showsLabelToolTip ? label : nil } }
+        didSet { if showsLabelToolTip != oldValue { applyToolTip() } }
     }
     /// Full Keyboard Access reaches this button (a card's x, UPDATE-CARD-CLOSE): Tab focuses it,
     /// Space presses it, and the focus shows as a ring in the theme's focus color (cx-wqn5), not
@@ -40,9 +48,13 @@ final class SidebarIconButton: ClickableButton {
     private static let mouseEvents: Set<NSEvent.EventType> = [.leftMouseDown, .leftMouseUp, .rightMouseDown, .rightMouseUp,
                                                                .otherMouseDown, .otherMouseUp]
     private lazy var keyRepaint = KeyWindowRepaint(self)
-    /// The label point size the icon sits beside, read at layout time so density changes apply live.
-    private let pointSize: () -> CGFloat
+    /// The icon's side, read at layout time so density changes apply live.
+    private let glyphSide: () -> CGFloat
     private var renderedSize: CGFloat = 0
+    /// The window's standard + (``PlusButtonLook``, the tab bar's New Tab +): set by ``init(plus:)`` for every
+    /// sidebar + (New Workspace, a group's, a machine's, an empty group's). It draws the + and its hover fill; the
+    /// button keeps its events, menus, tooltip and focus ring.
+    private(set) var plusLook: PlusButtonLook?
     /// An SF Symbol drawn through the pack (`NSImage.icon(symbol:)`) for a glyph
     /// the pack has no name for, such as the group editor's emoji button.
     private var symbol: String?
@@ -55,18 +67,25 @@ final class SidebarIconButton: ClickableButton {
         renderIcon()
     }
 
-    init(icon: IconName, pointSize: @escaping () -> CGFloat = { Metrics.smallIconSize }, label: String) {
+    /// `pointSize` is the label point size the icon sits beside (the icon takes that row's icon size).
+    convenience init(icon: IconName, pointSize: @escaping () -> CGFloat = { Metrics.smallIconSize }, label: String) {
+        self.init(icon: icon, side: { .iconRowSize(forLabelPointSize: pointSize()) }, label: label)
+    }
+
+    /// An icon drawn at `side` itself (a row's trailing control, `SidebarStyle.rowSymbolSide`).
+    init(icon: IconName, side: @escaping () -> CGFloat, label: String) {
         self.icon = icon
         self.label = label
-        self.pointSize = pointSize
+        self.glyphSide = side
         super.init(frame: .zero)
-        renderIcon()
+        // The image comes when the button first shows (``renderIcon()``): a row's hover controls stay hidden.
         imagePosition = .imageOnly
         // An image-only button: no "Button" title for VoiceOver and hint mode (they read the label).
         title = ""
         isBordered = false
         setAccessibilityLabel(label)
-        themedToolTip = label
+        defersThemedToolTipTracking = true
+        applyToolTip()
         wantsLayer = true
         target = self
         action = #selector(pressed)
@@ -76,11 +95,22 @@ final class SidebarIconButton: ClickableButton {
         hover.followPointer(onChange: { [weak self] in self?.needsDisplay = true })
     }
 
+    /// A + button: the window's standard + (``PlusButtonLook``), the same glyph, size, weight, ink and hover fill
+    /// as the tab bar's New Tab +.
+    convenience init(plus label: String) {
+        self.init(icon: .actionAdd, label: label) // plus-button-allow: the icon is never drawn; the + look draws the +
+        let look = PlusButtonLook(host: self)
+        plusLook = look
+        // The look paints its own hover and press fill; the shared chrome keeps only the focus ring.
+        hover.paintsFill = false
+        look.inkOverride = tintOverride
+        look.motion = Motion.feedback
+        renderedSize = 0
+    }
+
     convenience init(symbol: String, pointSize: @escaping () -> CGFloat = { Metrics.smallIconSize }, label: String) {
         self.init(icon: IconName(symbol), pointSize: pointSize, label: label)
         self.symbol = symbol
-        renderedSize = 0
-        renderIcon()
     }
 
     @available(*, unavailable)
@@ -112,7 +142,7 @@ final class SidebarIconButton: ClickableButton {
     var menuProvider: (() -> NSMenu?)?
 
     override func menu(for event: NSEvent) -> NSMenu? {
-        menuProvider?() ?? super.menu(for: event)
+        NSMenu.withoutSystemItems(menuProvider?() ?? super.menu(for: event))
     }
 
     /// Told `true` while a right-click menu this button opened is open, `false` once it closes
@@ -132,19 +162,45 @@ final class SidebarIconButton: ClickableButton {
         onMenuOpenChange?(false)
     }
 
+    /// Makes the icon image for the current point size, once the button shows: a hidden button, or one in a
+    /// hidden row, has none yet (REOPEN-F7: each workspace row's 5 hover-only buttons made theirs before the
+    /// window's first frame, about 4 ms of it). Showing, joining a window, a layout and a size read make it.
     private func renderIcon() {
-        let size = pointSize()
-        guard size != renderedSize else { return }
-        renderedSize = size
-        let side = CGFloat.iconRowSize(forLabelPointSize: size)
-        let image = symbol.map { NSImage.icon(symbol: $0, size: side) } ?? NSImage.icon(icon, size: side)
+        guard !isHiddenOrHasHiddenAncestor else { return }
+        let side = glyphSide()
+        guard side != renderedSize else { return }
+        renderedSize = side
+        // The + look draws the +: the button keeps a clear image of the icon's side, so it sizes as every icon button.
+        let image = plusLook != nil ? NSImage(size: NSSize(width: side, height: side))
+            : symbol.map { NSImage.icon(symbol: $0, size: side, style: iconStyle) } ?? NSImage.icon(icon, size: side, style: iconStyle)
         image.accessibilityDescription = label
         self.image = image
+    }
+
+    /// The label as the themed tooltip (when ``showsLabelToolTip``). Its text, its shortcut and VoiceOver's help are set
+    /// at once; the hover tracking area waits until the button shows (``NSView/defersThemedToolTipTracking``): a hidden
+    /// button cannot be hovered (REOPEN-F7: each row's hidden hover buttons added theirs before the first frame).
+    private func applyToolTip() {
+        let text = showsLabelToolTip && !label.isEmpty ? label : nil
+        if themedToolTip != text { themedToolTip = text }
     }
 
     override func layout() {
         super.layout()
         renderIcon()
+        plusLook?.layout(in: bounds, scale: window?.backingScaleFactor ?? 2)
+    }
+
+    override func viewDidChangeBackingProperties() {
+        super.viewDidChangeBackingProperties()
+        if plusLook != nil { needsLayout = true }
+    }
+
+    /// Sized by its icon, as an image-only button is. `renderedSize` (0: no icon yet), not `image`: AppKit answers a
+    /// button with no image of its own with a shared 1 x 1 placeholder, so `image` is never nil here.
+    override var intrinsicContentSize: NSSize {
+        if renderedSize == 0 { renderIcon() }
+        return super.intrinsicContentSize
     }
 
     nonisolated override var wantsUpdateLayer: Bool { true }
@@ -169,11 +225,30 @@ final class SidebarIconButton: ClickableButton {
 
     override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
+        if window != nil {
+            renderIcon()
+            themedToolTipCanShow()
+        }
         if takesKeyFocus { keyRepaint.track() }
     }
 
+    /// Draws its hover, pressed and focus fills as a circle instead of the rounded square.
+    var isRound = false {
+        didSet { needsDisplay = true }
+    }
+
+    /// The corner of its fills when it sits in a card's corner, concentric with the card (``ConcentricContainer``
+    /// `.cornerControl`); at most half its side. Nil draws ``isRound`` or the button corner.
+    var concentricRadius: CGFloat? {
+        didSet { needsDisplay = true }
+    }
+
     override func updateLayer() {
-        layer?.cornerRadius = Metrics.itemCornerRadius
+        // isRound: a light round x on a card (Lawrence 2026-11-07, "the X sits in a heavy box").
+        // Else the tab's ratio on its own side, one shape at every density (Lucas 2026-11-15).
+        let half = min(bounds.width, bounds.height) / 2
+        layer?.cornerRadius = concentricRadius.map { min($0, half) } // radius-allow: isRound
+            ?? (isRound ? half : Metrics.buttonCornerRadius(proportionalTo: 2 * half))
         performWithTheme {
             contentTintColor = tintOverride ?? (hover.state.hovering || hover.state.pressed ? Palette.textPrimary : Palette.textSecondary)
         }
@@ -181,6 +256,7 @@ final class SidebarIconButton: ClickableButton {
         let ring = takesKeyFocus && KeyWindowRepaint.showsFocus(self, focused: isKeyFocused)
         if hover.state.focused != ring { hover.state.focused = ring }
         hover.refresh(animated: false)
+        plusLook?.apply(.init(hovering: hover.state.hovering, pressed: hover.state.pressed), animated: true)
     }
 
     private func changeHover(_ change: (inout ChromeHover.State) -> Void) {
@@ -193,8 +269,24 @@ final class SidebarIconButton: ClickableButton {
     override func otherMouseDown(with event: NSEvent) { nextResponder?.otherMouseDown(with: event) }
     override func otherMouseUp(with event: NSEvent) { nextResponder?.otherMouseUp(with: event) }
 
+    /// A pointer press before this moment (`NSEvent.timestamp`, seconds since boot) is ignored: the
+    /// button just showed under the pointer (``ignorePointer(for:now:)``). Keys and VoiceOver are
+    /// never ignored. A stored deadline, no timer, as ``SidebarUpdateButton`` keeps it.
+    private var ignoresPointerUntil: TimeInterval = 0
+
+    /// Ignores pointer presses for `duration` from now: the button just showed where the pointer
+    /// may already be clicking, so a click meant for what was there must not land on this.
+    func ignorePointer(for duration: TimeInterval = SidebarUpdateButton.appearGuard,
+                       now: TimeInterval = ProcessInfo.processInfo.systemUptime) {
+        ignoresPointerUntil = now + duration
+    }
+
+    /// Whether a pointer press at `timestamp` (an `NSEvent.timestamp`) is ignored.
+    func ignoresPointer(at timestamp: TimeInterval) -> Bool { timestamp < ignoresPointerUntil }
+
     /// NSButton tracks the click inside `super.mouseDown` and returns on release.
     override func mouseDown(with event: NSEvent) {
+        if ignoresPointer(at: event.timestamp) { return }
         guard isEnabled else { return super.mouseDown(with: event) }
         changeHover { $0.pressed = true }
         super.mouseDown(with: event)
@@ -210,8 +302,18 @@ final class SidebarIconButton: ClickableButton {
         hover.pointer?.refresh()
     }
 
+    /// A move into a shown superview in the same window shows the button with no unhide or window change.
+    override func viewDidMoveToSuperview() {
+        super.viewDidMoveToSuperview()
+        guard window != nil else { return }
+        renderIcon()
+        themedToolTipCanShow()
+    }
+
     override func viewDidUnhide() {
         super.viewDidUnhide()
+        renderIcon()
+        themedToolTipCanShow()
         hover.pointer?.refresh()
     }
 }

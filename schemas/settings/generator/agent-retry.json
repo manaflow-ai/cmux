@@ -1,0 +1,8 @@
+{
+  "source": "schemas/settings/source/agent-retry.json",
+  "swift": "Packages/macOS/CmuxNext/Sources/CmuxNextSettings/Schema/SettingsSchema+AgentRetry.generated.swift",
+  "type": "AgentRetrySettingsSchema",
+  "lists": {
+    "agentRetry": ["descriptors", "AgentRetrySettings"]
+  }
+}

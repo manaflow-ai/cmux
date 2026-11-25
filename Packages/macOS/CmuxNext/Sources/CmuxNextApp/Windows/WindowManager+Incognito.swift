@@ -45,16 +45,16 @@ extension WindowManager {
         // Claimed before anything else runs: the pending claim keeps the session alive until the window opens.
         let key = WorkspaceKey.generate()
         claimNew(workspaceID: key.rawValue, window: windowID)
-        recordIncognitoWorkspaces() // phones hide it before the daemon creates it (PhoneIncognitoHiding)
+        recordIncognitoWorkspaces() // the ledger has it before the daemon creates it
         Task { [services] in
             guard let connection = daemon.connection else {
-                pendingClaims[key.rawValue] = nil
+                claims.pending[key.rawValue] = nil
                 return endIncognitoSessionIfUnused()
             }
             do {
-                _ = try await WorkspaceCreation.create(key, name: nil, on: connection, repair: services.emptyWorkspaces) { created in
+                _ = try await WorkspaceCreation.create(key, name: nil, on: connection, repair: services.emptyWorkspaces, terminalFirst: false) { created in
                     if let space { try await pinToIncognitoSpace(key, space, on: daemon) }
-                    let terminal = try await WorkspaceCreation.firstTerminal(in: created, cwd: daemon.defaultCwd ?? NSHomeDirectory(), on: connection)
+                    let terminal = try await WorkspaceCreation.firstTerminal(in: created, cwd: NewTerminalStart.defaultFolder(on: daemon) ?? NSHomeDirectory(), on: connection)
                     if let pane = terminal.pane {
                         _ = try await browserTabs.open(choice, in: pane, on: daemon, url: address, incognito: true)
                         if let surface = terminal.surface { try await connection.closeTab(surface) }
@@ -63,7 +63,7 @@ extension WindowManager {
                 }
             } catch {
                 daemon.logger.error("new incognito window failed: \(String(describing: error), privacy: .public)")
-                pendingClaims[key.rawValue] = nil
+                claims.pending[key.rawValue] = nil
                 endIncognitoSessionIfUnused()
             }
         }
@@ -85,13 +85,20 @@ extension WindowManager {
         let value = registry.value
         if value.discarding.contains(workspaceID) || EphemeralWorkspaces.isEphemeral(workspaceID, self) { return true }
         if let owner = value.owner(of: workspaceID) { return value.isIncognito(owner) }
-        return pendingClaims[workspaceID].map(value.isIncognito) ?? false
+        return claims.pending[workspaceID].map(value.isIncognito) ?? false
+    }
+
+    /// `isIncognito(workspace:)` from this workspace's own facts (no workspace list or whole registry read, F6).
+    func isIncognito(workspace w: WorkspaceModel) -> Bool {
+        w.ephemeral || (registry.incognitoByWorkspace[w.id] ?? claims.pending[w.id].map(registry.value.isIncognito) ?? false)
     }
 
     /// True when window `windowID` is incognito.
     func isIncognito(window windowID: String) -> Bool {
         registry.value.isIncognito(windowID)
     }
+    /// The windows stage 0's launch images keep: open, not incognito (`WindowLaunchImages`).
+    var launchImageWindows: [(id: String, window: NSWindow)] { controllers.compactMap { c in c.window.flatMap { isIncognito(window: c.state.id) ? nil : (c.state.id, $0) } } }
 
     /// The browser profile a page of `workspaceID` uses: the incognito
     /// session's for an incognito window, else nil (the caller's default).
@@ -119,10 +126,9 @@ extension WindowManager {
         let value = registry.value
         var ids = value.discarding
         for window in value.windows where value.isIncognito(window.id) { ids.formUnion(window.workspaceIDs) }
-        for (workspace, window) in pendingClaims where value.isIncognito(window) { ids.insert(workspace) }
+        for (workspace, window) in claims.pending where value.isIncognito(window) { ids.insert(workspace) }
         // The daemon closes ephemeral workspaces itself; the ledger keeps only incognito workspaces it does not know as such.
         incognitoLedger.record(ids.filter { !EphemeralWorkspaces.isEphemeral($0, self) }, spaces: Set(incognitoSpaces.values.map(\.rawValue)))
-        PhoneIncognitoHiding.publish(ids, self)
     }
 
     /// Pins the incognito window's workspace `key` on `daemon` to its incognito space, so the window, which shows
@@ -136,7 +142,7 @@ extension WindowManager {
     /// the space, as Delete Space closes the workspaces only that space shows. Nothing of it is kept.
     func endIncognitoSpacesIfUnused() {
         let value = registry.value
-        let open = Set(value.windows.filter { $0.isOpen }.map(\.id)).union(pendingClaims.values).union(pendingEphemeralWindows)
+        let open = Set(value.windows.filter { $0.isOpen }.map(\.id)).union(claims.pending.values).union(pendingEphemeralWindows)
         for (window, space) in incognitoSpaces where !open.contains(window) {
             incognitoSpaces[window] = nil
             services.machines.local.send("delete-profile") { _ = try await $0.deleteProfile(space, moveTo: nil) }
@@ -148,7 +154,7 @@ extension WindowManager {
         guard let profile = incognitoSession else { return }
         let value = registry.value
         let open = value.windows.contains { value.isIncognito($0.id) }
-        let pending = pendingClaims.values.contains(where: value.isIncognito) || !pendingEphemeralWindows.isEmpty
+        let pending = claims.pending.values.contains(where: value.isIncognito) || !pendingEphemeralWindows.isEmpty
         guard !open, !pending else { return }
         incognitoSession = nil
         incognitoHistoryReset?()
@@ -220,7 +226,7 @@ extension WindowManager {
 
     /// The window a workspace is shown in, for move checks.
     func windowID(ofWorkspace workspaceID: String) -> String? {
-        registry.value.owner(of: workspaceID) ?? pendingClaims[workspaceID]
+        registry.value.owner(of: workspaceID) ?? claims.pending[workspaceID]
     }
 
     /// True when moving content of workspace `source` into workspace

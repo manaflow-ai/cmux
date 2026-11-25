@@ -1,3 +1,4 @@
+import CmuxNextTestSupport
 @testable import CmuxNextUpdater
 import Foundation
 import Testing
@@ -64,7 +65,7 @@ import CmuxNextWakeupsTestSupport
     /// A started updater on build 100 with nothing found yet; the person's interval is an hour.
     static func make(_ identity: UpdateBuildIdentity = tip, checkAutomatically: Bool = true, downloadAutomatically: Bool = true,
                      held: Bool = false, xml: String = feed) -> Harness {
-        let defaults = UserDefaults(suiteName: "TipUpdateCheckTests.\(UUID().uuidString)")!
+        let defaults = UserDefaults(testSuiteName: "TipUpdateCheckTests.\(UUID().uuidString)")!
         let clock = ManualClock()
         let feed = Base.CountingFeed(xml: xml, held: held)
         let sparkle = Base.FakeSparkle()
@@ -81,6 +82,9 @@ import CmuxNextWakeupsTestSupport
         updater.stagedRefresh.replaceable = { true }
         updater.stagedRefresh.startCheck = { sparkle.backgroundChecks += 1 }
         updater.tipCheck.startCheck = { checks.count += 1 }
+        // No live release push: the Worker's first frame repeats the newest published build, which reads the
+        // feed outside the schedule under test (#32090 found the same in UpdateStagedYieldsToNewerTests).
+        updater.releasePush.connect = { _ in ReleasePushListenerTests.FakeSocket() }
         updater.configure(checkAutomatically: checkAutomatically, checkInterval: 3600, downloadAutomatically: downloadAutomatically, ring: "nightly")
         updater.start()
         return Harness(updater: updater, clock: clock, feed: feed, sparkle: sparkle, policy: policy, checks: checks)
@@ -146,6 +150,69 @@ import CmuxNextWakeupsTestSupport
         try await tick(h, fetches: 1, interval: TipUpdateCheck.nightlyInterval)
         #expect(h.checks.count == 1, "build 500 was held back")
         #expect(h.updater.tipCheck.asked == "500")
+    }
+
+    // MARK: Delta wait (RFD 0166 U1)
+
+    /// The wait policy: deltas listed take the delta, no delta by the deadline takes the full
+    /// archive, a click never waits.
+    @Test func theWaitPolicyTakesTheDeltaTheFullArchiveOrTheClick() {
+        typealias P = DeltaWaitPolicy
+        #expect(P.decide(listsDeltas: false, userAsked: false, waited: .zero) == .wait)
+        #expect(P.decide(listsDeltas: false, userAsked: false, waited: .seconds(299)) == .wait)
+        #expect(P.decide(listsDeltas: true, userAsked: false, waited: .seconds(30)) == .download, "deltas are listed: take the delta")
+        #expect(P.decide(listsDeltas: false, userAsked: false, waited: P.window) == .download, "the deadline takes the full archive")
+        #expect(P.decide(listsDeltas: false, userAsked: true, waited: .zero) == .download, "a click waited")
+        #expect(P.window == .seconds(300))
+    }
+
+    /// A pushed NIGHTLY build without deltas is offered and checked for at once, but its download waits;
+    /// the deltas appear within the window: the check runs again and downloads the delta.
+    @Test func aPushedBuildWaitsForItsDeltasThenDownloadsThem() async throws {
+        let h = Self.make(Self.nightly, xml: Self.nightlyFeed(minutesAgo: 1, deltas: false))
+        var dismissed = 0
+        h.updater.dismissAvailable = { dismissed += 1 }
+        #expect(h.updater.downloadsFoundUpdates)
+        h.updater.tipCheck.readNow(h.updater)
+        try #require(await eventually { h.checks.count == 1 }, "the pushed build was not checked for at once")
+        #expect(h.updater.tipCheck.deltaWaitBuild == "500")
+        #expect(h.updater.downloadHeldForDeltas && !h.updater.downloadsFoundUpdates, "the download did not wait")
+        h.updater.debugIndicatorPhase = .available(version: "5.0.0")
+        h.feed.xml = Self.nightlyFeed(minutesAgo: 1, deltas: true)
+        try await h.clock.waitForSleeper()
+        h.clock.advance(by: DeltaWaitPolicy.recheck)
+        try #require(await eventually { h.updater.tipCheck.deltaWaitBuild == nil }, "the listed deltas did not end the wait")
+        #expect(h.checks.count == 2 && dismissed == 1, "the check did not run again for the delta")
+        #expect(h.updater.downloadsFoundUpdates && !h.updater.downloadHeldForDeltas)
+    }
+
+    /// No delta by the deadline: the found full archive downloads.
+    @Test func aPushedBuildWithoutDeltasDownloadsTheFullArchiveAtTheDeadline() async throws {
+        let h = Self.make(Self.nightly, xml: Self.nightlyFeed(minutesAgo: 1, deltas: false))
+        var accepted = 0
+        var dismissed = 0
+        h.updater.acceptAvailable = { accepted += 1 }
+        h.updater.dismissAvailable = { dismissed += 1 }
+        h.updater.tipCheck.readNow(h.updater)
+        try #require(await eventually { h.checks.count == 1 })
+        h.updater.debugIndicatorPhase = .available(version: "5.0.0")
+        var waits = 0
+        while h.updater.tipCheck.deltaWaitBuild != nil, waits < 12 {
+            try await h.clock.waitForSleeper()
+            h.clock.advance(by: DeltaWaitPolicy.recheck)
+            waits += 1
+            try await Task.sleep(for: .milliseconds(100))
+        }
+        #expect(waits == 10, "the wait ended after \(waits) reads, not the 300 s window")
+        #expect(h.updater.tipCheck.deltaWaitBuild == nil && h.updater.downloadsFoundUpdates)
+        #expect(accepted == 1 && dismissed == 0 && h.checks.count == 1, "the found full archive did not download at the deadline")
+    }
+
+    /// A scheduled read never waits: only a push's does.
+    @Test func aScheduledReadDoesNotWait() async throws {
+        let h = Self.make(Self.nightly, xml: Self.nightlyFeed(minutesAgo: 2, deltas: false))
+        try await tick(h, fetches: 1, interval: TipUpdateCheck.nightlyInterval)
+        #expect(h.checks.count == 1 && h.updater.tipCheck.deltaWaitBuild == nil && !h.updater.downloadHeldForDeltas)
     }
 
     @Test(arguments: [UpdateIndicatorPhase.checking, .downloading(.starting), .ready(version: "5.0.0"), .installing])
@@ -233,7 +300,7 @@ import CmuxNextWakeupsTestSupport
     /// Nothing reads the feed before the settings load: `updates.checkAutomatically` may be off.
     @Test func noFastCheckBeforeTheSettingsLoad() {
         let updater = UpdaterService(identity: Self.nightly, policy: ManagedUpdatePolicy { false },
-                                     defaults: UserDefaults(suiteName: "TipUpdateCheckTests.\(UUID().uuidString)")!,
+                                     defaults: UserDefaults(testSuiteName: "TipUpdateCheckTests.\(UUID().uuidString)")!,
                                      enableSparkle: false, recordsUpdates: false, clock: ManualClock())
         updater.announcementsFetch = false
         updater.start()
@@ -338,11 +405,16 @@ import CmuxNextWakeupsTestSupport
         let h = Self.make(Self.nightly)
         h.sparkle.staged = "300"
         h.updater.debugIndicatorPhase = .ready(version: "3.0.0")
-        try await h.clock.waitForSleeper()
+        // Other timers sleep on this clock too: `waitForSleeper` returned on one of those while the
+        // staged probe's task had not read the clock yet, so the advance below pushed its hour to
+        // 3900 s and the probe never ran (runs 41243133170, 41282022128, 41358792657). Wait for the
+        // probe's own deadline, an hour from now.
+        let probeAt = h.clock.now.advanced(by: .seconds(3600))
+        try #require(await eventually { h.clock.sleeperDeadlines.contains(probeAt) }, "the staged probe never slept for the person's hour")
         h.clock.advance(by: .seconds(TipUpdateCheck.interval))
         try await Task.sleep(for: .milliseconds(100))
         #expect(h.feed.fetches == 0, "a NIGHTLY probed its staged update at the tip interval")
         h.clock.advance(by: .seconds(3600 - TipUpdateCheck.interval))
-        #expect(await eventually { h.feed.fetches == 1 }, "the NIGHTLY's hourly probe never ran")
+        #expect(await eventually { h.feed.fetches == 1 }, "the NIGHTLY's hourly probe never ran, or ran with another read (\(h.feed.fetches) reads)")
     }
 }

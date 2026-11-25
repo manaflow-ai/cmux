@@ -186,3 +186,16 @@ test("a tab's exact title leads even though its row shows the cleaned title", ()
   expect(rows[0]).toMatchObject({ type: "tab", id: "reddit-tab" });
   expect(rows[1]?.type).toBe("ask");
 });
+
+// Typing `localhost:3000`, the address row left at `localhost:` (a scheme-like word, not an
+// address) and came back at `localhost:3`, moving every row under it down, up and down again
+// (agent-pane.new-tab#create-strip-narrow). The port still to come keeps the address's row.
+test("an address keeps its row while its port is typed", () => {
+  const plain = context({});
+  const kinds = (text: string) => screenRows(text, plain).map((row) => row.type);
+  for (const text of ["localhost", "localhost:", "localhost:3", "example.com:"]) expect(kinds(text)[0]).toBe("open");
+  expect(kinds("localhost:")).toEqual(kinds("localhost"));
+  // A word and a colon is still text, as is an IPv6-looking pair of colons.
+  expect(kinds("note:")).not.toContain("open");
+  expect(kinds("localhost::")).not.toContain("open");
+});

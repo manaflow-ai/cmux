@@ -154,13 +154,17 @@ fn the_picker_respects_presets_and_the_task_cap() {
     assert!(code.contains("Routed to codex"), "{code}");
     assert_eq!(sub_harnesses(&h), vec!["codex"], "{code}");
 
-    // #31212: nine tasks of mixed kinds start nothing, though each
+    // #31212: one task over the cap, of mixed kinds, start nothing, though each
     // per-harness group alone would fit under the cap.
     let mut h = Harness::new(default_script());
     h.agents.hold(true);
     let sp = spawner(&h, &engine_file, "claude");
     h.brain.set_sub_starter(Some(sp.queue_starter()));
-    let tasks: Vec<String> = (0..9)
+    // Leo, 2026-11-02: eight was too few for one fan-out ("spawn takes at
+    // most 8 tasks; split the work" cost a second call); the cap is 24.
+    let cap = optchat_chief::subagents::MAX_TASKS;
+    assert!(cap >= 24, "one spawn takes at least 24 tasks: {cap}");
+    let tasks: Vec<String> = (0..cap + 1)
         .map(|k| {
             if k % 2 == 0 {
                 format!("Title: Fix {k}\nFix the failing cargo test {k}")
@@ -173,7 +177,7 @@ fn the_picker_respects_presets_and_the_task_cap() {
     let nine = run(&mut h, move || {
         a.spawn_with_route(tasks, None, None, None, None, None)
     });
-    let err = nine.expect_err("nine tasks");
-    assert!(err.contains("at most 8"), "{err}");
+    let err = nine.expect_err("one task over the cap");
+    assert!(err.contains(&format!("at most {cap}")), "{err}");
     assert!(sub_harnesses(&h).is_empty());
 }

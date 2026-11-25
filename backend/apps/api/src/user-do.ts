@@ -1,3 +1,4 @@
+import { envForObject } from "./build-space.ts"
 import type { Domain, EventFrame, OpFrame, OwnerEngine, OwnerFrame, Principal } from "@cmux/ownership"
 import { mcpScopesForGrant } from "./mcp-grant.ts"
 import { isMachineInstallKind } from "./machine-installs.ts"
@@ -11,25 +12,36 @@ import { isCompanyEmail } from "./domains/cloud-plan.ts"
 import { admit } from "./domains/common.ts"
 import { chiefActive, grantFor, inboxRefusalFor, installActive, liveInstallGrant, grantMigrationsDue, userPathAllowed, jwkThumbprint, makeUserDomain, type UserState } from "./domains/user.ts"
 import { appIdHashFor, confirmRead } from "./domains/user-confirm.ts"
-import { CHIEF_AGENT_CLASS, chiefList, placedChiefClasses } from "./domains/user-chief.ts"
+import { CHIEF_AGENT_CLASS, HOSTED_DEFAULT_KEY, chiefList, placedChiefClasses } from "./domains/user-chief.ts"
 import { avatarRpc, type AvatarCall } from "./user-avatars.ts"
-import type { Env } from "./env.ts"
+import type { Env, RawEnv } from "./env.ts"
 import { HomePushQueue } from "./home-push.ts"
 import { apnsHomePushSender, decideHomePush, drainHomePush, feedHomePushQuiet } from "./home-push-drain.ts"
 import { CLOSE_RETRY_MS, flushInstallCloses, markAgentClosing, markInstallClosing, nextCloseAt, registerSocketOwner } from "./socket-registry.ts"
 import { OwnerDO, type Attachment, type ReadResult, type SubmitResult } from "./owner-do.ts"
 import { SecondaryStream } from "./secondary-stream.ts"
 import { pullLargeRows, readInboxOp } from "./user-inbox.ts"
+import { stackHealDeps, type StackHealDeps, memberCheck, type MemberCheck } from "./stack-team-heal.ts";
 import { checkPresenceKey, type PresenceKeyBody } from "./user-presence-key.ts"
 import { homeRateTakeSql, type HomeRateGate, type HomeRateOp } from "./home-rate.ts"
 import { installAuthorityVersion } from "./domains/user-authority.ts"
+import { DEFAULT_CHIEF_BIND, DEFAULT_CHIEF_REBIND, defaultChiefIdentity } from "./domains/user-chief-default.ts"
+import {
+  backfillDefaultChief,
+  deliverSignupChief,
+  rebindDefaultChief,
+  type DefaultMachinePlatform,
+  type RebindReply,
+  platformInSpace,
+} from "./user-chief-provision.ts";
+import type { DeliverResult, TargetItem } from "./do-outbox.ts"
 
 const CHALLENGE_TTL_MS = 2 * 60_000
 
 /** networkIdentity's answer: public key, kind, live grant expiry and op classes, and the install authority version. */
 export interface NetworkIdentityView { key: JsonWebKey; kind: string; expires_at: number | null; authority_version: string; op_classes: ReadonlyArray<string> }
 
-export type RedeemResult = ({ ok: true } & InstallClaims) | { ok: false; code: "auth.forbidden" | "validation.invalid"; message: string }
+export type RedeemResult = ({ ok: true } & InstallClaims) | { ok: false; code: "auth.forbidden" | "validation.invalid" | "owner.unreachable"; message: string }
 
 /**
  * UserDO: the user's installs, devices, grants and revocation (identity spec
@@ -49,8 +61,12 @@ export class UserDO extends OwnerDO<UserState> {
 
   /** Sends one Home alert (APNs, as FeedDO); tests replace it inside the object. */
   protected homePushSender = apnsHomePushSender(this.env)
+  /** Signup's server-only service binding (replaced inside the object in integration tests). */
+  /** The platform's default machine, asked in this object's build space (`platformInSpace`). */
+  protected signupPlatform = () => platformInSpace(this.env.PLATFORM as unknown as DefaultMachinePlatform | undefined, this.env.BUILD_SPACE)
 
-  constructor(ctx: DurableObjectState, env: Env) {
+  constructor(ctx: DurableObjectState, raw: RawEnv) {
+    const env = envForObject(ctx, raw)
     super(ctx, env, makeUserDomain(appIdHashFor(env.IOS_APP_ID)), "user")
     ctx.storage.sql.exec(`CREATE TABLE IF NOT EXISTS auth_challenges (nonce TEXT PRIMARY KEY, install TEXT NOT NULL, expires_at INTEGER NOT NULL)`)
     ctx.storage.sql.exec(`CREATE TABLE IF NOT EXISTS auth_team_challenges (nonce TEXT PRIMARY KEY, install TEXT NOT NULL, team TEXT NOT NULL, expires_at INTEGER NOT NULL)`)
@@ -84,9 +100,9 @@ export class UserDO extends OwnerDO<UserState> {
       return true
     }
     // Ops the Worker gates on team policy (agents.allowedClasses, P17-4) never run from the socket.
-    if (frame.t === "op" && frame.op === "chief.create") {
+    if (frame.t === "op" && (frame.op === "chief.create" || frame.op === "channel.create")) {
       try {
-        ws.send(JSON.stringify({ t: "reject", tx: "", idempotency_key: frame.idempotency_key ?? "", code: "validation.invalid", message: "chief.create goes through POST /v1/ops", retryable: false, replayed: false }))
+        ws.send(JSON.stringify({ t: "reject", tx: "", idempotency_key: frame.idempotency_key ?? "", code: "validation.invalid", message: `${frame.op} goes through POST /v1/ops`, retryable: false, replayed: false }))
       } catch {}
       return true
     }
@@ -132,13 +148,69 @@ export class UserDO extends OwnerDO<UserState> {
 
   /** A chief token never changes the owner's account (security review P2): every UserDO mutation from one is refused. */
   override async submit(entity: string, principal: Principal, frame: OpFrame): Promise<SubmitResult> {
-    if (principal.agent === undefined) return super.submit(entity, principal, frame)
+    if (principal.agent === undefined) {
+      const state = frame.op === "chief.create" && frame.idempotency_key === HOSTED_DEFAULT_KEY && this.isBound(entity) ? this.bind(entity).currentState : undefined
+      const selected = state?.hosted_default ? state.chiefs?.[state.hosted_default] : undefined
+      const adopted = selected?.archived_at === null && !selected.brain_place ? selected.id : undefined
+      const reply = await super.submit(entity, principal, frame)
+      if (frame.op === "channel.create") await this.promptDrained()
+      // Signup already decided this fixed selection. A new Mac must adopt it as a replay;
+      // claiming it was created here would let ensureHosted re-enable an owner's disabled Chief.
+      return adopted ? { frames: reply.frames.map((f) => f.t === "result" && (f.value as { id?: unknown } | null)?.id === adopted ? { ...f, replayed: true } : f) } : reply
+    }
     const key = typeof frame.idempotency_key === "string" ? frame.idempotency_key : ""
     return { frames: [{ t: "reject", tx: "", idempotency_key: key, code: "auth.forbidden", message: "a chief token cannot change the owner's account", retryable: false, replayed: false },
       { t: "request-settled", tx: "", idempotency_key: key, stream: `user:${entity}`, sequence: 0, ok: false }] }
   }
   /** A Chief's own chief.create / chief.update from its Cloud brain (brain-chiefs.ts; DO RPC, no route reaches it): user-chief.ts `viaChief`. */
-  async chiefManage(entity: string, agent: string, frame: OpFrame): Promise<SubmitResult> { return super.submit(entity, { identity: `agent:${agent} via chief`, kind: "agent", agent, user: entity }, frame) }
+  async chiefManage(entity: string, agent: string, frame: OpFrame): Promise<SubmitResult> {
+    const reply = await super.submit(entity, { identity: `agent:${agent} via chief`, kind: "agent", agent, user: entity }, frame)
+    if (frame.op === "channel.create") await this.promptDrained()
+    return reply
+  }
+
+  /**
+   * A conversation this account's outbox creates or renames (a Chief's main conversation, a channel) is a prompt
+   * channel: channel.create answers once its conversation exists, so the caller adds people at once (bounded wait;
+   * the alarm retries what is left).
+   */
+  protected override promptChannel(channel: string): boolean {
+    return super.promptChannel(channel) || channel.startsWith("ConversationDO:")
+  }
+
+  /** Signup's two durable self-deliveries; platform admission and placement never impersonate a client. */
+  override async systemDeliver(entity: string, source: string, items: ReadonlyArray<TargetItem>): Promise<DeliverResult> {
+    return deliverSignupChief(entity, source, items, {
+      platform: this.signupPlatform(),
+      current: () => this.isBound(entity) ? this.bind(entity).currentState : undefined,
+      deliver: (batch) => super.systemDeliver(entity, source, batch),
+      activate: (agent, owner) => this.env.CHIEF_BRAIN_DO.get(this.env.CHIEF_BRAIN_DO.idFromName(agent)).activateDefault(agent, owner),
+      bind: (machine, key) => this.submitSystem(DEFAULT_CHIEF_BIND, machine, key, defaultChiefIdentity(entity))
+    })
+  }
+
+  /**
+   * The default Chief's brain asks this when its stored VM no longer answers (chief-default-hand.ts): the platform
+   * names the current VM of the same logical machine, and only that is bound (DO RPC, no route reaches it).
+   */
+  async rebindDefaultChief(entity: string, agent: string): Promise<RebindReply> {
+    if (!this.isBound(entity)) return { ok: false, code: "chief.machine.not_default", retryable: false }
+    return rebindDefaultChief(this.signupPlatform(), entity, agent,
+      () => this.isBound(entity) ? this.bind(entity).currentState : undefined,
+      (machine, key) => this.submitSystem(DEFAULT_CHIEF_REBIND, machine, key, defaultChiefIdentity(entity)))
+  }
+
+  /** An account older than signup provisioning gets the same outbox once, after its ensure (user-chief-provision.ts). */
+  private backfillDefaultChief() {
+    try {
+      const engine = this.existing()
+      if (!engine) return
+      const entity = engine.stream.slice("user:".length)
+      backfillDefaultChief(this.env, engine.currentState, (op, key) => this.submitSystem(op, {}, key, defaultChiefIdentity(entity)))
+    } catch {
+      // The ensure already committed; a later ensure tries again.
+    }
+  }
 
   private closeRetryAt: number | null = null // Retry time of a socket close that failed (socket-registry.ts); memory only.
 
@@ -188,6 +260,7 @@ export class UserDO extends OwnerDO<UserState> {
   protected override afterOp(principal: Principal, op: string, frames: ReadonlyArray<OwnerFrame>, params?: unknown) {
     super.afterOp(principal, op, frames, params)
     this.closeRevoked(op, frames)
+    if (op === "user.ensure" && frames.some((f) => f.t === "result")) this.backfillDefaultChief()
     const engine = op === "inbox.bump" && principal.kind === "system" ? this.existing() : undefined
     if (engine) decideHomePush(this.homePush, engine.stream.slice("user:".length), frames, params)
   }
@@ -380,7 +453,7 @@ export class UserDO extends OwnerDO<UserState> {
       this.closeSockets((p) => p.agent === agent, op === "chief.delete" ? "chief deleted" : "chief archived")
       // Its sandboxes pause (archive: a restore resumes them) or are deleted (delete), and their Freestyle identity
       // (tokens and grants) is revoked (chief-brain-cc/sandbox.ts).
-      const sandboxes = this.env.CHIEF_BRAIN_DO.get(this.env.CHIEF_BRAIN_DO.idFromName(`${agent}/sandboxes`)) as unknown as { ccSandboxRetire(): Promise<unknown>; ccSandboxPurge(): Promise<unknown> }
+      const sandboxes = this.env.CHIEF_BRAIN_DO.get(this.env.CHIEF_BRAIN_DO.idFromName(`${agent}/sandboxes`))
       this.ctx.waitUntil((op === "chief.delete" ? sandboxes.ccSandboxPurge() : sandboxes.ccSandboxRetire()).catch(() => undefined))
       if (markAgentClosing(this.ctx.storage.sql, agent, Date.now()) > 0) this.ctx.waitUntil(this.flushCloses(Date.now()).finally(() => this.scheduleAlarm()))
       return
@@ -497,12 +570,12 @@ export class UserDO extends OwnerDO<UserState> {
     return inst.public_jwk as JsonWebKey
   }
   /** For other owners (TeamDO): is this install active, and what does its grant allow? */
-  async installGrant(entity: string, install: string, grant: string, agent?: string): Promise<{ ok: true; op_classes: ReadonlyArray<string>; kind: string; email: string | null; email_verified: boolean; bound_machine?: string; sso_team?: string } | { ok: false }> {
+  async installGrant(entity: string, install: string, grant: string | undefined, agent?: string): Promise<{ ok: true; op_classes: ReadonlyArray<string>; kind: string; email: string | null; email_verified: boolean; bound_machine?: string; sso_team?: string } | { ok: false }> {
     const engine = this.existing()
     if (!engine || engine.stream !== `user:${entity}`) return { ok: false }
     const state = engine.currentState
     const inst = state.installs[install]
-    const g = state.grants[grant]
+    const g = grant === undefined ? undefined : state.grants[grant]
     if (!inst || inst.revoked_at !== null || inst.grant !== grant || !g || g.revoked_at !== null || (g.expires_at !== null && g.expires_at <= Date.now())) return { ok: false }
     const op_classes = agent === undefined ? g.op_classes : await placedChiefClasses(state, inst, install, agent, g.op_classes, (team, host) => this.env.TEAM_DO.get(this.env.TEAM_DO.idFromName(team)).serverPlacementActive(team, host, install), () => engine.currentState)
     if (!op_classes) return { ok: false } // unknown or archived chief, or a placed server TeamDO no longer confirms (G8, revoke race)
@@ -564,11 +637,11 @@ export class UserDO extends OwnerDO<UserState> {
   }
 
   /**
-   * A hand's ephemeral frames (hand-do.ts: `hand-approval-pending`, `hand-approval-settled`) to this
+   * A hand's ephemeral frames (hand-do.ts: `hand-approval-pending`, `hand-approval-settled`, `hand-presence-key`) to this
    * person's own subscribed sockets: a person's session or app install, never a Chief token or a
    * machine install. Never committed (GET /v1/hands/<hand>/approvals is the read after a reconnect).
    */
-  async handFrame(entity: string, frame: { readonly t: "hand-approval-pending" | "hand-approval-settled" } & Record<string, unknown>): Promise<void> {
+  async handFrame(entity: string, frame: { readonly t: "hand-approval-pending" | "hand-approval-settled" | "hand-presence-key" } & Record<string, unknown>): Promise<void> {
     const text = JSON.stringify(frame)
     for (const ws of this.ctx.getWebSockets()) {
       const a = ws.deserializeAttachment() as Attachment | null
@@ -591,9 +664,15 @@ export class UserDO extends OwnerDO<UserState> {
     return grant && grant.revoked_at === null ? (inst.public_jwk as JsonWebKey) : null
   }
 
-  /** Live membership authority used only after the caller proves possession of its install key. */
-  protected tokenTeamMember = (team: string, user: string): Promise<string | null> =>
-    this.env.TEAM_DO.get(this.env.TEAM_DO.idFromName(team)).memberRole(team, user)
+  /**
+   * Live membership authority used only after the caller proves possession of its install key: TeamDO,
+   * healed from Stack when TeamDO does not know a person Stack lists in the team (stack-team-heal.ts), within
+   * its budget; a heal past it goes on here, so the app's next mint finds the team synced.
+   */
+  protected tokenTeamMember = (team: string, user: string, stackUser: string | undefined): Promise<MemberCheck> =>
+    memberCheck(this.env, team, user, stackUser, this.stackHeal ?? stackHealDeps(this.env), { background: (p) => this.ctx.waitUntil(p) })
+  /** How the heal reads Stack; tests set a fake Stack here. */
+  protected stackHeal: StackHealDeps | undefined
 
   /** One-time challenge + ES256 signature by the install key + revocation check. */
   async redeem(entity: string, install: string, nonce: string, signature: string, agent?: string): Promise<RedeemResult> {
@@ -615,8 +694,12 @@ export class UserDO extends OwnerDO<UserState> {
     if (!ok) return { ok: false, code: "auth.forbidden", message: "bad signature" }
     // Membership is checked only after proof of possession; the nonce, not a request header, selects the team.
     if (row.team !== null && row.team !== state.user.personal_team) {
-      const role = await this.tokenTeamMember(row.team, entity)
-      if (!role) return { ok: false, code: "auth.forbidden", message: "not a member of this team" }
+      const check = await this.tokenTeamMember(row.team, entity, state.user.stack_user_id).catch((e: unknown) => {
+        console.error(JSON.stringify({ msg: "token team membership unreachable", team: row.team, error: String(e).slice(0, 200) }))
+        return { pending: "reading the team's membership" }
+      })
+      if ("pending" in check) return { ok: false, code: "owner.unreachable", message: `team membership is not confirmed yet (${check.pending}); retry` }
+      if (!check.role) return { ok: false, code: "auth.forbidden", message: "not a member of this team" }
     }
     // Re-read after all awaits: revocation, expiry or replacement may have committed during verification or membership lookup.
     const now = engine.currentState

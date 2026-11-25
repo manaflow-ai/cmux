@@ -92,8 +92,8 @@ import Testing
         let layout = layout(sections)
         let header = try #require(layout.row(for: .group(scratch)))
         let y = header.y + header.height / 2
-        let resolved = try #require(DropResolver.resolveDrag(centreY: y, leadingY: y, gapY: nil, gapHeight: 0,
-                                                             payload: .workspaces([WorkspaceID("loose")]), base: layout, sections: sections))
+        let rules = try #require(DropResolver.DragRules(payload: .workspaces([WorkspaceID("loose")]), base: layout, sections: sections))
+        let resolved = try #require(rules.resolve(centreY: y, leadingY: y, gapY: nil, gapHeight: 0))
         let section = try #require(sections.first?.id)
         #expect(resolved.target == .position(DropPosition(section: section, group: scratch, index: 0)))
     }

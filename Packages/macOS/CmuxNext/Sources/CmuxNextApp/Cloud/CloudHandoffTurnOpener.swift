@@ -1,5 +1,6 @@
 import CmuxNextAgentPane
 import CmuxNextCloud
+import CmuxNextTabs
 import Foundation
 
 /// `cloud.handoffTurn {sessionId}`: the owner side of a Cloud chat's hand-off (cloud work mode,
@@ -10,8 +11,8 @@ import Foundation
 /// machine reports that turn (running, needs-you, done, failed), and ``HandoffNotices`` follows the
 /// hand-off and tells the person.
 ///
-/// Behind Labs preview features, like the composer's Cloud row. A turn that runs or waits for the
-/// person, a closed hand-off, Cloud off, or a chat not on a Cloud machine answers a refusal code,
+/// Not behind Labs, like Cloud start and the composer's Cloud row (Leo, 2026-10-31: "that seems
+/// dumb. i dont like putting so much stuff in labs"). A turn that runs or waits for the person, a closed hand-off, Cloud off, or a chat not on a Cloud machine answers a refusal code,
 /// and the page sends the prompt under its own id (it runs as before; only its report is missing).
 @MainActor
 struct CloudHandoffTurnOpener {
@@ -29,7 +30,8 @@ struct CloudHandoffTurnOpener {
             guard let services else { return AgentPaneReply.failure(code: "cloud_disabled", message: "cloud_disabled") }
             if let refusal = refusal(services) { return AgentPaneReply.failure(code: refusal, message: refusal) }
             let place = { () -> (tab: String, machine: String, host: String?)? in
-                guard let view, let key = tabs?.views.first(where: { $0.value === view })?.key, let (tab, _) = services.locateTab(key),
+                guard let view, let scoped = tabs?.views.entries.first(where: { $0.value === view })?.key,
+                      let (tab, _) = services.locateTab(scoped.key, onMachine: scoped.machine),
                       view.model.sessionId == nil || view.model.sessionId == session,
                       ownsSession(recorded: tab.agentSession?.session, asked: session),
                       let daemon = try? services.machines.agentDaemon(forTab: tab), !daemon.isLocal,
@@ -126,21 +128,20 @@ struct CloudHandoffTurnOpener {
         return .refused("handoff.turn_conflict")
     }
 
-    /// Why no hand-off turn opens at all now: Cloud off by policy, Labs off, not signed in (the
+    /// Why no hand-off turn opens at all now: Cloud off by policy, not signed in (the
     /// codes a Sandboxed send answers, ``AgentPageChats/wireSandbox(_:services:)``), or a machine
     /// list not loaded for the account signed in now (``CloudService/hasLoadedCurrentMachines``).
+    /// Labs is not read: a Cloud chat's hand-off turns open with Labs off.
     static func refusal(_ services: AppServices) -> String? {
         refusal(cloudAllowed: !services.registry.disabledFeatures.contains(.cloud) && services.cloud.mayCallCloud,
-                labs: services.settings?.snapshot.previewFeatures == true,
                 signedIn: services.cloud.isSignedIn, loadedCurrent: services.cloud.hasLoadedCurrentMachines)
     }
 
     /// ``refusal(_:)`` over what it reads. After a team switch the previous team's machines stay in
     /// the store until this team's list lands, and the store's create checks only the machine id's
     /// shape: a hand-off is never made for a machine of a list not loaded for the account now.
-    nonisolated static func refusal(cloudAllowed: Bool, labs: Bool, signedIn: Bool, loadedCurrent: Bool) -> String? {
+    nonisolated static func refusal(cloudAllowed: Bool, signedIn: Bool, loadedCurrent: Bool) -> String? {
         if !cloudAllowed { return "cloud_disabled" }
-        if !labs { return "labs_off" }
         if !signedIn { return "not_signed_in" }
         return loadedCurrent ? nil : "machines_unread"
     }
@@ -158,7 +159,7 @@ struct CloudHandoffTurnOpener {
         return CloudOwnerAPIClient(
             baseURL: FeedService.apiBaseURL(auth: auth),
             accessToken: { try await auth.tokens().access },
-            teamID: { (try? await identity.installToken()).flatMap(MacInstallIdentity.team(ofToken:)) }
+            teamID: { (try? await identity.installToken()).flatMap(MacInstallIdentity.team(ofToken:)) }, buildSpace: auth.configuration.buildSpace
         )
     }
 }

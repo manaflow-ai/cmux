@@ -7,8 +7,6 @@ import type { Env } from "./env.ts"
 /** Large groups whose rows one `inbox.list` page pulls at most (each is one RPC to its conversation). */
 export const MAX_LARGE_PULLS = 50
 
-type InboxViewStub = { inboxView(entity: string, user: string): Promise<{ title: string; rev: number; last_seq: number; last_at: string; preview: string; unread: number; mentions: number; member_count: number } | null> }
-
 /**
  * Pulls the rows of large groups on one `inbox.list` page from their conversations
  * (home-core conversation/large.ts): a large group bumps only the people a commit names, so the
@@ -24,7 +22,7 @@ export const pullLargeRows = async (env: Env, user: string, result: ReadResult):
   const views = new Map(
     await Promise.all(
       large.map(async (entry) => {
-        const stub = env.CONVERSATION_DO.get(env.CONVERSATION_DO.idFromName(entry.conversation)) as unknown as InboxViewStub
+        const stub = env.CONVERSATION_DO.get(env.CONVERSATION_DO.idFromName(entry.conversation))
         const view = await stub.inboxView(entry.conversation, user).catch(() => undefined)
         return [entry.conversation, view] as const
       })

@@ -31,4 +31,22 @@ describe("toolCardStore", () => {
     setToolCards([{ id: "x", state: "finished", text: "t", actions: [] }]);
     expect(currentToolCards()).toEqual([]);
   });
+
+  test("keeps an action's checkmark state, and only a boolean one", () => {
+    setToolCards([
+      {
+        id: "cloud-start-session-tab_1",
+        state: "working",
+        text: "Starting claude on a Cloud machine.",
+        actions: [
+          { id: "askFirst", title: "Ask me first", check: false },
+          { id: "dismiss", title: "Dismiss", check: "yes" },
+        ],
+      },
+    ]);
+    expect(currentToolCards()[0]?.actions).toEqual([
+      { id: "askFirst", title: "Ask me first", check: false },
+      { id: "dismiss", title: "Dismiss" },
+    ]);
+  });
 });

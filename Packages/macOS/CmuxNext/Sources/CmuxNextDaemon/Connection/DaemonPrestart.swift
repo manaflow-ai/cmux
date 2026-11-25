@@ -39,6 +39,13 @@ public final class DaemonPrestart: Sendable {
     /// The connection's retry wake, which the owning service fires on app
     /// activation (the connection watches its socket through it too).
     public let wake: RetryWake
+    /// The daemon-request probe of the attempt's connection (its configuration's), which the owning
+    /// service keeps reading after it takes the connection over.
+    public let requestLatency: DaemonRequestLatency?
+    /// The slow request log of the attempt's connection (its configuration's), which the owning service keeps.
+    public let slowRequestLog: SlowRequestLog?
+    /// App health's sink of the attempt's launcher and connection, which the owning service forwards.
+    public let health: DaemonHealthSink?
     private let attempt: Task<Outcome, Never>
     /// The bundled binary's build (`--version --json`), for the version
     /// handoff check: read from here, because a run begun only once the app
@@ -52,6 +59,9 @@ public final class DaemonPrestart: Sendable {
         self.wake = wake
         var configuration = configuration
         configuration.retryWake = wake
+        requestLatency = configuration.requestLatency
+        slowRequestLog = configuration.slowRequestLog
+        health = configuration.health
         let fixed = configuration
         // task-owner: one `--version --json` run per launch, bounded by its timeout
         bundledBuild = Task.detached(priority: .userInitiated) { try? await launcher.bundledBuild() }

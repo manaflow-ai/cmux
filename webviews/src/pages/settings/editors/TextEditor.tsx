@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { Input } from "../../../ui/Input";
 import { useStore } from "../context";
 import { text } from "../strings";
 import type { EditorProps } from "./types";
@@ -41,7 +42,7 @@ export function TextEditor({
   };
   return (
     <span className="text-editor">
-      <input
+      <Input
         className="field text"
         type="text"
         spellCheck={false}

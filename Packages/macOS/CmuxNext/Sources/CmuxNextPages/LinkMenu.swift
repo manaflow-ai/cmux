@@ -7,6 +7,8 @@ import UniformTypeIdentifiers
 public struct LinkMenuRow: Sendable, Equatable {
     public enum Kind: String, Sendable {
         case openInCmuxBrowser, openInNewCmuxTab, openInDefaultBrowser, openIn, copyLink
+        /// An agent chat's pull request link: the target a click does not take (``LinkRouter/gitHubPage``).
+        case openOnGitHub, openInGitHubPage
         case open, openInTextEditor, openWith, openWithOther, revealInFinder, copyPath
         /// One app in an Open In or Open With submenu.
         case app
@@ -15,7 +17,8 @@ public struct LinkMenuRow: Sendable, Equatable {
         /// Link, Reveal in Finder, Copy Path); nil for an app row, which shows the app's icon.
         var symbol: String? {
             switch self {
-            case .openInCmuxBrowser: "globe"
+            case .openInCmuxBrowser, .openOnGitHub: "globe"
+            case .openInGitHubPage: "arrow.triangle.pull"
             case .openInNewCmuxTab: "plus.square.on.square"
             case .openInDefaultBrowser: "arrow.up.right.square"
             case .openIn, .openWith: "arrow.up.forward.app"
@@ -65,6 +68,11 @@ public struct LinkMenu {
     /// Whether a row may still act, checked when it runs and when its panel answers (an agent
     /// chat's: still on this Mac); nil: always.
     public var allowed: (@MainActor () -> Bool)?
+    /// An agent chat's menu: a pull request link leads with the target a click does not take, Open
+    /// on github.com or Open in cmux GitHub Page (``LinkRouter/gitHubPage``), opened beside `source`.
+    public var offersGitHubPage = false
+    /// The tab the menu's link was clicked in (a tab id); nil: the focused pane.
+    public var source: String?
     /// The most apps a submenu lists.
     nonisolated static let appLimit = 24
 
@@ -79,7 +87,9 @@ public struct LinkMenu {
     /// (each browser, the default first) and Copy Link, for an http(s) link; no rows for another.
     public func linkRows(for url: URL, browsers: [URL]) -> [LinkMenuRow] {
         guard let scheme = url.scheme?.lowercased(), scheme == "http" || scheme == "https" else { return [] }
-        var rows = [
+        // A click that opens the GitHub page leaves github.com to the menu, and the other way round.
+        let gitHub = offersGitHubPage ? router.gitHubPage(url).map { $0 ? LinkMenuRow(.openOnGitHub, Strings.openOnGitHub) : LinkMenuRow(.openInGitHubPage, Strings.openInGitHubPage) } : nil
+        var rows = (gitHub.map { [$0] } ?? []) + [
             LinkMenuRow(.openInCmuxBrowser, Strings.openInCmuxBrowser),
             LinkMenuRow(.openInNewCmuxTab, Strings.openInNewCmuxTab),
             LinkMenuRow(.openInDefaultBrowser, Strings.openInDefaultBrowser),
@@ -236,6 +246,8 @@ public struct LinkMenu {
                 if let openInNewTab { openInNewTab(link) } else { router.open(link, in: .cmuxBrowser, background: true) }
             case .openInDefaultBrowser: router.open(link, in: .system)
             case .copyLink: copy(link.absoluteString)
+            case .openOnGitHub: router.open(link, in: .cmuxBrowser, source: source)
+            case .openInGitHubPage: if !router.openGitHubPage(link, source) { router.open(link, in: .cmuxBrowser, source: source) }
             case .app: if let app = row.app { router.open(link, withApplicationAt: app) }
             default: break
             }
@@ -274,47 +286,55 @@ public struct LinkMenu {
 
     enum Strings {
         static var openInCmuxBrowser: String {
-            String(localized: "links.menu.openInCmuxBrowser", defaultValue: "Open in cmux Browser", bundle: .module)
+            String(localized: "links.menu.openInCmuxBrowser", defaultValue: "Open in cmux Browser", bundle: .localizedModule)
         }
 
         static var openInNewCmuxTab: String {
-            String(localized: "links.menu.openInNewCmuxTab", defaultValue: "Open in New cmux Browser Tab", bundle: .module)
+            String(localized: "links.menu.openInNewCmuxTab", defaultValue: "Open in New cmux Browser Tab", bundle: .localizedModule)
         }
 
         static var openInDefaultBrowser: String {
-            String(localized: "links.menu.openInDefaultBrowser", defaultValue: "Open in Default Browser", bundle: .module)
+            String(localized: "links.menu.openInDefaultBrowser", defaultValue: "Open in Default Browser", bundle: .localizedModule)
+        }
+
+        static var openOnGitHub: String {
+            String(localized: "links.menu.openOnGitHub", defaultValue: "Open on github.com", bundle: .localizedModule)
+        }
+
+        static var openInGitHubPage: String {
+            String(localized: "links.menu.openInGitHubPage", defaultValue: "Open in cmux GitHub Page", bundle: .localizedModule)
         }
 
         static var openIn: String {
-            String(localized: "links.menu.openIn", defaultValue: "Open In", bundle: .module)
+            String(localized: "links.menu.openIn", defaultValue: "Open In", bundle: .localizedModule)
         }
 
         static var copyLink: String {
-            String(localized: "links.menu.copyLink", defaultValue: "Copy Link", bundle: .module)
+            String(localized: "links.menu.copyLink", defaultValue: "Copy Link", bundle: .localizedModule)
         }
 
         static var open: String {
-            String(localized: "links.menu.open", defaultValue: "Open", bundle: .module)
+            String(localized: "links.menu.open", defaultValue: "Open", bundle: .localizedModule)
         }
 
         static var openInTextEditor: String {
-            String(localized: "links.menu.openInTextEditor", defaultValue: "Open in Text Editor", bundle: .module)
+            String(localized: "links.menu.openInTextEditor", defaultValue: "Open in Text Editor", bundle: .localizedModule)
         }
 
         static var openWith: String {
-            String(localized: "links.menu.openWith", defaultValue: "Open With", bundle: .module)
+            String(localized: "links.menu.openWith", defaultValue: "Open With", bundle: .localizedModule)
         }
 
         static var other: String {
-            String(localized: "links.menu.other", defaultValue: "Other…", bundle: .module)
+            String(localized: "links.menu.other", defaultValue: "Other…", bundle: .localizedModule)
         }
 
         static var revealInFinder: String {
-            String(localized: "links.menu.revealInFinder", defaultValue: "Reveal in Finder", bundle: .module)
+            String(localized: "links.menu.revealInFinder", defaultValue: "Reveal in Finder", bundle: .localizedModule)
         }
 
         static var copyPath: String {
-            String(localized: "links.menu.copyPath", defaultValue: "Copy Path", bundle: .module)
+            String(localized: "links.menu.copyPath", defaultValue: "Copy Path", bundle: .localizedModule)
         }
     }
 }

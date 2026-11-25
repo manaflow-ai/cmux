@@ -1,5 +1,5 @@
 public import CmuxHomeCore
-public import CmuxNextHome
+public import CmuxNextHomeModel
 
 /// What `cmux chat create` (``HomeGroupActions/create(named:title:replies:)``) ended with.
 public enum HomeGroupCreation: Hashable, Sendable {

@@ -25,7 +25,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { DEVBOX_WORK_USER } from "../../services/vms/images/workUser";
 import { argValue, createVm, deleteVm, firstExec, freestyleClient, Ledger, run, type Vm } from "./guest";
-import { aptClosureProblems, DEFAULT_LOCK_PATH, programInstallCommand, readInputsLock, type RoleManifestEntry, ROLES_MANIFEST_PATH, rolesManifest, type RolesManifest, sq } from "./lock";
+import { aptClosureProblems, aptDebFetchCommand, aptLocalInstallCommand, aptPins, DEFAULT_LOCK_PATH, programInstallCommand, readInputsLock, type RoleManifestEntry, ROLES_MANIFEST_PATH, rolesManifest, type RolesManifest, sq } from "./lock";
 
 export const BROWSER_ROLE = "browser";
 const APT_DIR = "/var/lib/cmux/apt-snapshot";
@@ -48,35 +48,28 @@ export function userNamespaceCheckCommand(): string {
   ].join("; ");
 }
 
-/** apt options that read only the dated snapshot, with its own lists directory. */
-function snapshotAptOptions(): string {
-  return `-o Dir::Etc::sourcelist=${APT_DIR}/snapshot.sources -o Dir::Etc::sourceparts=${APT_DIR}/parts -o Dir::State::Lists=${APT_DIR}/lists`;
-}
-
 /** One exec stays under the provider's 5 minute limit; the install runs as phases. */
 export const EXEC_LIMIT_MS = 290_000;
 
 /**
- * The first-use install of one role (as root), as ordered phases (one exec each): the exact apt
- * closure from the snapshot (prints `ADDED<TAB>name<TAB>version` per package it added), then each
- * first-use program into its store entry.
+ * The first-use install of one role (as root), as ordered phases (one exec each): the closure's
+ * .debs by content (the public archive, else the dated snapshot, checked against the lock's sha256,
+ * aptDebFetchCommand), the exact closure from those files with no apt index (prints
+ * `ADDED<TAB>name<TAB>version` per package it added), then each first-use program into its store entry.
  */
 export function firstUseInstallPhases(manifest: RolesManifest, role: string): Array<{ name: string; command: string }> {
   const entry = manifest.roles[role];
-  const closure = manifest.firstUse[role] ?? {};
-  const pins = Object.entries(closure).sort(([a], [b]) => a.localeCompare(b)).map(([n, v]) => sq(`${n}=${v}`)).join(" ");
-  const sources = Buffer.from(manifest.aptSources).toString("base64");
+  const pins = aptPins(manifest.firstUse[role] ?? {});
+  const debs = `${APT_DIR}/debs`;
   const dpkg = "dpkg-query -W -f='${Package}\\t${Version}\\n' | LC_ALL=C sort";
   const apt = [
-    `mkdir -p ${APT_DIR}/lists/partial ${APT_DIR}/parts`,
-    `printf '%s' ${sq(sources)} | base64 -d > ${APT_DIR}/snapshot.sources`,
     `${dpkg} > ${APT_DIR}/before.tsv`,
-    `{ apt-get ${snapshotAptOptions()} update -q >${APT_DIR}/update.log 2>&1 || { tail -20 ${APT_DIR}/update.log; false; }; }`,
-    `{ DEBIAN_FRONTEND=noninteractive apt-get ${snapshotAptOptions()} install -y --no-install-recommends ${pins} >${APT_DIR}/install.log 2>&1 || { tail -30 ${APT_DIR}/install.log; false; }; }`,
+    `{ ${aptLocalInstallCommand(manifest.debs, pins, debs, `${APT_DIR}/install.log`)}; }`,
     `${dpkg} > ${APT_DIR}/after.tsv`,
     `LC_ALL=C comm -13 ${APT_DIR}/before.tsv ${APT_DIR}/after.tsv | sed 's/^/ADDED\\t/'`,
   ].join(" && ");
   return [
+    { name: "apt-fetch", command: `{ ${aptDebFetchCommand(manifest.debs, pins, manifest.aptSnapshot, debs)}; }` },
     { name: "apt-install", command: apt },
     ...entry.programs.map((p) => ({ name: `program-${p.name}`, command: `{ ${programInstallCommand(p)}; } >/tmp/cmux-dl-${p.name}.log 2>&1 || { tail -20 /tmp/cmux-dl-${p.name}.log; false; }` })),
   ];

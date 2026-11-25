@@ -15,7 +15,9 @@ import {
   printable,
   toolResult,
 } from "./toolResult";
-import { stripAnsi } from "./toolOutput";
+import { stripAnsi } from "./toolOutputModel";
+import { experimentArm } from "../../../experiments/experiment";
+import { toolRowWords } from "./toolRowWords.experiment";
 
 type Tool = NonNullable<AcpmuxActivity["tool"]>;
 
@@ -237,6 +239,15 @@ export function mcpTitleName(title: string): string | undefined {
   return name ? mcpPlainName({ server: name[1]!, tool: name[2]!, args: undefined }) : undefined;
 }
 
+/// A call no friendlier line names, as Claude Code words it: "Using repo: repo grep" while it runs,
+/// "Used repo: repo grep" once done (Leo, 2026-11-03: "comparing claude code's to ours, we're not
+/// faithfully following how they're doing stuff"). The tool part is its words and what it acts on.
+export function mcpUsing(t: Translate, call: McpCall, running: boolean, names: McpNames = new Map()): string {
+  const target = mcpTarget(call, names);
+  const tool = `${words(call.tool).join(" ") || call.tool}${target ? ` ${target}` : ""}`;
+  return t(running ? "tools.mcp.using" : "tools.mcp.used", { server: serverWords(call.server), tool });
+}
+
 /// The rest of the tool's name after its verb, for a call with no target: `read_chat` reads "chat".
 function toolNoun(call: McpCall): string {
   const all = words(call.tool);
@@ -244,9 +255,77 @@ function toolNoun(call: McpCall): string {
   return rest.join(" ") || call.tool;
 }
 
-/// One line for a run of calls to one MCP tool.
-export function mcpLabel(t: Translate, calls: readonly McpCall[], names: McpNames): string {
+/// Verbs of tool names that are no English verb `VERBS` knows (`repo_grep`, `rg`), for the plain arm.
+const PLAIN_VERBS: Record<string, McpAction> = { ...VERBS, grep: "search", rg: "search", ls: "list", cat: "read" };
+/// Arguments that hold what a search looked for.
+const QUERY_KEYS = ["query", "q", "pattern", "regex", "search", "text"];
+
+/// A call's tool words without the server's name it repeats (`repo` + `repo_grep` reads "grep"),
+/// and what those words do (`PLAIN_VERBS`).
+function plainWords(call: McpCall): { words: string[]; action: McpAction } {
+  const server = new Set(words(call.server));
+  const all = words(call.tool);
+  let at = 0;
+  while (at < all.length - 1 && server.has(all[at]!)) at += 1;
+  const rest = all.slice(at);
+  return { words: rest, action: PLAIN_VERBS[rest[0] ?? ""] ?? "call" };
+}
+
+/// The plain arm of tool-row-words: a verb and what it acted on, the server named once: "Searched
+/// repo for “retry”", "Used repo: blame", "Used Linear". Undefined where today's line already reads
+/// plainly (any call whose tool starts with a verb, or a message), which then keeps it.
+function plainLabel(t: Translate, calls: readonly McpCall[], names: McpNames): string | undefined {
   const first = calls[0]!;
+  if (mcpAction(first) !== "call") return undefined;
+  const { words: rest, action } = plainWords(first);
+  // A message keeps today's line: its words name whom it went to.
+  if (action === "message") return undefined;
+  const server = serverWords(first.server);
+  const n = calls.length;
+  const times = (line: string) => (n > 1 ? `${line} ×${n}` : line);
+  if (action === "search") {
+    const queries = new Set(
+      calls.map((call) => {
+        const callArgs = isRecord(call.args) ? call.args : {};
+        const key = QUERY_KEYS.find(
+          (name) => typeof callArgs[name] === "string" && String(callArgs[name]).trim() !== "",
+        );
+        return key ? String(callArgs[key]).replace(/\s+/g, " ").trim() : undefined;
+      }),
+    );
+    const query = queries.size === 1 ? [...queries][0] : undefined;
+    if (query && query.length <= 120) return times(t("tools.mcp.searchedFor", { server, query }));
+    return times(t("tools.mcp.search", { target: server }));
+  }
+  if (action !== "call") {
+    const target = mcpTarget(first, names);
+    const noun = rest.slice(1).join(" ");
+    const object = target ?? (noun ? `${server} ${noun}` : server);
+    return times(t(`tools.mcp.${action}`, { target: object }));
+  }
+  const target = mcpTarget(first, names);
+  const tool = rest.join(" ");
+  if (!tool || tool === server)
+    return times(target ? t("tools.mcp.used", { server, tool: target }) : t("tools.mcp.usedServer", { server }));
+  return times(t("tools.mcp.used", { server, tool: target ? `${tool} ${target}` : tool }));
+}
+
+/// A finished call's line in tool-row-words' plain arm, or undefined on today's arm, for a call in
+/// flight (it keeps its words), or where today's line already reads plainly.
+export function mcpPlainLine(
+  t: Translate,
+  calls: readonly McpCall[],
+  names: McpNames,
+  running = false,
+): string | undefined {
+  return !running && experimentArm(toolRowWords) === "plain" ? plainLabel(t, calls, names) : undefined;
+}
+
+/// One line for a run of calls to one MCP tool.
+export function mcpLabel(t: Translate, calls: readonly McpCall[], names: McpNames, running = false): string {
+  const first = calls[0]!;
+  const plain = mcpPlainLine(t, calls, names, running);
+  if (plain) return plain;
   const targets = new Set(calls.map((call) => mcpTarget(call, names)));
   const target = targets.size === 1 ? [...targets][0] : undefined;
   const n = calls.length;
@@ -260,9 +339,65 @@ export function mcpLabel(t: Translate, calls: readonly McpCall[], names: McpName
   const object = target ? (action === "start" && noun !== first.tool ? `${noun} ${target}` : target) : noun;
   const line =
     action === "call"
-      ? t("tools.mcp.call", { target: `${serverWords(first.server)} · ${noun}` })
+      ? t(running ? "tools.mcp.using" : "tools.mcp.used", { server: serverWords(first.server), tool: noun })
       : t(`tools.mcp.${action}`, { target: object });
   return n > 1 ? `${line} ×${n}` : line;
+}
+
+/// What a call is for, in the caller's own few words: a condensed tool's optional `description`
+/// argument (acpmux's `pr_state`, `bg_start`, `run_wait`), as a shell call's Bash description. A
+/// described call is titled with it and draws as its own row, as Claude Code desktop draws each
+/// described call (Leo, 2026-11-03: "claude code desktop's summarization of tool calls/parsing of
+/// them seem kinda good? we should bea bel to do that AND have condensed tools that are callable in
+/// acpmux/cmux-next").
+export function mcpDescription(call: McpCall): string | undefined {
+  const value = isRecord(call.args) ? call.args.description : undefined;
+  if (typeof value !== "string") return undefined;
+  const line = value.replace(/\s+/g, " ").trim();
+  return line || undefined;
+}
+
+export type McpOutcome = {
+  /// The result's one-line outcome ("PR #33316 merged", "Background command completed").
+  summary?: string;
+  /// Whether the call failed by its own word (`status: "failed"`), though the call itself returned.
+  failed: boolean;
+};
+
+/// A condensed tool's outcome: `structuredContent.summary` and `.status` (`ok`, `failed`,
+/// `running`) when the result reaches the pane whole; else, for a described call, its text result's
+/// first line, which the same tools write as that summary.
+export function mcpOutcome(output: string | undefined, call: McpCall): McpOutcome | undefined {
+  if (!output?.trim()) return undefined;
+  const whole = parseJSON(output);
+  const result = isRecord(whole) ? (isRecord(whole.result) ? whole.result : whole) : undefined;
+  const structured = result && isRecord(result.structuredContent) ? result.structuredContent : undefined;
+  const failed = structured?.status === "failed";
+  const summary = typeof structured?.summary === "string" ? firstLine(structured.summary) : undefined;
+  if (summary || failed) return { summary, failed };
+  if (!mcpDescription(call)) return undefined;
+  if (result) {
+    const blocks = Array.isArray(result.content) ? result.content : undefined;
+    const text = blocks?.find(
+      (block): block is { text: string } => isRecord(block) && block.type === "text" && typeof block.text === "string",
+    )?.text;
+    const line = text === undefined ? undefined : firstLine(cleanText(text));
+    return line ? { summary: line, failed: false } : undefined;
+  }
+  // JSON that is not an envelope (a bare value) has no line to quote.
+  if (whole !== undefined) return undefined;
+  const line = firstLine(cleanText(output));
+  return line ? { summary: line, failed: false } : undefined;
+}
+
+/// A text's first non-empty line, or nil; a line of JSON is not a summary.
+function firstLine(text: string): string | undefined {
+  const line = text
+    .split("\n")
+    .map((part) => part.trim())
+    .find(Boolean);
+  if (!line || /^[[{]/.test(line)) return undefined;
+  return line.length > 200 ? `${line.slice(0, 199)}…` : line;
 }
 
 /// Tags of context a host injects into what an agent sees, never meant for the reader.

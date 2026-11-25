@@ -33,6 +33,32 @@ import Testing
         #expect(services.agentTabs.localPaths?(tab) == true)
     }
 
+    /// A chat of this Mac's own acpmux never streams a file through the acpmux socket: its files are
+    /// on this disk already, staged where the composer wrote them and renamed into place (Leo,
+    /// 2026-11-22: "IT'S ON FUCKING DISK WE DONT NEED TO MOVE AND RE-RENDER A FUCKING SCREENSHARED
+    /// VIDEO"; a 188 MB recording took 128 s through `_acpmux/file_put_chunk`). Only a peer's chat
+    /// goes to its machine.
+    @Test func aLocalChatWithASessionNeverStreamsThroughAcpmux() {
+        _ = NSApplication.shared
+        let services = AppServices(environment: AppEnvironment.current([:]))
+        AppActions.bind(services)
+        let tab = "tab-\(UUID().uuidString)", session = "local-\(UUID().uuidString.lowercased())"
+        services.agentTabs.gitLink = { _ in services.agentGit.local }
+        services.agentTabs.sessions[tab] = session
+        #expect(AgentPeerUploads.target(tab: tab, services: services) == nil)
+        #expect(AgentPeerUploads.uploader(tab: tab, services: services) == nil)
+        #expect(AgentPeerUploads.stager(tab: tab, services: services) == nil)
+        // The composer still has somewhere to put a file with no path: this Mac's Chat Uploads.
+        #expect(services.agentTabs.uploadStager?(tab) != nil)
+        #expect(services.agentTabs.localPaths?(tab) == true)
+        // A peer's chat goes to the peer.
+        AgentLaneStore.shared.lanes[session] = AgentActivityLane(id: session, name: "huge-blue/fix", title: "fix", peer: "huge-blue",
+                                                                 parent: nil, state: .idle, since: nil, error: nil)
+        defer { AgentLaneStore.shared.lanes[session] = nil }
+        #expect(AgentPeerUploads.stager(tab: tab, services: services) != nil)
+        #expect(services.agentTabs.localPaths?(tab) == false)
+    }
+
     @Test func eachFileGoesInTurnAndTheReplyNamesItsPathOnThePeer() async throws {
         let files = [AgentPaneUpload(name: "state.sqlite", data: Data([0, 1])), AgentPaneUpload(name: "state.sqlite", data: Data([2]))]
         var sent: [(String, Data)] = []
@@ -112,7 +138,7 @@ import Testing
         try await Self.withPeerStager(host: host) { stager, session in
             let reply = await stager(.begin(name: "slow.bin", size: 1, batchToken: nil, batch: nil), session)
             let token = try #require((reply["value"] as? [String: Any])?["token"] as? String)
-            _ = await stager(.chunk(token: token, offset: 0, data: Data([1])), session)
+            _ = await stager(.chunk(token: token, offset: 0, data: AgentPaneUploadChunk(Data([1]))), session)
             let finishing = Task { @MainActor in _ = await stager(.finish(token: token), session) }
             let staged = await host.waitForFile()
             #expect(FileManager.default.fileExists(atPath: staged.path))

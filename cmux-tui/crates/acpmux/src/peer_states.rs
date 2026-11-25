@@ -12,7 +12,10 @@
 //! short-lived peers does not grow it without bound.
 
 use crate::no_panic::LockExt;
-use crate::protocol::peer_state::{PeerLinkState, PeerStateChanged};
+use crate::protocol::composer_status::machine_link_item;
+use crate::protocol::peer_state::{
+    Carrier, DialFail, DownCause, MachineLink, OfflineReason, PeerStateChanged,
+};
 use serde_json::{Value, json};
 use std::collections::{HashMap, VecDeque};
 use std::sync::Mutex;
@@ -74,25 +77,25 @@ impl PeerStates {
     /// state last sent for the name (a replacement in the same state is no change).
     pub fn register(&self, name: &str, generation: u64, now: Observed) {
         let mut last = self.last.lock_or_recover();
-        let previous = last.by_name.get(name).map(|l| l.note.state);
+        let previous = last.by_name.get(name).map(|l| key(&l.note));
         let note = now.note(name);
         last.forget_removal(name);
         last.by_name
             .insert(name.to_owned(), Last { speaker: Some(generation), note: note.clone() });
-        if previous != Some(note.state) {
+        if previous != Some(key(&note)) {
             self.send(note);
         }
     }
 
-    /// Instance `generation`'s state changed: sent while it speaks for `name` and the state is
-    /// not the last one sent.
+    /// Instance `generation`'s state changed: sent while it speaks for `name` and the link
+    /// (`key`) is not the last one sent.
     pub fn changed(&self, name: &str, generation: u64, now: Observed) {
         let mut last = self.last.lock_or_recover();
         let Some(entry) = last.by_name.get_mut(name).filter(|l| l.speaker == Some(generation))
         else {
             return;
         };
-        if entry.note.state == now.state {
+        if key(&entry.note) == now.key() {
             return;
         }
         entry.note = now.note(name);
@@ -107,8 +110,8 @@ impl PeerStates {
         else {
             return;
         };
-        let gone =
-            Observed { state: PeerLinkState::Offline, last_seen, error: Some(REMOVED.into()) };
+        let mut gone = Observed::new(MachineLink::Offline, last_seen, Some(REMOVED.into()));
+        gone.since = crate::store::now_ms();
         entry.speaker = None;
         entry.note = gone.note(name);
         self.send(entry.note.clone());
@@ -133,22 +136,78 @@ impl PeerStates {
     }
 }
 
-/// A peer link's state as its instance sees it now.
+/// A peer link's state as its instance sees it now (`PeerStateChanged`'s fields).
 #[derive(Debug, Clone)]
 pub struct Observed {
-    pub state: PeerLinkState,
+    pub link: MachineLink,
+    pub carrier: Option<Carrier>,
+    pub cause: Option<DownCause>,
+    /// Why a down link will not heal by retrying alone (`reason`; its `action` follows).
+    pub reason: Option<OfflineReason>,
+    /// Why the route last went down (`downReason`; `LinkFacts::down_reason`).
+    pub down_reason: Option<DialFail>,
+    /// When `link` took its value.
+    pub since: u64,
+    pub next_retry_at: Option<u64>,
     pub last_seen: Option<u64>,
     pub error: Option<String>,
 }
 
+/// What makes a note news: a change of any of these sends one; `since`, `lastSeen` and
+/// `error` ride along.
+type Key = (
+    MachineLink,
+    Option<Carrier>,
+    Option<DownCause>,
+    Option<OfflineReason>,
+    Option<DialFail>,
+    Option<u64>,
+);
+
+fn key(note: &PeerStateChanged) -> Key {
+    (note.link, note.carrier, note.cause, note.reason, note.down_reason, note.next_retry_at)
+}
+
 impl Observed {
+    /// `link` with no carrier, cause or retry, since now.
+    pub fn new(link: MachineLink, last_seen: Option<u64>, error: Option<String>) -> Self {
+        Self {
+            link,
+            carrier: None,
+            cause: None,
+            reason: None,
+            down_reason: None,
+            since: 0,
+            next_retry_at: None,
+            last_seen,
+            error,
+        }
+    }
+
+    fn key(&self) -> Key {
+        (self.link, self.carrier, self.cause, self.reason, self.down_reason, self.next_retry_at)
+    }
+
     fn note(self, name: &str) -> PeerStateChanged {
+        let at = crate::store::now_ms();
+        let since = if self.since == 0 { at } else { self.since };
+        let removed = self.error.as_deref() == Some(REMOVED);
         PeerStateChanged {
             peer: name.to_owned(),
-            state: self.state,
+            state: self.link.folded(),
+            link: self.link,
+            carrier: self.carrier,
+            cause: self.cause,
+            since,
+            next_retry_at: self.next_retry_at,
+            reason: self.reason,
+            action: self.reason.map(OfflineReason::action),
+            // The composer dot's item for this link, decided here with the link.
+            status: machine_link_item(name, self.link, Some(since), self.reason, removed),
+            down_reason: self.down_reason,
             last_seen: self.last_seen,
             error: self.error,
-            at: crate::store::now_ms(),
+            at,
         }
     }
 }
@@ -160,17 +219,18 @@ fn marked(note: &PeerStateChanged) -> Value {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use PeerLinkState::*;
+    use MachineLink::*;
 
-    fn seen(state: PeerLinkState) -> Observed {
-        Observed { state, last_seen: Some(1), error: None }
+    fn seen(link: MachineLink) -> Observed {
+        Observed::new(link, Some(1), None)
     }
 
-    fn drain(rx: &mut broadcast::Receiver<Value>) -> Vec<(String, PeerLinkState, Option<String>)> {
+    fn drain(rx: &mut broadcast::Receiver<Value>) -> Vec<(String, MachineLink, Option<String>)> {
         let mut out = Vec::new();
         while let Ok(v) = rx.try_recv() {
             let n: PeerStateChanged = serde_json::from_value(v[STATE_NOTE].clone()).unwrap();
-            out.push((n.peer, n.state, n.error));
+            assert_eq!(n.state, n.link.folded(), "state is link folded");
+            out.push((n.peer, n.link, n.error));
         }
         out
     }
@@ -212,6 +272,38 @@ mod tests {
         assert_eq!(drain(&mut rx), [("b".to_owned(), Connecting, None)]);
     }
 
+    /// Each note carries the composer dot's item for its link: none while connected, the
+    /// transient states held back by the quiet bound, and a removal named as one.
+    #[test]
+    fn a_note_carries_its_status_item() {
+        use crate::protocol::composer_status::{LINK_QUIET_MS, StatusLevel};
+        let states = PeerStates::default();
+        let mut rx = states.subscribe();
+        let mut reconnecting = seen(Reconnecting);
+        reconnecting.since = 1_000;
+        states.register("b", 1, seen(Connected));
+        states.changed("b", 1, reconnecting);
+        states.removed("b", 1, None);
+        let notes: Vec<PeerStateChanged> = std::iter::from_fn(|| rx.try_recv().ok())
+            .map(|v| serde_json::from_value(v[STATE_NOTE].clone()).unwrap())
+            .collect();
+        assert_eq!(notes.len(), 3);
+        assert_eq!(notes[0].status, None);
+        let item = notes[1].status.clone().unwrap();
+        assert_eq!(item.level, StatusLevel::Info);
+        assert_eq!(item.words, "status.machineLink.reconnecting");
+        assert_eq!(item.subject.as_deref(), Some("b"));
+        assert_eq!(item.show_at, Some(1_000 + LINK_QUIET_MS));
+        let gone = notes[2].status.clone().unwrap();
+        assert_eq!(gone.words, "status.machineLink.removed");
+        assert_eq!(gone.action, None);
+        // An older daemon's note, with no `status`, still reads.
+        let mut old = serde_json::to_value(&notes[1]).unwrap();
+        old.as_object_mut().unwrap().remove("status");
+        let read: PeerStateChanged = serde_json::from_value(old).unwrap();
+        assert_eq!(read.status, None);
+    }
+
     /// A watcher that fell behind gets each name's last note, a removed one's included.
     #[test]
     fn the_snapshot_has_every_names_last_note() {
@@ -225,7 +317,7 @@ mod tests {
             .map(|v| serde_json::from_value(v[STATE_NOTE].clone()).unwrap())
             .collect();
         assert_eq!(
-            notes.iter().map(|n| (n.peer.as_str(), n.state)).collect::<Vec<_>>(),
+            notes.iter().map(|n| (n.peer.as_str(), n.link)).collect::<Vec<_>>(),
             [("a", Connected), ("b", Offline)]
         );
         assert_eq!(notes[1].error.as_deref(), Some(REMOVED));

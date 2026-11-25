@@ -1,5 +1,6 @@
 import AppKit
 import CmuxNextActions
+import CmuxNextBridge
 @testable import CmuxNextApp
 import CmuxNextDaemon
 import CmuxNextDaemonService
@@ -15,27 +16,24 @@ import Testing
 /// before the migration's work, and classic's files byte for byte unchanged.
 @MainActor
 final class ClassicUpgradeSimulator {
-    /// The scratch Mac: Application Support with classic's `cmux` folder, the
-    /// daemon's state and cmux-next's migration folder.
+    /// The scratch Mac: the daemon's home folder (`root`) with classic's `cmux` folder in its
+    /// Application Support, classic's state folder and cmux-next's migration folder, which the
+    /// daemon keeps there; the daemon's state; and the folders classic's workspaces ran in (`home`).
     final class Mac {
         let root = FileManager.default.temporaryDirectory.appendingPathComponent("cn-upgrade-\(UUID().uuidString.prefix(8))")
-        var support: URL { root.appendingPathComponent("Application Support", isDirectory: true) }
-        var classic: URL { support.appendingPathComponent("cmux", isDirectory: true) }
-        var migration: URL { root.appendingPathComponent("migration", isDirectory: true) }
+        /// What the daemon's `classic_import.*` operations see.
+        var daemonHome: ClassicTestHome { ClassicTestHome(root: root) }
+        var support: URL { daemonHome.support }
+        var classic: URL { daemonHome.classic }
+        /// The app's bundle id, which names the migration's folder (set once the app's services exist).
+        var bundleID = "com.cmuxterm.app.next"
+        var migration: URL { daemonHome.migration(bundleID) }
         var ledger: URL { migration.appendingPathComponent("ledger.json") }
         var home: String { root.appendingPathComponent("home").path }
-        /// Classic's state folder (`~/.local/state/cmux`), holding its launch sentinel.
-        var state: URL { root.appendingPathComponent("classic-state", isDirectory: true) }
 
         /// Classic launches (writes its sentinel) or quits cleanly (removes it).
         func classicRunning(_ running: Bool, bundle: String = "com.cmuxterm.app") throws {
-            let sentinel = ClassicRunningProbe(stateRoot: state).sentinel(channel: bundle)
-            if running {
-                try FileManager.default.createDirectory(at: sentinel.deletingLastPathComponent(), withIntermediateDirectories: true)
-                try Data("pid=4242\n".utf8).write(to: sentinel)
-            } else {
-                try? FileManager.default.removeItem(at: sentinel)
-            }
+            try daemonHome.classicRunning(running, bundle: bundle)
         }
 
         init() throws {
@@ -46,7 +44,7 @@ final class ClassicUpgradeSimulator {
         }
 
         func session(_ bundle: String = "com.cmuxterm.app", suffix: String = "") -> URL {
-            classic.appendingPathComponent("session-\(bundle)\(suffix).json")
+            daemonHome.session(bundle, suffix: suffix)
         }
 
         /// Classic saves `profile` as its session (the way it does: atomically).
@@ -66,8 +64,12 @@ final class ClassicUpgradeSimulator {
             return digest
         }
 
-        func readLedger() throws -> ClassicMigrationLedger {
-            try JSONDecoder().decode(ClassicMigrationLedger.self, from: Data(contentsOf: ledger))
+        func readLedger() throws -> ClassicTestLedger {
+            try ClassicTestLedger.read(migration)
+        }
+
+        func writeLedger(_ ledger: ClassicTestLedger) throws {
+            try ledger.write(migration)
         }
 
         deinit { try? FileManager.default.removeItem(at: root) }
@@ -81,6 +83,11 @@ final class ClassicUpgradeSimulator {
         var firstWindow: Duration = .zero
         /// The migration run itself, after restore.
         var migration: Duration = .zero
+        /// Whole-tree reads (`list-workspaces`) the app sent during the run besides its store's snapshots; nil
+        /// without a ``DaemonCommandTap``.
+        var treeReads: Int?
+        /// The store's snapshots (a full resync each) during the run; nil without a ``DaemonCommandTap``.
+        var snapshots: Int?
     }
 
     /// One workspace as cmux-next has it.
@@ -96,6 +103,10 @@ final class ClassicUpgradeSimulator {
     let mac: Mac
     let services: AppServices
     private let launcher: DaemonLauncher
+    /// The daemon's install key, proved by the app's connection: `classic_import.*` is the verified app's only
+    /// (`DaemonService.localConfiguration` does the same).
+    private let installKey: FrontendInstallKey
+    let tap: DaemonCommandTap?
     /// Seconds since the migration started at which each workspace name first showed (``watch()``).
     private(set) var appeared: [String: Double] = [:]
     /// Seconds since the migration started at which each classic key first showed in the ledger
@@ -112,14 +123,20 @@ final class ClassicUpgradeSimulator {
     /// - Parameters:
     ///   - ssh: the daemon for an SSH destination (default: none connects).
     ///   - documentRemote: wraps the home daemon's sidebar document remote (a test holds its replies).
+    ///   - tap: relays the app's daemon connection and counts its commands (``Launch/treeReads``).
+    ///   - shell: the daemon's `SHELL`, the program each terminal runs.
     init(mac: Mac, ssh: (@MainActor (String) throws -> DaemonService)? = nil,
-         documentRemote: (@MainActor (any SidebarDocRemote) -> any SidebarDocRemote)? = nil) throws {
+         documentRemote: (@MainActor (any SidebarDocRemote) -> any SidebarDocRemote)? = nil, tap: DaemonCommandTap? = nil,
+         shell: String = "/bin/sh") throws {
         self.mac = mac
+        self.tap = tap
         let binary = try #require(SameTreeDaemonBinary.url)
+        let installKey = FrontendInstallKey.generate()
+        self.installKey = installKey
         launcher = DaemonLauncher(
             configuration: .init(binary: binary, session: "cn-upgrade-\(UUID().uuidString.prefix(8).lowercased())",
-                                 stateDirectory: mac.root.appendingPathComponent("state")),
-            environment: { ["HOME": NSHomeDirectory(), "PATH": "/usr/bin:/bin:/usr/sbin:/sbin", "SHELL": "/bin/sh", "TERM": "xterm-256color"] })
+                                 stateDirectory: mac.root.appendingPathComponent("state"), installKey: installKey),
+            environment: { [home = mac.daemonHome] in home.daemonEnvironment(shell: shell) })
         _ = NSApplication.shared
         services = AppServices(environment: AppEnvironment.current([:]))
         if let documentRemote {
@@ -128,16 +145,14 @@ final class ClassicUpgradeSimulator {
             let layout = SidebarLayoutService(remote: DaemonSidebarLayoutRemote(services: services),
                                               onRefused: { [weak services] message in services?.registry.refuse(message) })
             layout.start()
-            SidebarDocWiring.start(services, layout: layout, wrapping: documentRemote)
+            services.sidebarDoc.start(services, layout: layout, wrapping: documentRemote)
             services.sidebarLayout = layout
         }
         AppActions.bind(services)
         services.windows.ordersWindowsIn = false
-        services.onboarding.classicMigrationSupport = mac.support
-        services.onboarding.classicMigrationDirectory = mac.migration
+        mac.bundleID = AppOnboardingServices(owner: services.onboarding).classicBundleID
         services.onboarding.classicMigrationAtLaunch = true
-        services.onboarding.classicStateRoot = mac.state
-        services.onboarding.classicMigrationConfirmation = { _ in true }
+        services.onboarding.classicMigrationConfirmation = { _ in .accepted }
         if let ssh { services.onboarding.classicSSH = ssh }
         else { services.onboarding.classicSSH = { destination in DaemonService(machineID: "ssh:\(destination)") } }
         services.onboarding.classicChatPlan = { _, _ in nil }
@@ -151,9 +166,15 @@ final class ClassicUpgradeSimulator {
     func launch(deadline budget: Duration = .seconds(150)) async -> Launch {
         let clock = ContinuousClock()
         let start = clock.now
-        let launcher = self.launcher
-        services.daemon.start {
-            DaemonConnection(configuration: DaemonConnection.Configuration(terminalEnvironment: nil), endpointProvider: launcher.endpointProvider)
+        let endpoints = tap?.relaying(launcher.endpointProvider) ?? launcher.endpointProvider
+        // As the app connects (`DaemonService.localConfiguration`): `session.events` brings the sidebar document's
+        // changes (the echo of each adopt and move) and the personal rows, and the document path echoes
+        // `placement-shift-v1`. Without them the document never confirms a placement (#28425).
+        var configuration = DaemonConnection.Configuration(terminalEnvironment: nil, sessionEvents: true,
+                                                           clientHello: .init(installKey: installKey))
+        configuration.echoesPlacementShift = true
+        services.daemon.start { [configuration] in
+            DaemonConnection(configuration: configuration, endpointProvider: endpoints)
         }
         services.windows.restoreWhenLoaded()
         var result = Launch()
@@ -168,6 +189,7 @@ final class ClassicUpgradeSimulator {
             return result
         }
         let migrating = clock.now
+        let readsBefore = tap?.count("list-workspaces"), snapshotsBefore = tap?.count(DaemonCommandTap.snapshotRead)
         launchMade = Set(made().keys)
         migrationStart = migrating
         watch(from: migrating)
@@ -180,7 +202,7 @@ final class ClassicUpgradeSimulator {
             if clock.now - lastReport >= .seconds(10) {
                 lastReport = clock.now
                 let ledger = try? mac.readLedger()
-                let stages = Dictionary(grouping: ledger?.workspaces.values.map(\.stage.rawValue) ?? [], by: { $0 }).mapValues(\.count)
+                let stages = Dictionary(grouping: ledger?.workspaces.values.map(\.stage) ?? [], by: { $0 }).mapValues(\.count)
                 print("CLASSIC-SIM progress t=\(Int((clock.now - migrating).simSeconds))s made=\(made().count) ledger=\(stages)")
             }
         }
@@ -194,6 +216,10 @@ final class ClassicUpgradeSimulator {
             result.failure = SimulationFailure.overBudget(made: made().count)
         }
         result.migration = clock.now - migrating
+        if let tap, let readsBefore, let snapshotsBefore {
+            result.treeReads = tap.count("list-workspaces") - readsBefore
+            result.snapshots = tap.count(DaemonCommandTap.snapshotRead) - snapshotsBefore
+        }
         watcher?.cancel()
         // The run's last turns (the SSH workspaces, after their connect limit) can end it within one sampling tick.
         sample(from: migrating)
@@ -237,7 +263,7 @@ final class ClassicUpgradeSimulator {
     /// A later launch's run on the same tree (what a relaunch restores).
     func relaunch() async throws -> ClassicMigrationOutcome {
         let outcome = try await AppOnboardingServices(owner: services.onboarding)
-            .migrateClassic(.automatic) { _ in true }
+            .migrateClassic(.automatic) { _ in .accepted }
         lastOutcome = outcome
         return outcome
     }
@@ -245,7 +271,7 @@ final class ClassicUpgradeSimulator {
     /// Import Workspaces from Classic cmux.
     func manualImport() async throws -> ClassicMigrationOutcome {
         let outcome = try await AppOnboardingServices(owner: services.onboarding)
-            .migrateClassic(.manual) { _ in true }
+            .migrateClassic(.manual) { _ in .accepted }
         lastOutcome = outcome
         return outcome
     }
@@ -259,6 +285,7 @@ final class ClassicUpgradeSimulator {
             await connection.close()
             _ = try? await connection.shutdownDaemon(endTerminals: true)
         }
+        tap?.close()
     }
 
     /// Each classic workspace's turn: the time from its key's first entry in the ledger to the
@@ -313,15 +340,37 @@ final class ClassicUpgradeSimulator {
         return made
     }
 
+    /// The names of the workspaces made from classic that the sidebar document does not place with an item the
+    /// daemon confirmed (its echo applied, not only this client's pending change), sorted.
+    func unplacedInDocument() -> [String] {
+        guard let document = services.sidebarDoc.store, document.isActive else { return ["(the sidebar document is not active)"] }
+        let store = services.daemon.store
+        return made().compactMap { id, made in
+            guard let workspace = store.workspace(id: id), let ref = SidebarDocSections.ref(of: workspace, session: store.registryID),
+                  let item = document.shown?.items[ref], document.records.items[item] != nil else { return made.name }
+            return nil
+        }.sorted()
+    }
+
     /// Group name to collapsed, for every personal group.
     func groups() -> [String: Bool] {
         Dictionary(services.daemon.store.personal.groups.map { ($0.name, $0.collapsed) }, uniquingKeysWith: { first, _ in first })
     }
 
-    /// Each window's sidebar containers (loose rows, then each group), workspace ids in the order shown.
+    /// Each window's sidebar containers (loose rows, then each group, then the Pinned band's workspaces) of the workspaces
+    /// it owns (#44275: windows on one space also list each other's as guests, so every classic window, all on the default
+    /// space, lists them all), workspace ids in the order shown, with the window's own top projection (`SidebarTopProjection.make`, as `SidebarBridge` draws):
+    /// on the sidebar document a pinned workspace lists in the Pinned band or pinned in its group, never in the legacy
+    /// Pinned list section.
     func windows() -> [[[String]]] {
-        services.windows.registry.value.windows.map { window in
-            SidebarBridge.sections(services.machines, members: window.workspaceIDs, profile: .defaultProfile).flatMap { section in
+        let refs = WorkspaceLayoutRefs(machines: services.machines)
+        let pinned = services.sidebarDoc.store?.shown?.layout.sections.first { $0.id.rawValue == SidebarDocStore.pinnedSection }?
+            .items.compactMap { refs.workspaceID(for: $0.ref) } ?? []
+        let room = ProfileID.defaultProfile
+        let top = SidebarTopProjection.make(services.sidebarLayout, machines: services.machines, room: room.rawValue)
+        return services.windows.registry.value.windows.map { window in
+            let members = Set(window.ownedIDs)
+            return SidebarBridge.sections(services.machines, doc: services.sidebarDoc, members: window.ownedIDs, profile: room, top: top).flatMap { section in
                 var loose: [String] = []
                 var groups: [[String]] = []
                 for node in section.nodes {
@@ -332,7 +381,7 @@ final class ClassicUpgradeSimulator {
                     }
                 }
                 return [loose] + groups
-            }
+            } + [pinned.filter(members.contains)]
         }
     }
 
@@ -356,28 +405,40 @@ final class ClassicUpgradeSimulator {
     /// - Parameter source: the classic file the run read (default: the session file).
     ///   - ignoring: cmux-next workspaces that are not classic's (one the person made before).
     ///   - excusing: classic keys whose workspace is allowed not to have opened (a declared known limit).
-    ///   - orderIsKnownIssue: classic's order is a declared known issue (a resumed run makes its workspaces last).
+    ///   - orderKnownIssue: why classic's order is a declared, intermittent known issue for this run (nil: it is checked).
     func verify(_ profile: ClassicUpgradeProfile, classicBefore: [String: String], source: URL? = nil, ignoring: Set<String> = [],
-                excusing: Set<String> = [], orderIsKnownIssue: Bool = false, sourceLocation: SourceLocation = #_sourceLocation) throws {
+                excusing: Set<String> = [], orderKnownIssue: Comment? = nil, sourceLocation: SourceLocation = #_sourceLocation) async throws {
         let label = profile.name
-        // The file on disk: panel ids (and so older snapshots' keys) are made when it is written.
-        let file = source ?? mac.session()
-        let decoded = try ClassicSessionImporter(fileURL: file).decodeSnapshot(Data(contentsOf: file))
+        // Classic's workspaces as the daemon reads the save the run read (`source`: the daemon falls
+        // back to it the same way): panel ids, and so older snapshots' keys, are made when it is written.
+        let decoded = try await classicWindows().map(\.workspaces)
         let ledger = try mac.readLedger()
         let made = made().filter { !ignoring.contains($0.key) }
         if let outcome = lastOutcome, let failure = outcome.failures.first(where: { !excusing.contains($0.key) }) {
             Issue.record("\(label): \(outcome.failures.count) workspaces failed, first: \(failure.value)", sourceLocation: sourceLocation)
         }
         let windows = windows()
-        // The decoder keeps classic's order and count, so it lines up with the profile.
+        // The daemon keeps classic's order and leaves out only Cloud VM workspaces and repeated keys,
+        // so the profile's other workspaces line up with it, window by window.
         var expectedIDs: [[String]] = []
-        var seen = Set<String>()
-        for (window, saved) in zip(profile.windows, decoded.windows) {
+        var planned = decoded.makeIterator()
+        var seenStable = Set<String>()
+        for window in profile.windows {
+            let listed = window.workspaces.filter { workspace in
+                // A Cloud VM, also an older one saved as a websocket `remote` (an SSH one that stays is still read).
+                guard !workspace.cloudVM, !(workspace.stays && workspace.ssh == nil) else { return false }
+                guard let id = workspace.stableID, !profile.legacyKeys else { return true }
+                return seenStable.insert(id).inserted
+            }
+            guard !listed.isEmpty else { continue }
+            let saved = planned.next() ?? []
+            #expect(saved.count == listed.count, "\(label): the daemon read \(saved.count) workspaces of a window with \(listed.count)",
+                    sourceLocation: sourceLocation)
             var ids: [String] = []
-            for (workspace, read) in zip(window.workspaces, saved.workspaces) {
-                guard workspace.comesOver, seen.insert(read.key).inserted, !excusing.contains(read.key) else { continue }
+            for (workspace, read) in zip(listed, saved) {
+                guard workspace.comesOver, !excusing.contains(read.key) else { continue }
                 let entry = ledger.workspaces[read.key]
-                guard entry?.stage == .done, let id = entry?.nextWorkspace, let here = made[id] else {
+                guard entry?.stage == "done", let id = entry?.nextWorkspace, let here = made[id] else {
                     Issue.record("\(label): \(read.name) was lost (ledger \(String(describing: entry)))", sourceLocation: sourceLocation)
                     continue
                 }
@@ -385,7 +446,7 @@ final class ClassicUpgradeSimulator {
                 if let title = workspace.title?.trimmingCharacters(in: .whitespaces), !title.isEmpty {
                     let name = here.name.trimmingCharacters(in: .whitespaces)
                     // A title past the daemon's limit comes over cut.
-                    let fits = title.utf8.count <= ClassicSessionImporter.maximumNameBytes ? name == title : title.hasPrefix(name) && !name.isEmpty
+                    let fits = title.utf8.count <= Self.maximumNameBytes ? name == title : title.hasPrefix(name) && !name.isEmpty
                     #expect(fits, "\(label): name \(here.name.prefix(80)) for \(title.prefix(80))", sourceLocation: sourceLocation)
                 }
                 #expect(here.panes == workspace.layout.expectedPanes.sorted(),
@@ -420,8 +481,8 @@ final class ClassicUpgradeSimulator {
                     #expect(shown == classic, "\(label): order differs: \(shown.compactMap { made[$0]?.name.prefix(20) }) for \(classic.compactMap { made[$0]?.name.prefix(20) })",
                             sourceLocation: sourceLocation)
                 }
-                if orderIsKnownIssue {
-                    withKnownIssue("a resumed run makes its workspaces last in the sidebar", isIntermittent: true, sourceLocation: sourceLocation, check)
+                if let orderKnownIssue {
+                    withKnownIssue(orderKnownIssue, isIntermittent: true, sourceLocation: sourceLocation, check)
                 } else {
                     check()
                 }
@@ -443,6 +504,20 @@ final class ClassicUpgradeSimulator {
         }
         #expect(!prompted(), "\(label): a prompt showed", sourceLocation: sourceLocation)
         #expect(try mac.classicDigest() == classicBefore, "\(label): classic's files changed", sourceLocation: sourceLocation)
+    }
+
+    /// The daemon's longest workspace name (`cmux_classic_import::names::MAX_NAME_BYTES`).
+    static let maximumNameBytes = 1024
+
+    /// Classic's workspaces the daemon reads from the save a run would read now, window by window
+    /// in classic's order (Cloud VM workspaces and repeated keys left out). Asked as a manual run of
+    /// another app (`classic_import.plan` under a bundle id with no ledger), so nothing is left out
+    /// as already here.
+    func classicWindows() async throws -> [ClassicMigrationPlan.Window] {
+        let connection = try #require(services.daemon.connection, "the daemon is not connected")
+        let reply = try await ClassicImportClient(connection: connection, bundleID: "com.cmuxterm.test.classic-verify").plan(.manual)
+        let plan = try #require(reply.plan, "the daemon read no classic save: \(reply.error ?? "none")")
+        return plan.windows
     }
 
     enum SimulationFailure: Error {

@@ -405,3 +405,56 @@ fn shortcut_labels_follow_resolved_bindings_and_prefix() {
     );
     assert_eq!(collision.shortcut_label(Action::SendPrefix).as_deref(), Some("Alt-n Alt-n"));
 }
+
+#[test]
+fn copy_mode_and_page_scroll_have_default_prefix_bindings() {
+    let keys = Keys::default();
+    let plain = |code| KeyEvent::new(code, KeyModifiers::NONE);
+    assert_eq!(keys.action_for(&plain(KeyCode::Char('['))), Some(Action::CopyMode));
+    assert_eq!(keys.action_for(&plain(KeyCode::Char('/'))), Some(Action::SearchScrollback));
+    assert_eq!(keys.action_for(&plain(KeyCode::PageUp)), Some(Action::ScrollPageUp));
+    assert_eq!(keys.action_for(&plain(KeyCode::PageDown)), Some(Action::ScrollPageDown));
+    assert_eq!(
+        keys.copy_mode.action_for(&plain(KeyCode::Char('v'))),
+        Some(CopyModeAction::SelectChar)
+    );
+    assert_eq!(
+        keys.copy_mode.action_for(&KeyEvent::new(KeyCode::Char('v'), KeyModifiers::CONTROL)),
+        Some(CopyModeAction::SelectBlock)
+    );
+    assert_eq!(
+        keys.copy_mode.action_for(&KeyEvent::new(KeyCode::Char('G'), KeyModifiers::SHIFT)),
+        Some(CopyModeAction::HistoryBottom)
+    );
+    assert_eq!(keys.copy_mode.label(CopyModeAction::Yank).as_deref(), Some("y"));
+}
+
+#[test]
+fn copy_mode_keys_are_configurable_under_keys_copy_mode() {
+    let mut keys = Keys::default();
+    let raw: HashMap<String, Value> = serde_json::from_value(serde_json::json!({
+        "scroll-half-page-up": "u",
+        "copy_mode": {
+            "yank": ["Y", "x"],
+            "exit": "none",
+            "search-forward": "ctrl+b",
+            "not-a-command": "z"
+        }
+    }))
+    .unwrap();
+    keys.apply(&raw);
+    let plain = |c| KeyEvent::new(KeyCode::Char(c), KeyModifiers::NONE);
+    assert_eq!(keys.action_for(&plain('u')), Some(Action::ScrollHalfPageUp));
+    assert_eq!(keys.copy_mode.action_for(&plain('x')), Some(CopyModeAction::Yank));
+    assert_eq!(keys.copy_mode.action_for(&plain('Y')), Some(CopyModeAction::Yank));
+    assert_eq!(keys.copy_mode.action_for(&plain('y')), None, "an override replaces the defaults");
+    assert_eq!(keys.copy_mode.action_for(&plain('q')), None, "none unbinds a command");
+    assert_eq!(
+        keys.copy_mode.action_for(&KeyEvent::new(KeyCode::Char('b'), KeyModifiers::CONTROL)),
+        None,
+        "the prefix stays the prefix"
+    );
+    assert_eq!(keys.copy_mode.action_for(&plain('/')), None);
+    assert_eq!(keys.copy_mode.action_for(&plain('z')), None);
+    assert_eq!(keys.copy_mode.action_for(&plain('j')), Some(CopyModeAction::CursorDown));
+}

@@ -31,6 +31,12 @@ fn native(root: &Path, name: &str, acpmux: &Path) -> Machine {
     fs::create_dir_all(dir.join("home")).unwrap();
     fs::create_dir_all(dir.join("acpmux")).unwrap();
     fs::write(dir.join("acpmux/config.json"), "{\"harnesses\":{}}").unwrap();
+    // acpmux refuses a config another user can write; a 002 umask (Ubuntu's default) gives 664.
+    std::fs::set_permissions(
+        dir.join("acpmux/config.json"),
+        <std::fs::Permissions as std::os::unix::fs::PermissionsExt>::from_mode(0o600),
+    )
+    .unwrap();
     let machine = Machine {
         socket: dir.join("mux.sock"),
         session: format!("inventory-refresh-{name}"),
@@ -143,7 +149,7 @@ impl AcpmuxOwner {
         let store = acpmux::store::open(&config.store, root).unwrap();
         // The cmux-tui binary installs acpmux's build id at start (main.rs); so
         // does this in-process hub, or it reports `unstamped`.
-        acpmux::hub::install_build(acpmux_build_id::BUILD);
+        acpmux::hub::install_build(acpmux_build_id::build());
         let hub = Hub::new(config, store);
         let program = root.join("claude");
         fs::write(

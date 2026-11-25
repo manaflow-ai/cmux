@@ -3,7 +3,16 @@
 // (subsessions.ts), from acpmux's session summaries as the pane cuts them (sessionList.ts).
 import { expect, test } from "bun:test";
 import { sessionEntry } from "../sessionList";
-import { SubsessionStore, subsessionDisplayName, subsessionInfo, subsessionRows, waitingLine } from "./subsessions";
+import { noteReplaced } from "../sessionIndex";
+import {
+  SubsessionStore,
+  subagentDisplayName,
+  subagentTaskLabel,
+  subsessionDisplayName,
+  subsessionInfo,
+  subsessionRows,
+  waitingLine,
+} from "./subsessions";
 import { translate } from "../i18n";
 
 /// A session summary as acpmux sends it, with the fields the sub-session rows read.
@@ -84,6 +93,21 @@ test("a sub-session's state: working, needs input, failed (or lost) or done, wit
   expect(subsessionInfo(titled).name).toBe("Audit the fetch helper");
 });
 
+test("a sub-session's title is its own title, not the name the pane shows in its place (cmux#32934)", () => {
+  // sessionEntry's display title is the session's name when acpmux gave it one, so the real title
+  // must win over it; the finished task line (conversation/TaskLine.tsx) is named by this.
+  const named = summary("review", {
+    name: "lead/october-review",
+    shortName: "october-review",
+    title: "Review October engineering work",
+  });
+  expect(named.displayTitle).toBe("lead/october-review");
+  expect(subsessionInfo(named)).toMatchObject({ name: "october-review", title: "Review October engineering work" });
+  // A title that only repeats the name or the id is none.
+  expect(subsessionInfo(summary("plain", { name: "lead/plain", shortName: "plain" })).title).toBeUndefined();
+  expect(subsessionInfo(summary("same", { shortName: "same", title: "same" })).title).toBeUndefined();
+});
+
 test("the chat's sub-sessions, theirs indented under each, waiting first, then working, then ended", () => {
   const sessions = [
     summary("chat"),
@@ -114,6 +138,9 @@ test("what a sub-session waits on the person for, in one line", () => {
   const t = translate;
   expect(waitingLine(t, { on: "permission" })).toBe("Waiting for permission");
   expect(waitingLine(t, { on: "question" })).toBe("Waiting on a question · answer in the app");
+  expect(waitingLine(t, { on: "secret" })).toBe("Waiting for a secret");
+  expect(waitingLine(t, { on: "elevation" })).toBe("Waiting to run a command as root");
+  expect(waitingLine(t, { on: "mcpConnect" })).toBe("Waiting to connect an MCP server");
   expect(waitingLine(t, { on: "question", prompt: "Which branch?" })).toBe(
     "Waiting on a question · answer in the app · Which branch?",
   );
@@ -219,4 +246,153 @@ test("another agent's message finds its sender's chat by name, and that chat's h
   expect(store.find("coord-deputy")).toBeUndefined();
   expect(renamed).toBe(2);
   expect(notified).toBe(1);
+});
+
+test("a subagent named only by its raw session/tool call id shows as Subagent, never the id", () => {
+  const t = translate;
+  const id = "01a15779-206b-72b0-96af-bdbe4868e19c/toolu_01H9Jk66ek2xu2m2SaOS09M1";
+  expect(subagentDisplayName(t, { id, name: id })).toBe("Subagent");
+  expect(subagentDisplayName(t, { id: "other", name: id })).toBe("Subagent");
+  expect(subagentDisplayName(t, { id, name: "Review the diff" })).toBe("Review the diff");
+  expect(subagentDisplayName(t, { id, name: "toolu docs" })).toBe("toolu docs");
+  expect(subagentDisplayName(t, { id: "Reviewer", name: "Reviewer" })).toBe("Reviewer");
+  expect(subagentDisplayName(t, { id: "s/call_7", name: "s/call_7" })).toBe("Subagent");
+  const thread = "019a3f2e-7c41-7d22-9b1e-5a6c0d4e8f13";
+  expect(subagentDisplayName(t, { id: thread, name: thread })).toBe("Subagent");
+});
+
+test("the tray line names a subagent by its task, then its name, and Subagent only when nothing names it", () => {
+  const t = translate;
+  const id = "01a19ea8-7040-7e00-879d-1e267984f2f7/toolu_01H9Jk66ek2xu2m2SaOS09M1";
+  // Leo, 2026-11-02, on a done line that read just "Subagent": its task names it.
+  expect(subagentTaskLabel(t, { id, name: id, task: "Review the subagent tray row" })).toBe(
+    "Review the subagent tray row",
+  );
+  expect(subagentTaskLabel(t, { id: "a", name: "Reviewer", task: "Review the tray motion diff" })).toBe(
+    "Review the tray motion diff",
+  );
+  expect(subagentTaskLabel(t, { id: "a", name: "Reviewer" })).toBe("Reviewer");
+  expect(subagentTaskLabel(t, { id: "a", name: "Reviewer", task: "  First line\nsecond line" })).toBe("First line");
+  // A raw id never names it; what was asked, then its kind, before "Subagent".
+  expect(subagentTaskLabel(t, { id, name: id, task: id })).toBe("Subagent");
+  expect(subagentTaskLabel(t, { id, name: id, prompt: "\nFind the regressing PR\nthen fix it" })).toBe(
+    "Find the regressing PR",
+  );
+  expect(subagentTaskLabel(t, { id, name: id, kind: "Explore" })).toBe("Explore");
+  expect(subagentTaskLabel(t, { id, name: id })).toBe("Subagent");
+  // Every other line that names it by its name still falls back to its task before "Subagent".
+  expect(subagentDisplayName(t, { id, name: id, task: "Review the subagent tray row" })).toBe(
+    "Review the subagent tray row",
+  );
+  expect(subagentDisplayName(t, { id: "a", name: "Reviewer", task: "Review the tray motion diff" })).toBe("Reviewer");
+});
+
+test("a sub-session whose last turn was stopped says when, which its Resume reads", () => {
+  const lastTurn = (status: string) => ({ lastTurn: { status, endedAt: 42 }, startedBy: "chat" });
+  expect(subsessionInfo(summary("a", lastTurn("cancelled"))).stoppedAt).toBe(42);
+  expect(subsessionInfo(summary("b", lastTurn("completed"))).stoppedAt).toBeUndefined();
+  // Only a sub-session's stop resumes: a chat no parent started does not.
+  expect(subsessionInfo(summary("c", { lastTurn: { status: "cancelled", endedAt: 42 } })).stoppedAt).toBeUndefined();
+});
+
+test("a hidden page's store lets its indexes go and makes them again on a read or a show", () => {
+  const store = new SubsessionStore();
+  let told = 0;
+  let names = 0;
+  store.subscribe(() => (told += 1));
+  store.subscribeNames(() => (names += 1));
+  store.set([summary("chat"), summary("tests", { startedBy: "chat", shortName: "tests" })]);
+  expect([told, names]).toEqual([1, 1]);
+  store.release();
+  expect(store.has("chat")).toBe(true);
+  expect(store.get("tests")).toBeDefined();
+  expect([told, names]).toEqual([1, 1]);
+  store.release();
+  store.set([summary("chat"), summary("docs", { startedBy: "chat", shortName: "docs" })]);
+  expect([told, names]).toEqual([1, 1]);
+  store.restore();
+  expect([told, names]).toEqual([2, 2]);
+  expect(store.get("tests")).toBeUndefined();
+  expect(store.get("docs")).toBeDefined();
+  expect(store.find("docs")).toBe("docs");
+});
+
+test("the name index a run of changes leaves reads as one built from the last list alone", () => {
+  // Chats come, go, rename, archive, move machine and change model; some changes arrive in place (one entry
+  // replaced, as the pane's list does), some as whole new lists, some name a session twice. After each step
+  // the store patched step by step answers every read as a store given only that step's list.
+  let seed = 7;
+  const random = (n: number) => {
+    seed = (seed * 1103515245 + 12345) % 2147483648;
+    return seed % n;
+  };
+  const names = ["reviewer", "coord", "gpu/reviewer", "aws/coord", "tests", "lane-a", ""];
+  const make = (id: string) =>
+    summary(id, {
+      name: names[random(names.length)],
+      shortName: random(3) ? undefined : names[random(names.length)],
+      peer: random(2) ? undefined : ["gpu", "aws"][random(2)],
+      harness: ["claude", "codex"][random(2)],
+      model: random(2) ? "opus" : undefined,
+      cwd: random(2) ? `/work/${random(4)}` : undefined,
+      tags: random(4) ? [] : ["archived"],
+      startedBy: random(3) ? undefined : "parent",
+      status: random(2) ? "idle" : "running",
+    });
+  const store = new SubsessionStore();
+  let list = Array.from({ length: 12 }, (_, at) => make(`s${at}`));
+  store.set(list);
+  let next = 12;
+  for (let step = 0; step < 400; step++) {
+    const kind = random(6);
+    if (kind === 0) list = [...list, make(`s${next++}`)];
+    else if (kind === 1 && list.length > 2) list = list.filter((_, at) => at !== random(list.length));
+    else if (kind === 2) {
+      const at = random(list.length);
+      const from = list;
+      list = list.slice();
+      list[at] = make(list[at]!.sessionId);
+      noteReplaced(from, list, [at]);
+    } else if (kind === 3) list = [...list].reverse();
+    else if (kind === 4 && random(4) === 0) list = [...list, make(list[random(list.length)]!.sessionId)];
+    else list = list.map((entry) => (random(5) ? entry : make(entry.sessionId)));
+    // A copy listed twice leaves on the next step.
+    if (kind !== 4)
+      list = list.filter((entry, at) => list.findIndex((other) => other.sessionId === entry.sessionId) === at);
+    store.set(list);
+    const fresh = new SubsessionStore();
+    fresh.set(list);
+    for (const label of [...names, "gpu", "aws", "s1", "nobody"]) expect(store.find(label)).toBe(fresh.find(label));
+    for (const host of ["gpu", "aws"]) expect(store.chatsOn(host)).toEqual(fresh.chatsOn(host));
+    for (let at = 0; at < next; at++) {
+      const id = `s${at}`;
+      expect(store.has(id)).toBe(fresh.has(id));
+      expect(store.harness(id)).toBe(fresh.harness(id));
+      expect(store.host(id)).toBe(fresh.host(id));
+      expect(store.run(id)).toEqual(fresh.run(id));
+      expect(store.place(id)).toEqual(fresh.place(id));
+      expect(store.get(id)).toEqual(fresh.get(id));
+      expect(store.sender(id)?.name).toBe(fresh.sender(id)?.name);
+    }
+  }
+});
+
+test("a new chat listed among thousands costs its own names, not the list's", () => {
+  const store = new SubsessionStore();
+  let renamed = 0;
+  store.subscribeNames(() => renamed++);
+  const list = Array.from({ length: 3000 }, (_, at) => summary(`s${at}`, { name: `lane-${at}`, harness: "claude" }));
+  store.set(list);
+  const runs = store.run("s1");
+  const before = renamed;
+  const added = [...list, summary("new", { name: "lane-new", harness: "codex" })];
+  store.set(added);
+  expect(store.find("lane-new")).toBe("new");
+  expect(store.harness("new")).toBe("codex");
+  expect(renamed).toBe(before + 1);
+  // What an unchanged chat's readers hold is the same object.
+  expect(store.run("s1")).toBe(runs);
+  // The same chats again, as new objects with the same fields: no name reader is told.
+  store.set(added.map((entry) => ({ ...entry })));
+  expect(renamed).toBe(before + 1);
 });

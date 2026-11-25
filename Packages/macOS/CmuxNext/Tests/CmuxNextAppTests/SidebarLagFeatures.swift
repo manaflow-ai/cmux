@@ -2,7 +2,7 @@
 import Foundation
 
 /// The row features this build has, set on the bench's workspaces as the app sets them: a working
-/// row's "Now:" step and a pull request badge on every fourth row (`sidebar.pullRequestBadges`).
+/// row's "Now:" step and a pull request badge on every fourth row.
 /// An older commit timed with `SidebarLagBench` gets an empty copy of this file.
 @MainActor
 struct SidebarLagFeatures {

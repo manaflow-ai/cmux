@@ -18,7 +18,21 @@ import CmuxNextDesignTokens
     @Test func workBreathesAsAnAccentDot() {
         #expect(Self.plan(.working, look: .breathe) == StatusIndicatorPlan(glyph: .dot, animation: .breathe, tint: .working))
         #expect(Self.plan(.working, look: .shimmer) == StatusIndicatorPlan(glyph: .dot, animation: nil, tint: .working))
-        #expect(Self.plan(.working, look: .spinner) == StatusIndicatorPlan(glyph: .native, animation: .step, tint: .spinner))
+        #expect(Self.plan(.working, look: .spinner) == StatusIndicatorPlan(glyph: .arc, animation: .spin, tint: .spinner))
+    }
+
+    /// The agent working-state mark is the original 3/4 arc turning smoothly, never the macOS
+    /// activity indicator's segmented spokes, for every icon set that draws work as a spinner
+    /// (Lawrence msg 19638; the drawn arc is pinned in `OriginalWorkingSpinnerTests`).
+    @Test func theWorkingSpinnerIsTheOriginalArcNeverSpokes() {
+        #expect(StatusIndicatorPlan.workingGlyph == .arc)
+        for set in StatusIconSet.allCases {
+            let plan = StatusIndicatorPlan.make(.working, style: .arc, animates: true, set: set)
+            #expect(plan.glyph != .native && plan.animation != .step, "\(set): \(plan)")
+            if plan.animation == .spin || plan.glyph == .arc {
+                #expect(plan.glyph == .arc && plan.animation == .spin, "\(set): \(plan)")
+            }
+        }
     }
 
     @Test func aHiddenOrStillRowHoldsTheDotStill() {

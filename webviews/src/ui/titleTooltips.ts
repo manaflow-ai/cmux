@@ -4,47 +4,49 @@
 // with the app's hover intent (ui/hoverIntent.ts): the first waits the hover delay, a neighbor's
 // then shows at once while the group is warm. The text moves to `data-tooltip`, so the native tooltip never also appears;
 // a control with no other name keeps it as its `aria-label`. Controls built on ./Tooltip keep theirs.
-// A `data-tooltip-shortcut` shows after the text in the secondary ink, like the native tooltip's;
-// a `data-tooltip-detail` on a line under it, also secondary (Fork from here, Claude's).
-// A `data-tooltip-side="top"` puts it above the element rather than below (a message's time).
-// Text the element cuts off shows in full, as wide as the element (`tooltipWidth`).
+// A `data-tooltip-instant` element shows its tooltip with no hover delay (a cut name in a menu row), and a
+// `data-tooltip-force` one shows it even when its text is in full view (a name a control draws over).
+// A `data-tooltip-shortcut` shows after the text on a keycap, like the native tooltip's.
+// Below by default, as the native tooltip and macOS's (Lawrence 2026-11-20: one tooltip everywhere);
+// `data-tooltip-side="top"` prefers above, "left" the side of its popup.
+// It anchors at what the element draws, not its whole box: a row as wide as the pane shows its
+// tooltip at its words, not over its middle. A `data-tooltip-anchor` (a selector) names that part.
+// It stays inside the scrolling region the element is in (the transcript), and out of a band the host
+// draws over (`data-tooltip-covered`: the agent pane's tab row, under the native tabs), so a row
+// near the top flips below rather than clipping under the tabs; a popup's row may leave its popup,
+// which floats over the pane.
+// A tooltip is one line, as the native one (Chief, 2026-11-21: "Make web tooltips one line, like
+// native"; TooltipContentView.swift): only the text's first line shows, a text wider than the widest
+// tooltip ends in an ellipsis, and the bubble is as narrow as its line (ui/tooltipFit.ts). What a
+// row cannot show whole goes on a hover card (agent-session/acpmux/chips/FactsHoverCard.tsx).
 import { HOVER_INTENT, HoverGroup, HoverIntent, tooltipGroup, type HoverClock } from "./hoverIntent";
+import { PointerMotion } from "./pointerMotion";
+import { UI_TOOLTIP_GAP, UI_TOOLTIP_EDGE, UI_TOOLTIP_MAX_WIDTH, tooltipScale } from "./tooltipTokens";
+import { fitTooltipWidth } from "./tooltipFit";
+import { keycapLegend } from "./keycapLegend";
+import { onPopupInsetChange, popupInsetOf } from "./popupInset";
+export { UI_TOOLTIP_EDGE, UI_TOOLTIP_MAX_WIDTH } from "./tooltipTokens";
 
-/// Room kept between the tooltip and the window's edges, and its gap from the element.
-const EDGE = 6;
-/// After a scroll, how long the page stays still before the element under the pointer shows its
-/// tooltip: rows passing under a resting pointer show none (at once, each would flash by).
+/// A scrolling row must settle before its tooltip opens under a resting pointer.
 const SCROLL_QUIET = 150;
-const GAP = 6;
 
 type Box = { left: number; top: number; width: number; height: number };
 
-/// The standard tooltip's widest, the native one's (TooltipPanel.maxWidth).
-const MAX_WIDTH = 320;
-/// The narrowest a truncated element's tooltip may wrap at, so a cut-off chip's text is not a column.
-const TRUNCATED_MIN_MAX = 480;
-
-/// The tooltip's min and max width for an element `width` px wide in a `view` px window. A tooltip
-/// for text the element cuts off shows it in full, wrapping, up to the element's width (at least
-/// 480 px) and never narrower than the element's line, unless the full text (`text`, its width on
-/// one line) is shorter: then it is just the text's width. Any other tooltip wraps at 320 px. Both
-/// stay inside the window's edges.
+/// A full label wraps inside the compact bubble; its source row never forces an empty wide box.
 export function tooltipWidth({
-  width,
-  truncated,
   view,
-  text,
+  scale = 1,
 }: {
   width: number;
   truncated: boolean;
   view: number;
   text?: number;
+  scale?: number;
 }) {
-  const room = Math.max(0, view - 2 * EDGE);
-  if (!truncated) return { min: 0, max: Math.min(MAX_WIDTH, room) };
-  const line = Math.ceil(width);
-  const min = text === undefined ? line : Math.min(line, Math.ceil(text));
-  return { min: Math.min(min, room), max: Math.min(Math.max(line, TRUNCATED_MIN_MAX), room) };
+  return {
+    min: 0,
+    max: Math.min(UI_TOOLTIP_MAX_WIDTH * scale, Math.max(0, view - 2 * UI_TOOLTIP_EDGE * scale)),
+  };
 }
 
 /// Whether `element` or anything inside it cuts its text off: a row can carry the title while its
@@ -56,34 +58,142 @@ function clips(element: Element): boolean {
   return false;
 }
 
-/// Where a `size` tooltip for `anchor` goes in a `view` window: below and centered, above when
-/// there is no room below, and shifted to stay inside the edges. `side` "top" (an element's
-/// `data-tooltip-side="top"`: a message's time, as Claude's) puts it above, below only when there
-/// is no room above.
+/// Where a `size` tooltip for `anchor` goes in a `view` window: below and centered by default, above
+/// when there is no room below, and shifted to stay inside the edges (the native tooltip's
+/// `TooltipPresenter.origin`). `side` "top" (an element's `data-tooltip-side="top"`) puts it above,
+/// below only when there is no room above; "left" beside its popup, else below.
+/// `bounds` (the element's scrolling region, `boundsOf`) is where it goes when it fits there above
+/// or below the anchor; else the window's edges, as before.
 export function tooltipPosition(
   anchor: Box,
   size: { width: number; height: number },
   view: { width: number; height: number },
-  side: "top" | "bottom" = "bottom",
+  side: "top" | "bottom" | "left" = "bottom",
+  scale = 1,
+  bounds?: Box,
 ) {
-  const below = anchor.top + anchor.height + GAP;
-  const above = anchor.top - GAP - size.height;
+  const gap = UI_TOOLTIP_GAP * scale;
+  const edge = UI_TOOLTIP_EDGE * scale;
+  const fits = (area: Box) =>
+    size.width + 2 * edge <= area.width &&
+    (anchor.top - gap - size.height >= area.top + edge ||
+      anchor.top + anchor.height + gap + size.height + edge <= area.top + area.height);
+  const area = bounds && fits(bounds) ? bounds : { left: 0, top: 0, width: view.width, height: view.height };
+  const minLeft = area.left + edge;
+  const minTop = area.top + edge;
+  const right = area.left + area.width;
+  const bottom = area.top + area.height;
+  if (side === "left") {
+    const before = anchor.left - gap - size.width;
+    const after = anchor.left + anchor.width + gap;
+    const left = before >= minLeft ? before : after + size.width + edge <= right ? after : undefined;
+    if (left !== undefined) {
+      const top = Math.min(
+        Math.max(minTop, anchor.top + (anchor.height - size.height) / 2),
+        Math.max(minTop, bottom - edge - size.height),
+      );
+      return { left: Math.round(left), top: Math.round(top) };
+    }
+  }
+  // Below an anchor above the bounds' top (a header control over an open Find bar) starts at that top.
+  const below = Math.max(minTop, anchor.top + anchor.height + gap);
+  const above = anchor.top - gap - size.height;
   const top =
     side === "top"
-      ? above >= EDGE || below + size.height + EDGE > view.height
-        ? Math.max(EDGE, above)
+      ? above >= minTop || below + size.height + edge > bottom
+        ? Math.max(minTop, above)
         : below
-      : below + size.height + EDGE <= view.height
+      : below + size.height + edge <= bottom
         ? below
-        : Math.max(EDGE, above);
+        : Math.max(minTop, above);
   const centered = anchor.left + anchor.width / 2 - size.width / 2;
-  const left = Math.min(Math.max(EDGE, centered), Math.max(EDGE, view.width - EDGE - size.width));
+  const left = Math.min(Math.max(minLeft, centered), Math.max(minLeft, right - edge - size.width));
   return { left: Math.round(left), top: Math.round(top) };
 }
 
+/// The part of `box` that `element` draws: the box of its contents (a pane-wide row's icon, words
+/// and chevron), cut to the element, at the element's own height. The element's box when it draws
+/// nothing measurable (an empty control, a page without range geometry).
+function drawnBox(element: Element, box: DOMRect): Box {
+  const range = element.ownerDocument.createRange?.();
+  if (!range || typeof range.getBoundingClientRect !== "function") return box;
+  range.selectNodeContents(element);
+  const drawn = range.getBoundingClientRect();
+  range.detach?.();
+  const left = Math.max(box.left, drawn.left);
+  const right = Math.min(box.right, drawn.right);
+  if (!(drawn.width > 0) || right <= left) return box;
+  return { left, top: box.top, width: right - left, height: box.height };
+}
+
+/// Where a tooltip for `element` stays (`tooltipPosition`'s `bounds`): its nearest ancestor that
+/// scrolls (the window for an element in a popup, whose tooltip may leave the popup, or outside any
+/// scroller), cut to the window and below a `data-tooltip-covered` band across its top that the
+/// element is not in, and below an open Find bar (ui/popupInset.ts), the top layer of its pane: a
+/// timestamp's tooltip under it flips below its row (Leo 2026-11-07: "we don't want it to be
+/// coverable by other sorts of things. Like, for example, these hover previews").
+function boundsOf(element: Element, view: { width: number; height: number }): Box | undefined {
+  const doc = element.ownerDocument;
+  const win = doc.defaultView;
+  if (!win) return undefined;
+  let area = { left: 0, top: 0, right: view.width, bottom: view.height };
+  if (!element.closest(".ui-popup"))
+    for (let node = element.parentElement; node && node !== doc.body && node !== doc.documentElement;) {
+      const overflow = win.getComputedStyle(node).overflowY;
+      if (overflow === "auto" || overflow === "scroll") {
+        const box = node.getBoundingClientRect();
+        area = {
+          left: Math.max(0, box.left),
+          top: Math.max(0, box.top),
+          right: Math.min(view.width, box.right),
+          bottom: Math.min(view.height, box.bottom),
+        };
+        break;
+      }
+      node = node.parentElement;
+    }
+  for (const cover of doc.querySelectorAll("[data-tooltip-covered]")) {
+    if (cover.contains(element)) continue;
+    const box = cover.getBoundingClientRect();
+    if (box.top <= area.top + 1 && box.bottom > area.top && box.left < area.right && box.right > area.left)
+      area.top = box.bottom;
+  }
+  // The bar's own controls keep their tooltips' usual place.
+  const findBar = popupInsetOf("findBar");
+  if (findBar > area.top && !element.closest(".acpmux-find")) area.top = Math.min(findBar, area.bottom);
+  const width = area.right - area.left;
+  const height = area.bottom - area.top;
+  return width > 0 && height > 0 ? { left: area.left, top: area.top, width, height } : undefined;
+}
+
+/// The element a tooltip for `element` is placed at: its `data-tooltip-anchor` part when it has
+/// one with a box (a pane-wide row's words, MessageGroupHead.tsx), else the element itself.
+function anchorOf(element: Element): Element {
+  const selector = element.getAttribute("data-tooltip-anchor");
+  if (!selector) return element;
+  let part: Element | null = null;
+  try {
+    part = element.querySelector(selector);
+  } catch {
+    return element;
+  }
+  const box = part?.getBoundingClientRect();
+  return part && box && (box.width > 0 || box.height > 0) ? part : element;
+}
+
+/// The box a tooltip for `element` is placed at: its named part's (`anchorOf`), else what the
+/// element draws (`drawnBox`).
+function anchorBox(element: Element): Box {
+  const part = anchorOf(element);
+  const box = part.getBoundingClientRect();
+  return part === element ? drawnBox(element, box) : box;
+}
+
 /// Whether `element`'s own text already says `text` (a labeled control): no tooltip then, as
-/// #20375 rules (test/tooltip-rules.ts). Text the element cuts off still shows in full.
+/// #20375 rules (test/tooltip-rules.ts). Text the element cuts off still shows in full, and a
+/// control that names a key (`data-tooltip-shortcut`) still shows it: the key is what it adds.
 function repeatsLabel(element: Element, text: string): boolean {
+  if (element.hasAttribute("data-tooltip-force") || element.getAttribute("data-tooltip-shortcut")) return false;
   const own = element.textContent?.replace(/\s+/g, " ").trim().toLowerCase();
   return !!own && own === text.replace(/\s+/g, " ").trim().toLowerCase() && !clips(element);
 }
@@ -145,28 +255,22 @@ export function installTooltips(
   /** Shows `target`'s tooltip: fading in and rising, or at once when `instant` (a warm group's). */
   const show = (instant = true) => {
     if (!target?.isConnected) return;
-    const text = textOf(target);
+    // One line: a text's second line never shows (TooltipContentView.firstLine, native).
+    const text = firstLine(textOf(target));
     if (!text) return;
     const shortcut = target.getAttribute("data-tooltip-shortcut");
     const label = doc.createElement("span");
     label.className = "ui-tooltip-text";
     label.textContent = text;
-    // A `data-tooltip-detail` says what the control does, on its own line under the text.
-    const detail = target.getAttribute("data-tooltip-detail");
-    const note = detail ? doc.createElement("span") : undefined;
-    if (note) {
-      note.className = "ui-tooltip-detail";
-      note.textContent = detail;
-    }
     // The hint floats to the top right, so it comes first.
     if (shortcut) {
       const hint = doc.createElement("span");
       hint.className = "ui-tooltip-hint";
-      hint.textContent = shortcut;
-      tip.replaceChildren(hint, label, ...(note ? [note] : []));
-    } else tip.replaceChildren(label, ...(note ? [note] : []));
-    const anchor = target.getBoundingClientRect();
-    const truncated = clips(target);
+      hint.textContent = keycapLegend(shortcut);
+      tip.replaceChildren(hint, label);
+    } else tip.replaceChildren(label);
+    const anchor = anchorBox(target);
+    const scale = tooltipScale(doc);
     const fadeIn = !instant && (tip.hidden === true || ending !== undefined);
     endFade();
     tip.toggleAttribute("data-instant", !fadeIn);
@@ -176,27 +280,33 @@ export function installTooltips(
     // room right of it, and its text would wrap inside a word ("Chat summar / y").
     tip.style.left = "0px";
     tip.style.top = "0px";
-    let natural: number | undefined;
-    if (truncated) {
-      // The full text's width on one line, so a short title gets no wide empty box.
-      tip.style.minWidth = "0";
-      tip.style.maxWidth = "none";
-      // Zero means no layout to measure (a detached or unrendered page): keep the line's width.
-      natural = tip.getBoundingClientRect().width || undefined;
-    }
     const width = tooltipWidth({
       width: anchor.width,
-      truncated,
+      truncated: false,
       view: doc.documentElement.clientWidth,
-      text: natural,
+      scale,
     });
     tip.style.minWidth = `${width.min}px`;
     tip.style.maxWidth = `${width.max}px`;
+    // As narrow as its lines, measured here, before it is placed or painted (ui/tooltipFit.ts).
+    fitTooltipWidth(tip, width.max);
+    const requestedSide = target.getAttribute("data-tooltip-side");
+    const side = requestedSide === "left" || requestedSide === "top" ? requestedSide : "bottom";
+    // A rail's hint sits outside the popup rim, centered on its hovered tab.
+    const surface = side === "left" ? target.closest(".ui-popup")?.getBoundingClientRect() : undefined;
+    const view = { width: doc.documentElement.clientWidth, height: doc.documentElement.clientHeight };
     const position = tooltipPosition(
-      anchor,
+      {
+        left: surface?.left ?? anchor.left,
+        top: anchor.top,
+        width: surface?.width ?? anchor.width,
+        height: anchor.height,
+      },
       tip.getBoundingClientRect(),
-      { width: doc.documentElement.clientWidth, height: doc.documentElement.clientHeight },
-      target.getAttribute("data-tooltip-side") === "top" ? "top" : "bottom",
+      view,
+      side,
+      scale,
+      boundsOf(target, view),
     );
     tip.style.left = `${position.left}px`;
     tip.style.top = `${position.top}px`;
@@ -270,9 +380,20 @@ export function installTooltips(
   let quiet: ReturnType<typeof setTimeout> | undefined;
   // The element under the pointer while a scroll is under way.
   let pending: Element | undefined;
+  // An element that came under a still pointer (the page laid out again): it waits for the pointer to move.
+  const motion = new PointerMotion();
+  let still: Element | undefined;
   const onOver = (event: PointerEvent) => {
     if (event.pointerType && event.pointerType !== "mouse") return;
     const element = (event.target as Element | null)?.closest?.("[title], [data-tooltip]") ?? undefined;
+    if (element && element !== target && !motion.arrived(event)) {
+      still = element;
+      return;
+    }
+    over(element);
+  };
+  const over = (element: Element | undefined) => {
+    still = undefined;
     if (quiet !== undefined) {
       pending = element;
       return;
@@ -287,11 +408,27 @@ export function installTooltips(
     if (frame !== undefined) win.cancelAnimationFrame(frame);
     frame = undefined;
     target = element;
+    if (element.hasAttribute("data-tooltip-instant")) {
+      // No hover delay: it shows on the next frame. The intent's own timer, if any, finds another target and ends.
+      cancelHide();
+      frame = win.requestAnimationFrame(() => {
+        frame = undefined;
+        show(true);
+      });
+      return;
+    }
     intent.hover(element);
+  };
+  const onMove = (event: PointerEvent) => {
+    if (!motion.moved(event) || !still) return;
+    const element = still;
+    still = undefined;
+    if (element.isConnected && element.contains(event.target as Node | null)) over(element);
   };
   const onOut = (event: PointerEvent) => {
     // Leaving the element (not moving onto one of its children) hides it.
     const into = event.relatedTarget as Node | null;
+    if (still && !still.contains(into)) still = undefined;
     if (target && !target.contains(into)) hide();
     if (pending && !pending.contains(into)) pending = undefined;
   };
@@ -323,15 +460,20 @@ export function installTooltips(
     }, SCROLL_QUIET);
   };
   doc.addEventListener("pointerover", onOver);
+  doc.addEventListener("pointermove", onMove, true);
   doc.addEventListener("pointerout", onOut);
   doc.addEventListener("pointerdown", dismiss, true);
   doc.addEventListener("keydown", dismiss, true);
   doc.addEventListener("scroll", onScroll, true);
   win.addEventListener("blur", dismiss);
+  // Find's bar opening (or anything new covering the page's top) takes away a tooltip under it.
+  const unwatchInset = onPopupInsetChange(dismiss);
   return () => {
+    unwatchInset();
     dismiss();
     intent.dispose();
     doc.removeEventListener("pointerover", onOver);
+    doc.removeEventListener("pointermove", onMove, true);
     doc.removeEventListener("pointerout", onOut);
     doc.removeEventListener("pointerdown", dismiss, true);
     doc.removeEventListener("keydown", dismiss, true);
@@ -341,4 +483,9 @@ export function installTooltips(
     endFade();
     tip.remove();
   };
+}
+
+/** The first line of `text`, trimmed: a tooltip is one line (TooltipContentView.firstLine). */
+export function firstLine(text: string): string {
+  return (text.split(/\r?\n/).find((line) => line.trim() !== "") ?? "").trim();
 }

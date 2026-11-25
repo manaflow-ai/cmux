@@ -22,6 +22,51 @@ const HERMETIC: daemon_env::Process = daemon_env::Process::deny().keep(&["ACPMUX
 #[path = "support/machine_consent_home.rs"]
 mod machine_consent_home;
 
+/// For a test that runs on any account (not only a disposable one) and reads `host join
+/// --status` on a joined home: that read keeps the home's consent requirement in the OS account
+/// (`retain_own_requirement` enrolls `<passwd home>/.acpmux/machine-consent`). Left there, it
+/// outlives the test, and later test binaries run on a machine that requires consent
+/// (`tool_inventory` lost cmux-cua, 2026-11-08). On drop it removes only what was absent at
+/// entry, so the account's own policy stays exactly as it was.
+struct AccountConsentRestored {
+    absent: Vec<std::path::PathBuf>,
+    _serial: std::sync::MutexGuard<'static, ()>,
+}
+
+impl AccountConsentRestored {
+    fn new() -> Self {
+        let serial = machine_consent_home::SERIAL.lock().unwrap_or_else(|error| error.into_inner());
+        let root = machine_consent_home::account_root();
+        // Files first, then the directories, deepest first.
+        let mut paths: Vec<_> = ["enrolled.json", "refusal.json", "consent.json", "write.lock"]
+            .iter()
+            .map(|name| root.join(name))
+            .collect();
+        let parent = root.parent().map(Path::to_owned);
+        paths.push(root);
+        paths.extend(parent);
+        // As the authority itself reads them (`symlink_metadata`): a dangling link is present.
+        let absent = paths.into_iter().filter(|path| path.symlink_metadata().is_err()).collect();
+        Self { absent, _serial: serial }
+    }
+}
+
+impl Drop for AccountConsentRestored {
+    fn drop(&mut self) {
+        for path in &self.absent {
+            // A directory that holds anything else is not this test's: it stays.
+            let removed =
+                if path.is_dir() { std::fs::remove_dir(path) } else { std::fs::remove_file(path) };
+            if let Err(error) = removed
+                && error.kind() != std::io::ErrorKind::NotFound
+                && !path.is_dir()
+            {
+                eprintln!("could not restore the account consent at {}: {error}", path.display());
+            }
+        }
+    }
+}
+
 const TOKEN: &str = "cmj_test_secret_never_print";
 const FRESH_TOKEN: &str = "cmj_fresh_test_secret_never_print";
 const CREDENTIAL: &str = "cmm_test_secret_never_print";
@@ -516,6 +561,323 @@ async fn status_is_read_only_and_persists_revocation() {
     assert_eq!(read_json(&path)["revoked"], true);
     server.join().unwrap();
 }
+/// A joined home: the credential, a node key and a joined `meshRelay`.
+fn joined_home(home: &Path, origin: &str) {
+    let path = home.join(FINAL);
+    std::fs::write(&path, json!({"credential":CREDENTIAL,"machine_id":"machine_test","team_id":"team_test","name":"test","hub_origin":origin,"last_heartbeat":null,"revoked":false,"wgPublicKey":"key"}).to_string()).unwrap();
+    std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o600)).unwrap();
+    let key = home.join("node.wg.key");
+    std::fs::write(&key, [7u8; 32]).unwrap();
+    std::fs::set_permissions(&key, std::fs::Permissions::from_mode(0o600)).unwrap();
+    // The join made that key (`leave::NODE_KEY_MADE`), so its leave deletes it.
+    let made = home.join("machine-join.node-key-made.json");
+    std::fs::write(&made, b"{}").unwrap();
+    std::fs::set_permissions(&made, std::fs::Permissions::from_mode(0o600)).unwrap();
+    let config = home.join("config.json");
+    std::fs::write(
+        &config,
+        json!({"meshRelay": {"url": origin, "credential": "join"}}).to_string(),
+    )
+    .unwrap();
+    std::fs::set_permissions(&config, std::fs::Permissions::from_mode(0o600)).unwrap();
+}
+
+/// A hub that answers each self-revoke with the next of `answers`, and checks it is the
+/// machine's own credential that asks.
+fn revoke_hub(answers: Vec<(u16, Value)>) -> (String, std::thread::JoinHandle<()>) {
+    response_server(answers.len(), move |index, request, bearer, body| {
+        assert!(request.starts_with("POST /v1/machines/credentials/self/revoke "), "{request}");
+        assert!(bearer == format!("Bearer {CREDENTIAL}"));
+        assert!(*body == Value::Null || *body == json!({}), "{body}");
+        Some(answers[index].clone())
+    })
+}
+
+async fn leave(home: &Path, args: &[&str]) -> Output {
+    let output = tokio::time::timeout(
+        Duration::from_secs(15),
+        cli(home).args(["machine", "leave", "--json"]).args(args).output(),
+    )
+    .await
+    .unwrap()
+    .unwrap();
+    assert_redacted(&output);
+    output
+}
+
+fn assert_left(home: &Path) {
+    assert!(!home.join(FINAL).exists());
+    assert!(!home.join("node.wg.key").exists());
+    assert!(read_json(&home.join("config.json")).get("meshRelay").is_none());
+}
+
+#[tokio::test]
+async fn leave_revokes_with_its_own_credential_then_removes_the_join() {
+    let home = tempfile::tempdir().unwrap();
+    let (origin, server) = revoke_hub(vec![(200, json!({}))]);
+    joined_home(home.path(), &origin);
+    let output = leave(home.path(), &[]).await;
+    assert_exit(&output, 0);
+    let body: Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(body["left"], true);
+    assert_eq!(body["hub"], "revoked");
+    assert_eq!(body["hubRevoked"], true);
+    assert_eq!(body["machineId"], "machine_test");
+    assert_eq!(body["removed"], json!(["meshRelay", "credential", "nodeKey"]));
+    assert!(body.get("hint").is_none());
+    assert_left(home.path());
+    server.join().unwrap();
+    // `host leave` is the same command; with nothing joined it says so and changes nothing.
+    let again = tokio::time::timeout(
+        Duration::from_secs(15),
+        cli(home.path()).args(["host", "leave", "--json"]).output(),
+    )
+    .await
+    .unwrap()
+    .unwrap();
+    assert_exit(&again, 0);
+    let body: Value = serde_json::from_slice(&again.stdout).unwrap();
+    assert_eq!(body["left"], false);
+    assert_eq!(body["joined"], false);
+}
+
+#[tokio::test]
+async fn leave_on_a_hub_without_self_revoke_sends_the_person_to_the_mac() {
+    let home = tempfile::tempdir().unwrap();
+    let not_found = (404, json!({"_tag":"JoinNotFound","code":"machine.not_found","message":"no"}));
+    let (origin, server) = revoke_hub(vec![not_found.clone(), not_found]);
+    joined_home(home.path(), &origin);
+    let before = std::fs::read(home.path().join(FINAL)).unwrap();
+    let output = leave(home.path(), &[]).await;
+    assert_exit(&output, 3);
+    let said = String::from_utf8_lossy(&output.stderr);
+    assert!(said.contains("cmux machine revoke test") && said.contains("--local-only"), "{said}");
+    // Nothing here changed: the relay still runs on the credential the Mac will revoke.
+    assert!(std::fs::read(home.path().join(FINAL)).unwrap() == before);
+    assert!(home.path().join("node.wg.key").exists());
+    assert_eq!(read_json(&home.path().join("config.json"))["meshRelay"]["credential"], "join");
+    let output = leave(home.path(), &["--local-only"]).await;
+    assert_exit(&output, 0);
+    let body: Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(body["left"], true);
+    assert_eq!(body["hub"], "unsupported");
+    assert_eq!(body["hubRevoked"], false);
+    assert!(body["hint"].as_str().is_some_and(|hint| hint.contains("cmux machine revoke test")));
+    assert_left(home.path());
+    server.join().unwrap();
+}
+
+#[tokio::test]
+async fn leave_after_the_hub_already_revoked_it_still_cleans_up() {
+    let home = tempfile::tempdir().unwrap();
+    let (origin, server) = revoke_hub(vec![(
+        401,
+        json!({"_tag":"JoinUnauthorized","code":"machine.revoked","message":"revoked"}),
+    )]);
+    joined_home(home.path(), &origin);
+    let output = leave(home.path(), &[]).await;
+    assert_exit(&output, 0);
+    let body: Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(body["hub"], "already_revoked");
+    assert_eq!(body["hubRevoked"], true);
+    assert_left(home.path());
+    server.join().unwrap();
+}
+
+#[tokio::test]
+async fn a_locally_revoked_record_still_asks_the_hub() {
+    let home = tempfile::tempdir().unwrap();
+    let not_found = (404, json!({"_tag":"JoinNotFound","code":"machine.not_found","message":"no"}));
+    let (origin, server) = revoke_hub(vec![not_found]);
+    joined_home(home.path(), &origin);
+    // A relay 401 or a cut-short `--local-only` set the bit; the hub may still list it.
+    let path = home.path().join(FINAL);
+    let mut record = read_json(&path);
+    record["revoked"] = json!(true);
+    std::fs::write(&path, record.to_string()).unwrap();
+    let output = leave(home.path(), &[]).await;
+    assert_exit(&output, 3);
+    assert!(String::from_utf8_lossy(&output.stderr).contains("cmux machine revoke test"));
+    server.join().unwrap();
+}
+
+#[tokio::test]
+async fn leave_with_the_hub_down_changes_nothing_unless_local_only() {
+    let home = tempfile::tempdir().unwrap();
+    let (origin, server) = revoke_hub(vec![(503, json!({})), (503, json!({}))]);
+    joined_home(home.path(), &origin);
+    assert_exit(&leave(home.path(), &[]).await, 4);
+    assert!(home.path().join(FINAL).exists() && home.path().join("node.wg.key").exists());
+    let output = leave(home.path(), &["--local-only"]).await;
+    assert_exit(&output, 0);
+    assert_eq!(serde_json::from_slice::<Value>(&output.stdout).unwrap()["hub"], "unavailable");
+    assert_left(home.path());
+    server.join().unwrap();
+}
+
+/// A record copied from another box: `marked` as a daemon start here left it (with this box's
+/// own fresh key already in place), or unmarked as the copy arrived (the original's key).
+fn cloned_record(home: &Path, origin: &str, marked: bool) -> Vec<u8> {
+    // The copied node key: the original box's.
+    let key = home.join("node.wg.key");
+    std::fs::write(&key, if marked { [9u8; 32] } else { [7u8; 32] }).unwrap();
+    std::fs::set_permissions(&key, std::fs::Permissions::from_mode(0o600)).unwrap();
+    let path = home.join(FINAL);
+    std::fs::write(&path, json!({"credential":CREDENTIAL,"machine_id":"machine_original","team_id":"team_test","name":"test","hub_origin":origin,"last_heartbeat":null,"revoked":false,"wgPublicKey":"original-key","credential_generation":1,"host_fingerprint":"another-box","cloned":marked}).to_string()).unwrap();
+    std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o600)).unwrap();
+    std::fs::read(&path).unwrap()
+}
+
+#[tokio::test]
+async fn status_on_a_copied_home_says_cloned_and_never_sends_the_originals_credential() {
+    let _account = AccountConsentRestored::new();
+    let home = tempfile::tempdir().unwrap();
+    // Any request here would be the original box's credential leaving the copy.
+    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+    let origin = format!("http://{}", listener.local_addr().unwrap());
+    let original = cloned_record(home.path(), &origin, true);
+    let result = tokio::time::timeout(
+        Duration::from_secs(10),
+        cli(home.path()).args(["host", "join", "--status", "--json"]).output(),
+    )
+    .await
+    .unwrap()
+    .unwrap();
+    assert_exit(&result, 0);
+    assert_redacted(&result);
+    let body: Value = serde_json::from_slice(&result.stdout).unwrap();
+    assert_eq!(body["cloned"], true);
+    assert!(body["hint"].as_str().is_some_and(|hint| hint.contains("new join line")), "{body}");
+    assert_eq!(body["revoked"], false);
+    assert_eq!(body["hubReachable"], false);
+    // The copy holds no credential of this box, and the copied key is not reported as its own.
+    assert_eq!(body["credentialPresent"], false);
+    assert_eq!(body["wgPublicKey"], Value::Null);
+    assert!(
+        std::fs::read(home.path().join("node.wg.key")).unwrap() == [9u8; 32],
+        "status only reports"
+    );
+    listener.set_nonblocking(true).unwrap();
+    assert!(
+        matches!(listener.accept(), Err(error) if error.kind() == std::io::ErrorKind::WouldBlock),
+        "the copy called the hub"
+    );
+    assert!(std::fs::read(home.path().join(FINAL)).unwrap() == original);
+    let text = cli(home.path()).args(["host", "join", "--status"]).output().await.unwrap();
+    assert!(String::from_utf8_lossy(&text.stdout).starts_with("cloned: "));
+}
+
+#[tokio::test]
+#[ignore = "mutates OS-account consent; run with --include-ignored in a disposable Unix account"]
+async fn a_new_join_on_a_copy_gets_its_own_credential_without_touching_the_original() {
+    let consent = machine_consent_home::ConsentHome::isolated();
+    // With and without --replace: the script's first request is the redeem, so a replacement
+    // proof (a GET with the original's credential) or a `replaceCredential` fails it.
+    for replace in [false, true] {
+        let home = tempfile::tempdir().unwrap();
+        let (origin, server) =
+            hub(vec![Step::Redeem(200), Step::Live(None)], home.path(), &consent.root);
+        // As the copy arrived: the join itself finds the mismatch and replaces the key.
+        cloned_record(home.path(), &origin, false);
+        let output = join(home.path(), Some(&origin), true, replace).await;
+        assert_exit(&output, 0);
+        let answer: Value = serde_json::from_slice(&output.stdout).unwrap();
+        assert_eq!(answer["joined"], true, "a copy is not already joined");
+        let record = read_json(&home.path().join(FINAL));
+        assert!(record["credential"] != CREDENTIAL);
+        assert_eq!(record["machine_id"], "machine_test");
+        assert!(record.get("cloned").is_none());
+        assert!(std::fs::read(home.path().join("node.wg.key")).unwrap() != [7u8; 32]);
+        assert!(record["wgPublicKey"] != "original-key");
+        // Not the public half of the copied key.
+        use base64::Engine as _;
+        let copied = x25519_dalek::PublicKey::from(&x25519_dalek::StaticSecret::from([7u8; 32]));
+        let copied = base64::engine::general_purpose::STANDARD.encode(copied.as_bytes());
+        assert!(record["wgPublicKey"] != copied.as_str());
+        assert_complete(home.path(), &origin);
+        server.join().unwrap();
+    }
+}
+
+/// Whether this box has an OS machine identity, as `host_fingerprint` reads it.
+fn box_has_identity() -> bool {
+    cfg!(target_os = "macos")
+        || ["/etc/cmux/daemon-instance-id", "/etc/machine-id", "/var/lib/dbus/machine-id"]
+            .iter()
+            .any(|path| {
+                std::fs::read_to_string(path).is_ok_and(|v| v.trim().bytes().any(|b| b != b'0'))
+            })
+}
+
+#[tokio::test]
+async fn a_pending_join_copied_from_another_box_is_set_aside_unsent() {
+    if !box_has_identity() {
+        eprintln!("no OS machine identity on this box: nothing to compare");
+        return;
+    }
+    let home = tempfile::tempdir().unwrap();
+    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+    let origin = format!("http://{}", listener.local_addr().unwrap());
+    // A proposal made on another box (its credential is that box's, maybe live).
+    let proposal = format!("cmm_{}", "A".repeat(43));
+    let pending = home.path().join(PENDING);
+    std::fs::write(&pending, json!({"version":1,"credential":proposal,"hub":origin,"name":"test","hostname":"other","platform":"linux","wg_public_key":"key","prior":null,"host_fingerprint":"another-box"}).to_string()).unwrap();
+    std::fs::set_permissions(&pending, std::fs::Permissions::from_mode(0o600)).unwrap();
+    let output = join(home.path(), None, false, false).await;
+    // No token here: the copied proposal is gone, so this is a fresh join that needs one.
+    assert_exit(&output, 2);
+    assert!(!pending.exists());
+    assert!(home.path().join("machine-join.pending.copied.json").exists());
+    listener.set_nonblocking(true).unwrap();
+    assert!(
+        matches!(listener.accept(), Err(error) if error.kind() == std::io::ErrorKind::WouldBlock),
+        "the copy sent the other box's proposed credential"
+    );
+}
+
+#[tokio::test]
+async fn status_records_the_person_and_grants_its_own_machines_on_an_older_join() {
+    let _account = AccountConsentRestored::new();
+    let home = tempfile::tempdir().unwrap();
+    let (origin, server) = response_server(1, |_, request, bearer, _| {
+        assert!(request.starts_with("GET /v1/machines/credentials/self "));
+        assert!(bearer == format!("Bearer {CREDENTIAL}"));
+        Some((
+            200,
+            json!({"machineId":"machine_test","teamId":"team_test","joinTokenId":"join_test","platform":"linux","hostname":"h","name":"test","wgPublicKey":"key","credentialGeneration":1,"expiresAt":"2099-01-01T00:00:00.000Z","userId":"user_1"}),
+        ))
+    });
+    // A join written before `sameUser`: no userId, and `controlFrom` has only an owner entry.
+    let path = home.path().join(FINAL);
+    std::fs::write(&path, json!({"credential":CREDENTIAL,"machine_id":"machine_test","team_id":"team_test","name":"test","hub_origin":origin,"last_heartbeat":null,"revoked":false,"wgPublicKey":"key"}).to_string()).unwrap();
+    std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o600)).unwrap();
+    let config = home.path().join("config.json");
+    std::fs::write(&config, json!({"meshRelay": {"url": origin, "credential": "join", "teamMessaging": false, "controlFrom": [{"daemonId": "d1", "ops": ["stop"]}]}}).to_string()).unwrap();
+    std::fs::set_permissions(&config, std::fs::Permissions::from_mode(0o600)).unwrap();
+    let result = tokio::time::timeout(
+        Duration::from_secs(10),
+        cli(home.path()).args(["host", "join", "--status", "--json"]).output(),
+    )
+    .await
+    .unwrap()
+    .unwrap();
+    assert_exit(&result, 0);
+    assert_redacted(&result);
+    let body: Value = serde_json::from_slice(&result.stdout).unwrap();
+    assert_eq!(body["userId"], "user_1");
+    assert_eq!(body["controlFromAdded"], "sameUser");
+    assert_eq!(body["restartNeeded"], true);
+    assert_eq!(read_json(&path)["user_id"], "user_1");
+    let relay = &read_json(&config)["meshRelay"];
+    assert_eq!(
+        relay["controlFrom"],
+        json!([{"daemonId": "d1", "ops": ["stop"]}, {"sameUser": true, "ops": ["start", "resume", "stop"]}])
+    );
+    assert_eq!(relay["credential"], "join");
+    assert_eq!(relay["teamMessaging"], false, "the owner's choice stays");
+    server.join().unwrap();
+}
+
 #[tokio::test]
 async fn cloud_argv_is_refused_even_with_status_and_hub() {
     let home = tempfile::tempdir().unwrap();
@@ -567,4 +929,156 @@ async fn unfinished_pipe_cannot_hold_the_join_lock_forever() {
         .unwrap();
     assert_eq!(result.status.code(), Some(2));
     assert!(!String::from_utf8_lossy(&result.stderr).contains("cmj_incomplete"));
+}
+
+#[tokio::test]
+async fn leave_on_a_copied_home_never_revokes_the_original_and_removes_only_the_copy() {
+    let home = tempfile::tempdir().unwrap();
+    // Any request here would revoke the original box's enrollment from the copy.
+    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+    let origin = format!("http://{}", listener.local_addr().unwrap());
+    // An unmarked copy is told apart only on a box that names itself: with no machine id
+    // nothing is compared, and a leave there asks the hub.
+    let cases: &[bool] = if box_has_identity() { &[true, false] } else { &[true] };
+    for &marked in cases {
+        cloned_record(home.path(), &origin, marked);
+        let config = home.path().join("config.json");
+        std::fs::write(
+            &config,
+            json!({"meshRelay": {"url": origin, "credential": "join"}}).to_string(),
+        )
+        .unwrap();
+        std::fs::set_permissions(&config, std::fs::Permissions::from_mode(0o600)).unwrap();
+        let output = leave(home.path(), &[]).await;
+        assert_exit(&output, 0);
+        let body: Value = serde_json::from_slice(&output.stdout).unwrap();
+        assert_eq!(body["hub"], "not_asked_copy", "marked {marked}");
+        assert_eq!(body["hubRevoked"], false);
+        assert!(body["hint"].as_str().is_some_and(|hint| hint.contains("new join line")), "{body}");
+        assert_left(home.path());
+    }
+    listener.set_nonblocking(true).unwrap();
+    assert!(
+        matches!(listener.accept(), Err(error) if error.kind() == std::io::ErrorKind::WouldBlock),
+        "the copy called the hub"
+    );
+}
+
+/// A daemon on `home` (its own socket there), once it is ready.
+#[cfg(target_os = "linux")]
+async fn joined_daemon(home: &Path) -> tokio::process::Child {
+    use tokio::io::AsyncBufReadExt;
+    let mut child = cli(home)
+        .args(["daemon", "run", "--ready-fd", "1", "--log", "info"])
+        .env("ACPMUX_SOCKET", home.join("s.sock"))
+        .env("ACPMUX_CATALOG_FETCH", "0")
+        .stdin(Stdio::null())
+        .stderr(Stdio::null())
+        .spawn()
+        .unwrap();
+    let mut lines = tokio::io::BufReader::new(child.stdout.take().unwrap()).lines();
+    let ready = tokio::time::timeout(Duration::from_secs(60), async {
+        while let Some(line) = lines.next_line().await.unwrap() {
+            if serde_json::from_str::<Value>(&line).is_ok_and(|v| v["ready"] == true) {
+                return true;
+            }
+        }
+        false
+    })
+    .await
+    .unwrap();
+    assert!(ready, "the daemon exited before its ready line");
+    // Its later log lines go nowhere, without filling the pipe.
+    tokio::spawn(async move { while let Ok(Some(_)) = lines.next_line().await {} });
+    child
+}
+
+/// `share-host status --json` from the daemon on `home`, once `done` says it settled (30 s at most).
+#[cfg(target_os = "linux")]
+async fn share_host_status(home: &Path, done: impl Fn(&Value) -> bool) -> Value {
+    let by = std::time::Instant::now() + Duration::from_secs(30);
+    loop {
+        let out = tokio::time::timeout(
+            Duration::from_secs(10),
+            cli(home)
+                .args(["share-host", "status", "--json"])
+                .env("ACPMUX_SOCKET", home.join("s.sock"))
+                .output(),
+        )
+        .await
+        .unwrap()
+        .unwrap();
+        let status: Value = serde_json::from_slice(&out.stdout).unwrap_or(Value::Null);
+        if done(&status) || std::time::Instant::now() >= by {
+            return status;
+        }
+        tokio::time::sleep(Duration::from_millis(100)).await;
+    }
+}
+
+/// A joined Linux machine needs no step on it to share its screen (design D11; Leo, 2026-11-16:
+/// "if you've connected to a headlessly running mini why... would it need anything?"): its
+/// daemon runs `~/.local/bin/cmux-rd linux-host enable --non-interactive --hub <the join's
+/// device hub>` at its start, with `ACPMUX_HOME` its own home, and says so in `share-host
+/// status`. Without cmux-rd it says that instead.
+#[cfg(target_os = "linux")]
+#[tokio::test]
+async fn a_joined_linux_daemon_sets_up_cmux_rds_screen_host_by_itself() {
+    let _account = AccountConsentRestored::new();
+    let home = tempfile::tempdir().unwrap();
+    let home = home.path();
+    // The local deployment: its platform (where the heartbeats go, refused here) and its device hub.
+    joined_home(home, "http://localhost:8788");
+    let user_home = daemon_env::home(home);
+    std::fs::create_dir_all(user_home.join(".local/bin")).unwrap();
+
+    let mut daemon = joined_daemon(home).await;
+    let status = share_host_status(home, |s| s["state"] != "not_started").await;
+    assert_eq!(status["state"], "not_installed", "{status}");
+    assert!(status["detail"].as_str().unwrap().contains("cmux-rd is not installed"), "{status}");
+    stop_daemon(&mut daemon).await;
+
+    let rd = user_home.join(".local/bin/cmux-rd");
+    let seen = home.join("rd-seen");
+    std::fs::write(
+        &rd,
+        format!(
+            "#!/bin/sh\nprintf '%s\\n' \"$ACPMUX_HOME\" \"$@\" > '{}'\necho 'This desktop is shared as \"test\" (dev1), view only.'\n",
+            seen.display()
+        ),
+    )
+    .unwrap();
+    std::fs::set_permissions(&rd, std::fs::Permissions::from_mode(0o755)).unwrap();
+    let mut daemon = joined_daemon(home).await;
+    let status = share_host_status(home, |s| s["state"] != "setting_up").await;
+    assert_eq!(status["state"], "set_up", "{status}");
+    assert_eq!(status["running"], true);
+    assert_eq!(status["hub"], "http://localhost:8791");
+    assert_eq!(status["cmuxRd"], json!(rd));
+    let ran = std::fs::read_to_string(&seen).unwrap();
+    let home_text = home.display().to_string();
+    assert_eq!(
+        ran.lines().collect::<Vec<_>>(),
+        [
+            home_text.as_str(),
+            "linux-host",
+            "enable",
+            "--non-interactive",
+            "--hub",
+            "http://localhost:8791"
+        ]
+    );
+    stop_daemon(&mut daemon).await;
+}
+
+/// Stops a daemon this test started (SIGTERM, as a restart's handoff), and waits for it.
+#[cfg(target_os = "linux")]
+async fn stop_daemon(daemon: &mut tokio::process::Child) {
+    if let Some(pid) = daemon.id() {
+        // SAFETY: the pid of the child this test spawned and has not reaped.
+        unsafe { libc::kill(pid as i32, libc::SIGTERM) };
+    }
+    if tokio::time::timeout(Duration::from_secs(20), daemon.wait()).await.is_err() {
+        daemon.kill().await.unwrap();
+    }
 }

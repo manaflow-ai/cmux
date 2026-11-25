@@ -7,9 +7,6 @@ public nonisolated enum SwapCmdTAndCmdNSetting {
 }
 
 nonisolated extension SwapCmdTAndCmdNSetting {
-    public static let configPath = ["tabs", "swapCmdTAndCmdN"]
-    public static let fallback = false
-
     /// A missing key is the default with no diagnostic; a bad value is the
     /// default plus a diagnostic.
     static func parse(_ root: JSONValue) -> (Bool, SettingsDiagnostic?) {

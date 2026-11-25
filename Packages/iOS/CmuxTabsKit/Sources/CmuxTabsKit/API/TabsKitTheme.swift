@@ -53,6 +53,14 @@ public struct TabsKitTheme: Sendable {
     /// Toolbar, menu and card metrics (points; 402 pt wide reference screen).
     /// The tab grid's geometry is fixed by the measured layout (OverviewLayout).
     public struct Metrics: Sendable {
+        /// The screen edge the page toolbar (back, address capsule, tabs) sits on.
+        /// Safari's default is the bottom; an app whose bottom belongs to a composer
+        /// puts it at the top, where it never hides behind the keyboard.
+        public var barEdge: TabsKitBarEdge = .bottom
+        /// The top bar's distance below the status bar.
+        public var topBarGap: CGFloat = 2
+        /// The top bar's side inset: the grid header's (20), so Back sits in one place on page and grid.
+        public var topSideInset: CGFloat = 20
         /// Toolbar side inset (34).
         public var sideInset: CGFloat = 34
         /// Glass circle diameter and bar height (48).
@@ -78,9 +86,16 @@ public struct TabsKitTheme: Sendable {
         public var editInset: CGFloat = 8
         /// Display corner radius for full-screen pages in zooms and swipes.
         public var screenRadius: CGFloat = 55
-        /// Card close button (22 pt circle) and the grid's top controls (36 pt).
+        /// Card close button (22 pt circle).
         public var cardClose: CGFloat = 22
-        public var overviewTopControl: CGFloat = 36
+        /// The grid's top controls (More, Select's Close | More and Done, and an
+        /// app's Back beside them): the bottom bar's 48 pt glass circle, so the
+        /// top and bottom toolbars read as one size.
+        public var overviewTopControl: CGFloat = 48
+        /// Glyph of a toolbar circle's chevron or ellipsis (19 pt medium, the
+        /// bottom bar's back and forward); a Done checkmark is 20 pt semibold.
+        public var toolbarGlyph: CGFloat = 19
+        public var doneGlyph: CGFloat = 20
         public var titleRow: CGFloat = 23
         /// Page menu.
         public var menuWidth: CGFloat = 250

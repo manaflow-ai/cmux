@@ -108,4 +108,11 @@ import Testing
         #expect(json["pending"] == .array([]))
         #expect(json["blocked"] == .null)
     }
+
+    /// Msg 3790: signed out, the status says to sign in, and the card offers the Sign In button.
+    @Test func aSignedOutHostOffersSignIn() {
+        let json = IPhoneHostService(loginKeychain: LoginKeychain()).pageJSON
+        #expect(json["status"] == .string(IPhoneHostStrings.signedOut))
+        #expect(json["sign_in"]?.stringValue?.isEmpty == false)
+    }
 }

@@ -3,6 +3,7 @@ import { afterAll, afterEach, beforeAll, expect, test } from "bun:test";
 import { JSDOM } from "jsdom";
 import { act } from "react";
 import type { Root } from "react-dom/client";
+import { settleReact } from "./support/domTeardown";
 
 const scope = globalThis as Record<string, unknown>;
 const saved = new Map<string, { had: boolean; value: unknown }>();
@@ -50,7 +51,8 @@ afterEach(async () => {
   host.replaceChildren();
 });
 
-afterAll(() => {
+afterAll(async () => {
+  await settleReact();
   dom.window.close();
   for (const [key, entry] of saved) {
     if (entry.had) scope[key] = entry.value;
@@ -357,7 +359,7 @@ test("the project list announces the committed project and private-folder select
     await click(host.querySelector<HTMLButtonElement>("button")!);
     const selected = document.querySelector('[aria-current="true"]');
     expect(selected).toBeTruthy();
-    expect(selected!.textContent).toContain(privateFolder ? "Do not work in a project" : "current");
+    expect(selected!.textContent).toContain(privateFolder ? "No folder" : "current");
     await key(document.querySelector<HTMLInputElement>('[role="combobox"]')!, "Escape");
   }
 });

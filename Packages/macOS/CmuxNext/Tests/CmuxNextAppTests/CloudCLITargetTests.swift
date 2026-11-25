@@ -56,9 +56,11 @@ struct CloudCLITargetTests {
         #expect(try CloudHandlers.machine(ActionInvocation(origin: .user), f.context) === f.session)
     }
 
-    @Test func newCloudWorkspaceKeepsTheFallbackForAnyCaller() throws {
+    /// One workspace, one new machine (design/cloud.md rule 1): a CLI run with no target never
+    /// opens on the only listed machine, which may be a teammate's or a fleet lane VM.
+    @Test func newCloudWorkspaceFromTheCLIWithNoTargetMakesANewMachine() throws {
         let f = Self.fixture()
-        #expect(try CloudHandlers.machine(ActionInvocation(origin: .cli), f.context, fallsBack: true) === f.session)
+        #expect(try CloudHandlers.workspaceMachine(ActionInvocation(origin: .cli), f.context) == nil)
     }
 
     // MARK: Results for non-person runs
@@ -289,6 +291,15 @@ struct CloudCLITargetTests {
         let served = AppControl.cloudMachineRow(with.session, with.services.machines)
         #expect(served["file_ops"] == .bool(true))
         #expect(served["missing_features"]?.arrayValue?.contains(.string("fs-v1")) != true)
+    }
+
+    /// `cloud.machines` names each machine's own team (its record's), which the carrier fault drill mints its ticket
+    /// credential for, as the app's dial sends it; nil on a record without one.
+    @Test func aCloudMachineRowNamesTheMachinesOwnTeam() {
+        let f = Self.fixture()
+        #expect(AppControl.cloudMachineRow(f.session, f.services.machines)["team"] == .null)
+        f.session.machine.team = "team_d9753ae7bf17ea2f6eaf"
+        #expect(AppControl.cloudMachineRow(f.session, f.services.machines)["team"] == .string("team_d9753ae7bf17ea2f6eaf"))
     }
 
     /// A field added to `identify` must reach the details too: every stored property of

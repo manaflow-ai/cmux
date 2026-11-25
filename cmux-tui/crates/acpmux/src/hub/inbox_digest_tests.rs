@@ -9,6 +9,7 @@ impl PromptRun {
             blocks: self.blocks.clone(),
             display_parts: self.display_parts.clone(),
             control: self.control,
+            cloud_mobile: self.cloud_mobile,
             trust_gate: self.trust_gate,
             provenance: self.provenance.clone(),
             agent: self.agent.clone(),
@@ -26,9 +27,11 @@ fn part(prompt_id: &str, name: &str, class: Class, at: u64, text: &str) -> Part 
         prompt_id: prompt_id.into(),
         from: format!("acp:{name}"),
         from_name: name.into(),
+        display_name: None,
         class,
         received_at: at,
         text: text.into(),
+        notice: None,
     }
 }
 
@@ -115,6 +118,7 @@ fn queued(prompt_id: &str, agent: Option<&str>, class: Option<Class>, text: &str
         blocks: vec![json!({"type": "text", "text": text})],
         display_parts: None,
         control: Control::Local,
+        cloud_mobile: false,
         trust_gate: false,
         provenance: None,
         agent: agent.map(str::to_owned),
@@ -135,6 +139,7 @@ fn queued(prompt_id: &str, agent: Option<&str>, class: Option<Class>, text: &str
         restored: false,
         resume: false,
         steer: false,
+        steer_on_start: false,
         held: false,
         awaiting_owner: false,
         revision: 0,
@@ -177,6 +182,12 @@ fn only_other_agents_text_messages_go_into_a_digest() {
     run.provenance = Some(json!({"kind": KIND}));
     digest.run = Arc::new(run);
     assert!(!digestible(&digest));
+    // A goal's continuation runs alone, checked against its goal (Codex review of #36666).
+    let mut continuation = queued("p6g", Some("acpmux"), None, "Keep going");
+    let mut run = continuation.run.clone_run();
+    run.provenance = Some(json!({"kind": "notice", "from": "acpmux", "goalMark": "41"}));
+    continuation.run = Arc::new(run);
+    assert!(!digestible(&continuation));
     let mut web = queued("p7", Some("lane-a"), None, "from the web");
     let mut run = web.run.clone_run();
     run.control = Control::Web;
@@ -234,4 +245,40 @@ fn a_renamed_sender_still_folds_and_groups_by_its_address() {
     assert_eq!(text.matches("### from ").count(), 1, "{text}");
     assert_eq!(text.matches("\n\n[result]").count(), 2, "{text}");
     assert!(text.contains("promptId p2 (×2)"), "{text}");
+}
+
+/// A tool's notice in a digest keeps its structure on its part (`prompt_provenance::notice`).
+#[test]
+fn a_digest_part_keeps_its_tools_notice() {
+    let notice = json!({"sender": "base-red-watch", "severity": "fire", "title": "t"});
+    let mut fire = part("p-1", "base-red-watch", Class::Block, 1, "red");
+    fire.notice = Some(notice.clone());
+    let plain = part("p-2", "lane", Class::Result, 2, "merged");
+    let rendered = render("d-1", &[fire, plain]);
+    let parts = rendered.provenance["parts"].as_array().unwrap();
+    let by_id = |id: &str| parts.iter().find(|p| p["promptId"] == id).unwrap();
+    assert_eq!(by_id("p-1")["notice"], notice);
+    assert!(by_id("p-2").get("notice").is_none());
+}
+
+/// A sender with a given name reads by it in every digest line, the HOST/NAME beside it; the
+/// part's `fromName` stays the session's name, which clients look a chat up by.
+#[test]
+fn a_digest_names_a_sender_by_its_given_name() {
+    let mango = |id: &str, class: Class, at: u64, text: &str| Part {
+        display_name: Some("Mango".into()),
+        ..part(id, "studio-mac/coord-old", class, at, text)
+    };
+    let parts = [
+        mango("p1", Class::Question, 1, "which base?"),
+        mango("p2", Class::Result, 2, "merged"),
+        mango("p3", Class::Fyi, 3, "heads up"),
+        part("p4", "lane-a", Class::Fyi, 4, "plain"),
+    ];
+    let Rendered { text, provenance } = render("d2", &parts);
+    assert!(text.contains("[question] from Mango · studio-mac/coord-old, promptId p1"), "{text}");
+    assert!(text.contains("### from Mango · studio-mac/coord-old"), "{text}");
+    assert!(text.contains("- Mango · studio-mac/coord-old (promptId p3)"), "{text}");
+    assert!(text.contains("- lane-a (promptId p4)"), "{text}");
+    assert_eq!(provenance["parts"][0]["fromName"], "studio-mac/coord-old");
 }

@@ -5,7 +5,8 @@ import CmuxNextDesignTokens
 
 /// A dialog's choice list can show an option greyed out (Move Chief To…: an offline host, a paired
 /// server that is not a move target yet): the option is listed, cannot be picked, and the list
-/// starts on the first option that can.
+/// starts on the first option that can. The overlay page draws the list from the spec; this guards
+/// the dialog's own values, which are what the center answers with.
 @MainActor
 struct CmuxDialogDisabledOptionTests {
     private static let spec = CmuxDialogSpec(title: "Move Chief to", fields: [.choice(id: "choice", label: nil, options: [
@@ -13,20 +14,20 @@ struct CmuxDialogDisabledOptionTests {
         CmuxDialogOption(label: "This Mac", value: "local"),
     ], selected: nil)], buttons: [.ok("Select")])
 
-    @Test func aDisabledOptionIsListedButGreyedOut() throws {
-        let popup = try #require(Self.find(CmuxDialogView(spec: Self.spec), id: "cmux.dialog.field.choice") as? NSPopUpButton)
-        #expect(popup.numberOfItems == 2)
-        #expect(popup.autoenablesItems == false)
-        #expect(popup.item(at: 0)?.isEnabled == false)
-        #expect(popup.item(at: 1)?.isEnabled == true)
-        #expect(popup.selectedItem?.representedObject as? String == "local", "starts on the first option that can be picked")
+    @Test func aDisabledOptionIsNeverTheSelection() {
+        let dialog = CmuxDialogPresentation(id: 1, spec: Self.spec, activeLook: nil)
+        #expect(dialog.values["choice"] == .text("local"), "starts on the first option that can be picked")
+        #expect(!dialog.setValue(.text("mini"), for: "choice"), "automation picked a disabled option")
+        dialog.edited(["choice": .text("mini")])
+        #expect(dialog.values["choice"] == .text("local"), "an edit picked a disabled option")
     }
 
-    private static func find(_ view: NSView, id: String) -> NSView? {
-        if view.identifier?.rawValue == id { return view }
-        for subview in view.subviews {
-            if let match = find(subview, id: id) { return match }
-        }
-        return nil
+    /// A spec that names the disabled option as selected still starts on one that can be picked.
+    @Test func aDisabledSelectedOptionStartsOnTheFirstEnabledOne() {
+        let spec = CmuxDialogSpec(title: "Move Chief to", fields: [.choice(id: "choice", label: nil, options: [
+            CmuxDialogOption(label: "mini — offline", value: "mini", isEnabled: false),
+            CmuxDialogOption(label: "This Mac", value: "local"),
+        ], selected: "mini")], buttons: [.ok("Select")])
+        #expect(CmuxDialogPresentation.initialValues(spec)["choice"] == .text("local"))
     }
 }

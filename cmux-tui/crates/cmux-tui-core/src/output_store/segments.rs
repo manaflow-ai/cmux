@@ -41,6 +41,9 @@ const SUFFIX: &str = "seg";
 /// A segment file is closed and a new one started past this size.
 const SEGMENT_FILE_BYTES: u64 = 8 * 1024 * 1024;
 const FRAME_HEADER_BYTES: usize = 16;
+/// The most raw bytes one flush writes as one frame: the threshold at which
+/// output wakes the writer at once, well under what a reader accepts.
+const MAX_FLUSH_FRAME_BYTES: usize = super::FULL_PENDING_WAKE_BYTES;
 /// Unchanged-content bytes a terminal holds before they are written anyway.
 const UNCHANGED_FLUSH_BYTES: usize = 1024 * 1024;
 /// The largest raw frame a reader accepts (a flush is at most a few MB).
@@ -65,6 +68,21 @@ impl Segments {
 
     pub(crate) fn set_enabled(&self, enabled: bool) {
         self.enabled.store(enabled, Ordering::Relaxed);
+    }
+
+    /// Forgets what this daemon knows of a terminal's segment files; call
+    /// when they are removed.
+    pub(crate) fn forget(&self, directory: &Path, terminal_id: &TerminalPublicId) {
+        let terminal_directory = terminal_directory(directory, terminal_id);
+        self.verified
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .retain(|path, _| path.parent() != Some(terminal_directory.as_path()));
+    }
+
+    /// Forgets every terminal's segment files (all were removed).
+    pub(crate) fn forget_all(&self) {
+        self.verified.lock().unwrap_or_else(PoisonError::into_inner).clear();
     }
 }
 
@@ -143,19 +161,29 @@ fn new_file_path(terminal_directory: &Path, generation: &str, start: u64) -> Opt
         })
 }
 
-/// Append the pending bytes of each log as one frame (content-changed logs
-/// only, `digests` from the snapshot writer), then apply the caps. Returns
-/// whether a write failed (those logs are dirty again: the caller schedules
-/// another pass).
+/// What a flush leaves for the caller to schedule.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub(super) struct FlushOutcome {
+    /// A write failed: those logs are dirty again, the next pass retries.
+    pub(super) failed: bool,
+    /// A log still holds a frame's worth of bytes after its frame (a
+    /// flood): it is dirty again, and the next pass is due at once.
+    pub(super) flooded: bool,
+}
+
+/// Append the pending bytes of each log as one frame of at most
+/// [`MAX_FLUSH_FRAME_BYTES`] (content-changed logs only, `digests` from the
+/// snapshot writer), then apply the caps.
 pub(super) fn flush_logs(
     segments: &Segments,
     directory: &Path,
     logs: &[(Arc<TerminalLog>, Option<u64>)],
     policy: PersistencePolicy,
     quitting: bool,
-) -> bool {
+) -> FlushOutcome {
     let mut wrote = false;
     let mut failed = false;
+    let mut flooded = false;
     for (log, digest) in logs {
         let (generation, start, bytes) = {
             let mut state = log.state.lock().unwrap_or_else(PoisonError::into_inner);
@@ -173,8 +201,14 @@ pub(super) fn flush_logs(
             // A copy: the bytes stay readable from memory until the frame
             // that holds them is in the file (a read never sees them in
             // neither place).
-            let bytes = state.pending.clone();
-            state.segment_digest = *digest;
+            // At most one frame's worth: a flood is written in frames a
+            // reader accepts, back to back (the caller runs the next pass at
+            // once), never as one frame of everything that came meanwhile.
+            let take = state.pending.len().min(MAX_FLUSH_FRAME_BYTES);
+            let bytes = state.pending.get(..take).unwrap_or_default().to_vec();
+            // The digest names the screen after every pending byte: only a
+            // flush of all of them may record it.
+            state.segment_digest = if take == state.pending.len() { *digest } else { None };
             (state.generation.clone(), state.pending_start, bytes)
         };
         let terminal_directory = terminal_directory(directory, &log.terminal_id);
@@ -201,6 +235,10 @@ pub(super) fn flush_logs(
             // `unflushed_start` is in a segment file (read_after relies on it).
             state.pending.drain(..bytes.len());
             state.pending_start = start + bytes.len() as u64;
+            if state.pending.len() >= MAX_FLUSH_FRAME_BYTES {
+                state.dirty = true;
+                flooded = true;
+            }
         } else if ours {
             // Not written (a full disk, an IO error): the next pass tries
             // again, changed content or not. Memory stays bounded on
@@ -227,7 +265,7 @@ pub(super) fn flush_logs(
     if wrote {
         enforce_total_cap(directory, policy.max_total_bytes);
     }
-    failed
+    FlushOutcome { failed, flooded }
 }
 
 fn append_frame(
@@ -534,17 +572,16 @@ pub(super) fn keys_of(generation: &str) -> [String; 2] {
 
 /// Raw bytes a rebuild replays at most (the newest frames).
 const REBUILD_MAX_RAW_BYTES: usize = 64 * 1024 * 1024;
-/// Scrollback of the rebuild terminal (Ghostty's default limit).
-const REBUILD_SCROLLBACK_BYTES: usize = 10_000_000;
-
 /// The terminal of `generation` rebuilt from its stored frames (the newest
-/// [`REBUILD_MAX_RAW_BYTES`]) as a VT replay that fits a respawn seed.
+/// [`REBUILD_MAX_RAW_BYTES`]) as a VT replay that fits a respawn seed, in a
+/// scratch terminal with the respawned terminal's own `scrollback` limit.
 pub(super) fn rebuild(
     directory: &Path,
     terminal_id: &TerminalPublicId,
     generation: &str,
     cols: u16,
     rows: u16,
+    scrollback: usize,
 ) -> Option<crate::workspace_registry::terminal_respawn_store::TerminalReplay> {
     let files = generation_files(&terminal_directory(directory, terminal_id), generation);
     let mut newest = Vec::new();
@@ -564,15 +601,14 @@ pub(super) fn rebuild(
     let mut terminal = ghostty_vt::Terminal::new(
         cols.max(1),
         rows.max(1),
-        REBUILD_SCROLLBACK_BYTES,
+        scrollback,
         ghostty_vt::Callbacks::default(),
     )
     .ok()?;
     for bytes in newest.iter().rev() {
         terminal.vt_write(bytes);
     }
-    // Room for the respawn's marker line and mode reset.
-    let budget = crate::surface::VT_REPLAY_MAX_BYTES.saturating_sub(64 * 1024);
+    let budget = crate::surface::SEED_REPLAY_MAX_BYTES;
     let bytes = terminal.vt_replay_bounded(budget).ok()?.into_self_contained_bytes();
     Some(crate::workspace_registry::terminal_respawn_store::TerminalReplay { cols, rows, bytes })
 }

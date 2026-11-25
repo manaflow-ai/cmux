@@ -44,7 +44,7 @@ import Testing
         NSApp.appearance = NSAppearance(named: appearance)
         defer { NSApp.appearance = appLook }
         try Data("{}".utf8).write(to: url)
-        let settings = SettingsController(registry: ActionRegistry(catalog: []), design: DesignSettings(), fileURL: url,
+        let settings = SettingsController(writer: TestSettingsWriter(), registry: ActionRegistry(catalog: []), design: DesignSettings(), fileURL: url,
                                           managedReader: FixedManagedPreferenceReader(ManagedPreferences()), managedWatchFiles: [])
         await settings.reload()
         let affordance: ChiefPetUploadAffordance = switch variant {
@@ -58,7 +58,7 @@ import Testing
         let uploads = variant == .before ? nil : ChiefAvatarUploads(folder: folder.appending(path: "uploads-\(variant)-\(appearance.rawValue)"))
         if variant == .worn, let uploads {
             try await uploads.store(from: Self.face(in: folder), for: ChiefAvatarUploads.key(chief: HomeChiefAvatars.defaultChief),
-                                over: HomeChiefPetSetting.defaultMascot)
+                                over: HomeChiefPetSetting.mascotDefault)
         }
         let home = folder.appending(path: "brain")
         let popover = HomeChiefSettingsView(muxHome: home, source: HomeChiefLocalEngine(files: HomeChiefFiles(muxHome: home), connection: { nil }))

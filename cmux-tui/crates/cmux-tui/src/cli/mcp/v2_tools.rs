@@ -18,17 +18,15 @@ use super::Exclusion;
 use super::schema::{self, Generator};
 use super::transport::{self, Prefix};
 
-pub(super) const CATALOG_JSON: &str =
-    include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/../../spec/resource-operations-v2.json"));
-
 /// A read with an array result and no `limit` of its own answers one page:
 /// `limit` items (default, maximum) from `offset`.
 pub(super) const DEFAULT_PAGE: usize = 100;
 pub(super) const MAX_PAGE: usize = 1000;
 
-/// `terminal_wait` and `terminal_wait_exit` wait at most this long: the
-/// server answers one call at a time, so an unbounded wait would stop every
-/// later call. The daemon waits forever when `timeout_ms` is absent.
+/// `terminal_wait` and `terminal_wait_exit` wait at most this long. A top-level wait runs on
+/// its own thread (`Server::detached_wait`), but one a `cmux_exec` script makes holds the
+/// script, and a forgotten wait holds a thread and a daemon connection. The daemon waits
+/// forever when `timeout_ms` is absent.
 const DEFAULT_WAIT_MS: u64 = 30_000;
 const MAX_WAIT_MS: u64 = 300_000;
 
@@ -37,6 +35,11 @@ const STREAM_REASON: &str =
 const CONNECTION_REASON: &str =
     "Connection control: it applies to one socket connection, which ends with the tool call.";
 const AGENT_REPORT_REASON: &str = "The agent_report MCP tool owns dispatched brief reports; the resource operation uses the same wire name and would make calls ambiguous.";
+
+/// A review posts under the person's own GitHub account: an agent leaves
+/// drafts (`git_review_comment`) and the person posts them from the diff
+/// viewer.
+const REVIEW_POST_REASON: &str = "Posting a pull request review publishes under the person's GitHub account: agents leave drafts with git_review_comment, and the person posts them from the diff viewer.";
 
 /// Read and mutation operations the curated `cmux` CLI does not offer
 /// (`cmux-tui`-only scopes), with the reason. The parity test checks that
@@ -60,8 +63,8 @@ const CHIEF_REGISTRY_REASON: &str = "The person's Chiefs are edited by the perso
 /// owner's; an MCP client is an agent and never mints, rotates or checks one.
 const CREDENTIAL_REASON: &str = "Launch credentials belong to the session host and the owner: acpmux and the owner's connection call them, never an agent.";
 
-/// The daemon settings owner (cx-9ce.10) has no CLI verb or MCP policy yet:
-/// `cmux settings` stays on the app socket with its user confirm sheet, and
+/// Settings writes with --confirm use the app socket and its native sheet.
+/// The daemon list is CLI-only until its MCP read policy is implemented;
 /// the CLI and MCP surfaces for the daemon ops come with cx-9ce.12 and the MCP
 /// policy decision cx-ncc.32.
 const SETTINGS_REASON: &str = "Settings go through cmux settings on the app socket with the user's confirm sheet until the daemon settings verbs and their MCP policy land (cx-9ce.12, cx-ncc.32).";
@@ -71,15 +74,21 @@ const SETTINGS_REASON: &str = "Settings go through cmux settings on the app sock
 /// agent never rebinds the user's keys.
 const KEYBINDINGS_REASON: &str = "Keybindings are the user's, edited from the Keyboard Shortcuts page, until daemon keybindings verbs and their MCP policy land (cx-9ce.17, cx-ncc.32).";
 
+/// Settings recovery (`cmux settings history|undo|restore|reset --group`):
+/// agents get the schema-scoped tools instead of the generic ones, which
+/// list only schema keys and always declare origin mcp.
+const SETTINGS_RECOVERY_REASON: &str = "Agents use the schema-scoped settings_history, settings_undo, settings_restore and settings_reset_group tools, which list only schema keys and always declare origin mcp (user-only settings stay refused).";
+
 pub(super) const EXCLUDED: &[(&str, &str)] = &[
     ("agent.report", AGENT_REPORT_REASON),
+    ("git.review.post", REVIEW_POST_REASON),
     ("settings.schema", SETTINGS_REASON),
-    ("settings.list", SETTINGS_REASON),
     ("settings.get", SETTINGS_REASON),
     ("settings.snapshot", SETTINGS_REASON),
     ("settings.set", SETTINGS_REASON),
     ("settings.reset", SETTINGS_REASON),
     ("settings.reset_all", SETTINGS_REASON),
+    ("settings.edit", SETTINGS_REASON),
     ("keybindings.get", KEYBINDINGS_REASON),
     ("keybindings.set", KEYBINDINGS_REASON),
     ("keybindings.remove", KEYBINDINGS_REASON),
@@ -97,6 +106,8 @@ pub(super) const EXCLUDED: &[(&str, &str)] = &[
     ("chief.engine.get", CHIEF_REASON),
     ("chief.engine.set", CHIEF_REASON),
     ("chief.stop", CHIEF_REASON),
+    ("chief.automation.list", CHIEF_REASON),
+    ("chief.automation.update", CHIEF_REASON),
     ("chief.continue", CHIEF_REASON),
     ("chief.retry", CHIEF_REASON),
     ("chief.profile.list", CHIEF_REGISTRY_REASON),
@@ -178,11 +189,68 @@ pub(super) const EXCLUDED: &[(&str, &str)] = &[
     ("palette_usage.import", PALETTE_USAGE_REASON),
     ("palette_usage.hide", PALETTE_USAGE_REASON),
     ("palette_usage.forget", PALETTE_USAGE_REASON),
+    ("palette.rank", PALETTE_RANK_REASON),
+    ("chat.list", CHAT_REASON),
+    ("chat.mark_read", CHAT_REASON),
+    ("chat.pin", CHAT_REASON),
+    ("theme.scheme.convert", THEME_SCHEME_REASON),
+    ("theme.scheme.export", THEME_SCHEME_REASON),
+    ("theme.scheme.from_image", THEME_SCHEME_REASON),
     ("stash.create", STASH_REASON),
     ("stash.list", STASH_REASON),
     ("stash.restore", STASH_REASON),
     ("stash.delete", STASH_REASON),
     ("stash.import", STASH_REASON),
+    ("classic_import.plan", CLASSIC_IMPORT_REASON),
+    ("classic_import.record", CLASSIC_IMPORT_REASON),
+    ("conductor_import.plan", CONDUCTOR_IMPORT_REASON),
+    ("conductor_import.record", CONDUCTOR_IMPORT_REASON),
+    ("browser_import.read", BROWSER_IMPORT_REASON),
+    ("language_packs.ensure", LANGUAGE_PACKS_REASON),
+    ("cloud.machine.chat_access", CLOUD_API_REASON),
+    ("cloud.machine.io", CLOUD_API_REASON),
+    ("cloud.machine.share_chat", CLOUD_API_REASON),
+    ("cloud.machine.chief_start", CLOUD_API_REASON),
+    ("cloud.machine.chief_resize", CLOUD_API_REASON),
+    ("cloud.machine.fork", CLOUD_API_REASON),
+    ("cloud.owner.acpmux_keyed_start", CLOUD_API_REASON),
+    ("cloud.owner.acpmux_person_holds", CLOUD_API_REASON),
+    ("cloud.owner.fork_run", CLOUD_API_REASON),
+    ("cloud.owner.github_app", CLOUD_API_REASON),
+    ("cloud.owner.github_connect", CLOUD_API_REASON),
+    ("cloud.owner.github_repos", CLOUD_API_REASON),
+    ("cloud.owner.handoff_begin_turn", CLOUD_API_REASON),
+    ("cloud.owner.handoff_open", CLOUD_API_REASON),
+    ("cloud.owner.handoff_wait", CLOUD_API_REASON),
+    ("cloud.owner.handoffs", CLOUD_API_REASON),
+    ("cloud.owner.harness_login_copy", CLOUD_API_REASON),
+    ("cloud.owner.turn_checkpoint", CLOUD_API_REASON),
+    ("cloud.owner.turn_rewind", CLOUD_API_REASON),
+    ("cloud.owner.turns", CLOUD_API_REASON),
+    ("cloud.previews.create_link", CLOUD_API_REASON),
+    ("cloud.previews.refresh", CLOUD_API_REASON),
+    ("cloud.previews.revoke_link", CLOUD_API_REASON),
+    ("cloud.runs.cancel", CLOUD_API_REASON),
+    ("cloud.runs.create", CLOUD_API_REASON),
+    ("cloud.runs.sandbox", CLOUD_API_REASON),
+    ("cloud.runs.start", CLOUD_API_REASON),
+    ("cloud.runs.wait", CLOUD_API_REASON),
+    ("cloud.vm.domains", CLOUD_API_REASON),
+    ("cloud.vm.firewall_create", CLOUD_API_REASON),
+    ("cloud.vm.firewall_delete", CLOUD_API_REASON),
+    ("cloud.vm.firewall_get", CLOUD_API_REASON),
+    ("cloud.vm.firewall_list", CLOUD_API_REASON),
+    ("cloud.vm.networks", CLOUD_API_REASON),
+    ("cloud.vm.provision_api", CLOUD_API_REASON),
+    ("cloud.vm.publication_api_keys", CLOUD_API_REASON),
+    ("cloud.vm.publications", CLOUD_API_REASON),
+    ("cloud.vm.revoke_publication_api_key", CLOUD_API_REASON),
+    ("cloud.vm.scp_endpoint", CLOUD_API_REASON),
+    ("cloud.vm.tunnel_attach", CLOUD_API_REASON),
+    ("cloud.vm.tunnel_detach", CLOUD_API_REASON),
+    ("cloud.vm.tunnel_enroll", CLOUD_API_REASON),
+    ("cloud.vm.tunnel_revoke", CLOUD_API_REASON),
+    ("cloud.vm.tunnel_rotate_key", CLOUD_API_REASON),
     ("workspace.ensure_home", HOME_REASON),
     ("workspace.ensure_app", APP_WORKSPACE_REASON),
     ("workspace.agent_folder.set", AGENT_FOLDER_REASON),
@@ -202,6 +270,14 @@ pub(super) const EXCLUDED: &[(&str, &str)] = &[
 /// Operations the curated `cmux` CLI offers but MCP does not, with the
 /// reason. Unlike [`EXCLUDED`], the parity test lets `cmux` reach these.
 pub(super) const CLI_ONLY: &[(&str, &str)] = &[
+    (
+        "settings.list",
+        "The raw daemon listing stays CLI-only until its MCP read policy for credential-bearing values lands; agents use the schema-scoped settings_list tool.",
+    ),
+    ("settings.history", SETTINGS_RECOVERY_REASON),
+    ("settings.undo", SETTINGS_RECOVERY_REASON),
+    ("settings.restore", SETTINGS_RECOVERY_REASON),
+    ("settings.reset_group", SETTINGS_RECOVERY_REASON),
     ("agent.message.release", AGENT_MESSAGE_RELEASE_REASON),
     ("agent.message.unsend", AGENT_MESSAGE_UNSEND_REASON),
     ("history.entries.list", HISTORY_MCP_PENDING_REASON),
@@ -227,14 +303,18 @@ const AGENT_MESSAGE_UNSEND_REASON: &str = "Agent messages go through `cmux agent
      taking one back is `cmux agent message unsend`, beside the send it undoes.";
 
 const PROJECT_REASON: &str = "The user's folders (project-list-v1) stay with the app and its importers; an MCP client never reads or edits them.";
-const SESSION_REASON: &str =
-    "Session plumbing in the cmux-tui-only scope; the curated cmux CLI omits it.";
-const LIFECYCLE_REASON: &str = "Session lifecycle (ends every terminal or reloads the daemon); \
-     cmux-tui-only, and the cmux CLI's `server` scope does not send it.";
-const SESSION_SETTING_REASON: &str = "A session-wide setting in the cmux-tui-only scope.";
+// The `session` and `client` scopes are on the `cmux` CLI too since #38290 (an agent in a
+// cmux-tui pane reads its topology and cleans up with the `cmux` on its PATH); they stay
+// off MCP, which the catalog test allows for these two scopes only.
+const SESSION_REASON: &str = "Session plumbing: the `session` scope of the CLI, not an MCP tool.";
+const LIFECYCLE_REASON: &str = "Session lifecycle (ends every terminal or reloads the daemon): \
+     only the CLI's `session` scope sends it, never an MCP tool.";
+const SESSION_SETTING_REASON: &str =
+    "A session-wide setting: the `session` scope of the CLI, not an MCP tool.";
 const JOURNAL_REASON: &str =
-    "Session journal plumbing for producers and hooks in the cmux-tui-only scope.";
-const CLIENT_REASON: &str = "Connection-scoped client records in the cmux-tui-only scope.";
+    "Session journal plumbing for producers and hooks: the CLI's `session` scope, not MCP.";
+const CLIENT_REASON: &str =
+    "Connection-scoped client records: the `client` scope of the CLI, not an MCP tool.";
 const PROJECTION_REASON: &str = "Frontend projection records the app writes; cmux-tui-only.";
 const PAIRING_REASON: &str =
     "Device pairing approval: a person approves a pairing, never an agent; cmux-tui-only.";
@@ -242,10 +322,27 @@ const WINDOW_RECORD_REASON: &str = "A window record has one writer, the app that
      window; the CLI omits it too, and window_list reads the app's windows.";
 const SIDEBAR_LAYOUT_REASON: &str = "The Mac app's sidebar layout: agents edit it through the \
      app's sidebar actions (action tools), which keep the app's intent log.";
+const CHAT_REASON: &str = "The person's chats as their Priority view ranks them, and what they have \
+     seen or pinned: App Store apps (with a grant and a tap) and the person's own scripts read and \
+     mark them; an agent already lists sessions with acpmux's own tools.";
+const PALETTE_RANK_REASON: &str = "Ranks palette rows a page sends for its own palette \
+     (the Channels page); an agent has no palette to rank, and its tools already search.";
+const THEME_SCHEME_REASON: &str = "Scheme conversion for pages and extensions; an agent runs \
+     `cmux theme import|export|from-image|new`, which reads and writes files the tools cannot pass.";
 const PALETTE_USAGE_REASON: &str = "The user's own palette usage history: the app's palette \
      records and reads it; agents rank rows through palette.query, never read or write usage.";
 const STASH_REASON: &str = "The user's stashed web pages (stash-v1): the app's OneTab \
      list; agents close and open tabs through the tab and browser tools, never the stash.";
+const CLASSIC_IMPORT_REASON: &str = "The app's move from classic cmux drives these: it reads \
+     the plan and records what it made; agents never import.";
+const BROWSER_IMPORT_REASON: &str = "The app's browser import reads another browser's \
+     bookmarks, history and tabs by path; only the verified app sends it, agents never read them.";
+const LANGUAGE_PACKS_REASON: &str = "The app downloads the language it shows on first use, \
+     with its own bundle's manifest; only the verified app sends it, agents never do.";
+const CONDUCTOR_IMPORT_REASON: &str = "The app's Import from Conductor drives these: it reads \
+     the dry-run plan and records what it made; agents never import.";
+const CLOUD_API_REASON: &str = "The app's Cloud code and `cmux cloud` call these with the \
+     person's own access token in the params; agents use the cmux cloud commands.";
 const SIDEBAR_REASON: &str = "TUI sidebar plugin views in the cmux-tui-only scope.";
 const HOME_REASON: &str = "The hosting app creates its one home workspace on connect; the CLI \
      never offers it (workspace-kind-v1).";
@@ -267,8 +364,8 @@ const AGENT_FOLDER_REASON: &str = "Where a workspace's agents run: only the user
 const AGENT_START_REASON: &str = "Where a new chat starts: the app's agent pane asks it when a \
      chat opens; an agent already runs in its folder (cx-9aps).";
 
-/// The v2 catalog as an index of raw JSON slices of [`CATALOG_JSON`], which is
-/// embedded in the binary: parsed into one tree, its ~1 MB took ~17 MB of heap,
+/// The v2 catalog as an index of raw JSON slices of the catalog text (plain in the binary,
+/// 1.3 MB, shared by every server): parsed into one tree, its ~1 MB took ~17 MB of heap,
 /// held by every agent's `cmux mcp serve` for its whole life. An operation's
 /// descriptor or a type definition is parsed only while a tool is listed or
 /// called, and dropped after.
@@ -288,7 +385,8 @@ pub(super) fn catalog() -> &'static Catalog {
     static CATALOG: OnceLock<Catalog> = OnceLock::new();
     CATALOG.get_or_init(|| {
         let index: Index<'static> =
-            serde_json::from_str(CATALOG_JSON).expect("the checked-in catalog");
+            serde_json::from_str(cmux_tui_core::packed_catalogs::RESOURCE_OPERATIONS_V2)
+                .expect("the checked-in catalog");
         Catalog { types: index.types, operations: index.operations }
     })
 }
@@ -459,13 +557,23 @@ impl V2Tool {
         {
             text.push_str(" By default reads the original local-only machine shape. catalog:true explicitly includes owner metadata and currently published admitted routes. Metadata grants no execution rights and opens no machine connection.");
         }
+        if self.wire == "workspace.list" {
+            text.push_str(
+                " Lists this Mac's workspaces, then each connected Cloud machine's (from the cmux \
+                 app), marked origin cloud with machine_id, machine_name and target \
+                 machine:<id>; pass machine to list one Cloud machine's. A Cloud workspace is \
+                 named by machine_id and id together: machines made from one image share ids.",
+            );
+        }
         if let Some(constraints) = schema::joined(&descriptor["params"]["constraints"]) {
             text.push(' ');
             text.push_str(&constraints);
         }
         if self.waits() {
             text.push_str(&format!(
-                " timeout_ms defaults to {DEFAULT_WAIT_MS} and may be at most {MAX_WAIT_MS}."
+                " timeout_ms defaults to {DEFAULT_WAIT_MS} and may be at most {MAX_WAIT_MS}. \
+                 An answer whose time ran out (no match, or a process still running) has \
+                 timed_out true and waited_ms."
             ));
         }
         if self.paginated {
@@ -528,6 +636,21 @@ impl V2Tool {
                     "maxLength": 128,
                     "description": "Names this change so a retry cannot apply it twice. \
                         Generated when absent; a failed call returns it.",
+                }),
+            );
+        }
+        // The app's Cloud machines' workspaces join the list (cli/cloud_workspaces.rs).
+        if self.wire == "workspace.list" {
+            properties.insert(
+                "machine".into(),
+                json!({
+                    "type": "string",
+                    "minLength": 1,
+                    "description": "Only this Cloud machine's workspaces: its id (vm-…, the \
+                        machine_id cloud new-workspace answers), its target (machine:vm-…) or \
+                        its exact name. `local` lists only this Mac's. Default: this Mac's, then \
+                        every connected Cloud machine's, each marked with machine_id, \
+                        machine_name and target.",
                 }),
             );
         }
@@ -723,6 +846,7 @@ impl V2Tool {
                 stream: false,
                 resolve: Vec::new(),
                 view: Default::default(),
+                filter: Default::default(),
             },
             session,
             page,

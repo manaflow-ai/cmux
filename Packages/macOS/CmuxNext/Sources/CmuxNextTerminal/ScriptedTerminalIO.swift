@@ -13,12 +13,15 @@ public nonisolated final class ScriptedTerminalIO: TerminalIO {
 
     public let events: AsyncStream<TerminalIOEvent>
     public let answersTerminalQueries: Bool
+    public let predictsEcho: Bool
     private let continuation: AsyncStream<TerminalIOEvent>.Continuation
     private let recordedWrites = Mutex<[Data]>([])
     private let recordedResizes = Mutex<[Resize]>([])
 
-    public init(answersTerminalQueries: Bool = true) {
+    /// `predictsEcho`: the scripted shell stands for one on another machine (``TerminalIO/predictsEcho``).
+    public init(answersTerminalQueries: Bool = true, predictsEcho: Bool = false) {
         self.answersTerminalQueries = answersTerminalQueries
+        self.predictsEcho = predictsEcho
         // concurrency-allow: scripted demo IO; finite script
         (events, continuation) = AsyncStream<TerminalIOEvent>.makeStream(bufferingPolicy: .unbounded)
     }

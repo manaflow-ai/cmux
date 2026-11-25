@@ -79,6 +79,10 @@ extension HomeNativeTranscriptView {
     public func debugToggleNewestVideo() -> Bool { transcript.debugToggleNewestVideo() }
     /// The context menu's titles at the newest text bubble (the right-click's path).
     public func debugMenuTitles(mine: Bool) -> [String]? { transcript.debugMenuTitles(mine: mine) }
+    /// Chooses `title` in the context menu of the bubble whose text is `text` (the right-click's path).
+    public func debugChooseMenuItem(_ title: String, onBubble text: String) -> Bool {
+        transcript.debugChooseMenuItem(title, onBubble: text)
+    }
     /// The field's height and the gap under the newest receipt, in points.
     /// With the drop target's state: the draft's attachment count, drops on their way, the highlight (1 shown).
     public func debugGeometry() -> [String: Double] {

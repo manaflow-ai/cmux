@@ -24,11 +24,24 @@ The dedicated nightly-next builder is the one exception (Leo, 2026-10-27: "what 
 just dedicatd one, only, always, and it just incrementally... did the thing? clear its
 stuff, etc"). Its runner (`<host>-nightly-next` or glaeda's `<host>-glaeda-nightly-next`)
 runs only nightly-next's app build, so it keeps one DerivedData per identity and builds
-each new tip on it. An incremental build is a real compile of every changed file. It
+each new tip on it. Every runner of the dedicated nightly-only minis (`<host>-glaeda-nightly-only-K`) does
+the same through the Mac's host build root (below). An incremental build is a real compile of every changed file. It
 starts clean (CLEAN_REASONS) when:
-- the last build on it did not finish (no `mark-built` after `prepare`);
-- the key changed: the toolchain (Xcode, SDK, DEVELOPER_DIR) or any lockfile, toolchain
-  pin or submodule commit (KEY_PATHS);
+- the last build on it did not finish (no `mark-built` after `prepare`), unless xcodebuild ran to its end and
+  reported a failed build (fail-host: status 65, a compile error) and the build before it had not failed too.
+  xcodebuild records a task's result only once the task has finished, so the tasks the failed build completed
+  are as reusable as a finished build's, and the import and structure rules below, checked against the failed
+  build's commit, cover what it compiled: every build into the DerivedData since the last clean one was itself
+  checked against the one before it, and no import, structure or key change across each step means none across
+  the chain. Run 43371038867 failed on a Swift error on the signing Mac, and the next build, 43390156751, compiled clean
+  for 438 s. A second failure in a row starts clean, so kept state that breaks the build cannot break every one;
+- the key changed: the toolchain (Xcode, SDK, DEVELOPER_DIR) or a lockfile, toolchain
+  pin or submodule commit (KEY_PATHS). A Cargo.lock is not one: the Release build's cargo
+  phases (Build Diff Sidecar, Bundle optchat-chief, Bundle cmux-mobile-host) list their lockfiles
+  as inputs and build separate executables into Resources/bin, so Xcode reruns them and cargo
+  rebuilds incrementally; the Rust the Swift code links is a pinned binary (Package.swift,
+  Package.resolved); and the nightly bundles cmux-tui after the build (CMUX_NEXT_TUI_MODE=deferred). Three of the last five builder runs started clean on a
+  cmux-tui Cargo.lock change alone;
 - a file that shapes modules or linking changed since the last built commit
   (STRUCTURE_PATHS: Package.swift, *.pbxproj, *.xcconfig, *.modulemap, ...), or an
   import or include line was added or removed in a source file. That is the case the
@@ -37,6 +50,17 @@ starts clean (CLEAN_REASONS) when:
 - the downloads a build embeds by pin (CEF, GhosttyKit) changed: their manifests and
   scripts are in KEY_PATHS, the GhosttyKit pin is the ghostty submodule commit;
 - CLEAN_EVERY incremental builds ran since the last clean one.
+
+One build root per host (prepare-host, finish-host). Xcode's compilation cache keys hold the
+absolute source, DerivedData and package checkout paths, so a kept DerivedData and cache per
+runner slot gave each slot its own keys: two slots per Mac built every other or every fourth tip
+each, their entries pushed each other out of the one size-capped CAS, and an incremental build
+compared against that slot's last build several tips back. The Release build step
+(app-host-build-root.sh) therefore builds from HOST_ROOT/src, a clone of the checkout, into
+HOST_ROOT/DerivedData with the packages in HOST_ROOT/SourcePackages, under a flock that is never
+waited for; a held lock builds on the slot's own state as before. The clean rules are the same
+ones, judged against the host's last build. The paths are the same on every nightly Mac, so the
+keys match across them too.
 """
 from __future__ import annotations
 
@@ -58,9 +82,10 @@ STATE_ROOT = 'Library/Caches/cmux-nightly-next'
 # bounds that tail anyway: every 10th build is clean (a clean one, then at most 9 incremental).
 CLEAN_EVERY = 10
 INCREMENTAL_STATE = 'incremental.json'
-KEY_PATHS = re.compile(r'(^|/)(Package\.resolved|Cargo\.lock|build\.zig\.zon|rust-toolchain(\.toml)?|\.xcode-version'
+KEY_PATHS = re.compile(r'(^|/)(Package\.resolved|build\.zig\.zon|rust-toolchain(\.toml)?|\.xcode-version'
                        r'|cef-manifest\.json|ensure-cef\.sh|ensure-remote-browser-host\.sh|download-prebuilt-ghosttykit\.sh'
-                       r'|nightly-swift-defines\.sh|run-xcodebuild-with-diagnostics\.sh|fleet-compilation-cache\.sh)$')
+                       r'|nightly-swift-defines\.sh|run-xcodebuild-with-diagnostics\.sh|fleet-compilation-cache\.sh'
+                       r'|app-build-release\.sh|app-host-build-root\.sh|compilation-cache\.sh)$')
 # The build's own settings: the Release build step's text (its xcodebuild settings and how it forms
 # OTHER_SWIFT_FLAGS) and the decide outputs it reads (BUILD_SETTINGS in the environment of the
 # prepare step). A change to either is a clean build: objects compiled under other -D flags,
@@ -80,6 +105,20 @@ IMPORT_LINE = re.compile(r'^[+-](?![+-]).*\bimport\s|^[+-]\s*#\s*(import|include
                          r'|^[+-](?![+-])\s*#\s*(if|ifdef|ifndef|elif|elseif|else|endif)\b')
 STRUCTURE_PATHS = re.compile(r'(^|/)(Package\.swift|[^/]+\.pbxproj|[^/]+\.xcconfig|[^/]+\.modulemap'
                              r'|[^/]+\.xcscheme|[^/]+\.entitlements|[^/]+\.xcfilelist)$')
+# Top-level trees the Release app build never reads (no project or package in it references them), so
+# a change there leaves the kept DerivedData valid.
+OUTSIDE_APP_BUILD = ('Prototypes/',)
+# A Swift package's Tests/ tree holds its test targets and the support targets only they link
+# (tests/test_nightly_build_state.py checks every Package.swift for that). The Release build of the
+# app scheme compiles none of them, so an import or a structure line there leaves the kept
+# DerivedData valid: run 41570134320 compiled clean for 562 s on an import change in
+# Packages/Shared/CmuxMessagesLab/Tests/MessagesLabHomeTests/HomeAgentMessageAvatarTests.swift.
+PACKAGE_TESTS = re.compile(r'^Packages/[^/]+/[^/]+/Tests/')
+PACKAGE_TESTS_GLOB = ':(exclude,glob)Packages/*/*/Tests/**'
+
+
+def outside_app_build(name: str) -> bool:
+    return name.startswith(OUTSIDE_APP_BUILD) or PACKAGE_TESTS.match(name) is not None
 NOTICES_CACHE = 'notices-crates'
 NOTICES_CACHE_MAX_BYTES = 8 << 30
 
@@ -98,21 +137,122 @@ def nightly_only(runner: str) -> bool:
     return re.fullmatch(r'[a-zA-Z0-9._-]+-glaeda-nightly-only-[0-9]+', runner) is not None
 
 
-def dedicated(runner: str, builder: bool = False) -> bool:
-    """The dedicated nightly-next builder's runner (its hand-made or glaeda-managed name), or a nightly-only
-    runner the build reached through the warm builder label (`builder`, NIGHTLY_ONLY_BUILDER=true), which only
-    build-nightly-app asks for: one runner per mini carries it. The other nightly-only runners keep nothing,
-    so five per mini never hold five copies of this state. Without it the builder restored Swift packages
-    from R2 and built from empty DerivedData on every head (282 s and 1011 s, run 41340244486)."""
-    return re.fullmatch(r'[a-zA-Z0-9._-]+-nightly-next', runner) is not None or (builder and nightly_only(runner))
+def dedicated(runner: str) -> bool:
+    """The dedicated nightly-next builder's runner (its hand-made or glaeda-managed name), or any runner of the
+    nightly-only minis. Those took the warm path only through a builder label the picker offered after reading
+    the runners, and that read failed (HTTP 403, the routing App's spent budget) in four of six nightly-next runs
+    (41586556429, 41570134320, ...): each restored the compilation cache and Swift packages from R2 (280-320 s)
+    and compiled cold. Every nightly-only slot now builds in the Mac's one host build root
+    (app-host-build-root.sh, under a never-waited lock), so a mini still holds one kept DerivedData, whichever
+    slot builds; a slot keeps its own only after a build that overlapped another on the same Mac, and its next
+    host-root build deletes it (finish_host)."""
+    return re.fullmatch(r'[a-zA-Z0-9._-]+-nightly-next', runner) is not None or nightly_only(runner)
 
 
-def keeps_state(runner: str, builder: bool = False) -> bool:
-    return owned(runner) or dedicated(runner, builder)
+def keeps_state(runner: str) -> bool:
+    return owned(runner) or dedicated(runner)
 
 
-def builder_label() -> bool:
-    return os.environ.get('NIGHTLY_ONLY_BUILDER', '') == 'true'
+KEEP_STATE_FLAG = 'CMUX_NIGHTLY_KEEP_STATE'
+# nightly-next-one's kept tree, one per Mac: GitHub picks either signing runner of the Mac per run, and a tree per
+# runner would build cold twice and then be only as fresh as that runner's last run. One fixed name, never
+# <member>-glaeda[-K] (glaeda-disk removes trees of that pattern after 12 h idle).
+ONE_JOB_STATE = 'one-job'
+ONE_JOB_LEASE = 'build.lease'
+
+
+def flagged() -> bool:
+    """nightly-next-one sets CMUX_NIGHTLY_KEEP_STATE=1: it keeps an incremental DerivedData, SourcePackages and
+    compilation cache in one tree per Mac, $HOME/Library/Caches/cmux-nightly-next/one-job (0700), whatever the
+    runner's name, and builds from one fixed source path in it (one_job_host_root), never the Mac's shared
+    host build root. The job holds glaeda's exclusive
+    whole-Mac claim, so one runs at a time; its lease (take_lease) refuses a second one all the same."""
+    return os.environ.get(KEEP_STATE_FLAG) == '1'
+
+
+def state_key(runner: str) -> str:
+    return ONE_JOB_STATE if flagged() else runner
+
+
+def one_job_host_root(home: Path) -> Path:
+    """nightly-next-one's build root: src (the checkout cloned whole), DerivedData and SourcePackages at one path
+    on the Mac, inside its 0700 tree, never the Mac's shared /Users/Shared root."""
+    return home / STATE_ROOT / ONE_JOB_STATE / 'host'
+
+
+def worker_pid() -> int:
+    """This job's Runner.Worker: the nearest ancestor of this process by that name, 0 when there is none."""
+    pid = os.getpid()
+    for _ in range(64):
+        try:
+            out = subprocess.run(['ps', '-o', 'ppid=,command=', '-p', str(pid)], capture_output=True, text=True,
+                                 timeout=10, check=False).stdout.split(None, 1)
+        except (OSError, subprocess.TimeoutExpired):
+            return 0
+        if len(out) < 2 or not out[0].isdigit():
+            return 0
+        if os.path.basename(out[1].split(' ', 1)[0].strip()) == 'Runner.Worker':
+            return pid
+        pid = int(out[0])
+        if pid <= 1:
+            return 0
+    return 0
+
+
+def live_worker(pid: int) -> bool:
+    if pid <= 1:
+        return False
+    try:
+        command = subprocess.run(['ps', '-o', 'command=', '-p', str(pid)], capture_output=True, text=True,
+                                 timeout=10, check=False).stdout.strip()
+    except (OSError, subprocess.TimeoutExpired):
+        return True  # cannot tell: treat the holder as live
+    return os.path.basename(command.split(' ', 1)[0]) == 'Runner.Worker'
+
+
+def take_lease(state: Path) -> None:
+    """Hold the one-job tree for this job, under an flock of the lease file: refused while another live job
+    (its Runner.Worker still runs) holds it, so the tree is never shared concurrently. release_lease ends it."""
+    import fcntl
+    me = {'tracking': os.environ.get('RUNNER_TRACKING_ID', ''), 'run': os.environ.get('GITHUB_RUN_ID', ''),
+          'worker': worker_pid()}
+    with open(state / ONE_JOB_LEASE, 'a+', encoding='utf-8') as lease:
+        try:
+            fcntl.flock(lease, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except BlockingIOError:
+            raise SystemExit(f'::error title=nightly build state::{state} is being taken by another job right now; '
+                             'nightly-next-one never shares its kept tree')
+        lease.seek(0)
+        try:
+            holder = json.loads(lease.read() or '{}')
+        except ValueError:
+            holder = {}
+        if holder and holder.get('tracking') != me['tracking'] and live_worker(int(holder.get('worker') or 0)):
+            raise SystemExit(f'::error title=nightly build state::{state} is held by run {holder.get("run")} '
+                             f'(Runner.Worker {holder.get("worker")}); nightly-next-one never shares its kept tree')
+        if holder and holder.get('tracking') != me['tracking']:
+            print(f'Taking {state} from run {holder.get("run")}, whose job has ended')
+        lease.seek(0)
+        lease.truncate()
+        lease.write(json.dumps(me, sort_keys=True))
+
+
+def release_lease(home: Path) -> bool:
+    import fcntl
+    path = home / STATE_ROOT / ONE_JOB_STATE / ONE_JOB_LEASE
+    if not path.is_file():
+        return False
+    with open(path, 'r+', encoding='utf-8') as lease:
+        fcntl.flock(lease, fcntl.LOCK_EX)
+        try:
+            holder = json.loads(lease.read() or '{}')
+        except ValueError:
+            holder = {}
+        if holder.get('tracking') != os.environ.get('RUNNER_TRACKING_ID', ''):
+            return False
+        lease.seek(0)
+        lease.truncate()
+    return True
 
 
 def git(workspace: Path, *args: str) -> str:
@@ -153,11 +293,13 @@ def structure_changed(workspace: Path, since: str) -> str | None:
         names = git(workspace, 'diff', '--name-only', '--no-renames', since, 'HEAD').splitlines()
     except subprocess.CalledProcessError:
         return None
-    changed = next((name for name in names if STRUCTURE_PATHS.search(name)), '')
+    changed = next((name for name in names
+                    if STRUCTURE_PATHS.search(name) and not outside_app_build(name)), '')
     if changed:
         return changed
     try:
-        diff = git(workspace, 'diff', '-U0', '--no-renames', since, 'HEAD', '--', *IMPORT_SOURCES)
+        diff = git(workspace, 'diff', '-U0', '--no-renames', since, 'HEAD', '--', *IMPORT_SOURCES,
+                   *(f':(exclude){tree}' for tree in OUTSIDE_APP_BUILD), PACKAGE_TESTS_GLOB)
     except subprocess.CalledProcessError:
         return None
     current = ''
@@ -198,8 +340,10 @@ def clean_reason(state: dict, key: str, workspace: Path) -> str:
         return 'no earlier build on this builder'
     if not checkpoint_complete(state):
         return 'the kept build state is malformed'
-    if state['built'] is not True:
+    if state['built'] is not True and state.get('failed') is not True:
         return 'the last build did not finish'
+    if state['built'] is not True and state.get('after_failure') is True:
+        return 'the last two builds on this DerivedData failed'
     if state.get('key') != key:
         return 'the toolchain, a lockfile or a submodule changed'
     changed = structure_changed(workspace, str(state.get('sha') or ''))
@@ -244,14 +388,13 @@ def prepare_incremental(workspace: Path, runner_state: Path, identity: str, key:
 
 
 def mark_built(workspace: Path, home: Path, runner: str) -> bool:
-    """Record that the build prepared on this workspace finished, so the next one may build on it. A nightly-only
-    runner kept DerivedData only when prepare saw the builder label, so it needs no flag here: the link below
-    exists only then (the workflow step runs only when prepare chose a mode)."""
+    """Record that the build prepared on this workspace finished, so the next one may build on it (the workflow
+    step runs only when prepare chose a mode)."""
     derived = workspace / 'build-universal'
-    if not dedicated(runner, builder=nightly_only(runner)) or not derived.is_symlink():
+    if not (dedicated(runner) or flagged()) or not derived.is_symlink():
         return False
     state_file = derived.resolve().parent / INCREMENTAL_STATE
-    if (home / STATE_ROOT / runner).resolve() not in state_file.parents:
+    if (home / STATE_ROOT / state_key(runner)).resolve() not in state_file.parents:
         return False
     state = read_state(state_file)
     if not checkpoint_complete(state):
@@ -302,11 +445,11 @@ def tree_bytes(path: Path) -> int:
 
 def notices_cache(home: Path, runner: str) -> Path:
     """The kept notices crate sources, emptied once they pass the size bound."""
-    cache = home / STATE_ROOT / runner / NOTICES_CACHE
+    cache = home / STATE_ROOT / state_key(runner) / NOTICES_CACHE
     if cache.is_dir() and tree_bytes(cache) > NOTICES_CACHE_MAX_BYTES:
         remove(cache)
     # Keep only the crate sources fetch_crates.py writes (registry/ and git/),
-    # which the notices read as text. The iroh-ffi, cmux-cua and cmux-tui
+    # which the notices read as text. The cmux-tui
     # checkouts are where generate-third-party-notices.sh runs cargo, so
     # each job checks them out again: a file another job planted there
     # (a .cargo/config.toml) never runs in this one.
@@ -322,15 +465,20 @@ def notices_cache(home: Path, runner: str) -> Path:
     return cache
 
 
-def prepare(workspace: Path, home: Path, runner: str, track: str, toolchain: str, builder: bool = False) -> bool:
-    if not keeps_state(runner, builder) or track != 'nightly-next':
+def prepare(workspace: Path, home: Path, runner: str, track: str, toolchain: str) -> bool:
+    if not (keeps_state(runner) or flagged()) or track != 'nightly-next':
         return False
-    runner_state = home / STATE_ROOT / runner
+    runner_state = home / STATE_ROOT / state_key(runner)
+    if flagged():
+        runner_state.mkdir(parents=True, exist_ok=True)
+        for private in (home / STATE_ROOT, runner_state):
+            private.chmod(0o700)
+        take_lease(runner_state)
     derived = workspace / 'build-universal'
     remove(derived)
     identity = hashlib.sha256(f'{workspace.resolve()}\n{toolchain}'.encode()).hexdigest()[:32]
     incremental = None
-    if dedicated(runner, builder):
+    if dedicated(runner) or flagged():
         try:
             incremental = prepare_incremental(workspace, runner_state, identity, input_key(workspace, toolchain))
         except (OSError, ValueError, subprocess.CalledProcessError) as error:
@@ -355,27 +503,178 @@ def prepare(workspace: Path, home: Path, runner: str, track: str, toolchain: str
     return True
 
 
+HOST_STATE = 'host-state.json'
+
+
+def toolchain_identity() -> str:
+    toolchain = os.environ.get('DEVELOPER_DIR', '') + '\n'
+    toolchain += subprocess.check_output(['xcodebuild', '-version'], text=True)
+    toolchain += subprocess.check_output(['xcrun', '--sdk', 'macosx', '--show-sdk-build-version'], text=True)
+    return toolchain
+
+
+def seed_packages(packages: Path, workspace: Path) -> None:
+    """The host's package checkouts, seeded once from this slot's own (a clone, so nothing is fetched again),
+    without the slot's workspace-state.json."""
+    if packages.exists():
+        return
+    slot = workspace / '.spm-cache'
+    if slot.is_dir():
+        staging = packages.with_name(f'{packages.name}.seed.{os.getpid()}')
+        remove(staging)
+        try:
+            import apfs_clone
+            cloned = apfs_clone.clone_directory(slot.resolve(), staging)
+        except (ImportError, OSError):
+            cloned = False
+        try:
+            if not cloned:
+                shutil.copytree(slot.resolve(), staging, symlinks=True)
+            # workspace-state.json holds the slot's absolute artifact paths; kept, every slot of the Mac read
+            # that one slot's artifacts (run 43304572615). The build's resolve writes this tree's own.
+            remove(staging / 'workspace-state.json')
+            staging.replace(packages)
+            return
+        except OSError as error:
+            print(f'::warning title=nightly host build root::package checkouts not seeded ({error})')
+            remove(staging)
+    packages.mkdir(parents=True, exist_ok=True)
+
+
+def prepare_host(root: Path, workspace: Path, toolchain: str) -> tuple[str, str]:
+    """Ready ROOT/DerivedData for the tree cloned into ROOT/src; returns (mode, reason). The caller
+    holds ROOT's lock."""
+    src = root / 'src'
+    state_file = root / HOST_STATE
+    state = read_state(state_file)
+    key = input_key(src, toolchain)
+    reason = clean_reason(state, key, src)
+    derived_data = root / 'DerivedData'
+    if reason:
+        remove(derived_data)
+    else:
+        for bundle in sorted((derived_data / 'Build' / 'Products').glob('*/*.app')):
+            remove(bundle)
+    derived_data.mkdir(parents=True, exist_ok=True)
+    # Without the fleet cache the CAS lives in DerivedData; keep it across clean builds.
+    link(derived_data / 'CompilationCache.noindex', root / 'CompilationCache')
+    seed_packages(root / 'SourcePackages', workspace)
+    link(src / '.spm-cache', root / 'SourcePackages')
+    remove(src / 'build-universal')
+    head = git(src, 'rev-parse', 'HEAD').strip()
+    state = {'key': key, 'sha': head, 'built': False, 'since_clean': 0 if reason else since_clean(state) + 1,
+             'after_failure': not reason and state.get('built') is not True}
+    temporary = state_file.with_suffix('.tmp')
+    temporary.write_text(json.dumps(state, sort_keys=True))
+    temporary.replace(state_file)
+    if reason:
+        return 'clean', reason
+    after = ', on a failed build' if state['after_failure'] else ''
+    return 'incremental', f'{state["since_clean"]} since the last clean build{after}'
+
+
+# xcodebuild's status when it ran to its end and the build failed (a compile or link error). Any other
+# status (a signal, a timeout's kill, a wrapper's own error) leaves the build unfinished.
+XCODEBUILD_FAILED = 65
+
+
+def fail_host(root: Path, status: int) -> bool:
+    """After a build in ROOT that xcodebuild ended with a failure: record it, so the next build may build on
+    what it finished (clean_reason). Only XCODEBUILD_FAILED counts; a killed build stays unfinished."""
+    state_file = root / HOST_STATE
+    state = read_state(state_file)
+    if status != XCODEBUILD_FAILED or not checkpoint_complete(state) or state['built'] is True:
+        return False
+    state['failed'] = True
+    temporary = state_file.with_suffix('.tmp')
+    try:
+        temporary.write_text(json.dumps(state, sort_keys=True))
+        temporary.replace(state_file)
+    except OSError as error:
+        print(f'::warning title=nightly build state::could not record the failed build ({error}); '
+              'the next build starts clean')
+        return False
+    return True
+
+
+def finish_host(root: Path, workspace: Path, home: Path, runner: str) -> None:
+    """After a successful build in ROOT: mark it built, and give the workspace its own clone of the
+    products (later steps change the app bundle; the host's next build must not see that). The slot's
+    own kept DerivedData is dropped: the host's replaces it, and a later fallback build starts clean."""
+    state_file = root / HOST_STATE
+    state = read_state(state_file)
+    if checkpoint_complete(state):
+        state['built'] = True
+        temporary = state_file.with_suffix('.tmp')
+        temporary.write_text(json.dumps(state, sort_keys=True))
+        temporary.replace(state_file)
+    derived = workspace / 'build-universal'
+    if derived.is_symlink():
+        slot = derived.resolve()
+        if (home / STATE_ROOT / state_key(runner)).resolve() in slot.parents:
+            remove(slot.parent / INCREMENTAL_STATE)
+            remove(slot)
+    remove(derived)
+    (derived / 'Build').mkdir(parents=True)
+    source = root / 'DerivedData' / 'Build' / 'Products'
+    target = derived / 'Build' / 'Products'
+    try:
+        import apfs_clone
+        cloned = apfs_clone.clone_directory(source, target)
+    except ImportError:
+        cloned = False
+    if not cloned:
+        shutil.copytree(source, target, symlinks=True)
+
+
 def main(argv: list[str]) -> int:
     workspace = Path(os.environ.get('GITHUB_WORKSPACE', '.')).resolve()
     if len(argv) == 3 and argv[1] == 'prepare':
         runner = os.environ.get('RUNNER_NAME', '')
-        if keeps_state(runner, builder_label()) and argv[2] == 'nightly-next':
-            toolchain = os.environ.get('DEVELOPER_DIR', '') + '\n'
-            toolchain += subprocess.check_output(['xcodebuild', '-version'], text=True)
-            toolchain += subprocess.check_output(['xcrun', '--sdk', 'macosx', '--show-sdk-build-version'], text=True)
-            if prepare(workspace, Path.home(), runner, argv[2], toolchain, builder_label()):
+        if (keeps_state(runner) or flagged()) and argv[2] == 'nightly-next':
+            if prepare(workspace, Path.home(), runner, argv[2], toolchain_identity()):
                 cache = notices_cache(Path.home(), runner)
                 print(f'NEXT third-party notices read crate sources kept in {cache}')
                 github_env = os.environ.get('GITHUB_ENV')
                 if github_env:
                     with open(github_env, 'a', encoding='utf-8') as env:
                         env.write(f'CMUX_NEXT_NOTICES_CACHE={cache}\n')
+                        if flagged():
+                            # The Release build runs from one fixed source path on the Mac, whichever signing
+                            # runner (each with its own workspace) took the job: Xcode's DerivedData and
+                            # compilation cache record absolute source paths (app-host-build-root.sh).
+                            env.write('CMUX_NIGHTLY_HOST_BUILD_ROOT=1\n')
+                            env.write(f'CMUX_NIGHTLY_HOST_ROOT={one_job_host_root(Path.home())}\n')
+                        elif dedicated(runner):
+                            # The Release build step may take the host build root (app-host-build-root.sh).
+                            env.write('CMUX_NIGHTLY_HOST_BUILD_ROOT=1\n')
+        return 0
+    if len(argv) == 3 and argv[1] == 'prepare-host':
+        mode, why = prepare_host(Path(argv[2]), workspace, toolchain_identity())
+        print(f'NEXT Release build: {mode} DerivedData ({why}) in {Path(argv[2]) / "DerivedData"} (host build root)')
+        # This decides the build, not the slot's own prepare line above it in the log.
+        if summary := os.environ.get('GITHUB_STEP_SUMMARY'):
+            with open(summary, 'a', encoding='utf-8') as stream:
+                stream.write(f'### NEXT Release build\n- DerivedData: {mode} ({why}), host build root\n')
+        return 0
+    if len(argv) == 3 and argv[1] == 'finish-host':
+        finish_host(Path(argv[2]), workspace, Path.home(), os.environ.get('RUNNER_NAME', ''))
+        return 0
+    if len(argv) == 4 and argv[1] == 'fail-host':
+        if fail_host(Path(argv[2]), int(argv[3]) if argv[3].isdigit() else -1):
+            print('NEXT Release build failed in xcodebuild; the next build may build on what it finished')
         return 0
     if len(argv) == 2 and argv[1] == 'mark-built':
         if mark_built(workspace, Path.home(), os.environ.get('RUNNER_NAME', '')):
             print('NEXT Release build finished; the next build on this builder may build on its DerivedData')
         return 0
-    print('usage: nightly_build_state.py prepare TRACK | mark-built', file=sys.stderr)
+    if len(argv) == 2 and argv[1] == 'release':
+        if release_lease(Path.home()):
+            print('nightly-next-one released its kept tree')
+        return 0
+    print('usage: nightly_build_state.py prepare TRACK | mark-built | release | prepare-host ROOT | finish-host ROOT'
+          ' | fail-host ROOT STATUS',
+          file=sys.stderr)
     return 2
 
 

@@ -145,12 +145,17 @@ fn cloud_environment_reads_and_patch_use_the_install_token_and_never_return_secr
     let (mux, app, plain, backend) = daemon();
     assert_eq!(reply(&mux, app, set(APP_BASE, "app.jwt"))["ok"], true);
     let record = json!({"id":"env_default","name":"Default","is_default":true,
-        "setup_script":null,"env_vars":[],"secrets":[{"name":"TOKEN","updated_at":"now","value":"never-return"}],
+        "setup_script":null,"env_vars":[],"secrets":[{"name":"TOKEN","updated_at":"now","value":"never-return",
+            "hosts":["api.example.com"],"header":{"name":"authorization","format":"Bearer {value}"}}],
         "network":{"mode":"full","package_managers":true,"domains":[]}});
     backend.reply("/v1/cloud-environments", 200, json!([record]));
     let listed = reply(&mux, app, environment("list", json!({})));
     assert_eq!(listed["ok"], true, "{listed}");
-    assert_eq!(listed["data"][0]["secrets"], json!([{"name":"TOKEN","updated_at":"now"}]));
+    assert_eq!(
+        listed["data"][0]["secrets"],
+        json!([{"name":"TOKEN","updated_at":"now",
+        "hosts":["api.example.com"],"header":{"name":"authorization","format":"Bearer {value}"}}])
+    );
     backend.reply("/v1/cloud-environments/env_default", 200, record.clone());
     let read = reply(&mux, app, environment("get", json!({"id":"env_default"})));
     assert_eq!(read["data"]["name"], "Default", "{read}");
@@ -248,6 +253,9 @@ fn cloud_environment_rejects_untrusted_origins_before_sending_the_install_token(
     let (mux, app, _, backend) = daemon();
     for origin in [
         "https://attacker.example",
+        "https://unrelated.debussy.workers.dev",
+        "https://cmux-platform-preview.debussy.workers.dev",
+        "https://attacker.cmux-platform-development.debussy.workers.dev",
         "https://cmux-platform-development.debussy.workers.dev.attacker.example",
         "http://cmux-platform-development.debussy.workers.dev",
         "https://cmux-platform-development.debussy.workers.dev:8443",
@@ -264,4 +272,58 @@ fn cloud_environment_rejects_untrusted_origins_before_sending_the_install_token(
     assert!(backend.got().is_empty());
     assert!(backend.posted().is_empty());
     assert!(backend.patched.lock().unwrap().is_empty());
+}
+
+#[test]
+fn cloud_environment_accepts_declared_deployments_and_explicit_local_development() {
+    let (mux, app, _, backend) = daemon();
+    for origin in [
+        PLATFORM_BASE,
+        "https://cmux-platform-staging.debussy.workers.dev",
+        "https://cmux-platform-production.debussy.workers.dev",
+        "http://localhost:8787",
+        "http://127.0.0.1:8787",
+        "http://[::1]:8787",
+    ] {
+        backend.reply("/v1/cloud-environments", 200, json!([]));
+        let mut request = environment("list", json!({}));
+        request["platform_origin"] = json!(origin);
+        let listed = reply(&mux, app, request);
+        assert_eq!(listed["ok"], true, "{origin}: {listed}");
+        let sent = backend.got().pop().unwrap();
+        assert_eq!(sent.url, format!("{origin}/v1/cloud-environments"));
+        assert_eq!(sent.bearer, "install.jwt");
+    }
+}
+
+#[test]
+fn cloud_environment_create_posts_only_the_platform_create_fields() {
+    let (mux, app, plain, backend) = daemon();
+    assert_eq!(reply(&mux, app, set(APP_BASE, "app.jwt"))["ok"], true);
+    let record = json!({"id":"env_new","scope":"personal","name":"cmux","is_default":false,
+        "setup_script":null,"env_vars":[],"secrets":[{"name":"TOKEN","updated_at":"now","value":"never-return"}],
+        "network":{"mode":"full","package_managers":true,"domains":[]}});
+    backend.reply("/v1/cloud-environments", 200, record);
+    let body = json!({"name":"cmux","setup_script":null});
+    let created = reply(&mux, app, environment("create", json!({"environment":body})));
+    assert_eq!(created["ok"], true, "{created}");
+    assert_eq!(created["data"]["id"], "env_new", "{created}");
+    assert!(!created.to_string().contains("never-return"));
+    let posted = backend.posted();
+    assert_eq!(posted.len(), 1);
+    assert_eq!(posted[0].url, format!("{PLATFORM_BASE}/v1/cloud-environments"));
+    assert_eq!(posted[0].body, body);
+    for request in [
+        environment("create", json!({"environment":{"name":"  "}})),
+        environment("create", json!({"environment":{"name":"x","id":"env_other"}})),
+        environment("create", json!({"environment":{"name":"x"},"url":"https://elsewhere"})),
+        environment("create", json!({})),
+    ] {
+        assert_eq!(reply(&mux, app, request)["ok"], false);
+    }
+    assert_eq!(backend.posted().len(), 1, "a refused create sends nothing");
+    assert_forbidden(
+        &reply(&mux, plain, environment("create", json!({"environment":{"name":"x"}}))),
+        "environment create",
+    );
 }

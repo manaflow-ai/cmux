@@ -60,6 +60,13 @@ public struct HomeLiveActivity: Hashable, Sendable {
         self.line = line
         self.since = since
     }
+
+    /// The lines a run shows while the model itself works (optchat-chief `run.rs`: thinking, writing
+    /// the reply); every other line names a tool call.
+    public static let modelLines: Set<String> = ["Thinking", "Writing the reply", "Working"]
+
+    /// The run works in a tool, not the model.
+    public var isTool: Bool { !Self.modelLines.contains(line) }
 }
 
 public struct HomeLiveActivityFrame: Hashable, Sendable {

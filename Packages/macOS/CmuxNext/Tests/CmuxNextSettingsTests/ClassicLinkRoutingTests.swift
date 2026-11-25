@@ -1,6 +1,7 @@
 import CmuxNextActions
 import CmuxNextDesign
 @testable import CmuxNextSettings
+import CmuxNextTestSupport
 import Foundation
 import Testing
 
@@ -16,7 +17,7 @@ import Testing
         try FileManager.default.createDirectory(at: home, withIntermediateDirectories: true)
         let url = home.appending(path: "cmux-next.json")
         try Data(json.utf8).write(to: url)
-        let settings = SettingsController(registry: .standard(), design: DesignSettings(), fileURL: url,
+        let settings = SettingsController(writer: TestSettingsWriter(), registry: .standard(), design: DesignSettings(), fileURL: url,
                                           managedReader: FixedManagedPreferenceReader(ManagedPreferences()),
                                           managedWatchFiles: [])
         return (settings, home)
@@ -51,7 +52,7 @@ import Testing
     /// Two classic preference domains: this channel's (next's own defaults, the import's marker) and stable's.
     static func domains() throws -> (own: UserDefaults, stable: UserDefaults, names: [String]) {
         let names = ["own", "stable"].map { "cn-classic-links-\($0)-\(UUID().uuidString)" }
-        return (try #require(UserDefaults(suiteName: names[0])), try #require(UserDefaults(suiteName: names[1])), names)
+        return (try #require(UserDefaults(testSuiteName: names[0])), try #require(UserDefaults(testSuiteName: names[1])), names)
     }
 
     @Test func classicPreferencesComeOverOnceOnTheUpdate() async throws {

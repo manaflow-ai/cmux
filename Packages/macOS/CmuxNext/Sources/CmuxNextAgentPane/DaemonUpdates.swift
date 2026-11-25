@@ -14,11 +14,10 @@ public final class DaemonUpdates {
     /// ``startOnce(build:environment:download:)`` ran.
     private var started = false
 
-    /// The app's: the board keeps its closed notice in the policy's directory, the policy pushes
-    /// the bundled acpmux's build and reports to the board, and the peers that connect later are
-    /// offered to the policy while `agent.updatePeers` is on.
+    /// The app's: the policy pushes the bundled acpmux's build and reports to the board, and the
+    /// peers that connect later are offered to the policy while `agent.updatePeers` is on.
     public init() {
-        let board = DaemonUpdateBoard(closedNoticeFile: DaemonUpdatePolicy.defaultDirectory.appendingPathComponent("notice-closed"))
+        let board = DaemonUpdateBoard()
         let policy = DaemonUpdatePolicy(DaemonUpdatePolicy.Dependencies(
             bundledBuild: { await DaemonUpdatePolicy.bundledAcpmuxBuild() },
             report: { event in await MainActor.run { board.apply(event) } }

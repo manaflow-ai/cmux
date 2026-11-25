@@ -39,6 +39,12 @@ MACHINE_TARGETS = (
     "x86_64-unknown-linux-musl",
     "aarch64-unknown-linux-musl",
 )
+# The one target that not every ref builds: cmux-tui-artifacts.yml builds Intel
+# macOS only where an Intel build ships (CMUX_TUI_DARWIN_X86_64, #42230). The
+# caller says which targets its build has with --machine-target; it can leave
+# out this one and no other. The script does not read the ref or the
+# environment: a check that names no target wants all of MACHINE_TARGETS.
+MACHINE_TARGETS_NOT_ON_EVERY_REF = ("x86_64-apple-darwin",)
 MACHINE_ARTIFACT_KEYS = ("chatmux-relay", "cmux-tui")
 MAX_MANIFEST_BYTES = 1 << 20
 # Raw binaries are intentionally bounded. This prevents a malformed public
@@ -71,10 +77,35 @@ class ManifestError(ValueError):
     """The manifest does not satisfy the raw-artifact contract."""
 
 
+def _machine_targets(named: Iterable[str]) -> tuple[str, ...]:
+    """The exact target set a machine manifest must have: what the caller named, or every target."""
+
+    named = tuple(named)
+    if not named:
+        return MACHINE_TARGETS
+    unknown = sorted(set(named) - set(MACHINE_TARGETS))
+    if unknown:
+        raise ManifestError(f"unknown machine target: {unknown}, known {list(MACHINE_TARGETS)}")
+    repeated = sorted({target for target in named if named.count(target) > 1})
+    if repeated:
+        raise ManifestError(f"machine target named more than once: {repeated}")
+    left_out = [
+        target
+        for target in MACHINE_TARGETS
+        if target not in named and target not in MACHINE_TARGETS_NOT_ON_EVERY_REF
+    ]
+    if left_out:
+        raise ManifestError(
+            f"machine target set cannot leave out {left_out}: "
+            f"only {list(MACHINE_TARGETS_NOT_ON_EVERY_REF)} is not built on every ref"
+        )
+    return tuple(target for target in MACHINE_TARGETS if target in named)
+
+
 def _validate_machine_manifest(
-    document: dict[str, Any], *, source: str, expected_commit: str
+    document: dict[str, Any], *, source: str, expected_commit: str, targets: tuple[str, ...]
 ) -> None:
-    """Validate the strict dual-binary Chatmux machine manifest."""
+    """Validate the strict dual-binary Chatmux machine manifest: exactly these targets."""
 
     expected_keys = {
         "schemaVersion",
@@ -125,12 +156,12 @@ def _validate_machine_manifest(
         raise ManifestError(f"{source} machine manifest releaseUrl is invalid")
 
     artifacts = document.get("artifacts")
-    if not isinstance(artifacts, dict) or set(artifacts) != set(MACHINE_TARGETS):
+    if not isinstance(artifacts, dict) or set(artifacts) != set(targets):
         actual = sorted(artifacts) if isinstance(artifacts, dict) else type(artifacts).__name__
         raise ManifestError(
-            f"{source} machine manifest target set mismatch: expected {list(MACHINE_TARGETS)}, got {actual}"
+            f"{source} machine manifest target set mismatch: expected {list(targets)}, got {actual}"
         )
-    for target in MACHINE_TARGETS:
+    for target in targets:
         target_artifacts = artifacts[target]
         if not isinstance(target_artifacts, dict) or set(target_artifacts) != set(MACHINE_ARTIFACT_KEYS):
             actual = sorted(target_artifacts) if isinstance(target_artifacts, dict) else type(target_artifacts).__name__
@@ -172,6 +203,7 @@ def _verify_machine_binary_digests(
     source: str,
     artifact_base_url: str | None,
     artifact_directory: Path | None,
+    targets: tuple[str, ...],
 ) -> None:
     if artifact_base_url is not None and artifact_directory is not None:
         raise ManifestError("choose one artifact base URL or artifact directory")
@@ -179,7 +211,7 @@ def _verify_machine_binary_digests(
         return
     artifacts = document["artifacts"]
     assert isinstance(artifacts, dict)
-    for target in MACHINE_TARGETS:
+    for target in targets:
         target_artifacts = artifacts[target]
         assert isinstance(target_artifacts, dict)
         for artifact_kind in MACHINE_ARTIFACT_KEYS:
@@ -626,19 +658,25 @@ def verify_manifest(
     required_dependency_artifacts: Iterable[str] = (),
     require_provenance: bool = False,
     machine_manifest: bool = False,
+    machine_targets: Iterable[str] = (),
 ) -> None:
     """Fetch and validate one published manifest from a public URL."""
 
+    machine_targets = tuple(machine_targets)
+    if machine_targets and not machine_manifest:
+        raise ManifestError("--machine-target needs --machine-manifest")
     document = _decode_manifest(_read_url(url), url)
     if machine_manifest:
         if any((required_artifacts, exact_artifacts, forbidden_artifacts, required_dependency_artifacts)):
             raise ManifestError("machine manifest cannot use generic artifact requirements")
-        _validate_machine_manifest(document, source=url, expected_commit=expected_commit)
+        targets = _machine_targets(machine_targets)
+        _validate_machine_manifest(document, source=url, expected_commit=expected_commit, targets=targets)
         _verify_machine_binary_digests(
             document,
             source=url,
             artifact_base_url=artifact_base_url,
             artifact_directory=None,
+            targets=targets,
         )
     else:
         _validate_manifest(
@@ -672,9 +710,13 @@ def verify_manifest_file(
     dependency_artifact_directory: Path | None = None,
     require_provenance: bool = False,
     machine_manifest: bool = False,
+    machine_targets: Iterable[str] = (),
 ) -> None:
     """Validate the manifest generated before any R2 upload occurs."""
 
+    machine_targets = tuple(machine_targets)
+    if machine_targets and not machine_manifest:
+        raise ManifestError("--machine-target needs --machine-manifest")
     payload = _read_file(path, max_bytes=MAX_MANIFEST_BYTES)
     document = _decode_manifest(payload, str(path))
     if machine_manifest:
@@ -682,12 +724,16 @@ def verify_manifest_file(
             raise ManifestError("machine manifest cannot use generic artifact requirements")
         if dependency_artifact_directory is not None:
             raise ManifestError("machine manifest cannot use a dependency artifact directory")
-        _validate_machine_manifest(document, source=str(path), expected_commit=expected_commit)
+        targets = _machine_targets(machine_targets)
+        _validate_machine_manifest(
+            document, source=str(path), expected_commit=expected_commit, targets=targets
+        )
         _verify_machine_binary_digests(
             document,
             source=str(path),
             artifact_base_url=None,
             artifact_directory=artifact_directory,
+            targets=targets,
         )
     else:
         _validate_manifest(
@@ -765,6 +811,17 @@ def _parser() -> argparse.ArgumentParser:
         help="Require the strict dual-binary Chatmux machine manifest schema",
     )
     parser.add_argument(
+        "--machine-target",
+        action="append",
+        dest="machine_targets",
+        default=[],
+        help=(
+            "With --machine-manifest: a target this build has (repeatable). The manifest must have "
+            "exactly the named targets; name none and it must have every target. Only "
+            "x86_64-apple-darwin can be left out"
+        ),
+    )
+    parser.add_argument(
         "--dependency-artifact-directory",
         type=Path,
         help="Read and hash cmux-tui dependency binaries from this local directory",
@@ -796,6 +853,7 @@ def main(argv: list[str] | None = None) -> int:
                 required_dependency_artifacts=args.required_dependency_artifacts,
                 require_provenance=args.require_provenance,
                 machine_manifest=args.machine_manifest,
+                machine_targets=args.machine_targets,
             )
             source = args.manifest_url
         else:
@@ -811,6 +869,7 @@ def main(argv: list[str] | None = None) -> int:
                 dependency_artifact_directory=args.dependency_artifact_directory,
                 require_provenance=args.require_provenance,
                 machine_manifest=args.machine_manifest,
+                machine_targets=args.machine_targets,
             )
             source = str(args.manifest_file)
     except ManifestError as error:

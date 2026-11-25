@@ -3,31 +3,41 @@
 // language and the theme are in place before the page's own modules load, as the app has them
 // before a page's first script runs.
 import { installGalleryClock } from "../clock";
-import { overPicture, readEnv, widthPx } from "../env";
+import { overPicture, readEnv, widthPx, SHELL_DEFAULT_BACKGROUND } from "../env";
 import { readTunes } from "../../experiments/tunable";
 import { readOptions } from "../options";
 import type { GalleryEntry } from "../format";
 import { errorText, readyEntries } from "../entryStore";
 import { createFrameEntryStore } from "../registry";
 import { watchStageErrors } from "./liveErrors";
+import { appHostSeeThrough, appHostTheme, isAppHosted } from "./appHost";
 import { DEFAULT_DARK_THEME, DEFAULT_LIGHT_THEME, themeIsDark, type GhosttyTheme } from "../theme/ghostty";
 import { agentPaneTheme, diffAppearance, themeTokens, webThemePayload } from "../theme/web";
-import { deriveAppTheme } from "../../theme/appTheme";
+import { APP_ACCENTS, deriveAppTheme, type AppAccent } from "../../theme/appTheme";
+import { lookTheme, schemeOf } from "../golden/look";
 import themes from "virtual:cmux-gallery/themes";
 import webThemeBootstrap from "virtual:cmux-gallery/web-theme";
 import type { StageContext } from "./context";
 import { emulateMedia } from "./media";
-import { installUiFont } from "./uiFont";
+import { startGalleryLoad } from "./load";
+import { installSystemFontStandIn } from "./systemFontStandIn";
 import { setLastingGrace } from "../../ui/lasting";
+import { setLinkDownSaidMs } from "../../agent-session/acpmux/afterDelay";
 import "./frame.css";
 import revision from "virtual:cmux-gallery/revision";
+import entryIndex from "virtual:cmux-gallery/entry-index";
 import { isSubpixelLayoutShift, resolveTarget, type LoadReport, type Shift } from "../play";
 import { startBoxTracker } from "../shift";
 import { collectInvariants, type Violation } from "../invariants";
+import { installScrollingMarks } from "../../scrollers";
 
 installGalleryClock();
 // A fixture's lasting states (disconnected, offline) show at once, not after the pages' grace.
 setLastingGrace(0);
+// The same for a machine whose link is down: a fixture draws the state the pane says once the drop
+// lasts (afterDelay.ts LINK_DOWN_SAID_MS, 10 s), not 10 s of the plain pane. A fixture of the quiet
+// stretch itself passes its own bound (MachineLinkStatus `quietMs`).
+setLinkDownSaidMs(0);
 
 const params = new URLSearchParams(location.search);
 const env = readEnv(params);
@@ -38,7 +48,10 @@ const sourceHint = params.get("source") || undefined;
 // A frame can be opened directly while the shell is still loading unrelated gallery modules.
 // Keep that wait explicit so a slow sibling never looks like a broken white page.
 const requestedId = params.get("entry");
-const entryStore = createFrameEntryStore(sourceHint);
+// Without the shell's source hint (a direct link, the mock app, the native preview), the build's
+// entry index names the one file to load, so a stage never compiles the whole registry for one entry.
+const indexedSource = requestedId ? entryIndex[requestedId] : undefined;
+const entryStore = createFrameEntryStore(sourceHint ?? indexedSource);
 if (requestedId && stageRoot) {
   stageRoot.textContent = `Loading ${requestedId}…`;
   stageRoot.className = "gallery-frame-loading";
@@ -62,8 +75,12 @@ if (sourceHint && entryStore.getSnapshot().length === 0)
 // A frame renders one requested entry. Resolve it as soon as that entry loads; a broken or slow
 // sibling must never leave a valid stage blank while the shell is still auditing the full registry.
 // A missing entry still falls back to the full settled list so the error can name the bad sources.
-const match = requestedId ? await entryStore.find(requestedId) : undefined;
-const settled = match?.entry ? undefined : await entryStore.settled();
+const indexedMatch = requestedId ? await entryStore.find(requestedId) : undefined;
+// An index guess that does not hold the entry (its first literal id was another one) falls back to
+// the whole registry.
+const fullStore = !sourceHint && indexedSource && !indexedMatch?.entry ? createFrameEntryStore() : undefined;
+const match = fullStore && requestedId ? await fullStore.find(requestedId) : indexedMatch;
+const settled = match?.entry ? undefined : await (fullStore ?? entryStore).settled();
 const entryState = match?.state ?? settled?.find((state) => state.entry?.id === requestedId);
 // The live dev server: a save of this stage's entry file (or of any file, while it does not load)
 // reloads this stage alone; compile errors in stage code show inside the stage (liveErrors.ts).
@@ -89,7 +106,17 @@ for (const key of ["languages", "language"] as const)
     get: () => (key === "languages" ? [env.locale] : env.locale),
   });
 
-const theme = themeNamed(env.theme, DEFAULT_DARK_THEME);
+// `host=app`: inside the app's own window (appHost.ts), the app's theme and backdrop, not the gallery's.
+const appHosted = isAppHosted(params);
+// A variant drawn under a whole look (golden/look.ts): its theme file for this scheme, over the env's theme.
+const look = entry.variants[variantName]!.look?.schemes[schemeOf(env.colorScheme)];
+const envTheme = themeNamed(env.theme, DEFAULT_DARK_THEME);
+const theme =
+  (appHosted ? appHostTheme() : undefined) ?? (look ? lookTheme(look, envTheme, (name) => byName.get(name)) : envTheme);
+const accent: AppAccent =
+  look?.accent && (APP_ACCENTS as readonly string[]).includes(look.accent)
+    ? (look.accent as AppAccent)
+    : (env.accent ?? "neutral");
 const scheme = env.colorScheme === "auto" ? (themeIsDark(theme) ? "dark" : "light") : env.colorScheme;
 // Pages that hold both sides (the diff and markdown appearance) get the theme on the side the
 // window shows and the default on the other, as `theme = light:A,dark:B` would.
@@ -97,41 +124,66 @@ const pair =
   scheme === "dark"
     ? { dark: theme, light: themeNamed(DEFAULT_LIGHT_THEME, DEFAULT_LIGHT_THEME) }
     : { dark: themeNamed(DEFAULT_DARK_THEME, DEFAULT_DARK_THEME), light: theme };
-const tokens = themeTokens(theme, env.accent);
+const tokens = themeTokens(theme, accent);
 // The background axis: over a picture the page is see-through, as over the user's in the app.
-const seeThrough = overPicture(env);
+// In the app, see-through follows the app's own window (its page background is clear over a backdrop).
+// A variant that only means something over a picture (a pinned line over a wallpaper) names one, or one per scheme;
+// the env's own picture wins when the controls set one other than the shell's default painting (env.ts
+// SHELL_DEFAULT_BACKGROUND), which every shell link names.
+const asked = entry.variants[variantName]!.background;
+const variantBackground = typeof asked === "object" ? asked[scheme] : asked;
+const stageEnv =
+  variantBackground && (!overPicture(env) || env.background === SHELL_DEFAULT_BACKGROUND)
+    ? { ...env, background: variantBackground }
+    : env;
+const seeThrough = appHosted ? appHostSeeThrough() : overPicture(stageEnv);
 
-emulateMedia({
-  "prefers-color-scheme": scheme,
-  "prefers-reduced-motion": env.reducedMotion ? "reduce" : "no-preference",
-  "prefers-contrast": env.highContrast ? "more" : "no-preference",
-});
+// The app's web view answers these from its window and the system settings itself.
+if (!appHosted)
+  emulateMedia({
+    "prefers-color-scheme": scheme,
+    "prefers-reduced-motion": env.reducedMotion ? "reduce" : "no-preference",
+    "prefers-contrast": env.highContrast ? "more" : "no-preference",
+  });
 // WebTheme: the app's document-start script, then its payload, as every cmux web view gets them.
 // A classic script, as WKUserScript injects it.
-const bootstrap = document.createElement("script");
-bootstrap.textContent = webThemeBootstrap;
-document.head.append(bootstrap);
-bootstrap.remove();
-installUiFont();
-(window as unknown as { cmuxTheme: { apply(payload: unknown): void } }).cmuxTheme.apply(
-  webThemePayload(tokens, deriveAppTheme(theme, env.accent), seeThrough),
-);
-if (seeThrough) {
+// In the app, its own bootstrap and live payload are already in place and stay.
+if (!appHosted) {
+  const bootstrap = document.createElement("script");
+  bootstrap.textContent = webThemeBootstrap;
+  document.head.append(bootstrap);
+  bootstrap.remove();
+}
+// Off a Mac, a face for the stack's Apple names, so text is not measured in the host's fallback.
+if (!appHosted) installSystemFontStandIn();
+if (!appHosted)
+  (window as unknown as { cmuxTheme: { apply(payload: unknown): void } }).cmuxTheme.apply(
+    webThemePayload(tokens, deriveAppTheme(theme, accent), seeThrough, {
+      titleAreaTone: entry.variants[variantName]!.titleAreaTone ?? env.titleAreaTone,
+    }),
+  );
+if (seeThrough && !appHosted) {
   const [{ applyGalleryBackground }, { default: metrics }] = await Promise.all([
     import("./background"),
     import("virtual:cmux-gallery/metrics"),
   ]);
   // The same window-mode test as the shell's stage (Stage.tsx): page entries sit in a real pane.
   const windowed = env.frame === "window" && entry.host !== "native" && entry.host !== "component";
-  applyGalleryBackground(env, tokens, { windowed, metrics });
+  applyGalleryBackground(stageEnv, tokens, { windowed, metrics });
 }
 // Document scale and the chrome scale are separate. The app sets pageZoom for the former and
 // this token for the latter; gallery exposes both so each sheet is reproducible.
-if (env.scale !== 1) root.style.zoom = String(env.scale);
-root.style.setProperty("--cmux-ui-scale", String(env.scale));
-root.style.setProperty("--cmux-interface-scale", String(env.interfaceScale));
-// Entries were imported before the token was set: chat sizing (chatWidth.ts) reads it again.
-window.dispatchEvent(new Event("cmux-ui-scale-change"));
+// In the app, its page zoom and its own scale script (DesignSettings.interfaceScaleScript) set both.
+if (!appHosted) {
+  if (env.scale !== 1) root.style.zoom = String(env.scale);
+  root.style.setProperty("--cmux-ui-scale", String(env.scale));
+  root.style.setProperty("--cmux-interface-scale", String(env.interfaceScale));
+  // Entries were imported before the token was set: chat sizing (chatWidth.ts) reads it again.
+  window.dispatchEvent(new Event("cmux-ui-scale-change"));
+}
+// The load axis: the stage's main thread shares its frames with other work, from the first frame.
+startGalleryLoad(env.load);
+if (env.load) root.dataset.galleryLoad = env.load;
 root.dataset.galleryEntry = entry.id;
 root.dataset.galleryVariant = variantName;
 root.dataset.gallerySource = entryState?.path ?? "";
@@ -170,6 +222,11 @@ const context: StageContext = {
   log: (method, params) => log.push({ method, params }),
   options: optionValues,
 };
+
+// The pages mark each scroller a wheel or scroll moves (pages/shared/pageHealth.ts), which shows a
+// shown scroller's thumb only while it scrolls (Leo 2026-11-22: "the thumb only appears when it's
+// relevant"); the stage does the same, or no gallery thumb could ever show.
+installScrollingMarks(document);
 
 if (stageRoot) {
   stageRoot.textContent = "";
@@ -244,6 +301,9 @@ function finishLoad(): void {
     shifts: loadShifts.slice(0, 24),
     boxShift: boxes.score,
     boxMoves: boxes.moves,
+    boxFollow: boxes.follow,
+    // The load declares nothing: a box that drew twice in one place and then moves is undeclared.
+    ...(boxes.motion ? { undeclared: boxes.motion.undeclared, undeclaredMoves: boxes.motion.moves } : {}),
   };
 }
 
@@ -309,6 +369,11 @@ function markReadyWhenStill(): void {
 }
 
 async function mount(): Promise<void> {
+  // A font study pairing (`fontStudy`) applies to every page host, the chat and Settings alike; its
+  // faces load before the page mounts, so the first frame draws in them. The URL's wins over the
+  // variant's own (`fontStudy` in format.ts).
+  const fontStudy = env.fontStudy || entry.variants[variantName]!.fontStudy;
+  if (fontStudy) await import("../fontStudy/apply").then((study) => study.applyFontStudy(fontStudy));
   switch (entry.host) {
     case "agent-pane":
       return (await import("./agentPane")).mountAgentPane(entry.variants[variantName]!, context);
@@ -346,6 +411,10 @@ async function mount(): Promise<void> {
       return;
   }
 }
+
+// `cpu=N`: simulated main-thread contention for the whole stage (scripts.ts).
+const cpuFactor = Number(params.get("cpu"));
+if (cpuFactor > 1) void import("./scripts").then(({ simulateCpuContention }) => simulateCpuContention(cpuFactor));
 
 // The stage is the surface alone, at the size its frame gives it (window mode sizes the frame to
 // the pane the surface has in the app; nothing of the native window is drawn).

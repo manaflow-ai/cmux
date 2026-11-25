@@ -2,12 +2,26 @@ import CmuxNextDesign
 import CmuxNextSettings
 import Testing
 
-/// `tabs.barPosition` bottom keeps the `window.titlebar` the user chose (user, 2026-10-28: "when
-/// tabbar is at bottom we shouldnt show this at top (we need to conserve more space)"). It used to
-/// force the standard title bar, a strip with the workspace name above the panes.
+/// The window has no title strip by default (user, 2026-11-04: "we have a header now; we should
+/// not have a header"); `window.titlebar` "standard" is an explicit opt-in. `tabs.barPosition`
+/// bottom keeps the `window.titlebar` the user chose (user, 2026-10-28: "when tabbar is at bottom
+/// we shouldnt show this at top (we need to conserve more space)").
 @MainActor struct TabBarBottomTitlebarSettingTests {
     static func parse(_ object: [String: JSONValue]) -> CmuxConfigSnapshot {
         CmuxConfigSnapshot.parse(.object(object), validDensities: [], validMetrics: [])
+    }
+
+    @Test func theWindowStartsWithNoTitleStrip() throws {
+        #expect(DesignSettings().titlebar == .minimal)
+        #expect(Self.parse([:]).titlebar == .minimal)
+        let row = try #require(SettingsSchema.descriptor(for: WindowTitlebarSetting.configPath))
+        #expect(row.defaultValue == .string("minimal"))
+    }
+
+    @Test func anInvalidTitlebarKeepsTheMinimalDefault() {
+        let snapshot = Self.parse(["window": .object(["titlebar": .string("unknown")])])
+        #expect(snapshot.titlebar == .minimal)
+        #expect(snapshot.diagnostics.contains { $0.path == "window.titlebar" })
     }
 
     @Test func bottomTabBarsKeepTheMinimalTitlebar() {

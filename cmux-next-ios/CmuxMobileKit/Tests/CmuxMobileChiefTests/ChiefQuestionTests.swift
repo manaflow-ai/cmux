@@ -15,8 +15,8 @@ import Testing
         let began1 = flow.begin()
         #expect(began1)
         #expect(flow.state == .waitingForApproval)
-        #expect(flow.statusText == "Waiting for Face ID…")
-        // A second Answer while Face ID is up does nothing.
+        #expect(flow.statusText == "Sending…")
+        // A second Answer while one is signing does nothing.
         let began2 = flow.begin()
         #expect(!began2)
         flow.approved()
@@ -25,7 +25,7 @@ import Testing
         flow.stored()
         #expect(flow.state == .sent)
         // Nothing after sent changes it; it cannot be answered again.
-        flow.failed(ChiefApprovalCancelled())
+        flow.failed(ChiefApprovalUnavailable())
         #expect(flow.state == .sent)
         let began3 = flow.begin()
         #expect(!began3)
@@ -42,8 +42,8 @@ import Testing
     @Test func failuresSayWhyAndAllowAnotherTry() {
         var flow = ChiefAnswerFlow()
         _ = flow.begin()
-        flow.failed(ChiefApprovalCancelled())
-        #expect(flow.state == .failed("Not sent: Face ID was cancelled."))
+        flow.failed(ChiefApprovalUnavailable())
+        #expect(flow.state == .failed("Not sent: this iPhone isn't paired with the Mac yet."))
         #expect(!flow.isBusy)
         let began4 = flow.begin()
         #expect(began4)
@@ -95,6 +95,25 @@ import Testing
         #expect(refused.state == .failed("Not sent: the answer doesn't fit the question."))
     }
 
+    @Test func localApprovalCardsNeverBecomePhoneQuestions() {
+        let ordinary: [String: Any] = [
+            "type": "question", "harness": "chief", "session": "chief", "state": ["kind": "pending"],
+            "items": [["id": "choice", "prompt": "Which one?", "multi_select": false, "allows_other": false,
+                       "options": [["id": "one", "label": "One"]]]],
+        ]
+        let feed = ChiefQuestionFeed()
+        let old = ChiefQuestionFeed.questions(in: ["id": "msg_9", "seq": 9, "parts": [ordinary]])
+        feed.update(old.questions, seq: old.seq, messageID: "msg_9")
+        #expect(feed.current.map(\.id) == ["msg_9#0"])
+
+        let found = ChiefQuestionFeed.questions(in: [
+            "id": "msg_9", "seq": 9, "parts": [localApprovalPart, ordinary],
+        ])
+        feed.update(found.questions, seq: found.seq, messageID: "msg_9")
+        #expect(found.questions.map(\.id) == ["msg_9#1"])
+        #expect(feed.current.map(\.id) == ["msg_9#1"], "The Mac-only card must leave the phone answer bar")
+    }
+
     @Test func questionPartsAreFoundByAddress() {
         let message: [String: Any] = [
             "id": "msg_9", "seq": 9, "author": "agent_mux",
@@ -117,7 +136,15 @@ import Testing
     }
 }
 
-/// Signs like `ChiefAnswerSigner` without Face ID, and records what it signed.
+private var localApprovalPart: [String: Any] {
+    ["type": "question", "harness": "chief", "session": "local/hidden-agent", "permission": "p1",
+     "agent": "a1", "state": ["kind": "pending"],
+     "items": [["id": "approval:" + String(repeating: "a", count: 64), "prompt": "Bash",
+                "multi_select": false, "allows_other": false,
+                "options": [["id": "allow", "label": "Allow once"], ["id": "deny", "label": "Deny"]]]]]
+}
+
+/// Signs like `ChiefAnswerSigner` and records what it signed.
 final class RecordingSigner: ChiefAnswerSigning, @unchecked Sendable {
     private let lock = NSLock()
     private(set) var signed: [(conversation: String, messageID: String, partIndex: Int, answer: JSONValue)] = []
@@ -130,6 +157,26 @@ final class RecordingSigner: ChiefAnswerSigning, @unchecked Sendable {
 }
 
 @Suite struct ChiefQuestionBackendTests {
+    @Test func aCachedLocalApprovalCannotBeSignedOrSentByThePhone() async throws {
+        let daemon = FakeDaemon()
+        let backend = try await ChiefDaemonBackend.open(link: MockMacLink { _, request in daemon.respond(request) })
+        defer { backend.close() }
+        let json = try AgentQuestionJSON(data: JSONSerialization.data(withJSONObject: localApprovalPart))
+        let question = try #require(AgentQuestion(conversationPart: json, messageID: "msg_approval", partIndex: 0))
+        let signer = RecordingSigner()
+        let count = daemon.ops.count
+        do {
+            try await backend.answer(question, with: .init(selections: [:]), signer: signer) {
+                Issue.record("A local approval must never reach phone approval")
+            }
+            Issue.record("A phone must refuse a cached Mac-only approval card")
+        } catch let error as ConversationBackendError {
+            #expect(error.message == "question.person_decision_required")
+        }
+        #expect(signer.signed.isEmpty)
+        #expect(daemon.ops.count == count, "No transcript answer may claim the command was allowed")
+    }
+
     @Test func answersWithTheSignedPayload() async throws {
         let daemon = FakeDaemon()
         let messageID = daemon.seedChiefQuestion()

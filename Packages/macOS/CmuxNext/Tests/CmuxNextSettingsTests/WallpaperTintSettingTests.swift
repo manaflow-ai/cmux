@@ -13,7 +13,7 @@ struct WallpaperTintSettingTests {
         let snapshot = Self.parse(nil)
         #expect(snapshot.wallpaperTint)
         #expect(snapshot.diagnostics.isEmpty)
-        let descriptor = SettingsSchema.descriptor(for: WallpaperTintSetting().configPath)
+        let descriptor = SettingsSchema.descriptor(for: WallpaperTintSetting.configPath)
         #expect(descriptor?.defaultValue == .bool(true))
     }
 

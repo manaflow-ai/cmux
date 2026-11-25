@@ -284,8 +284,71 @@ fn a_pull_brings_back_commits_edits_adds_deletes_and_staged_changes_not_ignored_
     assert!(ok && after["unchanged"] == json!(true), "{after}");
 }
 
+/// Read refs/stash without treating its expected absence as a Git failure.
+fn stash_at(folder: &Path) -> Option<String> {
+    let out = Command::new("git")
+        .arg("-C")
+        .arg(folder)
+        .args(["rev-parse", "--verify", "-q", "refs/stash"])
+        .output()
+        .unwrap();
+    out.status.success().then(|| String::from_utf8(out.stdout).unwrap().trim().to_owned())
+}
+
 #[test]
-fn a_pull_keeps_both_sides_and_refuses_what_changed_on_both() {
+fn a_stash_only_cloud_change_returns_on_pull_and_can_be_deleted() {
+    let world = World::new("stash-roundtrip");
+    let repo = world.project("app");
+    let (ok, seeded) = world.push(&repo, "app", false);
+    assert!(ok && seeded["mode"] == "seed", "{seeded}");
+    let vm = world.folder("app");
+
+    // Cloud changes only refs/stash: the work, index and HEAD are the same.
+    write(&vm.join("a"), "a\nstash-only VM change\n");
+    git(&vm, &["stash", "push", "-q", "-m", "from-cloud"]);
+    let remote_stash = stash_at(&vm).expect("Cloud stash");
+    assert!(stash_at(&repo).is_none());
+    let (ok, pulled) = world.pull(&repo, "app", None);
+    assert!(ok && pulled["stash_changed"] == true, "{pulled}");
+    assert_eq!(pulled["written"], 0, "{pulled}");
+    assert_eq!(stash_at(&repo), Some(remote_stash));
+
+    // An unmodified follow-up is idempotent, including the stash baseline.
+    let (ok, same) = world.pull(&repo, "app", None);
+    assert!(ok && same["unchanged"] == true, "{same}");
+    git(&vm, &["update-ref", "-d", "refs/stash"]);
+    let (ok, removed) = world.pull(&repo, "app", None);
+    assert!(ok && removed["stash_changed"] == true, "{removed}");
+    assert_eq!(removed["bundle_bytes"], 0, "deletion needs no object bundle: {removed}");
+    assert!(stash_at(&repo).is_none(), "the Mac kept the deleted Cloud stash");
+    let (ok, stable) = world.pull(&repo, "app", None);
+    assert!(ok && stable["unchanged"] == true, "{stable}");
+}
+
+#[test]
+fn a_divergent_stash_conflicts_before_any_worktree_or_index_changes() {
+    let world = World::new("stash-conflict");
+    let repo = world.project("app");
+    let (ok, seeded) = world.push(&repo, "app", false);
+    assert!(ok && seeded["mode"] == "seed", "{seeded}");
+    let vm = world.folder("app");
+
+    write(&repo.join("a"), "a\nlocal stash\n");
+    git(&repo, &["stash", "push", "-q", "-m", "local"]);
+    let local_stash = stash_at(&repo).unwrap();
+    write(&vm.join("a"), "a\nremote stash\n");
+    git(&vm, &["stash", "push", "-q", "-m", "cloud"]);
+    write(&vm.join("b"), "b\nremote dirty edit\n");
+    let before = everything(&repo);
+    let (ok, conflict) = world.pull(&repo, "app", None);
+    assert!(!ok && conflict["error_code"] == "sync_conflict", "{conflict}");
+    assert_eq!(conflicted(&conflict), vec![".git/refs/stash"], "{conflict}");
+    assert_eq!(stash_at(&repo), Some(local_stash), "the local stash was overwritten");
+    assert_eq!(everything(&repo), before, "a stash conflict changed other local files");
+}
+
+#[test]
+fn a_pull_keeps_both_sides_and_settles_what_changed_on_both() {
     let world = World::new("both");
     let repo = world.project("app");
     let base = world.seed(&repo, "app");
@@ -294,6 +357,9 @@ fn a_pull_keeps_both_sides_and_refuses_what_changed_on_both() {
     // Different files: both kept.
     write(&repo.join("a"), "a\nedited on the mac\n");
     write(&vm.join("b"), "b\nedited on the vm\n");
+    write(&vm.join("lines"), "one\ntwo\nthree\nfour\nfive\n");
+    write(&vm.join("doc"), "doc\n");
+    write(&vm.join("keep"), "keep\n");
     let (ok, pulled) = world.pull(&repo, "app", Some(&base));
     assert!(ok, "{pulled}");
     assert_eq!(read(&repo.join("a")), "a\nedited on the mac\n");
@@ -304,31 +370,39 @@ fn a_pull_keeps_both_sides_and_refuses_what_changed_on_both() {
         work: pulled["base"]["work"].as_str().unwrap().to_owned(),
     };
 
-    // The same file, differently: nothing changes here.
+    // The same files, changed on both sides: the three-tree module (cmux-sync) settles each one
+    // and the pull goes through. Overlapping edits: the machine's version takes the path and this
+    // Mac's is kept beside it. Edits to different lines merge. An edit beats a delete either way.
     write(&repo.join("notes"), "notes\nfrom the mac\n");
     write(&vm.join("notes"), "notes\nfrom the vm\n");
     write(&vm.join("other"), "would come back\n");
-    let before = everything(&repo);
-    let (ok, refused) = world.pull(&repo, "app", Some(&base));
-    assert!(!ok, "{refused}");
-    assert_eq!(refused["error_code"], "sync_conflict", "{refused}");
-    assert_eq!(conflicted(&refused), vec!["notes"], "{refused}");
-    assert_eq!(everything(&repo), before, "a conflict changed something here");
-    assert!(world.leftover_bundles().is_empty());
-
-    // A file git was told to assume unchanged, edited here: the snapshot
-    // reads it as the seed's, but the bytes on disk are not; a conflict,
-    // nothing changes.
-    write(&repo.join("notes"), "notes\nfrom the vm\n");
-    write(&vm.join("notes"), "notes\nfrom the vm\n");
-    write(&vm.join("other"), "would come back\n");
+    write(&repo.join("lines"), "ONE\ntwo\nthree\nfour\nfive\n");
+    write(&vm.join("lines"), "one\ntwo\nthree\nfour\nFIVE\n");
+    fs::remove_file(repo.join("doc")).unwrap();
+    write(&vm.join("doc"), "doc\nedited on the vm\n");
+    write(&repo.join("keep"), "keep\nedited on the mac\n");
+    fs::remove_file(vm.join("keep")).unwrap();
     let (ok, settled) = world.pull(&repo, "app", Some(&base));
     assert!(ok, "{settled}");
+    assert_eq!(settled["conflict_files"], json!(["notes.cmux-sync-conflict"]));
+    assert_eq!(settled["merged"], json!(["lines"]), "{settled}");
+    assert_eq!(settled["kept_edits"], json!(["doc", "keep"]), "{settled}");
+    assert_eq!(read(&repo.join("notes")), "notes\nfrom the vm\n");
+    assert_eq!(read(&repo.join("notes.cmux-sync-conflict")), "notes\nfrom the mac\n");
+    assert_eq!(read(&repo.join("other")), "would come back\n");
+    assert_eq!(read(&repo.join("lines")), "ONE\ntwo\nthree\nfour\nFIVE\n");
+    assert_eq!(read(&repo.join("doc")), "doc\nedited on the vm\n");
+    assert_eq!(read(&repo.join("keep")), "keep\nedited on the mac\n");
+    assert!(world.leftover_bundles().is_empty());
     let base = Base {
         head: settled["base"]["head"].as_str().unwrap().to_owned(),
         index: settled["base"]["index"].as_str().unwrap().to_owned(),
         work: settled["base"]["work"].as_str().unwrap().to_owned(),
     };
+
+    // A file git was told to assume unchanged, edited here: the snapshot
+    // reads it as the seed's, but the bytes on disk are not; a conflict,
+    // nothing changes.
     git(&repo, &["update-index", "--assume-unchanged", "a"]);
     write(&repo.join("a"), "a\nedited on the mac, hidden from git\n");
     write(&vm.join("a"), "a\nedited on the vm\n");
@@ -365,6 +439,20 @@ fn a_pull_keeps_both_sides_and_refuses_what_changed_on_both() {
     assert!(conflicted(&refused).contains(&".git/HEAD"), "{refused}");
     assert!(refused["error"].as_str().unwrap().contains("rewrote"), "{refused}");
     assert_eq!(everything(&repo), before, "a conflict changed something here");
+    // The branch moved on both sides stays two: the machine's rewritten commit is kept beside it.
+    let branch = git(&repo, &["symbolic-ref", "--short", "HEAD"]).trim().to_owned();
+    let head =
+        git(&repo, &["rev-parse", &format!("refs/cmux/carry/{branch}/head")]).trim().to_owned();
+    assert_eq!(head, git(&vm, &["rev-parse", "HEAD"]).trim());
+    assert_ne!(head, git(&repo, &["rev-parse", "HEAD"]).trim());
+    assert_eq!(git(&repo, &["log", "-1", "--format=%s", &head]), "rewritten on the vm\n");
+    // Its uncommitted files too, and the answer says where (RFD 0155 goal 5).
+    assert!(
+        refused["error"].as_str().unwrap().contains(&format!("refs/cmux/carry/{branch}")),
+        "{refused}"
+    );
+    let kept = format!("refs/cmux/carry/{branch}/work");
+    assert_eq!(git(&repo, &["show", &format!("{kept}:notes")]), "notes\nfrom the vm\n");
 }
 
 #[test]
@@ -425,12 +513,12 @@ fn bring_back_pulls_a_seed_as_its_diff_and_a_copy_as_a_copy() {
 
     write(&repo.join("b"), "b\nfrom the mac\n");
     write(&vm.join("b"), "b\nfrom the vm\n");
-    let before = everything(&repo);
-    let (ok, refused) = world.bring_back(&repo, "app");
-    assert!(!ok, "{refused}");
-    assert_eq!(refused["error_code"], "sync_conflict", "{refused}");
-    assert_eq!(conflicted(&refused), vec!["b"], "{refused}");
-    assert_eq!(everything(&repo), before, "a conflict changed something here");
+    // Both made `b`: the three-tree module keeps both, the machine's at the path.
+    let (ok, settled) = world.bring_back(&repo, "app");
+    assert!(ok, "{settled}");
+    assert_eq!(settled["conflict_files"], json!(["b.cmux-sync-conflict"]), "{settled}");
+    assert_eq!(read(&repo.join("b")), "b\nfrom the vm\n");
+    assert_eq!(read(&repo.join("b.cmux-sync-conflict")), "b\nfrom the mac\n");
 
     // Not a git folder: `cmux link seed push` copied it.
     let plain = world.mac.home().join("plain");

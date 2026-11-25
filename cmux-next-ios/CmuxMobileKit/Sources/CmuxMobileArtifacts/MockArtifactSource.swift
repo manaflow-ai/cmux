@@ -1,5 +1,5 @@
-// DEBUG and Demo builds only: mock content is never compiled into Production.
-#if DEBUG
+// In every build: DEBUG mock mode and the App Review demo account (server-flagged,
+// AppStore.loadReviewDemo) use it. A live account never does (TerminalSessionChoice).
 import Foundation
 #if os(iOS)
 import AVFoundation
@@ -9,6 +9,10 @@ import UIKit
 /// Artifact contents for the mock session: a few text files, a generated
 /// screenshot and recording, directory listings and links.
 public struct MockArtifactSource: ArtifactSource {
+    /// Demo content has one deterministic owner, separate from every real Mac
+    /// or account. Keep the sample grid's thumbnail warm cache.
+    public let thumbnailCacheScope: String? = "mock-demo-artifacts-v1"
+
     public init() {}
 
     public func load(_ artifact: TerminalArtifact) async throws -> ArtifactContent {
@@ -387,4 +391,3 @@ public struct MockArtifactSource: ArtifactSource {
     }
     #endif
 }
-#endif

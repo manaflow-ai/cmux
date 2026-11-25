@@ -2,7 +2,7 @@ import { useEffect, useMemo } from "react";
 import { withAllEdits, isEdited, type ThemeEditMap } from "../../../theme/themeEdits";
 import { useColorScheme } from "../colorScheme";
 import { useSettingsSelector, useStore } from "../context";
-import { ThemePicker } from "../components/ThemePicker";
+import { ThemePicker, useThemeFavorites } from "../components/ThemePicker";
 import { valueOf } from "../store";
 import { t, text } from "../strings";
 import { configThemeColors, terminalThemeColors } from "../themeDefaults";
@@ -31,6 +31,7 @@ export function ThemeRowEditor({ row, value, disabled, labelId }: EditorProps) {
   // terminal theme, the terminal's resolved theme on the app theme.
   const config = useSettingsSelector((state) => state.host?.theme?.config ?? null);
   const terminalValue = useSettingsSelector((state) => valueOf(state, THEME_KEY));
+  const starred = useThemeFavorites();
   const configLabel = text(row.default_label) || t("settingsWindow.themeUseConfig");
   const configColors = useMemo(() => {
     const ghostty = configThemeColors(config, colors, side, t("settingsWindow.themeUseConfig"));
@@ -49,6 +50,8 @@ export function ThemeRowEditor({ row, value, disabled, labelId }: EditorProps) {
       configLabel={configLabel}
       configColors={configColors}
       custom={(name) => isEdited(edits, name)}
+      favorites={starred.favorites}
+      onToggleFavorite={starred.toggle}
       // A light/dark pair keeps its other side: the pick replaces the side in effect.
       onPick={(name) => {
         if (!name) return store.reset(row.key);

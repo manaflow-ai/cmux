@@ -12,13 +12,14 @@ enum DaemonConnectionChange {
             store.sideEvents.noteControl(envelope)
             store.session.connected(servesStateResources: identity.supports(DaemonCapability.stateResources.rawValue))
             store.connectionState = .connected(identity)
-            store.noteRetriesSpent(false)
+            store.noteConnected(envelope)
             store.noteHandshake(identity)
             return .resync
         case .disconnected(let reason):
             store.sideEvents.noteControl(nil)
             store.clearPresence()
             store.connectionState = .disconnected(reason)
+            store.applyParkedBeforeDisconnect()
             store.onDisconnected?()
             // Nothing newer will arrive for commands sent on this transport.
             store.drainAppliedWaiters = true
@@ -28,6 +29,7 @@ enum DaemonConnectionChange {
             store.sideEvents.noteControl(nil)
             store.clearPresence()
             store.connectionState = .disconnected("daemon shut down")
+            store.applyParkedBeforeDisconnect()
             store.onDisconnected?()
             return .none
         }

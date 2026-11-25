@@ -65,6 +65,9 @@ pub(super) struct Attempt {
     pub intent: Option<String>,
     pub response: Option<String>,
     pub expires_at: Option<u64>,
+    /// The invite code this attempt began with (`cmux pair CODE`), canonical.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub invite: Option<String>,
 }
 
 impl Identity {

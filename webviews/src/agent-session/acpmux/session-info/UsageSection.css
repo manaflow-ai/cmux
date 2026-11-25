@@ -8,6 +8,13 @@
 .acpmux-session-info-usage__value {
   color: var(--agent-text);
 }
+/* Own metrics start flush on the icon column, where the section's title starts (Lucas, 2026-11-05,
+   Session Info lab: "line that up with the headers"). The empty slot and the icon arm are gallery-only. */
+.acpmux-session-info-usage__lead-slot {
+  flex: none;
+  width: var(--grid-icon-box);
+  height: var(--grid-icon-box);
+}
 .acpmux-session-info-usage__head {
   display: flex;
   align-items: center;
@@ -42,7 +49,7 @@
   color: var(--agent-text);
 }
 .acpmux-session-info-usage__sort-option[aria-pressed="true"] {
-  background: color-mix(in srgb, var(--agent-text) 8%, transparent);
+  background: var(--ds-color-selection);
   color: var(--agent-text);
 }
 .acpmux-session-info-usage__sort-option:focus-visible {
@@ -62,11 +69,16 @@
   letter-spacing: var(--text-detail--letter-spacing);
 }
 .acpmux-session-info-usage__action:hover:not(:disabled) {
-  background: color-mix(in srgb, var(--agent-text) 7%, transparent);
+  background: var(--ds-surface-hover);
   color: var(--agent-text);
 }
 .acpmux-session-info-usage__action:disabled {
   opacity: 0.5;
+}
+/* Why the action is off, beside it in the quieter ink (a disabled button gets no hover). */
+.acpmux-session-info-usage__soon {
+  min-width: 0;
+  color: var(--agent-muted);
 }
 .acpmux-session-info-usage__action:focus-visible {
   outline: 1.5px solid var(--agent-text);

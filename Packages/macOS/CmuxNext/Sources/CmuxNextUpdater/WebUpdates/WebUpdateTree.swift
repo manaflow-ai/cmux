@@ -12,19 +12,19 @@ nonisolated public struct WebUpdateTree: Sendable {
         self.root = root
     }
 
+    /// Each output by name, so a change to the list never moves a caller onto another output.
+    public static let agentPaneOutput = "Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/Resources/agent-pane"
+    public static let pagesOutput = "Packages/macOS/CmuxNext/Sources/CmuxNextPages/Resources/pages"
+    public static let agentActivityOutput = "Packages/macOS/CmuxNext/Sources/CmuxNextAgentActivity/Resources/agent-activity"
+    public static let webviewsAppOutput = "Resources/markdown-viewer/webviews-app"
+    public static let inspectorOutput = "Native/OptChat/optchat-chief/inspector/index.html"
+
     /// web-bundle-key.py OUTPUTS, in its order (WebUpdateTreeTests reads the script to keep them equal).
-    public static let outputs = [
-        "Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/Resources/agent-pane",
-        "Packages/macOS/CmuxNext/Sources/CmuxNextPages/Resources/pages",
-        "Packages/macOS/CmuxNext/Sources/CmuxNextAgentActivity/Resources/agent-activity",
-        "Packages/macOS/CmuxNext/Sources/CmuxNextPalette/Resources/palette-ranker.js",
-        "Resources/markdown-viewer/webviews-app",
-        "Native/OptChat/optchat-chief/inspector/index.html",
-    ]
+    public static let outputs = [agentPaneOutput, pagesOutput, agentActivityOutput, webviewsAppOutput, inspectorOutput]
     static let ignoredNames: Set<String> = [".DS_Store"]
 
     /// The native interface the tree's bundles need (`pages/web-abi.json`), nil when missing.
-    public var abi: Int? { Self.abi(inPages: root.appending(path: Self.outputs[1], directoryHint: .isDirectory)) }
+    public var abi: Int? { Self.abi(inPages: root.appending(path: Self.pagesOutput, directoryHint: .isDirectory)) }
 
     /// The `abi` of the `web-abi.json` in a pages folder (the bundled one or an update's).
     public static func abi(inPages pages: URL) -> Int? {

@@ -43,7 +43,7 @@ const asKeyAdmin = (rateClass: RateClass) =>
       grantable = principal.scopes;
     } else if (principal.actor.kind === "session") {
       const teamAdmin = yield* TeamAdmin;
-      const admin = yield* teamAdmin.isAdmin(principal.tenantId, principal.actor.userId).pipe(Effect.mapError(() => unavailable()));
+      const admin = yield* teamAdmin.isAdmin(principal.tenantId, principal.actor.userId).pipe(Effect.mapError(unavailable));
       if (!admin) return yield* Effect.fail(notAdmin());
       grantable = new Set(SCOPES);
     } else {
@@ -114,7 +114,7 @@ export const apiKeysHandlers = HttpApiBuilder.group(CmuxVmApi, "apiKeys", (handl
               expiresAt,
             })
             .pipe(
-              Effect.mapError(() => unavailable()),
+              Effect.mapError(unavailable),
               Effect.as(
                 new CreatedApiKey({
                   id,
@@ -135,7 +135,7 @@ export const apiKeysHandlers = HttpApiBuilder.group(CmuxVmApi, "apiKeys", (handl
       Effect.gen(function* () {
         const store = yield* ApiKeyAdminStore;
         const { principal } = yield* asKeyAdmin("read");
-        const keys = yield* store.list(principal.tenantId, LIST_LIMIT).pipe(Effect.mapError(() => unavailable()));
+        const keys = yield* store.list(principal.tenantId, LIST_LIMIT).pipe(Effect.mapError(unavailable));
         return new ApiKeyList({
           items: keys.map(
             (key) =>
@@ -165,7 +165,7 @@ export const apiKeysHandlers = HttpApiBuilder.group(CmuxVmApi, "apiKeys", (handl
           keyId,
           Effect.gen(function* () {
             const now = new Date(yield* Clock.currentTimeMillis);
-            const found = yield* store.revoke(principal.tenantId, keyId, now).pipe(Effect.mapError(() => unavailable()));
+            const found = yield* store.revoke(principal.tenantId, keyId, now).pipe(Effect.mapError(unavailable));
             if (!found) return yield* Effect.fail(keyNotFound());
           }),
         );

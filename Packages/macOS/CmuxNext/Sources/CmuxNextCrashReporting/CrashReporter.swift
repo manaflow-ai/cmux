@@ -3,12 +3,13 @@ public import Darwin
 public import Foundation
 public import Sentry
 public import CmuxNextCompat
+import os
 
 /// Sends cmux-next crashes (signals, Mach exceptions, uncaught Objective-C
 /// exceptions, app hangs) to Sentry, under ``CrashReportingPolicy``.
 ///
 /// Same options as the main app (`AppDelegate`): no default PII, no
-/// performance tracing (its root transaction cannot be scrubbed), 8 s app
+/// performance tracing (its root transaction cannot be scrubbed), 2 s app
 /// hangs, every event, breadcrumb and span through `SentryEventScrubber`.
 /// No structured logs: cmux-next has no log bridge, so it sends nothing the
 /// main app does not.
@@ -81,9 +82,12 @@ public final class CrashReporter: Sendable {
         options.debug = false
         options.sendDefaultPii = false
         options.tracesSampleRate = 0.0
-        options.appHangTimeoutInterval = 8.0
+        options.appHangTimeoutInterval = 2.0
         options.attachStacktrace = true
         options.enableCaptureFailedRequests = false
+        // No request URLs in breadcrumbs or spans: a URL can hold a path, a branch or a repository name.
+        options.enableNetworkBreadcrumbs = false
+        options.enableNetworkTracking = false
         // Objective-C exceptions that reach NSApplication's reportException:
         // hook, with their reason and throw stack (main d481d516e520). The
         // SDK also registers NSApplicationCrashOnExceptions, which every
@@ -190,14 +194,45 @@ public final class CrashReporter: Sendable {
     /// calls the uncaught-exception handler, which must then not start the
     /// deadline (``uncaughtException(_:then:)``). `record` writes the app's
     /// exception record, `report` is AppKit's reportException.
+    ///
+    /// A known framework bug that AppKit survives in every app (``SurvivableSystemException``)
+    /// does not crash: it is logged and sent as a handled event, and neither `record` nor `report`
+    /// runs.
     public static func reportException(_ exception: NSException, crashes: Bool,
                                        record: (NSException) -> Void, report: () -> Void) {
+        reportException(exception, frames: exception.callStackSymbols, crashes: crashes, record: record, report: report)
+    }
+
+    /// ``reportException(_:crashes:record:report:)`` with the throw's `frames` given: a test's
+    /// exception was never raised, so it has no call stack.
+    static func reportException(_ exception: NSException, frames: [String], crashes: Bool,
+                                record: (NSException) -> Void, report: () -> Void) {
+        let described = SurvivableSystemException(name: exception.name.rawValue, reason: exception.reason ?? "", frames: frames)
+        if let rule = described.rule { return survive(described, rule: rule) }
         if crashes { beginCrashDeadline() }
         record(exception)
         reportingSurvivableException.store(!crashes, ordering: .releasing)
         defer { reportingSurvivableException.store(false, ordering: .releasing) }
         report()
     }
+
+    /// A survived framework exception: logged, and sent as a handled event while Sentry runs.
+    private static func survive(_ exception: SurvivableSystemException, rule: SurvivableSystemException.Rule) {
+        let line = exception.reason.split(whereSeparator: \.isNewline).first.map(String.init) ?? ""
+        survivedLogger.error("survived system exception \(rule.id, privacy: .public): \(exception.name, privacy: .public)")
+        guard SentrySDK.isEnabled else { return }
+        let event = Event(level: .warning)
+        let value = Exception(value: "\(exception.name): \(line.prefix(120))", type: exception.name)
+        let mechanism = Mechanism(type: "cmux_survived_system_exception")
+        mechanism.handled = true
+        value.mechanism = mechanism
+        event.exceptions = [value]
+        event.fingerprint = ["survived-system-exception", rule.id]
+        event.tags = ["survived_system_exception": rule.id]
+        SentrySDK.capture(event: event)
+    }
+
+    private static let survivedLogger = Logger(subsystem: "com.cmuxterm.app.next", category: "crash")
 
     /// The uncaught-exception handler: the runtime aborts after it, so the
     /// crash has begun, unless Sentry's reportException: hook calls it for
@@ -233,6 +268,22 @@ public final class CrashReporter: Sendable {
             scope.setTag(value: name, key: "failure")
             scope.setLevel(.warning)
         }
+    }
+
+    /// Adds a breadcrumb to the trail the next event carries (a crash, a hang, a non-fatal), so a later report
+    /// shows what led to it. `message` and `data` must hold no user content: they are sent as is. Does nothing
+    /// while Sentry is off (consent, debug build).
+    /// - Parameters:
+    ///   - category: The breadcrumb's area, such as `terminal.reveal`.
+    ///   - message: One line, numbers and fixed words only.
+    ///   - warning: True for a problem seen (a warning breadcrumb), false for plain information.
+    ///   - data: Key-value numbers for the breadcrumb.
+    public func addBreadcrumb(category: String, message: String, warning: Bool = false, data: [String: String] = [:]) {
+        guard isStarted else { return }
+        let crumb = Breadcrumb(level: warning ? .warning : .info, category: category)
+        crumb.message = message
+        if !data.isEmpty { crumb.data = data }
+        SentrySDK.addBreadcrumb(crumb)
     }
 
     /// Sends a handled, non-fatal error event (a guard that caught a

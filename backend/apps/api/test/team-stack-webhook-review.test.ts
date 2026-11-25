@@ -57,16 +57,13 @@ describe("Stack team webhook review fixes (cx-3bi.43)", { timeout: 60_000 }, () 
     expect(after.status, JSON.stringify(after.body)).toBe(403)
   })
 
-  it("P1-2: a removed member's open team and cloud sockets close", async () => {
+  // The cloud socket's close (CloudDO hears the removal from TeamDO's outbox) is cmux-platform's to test: CloudDO lives there.
+  it("P1-2: a removed member's open team socket closes", async () => {
     const t = await mirroredTeam()
     const team = await openSocket("team", t.token, t.team)
-    const cloud = await openSocket("cloud", t.token, t.team)
     expect(await team.closedWithin(50)).toBeUndefined()
     await removeInStack(t)
     expect(await team.closedWithin(3000)).toBe(4401)
-    // CloudDO hears it from TeamDO's outbox.
-    await fireAlarm(teamStub(t.team))
-    expect(await cloud.closedWithin(3000)).toBe(4401)
   })
 
   it("P2-1: Stack's removal of a member who is an owner of the Stack team lands", async () => {

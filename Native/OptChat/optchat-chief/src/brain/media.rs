@@ -5,8 +5,8 @@
 //! each one as an attachment record of the conversation and the reply goes out with an
 //! `attachment` part per file after its text; the image syntax leaves the text (the picture
 //! shows instead), a link stays. Only an existing regular file of a type the owner takes as a
-//! picture or video (png, jpeg, gif, webp, heic, mp4, mov), at most [`MAX_MEDIA_BYTES`], is
-//! read; anything else stays text.
+//! picture or video (png, jpeg, gif, webp, heic, mp4, mov) is streamed;
+//! anything else stays text.
 
 use std::path::{Path, PathBuf};
 
@@ -14,17 +14,8 @@ use cmux_conversation::Part;
 
 use crate::daemon::PreviewPort;
 
-/// The largest file the Chief sends (the owner's limit is 100 MB; one upload holds it in memory).
-pub const MAX_MEDIA_BYTES: u64 = 50_000_000;
-
 /// One local file a reply names.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct MediaRef {
-    pub path: PathBuf,
-    pub mime_type: &'static str,
-    /// The byte range of `![alt](path)` in the reply (it leaves the text); None for a link.
-    pub image_syntax: Option<std::ops::Range<usize>>,
-}
+pub type MediaRef = crate::state::PendingMedia;
 
 /// The owner's type of a picture or video file, by its extension.
 pub fn media_type(path: &Path) -> Option<&'static str> {
@@ -115,15 +106,14 @@ pub fn media_refs(reply: &str, home: Option<&Path>) -> Vec<MediaRef> {
         let Some(mime_type) = media_type(&path) else {
             continue;
         };
-        let sendable = std::fs::metadata(&path)
-            .is_ok_and(|meta| meta.is_file() && meta.len() > 0 && meta.len() <= MAX_MEDIA_BYTES);
+        let sendable = std::fs::metadata(&path).is_ok_and(|meta| meta.is_file() && meta.len() > 0);
         if !sendable || refs.iter().any(|r| r.path == path) {
             continue;
         }
         let image = open_label > 0 && bytes[open_label - 1] == b'!';
         refs.push(MediaRef {
             path,
-            mime_type,
+            mime_type: mime_type.into(),
             image_syntax: image.then(|| (open_label - 1)..(target_end + 1)),
         });
     }
@@ -135,10 +125,38 @@ pub fn media_refs(reply: &str, home: Option<&Path>) -> Vec<MediaRef> {
 /// spaces), and the image syntax of `failed` files becomes a `file://` link
 /// to the file. Home never draws a local picture from Markdown, so image
 /// syntax left in the text showed as `!name` (the user, 2026-10-26).
-pub fn settled(reply: &str, sent: &[&MediaRef], failed: &[&MediaRef]) -> String {
+///
+/// A sent picture on a table line (`| … |`, before and after shots) keeps its image syntax in its
+/// cell, pointing at its attachment instead (`![alt](cmux-attachment:<hash>)`, `hashes` gives each
+/// sent file's), so Home draws it in the cell (the user, 2026-11-03: "like how one might see in a
+/// github PR"); without a hash it leaves the text as any other.
+pub fn settled(
+    reply: &str,
+    sent: &[&MediaRef],
+    failed: &[&MediaRef],
+    hashes: &dyn Fn(&MediaRef) -> Option<String>,
+) -> String {
+    let on_table_line = |range: &std::ops::Range<usize>| {
+        let start = reply[..range.start].rfind('\n').map_or(0, |i| i + 1);
+        let end = reply[range.end..]
+            .find('\n')
+            .map_or(reply.len(), |i| range.end + i);
+        let line = reply[start..end].trim();
+        line.starts_with('|') && line.ends_with('|')
+    };
     let mut edits: Vec<(std::ops::Range<usize>, Option<String>)> = sent
         .iter()
-        .filter_map(|r| r.image_syntax.clone().map(|range| (range, None)))
+        .filter_map(|r| {
+            let range = r.image_syntax.clone()?;
+            let cell = on_table_line(&range)
+                .then(|| hashes(r))
+                .flatten()
+                .map(|hash| {
+                    let label = image_label(&reply[range.clone()]).unwrap_or("");
+                    format!("![{label}](cmux-attachment:{hash})")
+                });
+            Some((range, cell))
+        })
         .collect();
     for media in failed {
         let Some(range) = media.image_syntax.clone() else {
@@ -147,10 +165,7 @@ pub fn settled(reply: &str, sent: &[&MediaRef], failed: &[&MediaRef]) -> String 
         let Ok(url) = url::Url::from_file_path(&media.path) else {
             continue;
         };
-        let syntax = &reply[range.clone()];
-        let label = syntax
-            .strip_prefix("![")
-            .and_then(|rest| rest.find("](").map(|end| &rest[..end]))
+        let label = image_label(&reply[range.clone()])
             .filter(|label| !label.trim().is_empty())
             .unwrap_or("file");
         edits.push((range, Some(format!("[{label}]({url})"))));
@@ -187,6 +202,13 @@ pub fn settled(reply: &str, sent: &[&MediaRef], failed: &[&MediaRef]) -> String 
     lines.join("\n")
 }
 
+/// The alt text of an image syntax (`![alt](target)`).
+fn image_label(syntax: &str) -> Option<&str> {
+    syntax
+        .strip_prefix("![")
+        .and_then(|rest| rest.find("](").map(|end| &rest[..end]))
+}
+
 /// Uploads each file of `refs` to `conversation`: the attachment parts of the ones that went
 /// (a failure is logged and leaves that file's text as it was), with the refs they came from.
 pub fn upload(
@@ -197,8 +219,8 @@ pub fn upload(
 ) -> Vec<(MediaRef, Part)> {
     let mut sent = Vec::new();
     for media in refs {
-        let bytes = match std::fs::read(&media.path) {
-            Ok(bytes) if !bytes.is_empty() && bytes.len() as u64 <= MAX_MEDIA_BYTES => bytes,
+        match std::fs::metadata(&media.path) {
+            Ok(meta) if meta.is_file() && meta.len() > 0 => (),
             Ok(_) => continue,
             Err(e) => {
                 log(&format!(
@@ -207,12 +229,13 @@ pub fn upload(
                 ));
                 continue;
             }
-        };
+        }
         let size = media
             .mime_type
             .starts_with("image/")
             .then(|| {
-                image::ImageReader::new(std::io::Cursor::new(&bytes))
+                image::ImageReader::open(&media.path)
+                    .ok()?
                     .with_guessed_format()
                     .ok()?
                     .into_dimensions()
@@ -229,8 +252,8 @@ pub fn upload(
             .collect::<String>();
         match port.upload_attachment(
             conversation,
-            &bytes,
-            media.mime_type,
+            &media.path,
+            &media.mime_type,
             &name,
             size.map(|s| s.0),
             size.map(|s| s.1),

@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """every-action-sweep.py's own harness (deep review bench-small, 2026-10-23), against an in-memory app socket.
-Run by hand on a Freestyle VM, never in CI and never on a laptop (macOS-only CLOCK_UPTIME_RAW is aliased on Linux):
+Run by hand on a Freestyle VM, not in CI (2026-10-23 no-new-CI rule, since lifted) and never on a laptop
+(macOS-only CLOCK_UPTIME_RAW is aliased on Linux):
 ~/fun/cmuxterm-hq/scripts/freestyle-run.sh --label sweep-test --snapshot node --sync . -- python3 -c "import time,runpy; time.CLOCK_UPTIME_RAW=getattr(time,'CLOCK_UPTIME_RAW',time.CLOCK_MONOTONIC); runpy.run_path('scripts/cmux-next/tests/test_every_action_sweep.py', run_name='__main__')"
 
 1. A row that closed panes gets exactly those panes back. The sweep reopens by id (`history.reopen`) the
@@ -43,7 +44,7 @@ Run by hand on a Freestyle VM, never in CI and never on a laptop (macOS-only CLO
 No app, GUI or build: the module's socket helper is replaced by a model of the topology, focus and closed history.
 Run: python3 -I scripts/cmux-next/tests/test_every_action_sweep.py
 """
-import contextlib, copy, importlib.util, io, itertools, json, os, shutil, sys, tempfile, unittest
+import contextlib, copy, importlib.util, io, itertools, json, os, shutil, sys, tempfile, time, unittest
 from unittest import mock
 
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -63,8 +64,16 @@ def load_sweep():
     return module
 
 
-sweep_mod = load_sweep()
-stress_mod = sweep_mod.load("perf_stress_session", "perf-stress-session.py")
+# every-action-sweep.py reads macOS CLOCK_UPTIME_RAW (the clock of NSEvent timestamps) when it loads.
+MAC = hasattr(time, "CLOCK_UPTIME_RAW")
+NOT_A_MAC = "every-action-sweep.py needs macOS time.CLOCK_UPTIME_RAW; this test runs on a Mac (or by hand with the alias above)"
+sweep_mod = load_sweep() if MAC else None
+stress_mod = sweep_mod.load("perf_stress_session", "perf-stress-session.py") if MAC else None
+
+
+def setUpModule():
+    if not MAC:
+        raise unittest.SkipTest(NOT_A_MAC)
 
 
 class NoProcess:
@@ -611,7 +620,6 @@ class ExpectationTests(unittest.TestCase):
     def test_each_id_is_checked_against_what_it_makes(self):
         self.assertIsNone(sweep_mod.expectation("newWorkspaceGroup"))
         self.assertIsNone(sweep_mod.expectation("nextWorkspaceGroup"))
-        self.assertIsNone(sweep_mod.expectation("focusRightSidebar"))
         self.assertEqual(sweep_mod.expectation("newTab"), "workspace+")
         self.assertEqual(sweep_mod.expectation("palette.newAgentChat"), "tab+")
         self.assertEqual(sweep_mod.expectation("focusNextPane"), "focus")
@@ -1685,7 +1693,7 @@ class FailedSessionTests(unittest.TestCase):
 STRESS_OK = {"workspaces": 60, "shown_columns": 4, "window": [80, 40, 1600, 1000], "measured_panes": 14,
              "measured_tabs": {"terminal": 28, "browser": 42, "conversation": 14}, "refusals": [],
              "busy_terminals": stress_mod.BUSY_TERMINALS, "pane_problems": [], "chromium_unavailable": [],
-             "background_chromium": [stress_mod.CHROMIUM_PER_WORKSPACE] * stress_mod.CHROMIUM_WORKSPACES}
+             "background_chromium": [stress_mod.CHROMIUM_PER_WORKSPACE] * stress_mod.CHROMIUM_WORKSPACES} if MAC else {}
 # What a host where only three columns fit builds.
 STRESS_NARROW = dict(STRESS_OK, shown_columns=3, measured_panes=11, measured_tabs={"terminal": 22, "browser": 33, "conversation": 11})
 
@@ -2078,4 +2086,5 @@ if __name__ == "__main__":
         unittest.main()
     finally:
         shutil.rmtree(OUT, ignore_errors=True)
-        shutil.rmtree(sweep_mod.SCRATCH, ignore_errors=True)
+        if sweep_mod:
+            shutil.rmtree(sweep_mod.SCRATCH, ignore_errors=True)

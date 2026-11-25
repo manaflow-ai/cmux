@@ -81,16 +81,27 @@ Each slice is test-first (red commit, then green) and lands on `feat-cmux-next`.
 2. **Shadow reads** (done, red then green). `PROJECTION_READS=shadow` serves Postgres and runs the
    same read on MySQL, logging `projection.read.match` or `projection.read.diff` (ids and seqs
    only). On for development and staging.
+   **Development cutover** (2026-11-02, ahead of staging; development data is throwaway):
+   `PROJECTION_PRIMARY=mysql`, `PROJECTION_SHADOW=postgres`, `PROJECTION_READS=mysql`. The compare
+   cron stays on and reports only (repairs flow primary to shadow, so none run while MySQL is
+   primary). Rollback: flip the three variables back, one deploy.
 3. **Staging cutover**, after 24 h of shadow reads with 0 `projection.read.diff` and 0 lasting
    `projection.compare.diff`: `PROJECTION_READS=mysql`, then `PROJECTION_PRIMARY=mysql` with
    `PROJECTION_SHADOW=postgres` (Postgres stays current for rollback; repairs then flow MySQL to
    Postgres, a later slice). Rollback: flip the variables back, one deploy.
+   **Done 2026-11-02** (Leo, 2026-10-28: "we might as well just do it now rather than later"):
+   staging had been shadow-reading since 2026-10-17 with the */15 compare repairing and the hourly
+   full verify on. The compare and full verify keep running and only report while MySQL is primary.
 4. **Production expand**: the `release-<sha12>` deploy request of `db-migrations-DESIGN.md`
    section 5 creates the schema on Vitess `main` (empty today), with `CMUX_NEXT_PRODUCTION_HOLD`
    set. Then production `PS_MYSQL`/`PS_MYSQL_RO` Hyperdrive configs (reader/writer passwords on
    `main`), `PROJECTION_SHADOW=mysql`, a one-time copy and verify, then the same shadow-read soak
    as staging.
 5. **Production cutover**: as step 3, only after staging has run on MySQL for 3 clean days.
+   **Config 2026-11-10** (Leo, 2026-10-30: "the cmux next postgres should jsut go to the cmux next
+   vitess"): staging had run on MySQL since 2026-11-02, and production had shadow-written and
+   shadow-read since step 4 (its `main` backfilled and 13/13 tables equal on 2026-10-29). Production
+   also gets the hourly full verify. It deploys with the next production promote.
 6. **Contract**: after 3 clean days on MySQL in production, remove `projection.ts` Postgres paths,
    `home-search.ts` Postgres query, `HYPERDRIVE`/`HYPERDRIVE_RO`, `db/migrate.ts`, `test-pg/`, the
    Postgres CI steps and `pg`. The Postgres `cmux-next` database is kept (read only) until Lawrence

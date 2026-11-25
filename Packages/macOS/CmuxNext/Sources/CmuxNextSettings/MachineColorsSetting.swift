@@ -7,14 +7,12 @@ public import CmuxNextDesign
 /// follows the theme. A machine with no entry keeps its automatic color (MachineColor). The
 /// Machines card in Settings writes one entry per machine.
 public nonisolated struct MachineColorsSetting: Sendable {
-    public let configPath = ["appearance", "machineColors"]
-
     public init() {}
 
     /// The picks in `root`. A bad entry is dropped with a diagnostic at its key; the others still apply.
     public func parse(_ root: JSONValue) -> (MachineColorOverrides, [SettingsDiagnostic]) {
-        guard let value = root.value(at: configPath) else { return (.none, []) }
-        let path = configPath.joined(separator: ".")
+        guard let value = root.value(at: Self.configPath) else { return (.none, []) }
+        let path = Self.configPath.joined(separator: ".")
         guard case .object(let entries) = value else {
             return (.none, [SettingsDiagnostic(kind: .invalidValue, path: path, message: "expected an object")])
         }
@@ -29,19 +27,6 @@ public nonisolated struct MachineColorsSetting: Sendable {
             colors[name] = color
         }
         return (MachineColorOverrides(colors), diagnostics)
-    }
-
-    /// The row: drawn by the Machines card (a color per machine), not as a map editor.
-    static var descriptor: SettingDescriptor {
-        SettingDescriptor(
-            ["appearance", "machineColors"], section: .machines,
-            group: SettingsText.keyed("settings.group.machineColors", "Machine Colors"),
-            title: SettingsText.keyed("settings.machines.colors", "Machine Color"),
-            help: SettingsText.keyed("settings.machines.colors.help",
-                                     "The color of each machine's sidebar rows and tab badges, by machine name: \"#RRGGBB\", or an accent name (red, green, yellow, purple, cyan, orange, pink, blue) that follows the theme. A machine without one gets a color from its name."),
-            kind: .stringMap, default: .object([:]),
-            keywords: ["machine", "computer", "server", "ssh", "cloud", "color", "colour", "identity"]
-        )
     }
 }
 

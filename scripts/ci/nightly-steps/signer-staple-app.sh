@@ -4,14 +4,14 @@
 #
 #   signer-staple-app.sh <app>
 #
-# signer-app-notary submits the app signer-app signed (the bytes of the tar whose digest this job
-# checked) to Apple at the same time as this job downloads and checks it, so the DMG Mac no longer
-# waits for Apple before its download starts. Apple's ticket is published under the app's CDHash
-# once Apple accepts the submission; until then `stapler staple` finds no ticket. This asks Apple
-# for it every STAPLE_RETRY_SECONDS (default 10) up to STAPLE_MAX_WAIT_SECONDS (default 1500:
-# signer-app-notary waits up to 1200 s after its upload), then `stapler validate` checks the
-# staple. A submission Apple rejects never gets a ticket, so this fails at the deadline (and
-# signer-app-notary fails first). The bundle changes only by the ticket stapler writes.
+# signer-app submits the app it signed (the bytes of the tar whose digest this job checked) to
+# Apple beside its artifact upload, so the DMG Mac never waits for Apple before its download starts.
+# Apple's ticket is published under the app's CDHash once Apple accepts the submission; until then
+# `stapler staple` finds no ticket. This asks Apple for it every STAPLE_RETRY_SECONDS (default 10)
+# up to STAPLE_MAX_WAIT_SECONDS (default 1500: Apple's answer has the 1200 s signer-dmg waits for
+# it, after the upload), then `stapler validate` checks the staple. A submission Apple rejects
+# never gets a ticket, so this fails at the deadline (and signer-dmg, which needs this job, never
+# signs a DMG). The bundle changes only by the ticket stapler writes.
 set -euo pipefail
 app="${1:?usage: signer-staple-app.sh <app>}"
 app="${app%/}"
@@ -31,7 +31,7 @@ while :; do
   waited=$((SECONDS - started))
   if (( waited + retry > max_wait )); then
     echo "$out" >&2
-    echo "error: no notarization ticket for ${app##*/} after ${waited} s ($attempt attempts); Apple has not accepted signer-app-notary's submission" >&2
+    echo "error: no notarization ticket for ${app##*/} after ${waited} s ($attempt attempts); Apple has not accepted signer-app's submission" >&2
     exit 1
   fi
   # Each attempt's own output stays in the log, so a failure other than "no ticket yet" shows.

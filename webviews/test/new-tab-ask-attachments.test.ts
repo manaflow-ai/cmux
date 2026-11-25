@@ -84,7 +84,7 @@ test("keeps the New Tab visible until its folder is accepted, then becomes the c
 });
 
 test("a refused folder start settles instead of leaving the submit pending", async () => {
-  const { pickFolder } = await import("../src/agent-session/acpmux/startFolder");
+  const { pickFolder } = await import("../src/agent-session/acpmux/startFolderModel");
   const native = async () => {
     throw Object.assign(new Error("not a folder"), { code: "transport.path_invalid" });
   };

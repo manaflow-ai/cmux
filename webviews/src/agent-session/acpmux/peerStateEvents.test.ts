@@ -1,12 +1,14 @@
 import { afterAll, beforeAll, expect, spyOn, test } from "bun:test";
 import { JSDOM } from "jsdom";
 import type { AcpmuxSnapshot } from "./model";
+import { settleReact } from "../../../test/support/domTeardown";
 
 const dom = new JSDOM("<!doctype html>", { url: "http://localhost/" });
 const scope = globalThis as Record<string, unknown>;
 const saved = new Map(["window", "document"].map((key) => [key, Object.getOwnPropertyDescriptor(scope, key)]));
 beforeAll(() => Object.assign(scope, { window: dom.window, document: dom.window.document }));
-afterAll(() => {
+afterAll(async () => {
+  await settleReact();
   for (const [key, descriptor] of saved) {
     if (descriptor) Object.defineProperty(scope, key, descriptor);
     else delete scope[key];
@@ -187,6 +189,43 @@ test("a lag notice reads the peer snapshot again, so a dropped disconnect is not
     await offline;
     expect(f.latest().peerConnected?.["studio-mac"]).toBe(false);
     expect(f.requests.filter((method) => method === "_acpmux/peers")).toHaveLength(2);
+  } finally {
+    f.client.close();
+  }
+});
+
+test("a list_changed lag reads nothing again: the pager already laid the notices over the list", async () => {
+  const f = await fixture("local");
+  try {
+    const before = f.requests.length;
+    // acpmux sends this after a list reply a `session_changed` notice overtook; nothing was dropped.
+    for (let i = 0; i < 3; i++)
+      f.socket().onmessage?.({
+        data: JSON.stringify({
+          jsonrpc: "2.0",
+          method: "_acpmux/lagged",
+          params: { watch: true, dropped: 0, reason: "list_changed" },
+        }),
+      });
+    // A read of our own, answered after any read the lags started.
+    await f.readSnapshot();
+    expect(f.requests.slice(before)).toEqual(["_acpmux/peers"]);
+  } finally {
+    f.client.close();
+  }
+});
+
+test("a watch lag that dropped notices still reads the list and the peer snapshot again", async () => {
+  const f = await fixture("local");
+  try {
+    const before = f.requests.length;
+    f.socket().onmessage?.({
+      data: JSON.stringify({ jsonrpc: "2.0", method: "_acpmux/lagged", params: { watch: true, dropped: 2 } }),
+    });
+    await f.readSnapshot();
+    const after = f.requests.slice(before);
+    expect(after).toContain("_acpmux/watch");
+    expect(after.filter((method) => method === "_acpmux/peers")).toHaveLength(2);
   } finally {
     f.client.close();
   }

@@ -116,20 +116,33 @@ public final class LiveFeed: FeedActions {
     /// phone (or a new connection) would show an empty Feed while the Mac has
     /// history. Each session's last finished turn becomes its Feed item, with
     /// the same id a live `turn_result` uses, at the time the turn ended.
+    ///
+    /// A Mac with years of sessions must not turn each connect into one card and
+    /// one transcript read per session: only the newest `FeedStore.memoryLimit`
+    /// turns become cards, and only the newest `fullReplyReads` of those read
+    /// their whole reply (older cards keep the summary's preview).
     func hydrate(_ sessions: [AcpmuxSession]) {
         let turns = sessions.compactMap { session -> (FeedItem, AcpmuxSession)? in
             guard session.lastTurnStatus != nil, let turnID = session.lastTurnID else { return nil }
             return (turnItem(session, fallbackKey: turnID, at: session.lastTurnEndedAt ?? session.updatedAt ?? now()), session)
         }
-        log.info("feed history \(turns.count, privacy: .public) turns")
+        .sorted { $0.0.createdAt > $1.0.createdAt }
+        .prefix(FeedStore.memoryLimit)
+        log.info("feed history \(turns.count, privacy: .public) of \(sessions.count, privacy: .public) sessions")
         store.mergeHistory(turns.map(\.0))
+        // `sessionsLoaded` is the authoritative watch reply, including an empty list.
+        // Marking here avoids treating channel readiness as a fetched Feed.
+        store.markKnown()
         // Replies of cards no longer in the Feed are let go.
         let shown = Set(store.items.map(\.id))
         fullReplies = fullReplies.filter { shown.contains($0.key) }
-        for (item, session) in turns {
+        for (item, session) in turns.prefix(Self.fullReplyReads) where shown.contains(item.id) {
             readFullReply(of: item, sessionID: session.id, turnID: session.lastTurnID, through: session.lastSeq)
         }
     }
+
+    /// How many of the newest turn cards read their whole reply on a read of the Mac.
+    static let fullReplyReads = 40
 
     /// A finished turn's item: keyed by the turn (live and history agree).
     func turnItem(_ session: AcpmuxSession, fallbackKey: String, at date: Date) -> FeedItem {
@@ -156,7 +169,9 @@ public final class LiveFeed: FeedActions {
         let harness = session?.harness ?? "agent"
         var item = FeedItem(
             id: id, kind: kind, workspaceID: place?.workspaceID ?? "", tabID: place?.tabID ?? sessionID,
-            agentName: session?.name.isEmpty == false ? session!.name : DaemonTree.agentName(harness), harness: harness,
+            // The agent ("Claude", "Codex"), as for a terminal agent's card: a session's name is an id
+            // acpmux or the Chief made ("claude-2", "optchat-sub-…-a12"), not who answered.
+            agentName: DaemonTree.agentName(harness), harness: harness,
             workspaceTitle: place?.workspaceTitle ?? (session?.cwd).map { ($0 as NSString).lastPathComponent } ?? "",
             markdown: markdown, quote: quote, createdAt: now()
         )

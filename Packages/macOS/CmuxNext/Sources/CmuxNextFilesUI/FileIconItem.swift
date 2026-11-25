@@ -14,7 +14,7 @@ final class FileIconItem: NSCollectionViewItem {
     override func loadView() {
         let root = NSView()
         root.wantsLayer = true
-        root.layer?.cornerRadius = 6
+        root.layer?.cornerRadius = Metrics.controlCornerRadius
         icon.imageScaling = .scaleProportionallyUpOrDown
         icon.translatesAutoresizingMaskIntoConstraints = false
         refreshTypography()

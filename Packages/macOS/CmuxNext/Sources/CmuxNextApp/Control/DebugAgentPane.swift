@@ -2,6 +2,7 @@
 import AppKit
 import CmuxNextActions
 import CmuxNextAgentPane
+import CmuxNextPages
 import CmuxNextResources
 import CmuxNextSettings
 import ObjectiveC
@@ -14,14 +15,14 @@ import WebKit
 /// one). Never changes app or window focus; `open_menu` moves focus inside
 /// the page to the menu's button, as a click does.
 ///
-/// `action`: `seed_rows` (`count`, default 5000; `fixture: "worked-turn"`
+/// `action`: `seed_rows` (`count`, default 5000; `fixture: "link"`/`"github-link"`, linkFixture.ts; `"worked-turn"`
 /// seeds a turn that edits three files instead, for the changes view, and `"short"` one-line
 /// turns answered "ok N", for the thread minimap's density, and `"incoming"` received agent
 /// messages, for the received-message card, and `"shared"` a shared chat, for chat multiplayer's
 /// authors, answered-by, header faces and typing line, and `"subagents"` the subagent tray's life,
 /// one step per `count`, with `agents` subagents started, 2 by default), `fling` (`seconds`,
 /// default 3; `nominal_ms`; `wait` returns the stats when the fling ends),
-/// `fling_stats`, `perf_stats` (`raw` adds every frame), `load_seed` (`turns`, default 5000:
+/// `fling_stats`, `perf_stats` (`raw` adds every frame), `tick_watch` (tickWatch.ts), `load_seed` (`turns`, default 5000:
 /// a mock session of heavy turns opened through the real client; needs `--showcase`'s mock
 /// daemon), `load_run` (`seconds`, `chunk_chars`, `chunk_ms`, `tool_every`, `scroll_speed`,
 /// `scroll_depth`: a full-speed stream into it while the transcript scrolls, with every frame's
@@ -36,7 +37,7 @@ import WebKit
 /// `select_session` (`session`), `pick_folder` (`cwd`: the folder chip's pick), `compose_send` (`text`: the
 /// composer's own Return, so a new chat with Cloud picked starts on a Cloud machine), `run_mode` (`mode`:
 /// `persistent`, `sandboxed` or `cloud`, the run row's pick; omitted reads it), `answer_permission` (`option`, `allow`,
-/// `decision`), `open_changes` (the latest turn's changes view), `set_files` (`paths`, `selector` default
+/// `decision`), `toast` (`text`: a pane toast), `open_changes` (the latest turn's changes view), `set_files` (`paths`, `selector` default
 /// `.acpmux-attach-input`: the composer's file input gets those files as a pick in Chromium's open panel),
 /// `models` (the harness's models), `set_model` (`model`, `effort`), `layout_watch` (`ms`, `tolerance`; layoutWatch.ts),
 /// `readiness` (page body, transcript and composer metrics), `cloud_auth` (the native
@@ -49,45 +50,33 @@ import WebKit
 /// omitted toggles it and returns `inspector_open`). Every action first stops WebKit from
 /// pausing the page while another window covers it, so a tagged build can
 /// be measured behind the user's windows.
+/// `query` (`selector`): the pane's elements as `debug.page` reads them (PageDebugQuery), acting on nothing; `resize_probe` (AgentPaneView+ResizeProbe).
+/// `session_info_action` (`id`) sends a page-owned native Session Info action through the same
+/// bridge as a native row click (DEBUG capture tours only).
 @MainActor
 enum DebugAgentPane {
-    /// Long enough for a 5000-turn load seed and a waited fling of up to ~25 s.
-    static let deadline: Duration = .seconds(60)
+    static let deadline = AgentPaneView.debugVerbDeadline
 
     private static let functions: [String: String] = [
         "seed_rows": "seedRows", "fling": "startFling", "fling_stats": "flingStats",
-        "perf_stats": "perfStats", "typing_stats": "typingStats", "reset_typing": "resetTyping",
+        "perf_stats": "perfStats", "tick_watch": "tickWatch", "typing_stats": "typingStats", "reset_typing": "resetTyping",
         "open_menu": "openMenu", "acp_log": "acpLog", "acp_log_export": "acpLogExport",
         "chat_state": "chatState", "send_prompt": "sendPrompt", "new_chat": "newChat",
         "select_session": "selectSession", "answer_permission": "answerPermission", "open_changes": "openChanges",
         "set_model": "setModel", "models": "models", "stream": "stream", "pick_folder": "pickFolder",
-        "compose_send": "composeSend", "run_mode": "runMode",
-        "load_seed": "loadSeed", "load_run": "loadRun", "layout_watch": "layoutWatch",
+        "compose_send": "composeSend", "run_mode": "runMode", "toast": "toast", "select_text": "selectText",
+        "load_seed": "loadSeed", "load_run": "loadRun", "layout_watch": "layoutWatch", "idle_probe": "idleProbe", "paste_probe": "pasteProbe",
     ]
 
-    /// The chat verbs drive the chat as a person does, so each records a user gesture first (as
-    /// `click` delivers a real click): the relay then treats a folder the verb names, a send, a
-    /// pick or an answer as the user's, and automation reaches what a person sees (the trust
-    /// question, not `transport.path_outside_roots`; cx-nn3e P0b). Measuring verbs record none.
+    /// The chat verbs drive the chat as a person does, so each records a user gesture first: the
+    /// relay treats a folder the verb names, a send, a pick or an answer as the user's (the trust
+    /// question, not `transport.path_outside_roots`; cx-nn3e P0b). `answer_permission` records a click,
+    /// as Allow once is one (cx-ocdz: an answer needs a fresh click). Measuring verbs record none.
     static let userVerbs: Set<String> = ["new_chat", "send_prompt", "select_session", "answer_permission", "pick_folder", "compose_send", "run_mode"]
 
     static func actAsUser(_ action: String, gestures: AgentPaneUserGestures) {
-        if userVerbs.contains(action) { gestures.record() }
+        if userVerbs.contains(action) { gestures.record(click: action == "answer_permission") }
     }
-
-    /// Runs `fn(...args)` on the page and returns its result as JSON text. A page still loading
-    /// gets up to 5 s for its debug hook, on timers: animation frames never come to a page that
-    /// draws nothing yet (a chat restored behind its workspace), and that wait held the call to
-    /// the 60 s deadline.
-    static let script = """
-        let debug = window.cmuxAcpmuxDebug;
-        for (const end = Date.now() + 5000; !debug && Date.now() < end;) {
-            await new Promise((resolve) => setTimeout(resolve, 50));
-            debug = window.cmuxAcpmuxDebug;
-        }
-        if (!debug || typeof debug[fn] !== "function") return JSON.stringify({ error: "the page has no cmuxAcpmuxDebug." + fn });
-        return JSON.stringify((await debug[fn](...args)) ?? null);
-        """
 
     static func handle(_ params: [String: JSONValue], _ services: AppServices?) async -> JSONValue {
         guard let services else { return .object(["error": .string("no app services")]) }
@@ -110,27 +99,12 @@ enum DebugAgentPane {
             // Which engine shows the chat (the `agent.chromium` spike measures both).
             return .object(["pane": .string(pane), "engine": .string(view.engineName)])
         }
-        if action == "composer_focused" {
-            // Read only: whether the chat's composer has the page's caret (Cmd-L in a chat, keyboard-parity-e2e.py).
-            let script = """
-                const field = document.querySelector('.acpmux-composer [contenteditable="true"], .acpmux-composer textarea');
-                return !!field && document.activeElement === field;
-                """
-            let focused = (try? await view.callPageScript(script)) as? Bool ?? false
-            return .object(["pane": .string(pane), "focused": .bool(focused)])
-        }
+        if action == "composer_focused" { return await view.debugComposerFocus(pane: pane) }
         if action == "focus_composer" {
-            // The chat's pane takes the app's focus, the chat the keyboard and its composer the caret, in
-            // either engine, for typing benches (focus elsewhere would take the keyboard back).
+            // The pane owns focus; its page owns the composer inspection in both engines.
             _ = services.registry.perform("pane.focus", invocation: ActionInvocation(target: ActionTargetRef(kind: .pane, id: pane), origin: .script))
             view.focusChat()
-            let script = """
-                const field = document.querySelector('.acpmux-composer [contenteditable="true"], .acpmux-composer textarea');
-                field?.focus();
-                return !!field && document.activeElement === field;
-                """
-            let focused = (try? await view.callPageScript(script)) as? Bool ?? false
-            return .object(["pane": .string(pane), "focused": .bool(focused)])
+            return await view.debugComposerFocus(pane: pane, requestFocus: true)
         }
         if action == "crash_notice" {
             // The notice a page that keeps crashing shows; {"press": "reload"} presses its Reload first.
@@ -163,6 +137,7 @@ enum DebugAgentPane {
             return .object(["pane": .string(pane), "notice": .array(notice.lines.map(JSONValue.string)), "restart": .bool(notice.restart), "pressed": .bool(pressed)])
         }
         #endif
+        if action == "query" { return await PageDebugQuery.read(params["selector"]?.stringValue, extra: ["pane": .string(pane)]) { try await view.callPageScript($0, arguments: $1) } }
         if action == "full_rate" {
             if let enabled = params["enabled"]?.boolValue { view.rendersAtFullRate = enabled }
             return .object(["pane": .string(pane), "full_rate": .bool(view.rendersAtFullRate)])
@@ -180,7 +155,7 @@ enum DebugAgentPane {
             return .object(["pane": .string(pane), "path": .string(path), "width": .number(Double(rep.pixelsWide)), "height": .number(Double(rep.pixelsHigh))])
         }
         if action == "readiness" {
-            return await readiness(pane: pane, view: view, waitForAnimations: params["wait_animations"]?.boolValue == true)
+            return await view.debugReadiness(pane: pane, waitForAnimations: params["wait_animations"]?.boolValue == true)
         }
         if action == "cloud_auth" {
             let reply = await view.model.respond(to: .cloudMachine(.list))
@@ -216,19 +191,20 @@ enum DebugAgentPane {
             return .object(["pane": .string(pane), "error": await view.debugSetFiles(selector: params["selector"]?.stringValue ?? ".acpmux-attach-input", paths: params["paths"]?.arrayValue?.compactMap(\.stringValue) ?? []).map(JSONValue.string) ?? .null]) }
         if action == "hover" { return await DebugAgentPaneClick.hover(params, pane: pane, view: view) }
         if action == "pacer" { return .object(["pane": .string(pane), "pacer": JSONValue(foundation: view.debugPacerState) ?? .null]) }
-        if action == "inspector" {
-            return await toggleInspector(view, open: params["open"]?.boolValue, pane: pane)
-        }
+        if action == "inspector" || action == "menu_item" { return action == "inspector" ? await view.debugToggleInspector(open: params["open"]?.boolValue, pane: pane) : view.debugRunMenuItem(title: params["title"]?.stringValue ?? "", pane: pane) }
+        if action == "session_info_action" || action == "resize_probe" { return action == "resize_probe" ? await view.debugResizeProbe(step: params["step"]?.stringValue ?? "read", pane: pane) : view.debugSessionInfoAction(params, pane: pane) }
         if action == "open_subagent" {
             return await DebugAgentPaneSubagent.open(params, pane: pane, model: view.model) {
                 (try? await view.callPageScript(DebugAgentPaneSubagent.pageSessionScript)) as? String
             }
         }
         guard let function = functions[action] else {
-            return .object(["error": .string("unknown action; use seed_rows, fling, fling_stats, perf_stats, typing_stats, reset_typing, close_menus, open_menu, acp_log, acp_log_export, chat_state, send_prompt, new_chat, select_session, pick_folder, compose_send, run_mode, answer_permission, open_changes, set_model, models, stream, layout_watch, readiness, cloud_auth, engine, focus_composer, composer_focused, click, open_subagent, pid, full_rate, gesture_state or inspector")])
+            return .object(["error": .string("unknown action; use seed_rows, fling, fling_stats, perf_stats, tick_watch, typing_stats, reset_typing, close_menus, open_menu, acp_log, acp_log_export, chat_state, send_prompt, new_chat, select_session, pick_folder, compose_send, run_mode, toast, answer_permission, open_changes, set_model, models, stream, layout_watch, idle_probe, readiness, cloud_auth, engine, focus_composer, composer_focused, click, query, open_subagent, resize_probe, pid, full_rate, gesture_state, session_info_action or inspector")])
         }
         do {
-            let result = try await view.callPageScript(script, arguments: ["fn": function, "args": arguments(action, params)])
+            let result = try await AgentPaneView.callDebugVerb(function, args: AgentPaneDebugAutomationArguments(action: action, parameters: params).values) {
+                try await view.callPageScript($0, arguments: $1, timeout: $2)
+            }
             guard let text = result as? String,
                   let object = try? JSONSerialization.jsonObject(with: Data(text.utf8), options: [.fragmentsAllowed]),
                   let value = JSONValue(foundation: object) else {
@@ -242,128 +218,12 @@ enum DebugAgentPane {
         }
     }
 
-    private static func readiness(pane: String, view: AgentPaneView, waitForAnimations: Bool = false) async -> JSONValue {
-        let script = """
-        const bodyText = (document.body?.innerText || '').trim();
-        const composer = document.querySelector('.acpmux-composer');
-        const composerRect = composer?.getBoundingClientRect();
-        const debug = window.cmuxAcpmuxDebug;
-        const state = debug && typeof debug.chatState === 'function' ? debug.chatState() : {};
-        const transcriptRows = Number(state.rows || 0) || document.querySelectorAll('.cv-worked, .cv-message, .cv-tool, .cv-turn-actions').length;
-        const menus = [...document.querySelectorAll('.acpmux-menu, .acpmux-slash-menu')];
-        const menuAnimations = menus.flatMap((node) => typeof node.getAnimations === 'function' ? node.getAnimations() : []);
-        if (waitForAnimations && menuAnimations.length) {
-          await Promise.race([
-            Promise.all(menuAnimations.map((animation) => animation.finished.catch(() => undefined))),
-            new Promise((resolve) => setTimeout(resolve, 1000))
-          ]);
-        }
-        const animationsPending = menuAnimations.some((animation) => animation.playState === 'running');
-        return JSON.stringify({
-          body_text_length: bodyText.length,
-          transcript_rows: transcriptRows,
-          composer_visible: !!composer && !!composerRect && composerRect.width > 0 && composerRect.height > 0,
-          composer_text_length: (composer?.innerText || '').trim().length,
-          document_ready: document.readyState === 'complete',
-          animations_pending: animationsPending
-        });
-        """
-        do {
-            // The script reads `waitForAnimations` as an argument; without it every readiness call threw.
-            let result = try await view.callPageScript(script, arguments: ["waitForAnimations": waitForAnimations])
-            guard let text = result as? String,
-                  let object = try? JSONSerialization.jsonObject(with: Data(text.utf8), options: [.fragmentsAllowed]),
-                  let value = JSONValue(foundation: object),
-                  case .object(var members) = value else {
-                return .object(["pane": .string(pane), "error": .string("the page returned no readiness JSON")])
-            }
-            members["pane"] = .string(pane)
-            return .object(members)
-        } catch {
-            return .object(["pane": .string(pane), "error": .string(String(describing: error))])
-        }
-    }
-
-    /// Calls the page bridge that Show ACP Inspector calls
-    /// (`AgentPaneView.toggleInspector`) and reads back whether it is open.
-    private static func toggleInspector(_ view: AgentPaneView, open: Bool?, pane: String) async -> JSONValue {
-        let script = """
-            const bridge = window.cmuxAcpmuxBridge;
-            return typeof bridge?.toggleInspector === "function" ? bridge.toggleInspector(open ?? undefined) : null;
-            """
-        do {
-            let result = try await view.callPageScript(script, arguments: ["open": open.map { $0 as Any } ?? NSNull()])
-            guard let isOpen = result as? Bool else {
-                return .object(["pane": .string(pane), "error": .string("the page has no cmuxAcpmuxBridge.toggleInspector")])
-            }
-            return .object(["pane": .string(pane), "inspector_open": .bool(isOpen)])
-        } catch {
-            return .object(["pane": .string(pane), "error": .string(String(describing: error))])
-        }
-    }
-
     /// `-[WKWebView _setWindowOcclusionDetectionEnabled:]`, when this WebKit has it.
     private static func keepRenderingWhenCovered(_ webView: WKWebView) {
         let selector = NSSelectorFromString("_setWindowOcclusionDetectionEnabled:")
         guard let method = class_getInstanceMethod(WKWebView.self, selector) else { return }
         typealias SetEnabled = @convention(c) (AnyObject, Selector, Bool) -> Void
         unsafeBitCast(method_getImplementation(method), to: SetEnabled.self)(webView, selector, false)
-    }
-
-    /// The page function's positional arguments, as Foundation values.
-    private static func arguments(_ action: String, _ params: [String: JSONValue]) -> [Any] {
-        switch action {
-        case "seed_rows":
-            // `agents`: how many subagents the `subagents` fixture starts (2 when omitted).
-            return [params["count"]?.intValue ?? 5000, params["fixture"]?.stringValue.map { $0 as Any } ?? NSNull(),
-                    params["agents"]?.intValue.map { $0 as Any } ?? NSNull()]
-        case "fling":
-            var options: [String: Any] = ["wait": params["wait"]?.boolValue == true]
-            if let nominal = params["nominal_ms"]?.doubleValue { options["nominal_ms"] = nominal }
-            return [params["seconds"]?.doubleValue ?? 3, options]
-        case "perf_stats":
-            return [["raw": params["raw"]?.boolValue == true] as [String: Any]]
-        case "stream":
-            // R104: a scripted reply streamed into `rows` synthetic rows (streamDebug.ts).
-            var options: [String: Any] = [:]
-            for key in ["rows", "seconds", "chunk_chars", "chunk_ms", "nominal_ms", "trace"] {
-                if let value = params[key]?.doubleValue { options[key] = value }
-            }
-            return [options]
-        case "load_seed":
-            return [params["turns"]?.intValue ?? 5000]
-        case "load_run", "layout_watch":
-            // The chat under load (loadDebug.ts), or what moved after the page's first paint (layoutWatch.ts).
-            var options: [String: Any] = [:]
-            for key in ["seconds", "chunk_chars", "chunk_ms", "tool_every", "scroll_speed", "scroll_depth", "ms", "tolerance"] {
-                if let value = params[key]?.doubleValue { options[key] = value }
-            }
-            return [options]
-        case "open_menu":
-            return [params["label"]?.stringValue ?? ""]
-        case "acp_log":
-            return [params["limit"]?.intValue.map { ["limit": $0] as [String: Any] } ?? [:]]
-        case "send_prompt", "compose_send":
-            return [params["text"]?.stringValue ?? ""]
-        case "run_mode":
-            return [params["mode"]?.stringValue ?? NSNull()]
-        case "new_chat":
-            return [params["harness"]?.stringValue ?? NSNull(), params["cwd"]?.stringValue ?? NSNull()]
-        case "set_model":
-            return [params["model"]?.stringValue ?? "", params["effort"]?.stringValue ?? NSNull()]
-        case "select_session":
-            return [params["session"]?.stringValue ?? ""]
-        case "pick_folder":
-            return [params["cwd"]?.stringValue ?? ""]
-        case "answer_permission":
-            var options: [String: Any] = [:]
-            if let option = params["option"]?.stringValue { options["optionId"] = option }
-            if let allow = params["allow"]?.boolValue { options["allow"] = allow }
-            if let decision = params["decision"]?.stringValue { options["decision"] = decision }
-            return [options]
-        default:
-            return []
-        }
     }
 
     /// Why `debug.agent_pane` found no target, and the panes that show an agent tab.
@@ -391,7 +251,7 @@ enum DebugAgentPane {
             }
             if let target = shown(content.focusedPane) { return .success(target) }
             // Layout order, so the report is deterministic.
-            for id in content.layoutModel.screens.flatMap(\.layout.panes) {
+            for id in content.layoutModel.screens.flatMap(\.panes) {
                 if let target = shown(content.panes[id]) { showing.append(target) }
             }
         }

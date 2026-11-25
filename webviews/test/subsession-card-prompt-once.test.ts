@@ -4,7 +4,7 @@
 // 2026-10-29: "this doubling up is kinda weird? first line then whatever goes next". The line is left
 // out when it only repeats the prompt's start; any other line (a real step, a wait, an error) stays.
 import { expect, test } from "bun:test";
-import { repeatsPrompt, sessionLine } from "../src/agent-session/acpmux/conversation/SubsessionCallCard";
+import { repeatsPrompt, sessionLine } from "../src/agent-session/acpmux/conversation/subsessionCallCardModel";
 
 const prompt =
   "You are ios-remote, the area owner for cmux's iOS app and the remote/mobile client (the cmux-remote code, including its Iroh transport), in example/cmux.";

@@ -2,6 +2,7 @@ import type { Env } from "../env.ts"
 import { brainName } from "../chief-brain/brain-do.ts"
 import { CC_NOTES_PATH, notesTokenOk } from "./turn.ts"
 import { ccConfigured } from "./vm.ts"
+import { declared } from "../do-stub.ts"
 
 export { CC_NOTES_PATH }
 
@@ -30,7 +31,7 @@ export const handleCcNotes = async (request: Request, env: Env, agent: string, c
     return new Response("bad json", { status: 400 })
   }
   if (!(await notesTokenOk(env, agent, conversation, typeof body?.run === "string" ? body.run : "", token))) return new Response("unauthorized", { status: 401 })
-  const brain = env.CHIEF_BRAIN_DO.get(env.CHIEF_BRAIN_DO.idFromName(brainName(agent, conversation))) as unknown as { ccNotes(t: string, b: unknown): Promise<{ status: number; json?: unknown }> }
+  const brain = declared(env.CHIEF_BRAIN_DO.get(env.CHIEF_BRAIN_DO.idFromName(brainName(agent, conversation))))
   const r = await brain.ccNotes(token, body)
   if (r.json !== undefined) return Response.json(r.json, { status: r.status })
   return new Response(r.status === 200 ? "ok" : "unauthorized", { status: r.status })

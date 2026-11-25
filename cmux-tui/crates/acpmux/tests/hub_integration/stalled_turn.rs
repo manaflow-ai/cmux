@@ -91,6 +91,30 @@ async fn a_turn_whose_model_went_quiet_ends_as_stalled_unless_someone_holds_it()
     assert!(results(&hub, &off).is_empty(), "stalledTurnEndMs 0 still ended a turn");
 }
 
+/// no-hangs (2026-11-24): a chat left open on a screen held a turn whose model had died
+/// `running` forever, rechecked every 15 min. A viewer's hold now lasts four of the turn's
+/// periods; past that the turn ends `stalled` while the client still shows it.
+#[tokio::test]
+async fn a_viewer_holds_a_stalled_turn_for_four_periods_not_forever() {
+    let (hub, mut c) = setup(PermissionPolicy::ApproveAll).await;
+    let clock = acpmux::clock::ManualClock::new();
+    hub.set_clock(clock.clone());
+    hub.set_idle_child(None);
+    hub.config.write().await.stalled_turn_end_ms = Some(60_000);
+    let held = new_session(&mut c, "stall-viewed").await;
+    start(&mut c, &held, "hang", "working").await;
+    // The client stays attached the whole time.
+    for _ in 0..3 {
+        clock.advance(Duration::from_secs(61));
+        tokio::time::sleep(Duration::from_millis(200)).await;
+        assert!(results(&hub, &held).is_empty(), "a viewer's hold ended before four periods");
+    }
+    clock.advance(Duration::from_secs(61));
+    let ended = until_results(&hub, &held, 1).await;
+    assert_eq!(ended[0]["detail"], "stalled", "{ended:?}");
+    assert!(ended[0]["stalledMs"].as_u64().unwrap() >= 240_000, "{ended:?}");
+}
+
 /// A turn whose owner (the session its `spawnedBy` tag names) is running may be what that owner
 /// waits on: it is not ended until the owner is done.
 #[tokio::test]
@@ -300,4 +324,71 @@ async fn a_turn_counts_from_its_prompt_being_written() {
     clock.advance(Duration::from_secs(2));
     let ended = until_results(&hub, &id, 2).await;
     assert_eq!(ended[1]["detail"], "stalled", "{ended:?}");
+}
+
+/// A paused machine or a stopped daemon (`hub/resume.rs`): the gap is no stall. A turn in flight
+/// across twelve gaps goes on quietly, its stalled count starts again from each resume, and
+/// subscribers hear every gap once without adding any resume notice to the chat.
+#[tokio::test]
+async fn twelve_recovered_gaps_add_no_chat_records_and_keep_stall_protection() {
+    use acpmux::resume::{Resume, ResumeKind};
+    let (hub, mut c) = setup(PermissionPolicy::ApproveAll).await;
+    let clock = acpmux::clock::ManualClock::new();
+    hub.set_clock(clock.clone());
+    hub.set_idle_child(None);
+    hub.config.write().await.stalled_turn_end_ms = Some(60_000);
+    let id = new_session(&mut c, "stall-paused").await;
+    let idle = new_session(&mut c, "stall-paused-idle").await;
+    start(&mut c, &id, "hang", "working").await;
+    c.request(method::MUX_DETACH, json!({"sessionId": id})).await.unwrap();
+    let mut resumes = hub.subscribe_resumes();
+    let settle = || tokio::time::sleep(Duration::from_millis(200));
+
+    // Repeated nine-minute sleeps and process stops must not flood the transcript.
+    for gap in 1..=12 {
+        clock.advance(Duration::from_secs(9 * 60));
+        let kind = if gap % 2 == 0 { ResumeKind::Stopped } else { ResumeKind::Paused };
+        hub.machine_resumed(Resume { gap: Duration::from_secs(9 * 60), kind });
+        assert!(resumes.has_changed().unwrap(), "subscribers missed gap {gap}");
+        resumes.borrow_and_update();
+        assert_eq!(hub.resume_count(), gap);
+    }
+    let events = hub.events(&id, 0, 10_000).unwrap();
+    assert_eq!(find(&events, "host_notice").len(), 0, "recovered gaps added chat records");
+    assert!(find(&hub.events(&idle, 0, 10_000).unwrap(), "host_notice").is_empty());
+
+    // Eleven seconds after the last resume: not stalled despite all the elapsed gap time.
+    clock.advance(Duration::from_secs(11));
+    settle().await;
+    assert!(results(&hub, &id).is_empty(), "a turn was ended for the time the daemon was stopped");
+    assert!(!resumes.has_changed().unwrap(), "one gap was told more than once");
+
+    // A full period after the resume with no sign of the model, it is a stall again.
+    clock.advance(Duration::from_secs(50));
+    let ended = until_results(&hub, &id, 1).await;
+    assert_eq!(ended[0]["detail"], "stalled", "{ended:?}");
+}
+
+/// A sleep while no turn ran (an idle daemon parks its resume tick, `hub/resume.rs`) is no gap of
+/// the next turn: the chat that starts one after the wake gets no "this machine was paused" notice
+/// (review of #35416: every morning's first prompt on a Mac would show one). The gap is still seen.
+#[tokio::test]
+async fn a_sleep_while_idle_is_no_notice_in_the_next_turn() {
+    let (hub, mut c) = setup(PermissionPolicy::ApproveAll).await;
+    let clock = acpmux::clock::ManualClock::new();
+    hub.set_clock(clock.clone());
+    hub.set_idle_child(None);
+    hub.config.write().await.stalled_turn_end_ms = Some(60_000);
+    let id = new_session(&mut c, "slept-idle").await;
+    // The Mac slept 9 h while the daemon was idle.
+    hub.park_resume_watch_after_sleep(Duration::from_secs(9 * 3600));
+    start(&mut c, &id, "hang", "working").await;
+    // The stalled timer checks the clocks before it judges the turn (as every turn timer does).
+    clock.advance(Duration::from_secs(61));
+    tokio::time::sleep(Duration::from_millis(300)).await;
+    let events = hub.events(&id, 0, 10_000).unwrap();
+    let notices: Vec<_> =
+        find(&events, "host_notice").into_iter().filter(|e| e.msg["source"] == "resume").collect();
+    assert!(notices.is_empty(), "the sleep before the turn was told in the turn: {notices:?}");
+    assert_eq!(hub.resume_count(), 1, "the sleep was not seen at all");
 }

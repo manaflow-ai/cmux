@@ -143,6 +143,24 @@ struct ImportCardDeckTests {
     }
 
     /// Resume and Try Again start over from 0, not at the fraction the cut-off run had reached.
+    /// The Conductor card imports its workspaces with the Cloud deadline in its text, and once
+    /// done stays offered again while Conductor's data is here.
+    @Test func conductorCardImportsWorkspacesAndOffersItAgain() throws {
+        let finding = ImportFinding(id: "agents.conductor", kind: .conductor, name: "Conductor", count: 3)
+        let card = try #require(Self.deck([finding]).cards().first)
+        #expect(card.id == "agents.conductor" && card.state == .ready)
+        #expect(card.primary?.action == .start && card.primary?.title == ImportSuggestionStrings.importWorkspaces)
+        #expect(card.facts == ImportSuggestionStrings.workspaces(3))
+        #expect(card.benefit == ImportSuggestionStrings.conductor)
+        var job = ImportJob(finding: finding, now: Self.now)
+        job.importedClassic(3, now: Self.now)
+        var ledger = ImportJobLedger()
+        ledger.put(job)
+        let done = try #require(Self.deck([finding], jobs: ledger).cards().first)
+        #expect(done.state == .done && done.status == ImportSuggestionStrings.doneConductor)
+        #expect(done.primary?.action == .start && done.primary?.title == "Import Again")
+    }
+
     @Test func aResumedClassicJobStartsAtZeroProgress() {
         var job = ImportJob(finding: Self.classicAllHere, now: Self.now)
         job.progressed(0.6, now: Self.now)

@@ -5,6 +5,7 @@ import { afterAll, beforeAll, expect, test } from "bun:test";
 import { JSDOM } from "jsdom";
 import { act } from "react";
 import type { Root } from "react-dom/client";
+import { teardownDom } from "./support/domTeardown";
 
 const scope = globalThis as Record<string, unknown>;
 const keys = ["window", "document", "navigator", "HTMLElement", "IS_REACT_ACT_ENVIRONMENT"] as const;
@@ -24,12 +25,9 @@ beforeAll(() => {
   host = window.document.getElementById("root")!;
 });
 
-afterAll(() => {
+afterAll(async () => {
   act(() => root?.unmount());
-  for (const [key, had, value] of saved) {
-    if (had) scope[key] = value;
-    else delete scope[key];
-  }
+  await teardownDom(saved, { scope });
 });
 
 test("the header links the pull request with its checks, and drops it when the App says none", async () => {
@@ -52,7 +50,8 @@ test("the header links the pull request with its checks, and drops it when the A
   expect(chip()?.textContent).toBe("#7");
   expect(chip()?.getAttribute("data-checks")).toBe("failing");
   // Its text shows, so no tooltip; a screen reader hears the state and checks (test/tooltip-rules.ts).
-  expect(chip()?.getAttribute("aria-label")).toBe("Pull request #7, open: 3 of 5 checks passed");
+  // Aggregate failure must still be spoken when the host supplies no individual check rows.
+  expect(chip()?.getAttribute("aria-label")).toBe("Pull request #7, open: 3 of 5 checks passed · Failing");
   expect(chip()?.hasAttribute("title")).toBe(false);
   // A push about something else keeps it; one that says there is none drops it.
   act(() => applyHostEvent({ kind: "headerState", value: { version: 2, lit: ["splitRight"] } }));

@@ -82,6 +82,45 @@ type MarkProps = {
   tint?: boolean;
 };
 
+/// A sender's monogram (an agent that named an app no mark knows: "Muse", "Dot"; u20190): the
+/// first letters of its first two words on a tile whose hue is stable for `seed`.
+export function MonogramMark({
+  name,
+  seed,
+  size = 16,
+  label,
+}: {
+  name: string;
+  seed?: string;
+  size?: number;
+  label?: string;
+}) {
+  return (
+    <HarnessIcon
+      spec={{ kind: "monogram", text: monogramOf(name), hue: hueFor(seed ?? name), source: "default" }}
+      size={size}
+      label={label}
+    />
+  );
+}
+
+/// The first letters of `name`'s first two words, upper case ("Grok bot" → "GB"); "?" for none.
+export function monogramOf(name: string): string {
+  const letters = name
+    .split(/[\s_-]+/)
+    .filter(Boolean)
+    .slice(0, 2)
+    .map((word) => Array.from(word)[0]!.toUpperCase())
+    .join("");
+  return letters || "?";
+}
+
+function hueFor(seed: string): number {
+  let hash = 0;
+  for (const char of seed.toLowerCase()) hash = (hash * 31 + char.codePointAt(0)!) >>> 0;
+  return hash % 360;
+}
+
 /// A harness's own icon wins over the mark its id suggests when its profile sets one ("claude-sr2"
 /// with `icon = "🦊"`); a harness no mark knows draws the icon acpmux picked for it (the mark of the
 /// agent its command runs, else a monogram), so a custom harness is never a blank square.
@@ -93,6 +132,16 @@ export function AgentMark(props: MarkProps) {
     if (own.kind !== "glyph") return <HarnessIcon {...props} spec={own} />;
   }
   return <BrandMark {...props} />;
+}
+
+/// A chat's own icon (acpmux `SessionSummary.icon`, shared/harnessIcons.ts `parseSessionIcon`) when
+/// it set one, else its harness's mark: the one renderer harness icons use, so a session's emoji,
+/// SF Symbol, agent mark or image draws exactly as a profile's would (Leo, 2026-11-22: "SET CUSTOM
+/// ICONS FOR YOURSELVES IN THE TABS").
+export function SessionMark({ icon, ...props }: MarkProps & { icon?: HarnessIconSpec }) {
+  if (icon?.kind === "brand") return <BrandMark {...props} agent={icon.brand} />;
+  if (icon && icon.kind !== "glyph") return <HarnessIcon {...props} spec={icon} />;
+  return <AgentMark {...props} />;
 }
 
 /// An emoji, an image, an SF Symbol or a monogram at `size` px. A symbol is the host's template

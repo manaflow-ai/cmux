@@ -57,7 +57,8 @@ impl From<io::Error> for Error {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Failure {
     pub node: NodeId,
-    /// Its first error (later ones are not kept, as they are not reported).
+    /// Its latest error; a setup error stays over a later ordinary one.
+    /// Only the first is reported.
     pub error: String,
 }
 
@@ -77,7 +78,8 @@ pub struct Status {
     /// Nodes with a model call running or waiting to retry.
     pub busy: Vec<NodeId>,
     pub failures: Vec<Failure>,
-    /// Failing nodes turns no longer wait for (a repeating request error).
+    /// Failing nodes turns no longer wait for (a setup error, a repeating
+    /// request error, or a transient one past `COMPACT_TRIES`).
     pub stuck: Vec<NodeId>,
     /// Every stuck node was built since the last one got stuck.
     pub recovered: bool,
@@ -646,6 +648,32 @@ impl OptChat {
     pub fn date(&self, id: u64) -> Option<String> {
         let st = self.shared.lock();
         st.store.date(id).map(|iso| lines::local_date(&iso))
+    }
+
+    /// The agent's `recall(query)` tool: the logged messages that best match
+    /// any word of `query`, one per line with their id, local day and time
+    /// and kind, best first; on a read-only connection, so the writer and
+    /// the compactor never wait for it.
+    pub fn recall(&self, query: &str, limit: usize, all_kinds: bool) -> Result<String, Error> {
+        let db = db::ReadOnly::open(&self.db_path())?;
+        let hits = db.recall(query, limit, all_kinds)?;
+        if hits.is_empty() {
+            return Ok(format!(
+                "No message matches {query:?}. Try other words (a name, a number, a rare word), or zoom the view lines of that time."
+            ));
+        }
+        let mut out: Vec<String> = hits
+            .iter()
+            .map(|h| {
+                let when = lines::local_day_time(&h.date);
+                let snippet = h.snippet.split_whitespace().collect::<Vec<_>>().join(" ");
+                format!("{} {when} {}: {snippet}", h.id, h.kind)
+            })
+            .collect();
+        out.push(
+            "(id, local time, kind: the matching part. zoom(id, 1) gives a message whole.)".into(),
+        );
+        Ok(out.join("\n"))
     }
 
     /// The stored ISO time of message `id` (millisecond precision, local

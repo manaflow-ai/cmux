@@ -46,7 +46,7 @@ struct AcpmuxStrayDaemonTests {
             .map { $0.split(separator: "\n").suffix(30).joined(separator: "\n") } ?? "no daemon.log"
         let running: String? = if case .success(let (_, after?)) = pids { AcpmuxVersionHandoff.executablePath(pid: after) } else { nil }
         // Whatever failed, every daemon this test started ends with it.
-        _ = try? await AcpmuxStatusClient.shutdown(socketPath: socket, home: home, deadline: .seconds(10))
+        _ = try? await AcpmuxStatusClient.shutdown(socketPath: socket, home: home, reason: "test", deadline: .seconds(10))
         guard case .success(let (before, after)) = pids, let pid = after else {
             Issue.record("\(step) failed: \(pids)\n--- daemon.log\n\(log)")
             return

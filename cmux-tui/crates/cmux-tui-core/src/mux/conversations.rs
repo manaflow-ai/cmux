@@ -21,6 +21,45 @@ impl Mux {
         gate.admit(draft, now)
     }
 
+    /// `run` once per `key` (a participant's `op_id`, `conversation_inbox_once.rs`): a repeat
+    /// of the same `op` answers the first success and runs nothing. The ids' lock is held across
+    /// `run`, so two repeats never both write.
+    pub(crate) fn inbox_op_once(
+        &self,
+        key: Option<String>,
+        op: String,
+        run: impl FnOnce() -> anyhow::Result<Value>,
+    ) -> anyhow::Result<Value> {
+        use crate::conversation_inbox_once::Seen;
+        let Some(key) = key else { return run() };
+        let mut once = self.conversations.inbox_ops.lock().unwrap_or_else(PoisonError::into_inner);
+        match once.seen(&key, &op) {
+            Seen::Repeat(result) => return Ok(result),
+            Seen::Reused => anyhow::bail!(
+                "bad request: op_id names an earlier op with another op: send a new op_id"
+            ),
+            Seen::New => {}
+        }
+        let result = run()?;
+        once.keep(key, op, result.clone());
+        Ok(result)
+    }
+
+    /// The ids `inbox_op_once` keeps, its touch queue, and the repeats it answered.
+    #[cfg(test)]
+    pub(crate) fn inbox_ops_kept(&self) -> (usize, usize, u64) {
+        let once = self.conversations.inbox_ops.lock().unwrap_or_else(PoisonError::into_inner);
+        let (slots, order) = once.len();
+        (slots, order, once.repeats)
+    }
+
+    /// The Send Later sender's wake (server/conversation_scheduled.rs).
+    pub(crate) fn scheduled_sender_wake(
+        &self,
+    ) -> Arc<crate::conversation_store::scheduled::SenderWake> {
+        self.conversations.scheduled.clone()
+    }
+
     /// Run `operation` on the conversation store, opening
     /// `conversations.sqlite3` in the session state directory on first use
     /// (in memory for an in-memory session).
@@ -71,7 +110,7 @@ impl Mux {
                 && change["kind"] == "message"
                 && let Some(author) = change["message"]["author"].as_str()
             {
-                self.set_conversation_typing(conversation, author, false);
+                self.end_conversation_typing(conversation, author);
             }
             self.emit(event);
         }
@@ -224,17 +263,62 @@ impl Mux {
         &self.conversations.bindings
     }
 
-    /// Records that `participant` types (or stopped) in `conversation`.
-    pub(crate) fn set_conversation_typing(&self, conversation: &str, participant: &str, on: bool) {
+    /// Records that `participant` types in `conversation` on connection
+    /// `client`, or stopped: an `off` from any of its connections ends it.
+    pub(crate) fn set_conversation_typing(
+        &self,
+        conversation: &str,
+        participant: &str,
+        client: u64,
+        on: bool,
+    ) {
+        if !on {
+            self.end_conversation_typing(conversation, participant);
+            return;
+        }
         let mut typing = self.conversations.typing.lock().unwrap_or_else(PoisonError::into_inner);
-        if on {
-            typing.entry(conversation.to_owned()).or_default().insert(participant.to_owned());
-        } else if let Some(set) = typing.get_mut(conversation) {
-            set.remove(participant);
-            if set.is_empty() {
+        typing
+            .entry(conversation.to_owned())
+            .or_default()
+            .entry(participant.to_owned())
+            .or_default()
+            .insert(client);
+    }
+
+    /// `participant` stopped typing in `conversation` (an `off`, or its post).
+    pub(crate) fn end_conversation_typing(&self, conversation: &str, participant: &str) {
+        let mut typing = self.conversations.typing.lock().unwrap_or_else(PoisonError::into_inner);
+        if let Some(typists) = typing.get_mut(conversation) {
+            typists.remove(participant);
+            if typists.is_empty() {
                 typing.remove(conversation);
             }
         }
+    }
+
+    /// `home-inbox` `since`: observes `principal`'s current Home rows in its
+    /// change log (created on first use, its revisions starting at `now_ms`)
+    /// and runs `read` on it under one lock.
+    pub(crate) fn with_home_changes<T>(
+        &self,
+        principal: &str,
+        now_ms: u64,
+        rows: &[cmux_conversation::HomeRow],
+        read: impl FnOnce(&cmux_conversation::HomeChangeLog) -> T,
+    ) -> T {
+        /// The callers whose logs are kept; the app, a page and the phone are a few.
+        const MAX_LOGS: usize = 16;
+        let mut logs =
+            self.conversations.home_changes.lock().unwrap_or_else(PoisonError::into_inner);
+        if !logs.contains_key(principal) && logs.len() >= MAX_LOGS {
+            // A dropped caller's next `since` reads the whole list.
+            logs.clear();
+        }
+        let log = logs
+            .entry(principal.to_owned())
+            .or_insert_with(|| cmux_conversation::HomeChangeLog::new(now_ms));
+        log.observe(rows);
+        read(log)
     }
 
     /// Everyone typing now, by conversation (one lock for the Home rows).
@@ -242,14 +326,58 @@ impl Mux {
         let typing = self.conversations.typing.lock().unwrap_or_else(PoisonError::into_inner);
         typing
             .iter()
-            .map(|(conversation, set)| (conversation.clone(), set.iter().cloned().collect()))
+            .map(|(conversation, typists)| {
+                (conversation.clone(), typists.keys().cloned().collect())
+            })
             .collect()
     }
 
     /// The participants typing in `conversation` now, sorted.
     pub(crate) fn conversation_typing(&self, conversation: &str) -> Vec<String> {
         let typing = self.conversations.typing.lock().unwrap_or_else(PoisonError::into_inner);
-        typing.get(conversation).map(|set| set.iter().cloned().collect()).unwrap_or_default()
+        typing
+            .get(conversation)
+            .map(|typists| typists.keys().cloned().collect())
+            .unwrap_or_default()
+    }
+
+    /// Connection `client` closed: a typist only it kept on ends, and
+    /// subscribers hear it. Typing is the state of the process that sent it,
+    /// not of its participant: a Chief's brain that crashed or was stopped
+    /// mid-turn stops typing even while its tool or profile clients, bound as
+    /// the same Chief, stay connected (cmux#32727). Under the publish lock, as
+    /// `publish_typing` is: an `on` sent meanwhile from another connection
+    /// goes out after this `off`, never before it.
+    fn end_connection_typing(&self, client: u64) {
+        let _order = self.conversations.publish.lock().unwrap_or_else(PoisonError::into_inner);
+        let mut ended: Vec<(String, String)> = Vec::new();
+        {
+            let mut typing =
+                self.conversations.typing.lock().unwrap_or_else(PoisonError::into_inner);
+            for (conversation, typists) in typing.iter_mut() {
+                typists.retain(|participant, clients| {
+                    if clients.remove(&client) && clients.is_empty() {
+                        ended.push((conversation.clone(), participant.clone()));
+                        return false;
+                    }
+                    true
+                });
+            }
+            typing.retain(|_, typists| !typists.is_empty());
+        }
+        for (conversation, participant) in ended {
+            self.emit_typing_off(conversation, participant);
+        }
+    }
+
+    fn emit_typing_off(&self, conversation: String, participant: String) {
+        self.emit(MuxEvent::Conversation(Arc::new(
+            crate::conversation_store::ConversationEvent::Typing {
+                conversation,
+                participant,
+                on: false,
+            },
+        )));
     }
 
     /// An agent or person whose last bound connection ended (or whose token
@@ -267,26 +395,23 @@ impl Mux {
         if still_bound {
             return;
         }
+        // The bindings lock is released first: the publish lock goes before
+        // the store, and a bind holds bindings while it reads the store.
+        let _order = self.conversations.publish.lock().unwrap_or_else(PoisonError::into_inner);
         let ended: Vec<String> = {
             let mut typing =
                 self.conversations.typing.lock().unwrap_or_else(PoisonError::into_inner);
             let ended = typing
                 .iter_mut()
-                .filter_map(|(conversation, set)| {
-                    set.remove(participant).then(|| conversation.clone())
+                .filter_map(|(conversation, typists)| {
+                    typists.remove(participant).is_some().then(|| conversation.clone())
                 })
                 .collect();
-            typing.retain(|_, set| !set.is_empty());
+            typing.retain(|_, typists| !typists.is_empty());
             ended
         };
         for conversation in ended {
-            self.emit(MuxEvent::Conversation(Arc::new(
-                crate::conversation_store::ConversationEvent::Typing {
-                    conversation,
-                    participant: participant.to_owned(),
-                    on: false,
-                },
-            )));
+            self.emit_typing_off(conversation, participant.to_owned());
         }
     }
 
@@ -300,6 +425,8 @@ impl Mux {
             .lock()
             .unwrap_or_else(PoisonError::into_inner)
             .remove(&client);
+        // What this connection kept typing ends with it.
+        self.end_connection_typing(client);
         // A bound agent or person: its typing ends with its last connection.
         if let Some(participant) =
             bound.filter(|p| p.starts_with("agent_") || p.starts_with("user_"))
@@ -308,12 +435,14 @@ impl Mux {
         }
         // Safety: a removal never grants access, so a poisoned peers lock
         // still drops the record.
-        self.conversations
-            .remote
-            .peers
-            .lock()
-            .unwrap_or_else(PoisonError::into_inner)
-            .remove(&client);
+        {
+            let mut peers =
+                self.conversations.remote.peers.lock().unwrap_or_else(PoisonError::into_inner);
+            // A connection without a record (every local one) changes nothing, so it publishes nothing.
+            if peers.contains_key(&client) {
+                peers.remove(&client);
+            }
+        }
         // Its attachment uploads end with it (never opens the store).
         if let Some(store) =
             self.conversations.store.lock().unwrap_or_else(PoisonError::into_inner).as_mut()

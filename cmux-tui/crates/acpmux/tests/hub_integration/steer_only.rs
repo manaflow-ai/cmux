@@ -283,11 +283,15 @@ async fn queue_ops_interrupt_stops_a_turn_its_agent_can_steer() {
     assert_eq!(echoes_until(&mut c, "echo: a").await, ["echo: b", "echo: a"]);
 }
 
-/// A turn that fails stops its queue: the prompts behind it were written for a turn that went
-/// well. They wait, in order, until a client resumes the queue; prompts sent meanwhile run first.
+/// A turn that fails holds its queue: the prompts behind it were written for a turn that went
+/// well. They wait, in order, for the retry wait (they then go in by themselves, `queue.rs`
+/// `waits_for_resume`, so the queue reads not paused) or until a client resumes them; prompts
+/// sent meanwhile run first.
 #[tokio::test]
-async fn queue_ops_a_failed_turn_pauses_the_queue_until_resumed() {
-    let (_hub, mut c) = setup(PermissionPolicy::ApproveAll).await;
+async fn queue_ops_a_failed_turn_holds_the_queue_until_its_retry_or_resume() {
+    let (hub, mut c) = setup(PermissionPolicy::ApproveAll).await;
+    // Their retry must not come first on a loaded machine: the Resume below lets them go.
+    hub.config.write().await.auto_resume_delays_ms = Some(vec![120_000]);
     let id = busy_with_queue(&mut c, &[("p-f", "fail-streamed: boom"), ("p-a", "a"), ("p-b", "b")])
         .await;
     // A stopped turn is no failure: the queue goes on to "boom".
@@ -307,7 +311,8 @@ async fn queue_ops_a_failed_turn_pauses_the_queue_until_resumed() {
     tokio::time::sleep(Duration::from_millis(300)).await;
     let attached =
         c.request(method::MUX_ATTACH, json!({"sessionId": id, "limit": 0})).await.unwrap();
-    assert_eq!(attached["session"]["queuePaused"], true, "{attached}");
+    assert_eq!(attached["session"]["queuePaused"], false, "{attached}");
+    assert_eq!(attached["session"]["queue"][0]["held"], true, "{attached}");
     assert_eq!(queue_order(&mut c, &id).await, ["p-a", "p-b"]);
 
     // Sent after the failure: each runs, the second behind the first, ahead of the held ones.

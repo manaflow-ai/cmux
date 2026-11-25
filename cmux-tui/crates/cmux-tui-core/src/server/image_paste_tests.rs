@@ -131,12 +131,166 @@ fn prepare_image_paste(
 }
 
 fn pasted_image_path(input: &std::sync::mpsc::Receiver<Vec<u8>>) -> PathBuf {
+    let path = pasted_path(input);
+    assert_eq!(std::fs::read(&path).unwrap(), PNG);
+    path
+}
+
+fn pasted_path(input: &std::sync::mpsc::Receiver<Vec<u8>>) -> PathBuf {
     let bytes: Vec<u8> = input.try_iter().flatten().collect();
     assert!(bytes.starts_with(b"\x1b[200~") && bytes.ends_with(b"\x1b[201~"));
     let quoted = std::str::from_utf8(&bytes[6..bytes.len() - 6]).unwrap();
     let path = quoted.strip_prefix('\'').unwrap().strip_suffix('\'').unwrap();
-    assert_eq!(std::fs::read(path).unwrap(), PNG);
+    let path = path.replace("'\\''", "'");
+    assert_eq!(quoted, format!("'{}'", path.replace('\'', "'\\''")));
     PathBuf::from(path)
+}
+
+type FilePasteFixture = (
+    Arc<Mux>,
+    Arc<crate::Surface>,
+    Arc<crate::Surface>,
+    u64,
+    MessageWriter,
+    String,
+    std::sync::mpsc::Receiver<Vec<u8>>,
+);
+
+fn file_paste_fixture(name: &str) -> FilePasteFixture {
+    let mux = Mux::new_for_test(name, crate::SurfaceOptions::default());
+    let source = mux.new_workspace(None, Some((80, 24))).unwrap();
+    let surface = projected_image_paste_view(&mux, &source);
+    let (client, writer) = image_paste_client(&mux);
+    let (lease, _) = image_paste_view_lease(&mux, client, surface.id, &writer);
+    let (written, input) = std::sync::mpsc::channel();
+    source.replace_input_writer_for_test(Box::new(PasteInputRecorder(written)));
+    source.with_terminal(|terminal| terminal.vt_write(b"\x1b[?2004h")).unwrap();
+    (mux, source, surface, client, writer, lease, input)
+}
+
+fn close_file_paste_fixture(mux: &Arc<Mux>, source: &crate::Surface, client: u64) {
+    let host = mux.resource_terminal_host_identity(source).unwrap();
+    mux.close_terminal(&host.terminal_id, &host.incarnation).unwrap();
+    disconnect_client(mux, client, false);
+}
+
+#[test]
+fn cloud_file_paste_uploads_named_bytes_before_pasting_remote_path() {
+    let (mux, source, surface, client, writer, lease, input) =
+        file_paste_fixture("file-paste-wire");
+    let filename = "report ' final.bin";
+    let bytes = b"arbitrary file\0bytes";
+    handle_command(
+        &mux,
+        client,
+        image_paste_request(
+            &surface,
+            &lease,
+            UPLOAD_ID,
+            json!({"op":"begin", "filename":filename, "size":bytes.len()}),
+        ),
+        &writer,
+    )
+    .unwrap();
+    handle_command(
+        &mux,
+        client,
+        image_paste_request(
+            &surface,
+            &lease,
+            UPLOAD_ID,
+            json!({
+                "op":"chunk",
+                "offset":0,
+                "data":base64::engine::general_purpose::STANDARD.encode(bytes)
+            }),
+        ),
+        &writer,
+    )
+    .unwrap();
+    assert!(input.try_recv().is_err(), "begin and chunk must not write to the terminal");
+    handle_command(
+        &mux,
+        client,
+        image_paste_request(&surface, &lease, UPLOAD_ID, json!({"op":"commit"})),
+        &writer,
+    )
+    .unwrap();
+    let path = pasted_path(&input);
+    assert_eq!(path.file_name().and_then(|name| name.to_str()), Some(filename));
+    assert_eq!(std::fs::read(&path).unwrap(), bytes);
+    close_file_paste_fixture(&mux, &source, client);
+    assert!(!path.exists(), "terminal exit removes its uploaded file");
+}
+
+#[test]
+fn cloud_file_paste_commits_an_empty_file_and_pastes_its_remote_path() {
+    let (mux, source, surface, client, writer, lease, input) =
+        file_paste_fixture("empty-file-paste");
+    let filename = "empty.txt";
+    handle_command(
+        &mux,
+        client,
+        image_paste_request(
+            &surface,
+            &lease,
+            UPLOAD_ID,
+            json!({"op":"begin", "filename":filename, "size":0}),
+        ),
+        &writer,
+    )
+    .unwrap();
+    handle_command(
+        &mux,
+        client,
+        image_paste_request(&surface, &lease, UPLOAD_ID, json!({"op":"commit"})),
+        &writer,
+    )
+    .unwrap();
+    let path = pasted_path(&input);
+    assert_eq!(path.file_name().and_then(|name| name.to_str()), Some(filename));
+    assert_eq!(std::fs::read(&path).unwrap(), b"");
+    close_file_paste_fixture(&mux, &source, client);
+    assert!(!path.exists(), "terminal exit removes its uploaded file");
+}
+
+#[test]
+fn cloud_file_paste_rejects_unsafe_and_mixed_begin_requests_before_terminal_write() {
+    let (mux, source, surface, client, writer, lease, input) =
+        file_paste_fixture("invalid-file-paste");
+    let error = handle_command(
+        &mux,
+        client,
+        image_paste_request(
+            &surface,
+            &lease,
+            UPLOAD_ID,
+            json!({"op":"begin", "filename":"../outside.png", "size":PNG.len()}),
+        ),
+        &writer,
+    )
+    .unwrap_err();
+    assert_eq!(error.to_string(), "file-name-rejected");
+    let error = handle_command(
+        &mux,
+        client,
+        image_paste_request(
+            &surface,
+            &lease,
+            UPLOAD_ID,
+            json!({
+                "op":"begin",
+                "mime":"image/png",
+                "filename":"screenshot.png",
+                "size":PNG.len()
+            }),
+        ),
+        &writer,
+    )
+    .unwrap_err();
+    assert_eq!(error.to_string(), "image-invalid-request");
+    assert!(input.try_recv().is_err(), "invalid requests must not write to the terminal");
+    close_file_paste_fixture(&mux, &source, client);
 }
 
 fn projected_image_paste_view(mux: &Arc<Mux>, source: &crate::Surface) -> Arc<crate::Surface> {

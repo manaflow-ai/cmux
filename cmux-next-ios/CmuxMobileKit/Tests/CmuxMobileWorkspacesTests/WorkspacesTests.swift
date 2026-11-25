@@ -1,3 +1,4 @@
+import CmuxMobileDesign
 import CmuxMobileModel
 import Foundation
 import Observation
@@ -171,6 +172,61 @@ import SwiftUI
         #expect(source.tabs.count == count + 1)
     }
 
+    /// User report 2026-11-03: "how can i create a mac screen sharing tab in ios? … i dont see
+    /// screen sharing". Signed in, + offers Screen Sharing; it opens the Macs sheet, asks the
+    /// Mac for no tab and adds none. Signed out (no service), + has no such entry.
+    @Test func plusOffersScreenSharingWhenSignedIn() async throws {
+        let (_, source) = make()
+        #expect(!source.newTabOptions.contains { $0.title == "Screen Sharing" })
+        source.offersScreenSharing = true
+        #expect(source.newTabOptions.last?.title == "Screen Sharing")
+        let count = source.tabs.count
+        _ = await source.createTab(try #require(source.newTabOptions.first { $0.title == "Screen Sharing" }))
+        #expect(source.showingScreenSharing)
+        #expect(source.pendingTabTitle == nil)
+        #expect(source.tabs.count == count)
+        // The palette lists it too, as every + option.
+        #expect(source.paletteActions().contains { $0.id == "new.screen-sharing" })
+    }
+
+    /// User 2026-11-05: Screen Sharing opens as a tab, not only as a sheet (the Mac's Mac Screen
+    /// is a tab). Open as Tab closes the sheet, lists one phone-side tab last and shows it; it asks
+    /// the Mac for nothing. A second open shows the same tab; Close Tab removes it, here only.
+    @Test func screenSharingOpensAsATabAndCloses() async throws {
+        let (store, source) = make()
+        // The open set is the app's (one per run): leave none behind for other tests.
+        defer { WorkspaceTabsSource.screenSharingTabs.remove("ws-cmux") }
+        source.offersScreenSharing = true
+        let macTabs = source.tabs.map(\.id)
+        source.showingScreenSharing = true
+        source.openScreenSharingTab()
+        #expect(!source.showingScreenSharing)
+        #expect(source.tabs.map(\.id) == macTabs + [WorkspaceTabsSource.screenSharingTabID])
+        #expect(source.tabs.last?.title == "Screen Sharing")
+        #expect(source.activeTabID == WorkspaceTabsSource.screenSharingTabID)
+        #expect(source.openedTab == WorkspaceTabsSource.screenSharingTabID)
+        #expect(store.workspace(id: "ws-cmux")?.tabs.map(\.id) == macTabs)
+        source.openScreenSharingTab()
+        #expect(source.tabs.count == macTabs.count + 1)
+        // + › Screen Sharing with the tab open shows the tab, not a second Screen Sharing.
+        _ = await source.createTab(try #require(source.newTabOptions.first { $0.title == "Screen Sharing" }))
+        #expect(!source.showingScreenSharing)
+        #expect(source.activeTabID == WorkspaceTabsSource.screenSharingTabID)
+        #expect(source.tabs.count == macTabs.count + 1)
+        // Signed out: not listed; signed in again: back.
+        source.offersScreenSharing = false
+        #expect(source.tabs.map(\.id) == macTabs)
+        source.offersScreenSharing = true
+        #expect(source.tabs.count == macTabs.count + 1)
+        // Its page menu closes it; the Mac's tab rows (rename, move, groups) don't apply.
+        let menu = source.pageMenu(for: try #require(source.tabs.last)).flatMap { $0 }
+        #expect(menu.contains { $0.title == "Close Tab" })
+        #expect(await source.close(WorkspaceTabsSource.screenSharingTabID))
+        #expect(source.tabs.map(\.id) == macTabs)
+        #expect(source.activeTabID != WorkspaceTabsSource.screenSharingTabID)
+        #expect(store.workspace(id: "ws-cmux")?.tabs.map(\.id) == macTabs)
+    }
+
     /// User report 2026-10-14: no browser tabs from the phone, with no word why (an older
     /// Mac that does not stream them). The entry stays, and a tap says why.
     @Test func aKindTheMacCantOpenStaysWithItsReason() async throws {
@@ -234,6 +290,33 @@ import SwiftUI
         for _ in 0..<100 where source.tabs.first?.id != order[1] { try? await Task.sleep(for: .milliseconds(10)) }
         #expect(source.tabs.first?.id == order[1])
         #expect(source.toastText?.hasPrefix("Couldn't move") == true)
+    }
+
+    /// A terminal link the terminal sends to the Mac (its dev server on a tap, or any page
+    /// through the link menu's Open on Mac) opens in a browser tab beside the terminal on the
+    /// Mac; with no tab to open it beside, it opens on this iPhone, never nothing. Which links
+    /// a tap sends here is `TerminalLinkRoute` and the Rust `link_open_side` (Leo, 2026-11-14:
+    /// "if you're in the terminal and you highlight a link and it's a github.com link").
+    @Test func aTerminalLinkSentToTheMacOpensBesideTheTerminal() async throws {
+        let (store, source) = make()
+        var onPhone: [URL] = []
+        source.openOnPhone = { onPhone.append($0) }
+        let count = source.tabs.count
+        let dev = URL(string: "http://localhost:3000/")!
+        await source.openLink(dev, fromTab: "t-zsh")
+        #expect(onPhone.isEmpty)
+        #expect(source.tabs.count == count + 1)
+        let opened = try #require(store.workspace(id: "ws-cmux")?.tabs.last)
+        #expect(opened.url == dev && opened.kind == .browser && source.openedTab == opened.id)
+
+        // Open on Mac for a public page: the Mac opens it too.
+        let github = URL(string: "https://github.com/manaflow-ai/cmux/pull/1")!
+        await source.openLink(github, fromTab: "t-zsh")
+        #expect(onPhone.isEmpty)
+        #expect(store.workspace(id: "ws-cmux")?.tabs.last?.url == github)
+
+        await source.openLink(github, fromTab: "t-gone")
+        #expect(onPhone == [github])
     }
 
     /// A page's link that opens a new tab or window (`rb.open_tab`): a browser tab beside the
@@ -510,6 +593,9 @@ import SwiftUI
         let claude = try #require(source.tabs.first { $0.id == "t-claude" })
         let menu = source.pageMenu(for: claude).flatMap { $0 }.map(\.title)
         #expect(menu.contains("Fork Conversation…") && menu.contains("Archive") && menu.contains("Duplicate Tab"))
+        // Its glyph is the pack's agent.fork split arrow (CmuxSymbol.fork), not the system branch symbol.
+        let forkRow = try #require(source.pageMenu(for: claude).flatMap { $0 }.first { $0.title == "Fork Conversation…" })
+        #expect(forkRow.systemImage == CmuxSymbol.fork && forkRow.symbolBundle == CmuxSymbol.bundle)
         // Fork Conversation… asks where (the Mac's fork destinations); In a New Tab is the fork beside it.
         source.pageMenu(for: claude).flatMap { $0 }.first { $0.title == "Fork Conversation…" }?.action()
         #expect(source.forkingTab?.id == "t-claude")
@@ -562,18 +648,73 @@ import SwiftUI
         #expect(source.tabs.count == 3)
     }
 
-    @Test func opensOnTheLastTabUsedOnThisDevice() {
-        let (_, source) = make(["ws-cmux": "t-docs"])
-        #expect(source.activeTabID == "t-docs")
-        let (_, fresh) = make()
-        #expect(fresh.activeTabID == "t-claude")
+    /// User 2026-11-11: a workspace opens on its layout's leftmost, topmost pane's active
+    /// tab, not on the last tab used on this device nor on the Mac's focused pane.
+    @Test func opensOnTheTopLeftPanesActiveTab() {
+        let (store, _) = make(["ws-cmux": "t-docs"])
+        var ws = store.workspace(id: "ws-cmux")!
+        ws.activeTabID = "t-docs"
+        // t-claude | (t-zsh, t-docs active) stacked over nothing: the right pane is focused on the Mac.
+        ws.layout = WorkspaceLayout(screens: [.init(id: 1, isActive: true, panes: [
+            .init(id: 2, tabIDs: ["t-zsh", "t-docs"], activeTabID: "t-docs", isFocused: true),
+            .init(id: 1, tabIDs: ["t-claude"], activeTabID: "t-claude"),
+        ], root: .split(id: 9, axis: .horizontal, ratio: 0.5, first: .pane(1), second: .pane(2)))])
+        store.workspaces = store.workspaces.map { $0.id == ws.id ? ws : $0 }
+        #expect(WorkspaceTabsSource(store: store, workspaceID: "ws-cmux").activeTabID == "t-claude")
+        // The top-left pane's active tab, not its first.
+        ws.layout?.screens[0].panes[1] = .init(id: 1, tabIDs: ["t-claude", "t-zsh"], activeTabID: "t-zsh")
+        ws.layout?.screens[0].panes[0] = .init(id: 2, tabIDs: ["t-docs"], activeTabID: "t-docs", isFocused: true)
+        store.workspaces = store.workspaces.map { $0.id == ws.id ? ws : $0 }
+        #expect(WorkspaceTabsSource(store: store, workspaceID: "ws-cmux").activeTabID == "t-zsh")
     }
 
     @Test func everyActivationIsRemembered() {
         let (store, source) = make()
         source.activate("t-zsh")
         #expect(store.lastTabByWorkspace["ws-cmux"] == "t-zsh")
-        // Reopening the workspace starts there.
+        #expect(store.lastActiveTabByWorkspace["ws-cmux"] == "t-zsh")
+    }
+
+    /// Back to the list and into the workspace again (a new screen, as the list's tap pushes):
+    /// the tab that was on screen, not the first (Leo 2026-11-14).
+    @Test func reenteringTheWorkspaceOpensTheTabLeftOnScreen() {
+        let (store, first) = make()
+        first.opened()
+        #expect(first.activeTabID == "t-claude")
+        first.activate("t-zsh")
+        let reentered = WorkspaceTabsSource(store: store, workspaceID: "ws-cmux")
+        #expect(reentered.activeTabID == "t-zsh")
+        reentered.opened()
+        #expect(reentered.activeTabID == "t-zsh")
+    }
+
+    /// A notification or Feed item for a tab of the workspace already on screen rebuilds its
+    /// page: the old page must leave the request to the new one, which opens on that tab.
+    @Test func aRequestWhileTheWorkspaceIsUpIsLeftForTheRebuiltPage() async {
+        let (store, old) = make()
+        old.opened()
+        #expect(old.activeTabID == "t-claude")
+        store.requestOpen(tabID: "t-docs", in: "ws-cmux")
+        _ = old.tabs
+        await Task.yield()
+        await Task.yield()
+        #expect(store.requestedTabByWorkspace["ws-cmux"] == "t-docs")
+        let rebuilt = WorkspaceTabsSource(store: store, workspaceID: "ws-cmux")
+        #expect(rebuilt.activeTabID == "t-docs")
+        rebuilt.opened()
+        #expect(store.requestedTabByWorkspace["ws-cmux"] == nil)
+    }
+
+    @Test func aRequestedTabIsTakenOnceThenTheTabLeftOnScreenOpens() {
+        let (store, _) = make()
+        store.requestOpen(tabID: "t-docs", in: "ws-cmux")
+        let source = WorkspaceTabsSource(store: store, workspaceID: "ws-cmux")
+        #expect(source.activeTabID == "t-docs")
+        source.opened()
+        #expect(store.requestedTabByWorkspace["ws-cmux"] == nil)
+        #expect(source.activeTabID == "t-docs")
+        source.activate("t-zsh")
+        // The request is spent: the next screen opens where this one was left.
         #expect(WorkspaceTabsSource(store: store, workspaceID: "ws-cmux").activeTabID == "t-zsh")
     }
 
@@ -647,8 +788,13 @@ import SwiftUI
         let kit = try #require(source.tabs.first { $0.id == "t-zsh" })
         let groups = source.pageMenu(for: kit)
         #expect(groups.first?.map(\.title) == ["Files and Links", "Paste"])
-        // Design/terminal P1: Back leaves the workspace, so no "All Workspaces".
-        #expect(groups.map { $0.map(\.title) } == [["Files and Links", "Paste"], ["Copy Directory"], ["Close Tab"]])
+        // Design/terminal P1: Back leaves the workspace, so no "All Workspaces". Command Palette…
+        // (#32570) leads the layout group, which has no Panes, Screens or Send Message here, and
+        // ends with the Copy rows (the mock tab has the Mac's ids; copying needs no edit rights);
+        // Reveal in Workspaces List (the Mac's Reveal Workspace in Sidebar) has its own group.
+        #expect(groups.map { $0.map(\.title) } == [["Files and Links", "Paste"], ["Copy Directory"],
+                                                    ["Command Palette…", "Copy Tab Link", "Copy Tab ID", "Copy Pane Link", "Copy Pane ID", "Copy IDs"],
+                                                    ["Reveal in Workspaces List"], ["Close Tab"]])
         groups.first?.first?.action()
         #expect(content.performed == ["files"])
     }
@@ -732,7 +878,8 @@ import SwiftUI
 
     @Test func gridOpeningPreparesTheActiveTerminalCard() {
         let content = RecordingTerminalContent()
-        let store = AppStore.mock(tabMemory: .inMemory(["ws-cmux": "t-zsh"]))
+        let store = AppStore.mock(tabMemory: .inMemory())
+        store.requestOpen(tabID: "t-zsh", in: "ws-cmux")
         let source = WorkspaceTabsSource(store: store, workspaceID: "ws-cmux", terminal: content)
         source.overviewWillAppear()
         source.activate("t-claude")

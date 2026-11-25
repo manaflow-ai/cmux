@@ -5,6 +5,7 @@ import { assistant, chat, user } from "../../gallery/fixtures/acpmux";
 import { Composer } from "./Composer";
 import type { Play } from "../../gallery/play";
 import { FileSearch } from "./FileSearch";
+import { configureKeyStyle } from "../../ui/keyStyle";
 import type { FileSearchSource } from "./fileSearchModel";
 
 type Props = ComponentProps<typeof FileSearch>;
@@ -16,7 +17,13 @@ const files = [
   { path: "webviews/src/gallery/format.ts", matches: [] },
 ];
 const composerFiles = files.slice(0, 3);
+const longFiles = Array.from({ length: 40 }, (_, index) => ({
+  path: `src/features/module-${String(index).padStart(2, "0")}.tsx`,
+  matches: [],
+}));
+const longSearch: FileSearchSource = async () => ({ root: "/Users/you/src/cmux", results: longFiles });
 
+// gallery-capture: a typed query's latency; only the plays type, and they wait for the results (idle never searches).
 const search: FileSearchSource = async (query) => {
   await new Promise((resolve) => setTimeout(resolve, 12));
   if (query === "zz") return { root: "/Users/you/src/cmux", results: [] };
@@ -121,6 +128,24 @@ const noResults: Play = async (ctx) => {
   );
 };
 
+// `app.keyStyle` Vim: Esc gives the results the keyboard and j steps them; the play puts Standard
+// back once the highlight moved (nothing draws differently).
+const vimKeys: Play = async (ctx) => {
+  configureKeyStyle({ "app.keyStyle": "vim" });
+  try {
+    await ctx.type("Composer", field);
+    await ctx.waitFor(() => ctx.document.querySelectorAll('[role="option"]').length === composerFiles.length);
+    await ctx.press("Escape");
+    await ctx.waitFor(() => ctx.document.activeElement?.getAttribute("role") === "listbox");
+    await ctx.press("j");
+    await ctx.waitFor(
+      () => ctx.document.querySelectorAll('[role="option"]')[1]?.getAttribute("aria-selected") === "true",
+    );
+  } finally {
+    configureKeyStyle({});
+  }
+};
+
 const closeWithEscape: Play = async (ctx) => {
   await ctx.press("Escape");
   await ctx.waitFor(() => !ctx.document.querySelector(".acpmux-file-search"));
@@ -157,6 +182,14 @@ export default componentEntry<Props>({
     },
   },
   variants: {
+    "long-results": {
+      note: "Forty matching files scroll under soft edges without clipping the last visible row.",
+      props: { ...baseProps, search: longSearch },
+      play: async (ctx) => {
+        await ctx.type("module", field);
+        await ctx.waitFor(() => ctx.document.querySelectorAll('[role="option"]').length === longFiles.length);
+      },
+    },
     idle: { note: "The palette opens with an empty query and a quiet hint.", props: baseProps },
     matches: {
       note: "A query highlights matching characters and ArrowDown moves the active result without leaving the field.",
@@ -193,6 +226,11 @@ export default componentEntry<Props>({
             Boolean(ctx.document.querySelector(".acpmux-file-note")?.textContent?.trim()),
         );
       },
+    },
+    vim: {
+      note: "Key style Vim: Esc gives the results the keyboard and j steps them (Standard keeps today's keys).",
+      props: baseProps,
+      play: vimKeys,
     },
     escape: {
       note: "Escape closes the palette and leaves dismissal to the host: the chat's composer stays.",

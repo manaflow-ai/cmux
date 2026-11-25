@@ -50,9 +50,15 @@ struct SimulatedServiceExtension {
         }
         // An unsealed push keeps the category APNs delivers it under, so its long look is the content extension's.
         if let category = aps?["category"] as? String { content.categoryIdentifier = category }
+        content.threadIdentifier = aps?["thread-id"] as? String ?? ""
         content.userInfo = body.filter { $0.key != "aps" }
         let keys = PushKeys.current()
-        let opened = ServicePush().opened(content, keys: keys) ?? ServicePush().inert(content, trust: keys?.trust()) ?? content
+        // The extension's own chain (NotificationService).
+        let service = ServicePush()
+        let served = service.withheld(content, keys: keys) ?? service.opened(content, keys: keys)
+            ?? service.inert(content, trust: keys?.trust()) ?? service.categorized(content) ?? content
+        // The extension's last step too: a chat muted on this phone arrives quietly.
+        let opened = PushChatMutes.live().quieted(served) ?? served
         let request = UNNotificationRequest(identifier: "dev-service-push-\(UUID().uuidString)", content: opened, trigger: nil)
         UNUserNotificationCenter.current().add(request) { error in
             if let error { Logger(subsystem: "dev.cmux.mobile", category: "push").error("simulated service push: \(String(describing: error), privacy: .public)") }

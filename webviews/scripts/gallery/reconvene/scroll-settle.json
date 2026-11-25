@@ -1,0 +1,40 @@
+{
+  "envs": [
+    ["light", "none"],
+    ["dark", "none"]
+  ],
+  "shots": [
+    {
+      "name": "scroll-settle-now",
+      "entry": "agent-pane.reconvene-scroll-settle",
+      "variant": "now",
+      "width": 760,
+      "height": 560,
+      "deviceScaleFactor": 2
+    },
+    {
+      "name": "scroll-settle-anchor-only",
+      "entry": "agent-pane.reconvene-scroll-settle",
+      "variant": "anchor-only",
+      "width": 760,
+      "height": 560,
+      "deviceScaleFactor": 2
+    },
+    {
+      "name": "scroll-settle-reserve",
+      "entry": "agent-pane.reconvene-scroll-settle",
+      "variant": "reserve",
+      "width": 760,
+      "height": 560,
+      "deviceScaleFactor": 2
+    },
+    {
+      "name": "scroll-settle-no-chase-near-bottom",
+      "entry": "agent-pane.reconvene-scroll-settle",
+      "variant": "no-chase-near-bottom",
+      "width": 760,
+      "height": 560,
+      "deviceScaleFactor": 2
+    }
+  ]
+}

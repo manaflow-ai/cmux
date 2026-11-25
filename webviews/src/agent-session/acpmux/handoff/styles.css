@@ -17,7 +17,8 @@
   padding: 10px;
   resize: vertical;
   font: inherit;
-  line-height: 1.5;
+  font-size: var(--text-content);
+  line-height: var(--text-content--line-height);
   color: var(--agent-text);
   background: var(--acpmux-composer-tray);
 }
@@ -29,7 +30,7 @@
 .acpmux-handoff-buttons { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; }
 .acpmux-handoff-buttons button {
   border: 0;
-  border-radius: 6px;
+  border-radius: var(--ds-radius-control);
   padding: 8px 12px;
   font: inherit;
   color: var(--agent-text);

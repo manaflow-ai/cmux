@@ -1,0 +1,23 @@
+.sender-icon-gallery {
+  box-sizing: border-box;
+  min-height: 100%;
+  padding: var(--ds-space-4) var(--ds-space-5);
+  color: var(--cv-text);
+  font-family: var(--cv-font, var(--font-ui));
+}
+.sender-icon-gallery__large {
+  display: flex;
+  gap: var(--ds-space-5);
+  margin-top: var(--ds-space-5);
+}
+.sender-icon-gallery__large figure {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--ds-space-2);
+  margin: 0;
+}
+.sender-icon-gallery__large figcaption {
+  color: var(--cv-text-muted);
+  font-size: var(--text-caption);
+}

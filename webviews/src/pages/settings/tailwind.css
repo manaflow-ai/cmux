@@ -5,11 +5,33 @@
    (scripts/agent-pane/tailwindCompile.mjs); the dev server and the gallery through Vite. */
 @import "tailwindcss/theme.css" layer(theme);
 @import "tailwindcss/utilities.css" layer(utilities) source(none);
+/* The shared theme (ui/theme.generated.css). The page's own names below win where they differ. */
+@import "../../ui/theme.generated.css";
 @source "./";
 @source "../../ui";
 /* `collapse` is the page's own open/close class (layout.css). Tailwind's `collapse` utility sets
    `visibility: collapse`, which hid every search result and the No Results line. */
 @source not inline("collapse");
+
+/* Settings sizes its chrome in rem off its own root (layout.css: 12.5px times --settings-scale), so
+   until the Settings migration moves it onto the shared scale its spacing and radii stay rem and the
+   type steps stay off: the page's look does not change with the shared theme. */
+@theme inline {
+  --spacing: 0.25rem;
+  --radius-sm: 0.25rem;
+  --radius-md: 0.375rem;
+  --radius-lg: 0.5rem;
+  --radius-xl: 0.75rem;
+  --radius-2xl: 1rem;
+  --text-caption: initial;
+  --text-detail: initial;
+  --text-body: initial;
+  --text-field: initial;
+  --text-title: initial;
+  --text-heading: initial;
+  --text-control: initial;
+  --text-content: initial;
+}
 
 @theme inline {
   --color-fg: var(--text);

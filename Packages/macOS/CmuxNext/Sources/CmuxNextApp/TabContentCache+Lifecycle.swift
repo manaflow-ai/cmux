@@ -14,11 +14,6 @@ import CmuxNextBrowser
 /// current. That is what keeps a late completion from hiding, showing or
 /// reparenting the view of a newer selection.
 extension TabContentCache {
-    /// Drops terminal surfaces whose tabs no longer exist.
-    func prune(liveTabs: Set<String>) {
-        for key in terminals.keys where !liveTabs.contains(key) { release(key) }
-    }
-
     // MARK: Presentation
 
     /// `presenter` shows `key` (its view is, or is about to be, in the
@@ -26,19 +21,19 @@ extension TabContentCache {
     func present(_ key: String, by presenter: any SurfacePresenter, presence: SurfacePresence) {
         let owner = ObjectIdentifier(presenter)
         presenters[owner] = WeakPresenter(value: presenter)
+        withdrawnBy[key] = nil
         apply(ledger.present(key, by: owner, presence: presence))
     }
 
     /// `presenter` stopped showing `key`. Ignored when another presenter
     /// took it meanwhile (the tab moved there).
     func withdraw(_ key: String, by presenter: any SurfacePresenter) {
+        if ledger.owner(of: key) == ObjectIdentifier(presenter) { withdrawnBy[key] = WeakPresenter(value: presenter) } // only its owner's withdraw counts: a closing pane still holds the release
         apply(ledger.withdraw(key, by: ObjectIdentifier(presenter)))
     }
 
     /// `presenter` scrolled on screen, into the keep-alive band, or away.
-    func setPresence(_ presence: SurfacePresence, presenter: any SurfacePresenter) {
-        apply(ledger.setPresence(presence, owner: ObjectIdentifier(presenter)))
-    }
+    func setPresence(_ presence: SurfacePresence, presenter: any SurfacePresenter) { apply(ledger.setPresence(presence, owner: ObjectIdentifier(presenter))) }
 
     /// `presenter` is going away.
     func removePresenter(_ presenter: any SurfacePresenter) {
@@ -48,9 +43,7 @@ extension TabContentCache {
     }
 
     /// The pane presenting `key`, if any.
-    func presenter(of key: String) -> (any SurfacePresenter)? {
-        ledger.owner(of: key).flatMap { presenters[$0]?.value }
-    }
+    func presenter(of key: String) -> (any SurfacePresenter)? { ledger.owner(of: key).flatMap { presenters[$0]?.value } }
 
     func isRendering(_ key: String) -> Bool { ledger.isRendering(key) }
 
@@ -70,9 +63,8 @@ extension TabContentCache {
 
     func apply(_ effects: SurfaceLedger<String, ObjectIdentifier>.Effects) {
         guard !effects.isEmpty else { return }
-        for displaced in effects.displaced {
-            presenters[displaced.owner]?.value?.surfaceWasDisplaced(displaced.key)
-        }
+        for displaced in effects.displaced { presenters[displaced.owner]?.value?.surfaceWasDisplaced(displaced.key) }
+        for freed in effects.freed { presenters[freed.owner]?.value?.surfaceIsFree(freed.key) } // the pane it was taken from may show it again
         for (key, render) in effects.rendering.sorted(by: { !$0.value && $1.value }) {
             // Hides first, so a frame never shows two tabs of one pane.
             applyLifecycle(lifecycle.send(render ? .show(key) : .hide(key)))
@@ -93,11 +85,12 @@ extension TabContentCache {
     /// The tabs of a hibernated workspace (plans/cmux-next/workspace-hibernation-DESIGN.md), after its
     /// panes left: terminal surfaces go now, pages are discarded after their own checks, chat pages
     /// go keeping their session.
-    func hibernateTabs(_ keys: [String]) {
+    /// `byPerson`: the person's Hibernate Workspace (its pages never wake on a hover).
+    func hibernateTabs(_ keys: [String], byPerson: Bool = false) {
         for key in keys {
             evictHiddenTerminal(key)
-            if browsers[key] != nil { hibernation?.hibernateForWorkspace(key) }
-            hibernation?.agentPages?.releaseForWorkspace(key)
+            if browsers[key] != nil { hibernation?.hibernateForWorkspace(key, byPerson: byPerson) }
+            hibernation?.agentPages?.pages.releaseForWorkspace(key)
         }
     }
 
@@ -121,7 +114,7 @@ extension TabContentCache {
     func contentDidMount(_ key: String) {
         // Created with no pane showing it (a tab opened in the background): live and hidden, so
         // hibernation may release it and its first show restores it.
-        guard let token = pendingMounts.removeValue(forKey: key) else { return applyLifecycle(lifecycle.send(.adopted(key))) }
+        guard let token = pendingMounts.removeValue(forKey: key) else { takeTabVisibility(key); return applyLifecycle(lifecycle.send(.adopted(key))) }
         applyLifecycle(lifecycle.send(.mounted(key, token)))
     }
 
@@ -151,13 +144,18 @@ extension TabContentCache {
         }
     }
 
-    /// Installs the page that replaces a tab's page (`swapPage`). The tab's
-    /// lifecycle does not change, so no reveal follows: a tab on screen
-    /// shows the new page at once (a remote view tab's Connect starts its
-    /// stream here; before, the replacement never learned it was visible).
-    func installReplacement(_ page: any BrowserTab, for key: String) {
-        _ = install(page, for: key)
-        if shownPages.contains(key) { page.setContentVisible(true) }
+    /// A page put into a tab whose lifecycle already has a record: a replacement (`swapPage`,
+    /// `replacePage`, a `reroute` between pages), a deferred page started (`startDeferred`) or a
+    /// Chromium retry. The record's phase does not change, so no reveal or conceal follows and
+    /// `.adopted` is ignored: the page takes the tab's visibility here (`shownPages`, which reveal
+    /// and conceal keep whether or not the tab had a page then). A tab on screen shows it at once
+    /// (a remote view tab's Connect starts its stream here), and a hidden tab's is hidden: a new
+    /// Chromium page starts visible, and one put into a page area already hidden never gets the
+    /// hide that conceals it, so it drew under the tab on screen (Leo, 2026-11-05: a Cloud chat's
+    /// Claude sign-in page showing through the agent pane).
+    private func takeTabVisibility(_ key: String) {
+        guard lifecycle.phase(key) != .unmounted, let entry = browsers[key] else { return }
+        entry.tab.setContentVisible(shownPages.contains(key))
     }
 
     private func reveal(_ key: String) {
@@ -168,24 +166,26 @@ extension TabContentCache {
             // parsed its content while hidden draws it now: no hold).
             lastFrames.show(key, on: entry.session)
         }
-        if let entry = browsers[key] {
-            entry.tab.setContentVisible(true)
-            shownPages.insert(key)
-        }
+        // Whether or not a page is in yet: a page put in later (`takeTabVisibility`) takes the
+        // tab's visibility from here.
+        shownPages.insert(key)
+        if let entry = browsers[key] { entry.tab.setContentVisible(true) }
         hibernation?.tabDidShow(key)
     }
 
     private func conceal(_ key: String, token: ContentLifecycle<String>.Token) {
+        onConceal?(key)
         if let entry = terminals[key] {
             // No picture on a switch: hover and drag render one on demand (`previewImage`), or `evict` keeps one.
             entry.session.isRenderingSuspended = true
             entry.io.setVisible(false)
         }
+        let wasShown = shownPages.remove(key) != nil
         if let entry = browsers[key] {
             // Only a page that was on screen (one created or restored hidden has nothing worth a
             // thumbnail), and only when it navigated or loaded since its last picture: the engine
             // cannot picture a hidden page, so this is its last chance; a plain switch takes none.
-            if shownPages.remove(key) != nil, !pagePictureIsCurrent(entry, key: key) {
+            if wasShown, !pagePictureIsCurrent(entry, key: key) {
                 capturePagePreview(entry, key: key, token: token)
             }
             entry.tab.setContentVisible(false)

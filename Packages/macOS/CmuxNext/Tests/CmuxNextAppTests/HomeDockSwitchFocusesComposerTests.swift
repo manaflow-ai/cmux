@@ -1,5 +1,6 @@
 import AppKit
 @testable import CmuxNextHome
+@testable import CmuxNextHomeModel
 import Testing
 
 /// Lawrence 2026-10-20: "after switching a chat in imessage ui we need to be visibly focused to the

@@ -4,24 +4,22 @@ import Foundation
 import os
 
 /// The daemon side of React page calls (SECURITY, request-origin.md): page ops go on their own
-/// daemon connection with the `page_relay` role, so the daemon derives origin `page` for every
-/// one of them, whatever a Swift bug sends. A call is the user's only after a native sheet
-/// approved it: the relay asks the main connection for a one-time confirmation token bound to
-/// the op, its exact params and this relay connection, and attaches it to that one request. The
-/// page never sees the token.
+/// `page_relay` daemon connection, so the daemon derives origin `page` for each, whatever a Swift
+/// bug sends. A call is the user's only after a native sheet approved it: the relay attaches a
+/// one-time token from the main connection, bound to the op, its params and this relay connection.
 ///
-/// One relay connection per page (`page-router-v1`): its `client-hello` names the page
-/// (`cmux.history` -> `history`), so the daemon applies that page's allow list
-/// (cmux-tui/spec/page-router.json). A call the list marks `gesture` goes out with a confirmation
+/// One relay connection per page (`page-router-v1`): its `client-hello` names the page (`cmux.history`
+/// -> `history`), so the daemon applies its allow list (spec/page-router.json). A `gesture` call gets a confirmation
 /// token when a real key or pointer event backs it (``PageCallContext/userGesture``).
 ///
 /// Events (`page-events-v1`, cx-hnmbt.9): the relay connection also subscribes when its page hears
 /// events (page-router.json `events`); the daemon narrows that stream to them. ``listen(event:onEvent:)``
 /// hands each one, as the daemon sent it, to the page streams that asked for it. After a reconnect
-/// or an `overflow` (events were lost) every listener gets `{resync: true}` and re-reads.
+/// or an `overflow` (events were lost) every listener gets `{resync: true}` and re-reads. An idle
+/// relay closes (``PageRelayUse``), and a channel whose service is gone leaves the table.
 ///
-/// Against a daemon without `origin-claim-v1` there is no relay connection: page calls go on the
-/// main connection as before, with a logged warning that they are not narrowed.
+/// Without `origin-claim-v1` calls go on the main connection, which nothing narrows: only the page's
+/// spec reads, or its gesture/confirm ops on an event or sheet (``PageOperations``; cmux#37302).
 @MainActor
 final class PageRelayChannel {
     private static let logger = Logger(subsystem: "dev.cmux.next", category: "page-relay")
@@ -34,23 +32,13 @@ final class PageRelayChannel {
 
     /// The channel of `page` (a page descriptor id) on the local daemon service.
     static func shared(for service: DaemonService, page: String) -> PageRelayChannel {
-        let id = relayPageID(page)
+        channels = channels.filter { $0.value.service != nil }
+        let id = PageRelayPage.id(page)
         let key = Key(service: ObjectIdentifier(service), page: id)
         if let channel = channels[key] { return channel }
         let channel = PageRelayChannel(service: service, page: id)
         channels[key] = channel
         return channel
-    }
-
-    /// The daemon page id of a descriptor id (`cmux.history` -> `history`), or nil when it is not
-    /// one (1-64 of `a-z 0-9 -`, a letter first): such a relay serves no page and may call nothing.
-    static func relayPageID(_ descriptor: String) -> String? {
-        let id = descriptor.hasPrefix("cmux.") ? String(descriptor.dropFirst("cmux.".count)) : descriptor
-        guard (1...64).contains(id.count), let first = id.unicodeScalars.first, ("a"..."z").contains(first),
-              id.unicodeScalars.allSatisfy({ ("a"..."z").contains($0) || ("0"..."9").contains($0) || $0 == "-" }) else {
-            return nil
-        }
-        return id
     }
 
     private weak var service: DaemonService?
@@ -65,6 +53,7 @@ final class PageRelayChannel {
     private var nextListener: UInt64 = 0
     /// Reads the relay connection's events while it lives (``pumpEvents(_:)``).
     private var pump: Task<Void, Never>?
+    private lazy var use = PageRelayUse { [weak self] in await self?.closeRelay() }
 
     /// The page does not hear `event` on this daemon (no entry, or an older daemon).
     struct NoSuchEvent: Error {}
@@ -78,14 +67,18 @@ final class PageRelayChannel {
     /// when `context` was confirmed on a native sheet.
     func send(operation: String, params: [String: CmuxNextDaemon.JSONValue], idempotencyKey: String?,
               context: PageCallContext) async throws -> CmuxNextDaemon.JSONValue {
-        guard let service, let main = service.connection else { throw DaemonError.notConnected }
-        guard service.supports(DaemonClientRole.originClaimCapability) else {
+        guard let service else { throw DaemonError.notConnected }
+        let claims = DaemonClientRole.originClaimCapability
+        guard service.supports(claims) || PageOperations.allowsUnnarrowed(identity.page, operation, confirmed: context.isConfirmedUser, gesture: { spendGesture(context) }) else { throw DaemonError.missingCapabilities([claims]) }
+        guard let main = service.connection else { throw DaemonError.notConnected }
+        guard service.supports(claims) else {
             if !warned {
                 warned = true
-                Self.logger.warning("the daemon has no origin-claim-v1: page calls are not narrowed to origin page")
+                Self.logger.warning("the daemon has no origin-claim-v1: page calls follow the app's copy of the page spec")
             }
             return try await ResourceRelayClient(connection: main).send(operation: operation, params: params, idempotencyKey: idempotencyKey)
         }
+        use.begin(); defer { use.end() }
         let relay = try await relayConnection(service)
         var origin = CmuxNextDaemon.JSONValue.object(["claim": .string("page")])
         // A native sheet, or the person's own key or pointer event on a call the page's list
@@ -106,12 +99,13 @@ final class PageRelayChannel {
     func listen(event: String, onEvent: @escaping @MainActor (CmuxNextDaemon.JSONValue) -> Void) async throws -> () -> Void {
         guard let service, service.connection != nil else { throw DaemonError.notConnected }
         guard service.supports(DaemonClientRole.originClaimCapability) else { throw NoSuchEvent() }
-        _ = try await relayConnection(service)
-        guard identity.events.contains(event) else { throw NoSuchEvent() }
+        use.begin()
+        do { _ = try await relayConnection(service) } catch { use.end(); throw error }
+        guard identity.events.contains(event) else { use.end(); throw NoSuchEvent() }
         nextListener += 1
         let id = nextListener
         listeners[id] = (event, onEvent)
-        return { [weak self] in self?.listeners[id] = nil }
+        return { [weak self] in if self?.listeners.removeValue(forKey: id) != nil { self?.use.end() } }
     }
 
     /// Delivers the relay connection's events to the listeners until the connection ends.
@@ -153,6 +147,12 @@ final class PageRelayChannel {
                 }
             } catch {}
         }
+    }
+
+    private func closeRelay() async {
+        guard starting == nil, let relay else { return }
+        pump?.cancel(); (self.relay, pump) = (nil, nil)
+        await relay.close()
     }
 
     private func resync() {

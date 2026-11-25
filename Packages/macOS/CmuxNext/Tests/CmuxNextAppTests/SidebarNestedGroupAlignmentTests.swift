@@ -82,7 +82,8 @@ import Testing
                 "a subgroup's header steps in: it can never read as a sibling")
         #expect(list.frame(for: perfHeader).minX + list.railReach(for: perfHeader) == list.frame(for: perfMember).minX,
                 "a header sits at its members' x, its bar reaching left over their rail")
-        #expect(perf.frame.minX == list.frame(for: perfHeader).minX, "the subgroup's rail starts at its header bar's left edge")
+        #expect(perf.frame.minX == list.frame(for: perfHeader).minX + SidebarStyle.groupRailInset,
+                "the subgroup's rail sits centred in its lane, just in from its header bar's left edge")
         #expect(perf.level == 1 && panes.level == 0)
         #expect(SidebarGroupLine.opacity(level: 1) < SidebarGroupLine.opacity(level: 0), "a nested rail is fainter")
     }
@@ -158,7 +159,7 @@ import Testing
         let fixture = SidebarNestedFixture(scenario: .narrow)
         let list = Self.list(fixture.sections, width: fixture.width)
         let cap = list.indent.visualCap(width: list.indentWidth)
-        // Since rows run to 1.5 pt from the right edge (157597d79a2) 196 pt fits one more level; it still stops short.
+        // Since rows ran to 1.5 pt from the right edge (157597d79a2) 196 pt fit one more level; with the 2026-11-02 gap it still stops short.
         #expect(cap < list.indent.maxVisualLevels, "196 pt does not fit every level: the indent stops at \(cap)")
         let deepest = list.displayed.rows.filter { row in
             switch row.key {

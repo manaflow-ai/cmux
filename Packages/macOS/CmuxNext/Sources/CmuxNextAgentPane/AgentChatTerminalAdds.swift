@@ -1,9 +1,9 @@
 import CmuxNextDesign
 
 /// The chat header's Terminal button under Debug Settings `agentChat.terminalButtonAdds`
-/// (``AgentPaneTunables/terminalButtonAdds``): how the header's log of the splits it opened
-/// (AgentChatSplitToggles, oldest first) changes so the other buttons keep toggling theirs. Off,
-/// every rule is the toggling header's own.
+/// (``AgentPaneTunables/terminalButtonAdds``, on by default): how the header's log of the splits it
+/// opened (AgentChatSplitToggles, oldest first) changes so the other buttons keep toggling theirs.
+/// Turned off, every rule is the toggling header's own.
 public nonisolated struct AgentChatTerminalAdds: Sendable {
     /// The Terminal button's header action.
     public static let terminal = "splitRight"

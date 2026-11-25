@@ -17,10 +17,10 @@ import CmuxNextWakeups
 /// it waits in the home daemon's saved-hosts projection until the registry
 /// holds it (`SSHService+SavedHosts`).
 ///
-/// Reconnect is event-driven: each daemon loop keeps its capped backoff
-/// after a failure, and the app becoming active, the Mac waking and a
-/// network path change (the daemon's own monitor) wake it. The link's gate
-/// (`SSHConnectionMachine`) decides which events may retry a failure.
+/// Reconnect is event-driven: each daemon loop keeps its capped backoff after a failure, and the app
+/// becoming active, the Mac waking and a network path change (the daemon's own monitor) wake it. The
+/// link's gate (`SSHConnectionMachine`) decides which events may retry a failure. Only a person's
+/// connect lists a "Connecting to <host>…" sidebar row (`personConnectPending`), never a reconnect.
 @Observable
 final class SSHService {
     @ObservationIgnored let machines: MachineRegistry
@@ -31,6 +31,8 @@ final class SSHService {
     @ObservationIgnored let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "app.ssh")
     /// Runs `remote.install` through the registry's confirmation (set by the handlers).
     @ObservationIgnored var offerInstall: ((SSHMachineSession) -> Void)?
+    /// The acting window (`WindowManager.active`): a connect records it as `connectingWindow`.
+    @ObservationIgnored var actingWindow: () -> String? = { nil }
     /// A written Forget's acpmux peer removal (HQ #4877 break 8); tests replace its `remove`.
     @ObservationIgnored let peerForgets: SSHPeerForgets
     /// Forgotten machines, so a stale registry echo does not bring them back.
@@ -42,8 +44,7 @@ final class SSHService {
     /// Automatic updates tried in this app run (``RemoteAutoUpdateLedger``).
     @ObservationIgnored private var autoUpdated = RemoteAutoUpdateLedger()
 
-    /// The app's main-thread scheduler, passed by the composition root: every SSH machine's event
-    /// batches run on it.
+    /// The app's main-thread scheduler, passed by the composition root: every SSH machine's event batches run on it.
     @ObservationIgnored private let mainWork: MainWorkScheduler
 
     /// - Parameter mainWork: The app's ``MainWorkScheduler`` (AppServices passes the one it was built with).
@@ -67,10 +68,9 @@ final class SSHService {
     /// Machines that were set to connect when the policy turned them off.
     private var reconnectWhenAllowed: Set<String> = []
 
-    /// Turning remote hosts off disconnects every SSH machine, keeps its
-    /// workspaces (their terminals show "Turned off by your organization")
-    /// and leaves the remote daemon and its processes running. Turning it on
-    /// again reconnects the machines that were connecting before.
+    /// Turning remote hosts off disconnects every SSH machine, keeps its workspaces (their terminals show
+    /// "Turned off by your organization") and leaves the remote daemon and its processes running. Turning
+    /// it on again reconnects the machines that were connecting before.
     func applyPolicy(disabled: Bool) {
         guard disabled != policyDisabled else { return }
         policyDisabled = disabled
@@ -191,6 +191,7 @@ final class SSHService {
         if !byPerson, session.waitsForUser { return session }
         // Saved now, before the first connect succeeds (no session id yet).
         session.autoConnect = true
+        session.connectingWindow = actingWindow()
         rememberHost(session)
         session.offersInstall = offerInstall
         if offerInstall { offerInstallWhenOld(session) }
@@ -199,6 +200,7 @@ final class SSHService {
         } else {
             session.wake(.user)
         }
+        if byPerson { session.personConnectPending = session.daemon.startup == .connecting } // a live link's wake lists no row
         logger.info("connect \(host.destination.description, privacy: .public) session \(host.session, privacy: .public)")
         return session
     }
@@ -222,13 +224,13 @@ final class SSHService {
 
     func reconnect(_ session: SSHMachineSession, byPerson: Bool = true) {
         guard !policyDisabled, byPerson || !session.waitsForUser else { return } // only a person takes over a session in use (G5)
+        if byPerson { session.connectingWindow = actingWindow() } // its "Connecting to…" row lists in the asking window (#31490)
         // A retry gets a fresh error from the new attempt. Do not let the
         // recovery sheet copy the previous attempt while the link is working.
         session.lastError = nil
         switch session.linkStatus.reconnectStep(daemonConnected: session.daemon.startup == .connected, daemonFailed: session.daemonFailure != nil,
-                                                retriesSpent: session.retriesSpent) {
+                                                daemonDown: session.daemonDown, daemonEstablished: session.daemon.connection != nil) {
         case .connect: session.connect()
-        case .restart: session.restart()
         case .reconnectDaemon: session.reconnectDaemon()
         case .wake: session.wake(.user)
         case .newAttempt:
@@ -236,6 +238,7 @@ final class SSHService {
             session.wake(.user)
         case .nothing: break
         }
+        if byPerson { session.personConnectPending = session.daemon.startup == .connecting }
     }
 
     func disconnect(_ session: SSHMachineSession) {
@@ -354,14 +357,14 @@ final class SSHService {
         if status == .connected {
             session.lastError = nil
             // task-owner: one update check per connect; it installs only an older remote build
-            Task { await updateIfOlder(session) }
+            Task { await updateIfOlder(session); session.staticInstallStaged = await RemoteStaticInstallStager(installer: installer).stageIfOlder(session.host, link: session.link, binary: binary, environment: Self.environment, off: policyDisabled) }
         }
     }
 
     /// cx-3r9mt: on connect, an older remote build (`cmux-tui remote update-need`) gets this app's
     /// build, daemons handed over; any other answer or a failure leaves the machine as it was.
     func updateIfOlder(_ session: SSHMachineSession) async {
-        guard !policyDisabled, let binary, case .installed? = await session.link.lastReport?.binary,
+        guard !policyDisabled, let binary, case .installed? = await session.link.probedReport(await Self.environment())?.binary,
               let commit = await BundledCmuxTUI.commit(binary: binary) else { return }
         let tried = session.machineID + "|" + commit
         guard autoUpdated.mayTry(tried), !installing.contains(session.machineID),
@@ -370,10 +373,10 @@ final class SSHService {
         let (probe, answer) = checked
         logger.info("update check for \(session.host.destination.description, privacy: .public): \(answer.need, privacy: .public) (\(answer.reason, privacy: .public))")
         guard answer.need == "older" else { session.updateOffered = false; return }
-        // The keyed restart's rule (cx-3r9mt, hq-a3 2026-10-15): by itself only on an idle machine;
-        // else the person decides (Update available, then Update).
-        guard await agentDaemonIdleForUpdate(session) else {
-            logger.info("update of \(session.host.destination.description, privacy: .public) offered: the machine is not idle")
+        // By itself also while agents run (the daemon update never waits for idle); a machine whose
+        // agent daemon holds another client's person key is left to the person (Update available).
+        guard await agentDaemonAllowsAutomaticUpdate(session) else {
+            logger.info("update of \(session.host.destination.description, privacy: .public) offered: another client holds its person key, or its agent daemon status is unreadable")
             session.updateOffered = true
             autoUpdated.done(tried)
             return
@@ -454,6 +457,8 @@ final class SSHService {
     }
 
     // MARK: Helpers
+    /// The app's own cmux-tui (`DaemonLauncher`) run with ``environment()``; nil when the bundle has none.
+    static var bundledCLI: HostCLI? { (try? DaemonLauncher.resolveBinary(bundle: .main, environment: ProcessInfo.processInfo.environment)).map { HostCLI(binary: $0, environment: environment) } }
 
     /// The environment ssh runs with: the app's own process identity (HOME,
     /// USER, SSH_AUTH_SOCK for the user's agent) plus the login shell's

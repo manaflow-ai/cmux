@@ -1,65 +1,3 @@
-/// A task an action handler started. Its value is nil on success, else
-/// the failure (a daemon error) for callers that report it.
-public typealias ActionWork = Task<ActionWorkFailure?, Never>
-
-/// Why the asynchronous work of an action failed. A string literal or
-/// interpolation makes a plain failure.
-public struct ActionWorkFailure: Error, Sendable, Hashable, CustomStringConvertible, ExpressibleByStringInterpolation {
-    public var message: String
-    /// A command that starts a terminal missed its deadline. The daemon may
-    /// still create the terminal, so a caller must not simply retry.
-    public var terminalMayAppear: Bool
-    /// The command's reply missed its deadline: it may still apply, so a
-    /// caller must not simply retry.
-    public var mayHaveApplied: Bool
-    /// A typed refusal from the handler's own work, not a daemon failure: the control socket
-    /// answers it as it answers the same refusal reported at once (`unavailable` with the
-    /// reason, or `not_found`). Nil for a daemon failure (`daemon_error`).
-    public var refusal: ActionWorkRefusal?
-    /// The control error code a caller answers instead of the default
-    /// (`screenshot.unavailable`), with `message` as its reason. Nil for the
-    /// default mapping (``refusal``, a timeout, or `daemon_error`).
-    public var code: String?
-    /// The person already saw why it failed (the daemon service showed a pane-still-opening refusal when the command
-    /// ended), so no reporter (the registry, a handler's own report) shows a second notice: once, never zero times or twice.
-    public var shown = false
-    /// Why it failed in the person's words and language, where `message` is the daemon's own error (a full disk:
-    /// "the disk is full"); the notice a person's run shows uses it, a capturing caller still gets `message`. Nil: `message`.
-    public var shownReason: String?
-
-    public init(_ message: String, mayHaveApplied: Bool = false, terminalMayAppear: Bool = false) {
-        self.message = message
-        self.mayHaveApplied = mayHaveApplied
-        self.terminalMayAppear = terminalMayAppear
-    }
-
-    /// The handler refused in its background work; `message` is the reason.
-    public init(refusal: ActionWorkRefusal, reason: String) {
-        self.init(reason)
-        self.refusal = refusal
-    }
-
-    /// A failure the control socket answers with error `code` and `reason`.
-    public init(code: String, reason: String) {
-        self.init(reason)
-        self.code = code
-    }
-
-    public init(stringLiteral value: String) {
-        self.init(value)
-    }
-
-    public var description: String { message }
-}
-
-/// How a refusal from an action's background work reaches a caller (``ActionRegistry/refuse(_:quiet:)``
-/// and ``ActionRegistry/refuseNotFound(_:)`` for a refusal made at once).
-public nonisolated enum ActionWorkRefusal: Sendable, Hashable {
-    /// The action cannot act now (`unavailable`).
-    case unavailable
-    /// An explicit target names nothing (`not_found`).
-    case notFound
-}
 
 /// Completion of the asynchronous work an action starts.
 ///
@@ -85,7 +23,15 @@ extension ActionRegistry {
     public func trackOrRefuse(_ task: ActionWork) {
         if isCapturingWork { return track(task) }
         // task-owner: one-shot; ends with `task`, and holds the registry weakly.
-        Task { @MainActor [weak self] in if let failure = await task.value { self?.refuse(failure.message) } }
+        Task { @MainActor [weak self] in if let failure = await task.value { self?.refuse(failure: failure) } }
+    }
+
+    /// Reports `failure`, the background half of a run nobody waits on, as a refusal: its notice where one is shown
+    /// (``ActionWorkFailure/notice(title:)``), and only its `message` to a capturing caller and the log when the person
+    /// can do nothing with it (a missed deadline, a dropped connection, the daemon's own text). Every handler that
+    /// shows an ``ActionWorkFailure`` goes through here, never `refuse(failure.message)` (`ActionWorkFailureNoticeTests` checks the sources).
+    public func refuse(failure: ActionWorkFailure) {
+        if let notice = failure.notice(title: nil) { refuse(notice) } else { refuse(failure.message, quiet: true) }
     }
 
     /// Reports a task that produces the action's value (a screenshot's

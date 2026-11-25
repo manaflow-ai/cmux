@@ -23,9 +23,10 @@ struct ClickedLinkFocusTests {
     static let link = URL(string: "https://github.com/manaflow-ai/cmux/pull/1")!
 
     /// The link's tab opens in the source's own pane (Open Links and Files set to Same Pane): the source
-    /// pane keeps the focus with the new tab selected, and its close selects the source tab again,
-    /// not the tab after it.
-    @Test func aLinksTabInItsPaneTakesTheFocusAndItsCloseSelectsTheSourceAgain() async throws {
+    /// pane keeps the focus with the new tab selected, and its close selects the tab after it, as every tab's close
+    /// does (a link's tab has no close opener, `TabCloseSelection.linkOpened`). `native`: the pull request link opens
+    /// the GitHub page (``WebPageTab/openGitHub(_:from:services:)``) instead of its web tab, with the same rule.
+    @Test(arguments: [false, true]) func aLinksTabInItsPaneTakesTheFocusAndItsCloseSelectsTheNextTab(native: Bool) async throws {
         try await PinnedPageTests.withApp { services, connection in
             let store = services.daemon.store
             let content = try #require(services.windows.active?.workspaceContent)
@@ -41,7 +42,7 @@ struct ClickedLinkFocusTests {
             try await PinnedPageTests.until({ content.focusedPane === pane && pane.stripModel.selectedID?.rawValue == source })
 
             services.linkOpener.placement = { .samePane }
-            let opened = try await Self.click(services, from: pane)
+            let opened = try await Self.click(services, from: pane, native: native)
             try await PinnedPageTests.until({ pane.stripModel.selectedID?.rawValue == opened && content.focusedPane === pane },
                                             report: { Self.describe(content, opened) })
 
@@ -49,8 +50,9 @@ struct ClickedLinkFocusTests {
             #expect(services.registry.perform("closeTab", invocation: ActionInvocation(origin: .user)))
             try await PinnedPageTests.until({ store.tab(id: opened) == nil }, report: { "the link's tab did not close" })
             #expect(store.tab(id: source) != nil, "Cmd-W closed the page the link was clicked in")
-            try await PinnedPageTests.until({ pane.stripModel.selectedID?.rawValue == source && content.focusedPane === pane },
-                                            report: { "after the close: " + Self.describe(content, source) })
+            let next = try #require(store.tab(surface: other.surface)?.id)
+            try await PinnedPageTests.until({ pane.stripModel.selectedID?.rawValue == next && content.focusedPane === pane },
+                                            report: { "after the close: " + Self.describe(content, next) })
         }
     }
 
@@ -87,6 +89,30 @@ struct ClickedLinkFocusTests {
             try await PinnedPageTests.until({ content.focusedPane?.stripModel.selectedID?.rawValue == left },
                                             report: { "after the close: " + Self.describe(content, left) })
             #expect(content.focusedPane !== pane, "the close gave the focus back to the source while its pane still had a tab")
+        }
+    }
+
+    /// A pull request link's GitHub page (``WebPageTab/openGitHub(_:from:services:)``) opened in the browser pane right
+    /// of the source (``splitRightHoldingABrowser(_:_:_:)``; made in the source, then moved there): its close, emptying
+    /// that pane, gives the focus back to the source, as the web tab's does.
+    @Test func theGitHubPageInAnotherPaneGivesTheFocusBackToTheSource() async throws {
+        try await PinnedPageTests.withApp { services, connection in
+            let store = services.daemon.store
+            let content = try #require(services.windows.active?.workspaceContent)
+            let model = try #require(store.workspaces.first?.screens.first?.panes.first)
+            let pane = try #require(services.paneController(for: model))
+            let right = try await Self.splitRightHoldingABrowser(services, content, connection)
+            PaneHandlers.focus(pane.layoutPaneID, in: content)
+            try await PinnedPageTests.until({ content.focusedPane === pane })
+            services.linkOpener.placement = { .splitRight }
+
+            let opened = try await Self.click(services, from: pane, native: true)
+            try await PinnedPageTests.until({ content.focusedPane === right && right.pane.tabs.contains { $0.id == opened } },
+                                            report: { "the GitHub page is not in the focused pane on the right: " + Self.describe(content, opened) })
+            // A close that empties its pane goes back to the chat's pane, not a neighbour: the record that close reads.
+            let shown = try #require(content.focusedPane)
+            #expect(services.linkOpener.returnPane(closing: TabID(opened), in: shown, emptiesPane: true) === pane,
+                    "the GitHub tab's close does not give the focus back to the chat's pane")
         }
     }
 
@@ -186,7 +212,7 @@ struct ClickedLinkFocusTests {
             try await PinnedPageTests.until({ content.focusedPane === shown() && shown().stripModel.selectedID?.rawValue == opened },
                                             report: { Self.describe(content, opened) })
             agentPlaced(agents.surface)
-            try await PinnedPageTests.until({ shown().pendingSelectSurface == nil && right.pendingSelectSurface == nil })
+            try await PinnedPageTests.until({ shown().pendingSelect.surface == nil && right.pendingSelect.surface == nil })
             #expect(content.focusedPane === shown(), "the agent's open took the focus from the clicked link")
             #expect(shown().stripModel.selectedID?.rawValue == opened, "the agent's tab replaced the clicked link's tab: \(Self.describe(content, opened))")
         }
@@ -350,10 +376,15 @@ struct ClickedLinkFocusTests {
     }
 
     /// Opens the link from `pane` as a click does and returns the new tab's id once the store has it.
-    private static func click(_ services: AppServices, from pane: PaneController) async throws -> String {
+    private static func click(_ services: AppServices, from pane: PaneController, native: Bool = false) async throws -> String {
         let store = services.daemon.store
         let before = Set(store.workspaces.flatMap(\.screens).flatMap(\.panes).flatMap(\.tabs).map(\.id))
-        services.linkOpener.openWeb(link, from: pane, background: false)
+        if native {
+            // explicit: the page whatever `browser.openPullRequestsInGitHubPage` (off by default); these tests are about its placement.
+            #expect(WebPageTab.openGitHub(link, from: pane, services: services, explicit: true) == true)
+        } else {
+            services.linkOpener.openWeb(link, from: pane, background: false)
+        }
         @MainActor func opened() -> String? {
             // The daemon's tab: a person's link shows a stand-in first (PaneBrowserTabOpener.openStandIn), which it replaces.
             store.workspaces.flatMap(\.screens).flatMap(\.panes).flatMap(\.tabs).first { !before.contains($0.id) && !ProvisionalTab.isProvisional($0.id) }?.id
@@ -378,11 +409,10 @@ struct ClickedLinkFocusTests {
 
     /// ``splitRight(_:_:)`` whose new pane holds one browser tab and no terminal: the pane on the right
     /// a clicked web link opens a tab in. A browser open goes to a right-column pane that already holds
-    /// a browser whatever the panes' widths (``RightColumnPlacement``, Leo 2026-10-31). Beside a pane
-    /// that holds only a terminal it splits below that pane when the source is 480 pt wide or more and
-    /// the pane on the right 420 pt, and is a tab there only below that, so where it landed was the
-    /// test host's window, not the rule: red on cmux13s-Mac-mini at 79e9919c5c5, b6eb84916c1 and
-    /// 40c945f9ec2, green on cmuxs-Mac-mini (serial job 54e4c583d660).
+    /// a browser whatever the panes' widths (``RightColumnPlacement``, Leo 2026-10-31). Before
+    /// 2026-11-15 a link beside a pane holding only a terminal split below it on a wide enough host, so
+    /// where it landed was the test host's window, not the rule: red on cmux13s-Mac-mini at 79e9919c5c5,
+    /// b6eb84916c1 and 40c945f9ec2, green on cmuxs-Mac-mini (serial job 54e4c583d660).
     private static func splitRightHoldingABrowser(_ services: AppServices, _ content: WorkspaceContentController,
                                                   _ connection: DaemonConnection) async throws -> PaneController {
         let right = try await splitRight(services, content)

@@ -15,21 +15,15 @@ public extension SidebarEdits {
     ///   subgroup (it moves with its parent), or already is where `move`
     ///   would send it.
     nonisolated static func groupIndex(_ group: GroupID, _ move: SidebarGroupMove, in sections: [SidebarSection]) -> Int? {
-        guard let (section, node) = locateGroup(group, in: sections) else { return nil }
-        var staying = sections[section].nodes
-        guard case let .group(moved) = staying.remove(at: node), moved.parent == nil else { return nil }
-        let topLevel = staying.indices.filter { index in
-            if case let .group(other) = staying[index] { other.parent == nil } else { true }
+        var request = RustEditRequest("group_index", sections: RustSidebarEdits(sections).sections)
+        let step = switch move {
+        case .top: "top"
+        case .bottom: "bottom"
+        case .up: "up"
+        case .down: "down"
         }
-        let current = topLevel.count(where: { $0 < node })
-        let target = switch move {
-        case .top: 0
-        case .bottom: topLevel.count
-        case .up: current - 1
-        case .down: current + 1
-        }
-        guard (0...topLevel.count).contains(target), target != current else { return nil }
-        return target < topLevel.count ? topLevel[target] : staying.count
+        (request.group, request.step) = (group.rawValue, step)
+        return RustSidebarClient.call("sidebar_edits", request, as: Int?.self) ?? nil
     }
 
     /// The groups whose collapse Collapse Other Groups toggles, in sidebar
@@ -40,6 +34,8 @@ public extension SidebarEdits {
     ///   - sections: The sidebar's sections.
     /// - Returns: The groups to toggle; empty when nothing changes.
     nonisolated static func groupsToggledByCollapsingOthers(keeping group: GroupID, in sections: [SidebarSection]) -> [GroupID] {
-        groups(in: sections).filter { $0.id == group ? $0.isCollapsed : !$0.isCollapsed }.map(\.id)
+        var request = RustEditRequest("groups_toggled_by_collapsing_others", sections: RustSidebarEdits(sections).sections)
+        request.keeping = group.rawValue
+        return (RustSidebarClient.call("sidebar_edits", request, as: [String].self) ?? []).map(GroupID.init)
     }
 }

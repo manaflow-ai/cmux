@@ -6,6 +6,7 @@
 // click. A row whose file is in the way (`conflict`) offers no Install: it says what is there and
 // gives the command to run by hand once it is moved.
 import { useCallback, useId, useRef, useState } from "react";
+import { Button } from "../../../ui/Button";
 import { agentDisplayName } from "../../../agent-session/acpmux/agents";
 import { AgentMark } from "../../../agent-session/shared/AgentMark";
 import { useStore } from "../context";
@@ -82,7 +83,7 @@ function Row({
             {t(`settingsWindow.agentIntegrations.state.${row.state}`)}
           </span>
           {gestures(row).map((gesture) => (
-            <button
+            <Button
               key={gesture}
               type="button"
               className="button"
@@ -92,10 +93,10 @@ function Row({
               onClick={() => onRun(gesture)}
             >
               {t(`settingsWindow.agentIntegrations.${gesture}`)}
-            </button>
+            </Button>
           ))}
           {row.state === "conflict" && (
-            <button
+            <Button
               type="button"
               className="button"
               data-integration-action="copy"
@@ -103,7 +104,7 @@ function Row({
               onClick={() => onCopy(manual)}
             >
               {t("settingsWindow.agentIntegrations.copy")}
-            </button>
+            </Button>
           )}
         </div>
       </div>
@@ -161,7 +162,7 @@ export function AgentIntegrations({ focus }: { focus: string | null }) {
         </summary>
         <div className="row-help">{t("settingsWindow.agentIntegrations.help")}</div>
         <div className="accounts-header">
-          <button
+          <Button
             type="button"
             className="button"
             data-integration-action="refresh"
@@ -169,7 +170,7 @@ export function AgentIntegrations({ focus }: { focus: string | null }) {
             onClick={() => void refresh()}
           >
             {t("settingsWindow.agentIntegrations.refresh")}
-          </button>
+          </Button>
         </div>
         {state?.problem && (
           <div className="row-error" data-integrations-problem={state.problem}>
@@ -201,14 +202,14 @@ export function AgentIntegrations({ focus }: { focus: string | null }) {
           <code className="font-mono" data-integrations-command="">
             {command}
           </code>
-          <button
+          <Button
             type="button"
             className="button"
             data-integration-action="copyAll"
             onClick={() => void store.copy(command)}
           >
             {t("settingsWindow.agentIntegrations.copy")}
-          </button>
+          </Button>
         </div>
       </details>
     </section>

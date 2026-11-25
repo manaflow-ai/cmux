@@ -1,5 +1,6 @@
 import CmuxNextCompat
 import CmuxNextDesign
+public import CmuxNextWakeups
 
 /// A window's pending row edits and folds, held across live projections until their owner has them.
 /// The app supplies redraw and confirmed-fold callbacks; this state has no daemon or window dependency.
@@ -52,6 +53,43 @@ public final class SidebarRowEdits {
         return { [weak self] in
             guard let self, folds[group]?.serial == serial else { return }
             folds[group] = nil
+        }
+    }
+
+    /// Whether `group` still shows a pending fold to `collapsed`: a later click (or a settle) replaces it,
+    /// and then a retried save of this one must not go out.
+    public func holdsFold(_ group: GroupID, collapsed: Bool) -> Bool { folds[group]?.collapsed == collapsed }
+
+    /// Shows a fold now and saves it in the background: `save` returns nil once the daemon replied, and
+    /// `saved` then gets the settlement. A failure that only missed its deadline (`mayHaveApplied`) is sent
+    /// again with no notice (``SidebarFoldPersist``), unless a later click replaced the fold; a refusal
+    /// drops the fold and goes to `refused`.
+    public func saveFold<Failure: Sendable>(_ group: GroupID, collapsed: Bool, backoff: Backoff = SidebarFoldPersist.backoff,
+                                            save: @escaping @MainActor () async -> Failure?,
+                                            mayHaveApplied: @escaping @MainActor (Failure) -> Bool,
+                                            refused: @escaping @MainActor (Failure) -> Void,
+                                            saved: @escaping @MainActor (@escaping @MainActor () -> Void) -> Void) {
+        let settle = fold(group, collapsed: collapsed)
+        // task-owner: one fold save and at most SidebarFoldPersist.retries re-sends; ends at a reply, a refusal,
+        // the last retry, or a later click on the group
+        Task { [weak self] in
+            var backoff = backoff
+            var attempt = 0
+            while let failure = await save() {
+                switch SidebarFoldPersist.after(attempt: attempt, mayHaveApplied: mayHaveApplied(failure)) {
+                case .refused:
+                    settle()
+                    return refused(failure)
+                case .giveUp:
+                    return settle() // the daemon may still apply it; its echo shows what it holds
+                case .retry:
+                    // concurrency-allow: Backoff.wait is an async clock sleep (it suspends this task, never blocks the main thread)
+                    do { try await backoff.wait(owner: "sidebar.foldSave") } catch { return settle() }
+                    guard let self, holdsFold(group, collapsed: collapsed) else { return }
+                    attempt += 1
+                }
+            }
+            saved(settle)
         }
     }
 

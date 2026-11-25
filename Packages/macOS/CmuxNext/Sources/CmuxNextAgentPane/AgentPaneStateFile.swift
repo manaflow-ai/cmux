@@ -21,9 +21,9 @@ import CmuxNextCompat
 public nonisolated final class AgentPaneStateFile: Sendable {
     public let url: URL
     fileprivate let queue: DispatchQueue
-    /// The newest save's number (a queued save with an older one does nothing), and the number of
-    /// the last one that ran or was skipped: a save is still queued while they differ.
-    private let numbers = Mutex<(newest: UInt64, ran: UInt64)>((0, 0))
+    /// Holds the newest save of the file for one coalescing window, then writes it on ``queue``
+    /// (``CoalescingFileWriter``): a burst of saves costs one disk write.
+    private let writer: CoalescingFileWriter
 
     /// Set on this file's queue only, so a read from inside one of its saves does not wait on
     /// itself, and a read of another file from inside a save still waits for that file's saves.
@@ -31,43 +31,33 @@ public nonisolated final class AgentPaneStateFile: Sendable {
 
     fileprivate init(url: URL) {
         self.url = url
-        queue = DispatchQueue(label: "com.cmuxterm.app.next.agent-pane.state-file", qos: .utility)
+        let queue = DispatchQueue(label: "com.cmuxterm.app.next.agent-pane.state-file", qos: .utility)
+        self.queue = queue
+        writer = CoalescingFileWriter(queue: queue)
         queue.setSpecific(key: onQueue, value: true)
     }
 
-    /// Saves what `encode` returns, atomically, on the file's queue; nil removes the file, and a
-    /// throw keeps it as the last save that ran left it (a save this one replaced never ran).
+    /// Saves what `encode` returns, atomically, on the file's queue after a short window; nil
+    /// removes the file, and a throw keeps it as the last save that ran left it (a save a newer one
+    /// replaced before it ran never ran).
     public func write(_ encode: @escaping @Sendable () throws -> Data?) {
-        let number = numbers.withLock { numbers in
-            numbers.newest += 1
-            return numbers.newest
-        }
-        queue.async { [self] in
-            defer { numbers.withLock { $0.ran = number } }
-            guard numbers.withLock({ $0.newest == number }) else { return }
-            let data: Data?
-            do { data = try encode() } catch { return }  // a throw keeps the last good file
-            guard let data else {
-                try? FileManager.default.removeItem(at: url)
-                return
-            }
-            try? data.write(to: url, options: .atomic)
-        }
+        writer.save(to: url, produce: encode)
     }
 
     /// Whether a save is still queued (or running).
     public var isSaving: Bool {
-        numbers.withLock { $0.ran != $0.newest }
+        writer.isBusy
     }
 
     /// Returns, holding no thread, once the saves queued before this call have run.
     public func saved() async {
-        await withCheckedContinuation { (done: CheckedContinuation<Void, Never>) in queue.async { done.resume() } }
+        await writer.settled()
     }
 
     /// The file's bytes once the saves queued before this call have run; nil when there is none.
     public func read() -> Data? {
         if DispatchQueue.getSpecific(key: onQueue) == true { return try? Data(contentsOf: url) }
+        writer.flushNow()
         // concurrency-allow: one small local read per store (at its first use), after this file's queued saves
         return queue.sync { try? Data(contentsOf: url) }
     }
@@ -78,6 +68,7 @@ public nonisolated final class AgentPaneStateFile: Sendable {
 /// its queue and so its order, and the quit waits for exactly the app's files.
 public nonisolated final class AgentPaneStateFiles: Sendable {
     private let files = Mutex<[String: AgentPaneStateFile]>([:])
+    private let tailDisks = Mutex<[String: AgentPaneTailDisk]>([:])
     private let drainBegan: @Sendable () -> Void
 
     /// - Parameter drainBegan: Told each time a ``drained()`` begins, before it waits (a test
@@ -97,6 +88,19 @@ public nonisolated final class AgentPaneStateFiles: Sendable {
         }
     }
 
+    /// The one writer for the chat tails kept in `directory` (``AgentPaneTailDisk``), so the quit
+    /// awaits their saves with the files' (#36492 review F3: a quit during a save backlog relaunched
+    /// without the tail). `make` makes it the first time (the chats' drawn copies pass their own rules).
+    public func tails(in directory: URL, make: (URL) -> AgentPaneTailDisk = { AgentPaneTailDisk(directory: $0) }) -> AgentPaneTailDisk {
+        tailDisks.withLock { disks in
+            let key = directory.standardizedFileURL.path
+            if let disk = disks[key] { return disk }
+            let disk = make(directory)
+            disks[key] = disk
+            return disk
+        }
+    }
+
     /// Returns, holding no thread, once every file's saves queued before this call have run. It has no
     /// limit of its own: the quit awaits it only after its deadline is armed (`QuitCoordinator`'s
     /// engine stop, `ForcedQuitExit`), and that deadline records what was still queued
@@ -104,10 +108,13 @@ public nonisolated final class AgentPaneStateFiles: Sendable {
     public func drained() async {
         drainBegan()
         for file in files.withLock({ Array($0.values) }) { await file.saved() }
+        for disk in tailDisks.withLock({ Array($0.values) }) { await disk.settled() }
     }
 
-    /// The names of the files with a save still queued (no content), sorted.
+    /// The names of the files (and chat tail folders) with a save still queued (no content), sorted.
     public func savingFileNames() -> [String] {
-        files.withLock { $0.values.filter(\.isSaving).map(\.url.lastPathComponent) }.sorted()
+        let files = files.withLock { $0.values.filter(\.isSaving).map(\.url.lastPathComponent) }
+        let tails = tailDisks.withLock { $0.values.filter(\.isSaving).map(\.directory.lastPathComponent) }
+        return (files + tails).sorted()
     }
 }

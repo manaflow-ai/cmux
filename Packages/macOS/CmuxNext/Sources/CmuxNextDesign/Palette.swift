@@ -52,6 +52,8 @@ public struct Palette {
     /// The scrim's alpha: the most a translucent band over the window's
     /// backdrop may cover (the Home header's top fade peaks there).
     public static var legibilityScrimOpacity: CGFloat { CGFloat(ThemeTokens.legibilityScrimOpacity) }
+    /// How much the dim over the other panes covers them around a zoom (``ThemeTokens/zoomDim``).
+    public static var zoomDim: CGFloat { CGFloat((ThemeContext.active ?? ThemeScope.app.tokens).zoomDim) }
     /// The veil's alpha over an unfocused pane (``ThemeTokens/inactivePaneDim``).
     public static var inactivePaneDim: CGFloat { CGFloat((ThemeContext.active ?? ThemeScope.app.tokens).inactivePaneDim) }
     /// Fields and toolbars that need a faint lift (omnibar, find bar).
@@ -76,17 +78,51 @@ public struct Palette {
     /// backdrop to `stripBackground` (the inset sidebar panel beside the rail).
     public static var stripStep: NSColor { color(\.stripStep, dynamic: PaletteDynamic.stripStep) }
 
+    /// Black at `dark` (a dark theme) or `light` (a light one) over the sidebar, so it reads a step dimmer than the
+    /// panes, as the Codex sidebar's under-surface does (`SidebarStyle.surfaceDim`); nil at 0, or when the chrome
+    /// around a curved main pane is already shaded (``Metrics/mainPaneChromeShadeBase(isDark:)``: a title
+    /// area contrast of 0 softens that shade away, it does not bring this dim back).
+    public static func sidebarDim(dark: Double, light: Double) -> NSColor? {
+        let isDark = (ThemeContext.active ?? ThemeScope.app.tokens).isDark
+        guard Metrics.mainPaneChromeShadeBase(isDark: isDark) == 0 else { return nil }
+        let alpha = CGFloat(isDark ? dark : light)
+        return alpha > 0 ? NSColor.black.withAlphaComponent(alpha) : nil
+    }
+
     /// Primary text.
     public static var textPrimary: NSColor { color(\.textPrimary, dynamic: PaletteDynamic.textPrimary) }
     /// Secondary text, captions, inactive tab titles.
     public static var textSecondary: NSColor { color(\.textSecondary, dynamic: PaletteDynamic.textSecondary) }
     /// Hints, placeholders, disabled glyphs.
     public static var textTertiary: NSColor { color(\.textTertiary, dynamic: PaletteDynamic.textTertiary) }
+    /// A sidebar row's title (``ThemeTokens/sidebarTitle``): the primary text a little softer, as the Codex
+    /// sidebar's titles are, still 4.5:1 on every row fill.
+    public static var sidebarTitle: NSColor { (ThemeContext.active ?? ThemeScope.app.tokens).sidebarTitle.nsColor }
 
     /// Hover fill for rows and tabs.
     public static var hoverFill: NSColor { color(\.hoverFill, dynamic: PaletteDynamic.hoverFill) }
+    /// A grouped form's rows at rest (an info panel's groups, ``ThemeTokens/groupFill``); not a hover state.
+    public static var groupFill: NSColor { color(\.groupFill, dynamic: PaletteDynamic.groupFill) }
     /// Selected row or tab fill. Replaces the system blue selection.
     public static var selectionFill: NSColor { color(\.selectionFill, dynamic: PaletteDynamic.selectionFill) }
+    /// The selected folder tab (the flush corner's tab that runs into the content card, `TabCell`): the
+    /// content's own glass, never a fill of its own. It paints what the content paints (``paneFill``): the
+    /// surface, opaque, in an opaque window, and clear over a see-through one (a translucent theme, a
+    /// background picture), where the chrome's shade leaves a hole under the tab
+    /// (`MainPaneChromeShadeView.update(card:radius:alpha:squareTopCorners:folders:)`), so the tab shows the
+    /// window's one backdrop and tint exactly as the content below it does, and the tab row around it
+    /// shows the same backdrop under the shade. Leo, 2026-11-11: "the glass for the selected top area,
+    /// it's not the same kind of transparency as the other bit." Until then the tab laid the window's
+    /// tint over the shade a second time, so it read as a solid pill on the glass.
+    ///
+    /// nil where the content's surface would not stand out of the chrome around it: a shade under
+    /// ``Metrics/folderTabMinimumShade`` (a chrome that shares the content's surface, or a title area
+    /// contrast near 0). The tab keeps ``selectionFill`` there, so a selected tab always reads as selected.
+    public static var folderTabFill: NSColor? {
+        let tokens = ThemeContext.active ?? ThemeScope.app.tokens
+        guard Metrics.mainPaneChromeShade(isDark: tokens.isDark) >= Metrics.folderTabMinimumShade else { return nil }
+        return paneFill
+    }
     /// Multi-selected rows that are not the active one.
     public static var secondarySelectionFill: NSColor { color(\.secondarySelectionFill, dynamic: PaletteDynamic.secondarySelectionFill) }
     /// Pressed buttons.
@@ -111,16 +147,28 @@ public struct Palette {
 
     /// The notification blue (rgb 57 130 245, sampled from the Codex app): the one color of
     /// every unread mark, the sidebar's unread dot and the pane's unread ring by default. The
-    /// same in every theme, so an unread mark reads the same everywhere.
-    public static var notificationBlue: NSColor { NSColor(srgbRed: 57 / 255, green: 130 / 255, blue: 245 / 255, alpha: 1) }
-    /// The sidebar's unread or new status dot: `systemBlue`, so light and dark match and the color
-    /// means one thing in every row (Lawrence msg 11983).
-    public static var statusUnread: NSColor { .systemBlue }
-    /// The sidebar's needs-attention status dot (a permission prompt, a question, waiting on the
-    /// user): `systemOrange` (Lawrence msg 11983).
-    public static var statusAttention: NSColor { .systemOrange }
-    /// The sidebar's error status mark (failed, stopped with an error): `systemRed` (Lawrence msg 11983).
-    public static var statusError: NSColor { .systemRed }
+    /// same hue in every theme, so an unread mark reads the same everywhere, its lightness moved
+    /// per theme to 3:1 on the rows it sits on (``ThemeTokens/statusDot(_:)``).
+    public static var notificationBlue: NSColor {
+        dot(.notification, dynamic: NSColor(srgbRed: 57 / 255, green: 130 / 255, blue: 245 / 255, alpha: 1))
+    }
+    /// The sidebar's unread or new status dot: `systemBlue`'s hue, so the color means one thing in
+    /// every row (Lawrence msg 11983), at 3:1 on the theme's rows (user 2026-11-03).
+    public static var statusUnread: NSColor { dot(.unread, dynamic: .systemBlue) }
+    /// The needs-input dot (a permission prompt, a question, waiting on the user) everywhere it
+    /// shows: sidebar rows, group headers and items, and the tab strip. The theme's own yellow
+    /// (``attention``, the bright dot the tab draws; Leo 2026-11-05, "it's like a yellow bright
+    /// dot, which I kind of like a little bit more than the sidebar"), at 3:1 on the theme's rows.
+    public static var statusAttention: NSColor { dot(.attention, dynamic: PaletteDynamic.attention) }
+    /// The sidebar's error status mark (failed, stopped with an error): `systemRed`'s hue (Lawrence
+    /// msg 11983), at 3:1 on the theme's rows.
+    public static var statusError: NSColor { dot(.error, dynamic: .systemRed) }
+
+    /// Inside a theme scope the mark's color in that theme; elsewhere `dynamic`.
+    private static func dot(_ mark: StatusDotHue, dynamic: NSColor) -> NSColor {
+        guard let tokens = ThemeContext.active else { return dynamic }
+        return tokens.statusDot(mark).nsColor
+    }
     /// Needs attention (agent waiting for input): the theme's ANSI yellow.
     public static var attention: NSColor { color(\.attention, dynamic: PaletteDynamic.attention) }
     /// Errors: the theme's ANSI red.
@@ -149,7 +197,15 @@ public struct Palette {
     public static var onAccent: NSColor { color(\.onAccent, opaque: true, dynamic: PaletteDynamic.onAccent) }
     /// A highlighted row in a cmux-drawn panel (the extensions panel): `accentFill` as a faint wash,
     /// so labels keep their own ink. Right-click menus are native and use the system highlight. A neutral theme gets a gray wash.
-    public static var menuHighlight: NSColor { accentFill.withAlphaComponent(menuHighlightOpacity) }
+    /// In a scope the wash is lighter where 20% would take the label under 4.5:1 on the card
+    /// (``ThemeTokens/menuHighlightShare(on:)``).
+    public static var menuHighlight: NSColor {
+        guard let tokens = ThemeContext.active else { return accentFill.withAlphaComponent(menuHighlightOpacity) }
+        // glass-opaque-allow: the card's worst ground (its tint over the far desktop) to measure the wash on; nothing draws it.
+        let card = CardMaterial(tokens, lift: ChromeTunables.opaqueOverlayLift.value, minimumOpacity: ChromeTunables.cardOpacity.value)
+        let ground = card.tint.composited(over: tokens.isDark ? .white : .black)
+        return tokens.accent.withAlpha(tokens.menuHighlightShare(on: ground)).nsColor
+    }
     static let menuHighlightOpacity: CGFloat = 0.2
 
     /// The app accent. Deliberately neutral so any control that reads the

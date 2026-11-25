@@ -20,6 +20,7 @@ use crate::SurfaceId;
 use crate::panic_free::RecoverPoison;
 use std::collections::HashMap;
 use std::collections::HashSet;
+use std::sync::Arc;
 
 impl ClientRegistry {
     /// Ends `client`'s connection at once, both ways (a link guest whose share or guest ended):
@@ -386,6 +387,51 @@ impl ClientRegistry {
         }
     }
 
+    /// The terminal `client`'s keys to `surface` go to, while the client is attached to it and the terminal lives
+    /// (`AttachedSurface::input`), with whether the client can type into it (`AttachedSurface::can_type`). Reads this
+    /// registry only, never the session lock.
+    pub(super) fn attached_input_surface(
+        &self,
+        client: u64,
+        surface: SurfaceId,
+        routes: &crate::route_table::RouteGenerations,
+    ) -> Option<(Arc<crate::Surface>, bool)> {
+        let state = self.state.lock().recover_poison();
+        let attached = state.clients.get(&client)?.attached.get(&surface)?;
+        let (kept, generation) = &attached.input;
+        let can_type = attached.can_type();
+        // A change of this id's route since it was kept (respawn, close, move): the id may name another terminal now.
+        // Only this id's route counts: a tab created or closed elsewhere keeps it (TYPING FIX 2).
+        if *generation != routes.of(surface) {
+            return None;
+        }
+        let input = kept.upgrade()?;
+        drop(state);
+        (!input.is_dead()).then_some((input, can_type))
+    }
+
+    /// Keeps `surface` as the terminal `client`'s keys to `id` go to, when the client is attached to `id` (the id the
+    /// keys name: a runtime found through the terminal catalog has another id). True when it was kept and the client
+    /// can type into `id` (`AttachedSurface::can_type`): its keys are the person's.
+    /// `generation`: `id`'s route generation read BEFORE the lookup that found `surface`, so a change of its route
+    /// during that lookup leaves a kept terminal the next key checks again.
+    pub(super) fn remember_attached_input(
+        &self,
+        client: u64,
+        id: SurfaceId,
+        surface: &Arc<crate::Surface>,
+        generation: u64,
+    ) -> bool {
+        let mut state = self.state.lock().recover_poison();
+        let Some(attached) =
+            state.clients.get_mut(&client).and_then(|record| record.attached.get_mut(&id))
+        else {
+            return false;
+        };
+        attached.input = (Arc::downgrade(surface), generation);
+        attached.can_type()
+    }
+
     pub(super) fn detach_surface(
         &self,
         client: u64,
@@ -559,7 +605,10 @@ impl ClientRegistry {
         Some((changed, record.name.clone(), record.kind.clone()))
     }
 
-    pub(super) fn remove(&self, client: u64) -> Option<ClientRecord> {
+    /// Removes `client`; the bool is true when it held a pending daemon
+    /// handoff reservation, which goes with it (the caller then settles the
+    /// idle-stop fence, `Mux::settle_idle_stop_fence`).
+    pub(super) fn remove(&self, client: u64) -> Option<(ClientRecord, bool)> {
         self.url_opens.disconnect(client);
         self.clipboard_reads.disconnect(client);
         self.loopback.disconnect(client);
@@ -574,8 +623,11 @@ impl ClientRegistry {
         // After the record goes: a start that ends later sees the connection gone.
         #[cfg(unix)]
         self.browser_runtimes.disconnect(client);
-        if state.daemon_handoff == Some(DaemonHandoffReservation::Pending(client)) {
+        let released_handoff =
+            state.daemon_handoff == Some(DaemonHandoffReservation::Pending(client));
+        if released_handoff {
             state.daemon_handoff = None;
+            state.daemon_handoff_restart = None;
         }
         let mut detached = false;
         for surface in record.attached.keys() {
@@ -592,7 +644,7 @@ impl ClientRegistry {
             self.notify_detach();
         }
         self.notify_client_presence();
-        Some(record)
+        Some((record, released_handoff))
     }
 
     pub(crate) fn contains(&self, client: u64) -> bool {
@@ -661,5 +713,49 @@ impl ClientRegistry {
     /// Drop the attach epoch of a surface that no longer exists.
     pub(crate) fn forget_surface_attach_epoch(&self, surface: SurfaceId) {
         self.state.lock().recover_poison().attach_epochs.remove(&surface);
+    }
+}
+
+#[cfg(test)]
+impl ClientRegistry {
+    /// Tests outside `server`: a new local client with an attach stream on
+    /// `surface`. Returns the client id.
+    pub(crate) fn attach_test_stream(&self, surface: SurfaceId) -> u64 {
+        let writer = super::MessageWriter::new(super::QueuedSink {
+            outbound: Arc::new(super::BoundedOutbound::default()),
+            control: None,
+        });
+        let client = self.register(super::ClientTransport::Unix, writer.clone());
+        let stream = writer
+            .start_stream(&super::terminal_snapshot::attach_overflow_json(surface))
+            .expect("start the test attach stream");
+        self.attach_surface(client, surface, stream).expect("attach the test stream");
+        client
+    }
+
+    /// Tests outside `server`: a role-main hello came (the app's frontend connected once).
+    pub(crate) fn note_test_frontend(&self) {
+        self.note_frontend();
+    }
+
+    /// Tests outside `server`: the app's frontend connects (a new local client that said hello
+    /// with role main). Returns the client id.
+    pub(crate) fn connect_test_frontend(&self) -> u64 {
+        let writer = super::MessageWriter::new(super::QueuedSink {
+            outbound: Arc::new(super::BoundedOutbound::default()),
+            control: None,
+        });
+        let client = self.register(super::ClientTransport::Unix, writer);
+        if let Some(record) = self.state.lock().recover_poison().clients.get_mut(&client) {
+            record.origin.role = crate::request_origin::HelloRole::Main;
+        }
+        self.note_frontend();
+        client
+    }
+
+    /// Tests outside `server`: `client`'s connection ends (a frontend quit),
+    /// which ends its attach streams.
+    pub(crate) fn detach_test_client(&self, client: u64) {
+        assert!(self.remove(client).is_some(), "the test client was not registered");
     }
 }

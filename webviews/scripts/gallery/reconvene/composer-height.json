@@ -1,0 +1,72 @@
+{
+  "envs": [
+    ["light", "none"],
+    ["dark", "none"]
+  ],
+  "shots": [
+    {
+      "name": "composer-height-now",
+      "entry": "agent-pane.reconvene-composer-height",
+      "variant": "now",
+      "width": 760,
+      "height": 420,
+      "deviceScaleFactor": 2
+    },
+    {
+      "name": "composer-height-now-draft",
+      "entry": "agent-pane.reconvene-composer-height",
+      "variant": "now-draft",
+      "width": 760,
+      "height": 420,
+      "deviceScaleFactor": 2
+    },
+    {
+      "name": "composer-height-tight",
+      "entry": "agent-pane.reconvene-composer-height",
+      "variant": "tight",
+      "width": 760,
+      "height": 420,
+      "deviceScaleFactor": 2
+    },
+    {
+      "name": "composer-height-tight-draft",
+      "entry": "agent-pane.reconvene-composer-height",
+      "variant": "tight-draft",
+      "width": 760,
+      "height": 420,
+      "deviceScaleFactor": 2
+    },
+    {
+      "name": "composer-height-one-row",
+      "entry": "agent-pane.reconvene-composer-height",
+      "variant": "one-row",
+      "width": 760,
+      "height": 420,
+      "deviceScaleFactor": 2
+    },
+    {
+      "name": "composer-height-one-row-draft",
+      "entry": "agent-pane.reconvene-composer-height",
+      "variant": "one-row-draft",
+      "width": 760,
+      "height": 420,
+      "deviceScaleFactor": 2
+    },
+    {
+      "name": "composer-height-bar-inside",
+      "entry": "agent-pane.reconvene-composer-height",
+      "variant": "bar-inside",
+      "width": 760,
+      "height": 420,
+      "deviceScaleFactor": 2
+    },
+    {
+      "name": "composer-height-bar-inside-draft",
+      "entry": "agent-pane.reconvene-composer-height",
+      "variant": "bar-inside-draft",
+      "width": 760,
+      "height": 420,
+      "deviceScaleFactor": 2
+    }
+  ]
+}

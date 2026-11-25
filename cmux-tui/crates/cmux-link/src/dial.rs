@@ -19,8 +19,7 @@ pub const MAX_LINK_TOKEN_BYTES: usize = 8192;
 /// One bounded signed token plus the service/epoch JSON envelope.
 pub const MAX_HELLO_BYTES: usize = MAX_LINK_TOKEN_BYTES + 128;
 
-/// The services a link stream can reach. Slice 1 has only the session
-/// daemon's remote entry.
+/// The services a link stream can reach.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum Service {
@@ -33,6 +32,43 @@ pub enum Service {
     /// (full tree). Only the server's owner (`owner_session`); every other
     /// peer is refused.
     OwnerSession,
+    /// The machine's agent display as `cmux.rd/1` (the root-only socket
+    /// `/run/cmux-rd/desktop.sock`). Cloud hosts only, and only for the
+    /// machine's creator: the platform mints it for no one else and the
+    /// receiving policy lists it for no other peer.
+    Desktop,
+    /// The acpmux daemon's loopback WebSocket listener on a paired machine.
+    /// The link only carries the bytes: acpmux still checks its listener
+    /// token and peer proof on the upgrade, so pairing grants nothing more.
+    Acpmux,
+    /// Link to link only: the dialing link names the key it serves from now on
+    /// ([`RekeyRequest`]), over its old key's session, when it adopts this
+    /// machine's node key. A local caller cannot dial it.
+    Rekey,
+}
+
+/// The one line a link writes after a [`Service::Rekey`] hello: its new
+/// WireGuard public key, standard base64 of 32 bytes. The answer is one
+/// [`RekeyReply`] line.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+// skew: strict wireguard rekey: a node key exchange between links, nothing else belongs in it
+#[serde(deny_unknown_fields)]
+pub struct RekeyRequest {
+    pub public_key: String,
+}
+
+/// The receiving link's answer to a [`RekeyRequest`].
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+// skew: strict wireguard rekey: a node key exchange between links, nothing else belongs in it
+#[serde(deny_unknown_fields)]
+pub struct RekeyReply {
+    pub ok: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub error: Option<String>,
+    /// The receiving link's own new key, when it adopted one too and still
+    /// knew the asking link by its old key: both move in the one exchange.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub public_key: Option<String>,
 }
 
 /// How the stream reaches the peer. Lane 10's UI shows "same network only"
@@ -56,7 +92,6 @@ pub const RELAY_AVAILABLE: bool = false;
 
 /// `{"op":"link.dial","host":"<install>","service":"daemon"}`.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
 pub struct DialRequest {
     pub op: DialOp,
     pub host: String,
@@ -85,19 +120,36 @@ pub enum DialError {
     HostPaused,
 }
 
+/// Readers ignore unknown fields (unlike the request types): a reply may
+/// gain a field such as `error_detail`, and a reader that predates it must
+/// still read the typed `error_code`.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
 pub struct DialReply {
     pub ok: bool,
     pub path_state: PathState,
     pub relay_available: bool,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub error_code: Option<DialError>,
+    /// What failed, in one line (which lookup, which handshake, the
+    /// backend's refusal code): `error_code` keeps the typed retry
+    /// contract, this says why. Never a credential.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub error_detail: Option<String>,
 }
+
+/// The longest [`DialReply::error_detail`] in bytes: one display line, so a
+/// reply stays far inside [`MAX_LINE_BYTES`].
+pub const MAX_ERROR_DETAIL_BYTES: usize = 300;
 
 impl DialReply {
     pub fn connected(path_state: PathState) -> Self {
-        Self { ok: true, path_state, relay_available: RELAY_AVAILABLE, error_code: None }
+        Self {
+            ok: true,
+            path_state,
+            relay_available: RELAY_AVAILABLE,
+            error_code: None,
+            error_detail: None,
+        }
     }
 
     pub fn failed(error: DialError) -> Self {
@@ -106,6 +158,24 @@ impl DialReply {
             path_state: PathState::Unreachable,
             relay_available: RELAY_AVAILABLE,
             error_code: Some(error),
+            error_detail: None,
+        }
+    }
+
+    /// A failure with what failed: control characters dropped, at most
+    /// [`MAX_ERROR_DETAIL_BYTES`] (cut on a character boundary).
+    pub fn failed_because(error: DialError, detail: &str) -> Self {
+        let mut kept = String::new();
+        for c in detail.chars().filter(|c| !c.is_control()) {
+            if kept.len().saturating_add(c.len_utf8()) > MAX_ERROR_DETAIL_BYTES {
+                break;
+            }
+            kept.push(c);
+        }
+        let detail = kept.trim();
+        Self {
+            error_detail: (!detail.is_empty()).then(|| detail.to_owned()),
+            ..Self::failed(error)
         }
     }
 }
@@ -113,7 +183,6 @@ impl DialReply {
 /// `{"op":"link.reload"}`: re-read the pairing file (sent by `cmux link
 /// peer add|remove` to a running link). The reply is `{"ok":true|false}`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
 pub struct ReloadRequest {
     pub op: ReloadOp,
 }
@@ -124,39 +193,10 @@ pub enum ReloadOp {
     Reload,
 }
 
-/// `{"op":"link.cloud_event","event":"removed"|"upsert","host":...,
-/// "revision":N}`: a Cloud machine event that cmux-cloud forwards to the
-/// link (cloud-client-contract.md 1.7 cache rules 1 and 4). `removed` drops
-/// the record and closes open links to that host; `upsert` drops a record
-/// older than `revision`. The reply is `{"ok":true}`.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub struct CloudEventRequest {
-    pub op: CloudEventOp,
-    pub event: CloudEvent,
-    pub host: String,
-    #[serde(default)]
-    pub revision: Option<u64>,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-pub enum CloudEventOp {
-    #[serde(rename = "link.cloud_event")]
-    CloudEvent,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub enum CloudEvent {
-    Removed,
-    Upsert,
-}
-
 /// The first line on an overlay link stream: `{"service":"daemon"}` to a
 /// paired peer, `{"service":...,"link_token":...,"epoch":...}` to a Cloud
 /// host (the host checks the token before it serves anything).
 #[derive(Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
 pub struct ServiceHello {
     pub service: Service,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -222,69 +262,5 @@ pub fn parse_line<T: for<'de> Deserialize<'de>>(line: &str) -> Option<T> {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn receiver_protocol_hello_bounds_leave_control_frames_small() {
-        for length in [1100, MAX_LINK_TOKEN_BYTES] {
-            let hello = ServiceHello {
-                service: Service::Daemon,
-                epoch: Some(4),
-                link_token: Some("t".repeat(length)),
-            };
-            let wire = line(&hello);
-            assert!(wire.len() > MAX_LINE_BYTES && wire.len() <= MAX_HELLO_BYTES);
-            assert_eq!(ServiceHello::parse(&wire), Some(hello));
-            assert!(parse_line::<serde_json::Value>(&wire).is_none());
-        }
-        let oversized = ServiceHello {
-            service: Service::Daemon,
-            epoch: Some(4),
-            link_token: Some("t".repeat(MAX_LINK_TOKEN_BYTES + 1)),
-        };
-        assert!(ServiceHello::parse(&line(&oversized)).is_none());
-        let padded = format!(
-            "{}{}",
-            " ".repeat(MAX_HELLO_BYTES),
-            line(&ServiceHello::paired(Service::Daemon))
-        );
-        assert!(ServiceHello::parse(&padded).is_none());
-        assert!(ServiceHello::parse(r#"{"service":"daemon","extra":true}"#).is_none());
-    }
-
-    #[test]
-    fn the_dial_contract_has_stable_wire_shapes() {
-        let request =
-            parse_request(r#"{"op":"link.dial","host":"inst_9","service":"daemon"}"#).unwrap();
-        assert_eq!(request.host, "inst_9");
-        assert_eq!(
-            line(&DialReply::connected(PathState::Direct)),
-            "{\"ok\":true,\"path_state\":\"direct\",\"relay_available\":false}\n"
-        );
-        assert_eq!(
-            line(&DialReply::failed(DialError::Unreachable)),
-            "{\"ok\":false,\"path_state\":\"unreachable\",\"relay_available\":false,\"error_code\":\"unreachable\"}\n"
-        );
-        assert_eq!(line(&ServiceHello::paired(Service::Daemon)), "{\"service\":\"daemon\"}\n");
-        let cloud =
-            ServiceHello { service: Service::Ssh, link_token: Some("tok".into()), epoch: Some(3) };
-        assert_eq!(line(&cloud), "{\"service\":\"ssh\",\"link_token\":\"tok\",\"epoch\":3}\n");
-        assert_eq!(
-            line(&DialReply::failed(DialError::HostPaused)),
-            "{\"ok\":false,\"path_state\":\"unreachable\",\"relay_available\":false,\"error_code\":\"host_paused\"}\n"
-        );
-    }
-
-    #[test]
-    fn bad_dial_requests_are_refused() {
-        for bad in [
-            r#"{"op":"link.dial","host":"inst","service":"shell"}"#,
-            r#"{"op":"link.listen","host":"inst","service":"daemon"}"#,
-            r#"{"op":"link.dial","host":"../x","service":"daemon"}"#,
-            r#"{"op":"link.dial","host":"inst","service":"daemon","command":"sh"}"#,
-        ] {
-            assert_eq!(parse_request(bad), Err(DialError::BadRequest), "{bad}");
-        }
-    }
-}
+#[path = "dial_tests.rs"]
+mod tests;

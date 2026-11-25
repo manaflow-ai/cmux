@@ -17,10 +17,9 @@
 //! in [`SCRUBBED`] is removed from the profile env AND from the environment the
 //! harness inherits (agent.rs reads [`UNSET_KEY`]), then the route sets its own.
 //! So switching from route A to route B never leaks A's key into B's process.
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
-use std::time::Duration;
 
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
@@ -53,17 +52,41 @@ pub const UNSET_KEY: &str = "ACPMUX_ROUTE_UNSET";
 /// it replaces a family or global binding. Internal: never reaches the harness.
 pub const PROFILE_ROUTE_KEY: &str = "ACPMUX_PROFILE_ROUTE";
 
+/// The profile-env key that carries the bound route's name to the spawn, for the `/status`
+/// card (`session_status.rs`). Internal: never reaches the harness.
+pub const NAME_KEY: &str = "ACPMUX_ROUTE_NAME";
+
 /// The built-in route to the hosted cmux model router through the local relay.
 /// A route file named `cmux` replaces it; `find` resolves it, `load` does not list it.
 pub const CMUX_ROUTE_ID: &str = "cmux";
 
+/// The built-in route to the Codex CLI's own signed-in login (`~/.codex/auth.json`, or the chat's
+/// `CODEX_HOME`): no endpoint and no account home, so a chat on it runs on the login Settings shows
+/// as "ChatGPT / Codex". A codex chat whose route fails, and names no fallback of its own, moves
+/// onto it by itself (`hub/route_switch.rs`). A route file named `codex-login` replaces it; `find`
+/// resolves it, `load` does not list it (the Account menu already shows the CLI login).
+pub const CODEX_LOGIN_ROUTE_ID: &str = "codex-login";
+
+/// Whether the Codex CLI is signed in in `home` (its `CODEX_HOME`), else in `~/.codex`: an
+/// `auth.json` with tokens or an API key, never an empty or broken one.
+pub fn codex_signed_in(home: Option<&Path>) -> bool {
+    let dir = match home {
+        Some(home) => home.to_path_buf(),
+        None => match dirs::home_dir() {
+            Some(home) => home.join(".codex"),
+            None => return false,
+        },
+    };
+    crate::agent_login::signed_in_at(crate::agent_login::Agent::Codex, &dir)
+}
+
 fn builtin_routes() -> Vec<Route> {
-    vec![Route {
-        id: CMUX_ROUTE_ID.into(),
+    let codex_login = Route {
+        id: CODEX_LOGIN_ROUTE_ID.into(),
         file: RouteFile {
-            name: Some("cmux model router".into()),
-            kind: RouteKind::CmuxRouter,
-            families: vec![],
+            name: Some("ChatGPT (Codex CLI login)".into()),
+            kind: RouteKind::DirectSubscription,
+            families: vec!["codex".into()],
             anthropic_base_url: None,
             openai_base_url: None,
             auth: None,
@@ -72,11 +95,39 @@ fn builtin_routes() -> Vec<Route> {
             health_url: None,
             fallback: vec![],
             auto_fallback: false,
-            notes: Some("built in: open-source models through the cmux model router".into()),
+            notes: Some("built in: the Codex CLI's own signed-in login".into()),
             account_home: None,
+            shadow_of: None,
+            disabled: false,
+            provider: None,
         },
         path: PathBuf::new(),
-    }]
+    };
+    vec![
+        codex_login,
+        Route {
+            id: CMUX_ROUTE_ID.into(),
+            file: RouteFile {
+                name: Some("cmux model router".into()),
+                kind: RouteKind::CmuxRouter,
+                families: vec![],
+                anthropic_base_url: None,
+                openai_base_url: None,
+                auth: None,
+                secret: None,
+                headers: BTreeMap::new(),
+                health_url: None,
+                fallback: vec![],
+                auto_fallback: false,
+                notes: Some("built in: open-source models through the cmux model router".into()),
+                account_home: None,
+                shadow_of: None,
+                disabled: false,
+                provider: None,
+            },
+            path: PathBuf::new(),
+        },
+    ]
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -100,6 +151,14 @@ pub enum RouteKind {
     CmuxRouter,
     CustomAnthropic,
     CustomOpenai,
+    /// Sign in with ChatGPT (`crate::chatgpt`): a ChatGPT plan's OAuth login this daemon holds
+    /// and refreshes in `<acpmux home>/chatgpt/<id>.json`. Served only through the inference
+    /// gateway (`_acpmux/connections/chatgpt.token`); a local spawn never runs on it.
+    ChatgptPlan,
+    /// Claude Code's long-lived token from `claude setup-token`, as a secret reference
+    /// (`_acpmux/connections/claude_token.add`). Delivered to a Cloud machine's agent as
+    /// `CLAUDE_CODE_OAUTH_TOKEN` (`_acpmux/connections/credential`); a local spawn never runs on it.
+    ClaudeToken,
 }
 
 impl RouteKind {
@@ -112,6 +171,8 @@ impl RouteKind {
         Self::CmuxRouter,
         Self::CustomAnthropic,
         Self::CustomOpenai,
+        Self::ChatgptPlan,
+        Self::ClaudeToken,
     ];
 
     pub fn as_str(self) -> &'static str {
@@ -124,6 +185,8 @@ impl RouteKind {
             Self::CmuxRouter => "cmux-router",
             Self::CustomAnthropic => "custom-anthropic",
             Self::CustomOpenai => "custom-openai",
+            Self::ChatgptPlan => "chatgpt-plan",
+            Self::ClaudeToken => "claude-token",
         }
     }
 
@@ -139,7 +202,7 @@ impl RouteKind {
     /// The auth a preset of this kind starts with.
     fn default_auth(self) -> Auth {
         match self {
-            Self::DirectSubscription => Auth::Subscription,
+            Self::DirectSubscription | Self::ChatgptPlan | Self::ClaudeToken => Auth::Subscription,
             Self::DirectApiKey => Auth::ApiKey,
             Self::LocalCoderouter | Self::CmuxRouter => Auth::Bearer,
             Self::Subrouter | Self::Cliproxyapi | Self::CustomAnthropic | Self::CustomOpenai => {
@@ -216,6 +279,35 @@ pub struct RouteFile {
     /// folder for one login (route_account.rs).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub account_home: Option<String>,
+    /// A Codex account home that shares everything but its login with this
+    /// folder, the CLI's own home (route_shadow.rs).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub shadow_of: Option<String>,
+    /// Turned off: no chat moves onto it by itself, and the account list says
+    /// so. A chat bound to it still runs on it.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub disabled: bool,
+    /// The provider an API-key route's key is for (`anthropic`, `openai`, `openrouter`,
+    /// `google`, `xai`; [`PROVIDERS`]). Absent: its family's (claude: anthropic, else openai).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub provider: Option<String>,
+}
+
+/// The providers an API-key connection may name (`_acpmux/connections/key.add`).
+pub const PROVIDERS: &[&str] = &["anthropic", "openai", "openrouter", "google", "xai"];
+
+impl RouteFile {
+    /// The provider this route pays: its own `provider`, a ChatGPT plan's OpenAI, else its
+    /// family's (claude: anthropic, else openai).
+    pub fn provider(&self) -> &str {
+        if let Some(p) = self.provider.as_deref() {
+            return p;
+        }
+        match self.families.first().map(String::as_str) {
+            Some(f) if is_anthropic_family(f) => "anthropic",
+            _ => "openai",
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -253,6 +345,8 @@ impl Route {
         }
         match self.file.kind {
             RouteKind::DirectSubscription | RouteKind::DirectApiKey => true,
+            RouteKind::ChatgptPlan => !is_anthropic_family(family),
+            RouteKind::ClaudeToken => is_anthropic_family(family),
             _ => {
                 if is_anthropic_family(family) {
                     self.file.anthropic_base_url.is_some() || self.file.kind.relayed()
@@ -281,6 +375,9 @@ impl Route {
             "autoFallback": self.file.auto_fallback,
             "notes": self.file.notes,
             "accountHome": self.file.account_home,
+            "shadowOf": self.file.shadow_of,
+            "enabled": !self.file.disabled,
+            "provider": self.file.provider,
             "path": self.path,
         })
     }
@@ -413,12 +510,12 @@ pub fn validate(file: &RouteFile) -> Result<(), RouteError> {
     match &file.secret {
         Some(s) if s.starts_with("op://") => {
             return Err(RouteError::BadParams(
-                "op:// references are not supported yet: store the secret with `cmux harness secret set NAME` and use keychain:NAME".into(),
+                "op:// references are not supported yet: add a model key with `cmux cloud connect api-key --provider anthropic|openai` (or a Claude subscription with `cmux cloud connect claude`), or store the secret in the Keychain and pass keychain:SERVICE/ACCOUNT".into(),
             ));
         }
         Some(s) if !is_reference(s) => {
             return Err(RouteError::SecretInline(
-                "secret must be a reference (keychain:ITEM, env:VAR or file:/ABSOLUTE/PATH), never the secret itself: store it with `cmux harness secret set NAME` and pass keychain:NAME".into(),
+                "secret must be a reference (keychain:SERVICE/ACCOUNT, env:VAR or file:/ABSOLUTE/PATH), never the secret itself: add a model key with `cmux cloud connect api-key --provider anthropic|openai` (or a Claude subscription with `cmux cloud connect claude`), which stores it in the Keychain, or store it there yourself and pass keychain:SERVICE/ACCOUNT".into(),
             ));
         }
         _ => {}
@@ -463,6 +560,27 @@ pub fn validate(file: &RouteFile) -> Result<(), RouteError> {
     }
     if file.kind == RouteKind::CustomOpenai && file.openai_base_url.is_none() {
         return Err(RouteError::BadParams("a custom-openai route needs openaiBaseUrl".into()));
+    }
+    if let Some(p) = &file.provider
+        && !PROVIDERS.contains(&p.as_str())
+    {
+        return Err(RouteError::BadParams(format!(
+            "unknown provider {p:?}: one of {}",
+            PROVIDERS.join(", ")
+        )));
+    }
+    if file.kind == RouteKind::ChatgptPlan && (file.secret.is_some() || !file.headers.is_empty()) {
+        return Err(RouteError::BadParams(
+            "a chatgpt-plan route holds no secret or header: its tokens are the daemon's own"
+                .into(),
+        ));
+    }
+    if file.kind == RouteKind::ClaudeToken
+        && (file.secret.is_none() || file.families.as_slice() != ["claude"])
+    {
+        return Err(RouteError::BadParams(
+            "a claude-token route serves claude and needs secret (keychain:ITEM)".into(),
+        ));
     }
     crate::route_account::validate(file)
 }
@@ -565,6 +683,12 @@ pub fn file_from_json(params: &Value) -> Result<RouteFile, RouteError> {
         auto_fallback: params.get("autoFallback").and_then(Value::as_bool).unwrap_or(false),
         notes: text("notes"),
         account_home: crate::route_account::from_json(params)?,
+        shadow_of: crate::route_account::shadow_from_json(params)?,
+        disabled: match params.get("enabled").and_then(Value::as_bool) {
+            Some(enabled) => !enabled,
+            None => params.get("disabled").and_then(Value::as_bool).unwrap_or(false),
+        },
+        provider: text("provider"),
     };
     validate(&file)?;
     Ok(file)
@@ -573,12 +697,12 @@ pub fn file_from_json(params: &Value) -> Result<RouteFile, RouteError> {
 fn write_file(path: &Path, file: &RouteFile) -> Result<(), RouteError> {
     let text = toml::to_string_pretty(file).map_err(|e| RouteError::Failed(e.to_string()))?;
     if let Some(parent) = path.parent() {
-        std::fs::create_dir_all(parent).map_err(|e| RouteError::Failed(e.to_string()))?;
+        crate::home_fs::create_dirs(parent).map_err(|e| RouteError::Failed(e.to_string()))?;
     }
     let tmp = path.with_extension("toml.tmp");
-    std::fs::write(&tmp, text).map_err(|e| RouteError::Failed(e.to_string()))?;
+    crate::home_fs::write(&tmp, text).map_err(|e| RouteError::Failed(e.to_string()))?;
     crate::router_socket::owner_only(&tmp);
-    std::fs::rename(&tmp, path).map_err(|e| RouteError::Failed(e.to_string()))
+    crate::home_fs::rename(&tmp, path).map_err(|e| RouteError::Failed(e.to_string()))
 }
 
 /// Write a new route (`replace`: over an existing one).
@@ -609,8 +733,11 @@ pub fn remove(dir: Option<&Path>, home: &Path, id: &str) -> Result<String, Route
     let route = find(dir, id)?;
     let backups = backups_dir(home);
     // Not under a lost home (`config::refuse_lost_home`): it may be another daemon's now.
+    // The backup goes through the folder this daemon holds (`home_fs`): a home replaced after the
+    // check never gets it.
     crate::config::refuse_lost_home(&backups).map_err(|e| RouteError::Failed(e.to_string()))?;
-    std::fs::create_dir_all(&backups).map_err(|e| RouteError::Failed(e.to_string()))?;
+    crate::home_fs::create_dir_all(&backups, 0o777)
+        .map_err(|e| RouteError::Failed(e.to_string()))?;
     let stamp = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .map(|d| d.as_millis())
@@ -619,16 +746,26 @@ pub fn remove(dir: Option<&Path>, home: &Path, id: &str) -> Result<String, Route
     if id.starts_with(ONE_RUN_PREFIX) {
         // A one-run route (cmux-hand's gateway route) leaves no backup: it
         // names only a token file that is removed with it.
-        std::fs::remove_file(&route.path).map_err(|e| RouteError::Failed(e.to_string()))?;
+        crate::home_fs::remove_file(&route.path).map_err(|e| RouteError::Failed(e.to_string()))?;
     } else {
-        std::fs::rename(&route.path, backups.join(&name))
+        crate::home_fs::rename(&route.path, backups.join(&name))
             .map_err(|e| RouteError::Failed(e.to_string()))?;
     }
-    // Chats bound to it fall back to their inherited route, except a one-run
+    // Chats bound to it fall back to their inherited route, and a workspace,
+    // family or global default that named it is cleared, so new chats fall
+    // back too instead of failing on a route that is gone. Except a one-run
     // route's chat: it keeps the binding, so its next spawn fails ("route is
     // gone") instead of running on the owner's own provider without a word.
     if !id.starts_with(ONE_RUN_PREFIX) {
-        update_bindings(home, |b| b.chats.retain(|_, r| r != id))?;
+        update_bindings(home, |b| {
+            b.chats.retain(|_, r| r != id);
+            b.workspaces.retain(|_, r| r != id);
+            b.families.retain(|_, r| r != id);
+            b.connection_order.retain(|r| r != id);
+            if b.global.as_deref() == Some(id) {
+                b.global = None;
+            }
+        })?;
     }
     Ok(name)
 }
@@ -650,8 +787,8 @@ pub fn restore(dir: Option<&Path>, home: &Path, backup: &str) -> Result<Route, R
     if to.exists() {
         return Err(RouteError::Exists(format!("a route {id:?} exists again")));
     }
-    std::fs::create_dir_all(dir).map_err(|e| RouteError::Failed(e.to_string()))?;
-    std::fs::rename(&from, &to).map_err(|e| RouteError::Failed(e.to_string()))?;
+    crate::home_fs::create_dirs(dir).map_err(|e| RouteError::Failed(e.to_string()))?;
+    crate::home_fs::rename(&from, &to).map_err(|e| RouteError::Failed(e.to_string()))?;
     find(Some(dir), &id)
 }
 
@@ -669,6 +806,17 @@ pub struct Bindings {
     pub workspaces: BTreeMap<String, String>,
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub chats: BTreeMap<String, String>,
+    /// The person's connection order (`_acpmux/connections/order.set`); empty: the default
+    /// order (`server/connections.rs`).
+    #[serde(default, rename = "connection_order", skip_serializing_if = "Vec::is_empty")]
+    pub connection_order: Vec<String>,
+    /// Spread usage across my subscriptions (`_acpmux/connections/spread.set`); absent: on.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub spread: Option<bool>,
+    /// Connections with no route file of their own that are turned off (`claude-login`;
+    /// `_acpmux/account/set`). A route's own switch is its file's `disabled`.
+    #[serde(default, rename = "disabled_connections", skip_serializing_if = "BTreeSet::is_empty")]
+    pub disabled_connections: BTreeSet<String>,
 }
 
 static BINDINGS_LOCK: Mutex<()> = Mutex::new(());
@@ -689,13 +837,17 @@ pub fn update_bindings(
     let mut b = bindings(home);
     change(&mut b);
     let path = bindings_path(home);
+    // Not under a lost home (`config::refuse_lost_home`), and through the folder this daemon
+    // holds (`home_fs`): a home replaced after the check never gets the bindings.
+    let failed = |e: std::io::Error| RouteError::Failed(e.to_string());
+    crate::config::refuse_lost_home(&path).map_err(|e| RouteError::Failed(e.to_string()))?;
     if let Some(parent) = path.parent() {
-        std::fs::create_dir_all(parent).map_err(|e| RouteError::Failed(e.to_string()))?;
+        crate::home_fs::create_dir_all(parent, 0o777).map_err(failed)?;
     }
     let tmp = path.with_extension("json.tmp");
-    std::fs::write(&tmp, serde_json::to_vec_pretty(&b).unwrap_or_default())
-        .map_err(|e| RouteError::Failed(e.to_string()))?;
-    std::fs::rename(&tmp, &path).map_err(|e| RouteError::Failed(e.to_string()))?;
+    crate::home_fs::write_synced(&tmp, &serde_json::to_vec_pretty(&b).unwrap_or_default())
+        .map_err(failed)?;
+    crate::home_fs::rename(&tmp, &path).map_err(failed)?;
     Ok(b)
 }
 
@@ -817,7 +969,7 @@ pub fn local_router_with(
         ))
     };
     let stream = UnixStream::connect(&socket).map_err(|e| unavailable(e.to_string()))?;
-    let _ = stream.set_read_timeout(Some(Duration::from_secs(3)));
+    let _ = stream.set_read_timeout(Some(crate::rpc::ANSWER_WAIT));
     let mut writer = stream.try_clone().map_err(|e| unavailable(e.to_string()))?;
     let mut reader = BufReader::new(stream);
     let mut ask = |line: Value| -> Result<Value, RouteError> {
@@ -880,8 +1032,51 @@ pub fn local_router_with(
     Ok((url, key))
 }
 
+/// The model router's path on a Cloud machine's model plane: the inference gateway hands
+/// `<origin>/router/v1/messages` to the model router as the machine's team (cmux-platform
+/// `RouterRoute.ts`).
+pub const CLOUD_ROUTER_PATH: &str = "/router";
+
+/// The `https://` origin of this machine's model plane when it is a cmux Cloud machine (its
+/// records under `root/etc/cmux`, or `CMUX_VM_ID`): the launch's `CMUX_CODEROUTER_URL`, else the
+/// model-plane env file the image writes (`codex_cloud_auth::Inputs::team_origin`). There the
+/// cmux model router is reached through the team's inference gateway, not a local CodeRouter
+/// (Leo, 2026-11-15: "We're doing it through the gateway."). None on a Mac.
+pub fn cloud_gateway_origin(
+    root: &Path,
+    home: &Path,
+    var: &(dyn Fn(&str) -> Option<String> + Sync),
+) -> Option<String> {
+    if !crate::cloud_host::detect(&root.join("etc/cmux"), var("CMUX_VM_ID").as_deref()) {
+        return None;
+    }
+    let inputs = crate::codex_cloud_auth::Inputs { root, home, var, broker: false };
+    let origin = inputs.team_origin()?;
+    let origin = origin.trim_end_matches('/');
+    (origin.len() > "https://".len()).then(|| origin.to_owned())
+}
+
 /// The env a route gives a spawn of `family`.
 pub fn env_for(route: &Route, family: &str, home: &Path) -> Result<RouteEnv, RouteError> {
+    env_for_on(route, family, home, None)
+}
+
+/// [`env_for`] on a machine whose model plane is at `gateway` ([`cloud_gateway_origin`]). With
+/// no local CodeRouter to carry it, the cmux model router's Claude goes to the gateway's model
+/// router path with the image's public placeholder key: the machine's edge adds its own
+/// credential, so no token is ever on the machine. A local CodeRouter, when one runs, still wins.
+pub fn env_for_on(
+    route: &Route,
+    family: &str,
+    home: &Path,
+    gateway: Option<&str>,
+) -> Result<RouteEnv, RouteError> {
+    if matches!(route.file.kind, RouteKind::ChatgptPlan | RouteKind::ClaudeToken) {
+        return Err(RouteError::Unavailable(format!(
+            "route {} is a Cloud connection: its credential goes to a Cloud machine's agent, not a chat on this Mac",
+            route.id
+        )));
+    }
     if !route.serves(family) {
         return Err(RouteError::BadParams(format!(
             "route {} does not serve the {family} harness",
@@ -903,8 +1098,15 @@ pub fn env_for(route: &Route, family: &str, home: &Path) -> Result<RouteEnv, Rou
     );
     if route.uses_relay() {
         let cmux = route.file.kind == RouteKind::CmuxRouter;
-        let (url, key) = local_router_with(home, family, cmux)?;
-        let relay = if anthropic { url } else { format!("{url}/v1") };
+        let (relay, key) = match (local_router_with(home, family, cmux), gateway) {
+            (Ok((url, key)), _) => (if anthropic { url } else { format!("{url}/v1") }, key),
+            // The gateway's model router speaks the Messages API only.
+            (Err(RouteError::Unavailable(_)), Some(origin)) if cmux && anthropic => (
+                format!("{origin}{CLOUD_ROUTER_PATH}"),
+                crate::codex_cloud_auth::PLACEHOLDER_KEY.to_owned(),
+            ),
+            (Err(e), _) => return Err(e),
+        };
         // The cmux model router is reached only through the relay: a URL in
         // the file would get the relay's key, which works nowhere else.
         if cmux || base.is_none() {

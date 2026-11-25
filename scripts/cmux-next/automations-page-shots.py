@@ -11,6 +11,9 @@ top page, and writes automations-light.png and automations-dark.png (`debug.wind
 after setting `appearance.appTheme` to a light, then a dark Ghostty theme. Socket only.
 """
 import argparse, json, os, subprocess, sys, tempfile, time
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from safe_log import safe_print  # noqa: E402  (a line before a kill never skips the kill)
+from state_wait import wait_stable  # noqa: E402
 
 p = argparse.ArgumentParser()
 p.add_argument("--app", required=True)
@@ -80,7 +83,7 @@ env = {**BASE, "CMUX_NEXT_NO_ACTIVATE": "1", "CMUX_NEXT_SOCKET_MODE": "automatio
        "CMUX_NEXT_CONFIG_FILE": CONFIG, "CMUX_NEXT_TEST_WINDOW_FRAME": "40,40,1280,800"}
 log = open(os.path.join(SCRATCH, "app.log"), "a")
 app = subprocess.Popen([BINARY], env=env, stdout=log, stderr=log, stdin=subprocess.DEVNULL)
-print(f"launched pid {app.pid} (log {SCRATCH}/app.log)", flush=True)
+safe_print(f"launched pid {app.pid} (log {SCRATCH}/app.log)", flush=True)
 try:
     def up():
         global SOCKET
@@ -91,8 +94,10 @@ try:
         return False
     if not wait(up, 120):
         sys.exit("tagged app did not come up")
-    print(f"socket {SOCKET}", flush=True)
-    time.sleep(2)  # first frame and restore settle before the action (harness, not app code)
+    safe_print(f"socket {SOCKET}", flush=True)
+    # First frame and restore settle before the action: the window's surfaces hold still.
+    wait_stable(lambda: rpc("debug.surfaces").get("windows"), "the restored window's surfaces", timeout=15,
+                interval=0.2, raise_on_timeout=False)
     ran = rpc("action.run", {"id": "automations.show", "focus": True})
     check("automations.show runs", "error" not in ran or not ran.get("error"), json.dumps(ran)[:200])
     shown = wait(lambda: "page:automations" in json.dumps(rpc("debug.focus")) or "automations" in json.dumps(rpc("snapshot.get")), 15)

@@ -20,9 +20,6 @@ struct AgentSessionGroupPlacementTests {
     @Test func twoAgentPlacementsFindTheExistingGroupBeforeRowsRedraw() throws {
         _ = NSApplication.shared
         let services = AppServices(environment: AppEnvironment.current([:]))
-        let savedDocument = SidebarDocStore.current
-        SidebarDocStore.current = nil
-        defer { SidebarDocStore.current = savedDocument }
         let store = services.machines.local.store
         let identity = try PlacementStaleRowsTests.identity(mixedOrder: false)
         store.noteHandshake(identity)

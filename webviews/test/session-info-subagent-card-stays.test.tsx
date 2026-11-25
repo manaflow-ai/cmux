@@ -9,6 +9,7 @@
 import { afterAll, expect, test } from "bun:test";
 import { JSDOM, VirtualConsole } from "jsdom";
 import type { PopupHost, PopupModel } from "../src/ui/popupHost";
+import { teardownDom } from "./support/domTeardown";
 
 const dom = new JSDOM("<!doctype html><div id=root></div>", {
   url: "http://localhost/",
@@ -78,13 +79,9 @@ const host: PopupHost = {
 
 const container = dom.window.document.getElementById("root")!;
 const root = createRoot(container);
-afterAll(() => {
+afterAll(async () => {
   act(() => root.unmount());
-  dom.window.close();
-  for (const [key, had, value] of saved) {
-    if (had) scope[key] = value;
-    else delete scope[key];
-  }
+  await teardownDom(saved, { window: dom.window, scope });
 });
 
 /// Yields until `ready` holds (the tooltip's open delay passes on the real clock), or gives up.
@@ -133,9 +130,10 @@ test("a running subagent's hover card with a long command stays in the page", as
   // No subagent list says tokens (the Inspector's Context does); the counts are what updates.
   expect(card?.textContent).toContain("0/3 agents");
   expect(card?.textContent).not.toContain("tokens");
-  // The parent keeps its structural agent object: both mounted surfaces subscribe to usage.
+  // The line itself is lean (its glyph, name and time; AgentLine `lean`): the counts are the card's,
+  // and the card subscribes to usage through the agent's structural object.
   await act(async () => progress.updateProgress(agent.id, { tokens: 42000, agents: { started: 3, done: 1 } }));
-  expect(line.querySelector(".acpmux-agent-line__progress")?.textContent).toBe("1/3 agents");
+  expect(line.querySelector(".acpmux-agent-line__progress")).toBeNull();
   expect(card?.textContent).toContain("1/3 agents");
   expect(card?.textContent).not.toContain("0/3 agents");
   // The escape measures a frame after the card is placed.

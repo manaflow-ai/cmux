@@ -45,8 +45,12 @@ public final class CloudSignedOutCreationContinuation {
     /// A later user replacement, sign-out, or populated-team change does not.
     public func scopeDidChange(from previous: [String?], to current: [String?]) {
         guard isPending else { return }
-        if previous == [nil, nil], current[0] != nil { return }
-        if previous[0] != nil, previous[0] == current[0], previous[1] == nil, current[1] != nil { return }
+        struct Request: Encodable { var previous: [String?], current: [String?] }
+        struct Reply: Decodable { var survives: Bool }
+        // Rust's `creation_survives_scope_change`; an FFI that does not answer cancels (never replays across accounts).
+        if CloudStartCore().call("cloud_auth_creation_scope", Request(previous: previous, current: current), as: Reply.self)?.survives == true {
+            return
+        }
         cancel()
     }
 

@@ -1,7 +1,7 @@
 import Foundation
 
-/// One learned pick as the shared ranker reads it (`PaletteLearnedPick` in
-/// webviews/src/palette/ranker.ts).
+/// One learned pick as the shared ranker reads it (`LearnedPick` in
+/// cmux-tui/crates/cmux-palette-ranker).
 nonisolated struct PaletteRankerBridgePick: Encodable {
     let prefix: String
     let key: String

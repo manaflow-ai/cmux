@@ -43,7 +43,7 @@ extension TabCell {
             widths: keys.map { CGFloat($0) / scale },
             from: shownForm(shownNow),
             isPinned: item.isPinned, isSelected: isSelected, isHovered: isHovered, isClosable: item.isClosable,
-            style: style, metrics: metrics
+            hasStatus: hasStatusMark, style: style, metrics: metrics
         )
         // Samples memoized by device pixel and form: a tab that shrinks a few points lays out a few times.
         struct SampleKey: Hashable { var pixel: Int; var form: TabChromeVisibility? }

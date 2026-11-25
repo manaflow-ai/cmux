@@ -1,4 +1,5 @@
 import CmuxNextDaemon
+import CmuxNextDaemonService
 import Foundation
 
 /// Builds a `WorkspaceBlueprint` into a new workspace with daemon commands:
@@ -7,8 +8,9 @@ import Foundation
 /// tabs (`new-frontend-browser-tab`), then the split ratios. Every new
 /// terminal gets the workspace's placement environment. Runs off the main
 /// actor; one command at a time, since each needs the pane the previous one
-/// made.
+/// made, which it reads from `daemon`'s store (`DaemonService.shape(of:after:)`), never the whole tree.
 struct WorkspaceBlueprintBuilder: Sendable {
+    let daemon: DaemonService
     let connection: DaemonConnection
     let key: WorkspaceKey
     /// Browser tabs need `frontend-browser-tabs-v1`; without it they are left out.
@@ -23,12 +25,11 @@ struct WorkspaceBlueprintBuilder: Sendable {
     /// the first tab's directory), with `blueprint`.
     func build(_ blueprint: WorkspaceBlueprint) async throws {
         guard let firstScreen = blueprint.screens.first else { return }
-        let tree = try await connection.listWorkspaces()
-        guard let workspace = tree.workspaces.first(where: { $0.key == key }),
-              let firstPane = workspace.screens.first?.panes.first, let initial = firstPane.tabs.first?.surface else { return }
-        try await build(firstScreen, pane: firstPane.id, initial: initial)
+        guard let workspace = try await daemon.shape(of: key, after: connection),
+              let firstPane = workspace.screens.first?.panes.first, let initial = firstPane.surfaces.first else { return }
+        try await build(firstScreen, pane: firstPane.handle, initial: initial)
         for screen in blueprint.screens.dropFirst() {
-            let created = try await connection.newScreen(in: workspace.id)
+            let created = try await connection.newScreen(in: workspace.handle)
             try await build(screen, pane: try await pane(holding: created.surface), initial: created.surface)
         }
         try await applyRatios(blueprint)
@@ -95,23 +96,19 @@ struct WorkspaceBlueprintBuilder: Sendable {
     static let replayKey = "CMUX_RESTORE_SCROLLBACK_FILE"
 
     private func pane(holding surface: SurfaceID) async throws -> PaneID {
-        let tree = try await connection.listWorkspaces()
-        let panes = tree.workspaces.first { $0.key == key }?.screens.flatMap(\.panes) ?? []
-        guard let pane = panes.first(where: { $0.tabs.contains { $0.surface == surface } }) else {
+        guard let pane = try await daemon.shape(of: key, after: connection)?.pane(holding: surface) else {
             throw DaemonError.malformedResponse("pane for surface \(surface) not found")
         }
-        return pane.id
+        return pane
     }
 
     /// Splits are made at the daemon's default ratio; set each to the
     /// blueprint's by walking both trees together (the builder keeps the
     /// original pane as `a` of every split, so the shapes match).
     private func applyRatios(_ blueprint: WorkspaceBlueprint) async throws {
-        let tree = try await connection.listWorkspaces()
-        guard let workspace = tree.workspaces.first(where: { $0.key == key }) else { return }
+        guard let workspace = try await daemon.shape(of: key, after: connection) else { return }
         for (screen, built) in zip(blueprint.screens, workspace.screens) {
-            let layouts = built.columns.isEmpty ? [built.layout] : built.columns.map(\.layout)
-            for (column, layout) in zip(screen.columns, layouts) { try await applyRatios(column.root, layout) }
+            for (column, layout) in zip(screen.columns, built.layouts) { try await applyRatios(column.root, layout) }
         }
     }
 

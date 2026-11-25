@@ -205,6 +205,12 @@ impl App {
             Action::ResizeShrink => self.resize_focused_split(-0.05),
             Action::ScrollUp => self.scroll_active(-10),
             Action::ScrollDown => self.scroll_active(10),
+            Action::ScrollPageUp => self.scroll_active_pages(-1, 1),
+            Action::ScrollPageDown => self.scroll_active_pages(1, 1),
+            Action::ScrollHalfPageUp => self.scroll_active_pages(-1, 2),
+            Action::ScrollHalfPageDown => self.scroll_active_pages(1, 2),
+            Action::CopyMode => self.enter_copy_mode(false),
+            Action::SearchScrollback => self.enter_copy_mode(true),
             Action::ClearHistory => {
                 if let Some(surface) = self.active_surface()
                     && self.tree.surface_kind(surface) == SurfaceKind::Pty
@@ -247,6 +253,15 @@ impl App {
                 self.prompt = None;
                 self.omnibar = None;
                 self.replace_selection(None);
+                return Ok(RenderAction::Draw);
+            }
+            Action::NextAttention => self.jump_to_next_attention()?,
+            Action::AttentionList => {
+                self.finish_active_drag();
+                self.shortcut_help = None;
+                self.prompt = None;
+                self.omnibar = None;
+                self.open_attention_list();
                 return Ok(RenderAction::Draw);
             }
             Action::Detach => {

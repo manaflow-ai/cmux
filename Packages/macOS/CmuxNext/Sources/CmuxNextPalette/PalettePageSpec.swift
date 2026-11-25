@@ -45,6 +45,10 @@ public struct PalettePageSpec {
     /// Like `onLeave`, but also when no row was ever highlighted (an empty
     /// folder): a page that waits for a choice hears every way out once.
     public var onCancel: (@MainActor () -> Void)?
+    /// A self-contained picker takes prefix and keyword input literally and Escape closes its root.
+    public var usesScopeShortcuts = true
+    /// Captures the native input before a row activation that may wait for results.
+    public var onActivationInput: (@MainActor () -> Void)?
     /// A tree the page walks in place (``PaletteHierarchy``).
     public var hierarchy: PaletteHierarchy?
     /// The row to select for an empty query, by id, once it is listed (the
@@ -53,6 +57,14 @@ public struct PalettePageSpec {
     /// Rows made from the query itself, shown first (a save picker's "Save
     /// “name”" row): the query is an answer here, not only a search.
     public var queryItems: (@MainActor (String) -> [PaletteItem])?
+    /// Rows made from a typed query that matched no row (and no `queryItems` row): what to do
+    /// with the words instead of "No Results" (Create Browser Profile “austin”, New Workspace
+    /// “api”, Search the Web for “api”). The first one is selected, so Return runs it.
+    public var noMatchItems: (@MainActor (String) -> [PaletteItem])?
+    /// The `noMatchItems` rows also follow the results when the query matched some (the root and Go to
+    /// Workspace: a fuzzy query nearly always matches a few weak rows, and the words may still be a new
+    /// name or a question). Return keeps running the best match then.
+    public var noMatchItemsTrailResults = false
     /// Rows the page finds for the query itself, in the order given, instead
     /// of the ranker's search of its providers' rows (Search All Windows
     /// reads every terminal's text). Asked on open and on every edit. Each
@@ -87,6 +99,10 @@ public struct PalettePageSpec {
     public var initialQuerySelection: Int?
     /// Values chosen so far on a multi-value step, drawn as chips before the query.
     public var tokens: [PaletteToken] = []
+    /// The query may name the page's sections to search (`in:tabs`, `-in:history`,
+    /// `kind:settings`): the shared ranker keeps or drops those sections' rows
+    /// (cmux-palette-ranker `filter`). Search Everything sets it.
+    public var filtersBySection = false
 
     public init(
         id: String,

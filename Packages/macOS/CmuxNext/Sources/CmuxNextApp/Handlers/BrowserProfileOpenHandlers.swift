@@ -26,6 +26,15 @@ enum BrowserProfileOpenHandlers {
             guard let pane = context.paneController(invocation) else { return }
             pane.newBrowserTab(url: url, profile: record.id)
         }
+        bind("browserProfile.openLinkInNew") { invocation in
+            guard let text = invocation["url"]?.stringValue, let url = URL(string: text), url.scheme != nil else {
+                throw ActionFailure.invalidTarget(BrowserProfileAppStrings.urlRequired)
+            }
+            guard let pane = context.paneController(invocation) else { return }
+            profiles.makeProfile(name: invocation["name"]?.stringValue, refusingThrough: context.services.registry) { [weak pane] id in
+                pane?.newBrowserTab(url: url, profile: id)
+            }
+        }
         bind("browserProfile.newWindow") { invocation in
             let record = try context.requiredBrowserProfile(invocation)
             let windows = context.services.windows

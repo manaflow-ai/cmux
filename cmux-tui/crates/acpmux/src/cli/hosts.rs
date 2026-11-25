@@ -34,9 +34,10 @@ pub(crate) use host_hold::hold;
 #[cfg(test)]
 pub(crate) use host_lock::unfence;
 pub(crate) use host_lock::{LockLost, lock_to_install, lock_updates};
-use host_migrate::{MIGRATING, REFUSED, migrate, migrate_back};
+use host_migrate::{MIGRATING, REFUSED, UNIT_SHOW, migrate, migrate_back, unit_back};
 pub(crate) use host_update::{
-    CLOUD_VM_MARK, Caller, UpdateOptions, cloud_vm_check, self_update, update,
+    CLOUD_VM_MARK, Caller, Channel, RESTART_WINDOW, ServiceEnv, UpdateOptions, channel_url,
+    cloud_vm_check, restart_window_check, self_update, stamp_restart, update, watch_channel,
 };
 
 /// Where `host setup` installs acpmux and what its daemon runs.
@@ -56,18 +57,30 @@ pub(crate) fn make_remote_home() -> String {
 
 /// What a remote command answered.
 #[derive(Debug, Clone, Default)]
-pub(crate) struct RemoteOut {
+pub struct RemoteOut {
     pub ok: bool,
     pub stdout: String,
     pub stderr: String,
 }
 
-/// How the host commands reach a machine: ssh, or a fake in tests.
-pub(crate) trait Remote {
+/// How the host commands reach a machine: ssh, or a fake in tests. Public so
+/// `cmux device setup` (cmux-tui devices/setup.rs) reaches a Mac the same way.
+pub trait Remote {
     fn host(&self) -> &str;
     /// Run one of acpmux's fixed scripts on the host; `stdin` is fed to it
     /// (data never goes into the script text).
     fn exec(&self, script: &str, stdin: Option<&[u8]>) -> Result<RemoteOut>;
+    /// Enrollment's reach check. Only an explicit Add may record a previously unknown key.
+    fn first_contact(&self, _accept_new_host_key: bool) -> Result<RemoteOut> {
+        self.exec("true", None)
+    }
+    /// The reach check again under strict host key checking, which records and updates
+    /// nothing. Enrollment asks it only when the first try said no more than "Host key
+    /// verification failed." (OpenSSH's default policy under `BatchMode` says only that for an
+    /// unknown key), to get positive evidence that the key is merely unknown.
+    fn strict_host_key_check(&self) -> Result<RemoteOut> {
+        self.first_contact(false)
+    }
     /// Copy a local file to `remote` (a plain `~/` or absolute path).
     fn push(&self, local: &Path, remote: &str) -> Result<()>;
     /// Start one of acpmux's fixed scripts on the host and leave it running,
@@ -87,7 +100,7 @@ pub(crate) trait Remote {
 /// which no ssh option bounds.
 const REACH_BOUND: std::time::Duration = std::time::Duration::from_secs(20);
 
-pub(crate) struct SshRemote<'a>(pub &'a str);
+pub struct SshRemote<'a>(pub &'a str);
 
 impl Remote for SshRemote<'_> {
     fn host(&self) -> &str {
@@ -95,22 +108,15 @@ impl Remote for SshRemote<'_> {
     }
 
     fn exec(&self, script: &str, stdin: Option<&[u8]>) -> Result<RemoteOut> {
-        let mut child = Command::new("ssh")
-            .args(ssh_argv(self.0, script)?)
-            .stdin(if stdin.is_some() { Stdio::piped() } else { Stdio::null() })
-            .stdout(Stdio::piped())
-            .stderr(Stdio::piped())
-            .spawn()
-            .with_context(|| format!("ssh {}", self.0))?;
-        if let (Some(bytes), Some(mut pipe)) = (stdin, child.stdin.take()) {
-            pipe.write_all(bytes).with_context(|| format!("ssh {}: stdin", self.0))?;
-        }
-        let out = child.wait_with_output().with_context(|| format!("ssh {}", self.0))?;
-        Ok(RemoteOut {
-            ok: out.status.success(),
-            stdout: String::from_utf8_lossy(&out.stdout).into_owned(),
-            stderr: String::from_utf8_lossy(&out.stderr).into_owned(),
-        })
+        self.exec_argv(ssh_argv(self.0, script)?, stdin)
+    }
+
+    fn first_contact(&self, accept_new_host_key: bool) -> Result<RemoteOut> {
+        self.exec_argv(first_contact_argv(self.0, accept_new_host_key)?, None)
+    }
+
+    fn strict_host_key_check(&self) -> Result<RemoteOut> {
+        self.exec_argv(strict_host_key_check_argv(self.0)?, None)
     }
 
     fn spawn(&self, script: &str) -> Result<Child> {
@@ -143,6 +149,50 @@ impl Remote for SshRemote<'_> {
         }
         Ok(())
     }
+}
+
+impl SshRemote<'_> {
+    fn exec_argv(&self, argv: Vec<String>, stdin: Option<&[u8]>) -> Result<RemoteOut> {
+        let mut child = Command::new("ssh")
+            .args(argv)
+            .stdin(if stdin.is_some() { Stdio::piped() } else { Stdio::null() })
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .spawn()
+            .with_context(|| format!("ssh {}", self.0))?;
+        if let (Some(bytes), Some(mut pipe)) = (stdin, child.stdin.take()) {
+            pipe.write_all(bytes).with_context(|| format!("ssh {}: stdin", self.0))?;
+        }
+        let out = child.wait_with_output().with_context(|| format!("ssh {}", self.0))?;
+        Ok(RemoteOut {
+            ok: out.status.success(),
+            stdout: String::from_utf8_lossy(&out.stdout).into_owned(),
+            stderr: String::from_utf8_lossy(&out.stderr).into_owned(),
+        })
+    }
+}
+
+fn first_contact_argv(host: &str, accept_new_host_key: bool) -> Result<Vec<String>> {
+    let mut argv = Vec::new();
+    if accept_new_host_key {
+        // OpenSSH records only an unknown key; a mismatch or revoked key still fails closed.
+        argv.extend(["-o", "StrictHostKeyChecking=accept-new"].map(str::to_owned));
+    }
+    // Recovery depends on SSH's diagnostic, even when the user's config is quiet.
+    argv.extend(["-o", "LogLevel=ERROR"].map(str::to_owned));
+    argv.extend(ssh_argv(host, "true")?);
+    Ok(argv)
+}
+
+/// [`Remote::strict_host_key_check`]: the candidate probe's host key policy (strict, no key
+/// updates, diagnostics kept under a quiet config) on enrollment's reach command.
+pub(crate) fn strict_host_key_check_argv(host: &str) -> Result<Vec<String>> {
+    let mut argv: Vec<String> =
+        ["-o", "StrictHostKeyChecking=yes", "-o", "UpdateHostKeys=no", "-o", "LogLevel=ERROR"]
+            .map(str::to_owned)
+            .to_vec();
+    argv.extend(ssh_argv(host, "true")?);
+    Ok(argv)
 }
 
 /// A failed push, with scp's own words (ssh's, when the connection failed or dropped): the
@@ -324,7 +374,16 @@ pub(crate) fn version_cmd(bin: &str) -> String {
 /// Only the file goes (`self_command.rs`'s executable); no subcommand runs
 /// here, so no prefix: a copy named `acpmux` runs as acpmux by its argv0
 /// (cmux-tui's too), and [`version_cmd`] gives another name its `acp`.
-pub(crate) fn push_binary(r: &dyn Remote, bin: &str) -> Result<String> {
+/// The host refuses to replace a binary built from a newer commit
+/// ([`downgrade_check`]) unless `allow_downgrade`, and to replace one whose
+/// running daemon an update restarted within its restart window
+/// ([`restart_window_check`]) unless `now`.
+pub(crate) fn push_binary(
+    r: &dyn Remote,
+    bin: &str,
+    allow_downgrade: bool,
+    now: bool,
+) -> Result<String> {
     if !plain_path(bin) {
         return Err(anyhow!("refusing that remote binary path (not a plain path)"));
     }
@@ -332,16 +391,96 @@ pub(crate) fn push_binary(r: &dyn Remote, bin: &str) -> Result<String> {
     let dir = bin.rsplit_once('/').map(|(d, _)| d).filter(|d| !d.is_empty()).unwrap_or("/");
     run(r, &format!("mkdir -p {dir} && {}", make_remote_home()))?;
     r.push(&exe, &format!("{bin}.new"))?;
-    run(r, &format!("rm -f {bin} && mv {bin}.new {bin} && chmod +x {bin} && {}", version_cmd(bin)))
+    run(
+        r,
+        &format!(
+            "d={}; acpmux_nw={}\n{}{}{{ ! acpmux_window_refuses || {{ rm -f {bin}.new; exit 1; }}; }} && {{ ! acpmux_downgrade {bin} {bin}.new || {{ rm -f {bin}.new; exit 1; }}; }} && rm -f {bin} && mv {bin}.new {bin} && chmod +x {bin} && {}",
+            u8::from(allow_downgrade),
+            u8::from(now),
+            downgrade_check(),
+            restart_window_check(),
+            version_cmd(bin)
+        ),
+    )
 }
+
+/// The reason code [`downgrade_check`] refuses a push with.
+pub(crate) const NEWER_INSTALLED: &str = "newerInstalled";
+
+/// Shell defining `acpmux_downgrade INSTALLED PUSHED`, which runs on the
+/// host, under its update lock, right before a pushed binary replaces the
+/// installed one: true (it prints [`REFUSED`] [`NEWER_INSTALLED`] and why on
+/// stderr) when INSTALLED is built from a newer commit than PUSHED, by the
+/// `acpmux-commit-time=<secs>;` stamp each carries (acpmux-build-id's
+/// `COMMIT_STAMP`), read from their bytes. A pushed binary with no stamp is
+/// from before the stamp, so older than any stamped one. An installed binary
+/// with no stamp (or 0, a build that could not tell) is never protected, and
+/// `$d` 1 (`--allow-downgrade`) turns the check off. gcp-codex-swarm-08,
+/// 2026-11-15: its self-update timer installed one build, then a cmux app
+/// whose bundled acpmux was hours older pushed that one over it, again and
+/// again, as the app's update queue does for every peer on another build.
+pub(crate) fn downgrade_check() -> String {
+    format!(
+        r#"acpmux_ct() {{ LC_ALL=C grep -aoE 'acpmux-commit-time=[0-9]+;' "$1" 2>/dev/null | head -n 1 | tr -cd '0-9'; }}
+acpmux_at() {{ case "$(uname -s 2>/dev/null)" in Linux*) date -u -d "@$1" +%Y-%m-%dT%H:%M:%SZ;; *) date -u -r "$1" +%Y-%m-%dT%H:%M:%SZ;; esac 2>/dev/null || echo "$1"; }}
+acpmux_downgrade() {{
+  [ "$d" != 1 ] && [ -f "$1" ] || return 1
+  acpmux_i=$(acpmux_ct "$1"); case "$acpmux_i" in ''|0) return 1;; esac
+  acpmux_n=$(acpmux_ct "$2")
+  if [ -z "$acpmux_n" ]; then acpmux_w="a commit from before acpmux stamped commit times"
+  elif [ "$acpmux_n" = 0 ] || [ "$acpmux_n" -ge "$acpmux_i" ]; then return 1
+  else acpmux_w="a commit of $(acpmux_at "$acpmux_n")"; fi
+  echo "{REFUSED}{NEWER_INSTALLED}"
+  echo "the installed acpmux is built from a newer commit ($(acpmux_at "$acpmux_i")) than the pushed binary ($acpmux_w), so nothing was changed: pass --allow-downgrade to move it back" >&2
+}}
+"#
+    )
+}
+
+/// The host refused a push of an older build ([`downgrade_check`]): why.
+#[derive(Debug)]
+pub(crate) struct NewerInstalled(pub String);
+
+impl std::fmt::Display for NewerInstalled {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(&self.0)
+    }
+}
+
+impl std::error::Error for NewerInstalled {}
+
+/// The host's install step kept its restart window
+/// ([`restart_window_check`]): why. Nothing was changed.
+#[derive(Debug)]
+pub(crate) struct RestartWindow(pub String);
+
+impl std::fmt::Display for RestartWindow {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(&self.0)
+    }
+}
+
+impl std::error::Error for RestartWindow {}
 
 /// `host update`'s push: copy `local` to the remote [`DAEMON_BIN`] (by a
 /// rename, never in place: macOS kills a running binary that is
 /// overwritten); answers the new binary's `--version`. The copy runs as
 /// acpmux by its argv0 (cmux-tui's too), so it waits as `.acpmux-new/acpmux`,
 /// the same name, while it is checked ([`INSTALL_PUSHED`]). `running` is
-/// the commit of the daemon that answered, if one did.
-fn push_update(r: &dyn Remote, local: &Path, running: Option<&str>) -> Result<String> {
+/// the commit of the daemon that answered, if one did. Without
+/// `allow_downgrade` the host refuses a binary of an older commit than the
+/// installed one ([`downgrade_check`]): a [`NewerInstalled`] error, nothing
+/// changed. Without `now` (`--now`) it refuses any install while its running
+/// daemon is inside its restart window ([`restart_window_check`]): a
+/// [`RestartWindow`] error, nothing changed. Both are the host's checks, so
+/// a pusher that never asks first still meets them.
+fn push_update(
+    r: &dyn Remote,
+    local: &Path,
+    running: Option<&str>,
+    allow_downgrade: bool,
+    now: bool,
+) -> Result<String> {
     run(
         r,
         &format!(
@@ -351,12 +490,35 @@ fn push_update(r: &dyn Remote, local: &Path, running: Option<&str>) -> Result<St
     )?;
     r.push(local, "~/.local/bin/.acpmux-new/acpmux")?;
     let running = running.filter(|c| c.bytes().all(|b| b.is_ascii_hexdigit())).unwrap_or("");
-    run(r, &format!("c={running}; {INSTALL_PUSHED}"))
+    let script = format!(
+        "c={running}; d={}; acpmux_nw={}\n{}{}{INSTALL_PUSHED}",
+        u8::from(allow_downgrade),
+        u8::from(now),
+        downgrade_check(),
+        restart_window_check()
+    );
+    let out = r.exec(&script, None)?;
+    if !out.ok {
+        let held = format!("{REFUSED}{RESTART_WINDOW}");
+        if out.stdout.lines().any(|l| l.trim() == held) {
+            let why = out.stderr.lines().rev().find(|l| !l.trim().is_empty()).unwrap_or_default();
+            return Err(RestartWindow(why.trim().to_owned()).into());
+        }
+        let refused = format!("{REFUSED}{NEWER_INSTALLED}");
+        if out.stdout.lines().any(|l| l.trim() == refused) {
+            let why = out.stderr.lines().rev().find(|l| !l.trim().is_empty()).unwrap_or_default();
+            return Err(NewerInstalled(format!("{}: {}", r.host(), why.trim())).into());
+        }
+        return Err(anyhow!("ssh {} failed: {}", r.host(), out.stderr.trim()));
+    }
+    Ok(out.stdout.trim().to_owned())
 }
 
 /// Install the pushed `.acpmux-new/acpmux` once its `--version` runs (else
-/// delete it and leave the installed binary alone), keeping the binary it
-/// replaces as `acpmux.prev` (a hard link, else a copy; none when nothing
+/// delete it and leave the installed binary alone) and the host's restart
+/// window and downgrade check let it (else the same), keeping the binary it
+/// replaces as `acpmux.prev` (a hard link, else a copy renamed into place,
+/// since a still-running `acpmux.prev` cannot be written over; none when nothing
 /// was installed, so a rollback never brings back an older one) for a
 /// rollback. Only a binary known to run replaces `acpmux.prev`: the
 /// installed one when the daemon that answered (`$c`, its commit) runs its
@@ -366,12 +528,12 @@ fn push_update(r: &dyn Remote, local: &Path, running: Option<&str>) -> Result<St
 /// Prints the new binary's version. Once it is in place nothing fails the
 /// install: a staging folder that will not go is left for the next push
 /// to clear.
-const INSTALL_PUSHED: &str = "cd ~/.local/bin && chmod +x .acpmux-new/acpmux && { v=$(.acpmux-new/acpmux --version) || { rm -rf .acpmux-new; echo 'the pushed acpmux does not run on this host' >&2; exit 1; }; } && { if [ ! -e acpmux ]; then rm -f acpmux.prev; elif [ -f acpmux.prev ] && ! { [ -n \"$c\" ] && grep -qaF \"($c\" acpmux; }; then :; else ln -f acpmux acpmux.prev 2>/dev/null || cp -p acpmux acpmux.prev; fi; } && mv -f .acpmux-new/acpmux acpmux && { rmdir .acpmux-new 2>/dev/null; printf '%s\\n' \"$v\"; }";
+const INSTALL_PUSHED: &str = "cd ~/.local/bin && chmod +x .acpmux-new/acpmux && { v=$(.acpmux-new/acpmux --version) || { rm -rf .acpmux-new; echo 'the pushed acpmux does not run on this host' >&2; exit 1; }; } && { ! acpmux_window_refuses || { rm -rf .acpmux-new; exit 1; }; } && { ! acpmux_downgrade acpmux .acpmux-new/acpmux || { rm -rf .acpmux-new; exit 1; }; } && { if [ ! -e acpmux ]; then rm -f acpmux.prev; elif [ -f acpmux.prev ] && ! { [ -n \"$c\" ] && grep -qaF \"($c\" acpmux; }; then :; else ln -f acpmux acpmux.prev 2>/dev/null || { cp -p acpmux .acpmux.prev.new && mv -f .acpmux.prev.new acpmux.prev; } || { rm -f .acpmux.prev.new; false; }; fi; } && mv -f .acpmux-new/acpmux acpmux && { rmdir .acpmux-new 2>/dev/null; printf '%s\\n' \"$v\"; }";
 
 /// Put `acpmux.prev` back as `~/.local/bin/acpmux`; fails without one.
 const RESTORE_PREV: &str = "(cd ~/.local/bin && [ -f acpmux.prev ] && rm -f acpmux && { ln acpmux.prev acpmux 2>/dev/null || cp -p acpmux.prev acpmux; })";
 
-const PLIST: &str = r#"<?xml version="1.0" encoding="UTF-8"?>
+pub(crate) const PLIST: &str = r#"<?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0"><dict>
   <key>Label</key><string>com.acpmux.daemon</string>
@@ -470,7 +632,7 @@ const LAUNCHD_START_GRACE: std::time::Duration = std::time::Duration::from_secs(
 /// acpmux's own start over ssh puts it then (`daemon/login_placement.rs`,
 /// `NoGuiLogin`), and launchd is not asked to stop or start anything. An
 /// in-place start says so on stdout ([`IN_PLACE`]).
-fn launchd_reload(json: bool) -> String {
+pub(crate) fn launchd_reload(json: bool) -> String {
     let detached = restart_detached(json);
     format!(
         r#"acpmux_uid=$(id -u); acpmux_job=gui/$acpmux_uid/com.acpmux.daemon; acpmux_plist=~/Library/LaunchAgents/com.acpmux.daemon.plist
@@ -483,7 +645,7 @@ if ! acpmux_why=$(launchctl bootstrap gui/$acpmux_uid "$acpmux_pd/probe.plist" 2
 launchctl bootout gui/$acpmux_uid/com.acpmux.probe >/dev/null 2>&1; rm -rf "$acpmux_pd"
 acpmux_dis=$(launchctl print-disabled gui/$acpmux_uid 2>&1) || acpmux_refuse launchdRefused "launchd did not say whether com.acpmux.daemon is disabled in gui/$acpmux_uid ($acpmux_dis)"
 case "$acpmux_dis" in *'"com.acpmux.daemon" => disabled'*|*'"com.acpmux.daemon" => true'*) acpmux_refuse launchdRefused "launchd has com.acpmux.daemon disabled in gui/$acpmux_uid (launchctl enable $acpmux_job turns it on)";; esac
-if ! acpmux_why=$(plutil -lint "$acpmux_plist" 2>&1); then acpmux_refuse launchdRefused "launchd cannot start the daemon from $acpmux_plist ($acpmux_why; acpmux host setup writes it again)"; fi
+if ! acpmux_why=$(plutil -lint "$acpmux_plist" 2>&1); then acpmux_refuse launchdRefused "launchd cannot start the daemon from $acpmux_plist ($acpmux_why; acpmux machine setup writes it again)"; fi
 acpmux_old=$(launchctl print "$acpmux_job" 2>/dev/null | sed -n 's/^[[:space:]]*pid = \([0-9][0-9]*\)$/\1/p' | head -n 1)
 acpmux_p=$(~/.local/bin/acpmux --json daemon status 2>/dev/null | sed -n 's/^ *"pid": *\([0-9][0-9]*\).*/\1/p' | head -n 1)
 if [ -n "$acpmux_p" ] && [ "$acpmux_p" != "$acpmux_old" ]; then {SHUTDOWN_KEEPING_AGENTS}
@@ -513,7 +675,9 @@ const IN_PLACE: &str = "ACPMUX_IN_PLACE=";
 /// minutes until someone started it by hand. A start that loses a handover
 /// because another daemon still owns `daemon.lock` exits with status 75;
 /// `RestartPreventExitStatus` makes that a clean handover instead of a
-/// restart loop. The delay grows from
+/// restart loop. `--take-over` makes the unit's daemon ask a daemon a client
+/// started in this home (one that serves the unit's socket) to hand over, and a
+/// refusal then exits 1, which the unit retries. The delay grows from
 /// `RestartSec=3` to `RestartMaxDelaySec=60` over `RestartSteps=5`
 /// (systemd 254+; Ubuntu 24.04 has 255). An older systemd logs "Unknown key
 /// name ... ignoring" once per load and restarts every 3 s. A daemon that
@@ -522,7 +686,21 @@ const IN_PLACE: &str = "ACPMUX_IN_PLACE=";
 /// shutdown` restarts it too (`systemctl --user stop acpmux.service` stops
 /// it). `host update` rewrites a unit an older acpmux wrote
 /// ([`OLD_SYSTEMD_UNITS`]) to this text.
-const SYSTEMD_UNIT: &str = "[Unit]
+///
+/// `NotifyAccess=main` lets the daemon arm systemd's watchdog itself and ping
+/// it only while it answers its own hello (`daemon/watchdog.rs`): a hung
+/// daemon is ended and started again, which `Restart=always` alone never did
+/// (huge-blue, 2026-11-20: 16.5 GB, no hello answered). The unit sets no
+/// `WatchdogSec`, so a binary that never arms it is never ended for silence.
+/// `WatchdogSignal=SIGTERM` ends it as a restart handoff (agents kept), not
+/// with the default SIGABRT's core dump of a large heap; one that does not
+/// stop is killed after `TimeoutStopSec`.
+///
+/// `CPUWeight=1000` and `IOWeight=1000`: ten times systemd's default for the unit's `app.slice`
+/// siblings and twenty or more times a session scope's (`session_scope.rs`), so under load the
+/// daemon still answers (`daemon_priority.rs`). Unprivileged: a user manager without the `cpu` or
+/// `io` controller (stock systemd delegates `cpu memory pids`) ignores the key and starts the unit.
+pub(crate) const SYSTEMD_UNIT: &str = "[Unit]
 Description=acpmux daemon
 After=default.target
 StartLimitIntervalSec=0
@@ -530,7 +708,7 @@ StartLimitIntervalSec=0
 [Service]
 Type=simple
 Environment=PATH=%h/.local/bin:%h/.bun/bin:%h/.cargo/bin:%h/bin:/usr/local/bin:/usr/bin:/bin
-ExecStart=%h/.local/bin/acpmux daemon run
+ExecStart=%h/.local/bin/acpmux daemon run --take-over
 WorkingDirectory=%h
 Restart=always
 RestartPreventExitStatus=75
@@ -539,6 +717,10 @@ RestartSteps=5
 RestartMaxDelaySec=60
 KillMode=process
 TimeoutStopSec=30
+NotifyAccess=main
+WatchdogSignal=SIGTERM
+CPUWeight=1000
+IOWeight=1000
 
 [Install]
 WantedBy=default.target
@@ -548,7 +730,7 @@ WantedBy=default.target
 /// replaces one of them with [`SYSTEMD_UNIT`] ([`unit_refresh`]). A unit
 /// with any other text was written or edited by someone else and is left
 /// as it is.
-const OLD_SYSTEMD_UNITS: [&str; 2] = [
+pub(crate) const OLD_SYSTEMD_UNITS: [&str; 5] = [
     // #22899 (2026-10-21): gave up after 5 failed starts in 60 s.
     "[Unit]
 Description=acpmux daemon
@@ -588,6 +770,76 @@ RestartSteps=5
 RestartMaxDelaySec=60
 KillMode=process
 TimeoutStopSec=30
+
+[Install]
+WantedBy=default.target
+",
+    // #24232 guard without the take-over: a client-started daemon that won the lock in
+    // the seconds before the unit's restart left the unit failed (2026-11-03).
+    "[Unit]
+Description=acpmux daemon
+After=default.target
+StartLimitIntervalSec=0
+
+[Service]
+Type=simple
+Environment=PATH=%h/.local/bin:%h/.bun/bin:%h/.cargo/bin:%h/bin:/usr/local/bin:/usr/bin:/bin
+ExecStart=%h/.local/bin/acpmux daemon run
+WorkingDirectory=%h
+Restart=always
+RestartPreventExitStatus=75
+RestartSec=3
+RestartSteps=5
+RestartMaxDelaySec=60
+KillMode=process
+TimeoutStopSec=30
+
+[Install]
+WantedBy=default.target
+",
+    // The take-over unit before the daemon's own watchdog (2026-11-20): a hung
+    // daemon stayed hung.
+    "[Unit]
+Description=acpmux daemon
+After=default.target
+StartLimitIntervalSec=0
+
+[Service]
+Type=simple
+Environment=PATH=%h/.local/bin:%h/.bun/bin:%h/.cargo/bin:%h/bin:/usr/local/bin:/usr/bin:/bin
+ExecStart=%h/.local/bin/acpmux daemon run --take-over
+WorkingDirectory=%h
+Restart=always
+RestartPreventExitStatus=75
+RestartSec=3
+RestartSteps=5
+RestartMaxDelaySec=60
+KillMode=process
+TimeoutStopSec=30
+
+[Install]
+WantedBy=default.target
+",
+    // Before the daemon outranked its work (RFD 0049 R3, 2026-11-22): no CPUWeight or IOWeight.
+    "[Unit]
+Description=acpmux daemon
+After=default.target
+StartLimitIntervalSec=0
+
+[Service]
+Type=simple
+Environment=PATH=%h/.local/bin:%h/.bun/bin:%h/.cargo/bin:%h/bin:/usr/local/bin:/usr/bin:/bin
+ExecStart=%h/.local/bin/acpmux daemon run --take-over
+WorkingDirectory=%h
+Restart=always
+RestartPreventExitStatus=75
+RestartSec=3
+RestartSteps=5
+RestartMaxDelaySec=60
+KillMode=process
+TimeoutStopSec=30
+NotifyAccess=main
+WatchdogSignal=SIGTERM
 
 [Install]
 WantedBy=default.target
@@ -649,21 +901,51 @@ const SYSTEMD_STARTED: &str = "ACPMUX_SYSTEMD_STARTED";
 /// some other service started (`ssh.service`, a CI runner, `tmux.service`, or
 /// `acpmux-update.service` when the self-update had to start it detached) has
 /// no `$u`: it is shut down keeping its agents like a detached one.
-const DAEMON_UNIT: &str = r#"p=$(~/.local/bin/acpmux --json daemon status 2>/dev/null | sed -n 's/^ *"pid": *\([0-9][0-9]*\).*/\1/p' | head -1); u=
+///
+/// When no daemon answers, `$u` is the one hand-written acpmux unit in
+/// `~/.config/systemd/user` (`acpmux*.service` but `acpmux.service` and
+/// `acpmux-update.service`) that systemd reports stopped (inactive or
+/// failed) and whose effective command, as systemd reports it with every
+/// drop-in applied ([`UNIT_SHOW`]), is an acpmux binary running `daemon run`
+/// for this home (its effective `ACPMUX_HOME`, if it sets one, is
+/// `~/.acpmux` or where it links to), with `$p` empty: a stopped or disabled unit is moved to
+/// `acpmux.service` too ([`migrate`]), so an update never leaves a daemon
+/// that systemd does not restart. A Linux host (2026-11-06) shows why: the
+/// kernel's OOM killer (earlyoom) ended a daemon that ran under a disabled
+/// unit with no `Restart=`, and an update gave it a detached start. Two such
+/// units, or none, leave `$u` empty, as before.
+pub(super) fn daemon_unit() -> String {
+    format!(
+        r#"p=$(~/.local/bin/acpmux --json daemon status 2>/dev/null | sed -n 's/^ *"pid": *\([0-9][0-9]*\).*/\1/p' | head -1); u=
 if [ -n "$p" ]; then
   acpmux_main=$(systemctl --user show acpmux.service -p MainPID --value 2>/dev/null) || acpmux_main=
   [ "$acpmux_main" = "$p" ] && u=acpmux.service
   if [ -z "$u" ] && [ -r "/proc/$p/cgroup" ]; then u=$(sed -n 's|.*/\(acpmux[^/]*\.service\)$|\1|p' "/proc/$p/cgroup" | head -1); fi
+else acpmux_c=
+  {UNIT_SHOW}  for acpmux_f in "$HOME"/.config/systemd/user/acpmux*.service; do
+    acpmux_n=${{acpmux_f##*/}}
+    case "$acpmux_n" in acpmux.service|acpmux-update.service) continue;; esac
+    [ -f "$acpmux_f" ] || continue
+    case "$(acpmux_show "$acpmux_n" ActiveState)" in inactive|failed) ;; *) continue;; esac
+    acpmux_runs_daemon "$acpmux_n" || continue
+    acpmux_h=$(acpmux_show "$acpmux_n" Environment | tr ' ' '\n' | sed -n 's/^ACPMUX_HOME=//p' | tail -1)
+    [ -z "$acpmux_h" ] || [ "$(cd -P "$acpmux_h" 2>/dev/null && pwd)" = "$(cd -P {REMOTE_HOME} 2>/dev/null && pwd)" ] || continue
+    acpmux_c="$acpmux_c $acpmux_n"
+  done
+  case "$acpmux_c" in " "*" "*) ;; " "*) systemctl --user show-environment >/dev/null 2>&1 && u=${{acpmux_c# }};; esac
 fi
 if [ "$u" = acpmux-update.service ]; then u=; fi
-"#;
+"#
+    )
+}
 
-/// Setup refuses (exit 3, the unit named on stderr) a daemon under an acpmux
-/// unit other than `acpmux.service`, such as a hand-written
+/// Setup refuses (exit 3, the unit named on stderr) a running daemon under an
+/// acpmux unit other than `acpmux.service`, such as a hand-written
 /// `acpmux-agent-<host>.service`: a shutdown would end its agents with that
 /// unit's cgroup, and the two units would then take turns on the lock. An
-/// update moves it instead ([`migrate`]).
-const FOREIGN_UNIT_REFUSAL: &str = r#"if [ -n "$u" ] && [ "$u" != acpmux.service ]; then echo "the daemon of ~/.acpmux runs under the systemd unit $u: stop and disable it (systemctl --user disable --now $u), then run this again" >&2; exit 3; fi
+/// update moves it instead, and setup moves such a unit whose daemon is not
+/// running ([`migrate`]): nothing of it runs that a move could end.
+const FOREIGN_UNIT_REFUSAL: &str = r#"if [ -n "$p" ] && [ -n "$u" ] && [ "$u" != acpmux.service ]; then echo "the daemon of ~/.acpmux runs under the systemd unit $u: stop and disable it (systemctl --user disable --now $u), then run this again" >&2; exit 3; fi
 "#;
 
 /// Whether a user systemd manager answers in this ssh session.
@@ -674,10 +956,20 @@ const SYSTEMD_MANAGER: &str = "systemctl --user show-environment >/dev/null 2>&1
 /// logout, is kept). Asked only once the unit is known to be used.
 pub(crate) const SYSTEMD_LINGERING: &str = r#"{ [ "$(loginctl show-user "$(id -un)" -p Linger --value 2>/dev/null)" = yes ] || loginctl enable-linger >/dev/null 2>&1; }"#;
 
-/// Fails (exit 4) when the daemon still answers after its shutdown (a live
-/// daemon's status carries its `pid`; a stopped one's only `"running":
-/// false`): it holds the lock, so the unit's daemon could not take over.
-const STILL_RUNNING_CHECK: &str = r#"if ~/.local/bin/acpmux --json daemon status 2>/dev/null | grep -q '"pid": *[0-9]'; then echo "the daemon of ~/.acpmux did not shut down, so acpmux.service cannot take over: stop it, then run this again" >&2; exit 4; fi"#;
+/// Fails (exit 4) when the daemon `$p` ([`daemon_unit`]) still answers after
+/// its shutdown (a live daemon's status carries its `pid`; a stopped one's
+/// only `"running": false`), or another one answers that `acpmux.service`
+/// does not run: either holds the lock, so the unit's daemon could not take
+/// over. A new daemon that is `acpmux.service`'s main process is the takeover
+/// already done: the old daemon saw its binary replaced and handed over
+/// through `systemctl --user restart --no-block acpmux.service` while the
+/// update ran, so the unit read `deactivating` (not active) and the update
+/// took the shutdown branch. A fleet Linux host, 2026-11-23 10:53Z: this check
+/// read the unit's new daemon (pid 326107, the new build) as the old one not
+/// shutting down, and the update rolled a good build back for good.
+pub(super) const STILL_RUNNING_CHECK: &str = r#"acpmux_q=$(~/.local/bin/acpmux --json daemon status 2>/dev/null | sed -n 's/^ *"pid": *\([0-9][0-9]*\).*/\1/p' | head -1)
+if [ -n "$acpmux_q" ] && [ "$acpmux_q" = "$p" ]; then echo "the daemon of ~/.acpmux did not shut down, so acpmux.service cannot take over: stop it, then run this again" >&2; exit 4; fi
+if [ -n "$acpmux_q" ] && [ "$acpmux_q" != "$(systemctl --user show acpmux.service -p MainPID --value 2>/dev/null)" ]; then echo "another daemon of ~/.acpmux (pid $acpmux_q) started outside acpmux.service, so acpmux.service cannot take over: stop it, then run this again" >&2; exit 4; fi"#;
 
 /// (Re)start the daemon on a Linux host. Under the user systemd unit
 /// `acpmux.service` when the user manager outlives the session
@@ -707,18 +999,42 @@ fn linux_restart(install: bool, json: bool) -> String {
         format!("{SYSTEMD_MANAGER} && {has_unit} && {SYSTEMD_LINGERING}")
     };
     let detached = restart_detached(json);
-    let foreign = if install { FOREIGN_UNIT_REFUSAL.to_owned() } else { migrate(false) };
+    let foreign =
+        if install { format!("{FOREIGN_UNIT_REFUSAL}{}", migrate(false)) } else { migrate(false) };
     let refresh = if install { String::new() } else { unit_refresh() };
     let auto_update = host_auto_update::install_script();
     format!(
-        "{refresh}{DAEMON_UNIT}{foreign}if {usable}; then
+        "{refresh}{}{foreign}if {usable}; then
 acpmux_auto_update() {{
 {auto_update}}}
 if systemctl --user is-active --quiet acpmux.service && {{ [ -z \"$p\" ] || [ \"$u\" = acpmux.service ]; }}; then systemctl --user restart acpmux.service && acpmux_auto_update && echo {SYSTEMD_STARTED}
 else {SHUTDOWN_KEEPING_AGENTS}; {STILL_RUNNING_CHECK}
 systemctl --user enable --now acpmux.service && acpmux_auto_update && echo {SYSTEMD_STARTED}; fi
-else {detached}; fi"
+else {detached}; fi",
+        daemon_unit()
     )
+}
+
+/// Setup's (re)start on Linux ([`linux_restart`]), whose output on success.
+/// A move from a stopped hand-written unit ([`migrate`]) that changed
+/// something and then failed goes back to that unit, as an update's does
+/// ([`migrate_back`]), so a failed setup never leaves it disabled and renamed.
+pub(super) fn setup_restart(r: &dyn Remote, json: bool) -> Result<String> {
+    let out = r.exec(&linux_restart(true, json), None)?;
+    if out.ok {
+        return Ok(out.stdout.trim().to_owned());
+    }
+    let mut why = format!("ssh {} failed: {}", r.host(), out.stderr.trim());
+    if let Some(unit) = out.stdout.lines().find_map(|l| l.strip_prefix(MIGRATING)) {
+        match unit_back(unit).map(|back| run(r, &back)) {
+            Some(Ok(_)) => why.push_str(&format!("; the daemon was moved back to {unit}")),
+            Some(Err(e)) => {
+                why.push_str(&format!("; moving the daemon back to {unit} failed: {e}"))
+            }
+            None => why.push_str(&format!("; cannot move the daemon back to {unit}")),
+        }
+    }
+    Err(anyhow!(why))
 }
 
 /// The status after a Linux (re)start: read after a grace when systemd started it.
@@ -766,26 +1082,69 @@ pub(crate) fn short_name(host: &str) -> String {
     host.split('@').next_back().unwrap_or(host).split('.').next().unwrap_or(host).to_owned()
 }
 
-/// `host setup`; `auto_update` false (`--no-auto-update`) leaves the
-/// marker that keeps the host off the self-update timer.
+/// `host setup`'s choices, past the host and its name.
+pub(crate) struct SetupOptions {
+    /// The port the daemon listens on.
+    pub port: u16,
+    /// False (`--no-auto-update`) leaves the marker that keeps the host off
+    /// the self-update timer.
+    pub auto_update: bool,
+    /// Replace a binary of a newer commit too (`--allow-downgrade`).
+    pub allow_downgrade: bool,
+    /// Restart the daemon even inside the host's restart window (`--now`).
+    pub now: bool,
+}
+
+/// `host setup`'s install on `remote`, which holds the host's update lock
+/// and is fenced for it: why the host's restart window holds its daemon
+/// ([`restart_window_check`]) refuses it before anything is copied (the
+/// host's install step refuses it again for a pusher that never asks);
+/// otherwise push the binary, start the daemon and stamp the restart
+/// ([`stamp_restart`]), so the next update of any kind keeps the window.
+/// The pushed version, the daemon's status, and why auto-update is off.
+/// The window's ask and the install step run with the daemon's environment
+/// ([`ServiceEnv`]), as an update's do: the unit's window length, and its
+/// home and socket, so "a daemon answers" asks the daemon the unit runs.
+pub(crate) fn setup_locked(
+    remote: &dyn Remote,
+    opts: &SetupOptions,
+) -> Result<(String, String, Option<String>)> {
+    let service = &ServiceEnv(remote);
+    let ask = format!(
+        "acpmux_nw={}\n{}if acpmux_window; then printf '%s\\n' \"$acpmux_why\"; fi",
+        u8::from(opts.now),
+        restart_window_check()
+    );
+    let held = run(service, &ask)?;
+    if !held.is_empty() {
+        return Err(RestartWindow(format!("{}: {held}", remote.host())).into());
+    }
+    let version = push_binary(service, DAEMON_BIN, opts.allow_downgrade, opts.now)?;
+    if !opts.auto_update {
+        let mark = host_auto_update::NO_AUTO_UPDATE;
+        run(remote, &format!("mkdir -p {REMOTE_HOME} && touch {REMOTE_HOME}/{mark}"))?;
+    }
+    let (status, auto_update_off) = install_daemon(remote, opts.port, false)?;
+    // A stamp that cannot be written only loses the window.
+    let _ = run(remote, &stamp_restart());
+    Ok((version, status, auto_update_off))
+}
+
+/// `host setup`: install acpmux on `host` and add it as peer `name`
+/// ([`setup_locked`], under the host's update lock).
 pub(crate) async fn setup(
     client: Arc<Client>,
     host: &str,
     name: Option<String>,
-    port: u16,
-    auto_update: bool,
+    opts: SetupOptions,
     json_out: bool,
 ) -> Result<()> {
     let name = name.unwrap_or_else(|| short_name(host));
+    let port = opts.port;
     let ssh = SshRemote(host);
     let lock = lock_to_install(&ssh)?;
     let remote = lock.fence(&ssh);
-    let version = push_binary(&remote, DAEMON_BIN)?;
-    if !auto_update {
-        let mark = host_auto_update::NO_AUTO_UPDATE;
-        run(&remote, &format!("mkdir -p {REMOTE_HOME} && touch {REMOTE_HOME}/{mark}"))?;
-    }
-    let (status, auto_update_off) = install_daemon(&remote, port, false)?;
+    let (version, status, auto_update_off) = setup_locked(&remote, &opts)?;
     drop(lock);
     // Register (or re-register) the peer.
     let url = ssh_peer_url(host, port);
@@ -891,7 +1250,7 @@ pub(crate) fn install_daemon(
     write_config(r, &serde_json::to_string_pretty(&cfg)?)?;
     let os = run(r, "uname -s")?;
     if os != "Darwin" {
-        let out = run(r, &linux_restart(true, json))?;
+        let out = setup_restart(r, json)?;
         let (out, auto_update_off) = host_auto_update::take_auto_update_off(&out);
         return Ok((linux_status(r, out, json)?, auto_update_off));
     }
@@ -924,6 +1283,33 @@ fn getrandom_fill(buf: &mut [u8]) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn first_contact_only_accepts_new_keys_when_requested() {
+        let normal = ssh_argv("user@box", "true").unwrap();
+        let diagnostic: Vec<_> =
+            ["-o", "LogLevel=ERROR"].map(str::to_owned).into_iter().chain(normal.clone()).collect();
+        assert_eq!(first_contact_argv("user@box", false).unwrap(), diagnostic);
+        let opted_in = first_contact_argv("user@box", true).unwrap();
+        assert_eq!(&opted_in[..2], ["-o", "StrictHostKeyChecking=accept-new"]);
+        assert_eq!(&opted_in[2..], diagnostic);
+        assert!(first_contact_argv("-oProxyCommand=bad", true).is_err());
+        let strict = strict_host_key_check_argv("user@box").unwrap();
+        assert_eq!(
+            &strict[..6],
+            ["-o", "StrictHostKeyChecking=yes", "-o", "UpdateHostKeys=no", "-o", "LogLevel=ERROR"]
+        );
+        assert_eq!(&strict[6..], normal);
+        assert!(strict_host_key_check_argv("-oProxyCommand=bad").is_err());
+        // A later command or copy keeps the user's policy, even after an opted-in reach.
+        assert_eq!(ssh_argv("user@box", "true").unwrap(), normal);
+        assert!(
+            !scp_push_argv("user@box", "local", "remote")
+                .unwrap()
+                .iter()
+                .any(|arg| arg.contains("StrictHostKeyChecking"))
+        );
+    }
 
     /// What the remote login shell does with ssh's command string: runs it with `-c`.
     fn as_login_shell(shell: &str, argv: &[String]) -> Option<String> {
@@ -1638,3 +2024,7 @@ mod tests {
         );
     }
 }
+
+#[cfg(all(test, unix))]
+#[path = "hosts_first_contact_tests.rs"]
+mod first_contact_tests;

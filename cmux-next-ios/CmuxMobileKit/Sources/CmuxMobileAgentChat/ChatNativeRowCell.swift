@@ -2,6 +2,7 @@
 import CmuxMobileDesign
 import CmuxMobileMarkdown
 import UIKit
+import UniformTypeIdentifiers
 
 /// What a native row's views do with the person's input (links, copy and share of the
 /// whole message, showing a long code card in full).
@@ -24,8 +25,15 @@ struct ChatNativeActions {
 /// A transcript row drawn by UIKit from a `ChatNativeLayout` laid out off the main thread:
 /// it never sizes itself (its height came with the layout) and reuses its views.
 @MainActor
-final class ChatNativeRowCell: UICollectionViewCell, UIContextMenuInteractionDelegate {
+final class ChatNativeRowCell: UICollectionViewCell, UIContextMenuInteractionDelegate, UIGestureRecognizerDelegate {
     private var layout: ChatNativeLayout?
+    /// The row's revision and disclosures this cell draws (set when configured): what its
+    /// measurements are of, as a SwiftUI row's (`ChatRowCell.shown`). Without it the layout kept
+    /// none of them, and a row laid out at its estimate went back to it on the next change above.
+    var shown: ChatRowAttributes.Shown?
+    /// The cell width its layout was made for (set when configured): a measurement at another
+    /// width (a rotation before the new layout lands) is laid out but not kept.
+    var layoutWidth: CGFloat = 0
     private var actions = ChatNativeActions()
     private var labels: [UILabel] = []
     /// The labels (by index) that show a markdown heading.
@@ -42,6 +50,9 @@ final class ChatNativeRowCell: UICollectionViewCell, UIContextMenuInteractionDel
     private var codeCard: ChatCodeCardView?
     private var table: ChatTableView?
     private let margin: CGFloat = 20
+    /// Holding on text selects the word in place (Leo, 2026-11-23), instead of lifting the row
+    /// into a context menu; the menu stays for links and for spots with no text.
+    private let inlineSelection = ChatInlineSelectionDriver()
     #if DEBUG
     var costKind = "native"
     #endif
@@ -56,15 +67,25 @@ final class ChatNativeRowCell: UICollectionViewCell, UIContextMenuInteractionDel
             cell.updateBorderColors()
         }
         contentView.addInteraction(UIContextMenuInteraction(delegate: self))
+        let hold = UILongPressGestureRecognizer(target: self, action: #selector(held(_:)))
+        hold.delegate = self
+        contentView.addGestureRecognizer(hold)
         let tap = UITapGestureRecognizer(target: self, action: #selector(tapped(_:)))
         tap.cancelsTouchesInView = false
         contentView.addGestureRecognizer(tap)
+        // A live selection is one of the row's accessibility elements (the list is explicit).
+        inlineSelection.onChange = { [weak self] selection in
+            guard let self else { return }
+            let row = self.accessibilityElements ?? []
+            self.contentView.accessibilityElements = selection.map { row + [$0] } ?? row
+        }
     }
 
     @available(*, unavailable)
     required init?(coder: NSCoder) { fatalError("init(coder:) is not supported") }
 
     func apply(_ layout: ChatNativeLayout, actions: ChatNativeActions) {
+        inlineSelection.end()
         self.layout = layout
         self.actions = actions
         var usedLabels = 0, usedSymbols = 0, usedBars = 0, usedBoxes = 0, usedSeparators = 0, usedScrollers = 0
@@ -150,8 +171,10 @@ final class ChatNativeRowCell: UICollectionViewCell, UIContextMenuInteractionDel
                     return button
                 }()
                 button.frame = frame.offsetBy(dx: margin, dy: 0)
-                // Built when opened, not per configure.
-                button.menu = UIMenu(children: [UIDeferredMenuElement.uncached { completion in completion([more()]) }])
+                // Built when opened, not per configure. The deferred element takes the menu's
+                // own rows: handed the menu itself, it drew one untitled row that opened it
+                // as a submenu (the timestamp section and every action one tap further).
+                button.menu = UIMenu(children: [UIDeferredMenuElement.uncached { completion in completion(more().children) }])
                 button.isHidden = false
             }
             accessibilityElements = accessibilityTree(usedLabels: usedLabels, usedScrollers: usedScrollers)
@@ -186,6 +209,11 @@ final class ChatNativeRowCell: UICollectionViewCell, UIContextMenuInteractionDel
         for index in usedLabels..<labels.count { labels[index].isHidden = true }
         for index in usedSymbols..<symbols.count { symbols[index].isHidden = true }
         for index in usedBars..<bars.count { bars[index].isHidden = true }
+        // The app's accessibility tree walks the content view's children, not the cell's own
+        // list: without this a closed disclosure read as its bare text and a chevron "Forward",
+        // no button (fleet simulator step 6e3909152bd42115b3975c3c). The cell keeps the list too,
+        // for its readers (`setFindMarked`).
+        contentView.accessibilityElements = accessibilityElements
     }
 
     override func layoutSubviews() {
@@ -196,9 +224,9 @@ final class ChatNativeRowCell: UICollectionViewCell, UIContextMenuInteractionDel
     }
 
     override func preferredLayoutAttributesFitting(_ attributes: UICollectionViewLayoutAttributes) -> UICollectionViewLayoutAttributes {
-        guard let layout, abs(layout.height - attributes.size.height) > 0.25,
-              let fitted = attributes.copy() as? UICollectionViewLayoutAttributes else { return attributes }
+        guard let layout, let fitted = attributes.copy() as? UICollectionViewLayoutAttributes else { return attributes }
         fitted.size.height = layout.height
+        if abs(layoutWidth - attributes.size.width) < 0.5 { (fitted as? ChatRowAttributes)?.shown = shown }
         return fitted
     }
 
@@ -206,6 +234,7 @@ final class ChatNativeRowCell: UICollectionViewCell, UIContextMenuInteractionDel
         let label = UILabel()
         label.numberOfLines = 0
         label.lineBreakMode = .byWordWrapping
+        label.lineBreakStrategy = ChatNativeLayout.labelLineBreakStrategy
         // Text is drawn on a background thread at commit, as the Feed's rows do.
         label.layer.drawsAsynchronously = true
         contentView.addSubview(label)
@@ -254,21 +283,27 @@ final class ChatNativeRowCell: UICollectionViewCell, UIContextMenuInteractionDel
     }
 
     @objc private func tapped(_ tap: UITapGestureRecognizer) {
+        // A tap ends a selection, and does nothing else.
+        if inlineSelection.selection != nil {
+            inlineSelection.end()
+            return
+        }
         let location = tap.location(in: contentView)
         if let match = hits.last(where: { $0.frame.contains(location) }) {
             perform(match.hit)
             return
         }
-        if let table, !table.isHidden, let url = table.link(at: tap.location(in: table)) {
-            actions.openLink(url)
-            return
-        }
+        if let url = link(at: location) { actions.openLink(url) }
+    }
+
+    /// The link at `location` (in the content view): in a table's cell or a text run; nil elsewhere.
+    func link(at location: CGPoint) -> URL? {
+        if let table, !table.isHidden, let url = table.link(at: contentView.convert(location, to: table)) { return url }
         for label in labels where !label.isHidden {
-            let point = tap.location(in: label)
-            guard label.bounds.contains(point), let url = NativeMarkdownView.link(in: label, at: point) else { continue }
-            actions.openLink(url)
-            return
+            let point = contentView.convert(location, to: label)
+            if label.bounds.contains(point), let url = NativeMarkdownView.link(in: label, at: point, asDrawn: true) { return url }
         }
+        return nil
     }
 
     /// A tap region's action, from a tap or an assistive technology's activation.
@@ -277,7 +312,7 @@ final class ChatNativeRowCell: UICollectionViewCell, UIContextMenuInteractionDel
             let view = symbols[index]
             let original = view.image
             view.image = UIImage(systemName: "checkmark", withConfiguration: view.image?.symbolConfiguration)
-            UIImpactFeedbackGenerator(style: .light).impactOccurred(intensity: 0.7)
+            CmuxMobileTheme.standard.haptics.impact(.light, intensity: 0.7)
             UIAccessibility.post(notification: .announcement, argument: "Copied")
             copiedReset?.cancel()
             copiedReset = Task { @MainActor [weak view] in
@@ -297,6 +332,89 @@ final class ChatNativeRowCell: UICollectionViewCell, UIContextMenuInteractionDel
             if case .openDiff(let id) = area.hit { file = id }
         }
         return file
+    }
+
+    // MARK: Hold to select
+
+    /// The text under `location` (in the content view) that a hold selects in: the label, and
+    /// the view the selection goes in (the content view, or the code card's or table's scroll
+    /// area, so it moves with them). nil off text, and on a link (whose menu opens instead).
+    private func selectableText(at location: CGPoint) -> (label: UILabel, container: UIView)? {
+        guard let layout, link(at: location) == nil else { return nil }
+        switch layout.content {
+        case .drawn:
+            for label in labels where !label.isHidden && label.frame.contains(location) {
+                guard let text = label.attributedText, text.length > 0, !Self.isListMarker(text.string) else { continue }
+                return (label, contentView)
+            }
+            return nil
+        case .code:
+            guard let codeCard, !codeCard.isHidden else { return nil }
+            return codeCard.selectableText(at: contentView.convert(location, to: codeCard))
+        case .table:
+            guard let table, !table.isHidden else { return nil }
+            return table.selectableLabel(at: contentView.convert(location, to: table)).map { ($0, table as UIView) }
+        }
+    }
+
+    override func gestureRecognizerShouldBegin(_ gestureRecognizer: UIGestureRecognizer) -> Bool {
+        guard gestureRecognizer is UILongPressGestureRecognizer, gestureRecognizer.view === contentView else {
+            return super.gestureRecognizerShouldBegin(gestureRecognizer)
+        }
+        return selectableText(at: gestureRecognizer.location(in: contentView)) != nil
+    }
+
+    @objc private func held(_ press: UILongPressGestureRecognizer) {
+        if press.state == .began {
+            let location = press.location(in: contentView)
+            guard let target = selectableText(at: location) else { return }
+            let point = contentView.convert(location, to: target.container)
+            let began = inlineSelection.begin(on: target.label, at: point, in: target.container) { [weak self] in
+                self?.rowMenuElements(at: location) ?? []
+            }
+            // The transcript does not scroll under the finger while it extends the selection.
+            if began, let list = enclosingScrollView() {
+                list.panGestureRecognizer.isEnabled = false
+                list.panGestureRecognizer.isEnabled = true
+            }
+            return
+        }
+        inlineSelection.track(press)
+    }
+
+    private func enclosingScrollView() -> UIScrollView? {
+        var view = superview
+        while let current = view, !(current is UICollectionView) { view = current.superview }
+        return view as? UIScrollView
+    }
+
+    /// The row's long-press menu rows, for the selection's edit menu: everything but Select Text
+    /// (the selection is already there).
+    private func rowMenuElements(at location: CGPoint) -> [UIMenuElement] {
+        guard let layout else { return [] }
+        let elements: [UIMenuElement]
+        switch layout.content {
+        case .code(let code): elements = Self.codeMenu(code.code, language: code.language)
+        case .table(let table):
+            elements = [UIAction(title: "Copy Table", image: UIImage(systemName: "doc.on.doc")) { _ in UIPasteboard.general.string = table.plainText }]
+        case .drawn:
+            if let menu = actions.menu { elements = menu(pressedFile(at: location))?.children ?? [] }
+            else if let message = actions.message { elements = Self.messageMenu(message) }
+            else { elements = [] }
+        }
+        return Self.withoutSelectText(elements)
+    }
+
+    /// `elements` with every Select Text row taken out (inline groups kept).
+    static func withoutSelectText(_ elements: [UIMenuElement]) -> [UIMenuElement] {
+        elements.compactMap { element in
+            if let action = element as? UIAction { return action.identifier == ChatSelectText.actionID ? nil : action }
+            if let menu = element as? UIMenu {
+                let children = withoutSelectText(menu.children)
+                return children.isEmpty ? nil : menu.replacingChildren(children)
+            }
+            return element
+        }
     }
 
     // MARK: Accessibility
@@ -320,13 +438,19 @@ final class ChatNativeRowCell: UICollectionViewCell, UIContextMenuInteractionDel
             if !covered { items.append((label.frame, label)) }
         }
         for (index, area) in hits.enumerated() {
-            let element = ChatHitElement(accessibilityContainer: self)
+            // Hit frames are in the content view's space (offset by the margin, as the labels are).
+            let element = ChatHitElement(accessibilityContainer: contentView)
             element.accessibilityFrameInContainerSpace = area.frame
             var label = area.label
             if let file = area.file, actions.viewed.contains(file) { label += ", viewed" }
             element.accessibilityLabel = label
             element.accessibilityTraits = .button
-            if area.isDisclosure { element.accessibilityHint = "Shows details" }
+            // A drawn disclosure is always a closed one; open, its row is SwiftUI, which says "Expanded".
+            if area.isDisclosure {
+                element.accessibilityHint = "Shows details"
+                element.accessibilityValue = "Collapsed"
+            }
+            element.accessibilityIdentifier = area.identifier
             element.activate = { [weak self] in
                 guard let self, index < self.hits.count else { return }
                 self.perform(self.hits[index].hit)
@@ -392,28 +516,51 @@ final class ChatNativeRowCell: UICollectionViewCell, UIContextMenuInteractionDel
 
     func contextMenuInteraction(_ interaction: UIContextMenuInteraction, configurationForMenuAtLocation location: CGPoint) -> UIContextMenuConfiguration? {
         guard let layout else { return nil }
+        // On text, a hold selects the word instead (`held`): no lifted row.
+        if selectableText(at: location) != nil { return nil }
+        // A long-press on a link leads with Open Link and Copy Link (Leo, 2026-11-09: "feel like this
+        // should have a copy link button"), above the block's or message's own rows.
+        let linkRows = link(at: location).map { url in Self.linkMenu(url) { [weak self] in self?.actions.openLink($0) } } ?? []
         var items: [UIMenuElement] = []
         switch layout.content {
         case .code(let code):
-            items = [
-                UIAction(title: "Copy", image: UIImage(systemName: "doc.on.doc")) { _ in UIPasteboard.general.string = code.code },
-                UIAction(title: "Copy as Markdown", image: UIImage(systemName: "text.document")) { _ in
-                    UIPasteboard.general.string = "```\(code.language ?? "")\n\(code.code)\n```"
-                },
-                UIAction(title: "Select Text", image: UIImage(systemName: "selection.pin.in.out")) { _ in ChatSelectText.present(code.code) },
-                UIAction(title: "Share", image: UIImage(systemName: "square.and.arrow.up")) { _ in ChatShare.present(code.code) },
-            ]
+            items = Self.codeMenu(code.code, language: code.language)
         case .table(let table):
             items = [UIAction(title: "Copy Table", image: UIImage(systemName: "doc.on.doc")) { _ in UIPasteboard.general.string = table.plainText }]
         case .drawn:
             if let menu = actions.menu {
-                guard let built = menu(pressedFile(at: location)) else { return nil }
-                return UIContextMenuConfiguration(identifier: nil, previewProvider: nil) { _ in built }
+                let built = menu(pressedFile(at: location))
+                if built == nil && linkRows.isEmpty { return nil }
+                return UIContextMenuConfiguration(identifier: nil, previewProvider: nil) { _ in Self.leading(linkRows, in: built) }
             }
             guard let message = actions.message else { return nil }
             items = Self.messageMenu(message)
         }
-        return UIContextMenuConfiguration(identifier: nil, previewProvider: nil) { _ in UIMenu(children: items) }
+        return UIContextMenuConfiguration(identifier: nil, previewProvider: nil) { _ in Self.leading(linkRows, in: UIMenu(children: items)) }
+    }
+
+    /// `menu` with `linkRows` as its first group: the menu's own rows stay at its top level, never
+    /// folded into a submenu. `menu` itself when there are no link rows.
+    static func leading(_ linkRows: [UIMenuElement], in menu: UIMenu?) -> UIMenu {
+        guard !linkRows.isEmpty else { return menu ?? UIMenu(children: []) }
+        let links = UIMenu(options: .displayInline, children: linkRows)
+        guard let menu else { return UIMenu(children: [links]) }
+        return menu.replacingChildren([links] + menu.children)
+    }
+
+    /// A link's long-press rows: Open Link, then Copy Link, which copies its address.
+    static func linkMenu(_ url: URL, open: @escaping (URL) -> Void) -> [UIMenuElement] {
+        [
+            UIAction(title: String(localized: "mobile.agentChat.menu.openLink", defaultValue: "Open Link", bundle: .module),
+                     image: UIImage(systemName: "arrow.up.right.square")) { _ in open(url) },
+            UIAction(title: String(localized: "mobile.agentChat.menu.copyLink", defaultValue: "Copy Link", bundle: .module),
+                     image: UIImage(systemName: "link")) { _ in copyLink(url) },
+        ]
+    }
+
+    /// Puts `url` on `pasteboard` as a URL and as its address.
+    static func copyLink(_ url: URL, to pasteboard: UIPasteboard = .general) {
+        pasteboard.items = [[UTType.url.identifier: url, UTType.plainText.identifier: url.absoluteString]]
     }
 
     /// An answer block's long-press menu: the whole message, copied, selected from or shared
@@ -421,8 +568,24 @@ final class ChatNativeRowCell: UICollectionViewCell, UIContextMenuInteractionDel
     static func messageMenu(_ message: @escaping () -> String) -> [UIMenuElement] {
         [
             UIAction(title: "Copy", image: UIImage(systemName: "doc.on.doc")) { _ in UIPasteboard.general.string = message() },
-            UIAction(title: "Select Text", image: UIImage(systemName: "selection.pin.in.out")) { _ in ChatSelectText.present(message()) },
+            UIAction(title: "Select Text", image: UIImage(systemName: "selection.pin.in.out"), identifier: ChatSelectText.actionID) { _ in
+                ChatSelectText.present(message())
+            },
             UIAction(title: "Share", image: UIImage(systemName: "square.and.arrow.up")) { _ in ChatShare.present(message()) },
+        ]
+    }
+
+    /// A code block's long-press menu: the code copied, as Markdown, selected from or shared.
+    static func codeMenu(_ code: String, language: String? = nil) -> [UIMenuElement] {
+        [
+            UIAction(title: "Copy", image: UIImage(systemName: "doc.on.doc")) { _ in UIPasteboard.general.string = code },
+            UIAction(title: "Copy as Markdown", image: UIImage(systemName: "text.document")) { _ in
+                UIPasteboard.general.string = "```\(language ?? "")\n\(code)\n```"
+            },
+            UIAction(title: "Select Text", image: UIImage(systemName: "selection.pin.in.out"), identifier: ChatSelectText.actionID) { _ in
+                ChatSelectText.present(code)
+            },
+            UIAction(title: "Share", image: UIImage(systemName: "square.and.arrow.up")) { _ in ChatShare.present(code) },
         ]
     }
 }
@@ -464,6 +627,7 @@ final class ChatCodeCardView: UIView, UIScrollViewDelegate {
         scroll.alwaysBounceVertical = false
         scroll.delegate = self
         body.numberOfLines = 0
+        body.lineBreakStrategy = ChatNativeLayout.labelLineBreakStrategy
         body.layer.drawsAsynchronously = true
         scroll.addSubview(body)
         fade.startPoint = CGPoint(x: 0, y: 0.5)
@@ -554,7 +718,7 @@ final class ChatCodeCardView: UIView, UIScrollViewDelegate {
     @objc private func copyCode() {
         UIPasteboard.general.string = code
         setCopied(true)
-        UIImpactFeedbackGenerator(style: .light).impactOccurred(intensity: 0.7)
+        CmuxMobileTheme.standard.haptics.impact(.light, intensity: 0.7)
         copiedReset?.cancel()
         copiedReset = Task { @MainActor [weak self] in
             try? await Task.sleep(for: .seconds(1.5))
@@ -564,6 +728,13 @@ final class ChatCodeCardView: UIView, UIScrollViewDelegate {
     }
 
     @objc private func showAllTapped() { showAllAction() }
+
+    /// The code's label and its scroll area under `point` (in the card), for a hold to select in.
+    func selectableText(at point: CGPoint) -> (label: UILabel, container: UIView)? {
+        let local = convert(point, to: scroll)
+        guard scroll.frame.contains(point), body.frame.contains(local), (body.attributedText?.length ?? 0) > 0 else { return nil }
+        return (body, scroll)
+    }
 }
 
 /// `MarkdownTableView` in UIKit: the grid in a horizontal scroll area with a trailing fade.
@@ -596,6 +767,11 @@ final class ChatTableView: UIScrollView, UIScrollViewDelegate {
         return nil
     }
 
+    /// The cell's label under `point` (in the table's coordinates) with text, for a hold to select in.
+    func selectableLabel(at point: CGPoint) -> UILabel? {
+        labels.first { !$0.isHidden && $0.frame.contains(point) && ($0.attributedText?.length ?? 0) > 0 }
+    }
+
     func apply(_ table: ChatNativeLayout.Table, inset: CGFloat, openLink: @escaping (URL) -> Void) {
         for (index, cell) in table.cells.enumerated() {
             let label: UILabel
@@ -604,6 +780,7 @@ final class ChatTableView: UIScrollView, UIScrollViewDelegate {
             } else {
                 label = UILabel()
                 label.numberOfLines = 0
+                label.lineBreakStrategy = ChatNativeLayout.labelLineBreakStrategy
                 label.layer.drawsAsynchronously = true
                 addSubview(label)
                 labels.append(label)
@@ -670,6 +847,7 @@ final class ChatLineScroller: UIScrollView, UIScrollViewDelegate {
         alwaysBounceVertical = false
         delegate = self
         label.numberOfLines = 0
+        label.lineBreakStrategy = ChatNativeLayout.labelLineBreakStrategy
         label.layer.drawsAsynchronously = true
         addSubview(label)
         fade.startPoint = CGPoint(x: 0, y: 0.5)

@@ -26,8 +26,10 @@ public extension WindowOverlayHost {
             scrim = view
         }
         content.removeFromSuperview()
-        // Presented again while its close was fading out.
-        content.alphaValue = 1
+        // Presented again while its close was fading out. A content that keeps its own alpha keeps it
+        // here, before `syncPanel()` orders the panel in and commits a frame: set back by the caller
+        // after this call, it showed one frame at full opacity first.
+        if !options.keepsContentAlpha { content.alphaValue = 1 }
         if case .pane(let clip) = options.effectiveLayer, !isAppHost {
             let clipView = OverlayClipView(frame: clip)
             clipView.addSubview(content)
@@ -37,6 +39,8 @@ public extension WindowOverlayHost {
             container.addSubview(content)
         }
         handles.append(handle)
+        // After the new overlay is listed: a stale fade of this same content leaves it where it is (review of #42346).
+        endStaleFades()
         cachedRegions = nil
         // A content that grows or shrinks on its own (a SwiftUI popover) changes the regions.
         handle.contentPostedFrameChanges = content.postsFrameChangedNotifications
@@ -56,7 +60,9 @@ public extension WindowOverlayHost {
         if options.kind == .dialog { hideForEntrance([scrim, content].compactMap(\.self)) }
         syncPanel()
         layout(handle)
-        if options.kind == .dialog { animateIn(content, scrim: scrim) }
+        if options.kind == .dialog {
+            if options.holdsEntrance { handle.heldEntrance = (scrim, true) } else { animateIn(content, scrim: scrim) }
+        }
         if options.isModal { beginModal(handle) }
         updateMouseRouting()
         updateEscapeMonitor()
@@ -85,7 +91,7 @@ public extension WindowOverlayHost {
     /// one even step instead of a quick dim and then a slow one. Under Reduce Motion only the fades
     /// remain; with animation off it shows in one frame. Presented again while its close still runs,
     /// it continues from what is on screen.
-    private func animateIn(_ content: NSView, scrim: NSView?) {
+    func animateIn(_ content: NSView, scrim: NSView?) {
         content.wantsLayer = true
         if let layer = content.layer {
             let closing = layer.animation(forKey: "sublayerTransform") != nil
@@ -112,6 +118,20 @@ public extension WindowOverlayHost {
     func frameInWindow(_ handle: OverlayHandle) -> NSRect {
         guard let clip = handle.clipView else { return handle.content.frame }
         return handle.content.frame.offsetBy(dx: clip.frame.minX, dy: clip.frame.minY)
+    }
+
+    /// ``OverlayOptions/mouseRect`` in window coordinates, at the content's frame as placed.
+    func mouseRect(of handle: OverlayHandle) -> NSRect? {
+        guard let rect = handle.options.mouseRect else { return nil }
+        let frame = frameInWindow(handle)
+        let y = handle.content.isFlipped ? frame.maxY - rect.maxY : frame.minY + rect.minY
+        return NSRect(x: frame.minX + rect.minX, y: y, width: rect.width, height: rect.height)
+    }
+
+    /// Where the overlay takes clicks (window coordinates), nil for its whole frame: a dialog's
+    /// card (``OverlayOptions/mouseRect``).
+    func clickRegions(of handle: OverlayHandle) -> [NSRect]? {
+        mouseRect(of: handle).map { [$0] }
     }
 
     /// What of the overlay shows (window coordinates): a `.pane` overlay
@@ -162,7 +182,12 @@ public extension WindowOverlayHost {
             if options.dimsContent || (options.isModal && options.modalRegion == nil) { return [bounds] }
             var rects: [NSRect] = []
             if let region = options.modalRegion { rects.append(region) }
-            if !options.passesThroughClicks { rects += visibleRegion(of: handle) }
+            if !options.passesThroughClicks {
+                let visible = visibleRegion(of: handle)
+                rects += clickRegions(of: handle).map { regions in
+                    regions.flatMap { region in visible.map { $0.intersection(region) } }.filter { !$0.isEmpty }
+                } ?? visible
+            }
             return rects
         }
     }
@@ -197,6 +222,11 @@ extension WindowOverlayHost {
         onBlockingChange?()
     }
 
+    /// Ends every fade-out that began more than ``staleFadeAge`` ago (`now`, system uptime): its completion was lost.
+    func endStaleFades(now: TimeInterval = ProcessInfo.processInfo.systemUptime) {
+        for (_, fade) in fades.sorted(by: { $0.key < $1.key }) where now - fade.began > Self.staleFadeAge { fade.end() }
+    }
+
     /// A dialog and its scrim fade out (POLISH: no flash) where they were: the card on `fadeOut`,
     /// faster than it came, shrinking a little toward `Motion.panelCloseScale` (only the fade under
     /// Reduce Motion), and the scrim on `scrim`, in step with the inactive-window tint lifting as the
@@ -205,6 +235,8 @@ extension WindowOverlayHost {
     /// presented again meanwhile, here or in another window (its tab moved there), stays where it went.
     private func fadeOut(_ views: [NSView], content: NSView) {
         fadingOut += 1
+        let fadeID = nextFadeID
+        nextFadeID += 1
         let parents = (views + [content]).map { ($0, $0.superview) }
         let scrims = views.filter { $0 is OverlayScrimView }, cards = views.filter { !($0 is OverlayScrimView) }
         if let layer = content.layer {
@@ -213,7 +245,7 @@ extension WindowOverlayHost {
                                 movementFade: .fadeOut)
         }
         let finished = OverlayCountdown(scrims.isEmpty ? 1 : 2) { [weak self] in
-            guard let self else { return }
+            guard let self, fades.removeValue(forKey: fadeID) != nil else { return }
             fadingOut -= 1
             let presented = handles.contains { $0.content === content }
             for (view, parent) in parents where parent != nil && view.superview === parent && !(presented && view === content) {
@@ -226,6 +258,7 @@ extension WindowOverlayHost {
             }
             syncPanel()
         }
+        fades[fadeID] = (ProcessInfo.processInfo.systemUptime, { finished.finish() })
         Motion.overlays.animate(.fadeOut, in: cards.first, {
             cards.forEach { $0.animator().alphaValue = 0 }
         }, completion: { finished.done() })
@@ -302,7 +335,13 @@ final class OverlayCountdown {
 
     func done() {
         left -= 1
-        guard left <= 0, let body else { return }
+        guard left <= 0 else { return }
+        finish()
+    }
+
+    /// Runs the body now, once, whatever parts are still out (a fade whose completion was lost).
+    func finish() {
+        guard let body else { return }
         self.body = nil
         body()
     }

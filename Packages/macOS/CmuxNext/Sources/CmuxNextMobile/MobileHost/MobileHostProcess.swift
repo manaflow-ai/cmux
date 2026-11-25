@@ -8,7 +8,8 @@ import CmuxNextCompat
 public final class MobileHostProcess: Sendable {
     private struct State {
         var process: Process?
-        var input: FileHandle?
+        /// hostd's stdin: control lines and the close go through its queue, in order.
+        var input: PipeFeed?
         var exitStatus: Int32?
         var exitWaiters: [CheckedContinuation<Int32, Never>] = []
     }
@@ -31,8 +32,8 @@ public final class MobileHostProcess: Sendable {
         process.standardInput = input
         process.standardOutput = output
         process.standardError = Self.logHandle(log) ?? FileHandle.nullDevice
-        // A write after hostd exited must fail with EPIPE, not raise SIGPIPE in the app.
-        _ = fcntl(input.fileHandleForWriting.fileDescriptor, F_SETNOSIGPIPE, 1)
+        // A write after hostd exited fails with EPIPE, never SIGPIPE (PipeFeed sets F_SETNOSIGPIPE).
+        let feed = PipeFeed(input.fileHandleForWriting)
         let buffer = LineBuffer()
         let queue = queue
         output.fileHandleForReading.readabilityHandler = { handle in
@@ -41,14 +42,18 @@ public final class MobileHostProcess: Sendable {
             case .retry: return
             case .end:
                 handle.readabilityHandler = nil
+                try? handle.close()
                 queue.finish()
             }
         }
+        let reader = output.fileHandleForReading
         process.terminationHandler = { [weak self] finished in
+            // A helper hostd left running keeps its stdout's end of file from coming: close it after the drain grace.
+            ChildOutputEnds.closeAfterExit(reading: [reader]) { queue.finish() }
             let status = finished.terminationStatus
             let waiters = self?.state.withLock { state -> [CheckedContinuation<Int32, Never>] in
                 state.exitStatus = status
-                try? state.input?.close()
+                state.input?.close()
                 state.input = nil
                 defer { state.exitWaiters.removeAll() }
                 return state.exitWaiters
@@ -57,15 +62,17 @@ public final class MobileHostProcess: Sendable {
         }
         state.withLock {
             $0.process = process
-            $0.input = input.fileHandleForWriting
+            $0.input = feed
         }
         do {
+            OpenDescriptors.noteBudgetSoon()  // every child launch: a leak shows in the log as it passes the bound
             try process.run()
         } catch {
-            output.fileHandleForReading.readabilityHandler = nil
+            process.terminationHandler = nil
+            ChildOutputEnds.closeNow(reading: [output.fileHandleForReading], writing: [output.fileHandleForWriting])
             queue.cancel()
             state.withLock {
-                try? $0.input?.close()
+                $0.input?.close()
                 $0.input = nil
                 $0.process = nil
             }
@@ -73,18 +80,14 @@ public final class MobileHostProcess: Sendable {
         }
     }
 
-    /// Writes one control line; false when hostd is gone.
+    /// Queues one control line on hostd's stdin; false when hostd is gone. The write runs on the
+    /// feed's own queue, never the caller's thread or under this lock: a pipe write waits while
+    /// hostd is not reading, and the supervisor calls this on the main actor.
     @discardableResult
     public func send(_ line: Data) -> Bool {
-        state.withLock { state in
-            guard state.exitStatus == nil, let input = state.input else { return false }
-            do {
-                try input.write(contentsOf: line)
-                return true
-            } catch {
-                return false
-            }
-        }
+        guard let input = state.withLock({ state in state.exitStatus == nil ? state.input : nil }) else { return false }
+        input.write(line)
+        return true
     }
 
     public var pid: Int32? { state.withLock { $0.process?.processIdentifier } }
@@ -104,7 +107,7 @@ public final class MobileHostProcess: Sendable {
     public func stop() {
         queue.cancel()
         let process = state.withLock { state -> Process? in
-            try? state.input?.close()
+            state.input?.close()
             state.input = nil
             return state.exitStatus == nil ? state.process : nil
         }

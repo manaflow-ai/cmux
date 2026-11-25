@@ -17,6 +17,7 @@ extension UpdaterService {
         // Update Available button (``availableButton``), not this card; a check they asked for shows here.
         if let newestCard { return newestCard }
         if let cancelledDownloadCard { return cancelledDownloadCard }
+        if let healthCard { return healthCard }
         guard !stagedPulledHeld, let card = flow.card(downloadsAutomatically: true) else { return nil }
         if card == .installing, installCardDismissed { return nil }
         if case .available(let version) = card, updateSnooze.hides(version: version, at: now()) { return nil }
@@ -25,13 +26,14 @@ extension UpdaterService {
 
     /// The sidebar footer's quiet Update Available button: a found update that waits for a click
     /// (`updates.downloadAutomatically` off, or downloads deferred on a metered network); a click
-    /// downloads it (``downloadClicked()``), and the staged update then asks before relaunching.
+    /// downloads it (``downloadClicked()``), and the staged update then asks before relaunching
+    /// (with `updates.oneClickInstall`, it installs and relaunches instead).
     /// Nil otherwise, and for a version the
     /// person closed or snoozed (``updateSnooze``), and while a check the person asked for shows
     /// it on the notice card (``card``).
     public var availableButton: UpdateAvailableButton? {
         guard !flow.userAsked, case .available(let version) = flow.phase, !updateSnooze.hides(version: version, at: now()) else { return nil }
-        return UpdateAvailableButton(version: version)
+        return UpdateAvailableButton(version: version, restarts: preferences.oneClickInstall)
     }
 
     /// The footer's update pill, or nil when it does not show.
@@ -43,10 +45,13 @@ extension UpdaterService {
     /// Available, the sheet's Update): download only. The update then waits on the Update Ready
     /// card, which asks before relaunching (Leo 2026-10-27: "ask before the download + install
     /// step, and likewise for the reboot"). With the opt-in too (a download deferred on a metered
-    /// link): the opt-in skips the first ask, never the relaunch's. It never asks to install, so a
-    /// repeated or late press (the download already running, or staged) does nothing.
+    /// link): the opt-in skips the first ask, never the relaunch's. With `updates.oneClickInstall`
+    /// this press is the relaunch's ask too: the update installs and cmux relaunches once it is
+    /// staged (``UpdateFlow``). Only the update-found step takes it, so a repeated or late press
+    /// (the download already running, or staged) does nothing.
     public func downloadClicked() {
         syncFlowPhase()
+        log.append("download clicked (\(flow.phase))")
         if downloadAgainIfCancelled() { return }
         guard case .available = flow.phase else {
             log.append("update-found answer ignored: nothing waits on that step (\(flow.phase))")
@@ -61,11 +66,20 @@ extension UpdaterService {
     /// Restart to Update (the Update Ready card, the footer pill): install and relaunch, at once
     /// or when the download finishes. `willRelaunch` records keep sessions.
     public func installClicked() {
+        if relaunchIntoInstalledBuild() { return }
         syncFlowPhase()
+        log.append("restart to update clicked (\(flow.phase))")
         #if DEBUG || CMUX_BENCH_HOOKS
         UpdateHarness.mark("install_clicked")
         #endif
         send(.installRequested)
+    }
+
+    /// Reads the feed and the pulled list now while an update waits on Update Ready, so a Restart
+    /// to Update soon after decides at once (``StagedUpdateRefresh/prefetch(updater:)``). Called
+    /// when cmux becomes active; a no-op otherwise.
+    public func prefetchForInstallClick() {
+        stagedRefresh.prefetch(updater: self)
     }
 
     /// The quit is decided: with `updates.installOnQuit` off, or a staged build known pulled
@@ -75,9 +89,23 @@ extension UpdaterService {
     @discardableResult
     public func prepareForQuit() -> UpdateQuitAction {
         syncFlowPhase()
+        if case .downloading(let transfer) = flow.phase,
+           transfer.stage != .preparing,
+           cancelDownloadNow() {
+            log.append("quit: cancelling the active update download")
+        }
         var action = flow.handle(.quitRequested, preferences: preferences).lazy.compactMap { effect -> UpdateQuitAction? in
             if case .quit(let action) = effect { action } else { nil }
         }.first ?? .proceed
+        if rollbackQuitPending {
+            // A rollback's quit: a staged update would install over the build just put in place
+            // and relaunch forward (cmux#41013 review F2). One staged after the swap is cancelled.
+            if let staged = stagedBuild(), !staged.isEmpty {
+                log.append(cancelStaged() ? "quit: a rollback quits, cancelled the staged update \(staged)"
+                                          : "quit: a rollback quits, but the staged update \(staged) could not be cancelled")
+            }
+            return .cancelPendingInstall
+        }
         if action == .proceed, stagedPulledHeld {
             if cancelStaged() {
                 log.append("quit: the staged build was pulled, cancelled it instead of installing on quit")
@@ -93,11 +121,12 @@ extension UpdaterService {
     }
 
     /// Why the update flow failed, as Sparkle reported it (a failed check, download or install
-    /// preflight), else the read-only probe's failure on a build without Sparkle; nil otherwise.
+    /// preflight) in plain words (``UpdateFailureText``), else the read-only probe's failure on a
+    /// build without Sparkle; nil otherwise.
     public var failureReason: String? {
         if let controller, disabledReason == nil {
             guard case .error(let failure) = controller.model.effectiveState else { return nil }
-            return failure.error.localizedDescription
+            return UpdateFailureText.plain(failure.error)
         }
         return lastProbeError
     }
@@ -123,10 +152,18 @@ extension UpdaterService {
         switch effect {
         case .install:
             stagedRefresh.installStarted()
+            installClickedAt = ContinuousClock.now
+            picturesAtClick?()
             automaticInstallInFlight = false
             automaticInstallFrontmost = nil
-            // The newest build of the ring, not a stale staged one (one click, one relaunch).
-            stagedRefresh.beforeInstall(updater: self) { [weak self] in self?.installStagedNow() }
+            // The staged build's pre-warm, if it still runs, goes at the click's priority from now on.
+            if let run = prewarmRun, run.line == nil { run.urgency.raise() }
+            // The newest build of the ring, not a stale staged one (one click, one relaunch); then the
+            // staged build's pre-warm, bounded, so its first launch is pre-warmed for a click that came
+            // right after the update staged (Leo's NIGHTLY: 3 s).
+            stagedRefresh.beforeInstall(updater: self) { [weak self] in
+                self?.installAfterPrewarm { [weak self] in self?.installStagedNow() }
+            }
         case .download:
             log.append("gate: downloading the available update")
             acceptAvailable()
@@ -177,6 +214,7 @@ extension UpdaterService {
         dropPulledAvailable()
         let phase = indicatorPhase
         guard phase != flow.phase else { return }
+        transferRate.record(phase, at: now())
         if userCheckRunning, phase != .checking { userCheckRunning = false }
         #if DEBUG || CMUX_BENCH_HOOKS
         if phase.harnessName != flow.phase.harnessName { UpdateHarness.mark("phase.\(phase.harnessName)") }
@@ -196,7 +234,7 @@ extension UpdaterService {
         followNewestFetch(phase, previous: previous)
         followInstall(phase)
         followStagedUpdate(phase)
-        stagedRefresh.follow(phase, updater: self)
+        stagedRefresh.follow(phase, previous: previous, updater: self)
         tipCheck.refresh(self)
         followReleasePush()
         // A pulled running build read while a check ran is followed once the check ends.
@@ -250,20 +288,39 @@ extension UpdaterService {
     /// (``follow(ring:)``) to Sparkle, and when given the idle install's wait cap and quiet window
     /// (`idleInstallMaxWaitSeconds`, `idleInstallQuietSeconds`). The ring is kept without a driver
     /// too (the probe reads it).
+    /// - Parameter installWhenIdleMinutes: Update When Idle (`updates.installWhenIdle`, off by default):
+    ///   the idle time `updates.installWhenIdleMinutes` when it is on, nil when off.
     public func configure(checkAutomatically: Bool, checkInterval: TimeInterval, downloadAutomatically: Bool,
                           metered: UpdateMeteredMode = .deferLowData, ring: String? = nil,
-                          idleInstall: (maxWait: TimeInterval, quiet: TimeInterval)? = nil) {
+                          idleInstall: (maxWait: TimeInterval, quiet: TimeInterval)? = nil,
+                          installWhenIdleMinutes: TimeInterval? = nil) {
+        // Paused (``AutomaticUpdatePause``): the settings keep their values, nothing automatic runs.
+        let paused = pausesAutomaticUpdates
+        let checkAutomatically = checkAutomatically && !paused
+        let downloadAutomatically = downloadAutomatically && !paused
+        let installWhenIdleMinutes = paused ? nil : installWhenIdleMinutes
+        if paused, !settingsApplied { log.append("automatic updates paused: checks, downloads and idle installs only on the person's click") }
         if let ring { follow(ring: ring) }
+        installWhenIdle = installWhenIdleMinutes.map { .seconds($0 * 60) }
         if let idleInstall {
             idleInstallQuiet = .seconds(idleInstall.quiet)
             controller?.idleInstallWaitCap = .seconds(idleInstall.maxWait)
+            // The longest an automatic install waits silently on a modal, sheet, menu or composition;
+            // with Update When Idle, never before its idle time could have passed.
+            relaunchMomentHold.surfaceAfter = max(.seconds(idleInstall.maxWait), installWhenIdle ?? .zero)
         }
-        downloadSetting = (downloadAutomatically, metered)
+        // Update When Idle installs what it downloaded: it downloads found updates too.
+        downloadSetting = (downloadAutomatically || installWhenIdle != nil, metered)
         settingsApplied = true
         // `updates.downloadAutomatically` downloads found updates and stages them; it never installs
-        // them. The app restarts only on the person's click (Restart to Update), so the idle install
-        // stays off whatever the download setting says (nightly restart policy, 2026-10-27).
-        if let controller, controller.installsUpdatesWhenIdle { controller.installsUpdatesWhenIdle = false }
+        // them. The app restarts only on the person's click (Restart to Update) unless the person
+        // turned on Update When Idle (Leo, 2026-11-19: "maybe even having it as an opt-in option
+        // would be pretty interesting. Yeah, like update when idle"); nightly restart policy, 2026-10-27.
+        // Its installs wait on ``UpdateRelaunchMomentHold/idleGate`` (the app's Rust rule).
+        // The gate first: turning the policy on may hold an update already staged at once.
+        let installsWhenIdle = installWhenIdle != nil && idleInstallGate != nil
+        relaunchMomentHold.idleGate = installsWhenIdle ? idleInstallGate : nil
+        if let controller, controller.installsUpdatesWhenIdle != installsWhenIdle { controller.installsUpdatesWhenIdle = installsWhenIdle }
         stagedRefresh.reschedule(automatic: checkAutomatically, interval: checkInterval, updater: self)
         tipCheck.reschedule(automatic: checkAutomatically, updater: self)
         refreshReleasePush()
@@ -302,8 +359,9 @@ extension UpdaterService {
     func applyDownloadPolicy() {
         let required = requiredMinimumVersion != nil
         let enabled = (downloadSetting.enabled || required) && !isOffManagedChannel && !policy.disablesUpdates
-        let downloads = UpdateNetworkPolicy.downloadsAutomatically(setting: enabled, mode: required ? .download : downloadSetting.metered,
-                                                                   constrained: network.constrained, expensive: network.expensive)
+        let downloads = (required || !downloadHeldForDeltas) && UpdateNetworkPolicy.downloadsAutomatically(setting: enabled, mode: required ? .download : downloadSetting.metered,
+                                                                   constrained: network.constrained || networkPending,
+                                                                   expensive: network.expensive || networkPending)
         // The tip app reads its feed every few minutes only where found updates download by
         // themselves and the policy allows updates.
         defer {
@@ -315,28 +373,36 @@ extension UpdaterService {
         downloadsFoundUpdates = downloads
         if let controller, controller.downloadsUpdatesInBackground != downloads {
             controller.downloadsUpdatesInBackground = downloads
-            log.append("automatic downloads \(downloads ? "on" : "deferred") (setting \(downloadSetting.enabled), required \(required), off managed channel \(isOffManagedChannel), constrained \(network.constrained), expensive \(network.expensive))")
+            log.append("automatic downloads \(downloads ? "on" : "deferred") (setting \(downloadSetting.enabled), required \(required), off managed channel \(isOffManagedChannel), constrained \(network.constrained), expensive \(network.expensive), link pending \(networkPending))")
         }
         // Downloads came on (the setting, the link or the policy): an update a check found while they
         // were off downloads now instead of waiting for a click (the driver's own state decides; a
-        // no-op when none waits).
-        if resumed { acceptAvailable() }
+        // no-op when none waits). On the build the person picked it keeps waiting for their click (#36419),
+        // unless the organization requires it.
+        if resumed && (required || !runsPickedBuild) { acceptAvailable() }
     }
 
-    /// Follows the link's Low Data Mode and cost (path events, no polling).
+    /// Follows the link's Low Data Mode and cost (path events, no polling). Until the first path
+    /// arrives the link counts as metered (``networkPending``).
     func followNetwork() {
         guard pathMonitor == nil else { return }
         let monitor = NWPathMonitor()
         monitor.pathUpdateHandler = { [weak self] path in
             let state = (constrained: path.isConstrained, expensive: path.isExpensive)
-            Task { @MainActor in
-                guard let self, self.network != state else { return }
-                self.network = state
-                self.applyDownloadPolicy()
-            }
+            Task { @MainActor in self?.networkChanged(constrained: state.constrained, expensive: state.expensive) }
         }
+        networkPending = true
         monitor.start(queue: DispatchQueue(label: "cmux.updates.network"))
         pathMonitor = monitor
+    }
+
+    /// A path event: the link's Low Data Mode and cost as the monitor reports them.
+    func networkChanged(constrained: Bool, expensive: Bool) {
+        let state = (constrained: constrained, expensive: expensive)
+        guard networkPending || network != state else { return }
+        networkPending = false
+        network = state
+        applyDownloadPolicy()
     }
 }
 

@@ -1,0 +1,476 @@
+[
+ {
+  "name": "a prompt picks its promptId",
+  "method": "session/prompt",
+  "params": {
+   "sessionId": "s",
+   "prompt": [],
+   "_meta": {
+    "acpmux": {
+     "promptId": "p1"
+    }
+   }
+  },
+  "pick": {
+   "method": "session/prompt",
+   "params": {
+    "promptId": "p1"
+   }
+  }
+ },
+ {
+  "name": "a hand-off turn's prompt picks its own id (Swift AgentPaneHandoffPrompt.ownID)",
+  "method": "session/prompt",
+  "params": {
+   "_meta": {
+    "acpmux": {
+     "promptId": "handoff-12-p1"
+    }
+   }
+  },
+  "pick": {
+   "method": "session/prompt",
+   "params": {
+    "promptId": "p1"
+   }
+  }
+ },
+ {
+  "name": "an id under two hand-off labels is its own id as it is",
+  "method": "session/prompt",
+  "params": {
+   "_meta": {
+    "acpmux": {
+     "promptId": "handoff-1-handoff-2-x"
+    }
+   }
+  },
+  "pick": {
+   "method": "session/prompt",
+   "params": {
+    "promptId": "handoff-1-handoff-2-x"
+   }
+  }
+ },
+ {
+  "name": "a turn starting with 0 is no hand-off label",
+  "method": "session/prompt",
+  "params": {
+   "_meta": {
+    "acpmux": {
+     "promptId": "handoff-0-p1"
+    }
+   }
+  },
+  "pick": {
+   "method": "session/prompt",
+   "params": {
+    "promptId": "handoff-0-p1"
+   }
+  }
+ },
+ {
+  "name": "a 16-digit turn is no hand-off label",
+  "method": "session/prompt",
+  "params": {
+   "_meta": {
+    "acpmux": {
+     "promptId": "handoff-1234567890123456-p1"
+    }
+   }
+  },
+  "pick": {
+   "method": "session/prompt",
+   "params": {
+    "promptId": "handoff-1234567890123456-p1"
+   }
+  }
+ },
+ {
+  "name": "a turn that is not digits is no hand-off label",
+  "method": "session/prompt",
+  "params": {
+   "_meta": {
+    "acpmux": {
+     "promptId": "handoff-1x-p1"
+    }
+   }
+  },
+  "pick": {
+   "method": "session/prompt",
+   "params": {
+    "promptId": "handoff-1x-p1"
+   }
+  }
+ },
+ {
+  "name": "nothing after the turn is no hand-off label",
+  "method": "session/prompt",
+  "params": {
+   "_meta": {
+    "acpmux": {
+     "promptId": "handoff-3-"
+    }
+   }
+  },
+  "pick": {
+   "method": "session/prompt",
+   "params": {
+    "promptId": "handoff-3-"
+   }
+  }
+ },
+ {
+  "name": "no turn is no hand-off label",
+  "method": "session/prompt",
+  "params": {
+   "_meta": {
+    "acpmux": {
+     "promptId": "handoff-p1"
+    }
+   }
+  },
+  "pick": {
+   "method": "session/prompt",
+   "params": {
+    "promptId": "handoff-p1"
+   }
+  }
+ },
+ {
+  "name": "a prompt without a string promptId picks nothing",
+  "method": "session/prompt",
+  "params": {
+   "_meta": {
+    "acpmux": {
+     "promptId": 7
+    }
+   }
+  },
+  "pick": {
+   "method": "session/prompt",
+   "params": null
+  }
+ },
+ {
+  "name": "a permission answer picks its session, permission and option",
+  "method": "_acpmux/permission_respond",
+  "params": {
+   "sessionId": "s1",
+   "permissionId": "p1",
+   "optionId": "o2"
+  },
+  "pick": {
+   "method": "_acpmux/permission_respond",
+   "params": {
+    "sessionId": "s1",
+    "permissionId": "p1",
+    "optionId": "o2"
+   }
+  }
+ },
+ {
+  "name": "a question's answers are picked by their canonical digest",
+  "method": "_acpmux/permission_respond",
+  "params": {
+   "sessionId": "s1",
+   "permissionId": "p1",
+   "optionId": "allow",
+   "answers": {
+    "Which auth method should the API use?": "Passkeys"
+   }
+  },
+  "pick": {
+   "method": "_acpmux/permission_respond",
+   "params": {
+    "sessionId": "s1",
+    "permissionId": "p1",
+    "optionId": "allow",
+    "answers": "2790eafc7833f2bfa1e6f899324110e7ebca453b1399f6797bc6fcccce4201e9"
+   }
+  }
+ },
+ {
+  "name": "answers and annotations both by digest",
+  "method": "_acpmux/permission_respond",
+  "params": {
+   "sessionId": "s1",
+   "permissionId": "p1",
+   "optionId": "allow",
+   "answers": {
+    "Which one?": "B"
+   },
+   "annotations": {
+    "Which one?": {
+     "preview": "[ B ]\n😀",
+     "notes": "n"
+    }
+   }
+  },
+  "pick": {
+   "method": "_acpmux/permission_respond",
+   "params": {
+    "sessionId": "s1",
+    "permissionId": "p1",
+    "optionId": "allow",
+    "answers": "eb697ddd7671828d1182fd7360781a1f72340687affb6be4eb8c209c19c098c4",
+    "annotations": "56e68ab1dcd9b414920749556d1a2ea471ca306a1fe06a7ad97825cd024534cf"
+   }
+  }
+ },
+ {
+  "name": "the canonical bytes: byte-order keys, escapes, a control character (acpmux the_wire_payload_is_fixed)",
+  "method": "_acpmux/permission_respond",
+  "params": {
+   "sessionId": "s",
+   "permissionId": "p",
+   "optionId": "o",
+   "answers": {
+    "Which?": "B",
+    "a\"b": [
+     "x\ny",
+     "\u0001"
+    ],
+    "codex": {
+     "answers": [
+      "é"
+     ]
+    }
+   }
+  },
+  "pick": {
+   "method": "_acpmux/permission_respond",
+   "params": {
+    "sessionId": "s",
+    "permissionId": "p",
+    "optionId": "o",
+    "answers": "44ba30ad88bf4d244b42c361e7ba2a97441780fce0cdfd2a175df95d6e2d6fc8"
+   }
+  }
+ },
+ {
+  "name": "a null answers is no pick key",
+  "method": "_acpmux/permission_respond",
+  "params": {
+   "sessionId": "s1",
+   "permissionId": "p1",
+   "optionId": "o",
+   "answers": null
+  },
+  "pick": {
+   "method": "_acpmux/permission_respond",
+   "params": {
+    "sessionId": "s1",
+    "permissionId": "p1",
+    "optionId": "o"
+   }
+  }
+ },
+ {
+  "name": "answers that are not an object pick nothing",
+  "method": "_acpmux/permission_respond",
+  "params": {
+   "sessionId": "s1",
+   "permissionId": "p1",
+   "optionId": "o",
+   "answers": [
+    "B"
+   ]
+  },
+  "pick": {
+   "method": "_acpmux/permission_respond",
+   "params": null
+  }
+ },
+ {
+  "name": "answers holding a fractional number have no digest: no pick",
+  "method": "_acpmux/permission_respond",
+  "params": {
+   "sessionId": "s1",
+   "permissionId": "p1",
+   "optionId": "o",
+   "answers": {
+    "q": 1.5
+   }
+  },
+  "pick": {
+   "method": "_acpmux/permission_respond",
+   "params": null
+  }
+ },
+ {
+  "name": "an integral float in answers is written as an integer",
+  "method": "_acpmux/permission_respond",
+  "params": {
+   "sessionId": "s1",
+   "permissionId": "p1",
+   "optionId": "o",
+   "answers": {
+    "q": 2.0
+   }
+  },
+  "pick": {
+   "method": "_acpmux/permission_respond",
+   "params": {
+    "sessionId": "s1",
+    "permissionId": "p1",
+    "optionId": "o",
+    "answers": "f39fb134398474c0c9c4858a795d6f2ab0ffbe9ad987530811f8b2093655d20f"
+   }
+  }
+ },
+ {
+  "name": "a permission answer without its option picks nothing",
+  "method": "_acpmux/permission_respond",
+  "params": {
+   "sessionId": "s1",
+   "permissionId": "p1"
+  },
+  "pick": {
+   "method": "_acpmux/permission_respond",
+   "params": null
+  }
+ },
+ {
+  "name": "set_mode picks its scalar params but sessionId and _meta",
+  "method": "session/set_mode",
+  "params": {
+   "sessionId": "s",
+   "modeId": "plan",
+   "_meta": {
+    "cmuxGesture": "t"
+   }
+  },
+  "pick": {
+   "method": "session/set_mode",
+   "params": {
+    "modeId": "plan"
+   }
+  }
+ },
+ {
+  "name": "a number param is a Double: 1 and 1.0 pick the same",
+  "method": "session/set_config_option",
+  "params": {
+   "configId": "effort",
+   "value": 1
+  },
+  "pick": {
+   "method": "session/set_config_option",
+   "params": {
+    "configId": "effort",
+    "value": 1.0
+   }
+  }
+ },
+ {
+  "name": "a bool param stays a bool",
+  "method": "session/set_config_option",
+  "params": {
+   "configId": "fast",
+   "value": true
+  },
+  "pick": {
+   "method": "session/set_config_option",
+   "params": {
+    "configId": "fast",
+    "value": true
+   }
+  }
+ },
+ {
+  "name": "a null param is a pick value",
+  "method": "session/set_config_option",
+  "params": {
+   "configId": "x",
+   "value": null
+  },
+  "pick": {
+   "method": "session/set_config_option",
+   "params": {
+    "configId": "x",
+    "value": null
+   }
+  }
+ },
+ {
+  "name": "an object param picks nothing",
+  "method": "session/set_config_option",
+  "params": {
+   "configId": "x",
+   "value": {
+    "a": 1
+   }
+  },
+  "pick": {
+   "method": "session/set_config_option",
+   "params": null
+  }
+ },
+ {
+  "name": "Swift AgentPaneRelayedAllowTests' answers vector",
+  "method": "_acpmux/permission_respond",
+  "params": {
+   "sessionId": "s",
+   "permissionId": "p",
+   "optionId": "o",
+   "answers": {
+    "Which one?": "B",
+    "Pick a color\n(one)": [
+     "red",
+     "blue"
+    ],
+    "é": "\u0001"
+   },
+   "annotations": {
+    "Which one?": {
+     "preview": "[ B ]\n😀",
+     "notes": "n"
+    }
+   }
+  },
+  "pick": {
+   "method": "_acpmux/permission_respond",
+   "params": {
+    "sessionId": "s",
+    "permissionId": "p",
+    "optionId": "o",
+    "answers": "a31d01fee6eb910b75f8c0b486ce121c3db879f0a52c169fa6f1914c36ff8c38",
+    "annotations": "56e68ab1dcd9b414920749556d1a2ea471ca306a1fe06a7ad97825cd024534cf"
+   }
+  }
+ },
+ {
+  "name": "a Cloud start picks only its key (Swift AgentPaneGesturePick, #34487)",
+  "method": "cloud.startChat",
+  "params": {
+   "task": "t",
+   "cwd": "/w",
+   "key": "6F9619FF-8B86-D011-B42D-00C04FC964FF",
+   "attachments": [
+    {
+     "name": "a.png"
+    }
+   ],
+   "signedIn": true
+  },
+  "pick": {
+   "method": "cloud.startChat",
+   "params": {
+    "key": "6F9619FF-8B86-D011-B42D-00C04FC964FF"
+   }
+  }
+ },
+ {
+  "name": "a Cloud start without a string key picks nothing",
+  "method": "cloud.startChat",
+  "params": {
+   "task": "t",
+   "key": 7
+  },
+  "pick": {
+   "method": "cloud.startChat",
+   "params": null
+  }
+ }
+]

@@ -45,11 +45,11 @@ import Testing
     @Test func aRowWithoutAnIconStartsItsTitleAtTheLeadingInset() throws {
         let sidebar = Self.sidebar()
         let plain = try Self.row(sidebar, Self.plainID)
-        #expect(Self.textX(plain) == SidebarStyle.horizontalInset,
-                "title at \(Self.textX(plain)) pt, inset \(SidebarStyle.horizontalInset) pt: an empty icon slot pushes it right")
+        #expect(Self.textX(plain) == SidebarStyle.contentInset,
+                "title at \(Self.textX(plain)) pt, inset \(SidebarStyle.contentInset) pt: an empty icon slot pushes it right")
         // A row with an icon keeps the icon at the inset and the text after it.
         let icon = try Self.row(sidebar, Self.iconID)
-        #expect(icon.icon.frame.minX == SidebarStyle.horizontalInset)
+        #expect(icon.icon.frame.minX == SidebarStyle.contentInset)
         #expect(Self.textX(icon) > icon.icon.frame.minX + SidebarStyle.kindGlyphSize, "the title clears the icon")
     }
 
@@ -77,7 +77,10 @@ import Testing
         let size = SidebarStyle.controlSize
         #expect(close.frame.width == size && close.frame.height == size, "close \(close.frame.size)")
         #expect(abs(close.frame.midY - row.title.frame.midY) < 1, "close centered on the title's line: \(close.frame.midY) vs \(row.title.frame.midY)")
-        #expect(close.frame.maxX <= row.bounds.width - SidebarStyle.horizontalInset + 0.5,
-                "close ends \(row.bounds.width - close.frame.maxX) pt in, inside the row's inset")
+        // The close centers on the trailing column, `trailingCenterInset` inside the fill since #34872 (Leo
+        // 2026-11-04: "too much of a gutter on the right"), so it ends 5 pt (comfortable) / 4 pt (compact) in.
+        let column = SidebarStyle.trailingColumnCenterX(rowWidth: row.bounds.width)
+        #expect(abs(close.frame.midX - column) <= 0.5, "close centered at \(close.frame.midX), trailing column \(column)")
+        #expect(close.frame.maxX <= row.bounds.width, "close ends \(row.bounds.width - close.frame.maxX) pt in, inside the fill")
     }
 }

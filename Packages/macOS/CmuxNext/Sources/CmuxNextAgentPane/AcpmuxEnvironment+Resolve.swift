@@ -11,7 +11,7 @@ public import Foundation
 /// unchanged, so that the risk tier grades this trust decision on its own.
 ///
 /// The members of AcpmuxEnvironment.swift it uses are named `AcpmuxEnvironment.<member>`, so the
-/// defaults guard (scripts/ci/defaults_guard.py), which follows same-file names and `Type.member`
+/// defaults snapshot (scripts/ci/defaults_guard.py), which follows same-file names and `Type.member`
 /// references, still tracks them as dependencies of `resolve`.
 nonisolated extension AcpmuxEnvironment {
     /// Resolves the environment of `build` (nil: no build, the shared home),
@@ -37,7 +37,7 @@ nonisolated extension AcpmuxEnvironment {
         return resolve(build: build, bundledBinDirectory: bundledBinDirectory, environment: environment, userHome: userHome,
                        uid: uid, isExecutable: isExecutable, launchEnvironment: launchEnvironment,
                        executableOverride: executableOverride, teamIdentifier: AcpmuxServerPeer.ownTeam,
-                       isTrustedExecutable: AcpmuxServerPeer.executableSignedByAppTeam)
+                       isTrustedExecutable: { AcpmuxServerPeer.executableSignedByAppTeam($0, team: $1) })
     }
 
     /// ``resolve(build:bundledBinDirectory:environment:userHome:uid:isExecutable:launchEnvironment:)`` with
@@ -64,6 +64,7 @@ nonisolated extension AcpmuxEnvironment {
         let ownHome = build?.acpmuxHome(root: root) ?? root
         let home: URL
         let customHome = environment["ACPMUX_HOME"].flatMap { $0.isEmpty ? nil : $0 }
+            .flatMap { AcpmuxEnvironment.inheritsAnotherBuildsHome($0, ownHome: ownHome, root: root) ? nil : $0 }
         if let customHome {
             home = URL(fileURLWithPath: customHome, isDirectory: true)
         } else {
@@ -79,10 +80,13 @@ nonisolated extension AcpmuxEnvironment {
         var childEnvironment = ["ACPMUX_HOME": home.path, "ACPMUX_SOCKET": socket, "ACPMUX_LOCAL_ROUTER": "1",
                                 "ACPMUX_SECRET_TOOLS": "1"]
         childEnvironment.merge(launchEnvironment) { _, new in new }
-        for key in AcpmuxEnvironment.agentLaunchKeys {
+        for key in AcpmuxEnvironment.agentLaunchKeys + AcpmuxEnvironment.traceKeys {
             if let value = environment[key], !value.isEmpty { childEnvironment[key] = value }
         }
-        if let cli = bundledBinDirectory?.appendingPathComponent("cmux").path, isExecutable(cli) {
+        // A DEV build's own settings file and host budget (BuildStatePaths): acpmux reads them, and a
+        // signed acpmux gets no other inherited variable.
+        childEnvironment.merge(BuildStatePaths.childEnvironment(from: environment)) { _, file in file }
+        if let cli = bundledBinDirectory?.appending(path: "cmux", directoryHint: .notDirectory).path, isExecutable(cli) {
             childEnvironment["CMUX_BUNDLED_CLI_PATH"] = cli
         }
         return AcpmuxEnvironment(
@@ -103,10 +107,12 @@ nonisolated extension AcpmuxEnvironment {
         if let bundled = bundledBinDirectory { directories.append(bundled.path) }
         directories += (environment["PATH"] ?? "").split(separator: ":").map(String.init)
         directories += installDirectories.map { directory in
-            directory.hasPrefix("~/") ? userHome.appendingPathComponent(String(directory.dropFirst(2))).path : directory
+            directory.hasPrefix("~/")
+                ? userHome.appending(path: String(directory.dropFirst(2)), directoryHint: .isDirectory).path
+                : directory
         }
         var seen: Set<String> = []
         return directories.filter { !$0.isEmpty && seen.insert($0).inserted }
-            .map { URL(fileURLWithPath: $0, isDirectory: true).appendingPathComponent("acpmux") }
+            .map { URL(fileURLWithPath: $0, isDirectory: true).appending(path: "acpmux", directoryHint: .notDirectory) }
     }
 }

@@ -1,22 +1,16 @@
 import { useEffect, useRef, useState, type RefObject } from "react";
 import { Popover, type UiAnchor } from "../../../ui/Popover";
+import { useScrollEdges } from "../../../ui/scrollEdges";
 import { postNative } from "../native";
 import { NativeError } from "../nativeError";
 import { useT, type Translate } from "../i18n";
+import { type AttachedCloudRepo } from "./cloudRepositoryPickerModel";
+import { LastKnown } from "../../../lastKnown";
 
 export type CloudRepo = {
   fullName: string;
   private?: boolean;
   source?: "local" | "recent" | "installation";
-};
-
-export type AttachedCloudRepo = { repo: string; folder?: string; head?: string };
-export type PendingCloudRepo = {
-  repo: string;
-  state?: string;
-  phase?: string;
-  progress?: { received_bytes?: number; objects?: number; total_objects?: number };
-  notes?: string[];
 };
 
 type ListReply = { repos?: CloudRepo[]; connect?: { install_url?: string } };
@@ -43,6 +37,24 @@ async function syncRepoCatalog(_session: string): Promise<string | undefined> {
     // Older hosts do not expose the local catalog. The machine's persisted catalog remains usable.
     return undefined;
   }
+}
+
+type KnownRepos = { repos: CloudRepo[]; connectUrl?: string };
+
+/// The last list each chat's search answered (by chat and query), per request function (the host's
+/// `postNative`; a gallery's or test's own stub keeps its own lists): the picker opened again draws
+/// it at once, with no "Searching" line, and lists again behind it.
+let lastReposByRequest = new WeakMap<object, LastKnown<KnownRepos>>();
+
+function knownRepos(request: object): LastKnown<KnownRepos> {
+  let known = lastReposByRequest.get(request);
+  if (!known) lastReposByRequest.set(request, (known = new LastKnown<KnownRepos>(16)));
+  return known;
+}
+
+/// Drops every last-known list (tests).
+export function resetLastKnownReposForTests(): void {
+  lastReposByRequest = new WeakMap();
 }
 
 function reposOf(value: unknown): CloudRepo[] {
@@ -81,6 +93,7 @@ function errorCode(error: unknown): string | undefined {
 export function CloudRepositoryPicker({
   session,
   anchor,
+  point,
   open,
   onOpenChange,
   onAttached,
@@ -88,6 +101,8 @@ export function CloudRepositoryPicker({
 }: {
   session: string;
   anchor: RefObject<HTMLElement | null>;
+  /// A native Session Info row's box, in the same page coordinates as a web anchor.
+  point?: UiAnchor;
   open: boolean;
   onOpenChange: (open: boolean) => void;
   onAttached: (repo: AttachedCloudRepo) => void;
@@ -96,6 +111,7 @@ export function CloudRepositoryPicker({
   const t = useT();
   const [query, setQuery] = useState("");
   const [repos, setRepos] = useState<CloudRepo[]>([]);
+  const listEdges = useScrollEdges();
   const [connectUrl, setConnectUrl] = useState<string>();
   const [loading, setLoading] = useState(false);
   const [attaching, setAttaching] = useState<string>();
@@ -107,9 +123,19 @@ export function CloudRepositoryPicker({
   useEffect(() => {
     if (!open) return;
     const id = ++generation.current;
+    const key = `${session}\u0000${query.trim()}`;
+    const lastRepos = knownRepos(request);
+    const known = lastRepos.get(key);
+    if (known) {
+      setRepos(known.repos);
+      setConnectUrl(known.connectUrl);
+      setError(undefined);
+      // An earlier query's read may still be out: the known list shows, not its "Searching" line.
+      setLoading(false);
+    }
     const timer = window.setTimeout(
       () => {
-        setLoading(true);
+        if (!known) setLoading(true);
         setError(undefined);
         void (request === postNative ? syncRepoCatalog(session) : Promise.resolve(undefined))
           .then((syncedInstallUrl) =>
@@ -120,11 +146,15 @@ export function CloudRepositoryPicker({
           )
           .then(({ reply, syncedInstallUrl }) => {
             if (id !== generation.current) return;
-            setRepos(reposOf(reply));
-            setConnectUrl(githubInstallUrl(reply?.connect?.install_url) ?? githubInstallUrl(syncedInstallUrl));
+            const repos = reposOf(reply);
+            const connectUrl = githubInstallUrl(reply?.connect?.install_url) ?? githubInstallUrl(syncedInstallUrl);
+            lastRepos.set(key, { repos, ...(connectUrl ? { connectUrl } : {}) });
+            setRepos(repos);
+            setConnectUrl(connectUrl);
           })
           .catch(() => {
-            if (id === generation.current) setError(t("cloudRepository.loadFailed"));
+            // A last-known list stays; the read is tried again on the next open.
+            if (id === generation.current && !known) setError(t("cloudRepository.loadFailed"));
           })
           .finally(() => {
             if (id === generation.current) setLoading(false);
@@ -165,9 +195,12 @@ export function CloudRepositoryPicker({
     <Popover
       open={open}
       onOpenChange={onOpenChange}
-      anchor={anchor.current as UiAnchor}
+      anchor={point ?? (anchor.current as UiAnchor)}
       label={t("cloudRepository.add")}
       className="acpmux-cloud-repository-popover"
+      // "results": opens on "Searching" and the repositories (the answer to the typed query, read
+      // after a pause) arrive with no input to the popup (ui/popupSettle.ts).
+      popupSettle="results"
       initialFocus={search}
     >
       <div className="acpmux-cloud-repository-picker">
@@ -191,12 +224,13 @@ export function CloudRepositoryPicker({
         />
         {loading && <div className="acpmux-cloud-repository-progress">{t("cloudRepository.searching")}</div>}
         {!loading && repos.length > 0 && (
-          <ul className="acpmux-cloud-repository-list">
+          <ul ref={listEdges} className="acpmux-cloud-repository-list ui-scroll-edge-fade">
             {repos.map((repo) => (
               <li key={repo.fullName}>
                 <button
                   type="button"
                   className="acpmux-cloud-repository-option"
+                  data-action="repository-option"
                   disabled={Boolean(attaching)}
                   onClick={() => attach(repo)}
                 >
@@ -218,26 +252,18 @@ export function CloudRepositoryPicker({
           </div>
         )}
         {connectUrl && (
-          <a className="acpmux-cloud-repository-connect" href={connectUrl} target="_blank" rel="noreferrer">
+          // The folder menu's own Connect GitHub (`github.connect`): the install comes back to cmux, which finishes
+          // it and lists the repositories, instead of a web link that ends on the console (#46018).
+          <button
+            type="button"
+            className="acpmux-cloud-repository-connect"
+            data-action="connect-github"
+            onClick={() => void request("github.connect", {}).catch(() => undefined)}
+          >
             {t("cloudRepository.connect")}
-          </a>
+          </button>
         )}
       </div>
     </Popover>
-  );
-}
-
-export function loadAttachedCloudRepos(
-  _session: string,
-): Promise<{ repos: AttachedCloudRepo[]; pending: PendingCloudRepo[] }> {
-  return postNative<{ repos?: AttachedCloudRepo[]; pending?: PendingCloudRepo[] }>("cloud.repo.attached", {}).then(
-    (reply) => ({
-      repos: Array.isArray(reply?.repos)
-        ? reply.repos.filter((repo): repo is AttachedCloudRepo => Boolean(repo) && typeof repo.repo === "string")
-        : [],
-      pending: Array.isArray(reply?.pending)
-        ? reply.pending.filter((repo): repo is PendingCloudRepo => Boolean(repo) && typeof repo.repo === "string")
-        : [],
-    }),
   );
 }

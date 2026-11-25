@@ -1,16 +1,18 @@
 import AppKit
 import CmuxNextSettings
 import CmuxNextFocus
+import CmuxNextFocusUI
 import CmuxNextPalette
 
-/// `debug.focus`: per window, the coordinator state next to what AppKit,
-/// Ghostty and the layout actually show, and whether they agree
-/// (plans/cmux-next/focus.md section 6). Pane and tab ids match
+/// `debug.focus`: per window, the coordinator state next to what AppKit, Ghostty and the layout show, whether they
+/// agree (plans/cmux-next/focus.md section 6), and its key holds: the New Tab hold and the creation hold (`creation_hold`
+/// open now, `creation_hold_end` how the last one ended), so a held key names its holder. Pane and tab ids match
 /// `debug.surfaces` and the compat tree.
 enum DebugFocus {
     static func report(services: AppServices) -> JSONValue {
         let ghostty = services.cache.focusedTerminalTabs
-        let windows = services.windows.controllers.map { window(of: $0, ghostty: ghostty) }
+        let creations = services.keyRouter.creationInputCoordinator
+        let windows = services.windows.controllers.map { window(of: $0, ghostty: ghostty, creations: creations) }
         let context = services.registry.context
         let windowProblems = WindowInvariants.problems(services.windows)
         return .object([
@@ -22,6 +24,8 @@ enum DebugFocus {
             "keyboard_given_back": keyboardGuard(services),
             // Windows whose keys wait for a New Tab field (NewTabInputCoordinator); never stays.
             "new_tab_key_log": .array(services.keyRouter.newTabInputCoordinator.log.map(JSONValue.string)),
+            "creation_hold_tab_keys": .object(creations.holdEnds.tabKeyCounts.mapValues { .number(Double($0)) }), // since the app started (``CreationHoldLog``)
+            "parked_typing": .object(services.keyRouter.parkedTyping.counts().mapValues { .number(Double($0)) }), // since the app started (``TypingPark``)
             "new_tab_key_holds": .array(services.windows.controllers.filter {
                 services.keyRouter.newTabInputCoordinator.isHolding(in: $0.window)
             }.map { .string($0.state.id) }),
@@ -57,13 +61,14 @@ enum DebugFocus {
         return ["count": JSONValue(guardian.giveBackCount), "last": last]
     }
 
-    private static func window(of controller: WindowController, ghostty: [String]) -> JSONValue {
+    private static func window(of controller: WindowController, ghostty: [String], creations: CreationInputCoordinator) -> JSONValue {
         let state = controller.focus.state
         let resolved = state.resolved
         let window = controller.window
         let isKey = window?.isKeyWindow ?? false
         let actual = FocusResponderClassifier.classify(window?.firstResponder, in: controller)
         let layoutFocus = controller.content?.layoutModel.focusedPane?.rawValue
+        let readiness = resolved.pane.flatMap { controller.content?.paneController(key: $0)?.currentContent?.inputReadiness }
         // A top page covers the parked workspace, whose pane the model still names (InputInvariants.world).
         let problems = controller.shownTopPage != nil ? [] : mismatches(state: state, actual: actual, isKey: isKey, layoutFocus: layoutFocus,
                                                                         ghostty: ghostty, controller: controller)
@@ -72,6 +77,13 @@ enum DebugFocus {
             "workspace": state.topology.workspace.map(JSONValue.string) ?? .null,
             "workspace_name": controller.content.map { .string($0.workspace.displayName) } ?? .null,
             "is_key": .bool(isKey),
+            "creation_hold": .bool(creations.isHolding(in: window)),
+            // DOM focus alone does not show whether the native router will queue the page's keys.
+            "page_input": readiness.map { .object([
+                "ready": .bool($0.isReady), "editable_focused": .bool($0.isEditableFocused),
+                "focus_epoch": JSONValue($0.focusEpoch), "command_focus": $0.commandFocus.map(JSONValue.string) ?? .null,
+            ]) } ?? .null,
+            "creation_hold_end": creations.lastHoldEnd(in: window).map { .string(String(describing: $0)) } ?? .null,
             "model": .object([
                 "pane": state.pane.map(JSONValue.string) ?? .null,
                 "target": .string(String(describing: state.target)),
@@ -98,9 +110,9 @@ enum DebugFocus {
             }),
             "appkit": .object([
                 "first_responder": window?.firstResponder.map { .string(String(describing: type(of: $0))) } ?? .null,
-                "classified": .string(FocusResponderClassifier.describe(actual)),
+                "classified": .string(actual.debugName),
                 "child_window_page": controller.focusApplier.focusedChildWindowPageID.map(JSONValue.string) ?? .null,
-                "devtools_tab": controller.focusApplier.focusedDevToolsTabID.map(JSONValue.string) ?? .null,
+                "devtools_tab": controller.focusApplier.focusedDevToolsTabID.map(JSONValue.string) ?? .null, "ax_focused": .string(NSApp.accessibilityFocusReport),
             ]),
             "layout_focused_pane": layoutFocus.map(JSONValue.string) ?? .null,
             "recent_events": .array(controller.focus.recent.suffix(12).map(JSONValue.string)),
@@ -120,15 +132,10 @@ enum DebugFocus {
         if let pane = state.pane, layoutFocus != pane { problems.append("layout focus \(layoutFocus ?? "nil") != model pane \(pane)") }
         let childPage = controller.focusApplier.focusedChildWindowPageID == nil ? nil : resolved.tab
         if let expected = InputInvariants.expectedResponder(resolved, childPage: childPage), expected != actual {
-            problems.append("appkit \(FocusResponderClassifier.describe(actual)) != model \(resolved.kind)")
+            problems.append("appkit \(actual.debugName) != model \(resolved.kind)")
         }
         let ownTabs = Set(controller.content?.panes.values.compactMap(\.currentTabKey) ?? [])
-        let focusedHere = ghostty.filter(ownTabs.contains)
-        if case .terminal(_, let tab) = resolved, isKey {
-            if focusedHere != [tab] { problems.append("ghostty focused \(focusedHere) != [\(tab)]") }
-        } else if !focusedHere.isEmpty {
-            problems.append("ghostty focused \(focusedHere) while model is \(resolved.kind)\(isKey ? "" : " (window not key)")")
-        }
+        if let ghosttyProblem = resolved.ghosttyMismatch(focused: ghostty, ownTabs: ownTabs, isKey: isKey) { problems.append(ghosttyProblem) }
         return problems
     }
 }

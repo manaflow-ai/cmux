@@ -71,6 +71,8 @@ public nonisolated struct KeyContext: Hashable, Sendable {
     public static let browserFocusMode = "browserFocusMode"
     /// The focused terminal is in copy mode.
     public static let terminalCopyMode = "terminal.copyMode"
+    /// The focused terminal is using its alternate screen (vim, tmux, less, ...).
+    public static let terminalAlternateScreen = "terminalAlternateScreen"
     /// A list-like control has the keyboard: a combobox, listbox, menu or
     /// picker in a page, the sidebar list or its search field (R85).
     public static let listFocus = "listFocus"
@@ -98,6 +100,10 @@ public nonisolated struct KeyContext: Hashable, Sendable {
     public static let paletteTogglesInPlace = "palette.togglesInPlace"
     /// The code editor page has the keyboard (``ActionContext/codeEditorFocused``).
     public static let codeEditorFocusedKey = "codeEditorFocused"
+    /// The user key mode the window's keys are in (`keyMode.enter`, design/key-modes.md): its
+    /// name, absent outside a mode. A `when` that requires it (`keyMode == 'resize'`) may bind
+    /// bare keys (``WhenClause/allowsBareKeys``).
+    public static let keyMode = "keyMode"
     /// The kind of window the key goes to (``WindowKindValue``).
     public static let windowKind = "windowKind"
 
@@ -124,7 +130,6 @@ extension ActionContext {
         (.omnibarFocused, "omnibarFocused"), (.codeEditorFocused, "codeEditorFocused"),
         (.homeChannelsEnabled, "homeChannelsEnabled"), (.webViewFocused, "webViewFocused"),
         (.markdownReadOnlyFocused, "markdownReadOnlyFocused"), (.markdownEditorFocused, "markdownEditorFocused"),
-        (.sideSessions, "sideSessions"),
     ]
 
     /// The bits a window's focus decides; the rest are app-wide facts.

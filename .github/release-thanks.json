@@ -1,0 +1,6 @@
+{
+  "description": "Who the release notes' \"Thank you\" line leaves out (scripts/ci/release_thanks.py): the maintainers, bots that are not GitHub Apps (GitHub Apps are left out by type), and the maintainers' own companies. Everyone else whose pull request lands in a release is thanked by login, and their profile's company is credited.",
+  "maintainers": ["austinywang", "azooz2003-bit", "lawrencecchen", "lucasr1b", "teamleaderleo"],
+  "bots": ["cmux-bot", "github-actions", "dependabot", "renovate", "copilot", "Copilot", "coderabbitai", "manaflow-cmux-ffi-release", "manaflow-cmux-pr-autofix", "manaflow-cmux-release", "cmux-nightly-next-hq-publisher", "manaflow-glaeda-route"],
+  "exclude_companies": ["manaflow", "manaflow-ai", "manaflow ai", "cmux"]
+}

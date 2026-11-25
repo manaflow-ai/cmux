@@ -17,24 +17,16 @@
 /// ```
 ///
 /// A plain click always loads the link in the current tab. A Shift-middle
-/// click follows `cmdShiftClick`, as in Chrome.
+/// click follows `cmdShiftClick`, as in Chrome. Each key's path and default come from
+/// schemas/settings/source/browser.json (SettingsSchema+Browser.generated.swift).
 public nonisolated struct BrowserLinkClickSetting: Sendable, Hashable {
-    public enum Action: String, Sendable, Hashable, CaseIterable {
-        case currentTab
-        case backgroundTab
-        case foregroundTab
-        /// Where `layout.linkPlacement` puts every link (default: the pane
-        /// right of the page's pane, or a new split there).
-        case linkPlacement
-        case newWindow
-        case download
-    }
+    public typealias Action = BrowserLinkClickAction
 
-    public var cmdClick: Action = .linkPlacement
-    public var cmdShiftClick: Action = .foregroundTab
-    public var shiftClick: Action = .newWindow
-    public var optionClick: Action = .download
-    public var middleClick: Action = .backgroundTab
+    public var cmdClick = BrowserLinkClickSetting.cmdClickDefault
+    public var cmdShiftClick = BrowserLinkClickSetting.cmdShiftClickDefault
+    public var shiftClick = BrowserLinkClickSetting.shiftClickDefault
+    public var optionClick = BrowserLinkClickSetting.optionClickDefault
+    public var middleClick = BrowserLinkClickSetting.middleClickDefault
 
     public init() {}
 
@@ -67,4 +59,16 @@ public nonisolated struct BrowserLinkClickSetting: Sendable, Hashable {
         }
         return (setting, diagnostics)
     }
+}
+
+/// What one modified link click does (`browser.links.*`).
+public nonisolated enum BrowserLinkClickAction: String, Sendable, Hashable, CaseIterable {
+    case currentTab
+    case backgroundTab
+    case foregroundTab
+    /// Where `layout.linkPlacement` puts every link (default: the pane
+    /// right of the page's pane, or a new split there).
+    case linkPlacement
+    case newWindow
+    case download
 }

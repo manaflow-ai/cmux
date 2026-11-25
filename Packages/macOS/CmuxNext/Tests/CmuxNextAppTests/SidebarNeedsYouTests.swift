@@ -1,5 +1,6 @@
 @testable import CmuxNextDesign
 @testable import CmuxNextSidebar
+import CmuxNextTestSupport
 import Foundation
 import Testing
 
@@ -11,6 +12,18 @@ import Testing
 @MainActor @Suite(.serialized) struct SidebarNeedsYouTests {
     private static func section(_ workspaces: [SidebarWorkspace]) -> [SidebarSection] {
         [SidebarSection(kind: .machine(SidebarMachine(id: .local, name: "This Mac", kind: .local)), nodes: workspaces.map(SidebarNode.workspace))]
+    }
+
+    /// Lineage nesting alone (on by default, #28103) sets the tree but draws no tray: a blocked session lists only
+    /// while `sidebar.sessionTree` is on.
+    @Test func nestingAloneDrawsNoTray() {
+        var blocked = SidebarWorkspace(id: WorkspaceID("child"), title: "child")
+        blocked.unread = .dot
+        let parent = SidebarWorkspace(id: WorkspaceID("parent"), title: "parent")
+        let state = SidebarSessionTreeState(parents: [blocked.id: parent.id], states: [blocked.id: .blocked])
+        let sections = Self.section([parent, blocked])
+        #expect(SidebarNeedsYou.make(sections, tree: SidebarNeedsYou.trayTree(state, sessionTree: false)).isEmpty)
+        #expect(SidebarNeedsYou.make(sections, tree: SidebarNeedsYou.trayTree(state, sessionTree: true)).items.map(\.id) == [blocked.id])
     }
 
     /// Fifty sessions, four levels deep, every state there is: the tray lists exactly the blocked
@@ -68,6 +81,55 @@ import Testing
         #expect(tray.unread == 1)
     }
 
+    @Test func aRowPatchOnlyRefreshesTheTrayWhenItsNeedsYouStateChanges() {
+        let tree = SidebarSessionTreeState()
+        var idle = SidebarWorkspace(id: WorkspaceID("agent"), title: "agent")
+        var changed: [(before: SidebarWorkspace, after: SidebarWorkspace)] = []
+        let model = SidebarModel(sections: Self.section([idle]))
+        model.onRowsPatchedWithPrevious = { changed.append(contentsOf: $0) }
+
+        var spinner = idle
+        spinner.activity = .working
+        #expect(model.patchWorkspaces([spinner]))
+        #expect(changed.count == 1)
+        #expect(!SidebarNeedsYou.shouldRefresh(for: changed, tree: tree))
+
+        changed.removeAll()
+        var unread = spinner
+        unread.unread = .dot
+        #expect(model.patchWorkspaces([unread]))
+        #expect(changed.count == 1)
+        #expect(SidebarNeedsYou.shouldRefresh(for: changed, tree: tree))
+
+        changed.removeAll()
+        var read = unread
+        read.unread = .none
+        #expect(model.patchWorkspaces([read]))
+        #expect(changed.count == 1)
+        #expect(SidebarNeedsYou.shouldRefresh(for: changed, tree: tree))
+
+        changed.removeAll()
+        var blocked = read
+        blocked.activity = .waiting
+        #expect(model.patchWorkspaces([blocked]))
+        #expect(changed.count == 1)
+        #expect(SidebarNeedsYou.shouldRefresh(for: changed, tree: tree))
+
+        changed.removeAll()
+        var ready = blocked
+        ready.activity = .idle
+        #expect(model.patchWorkspaces([ready]))
+        #expect(changed.count == 1)
+        #expect(SidebarNeedsYou.shouldRefresh(for: changed, tree: tree))
+
+        let parent = WorkspaceID("parent"), child = WorkspaceID("child")
+        let oldParent = SidebarWorkspace(id: parent, title: "old parent")
+        var newParent = oldParent
+        newParent.title = "new parent"
+        let lineage = SidebarSessionTreeState(parents: [child: parent], states: [child: .blocked])
+        #expect(SidebarNeedsYou.shouldRefresh(for: [(before: oldParent, after: newParent)], tree: lineage))
+    }
+
     @Test func withoutTheTreeTheTrayIsEmpty() {
         var waiting = SidebarWorkspace(id: WorkspaceID("w"), title: "w")
         waiting.activity = .waiting
@@ -101,7 +163,7 @@ import Testing
     }
 
     @Test func revealingAnItemOpensEveryFoldAboveIt() {
-        let defaults = UserDefaults(suiteName: "SidebarNeedsYouTests.\(UUID().uuidString)") ?? .standard
+        let defaults = UserDefaults(testSuiteName: "SidebarNeedsYouTests.\(UUID().uuidString)") ?? .standard
         let tree = SidebarSessionTree(defaults: defaults)
         let root = WorkspaceID("root"), mid = WorkspaceID("mid"), leaf = WorkspaceID("leaf")
         let other = WorkspaceID("other"), otherChild = WorkspaceID("other-child")
@@ -110,7 +172,7 @@ import Testing
         tree.toggle(root)
         tree.toggle(mid)
         tree.toggle(other)
-        tree.reveal(leaf)
+        tree.reveal(leaf, lists: [{ _ in true }])
         #expect(tree.collapsed == [other])
     }
 }

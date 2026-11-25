@@ -17,6 +17,12 @@ public protocol TeamManaging: Sendable {
     func deleteTeam(id: String) async throws
     /// Emails a team invitation to each address (`role` on joining).
     func inviteToTeam(id: String, emails: [String], role: CMUXTeamRole) async throws -> CMUXTeamInviteResult
+    /// Pending invitations addressed to the user's verified emails.
+    func receivedTeamInvitations() async throws -> [CMUXReceivedTeamInvitation]
+    /// Joins the team a received invitation names.
+    func acceptTeamInvitation(id: String) async throws -> CMUXTeamJoin
+    /// Declines a received invitation.
+    func declineTeamInvitation(id: String) async throws
 }
 
 extension StackAuthClient: TeamManaging {
@@ -55,5 +61,20 @@ extension StackAuthClient: TeamManaging {
     public func inviteToTeam(id: String, emails: [String], role: CMUXTeamRole) async throws -> CMUXTeamInviteResult {
         guard let teamsAPI else { throw CMUXTeamError.unavailable }
         return try await teamsAPI.invite(teamID: id, emails: emails, role: role)
+    }
+
+    public func receivedTeamInvitations() async throws -> [CMUXReceivedTeamInvitation] {
+        guard let teamsAPI else { throw CMUXTeamError.unavailable }
+        return try await teamsAPI.receivedInvitations()
+    }
+
+    public func acceptTeamInvitation(id: String) async throws -> CMUXTeamJoin {
+        guard let teamsAPI else { throw CMUXTeamError.unavailable }
+        return try await teamsAPI.acceptInvitation(id: id)
+    }
+
+    public func declineTeamInvitation(id: String) async throws {
+        guard let teamsAPI else { throw CMUXTeamError.unavailable }
+        try await teamsAPI.declineInvitation(id: id)
     }
 }

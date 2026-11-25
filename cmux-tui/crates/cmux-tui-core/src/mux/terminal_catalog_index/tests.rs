@@ -55,7 +55,7 @@ fn binding_a_created_terminal_scans_no_catalog() {
     let scans = catalog_scans_for_test();
     for index in 1..=6 {
         let surface = hosted_terminal(&mux, &workspace.key, index);
-        let (placement, canonical, _, _) =
+        let (placement, canonical, _, _, _) =
             mux.bind_running_terminal_to_canonical_workspace(&surface).unwrap();
         assert_eq!(canonical, workspace.key);
         assert_eq!(placement.workspace, workspace.workspace);

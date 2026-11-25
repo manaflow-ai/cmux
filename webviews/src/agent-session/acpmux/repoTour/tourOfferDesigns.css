@@ -1,0 +1,60 @@
+/* Gallery-only frames for TourOfferDesigns.tsx: a hero over a stand-in composer. */
+.tour-designs {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  padding: 0 var(--ds-space-3) var(--ds-space-3);
+  box-sizing: border-box;
+}
+.tour-designs-hero {
+  position: relative;
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+.tour-designs-card {
+  position: absolute;
+  left: 50%;
+  bottom: 18%;
+  display: flex;
+  align-items: center;
+  gap: var(--ds-space-3);
+  width: min(420px, 90%);
+  padding: var(--ds-space-3);
+  transform: translateX(-50%);
+  border-radius: var(--grid-cards-radius);
+  background: var(--acpmux-composer-tray);
+  color: var(--agent-text);
+  font-size: var(--text-control);
+}
+.tour-designs-card-text {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: var(--ds-space-1);
+  min-width: 0;
+}
+.tour-designs-card-text strong {
+  font-weight: var(--weight-regular);
+}
+.tour-designs-card-text span {
+  color: var(--acpmux-composer-dim);
+  font-size: var(--text-detail);
+}
+.tour-designs-row {
+  position: relative;
+  height: 32px;
+}
+.tour-designs-row .acpmux-tour-offer {
+  top: 0;
+  left: var(--ds-space-1);
+  transform: none;
+}
+.tour-designs-composer {
+  padding: var(--ds-space-3);
+  box-sizing: border-box;
+  border-radius: var(--grid-cards-radius);
+  background: var(--acpmux-composer-tray);
+  color: var(--acpmux-composer-placeholder);
+}

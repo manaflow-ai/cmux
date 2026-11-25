@@ -28,6 +28,8 @@ protocol ChatIntents: AnyObject {
     var canReply: Bool { get }
     /// The "+" button: the host's file picker.
     func pickAttachments()
+    /// A click on the "+" button (`anchor`): the host's + menu, or its file picker when it has none.
+    func plusClicked(anchor: NSView)
     /// A paste in the field or a drop: true when the host's attachment
     /// intake took the pasteboard (files and pictures, Home's type rule).
     func takeAttachments(from pasteboard: NSPasteboard) -> Bool
@@ -38,6 +40,10 @@ protocol ChatIntents: AnyObject {
     func attachmentPasteText(from pasteboard: NSPasteboard) -> String?
     /// The file of the draft attachment `id`, named like it; nil when it has none here.
     func draftAttachmentFile(_ id: ID) -> URL?
+    /// Whether the draft attachment `id`, which left the field, can come back: Edit > Undo (or
+    /// Redo) put its picture in the field again, and the draft takes it back only when the host
+    /// still holds what a send needs for it (cmux #48500).
+    func canRestoreDraftAttachment(_ id: ID) -> Bool
     /// A drop on the field: true when the host's intake took the drag's
     /// pasteboard (file URLs, file promises, pictures).
     func takeDroppedAttachments(from pasteboard: NSPasteboard) -> Bool
@@ -66,6 +72,11 @@ protocol ChatIntents: AnyObject {
     func retryChiefTurn(_ message: ID)
     /// Delete: the failed send goes (`HomeStore.discardFailed`).
     func deleteFailedSend(_ message: ID)
+    /// My committed message in a Chief chat can be deleted (#36019).
+    func canDeleteMessage(_ message: ID) -> Bool
+    /// Delete: the message leaves the transcript at once and its owner
+    /// retracts it; the Chief's memory keeps only its tombstone.
+    func deleteMessage(_ message: ID)
     /// Forward… is offered (the host routes a bubble's text to another chat).
     var canForward: Bool { get }
     /// Forward…: the bubble's text goes to another chat or agent the host asks for.
@@ -85,7 +96,7 @@ protocol ChatIntents: AnyObject {
     func openVideo(_ ref: PartRef, _ attachment: ID)
     /// A click on an agent-message fold's row: its messages show in full, or fold again.
     func toggleAgentMessages(_ group: String)
-    /// A click on the row of message `message`: an agent-message fold or notes row opens or closes
+    /// A click on the row of message `message`: an agents row opens or closes
     /// (true); false for every other row, which keeps its own click.
     func agentRowClicked(_ message: ID) -> Bool
     /// What a click on the row of message `message` opens when it is a Feed row; nil for every other row.
@@ -110,6 +121,9 @@ extension ChatIntents {
     /// No Forward… unless the host routes it (test hosts, the New Message composer).
     var canForward: Bool { false }
     func forward(_ text: String) {}
+    /// Hosts without a Chief chat delete no committed message.
+    func canDeleteMessage(_ message: ID) -> Bool { false }
+    func deleteMessage(_ message: ID) {}
     /// Hosts without a Chief control path do not expose turn retry.
     func canRetryChiefTurn(_ message: ID) -> Bool { false }
     func retryChiefTurn(_ message: ID) {}
@@ -125,6 +139,11 @@ public protocol ChatWakeScheduler: AnyObject {
 }
 
 extension ChatIntents {
+    /// No + menu (test hosts): the "+" opens the file picker, as before.
+    func plusClicked(anchor: NSView) { pickAttachments() }
+}
+
+extension ChatIntents {
     /// No local copy (hosts and fakes without attachment bytes).
     func attachmentFile(_ message: ID, _ attachment: ID) async -> URL? { nil }
     /// Hosts without a drop intake of their own take a drop as a paste.
@@ -133,4 +152,6 @@ extension ChatIntents {
     func attachmentDropTargeted(_ targeted: Bool) {}
     func attachmentPasteText(from pasteboard: NSPasteboard) -> String? { nil }
     func draftAttachmentFile(_ id: ID) -> URL? { nil }
+    /// Hosts without bytes of their own send the attachment's model: it can always come back.
+    func canRestoreDraftAttachment(_ id: ID) -> Bool { true }
 }

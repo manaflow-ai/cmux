@@ -62,14 +62,12 @@ extension TerminalAttachment {
         var history: String?
         var historyRows: UInt64?
         var historyDigest: String?
-        var skippedImages: Int?
 
         enum CodingKeys: String, CodingKey {
             case surface, phase, generation, offset, version, cols, rows, colors, data, compression, history
             case rawBytes = "raw_bytes"
             case historyRows = "history_rows"
             case historyDigest = "history_digest"
-            case skippedImages = "skipped_images"
         }
 
         /// The check of a local-history READY; nil (a plain READY whose
@@ -123,8 +121,15 @@ extension TerminalAttachment {
     /// ``decodeAttachEvent(name:line:surface:)`` plus the generation an
     /// `output` carries, for ``TerminalSnapshotSequencer``.
     static func decodeAttachLine(name: String, line: Data, surface: SurfaceID) -> DecodedAttachLine? {
-        let decoder = WireCoding.decoder()
         func scoped(_ id: SurfaceID?) -> Bool { id == nil || id == surface }
+        // A plain `output` (the hot line) reads from one byte scan and a base64 decode straight from the line;
+        // anything unusual (colors, escapes, a bad chunk) takes the general decoder below.
+        if name == "output", let fast = AttachLineScanner.scanOutput(line), fast.event == "output", !fast.hasType,
+           let data = fast.data {
+            guard scoped(fast.surface.map(SurfaceID.init(rawValue:))) else { return nil }
+            return DecodedAttachLine(event: .output(data, colors: nil), generation: fast.generation)
+        }
+        let decoder = WireCoding.decoder()
         do {
             switch name {
             case "vt-state":
@@ -149,7 +154,7 @@ extension TerminalAttachment {
                 return DecodedAttachLine(event: .snapshot(TerminalSnapshotFrame(
                     phase: phase, generation: snapshot.generation, offset: snapshot.offset, version: snapshot.version,
                     cols: snapshot.cols, rows: snapshot.rows, colors: snapshot.colors,
-                    localHistory: snapshot.localHistory, skippedImages: snapshot.skippedImages, data: data)))
+                    localHistory: snapshot.localHistory, data: data)))
             case "output":
                 let output = try decoder.decode(Output.self, from: line)
                 guard scoped(output.surface) else { return nil }

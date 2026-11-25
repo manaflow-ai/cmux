@@ -362,6 +362,8 @@ fn a_chief_gets_its_profile_its_granted_tools_and_edits_only_what_the_person_all
             chief: Some(Arc::new(tools)),
             turn: None,
             peers: None,
+            fork: None,
+            mcp: None,
         },
     )
     .unwrap();
@@ -374,6 +376,7 @@ fn a_chief_gets_its_profile_its_granted_tools_and_edits_only_what_the_person_all
             "tell",
             "profile",
             "version",
+            "mcp",
             "react",
             "reply",
             "send",
@@ -534,6 +537,7 @@ fn the_default_chief_serves_only_zoom_and_date_until_it_reads_its_record() {
             "zoom",
             "date",
             "version",
+            "mcp",
             "react",
             "reply",
             "send",
@@ -574,6 +578,7 @@ fn the_default_chief_serves_only_zoom_and_date_until_it_reads_its_record() {
     }
     expected.extend([
         "version",
+        "mcp",
         "react",
         "reply",
         "send",

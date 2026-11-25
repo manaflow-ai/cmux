@@ -17,6 +17,21 @@ test("a state's time is its slowest case in a run; a state with an unready case 
   expect(times).toEqual(new Map([["ui.select#open", 450]]));
 });
 
+test("a case is held to its CPU time when the engine gave one, else to its wall time", () => {
+  // A loaded runner stretched the arrival play's wall time past its limit; its CPU time did not move.
+  const times = readyTimes([
+    { params: { entry: "agent-pane.turn-transitions", variant: "arrive-subagent-arrive" }, ready: "1", readyMs: 4100, readyCpuMs: 610 },
+    { params: { entry: "ui.webkit", variant: "open" }, ready: "1", readyMs: 900, readyCpuMs: null },
+    { params: { entry: "ui.never", variant: "open" }, ready: null, readyMs: null, readyCpuMs: null },
+  ]);
+  expect(times).toEqual(
+    new Map([
+      ["agent-pane.turn-transitions#arrive-subagent-arrive", 610],
+      ["ui.webkit#open", 900],
+    ]),
+  );
+});
+
 test("a state fails only when its fastest run is past its budget's margin", () => {
   expect(limit(1000)).toBe(2000);
   const runs = [
@@ -49,16 +64,23 @@ test("updating lowers rows and never raises one; a row at the default goes", () 
     ["new.entry#open", 2500],
   ]);
   expect(lowered(budgets, times)).toEqual({ default: 1000, states: { "slow.entry#open": 4000 } });
+  // A row already tighter than the default stays, and only goes further down: dropping it would raise it.
+  const tight: Budgets = { default: 1000, states: { "fast.entry#open": 600 } };
+  expect(lowered(tight, new Map([["fast.entry#open", 900]]))).toEqual(tight);
+  expect(lowered(tight, new Map([["fast.entry#open", 420]]))).toEqual({ default: 1000, states: { "fast.entry#open": 500 } });
   // --add writes a row for a slow state that had none: a raise the diff shows.
   expect(lowered(budgets, times, true).states["new.entry#open"]).toBe(2500);
 });
 
-test("the budgets file parses, and every row is over the default and in tenths of a second", () => {
+test("the budgets file parses, and every row differs from the default and is in tenths of a second", () => {
   const file = readBudgets();
   expect(formatBudgets(JSON.parse(formatBudgets(file)) as Budgets)).toBe(formatBudgets(file));
   for (const [state, ms] of Object.entries(file.states)) {
     expect(state).toMatch(/^[\w.-]+#[\w.-]+$/);
-    expect(ms).toBeGreaterThan(file.default);
+    // A row under the default holds a fast state tighter than the default (#38129 lowered
+    // codex-turn-run-open to its measured 900 ms); a row at the default says nothing.
+    expect(ms).not.toBe(file.default);
+    expect(ms).toBeGreaterThan(0);
     expect(ms % 100).toBe(0);
   }
 });

@@ -10,11 +10,15 @@ import CmuxNextIcons
 /// `WorkspaceTabHoverCardRow.fillOutset` past both edges, as a tab row's does.
 @MainActor
 final class WorkspaceHoverCardDisclosure: NSView {
-    static let height: CGFloat = 26
+    /// A row plus `space1` at the sidebar's density and text size (``SidebarHoverCardMetrics/disclosureHeight``).
+    static var height: CGFloat { SidebarRowTokens.current.hoverCard.disclosureHeight }
+    private var heightConstraint: NSLayoutConstraint?
+    private var chevronX: NSLayoutConstraint?
+    private var labelX: NSLayoutConstraint?
     private let chevron = NSImageView()
     private let label = ChromeLabel(labelWithString: "")
     /// The hover and pressed fill, wider than the view by the rows' outset.
-    private let fillLayer = CALayer()
+    let fillLayer = CALayer()
     private var tracking: NSTrackingArea?
     private var isHovered = false { didSet { paint() } }
     private var pressed = false { didSet { paint() } }
@@ -31,38 +35,53 @@ final class WorkspaceHoverCardDisclosure: NSView {
     }
 
     var isExpanded = false {
-        didSet {
-            chevron.image = NSImage.icon(isExpanded ? .disclosureExpanded : .disclosureCollapsed, size: Metrics.smallIconSize)
+        didSet { if isExpanded != oldValue { chevron.image = chevronImage(expanded: isExpanded) } }
+    }
+    /// The chevron's image now (tests).
+    var shownChevron: NSImage? { chevron.image }
+    /// The chevron's two images at the size they were made for, made once, not on every press.
+    private var chevronImages: (side: CGFloat, collapsed: NSImage, expanded: NSImage)?
+
+    private func chevronImage(expanded: Bool) -> NSImage {
+        let side = Metrics.smallIconSize
+        if chevronImages?.side != side {
+            chevronImages = (side, NSImage.icon(.disclosureCollapsed, size: side), NSImage.icon(.disclosureExpanded, size: side))
         }
+        guard let images = chevronImages else { return NSImage.icon(.disclosureCollapsed, size: side) }
+        return expanded ? images.expanded : images.collapsed
     }
 
     init() {
         super.init(frame: .zero)
         wantsLayer = true
-        fillLayer.cornerRadius = Metrics.itemCornerRadius
-        fillLayer.cornerCurve = .continuous
+        fillLayer.cornerRadius = SidebarDensityTokens.rowCornerRadius
+        fillLayer.cornerCurve = Metrics.tabCornerCurve // one curve with the rows and tabs (`TabCornerCurve`)
         layer?.masksToBounds = false
         layer?.addSublayer(fillLayer)
         chevron.imageScaling = .scaleProportionallyDown
-        chevron.image = NSImage.icon(.disclosureCollapsed, size: Metrics.smallIconSize)
+        chevron.image = chevronImage(expanded: false)
         chevron.translatesAutoresizingMaskIntoConstraints = false
-        label.font = Typography.caption
         label.lineBreakMode = .byTruncatingTail
         label.translatesAutoresizingMaskIntoConstraints = false
         addSubview(chevron)
         addSubview(label)
         // The chevron centres on the card's icon column, so the words start where a tab's title does.
+        let height = heightAnchor.constraint(equalToConstant: Self.height)
+        let chevronX = chevron.centerXAnchor.constraint(equalTo: leadingAnchor, constant: WorkspaceHoverCardView.iconSize / 2)
+        let labelX = label.leadingAnchor.constraint(equalTo: leadingAnchor, constant: WorkspaceHoverCardView.textInset)
+        (heightConstraint, self.chevronX, self.labelX) = (height, chevronX, labelX)
         NSLayoutConstraint.activate([
-            heightAnchor.constraint(equalToConstant: Self.height),
-            chevron.centerXAnchor.constraint(equalTo: leadingAnchor, constant: WorkspaceHoverCardView.iconSize / 2),
+            height,
+            chevronX,
             chevron.centerYAnchor.constraint(equalTo: centerYAnchor),
             chevron.widthAnchor.constraint(equalToConstant: Metrics.smallIconSize),
             chevron.heightAnchor.constraint(equalToConstant: Metrics.smallIconSize),
             // The label's alignment rect is its text: the words start on the text column.
-            label.leadingAnchor.constraint(equalTo: leadingAnchor, constant: WorkspaceHoverCardView.textInset),
+            labelX,
             label.trailingAnchor.constraint(lessThanOrEqualTo: trailingAnchor, constant: -Metrics.space2),
             label.centerYAnchor.constraint(equalTo: centerYAnchor),
         ])
+        applySizes()
         updateTrackingArea()
         setAccessibilityElement(true)
         setAccessibilityRole(.button)
@@ -70,6 +89,17 @@ final class WorkspaceHoverCardDisclosure: NSView {
 
     @available(*, unavailable)
     required init?(coder: NSCoder) { fatalError("init(coder:) is not supported") }
+
+    /// Takes the card's sizes at the sidebar's density and text size now; the card runs it on every configure.
+    func applySizes() {
+        let card = SidebarRowTokens.current.hoverCard
+        label.font = Typography.system(.default, size: card.captionSize, weight: .regular)
+        heightConstraint?.constant = card.disclosureHeight
+        chevronX?.constant = WorkspaceHoverCardView.iconSize / 2
+        labelX?.constant = WorkspaceHoverCardView.textInset
+        // The icon size is a tunable: a new one makes the chevron's images again.
+        chevron.image = chevronImage(expanded: isExpanded)
+    }
 
     /// A click from code (tests, the gallery, VoiceOver).
     func performClick(_: Any?) { onPress?() }

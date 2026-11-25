@@ -4,7 +4,8 @@ use serde::{Deserialize, Serialize};
 use url::Url;
 
 use crate::entry::{HistoryEntry, HistoryKind};
-use crate::fold::{fold, tokens};
+use crate::fold::fold;
+use crate::search_syntax::SearchFilter;
 
 const HOUR_MS: i64 = 3_600_000;
 const DAY_MS: i64 = 86_400_000;
@@ -53,7 +54,8 @@ pub struct HistoryQuery {
     #[serde(default)]
     pub kinds: Vec<HistoryKind>,
     /// Every whitespace-separated token must appear in the entry's search
-    /// text, folded, in any order.
+    /// text, folded, in any order. The search operators ([`SearchFilter`]:
+    /// `is:`, `since:`, `before:`, `-word`, `"phrase"`) narrow it further.
     #[serde(default)]
     pub text: String,
     #[serde(default)]
@@ -66,6 +68,11 @@ impl HistoryQuery {
     /// True when the query selects `kind`.
     pub fn wants(&self, kind: HistoryKind) -> bool {
         self.kinds.is_empty() || self.kinds.contains(&kind)
+    }
+
+    /// The search operators of `text`, read with history's kind names.
+    pub fn filter(&self, now_ms: i64, local_day_start_ms: i64) -> SearchFilter<HistoryKind> {
+        SearchFilter::parse(&self.text, now_ms, local_day_start_ms, HistoryKind::named)
     }
 
     /// See [`apply`].
@@ -92,15 +99,17 @@ pub fn apply(
     local_day_start_ms: i64,
     is_directory: impl Fn(&str) -> bool,
 ) -> Vec<HistoryEntry> {
-    let tokens = tokens(&query.text);
+    let filter = query.filter(now_ms, local_day_start_ms);
     let bounds = query.range.bounds(now_ms, local_day_start_ms);
     let mut matched: Vec<HistoryEntry> = entries
         .iter()
         .filter(|entry| {
             is_displayable(entry, &is_directory)
                 && query.wants(entry.kind)
+                && filter.wants(&entry.kind)
                 && bounds.is_none_or(|(start, end)| start <= entry.at_ms && entry.at_ms <= end)
-                && matches(&search_text(entry), &tokens)
+                && filter.covers(entry.at_ms)
+                && filter.matches(&search_text(entry))
         })
         .cloned()
         .collect();
@@ -122,20 +131,27 @@ pub fn matches(haystack: &str, tokens: &[String]) -> bool {
 }
 
 /// The text the search matches: title, detail and machine, then the kind's
-/// own fields (Swift `HistoryEntry.searchText`), joined by spaces.
+/// own fields (Swift `HistoryEntry.searchText`; a closed chat adds its session
+/// id and harness), joined by spaces.
 pub fn search_text(entry: &HistoryEntry) -> String {
     let mut parts: Vec<&str> = vec![entry.title.as_str()];
     parts.extend(entry.detail.as_deref());
     parts.extend(entry.machine.as_deref());
-    let own: [Option<&str>; 3] = match entry.kind {
-        HistoryKind::Page => [entry.url.as_deref(), None, None],
+    let own: [Option<&str>; 4] = match entry.kind {
+        HistoryKind::Page => [entry.url.as_deref(), None, None, None],
         HistoryKind::Location => {
-            [entry.workspace.as_deref(), entry.url.as_deref(), entry.cwd.as_deref()]
+            [entry.workspace.as_deref(), entry.url.as_deref(), entry.cwd.as_deref(), None]
         }
-        HistoryKind::Closed => [entry.url.as_deref(), entry.cwd.as_deref(), None],
-        HistoryKind::Command => [entry.command.as_deref(), entry.cwd.as_deref(), None],
+        // A closed chat's session id and harness (Swift `searchText` of `.closed`).
+        HistoryKind::Closed => [
+            entry.url.as_deref(),
+            entry.cwd.as_deref(),
+            entry.session_id.as_deref(),
+            entry.provider.as_deref(),
+        ],
+        HistoryKind::Command => [entry.command.as_deref(), entry.cwd.as_deref(), None, None],
         HistoryKind::Agent => {
-            [entry.provider.as_deref(), entry.session_id.as_deref(), entry.cwd.as_deref()]
+            [entry.provider.as_deref(), entry.session_id.as_deref(), entry.cwd.as_deref(), None]
         }
     };
     parts.extend(own.into_iter().flatten());

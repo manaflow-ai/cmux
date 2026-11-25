@@ -1,5 +1,11 @@
 # CmuxConversation requests from the Home and Chief design pass
 
+> **Retired 2026-11-11.** CmuxTabsKit and CmuxConversation now live in
+> feat-cmux-next, which holds the only copy; there is no upstream branch to sync
+> with or to file requests against. Make a change listed here directly in
+> `Packages/iOS/`. This file is kept as history. See `Packages/iOS/AGENTS.md`.
+
+
 For the `feat-imsg-parity-gui` owner. From the designer's review in
 [SPEC.md](SPEC.md) (2026-10-14), items U1 to U6, plus one request (U7)
 that came up while implementing the mobile side.
@@ -227,6 +233,11 @@ public func focusComposer()
 **Default:** n/a, because it is only called by a host.
 
 ## U8. Host rows under the header that push the transcript down (new, round 3)
+
+**Status: landed (CMUX-25).** `ConversationViewController.headerAccessoryRoom`
+and `headerMaxY` (the reply thread and a full composer field stop under the row too): Chief's bar sits under the header and the header no
+longer moves, so the back button stays in the top-left corner. The R3-1
+band now covers only the bar's own room.
 
 **Need:** Chief shows a pinned row while it asks a question ("Chief is
 asking · Answer"), as Messages pins a business chat's request or "Report

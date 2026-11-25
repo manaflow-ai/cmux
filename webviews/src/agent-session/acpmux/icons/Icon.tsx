@@ -1,8 +1,8 @@
-import { useId } from "react";
+import { useId, type CSSProperties } from "react";
 import { MISSING_ICON, resolveIcon } from "./iconPack";
-import { iconLayers } from "./iconLayers";
-import { ICON_FLOOR, ROW_VIEWBOX } from "./iconSize";
-import { useIcons } from "./IconsContext";
+import { iconLayers, type IconLayerPaint } from "./iconLayers";
+import { ICON_FLOOR, ICON_STROKE, ROW_VIEWBOX } from "./iconSize";
+import { useIcons } from "./iconsContextModel";
 import { opticalRowFit } from "./opticalFit";
 import type { IconLayer } from "./types";
 
@@ -25,6 +25,8 @@ export function Icon({
   title,
   className,
   color,
+  style: cssStyle,
+  layerPaint,
 }: {
   name: string;
   selected?: boolean;
@@ -34,6 +36,9 @@ export function Icon({
   title?: string;
   className?: string;
   color?: string;
+  style?: CSSProperties;
+  /** Recolors the drawing layers one by one (app scene symbol rendering modes). */
+  layerPaint?: IconLayerPaint;
 }) {
   const { pack, accent } = useIcons();
   const id = useId().replace(/[^\w-]/g, "");
@@ -48,14 +53,19 @@ export function Icon({
   }
   const fitted = row && fit ? opticalRowFit(layers) : undefined;
   const px = Math.max(ICON_FLOOR, size);
+  const viewBox = fitted?.viewBox ?? (row ? ROW_VIEWBOX : "0 0 24 24");
+  const span = Number(viewBox.split(" ")[2]);
+  // Normalize in viewBox units, including the optical crop. The same glyph then
+  // has the same rendered stroke in a row, a fitted column, or a plain button.
+  const strokeWidth = selected ? undefined : (ICON_STROKE * span) / 16;
   return (
     <svg
-      viewBox={fitted?.viewBox ?? (row ? ROW_VIEWBOX : "0 0 24 24")}
+      viewBox={viewBox}
       width={px}
       height={px}
       overflow={row ? "visible" : undefined}
       className={className}
-      style={color ? { color } : undefined}
+      style={color ? { ...cssStyle, color } : cssStyle}
       data-icon={name}
       role={title ? "img" : undefined}
       aria-hidden={title ? undefined : true}
@@ -63,7 +73,7 @@ export function Icon({
       focusable="false"
     >
       {title && <title>{title}</title>}
-      {iconLayers(fitted?.layers ?? layers, `cmux-icon-${id}`)}
+      {iconLayers(fitted?.layers ?? layers, `cmux-icon-${id}`, strokeWidth, layerPaint)}
     </svg>
   );
 }

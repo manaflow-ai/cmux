@@ -23,19 +23,19 @@
 //! before the current one and the one the pane hints at
 //! (`_acpmux/prewarm`, debounced: a harness pick, or typing in a new chat);
 //! one hinted entry per harness across folders (`pool.hintedPerHarness`), and
-//! a hint the pane takes back (`release`) ends its entry; a 1 GB RSS cap for the whole pool, oldest
+//! a hint the pane takes back (`release`) ends its entry; one spare per harness the machine used
+//! (`spare.rs`: the shape of its newest session, kept `pool.spareIdleMinutes`, remembered across
+//! daemon starts, replaced when it dies); a 1 GB RSS cap for the whole pool, oldest
 //! first; idle exit on the injected clock (`pool.idleMinutes`, default 10).
 //! The default for idle CPU is that exit; `pool.park` (off) SIGSTOPs a ready
 //! harness instead. Never for a remote-origin chain (REMOTE-FLOOR v3).
 //! Shutdown ends every entry; a crashed daemon's entries are ended by the
 //! next daemon before it adopts hosts (`sweep_pool_hosts`).
 //!
-//! Known gap (recorded, not for now): over a socket, a `session/new` is
-//! never cancelled. Requests run as spawned tasks and `$/cancel_request`
-//! is accepted but does nothing, so a client that gives up on a create
-//! still gets the session made. `ClaimGuard` covers the in-process case
-//! (a dropped `new_session` future puts its claimed entry back); a real
-//! cancel would need the server to abort the request task.
+//! Cancel: over a socket, a client's `$/cancel_request` drops the request's
+//! task (`server/in_flight.rs`, `request_cancel.rs`), so a `session/new` it
+//! gives up on is dropped like an in-process one: `ClaimGuard` puts its
+//! claimed entry back, and an agent request it waited on is cancelled there.
 
 use super::*;
 use crate::agent::Attached;
@@ -48,6 +48,8 @@ mod auth;
 mod held;
 pub(crate) mod policy;
 mod reaper;
+mod reserved;
+mod spare;
 mod start;
 use held::{TapSlot, holding_inbound, holding_tap};
 use policy::{Origin, Pool, PoolKey, Role, Take};
@@ -55,27 +57,35 @@ pub(crate) use reaper::run_reaper;
 #[cfg(unix)]
 use reaper::signal_harness;
 pub use reaper::tree_rss_bytes;
+pub use reserved::parse_shapes as parse_home_shapes;
+pub use spare::person_spare_shapes;
 #[cfg(test)]
 pub(super) use start::held_reports_full_access;
 
-/// Most a pooled start's `initialize` and harness session may take before
-/// it counts as failed (and its host is ended).
-const START_BUDGET: Duration = Duration::from_secs(90);
-// A pooled host waits longer for its first controller than this budget
-// gives the attach (`agent_host/host.rs`).
-#[cfg(unix)]
-const _: () = assert!(agent_host::host::POOLED_OWNER_WAIT.as_secs() > START_BUDGET.as_secs());
+/// How often a pooled start reports that it is still waiting. This is a
+/// progress signal, not a deadline for a live harness.
+const START_PROGRESS: Duration = Duration::from_secs(10);
+/// A real hazard bound for a harness that has received CPU but never answers.
+/// A starved machine (no CPU available) therefore keeps waiting.
+// timeout: a live harness that has received CPU but has not answered for this
+// long is treated as wedged, so a prewarm cannot retain resources forever.
+const START_HAZARD: Duration = Duration::from_secs(30 * 60);
+/// A long fallback for platforms that cannot expose one process's CPU signal.
+// timeout: without per-process accounting we still need a finite bound for a
+// live-but-wedged host, while allowing scheduler starvation to recover first.
+const START_UNREAD_HAZARD: Duration = Duration::from_secs(2 * 60 * 60);
 /// How often the pool's RSS is measured again while it holds entries.
 const RSS_TICK: Duration = Duration::from_secs(60);
-/// Most a `session/new` waits for a matching entry that is still starting
-/// before it starts cold.
-const CLAIM_WAIT: Duration = Duration::from_secs(15);
+/// Compatibility envelope for forwarded `session/new` requests. Local starts
+/// are liveness based; this value is only the peer link's hazard bound for a
+/// handler that never answers and never closes its connection.
+// timeout: a remote handler that stays connected but never answers must not
+// retain a forwarding request forever; the transport keepalive remains the
+// earlier failure path for a dead peer. Nine minutes leaves substantial room
+// beyond the old 90-second pooled-start cutoff.
+pub(crate) const SESSION_NEW_BUDGET: Duration = Duration::from_secs(9 * 60);
 /// How long an ended entry's host gets before it is ended by nonce proof.
 const END_GRACE: Duration = Duration::from_secs(2);
-/// Most a claimed entry's host may take to answer before the entry counts
-/// as wedged: the hello budget of `agent_host::link::connect`. A healthy
-/// host answers in milliseconds; a loaded machine may take seconds.
-const CLAIM_PROBE: Duration = Duration::from_secs(5);
 
 /// Measures a pooled host's process tree RSS in bytes.
 pub type RssProbe = Arc<dyn Fn(u32) -> u64 + Send + Sync>;
@@ -102,6 +112,18 @@ pub(crate) struct PoolState {
     starting: StdMutex<HashMap<String, HostRecord>>,
     /// Keys whose session alone is over the RSS cap: never started again.
     oversize: StdMutex<std::collections::HashSet<PoolKey>>,
+    /// The harness shapes `pool-spares.json` holds, read once on first use (`spare.rs`).
+    spares: StdMutex<Option<Vec<spare::Remembered>>>,
+    /// Held across a write of `pool-spares.json`, so the newest list is the one written.
+    spare_file: StdMutex<()>,
+    /// Harnesses whose spare died, for the spare worker to start again (`spare.rs`).
+    spare_restart: StdMutex<Vec<String>>,
+    spare_wake: Notify,
+    /// A person request's spare check is running (`spare_on_person_request`): one at a time.
+    spare_presence_busy: AtomicBool,
+    /// A spare a person request wanted was refused (pool off, over the RSS cap, no spec): the
+    /// next person request tries again only after this.
+    spare_presence_retry_at: StdMutex<Option<std::time::Instant>>,
 }
 
 type Spec = (String, Option<String>);
@@ -121,6 +143,12 @@ impl PoolState {
             rss: StdMutex::new(Arc::new(tree_rss_bytes)),
             starting: StdMutex::new(HashMap::new()),
             oversize: StdMutex::new(Default::default()),
+            spares: StdMutex::new(None),
+            spare_file: StdMutex::new(()),
+            spare_restart: StdMutex::new(Vec::new()),
+            spare_wake: Notify::new(),
+            spare_presence_busy: AtomicBool::new(false),
+            spare_presence_retry_at: StdMutex::new(None),
         }
     }
 }
@@ -160,6 +188,9 @@ pub(super) struct Pooled {
     /// MDM's off as the chat that claimed it began its claim (`pool_claim`), which may have waited
     /// on this start: an off that came and went before the start read it counts too (review 121).
     claimed_under: Option<crate::hub::full_access_bound::OffLatch>,
+    /// The answer its claim's spec asked for the person's own `cmux` entry
+    /// (`PoolSpec::answer`): the claiming chat's start reads it (`record_spawn_inputs`).
+    codex_answer: Option<crate::agent_tools::CodexAnswer>,
 }
 
 impl Pooled {
@@ -195,6 +226,10 @@ struct PoolSpec {
     key: PoolKey,
     spawn: HarnessProfile,
     draft: SessionMeta,
+    /// Codex's answer for the person's own `cmux` entry, asked once for this spec off the runtime:
+    /// its key (`tool_servers`), the spare it starts (`session/new`, prewarm and refill) and the
+    /// chat that claims with it read this one.
+    answer: crate::agent_tools::CodexAnswer,
 }
 
 /// `_acpmux/prewarm`: the harness (and preset) the pane is about to use.
@@ -215,6 +250,20 @@ pub struct PrewarmRequest {
     /// From a Web client or a peer forwarding for one: an auto-trust rule is no Trust answer
     /// (`trust::web_session_level`), also for the folder picked when the hint names none.
     pub trust_web: bool,
+    /// What the chat this hint serves will ask on its `session/new` (a Cloud chat's start,
+    /// cmux#45953), so the entry is keyed as that chat's own start keys it.
+    pub shape: PrewarmShape,
+}
+
+/// The parts of a coming `session/new` a hint names beyond its harness and folder: the model it
+/// pins (`_meta.acpmux.model`), its workspace (`_meta.acpmux.workspaceId`) and the owner's Cloud
+/// credential (`_meta.acpmux.credentials`, this machine's own socket only). An entry warmed with a
+/// credential is hinted only: never a spare or a last-used entry, which outlive the hint.
+#[derive(Debug, Clone, Default)]
+pub struct PrewarmShape {
+    pub model: Option<String>,
+    pub workspace_id: Option<String>,
+    pub credential: Option<crate::agent_credentials::AgentCredential>,
 }
 
 /// A pool lock. A panic while one was held leaves plain data behind, so a
@@ -225,6 +274,129 @@ pub(super) fn lock<T>(m: &StdMutex<T>) -> std::sync::MutexGuard<'_, T> {
 
 fn pool_dir() -> PathBuf {
     agent_host::pool_dir(&agent_host::hosts_dir())
+}
+
+/// The `agents.promptSuggestions` switch a pooled agent of `spawn` reads once as its host starts
+/// (Claude Code's `initialize`, the Codex app-server translator), as `enabled` reads it now;
+/// `None` for a harness that reads none, so a change there never discards it.
+fn suggestions_at_start(spawn: &HarnessProfile, enabled: impl FnOnce() -> bool) -> Option<bool> {
+    let reads = spawn.kind == crate::config::HarnessKind::ClaudeStdio
+        || crate::codex_app_server::is_profile_launch(&spawn.argv);
+    reads.then(enabled)
+}
+
+/// The names of the agent tool servers `tools` gives a session whose spawn env is `env`
+/// ([`PoolKey::tool_servers`]), as `agent_tools::acp_servers_for` gives them: for a Codex
+/// session in `codex_cwd`, none named `cmux` beside the person's own HTTP `cmux` entry, so a spare
+/// started before that entry appeared is never served.
+fn tool_servers(
+    tools: crate::agent_tools::AgentTools,
+    env: &std::collections::BTreeMap<String, String>,
+    codex: Option<crate::agent_tools::CodexLaunch<'_>>,
+) -> String {
+    // The answer a session of this shape starts under, whether or not a `cmux` server resolves
+    // (no cmux CLI here): a spare's harness env and its person's entry carry it.
+    let answer = match env.get(crate::agent_tools::TOOLS_ANSWER_ENV).map(String::as_str) {
+        _ if crate::agent_tools::cut_off(env) => "off",
+        Some("on") => "on",
+        Some(_) => "off",
+        None if tools.cmux_for_agents => "on",
+        None => "off",
+    };
+    let tools = tools.scoped(env);
+    let tools = match codex {
+        Some(launch) => tools.without_cmux_beside_an_http_entry(launch, env),
+        None => tools,
+    };
+    let mut names: Vec<String> = tools.servers.iter().map(|s| s.name.clone()).collect();
+    names.push(format!("answer:{answer}"));
+    // The person's own `cmux` entry as Codex answers for this launch (none, stdio with its command
+    // and args, HTTP, no answer), and the answer its env keys carry: a spare started before either
+    // changed is never served.
+    if let Some(launch) = codex {
+        let entry = crate::agent_tools::persons_cmux_entry(launch, env);
+        let mut h = std::collections::hash_map::DefaultHasher::new();
+        std::hash::Hash::hash(&entry, &mut h);
+        names.push(format!("cmux-entry:{:016x}", std::hash::Hasher::finish(&h)));
+        let listed = serde_json::Value::Array(names.iter().map(|n| json!({"name": n})).collect());
+        if let Some(sent) = crate::agent_tools::person_entry_env(&listed, launch, env, "") {
+            let answer = sent
+                .get(crate::agent_tools::CMUX_SERVER)
+                .and_then(|server| server.get("env"))
+                .and_then(|env| env.get(crate::agent_tools::TOOLS_ANSWER_ENV))
+                .and_then(serde_json::Value::as_str)
+                .unwrap_or_default()
+                .to_owned();
+            names.push(format!("cmux-entry-env:{answer}"));
+        }
+    }
+    names.join(",")
+}
+
+#[cfg(test)]
+#[path = "suggestions_tests.rs"]
+mod suggestions_tests;
+
+/// The model and effort a pooled Claude Code agent for `draft` starts on: what `spawn_pooled`
+/// hands `claude_stdio::spawn_plan`, spelled as that puts it on the command line (`--model`
+/// takes `model_id`; "default" or nothing is the harness's own). `(None, None)` for any other
+/// harness, whose model is in its argv (`${model}`) or set after start.
+pub(super) fn started_on(
+    spawn: &HarnessProfile,
+    draft: &SessionMeta,
+) -> (Option<String>, Option<String>) {
+    if spawn.kind != crate::config::HarnessKind::ClaudeStdio {
+        return (None, None);
+    }
+    let set = |v: Option<String>| v.filter(|v| !v.is_empty() && v != "default");
+    let model = set(current_model(draft)).map(|m| crate::claude_stdio::model_id(&m));
+    (model, set(current_effort(draft)))
+}
+
+#[cfg(test)]
+#[path = "key_tests.rs"]
+mod key_tests;
+#[cfg(test)]
+#[path = "model_tests.rs"]
+mod model_tests;
+
+/// The pool's one-reaper claim (`PoolState::reaper`), held by the running reaper task. Dropping
+/// it while held (the task unwinding from a panic) clears the flag, so `start_pool_reaper` starts
+/// a new reaper instead of only waking one that is gone. Released by hand on the normal exit, where
+/// a successor may already have claimed the flag.
+struct ReaperClaim<'a> {
+    flag: &'a AtomicBool,
+    held: bool,
+}
+
+impl ReaperClaim<'_> {
+    fn release(&mut self) {
+        self.held = false;
+        self.flag.store(false, Ordering::SeqCst);
+    }
+}
+
+impl Drop for ReaperClaim<'_> {
+    fn drop(&mut self) {
+        if self.held {
+            self.flag.store(false, Ordering::SeqCst);
+        }
+    }
+}
+
+/// The spawn env a pool key hashes: all of it but the sr2 person mark (`sr2_priority::mark`),
+/// which says who made the chat, not what the agent runs. Every entry starts as the person's
+/// (`pool_spec_in`), and only the person's chats take a pooled Claude Code, the one harness the
+/// mark changes (`lifecycle.rs` `shaped`). Hashed whole, a chat whose creator was not drafted
+/// the same way as its entry never matched it: from cmux#52363 until this, every person's chat
+/// discarded the warm spare and started cold.
+pub(super) fn key_env(
+    env: &std::collections::BTreeMap<String, String>,
+) -> std::collections::BTreeMap<&str, &str> {
+    env.iter()
+        .filter(|(k, _)| k.as_str() != crate::sr2_priority::PERSON_ENV)
+        .map(|(k, v)| (k.as_str(), v.as_str()))
+        .collect()
 }
 
 fn internal(e: impl std::fmt::Display) -> RpcError {
@@ -283,6 +455,12 @@ impl Hub {
                 if v.hinted {
                     roles.push("hinted");
                 }
+                if v.reserved {
+                    roles.push("reserved");
+                }
+                if v.spare {
+                    roles.push("spare");
+                }
                 json!({"harness": v.key.harness, "preset": v.key.preset, "cwd": v.key.cwd,
                     "roles": roles, "state": v.state})
             })
@@ -298,8 +476,11 @@ impl Hub {
         draft: &SessionMeta,
         profile: &HarnessProfile,
         defaults_env: &std::collections::BTreeMap<String, String>,
+        credential: Option<&crate::agent_credentials::AgentCredential>,
     ) -> Result<PoolSpec, RpcError> {
-        let spawn = self.spawn_profile_for(draft, profile, defaults_env).await?;
+        // The credential goes into the spawn as the session's own would (`spawn_profile_read`),
+        // so the key's auth fingerprint below hashes it: only the same credential matches.
+        let spawn = self.spawn_profile_with(draft, profile, defaults_env, credential).await?;
         let sha = match &draft.preset {
             Some(name) => self
                 .config
@@ -313,8 +494,17 @@ impl Hub {
         let family = draft.family.clone().unwrap_or_default();
         let (credentials, account) = self.pool.auth.fingerprint(&family, &spawn.env);
         let mut h = std::collections::hash_map::DefaultHasher::new();
-        spawn.env.hash(&mut h);
+        key_env(&spawn.env).hash(&mut h);
         credentials.hash(&mut h);
+        // Codex's answer for the person's own `cmux` entry, asked once for this spec, off the
+        // runtime.
+        let answer = crate::agent_tools::CodexAnswer::default();
+        let codex = crate::agent_tools::is_codex(draft, Some(profile));
+        if codex {
+            crate::agent_tools::warm_codex_answer(&draft.cwd, &spawn.argv, &spawn.env, &answer)
+                .await;
+        }
+        let (model, effort) = started_on(&spawn, draft);
         let key = PoolKey {
             origin: if draft.remote_origin { Origin::Remote } else { Origin::Local },
             cwd: draft.cwd.clone(),
@@ -324,9 +514,25 @@ impl Hub {
             system_prompt_sha256: sha,
             auth: format!("{:016x}", h.finish()),
             account,
-            machine: crate::login_env::machine_stamp(),
+            machine: crate::vault::machine_stamp(),
+            prompt_suggestions: suggestions_at_start(
+                &spawn,
+                crate::claude_stdio::prompt_suggestions::enabled_in_settings,
+            ),
+            settings_file: crate::user_settings::resolved_path(),
+            tool_servers: tool_servers(
+                crate::agent_tools::current(),
+                &spawn.env,
+                codex.then_some(crate::agent_tools::CodexLaunch {
+                    cwd: &draft.cwd,
+                    argv: &spawn.argv,
+                    answer: Some(&answer),
+                }),
+            ),
+            model,
+            effort,
         };
-        Ok(PoolSpec { key, spawn, draft: draft.clone() })
+        Ok(PoolSpec { key, spawn, draft: draft.clone(), answer })
     }
 
     /// The spec for a new local session of `harness`/`preset` in `cwd`.
@@ -336,6 +542,22 @@ impl Hub {
         preset: Option<String>,
         cwd: PathBuf,
     ) -> Result<PoolSpec, RpcError> {
+        self.pool_spec_in(harness, preset, cwd, None, &PrewarmShape::default()).await
+    }
+
+    /// `pool_spec`; a `spare` (the shape of a session the person started in `cwd`, `Some` with
+    /// that session's model request) asks for that model and may also start in the home folder
+    /// off macOS (`protected_folders::spare_refusal`). `shape`: what a hinted chat's own
+    /// `session/new` will name (its pinned model, workspace and credential), as that start reads them.
+    async fn pool_spec_in(
+        &self,
+        harness: Option<String>,
+        preset: Option<String>,
+        cwd: PathBuf,
+        spare: Option<Option<String>>,
+        shape: &PrewarmShape,
+    ) -> Result<PoolSpec, RpcError> {
+        self.rediscover_head(harness.as_deref(), preset.as_deref()).await;
         let r = {
             let cfg = self.config.read().await;
             self.resolve_new(&cfg, harness, &preset, None, false, None)?
@@ -343,25 +565,69 @@ impl Hub {
         let family = crate::config::derive_family(&r.agent, &r.profile);
         // A pooled agent starts before anyone asks for it: never in the home
         // folder, `/` or a privacy-protected folder.
-        if let Some(reason) = crate::protected_folders::unasked_refusal(&cwd) {
+        let refusal = if spare.is_some() {
+            crate::protected_folders::spare_refusal(&cwd)
+        } else {
+            crate::protected_folders::unasked_refusal(&cwd)
+        };
+        if let Some(reason) = refusal {
             return Err(RpcError::invalid_params(reason));
         }
         let (cwd, _) = super::adoption::session_cwd(Some(cwd), None, &family, &[])?;
         let spawn_model = profile_takes_model_at_spawn(&r.profile)
             || r.defaults.env.values().any(|v| v.contains("${model}"));
-        let draft = super::resolve::draft_meta(super::resolve::Draft {
+        // The model a new chat here would start on (`new_session`): a spare keeps its session's;
+        // a plain chat takes the start value (`start_defaults.rs`), which the key now carries
+        // (`started_on`), so a prewarmed agent runs the model the chat it serves would.
+        let start_model = || {
+            let plain = r.preset_name.is_none()
+                && r.folder_root.is_none()
+                && r.profile.model.is_none()
+                && !super::start_defaults::profile_sets_model(&r.profile, &r.defaults.env);
+            if plain {
+                self.start_defaults(&r.agent, &r.profile, &r.defaults, None).0.map(|s| s.value)
+            } else {
+                r.defaults.model.clone()
+            }
+        };
+        let mut draft = super::resolve::draft_meta(super::resolve::Draft {
             id: String::new(),
             agent: &r.agent,
             profile: &r.profile,
             family: &family,
             preset: r.preset_name.clone(),
-            model_request: if spawn_model { r.defaults.model.clone() } else { None },
+            // A model the chat pins is its spawn model, as `session/new` takes a request's
+            // (`model_pinned`, lifecycle.rs).
+            model_request: match (spawn_model, spare, &shape.model) {
+                (false, ..) => None,
+                (true, Some(model), _) => model,
+                (true, None, Some(pinned)) => Some(pinned.clone()),
+                (true, None, None) => start_model(),
+            },
             cwd,
             agent_session_id: None,
             policy: r.defaults.policy,
             remote: false,
         });
-        self.pool_spec_for(&draft, &r.profile, &r.defaults.env).await
+        {
+            let cfg = self.config.read().await;
+            draft.cmux_preset_prompt = crate::context_inventory::preset_override(&draft, &cfg);
+            // The rules a new chat captures go on its command line (`launch_args`): a pooled
+            // agent started with the same ones has the same key, so the chat can take it.
+            draft.cmux_context = Some(crate::context_inventory::snapshot_session(&draft, &cfg));
+        }
+        draft.workspace_id = shape.workspace_id.clone();
+        // The pool is the person's (an agent's create warms nothing, `lifecycle.rs`; a pooled
+        // Claude Code starts for the person, `start.rs`): an entry starts as a person's chat
+        // would, so its agent asks sr2 for the person's reserve (`sr2_priority::mark`) like the
+        // chat that takes it. Drafted with no creator, it ran without, and its key (which hashed
+        // the mark, `key_env`) never matched a person's chat.
+        draft.created_by = Some(crate::store::CreatedBy {
+            kind: crate::store::CreatorKind::Person,
+            workspace: shape.workspace_id.clone(),
+            session: None,
+        });
+        self.pool_spec_for(&draft, &r.profile, &r.defaults.env, shape.credential.as_ref()).await
     }
 
     /// `_acpmux/prewarm`: accepted at once; after the debounce, the newest
@@ -396,7 +662,7 @@ impl Hub {
         let generation = self.pool.hint_gen.fetch_add(1, Ordering::SeqCst) + 1;
         let debounce = Duration::from_millis(self.config.read().await.pool.debounce_ms);
         let hub = self.clone();
-        let PrewarmRequest { harness, preset, wait, trust_gate, trust_web, .. } = req;
+        let PrewarmRequest { harness, preset, wait, trust_gate, trust_web, shape, .. } = req;
         let task = tokio::spawn(async move {
             if !debounce.is_zero() {
                 let clock = lock(&hub.clock).clone();
@@ -407,7 +673,7 @@ impl Hub {
                 return Ok(None);
             }
             hub.wait_startup().await;
-            let spec = hub.pool_spec(harness, preset, cwd).await?;
+            let spec = hub.pool_spec_in(harness, preset, cwd, None, &shape).await?;
             if trust_gate && let Some(paths) = hub.trust_gate() {
                 let folder = spec.draft.cwd.to_string_lossy().into_owned();
                 let family =
@@ -473,14 +739,19 @@ impl Hub {
         if lock(&self.pool.oversize).contains(&spec.key) {
             return;
         }
-        let (idle, per_harness) = {
+        let (idle, spare_idle, per_harness) = {
             let cfg = self.config.read().await;
-            (cfg.pool.idle(), usize::try_from(cfg.pool.hinted_per_harness).unwrap_or(usize::MAX))
+            (
+                cfg.pool.idle(),
+                cfg.pool.spare_idle(),
+                usize::try_from(cfg.pool.hinted_per_harness).unwrap_or(usize::MAX),
+            )
         };
         let now = lock(&self.clock).now();
         let wanted = {
             let mut pool = lock(&self.pool.pool);
             pool.set_idle(idle);
+            pool.set_spare_idle(spare_idle);
             pool.set_hinted_per_harness(per_harness);
             pool.want(role, spec.key.clone(), now)
         };
@@ -490,7 +761,7 @@ impl Hub {
         #[cfg(debug_assertions)]
         crate::hub::full_access_bound::POOL_STARTS.send_modify(|n| *n += 1);
         let hub = self.clone();
-        tokio::spawn(async move {
+        self.scope.spawn_named("pool-start", async move {
             match hub.spawn_pooled(&spec, &off).await {
                 Ok(p) => {
                     let id = p.session_id.clone();
@@ -529,11 +800,14 @@ impl Hub {
 
     /// An entry became ready: measure the pool, keep it under the RSS cap
     /// (oldest first), and park ready harnesses when `pool.park` is on.
-    async fn pool_after_ready(&self) {
+    async fn pool_after_ready(self: &Arc<Self>) {
         let (cap, park) = {
             let cfg = self.config.read().await;
             (cfg.pool.max_rss_mb.saturating_mul(1024 * 1024), cfg.pool.park)
         };
+        // A ready entry whose host died (killed, OOM) is removed now rather than found dead at a
+        // claim; a spare among them starts again (`spare.rs`).
+        self.spare_replace_dead().await;
         let pids: Vec<u32> = lock(&self.pool.pool).ready_mut().map(|p| p.record.host_pid).collect();
         let probe = lock(&self.pool.rss).clone();
         let measured: HashMap<u32, u64> =
@@ -648,11 +922,15 @@ impl Hub {
     /// `session/new` for `meta`: claim the pooled session of exactly this
     /// shape, waiting for one that is starting. Returns its reserved id,
     /// which the new session takes; None starts cold.
+    /// `asked`: the answer the claim's spec asked for the person's own `cmux` entry, with its
+    /// launch, whether or not a spare was found, so the session's first start reuses it.
     pub(super) async fn pool_claim(
         &self,
         meta: &SessionMeta,
         profile: &HarnessProfile,
         defaults_env: &std::collections::BTreeMap<String, String>,
+        credential: Option<&crate::agent_credentials::AgentCredential>,
+        asked: &mut Option<crate::agent_tools::AskedFor>,
     ) -> Option<String> {
         // MDM's off as this claim begins: its one read, first, before any await or pool lock
         // (reviews 76 and 122), kept with the entry it claims (`Pooled::claimed_under`, review 121
@@ -676,28 +954,39 @@ impl Hub {
         {
             return None;
         }
-        let spec = self.pool_spec_for(meta, profile, defaults_env).await.ok()?;
+        let spec = self.pool_spec_for(meta, profile, defaults_env, credential).await.ok()?;
+        if spec.answer.get().is_some() {
+            *asked = Some(crate::agent_tools::AskedFor {
+                cwd: spec.draft.cwd.clone(),
+                argv: spec.spawn.argv.clone(),
+                env: spec.spawn.env.clone(),
+                answer: spec.answer.clone(),
+            });
+        }
         loop {
-            let took = lock(&self.pool.pool).take(&spec.key);
+            // A credentialed start (cmux#45953) never ends another key's entry: only one
+            // warmed with its own credential is its, and the folder's spare stays.
+            let took = lock(&self.pool.pool).take_or_keep(&spec.key, credential.is_none());
             match took {
                 Take::Ready(mut p) => {
                     #[cfg(debug_assertions)]
                     self.claim_gap_report(&p);
                     #[cfg(debug_assertions)]
                     self.claim_off_seam();
-                    // A dead or wedged host is ended; the session starts on
-                    // a fresh host (`spawn_hosted_child`). So is one whose link
-                    // stopped reading: it still answers a query, but nothing it
-                    // sends from then on is heard (`ChildAgent::is_stopped`).
-                    let asked = std::time::Instant::now();
-                    if !p.child.is_alive().await
-                        || p.child.is_stopped()
-                        || !p.child.answers_within(CLAIM_PROBE).await
-                    {
+                    // A dead host is ended; the session starts on a fresh host
+                    // (`spawn_hosted_child`). A live host is kept even when its
+                    // optional health query is slow: that query is a health
+                    // observation, and must not turn a busy-machine wake into
+                    // a cold-start failure.
+                    // The link ends only once the reader sees the closed socket: a host
+                    // killed just before this claim still looks live there, so its live lock
+                    // decides too.
+                    let lock_free =
+                        p.child.host_record().is_some_and(|r| crate::agent_host::host_dead_now(&r));
+                    if lock_free || !p.child.is_alive().await || p.child.is_stopped() {
                         tracing::warn!(
                             harness = %spec.key.harness,
-                            waited_ms = asked.elapsed().as_millis() as u64,
-                            "a pooled agent host did not answer or is not heard; it ends and the session starts on a fresh host"
+                            "a pooled agent host is no longer live; it ends and the session starts on a fresh host"
                         );
                         self.pool_discard(vec![p]);
                         return None;
@@ -705,7 +994,7 @@ impl Hub {
                     // A delivery or revocation since its key was made (also
                     // while this claim waited on its start): a cold start
                     // reads the machine's secrets afresh.
-                    if p.key.machine != crate::login_env::machine_stamp() {
+                    if p.key.machine != crate::vault::machine_stamp() {
                         tracing::info!(harness = %spec.key.harness, "pooled session discarded: the machine's delivered secrets changed");
                         self.pool_discard(vec![p]);
                         return None;
@@ -723,21 +1012,30 @@ impl Hub {
                     }
                     let id = p.session_id.clone();
                     p.claimed_under = Some(off.clone());
+                    p.codex_answer = Some(spec.answer.clone());
                     lock(&self.pool.claimed).insert(id.clone(), p);
+                    // A home chat took the machine's reserved warm agent: the next home chat's
+                    // folder is reserved and warmed now, so it starts warm too.
+                    let (reserved, ended) = lock(&self.pool.pool).end_reserved(&spec.key);
+                    self.pool_discard(ended);
+                    if reserved {
+                        self.refill_reserved_home(spec.key.cwd.clone());
+                    }
                     return Some(id);
                 }
-                Take::Discard(old) => {
-                    tracing::info!(harness = %spec.key.harness, "pooled session discarded: its key changed");
+                Take::Discard(old, fields) => {
+                    tracing::info!(harness = %spec.key.harness, differing = %fields.join(","), "pooled session discarded: its key changed");
                     self.pool_discard(old.into_iter().collect());
                     return None;
                 }
                 Take::Miss => return None,
                 Take::Warming(mut settled) => {
-                    // A start that hangs never holds a user's session/new
-                    // longer than a cold start would roughly take.
-                    match tokio::time::timeout(CLAIM_WAIT, settled.changed()).await {
-                        Ok(Ok(())) => {}
-                        _ => return None,
+                    // A live warming start is still the session the caller
+                    // asked for. Wait for its process to settle; a failed or
+                    // exited start notifies this watcher and the next pass
+                    // falls back to a cold start.
+                    if settled.changed().await.is_err() {
+                        return None;
                     }
                 }
             }
@@ -749,21 +1047,43 @@ impl Hub {
         lock(&self.pool.claimed).get(id).map(|p| p.name.clone())
     }
 
+    /// The answer the claim of the pooled session for `id` asked for the person's own `cmux`
+    /// entry (`Pooled::codex_answer`), if `session/new` claimed one.
+    pub(super) fn pool_claimed_codex_answer(
+        &self,
+        id: &str,
+    ) -> Option<crate::agent_tools::CodexAnswer> {
+        lock(&self.pool.claimed).get(id).and_then(|p| p.codex_answer.clone())
+    }
+
     /// The claimed pooled session for `id`, if `session/new` claimed one.
     pub(super) fn pool_take_claimed(&self, id: &str) -> Option<Pooled> {
         lock(&self.pool.claimed).remove(id)
     }
 
     /// The claimed pooled session for `id`, when it asks OpenCode to ask as `spawn` does
-    /// (`opencode_ask.rs`). One claimed before the chat's policy changed is ended, and the
-    /// session starts cold.
+    /// (`opencode_ask.rs`) and runs the model and effort the chat `meta` now asks for. One
+    /// claimed before the chat's policy, model or effort changed is ended, and the session
+    /// starts cold: a pooled Claude Code never switches the model it was started on.
     pub(super) fn pool_take_claimed_for(
         &self,
         id: &str,
         spawn: &HarnessProfile,
+        meta: &SessionMeta,
         off: &crate::hub::full_access_bound::OffLatch,
     ) -> Option<Pooled> {
         let p = self.pool_take_claimed(id)?;
+        let (model, effort) = started_on(spawn, meta);
+        if p.key.model != model || p.key.effort != effort {
+            tracing::info!(
+                session = %id,
+                pooled = ?p.key.model,
+                asked = ?model,
+                "pooled session not taken: it runs another model or effort than the chat asks for"
+            );
+            self.pool_discard(vec![p]);
+            return None;
+        }
         // MDM forces full access off (#23322, review 32): an entry in full access by what it
         // reported while held (a mode its harness declares none for, an option) is not taken,
         // since `cap_full_access` may read the session before those reports reach it. Nor is one
@@ -806,10 +1126,10 @@ impl Hub {
         // between ends the pooled agent for it (#26337).
         session.floor.unjudged_host.store(false, Ordering::SeqCst);
         if let Err(e) = agent_host::promote(&pool_dir(), &agent_host::hosts_dir(), &p.record) {
-            tokio::spawn(end_pooled(p));
+            self.scope.spawn_named("end-pooled", end_pooled(p));
             return Err(e);
         }
-        self.forget_adopted_caller(&session.id);
+        self.forget_adopted_caller(&session.id, &p.record.incarnation);
         self.record_preview_format(session, p.preview);
         let tap = self.session_tap(session);
         let mut started = json!({
@@ -841,16 +1161,12 @@ impl Hub {
             reported
         };
         if let Some(target) = p.target.take() {
-            let _ = target.send(session.inbound_tx.clone());
+            let _ = target.send(session.inbound_tx().clone());
         }
         let child = p.child.clone();
         *session.child.lock().await = Some(child.clone());
         self.wake_idle_reaper();
-        if let Some(rx) = session.inbound_rx.lock().await.take() {
-            let hub = self.clone();
-            let s = session.clone();
-            tokio::spawn(async move { hub.inbound_loop(s, rx).await });
-        }
+        self.spawn_inbound_loop(session).await;
         let init = &p.init;
         let steering =
             init.pointer("/_meta/steering/supported").and_then(Value::as_bool).unwrap_or(false);
@@ -861,6 +1177,8 @@ impl Hub {
             m.agent_capabilities = init.get("agentCapabilities").cloned();
             m.steering = steering;
         }
+        // What it says about asking before its tools, and whether acpmux believes it.
+        self.note_asks_claim(session).await;
         if p.claude {
             let state = child.claude_state().await.unwrap_or_default();
             let mut m = session.meta.lock().unwrap_or_else(|e| e.into_inner());
@@ -868,6 +1186,7 @@ impl Hub {
             // The pooled process started a fresh conversation: unstored
             // until its first turn ends.
             m.claude_unstored = true;
+            m.claude_unstored_work = false;
             m.claude_profile = Some(m.harness.clone());
             drop(m);
             self.write_mode_state(
@@ -884,7 +1203,11 @@ impl Hub {
             self.absorb_session_response(session, res);
         }
         self.append(session, "mux", "pool_taken", json!({"rssBytes": p.rss}));
-        self.set_status(session, SessionStatus::Ready);
+        self.set_status(session, NotWaiting::Ready);
+        self.note_launch(session, &child);
+        // It started with the person's suggestions (`initialize_params`): right for theirs only.
+        let asked_right = self.for_a_person(session);
+        self.note_start_level(session, &child, asked_right);
         self.save_meta(session);
         let meta_now = session.meta();
         self.remember_models(&meta_now.harness, &meta_now);
@@ -893,10 +1216,20 @@ impl Hub {
 
     /// A local session was created: the harness used before it in that cwd
     /// takes the last-used role (the common back-and-forth is a hit).
-    pub(super) fn pool_note_used(self: &Arc<Self>, session: &Session) {
+    /// `claimable`: the session's own creation could have taken a pooled agent (no env, route,
+    /// disallowed tools or extra folders of its own); only such a session's shape gets a spare.
+    pub(super) fn pool_note_used(self: &Arc<Self>, session: &Session, claimable: bool) {
         let m = session.meta();
         if m.remote_origin {
             return;
+        }
+        if claimable {
+            self.spare_note_used(
+                &m.harness,
+                m.preset.clone(),
+                m.cwd.clone(),
+                m.model_request.clone(),
+            );
         }
         let spec: Spec = (m.harness.clone(), m.preset.clone());
         let previous = {
@@ -977,7 +1310,7 @@ impl Hub {
             )
             .await;
             if ended {
-                let _ = std::fs::remove_file(&b.path);
+                let _ = crate::home_fs::remove_file(&b.path);
             }
         }
     }
@@ -991,6 +1324,9 @@ impl Hub {
         }
         let hub = self.clone();
         tokio::spawn(async move {
+            // A reaper that panics gives its claim back as it unwinds, so the next pooled entry
+            // starts a new one instead of waking a reaper that is gone.
+            let mut claim = ReaperClaim { flag: &hub.pool.reaper, held: true };
             loop {
                 let shut = AtomicBool::new(false);
                 let stopped = async {
@@ -1024,13 +1360,14 @@ impl Hub {
                     },
                 )
                 .await;
-                hub.pool.reaper.store(false, Ordering::SeqCst);
+                claim.release();
                 // An entry added while the reaper was leaving restarts it.
                 let again = !shut.load(Ordering::SeqCst)
                     && !lock(&hub.pool.pool).is_empty()
                     && !hub.pool.stopping.load(Ordering::SeqCst)
                     && !hub.stopping.load(Ordering::SeqCst)
                     && !hub.pool.reaper.swap(true, Ordering::SeqCst);
+                claim.held = again;
                 if !again {
                     return;
                 }
@@ -1147,5 +1484,39 @@ async fn end_pooled_host(record: &HostRecord) {
         )
         .await;
     }
+    // A host killed outright ended nothing under it, and its harness exits on the closed pipe:
+    // a helper that left the group is found only by the host's mark.
+    let nonce = record.start_nonce.clone();
+    let _ = tokio::task::spawn_blocking(move || agent_host::end_left_behind(&nonce)).await;
     agent_host::remove_artifacts(&dir, record);
+}
+
+#[cfg(test)]
+mod reaper_claim_tests {
+    use super::*;
+
+    /// Before: a reaper that panicked left the flag set, so no reaper ever ran again and idle
+    /// pooled harnesses were never ended. After: the claim clears it as the task unwinds.
+    #[tokio::test]
+    async fn a_reaper_that_panics_gives_its_claim_back() {
+        let flag: &'static AtomicBool = Box::leak(Box::new(AtomicBool::new(true)));
+        let died = tokio::spawn(async move {
+            let _claim = ReaperClaim { flag, held: true };
+            panic!("reaper died");
+        })
+        .await;
+        assert!(died.is_err());
+        assert!(!flag.load(Ordering::SeqCst), "a dead reaper still holds the pool's claim");
+    }
+
+    /// A reaper that released its claim on the normal exit never clears a successor's.
+    #[test]
+    fn a_released_claim_leaves_a_successors_claim_alone() {
+        let flag = AtomicBool::new(true);
+        let mut claim = ReaperClaim { flag: &flag, held: true };
+        claim.release();
+        flag.store(true, Ordering::SeqCst);
+        drop(claim);
+        assert!(flag.load(Ordering::SeqCst));
+    }
 }

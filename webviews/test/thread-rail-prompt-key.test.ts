@@ -123,7 +123,7 @@ test("a streamed token beside a repeated key keeps the same ticks", () => {
 });
 
 test("older turns arriving find the anchored tick, not an earlier one with its prompt's key", async () => {
-  const { prependedBy } = await import("../src/agent-session/acpmux/threadMinimap/ThreadMinimap");
+  const { prependedBy } = await import("../src/agent-session/acpmux/threadMinimap/threadMinimapModel");
   const user = (id: string, promptId: string, extra: Partial<AcpmuxRow> = {}): AcpmuxRow =>
     ({ id, version: 1, at: 0, kind: "user", text: id, promptId, ...extra }) as AcpmuxRow;
   // acpmux's echo of p-7, then the pane's retried send of it (one promptId), then a later prompt.
@@ -144,7 +144,7 @@ test("older turns arriving find the anchored tick, not an earlier one with its p
 });
 
 test("an older echo with the first tick's promptId arriving above moves no tick to its key", async () => {
-  const { prependedBy, tickIndex } = await import("../src/agent-session/acpmux/threadMinimap/ThreadMinimap");
+  const { prependedBy, tickIndex } = await import("../src/agent-session/acpmux/threadMinimap/threadMinimapModel");
   const user = (id: string, promptId: string, extra: Partial<AcpmuxRow> = {}): AcpmuxRow =>
     ({ id, version: 1, at: 0, kind: "user", text: id, promptId, ...extra }) as AcpmuxRow;
   // The rail starts at the pane's retried send of p-7 (no echo of it loaded yet), then two more.

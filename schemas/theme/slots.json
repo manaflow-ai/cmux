@@ -1,0 +1,419 @@
+{
+  "$comment": "Theme slots: named, swappable micro-interactions a theme pack can replace (webviews/src/slots/registry.ts, docs/cmux-next/extensions/replace-a-slot.md). One entry per slot: its props contract, its motion spec in motion-scale tokens (never raw numbers), its reduced-motion behavior (required), the box every variant must fit (a variant never changes layout), the per-frame budget, and the variants cmux ships. The theme look selects a variant per slot (`slots: { \"<slot id>\": \"<variant id>\" }`); without it, or with an id no variant has, a slot draws its default. webviews `check:theme-slots` (scripts/check-theme-slots.ts) holds every variant to this file.",
+  "tokens": {
+    "$comment": "What a variant's stylesheet may name for a duration or an easing. Durations: the motion scale (schemas/motion-scale, `--cmux-motion-*`, `--cmux-spinner-period`) and the page loop periods beside it in pages/shared/desktop.css. Easings: the scale's curves, or `linear` / `steps(n)` for a loop.",
+    "durations": [
+      "--cmux-motion-quick",
+      "--cmux-motion-micro",
+      "--cmux-motion-standard",
+      "--cmux-motion-large",
+      "--cmux-motion-settle",
+      "--cmux-motion-send",
+      "--cmux-spinner-period",
+      "--cmux-breath-period",
+      "--cmux-shimmer-period"
+    ],
+    "easings": ["--cmux-ease-out", "--cmux-ease-spring", "--cmux-ease-settle", "--cmux-ease-send"],
+    "easingKeywords": ["linear", "steps"]
+  },
+  "budget": {
+    "$comment": "The rules every variant of every slot keeps. The check enforces each `enforced` rule on the variant's own files.",
+    "animatedProperties": ["transform", "opacity"],
+    "rules": [
+      {
+        "id": "compositor-only",
+        "enforced": true,
+        "rule": "Keyframes and transitions change only `transform` and `opacity`: the compositor runs them, the page lays out and paints nothing per frame."
+      },
+      {
+        "id": "no-js-per-frame",
+        "enforced": true,
+        "rule": "A variant's script starts no frame loop or timer (`requestAnimationFrame`, `setInterval`, `setTimeout`, Web Animations `animate()`, the page clock): all motion is CSS, so its main-thread cost per frame is zero by construction. Props the line already updates (its one-second clock) are the only change over time."
+      },
+      {
+        "id": "tokens-only",
+        "enforced": true,
+        "rule": "Every animation and transition duration is a `var()` of a duration token above and every easing an easing token or keyword: no `ms`/`s` literal anywhere in a variant's motion."
+      },
+      {
+        "id": "reduced-motion",
+        "enforced": true,
+        "rule": "Every animation sits inside `@media (prefers-reduced-motion: no-preference)` and under the slot's motion gate, so Reduce Motion, static status indicators and animations off draw the variant's still frame."
+      },
+      {
+        "id": "no-breathing",
+        "enforced": true,
+        "rule": "No mark fades, blinks or pulses forever (an infinite loop whose keyframes move `opacity`, `visibility` or `scale`): a status mark is still, and a loop moves a mark from place to place instead. webviews test/no-breathing-dots.test.ts holds every shipped stylesheet to it."
+      },
+      {
+        "id": "fixed-box",
+        "enforced": false,
+        "rule": "A variant fits the slot's box (`box`): the same block size as the default, and an inline size that never changes while it runs. Swapping variants never moves the transcript. Reviewed in the gallery entry, whose layout-shift gate fails a variant that moves."
+      },
+      {
+        "id": "stops",
+        "enforced": false,
+        "rule": "A loop stops with its condition (`stop`): the slot is drawn only while that holds, and a hidden page pauses every loop (`data-cmux-page-hidden`)."
+      }
+    ]
+  },
+  "motionGate": ":root:not([data-status-indicators=\"static\"], [data-agent-motion=\"off\"], [data-cmux-motion=\"off\"], [data-cmux-motion=\"reduced\"])",
+  "slots": [
+    {
+      "id": "chat.thinkingIndicator",
+      "title": "Thinking indicator",
+      "docs": "The agent chat's live line while a turn thinks before it names a step: the word (\"Thinking\", or the rotating verb) and how it shows the agent is working. Drawn by webviews/src/agent-session/acpmux/conversation/Thinking.tsx inside the line's `<output>`; the line's clock, tokens and counts after it are not the slot's.",
+      "props": {
+        "label": { "type": "string", "docs": "The words to draw: \"Thinking\", the turn's rotating verb or the person's custom verb. Already translated." },
+        "verbs": { "type": "string[]", "docs": "Every label the line may rotate through: reserve the widest (the default's `.cv-status-verb` grid does) so a verb change never moves what follows." },
+        "elapsed": { "type": "string?", "docs": "The time drawn after the slot (\"12s\"), when the line shows one; the default's light band crosses it too." },
+        "elapsedMs": { "type": "number", "docs": "How long the turn has run, updated by the line's existing one-second clock. A variant may change its look past a threshold (more dots as thinking continues); it never starts its own timer." }
+      },
+      "box": {
+        "block": "The live line's one row (`.cv-worked`, `var(--grid-row)`): a variant draws inside the line's 20px line box and never grows it.",
+        "inline": "The label at its reserved width (the widest of `verbs`) plus at most one mark of a fixed inline size, which never changes while the variant runs."
+      },
+      "motion": {
+        "durations": {
+          "loop": "--cmux-spinner-period",
+          "shimmer": "--cmux-shimmer-period",
+          "breath": "--cmux-breath-period"
+        },
+        "easings": {
+          "loop": "linear",
+          "breath": "--cmux-ease-settle",
+          "step": "steps"
+        },
+        "reducedMotion": "Every loop stops and the variant draws its still frame: the word in the line's muted tone and the mark (if any) at full strength, as the default draws the word with no band. Under Reduce Motion, static status indicators (`data-status-indicators=\"static\"`) and animations off (`data-agent-motion=\"off\"`, `data-cmux-motion`).",
+        "stop": "The slot is drawn only while the turn thinks with no step named: the line changes to the call, \"Writing\" or the next state, or the turn ends, and the slot unmounts with its loops (the built-in default keeps its one band mounted through a named step: the live line draws it in place). A hidden page pauses it (`data-cmux-page-hidden`); the transcript unmounts rows outside its window."
+      },
+      "defaultVariant": "default",
+      "variants": [
+        {
+          "id": "default",
+          "label": "Shimmer",
+          "docs": "What the line drew before slots, unchanged: a light band in the theme accent sweeps across the dim word and the time. Its two loops are the shared shimmer (conversation.css `.cv-shimmer__*`, `cmux-shimmer-band`/`cmux-shimmer-lit` on `--cmux-shimmer-period`, transform only), which other running rows share, so its rules stay in conversation.css.",
+          "source": "webviews/src/slots/thinkingIndicator/DefaultThinkingIndicator.tsx",
+          "styles": []
+        },
+        {
+          "id": "counting-dots",
+          "label": "Counting dots",
+          "docs": "Three dim dots after the word and a lit dot stepping from one to the next; past twenty seconds a fourth dot joins and the lit dot counts four, so a long think reads as longer.",
+          "source": "webviews/src/slots/thinkingIndicator/CountingDots.tsx",
+          "styles": ["webviews/src/slots/thinkingIndicator/thinkingIndicator.css"]
+        },
+        {
+          "id": "pulse",
+          "label": "Pulse",
+          "docs": "One small round mark after the word swells in once as the think starts, then holds still.",
+          "source": "webviews/src/slots/thinkingIndicator/PulseMark.tsx",
+          "styles": ["webviews/src/slots/thinkingIndicator/thinkingIndicator.css"]
+        },
+        {
+          "id": "caret",
+          "label": "Caret",
+          "docs": "A thin caret after the word steps ahead a place at a time, as a cursor typing ahead of the next words; it never blinks.",
+          "source": "webviews/src/slots/thinkingIndicator/CaretMark.tsx",
+          "styles": ["webviews/src/slots/thinkingIndicator/thinkingIndicator.css"]
+        },
+        {
+          "id": "blocks",
+          "label": "Blocks",
+          "docs": "Three square cells after the word, a lit block stepping across them a cell at a time: a retro look with no easing.",
+          "source": "webviews/src/slots/thinkingIndicator/BlockSteps.tsx",
+          "styles": ["webviews/src/slots/thinkingIndicator/thinkingIndicator.css"]
+        }
+      ]
+    },
+    {
+      "id": "chat.jumpToBottom",
+      "title": "Jump to latest",
+      "docs": "The mark inside the transcript's Jump to latest button (the glass circle above the composer, shown while the reader is scrolled up from the latest message): how it arrives, rests, answers a press and says the agent is still working. Drawn by webviews/src/agent-session/acpmux/VirtualTranscript.tsx's JumpToLatest inside the button; the button's glass, place, fade, label, focus and click are not the slot's, and the Needs your input pill that replaces it while an ask waits is not either.",
+      "props": {
+        "shown": { "type": "boolean", "docs": "The button is on screen. It stays mounted (inert) while hidden, so a variant may play its arrival off `.acpmux-jump-latest[data-shown]`." },
+        "working": { "type": "boolean", "docs": "The agent is working, so new content is still arriving below. A variant may move only while this and `shown` hold." }
+      },
+      "box": {
+        "block": "The button's 32px circle (`.acpmux-jump-latest`): a variant draws inside it and never resizes it.",
+        "inline": "The same 32px circle; the mark keeps the default's centered `.acpmux-jump-latest__arrow` cell, and moves only by transform inside it."
+      },
+      "motion": {
+        "durations": {
+          "press": "--cmux-motion-quick",
+          "arrive": "--cmux-motion-standard",
+          "loop": "--cmux-spinner-period",
+          "breath": "--cmux-breath-period"
+        },
+        "easings": {
+          "press": "--cmux-ease-spring",
+          "arrive": "--cmux-ease-spring",
+          "loop": "linear",
+          "breath": "--cmux-ease-settle"
+        },
+        "reducedMotion": "No arrival, no press dip and no loop: the variant draws its still frame, the mark at rest in the circle's center at full strength, as the default's static arrow. Under Reduce Motion, static status indicators (`data-status-indicators=\"static\"`) and animations off (`data-agent-motion=\"off\"`, `data-cmux-motion`).",
+        "stop": "A loop runs only while the button shows (`[data-shown]`) and the agent works: back at the latest message the button hides and every loop stops; a turn's end stops it too. A hidden page pauses it (`data-cmux-page-hidden`)."
+      },
+      "defaultVariant": "default",
+      "variants": [
+        {
+          "id": "default",
+          "label": "Arrow",
+          "docs": "What the button drew before slots, unchanged: a static down arrow on the glass's legibility pool (conversation.css `.acpmux-jump-latest__arrow`).",
+          "source": "webviews/src/slots/jumpToBottom/DefaultJumpArrow.tsx",
+          "styles": []
+        },
+        {
+          "id": "nudge",
+          "label": "Nudge",
+          "docs": "The arrow drops into the circle on the spring as the button appears, and dips toward the latest message while pressed.",
+          "source": "webviews/src/slots/jumpToBottom/NudgeArrow.tsx",
+          "styles": ["webviews/src/slots/jumpToBottom/jumpToBottom.css"]
+        },
+        {
+          "id": "bob",
+          "label": "Bob",
+          "docs": "While the agent works, the arrow bobs gently toward the latest message once per breath; idle, it rests. Dips while pressed.",
+          "source": "webviews/src/slots/jumpToBottom/BobArrow.tsx",
+          "styles": ["webviews/src/slots/jumpToBottom/jumpToBottom.css"]
+        },
+        {
+          "id": "cascade",
+          "label": "Cascade",
+          "docs": "Two small arrows stacked; while the agent works they rest dim and a lit arrow steps from the upper one to the lower one, a cascade pointing down (by place, never a fade). Dips while pressed.",
+          "source": "webviews/src/slots/jumpToBottom/CascadeChevrons.tsx",
+          "styles": ["webviews/src/slots/jumpToBottom/jumpToBottom.css"]
+        }
+      ]
+    },
+    {
+      "id": "chat.sendTransition",
+      "title": "Send transition",
+      "docs": "A sent prompt's arrival in the transcript: the bubble around the prompt's words, which the send motion brings in (conversation.css SEND-ENTRANCE on `.acpmux-row--message-enter`, `--cmux-motion-send`). Drawn by webviews/src/agent-session/acpmux/conversation/UserBubble.tsx; the row, its attachments, version switcher and footer are not the slot's.",
+      "props": {
+        "children": {
+          "type": "ReactNode",
+          "docs": "The prompt's words (PromptText or InlinePromptContent), drawn inside the bubble."
+        }
+      },
+      "box": {
+        "block": "The prompt's bubble (`.cv-user__bubble`) at the height its words give it: a variant never adds height or padding.",
+        "inline": "The bubble's width, right-aligned in the row as the default's; a variant moves it only by transform or opacity while it enters."
+      },
+      "motion": {
+        "durations": {
+          "send": "--cmux-motion-send"
+        },
+        "easings": {
+          "send": "--cmux-ease-send"
+        },
+        "reducedMotion": "The prompt is in place at once with no rise or slide; a fade may stay on the app's fade setting (`--agent-motion-send-fade`). Under Reduce Motion, static status indicators (`data-status-indicators=\"static\"`) and animations off (`data-agent-motion=\"off\"`, `data-cmux-motion`).",
+        "stop": "The entrance plays once, while the row carries `.acpmux-row--message-enter`, and ends with it; nothing loops."
+      },
+      "defaultVariant": "default",
+      "variants": [
+        {
+          "id": "default",
+          "label": "Bubble",
+          "docs": "What the prompt drew before slots, unchanged: the glass bubble (`ui-glass cv-user__bubble selectable`), entering on the scale's send step (0 today: the prompt lands at once).",
+          "source": "webviews/src/slots/sendTransition/DefaultSendBubble.tsx",
+          "styles": []
+        }
+      ]
+    },
+    {
+      "id": "chat.receiveTransition",
+      "title": "Receive transition",
+      "docs": "A reply's arrival in the transcript: the box an agent's reply draws its words in, under the live line while it streams. Drawn by webviews/src/agent-session/acpmux/rows/MessageRow.tsx around RevealedMarkdown; the words' own reveal, the Markdown and the reply's action row are not the slot's.",
+      "props": {
+        "children": {
+          "type": "ReactNode",
+          "docs": "The reply's words (RevealedMarkdown `.cv-reply`)."
+        },
+        "streaming": {
+          "type": "boolean",
+          "docs": "The reply is still streaming: its first words have arrived and more are coming. A variant may move only while this holds."
+        }
+      },
+      "box": {
+        "block": "The reply's height as its words lay out: a variant never adds height or padding.",
+        "inline": "The transcript column's width, as the default's."
+      },
+      "motion": {
+        "durations": {
+          "arrive": "--cmux-motion-standard"
+        },
+        "easings": {
+          "arrive": "--cmux-ease-out"
+        },
+        "reducedMotion": "The reply's words appear where they land, with no rise or fade of the slot's own. Under Reduce Motion, static status indicators (`data-status-indicators=\"static\"`) and animations off (`data-agent-motion=\"off\"`, `data-cmux-motion`).",
+        "stop": "An arrival plays once as the reply mounts, or while `streaming` holds; it ends when the reply finishes. The transcript unmounts rows outside its window."
+      },
+      "defaultVariant": "default",
+      "variants": [
+        {
+          "id": "default",
+          "label": "Plain",
+          "docs": "What a reply drew before slots, unchanged: its words as they are, or in the prompt glass under the Messages presentation (PresentationContext.tsx AssistantPresentation).",
+          "source": "webviews/src/slots/receiveTransition/DefaultReplyArrival.tsx",
+          "styles": []
+        }
+      ]
+    },
+    {
+      "id": "chat.side",
+      "title": "Side question",
+      "docs": "The /side interaction: the note a side question opens beside the thread, holding the question and its answer until dismissed. Drawn by webviews/src/agent-session/acpmux/aside/BtwAside.tsx; the head, Dismiss, the question and the answer inside it are not the slot's.",
+      "props": {
+        "children": {
+          "type": "ReactNode",
+          "docs": "The note's head, question and answer (BtwAside.tsx)."
+        },
+        "label": {
+          "type": "string",
+          "docs": "The note's accessible name (\"Side question\"), already translated; a variant keeps it on its landmark."
+        },
+        "pending": {
+          "type": "boolean",
+          "docs": "The answer has not come back yet; a variant keeps `aria-busy` on it."
+        }
+      },
+      "box": {
+        "block": "The note's height as its content lays out (btw.css `.acpmux-btw-note`): a variant never adds height or padding.",
+        "inline": "The note's width in the thread, as the default's."
+      },
+      "motion": {
+        "durations": {
+          "open": "--cmux-motion-standard"
+        },
+        "easings": {
+          "open": "--cmux-ease-spring"
+        },
+        "reducedMotion": "The note is in place at once when it opens and gone at once when dismissed. Under Reduce Motion, static status indicators (`data-status-indicators=\"static\"`) and animations off (`data-agent-motion=\"off\"`, `data-cmux-motion`).",
+        "stop": "An opening plays once as the note mounts; a pending loop stops when the answer or an error comes back, and dismissing unmounts it. A hidden page pauses it (`data-cmux-page-hidden`)."
+      },
+      "defaultVariant": "default",
+      "variants": [
+        {
+          "id": "default",
+          "label": "Note",
+          "docs": "What a side question drew before slots, unchanged: the note (btw.css `.acpmux-btw-note`), in place at once.",
+          "source": "webviews/src/slots/side/DefaultSideNote.tsx",
+          "styles": []
+        }
+      ]
+    },
+    {
+      "id": "row.hover",
+      "title": "Row hover",
+      "docs": "A transcript row's hover: the action row a finished reply reveals on hover or keyboard focus (Copy, Pin, Read aloud, Reply, More and its time). Drawn by webviews/src/agent-session/acpmux/conversation/MessageActions.tsx ReplyActions; the buttons and their reveal rules (conversation.css `.acpmux-assistant:hover .cv-reply-actions`) are not the slot's.",
+      "props": {
+        "children": {
+          "type": "ReactNode",
+          "docs": "The row's buttons and time."
+        }
+      },
+      "box": {
+        "block": "The row's reserved line (`.cv-turn-actions`): it is laid out before the hover, so a reveal never moves the transcript.",
+        "inline": "The reply's width; the buttons keep their places."
+      },
+      "motion": {
+        "durations": {
+          "reveal": "--cmux-motion-quick"
+        },
+        "easings": {
+          "reveal": "--cmux-ease-out"
+        },
+        "reducedMotion": "The row shows and hides at once. Under Reduce Motion, static status indicators (`data-status-indicators=\"static\"`) and animations off (`data-agent-motion=\"off\"`, `data-cmux-motion`).",
+        "stop": "A reveal plays on hover or focus and reverses on leave; nothing loops."
+      },
+      "defaultVariant": "default",
+      "variants": [
+        {
+          "id": "default",
+          "label": "Fade in",
+          "docs": "What the row drew before slots, unchanged: the reserved action line that fades in on hover or focus (conversation.css `--cv-actions-in`).",
+          "source": "webviews/src/slots/rowHover/DefaultReplyActionsRow.tsx",
+          "styles": []
+        }
+      ]
+    },
+    {
+      "id": "composer.caret",
+      "title": "Composer caret",
+      "docs": "The composer's caret: a mark a variant may draw over the prompt field, beside the field's own caret (styles.css `.acpmux-composer-field`, `caret-color: var(--cmux-caret, ...)`). Drawn by webviews/src/agent-session/acpmux/ComposerBox.tsx after the field; the field, its text and its own caret are not the slot's.",
+      "props": {
+        "empty": {
+          "type": "boolean",
+          "docs": "The prompt holds no text (only spaces, or nothing)."
+        }
+      },
+      "box": {
+        "block": "Inside the prompt field's box: a variant draws over it, takes no pointer or focus, and never grows it.",
+        "inline": "Inside the prompt field's box, as the block."
+      },
+      "motion": {
+        "durations": {
+          "step": "--cmux-spinner-period"
+        },
+        "easings": {
+          "step": "steps"
+        },
+        "reducedMotion": "Any mark is still, at full strength. Under Reduce Motion, static status indicators (`data-status-indicators=\"static\"`) and animations off (`data-agent-motion=\"off\"`, `data-cmux-motion`).",
+        "stop": "A loop runs only while the field is focused and empty; typing or leaving the field stops it. A hidden page pauses it (`data-cmux-page-hidden`)."
+      },
+      "defaultVariant": "default",
+      "variants": [
+        {
+          "id": "default",
+          "label": "Field caret",
+          "docs": "What the composer drew before slots, unchanged: no mark of its own, the field's caret in `--cmux-caret`.",
+          "source": "webviews/src/slots/composerCaret/DefaultCaret.tsx",
+          "styles": []
+        }
+      ]
+    },
+    {
+      "id": "toast.enter",
+      "title": "Toast enter",
+      "docs": "A toast's arrival in the stack: what is drawn around the toast's card as it enters. Drawn by webviews/src/ui/NoticeStack.tsx around each Notice; the queue, the timer, the card and the deck's places and fly-in (NoticeDeck.tsx `.ui-notice-deck-card[data-phase]`) are not the slot's.",
+      "props": {
+        "children": {
+          "type": "ReactNode",
+          "docs": "The toast's card (Notice.tsx `.ui-notice`)."
+        },
+        "kind": {
+          "type": "string",
+          "docs": "The notice's kind (\"toast\", \"error\", ...)."
+        }
+      },
+      "box": {
+        "block": "The card's height: a variant never adds height or padding.",
+        "inline": "The card's width in the stack."
+      },
+      "motion": {
+        "durations": {
+          "enter": "--cmux-motion-standard"
+        },
+        "easings": {
+          "enter": "--cmux-ease-spring"
+        },
+        "reducedMotion": "The card is in place at once. Under Reduce Motion, static status indicators (`data-status-indicators=\"static\"`) and animations off (`data-agent-motion=\"off\"`, `data-cmux-motion`).",
+        "stop": "An entrance plays once as the toast mounts; nothing loops. A hidden page pauses it (`data-cmux-page-hidden`)."
+      },
+      "defaultVariant": "default",
+      "variants": [
+        {
+          "id": "default",
+          "label": "Deck",
+          "docs": "What a toast drew before slots, unchanged: the card alone, arriving by the deck's own motion.",
+          "source": "webviews/src/slots/toastEnter/DefaultToastEnter.tsx",
+          "styles": []
+        }
+      ]
+    }
+  ],
+  "next": [
+    { "id": "tab.close", "docs": "A tab's close button. Pane tabs are drawn natively (Packages/macOS/CmuxNext/Sources/CmuxNextTabs), not by a web view, so this slot needs a native host that reads the theme's slot map before it can ship." }
+  ]
+}

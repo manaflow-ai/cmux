@@ -36,7 +36,7 @@ fn port_mismatch(host: &str, name: &str, whose: &str, listening: u16, port: u16)
         Step::Daemon,
         format!("{whose} listens on port {listening}, the peer uses port {port}"),
         format!(
-            "Point the peer at the daemon with `acpmux host add {name} {url}`, then check again; or set websocket.listen to 127.0.0.1:{port} in {}/config.json on {host} and restart that daemon.",
+            "Point the peer at the daemon with `acpmux machine add {name} {url}`, then check again; or set websocket.listen to 127.0.0.1:{port} in {}/config.json on {host} and restart that daemon.",
             hosts::REMOTE_HOME
         ),
     )
@@ -97,12 +97,6 @@ pub(super) fn judge_daemon(
         };
         return (Verdict::Done(result), port);
     }
-    // Linux reports a running executable that was replaced in place as
-    // `PATH (deleted)`.  The installed binary probe has the real path, so
-    // compare normalized paths before deciding whether a safe restart can
-    // use the current-target binary.
-    let used_path =
-        used.as_ref().map(|u| u.path.strip_suffix(" (deleted)").unwrap_or(&u.path).to_owned());
     let verdict = match listening {
         // A daemon bound on another port than the peer's (run with
         // `--listen` and `--token`, its config lacking one): refused before
@@ -118,35 +112,20 @@ pub(super) fn judge_daemon(
         Ok(_) => match used.and_then(|u| u.pid.map(|pid| (pid, u.build))) {
             None => Verdict::Repair("the daemon is not running".into()),
             Some((_, Some(b))) if b != build => {
-                // The daemon's `exe` is already resolved; a probed path may
-                // be a link (a custom `--remote-binary` install behind
-                // `~/.local/bin/acpmux`), so compare what each resolves to.
-                let used_real = used_path.as_deref().map(|u| probe.resolved(u));
-                let current_binary = probe.bins.iter().any(|(path, build)| {
-                    build.as_deref() == Some(crate::hub::build())
-                        && (Some(path.as_str()) == used_path.as_deref()
-                            || Some(probe.resolved(path)) == used_real)
-                });
-                let result = match platform_skew(Step::Daemon, host, name, &probe.uname, false) {
-                    Some(_) if current_binary => StepResult::new(
-                        Step::Daemon,
-                        StepState::Warn,
-                        format!("the daemon runs build {b}, this is {build}"),
-                    )
-                    .with_fix(format!(
-                        "Run `acpmux host doctor {name} --fix` to restart the daemon on {host}."
-                    ))
-                    .with_reason("peer_version_skew"),
-                    Some(result) => result,
-                    None => StepResult::new(
-                        Step::Daemon,
-                        StepState::Warn,
-                        format!("the daemon runs build {b}, this is {build}"),
-                    )
-                    .with_fix(format!("Run `acpmux host update {name}`."))
+                let result = StepResult::new(
+                    Step::Daemon,
+                    StepState::Warn,
+                    format!("the daemon runs build {b}, this is {build}"),
+                );
+                // A different build is not a protocol verdict. The peer step
+                // negotiates with this daemon; its own updater owns upgrades.
+                if foreign_platform(&probe.uname) {
+                    return (Verdict::Done(result), port);
+                }
+                let result = result
+                    .with_fix(format!("Run `acpmux machine update {name}`."))
                     .with_reason("peer_version_skew")
-                    .with_try(format!("acpmux host update {name}")),
-                };
+                    .with_try(format!("acpmux machine update {name}"));
                 Verdict::OtherBuild(result)
             }
             Some((pid, _)) => Verdict::Done(StepResult::new(
@@ -169,22 +148,57 @@ pub(super) fn daemon(
     want: Option<u16>,
     fix: bool,
 ) -> (StepResult, u16) {
+    let bwrap = std::cell::RefCell::new(None);
+    let (result, port) = daemon_only(r, name, want, fix, &bwrap);
+    (sandbox(r, result, bwrap.into_inner().as_deref(), fix), port)
+}
+
+/// The daemon step with the host's sandbox (`bwrap`, [`PROBE_BWRAP`]): a Linux
+/// host that cannot make one refuses every session another machine starts
+/// there, so a passing step warns with the fix; `fix` installs a missing
+/// bubblewrap as root or when sudo needs no password. A failed step stays as it is.
+fn sandbox(r: &dyn Remote, result: StepResult, bwrap: Option<&str>, fix: bool) -> StepResult {
+    let passed = matches!(result.state, StepState::Ok | StepState::Fixed | StepState::Warn);
+    let Some(state) = bwrap.filter(|s| passed && *s != "ok") else { return result };
+    if fix
+        && state == "missing"
+        && hosts::run(r, &super::super::host_sandbox::install_script()).is_ok()
+    {
+        let detail = format!(
+            "{}; installed bubblewrap, so sessions from other machines run sandboxed here",
+            result.detail
+        );
+        return StepResult { state: StepState::Fixed, detail, ..result };
+    }
+    let detail = format!("{}; {}", result.detail, super::super::host_sandbox::detail(state));
+    let command = r
+        .exec(&super::super::host_sandbox::fix_script(), None)
+        .ok()
+        .filter(|out| out.ok)
+        .map(|out| out.stdout);
+    let fix = format!("On {}: {}", r.host(), super::super::host_sandbox::fix(command.as_deref()));
+    StepResult { state: StepState::Warn, detail, fix: Some(fix), ..result }
+}
+
+fn daemon_only(
+    r: &dyn Remote,
+    name: &str,
+    want: Option<u16>,
+    fix: bool,
+    bwrap: &std::cell::RefCell<Option<String>>,
+) -> (StepResult, u16) {
     let host = r.host();
     let judge = |r: &dyn Remote| match probe(r) {
-        Ok(p) => judge_daemon(host, name, &p, want),
+        Ok(p) => {
+            bwrap.replace(p.bwrap.clone());
+            judge_daemon(host, name, &p, want)
+        }
         Err(e) => (Verdict::Repair(format!("{e:#}")), want.unwrap_or(crate::peer::SSH_PEER_PORT)),
     };
     let (verdict, port) = judge(r);
     let why = match verdict {
         Verdict::Done(result) => return (result, port),
         Verdict::OtherBuild(result) => {
-            if result.fix.as_deref().is_some_and(|fix| {
-                fix.starts_with("Rebuild acpmux on ") || fix.contains("--binary-dir DIR")
-            }) {
-                let result =
-                    if fix { StepResult { state: StepState::Fail, ..result } } else { result };
-                return (result, port);
-            }
             if !fix {
                 return (result, port);
             }
@@ -209,7 +223,7 @@ pub(super) fn daemon(
     // one (`daemon.rs`), which the peer then uses unless it is a known one.
     let (after, port) = judge(r);
     let result = match after {
-        Verdict::Done(after) if after.state == StepState::Ok => {
+        Verdict::Done(after) if matches!(after.state, StepState::Ok | StepState::Warn) => {
             let detail = format!("{why}; now {}{auto_update_off}", after.detail);
             StepResult::new(Step::Daemon, StepState::Fixed, detail)
         }

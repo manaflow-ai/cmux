@@ -14,6 +14,13 @@ fn from_agent(id: &str, prompt_id: &str, agent: &str, text: &str, mux: Value) ->
     json!({"sessionId": id, "prompt": [{"type": "text", "text": text}], "_meta": {"acpmux": meta}})
 }
 
+/// The `_meta.acpmux` of an action (`--class result`). A message that names no class is an FYI
+/// (`inbox.rs` `default_notice_class`; Leo: "every non-actionable notice becomes fyi by default"),
+/// which waits for the flush window and steers into no turn.
+fn result() -> Value {
+    json!({"class": "result"})
+}
+
 /// A FIFO for the fake agent's gates.
 fn fifo(tag: &str) -> std::path::PathBuf {
     let path = std::env::temp_dir().join(format!("acpmux-inbox-{tag}-{}", uuid::Uuid::now_v7()));
@@ -108,9 +115,11 @@ async fn three_hundred_agent_messages_go_in_as_one_notice_at_the_next_tool_step(
     c.wait_for(method::SESSION_UPDATE, |p| p["update"]["content"]["text"] == "before-gate").await;
     let running = hub.resolve(&id).unwrap().turn().unwrap().turn_id;
 
-    // The first message goes in as a notice at once; the agent reads it at its next tool step.
+    // The first message, a blocker, goes in as a notice at once; the agent reads it at its next
+    // tool step. (Results alone would wait `STEER_COALESCE_MS` to go in together.)
+    let blocker = json!({"class": "blocker"});
     let first = c
-        .send(method::SESSION_PROMPT, from_agent(&id, "m-first", "lane-0", "merged #1", json!({})))
+        .send(method::SESSION_PROMPT, from_agent(&id, "m-first", "lane-0", "merged #1", blocker))
         .await;
     until(&hub, &id, "the first notice", |p| p.iter().any(|m| m["steer"] == true)).await;
     let mut sent = vec![first];
@@ -120,7 +129,8 @@ async fn three_hundred_agent_messages_go_in_as_one_notice_at_the_next_tool_step(
             &format!("m-{i}"),
             &format!("lane-{i}"),
             &format!("result {i}"),
-            json!({}),
+            // The last is a question: it brings the 299 results before it at once.
+            if i == 300 { json!({"class": "question"}) } else { result() },
         );
         sent.push(c.send(method::SESSION_PROMPT, msg).await);
     }
@@ -209,7 +219,7 @@ async fn an_idle_chat_runs_its_first_work_and_wakes_for_a_blocker_only() {
     assert_eq!(ids, ["a-1", "b-1", "f-1"]);
     let text = notices[0]["text"].as_str().unwrap();
     assert!(
-        text.contains("\n- [blocker] 1 new in #12 from lane-d: blocked on #12"),
+        text.contains("\n- [blocker] 1 new in #12 (self-declared, unauthenticated) from lane-d (self-declared, unauthenticated): blocked on #12"),
         "blockers first: {text}"
     );
     for answer in answered.values() {
@@ -240,7 +250,7 @@ async fn a_queued_prompt_never_waits_behind_agent_messages() {
     let mut sent = Vec::new();
     for i in 0..5 {
         let msg =
-            from_agent(&id, &format!("m-{i}"), "lane-a", &format!("step {i} of #9"), json!({}));
+            from_agent(&id, &format!("m-{i}"), "lane-a", &format!("step {i} of #9"), result());
         sent.push(c.send(method::SESSION_PROMPT, msg).await);
     }
     tokio::time::sleep(Duration::from_millis(500)).await;
@@ -268,7 +278,9 @@ async fn a_queued_prompt_never_waits_behind_agent_messages() {
     assert_ne!(notices[0]["steer"], true, "no steer: {all:?}");
     assert_eq!(all[at("p-me")]["text"], text.as_str(), "the person's words as written");
     assert_eq!(carried(&notices[0]).len(), 5);
-    assert!(notices[0]["text"].as_str().unwrap().contains("5 new in #9 from lane-a"));
+    assert!(notices[0]["text"].as_str().unwrap().contains(
+        "5 new in #9 (self-declared, unauthenticated) from lane-a (self-declared, unauthenticated)"
+    ));
     for answer in answered.values() {
         assert_eq!(answer["stopReason"], "end_turn", "{answer}");
         assert_eq!(answer["_meta"]["acpmux"]["turnId"], notices[0]["turnId"], "{answer}");
@@ -399,6 +411,38 @@ async fn the_persons_steer_goes_in_while_a_prompt_waits() {
     }
 }
 
+/// Leo, 2026-11-05: "WHY THE FUCK ARE MY MESSAGES BEING QUEUED INSTEAD OF STEERING". The person's
+/// Return steers into the running turn even when another agent's message started it (a lane
+/// report, an inbox notice): it never queues behind that turn as one of its own (takes back the
+/// person's half of #35142). Other agents' messages still wait behind the person's turn and
+/// prompt (`inbox.rs`).
+#[tokio::test]
+async fn the_persons_steer_goes_into_a_turn_another_agent_started() {
+    let env = BTreeMap::from([("FAKE_CLAUDE_STEER".to_owned(), "1".to_owned())]);
+    let (hub, mut c) = setup_env(PermissionPolicy::ApproveAll, env).await;
+    let id = new_session(&mut c, "coord").await;
+    let gate = fifo("gate");
+    let turn = c.send(method::SESSION_PROMPT, agents_gated_turn(&id, &gate)).await;
+    c.wait_for(method::SESSION_UPDATE, |p| p["update"]["content"]["text"] == "before-gate").await;
+    let agents = hub.resolve(&id).unwrap().turn().unwrap();
+    assert!(!agents.persons, "another agent's turn: {agents:?}");
+
+    // The person's steer, as the chat sends it on Return: into the agent's running turn.
+    let steer = json!({"sessionId": id, "prompt": [{"type": "text", "text": "are you SURE"}],
+                       "_meta": {"acpmux": {"promptId": "p-me", "steer": true}}});
+    let mine = c.send(method::SESSION_PROMPT, steer).await;
+    let answered = answers(&mut c, &[mine]).await;
+    assert_eq!(answered[&mine]["stopReason"], "steered", "{}", answered[&mine]);
+    assert_eq!(answered[&mine]["_meta"]["acpmux"]["turnId"], agents.turn_id.as_str());
+    let all = prompts(&hub, &id);
+    let me = all.iter().find(|m| m["promptId"] == "p-me").expect("the person's prompt is logged");
+    assert_eq!(me["turnId"], agents.turn_id.as_str(), "into the running turn: {all:?}");
+    assert_eq!(hub.resolve(&id).unwrap().queued(), 0, "nothing queued: {all:?}");
+    open(&gate).await;
+    answers(&mut c, &[turn]).await;
+    let _ = std::fs::remove_file(gate);
+}
+
 /// Leo, 2026-11-01: "why do the x messages from y sessions seem to always piggyback on my messages
 /// instead of going on their own". Another agent's message never goes into the person's own turn:
 /// no notice steers in at its start or its steps, and it goes in as a turn of its own once that
@@ -417,7 +461,7 @@ async fn a_notice_never_goes_into_the_persons_turn_and_runs_on_its_own_after_it(
     let turn = c.send(method::SESSION_PROMPT, prompt(&id, &words, Some("p-me"))).await;
     c.wait_for(method::SESSION_UPDATE, |p| p["update"]["content"]["text"] == "before-gate").await;
     let mine = hub.resolve(&id).unwrap().turn().unwrap().turn_id;
-    let msg = from_agent(&id, "m-1", "lane-a", "merged #9", json!({}));
+    let msg = from_agent(&id, "m-1", "lane-a", "merged #9", result());
     let sent = c.send(method::SESSION_PROMPT, msg).await;
     let accepted = c.wait_for(method::MUX_PROMPT_ACCEPTED, |p| p["promptId"] == "m-1").await;
     assert_eq!(accepted["inbox"], true, "{accepted}");
@@ -541,11 +585,17 @@ async fn threads_are_read_whole_and_answered_into_the_senders_inbox() {
     }
     let threads = c.request(method::MUX_INBOX_THREADS, json!({"sessionId": id})).await.unwrap();
     let rows = threads["threads"].as_array().unwrap();
-    let keys: Vec<&str> = rows.iter().map(|t| t["threadId"].as_str().unwrap()).collect();
-    assert_eq!(keys, ["topic:plan", "from:lane-a/pr:27133", "pr:27133"], "{threads}");
+    let keys: Vec<String> =
+        rows.iter().map(|t| t["threadId"].as_str().unwrap().to_owned()).collect();
+    assert_eq!(
+        keys,
+        vec!["topic:plan".to_owned(), "from:lane-a/pr:27133".to_owned(), "pr:27133".to_owned()],
+        "{threads}"
+    );
     assert_eq!(rows[0]["from"], json!(["lane-a"]));
     assert_eq!(rows[0]["unread"], 1);
-    assert_eq!(rows[0]["class"], "action");
+    // Classless inbox messages default to FYI and stay digest-only.
+    assert_eq!(rows[0]["class"], "fyi");
     assert_eq!(rows[0]["newestPreview"], "starting the next piece");
 
     // Another session's agent reads no other chat's inbox.
@@ -556,7 +606,7 @@ async fn threads_are_read_whole_and_answered_into_the_senders_inbox() {
     let mut coord_agent = agent_of(&hub, &id).await;
     let read = json!({"sessionId": id, "threadId": "pr:27133", "markRead": true});
     let thread = coord_agent.request(method::MUX_INBOX_THREAD, read).await.unwrap();
-    assert_eq!(thread["messages"][0]["text"], "landed", "{thread}");
+    assert_eq!(thread["messages"][0]["text"], signed(&hub, &lane, "landed"), "{thread}");
     let threads = c.request(method::MUX_INBOX_THREADS, json!({"sessionId": id})).await.unwrap();
     assert_eq!(threads["threads"][2]["unread"], 0, "{threads}");
     let reply = json!({"sessionId": id, "threadId": "pr:27133", "text": "thanks, merging"});
@@ -647,7 +697,7 @@ async fn a_closed_chat_answers_and_refuses_senders_and_keeps_its_threads() {
     .expect("the waiting sender was never answered");
     assert!(line.is_some(), "a closed chat answers its waiting sender with an error");
     let threads = c.request(method::MUX_INBOX_THREADS, json!({"sessionId": id})).await.unwrap();
-    assert_eq!(threads["threads"][0]["threadId"], "from:lane-b/pr:5", "{threads}");
+    assert_eq!(threads["threads"][0]["threadId"], "declared:lane-b/pr:5", "{threads}");
 }
 
 /// A review box (`review_box.rs`) has no inbox: another agent's message to its running review
@@ -840,7 +890,7 @@ async fn of_two_first_messages_at_once_only_one_runs_as_the_prompt() {
     assert_eq!(reply[&ran]["stopReason"], "end_turn", "{}", reply[&ran]);
 }
 
-/// Labs team messaging (`meshRelay.teamMessaging`) is off here, as on most daemons: a chat's agent
+/// Team messaging (`meshRelay.teamMessaging`) is off here (no team hub): a chat's agent
 /// still reads every word of its inbox. `inbox_read` reads it, and so do the team mailbox's inbox,
 /// read and ack, which an agent started before the inbox has instead of `inbox_read`, and which
 /// `acpmux inbox` calls (`hub/inbox_team_page.rs`). Three helpers saw only a notice's
@@ -878,6 +928,7 @@ async fn with_team_messaging_off_a_chat_reads_its_inbox_whole() {
     let thread = threads["threads"][0]["threadId"].as_str().unwrap().to_owned();
     let read = json!({"sessionId": id, "threadId": thread, "markRead": false});
     let whole = agent.request(method::MUX_INBOX_THREAD, read).await.unwrap();
+    let order = signed(&hub, &owner, &order);
     assert_eq!(whole["messages"][0]["text"], order, "{whole}");
 
     // The team mailbox's methods read the same inbox while team messaging is off.
@@ -905,7 +956,7 @@ async fn with_team_messaging_off_a_chat_reads_its_inbox_whole() {
     assert!(refused.is_err_and(|e| e.contains("inbox.not_found")));
     // A connection of no chat (the person's) is told team messaging is off, as before.
     let person = c.request(method::MUX_TEAM_INBOX, json!({})).await;
-    assert!(person.is_err_and(|e| e.contains("team messaging is disabled")));
+    assert!(person.is_err_and(|e| e.contains("team messaging is off")));
 }
 
 /// A chat whose agent was started with no cmux tools (`ACPMUX_AGENT_TOOLS=0`) cannot read an inbox:
@@ -927,6 +978,7 @@ async fn a_chat_whose_agent_has_no_tools_gets_its_messages_as_prompts() {
     let accepted =
         lane_agent.wait_for(method::MUX_PROMPT_ACCEPTED, |p| p["promptId"] == "m-1").await;
     assert_ne!(accepted["inbox"], true, "{accepted}");
+    let text = signed(&hub, &lane, text);
     until(&hub, &id, "the message's own turn", |p| p.iter().any(|m| m["text"] == text)).await;
     assert!(notices(&hub, &id).is_empty(), "no notice of a thread it cannot read");
     let threads = c.request(method::MUX_INBOX_THREADS, json!({"sessionId": id})).await.unwrap();

@@ -1,0 +1,18 @@
+{
+  "title": "Permission feed, peer prompt: shown in Needs you, then withdrawn once answered elsewhere",
+  "launch_args": ["--showcase"],
+  "steps": [
+    {"title": "Launch", "wait": 2, "shot": false},
+    {"title": "Light", "rpc": {"method": "debug.appearance", "params": {"mode": "light"}}, "wait": 1, "shot": false},
+    {"title": "Light: the peer prompt the bridge found at recovery, in Chief Home's Needs you",
+     "rpc": {"method": "debug.scene.render", "params": {"scene": "permission-feed-peer"}}, "record": true, "wait": 1.5},
+    {"title": "Light: acpmux reports it answered elsewhere; the bridge withdraws it",
+     "rpc": {"method": "debug.scene.render", "params": {"scene": "permission-feed-peer-resolved"}}, "record": true, "wait": 1.5},
+    {"title": "Dark", "rpc": {"method": "debug.appearance", "params": {"mode": "dark"}}, "wait": 1, "shot": false},
+    {"title": "Dark: the peer prompt the bridge found at recovery, in Chief Home's Needs you",
+     "rpc": {"method": "debug.scene.render", "params": {"scene": "permission-feed-peer"}}, "record": true, "wait": 1.5},
+    {"title": "Dark: acpmux reports it answered elsewhere; the bridge withdraws it",
+     "rpc": {"method": "debug.scene.render", "params": {"scene": "permission-feed-peer-resolved"}}, "record": true, "wait": 1.5},
+    {"title": "Back to the system appearance", "rpc": {"method": "debug.appearance", "params": {"mode": "system"}}, "wait": 1, "shot": false}
+  ]
+}

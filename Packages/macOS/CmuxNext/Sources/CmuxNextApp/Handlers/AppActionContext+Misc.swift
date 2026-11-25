@@ -28,9 +28,15 @@ extension AppActionContext {
     /// selected content is not always that page (a pane shown in two
     /// windows resolves to the first one's controller, an adopted Web Store
     /// tab), which refused the press with "No browser tab is focused."
+    func shownPage(_ invocation: ActionInvocation) throws -> (entry: BrowserEntry, chrome: BrowserChromeView) {
+        let entry = try page(invocation)
+        // `page` on screen: its pane's chrome shows it now.
+        guard let chrome = entry.chrome else { throw ActionFailure(message: MiscHandlerStrings.noBrowser) }
+        return (entry, chrome)
+    }
     func page(_ invocation: ActionInvocation) throws -> BrowserEntry {
         if let target = invocation.target, target.kind == .tab,
-           let entry = services.cache.existingBrowser(target.id), entry.chrome.window != nil {
+           let entry = services.cache.existingBrowser(target.id), entry.tab.contentView.window != nil {  // shown, or parked hidden in its pane's chrome
             return entry
         }
         guard case .browser(let entry) = scope(invocation).pane?.currentContent else {
@@ -46,12 +52,12 @@ extension AppActionContext {
         services.windows.reveal(workspaceID: workspaceID)
     }
 
-    /// Shows `tab` in its workspace and pane and selects it.
-    /// Nothing when the run may not change this client's view.
-    func reveal(_ located: LocatedTab) {
+    /// Shows `tab` in its workspace and pane and selects it; `front` gives its window the keys (a banner click: macOS
+    /// fronts the last key window, wrong for a chat in another). Nothing when the run may not change this client's view.
+    func reveal(_ located: LocatedTab, front: Bool = false) {
         guard ActionRunScope.viewChangeAllowed(), let controller = window(showing: located.workspace.id) else { return }
-        controller.state.selection.select(located.tab.id, in: located.pane.id)
-        services.paneController(for: located.pane)?.select(StripTabID(located.tab.id))
+        controller.state.selection.jump(to: located.tab.id, in: located.pane.id, byPerson: ActionRunScope.isPersonsAction())
+        services.paneController(for: located.pane)?.select(StripTabID(located.tab.id)); if front { services.windows.bringToFront(controller) }
     }
 
     /// Every tab in the mirror, workspace order then screen, pane, tab order.

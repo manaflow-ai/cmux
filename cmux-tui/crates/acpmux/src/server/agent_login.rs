@@ -15,13 +15,19 @@
 //! chat's agent restarts now when it is between turns (`restarted`), so its
 //! next prompt uses the new sign-in; in a turn it restarts when the turn ends
 //! (`restarted: false`), never cutting the turn.
+//!
+//! `start {agent: "claude@gateway"}` (`agent_login::GATEWAY_SUFFIX`) is the card's third way in:
+//! no sign-in runs; the chat's agent uses cmux's gateway (the team's CodeRouter account), as
+//! `cr use team claude` records it, when the image says the team has one
+//! (`Machine::gateway_access`), and answers `{gateway: true, restarted}`; else `no_gateway`.
 
-use super::{Conn, Origin};
+use super::{Conn, ConnAuth, Origin};
 use crate::agent_login::{self as login, Agent, Cli, LoginError, Machine, reason};
-use crate::config::{Config, HarnessKind};
+use crate::config::{Config, HarnessKind, HarnessProfile};
 use crate::hub::{Control, Hub};
 use crate::rpc::{RpcError, method};
 use serde_json::{Value, json};
+use std::path::Path;
 use std::sync::Arc;
 
 /// The methods `handle` answers.
@@ -35,9 +41,10 @@ pub(super) const METHODS: &[&str] = &[
 /// `error.data.reason` when a caller that is not the person's own asks.
 pub const REMOTE_REFUSED: &str = "remote_refused";
 
-fn error(e: LoginError) -> RpcError {
+pub(super) fn error(e: LoginError) -> RpcError {
     let code = match e.reason {
         reason::UNSUPPORTED_AGENT
+        | reason::UNSUPPORTED
         | reason::BAD_CODE
         | reason::UNKNOWN_LOGIN
         | reason::UNKNOWN_SESSION => -32602,
@@ -49,9 +56,10 @@ fn error(e: LoginError) -> RpcError {
 fn agent_of(params: &Value) -> Result<Agent, RpcError> {
     let name = params.get("agent").and_then(Value::as_str).unwrap_or_default();
     Agent::parse(name).ok_or_else(|| {
+        let names: Vec<_> = Agent::ALL.iter().map(|a| a.name()).collect();
         error(LoginError::new(
             reason::UNSUPPORTED_AGENT,
-            format!("agent must be \"claude\" or \"codex\", not {name:?}"),
+            format!("agent must be one of {}, not {name:?}", names.join(", ")),
         ))
     })
 }
@@ -60,56 +68,107 @@ fn text<'a>(params: &'a Value, key: &str) -> Option<&'a str> {
     params.get(key).and_then(Value::as_str).filter(|v| !v.is_empty())
 }
 
-/// Whether `conn` may run a sign-in here (module docs).
-fn allowed(conn: &Conn, params: &Value) -> bool {
-    let control = super::remote_guard::control_of(conn.origin, conn.auth, params);
-    match conn.origin {
+/// Whether a connection of `origin` that presented `auth` may run a sign-in here (module docs).
+/// The one owner rule for every sign-in on this machine: `account_sign_in.rs` asks it too.
+pub(super) fn allowed(origin: Origin, auth: ConnAuth, params: &Value) -> bool {
+    let control = super::remote_guard::control_of(origin, auth, params);
+    match origin {
         Origin::Local | Origin::LocalApp => control == Control::Local,
-        Origin::Peer => crate::hub::vm_boundary::owner(conn.auth, control, params),
+        Origin::Peer => crate::hub::vm_boundary::owner(auth, control, params),
         Origin::Web => false,
     }
 }
 
-/// How this daemon starts `agent` (`crate::agent_login` docs): the `claude`
-/// or `codex` harness profile when it runs that CLI itself, else the CLI on
+/// How this daemon starts `agent` (`crate::agent_login` docs): the `claude`,
+/// `codex`, `gemini` or `grok` harness profile when it runs that CLI itself
+/// (Gemini's and Grok's: the profile's program is `gemini` or `grok`), else the CLI on
 /// the login PATH. The profile's env and Codex's global options come along;
 /// values that refer to a secret store are left out (nothing here asks one).
-pub(crate) fn cli_for(cfg: &Config, agent: Agent) -> Option<Cli> {
+pub(super) fn cli_for(cfg: &Config, agent: Agent, selected: Option<HarnessProfile>) -> Option<Cli> {
     let cwd = std::env::temp_dir();
     let home = dirs::home_dir().unwrap_or_default();
-    let profile = cfg.harnesses.get(agent.name()).filter(|p| match agent {
+    let selected = selected.or_else(|| {
+        let mut profile = cfg.harnesses.get(agent.name())?.clone();
+        let mut env = cfg.defaults_for(agent.name()).env;
+        env.extend(profile.env);
+        profile.env = env;
+        Some(profile)
+    });
+    let native = |p: &&HarnessProfile| match agent {
         Agent::Claude => p.kind == HarnessKind::ClaudeStdio && p.argv.len() == 1,
         Agent::Codex => crate::codex_app_server::is_profile_launch(&p.argv),
-    });
-    let Some(profile) = profile else {
-        let program = crate::config::which(agent.name())?;
-        return Some(Cli { program, ..Cli::default() });
+        Agent::Gemini | Agent::Grok => p.argv.first().is_some_and(|program| {
+            Path::new(program).file_name().and_then(|f| f.to_str()) == Some(agent.name())
+        }),
+        // `cursor-agent acp` (or the `agent` link to it): the same program signs in.
+        Agent::Cursor => p.kind == HarnessKind::Acp && cursor_launch(&p.argv),
+        // `opencode acp`: its env (XDG_DATA_HOME) says where its `auth.json` is.
+        Agent::OpenCode => p.kind == HarnessKind::Acp && opencode_launch(&p.argv),
+        // gh is no harness: always `gh` on the login PATH.
+        Agent::Github => false,
     };
+    let profile =
+        selected.as_ref().filter(native).or_else(|| cfg.harnesses.get(agent.name()).filter(native));
     let model = cfg.defaults_for(agent.name()).model.unwrap_or_default();
     let expand = |v: &str| crate::hub::expand_env_value(v, &cwd, &home, &model);
-    let env: std::collections::BTreeMap<String, String> = profile
-        .env
-        .iter()
+    let env: std::collections::BTreeMap<String, String> = selected
+        .as_ref()
+        .into_iter()
+        .flat_map(|p| p.env.iter())
         .map(|(k, v)| (k.clone(), expand(v)))
         .filter(|(_, v)| !v.contains("${"))
         .collect();
-    let argv: Vec<String> = profile.argv.iter().map(|a| expand(a)).collect();
+    let argv: Vec<String> = match profile {
+        Some(p) => p.argv.iter().map(|a| expand(a)).collect(),
+        None => vec![crate::config::which(agent.program())?],
+    };
     let (command, args) = argv.split_first()?;
     let program = match agent {
         Agent::Codex => env.get("CODEX_PATH").filter(|p| !p.is_empty()).cloned(),
-        Agent::Claude => None,
+        Agent::Claude
+        | Agent::Gemini
+        | Agent::Grok
+        | Agent::Cursor
+        | Agent::Github
+        | Agent::OpenCode => None,
     }
     .unwrap_or_else(|| command.clone());
     let globals = match agent {
         Agent::Codex => crate::cli::harness_login::codex_globals(args).to_vec(),
-        Agent::Claude => Vec::new(),
+        Agent::Claude
+        | Agent::Gemini
+        | Agent::Grok
+        | Agent::Cursor
+        | Agent::Github
+        | Agent::OpenCode => Vec::new(),
     };
     Some(Cli { program, globals, env })
 }
 
-async fn cli(hub: &Hub, agent: Agent) -> Result<Cli, RpcError> {
+/// Whether `argv` runs Cursor's CLI: `cursor-agent` (or `agent`), then `acp`.
+fn cursor_launch(argv: &[String]) -> bool {
+    let program = argv.first().and_then(|p| std::path::Path::new(p).file_name());
+    matches!(program.and_then(|p| p.to_str()), Some("cursor-agent" | "agent"))
+        && argv.get(1).is_some_and(|a| a == "acp")
+}
+
+/// Whether `argv` runs OpenCode's CLI: `opencode`, then `acp`.
+fn opencode_launch(argv: &[String]) -> bool {
+    let program = argv.first().and_then(|p| std::path::Path::new(p).file_name());
+    program.and_then(|p| p.to_str()) == Some("opencode") && argv.get(1).is_some_and(|a| a == "acp")
+}
+
+async fn cli(hub: &Hub, agent: Agent, params: &Value) -> Result<(Cli, Option<String>), RpcError> {
+    let (selected, route) = match text(params, "sessionId") {
+        Some(key) => {
+            let session = hub.resolve(key)?;
+            let (profile, route) = hub.login_profile(&session, agent.name()).await?;
+            (Some(profile), route)
+        }
+        None => (None, None),
+    };
     let cfg = hub.config.read().await;
-    cli_for(&cfg, agent).ok_or_else(|| {
+    cli_for(&cfg, agent, selected).map(|cli| (cli, route)).ok_or_else(|| {
         error(LoginError::new(
             reason::CLI_MISSING,
             format!("{} is not installed on this machine", agent.name()),
@@ -117,21 +176,74 @@ async fn cli(hub: &Hub, agent: Agent) -> Result<Cli, RpcError> {
     })
 }
 
-fn machine(hub: &Hub) -> Machine {
+pub(super) fn machine(hub: &Hub) -> Machine {
     Machine { root: hub.vm_marker_root(), home: dirs::home_dir().unwrap_or_default() }
 }
 
 /// After a sign-in: the machine's launcher picks the own sign-in, and the
 /// named chat's agent restarts (module docs). Whether it restarted now.
-async fn signed_in(hub: &Arc<Hub>, agent: Agent, params: &Value) -> bool {
-    if let Err(e) = machine(hub).choose_own(agent) {
+async fn signed_in(
+    hub: &Arc<Hub>,
+    agent: Agent,
+    params: &Value,
+    store: &Path,
+) -> Result<bool, RpcError> {
+    // Finishing a login may name a different chat, or its config may have changed while
+    // the browser was open. Never apply one account's success to another account.
+    let (current, route) = cli(hub, agent, params).await?;
+    if current.store(agent) != store {
+        return Err(RpcError::invalid_params(
+            "the chat's account changed during sign-in; start again",
+        ));
+    }
+    // Alternate account homes are scoped to this chat; do not flip the machine-wide
+    // launcher mode away from team routing for the canonical account.
+    let machine = machine(hub);
+    let canonical = machine.home.join(agent.home_dir_name());
+    if current.store(agent) == canonical
+        && let Err(e) = machine.choose_own(agent)
+    {
         tracing::warn!(agent = agent.name(), error = %e, "agent login: record the own sign-in choice");
     }
-    let Some(key) = text(params, "sessionId") else { return false };
-    let Ok(session) = hub.resolve(key) else { return false };
+    hub.login_changed(agent.name(), store, route.as_deref()).await?;
+    let Some(key) = text(params, "sessionId") else { return Ok(false) };
+    let session = hub.resolve(key)?;
     let ids = std::collections::BTreeSet::from([session.id.clone()]);
     let done = hub.restart_harnesses(None, Some(&ids)).await;
-    done.now > 0
+    Ok(done.now > 0)
+}
+
+/// The chat's agent uses cmux's gateway here (module docs): the image's own check first, then
+/// the `cr use team` choice, then the named chat's agent restarts on it. Whether it restarted now.
+pub(crate) async fn use_gateway(
+    hub: &Arc<Hub>,
+    agent: Agent,
+    session_id: Option<&str>,
+) -> Result<bool, RpcError> {
+    let machine = machine(hub);
+    if machine.gateway_access(agent).await != Some(true) {
+        return Err(error(LoginError::new(
+            reason::NO_GATEWAY,
+            format!("cmux's gateway does not serve {} for this machine's team", agent.name()),
+        )));
+    }
+    match machine.choose_team(agent) {
+        Ok(true) => {}
+        Ok(false) => {
+            return Err(error(LoginError::new(reason::NO_GATEWAY, "not a cmux Cloud machine")));
+        }
+        Err(e) => {
+            return Err(error(LoginError::new(
+                reason::FAILED,
+                format!("record the gateway choice: {e}"),
+            )));
+        }
+    }
+    let Some(key) = session_id else { return Ok(false) };
+    let session = hub.resolve(key)?;
+    let ids = std::collections::BTreeSet::from([session.id.clone()]);
+    let done = hub.restart_harnesses(None, Some(&ids)).await;
+    Ok(done.now > 0)
 }
 
 pub(super) async fn handle(
@@ -140,7 +252,7 @@ pub(super) async fn handle(
     m: &str,
     params: &Value,
 ) -> Result<Value, RpcError> {
-    if !allowed(conn, params) {
+    if !allowed(conn.origin, conn.auth, params) {
         return Err(RpcError::new(
             -32000,
             "an agent sign-in runs only from this machine, its cmux app, or its owner's own machine",
@@ -160,10 +272,24 @@ pub(super) async fn handle(
             format!("no chat {key:?} here: open the chat again"),
         )));
     }
+    if m == method::MUX_AGENT_LOGIN_START
+        && let Some(agent) = text(params, "agent").and_then(login::gateway_agent)
+    {
+        let restarted = use_gateway(hub, agent, text(params, "sessionId")).await?;
+        return Ok(json!({"gateway": true, "restarted": restarted}));
+    }
     match m {
         method::MUX_AGENT_LOGIN_START => {
             let agent = agent_of(params)?;
-            let cli = cli(hub, agent).await?;
+            // A key-only agent (Gemini, OpenCode) has no sign-in page: say so before looking for
+            // its CLI, so the answer is `unsupported` whether or not it is installed here.
+            if !agent.signs_in_by_link() {
+                return Err(error(LoginError::new(
+                    reason::UNSUPPORTED,
+                    format!("{} signs in on this machine with an API key", agent.name()),
+                )));
+            }
+            let (cli, _) = cli(hub, agent, params).await?;
             let s = login::start(&machine(hub), &cli, agent).await.map_err(error)?;
             let mut reply = json!({
                 "loginId": s.login_id,
@@ -171,8 +297,16 @@ pub(super) async fn handle(
                 "needsCode": s.needs_code,
                 "expiresAtMs": s.expires_at_ms,
             });
-            if let (Some(code), Some(obj)) = (s.user_code, reply.as_object_mut()) {
-                obj.insert("userCode".into(), json!(code));
+            if let Some(obj) = reply.as_object_mut() {
+                if let Some(code) = s.user_code {
+                    obj.insert("userCode".into(), json!(code));
+                }
+                // Claude's automatic link: its approve reaches Claude's own
+                // listener on this machine, with no code to paste.
+                if let (Some(url), Some(port)) = (s.auto_url, s.callback_port) {
+                    obj.insert("autoUrl".into(), json!(url));
+                    obj.insert("callbackPort".into(), json!(port));
+                }
             }
             Ok(reply)
         }
@@ -180,9 +314,14 @@ pub(super) async fn handle(
             let id = text(params, "loginId").ok_or_else(|| {
                 error(LoginError::new(reason::UNKNOWN_LOGIN, "loginId is required"))
             })?;
+            // No code: Codex's device flow, or Claude after an automatic link.
             let code = params.get("code").and_then(Value::as_str);
             let done = login::finish(id, code).await.map_err(error)?;
-            let restarted = done.signed_in && signed_in(hub, done.agent, params).await;
+            // A paste that raced the wait for the approve reads the same end;
+            // only the first finish takes the after-sign-in steps.
+            let restarted = done.signed_in
+                && done.fresh
+                && signed_in(hub, done.agent, params, &done.store).await?;
             Ok(json!({"signedIn": done.signed_in, "restarted": restarted}))
         }
         method::MUX_AGENT_LOGIN_CANCEL => {
@@ -195,9 +334,9 @@ pub(super) async fn handle(
         method::MUX_AGENT_LOGIN_API_KEY => {
             let agent = agent_of(params)?;
             let key = params.get("key").and_then(Value::as_str).unwrap_or_default();
-            let cli = cli(hub, agent).await?;
+            let (cli, _) = cli(hub, agent, params).await?;
             login::save_api_key(&machine(hub), &cli, agent, key).await.map_err(error)?;
-            let restarted = signed_in(hub, agent, params).await;
+            let restarted = signed_in(hub, agent, params, &cli.store(agent)).await?;
             Ok(json!({"saved": true, "restarted": restarted}))
         }
         other => Err(RpcError::method_not_found(other)),

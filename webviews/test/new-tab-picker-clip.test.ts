@@ -1,8 +1,7 @@
 // The model menu on a New Tab page stays inside what the page shows (cx-m6jn0; dogfood run 4, a
 // 1100x720 window: the menu opened below the chip at the window's height while the New Tab
-// scroller cut it off above the template pager, so its last rows and More models were out of
-// reach). Since Leo 2026-10-20 the model button opens its compact menu (models, Effort, More models,
-// Account, Fast mode) in every composer, New Tab's included; that menu shows whole inside the page.
+// scroller cut it off above the template pager, so its last rows were out of reach). The columns
+// menu stays bounded, with the rail, models and settings scrolling independently inside it.
 //
 // Real Chromium from Playwright; CI fails the file when it cannot launch (requireBrowserLane).
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "bun:test";
@@ -10,6 +9,7 @@ import path from "node:path";
 import { chromium, type Browser } from "playwright";
 import { requireBrowserLane } from "./support/requireBrowserLane";
 import { warmViteServer } from "./support/warmDevServer";
+import { MODEL_PICKER } from "../src/agent-session/acpmux/composerSelectors";
 
 await requireBrowserLane("new-tab-picker-clip.test.ts", async () => {
   setDefaultTimeout(120_000);
@@ -50,23 +50,39 @@ await requireBrowserLane("new-tab-picker-clip.test.ts", async () => {
     const page = await browser!.newPage({ viewport: { width: 900, height: 560 } });
     await page.goto(`http://127.0.0.1:${port}/test/browser/new-tab-picker.html`);
     await page.addStyleTag({ content: utilities });
-    const chip = page.locator(".acpmux-model-name").first();
+    const chip = page.locator(MODEL_PICKER).first();
     await chip.waitFor();
     await chip.click();
-    const menu = page.locator(".acpmux-quick-menu");
+    const menu = page.locator(".acpmux-cols");
     await menu.waitFor();
     await page.waitForFunction(() => {
-      const node = document.querySelector<HTMLElement>(".acpmux-quick-menu");
+      const node = document.querySelector<HTMLElement>(".acpmux-cols");
       return !!node && getComputedStyle(node).visibility === "visible";
     });
     const geometry = await page.evaluate(() => {
-      const menu = document.querySelector(".acpmux-quick-menu")!.getBoundingClientRect();
+      const menu = document.querySelector(".acpmux-cols")!.getBoundingClientRect();
+      const frame = document.querySelector(".acpmux-cols-frame")!.getBoundingClientRect();
+      // The menu's scrolling columns, as QuickModelColumns.tsx reads them for its fades: the rail and the
+      // model list (in .acpmux-cols-lists) and the options column, which scrolls in its tune-scroll.
+      const lists = [
+        ...document.querySelectorAll<HTMLElement>(
+          ".acpmux-cols-body .acpmux-cols-lists > .acpmux-cols-list, .acpmux-cols-body .acpmux-cols-tune-scroll",
+        ),
+      ];
+      const frameNode = document.querySelector<HTMLElement>(".acpmux-cols-frame")!;
       const screenNode = document.querySelector<HTMLElement>(".nt-screen")!;
       const screen = screenNode.getBoundingClientRect();
       return {
         menuTop: menu.top,
         menuBottom: menu.bottom,
         menuHeight: menu.height,
+        frameHeight: frame.height,
+        // The default height the menu measured: six effort levels and Fast (#41212).
+        fitHeight: Number(frameNode.dataset.fitHeight),
+        columns: lists.map((list) => ({
+          overflow: getComputedStyle(list).overflowY,
+          height: list.getBoundingClientRect().height,
+        })),
         screenTop: screen.top,
         screenBottom: screen.bottom,
         // How far the page's scroller can still scroll down.
@@ -77,6 +93,17 @@ await requireBrowserLane("new-tab-picker-clip.test.ts", async () => {
     const { menuTop, menuBottom, menuHeight, screenTop, screenBottom, scrollable } = geometry;
     // Never collapsed: it lists its rows.
     expect(menuHeight).toBeGreaterThan(60);
+    expect(Number.isFinite(geometry.fitHeight), "the menu measured its default height").toBe(true);
+    expect(geometry.frameHeight, "the columns stay within their default height").toBeLessThanOrEqual(
+      geometry.fitHeight + 0.5,
+    );
+    expect(geometry.columns).toHaveLength(3);
+    for (const column of geometry.columns) {
+      // `scroll` on the Model and options columns: their lane is always kept (cmuxterm-hq#7707).
+      expect(["auto", "scroll"], "each column scrolls independently").toContain(column.overflow);
+      expect(column.height).toBeGreaterThan(0);
+      expect(column.height).toBeLessThanOrEqual(geometry.frameHeight);
+    }
     // Never off the top of the page, where nothing scrolls to it.
     expect(menuTop).toBeGreaterThanOrEqual(screenTop);
     // Inside the page, or the page scrolls to its end.
@@ -86,7 +113,7 @@ await requireBrowserLane("new-tab-picker-clip.test.ts", async () => {
     // scrolled the card's own rows. Hit-test both edges, with the page scrolled
     // to the menu.
     const painted = await page.evaluate(() => {
-      const node = document.querySelector<HTMLElement>(".acpmux-quick-menu")!;
+      const node = document.querySelector<HTMLElement>(".acpmux-cols")!;
       node.scrollIntoView({ block: "nearest" });
       const rect = node.getBoundingClientRect();
       const x = rect.left + rect.width / 2;

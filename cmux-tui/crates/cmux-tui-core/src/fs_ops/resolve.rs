@@ -46,6 +46,9 @@ pub struct Resolved {
     pub name: Option<String>,
     /// True when `dir` is the root and `name` is `None`.
     pub is_root: bool,
+    /// How many folders `dir` lies below its root (0: the root itself),
+    /// after every symlink on the way was followed.
+    pub depth: usize,
 }
 
 impl Resolved {
@@ -104,6 +107,18 @@ impl Roots {
         let components = request_components(path)?;
         let (root, rest) = self.locate(&components)?;
         Walk::new(root)?.run(rest.into_iter().collect(), follow_last)
+    }
+
+    /// Resolves the absolute request `path` without following any symlink:
+    /// one as any component below the root, the last included, is
+    /// `fs.symlink_in_path` (`fs-write-nofollow-v1`). A missing last
+    /// component is returned as named.
+    pub fn resolve_no_follow(&self, path: &str) -> Result<Resolved, FsError> {
+        let components = request_components(path)?;
+        let (root, rest) = self.locate(&components)?;
+        let mut walk = Walk::new(root)?;
+        walk.refuse_links = true;
+        walk.run(rest.into_iter().collect(), true)
     }
 
     /// The root that holds `components` (the longest matching spelling)
@@ -172,12 +187,14 @@ struct Walk<'a> {
     /// Directories from the root down; never empty.
     stack: Vec<OwnedFd>,
     hops: usize,
+    /// Every symlink is `fs.symlink_in_path` instead of followed.
+    refuse_links: bool,
 }
 
 impl<'a> Walk<'a> {
     fn new(root: &'a Root) -> Result<Self, FsError> {
         let fd = sys::open_root(&root.canonical)?;
-        Ok(Self { root, stack: vec![fd], hops: 0 })
+        Ok(Self { root, stack: vec![fd], hops: 0, refuse_links: false })
     }
 
     fn top(&self) -> Result<BorrowedFd<'_>, FsError> {
@@ -187,7 +204,8 @@ impl<'a> Walk<'a> {
     fn finish(mut self, name: Option<String>) -> Result<Resolved, FsError> {
         let is_root = name.is_none() && self.stack.len() == 1;
         let dir = self.stack.pop().ok_or(FsError::PermissionDenied)?;
-        Ok(Resolved { dir, name, is_root })
+        let depth = self.stack.len();
+        Ok(Resolved { dir, name, is_root, depth })
     }
 
     fn run(
@@ -219,9 +237,17 @@ impl<'a> Walk<'a> {
                 Err(error) => return Err(error.into()),
             };
             match meta.kind {
+                EntryKind::Symlink if self.refuse_links => return Err(FsError::SymlinkInPath),
                 EntryKind::Symlink => self.splice(&part, &mut pending)?,
                 EntryKind::Dir if !last => {
-                    let fd = sys::open_dir_at(self.top()?, &part)?;
+                    let fd = match sys::open_dir_at(self.top()?, &part) {
+                        // Swapped for a symlink since the look above (Linux
+                        // answers ENOTDIR, macOS ELOOP).
+                        Err(_) if self.refuse_links && self.became_link(&part) => {
+                            return Err(FsError::SymlinkInPath);
+                        }
+                        opened => opened?,
+                    };
                     self.stack.push(fd);
                 }
                 _ if !last => return Err(FsError::NotADirectory),
@@ -229,6 +255,14 @@ impl<'a> Walk<'a> {
             }
         }
         self.finish(None)
+    }
+
+    /// Whether `name` in the top directory is a symlink now.
+    fn became_link(&self, name: &str) -> bool {
+        self.top()
+            .ok()
+            .and_then(|dir| sys::lstat_at(dir, name).ok())
+            .is_some_and(|stat| Meta::of(&stat).kind == EntryKind::Symlink)
     }
 
     /// Replaces the symlink `name` (in the top directory) by its target's

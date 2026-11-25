@@ -5,6 +5,7 @@ import { afterAll, beforeAll, expect, test } from "bun:test";
 import { JSDOM } from "jsdom";
 import { act } from "react";
 import type { Root } from "react-dom/client";
+import { teardownDom } from "./support/domTeardown";
 
 const scope = globalThis as Record<string, unknown>;
 const keys = ["window", "document", "navigator", "HTMLElement", "IS_REACT_ACT_ENVIRONMENT"] as const;
@@ -24,12 +25,9 @@ beforeAll(() => {
   host = window.document.getElementById("root")!;
 });
 
-afterAll(() => {
+afterAll(async () => {
   act(() => root?.unmount());
-  for (const [key, had, value] of saved) {
-    if (had) scope[key] = value;
-    else delete scope[key];
-  }
+  await teardownDom(saved, { scope });
 });
 
 test("a download whose link cannot be had says so, and asking again clears it", async () => {
@@ -76,4 +74,18 @@ test("a download whose link cannot be had says so, and asking again clears it", 
   expect(asked).toEqual(["h1", "h1"]);
   expect(meta()?.getAttribute("role")).toBeNull();
   expect(meta()?.textContent).not.toBe(strings.t("attachment.downloadFailed"));
+});
+
+// The download button appears on its card's hover or focus through the shared reveal (ui/motion
+// .ui-reveal: in over micro, out over quick, still with motion off), not a fade of its own.
+test("a file's download button is its card's shared hover reveal", async () => {
+  const { readFileSync } = await import("node:fs");
+  const { join } = await import("node:path");
+  const button = host.querySelector<HTMLButtonElement>(".hc-att-download")!;
+  expect(button.classList.contains("ui-reveal")).toBe(true);
+  expect(button.closest(".hc-att-file")!.classList.contains("ui-reveal-host")).toBe(true);
+  // Home's own sheet no longer hides it or times its fade, so the primitive's timing is the one.
+  const ledger = readFileSync(join(import.meta.dir, "../src/pages/home-channels/ledger.css"), "utf8");
+  const own = ledger.match(/\.hc-att-download\s*\{[^}]*\}/)![0];
+  expect(own).not.toMatch(/opacity|transition/);
 });

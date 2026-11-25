@@ -13,9 +13,8 @@ import CmuxNextHostPressure
 /// closed in that window until the next critical spell. The banner has no timer of its
 /// own: it follows the same level observation, and ends with it.
 ///
-/// Off by default (cmux#22662): it subscribes to the app's `HostPressureService`
-/// only while `HostPressureSampling.samples` holds (the Debug Settings toggle
-/// `hostPressure.enabled` is on and its window can be seen). Stop condition: the
+/// Off by default (`HostPressureTunables.enabled`): it subscribes to the app's `HostPressureService` only
+/// while `HostPressureSampling.samples` holds (the toggle is on and its window can be seen). Stop condition: the
 /// toggle going off, or the window (or the whole app) hiding, minimizing, being fully occluded or
 /// closing, unsubscribes it, and the service stops the monitor and its one 15 s
 /// timer when no window is subscribed. Cleanup: leaving the window, and deinit,
@@ -280,23 +279,16 @@ final class HostPressureIndicatorView: NSView {
             popover?.close()
             _ = self?.services.registry.perform("agentActivity.open")
         }
-        popover.content.onStop = { [weak self] session in self?.confirmStop(session) }
+        popover.content.onStop = { [weak self] session in self?.stop(session) }
         return popover
     }
 
-    /// Asks first; the stop keeps the session (a new message resumes it).
-    private func confirmStop(_ session: HostBudgetSession) {
-        guard let window else { return }
-        let spec = CmuxDialogSpec(title: HostPressureStrings.stopTitle(session.name), lines: [HostPressureStrings.stopBody],
-                                  buttons: [.cancel(),
-                                            CmuxDialogButton(id: "stop", title: HostPressureStrings.stop, role: .default)],
-                                  identifier: "cmux.dialog.hostPressure.stop")
+    /// Stops at once, no question: the session stays and a new message resumes it (Lawrence 2026-11-09, fewer dialogs).
+    private func stop(_ session: HostBudgetSession) {
         popover.close()
-        CmuxDialogCenter.shared.present(spec, in: .window(window)) { [weak self] answer in
-            guard answer.button == "stop", let service = self?.service else { return }
-            // task-owner: one stop request; it ends when acpmux answers (5 s deadline)
-            Task { _ = await service.stopSession(session) }
-        }
+        guard let service else { return }
+        // task-owner: one stop request; it ends when acpmux answers (5 s deadline)
+        Task { _ = await service.stopSession(session) }
     }
 
     /// Cancels every observation on whatever thread it runs; the subscription and the banner end

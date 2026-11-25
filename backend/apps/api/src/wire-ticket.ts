@@ -1,7 +1,8 @@
+import { envForObject } from "./build-space.ts"
 import type { Principal } from "@cmux/ownership"
 import { DurableObject } from "cloudflare:workers"
 import { authenticate } from "./auth.ts"
-import type { Env } from "./env.ts"
+import type { Env, RawEnv } from "./env.ts"
 import { isMachineInstallKind } from "./machine-installs.ts"
 
 /**
@@ -51,6 +52,10 @@ interface TicketRecord {
  * one ticket opens at most one socket. The alarm deletes tickets that were never spent.
  */
 export class WireTicketDO extends DurableObject<Env> {
+  constructor(ctx: DurableObjectState, raw: RawEnv) {
+    super(ctx, envForObject(ctx, raw))
+  }
+
   async put(key: string, record: TicketRecord): Promise<void> {
     await this.ctx.storage.put(key, record)
     const alarm = await this.ctx.storage.getAlarm()
@@ -62,6 +67,18 @@ export class WireTicketDO extends DurableObject<Env> {
     if (!record) return null
     await this.ctx.storage.delete(key)
     return record.expires_at > now ? { principal: record.principal, scope: record.scope ?? "user" } : null
+  }
+
+  /**
+   * Records `key` until `expiresAt` unless it is already recorded: true the first time only. Read and write
+   * happen in one turn of the object, so two callers never both get true. ci-session.ts refuses a replayed
+   * GitHub Actions token this way, on its own object (never a ticket shard). The alarm drops expired keys.
+   */
+  async claimOnce(key: string, expiresAt: number, now: number): Promise<boolean> {
+    const record = await this.ctx.storage.get<{ expires_at: number }>(key)
+    if (record && record.expires_at > now) return false
+    await this.put(key, { expires_at: expiresAt } as TicketRecord)
+    return true
   }
 
   override async alarm(): Promise<void> {

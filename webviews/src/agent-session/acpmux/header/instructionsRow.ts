@@ -5,7 +5,7 @@
 // user picks into the folder's .cmux/context/ and names them in that file (`project.addFiles`).
 import { type Translate, translate } from "../i18n";
 import { isAgentHome } from "../sessionList";
-import type { ChatMenuItem } from "./ChatHeaderTools";
+import type { ChatMenuItem } from "./chatHeaderToolsModel";
 
 export function instructionsRow(
   chat: { cwd: string | undefined; family: string | undefined },

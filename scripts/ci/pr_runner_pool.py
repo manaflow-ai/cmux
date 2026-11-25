@@ -289,6 +289,8 @@ job's own expression resolves exactly as before.
 from __future__ import annotations
 
 import argparse
+import base64
+import gzip
 import dataclasses
 import datetime as dt
 import hashlib
@@ -297,18 +299,19 @@ import json
 import math
 import os
 import re
-import signal
 import sys
 import time
 import urllib.error
 import urllib.parse
 import urllib.request
 import zipfile
+import zlib
+from pathlib import Path
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import github_spend  # noqa: E402 - per-token request counts, reported when the step exits
+import deadline_http  # noqa: E402 - every GitHub call ends by its bound, nothing sent past it
 from collections.abc import Callable, Collection, Mapping, Sequence
-from contextlib import contextmanager
 from typing import Any
 
 DEFAULT_RUNNER = "blacksmith-6vcpu-macos-26"
@@ -351,6 +354,19 @@ ROLE_NAMES = ("root", "side", "gui", "session")
 # pools: slots() leaves them out, and capability_slots() reads their count
 # (machines, one simulator job each) from CI_OWNED_POOL_SLOTS.
 CAPABILITY_LABELS = ("glaeda-ios-sim",)
+# glaeda's sim-first runner (teamleaderleo/glaeda#1983): one per simulator
+# mini, labelled `glaeda-sim-xcode-<version>` (its Xcode, as the pool label
+# names it) without the pool label or `glaeda-ios-sim`. glaeda keeps it online
+# while that mini's one simulator token is free, even when the mini's capacity
+# units are full and every `glaeda-ios-sim` runner has stopped listening, so an
+# online idle one is a free simulator. A job on it holds that simulator, as a
+# simulator job on `glaeda-ios-sim` does (SIM_FIRST_CAPABILITY), and may wait
+# on the mini for CPU units. Requested alone, not beside a pool label:
+# ios_runner_pool.py puts simulator jobs on it, the rescue watches a job queued
+# there like one on an owned pool (owned_pool_rescue.job_pool()), and the
+# janitor counts it toward `glaeda-ios-sim` (queue_janitor.capabilities()).
+SIM_FIRST_LABEL = re.compile(rf"glaeda-sim-xcode-{XCODE_VERSION}")
+SIM_FIRST_CAPABILITY = "glaeda-ios-sim"
 # A warm key (owned_warm_state.py): a main commit's first 12 hex digits, or
 # `pr-<number>` for a kept build of that pull request.
 WARM_KEY = re.compile(r"[0-9a-f]{12}|pr-[1-9][0-9]{0,8}")
@@ -517,6 +533,46 @@ def retry_wait(error: "urllib.error.HTTPError", cap: float) -> float | None:
     except ValueError:
         return None
     return max(0.0, min(after, cap))
+
+
+# Requests a live runner read leaves in its token's hour. The routing App (manaflow-glaeda-route) is also the
+# runner census publisher's token (cmuxterm-hq runner-state-publish.yml, at most about 15 reads a refresh, one
+# refresh every 4 minutes). While the census (CI_RUNNER_STATE) is stale every placement reads runners live; on
+# 2026-11-20/21 those reads spent the App's hour within minutes of each reset, so the publisher could never refresh
+# and the census stayed stale for 20 h. Stopping here keeps the publisher's share, and its next refresh ends the
+# live reads (tests/test_ci_route_quota_reserve.py).
+ROUTE_QUOTA_RESERVE = 1000
+
+
+class RateLimited(RuntimeError):
+    """A runner read was refused because the token's GitHub quota is spent.
+
+    It stays a RuntimeError so callers that already fall back on a failed
+    census keep doing so; a caller that polls can tell that waiting a few
+    seconds and asking again will only be refused again.
+    """
+
+
+def rate_limited(error: BaseException | None) -> bool:
+    """True when this error, or one it was raised from, is GitHub's quota refusal.
+
+    That is a 429, or a 403 whose X-RateLimit-Remaining is 0 or that carries
+    Retry-After (a secondary limit). A 403 without those headers is a missing
+    permission, which this does not claim.
+    """
+    seen = 0
+    while error is not None and seen < 8:
+        if isinstance(error, RateLimited):
+            return True
+        if isinstance(error, urllib.error.HTTPError):
+            headers = error.headers or {}
+            if error.code == 429 or (error.code == 403 and (
+                    str(headers.get("X-RateLimit-Remaining") or "").strip() == "0"
+                    or headers.get("Retry-After") is not None)):
+                return True
+        error = error.__cause__ or error.__context__
+        seen += 1
+    return False
 # The org runner group holding the glaeda minis (glaeda#1222 moved them there).
 RUNNER_GROUP = "glaeda-minis"
 # The approved GCP Linux pool is an organization runner group as well. Keep
@@ -549,6 +605,17 @@ def nightly_dedicated(label: str) -> bool:
 def persistent(label: str) -> bool:
     """An owned pool: its machines outlive the job, so a queued job there can wait for good."""
     return bool(OWNED_LABEL.fullmatch(label or ""))
+
+
+def sim_first(label: str) -> bool:
+    """glaeda's sim-first simulator label (SIM_FIRST_LABEL): not a pool, but a job queued there can wait too."""
+    return bool(SIM_FIRST_LABEL.fullmatch(label or ""))
+
+
+def sim_first_label(pr_xcode_app: str | None) -> str:
+    """The sim-first label for the lane's Xcode pin (`glaeda-sim-xcode-26.6`), or "" without one."""
+    match = XCODE_APP.search(pr_xcode_app or "")
+    return f"glaeda-sim-xcode-{match.group(1)}" if match else ""
 
 
 def _role_name(label: str) -> str:
@@ -2146,9 +2213,28 @@ def newest_snapshot_artifact(artifacts: Sequence[Any], *, now: dt.datetime,
     return newest
 
 
-class _NoRedirect(urllib.request.HTTPRedirectHandler):
-    def redirect_request(self, *args: Any, **kwargs: Any) -> None:
+# The kept snapshot's directory under RUNNER_TEMP (the workflows carry it between jobs with actions/cache), and
+# the marker beside it that says this job read the API, so the workflow saves a new cache entry only then.
+KEPT_SNAPSHOT_DIR = "cmux-pool-snapshot"
+SNAPSHOT_FETCHED_MARKER = "cmux-pool-snapshot.fetched"
+# A shared copy is reused for less than this long after it was read from the API: the janitor publishes every few
+# minutes, so by then the artifact list may hold a newer one. The snapshot itself may be older (the artifact read
+# accepts up to MAX_SNAPSHOT_MINUTES), and snapshot_problem() still applies to the copy.
+KEPT_SNAPSHOT_MAX_MINUTES = 5
+
+
+def kept_snapshot_path(branch: str) -> Path | None:
+    """Where this job keeps the snapshot it read (RUNNER_TEMP/KEPT_SNAPSHOT_DIR), or None outside Actions.
+
+    While the runner census is stale, every placement step reads the janitor's artifact (a list and a download,
+    two calls from the job's GITHUB_TOKEN, the REST hour the promote gates share). A later step of the same job,
+    or a later job that restored the directory from the Actions cache (no REST call), reuses it for less than
+    KEPT_SNAPSHOT_MAX_MINUTES after it was read (tests/test_ci_pool_snapshot_job_cache.py). The file holds
+    {"fetched_at": ..., "snapshot": ...}."""
+    temp = os.environ.get("RUNNER_TEMP", "").strip()
+    if not temp:
         return None
+    return Path(temp) / KEPT_SNAPSHOT_DIR / f"{re.sub(r'[^A-Za-z0-9._-]', '_', branch)}.json"
 
 
 @dataclasses.dataclass
@@ -2157,48 +2243,204 @@ class RetryBudget:
     left: int = 1
 
 
-@contextmanager
-def _absolute_deadline(deadline: float | None):
-    """Interrupt one blocking urllib operation at the caller's wall deadline.
+# Repository variables arrive through trusted workflow context, without a token or
+# a request per picker. The publisher lives in HQ's fleet observation tools.
+RUNNER_STATE_SCHEMA = "runner-state/v1"
+RUNNER_STATE_MAX_AGE_SECONDS = 5 * 60
+RUNNER_STATE_CLOCK_SKEW_SECONDS = 5
+RUNNER_STATE_MAX_BYTES = 2 * 1024 * 1024
 
-    Socket timeouts only limit inactivity; a peer that drips one byte at a time
-    can otherwise keep ``response.read()`` alive forever.  The picker runs in
-    the workflow's main thread, where a process alarm covers connect, headers,
-    TLS and body reads without leaving a worker thread behind.  Calls without
-    a deadline retain the legacy behavior, and a non-main-thread caller keeps
-    the per-socket timeout fallback rather than changing signal state.
+# The optional queue snapshot is copied into the runner census by the trusted
+# publisher.  Keep this envelope deliberately narrow: the picker needs the
+# janitor's aggregate counts, but never needs artifact URLs, tokens, or
+# workflow payloads from the source API.
+QUEUE_SNAPSHOT_ARTIFACT_KEYS = frozenset({"id", "name", "expired", "created_at", "workflow_run"})
+QUEUE_SNAPSHOT_RUN_KEYS = frozenset({"id", "head_branch", "repository_id", "head_repository_id"})
+QUEUE_SNAPSHOT_MAX_FUTURE_SECONDS = 5
+
+
+# An approved group too large for rows (cmux-fleet-linux: about 3,676 registrations on 2026-11-21, over the
+# 2,000-row cap and the 48 KiB variable) is published as `runner_group_tallies`: for each exact (os, labels) set,
+# how many runners are idle, busy and offline. Placement reads only those fields of such a runner. The required
+# mini group stays rows, since placement uses each mini's runner names (tests/test_ci_runner_census_tallies.py).
+RUNNER_TALLY_KEYS = frozenset({"os", "labels", "idle", "busy", "offline"})
+RUNNER_TALLY_MAX_SETS = 200
+RUNNER_TALLY_MAX_LABELS = 64
+RUNNER_TALLY_MAX_RUNNERS = 20_000
+
+
+def runner_tallies_problem(tallies: Any) -> str:
+    """Why a document's runner_group_tallies is unusable, or "" (an absent value is usable: no tallies)."""
+    if tallies is None:
+        return ""
+    if not isinstance(tallies, dict):
+        return "tallies are not an object"
+    for group, sets in tallies.items():
+        if group not in APPROVED_RUNNER_GROUPS or group == RUNNER_GROUP:
+            return f"no tallies for group {group!r}"
+        if not isinstance(sets, list) or len(sets) > RUNNER_TALLY_MAX_SETS:
+            return f"{group}: tallies are not a bounded list"
+        seen: set[tuple[str, frozenset[str]]] = set()
+        total = 0
+        for entry in sets:
+            if not isinstance(entry, dict) or set(entry) != RUNNER_TALLY_KEYS:
+                return f"{group}: a tally has other fields"
+            labels = entry["labels"]
+            if (not isinstance(entry["os"], str) or not entry["os"] or not isinstance(labels, list)
+                    or not labels or len(labels) > RUNNER_TALLY_MAX_LABELS
+                    or not all(isinstance(label, str) and label for label in labels)
+                    or len(set(labels)) != len(labels)):
+                return f"{group}: a tally's os or labels are malformed"
+            identity = (entry["os"], frozenset(labels))
+            if identity in seen:
+                return f"{group}: a label set is tallied twice"
+            seen.add(identity)
+            counts = [entry[key] for key in ("idle", "busy", "offline")]
+            if any(type(count) is not int or count < 0 for count in counts):
+                return f"{group}: a tally count is not a whole number"
+            total += sum(counts)
+        if total > RUNNER_TALLY_MAX_RUNNERS:
+            return f"{group}: more than {RUNNER_TALLY_MAX_RUNNERS} runners tallied"
+    return ""
+
+
+def census_runners(document: Mapping[str, Any]) -> list[Mapping[str, Any]]:
+    """Every runner of a validated census as registration rows: the listed ones, then each tallied group's.
+
+    A group with tallies is read from its tallies only; rows it also carries are for older readers. A tallied
+    runner has a name unique in the document and never a mini's (runner_member() is ""), and id 0 (no
+    registration to name)."""
+    tallies = document.get("runner_group_tallies") or {}
+    rows: list[Mapping[str, Any]] = [*document["repository_runners"]]
+    for group, runners in document["runner_groups"].items():
+        if group not in tallies:
+            rows.extend(runners)
+    for group, sets in tallies.items():
+        for index, entry in enumerate(sets):
+            labels = [{"name": label} for label in entry["labels"]]
+            states = (("online", False, entry["idle"]), ("online", True, entry["busy"]),
+                      ("offline", False, entry["offline"]))
+            serial = 0
+            for status, busy, count in states:
+                for _ in range(count):
+                    serial += 1
+                    rows.append({"id": 0, "name": f"{group}-tally-{index}-{serial}", "os": entry["os"],
+                                 "status": status, "busy": busy, "labels": labels})
+    return rows
+
+
+def runner_state(repository: str, *, raw: str | None = None,
+                 now: dt.datetime | None = None,
+                 max_age_seconds: float = RUNNER_STATE_MAX_AGE_SECONDS) -> Mapping[str, Any] | None:
+    """A complete, fresh registration census, or None to retain the live API path.
+
+    The variable contains gzip/base64 JSON. Never accept desired manifest labels,
+    arbitrary scopes, partial pages or a timestamp refreshed after a source error.
+    A workflow's input is not a document source: callers use repository context.
     """
-    if deadline is None:
-        yield
-        return
-    try:
-        previous_handler = signal.getsignal(signal.SIGALRM)
-        previous_timer = signal.getitimer(signal.ITIMER_REAL)
-        def raise_deadline(_signum: int, _frame: Any) -> None:
-            raise TimeoutError("GitHub request deadline exceeded")
+    return _runner_state_document(repository, raw=raw, now=now, max_age_seconds=max_age_seconds)
 
-        signal.signal(signal.SIGALRM, raise_deadline)
-    except (AttributeError, OSError, ValueError):
-        # Signals are process-global and only available from the main thread.
-        # The request's remaining socket timeout still bounds idle connections.
-        yield
-        return
-    remaining = deadline - time.monotonic()
-    if remaining <= 0:
-        signal.signal(signal.SIGALRM, previous_handler)
-        raise TimeoutError("GitHub request deadline exceeded")
-    started = time.monotonic()
-    signal.setitimer(signal.ITIMER_REAL, remaining)
+
+def _runner_state_document(repository: str, *, max_age_seconds: float,
+                           raw: str | None = None,
+                           now: dt.datetime | None = None) -> Mapping[str, Any] | None:
+    """Validate the shared envelope; each consumer retains its own source expiry."""
+    raw = os.environ.get("CI_RUNNER_STATE", "") if raw is None else raw
+    if not raw or len(raw) > 48 * 1024 or repository != "manaflow-ai/cmux":
+        return None
     try:
-        yield
-    finally:
-        signal.setitimer(signal.ITIMER_REAL, 0)
-        signal.signal(signal.SIGALRM, previous_handler)
-        if previous_timer[0] > 0:
-            elapsed = time.monotonic() - started
-            restored = max(0.0, previous_timer[0] - elapsed)
-            if restored > 0:
-                signal.setitimer(signal.ITIMER_REAL, restored, previous_timer[1])
+        compressed = base64.b64decode(raw, validate=True)
+        with gzip.GzipFile(fileobj=io.BytesIO(compressed)) as source:
+            body = source.read(RUNNER_STATE_MAX_BYTES + 1)
+        if len(body) > RUNNER_STATE_MAX_BYTES:
+            return None
+        doc = json.loads(body)
+        if (not isinstance(doc, dict) or doc.get("schema") != RUNNER_STATE_SCHEMA
+                or doc.get("repository") != repository or doc.get("complete") is not True):
+            return None
+        generated = parse_time(str(doc.get("generated_at") or ""))
+        clock = now or dt.datetime.now(dt.timezone.utc)
+        if (generated is None or generated.tzinfo is None
+                or not -RUNNER_STATE_CLOCK_SKEW_SECONDS <= (clock - generated).total_seconds() <= max_age_seconds):
+            return None
+        groups = doc.get("runner_groups")
+        if (not isinstance(groups, dict) or RUNNER_GROUP not in groups
+                or any(name not in APPROVED_RUNNER_GROUPS for name in groups)):
+            return None
+        lists = [doc.get("repository_runners"), *groups.values()]
+        ids: set[int] = set()
+        for runners in lists:
+            if not isinstance(runners, list) or len(runners) > 2000:
+                return None
+            for runner in runners:
+                if (not isinstance(runner, dict) or type(runner.get("id")) is not int
+                        or runner["id"] <= 0 or not isinstance(runner.get("name"), str)
+                        or not runner["name"] or runner.get("status") not in ("online", "offline")
+                        or not isinstance(runner.get("os"), str) or not runner["os"]
+                        or type(runner.get("busy")) is not bool
+                        or not isinstance(runner.get("labels"), list)
+                        or not all(isinstance(label, dict) and isinstance(label.get("name"), str)
+                                   and label["name"] for label in runner["labels"])):
+                    return None
+                if runner["id"] in ids:
+                    return None
+                ids.add(runner["id"])
+        counts = doc.get("scale_sets", {})
+        if (not isinstance(counts, dict) or any(not isinstance(label, str)
+                or type(count) is not int or count < 0 for label, count in counts.items())):
+            return None
+        if runner_tallies_problem(doc.get("runner_group_tallies")):
+            return None
+        return doc
+    except (ValueError, TypeError, OSError, EOFError, OverflowError, zlib.error):
+        return None
+
+
+def document_queue_snapshot(document: Mapping[str, Any], *, now: dt.datetime,
+                            branch: str) -> Mapping[str, Any] | None:
+    """Return a trusted, fresh janitor snapshot embedded in ``document``.
+
+    The queue snapshot is optional.  A bad optional value must leave the
+    runner roster usable and cause the caller to use its existing live/API
+    snapshot path instead.  Metadata is copied from the artifact API by the
+    publisher and is checked again here so a repository variable cannot make a
+    fork or an old artifact authoritative.
+    """
+    envelope = document.get("queue_snapshot")
+    if not isinstance(envelope, Mapping) or set(envelope) != {"artifact", "snapshot"}:
+        return None
+    artifact = envelope.get("artifact")
+    snapshot = envelope.get("snapshot")
+    if (not isinstance(artifact, Mapping)
+            or set(artifact) != QUEUE_SNAPSHOT_ARTIFACT_KEYS
+            or not isinstance(snapshot, Mapping)):
+        return None
+    artifact_id = artifact.get("id")
+    if (type(artifact_id) is not int or artifact_id <= 0
+            or artifact.get("name") != ARTIFACT_NAME
+            or type(artifact.get("expired")) is not bool
+            or artifact.get("expired")):
+        return None
+    run = artifact.get("workflow_run")
+    if (not isinstance(run, Mapping) or set(run) != QUEUE_SNAPSHOT_RUN_KEYS
+            or any(type(run.get(key)) is not int or run[key] <= 0
+                   for key in ("id", "repository_id", "head_repository_id"))
+            or not trusted_snapshot_artifact(artifact, branch)):
+        return None
+    created = parse_time(str(artifact.get("created_at") or ""))
+    generated = parse_time(str(snapshot.get("generated_at") or ""))
+    if (created is None or generated is None
+            or created.tzinfo is None or generated.tzinfo is None):
+        return None
+    created_age = (now - created).total_seconds()
+    if (created_age < -QUEUE_SNAPSHOT_MAX_FUTURE_SECONDS
+            or created_age > MAX_SNAPSHOT_MINUTES * 60
+            or (now - generated).total_seconds() < -QUEUE_SNAPSHOT_MAX_FUTURE_SECONDS
+            or (generated - created).total_seconds() > QUEUE_SNAPSHOT_MAX_FUTURE_SECONDS):
+        return None
+    if snapshot_problem(snapshot, now):
+        return None
+    return snapshot
 
 
 class GitHub:
@@ -2215,6 +2457,8 @@ class GitHub:
         # per-request timeouts below.
         self.deadline = deadline
         self.repo = repo
+        # X-RateLimit-Remaining of the last answer, when GitHub sent it (runners() keeps ROUTE_QUOTA_RESERVE).
+        self.remaining: int | None = None
         self.headers = {
             "Accept": "application/vnd.github+json",
             "Authorization": f"Bearer {token}",
@@ -2239,13 +2483,15 @@ class GitHub:
         request = urllib.request.Request(f"{API}{path}", headers=self.headers)
         for attempt in (1, 2):
             try:
-                with _absolute_deadline(self.deadline):
-                    with urllib.request.urlopen(request, timeout=self._timeout(15)) as response:
-                        github_spend.record(self.headers["Authorization"], getattr(response, "headers", None), getattr(response, "status", 200))
-                        body = response.read()
+                # The whole call ends within its bound (the time left, at most 15 s), a peer that drips
+                # one byte at a time included (deadline_http).
+                status, body, headers = deadline_http.request(request, self._timeout(15), raise_errors=True)
+                github_spend.record(self.headers["Authorization"], headers, status)
+                self._note_remaining(headers)
                 return json.loads(body)
             except urllib.error.HTTPError as error:
                 github_spend.record(self.headers["Authorization"], error.headers, error.code)
+                self._note_remaining(error.headers)
                 wait = (retry_wait(error, self.retry_cap)
                         if attempt == 1 and self.retry_cap > 0 and self.retries.left > 0 else None)
                 if wait is not None:
@@ -2261,34 +2507,83 @@ class GitHub:
                 time.sleep(wait)
         raise AssertionError("unreachable")
 
+    def _note_remaining(self, headers: Any) -> None:
+        try:
+            value = (headers or {}).get("X-RateLimit-Remaining")
+            self.remaining = int(value) if value is not None else self.remaining
+        except (TypeError, ValueError, AttributeError):
+            pass
+
+    def _keep_reserve(self) -> None:
+        """Stop a live runner read once its token has fewer than ROUTE_QUOTA_RESERVE requests left this hour."""
+        if self.remaining is not None and self.remaining < ROUTE_QUOTA_RESERVE:
+            raise RateLimited(f"live runner read stopped with {self.remaining} requests left in the token's hour: "
+                              f"the last {ROUTE_QUOTA_RESERVE} are kept for the runner census publisher "
+                              "(CI_RUNNER_STATE), whose next refresh ends these live reads")
+
     def snapshot(self, *, now: dt.datetime, branch: str = SNAPSHOT_BRANCH) -> Mapping[str, Any] | None:
-        """The newest trusted, unexpired janitor snapshot, in two API requests."""
+        """The newest trusted janitor snapshot, preferring the census document."""
+        document = runner_state(self.repo, now=now)
+        if document is None:
+            # Queued jobs may outlive the roster's five-minute capacity reading.
+            # Its queue evidence keeps its own existing expiry and timestamps;
+            # the older runner statuses are never handed to a capacity reader.
+            document = _runner_state_document(self.repo, now=now,
+                                              max_age_seconds=MAX_SNAPSHOT_MINUTES * 60)
+        if document is not None:
+            embedded = document_queue_snapshot(document, now=now, branch=branch)
+            if embedded is not None:
+                print("Pool snapshot: trusted repository document (no artifact API requests)", file=sys.stderr)
+                return embedded
+        kept = kept_snapshot_path(branch)
+        if kept is not None:
+            try:
+                kept_copy = json.loads(kept.read_text())
+            except (OSError, ValueError):
+                kept_copy = None
+            held = kept_copy.get("snapshot") if isinstance(kept_copy, Mapping) else None
+            fetched = parse_time(str(kept_copy.get("fetched_at") or "")) if isinstance(kept_copy, Mapping) else None
+            fetch_age = (now - fetched).total_seconds() / 60 if fetched is not None and fetched.tzinfo else None
+            if (isinstance(held, Mapping) and not snapshot_problem(held, now)
+                    and fetch_age is not None and 0 <= fetch_age < KEPT_SNAPSHOT_MAX_MINUTES):
+                print("Pool snapshot: shared copy from this job or an earlier one (no artifact API requests)",
+                      file=sys.stderr)
+                return held
         artifacts = self.get(f"/actions/artifacts?name={ARTIFACT_NAME}&per_page={PAGE_SIZE}").get("artifacts") or []
         newest = newest_snapshot_artifact(artifacts, now=now, branch=branch)
         if newest is None:
             return None
         archive = zipfile.ZipFile(io.BytesIO(self.download(newest)))
-        return json.loads(archive.read(SNAPSHOT_FILE))
+        loaded = json.loads(archive.read(SNAPSHOT_FILE))
+        if kept is not None and isinstance(loaded, Mapping):
+            try:
+                kept.parent.mkdir(parents=True, exist_ok=True)
+                partial = kept.with_name(f".{kept.name}.{os.getpid()}")
+                stamp = now.astimezone(dt.timezone.utc)
+                partial.write_text(json.dumps({"fetched_at": stamp.isoformat().replace("+00:00", "Z"),
+                                               "snapshot": loaded}))
+                os.replace(partial, kept)
+                # The workflow saves the directory to the Actions cache only after an API read, keyed by this
+                # read's time (a cache key may hold no `:`), never by the run.
+                (kept.parent.parent / SNAPSHOT_FETCHED_MARKER).write_text(stamp.strftime("%Y%m%dT%H%M%SZ"))
+            except OSError:
+                pass  # only a saving: the next step reads the API again
+        return loaded
 
     def download(self, artifact: Mapping[str, Any]) -> bytes:
         """One artifact's zip archive (one API request)."""
         # The download answers with a redirect to signed blob storage, which must
         # not receive the token, so follow it by hand.
-        opener = urllib.request.build_opener(_NoRedirect)
         download = urllib.request.Request(str(artifact["archive_download_url"]), headers=self.headers)
-        try:
-            with _absolute_deadline(self.deadline):
-                with opener.open(download, timeout=self._timeout(15)):
-                    raise RuntimeError("artifact download did not redirect")
-        except urllib.error.HTTPError as error:
-            github_spend.record(self.headers["Authorization"], error.headers, error.code)
-            location = error.headers.get("Location") if error.code in (301, 302, 303, 307, 308) else None
-            if not location:
-                raise RuntimeError(f"artifact download failed ({error.code})") from error
+        status, _, headers = deadline_http.request(download, self._timeout(15), follow_redirects=False)
+        github_spend.record(self.headers["Authorization"], headers, status)
+        if 200 <= status < 300:
+            raise RuntimeError("artifact download did not redirect")
+        location = headers.get("Location") if status in (301, 302, 303, 307, 308) else None
+        if not location:
+            raise RuntimeError(f"artifact download failed ({status})")
         blob = urllib.request.Request(location, headers={"User-Agent": self.headers["User-Agent"]})
-        with _absolute_deadline(self.deadline):
-            with urllib.request.urlopen(blob, timeout=self._timeout(30)) as response:
-                return response.read()
+        return deadline_http.request(blob, self._timeout(30), raise_errors=True)[1]
 
     def runs_since(self, workflow: str, since: str, **filters: str) -> list[Mapping[str, Any]]:
         """One page of `workflow`'s runs created at or after `since` (one request)."""
@@ -2368,8 +2663,16 @@ class GitHub:
                 return "ephemeral"
         return None
 
-    def runners(self) -> list[Mapping[str, Any]]:
+    def runners(self, *, use_state: bool = True, include_repository: bool = True) -> list[Mapping[str, Any]]:
         """The repository runners plus explicitly approved organization groups.
+
+        Capacity rechecks after a wait use use_state=False: the workflow's
+        document retains the same observation throughout that run.
+
+        Organization-only fallback tokens use include_repository=False: they
+        cannot list repository registrations, but can still read the approved
+        organization groups visible to this repository. A trusted shared census
+        remains usable with either token.
 
         The glaeda minis and GCP Linux pool are organization runners, which
         the repository endpoint does not list. Listing those groups needs the
@@ -2380,11 +2683,18 @@ class GitHub:
         callers fall back to a snapshot instead of treating an incomplete
         listing as idle.
         """
-        found = {runner.get("id"): runner for runner in self._runner_pages(f"/repos/{self.repo}/actions/runners")}
+        document = runner_state(self.repo) if use_state else None
+        if document is not None:
+            print("Runner state: trusted repository document (no runner API requests)", file=sys.stderr)
+            return census_runners(document)
+        found = ({runner.get("id"): runner for runner in self._runner_pages(f"/repos/{self.repo}/actions/runners")}
+                 if include_repository else {})
+        self._keep_reserve()
         owner, _, name = self.repo.partition("/")
         try:
             groups = self.get_api(f"/orgs/{owner}/actions/runner-groups?per_page={PAGE_SIZE}"
                                   f"&visible_to_repository={urllib.parse.quote(name)}").get("runner_groups") or []
+            self._keep_reserve()
             by_name = {
                 group.get("name"): group
                 for group in groups
@@ -2404,6 +2714,10 @@ class GitHub:
                     raise RuntimeError(f"no runner group {group_name} is visible to {self.repo}")
                 org.extend(self._runner_pages(f"/orgs/{owner}/actions/runner-groups/{group.get('id')}/runners"))
         except urllib.error.HTTPError as error:
+            if rate_limited(error):
+                raise RateLimited(f"approved org runner groups unread: the routing token's GitHub quota is "
+                                  f"spent (HTTP {error.code}, X-RateLimit-Reset="
+                                  f"{(error.headers or {}).get('X-RateLimit-Reset')})") from error
             raise RuntimeError(f"approved org runner group unreadable (HTTP {error.code}); the routing "
                                "App needs the organization permission Self-hosted runners: read") from error
         found.update((runner.get("id"), runner) for runner in org)

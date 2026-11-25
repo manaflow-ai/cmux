@@ -1,5 +1,6 @@
 import AppKit
 @testable import CmuxNextFloating
+import CmuxNextTestSupport
 import Foundation
 import Testing
 
@@ -106,7 +107,7 @@ import Testing
 
     @Test func chevronUnfoldsTheNoticesAndWithNoneOpensTheChief() {
         let name = "ChiefPetFeedTests.\(UUID().uuidString)"
-        let defaults = UserDefaults(suiteName: name)!
+        let defaults = UserDefaults(testSuiteName: name)!
         defaults.removePersistentDomain(forName: name)
         var opened = 0
         let controller = ChiefPetController(makePanel: { ChiefPetPanel(defaults: defaults) },

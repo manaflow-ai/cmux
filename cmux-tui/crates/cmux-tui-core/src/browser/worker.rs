@@ -109,7 +109,7 @@ pub(super) fn start_surface_thread(
                 if (url_changed || title_changed)
                     && let Some(mux) = mux.upgrade()
                 {
-                    mux.emit(MuxEvent::TitleChanged { surface: id, title: browser.title().into() });
+                    mux.emit(MuxEvent::page_title(id, browser.title().into()));
                 }
             }
             CdpEvent::FrameNavigated { params, frame_epoch, .. } => {
@@ -119,7 +119,7 @@ pub(super) fn start_surface_thread(
                         .defer_registry_work(&route, RegistryWork::ClearAttention(url.into()));
                 });
                 if let Some(mux) = mux.upgrade() {
-                    mux.emit(MuxEvent::TitleChanged { surface: id, title: browser.title().into() });
+                    mux.emit(MuxEvent::page_title(id, browser.title().into()));
                     mux.emit(MuxEvent::SurfaceOutput(id));
                 }
             }
@@ -155,7 +155,7 @@ pub(super) fn start_surface_thread(
                     );
                 }
                 if let Some(mux) = mux.upgrade() {
-                    mux.emit(MuxEvent::TitleChanged { surface: id, title: browser.title().into() });
+                    mux.emit(MuxEvent::page_title(id, browser.title().into()));
                     mux.emit(MuxEvent::SurfaceOutput(id));
                 }
             }
@@ -751,7 +751,7 @@ pub(super) fn emit_browser_status(mux: &Weak<Mux>, message: String) {
 pub(super) fn emit_browser_dirty(mux: &Weak<Mux>, id: SurfaceId) {
     if let Some(mux) = mux.upgrade() {
         let title = mux.surface(id).map(|surface| surface.title()).unwrap_or_default();
-        mux.emit(MuxEvent::TitleChanged { surface: id, title: title.into() });
+        mux.emit(MuxEvent::page_title(id, title.into()));
         mux.emit(MuxEvent::SurfaceOutput(id));
     }
 }
@@ -760,7 +760,7 @@ pub(super) fn emit_browser_failure(mux: &Weak<Mux>, id: SurfaceId, message: Stri
     if let Some(mux) = mux.upgrade() {
         mux.emit(MuxEvent::Status(message));
         let title = mux.surface(id).map(|surface| surface.title()).unwrap_or_default();
-        mux.emit(MuxEvent::TitleChanged { surface: id, title: title.into() });
+        mux.emit(MuxEvent::page_title(id, title.into()));
         mux.emit(MuxEvent::SurfaceOutput(id));
     }
 }

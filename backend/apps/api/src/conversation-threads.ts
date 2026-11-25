@@ -1,5 +1,6 @@
 import { tablesFor, type SqlStore } from "@cmux/ownership"
 import { conversation } from "@cmux/home-core"
+import { slackThread, type SlackThread } from "./conversation-slack.ts"
 
 /**
  * Thread reads of one ConversationDO (cx-59n8.6): the replies of a root and its stats, computed
@@ -16,7 +17,7 @@ const AUTHORS = 3
 const LIVE_REPLY = `tbl = ? AND json_extract(json, '$.thread_root') = ? AND json_extract(json, '$.retracted_at') IS NULL`
 export const MAX_THREAD_PAGE = 200
 
-export type ThreadSummary = {
+export type ThreadSummary = Partial<SlackThread> & {
   readonly root: string
   readonly reply_count: number
   readonly last_reply_seq: number | null
@@ -47,6 +48,7 @@ export const threadSummary = (sql: SqlStore, root: conversation.Message): Thread
   const status = conversation.threadStatus(thread, stats.last_reply_seq)
   return {
     ...stats,
+    ...slackThread(root),
     status,
     ...(thread.title === undefined ? {} : { title: thread.title }),
     ...(thread.owner === undefined ? {} : { owner: thread.owner }),

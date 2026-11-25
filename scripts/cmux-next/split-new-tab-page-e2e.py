@@ -1,9 +1,12 @@
 #!/usr/bin/env python3
 """Live check of splits that open the New Tab page (cmuxterm-hq#1829, cx-jfo7) on a running tagged cmux-next build.
 
-A person's Split Right or Down (Cmd-D) from a browser tab, the New Tab page or an agent chat opens
-the New Tab page in the new pane, with an Open Tabs list of the workspace's tabs; picking one moves
-that tab into the new pane in the page's place. A terminal's split keeps the terminal.
+A person's Split Right or Down (Cmd-D) from a browser tab, the New Tab page, an agent chat or Home's
+Chief pane (cmux#36300: NEXT is GUI-first) opens the New Tab page in the new pane, with an Open Tabs
+list of the workspace's tabs; picking one moves that tab into the new pane in the page's place. A
+terminal's split keeps the terminal. The user's default decides: with `tabs.newTabTemplate` set to
+Terminal, a person's split opens a terminal instead. Launch the app on a scratch config file
+(`--args --config-file PATH`): the script sets that key and restores it.
 
 The script attaches to an app already running (a capture slot's `capture-host launch`, or a
 tagged build) through its debug socket. It opens workspaces and tabs with `action.run`, presses
@@ -16,6 +19,9 @@ Usage: split-new-tab-page-e2e.py --socket /tmp/cmux-debug-<tag>[-capslot<N>].soc
 Exit status 0 when every check passes.
 """
 import argparse, json, os, socket, sys, time
+
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from state_wait import wait_stable  # noqa: E402
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--socket", required=True, help="the tagged app's debug socket")
@@ -88,19 +94,26 @@ def row(check, expected, observed, ok):
     print(f"{'PASS' if ok else 'FAIL'} | {check} | {expected} | {observed}", flush=True)
 
 
+def settle(what, read=None):
+    """Waits until the strips (and the focused tab's page state) stop changing; logs it when they never do."""
+    read = read or (lambda: (strips(), page()))
+    if wait_stable(read, what, timeout=10, interval=0.25, reads=4, raise_on_timeout=False) is None:
+        print(f"still changing after 10 s: {what}", flush=True)
+
+
 def fresh_workspace():
     """A shown workspace with one pane holding one terminal."""
     print("newTab (workspace):", action("newTab", focus=True), flush=True)
     if not wait(lambda: len(strips()) == 1 and len(labels(strips()[0])) == 1, 15):
         sys.exit(f"no single-pane workspace: {json.dumps(strips())[:600]}")
-    time.sleep(1)  # test harness: the strip settles
+    settle("the new workspace's strip")
 
 
 def split():
     """Cmd-D; the strips once there are two panes."""
     print("Cmd-D:", key("d", "command"), flush=True)
     found = wait(lambda: (lambda s: s if len(s) == 2 else None)(strips()), 15)
-    time.sleep(1.5)  # test harness: the new pane shows its tab and takes focus
+    settle("the new pane's tab and focus")
     return found or strips()
 
 
@@ -123,7 +136,7 @@ def checks():
     terminal = labels(strips()[0])[0]
     print("openBrowser:", action("openBrowser", focus=True), flush=True)
     wait(lambda: len(labels(strips()[0])) == 2, 15)
-    time.sleep(2)  # test harness: the browser tab loads its title
+    settle("the browser tab's title", read=lambda: labels(strips()[0]))
     source = labels(strips()[0])
     after = split()
     shown = wait(page, 10)
@@ -165,6 +178,52 @@ def checks():
     row("Cmd-D on an agent chat opens the New Tab page", "the chat focused; then the focused tab is the New Tab page",
         f"chat {chat}; tabs {before} -> {sum(len(labels(s)) for s in strips())}; New Tab page {shown}",
         chat is not None and shown is not None)
+    chief_splits()
+
+
+def chief_on_screen():
+    """Home shown with its Chief pane (the docked Home tab) focused; the focused tab is no New Tab page."""
+    print("home.openChief:", action("home.openChief", focus=True), flush=True)
+    return wait(lambda: page() is None and (rpc("debug.home") or {}).get("home_workspace"), 20)
+
+
+def chief_splits():
+    """Cmd-D and Cmd-Shift-D from the Chief pane open the GUI composer (the New Tab page), not a terminal (cmux#36300)."""
+    for name, modifiers in [("Cmd-D", ("command",)), ("Cmd-Shift-D", ("command", "shift"))]:
+        home = chief_on_screen()
+        settle("the Chief dock tab")
+        before = sum(len(labels(s)) for s in strips())
+        print(name + ":", key("d", *modifiers), flush=True)
+        shown = wait(page, 15)
+        after = sum(len(labels(s)) for s in strips())
+        row(f"{name} on the Chief pane opens the New Tab page (GUI chat), not a terminal",
+            "Home's Chief focused; one more tab; the focused tab is the New Tab page",
+            f"home {bool(home)}; tabs {before} -> {after}; New Tab page {shown}",
+            bool(home) and after == before + 1 and shown is not None)
+        rpc("debug.window_snapshot", {"path": os.path.join(opts.out, f"chief-split-{name.lower()}.png")})
+    chief_split_follows_terminal_default()
+
+
+def chief_split_follows_terminal_default():
+    """With the user's default set to Terminal (`tabs.newTabTemplate`), the Chief's Cmd-D opens a terminal, not the page."""
+    path = "tabs.newTabTemplate"
+    got = rpc("settings.get", {"path": path}) or {}
+    previous = got.get("value") if got.get("exists") else None
+    print("settings.set terminal:", rpc("settings.set", {"path": path, "value": "terminal"}), flush=True)
+    try:
+        home = chief_on_screen()
+        settle("the Chief dock tab")
+        before = sum(len(labels(s)) for s in strips())
+        print("Cmd-D:", key("d", "command"), flush=True)
+        grew = wait(lambda: sum(len(labels(s)) for s in strips()) > before, 15)
+        settle("the new tab's focus")
+        shown = page()
+        row("Cmd-D on the Chief pane with the Terminal default opens a terminal", "Home's Chief focused; a new tab; not the New Tab page",
+            f"home {bool(home)}; tabs {before} -> {sum(len(labels(s)) for s in strips())}; New Tab page {shown}",
+            bool(home) and bool(grew) and shown is None)
+    finally:
+        restore = rpc("settings.unset", {"path": path}) if previous is None else rpc("settings.set", {"path": path, "value": previous})
+        print("settings restore:", restore, flush=True)
 
 
 main()

@@ -12,8 +12,22 @@ extension DaemonService {
     public var notConnectedReason: String? {
         switch store.connectionState {
         case .connected: nil
-        case .connecting: lastStartupError.map { RefusalStrings.describe($0) } ?? RefusalStrings.daemonConnecting
-        case .disconnected(let why), .failed(let why): lastStartupError.map { RefusalStrings.describe($0) } ?? why
+        case .connecting: lastStartupError.map(Self.startupReason) ?? RefusalStrings.daemonConnecting
+        case .disconnected(let why), .failed(let why): lastStartupError.map(Self.startupReason) ?? why
         }
+    }
+
+    /// A failed connect attempt in plain words: one that ran out of time is the service still
+    /// starting (it retries), not a change that "may still apply".
+    static func startupReason(_ error: any Error) -> String {
+        DaemonError.missedDeadline(error) ? RefusalStrings.daemonConnecting : RefusalStrings.describe(error)
+    }
+
+    /// `error` as text, then the failure that dropped this daemon connection: a dropped connection
+    /// that asks again ends with only "connection ended", and the failure that dropped it (a dial
+    /// refusal, a handshake) is the last startup error (Cloud's `link_ended_detail`, #32954).
+    public func endedDetail(_ error: any Error) -> String {
+        String(describing: error)
+            + (lastStartupError.map { "; the daemon connection failed: \($0.description)" } ?? "")
     }
 }

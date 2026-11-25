@@ -1,6 +1,7 @@
 import CmuxNextActions
 import CmuxNextDaemon
 import CmuxNextHome
+import CmuxNextHomeModel
 import CmuxNextHomeEngine
 
 /// Home as the home workspace with its left dock (classic off, cx-ebm.59.5): Home's actions run in
@@ -17,20 +18,20 @@ extension AppActions {
         static func conversation(_ id: String) -> String { "/conversation/\(id)" }
     }
 
-    /// `home.show`: the active window's own Home in that window (cmux#27880: the store's home
+    /// `home.show`: `target`'s (else the active window's) own Home in that window (cmux#27880: the store's home
     /// when this window holds it or no other open window does, else a Home of the window's own,
     /// made on its first show; never another window's), else the store's home in a new window;
     /// classic Home shows its top page. `shown` runs with the Home once it is shown (a window's
     /// first Home after its creation). False when refused.
     @discardableResult
-    static func showHome(_ services: AppServices, then shown: (@MainActor (WorkspaceModel) -> Void)? = nil) -> Bool {
+    static func showHome(_ services: AppServices, in target: WindowState? = nil, then shown: (@MainActor (WorkspaceModel) -> Void)? = nil) -> Bool {
         let classic = services.home.dock.isClassic
-        if classic, TopPages.show(.home, services: services) != nil { return true }
+        if classic, TopPages.show(.home, services: services, in: target) != nil { return true }
         guard !classic || services.windows.active == nil, classic || ActionRunScope.viewChangeAllowed(), let home = services.home.homeWorkspace else {
             services.registry.refuse(classic || ActionRunScope.viewChangeAllowed() ? RefusalStrings.homeNotReady : RefusalStrings.homeNeedsFocus)
             return false
         }
-        guard !classic, let active = services.windows.active else {
+        guard !classic, let active = target.flatMap({ services.windows.controller(for: $0.id) }) ?? services.windows.active else {
             services.windows.reveal(workspaceID: home.id)
             shown?(home)
             return true
@@ -47,6 +48,13 @@ extension AppActions {
             return nil
         })
         return true
+    }
+
+    /// Show/Hide Chief over Home: the Chief's message box takes the keys. A run that may not move the focus (the
+    /// CLI, MCP: socket focus policy) leaves the keys where they are, with no refusal.
+    static func focusDockComposer(_ services: AppServices) {
+        guard ActionRunScope.viewChangeAllowed() else { return }
+        withDock(services) { $0.focusPrimaryInput() }
     }
 
     /// Runs `body` on the docked Home's view: Home shown, the dock tab selected, the view made

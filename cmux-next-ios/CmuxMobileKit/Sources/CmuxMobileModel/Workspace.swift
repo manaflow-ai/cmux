@@ -47,8 +47,8 @@ public struct Workspace: Identifiable, Hashable, Sendable, Codable {
     /// The Mac's workspace group the workspace is in (its personal sidebar
     /// group, `list-personal`), if any.
     public var group: MacWorkspaceGroup?
-    /// The workspace's panes on its Mac, from the Mac's live tree (never saved: a snapshot
-    /// shows no Panes page until the Mac lists the workspace again).
+    /// The workspace's panes on its Mac, from the Mac's live tree. Snapshots keep this layout so
+    /// Panes can draw the last rows while the Mac refreshes it.
     public var layout: WorkspaceLayout?
     /// The workspace's screens on the Mac, in its screen bar's order (`MacScreen`). Empty when
     /// the Mac's tree has not listed them (mock data, an old saved copy).
@@ -82,7 +82,7 @@ extension Workspace {
     enum CodingKeys: String, CodingKey {
         case id, macID, title, directory, branch, tabs, lastActivityAt, hasActivityTime, focusOrder, activeTabID
         case needsAttention, isWorking, hasUnread, colorHex, icon
-        case isPinned, pinIndex, pinItemID, sidebarIndex, resourceID, hasCustomTitle, isHome, group, screens
+        case isPinned, pinIndex, pinItemID, sidebarIndex, resourceID, hasCustomTitle, isHome, group, layout, screens
     }
 
     /// Snapshots saved before a field existed still load (it takes its default).
@@ -113,6 +113,7 @@ extension Workspace {
         hasCustomTitle = try c.decodeIfPresent(Bool.self, forKey: .hasCustomTitle) ?? false
         isHome = try c.decodeIfPresent(Bool.self, forKey: .isHome) ?? false
         group = try c.decodeIfPresent(MacWorkspaceGroup.self, forKey: .group)
+        layout = try c.decodeIfPresent(WorkspaceLayout.self, forKey: .layout)
         screens = try c.decodeIfPresent([MacScreen].self, forKey: .screens) ?? []
     }
 }
@@ -148,6 +149,9 @@ public struct WorkspaceTab: Identifiable, Hashable, Sendable, Codable {
     /// What a cmux link can name this tab by (CmuxLink): the Mac's public ids.
     /// Nil when the Mac's tree did not carry them (mock data, an older Mac).
     public var linkIDs: LinkIDs?
+    /// The person named the tab (Rename Tab…, the Mac's `name`): Clear Tab Name brings back
+    /// the title the program or page gives it. Optional so older saved copies still decode.
+    public var hasCustomName: Bool?
 
     /// A tab's public ids on its Mac, as the Mac's Copy Link writes them.
     public struct LinkIDs: Hashable, Sendable, Codable {
@@ -160,12 +164,17 @@ public struct WorkspaceTab: Identifiable, Hashable, Sendable, Codable {
         /// The harness's own session id of the agent running in it (`list-agents`
         /// `agent_session_id`), which an `agent/<harness>/<session>` link names.
         public var harnessSession: String?
+        /// An agent chat tab's acpmux session (`agent_session.session`): what the Mac's Copy
+        /// Tab Link writes (`cmux://session/<id>`) and Copy Session ID copies.
+        public var agentSession: String?
 
-        public init(tab: String? = nil, pane: String? = nil, isPaneSelected: Bool = false, harnessSession: String? = nil) {
+        public init(tab: String? = nil, pane: String? = nil, isPaneSelected: Bool = false, harnessSession: String? = nil,
+                    agentSession: String? = nil) {
             self.tab = tab
             self.pane = pane
             self.isPaneSelected = isPaneSelected
             self.harnessSession = harnessSession
+            self.agentSession = agentSession
         }
     }
 
@@ -295,5 +304,24 @@ public struct WorkspaceTab: Identifiable, Hashable, Sendable, Codable {
         case .simulator: "iphone"
         case .agent: "sparkle"
         }
+    }
+}
+
+/// The agent as people name it in a failure sentence ("Claude is rate limited"),
+/// never a tab's title or a raw profile id. A tab's title is its session's name (an acpmux
+/// session such as "Reviving claude-sr2-coord after rate-limit loop"), which read as the subject
+/// of the chat's sentences when it stood in for the agent (Leo, 2026-11-17: the error card said
+/// "Reviving claude-sr2-coord after rate-limit loop is rate limited or out of capacity").
+/// A profile that reaches its agent through a route (`claude-sr`, `claude-cr`) is still that
+/// agent; the error card's detail names the route.
+public enum AgentHarnessName {
+    public static func of(_ harness: String?) -> String {
+        guard let harness = harness?.trimmingCharacters(in: .whitespaces), !harness.isEmpty else { return "Agent" }
+        let id = harness.lowercased()
+        for (family, name) in [("claude", "Claude"), ("codex", "Codex"), ("opencode", "OpenCode")]
+        where id == family || id.hasPrefix(family + "-") {
+            return name
+        }
+        return harness.prefix(1).uppercased() + harness.dropFirst()
     }
 }

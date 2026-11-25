@@ -11,20 +11,51 @@ public final class PersonalStore {
     public internal(set) var isLoaded = false
     public internal(set) var revision: UInt64 = 0
     public internal(set) var sessions: [SessionRecord] = [] {
-        didSet { sessionIndex = Dictionary(sessions.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first }) }
+        didSet {
+            sessionIndex = Dictionary(sessions.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
+            let icons = sessions.map(SessionIcon.init)
+            if icons != sessionIcons { sessionIcons = icons }
+        }
+    }
+    /// `sessions` as a machine header draws them (id, transport, icon), set only when one of those changes: a record's
+    /// other fields moving (`last_seen_ms`, names, capabilities) no longer wake the sidebar's pass, which walked and
+    /// sorted every workspace on main for each `list-personal` that touched any session record.
+    public private(set) var sessionIcons: [SessionIcon] = [] {
+        didSet { sessionIconIndex = Dictionary(sessionIcons.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first }) }
     }
     /// Sessions each room follows.
     public internal(set) var follows: [ProfileID: Set<String>] = [:]
     public internal(set) var pins: [WorkspacePin] = [] {
-        didSet { pinIndex = personalPinIndex(pins) }
+        didSet {
+            if !expectedPins.isEmpty { dropSettledExpectations() }
+            rebuildPinIndex()
+        }
     }
+    /// Pins this client sent before a workspace's create that no snapshot carries yet, by session then key (client
+    /// state, never from the daemon). The pin's reply comes before `personal-changed`'s refetch, and the workspace's own
+    /// delta can come first: without these a new space's first workspace showed unpinned, so in `default`, and its window
+    /// fell back to the space it came from, the row sliding over when the pin landed (Leo 2026-11-11, "it shouldn't just
+    /// bounce you back"). A snapshot that pins the workspace, or its create failing, drops one.
+    public private(set) var expectedPins: [String: [String: ProfileID]] = [:]
     /// Personal workspace groups in order, each in one room.
     public internal(set) var groups: [WorkspaceGroupModel] = []
     /// Room of each personal group.
     public internal(set) var groupRooms: [WorkspaceGroupID: ProfileID] = [:]
     /// Personal organization per qualified workspace.
     public internal(set) var workspaces: [PersonalWorkspace] = [] {
-        didSet { workspaceIndex = personalWorkspaceIndex(workspaces) }
+        didSet {
+            workspaceIndex = personalWorkspaceIndex(workspaces)
+            // Keep the daemon's input order for equal positions. Swift's sort is not stable, and
+            // `PersonalSidebar.order` uses this projection to avoid sorting every workspace on
+            // every sidebar pass.
+            let offsets = Dictionary(workspaces.enumerated().map { (Self.orderKey($0.element), $0.offset) },
+                                     uniquingKeysWith: { first, _ in first })
+            workspaceOrder = workspaces.sorted {
+                $0.index == $1.index
+                    ? (offsets[Self.orderKey($0)] ?? .max) < (offsets[Self.orderKey($1)] ?? .max)
+                    : $0.index < $1.index
+            }
+        }
     }
     /// Per-terminal themes, keyed `session_id` then terminal key.
     public internal(set) var terminalThemes: [String: [String: String]] = [:]
@@ -34,17 +65,29 @@ public final class PersonalStore {
     /// (cx-rcby). Client state, never from the daemon: the sidebar hides an
     /// ending group that shows no member until the delete lands.
     public var endingGroups: Set<WorkspaceGroupID> = []
+    /// The newest pending organization write per workspace or group field (client state): a newer write supersedes
+    /// one still being sent again after a missed deadline (`PersonalWriteLedger`).
+    @ObservationIgnored public let writes = PersonalWriteLedger()
 
     /// `workspaces` by session then key, rebuilt when the list is set: a lookup per row or per tab
     /// (sidebar rows, tab badges, themes) is O(1), not a scan of every workspace (space-switch-fast).
     @ObservationIgnored private var workspaceIndex: [String: [String: PersonalWorkspace]] = [:]
+    /// `workspaces` by personal position, sorted once when the list is set: the sidebar's pass reads it on every run
+    /// instead of sorting every personal row of every session each time.
+    @ObservationIgnored private var workspaceOrder: [PersonalWorkspace] = []
     /// `sessions` by id, rebuilt when the list is set.
     @ObservationIgnored private var sessionIndex: [String: SessionRecord] = [:]
+    /// `sessionIcons` by id, rebuilt when the list is set.
+    @ObservationIgnored private var sessionIconIndex: [String: SessionIcon] = [:]
     /// `pins` as session, then workspace key, to room, rebuilt when the list is set: a room lookup per switch or per
     /// row is O(1), never a pass over every pin (switch-scale: each workspace select and space switch built it).
     @ObservationIgnored private var pinIndex: [String: [String: ProfileID]] = [:]
 
     public init() {}
+
+    private static func orderKey(_ workspace: PersonalWorkspace) -> String {
+        workspace.sessionID + "\u{0}" + workspace.workspaceKey.rawValue
+    }
 
     /// The own theme of a session-qualified terminal.
     public func terminalTheme(session: String, terminal: String) -> String? { terminalThemes[session]?[terminal] }
@@ -53,6 +96,11 @@ public final class PersonalStore {
     public func session(_ id: String) -> SessionRecord? {
         _ = sessions
         return sessionIndex[id]
+    }
+    /// Session `id`'s icon record; observes `sessionIcons` only, never the rest of its record.
+    public func sessionIcon(_ id: String) -> SessionIcon? {
+        _ = sessionIcons
+        return sessionIconIndex[id]
     }
     public func group(_ id: WorkspaceGroupID) -> WorkspaceGroupModel? { groups.first { $0.id == id } }
     /// The group the sidebar-document group item `id` names, as the daemon reads it: `itm_g_<id>` first.
@@ -69,12 +117,86 @@ public final class PersonalStore {
     /// index kept with it: no work per call.
     public var pinnedRooms: [String: [String: ProfileID]] {
         _ = pins
+        _ = expectedPins
         return pinIndex
+    }
+
+    /// Workspace `key` of `session` is in room `room` from now until a snapshot pins it (`expectedPins`). A key the
+    /// daemon already pins needs none: its pin wins, and a pin that changes nothing brings no refetch to drop one.
+    public func expectPin(session: String, key: WorkspaceKey, room: ProfileID) {
+        guard pins.allSatisfy({ $0.sessionID != session || $0.workspaceKey != key }),
+              expectedPins[session]?[key.rawValue] != room else { return }
+        expectedPins[session, default: [:]][key.rawValue] = room
+        rebuildPinIndex()
+    }
+
+    /// The create of workspace `key` ended without it: its expected pin goes, on whichever session it was.
+    public func forgetExpectedPin(key: String) {
+        guard expectedPins.values.contains(where: { $0[key] != nil }) else { return }
+        for session in Array(expectedPins.keys) {
+            expectedPins[session]?[key] = nil
+            if expectedPins[session]?.isEmpty == true { expectedPins[session] = nil }
+        }
+        rebuildPinIndex()
+    }
+
+    /// Drops the expectations a snapshot now pins (to any room: the daemon's pin wins).
+    private func dropSettledExpectations() {
+        let pinned = personalPinIndex(pins)
+        var kept: [String: [String: ProfileID]] = [:]
+        for (session, keys) in expectedPins {
+            let open = keys.filter { pinned[session]?[$0.key] == nil }
+            if !open.isEmpty { kept[session] = open }
+        }
+        if kept != expectedPins { expectedPins = kept }
+    }
+
+    /// `pins` as the index, with each expected pin no snapshot carries yet laid over it.
+    private func rebuildPinIndex() {
+        var index = personalPinIndex(pins)
+        for (session, keys) in expectedPins {
+            for (key, room) in keys where index[session]?[key] == nil { index[session, default: [:]][key] = room }
+        }
+        pinIndex = index
     }
 
     public func workspace(session: String, key: String) -> PersonalWorkspace? {
         _ = workspaces
         return workspaceIndex[session]?[key]
+    }
+
+    /// `session`'s rows by workspace key (the first row of a key wins), from the index kept with the list.
+    public func workspaces(session: String) -> [String: PersonalWorkspace] {
+        _ = workspaces
+        return workspaceIndex[session] ?? [:]
+    }
+
+    /// Every row by personal position (`index`), sorted when the list was set. Reads `workspaces` (observed as before).
+    public var workspacesInOrder: [PersonalWorkspace] {
+        _ = workspaces
+        return workspaceOrder
+    }
+
+    /// The final personal index (`workspace.place`) that puts the row of `key` on `session` right after the last row of
+    /// `group` in the personal order; nil when no other row is in the group. A row that joins a group by its personal
+    /// state lands in the sidebar document right after its neighbor in this order, so it is placed after the group's
+    /// last member rather than after whatever row it followed.
+    public func index(afterLastMemberOf group: WorkspaceGroupID, moving key: String, session: String) -> Int? {
+        let others = workspacesInOrder.filter { $0.sessionID != session || $0.workspaceKey.rawValue != key }
+        return others.lastIndex { $0.group == group }.map { $0 + 1 }
+    }
+}
+
+/// What a machine header draws from a session record: its id, how it is reached and its icon.
+public struct SessionIcon: Sendable, Hashable, Identifiable {
+    public var id: String
+    public var transport: JSONValue?
+    public var icon: String?
+
+    public init(_ record: SessionRecord) {
+        id = record.id
+        transport = record.transport
+        icon = record.icon
     }
 }
 

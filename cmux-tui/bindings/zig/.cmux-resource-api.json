@@ -1,5 +1,5 @@
 {
-  "catalog_sha256": "0d3471453939f9603e2766b108d1d040f988354ee9854de7a923b92196469e41",
+  "catalog_sha256": "f372987f95bfc5fce9562b5e0c2d1b51068ba3cf597a1e8aa3e6dd3857614e94",
   "operations": {
     "agent.list": {
       "class": "read"
@@ -94,6 +94,24 @@
     "browser.viewer.resize": {
       "class": "connection_control"
     },
+    "browser_import.read": {
+      "class": "read"
+    },
+    "chat.list": {
+      "class": "read"
+    },
+    "chat.mark_read": {
+      "class": "mutation"
+    },
+    "chat.pin": {
+      "class": "mutation"
+    },
+    "chief.automation.list": {
+      "class": "read"
+    },
+    "chief.automation.update": {
+      "class": "mutation"
+    },
     "chief.continue": {
       "class": "mutation"
     },
@@ -139,6 +157,12 @@
     "chief.stop": {
       "class": "mutation"
     },
+    "classic_import.plan": {
+      "class": "read"
+    },
+    "classic_import.record": {
+      "class": "mutation"
+    },
     "client.cell_pixels.set": {
       "class": "connection_control"
     },
@@ -169,7 +193,145 @@
     "closed.reopen": {
       "class": "mutation"
     },
+    "cloud.machine.chat_access": {
+      "class": "read"
+    },
+    "cloud.machine.chief_resize": {
+      "class": "mutation"
+    },
+    "cloud.machine.chief_start": {
+      "class": "mutation"
+    },
+    "cloud.machine.fork": {
+      "class": "mutation"
+    },
+    "cloud.machine.io": {
+      "class": "mutation"
+    },
+    "cloud.machine.share_chat": {
+      "class": "mutation"
+    },
+    "cloud.owner.acpmux_keyed_start": {
+      "class": "mutation"
+    },
+    "cloud.owner.acpmux_person_holds": {
+      "class": "mutation"
+    },
+    "cloud.owner.fork_run": {
+      "class": "mutation"
+    },
+    "cloud.owner.github_app": {
+      "class": "read"
+    },
+    "cloud.owner.github_connect": {
+      "class": "mutation"
+    },
+    "cloud.owner.github_repos": {
+      "class": "read"
+    },
+    "cloud.owner.handoff_begin_turn": {
+      "class": "mutation"
+    },
+    "cloud.owner.handoff_open": {
+      "class": "mutation"
+    },
+    "cloud.owner.handoff_wait": {
+      "class": "read"
+    },
+    "cloud.owner.handoffs": {
+      "class": "read"
+    },
+    "cloud.owner.harness_login_copy": {
+      "class": "read"
+    },
+    "cloud.owner.turn_checkpoint": {
+      "class": "mutation"
+    },
+    "cloud.owner.turn_rewind": {
+      "class": "mutation"
+    },
+    "cloud.owner.turns": {
+      "class": "read"
+    },
+    "cloud.previews.create_link": {
+      "class": "mutation"
+    },
+    "cloud.previews.refresh": {
+      "class": "mutation"
+    },
+    "cloud.previews.revoke_link": {
+      "class": "mutation"
+    },
+    "cloud.runs.cancel": {
+      "class": "mutation"
+    },
+    "cloud.runs.create": {
+      "class": "mutation"
+    },
+    "cloud.runs.sandbox": {
+      "class": "mutation"
+    },
+    "cloud.runs.start": {
+      "class": "mutation"
+    },
+    "cloud.runs.wait": {
+      "class": "read"
+    },
+    "cloud.vm.domains": {
+      "class": "read"
+    },
+    "cloud.vm.firewall_create": {
+      "class": "mutation"
+    },
+    "cloud.vm.firewall_delete": {
+      "class": "mutation"
+    },
+    "cloud.vm.firewall_get": {
+      "class": "read"
+    },
+    "cloud.vm.firewall_list": {
+      "class": "read"
+    },
+    "cloud.vm.networks": {
+      "class": "read"
+    },
+    "cloud.vm.provision_api": {
+      "class": "mutation"
+    },
+    "cloud.vm.publication_api_keys": {
+      "class": "read"
+    },
+    "cloud.vm.publications": {
+      "class": "read"
+    },
+    "cloud.vm.revoke_publication_api_key": {
+      "class": "mutation"
+    },
+    "cloud.vm.scp_endpoint": {
+      "class": "mutation"
+    },
+    "cloud.vm.tunnel_attach": {
+      "class": "mutation"
+    },
+    "cloud.vm.tunnel_detach": {
+      "class": "mutation"
+    },
+    "cloud.vm.tunnel_enroll": {
+      "class": "mutation"
+    },
+    "cloud.vm.tunnel_revoke": {
+      "class": "mutation"
+    },
+    "cloud.vm.tunnel_rotate_key": {
+      "class": "mutation"
+    },
     "column.update": {
+      "class": "mutation"
+    },
+    "conductor_import.plan": {
+      "class": "read"
+    },
+    "conductor_import.record": {
       "class": "mutation"
     },
     "conversation.draft": {
@@ -204,6 +366,21 @@
     },
     "credential.verify": {
       "class": "read"
+    },
+    "diff.comments.delete": {
+      "class": "mutation"
+    },
+    "diff.comments.list": {
+      "class": "read"
+    },
+    "diff.comments.save": {
+      "class": "mutation"
+    },
+    "diff.comments.send": {
+      "class": "mutation"
+    },
+    "diff.comments.thread": {
+      "class": "mutation"
     },
     "frontend_projection.get": {
       "class": "read"
@@ -244,7 +421,19 @@
     "git.files.search": {
       "class": "read"
     },
+    "git.fingerprint": {
+      "class": "read"
+    },
     "git.push": {
+      "class": "mutation"
+    },
+    "git.review.comment": {
+      "class": "mutation"
+    },
+    "git.review.post": {
+      "class": "mutation"
+    },
+    "git.review.start": {
       "class": "mutation"
     },
     "git.status": {
@@ -257,6 +446,12 @@
       "class": "mutation"
     },
     "git.worktree.remove": {
+      "class": "mutation"
+    },
+    "git.worktree.setup": {
+      "class": "read"
+    },
+    "git.worktree.setup.run": {
       "class": "mutation"
     },
     "history.backups.purge": {
@@ -307,6 +502,9 @@
     "keybindings.set": {
       "class": "mutation"
     },
+    "language_packs.ensure": {
+      "class": "read"
+    },
     "layout.bulk": {
       "class": "mutation"
     },
@@ -336,6 +534,9 @@
     },
     "pairing_request.resolve": {
       "class": "mutation"
+    },
+    "palette.rank": {
+      "class": "read"
     },
     "palette_usage.forget": {
       "class": "mutation"
@@ -370,6 +571,9 @@
     "pane.list": {
       "class": "read"
     },
+    "pane.move": {
+      "class": "mutation"
+    },
     "pane.neighbor.get": {
       "class": "read"
     },
@@ -399,6 +603,9 @@
     },
     "participant.avatar.set": {
       "class": "mutation"
+    },
+    "project.actions.list": {
+      "class": "read"
     },
     "project.add": {
       "class": "mutation"
@@ -580,7 +787,13 @@
     "session.window.title.set": {
       "class": "mutation"
     },
+    "settings.edit": {
+      "class": "mutation"
+    },
     "settings.get": {
+      "class": "read"
+    },
+    "settings.history": {
       "class": "read"
     },
     "settings.list": {
@@ -592,6 +805,12 @@
     "settings.reset_all": {
       "class": "mutation"
     },
+    "settings.reset_group": {
+      "class": "mutation"
+    },
+    "settings.restore": {
+      "class": "mutation"
+    },
     "settings.schema": {
       "class": "read"
     },
@@ -600,6 +819,9 @@
     },
     "settings.snapshot": {
       "class": "read"
+    },
+    "settings.undo": {
+      "class": "mutation"
     },
     "sidebar.adopt": {
       "class": "mutation"
@@ -824,6 +1046,15 @@
       "class": "read"
     },
     "terminal.wait_exit": {
+      "class": "read"
+    },
+    "theme.scheme.convert": {
+      "class": "read"
+    },
+    "theme.scheme.export": {
+      "class": "read"
+    },
+    "theme.scheme.from_image": {
       "class": "read"
     },
     "window_record.delete": {

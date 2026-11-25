@@ -3,10 +3,12 @@
 // gallery's busy coordinator (agent-pane.chat-inspector#subagents-busy), each fold (Changes' Show
 // more, Subagents' Show 12 more, Background tasks' 4 finished) spans its list's width; a click in
 // the empty part of the row, right of its label, opens it; hovering paints no fill; and keyboard focus
-// follows the agent pane's shared policy (agent-session/shared/styles.css: the soft pill, no outline).
+// follows the agent pane's shared policy (agent-session/shared/styles.css: the soft pill, no outline),
+// earned by a real Tab, since code focus draws none (FOCUS-RING, src/ui/focusModality.ts).
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "bun:test";
 import path from "node:path";
 import { chromium, type Browser, type Page } from "playwright";
+import { focusByKey } from "./support/focusByKey";
 import { galleryFrame, warmGalleryFrame } from "./support/galleryFrame";
 import { requireBrowserLane } from "./support/requireBrowserLane";
 
@@ -62,8 +64,23 @@ await requireBrowserLane("session-info-fold-rows.test.ts", async () => {
   });
 
   /** The fold whose label matches `label`: its box, its list's width and where its label ends. */
+  /// Measured once the panel holds still: the fold the previous case closed animates the rows under
+  /// it into place (its height eases away), so a row read mid-fold moves after the read and the
+  /// click at its old place opens nothing. The busy runner's slower frames stretched that fold past
+  /// the read and the click: Playwright's 30 s wait for the open row timed out (run 43395228044,
+  /// seven browser files at once).
   const row = (label: string) =>
-    page!.evaluate((source) => {
+    page!.evaluate(async (source) => {
+      for (let round = 0; round < 5; round++) {
+        const moving = document
+          .getAnimations()
+          .filter(
+            (animation) =>
+              animation.playState === "running" && Number.isFinite(animation.effect?.getComputedTiming().endTime),
+          );
+        if (moving.length === 0) break;
+        await Promise.all(moving.map((animation) => animation.finished.catch(() => undefined)));
+      }
       const pattern = new RegExp(source);
       const button = [...document.querySelectorAll<HTMLButtonElement>("button.acpmux-session-info-fold")].find(
         (candidate) => pattern.test(candidate.textContent ?? ""),
@@ -155,14 +172,10 @@ await requireBrowserLane("session-info-fold-rows.test.ts", async () => {
 
   test("keyboard focus on a fold takes the agent pane's soft pill, not an outline", async () => {
     await page!.mouse.move(0, 0);
-    await page!.evaluate(() => {
-      const button = document.querySelector<HTMLButtonElement>("button.acpmux-session-info-pr-fold")!;
-      (button.focus as (options: { focusVisible: boolean }) => void)({
-        focusVisible: true,
-      });
-    });
+    // A fold in view: Changes' own sits under the panel's Show more line now (sectionOrder.ts).
+    await focusByKey(page!, page!.locator("button.acpmux-session-info-fold", { hasText: /Show \d+ more/ }).first());
     const focused = await page!.evaluate(() => {
-      const button = document.querySelector<HTMLButtonElement>("button.acpmux-session-info-pr-fold")!;
+      const button = document.activeElement as HTMLButtonElement;
       const style = getComputedStyle(button);
       return {
         visible: button.matches(":focus-visible"),

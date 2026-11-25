@@ -9,27 +9,34 @@
 // The item is the shared shape (plans/cmux-next/needs-you.md): the header's pinned list draws it,
 // the Feed keys the same prompt `acpmux:<permissionId>` (its dedupe key), and an agent points at an
 // item with `cmux://needs-you/<permissionId>` (links.ts) instead of restating it.
+import { PrefixFlatCache } from "../conversation/prefixFlatMap";
 import type { AcpmuxAgentPair, AcpmuxPermission, AcpmuxRow, QueuedPrompt } from "../model";
-import { questionSummary, type AgentQuestion } from "../question/model";
+import { hasPreviews, questionSummary, type AgentQuestion } from "../question/model";
 import type { AcpmuxSessionEntry } from "../sessionList";
+import type { HarnessIconSpec } from "../../shared/harnessIcons";
+import { sessionIndex } from "../sessionIndex";
+import type { AttentionTab } from "./attentionTabs";
 
 /// What the ask wants: an allow or deny of a tool (`approval`), a pick among choices
 /// (`decision`), a check of the agent's work (`verify`), messages acpmux holds between two agents
 /// (`held`), or a chat that waits on the person with no ask the page can read (`input`: a chat on
-/// another computer, whose prompts reach this pane only as its session's indicator).
-export type NeedsYouKind = "approval" | "decision" | "verify" | "held" | "input";
+/// another computer, whose prompts reach this pane only as its session's indicator), or a tab an
+/// agent marked for the person to act in (`tab`: log in, confirm, pick; attentionTabs.ts).
+export type NeedsYouKind = "approval" | "decision" | "verify" | "held" | "input" | "tab";
 
 /// A one-click answer: an allow, a deny, one of a question's choices, or a held pair's Resume.
 export type NeedsYouAnswer = { id: string; label: string; tone: "allow" | "deny" | "choice" };
 
 /// Who asked: the chat's title and agent, whether it is the Chief, and the chat that started it.
-export type NeedsYouWho = { name: string; harness?: string; chief: boolean; via?: string };
+/// `icon`: the icon the chat set (acpmux `icon`), drawn over its harness mark.
+export type NeedsYouWho = { name: string; harness?: string; icon?: HarnessIconSpec; chief: boolean; via?: string };
 
 export type NeedsYouItem = {
   /// Stable while the ask is open: `acpmux:<permissionId>` (the Feed's key for the same prompt),
-  /// `held:<sessionId>:<peer>` or `chat:<sessionId>`.
+  /// `held:<sessionId>:<peer>`, `chat:<sessionId>` or `tab:<tabId>`.
   id: string;
   kind: NeedsYouKind;
+  /// The asking chat; empty for a `tab` item, which names no chat.
   sessionId: string;
   /// The ask on one line.
   ask: string;
@@ -52,6 +59,9 @@ export type NeedsYouItem = {
   /// A guest's held prompt (`awaitingOwner`), which Review opens on its card; `ask` is its text.
   promptId?: string;
   question?: AgentQuestion;
+  /// A `tab` item's tab (its daemon id, only for Go to; never shown); `who.name` is its workspace
+  /// and `detail` the tab's title.
+  tabId?: string;
 };
 
 /// A permission request acpmux reports pending (asks.ts), with when the page first saw it.
@@ -63,7 +73,24 @@ export type NeedsYouInput = {
   /// The open chat and its rows: its agent pair holds are read from them, and its guests' held
   /// prompts from its queue, answered here only where acpmux serves Approve (`queueApproval`).
   open?: { sessionId?: string; rows: readonly AcpmuxRow[]; queue?: readonly QueuedPrompt[]; queueApproval?: boolean };
+  /// The tabs agents marked as needing the person (attentionTabs.ts).
+  tabs?: readonly AttentionTab[];
 };
+
+/// A marked tab as a Needs you item: the agent's reason is the ask, the workspace says where.
+export function tabItem(tab: AttentionTab): NeedsYouItem {
+  return {
+    id: `tab:${tab.tabId}`,
+    kind: "tab",
+    sessionId: "",
+    ask: tab.reason,
+    ...(tab.tabTitle ? { detail: tab.tabTitle } : {}),
+    who: { name: tab.workspaceTitle, chief: false },
+    ...(tab.atMs > 0 ? { at: tab.atMs } : {}),
+    answers: [],
+    tabId: tab.tabId,
+  };
+}
 
 /// The Feed's key for a prompt (CmuxNextApp AcpmuxPermissionFeedBridge `dedupe_key`).
 export const askItemId = (permissionId: string) => `acpmux:${permissionId}`;
@@ -79,7 +106,9 @@ const VERIFY = /^\s*(?:please\s+|can you\s+|could you\s+)?(?:verify|check|confir
 const CHIEF_NAME = /^chief\b/i;
 
 export function needsYouItems(input: NeedsYouInput): NeedsYouItem[] {
-  const byId = new Map(input.sessions.map((session) => [session.sessionId, session]));
+  // The list's shared index (sessionIndex.ts): its id map, and the few chats waiting on the person,
+  // so one session's change costs that session here, not a pass over every listed chat.
+  const byId = sessionIndex(input.sessions);
   const items: NeedsYouItem[] = [];
   const asked = new Set<string>();
   for (const watched of input.asks) {
@@ -125,8 +154,8 @@ export function needsYouItems(input: NeedsYouInput): NeedsYouItem[] {
   }
   // A chat that waits on the person with no ask read here (a chat on another computer, a grouped
   // request, or one whose ask is still being read): one item, so it is never missing from the list.
-  for (const session of input.sessions) {
-    if (asked.has(session.sessionId) || session.archived || !waitsOnPerson(session)) continue;
+  for (const session of byId.of("waiting")) {
+    if (asked.has(session.sessionId)) continue;
     items.push({
       id: `chat:${session.sessionId}`,
       ...waitingAsk(session),
@@ -136,20 +165,9 @@ export function needsYouItems(input: NeedsYouInput): NeedsYouItem[] {
       answers: [],
     });
   }
+  for (const tab of input.tabs ?? []) items.push(tabItem(tab));
   // Newest first, as every list of chats in the pane; an ask without a time last.
   return items.sort((a, b) => (b.at ?? 0) - (a.at ?? 0));
-}
-
-/// Something is pending on the person: acpmux counts an open request, names what the chat waits
-/// on, or says the chat is `waiting` (a secret request sets that with neither, hub/secrets.rs). A
-/// chat on another computer, or one whose status is unknown, still shows by its indicator alone. A
-/// local chat acpmux says is not waiting has nothing pending, whatever its dot last said. A chat
-/// acpmux marks `lost` (its machine is unreachable) waits on nobody: no one can answer its ask now,
-/// and the sidebar and tab strip mark it as an error, not as waiting (cx-zlox).
-function waitsOnPerson(session: AcpmuxSessionEntry): boolean {
-  if (session.indicator === "lost") return false;
-  if ((session.pendingPermissions ?? 0) > 0 || session.waitingOn || session.status === "waiting") return true;
-  return session.indicator === "input" && (Boolean(session.peer) || session.status === undefined);
 }
 
 /// What a chat whose ask is not read here waits on, as acpmux names it: a question by its first
@@ -169,7 +187,7 @@ function waitingAsk(session: AcpmuxSessionEntry): Pick<NeedsYouItem, "kind" | "a
 function askItem(
   watched: WatchedAsk,
   session: AcpmuxSessionEntry | undefined,
-  byId: ReadonlyMap<string, AcpmuxSessionEntry>,
+  byId: Pick<ReadonlyMap<string, AcpmuxSessionEntry>, "get">,
 ): NeedsYouItem {
   const { permission } = watched;
   const question = permission.question;
@@ -205,18 +223,30 @@ function permissionAnswers(permission: AcpmuxPermission): NeedsYouAnswer[] {
   ];
 }
 
-function questionAnswers(question: AgentQuestion): NeedsYouAnswer[] {
+/// A one-pick question's choices, answered in place. A generic interactive ask (`acp`, whose answer
+/// is a permission option, not a question's reply) and a question with previews open the chat,
+/// where its card shows them.
+export function questionAnswers(question: AgentQuestion): NeedsYouAnswer[] {
   const [item, ...more] = question.items;
-  if (!item || more.length > 0 || item.multiSelect || item.options.length > QUICK_CHOICES) return [];
+  if (!answersInPlace(question) || !item || more.length > 0 || item.multiSelect || hasPreviews(item)) return [];
+  if (item.options.length > QUICK_CHOICES) return [];
   return item.options.map((option) => ({ id: option.id, label: option.label, tone: "choice" as const }));
 }
+
+/// Whether the host can send this question's reply for another chat (`chat.asks.answer` with
+/// `answers`): a question's reply, so not the generic interactive ask, whose answer is an option.
+export const answersInPlace = (question: AgentQuestion) => question.source.harness !== "acp";
+
+const NO_PAIRS: readonly AcpmuxAgentPair[] = [];
+const pairReads = new PrefixFlatCache<AcpmuxRow, AcpmuxAgentPair>((row) =>
+  row.kind === "agentPair" && row.agentPair ? [row.agentPair] : NO_PAIRS,
+);
 
 /// The open chat's agent pairs that still hold messages for the person to release.
 export function heldPairs(rows: readonly AcpmuxRow[]): AcpmuxAgentPair[] {
   const pairs = new Map<string, AcpmuxAgentPair>();
-  for (const row of rows) {
-    const pair = row.kind === "agentPair" ? row.agentPair : undefined;
-    if (!pair) continue;
+  // Only the rows a snapshot changed are read again (conversation/prefixFlatMap.ts).
+  for (const pair of pairReads.read(rows).items) {
     // A later row for the same peer replaces an earlier one (a re-pause takes over what it held).
     if (pair.resumed || pair.held.length === 0) pairs.delete(pair.peer);
     else pairs.set(pair.peer, pair);
@@ -227,13 +257,14 @@ export function heldPairs(rows: readonly AcpmuxRow[]): AcpmuxAgentPair[] {
 function who(
   session: AcpmuxSessionEntry | undefined,
   sessionId: string,
-  byId: ReadonlyMap<string, AcpmuxSessionEntry>,
+  byId: Pick<ReadonlyMap<string, AcpmuxSessionEntry>, "get">,
 ): NeedsYouWho {
   const name = session?.displayTitle ?? session?.name ?? sessionId;
   const parent = session?.spawnedBy ? byId.get(session.spawnedBy) : undefined;
   return {
     name,
     ...(session?.harness ? { harness: session.harness } : {}),
+    ...(session?.icon ? { icon: session.icon } : {}),
     chief: isChief(session),
     ...(parent ? { via: parent.displayTitle ?? parent.name ?? parent.sessionId } : {}),
   };

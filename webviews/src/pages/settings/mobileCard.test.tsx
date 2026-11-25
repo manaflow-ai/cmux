@@ -7,7 +7,7 @@ import { installDom } from "./testDom";
 
 const restore = installDom();
 afterAll(() => restore());
-const { renderPage, settle } = await import("./testing");
+const { renderPage, rowElement, settle } = await import("./testing");
 
 const card = (container: HTMLElement) => container.querySelector<HTMLElement>('[data-card="mobile"]');
 const state: IPhoneHostState = {
@@ -63,7 +63,10 @@ test("Mobile is its own category with the allow switch; Accounts has no iPhone c
   await act(async () => page.provider.setHost({ ...page.provider.host, iphone: state }));
   await settle();
   expect(page.container.querySelector('[data-row-key="mobile.allowIPhoneConnections"]')).not.toBeNull();
-  // The terminal sizing policy row; its priority order is set on the phone and stays hidden here.
+  // The terminal sizing policy row sits under the iPhone card's More Options (the page's first);
+  // its priority order is set on the phone and stays hidden here.
+  await act(async () => page.container.querySelector<HTMLElement>(".more-options")!.click());
+  await settle();
   expect(page.container.querySelector('[data-row-key="mobile.terminalSizing"]')).not.toBeNull();
   expect(page.container.querySelector('[data-row-key="mobile.terminalSizingOrder"]')).toBeNull();
   expect(card(page.container)).not.toBeNull();
@@ -142,9 +145,12 @@ test("Phone Access rows remain visible and removable when the legacy host is off
 });
 
 test("the switch writes the setting through cmux.settings.set", async () => {
+  // The old Mobile link opens Devices, whose device list has switches of its own above this row.
   const page = await renderPage({ path: "/settings/mobile" });
   await settle();
-  const toggle = page.container.querySelector<HTMLButtonElement>('[role="switch"]')!;
+  const toggle = rowElement(page.container, "mobile.allowIPhoneConnections").querySelector<HTMLButtonElement>(
+    '[role="switch"]',
+  )!;
   await act(async () => toggle.click());
   await settle();
   const writes = page.provider.log.filter((entry) => entry.op === "cmux.settings.set");
@@ -240,5 +246,37 @@ test("a waiting pairing request has Allow and Don't Allow, and the blocked count
   );
   await settle();
   expect(card(page.container)!.querySelector("[data-pair-request]")).toBeNull();
+  page.unmount();
+});
+
+// Lawrence, msg 3790: "everywhere we say sign in, we need to have a button for signing in". Signed
+// out, the status ("Sign in to cmux to allow iPhone connections.") shows the shared Sign In button,
+// which runs the app's Sign In; signed in, it does not.
+test("signed out, the status row offers Sign In, which runs the app's Sign In", async () => {
+  const page = await renderPage({ path: "/settings/mobile" });
+  const signedOut: IPhoneHostState = {
+    ...state,
+    account: null,
+    space: null,
+    phase: "off",
+    phones: [],
+    status: "Sign in to cmux to allow iPhone connections.",
+    sign_in: "Sign In",
+  };
+  await act(async () => page.provider.setHost({ ...page.provider.host, iphone: signedOut }));
+  await settle();
+  const button = card(page.container)!.querySelector<HTMLButtonElement>('[data-action="sign-in"]');
+  expect(button?.textContent).toBe("Sign In");
+  await act(async () => button!.click());
+  await settle();
+  expect(
+    page.provider.log.some(
+      (entry) =>
+        entry.op === "cmux.app.action.run" && (entry.params as { action?: string }).action === "palette.auth.signIn",
+    ),
+  ).toBe(true);
+  await act(async () => page.provider.setHost({ ...page.provider.host, iphone: { ...state, sign_in: null } }));
+  await settle();
+  expect(card(page.container)!.querySelector('[data-action="sign-in"]')).toBeNull();
   page.unmount();
 });

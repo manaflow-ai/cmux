@@ -587,7 +587,8 @@ fn tab_groups_create_edit_move_ungroup_and_close_through_public_ids() {
 
     let second = mutate(&mux, "tab_group.create", json!({"tabs": [ids[2]]}), "group-create-2");
     let second_id = second["id"].as_str().unwrap().to_string();
-    assert_eq!(second["color"], "grey");
+    // No color named: no color (not grey, not a palette pick).
+    assert_eq!(second["color"], "none");
     let closed = mutate(&mux, "tab_group.close", json!({"tab_group": second_id}), "group-close");
     assert_eq!(closed["tab_ids"], json!([ids[2]]));
     assert!(mux.with_state(|state| {
@@ -598,6 +599,26 @@ fn tab_groups_create_edit_move_ungroup_and_close_through_public_ids() {
             .unwrap();
     assert_eq!(replay["replayed"], true);
     assert_eq!(replay["value"], closed);
+}
+
+#[test]
+fn tab_group_color_is_absent_until_explicitly_chosen() {
+    let mux = Mux::new_for_test("state-group-no-color", SurfaceOptions::default());
+    let tabs = terminal_tabs(&mux, 2);
+    let ids = tabs.iter().map(|tab| tab_id(&mux, *tab)).collect::<Vec<_>>();
+    let group = mutate(&mux, "tab_group.create", json!({"tabs": ids}), "no-color-create");
+    assert_eq!(group["name"], "");
+    assert_eq!(group["color"], "none");
+    let group_id = group["id"].as_str().unwrap();
+    for color in ["grey", "orange", "#336699", "none"] {
+        let updated = mutate(
+            &mux,
+            "tab_group.update",
+            json!({"tab_group": group_id, "color": color}),
+            &format!("choose-{color}"),
+        );
+        assert_eq!(updated["color"], color);
+    }
 }
 
 #[test]
@@ -795,6 +816,47 @@ fn saved_tab_groups_are_personal_and_reopen_after_their_live_group_closes() {
     let live = reopened["tab_group"]["id"].as_str().unwrap();
     assert!(
         read(&mux, "tab_group.get", json!({"tab_group": live}))["saved_tab_group_id"].is_null()
+    );
+}
+
+/// A pane close leaves the row of the group it emptied until a strip edit
+/// prunes it, and `tab.update` is not a strip edit (it writes one tab's
+/// record). That row holds no open tab: it is not the saved group's live
+/// group, and the saved group opens again.
+#[test]
+fn a_saved_tab_group_reopens_when_only_the_row_of_its_closed_group_is_left() {
+    let mux = Mux::new_for_test("state-saved-groups-left-row", SurfaceOptions::default());
+    let tabs = terminal_tabs(&mux, 1);
+    let first_pane = mux.with_state(|state| state.pane_of(tabs[0])).unwrap();
+    let grouped = mux.split(first_pane, crate::SplitDir::Right, None).unwrap().id;
+    let group = mutate(
+        &mux,
+        "tab_group.create",
+        json!({"tabs": [tab_id(&mux, grouped)], "name": "Docs", "color": "green"}),
+        "g",
+    );
+    let group_id = group["id"].as_str().unwrap().to_string();
+    let saved = mutate(&mux, "saved_tab_group.save", json!({"tab_group": group_id}), "save");
+    let saved_id = saved["id"].as_str().unwrap().to_string();
+
+    send(&mux, "pane.close", json!({"pane": pane_id(&mux, grouped)}), Some("pane-close")).unwrap();
+    mutate(&mux, "tab.update", json!({"tab": tab_id(&mux, tabs[0]), "zoom": 1.5}), "zoom");
+
+    let reopened = mutate(
+        &mux,
+        "saved_tab_group.reopen",
+        json!({"saved_tab_group": saved_id, "pane_id": pane_id(&mux, tabs[0])}),
+        "reopen",
+    );
+    assert_eq!(reopened["saved_tab_group_id"], saved_id);
+    assert_eq!(reopened["tab_group"]["name"], "Docs");
+    assert_eq!(reopened["tab_group"]["saved_tab_group_id"], saved_id);
+    // The group holds an open tab again: the member came back in the pane.
+    assert_eq!(pane_tab_ids(&mux, tabs[0]).len(), 2, "the reopened member is in the pane");
+    let live = reopened["tab_group"]["id"].as_str().unwrap();
+    assert_eq!(
+        read(&mux, "tab_group.get", json!({"tab_group": live}))["saved_tab_group_id"],
+        saved_id
     );
 }
 
@@ -1473,6 +1535,7 @@ fn kept_tabs_restate_relaunch_on_the_snapshot_and_the_event_stream() {
         cwd: Some("/tmp/project".into()),
         title: None,
         on_show: false,
+        last_command: None,
     }])
     .unwrap();
     assert!(revision(&mux) > before, "a keep-layout record advances the resource revision");
@@ -1499,6 +1562,37 @@ fn kept_tabs_restate_relaunch_on_the_snapshot_and_the_event_stream() {
     let before = revision(&mux);
     mux.forget_kept_tabs(std::slice::from_ref(&other)).unwrap();
     assert!(changes_after(&mux, before).iter().all(|change| change["resource"] != "tab"));
+    mux.shutdown();
+}
+
+/// A parked tab's last command (`kept_tabs.last_command_json`) is read back
+/// whole for its restored marker line, and a later record replaces it.
+#[test]
+fn a_kept_tab_keeps_its_last_command() {
+    use crate::state::kept_tab_store::{KeptTab, LastCommand};
+    let mux = Mux::new_for_test("state-kept-last-command", SurfaceOptions::default());
+    let tabs = terminal_tabs(&mux, 1);
+    let kept = tab_id(&mux, tabs[0]);
+    let last = LastCommand {
+        command: "npm test -- --watch=false".into(),
+        exit_code: Some(1),
+        started_at_ms: 1_700_000_000_000,
+        ended_at_ms: 1_700_000_180_000,
+    };
+    let record = |last_command: Option<LastCommand>| KeptTab {
+        tab_id: kept.clone(),
+        cwd: Some("/tmp/project".into()),
+        title: None,
+        on_show: true,
+        last_command,
+    };
+    mux.commit_kept_tabs(&[record(Some(last.clone()))]).unwrap();
+    let read = |mux: &Mux| {
+        mux.workspace_registry.lock().unwrap().kept_tabs_of(std::slice::from_ref(&kept)).unwrap()
+    };
+    assert_eq!(read(&mux), vec![record(Some(last))]);
+    mux.commit_kept_tabs(&[record(None)]).unwrap();
+    assert_eq!(read(&mux), vec![record(None)], "a newer record without one clears it");
     mux.shutdown();
 }
 
@@ -1636,4 +1730,86 @@ fn raw_metadata_and_pin_commands_publish_the_same_state_on_session_events() {
             && change["id"] == second
             && change["value"]["extra"]["pinned"] == true
     }));
+}
+
+/// TUL-F7 (TYPING UNDER LOAD, STATUS 6339): under the L1 CLI storm one
+/// workspace status commit held the session lock (`Mux.state`) for 452 ms
+/// while its registry transaction ran, and a request waited 418 ms for it.
+/// Every key whose terminal lookup takes the session lock waited with it.
+/// A state mutation reads the session only to resolve its targets: the
+/// lock is free while its registry transaction writes and commits.
+#[test]
+fn a_status_commit_frees_the_session_lock_while_it_writes_the_registry() {
+    use std::sync::mpsc::sync_channel;
+    let mux = Mux::new_for_test("state-status-lock", SurfaceOptions::default());
+    let workspace = empty_workspace(&mux, "status");
+    let (entered, entered_receiver) = sync_channel::<()>(1);
+    let (release, release_receiver) = sync_channel::<()>(1);
+    let release_receiver = std::sync::Mutex::new(release_receiver);
+    mux.set_state_commit_after_apply_hook_for_test(Some(Arc::new(move || {
+        entered.send(()).unwrap();
+        let _ = release_receiver.lock().unwrap().recv_timeout(std::time::Duration::from_secs(10));
+    })));
+    let committing = {
+        let mux = mux.clone();
+        std::thread::spawn(move || {
+            mutate(
+                &mux,
+                "workspace_status.set",
+                json!({"workspace": workspace, "key": "build", "text": "slow write"}),
+                "status-while-writing",
+            )
+        })
+    };
+    entered_receiver.recv_timeout(std::time::Duration::from_secs(10)).unwrap();
+    // A key's terminal lookup (`Mux::surface` on the send path) takes the
+    // session lock; it must not wait for the registry write.
+    let (looked_up, looked_up_receiver) = sync_channel::<()>(1);
+    let key = {
+        let mux = mux.clone();
+        std::thread::spawn(move || {
+            mux.with_state(|state| state.surfaces.len());
+            looked_up.send(()).unwrap();
+        })
+    };
+    let waited = looked_up_receiver.recv_timeout(std::time::Duration::from_secs(2));
+    release.send(()).unwrap();
+    let set = committing.join().unwrap();
+    key.join().unwrap();
+    mux.set_state_commit_after_apply_hook_for_test(None);
+    assert!(waited.is_ok(), "a key's session lookup waited for a status commit's registry write");
+    assert_eq!(set["entries"][0]["text"], "slow write", "{set}");
+}
+
+/// A list decorates its rows on cached statements (`values::query_row_cached`,
+/// on the registry's read-only connections): read again it is the same, it
+/// equals the snapshot, and a change made between two lists is in the second.
+#[test]
+fn repeated_tab_lists_decorate_as_the_snapshot_and_show_each_change() {
+    let session = Session::new("cached-decorations");
+    let mux = session.open();
+    let tabs = terminal_tabs(&mux, 3);
+    let marked = tab_id(&mux, tabs[1]);
+    mutate(
+        &mux,
+        "tab.update",
+        json!({"tab": marked, "marked_unread": true, "zoom": 1.5}),
+        "deco-1",
+    );
+    let tab_of = |list: &Value| {
+        list.as_array().unwrap().iter().find(|tab| tab["id"] == marked).cloned().unwrap()
+    };
+
+    let first = read(&mux, "tab.list", json!({}));
+    assert_eq!(read(&mux, "tab.list", json!({})), first, "a list read again is the same");
+    assert_eq!(first, snapshot(&mux)["tabs"], "the list is the snapshot's tabs");
+    assert_eq!(tab_of(&first)["extra"]["marked_unread"], true);
+    assert_eq!(tab_of(&first)["extra"]["zoom"], 1.5);
+
+    mutate(&mux, "tab.update", json!({"tab": marked, "marked_unread": false}), "deco-2");
+    let after = read(&mux, "tab.list", json!({}));
+    assert!(tab_of(&after)["extra"].get("marked_unread").is_none(), "the cleared mark is gone");
+    assert_eq!(tab_of(&after)["extra"]["zoom"], 1.5);
+    assert_eq!(after, snapshot(&mux)["tabs"]);
+    mux.shutdown();
 }

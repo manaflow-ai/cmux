@@ -26,4 +26,35 @@ nonisolated enum RustSidebarClient {
         }
         return nil
     }
+
+    /// What a drag handle's move answered (`cmux_sidebar_drag_*`): a reply, the same reply as last time, or a failure.
+    enum HandleReply<Response> { case value(Response), same, failed }
+
+    /// Runs one drag-handle move (`call` gets the output buffer, its capacity and the reply length), retrying once
+    /// with a buffer of the needed size, as `call(_:_:as:)` does.
+    static func move<Response: Decodable>(as: Response.Type, _ call: (UnsafeMutablePointer<UInt8>?, Int, UnsafeMutablePointer<Int>) -> Int32) -> HandleReply<Response> {
+        SidebarPerfCounters.add(.ffiCalls)
+        var capacity = initialCapacity
+        for _ in 0..<2 {
+            var output = [UInt8](repeating: 0, count: capacity); var outputLength = 0
+            let code = output.withUnsafeMutableBufferPointer { call($0.baseAddress, $0.count, &outputLength) }
+            if code == CMUX_SIDEBAR_DRAG_SAME { return .same }
+            if code == CMUX_LAYOUT_REDUCER_ERR_BUFFER, outputLength > capacity {
+                capacity = outputLength
+                continue
+            }
+            guard code == CMUX_LAYOUT_REDUCER_OK, outputLength <= capacity,
+                  let response = try? JSONDecoder().decode(Response.self, from: Data(output.prefix(outputLength))) else { return .failed }
+            return .value(response)
+        }
+        return .failed
+    }
+
+    /// A drag handle from `request`'s JSON (`new` is `cmux_sidebar_drag_new` or `cmux_sidebar_tab_drag_new`); nil when
+    /// the request does not encode or the reducer refuses it.
+    static func handle<Request: Encodable, Handle>(_ request: Request, _ new: (UnsafePointer<UInt8>?, Int) -> Handle?) -> Handle? {
+        SidebarPerfCounters.add(.ffiCalls)
+        guard let data = try? JSONEncoder().encode(request) else { return nil }
+        return data.withUnsafeBytes { new($0.bindMemory(to: UInt8.self).baseAddress, data.count) }
+    }
 }

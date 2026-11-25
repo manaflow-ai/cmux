@@ -6,10 +6,12 @@
 # a workflow's paths), and changes nothing when everything is current. No
 # network, no git push.
 set -euo pipefail
+# shellcheck source=scripts/cmux-next/tests/lib/git-fixture.sh
+source "$(dirname "${BASH_SOURCE[0]}")/lib/git-fixture.sh"  # turns off git's background maintenance in temp repos
 ROOT_DIR="$(cd "$(dirname "$0")/../../.." && pwd)"
 FIX="$ROOT_DIR/scripts/cmux-next/base-autofix.sh"
 tmp="$(mktemp -d "${TMPDIR:-/tmp}/cmux-base-autofix.XXXXXX")"
-trap 'rm -rf "$tmp"' EXIT
+git_fixture_trap_exit 'rm -rf "$tmp"'
 fail() { echo "FAIL: $*" >&2; cat "$tmp/out" >&2 2>/dev/null || true; exit 1; }
 
 repo="$tmp/repo"; gen="$tmp/generated"
@@ -69,6 +71,32 @@ bash "$FIX" --no-fmt --docs-shortcuts --app-host --unverified-exports "$repo" > 
 [[ "$(cat "$repo/web/data/cmux-shortcuts.generated.json")" == current ]] || fail "the docs shortcuts must wait for verified action exports"
 [[ "$(cat "$repo/cmux-tui/crates/cmux-app-host/generated/scopes.json")" == current ]] || fail "the app-host files must wait for verified action exports"
 grep -q '^left: web/data/cmux-shortcuts.generated.json' "$tmp/out" || fail "the waiting docs shortcuts must be reported"
+# The base autofix rewrites the app-host files from the committed export
+# anyway (app platform checks them against it): #32097 changed the operation
+# catalog while the Mac exports were deferred, and app platform stayed red.
+# The test runner has no bun: a stand-in runs the generator's one write.
+mkdir -p "$tmp/fakebin"
+printf '#!/bin/sh\necho from-stale-export > cmux-tui/crates/cmux-app-host/generated/scopes.json\n' > "$tmp/fakebin/bun"
+chmod +x "$tmp/fakebin/bun"
+PATH="$tmp/fakebin:$PATH" bash "$FIX" --no-fmt --docs-shortcuts --app-host --app-host-committed-exports --unverified-exports "$repo" > "$tmp/out" 2>&1 || fail "the fixer must succeed with committed app-host exports"
+[[ "$(cat "$repo/web/data/cmux-shortcuts.generated.json")" == current ]] || fail "the docs shortcuts must still wait for verified action exports"
+[[ "$(cat "$repo/cmux-tui/crates/cmux-app-host/generated/scopes.json")" == from-stale-export ]] || fail "the base app-host files must not wait for the Mac exports"
+grep -q '^fixed: regenerated cmux-tui/crates/cmux-app-host/generated/scopes.json' "$tmp/out" || fail "the regenerated app-host file must be reported"
+! grep -q '^left: cmux-tui/crates/cmux-app-host/generated' "$tmp/out" || fail "the base app-host files must not be reported as waiting"
+git -C "$repo" checkout -q -- .
+# The copies the app bundles stay current with the regenerated files (sync-app-runtime.sh): f2a158b55281
+# regenerated scopes.json alone and left app platform red on base, when the app still carried a copy of it.
+# The app carries no scope table now, so a regenerated one leaves the bundled copies as they are.
+bundled=Packages/macOS/CmuxNext/Sources/CmuxNextApps/Resources/AppPlatform
+cp "$ROOT_DIR/scripts/cmux-next/sync-app-runtime.sh" "$repo/scripts/cmux-next/"
+(cd "$repo" && scripts/cmux-next/sync-app-runtime.sh >/dev/null)
+git -C "$repo" add -A && git -C "$repo" -c user.name=t -c user.email=t@t commit -qm bundled
+PATH="$tmp/fakebin:$PATH" bash "$FIX" --no-fmt --app-host --app-host-committed-exports "$repo" > "$tmp/out" 2>&1 || fail "the fixer must succeed syncing the bundled copies"
+[[ "$(cat "$repo/cmux-tui/crates/cmux-app-host/generated/scopes.json")" == from-stale-export ]] || fail "the regenerated scopes.json must be written"
+[[ ! -e "$repo/$bundled/scopes.json" ]] || fail "the app must carry no copy of the scope table"
+! grep -q "^fixed: synced $bundled/" "$tmp/out" || fail "a regenerated scope table must leave the bundled copies unchanged"
+(cd "$repo" && scripts/cmux-next/sync-app-runtime.sh --check >/dev/null 2>&1) || fail "the bundled copies must be current after the fixer"
+git -C "$repo" checkout -q -- .
 # The read-only webviews job's patch may carry the rebuilt Chief memory
 # inspector page (a stale one fails every webviews bundle build), but no other
 # path outside webviews/.
@@ -113,4 +141,75 @@ printf '// edited\npublic enum S {}\n' > "$repo/$settings"
 bash "$FIX" --no-fmt --ratchets "$repo" > "$tmp/out" 2>&1 || fail "the fixer must succeed beside an edited frozen file"
 [[ "$(cat "$repo/$settings")" == $'// edited\npublic enum S {}' ]] || fail "an edited frozen file must keep its edit and get no rewrite"
 grep -q "^skipped (frozen): $settings" "$tmp/out" || fail "a frozen namespace rewrite beside an edit must be reported"
+# --sdk resyncs the SDKs' resource API descriptors after a catalog-only change
+# (#34498 changed resource-operations-v2.json and left every catalog_sha256
+# stale, a base red the PR could not fix: the descriptors are generated). The
+# real sync script runs on a one-operation catalog.
+git -C "$repo" checkout -q -- .
+mkdir -p "$repo/cmux-tui/spec" "$repo/cmux-tui/bindings/rust/scripts"
+cp "$ROOT_DIR/cmux-tui/bindings/rust/scripts/sync-resource-api.py" "$repo/cmux-tui/bindings/rust/scripts/"
+for package in cpp go java python rust typescript zig; do mkdir -p "$repo/cmux-tui/bindings/$package"; done
+printf '{"protocol":"p","operations":{"a.get":{"class":"read"}}}\n' > "$repo/cmux-tui/spec/resource-operations-v2.json"
+python3 -I "$repo/cmux-tui/bindings/rust/scripts/sync-resource-api.py"
+git -C "$repo" add -A && git -C "$repo" -c user.name=t -c user.email=t@t commit -qm descriptors
+bash "$FIX" --no-fmt --sdk "$repo" > "$tmp/out" 2>&1 || fail "the fixer must succeed on current descriptors"
+[[ -z "$(git -C "$repo" status --porcelain)" ]] || fail "current descriptors must stay unchanged"
+printf '{"protocol":"p","operations":{"a.get":{"class":"read","params":["id"]}}}\n' > "$repo/cmux-tui/spec/resource-operations-v2.json"
+git -C "$repo" -c user.name=t -c user.email=t@t commit -qam catalog
+bash "$FIX" --no-fmt --sdk "$repo" > "$tmp/out" 2>&1 || fail "the fixer must succeed on stale descriptors"
+python3 -I "$repo/cmux-tui/bindings/rust/scripts/sync-resource-api.py" --check || fail "the descriptors must match the catalog after --sdk"
+grep -q '^fixed: regenerated cmux-tui/bindings/zig/.cmux-resource-api.json' "$tmp/out" || fail "a resynced descriptor must be reported"
+# The display suite list is derived wherever it is read, never committed: a run writes no list, even
+# after a suite gains a display trait (it went stale on every such pull request when it was committed).
+git -C "$repo" checkout -q -- .
+mkdir -p "$repo/scripts/ci" "$repo/Packages/macOS/CmuxNext/Tests/CmuxNextAppTests"
+cp "$ROOT_DIR/scripts/ci/display_suites.py" "$repo/scripts/ci/"
+printf '@Suite(.enabled(if: NSScreen.main != nil, "needs a display")) struct SplitAtOnceTests {}\n' \
+  > "$repo/Packages/macOS/CmuxNext/Tests/CmuxNextAppTests/SplitAtOnceTests.swift"
+git -C "$repo" add -A && git -C "$repo" -c user.name=t -c user.email=t@t commit -qm display-suite
+bash "$FIX" --no-fmt "$repo" > "$tmp/out" 2>&1 || fail "the fixer must succeed with a display suite"
+[[ ! -e "$repo/scripts/ci/display-suites.txt" ]] || fail "the fixer must not write a display suite list"
+[[ -z "$(git -C "$repo" status --porcelain)" ]] || fail "a display suite must change nothing"
+# The settings reference follows the settings schema with no --docs-shortcuts: a settings-only change
+# (971deafbe988) had its schema regenerated by the base autofix (53139ac8c0cc) while the reference
+# stayed stale and web tests went red on feat-cmux-next. A stand-in bun writes the reference from the
+# schema and records its arguments.
+mkdir -p "$repo/web/scripts" "$repo/web/data/next-docs" "$repo/schemas/settings" "$tmp/refbin"
+echo '// stand-in' > "$repo/web/scripts/export-next-docs.ts"
+echo '{"settings":"old"}' > "$repo/schemas/settings/settings-schema.json"
+echo '{"settings":"old"}' > "$repo/web/data/next-docs/settings-reference.generated.json"
+cat > "$tmp/refbin/bun" <<SH
+#!/bin/sh
+echo "\$*" >> "$tmp/bun-args"
+[ "\$2" = --settings ] && cp schemas/settings/settings-schema.json web/data/next-docs/settings-reference.generated.json
+exit 0
+SH
+chmod +x "$tmp/refbin/bun"
+git -C "$repo" add -A && git -C "$repo" -c user.name=t -c user.email=t@t commit -qm settings-reference
+PATH="$tmp/refbin:$PATH" bash "$FIX" --no-fmt "$repo" > "$tmp/out" 2>&1 || fail "the fixer must succeed on a current settings reference"
+[[ -z "$(git -C "$repo" status --porcelain)" ]] || fail "a current settings reference must stay unchanged"
+echo '{"settings":"new"}' > "$repo/schemas/settings/settings-schema.json"
+git -C "$repo" add -A && git -C "$repo" -c user.name=t -c user.email=t@t commit -qm settings-schema
+PATH="$tmp/refbin:$PATH" bash "$FIX" --no-fmt --unverified-settings-exports "$repo" > "$tmp/out" 2>&1 || fail "the fixer must succeed with unverified settings exports"
+[[ "$(cat "$repo/web/data/next-docs/settings-reference.generated.json")" == '{"settings":"old"}' ]] || fail "the settings reference must wait for verified settings exports"
+grep -q '^left: web/data/next-docs/settings-reference.generated.json' "$tmp/out" || fail "the waiting settings reference must be reported"
+PATH="$tmp/refbin:$PATH" bash "$FIX" --no-fmt "$repo" > "$tmp/out" 2>&1 || fail "the fixer must succeed on a stale settings reference"
+[[ "$(cat "$repo/web/data/next-docs/settings-reference.generated.json")" == '{"settings":"new"}' ]] || fail "a stale settings reference must be regenerated without --docs-shortcuts"
+grep -q '^fixed: regenerated web/data/next-docs/settings-reference.generated.json' "$tmp/out" || fail "a regenerated settings reference must be reported"
+grep -qx 'web/scripts/export-next-docs.ts --settings' "$tmp/bun-args" || fail "the settings reference must be made with export-next-docs.ts --settings only"
+# Re-pin markers the regenerated exports settled are deleted with them (step 1a): an actions/ marker
+# whose id both exports now carry, a removal/ marker whose id neither has. The rest stay.
+pin="$tmp/pin"; pgen="$tmp/pin-generated"; mk=cmux-tui/crates/cmux-action-catalog/tests/awaiting-repin
+mkdir -p "$pin/plans/cmux-next" "$pin/$mk/actions" "$pin/$mk/removal" "$pgen/plans/cmux-next"
+for f in actions/landed actions/waiting actions/half removal/gone removal/kept; do echo '# note' > "$pin/$mk/$f"; done
+echo '{"actions":[{"id":"kept"}]}' > "$pin/plans/cmux-next/action-surfaces.json"
+echo '{"actions":[{"id":"kept"}]}' > "$pin/plans/cmux-next/action-catalog.json"
+echo '{"actions":[{"id":"landed"},{"id":"half"},{"id":"kept"}]}' > "$pgen/plans/cmux-next/action-surfaces.json"
+echo '{"actions":[{"id":"landed"},{"id":"kept"}]}' > "$pgen/plans/cmux-next/action-catalog.json"
+git -C "$pin" init -q && git -C "$pin" add -A && git -C "$pin" -c user.name=t -c user.email=t@t commit -qm fixture
+bash "$FIX" --no-fmt --generated "$pgen" "$pin" > "$tmp/out" 2>&1 || fail "the fixer must succeed on settled re-pin markers"
+[[ ! -e "$pin/$mk/actions/landed" ]] || fail "an actions marker both regenerated exports carry must be deleted"
+[[ ! -e "$pin/$mk/removal/gone" ]] || fail "a removal marker neither regenerated export has must be deleted"
+for f in actions/waiting actions/half removal/kept; do [[ -e "$pin/$mk/$f" ]] || fail "the unsettled marker $f must stay"; done
+grep -q "^fixed: deleted $mk/actions/landed" "$tmp/out" || fail "a deleted marker must be reported"
 echo "base autofix: ok"

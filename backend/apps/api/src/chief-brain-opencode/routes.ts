@@ -4,6 +4,7 @@ import { callerOf, type Fail } from "../home-attachments.ts"
 import { chiefOwnedBy } from "../chief-brain/brain-io.ts"
 import { brainModel, modelRefusal, opencodeRuns } from "../model-gateway/routes.ts"
 import { durableOn } from "../mux-wake-delivery.ts"
+import { declared } from "../do-stub.ts"
 
 /**
  * HTTP routes of implementation O (outside the op catalog, like the P brain's):
@@ -25,14 +26,13 @@ const ok = (value: unknown) => Response.json({ ok: true, value }, { headers: NO_
 export const opencodeOn = (env: Env) => env.CHIEF_OPENCODE_ENABLED === "1" && env.OPENCODE_BRAIN_DO !== undefined
 const brainOf = (env: Env, agent: string) => env.OPENCODE_BRAIN_DO!.get(env.OPENCODE_BRAIN_DO!.idFromName(agent))
 /** MuxDO keeps the Chief's brain_impl: the one routing truth (mux-do.ts setBrainImpl). */
-const muxOf = (env: Env, agent: string) => env.MUX_DO.get(env.MUX_DO.idFromName(agent)) as unknown as { setBrainImpl(impl: Impl): Promise<void>; brainImplOf(): Promise<string> }
+const muxOf = (env: Env, agent: string) => env.MUX_DO.get(env.MUX_DO.idFromName(agent))
 type Impl = "pi" | "opencode" | "durable"
 /** The brains a Chief may pick on this deployment: P always, O and D where they run. */
 const impls = (env: Env): ReadonlyArray<Impl> => ["pi", ...(opencodeOn(env) ? (["opencode"] as const) : []), ...(durableOn(env) ? (["durable"] as const) : [])]
 /** Where both a D and a P brain exist for one Chief conversation (D's first wake copied P's memory). */
 type RunSummary = Pick<Run, "id" | "started_at">
-type RunsReader = { run(id: string, afterSeq: number, limit: number): Promise<{ run: { conversation: string } } | null>; runs(conversation: string, before: number | undefined, limit: number): Promise<{ runs: Array<RunSummary>; has_more: boolean }> }
-const durableOf = (env: Env, agent: string, conversation: string) => env.CHIEF_DURABLE_DO!.get(env.CHIEF_DURABLE_DO!.idFromName(`${agent}/${conversation}`)) as unknown as RunsReader
+const durableOf = (env: Env, agent: string, conversation: string) => declared(env.CHIEF_DURABLE_DO!.get(env.CHIEF_DURABLE_DO!.idFromName(`${agent}/${conversation}`)))
 
 export const handleBrainImpl = async (request: Request, env: Env, agent: string): Promise<Response> => {
   const allowed = impls(env)
@@ -53,7 +53,7 @@ export const handleBrainImpl = async (request: Request, env: Env, agent: string)
   if (!impl) return fail({ status: 400, code: "validation.invalid", message: `impl is one of ${allowed.map((i) => `"${i}"`).join(", ")}` })
   // Moving a Chief that is on to opencode moves its turns to brainModel (host.ts): a paid model this owner may not use is refused here, not at each turn.
   if (impl === "opencode" && opencodeRuns(env)) {
-    const { config } = await (env.CHIEF_BRAIN_DO.get(env.CHIEF_BRAIN_DO.idFromName(agent)) as unknown as { status(): Promise<{ config: { enabled: boolean; model: string } }> }).status()
+    const { config } = await env.CHIEF_BRAIN_DO.get(env.CHIEF_BRAIN_DO.idFromName(agent)).status()
     const refused = config.enabled ? modelRefusal(env, owned.owner, { model: brainModel(config.model) }) : null
     if (refused) return fail({ status: 409, code: refused.code, message: refused.message })
   }
@@ -88,7 +88,7 @@ export const handleOpencodeRuns = async (request: Request, env: Env, agent: stri
   const hidden = { status: 404, code: "not_found", message: "no such run" }
   const conversation = url.searchParams.get("conversation") ?? ""
   if (!/^conv_(?:dm_)?[0-9A-HJKMNP-TV-Z]{26}$/.test(conversation)) return fail({ status: 400, code: "validation.invalid", message: "conversation is required" })
-  const conv = env.CONVERSATION_DO.get(env.CONVERSATION_DO.idFromName(conversation)) as unknown as { readOp(e: string, p: unknown, op: string, params: unknown): Promise<{ ok: boolean }> }
+  const conv = declared(env.CONVERSATION_DO.get(env.CONVERSATION_DO.idFromName(conversation)))
   if (!(await conv.readOp(conversation, caller.principal, "conversation.history", { limit: 1 })).ok) return fail(hidden)
   const impl = await muxOf(env, agent).brainImplOf()
   if (impl === "durable" && durableOn(env)) {

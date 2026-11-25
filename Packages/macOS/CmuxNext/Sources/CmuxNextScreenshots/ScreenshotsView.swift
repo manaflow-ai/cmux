@@ -20,10 +20,10 @@ public final class ScreenshotsView: NSView {
     private let commands: ScreenshotsCommands
     private var shownSources: [ScreenshotSource] = []
     private static let headerHeight: CGFloat = 36
-    /// Show Screenshots: up until the person clicks it, so a page an agent showed or a tab restored at launch
-    /// reads no folder (macOS guards ~/Desktop, the default screenshot folder: LAUNCH-NO-TCC-PROMPTS).
+    /// Show Screenshots: up until the person clicks it (once: a later launch's page lists when on screen,
+    /// ``startsWhenShown``), so a page an agent showed or a tab restored at launch reads no folder (macOS guards
+    /// ~/Desktop, the default screenshot folder: LAUNCH-NO-TCC-PROMPTS).
     private let promptTitle = NSTextField(labelWithString: ScreenshotsStrings.promptTitle)
-    private let promptBody = NSTextField(wrappingLabelWithString: ScreenshotsStrings.promptBody)
     private let promptButton = NSButton(title: ScreenshotsStrings.promptButton, target: nil, action: nil)
     private let prompt = NSStackView()
 
@@ -36,7 +36,6 @@ public final class ScreenshotsView: NSView {
     public var secondaryText: NSColor = .secondaryLabelColor {
         didSet {
             count.textColor = secondaryText
-            promptBody.textColor = secondaryText
         }
     }
 
@@ -45,7 +44,6 @@ public final class ScreenshotsView: NSView {
         didSet {
             guard let promptFonts else { return }
             promptTitle.font = promptFonts.title
-            promptBody.font = promptFonts.body
             promptButton.font = promptFonts.body
         }
     }
@@ -105,14 +103,57 @@ public final class ScreenshotsView: NSView {
         search.frame = CGRect(x: searchX, y: y, width: max(80, count.frame.minX - 8 - searchX), height: controlHeight)
         grid.frame = CGRect(x: 0, y: 0, width: bounds.width, height: max(0, top))
         let promptWidth = min(max(0, bounds.width - 2 * pad), 360)
-        promptBody.preferredMaxLayoutWidth = promptWidth
         let promptSize = prompt.fittingSize
         prompt.frame = CGRect(x: (bounds.width - promptWidth) / 2, y: (bounds.height - promptSize.height) / 2,
                               width: promptWidth, height: promptSize.height)
     }
 
-    /// Runs when the person clicks Show Screenshots (the app remembers the tab and starts the folder detection).
+    /// Runs when the page starts listing, from the person's click or a remembered one (the app remembers the tab
+    /// and starts the folder detection).
     public var onShowScreenshots: (() -> Void)?
+
+    /// Runs once when every folder of a listing page fails to read (access was taken back): the app forgets the
+    /// remembered click. A page that listed from a remembered click shows the card again then.
+    public var onAccessMissing: (() -> Void)?
+
+    /// Lists as soon as the page is on screen, with no card: the person clicked Show Screenshots in an earlier
+    /// launch. A page not on screen (a tab restored at launch) reads nothing (LAUNCH-NO-TCC-PROMPTS).
+    public var startsWhenShown = false {
+        didSet { startIfShown() }
+    }
+
+    /// The page listed from a remembered click, not from a click in this page.
+    private var startedFromMemory = false
+    /// ``onAccessMissing`` ran for the current listing.
+    private var reportedMissing = false
+
+    public override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        startIfShown()
+    }
+
+    public override func viewDidUnhide() {
+        super.viewDidUnhide()
+        startIfShown()
+    }
+
+    private func startIfShown() {
+        guard startsWhenShown, showsPrompt, window != nil, !isHiddenOrHasHiddenAncestor else { return }
+        startedFromMemory = true
+        start()
+    }
+
+    /// Forgets the remembered click when no folder can be read, and shows the card again for a page that listed
+    /// from it (a click in this page keeps its grid and the unreadable folders' menu entries).
+    func reconcileAccess() {
+        guard model.accessMissing, !reportedMissing else { return }
+        reportedMissing = true
+        onAccessMissing?()
+        guard startedFromMemory else { return }
+        startedFromMemory = false
+        startsWhenShown = false
+        model.pauseListing()
+    }
 
     /// Focuses the grid, or this pane while the prompt is up (the tab got focus): a plain button takes the keyboard
     /// only with Full Keyboard Access on, so the pane takes it and Space, the button's key, presses Show Screenshots.
@@ -138,6 +179,12 @@ public final class ScreenshotsView: NSView {
     /// The person's click on Show Screenshots: the page lists its folders from now on. The prompt goes in one
     /// frame, with no animation.
     @objc public func showScreenshots() {
+        startedFromMemory = false
+        start()
+    }
+
+    private func start() {
+        reportedMissing = false
         let hadKeyboard = window?.firstResponder === self || window?.firstResponder === promptButton
         model.startListing()
         onShowScreenshots?()
@@ -147,16 +194,14 @@ public final class ScreenshotsView: NSView {
 
     private func configurePrompt() {
         promptTitle.alignment = .center
-        promptBody.alignment = .center
-        promptBody.textColor = secondaryText
         promptButton.target = self
         promptButton.action = #selector(showScreenshots)
         promptButton.bezelStyle = .push
         prompt.orientation = .vertical
         prompt.alignment = .centerX
         prompt.spacing = 8
-        for view in [promptTitle, promptBody, promptButton] as [NSView] { prompt.addArrangedSubview(view) }
-        prompt.setCustomSpacing(14, after: promptBody)
+        for view in [promptTitle, promptButton] as [NSView] { prompt.addArrangedSubview(view) }
+        prompt.setCustomSpacing(14, after: promptTitle)
     }
 
     // MARK: State
@@ -177,6 +222,7 @@ public final class ScreenshotsView: NSView {
     }
 
     private func refresh() {
+        reconcileAccess()
         let gated = !model.isListing
         prompt.isHidden = !gated
         for view in [sourceMenu, search, count, grid] as [NSView] { view.isHidden = gated }
@@ -235,8 +281,9 @@ public final class ScreenshotsView: NSView {
                 if let first = saved.first { self?.grid.reveal(path: first.path) }
             } catch {
                 // dialog-keys-exempt: CmuxNextScreenshots reaches no CmuxDialogCenter (it depends on CmuxNextFileGrid and CmuxNextFiles only); move to a dialog seam with the Finder pane
-                let alert = NSAlert(error: error)
+                let alert = NSAlert()
                 alert.messageText = ScreenshotsStrings.dropFailed
+                alert.informativeText = ScreenshotsStrings.reason(error)
                 if let window = self?.window { alert.beginSheetModal(for: window, completionHandler: nil) }
             }
         }

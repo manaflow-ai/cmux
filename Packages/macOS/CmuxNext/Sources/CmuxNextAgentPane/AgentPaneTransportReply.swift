@@ -35,16 +35,20 @@ enum AgentPaneTransportReply {
             }
         case .transportSend(let connection, let frames):
             return AgentPaneModel.transportReply(await model.transport.send(connection: connection, frames: frames))
-        case .transportGesture(let intent):
-            guard let intent else { return AgentPaneModel.transportFailure(.intentInvalid) }
+        case .transportGesture(let intent, let method, let refusal):
+            guard let intent else {
+                AgentPaneRefusalLog.log(.gestureParse, method: method, cause: refusal ?? "intent not parsed")
+                return AgentPaneModel.transportFailure(.intentInvalid)
+            }
             guard let ticket = model.transport.reserveGesture(intent) else { return AgentPaneModel.transportFailure(.gestureRequired) }
+            if intent.method == "cloud.startChat" { model.onCloudSendGesture?() } // the Send itself, before the lease wait (cmux#51000)
             return AgentPaneReply.success(["ticket": ticket])
         case .transportGestureRelease: return model.endTransport(closing: nil)
         case .transportClose(let connection): return model.endTransport(closing: connection)
         // This Mac's agent CLIs (cx-1mbnu): never for a chat on another machine.
         case .harnessUpdate, .harnessRestart:
             if model.remoteChat { return AgentPaneModel.unsupported("harness") }
-            return await AgentPaneHarnessCard.reply(to: request, transport: model.transport, session: model.sessionId)
+            return await AgentPaneHarnessCard.reply(to: request, transport: model.transport, session: model.sessionId, host: model.host)
         default: return AgentPaneModel.unsupported(String(describing: request))
         }
     }

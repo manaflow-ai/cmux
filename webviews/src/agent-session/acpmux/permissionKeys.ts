@@ -42,3 +42,32 @@ export function cardTakesShortcuts(groups: PermissionClientState | undefined): b
     !groups?.supported || !groups.groups.some((group) => group.state === "pending" || group.state === "collecting")
   );
 }
+
+/// Whether `permission` draws as the single card: a grouped ask only while no permission group on
+/// screen holds it. One whose group is not read yet (a peer's read waits on its attach) is the single
+/// card at once, and the group's panel takes it when the read lands; one restored groups already
+/// hold is the panel's only, never on both. An ask acpmux did not group stays the single card.
+export function askOnSingleCard(
+  permission: { pending?: boolean; permissionId: string; groupId?: string } | undefined,
+  groups: PermissionClientState | undefined,
+): boolean {
+  if (!permission?.pending) return false;
+  if (!groups?.supported || !permission.groupId) return true;
+  return !groups.groups.some((group) => group.items.some((item) => item.permissionId === permission.permissionId));
+}
+
+/// The ask kept on its single card while the person writes a deny's instructions on it (`held`, from
+/// the card's draft), even after a group read hands it to the group's panel: the card unmounting would
+/// lose what they typed, and the panel takes no instructions. It goes once it is no longer pending.
+export function heldOnCard<P extends { pending?: boolean; permissionId: string }>(
+  held: P | undefined,
+  permission: P | undefined,
+  groups: PermissionClientState | undefined,
+): P | undefined {
+  if (!held) return undefined;
+  if (permission?.permissionId === held.permissionId) return permission.pending ? permission : undefined;
+  const pending = groups?.groups.some((group) =>
+    group.items.some((item) => item.permissionId === held.permissionId && item.state === "pending"),
+  );
+  return pending ? held : undefined;
+}

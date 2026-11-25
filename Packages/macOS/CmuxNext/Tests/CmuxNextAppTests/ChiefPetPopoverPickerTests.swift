@@ -74,7 +74,7 @@ import Testing
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         let url = directory.appending(path: "cmux.json")
         try Data(json.utf8).write(to: url)
-        let settings = SettingsController(registry: ActionRegistry(catalog: []), design: DesignSettings(), fileURL: url,
+        let settings = SettingsController(writer: TestSettingsWriter(), registry: ActionRegistry(catalog: []), design: DesignSettings(), fileURL: url,
                                           managedReader: FixedManagedPreferenceReader(ManagedPreferences()), managedWatchFiles: [])
         await settings.reload()
         let home = directory.appending(path: "brain")
@@ -92,7 +92,7 @@ import Testing
         await h.until { h.checked() == [moon] }
         // Every character the pet can wear, in the Settings page's order; no hard-coded count.
         #expect(Self.ids() == ChiefPetMascot.allCases.map(\.rawValue))
-        #expect(Self.ids() == HomeChiefPetSetting.mascots)
+        #expect(Self.ids() == HomeChiefPetSetting.mascotValues)
         #expect(h.characters().compactMap { $0.accessibilityLabel() } == Self.names())
         #expect(h.characters().allSatisfy { $0.image != nil }, "each character shows its picture")
         #expect(h.checked() == [moon])

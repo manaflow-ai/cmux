@@ -10,3 +10,9 @@ public nonisolated enum ColumnFocusSource: Hashable, Sendable {
     /// notch): the column is already visible, nothing scrolls.
     case scroll
 }
+
+extension ColumnFocusSource {
+    /// A pane-navigation action's move: the person's keys, or the same action the CLI, an agent or
+    /// a script ran, which nobody keyed and which earns no focus ring (`LayoutModel.focusRingEarned`).
+    public static func keyMove(byPerson: Bool) -> ColumnFocusSource { byPerson ? .keyboard : .programmatic }
+}

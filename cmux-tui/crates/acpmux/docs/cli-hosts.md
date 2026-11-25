@@ -1,7 +1,7 @@
 # acpmux CLI: machines
 
 `acpmux machine` connects this machine's daemon to the daemons on your other machines, so
-`acpmux ls` shows every session everywhere and `MACHINE/NAME` reaches a session on any of them.
+`cmux agent ls` shows every session everywhere and `MACHINE/NAME` reaches a session on any of them.
 Each `machine` command's `--help` lists every flag and ends with examples. The old spellings still
 work: `acpmux host` (and `hosts`, `peer`), `host place`, `host vm-host` and the `--host` flag.
 
@@ -29,7 +29,7 @@ work: `acpmux host` (and `hosts`, `peer`), `host place`, `host vm-host` and the 
 | The same, and repair what fails | `acpmux machine doctor mini-3 --fix` |
 | Which machine a new session would go to, and why | `acpmux machine pick` |
 | Which machine a build would go to | `acpmux machine pick --build` |
-| Start a session on the machine `pick` chooses | `acpmux new --machine auto -m codex "fix the flaky test"` |
+| Start a session on the machine `pick` chooses | `cmux agent new --machine auto -m codex "fix the flaky test"` |
 
 ## Keep them up to date
 
@@ -59,7 +59,21 @@ work: `acpmux host` (and `hosts`, `peer`), `host place`, `host vm-host` and the 
 | Turn off a paired machine's Full access | `acpmux machine ticket full-access mini-2 off` |
 | Whether a machine is dedicated: agents run with no per-session sandbox, the VM is the boundary | `acpmux machine dedicated [NAME] [on\|off]` |
 | This machine's load now, one JSON object (cmux Cloud sizes its machines from it) | `acpmux machine load --json` |
+| Watch this machine once a second; one JSON line when memory available falls under 25% (`warn`) or 10% (`grow`), an OOM kill lands, CPU is 90% busy with a run queue over the vCPUs for 5 minutes, or disk is under 10% or 2 GiB, and again when it clears (lines move with `--mem-warn`, `--mem-grow`, `--cpu-busy`, `--cpu-hold-secs`, `--disk-fraction`, `--disk-bytes`, `--interval-ms`) | `acpmux machine load --watch` |
+| The shadow admission verdict for host readings given as JSON on stdin; defers nothing (inputs: `cmux-host-budget/testdata/shadow-verdict-v2.json`) | `acpmux machine verdict --json` |
 | Add one muted line to every live chat here | `acpmux machine notice --text TEXT` |
+
+Every placement (`new --machine auto`, `dispatch --machine auto`, `machine pick`, a sub-session's
+host `auto`) and every session create also logs the shadow admission verdict (cmuxterm-hq#7342)
+next to its pick: one info line `shadow-admission {JSON}` in the daemon's log (`daemon.log`, or
+`journalctl --user -u acpmux.service` under systemd). The JSON has `ts`, `site` (`place`, `pick`, `subsession`, `admit` or `over-cap`), `pick`, the
+pick's `would_defer`, `reason`, `inputs_digest`, `formula_version`, and `hosts`. Nothing is
+deferred on it. `daemon status --json` lists each host's last verdict as `shadowAdmission`, and
+`cmux agent ls` ends with a `HOST: would-defer: REASON` line for each host whose verdict would defer.
+Its `host_pressure` carries the readings this machine's verdict uses beside the meter's keys
+(`cores`, `pressure`, `available_ram_fraction`, `swap_mb_per_min`): `cpus`, `pressureAgeMs` (the
+meter sample's age), `load` (the OS load averages; the verdict reads `load[0]`), `ram.totalBytes`
+and `swap.usedBytes`/`swap.totalBytes`, so a reader builds the same inputs placement does.
 
 Screen and control consent, an allow, and turning Full access on are the person's: the daemon takes
 them only from the cmux app, never from a shell or an agent.

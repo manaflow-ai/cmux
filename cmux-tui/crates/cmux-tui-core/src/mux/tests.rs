@@ -4,49 +4,119 @@
 use super::*;
 use std::collections::HashMap;
 
+#[cfg(unix)]
+mod agent_activity;
 mod agent_hook_fences;
 mod agent_hook_retry;
+#[cfg(unix)]
+mod agent_hooks_at_rest;
+#[cfg(unix)]
+mod agent_hooks_at_rest_reopen;
+#[cfg(unix)]
+mod agent_plugin_refresh_at_rest;
 mod agent_presence;
+mod agent_records;
+mod agent_reply_text;
 mod agent_reports;
+#[cfg(unix)]
+mod agent_reports_at_rest;
 mod agent_roster_catch_up;
+mod agent_roster_fold_lock;
+mod agent_roster_kind_scope;
+mod agent_roster_poison;
 mod agent_roster_restore;
+mod agent_screen_exit;
+mod agent_start_mark;
+#[cfg(unix)]
+mod agent_turn_end_commits;
+#[cfg(unix)]
+mod agent_turn_end_crash_order;
+pub(crate) mod at_rest_writers;
 mod cell_pixel_fanout;
 mod cell_pixels;
+mod checkpoint_retention;
 mod column_update;
+#[cfg(unix)]
+mod create_after_discard;
+#[cfg(unix)]
+mod create_commit_cost;
+mod create_entity_cost;
+mod creation_burst;
+mod deleted_bytes;
 mod diagnostics;
+mod disk_budget;
+mod disk_usage_read_cost;
+mod divider_visibility;
 mod dock_columns;
 mod exit_snapshot_cost;
+pub(crate) mod floating_panes;
 mod history_agent_fold;
+#[cfg(unix)]
+mod history_agent_save_stride;
+#[cfg(unix)]
+mod holder_late_start;
+#[cfg(unix)]
+mod idle_stop_fence;
+#[cfg(all(target_os = "linux", target_env = "gnu"))]
+mod idle_terminal_memory;
+mod input_queue_backstop;
+mod journal_lane_full;
 mod journal_roster;
+mod journal_seal_cost;
+mod journal_vacuum_backlog;
 mod kitty_budget;
 mod kitty_reservation;
 mod layout_apply_focus;
+mod layout_sizes;
+#[cfg(unix)]
+mod layout_sizes_session_cost;
 mod layout_undo;
 mod layout_undo_commit;
 mod lone_dock;
 mod matrix;
+mod new_terminal_folder_delta;
 mod notifications;
 mod pane_close;
+mod project_observe_at_rest;
+mod project_watch_burst;
 mod read_paths;
+mod registry_premigrate;
 mod registry_reads;
 mod resource_effects;
 mod resource_restore;
 mod resource_selectors;
+mod respawn_gate_jump;
 mod restart;
 mod rows;
+mod scoped_load_side_tables;
+mod session_lists;
 mod signaled_mutex;
+mod single_reads;
+mod snapshot_read;
 mod split_ratio;
 mod stack_layout;
 mod surface_notifications;
+mod tab_identity;
+mod tab_update_scoped;
 mod tab_workspace_move;
 mod tabs;
 mod terminal_exit_restart;
+mod terminal_live_cost;
 mod terminal_moves;
+mod terminal_publisher;
 mod terminal_registry;
 mod terminal_views;
+mod unreadable_exit_sidecar;
 mod view_close_replay;
 mod viewport_columns;
+mod window_record_put_cost;
+#[cfg(unix)]
+mod workspace_close_cost;
+#[cfg(unix)]
+mod workspace_close_time;
 mod workspace_materialize;
+#[cfg(unix)]
+mod workspace_registry_stress;
 mod workspaces;
 mod writer_lock_order;
 
@@ -218,6 +288,7 @@ fn resource_restore_fixture() -> (RegistrySnapshot, ResourceTopologySnapshot) {
     let boundary_split = restore_split_id(2);
     let base_column = restore_split_id(3);
     let first_column_layout = RegistryLayoutNode::Split {
+        divider_hidden: false,
         split: internal_split,
         direction: "down".into(),
         ratio: 0.6,
@@ -228,6 +299,7 @@ fn resource_restore_fixture() -> (RegistrySnapshot, ResourceTopologySnapshot) {
         second: Box::new(RegistryLayoutNode::Leaf { pane: panes[2].clone() }),
     };
     let first_layout = RegistryLayoutNode::Split {
+        divider_hidden: false,
         split: boundary_split.clone(),
         direction: "right".into(),
         ratio: 0.8 / (0.8 + 0.4),
@@ -265,6 +337,7 @@ fn resource_restore_fixture() -> (RegistrySnapshot, ResourceTopologySnapshot) {
                     },
                 ],
             },
+            floating: Vec::new(),
         },
         RegistryScreen {
             public_id: second_screen.clone(),
@@ -276,6 +349,7 @@ fn resource_restore_fixture() -> (RegistrySnapshot, ResourceTopologySnapshot) {
             zoomed_pane: Some(panes[4].clone()),
             auto_layout: Some(vec![panes[4].clone()]),
             viewport: RegistryViewport::default(),
+            floating: Vec::new(),
         },
     ];
     let registry_panes = vec![
@@ -494,8 +568,18 @@ fn append_journal_hook(
     mux.append_journal_ingress(&ingress, "test", &key).unwrap();
 }
 
+/// `mux` once the agent roster's owner finished the work recorded so far. It
+/// folds after the request that asked for it answered (`agent_roster_worker.rs`),
+/// so a test reads the roster through this.
+#[track_caller]
+fn settled(mux: &Mux) -> &Mux {
+    assert!(mux.settle_agent_roster_for_test(), "the agent roster's owner settles");
+    mux
+}
+
 fn roster_agent_state(mux: &Mux, terminal_id: &TerminalPublicId) -> Option<String> {
-    mux.agent_roster
+    settled(mux)
+        .agent_roster
         .lock()
         .unwrap()
         .roster

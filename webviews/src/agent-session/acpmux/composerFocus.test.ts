@@ -3,7 +3,8 @@ import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { JSDOM } from "jsdom";
 import React from "react";
-import { shouldBlurComposerOnPress, useComposerKeyboard } from "./composerFocus";
+import { ACTIVATION_SETTLE_MS, shouldBlurComposerOnPress, useComposerKeyboard } from "./composerFocus";
+import { settleReact } from "../../../test/support/domTeardown";
 
 let dom: JSDOM | undefined;
 let root: Root | undefined;
@@ -17,6 +18,7 @@ afterEach(async () => {
       await new Promise((resolve) => setTimeout(resolve, 0));
     });
   root = undefined;
+  await settleReact();
   dom?.window.close();
   dom = undefined;
   for (const [key, value] of saved) {
@@ -99,7 +101,7 @@ describe("composer click-away focus", () => {
   test("a chip in the composer's strip or quiet row keeps its editor focus", () => {
     const { editor } = fixture();
     const document = editor.ownerDocument;
-    for (const row of ["acpmux-composer-strip", "acpmux-composer-foot", "acpmux-composer-under"]) {
+    for (const row of ["acpmux-composer-strip", "acpmux-composer-foot"]) {
       const chip = document.createElement("button");
       const host = document.createElement("div");
       host.className = row;
@@ -113,10 +115,13 @@ describe("composer click-away focus", () => {
     const { editor } = fixture();
     const document = editor.ownerDocument;
     const layer = document.createElement("div");
-    layer.className = "acpmux-picker-layer acpmux-composer-plus";
+    layer.className = "ui-positioner";
+    const popup = document.createElement("div");
+    popup.className = "ui-popup acpmux-menu acpmux-composer-plus";
     const row = document.createElement("div");
-    row.className = "acpmux-menu-item";
-    layer.append(row);
+    row.className = "ui-menu-item";
+    popup.append(row);
+    layer.append(popup);
     document.body.append(layer);
     expect(shouldBlurComposerOnPress(row, editor)).toBe(false);
   });
@@ -159,6 +164,45 @@ describe("composer click-away focus", () => {
       dom!.window.dispatchEvent(new dom!.window.Event("blur"));
     });
     expect(dom!.window.document.activeElement).not.toBe(editor);
+  });
+
+  // Two chats side by side (agent-pane.subagent-split-pair): each pane's activation claim fired
+  // after the other pane had taken the keyboard, took it back, and the other's did the same, every
+  // 120 ms for as long as both were open.
+  test("an activation claim is dropped when the pane loses the keyboard before it settles", async () => {
+    const container = installDom();
+    let claims = 0;
+    function Counting() {
+      useComposerKeyboard(() => {
+        claims += 1;
+        return true;
+      });
+      return React.createElement("div", { className: "acpmux-composer-box" });
+    }
+    await act(async () => {
+      root = createRoot(container);
+      root.render(React.createElement(Counting));
+    });
+    // fixed-wait: proving a dropped claim never fires means outwaiting its settle (120 ms); no event marks its absence.
+    const settle = () => new Promise((resolve) => setTimeout(resolve, ACTIVATION_SETTLE_MS + 30));
+    // Past the first-paint claim, so only the activations below count.
+    // fixed-wait: the first-paint claim has no event of its own to wait for.
+    await act(settle);
+    claims = 0;
+    await act(async () => {
+      dom!.window.dispatchEvent(new dom!.window.Event("focus"));
+      dom!.window.dispatchEvent(new dom!.window.Event("blur"));
+      // fixed-wait: a dropped claim never fires; only outwaiting its settle shows that.
+      await settle();
+    });
+    expect(claims).toBe(0);
+    // Activation that holds still claims an idle keyboard.
+    await act(async () => {
+      dom!.window.dispatchEvent(new dom!.window.Event("focus"));
+      // fixed-wait: the claim fires after its settle (120 ms), the behavior under test.
+      await settle();
+    });
+    expect(claims).toBe(1);
   });
 });
 

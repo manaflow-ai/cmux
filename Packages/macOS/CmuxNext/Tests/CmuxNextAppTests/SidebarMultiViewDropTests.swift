@@ -61,6 +61,12 @@ extension SidebarMultiViewWindowTests {
             f.services.dragSession.finish(commit: true)
             f.services.dragSession.finishLanding()
             f.frame()
+            // The sidebar repaints the on-screen fills from its observation task (`SidebarView.observe`), a
+            // MainActor turn after the drop changes `SidebarModel.onScreen`: give it bounded turns to run.
+            for _ in 0..<120 where f.litRows != f.shown {
+                try await Task.sleep(for: .milliseconds(10))
+                f.frame()
+            }
             #expect(f.state.workspaceID == "k0", "the split drop moved focus")
             #expect(f.onScreen == f.shown)
             #expect(f.shown.contains("k2"), "the dropped workspace did not join the current view")

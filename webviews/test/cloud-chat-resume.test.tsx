@@ -3,6 +3,7 @@ import { afterEach, beforeEach, expect, jest, setSystemTime, test } from "bun:te
 import { JSDOM } from "jsdom";
 import { act } from "react";
 import type { Root } from "react-dom/client";
+import { teardownDom } from "./support/domTeardown";
 
 const keys = ["window", "document", "navigator", "HTMLElement", "IS_REACT_ACT_ENVIRONMENT"] as const;
 const scope = globalThis as Record<string, unknown>;
@@ -26,13 +27,9 @@ beforeEach(setup);
 afterEach(async () => {
   await act(async () => root.unmount());
   mount.remove();
-  dom.window.close();
-  for (const [key, present, value] of saved) {
-    if (present) scope[key] = value;
-    else delete scope[key];
-  }
   jest.useRealTimers();
   setSystemTime();
+  await teardownDom(saved, { window: dom.window, scope });
 });
 
 test.serial("Resume uses native attach, then rereads the missing chat; disposal stops recovery", async () => {
@@ -85,8 +82,10 @@ test.serial("Resume uses native attach, then rereads the missing chat; disposal 
     });
     return (
       <ChatUnavailableState
-        unavailable={cloudChatUnavailable({ reason: "offline" }, recovery.state, "Demo machine")}
+        unavailable={cloudChatUnavailable({ reason: "offline" }, recovery.state, "Demo machine", recovery.resuming)}
         onResumeMachine={recovery.resume}
+        // The settled card: no RESUME_NOTE_DELAY_MS wait (afterDelay.ts).
+        noteDelayMs={0}
         onRemove={noop}
         onReconnect={recovery.refresh}
         resuming={recovery.resuming}
@@ -104,6 +103,10 @@ test.serial("Resume uses native attach, then rereads the missing chat; disposal 
   expect(calls.filter((method) => method === "cloudMachine.attach")).toHaveLength(1);
   expect(calls).not.toContain("cloudMachine.open");
   expect(opened).toBe(true);
+  // cmux#55066: the machine reads live before its chat opens. The card the person clicked stays, with
+  // its spinner, instead of flashing to "Reconnecting…" or a blank page in between.
+  expect(mount.querySelector("[data-unavailable]")?.getAttribute("data-unavailable")).toBe("paused");
+  expect(mount.textContent).not.toContain("Reconnecting");
   await act(async () => root.render(null));
 });
 
@@ -276,15 +279,39 @@ test.serial(
   10_000,
 );
 
-// Stable callbacks keep fixture rerenders from restarting the hook's deadline.
-async function deadlineFixture(pending: "inventory" | "recheck") {
+// #35206 removed the resume's 60 s deadline: a live native bridge owns each request's lifetime.
+// A resume now waits until the request answers (the answer continues the resume), the native
+// call fails for good (non-retryable: the daemon is gone), or the person leaves the chat (switch,
+// deactivate, unmount). Here the `pending` request is held until the test answers it or fails it.
+// Stable callbacks keep fixture rerenders from restarting the hook's read.
+const GONE = { ok: false, error: { code: "daemon.gone", retryable: false, origin: "native" } };
+
+async function waitFixture(pending: "inventory" | "recheck") {
   const { useCloudChatRecovery } = await import("../src/agent-session/acpmux/useCloudChatRecovery");
+  const { NativeError } = await import("../src/agent-session/acpmux/nativeError");
   let reads = 0;
   let rechecks = 0;
-  const hung = new Promise<void>(() => {});
+  // One entry per held request, in order: answer it (or fail it) to end that wait.
+  const held: { answer(): void; fail(): void }[] = [];
+  const inventory = {
+    ok: true,
+    value: {
+      signedIn: true,
+      loaded: true,
+      complete: true,
+      account: ["user", null],
+      machines: [{ id: "vm-demo", name: "Demo machine", stage: "paused" }],
+    },
+  };
   const recheck = () => {
     rechecks += 1;
-    return hung;
+    if (pending !== "recheck") return Promise.resolve();
+    return new Promise<void>((resolve, reject) => {
+      held.push({
+        answer: () => resolve(),
+        fail: () => reject(new NativeError({ code: GONE.error.code, retryable: false, origin: "native" })),
+      });
+    });
   };
   Object.assign(dom.window, {
     webkit: {
@@ -294,18 +321,12 @@ async function deadlineFixture(pending: "inventory" | "recheck") {
             if (method === "cloudMachine.attach") return { ok: true, value: {} };
             if (method === "cloudMachine.list") {
               reads += 1;
-              if (pending === "inventory") return hung;
+              if (pending === "inventory")
+                return new Promise((resolve) => {
+                  held.push({ answer: () => resolve(inventory), fail: () => resolve(GONE) });
+                });
             }
-            return {
-              ok: true,
-              value: {
-                signedIn: true,
-                loaded: true,
-                complete: true,
-                account: ["user", null],
-                machines: [{ id: "vm-demo", name: "Demo machine", stage: "paused" }],
-              },
-            };
+            return inventory;
           },
         },
       },
@@ -320,41 +341,87 @@ async function deadlineFixture(pending: "inventory" | "recheck") {
     });
     return (
       <div>
-        <button data-action="deadline-wake" onClick={recovery.resume}>
+        <button data-action="wait-wake" onClick={recovery.resume}>
           Resume
         </button>
-        <span data-action="deadline-state">
-          {JSON.stringify({ resuming: recovery.resuming, error: recovery.error })}
-        </span>
+        <span data-action="wait-state">{JSON.stringify({ resuming: recovery.resuming, error: recovery.error })}</span>
       </div>
     );
   }
   return {
     render: (session: string) => act(async () => root.render(<Recovery session={session} />)),
-    wake: () => act(async () => mount.querySelector<HTMLButtonElement>('[data-action="deadline-wake"]')!.click()),
-    state: () => JSON.parse(mount.querySelector('[data-action="deadline-state"]')!.textContent!),
+    wake: () => act(async () => mount.querySelector<HTMLButtonElement>('[data-action="wait-wake"]')!.click()),
+    state: () => JSON.parse(mount.querySelector('[data-action="wait-state"]')!.textContent!),
     reads: () => reads,
     rechecks: () => rechecks,
+    held,
   };
 }
 
 for (const pending of ["inventory", "recheck"] as const) {
-  test.serial(`a hung ${pending} fails at the original recovery deadline`, async () => {
-    const fixture = await deadlineFixture(pending);
+  test.serial(
+    `a slow ${pending} keeps the resume waiting past the old 60 s deadline, reading again at each read's deadline`,
+    async () => {
+      const { RECOVERY_READ_MS } = await import("../src/agent-session/acpmux/useCloudChatRecovery");
+      const fixture = await waitFixture(pending);
+      jest.useFakeTimers({ now: 0 });
+      try {
+        await fixture.render("old");
+        await fixture.wake();
+        expect(fixture.held).toHaveLength(1);
+        expect(fixture.reads()).toBe(1);
+        expect(fixture.rechecks()).toBe(pending === "recheck" ? 1 : 0);
+        // Ten minutes, ten times the old deadline: no timer fails the resume (#35206), but a read that
+        // has not answered by RECOVERY_READ_MS is let go and the next read starts a second later, so a
+        // lost answer never stops the reads for good (cmux#35206's "the reads still have no deadline").
+        for (let elapsed = 0; elapsed < 600_000; elapsed += 1_000) {
+          await act(async () => {
+            jest.advanceTimersByTime(1_000);
+          });
+        }
+        expect(fixture.state()).toEqual({ resuming: true });
+        const cycles = Math.floor(600_000 / (RECOVERY_READ_MS + 1_000));
+        expect(fixture.reads()).toBeGreaterThanOrEqual(cycles);
+        expect(fixture.held.length).toBeGreaterThanOrEqual(cycles);
+        // The read let go first answers late: it changes nothing.
+        const reads = fixture.reads();
+        const rechecks = fixture.rechecks();
+        await act(async () => fixture.held[0]!.answer());
+        expect(fixture.reads()).toBe(reads);
+        expect(fixture.rechecks()).toBe(rechecks);
+        // The read in flight answers: the resume goes on (the inventory's answer runs the recheck)
+        // and reads again a second later.
+        await act(async () => fixture.held.at(-1)!.answer());
+        if (pending === "inventory") expect(fixture.rechecks()).toBe(rechecks + 1);
+        expect(fixture.state()).toEqual({ resuming: true });
+        await act(async () => {
+          jest.advanceTimersByTime(1_000);
+        });
+        expect(fixture.reads()).toBe(reads + 1);
+      } finally {
+        jest.useRealTimers();
+        await act(async () => root.render(null));
+      }
+    },
+  );
+
+  test.serial(`a slow ${pending} whose daemon is gone fails the resume`, async () => {
+    const fixture = await waitFixture(pending);
     jest.useFakeTimers({ now: 0 });
     try {
       await fixture.render("old");
       await fixture.wake();
-      expect(fixture.reads()).toBe(1);
-      expect(fixture.rechecks()).toBe(pending === "recheck" ? 1 : 0);
+      for (let elapsed = 0; elapsed < 600_000; elapsed += 1_000) {
+        await act(async () => {
+          jest.advanceTimersByTime(1_000);
+        });
+      }
       expect(fixture.state()).toEqual({ resuming: true });
-      await act(async () => {
-        jest.advanceTimersByTime(59_999);
-      });
+      // A read let go fails late: it owns nothing and the resume keeps waiting.
+      await act(async () => fixture.held[0]!.fail());
       expect(fixture.state()).toEqual({ resuming: true });
-      await act(async () => {
-        jest.advanceTimersByTime(1);
-      });
+      // The read in flight fails for good: the wait ends with the error, and nothing reads again.
+      await act(async () => fixture.held.at(-1)!.fail());
       expect(fixture.state().resuming).toBe(false);
       expect(fixture.state().error).toBeDefined();
       expect(jest.getTimerCount()).toBe(0);
@@ -365,26 +432,32 @@ for (const pending of ["inventory", "recheck"] as const) {
   });
 
   test.serial(`switching chats cancels a hung ${pending} without failing the new recovery`, async () => {
-    const fixture = await deadlineFixture(pending);
+    const fixture = await waitFixture(pending);
     jest.useFakeTimers({ now: 0 });
     try {
       await fixture.render("old");
       await fixture.wake();
-      expect(fixture.reads()).toBe(1);
-      expect(jest.getTimerCount()).toBe(1);
-      await act(async () => {
-        jest.advanceTimersByTime(30_000);
-      });
+      expect(fixture.held).toHaveLength(1);
+      // The person leaves the chat: the old wait ends with no error and no timer left behind (its
+      // read's deadline timer goes with it).
       await fixture.render("new");
+      expect(fixture.state()).toEqual({ resuming: false });
       expect(jest.getTimerCount()).toBe(0);
       await fixture.wake();
       expect(fixture.state()).toEqual({ resuming: true });
-      // The old deadline expires now; the new chat still has thirty seconds.
-      await act(async () => {
-        jest.advanceTimersByTime(30_000);
-      });
+      const reads = fixture.reads();
+      const rechecks = fixture.rechecks();
+      // The old chat's request answers late, then would fail for good: neither touches the new
+      // recovery, and neither starts a read or a recheck for the chat that was left.
+      await act(async () => fixture.held[0]!.answer());
+      await act(async () => fixture.held[0]!.fail());
       expect(fixture.state()).toEqual({ resuming: true });
-      expect(jest.getTimerCount()).toBe(1);
+      expect(fixture.reads()).toBe(reads);
+      expect(fixture.rechecks()).toBe(rechecks);
+      // The timers left are the new resume's own: its slow clock (RESUME_SLOW_MS) and its held
+      // read's deadline (RECOVERY_READ_MS); the old chat left none.
+      expect(jest.getTimerCount()).toBe(2);
+      // Unmount ends the new wait too.
       await act(async () => root.render(null));
       expect(jest.getTimerCount()).toBe(0);
     } finally {
@@ -489,6 +562,7 @@ async function attachFixture() {
   const { ChatUnavailableState } = await import("../src/agent-session/acpmux/ChatUnavailableState");
   const { cloudChatUnavailable } = await import("../src/agent-session/acpmux/cloudChatRecovery");
   const rejects: ((cause: Error) => void)[] = [];
+  const list = { gone: false };
   const hung = new Promise<void>(() => {});
   const recheck = () => hung;
   const noop = () => {};
@@ -500,6 +574,7 @@ async function attachFixture() {
             if (method === "cloudMachine.attach") {
               return new Promise((_, reject) => rejects.push(reject));
             }
+            if (method === "cloudMachine.list" && list.gone) return GONE;
             return {
               ok: true,
               value: {
@@ -527,6 +602,8 @@ async function attachFixture() {
         <ChatUnavailableState
           unavailable={cloudChatUnavailable({ reason: "offline" }, recovery.state, "Demo machine")}
           onResumeMachine={recovery.resume}
+          // The settled card: no RESUME_NOTE_DELAY_MS wait (afterDelay.ts).
+          noteDelayMs={0}
           onRemove={noop}
           onReconnect={recovery.refresh}
           resuming={recovery.resuming}
@@ -541,6 +618,7 @@ async function attachFixture() {
     button: () => mount.querySelector<HTMLButtonElement>('[data-action="resumeMachine"]'),
     state: () => JSON.parse(mount.querySelector('[data-action="attach-state"]')!.textContent!),
     rejects,
+    list,
   };
 }
 
@@ -562,28 +640,120 @@ test.serial("a failed resume still offers Resume machine and sends attach again"
   expect(fixture.state()).toEqual({ resuming: true });
 });
 
-test.serial("a timed-out attach's late rejection leaves a newer resume running", async () => {
-  const fixture = await attachFixture();
-  jest.useFakeTimers({ now: 0 });
-  await fixture.render();
-  await act(async () => fixture.button()!.click());
-  await act(async () => {
-    jest.advanceTimersByTime(60_000);
+test.serial(
+  "an attach left pending when its resume ends: its late rejection leaves a newer resume running",
+  async () => {
+    const fixture = await attachFixture();
+    await fixture.render();
+    // The daemon is gone: the resume's account read fails for good while its attach is still pending.
+    fixture.list.gone = true;
+    await act(async () => fixture.button()!.click());
+    expect(fixture.rejects).toHaveLength(1);
+    expect(fixture.state().resuming).toBe(false);
+    expect(fixture.state().error).toBeDefined();
+    expect(fixture.button()?.disabled).toBe(false);
+    // The daemon is back and the person resumes again.
+    fixture.list.gone = false;
+    await act(async () => fixture.button()!.click());
+    expect(fixture.rejects).toHaveLength(2);
+    expect(fixture.state()).toEqual({ resuming: true });
+    await act(async () => fixture.rejects[0]!(new Error("old attach failed")));
+    expect(fixture.state()).toEqual({ resuming: true });
+    expect(fixture.button()?.disabled).toBe(true);
+    // The current attach still owns its failure and releases the retry button.
+    await act(async () => fixture.rejects[1]!(new Error("current attach failed")));
+    expect(fixture.state().resuming).toBe(false);
+    expect(fixture.state().error).toBeDefined();
+    expect(fixture.button()?.disabled).toBe(false);
+    await act(async () => root.render(null));
+  },
+);
+
+test.serial(
+  "a list read that never answers is let go at its deadline and the next read brings the chat back",
+  async () => {
+    const { useCloudChatRecovery } = await import("../src/agent-session/acpmux/useCloudChatRecovery");
+    let listReads = 0;
+    let rechecks = 0;
+    Object.assign(dom.window, {
+      webkit: {
+        messageHandlers: {
+          agentSession: {
+            postMessage: ({ method }: { method: string }) => {
+              if (method === "cloudMachine.attach") return { ok: true, value: {} };
+              const inventory = (stage: string) => ({
+                ok: true,
+                value: {
+                  signedIn: true,
+                  loaded: true,
+                  complete: true,
+                  account: ["user", null],
+                  machines: [{ id: "vm-demo", name: "Demo machine", stage }],
+                },
+              });
+              if (method === "cloudMachine.list") {
+                listReads += 1;
+                // A starved Mac: the resume's first read never answers (the bridge lost it).
+                if (listReads === 1) return new Promise(() => {});
+                return inventory("connecting");
+              }
+              return inventory("paused");
+            },
+          },
+        },
+      },
+    });
+    const recheck = async () => {
+      rechecks += 1;
+    };
+    function Recovery() {
+      const recovery = useCloudChatRecovery({
+        cloud: { id: "vm-demo", account: ["user", null] },
+        session: "chat-demo",
+        active: true,
+        recheck,
+        readMs: 300,
+      });
+      return (
+        <div>
+          <button data-action="stuck-wake" onClick={recovery.resume}>
+            Resume
+          </button>
+          <span data-action="stuck-state">
+            {JSON.stringify({ state: recovery.state, resuming: recovery.resuming })}
+          </span>
+        </div>
+      );
+    }
+    await act(async () => root.render(<Recovery />));
+    await act(async () => mount.querySelector<HTMLButtonElement>('[data-action="stuck-wake"]')!.click());
+    expect(listReads).toBe(1);
+    const started = performance.now();
+    await act(async () => {
+      // fixed-wait: the read's 300 ms deadline plus the loop's 1 s spacing, with margin.
+      await new Promise((resolve) => setTimeout(resolve, 2_000));
+    });
+    // Before: the reads stopped for good behind the first one (listReads stayed 1, state paused).
+    expect(listReads).toBeGreaterThanOrEqual(2);
+    expect(rechecks).toBeGreaterThanOrEqual(1);
+    expect(mount.querySelector('[data-action="stuck-state"]')?.textContent).toContain('"state":"live"');
+    expect(mount.querySelector('[data-action="stuck-state"]')?.textContent).toContain('"resuming":true');
+    console.log(
+      `recovery read after a lost answer: ${Math.round(performance.now() - started)} ms window, ${listReads} reads`,
+    );
+    await act(async () => root.render(null));
+  },
+  10_000,
+);
+
+test("beforeDeadline answers late past its deadline and drops a late refusal", async () => {
+  const { beforeDeadline } = await import("../src/agent-session/acpmux/useCloudChatRecovery");
+  expect(await beforeDeadline(Promise.resolve(3), performance.now() + 1_000)).toEqual({ kind: "done", value: 3 });
+  let refuse!: (error: Error) => void;
+  const pending = new Promise<number>((_, reject) => {
+    refuse = reject;
   });
-  expect(fixture.state().resuming).toBe(false);
-  expect(fixture.state().error).toBeDefined();
-  expect(jest.getTimerCount()).toBe(0);
-  await act(async () => fixture.button()!.click());
-  expect(fixture.rejects).toHaveLength(2);
-  expect(fixture.state()).toEqual({ resuming: true });
-  await act(async () => fixture.rejects[0]!(new Error("old attach failed")));
-  expect(fixture.state()).toEqual({ resuming: true });
-  expect(fixture.button()?.disabled).toBe(true);
-  expect(jest.getTimerCount()).toBe(1);
-  // The current attach still owns its failure and releases the retry button.
-  await act(async () => fixture.rejects[1]!(new Error("current attach failed")));
-  expect(fixture.state().resuming).toBe(false);
-  expect(fixture.state().error).toBeDefined();
-  expect(fixture.button()?.disabled).toBe(false);
-  expect(jest.getTimerCount()).toBe(0);
+  expect(await beforeDeadline(pending, performance.now() + 20)).toEqual({ kind: "late" });
+  refuse(new Error("late"));
+  await expect(beforeDeadline(Promise.reject(new Error("now")), performance.now() + 1_000)).rejects.toThrow("now");
 });

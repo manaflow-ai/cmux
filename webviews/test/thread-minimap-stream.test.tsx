@@ -10,6 +10,7 @@ import { JSDOM, VirtualConsole } from "jsdom";
 import type { AcpmuxRow } from "../src/agent-session/acpmux/model";
 import type { MinimapTurns } from "../src/agent-session/acpmux/threadMinimap/model";
 import { turnView } from "../src/agent-session/acpmux/conversation/turns";
+import { teardownDom } from "./support/domTeardown";
 (globalThis as { cmuxExperiments?: Record<string, string> }).cmuxExperiments = { "thread-minimap-layout": "compact" };
 setDefaultTimeout(120_000);
 
@@ -101,13 +102,9 @@ setBookmarkTransport({
   set: async (sessionId) => ({ sessionId, bookmarks: [] }),
 });
 
-afterAll(() => {
+afterAll(async () => {
   setBookmarkTransport(undefined);
-  dom.window.close();
-  for (const [key, had, value] of saved) {
-    if (had) scope[key] = value;
-    else delete scope[key];
-  }
+  await teardownDom(saved, { window: dom.window, scope });
   if (stringsBefore) strings.__cmuxPaneStrings = stringsBefore;
   else delete strings.__cmuxPaneStrings;
   delete (globalThis as { cmuxExperiments?: Record<string, string> }).cmuxExperiments;
@@ -159,13 +156,20 @@ test("a token streaming into the last reply of a 300-prompt chat builds no tick 
     expect(drawn).toBeLessThan(PROMPTS);
     // The rail drew each of them once.
     expect(labels).toBeGreaterThanOrEqual(drawn);
+    // The tokens keep the reply on its first line, so the followed view stays where it is. A token
+    // that wraps the reply moves the view down a line, and when that moves the band of prompts on
+    // screen the rail redraws its rows for the new band: that is the view moving, not the token
+    // (with #31719's 44 px prompt bubble, the 14th ` wordN` wrapped and moved the band).
+    const scroller = host.querySelector<HTMLElement>(".acpmux-scroll")!;
+    const top = scroller.scrollTop;
     const perToken: number[] = [];
     for (let token = 0; token < 20; token += 1) {
-      reply += ` word${token}`;
+      reply += ` ${token % 10}`;
       labels = 0;
       await render(reply);
       perToken.push(labels);
     }
+    expect(scroller.scrollTop).toBe(top);
     // No tick is built again for a token: the ticks show the prompts, and no prompt changed.
     expect(Math.max(...perToken)).toBe(0);
     expect(host.querySelectorAll("[data-tick]").length).toBe(drawn);
@@ -207,7 +211,8 @@ test("a new prompt adds its tick, and the earlier ones keep theirs", async () =>
     const window = (count: number) => {
       const list = host.querySelector<HTMLElement>(".acpmux-minimap__list")!;
       const height = Number.parseFloat(list.parentElement!.style.height);
-      return tickRanges(count, list.scrollTop, height).flatMap(([from, to]) =>
+      const pitch = Number.parseFloat(list.style.getPropertyValue("--acpmux-minimap-pitch"));
+      return tickRanges(count, list.scrollTop, height, [], pitch).flatMap(([from, to]) =>
         Array.from({ length: to - from }, (_, offset) => from + offset),
       );
     };

@@ -6,13 +6,39 @@
 // Health (cx-ny85, `_acpmux/harness/health`): the installed and newest versions, a sign-out the
 // daemon has evidence for, and Update / Update all, which start owner-bound terminal jobs.
 // An update that needs sudo shows its exact command instead of a button.
-import { useCallback, useId } from "react";
+// Accounts (`_acpmux/accounts`, when the daemon has it): a provider row says "Authenticated · <plan>"
+// for the CLI's own login and lists every account routing may use under it (ProviderAccounts).
+// Logins done right (Leo, 2026-11-22: "we want that for anywhere and everywhere we have codex stuff,
+// and extremely convieniently tightly integrated claude stuff ... this is simply logins, done
+// righr."): on a host that signs in in place (useSettingsSignIn), a Codex or Claude row's Sign In
+// and its accounts' Sign In and Add account show the sign-in card under the row (the code, the
+// provider's page beside the window) instead of a terminal tab; an older daemon still gets the tab.
+import { useCallback, useEffect, useId } from "react";
+import { Button } from "../../../ui/Button";
+import { Switch } from "../../../ui/Switch";
 import { agentDisplayName } from "../../../agent-session/acpmux/agents";
+import { installName, oneRowPerInstall } from "../../../agent-session/acpmux/harnessInstalls";
 import { AgentMark } from "../../../agent-session/shared/AgentMark";
-import { useSettingsState, useStore } from "../context";
-import { offersUpdate, updatable, updateUnsettled } from "../harnesses";
-import type { HarnessRow, HarnessesState } from "../ops";
-import { t } from "../strings";
+import { useRowState, useSettingsState, useStore } from "../context";
+import {
+  accountRows,
+  accountsFor,
+  agoText,
+  newestCheck,
+  offersUpdate,
+  planName,
+  primaryAccount,
+  updatable,
+  updateUnsettled,
+} from "../harnesses";
+import type { HarnessRow, HarnessesState, ProviderAccount } from "../ops";
+import { locale, t } from "../strings";
+import { ProviderAccounts } from "./ProviderAccounts";
+import { DeviceSignInCard } from "../../shared/signIn/DeviceSignInCard";
+import { useSettingsSignIn } from "./useSettingsSignIn";
+
+/** The account families the in-place card signs a harness row in to. */
+const CARD_FAMILIES = new Set(["codex", "claude"]);
 
 const SOURCES = new Set(["managed", "user-file", "cmux-json", "registry", "path", "config"]);
 
@@ -30,9 +56,13 @@ function jobText(job: NonNullable<HarnessesState["jobs"]>[number]): string {
   return t("settingsWindow.harnesses.jobUnknown");
 }
 
+/** Whether a row has an update card: outdated, both versions known, and a way to update it. */
+const hasUpdate = (row: HarnessRow): boolean => !!row.outdated && !!row.version && !!row.latest && !!row.update;
+
 function HarnessUpdateCard({ row, harnesses }: { row: HarnessRow; harnesses: HarnessesState | null }) {
   const store = useStore();
-  const name = row.name ?? agentDisplayName(row.id);
+  // A profile that runs another agent's binary (acpmux's `cmux` runs `claude`) is named for it.
+  const name = installName(row, (id) => row.name ?? agentDisplayName(id));
   const safeUpdate = offersUpdate(row);
   const titleId = useId();
   const unsettled = updateUnsettled(harnesses, row.id);
@@ -53,7 +83,7 @@ function HarnessUpdateCard({ row, harnesses }: { row: HarnessRow; harnesses: Har
         )}
       </div>
       {safeUpdate && (
-        <button
+        <Button
           type="button"
           className="button"
           data-harness-action="updateCard"
@@ -62,19 +92,37 @@ function HarnessUpdateCard({ row, harnesses }: { row: HarnessRow; harnesses: Har
           onClick={() => void store.runHarnesses({ action: "update", id: row.id })}
         >
           {t("settingsWindow.harnesses.update")}
-        </button>
+        </Button>
       )}
     </article>
   );
 }
 
-function Row({ row }: { row: HarnessRow }) {
+/** "Authenticated · ChatGPT Pro" for the CLI's own login, or "Not signed in". */
+function authLine(family: string, account: ProviderAccount): string {
+  if (!account.signedIn) return t("settingsWindow.harnesses.notAuthenticated");
+  const plan = planName(family, account.plan);
+  return plan ? t("settingsWindow.harnesses.authenticatedPlan", plan) : t("settingsWindow.harnesses.authenticated");
+}
+
+function Row({ row, family }: { row: HarnessRow; family: string | null }) {
   const store = useStore();
   const { harnesses } = useSettingsState();
+  const accounts = family ? accountsFor(harnesses, family) : null;
+  const primary = primaryAccount(accounts);
   const name = row.name ?? agentDisplayName(row.id);
   const terminal = row.kind === "terminal";
   // Every row has a Check and a Sign In: each names its harness for assistive tech.
   const titleId = useId();
+  // A finished sign-in reads the row's health again, so "Signed out" goes with it.
+  const signIn = useSettingsSignIn(() => void store.runHarnesses({ action: "refresh", recheck: true }));
+  const cardFamily = signIn.inPlace && family && CARD_FAMILIES.has(family) ? (family as "codex" | "claude") : null;
+  const signInRow = () => {
+    const inTerminal = () => void store.runHarnesses({ action: "signIn", id: row.id });
+    // The CLI's own login is the row's: the card signs that account in, where the CLI keeps it.
+    if (cardFamily && primary) signIn.begin(cardFamily, primary.id, inTerminal);
+    else inTerminal();
+  };
   return (
     <div className="row accounts-row" data-harness={row.id}>
       <div className="row-main">
@@ -88,6 +136,11 @@ function Row({ row }: { row: HarnessRow }) {
           <div className="row-help">
             {row.id === name.toLowerCase() ? sourceText(row) : `${row.id} · ${sourceText(row)}`}
           </div>
+          {family && primary && (
+            <div className="row-help" data-harness-account-auth={primary.signedIn ? "signedIn" : "signedOut"}>
+              {authLine(family, primary)}
+            </div>
+          )}
           {row.version && (
             <div className="row-help" data-harness-version="">
               {row.outdated && row.latest
@@ -108,16 +161,14 @@ function Row({ row }: { row: HarnessRow }) {
           )}
           {row.update && !row.update.elevated && (
             <label className="row-help harness-auto">
-              <input
-                type="checkbox"
+              <Switch
+                size="sm"
                 data-harness-auto=""
                 aria-label={t("settingsWindow.harnesses.autoUpdate")}
                 checked={row.autoUpdate ?? false}
                 aria-describedby={titleId}
-                onChange={(event) =>
-                  void store.runHarnesses({ action: "autoUpdate", id: row.id, on: event.currentTarget.checked })
-                }
-              />{" "}
+                onCheckedChange={(on) => void store.runHarnesses({ action: "autoUpdate", id: row.id, on })}
+              />
               {t("settingsWindow.harnesses.autoUpdate")}
             </label>
           )}
@@ -135,7 +186,7 @@ function Row({ row }: { row: HarnessRow }) {
         </div>
         <div className="row-control">
           {offersUpdate(row) && (
-            <button
+            <Button
               type="button"
               className="button"
               data-harness-action="update"
@@ -144,13 +195,13 @@ function Row({ row }: { row: HarnessRow }) {
               onClick={() => void store.runHarnesses({ action: "update", id: row.id })}
             >
               {t("settingsWindow.harnesses.update")}
-            </button>
+            </Button>
           )}
           {terminal ? (
             <span className="badge">{t("settingsWindow.harnesses.terminalOnly")}</span>
           ) : (
             <>
-              <button
+              <Button
                 type="button"
                 className="button"
                 data-harness-action="check"
@@ -158,20 +209,28 @@ function Row({ row }: { row: HarnessRow }) {
                 onClick={() => void store.runHarnesses({ action: "check", id: row.id })}
               >
                 {t("settingsWindow.harnesses.check")}
-              </button>
-              <button
+              </Button>
+              <Button
                 type="button"
                 className="button"
                 data-harness-action="signIn"
                 aria-describedby={titleId}
-                onClick={() => void store.runHarnesses({ action: "signIn", id: row.id })}
+                onClick={signInRow}
               >
                 {t("settingsWindow.harnesses.signIn")}
-              </button>
+              </Button>
             </>
           )}
         </div>
       </div>
+      {signIn.running && (
+        <div className="harness-sign-in" data-harness-sign-in={signIn.running.family}>
+          <DeviceSignInCard family={signIn.running.family} view={signIn.running.view} look="inline" {...signIn.card} />
+        </div>
+      )}
+      {family && accounts && accounts.length > 0 && (
+        <ProviderAccounts family={family} accounts={accounts} {...(cardFamily ? { signIn } : {})} />
+      )}
     </div>
   );
 }
@@ -179,20 +238,46 @@ function Row({ row }: { row: HarnessRow }) {
 export function HarnessesCard() {
   const store = useStore();
   const { harnesses } = useSettingsState();
+  const { value: previewFeatures } = useRowState("labs.previewFeatures");
+  const showUpdateCard = previewFeatures === true;
   const outdated = updatable(harnesses);
+  const families = accountRows(harnesses);
+  const checked = newestCheck(harnesses);
+  const ago = checked === null ? null : agoText(checked, Date.now(), locale());
   // Read again when the card mounts (a stable callback ref runs once per mount), like Accounts:
   // a harness installed since the last visit shows.
   const mounted = useCallback(
     (node: HTMLElement | null) => {
-      if (node) void store.runHarnesses({ action: "refresh" });
+      if (!node) return;
+      void store.runHarnesses({ action: "refresh" });
+      // Whether the host signs in in place (`accounts.signInAccounts`): the rows' Sign In use the card.
+      void store.refreshAccounts();
     },
     [store],
   );
+  // An account's sign-in or sign-out runs in a terminal tab, like Accounts' logins: coming back to
+  // Settings (its window, or its tab) reads the accounts again (the host ignores it when none ran).
+  useEffect(() => {
+    const focused = () => {
+      if (document.visibilityState === "visible") void store.runHarnesses({ action: "focus" });
+    };
+    window.addEventListener("focus", focused);
+    document.addEventListener("visibilitychange", focused);
+    return () => {
+      window.removeEventListener("focus", focused);
+      document.removeEventListener("visibilitychange", focused);
+    };
+  }, [store]);
   return (
     <section className="group" data-card="harnesses" ref={mounted}>
       <h3 className="group-title">{t("settingsWindow.harnesses.title")}</h3>
       <div className="accounts-header">
-        <button
+        {checked !== null && (
+          <span className="row-help" data-harnesses-checked="">
+            {ago ? t("settingsWindow.harnesses.checkedAgo", ago) : t("settingsWindow.harnesses.checkedJustNow")}
+          </span>
+        )}
+        <Button
           type="button"
           className="button"
           data-harness-action="refresh"
@@ -200,8 +285,8 @@ export function HarnessesCard() {
           onClick={() => void store.runHarnesses({ action: "refresh", recheck: true })}
         >
           {t("settingsWindow.harnesses.refresh")}
-        </button>
-        <button
+        </Button>
+        <Button
           type="button"
           className="button"
           data-harness-action="registry"
@@ -209,21 +294,22 @@ export function HarnessesCard() {
           onClick={() => void store.runHarnesses({ action: "registry" })}
         >
           {t("settingsWindow.harnesses.registry")}
-        </button>
+        </Button>
         {outdated.length > 0 && (
-          <button
+          <Button
             type="button"
             className="button"
             data-harness-action="updateAll"
             onClick={() => void store.runHarnesses({ action: "updateAll" })}
           >
             {t("settingsWindow.harnesses.updateAll")}
-          </button>
+          </Button>
         )}
       </div>
-      {harnesses && !harnesses.problem && (
+      {showUpdateCard && harnesses && !harnesses.problem && (
         <div className="harness-update-cards" data-harness-update-cards="">
-          {harnesses.harnesses.map((row) => (
+          {/* One card per installed binary: two profiles that run one are one update (msg 42278). */}
+          {oneRowPerInstall(harnesses.harnesses.filter(hasUpdate)).map((row) => (
             <HarnessUpdateCard key={row.id} row={row} harnesses={harnesses} />
           ))}
         </div>
@@ -236,24 +322,24 @@ export function HarnessesCard() {
             {jobText(job)}
           </output>
           {job.can_resume && job.intent_key && job.state === "unknown" && !job.terminal && (
-            <button
+            <Button
               type="button"
               className="button"
               data-harness-action="resumeUpdate"
               onClick={() => void store.runHarnesses({ action: "resumeUpdate", intent: job.intent_key })}
             >
               {t("settingsWindow.harnesses.resumeUpdate")}
-            </button>
+            </Button>
           )}
           {job.can_dismiss && job.intent_key && job.state === "unknown" && !job.terminal && (
-            <button
+            <Button
               type="button"
               className="button"
               data-harness-action="dismissUpdate"
               onClick={() => void store.runHarnesses({ action: "dismissUpdate", intent: job.intent_key })}
             >
               {t("settingsWindow.harnesses.dismissUpdate")}
-            </button>
+            </Button>
           )}
         </div>
       ))}
@@ -275,7 +361,7 @@ export function HarnessesCard() {
       {harnesses && harnesses.harnesses.length > 0 && (
         <div className="rows">
           {harnesses.harnesses.map((row) => (
-            <Row key={row.id} row={row} />
+            <Row key={row.id} row={row} family={families.get(row.id) ?? null} />
           ))}
         </div>
       )}

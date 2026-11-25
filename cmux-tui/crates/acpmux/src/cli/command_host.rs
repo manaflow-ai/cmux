@@ -36,6 +36,11 @@ pub enum PeerCmd {
         #[arg(long)]
         build: bool,
     },
+    /// The lane hosts as one cell (RFD 0181): each one's live sessions against its lane cap,
+    /// the hosts past it, and the ones fleet-registry.json keeps work off (held or stopped)
+    /// while sessions still run there. Read-only: it reads the fleet listing `acpmux ls` reads
+    /// and the registry, and changes nothing.
+    Cells,
     /// Whether a machine is dedicated: it runs agents with no per-session
     /// sandbox, the VM is the boundary (vmHost). Claude runs there without the
     /// sandbox only for a session whose caller asked, once the Cloud API said
@@ -54,7 +59,26 @@ pub enum PeerCmd {
     /// memory pressure (avg60), available memory, swap, OOM kills, free disk,
     /// whether a turn runs here, and a build or test that is running. Reads
     /// only; never starts a daemon. Fields it cannot read are left out.
-    Load,
+    /// `--watch`: sample once a second and print one JSON line each time a line
+    /// is crossed (memory available under 25% / 10%, an OOM kill, CPU saturated
+    /// 5 minutes, disk under 10% or 2 GiB), until stdout closes.
+    Load {
+        /// Sample once a second and print an event line when a line is crossed.
+        #[arg(long)]
+        watch: bool,
+        #[command(flatten)]
+        lines: crate::host_load_watch::Lines,
+    },
+    /// One walk of the home directory for `load`'s disk split (`disk_usage.rs`); `load` starts
+    /// it in the background when the last split is old.
+    #[command(name = "disk-walk", hide = true)]
+    DiskWalk,
+    /// The shadow admission verdict (cmuxterm-hq#7342) for host readings on
+    /// stdin: one JSON object, or an array of them, in; the verdict (or an
+    /// array of verdicts) out, as JSON. Pure: reads no host and starts no
+    /// daemon. A reading with no `now_ms` is judged at this machine's clock.
+    /// Nothing is deferred on it; lane-place and placement log it.
+    Verdict,
     /// Add one muted line to every live chat on this machine's daemon, such
     /// as the note cmux Cloud adds after it resizes the machine.
     Notice {
@@ -95,11 +119,74 @@ pub enum PeerCmd {
         #[arg(long)]
         status: bool,
     },
-    /// Request screen/control consent through the daemon. Changing it requires
-    /// the local app's person proof; a shell or agent cannot grant consent.
+    /// Leave the cloud: revoke this joined machine's credential at the hub
+    /// with the credential itself (`tailscale logout`), then remove
+    /// `meshRelay`, the credential and the node key here. A hub that cannot
+    /// revoke from the machine says to revoke it from your Mac (`cmux machine
+    /// revoke NAME`); then `--local-only` removes this machine's state anyway.
+    Leave {
+        /// Remove the local join state even when the hub did not revoke it.
+        #[arg(long)]
+        local_only: bool,
+    },
+    /// Record that the signed-in person signs out of the cmux app, before the app asks the daemon
+    /// to leave (no daemon needed): the daemon's next leave or start leaves the join signing in
+    /// made for `--user-id`, and nothing of another account's. The cmux app runs it.
+    LeaveIntent {
+        /// The platform user id of the account signing out.
+        #[arg(long)]
+        user_id: String,
+        /// When the app saw the sign-out (Unix ms; default: now). An intent from before that
+        /// account's last sign-in here is stale and not recorded.
+        #[arg(long)]
+        signed_out_at: Option<u64>,
+    },
+    /// Enroll this machine on the hub as the signed-in person, the way signing in to the cmux
+    /// app does: mints a single-use join token with the person's cmux access token, read from
+    /// stdin (never argv), and redeems it here, recorded under `--user-id`. A joined, revoked or
+    /// other person's machine, or one joined under no account, is left as it is, and with no
+    /// `--user-id` nothing is enrolled. For scripts; a box with no sign-in still uses a pair code
+    /// or join line.
+    EnrollSelf {
+        /// Read the cmux access token from stdin (required).
+        #[arg(long, required = true)]
+        access_token_stdin: bool,
+        /// Platform origin; defaults to CMUX_PLATFORM_ORIGIN or production.
+        #[arg(long, visible_alias = "origin")]
+        hub: Option<String>,
+        /// A DEV build's tag, added to this machine's name.
+        #[arg(long)]
+        build_tag: Option<String>,
+        /// The signed-in person's platform user id, the account the join is recorded under.
+        #[arg(long)]
+        user_id: Option<String>,
+    },
+    /// Screen/control consent. From the cmux app (its person proof), or as this Mac's admin
+    /// with sudo (`sudo acpmux machine consent grant --control`); a plain shell is refused.
     Consent {
         #[command(subcommand)]
         cmd: ConsentCmd,
+    },
+    /// This Mac's Cloud tunnel on the team mesh, through the daemon: attach, detach, rekey.
+    /// The daemon takes them only from the cmux app (its person proof), with the person's
+    /// cmux access token on stdin; a shell or agent is refused.
+    Tunnel {
+        #[command(subcommand)]
+        cmd: TunnelCmd,
+    },
+    /// The person's vault on this joined machine: env vars and API keys kept
+    /// once for every machine, stored in the OS secret store and given to
+    /// every agent here. Never a Claude or Codex subscription login.
+    Vault {
+        #[command(subcommand)]
+        cmd: VaultCmd,
+    },
+    /// Installed dependencies from the cache, keyed by lockfile: a new Cloud
+    /// machine restores node_modules, Cargo's registry and the npm, pnpm and
+    /// uv caches instead of installing cold. Never caches credentials files.
+    Deps {
+        #[command(subcommand)]
+        cmd: DepsCmd,
     },
     /// Install this binary and a daemon on a machine over ssh, then add it as a machine here.
     /// A Linux machine also gets acpmux-update.timer, which keeps its daemon on
@@ -118,6 +205,15 @@ pub enum PeerCmd {
         /// keeps it off across updates; remove it to turn the timer on).
         #[arg(long)]
         no_auto_update: bool,
+        /// Replace the machine's acpmux even when it is built from a newer
+        /// commit than this one (the machine refuses that otherwise).
+        #[arg(long)]
+        allow_downgrade: bool,
+        /// Restart the daemon even when an update restarted it in the last
+        /// hour. Without it the machine refuses inside that hour, in its own
+        /// install step, and nothing is changed.
+        #[arg(long)]
+        now: bool,
     },
     /// Copy this binary to a machine you added (or every one with --all) and restart
     /// its daemon. The previous binary is kept and put back when the
@@ -141,6 +237,18 @@ pub enum PeerCmd {
         /// than the one pushed, or one with local changes: never a move back.
         #[arg(long)]
         keep_newer: bool,
+        /// Restart the daemon even when an update (this one, another machine's,
+        /// or the machine's own acpmux-update.timer) restarted it in the last
+        /// hour. Without it such a machine is left alone (`busy`, reason
+        /// `restartWindow`) until the hour is over.
+        #[arg(long)]
+        now: bool,
+        /// Install the pushed binary even when the machine's acpmux is built
+        /// from a newer commit. Without it the machine refuses that move back
+        /// (`current`, reason `newerInstalled`) in its own install step, so a
+        /// push from an older build never undoes its self-update.
+        #[arg(long)]
+        allow_downgrade: bool,
     },
     /// Hold a machine (a machine name or its ssh host) off `machine update`: the
     /// update, `--all` and the app's own update queue leave it alone (`held`)
@@ -164,11 +272,22 @@ pub enum PeerCmd {
     /// the installed ~/.local/bin/acpmux differs from the channel's, download
     /// this machine's binary, check its sha256, install it and restart the
     /// daemon, agents kept; a daemon that does not come back on it is rolled
-    /// back. Prints the row `machine update` prints for a machine.
+    /// back. An update restarts the daemon at most once an hour, whichever
+    /// update it is (this one or `machine update` from another machine);
+    /// within the hour the machine is left alone until the next run. Prints
+    /// the row `machine update` prints for a machine.
     SelfUpdate {
         /// The channel to follow.
         #[arg(long, default_value = "feat-cmux-next")]
         channel: String,
+        /// Restart the daemon even when an update restarted it in the last hour.
+        #[arg(long)]
+        now: bool,
+        /// Install the channel's build even when the installed one is built
+        /// from a newer commit (pulling a bad channel build back). Without
+        /// it the newer installed build is kept.
+        #[arg(long)]
+        allow_downgrade: bool,
     },
     /// Add a machine in one go: check ssh, install this build, start the
     /// daemon, copy harness profiles and add it here (and, with --reverse,
@@ -176,6 +295,10 @@ pub enum PeerCmd {
     Enroll {
         /// ssh target, e.g. huge-blue or user@host
         host: String,
+        /// Trust and record a previously unknown SSH host key on the first reach check.
+        /// A changed key is still refused; later connections use normal host key checks.
+        #[arg(long)]
+        accept_new_host_key: bool,
         /// Name here (default: the ssh host's first label).
         #[arg(long)]
         name: Option<String>,
@@ -228,27 +351,175 @@ pub enum PeerCmd {
         #[arg(long)]
         probe: bool,
     },
+    /// A unix socket here that reaches OWNER's lane-gh broker over the held carrier link (RFD
+    /// 0127 cut 2) instead of an `ssh -R` forward: one carrier stream per connection, so
+    /// `LANE_GH_SOCKET=PATH lane-gh ...` uses it. OWNER serves it once its owner sets
+    /// `acpmux config --set lane_gh_broker=PATH`. Runs until stopped.
+    BrokerForward {
+        /// The machines whose broker to reach (names in the hub's address book), in order of
+        /// preference: each connection goes to the first whose broker answered its last
+        /// progress check, and fails over before any of its bytes are sent.
+        #[arg(value_name = "OWNER", required = true, num_args = 1..)]
+        owners: Vec<String>,
+        /// Where to listen (a stale socket there is replaced; a served one is left alone).
+        #[arg(long, value_name = "PATH")]
+        socket: std::path::PathBuf,
+    },
+    /// This machine's ssh public key: the one line a new machine lists in its
+    /// ~/.ssh/authorized_keys, and the command that adds it there. --create makes an
+    /// ed25519 key when this machine has none (never over an existing key).
+    Key {
+        #[arg(long)]
+        create: bool,
+    },
+    /// Claude Code and Codex on MACHINE (a machine name or ssh host): installed, signed
+    /// in, and what can be offered. Nothing installs or signs in unless a flag asks.
+    Agents {
+        #[arg(value_name = "MACHINE")]
+        target: String,
+        /// Install it there with its vendor's official installer (`harness install`).
+        #[arg(long, value_name = "ID", conflicts_with = "login")]
+        install: Option<String>,
+        /// Sign it in there, in this terminal (`harness login` over ssh -t).
+        #[arg(long, value_name = "ID")]
+        login: Option<String>,
+    },
+}
+
+#[derive(Subcommand)]
+pub enum VaultCmd {
+    /// Pull the vault now with this machine's join credential (the daemon also
+    /// pulls every 15 minutes). Values go to the Keychain or Secret Service only.
+    Pull,
+    /// What this machine holds: names and revisions (never values), the last
+    /// pull, the secret store, and whether Claude and Codex are signed in here.
+    Status,
+    /// Remove this machine's vault env values and its vault state. The daemon
+    /// pulls again while the vault is shared with this machine.
+    Forget,
+    /// Keep a key an agent made on this machine, with no sign-in or click: the
+    /// value comes piped on stdin (never argv) and goes to the Keychain or
+    /// Secret Service only. Agents started from then on get the placeholder
+    /// `cmux-secret://NAME`, which the egress proxy fills only in HTTPS
+    /// requests to the --host patterns. Example:
+    /// `mint-token | acpmux machine vault keep DEPLOY_TOKEN --host api.example.com`.
+    Keep {
+        /// The env name agents get, like DEPLOY_TOKEN.
+        name: String,
+        /// Where the key may be sent: a host or `*.domain` (repeatable).
+        #[arg(long = "host", value_name = "H")]
+        hosts: Vec<String>,
+        /// Give agents the value itself instead (weaker: agents can read it).
+        #[arg(long, conflicts_with = "hosts")]
+        env: bool,
+    },
+    /// Remove a kept key (`keep`) from this machine.
+    Drop { name: String },
+    /// List every secret this user's processes and files can reach, by name and
+    /// path only (never a value), and exit 1 when anything but the owner's
+    /// harness login or this machine's own identity is reachable (exit 2: the
+    /// audit could not see everything). A Cloud chat's VM runs it after a move.
+    Audit,
+}
+
+#[derive(Subcommand)]
+pub enum DepsCmd {
+    /// Restore each project's dependencies in DIR (bun, npm, pnpm, yarn, Cargo,
+    /// uv) from this machine's cache, run its normal install, and after a cold
+    /// install upload an archive for the next machine.
+    Warm {
+        /// The project folder (default: the current folder).
+        dir: Option<std::path::PathBuf>,
+        /// Do not upload an archive after a cold install.
+        #[arg(long)]
+        no_upload: bool,
+        /// Only restore; do not run the install.
+        #[arg(long)]
+        no_install: bool,
+        /// Do nothing unless this machine is joined (what runs after a seed).
+        #[arg(long)]
+        if_joined: bool,
+        /// Skip a project whose dependencies are already installed (its
+        /// `node_modules` or `.venv`), so an install never replaces a tree in use.
+        #[arg(long)]
+        if_missing: bool,
+        /// Pack and upload after a cold install before returning, instead of
+        /// in a detached `machine deps upload`.
+        #[arg(long)]
+        upload_now: bool,
+    },
+    /// Pack a cache folder and upload it under KEY (what `warm` starts
+    /// detached after a cold install).
+    #[command(hide = true)]
+    Upload {
+        #[arg(long)]
+        key: String,
+        #[arg(long)]
+        root: std::path::PathBuf,
+        #[arg(long = "include", required = true)]
+        include: Vec<std::path::PathBuf>,
+        /// zstd or gzip.
+        #[arg(long)]
+        codec: String,
+        /// The cold install the archive saves, stored beside it.
+        #[arg(long, default_value_t = 0)]
+        cold_ms: u64,
+    },
+    /// Wait until no background upload (`warm` after a cold install) is running.
+    Wait,
+    /// Print each project's cache key and what its archive holds, without asking the hub.
+    Key {
+        /// The project folder (default: the current folder).
+        dir: Option<std::path::PathBuf>,
+    },
+}
+
+#[derive(Subcommand)]
+pub enum TunnelCmd {
+    /// Put this Mac in its team's WireGuard peer map.
+    Attach {
+        /// The team network id; it must be this Mac's own team.
+        #[arg(long, value_name = "ID")]
+        network: Option<String>,
+    },
+    /// Take this Mac out of its team's peer map until the next attach.
+    Detach {
+        /// The team network id; it must be this Mac's own team.
+        #[arg(long, value_name = "ID")]
+        network: Option<String>,
+    },
+    /// Give this Mac a new WireGuard key (in the process that holds the key).
+    Rekey,
 }
 
 #[derive(Subcommand)]
 pub enum ConsentCmd {
-    /// Ask the app to grant screen or control consent (exactly one of --screen, --control).
+    /// Grant screen, control or signed-in-machines consent (exactly one). Under sudo it is set
+    /// here as this Mac's admin; otherwise the daemon takes it only from the cmux app.
+    #[command(group(clap::ArgGroup::new("surface").required(true).args(["screen", "control", "signed_in_machines"])))]
     Grant {
         /// Screen recording.
-        #[arg(long, conflicts_with = "control", required_unless_present = "control")]
+        #[arg(long)]
         screen: bool,
         /// Keyboard and mouse control.
         #[arg(long)]
         control: bool,
+        /// Control from this person's other machines signed in to the same account.
+        #[arg(long)]
+        signed_in_machines: bool,
     },
-    /// Ask the app to revoke screen or control consent (exactly one of --screen, --control).
+    /// Revoke screen, control or signed-in-machines consent (exactly one), the same ways.
+    #[command(group(clap::ArgGroup::new("surface").required(true).args(["screen", "control", "signed_in_machines"])))]
     Revoke {
         /// Screen recording.
-        #[arg(long, conflicts_with = "control", required_unless_present = "control")]
+        #[arg(long)]
         screen: bool,
         /// Keyboard and mouse control.
         #[arg(long)]
         control: bool,
+        /// Control from this person's other machines signed in to the same account.
+        #[arg(long)]
+        signed_in_machines: bool,
     },
 }
 
@@ -266,8 +537,12 @@ pub enum ApprovalsCmd {
         #[arg(long)]
         name: Option<String>,
     },
-    /// Stop a Mac's Allows here, at once.
+    /// Stop a Mac's Allows here, at once (`rm standing-grant` ends the standing grant).
     Rm { id: String },
+    /// Record a standing pre-grant on this machine: a key of this user's own, enrolled here, with
+    /// which `acpmux allow SESSION --standing-grant` signs a one-time allow of a plain tool ask
+    /// (never a lasting allow, a plan, a mode, a policy or a rule). Keeps the key already there.
+    Grant,
     /// From this Mac: let its cmux app allow the prompts of MACHINE (a machine name
     /// or ssh host), over ssh. The approvals step of `machine enroll`, alone.
     Enroll {

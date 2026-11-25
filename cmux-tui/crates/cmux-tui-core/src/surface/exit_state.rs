@@ -119,7 +119,7 @@ pub(super) fn mark_hosted_runtime_exited(
         if let PtyRuntime::Hosted(host) = &*runtime {
             host.disconnect();
         }
-        *runtime = PtyRuntime::ExitedHosted;
+        pty.replace_runtime(&mut runtime, PtyRuntime::ExitedHosted);
         pty.supports_clear_history_key_fallback.store(false, Ordering::Release);
         drop(runtime);
         pty.finish_hosted_exit();
@@ -143,6 +143,8 @@ pub(super) fn publish_local_exit_if_ready(surface: &Arc<Surface>) {
         return;
     }
     pty.dead.store(true, Ordering::Release);
+    // A dead stream is never resumed: its ring goes with the shell, not the tab.
+    pty.snapshot_position.ring.release();
     if let Some(mux) = pty.mux.upgrade() {
         mux.surface_exited(surface.id);
     }

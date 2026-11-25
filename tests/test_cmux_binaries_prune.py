@@ -15,6 +15,8 @@ import yaml
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "scripts/ci"))
 import cmux_binaries_prune as prune  # noqa: E402
+sys.path.insert(0, str(ROOT / "tests"))
+import workflow_jobs  # noqa: E402
 
 NOW = dt.datetime(2026, 10, 11, 12, tzinfo=dt.timezone.utc)
 TRUNK = {f"{n:040x}" for n in range(1, prune.MIN_TRUNK_COMMITS + 1)}
@@ -111,6 +113,21 @@ class Prune(unittest.TestCase):
         bucket.add_build("cmux-tui", sha(7), 90)
         run(bucket)
         self.assertEqual({key.split("/")[1] for key in bucket.deleted}, {sha(7)})
+
+    def test_a_machine_copy_is_kept_30_days_then_deleted_apart_from_its_commit(self):
+        # cmux-tui/<sha>/machine/: the Cloud machine channel's thin copy, its own family. A pinned
+        # commit keeps its shipped prefix; its machine copy still goes after 30 days.
+        pinned, young = trunk(2), trunk(3)
+        bucket = FakeBucket(files={
+            f"cmux-tui/{pinned}/cmux-tui-x86_64-unknown-linux-musl": 40,
+            f"cmux-tui/{pinned}/manifest.json": 40,
+            f"cmux-tui/{pinned}/machine/cmux-tui-x86_64-unknown-linux-musl": 40,
+            f"cmux-tui/{pinned}/machine/early-claim.json": 40,
+            f"cmux-tui/{young}/machine/cmux-tui-x86_64-unknown-linux-musl": 20,
+        }, bodies={"cmux-tui/latest/manifest.json": json.dumps({"commit": MAIN})})
+        run(bucket, pins=[pinned])
+        self.assertEqual(sorted(bucket.deleted), [f"cmux-tui/{pinned}/machine/cmux-tui-x86_64-unknown-linux-musl",
+                                                  f"cmux-tui/{pinned}/machine/early-claim.json"])
 
     def test_other_prefixes_and_trees_are_never_touched(self):
         bucket = FakeBucket(files={
@@ -242,7 +259,7 @@ class Workflow(unittest.TestCase):
         self.assertEqual(workflow["permissions"], {})
         job = workflow["jobs"]["prune"]
         self.assertIn("github.ref == 'refs/heads/main'", job["if"])
-        self.assertEqual(job["environment"], "artifacts")
+        self.assertEqual(workflow_jobs.resolve(job).environment["name"], "artifacts")
         run_step = next(step for step in job["steps"] if "cmux_binaries_prune.py" in str(step.get("run", "")))
         self.assertIn("--delete", run_step["run"])
         condition = run_step["env"]["PRUNE_DELETE"]

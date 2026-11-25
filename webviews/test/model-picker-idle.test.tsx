@@ -2,6 +2,7 @@ import { afterAll, afterEach, beforeAll, describe, expect, test } from "bun:test
 import { JSDOM } from "jsdom";
 import { act } from "react";
 import type { Root } from "react-dom/client";
+import { teardownDom } from "./support/domTeardown";
 
 const scope = globalThis as Record<string, unknown>;
 const keys = [
@@ -70,17 +71,13 @@ afterEach(() => {
   root = undefined;
   host.replaceChildren();
   dom.window.localStorage.clear();
-  for (const popup of dom.window.document.querySelectorAll(".acpmux-quick-menu")) popup.remove();
+  for (const popup of dom.window.document.querySelectorAll(".acpmux-quick-menu, .acpmux-cols")) popup.remove();
 });
 
 afterAll(async () => {
   // A checkbox indicator's last update lands a task after the final test: let it run on this window.
   await settle();
-  dom.window.close();
-  for (const [key, had, value] of saved) {
-    if (had) scope[key] = value;
-    else delete scope[key];
-  }
+  await teardownDom(saved, { window: dom.window, scope });
 });
 
 const settle = () => act(async () => await new Promise((resolve) => setTimeout(resolve, 0)));
@@ -131,6 +128,14 @@ describe("closed model picker catalog work", () => {
       const sonnet = items.find((item) => item.textContent?.includes("Sonnet 5.5"));
       expect(sonnet).toBeDefined();
       await act(async () => sonnet!.click());
+      // The compact menu's columns land a pick at once and stay open (#50998); the button closes them.
+      const closeColumns = async () => {
+        if (!compact) return;
+        expect(dom.window.document.querySelector(".acpmux-cols")).not.toBeNull();
+        await act(async () => host.querySelector<HTMLButtonElement>("button")!.click());
+        await settle();
+      };
+      await closeColumns();
       expect(picked).toEqual(["sonnet"]);
       await settle();
       // Closing retains the initialized list through its exit; reopening still owns selection.
@@ -142,6 +147,7 @@ describe("closed model picker catalog work", () => {
       const reopenedSonnet = reopened.find((item) => item.textContent?.includes("Sonnet 5.5"));
       expect(reopenedSonnet).toBeDefined();
       await act(async () => reopenedSonnet!.click());
+      await closeColumns();
       expect(picked).toEqual(["sonnet", "sonnet"]);
     });
   }

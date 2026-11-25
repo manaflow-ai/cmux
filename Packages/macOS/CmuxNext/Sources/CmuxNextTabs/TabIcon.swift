@@ -14,6 +14,21 @@ public enum TabIcon: Hashable, Sendable {
     /// An agent's brand mark (a CmuxAgentBrands brand id such as "claude"),
     /// tinted to the tab's text color like a symbol.
     case agentMark(String)
+    /// The same mark for an agent that runs in a terminal tab (Claude Code, Codex as a CLI), on a soft
+    /// rounded square of the tint, so a terminal agent's tab is told from a GUI agent chat's bare mark
+    /// with no extra part on it (Leo 2026-11-24: "both of them rn are just claude icon. but one is
+    /// terminal one is gui"). The iPhone's `AgentAvatarHost.terminal` draws the same rounded square.
+    case terminalAgentMark(String)
+}
+
+public extension TabIcon {
+    /// A terminal tab's kind icon: the bare `>_` (`tab.terminal`), not the framed `terminal`.
+    /// Tab icons draw at 12 to 20 pt, where the frame crowds the prompt (Leo 2026-11-07).
+    nonisolated static let terminal = TabIcon.icon(.tabTerminal)
+    /// An exited terminal tab's kind icon (`tab.terminal.dead`).
+    nonisolated static let terminalDead = TabIcon.icon(.tabTerminalDead)
+    /// A browser tab's icon until its favicon loads: the globe with fewer lines (`tab.browser`).
+    nonisolated static let browser = TabIcon.icon(.tabBrowser)
 }
 
 /// A full-color tab image (favicon). Compared by identity so that updating

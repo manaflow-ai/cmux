@@ -4,7 +4,7 @@ import CmuxNextDesign
 import CmuxNextIcons
 
 /// The trailing toolbar buttons (`BrowserToolbarButton`): media hub, zoom level,
-/// Favorites, Downloads, design mode, profile, theme, DevTools and More. Engine-neutral: the states come from
+/// Favorites, Downloads, design mode, theme, DevTools, profile and More. Engine-neutral: the states come from
 /// `BrowserToolbarPolicy` over the bound tab, and a press only reports the
 /// button (`onPress`); the App runs the button's catalog action. Holds no
 /// key handling: shortcuts go through the action registry.
@@ -12,9 +12,27 @@ public final class BrowserToolbarButtonsView: NSStackView {
     /// A button was pressed. The App maps it to its action.
     public var onPress: ((BrowserToolbarButton) -> Void)?
     /// The display text of an action's shortcut, for the tooltips.
-    public var shortcutHint: ((BrowserToolbarButton) -> String?)? { didSet { render() } }
+    public var shortcutHint: ((BrowserToolbarButton) -> String?)? { didSet { rebind() } }
     /// The tab's browser profile name, for the profile button's tooltip.
     public var profileName: String? { didSet { render() } }
+    /// The tab's browser profile, drawn on the profile button as its avatar (its letter or icon on its
+    /// color) in place of the plain person glyph; nil keeps the glyph (an incognito tab).
+    public var profileBadge: BrowserProfileBadge? {
+        didSet { if profileBadge != oldValue { applyProfileBadge() } }
+    }
+    /// The profile button's avatar, made the first time a profile shows (tests read it).
+    private(set) var profileAvatar: ProfileBadgeView?
+
+    private func applyProfileBadge() {
+        guard let button = buttons[.profile] else { return }
+        guard let profileBadge else { return button.glyphReplacement = nil }
+        let side = ProfileBadgeView.side(forGlyph: OmnibarStyle.toolbarIconSize, limit: OmnibarStyle.buttonSize - 4)
+        let avatar = profileAvatar ?? ProfileBadgeView(side: side)
+        avatar.setSide(side)
+        avatar.show(profileBadge)
+        profileAvatar = avatar
+        button.glyphReplacement = avatar
+    }
     /// The App's downloads, read while rendering so an observable list
     /// redraws the button as downloads start and end. Set after `bind`, so
     /// it re-arms the observation to track the list.
@@ -24,10 +42,28 @@ public final class BrowserToolbarButtonsView: NSStackView {
     /// The pinned buttons' ids (`browser.toolbarButtons`), read the same way,
     /// so a pin from any window or from cmux.json reaches every toolbar.
     public var pins: (() -> [String])? { didSet { rebind() } }
+    private var batching = false
+    private var batchedChange = false
+    /// Sources set with no render (`batchSources(rendering: false)`): the next `bind` observes them, never skips.
+    private var sourcesPending = false
+    /// Renders so far (tests: a tab switch renders the toolbar once).
+    private(set) var renders = 0
+
+    /// Sets several sources (`shortcutHint`, `downloads`, `media`, `pins`) with one re-observation and render, or
+    /// none when `rendering` is false (a `bind` follows and renders them).
+    func batchSources(rendering: Bool = true, _ set: () -> Void) {
+        batching = true
+        set()
+        batching = false
+        if batchedChange {
+            batchedChange = false
+            if rendering { rebind() } else { sourcesPending = true }
+        }
+    }
     /// The media hub's cards, kept between opens.
     public let mediaRows = BrowserMediaRows()
     /// Design mode and color scheme of the bound tab.
-    public let modes = BrowserPageModes()
+    public private(set) var modes = BrowserPageModes()
     /// 0 shows every button; 1 hides design mode and DevTools; 2 also
     /// media, zoom, Favorites, Downloads, profile and theme (`BrowserToolbarButton.collapseLevel`).
     /// More lists the hidden ones.
@@ -48,29 +84,50 @@ public final class BrowserToolbarButtonsView: NSStackView {
         BrowserToolbarButton.pinnable.filter { !pinned.contains($0) || $0.isCollapsed(at: collapse) }
     }
 
+    /// The buttons made so far: each is made the first time it shows (a new pane shows More
+    /// alone by default; making all nine was a fifth of Shift-Cmd-L's key turn, #32909).
     private var buttons: [BrowserToolbarButton: ChromeIconButton] = [:]
     private var states: [BrowserToolbarButton: BrowserToolbarButtonState] = [:]
-    private weak var tab: (any BrowserTab)?
+    private(set) weak var tab: (any BrowserTab)?
     private var observation: ObservationLoop?
     private var pageURL: URL?
     /// The last facts rendered: zoom and Downloads show only on some.
     private var facts = BrowserToolbarFacts(engine: .webkit, hostsDevTools: false)
+    /// The More menu while it is open on cmux's glass (``presentGlass(_:from:)``): its zoom row
+    /// reads the page's zoom again when the page reports a new one.
+    var openGlassMenu: GlassMenu?
+    /// Shows a glass menu under its anchor, trailing edges lined up; false when it cannot show.
+    /// Tests replace it: a real one needs a window on a screen.
+    var showGlassMenu: (GlassMenu, NSView) -> Bool = { menu, anchor in menu.show(from: anchor, trailing: true) }
 
     public init() {
         super.init(frame: .zero)
         orientation = .horizontal
         translatesAutoresizingMaskIntoConstraints = false
         setHuggingPriority(.required, for: .horizontal)
-        for button in BrowserToolbarButton.allCases {
-            let view = ChromeIconButton(icon: .placeholder, label: "", action: #selector(pressed(_:)), target: self, toolbar: true)
-            view.setAccessibilityIdentifier(button.identifier)
-            view.rightClickPresses = button.opensMenu
-            view.tag = BrowserToolbarButton.allCases.firstIndex(of: button) ?? 0
-            buttons[button] = view
-            addArrangedSubview(view)
-        }
         render()
         applyVisibility()
+    }
+
+    /// `button`'s view, made and put in its place in the row (the catalog's order) on first use.
+    private func makeButton(_ button: BrowserToolbarButton) -> ChromeIconButton {
+        if let view = buttons[button] { return view }
+        let view = ChromeIconButton(icon: .placeholder, label: "", action: #selector(pressed(_:)), target: self, toolbar: true)
+        view.setAccessibilityIdentifier(button.identifier)
+        view.rightClickPresses = button.opensMenu
+        view.opensOnPress = button.followsPress
+        // One ⋮ in the pane: More draws the tab bar's glyph at its size (Lawrence msg 19627).
+        if button == .overflow { view.iconSide = { OverflowButton.paneGlyphSize } }
+        let order = BrowserToolbarButton.allCases
+        view.tag = order.firstIndex(of: button) ?? 0
+        buttons[button] = view
+        insertArrangedSubview(view, at: order.prefix(view.tag).filter { buttons[$0] != nil }.count)
+        if let state = states[button] { apply(state, to: view) }
+        if button == .profile {
+            view.onDensityChange = { [weak self] in self?.applyProfileBadge() }
+            applyProfileBadge()
+        }
+        return view
     }
 
     @available(*, unavailable)
@@ -78,21 +135,35 @@ public final class BrowserToolbarButtonsView: NSStackView {
 
     /// Shows `tab`'s states. A new page (another tab, or the chrome's tab
     /// swapped) gets the chosen color scheme and starts with design mode off.
-    func bind(_ tab: any BrowserTab) {
-        observation?.cancel()
-        if self.tab !== tab {
+    func bind(_ tab: any BrowserTab, modes tabModes: BrowserPageModes? = nil) {
+        // The page's attach binds the tab a tab switch bound already (with its modes): it already observes it.
+        if tab === self.tab, tabModes == nil || tabModes === modes, observation != nil, !sourcesPending { return }
+        if let tabModes, tabModes !== modes {
+            // Another tab of the pane: its own modes, as it left them, and the document they were for.
+            modes.pageURL = pageURL
+            modes = tabModes
+            self.tab = tab
+            pageURL = tabModes.pageURL ?? tab.state.url
+        } else if self.tab !== tab {
             self.tab = tab
             pageURL = tab.state.url
             modes.designMode = false
             if modes.colorScheme != .system { (tab as? any BrowserColorSchemeApplying)?.applyColorScheme(modes.colorScheme) }
         }
+        observe()
+    }
+
+    private func observe() {
+        sourcesPending = false
+        observation?.cancel()
         observation = ObservationLoop { [weak self] in self?.render() }
     }
 
     /// An App closure changed after `bind`: observe again so its reads count.
     private func rebind() {
-        guard let tab else { return render() }
-        bind(tab)
+        guard !batching else { return batchedChange = true }
+        guard tab != nil else { return render() }
+        observe()
     }
 
     /// Reads the states again, WebKit's inspector visibility included
@@ -177,13 +248,17 @@ public final class BrowserToolbarButtonsView: NSStackView {
     }
 
     private func applyVisibility() {
-        for (button, view) in buttons { view.isHidden = !button.isShown(at: collapse, facts, pinned: pinned) }
+        for button in BrowserToolbarButton.allCases {
+            let shown = button.isShown(at: collapse, facts, pinned: pinned)
+            if shown { makeButton(button).isHidden = false } else { buttons[button]?.isHidden = true }
+        }
     }
 
     /// Width of the buttons shown at collapse `level`.
     func width(collapse level: Int) -> CGFloat {
         let count = BrowserToolbarButton.allCases.filter { $0.isShown(at: level, facts, pinned: pinned) }.count
-        return CGFloat(count) * OmnibarStyle.buttonSize + CGFloat(max(0, count - 1)) * OmnibarStyle.buttonSpacing
+        let scale = OmnibarStyle.scale(of: self)
+        return CGFloat(count) * OmnibarStyle.buttonSize(scale: scale) + CGFloat(max(0, count - 1)) * OmnibarStyle.buttonSpacing(scale: scale)
     }
 
     @objc private func pressed(_ sender: NSButton) {
@@ -193,6 +268,7 @@ public final class BrowserToolbarButtonsView: NSStackView {
     }
 
     private func render() {
+        renders += 1
         if let pins {
             let next = Set(pins().compactMap(BrowserToolbarButton.init(rawValue:)))
             if next != pinned { pinned = next }
@@ -202,7 +278,9 @@ public final class BrowserToolbarButtonsView: NSStackView {
         // leaving 100 % at level 2 may let level 0 fit again.
         let shown = { [pinned] (facts: BrowserToolbarFacts) in BrowserToolbarButton.allCases.filter { $0.isShown(at: 0, facts, pinned: pinned) } }
         let relayout = shown(facts) != shown(self.facts)
+        let zoomed = facts.zoom != self.facts.zoom
         self.facts = facts
+        if zoomed { openGlassMenu?.refreshControls() }
         if relayout { relayoutChrome() }
         for button in BrowserToolbarButton.allCases {
             let state = BrowserToolbarPolicy.state(button, facts, shortcut: shortcutHint?(button))
@@ -210,13 +288,16 @@ public final class BrowserToolbarButtonsView: NSStackView {
             // button: leave those buttons untouched.
             guard states[button] != state else { continue }
             states[button] = state
-            guard let view = buttons[button] else { continue }
-            view.showsToolTip = state.showsToolTip
-            view.setIcon(state.icon, label: state.label)
-            view.isEnabled = state.isEnabled
-            view.isOn = state.isActive
-            view.progress = state.progress
+            if let view = buttons[button] { apply(state, to: view) }
         }
+    }
+
+    private func apply(_ state: BrowserToolbarButtonState, to view: ChromeIconButton) {
+        view.showsToolTip = state.showsToolTip
+        view.setIcon(state.icon, label: state.label)
+        view.isEnabled = state.isEnabled
+        view.isOn = state.isActive
+        view.progress = state.progress
     }
 
     /// The zoom or Downloads button appeared or went, or the pins changed: the
@@ -250,16 +331,7 @@ public final class BrowserToolbarButtonsView: NSStackView {
         )
     }
 
-    /// `menu` (More) with a separator and Show in Toolbar at its end
-    /// (`showInToolbarItem`); `pin` is whether the rows are enabled and the
-    /// toggle by button id.
-    public func addingShowInToolbar(to menu: NSMenu, _ pin: (enabled: Bool, toggle: (String) -> Void)) -> NSMenu {
-        menu.addItem(.separator())
-        menu.addItem(showInToolbarItem(enabled: pin.enabled) { pin.toggle($0.rawValue) })
-        return menu
-    }
-
-    /// The More menu's Show in Toolbar item: one checked row per pinnable
+    /// The More menu's Show in Toolbar item (the last row of its Tools): one checked row per pinnable
     /// button (`pinned`); choosing one calls `toggle`. Rows are disabled
     /// when `enabled` is false (a managed list).
     public func showInToolbarItem(enabled: Bool, toggle: @escaping (BrowserToolbarButton) -> Void) -> NSMenuItem {

@@ -36,7 +36,7 @@ nonisolated enum SameTreeDaemonBinary {
 
 /// A fresh session, end to end: the real daemon, the app's launch window,
 /// restore, and the empty-workspace guard.
-@MainActor @Suite(.serialized, .ownsSidebarDocStore, .timeLimit(.minutes(2)), .enabled(if: SameTreeDaemonBinary.url != nil, "needs the same-tree cmux-tui"))
+@MainActor @Suite(.serialized, .timeLimit(.minutes(2)), .enabled(if: SameTreeDaemonBinary.url != nil, "needs the same-tree cmux-tui"))
 struct FirstLaunchTests {
     /// Returns once `store` has a tab or `limit` passes, whichever is first.
     /// A poll, not a task group over `Observations`: the Swift 6.2 region
@@ -67,7 +67,8 @@ struct FirstLaunchTests {
                                  exitWithProcess: ProcessInfo.processInfo.processIdentifier),
             environment: { ["HOME": NSHomeDirectory(), "PATH": "/usr/bin:/bin:/usr/sbin:/sbin", "SHELL": "/bin/sh", "TERM": "xterm-256color"] })
         _ = NSApplication.shared
-        let services = AppServices(environment: AppEnvironment.current([:]))
+        // As a capture build launches: no launch steps, so no first-run agent chat workspace (cmux#48416) beside the one counted here.
+        let services = AppServices(environment: AppEnvironment.current(["CMUX_NEXT_SKIP_ONBOARDING": "1"]))
         AppActions.bind(services)
         services.palette.bindRegistryActions()
         services.windows.ordersWindowsIn = false

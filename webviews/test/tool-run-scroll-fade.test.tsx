@@ -9,7 +9,7 @@ import type { AcpmuxActivity } from "../src/agent-session/acpmux/model";
 import { foldMotion } from "../src/agent-session/acpmux/conversation/fold";
 import { ToolRow } from "../src/agent-session/acpmux/conversation/ToolRow";
 import { ToolRun } from "../src/agent-session/acpmux/conversation/ToolRun";
-import { resetTranscriptDisclosure } from "../src/agent-session/acpmux/conversation/transcriptDisclosure";
+import { resetTranscriptDisclosure } from "../src/agent-session/acpmux/conversation/transcriptDisclosureModel";
 
 let dom: JSDOM;
 let root: Root | undefined;

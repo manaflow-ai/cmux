@@ -1,3 +1,4 @@
+import { formatSlackMessage } from "../chief-slack.ts"
 import type { conversation } from "@cmux/home-core"
 import { NO_REPLY } from "./prompts.ts"
 
@@ -134,6 +135,8 @@ const nameOf = (head: Head, id: string) => head.participants.find((p) => p.id ==
  * when the message carries nothing a model can read.
  */
 export const formatMessage = (head: Head, m: Message, opts: { readonly files?: boolean; readonly owner?: string } = {}): string => {
+  const slack = (m as Message & { slack?: { isOwner: boolean; displayName: string } }).slack
+  if (m.author.startsWith("slack:") && slack) return formatSlackMessage({ ...m, slack })
   const lines: Array<string> = []
   for (const part of m.parts) {
     if (part.type === "text") {

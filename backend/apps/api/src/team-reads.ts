@@ -10,6 +10,7 @@ import { noOwnerOf, seatsOf } from "./domains/team-stack.ts"
 import { auditPage } from "./domains/team-audit-rows.ts"
 import { aiLimitViewOf } from "./domains/team-ai-limit.ts"
 import { groupRead } from "./domains/team-group-reads.ts"
+import { cloudSessionRead } from "./domains/team-cloud-sessions.ts"
 import type { Env } from "./env.ts"
 import { nextMonthStart } from "./usage-user.ts"
 import { teamUsageLine } from "./team-ai-usage.ts"
@@ -31,7 +32,10 @@ const READ_GRANTS: Readonly<Record<string, TeamGrant>> = {
   "team.device.compliance": "team.manage",
   "team.audit.list": "audit.read_billing",
   "group.get": "team.resources",
-  "group.list": "team.resources"
+  "group.list": "team.resources",
+  "group.members.list": "team.resources",
+  "team.cloud.session.list": "team.resources",
+  "team.cloud.session.get": "team.resources"
 }
 
 /** TeamDO reads (members only; admin reads for owners and admins). Pure over the team state. */
@@ -45,7 +49,7 @@ export const teamRead = (state: TeamState, op: string, params: unknown, principa
   switch (op) {
     case "team.directory":
       // The first page of each list (old clients); team.members.list and team.hosts.list page the rest.
-      return { ok: true, value: { team: state.team?.id, members: listMembers(state, rows, undefined, DIRECTORY_PAGE).items, hosts: listHosts(state, rows, undefined, DIRECTORY_PAGE).items }, revision: "" }
+      return { ok: true, value: { team: state.team?.id, members: listMembers(state, rows, undefined, DIRECTORY_PAGE).items, hosts: listHosts(state, rows, undefined, DIRECTORY_PAGE, principal).items }, revision: "" }
     case "team.members.list": {
       const q = params as { cursor?: unknown; limit?: unknown; role?: unknown } | null
       const limit = typeof q?.limit === "number" && Number.isInteger(q.limit) ? Math.min(Math.max(q.limit, 1), DIRECTORY_PAGE) : DIRECTORY_PAGE
@@ -68,8 +72,9 @@ export const teamRead = (state: TeamState, op: string, params: unknown, principa
     case "team.hosts.list": {
       const q = params as { cursor?: unknown; limit?: unknown } | null
       const limit = typeof q?.limit === "number" && Number.isInteger(q.limit) ? Math.min(Math.max(q.limit, 1), DIRECTORY_PAGE) : DIRECTORY_PAGE
-      const pageOf = listHosts(state, rows, typeof q?.cursor === "string" && q.cursor.length <= 128 ? q.cursor : undefined, limit)
-      return { ok: true, value: { team: state.team?.id, hosts: pageOf.items, host_count: state.host_count ?? pageOf.items.length, next_cursor: pageOf.next }, revision: "" }
+      const pageOf = listHosts(state, rows, typeof q?.cursor === "string" && q.cursor.length <= 128 ? q.cursor : undefined, limit, principal)
+      // host_count counts the base space's hosts only (TeamState.host_count); a dev build counts only what it lists (build-space.ts).
+      return { ok: true, value: { team: state.team?.id, hosts: pageOf.items, host_count: principal.build_space ? pageOf.items.length : (state.host_count ?? pageOf.items.length), next_cursor: pageOf.next }, revision: "" }
     }
     case "team.policy.get": {
       if (p.version !== undefined && (typeof p.version !== "number" || !Number.isInteger(p.version))) return { ok: false, code: "validation.invalid", message: "version must be an integer" }
@@ -130,7 +135,11 @@ export const teamRead = (state: TeamState, op: string, params: unknown, principa
     }
     case "group.get":
     case "group.list":
+    case "group.members.list":
       return groupRead(state, op, params, principal.user!, rows)
+    case "team.cloud.session.list":
+    case "team.cloud.session.get":
+      return cloudSessionRead(state, op, params, principal.user!, rows)
     default:
       return { ok: false, code: "validation.invalid", message: `unknown read ${op}` }
   }

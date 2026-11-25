@@ -67,6 +67,50 @@ import Testing
         #expect(store.item(id: "turn-s1-t1")?.markdown == Self.reply)
     }
 
+    /// A Mac with more sessions than the Feed holds: a read of it makes cards for the newest
+    /// turns only, and reads the whole reply of the newest few, not one transcript per session.
+    @Test func aBigMacReadsTheNewestTurnsOnly() async throws {
+        final class Count: @unchecked Sendable {
+            let lock = NSLock()
+            var events = 0
+            func bump() { lock.lock(); events += 1; lock.unlock() }
+            var value: Int { lock.lock(); defer { lock.unlock() }; return events }
+        }
+        let count = Count()
+        let sessions = (0..<(FeedStore.memoryLimit + 200)).map { index in
+            #"{"sessionId":"s\#(index)","name":"claude","harness":"claude","cwd":"/tmp/w","status":"idle","pendingPermissions":0,"lastSeq":9,"preview":"p\#(index)","lastTurn":{"status":"completed","turnId":"t\#(index)","endedAt":\#(1000 + index)}}"#
+        }.joined(separator: ",")
+        let mac = MockMacLink { _, data in
+            guard let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+                  let method = object["method"] as? String else { return [] }
+            let id = object["id"].map { "\($0)" } ?? "null"
+            func reply(_ result: String) -> Data { Data(#"{"jsonrpc":"2.0","id":\#(id),"result":\#(result)}"#.utf8) }
+            switch method {
+            case "initialize": return [reply(#"{"protocolVersion":1}"#)]
+            case "_acpmux/watch": return [reply(#"{"sessions":[\#(sessions)]}"#)]
+            case "_acpmux/events":
+                count.bump()
+                return [reply(#"{"events":[]}"#)]
+            default: return [reply("{}")]
+            }
+        }
+        let hub = AcpmuxHub()
+        await hub.bind(try await mac.openChannel(service: "acpmux", args: [:]))
+        let store = FeedStore(items: [])
+        let feed = LiveFeed(store: store, hub: hub, place: { _ in nil })
+        store.actions = feed
+
+        await store.refresh()
+        #expect(store.items.count == FeedStore.memoryLimit)
+        let newest = FeedStore.memoryLimit + 199
+        #expect(store.item(id: "turn-s\(newest)-t\(newest)") != nil)
+        #expect(store.item(id: "turn-s0-t0") == nil)
+        #expect(feed.replyReads.count <= LiveFeed.fullReplyReads)
+        for task in Array(feed.replyReads.values) { await task.value }
+        #expect(count.value <= LiveFeed.fullReplyReads)
+        #expect(count.value > 0)
+    }
+
     static func record(_ seq: Int, _ dir: String, _ kind: String, _ msg: JSONValue) -> JSONValue {
         .object(["sessionId": .string("s1"), "seq": .number(Double(seq)), "dir": .string(dir), "kind": .string(kind), "msg": msg])
     }

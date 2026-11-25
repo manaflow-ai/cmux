@@ -102,3 +102,60 @@ extension NSView {
         Motion.sidebar.set(layer, "opacity", to: Float(alpha), fade: token, from: shown)
     }
 }
+
+extension SidebarRowView {
+    /// Shows or clears a hover control by paint only (HOVER COMMIT; Chrome's model: a hover changes style, never the
+    /// tree). The control's first show unhides it; from then on it stays in the view tree, unhidden, and a hover only
+    /// sets its layer's opacity, fading with `token` when `fades` (instant under Reduce Motion). An `isHidden` flip in
+    /// every crossing made AppKit rebuild the window's layer tree, walk the window for its default button and repaint
+    /// the control (its `viewDidHide`) in the frame's commit: the sweep stalls of steps f105684e and 909bfc85.
+    /// A clear control takes no click (`SidebarRowView.hitTest` skips clear buttons), answers accessibility as a hidden
+    /// one (`SidebarRowView.hoverPaintedControls`: no child, a layout change posted as it clears or shows) and
+    /// shows no tooltip (`TooltipPresenter`). A control that never showed stays hidden.
+    func setHoverPainted(_ view: NSView, _ shown: Bool, fades requested: Bool, token: MotionFade = .hover) {
+        let reached = !view.isHidden && view.alphaValue > 0
+        let appears = shown && view.isHidden
+        if appears {
+            view.alphaValue = 0
+            view.isHidden = false
+        }
+        guard !view.isHidden else { return }
+        let drawn = shown && view.alphaValue == 0
+        let fades = requested && Motion.sidebar.duration(token) > 0
+        fadeOpacity(view, to: shown ? 1 : 0, fades: fades, from: appears && fades ? 0 : nil, token: token)
+        // A pointer already on it (the next row's x as the pointer moves down the column) gets its tooltip.
+        if drawn { view.themedToolTipDrawn() }
+        if reached != (view.alphaValue > 0) { hoverControlReachChanged(view) }
+    }
+}
+
+extension NSView {
+    /// No two icons in a row (this view) share a box, at any width, hovered or not (Leo 2026-11-22: "this too. fucking overlapping
+    /// icons. over 24 hours ago."). The row's last layout pass: `keep` (the controls a person points at: the ✕, the ⋮,
+    /// the pin, a tree chevron, the speaker), then `marks` (the dots, spinners, counts and chips), in priority order.
+    /// Every drawn mark whose box meets an icon drawn before it clears (alpha 0) until the next layout, which shows
+    /// it again by its own rules; a kept control never clears. Half a point of each edge is ignored, so icons that
+    /// only touch do not count. Returns the marks it cleared.
+    @discardableResult
+    func clearMarksMeetingIcons(keep: [NSView?], marks: [NSView?], fades: Bool) -> [NSView] {
+        var taken = keep.compactMap { $0 }.compactMap(drawnIconBox)
+        var cleared: [NSView] = []
+        for mark in marks.compactMap(\.self) {
+            guard let box = drawnIconBox(mark) else { continue }
+            if taken.contains(where: { $0.intersects(box) }) {
+                fadeOpacity(mark, to: 0, fades: fades)
+                cleared.append(mark)
+            } else {
+                taken.append(box)
+            }
+        }
+        return cleared
+    }
+
+    /// `view`'s box in this row's coordinates, less half a point each side, while it draws; nil when it does not.
+    func drawnIconBox(_ view: NSView) -> CGRect? {
+        guard !view.isHidden, view.alphaValue > 0.01, view.frame.width > 0, view.frame.height > 0 else { return nil }
+        let box = view.superview === self ? view.frame : convert(view.bounds, from: view)
+        return box.insetBy(dx: 0.5, dy: 0.5)
+    }
+}

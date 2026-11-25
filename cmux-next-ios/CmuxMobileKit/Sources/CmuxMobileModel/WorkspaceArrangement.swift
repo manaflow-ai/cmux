@@ -23,6 +23,32 @@ public enum WorkspaceColor: String, CaseIterable, Hashable, Sendable {
         }
     }
 
+    /// The Mac's vibrant palette (`GroupColor.vibrantDark` / `vibrantLight`), as `0xRRGGBB`: the
+    /// color a Mac tab group draws, so a group reads the same color on the phone.
+    public func vibrant(dark: Bool) -> UInt32 {
+        switch self {
+        case .grey: dark ? 0xA1A1AA : 0x8E8E93
+        case .red: dark ? 0xFD7273 : 0xE36364
+        case .orange: dark ? 0xFE843D : 0xE57431
+        case .yellow: dark ? 0xF5BA14 : 0xD6A20A
+        case .green: dark ? 0x20C45F : 0x33AC5A
+        case .cyan: dark ? 0x14BBC2 : 0x10A6AD
+        case .blue: dark ? 0x62A7FD : 0x4693F1
+        case .purple: dark ? 0xB28BFD : 0x9F79E6
+        case .pink: dark ? 0xF46CBF : 0xD465A8
+        }
+    }
+
+    /// A background that carries white text, as the Mac's dark chip fill (`GroupColor` role
+    /// `fill`): the vibrant color taken 55% toward 0x1C1C1E.
+    public static func darkFill(_ rgb: UInt32) -> UInt32 {
+        func mix(_ shift: UInt32) -> UInt32 {
+            let from = Double(rgb >> shift & 0xFF), to = Double(0x1C1C1E >> shift & 0xFF)
+            return UInt32((from + (to - from) * 0.55).rounded()) << shift
+        }
+        return mix(16) | mix(8) | mix(0)
+    }
+
     /// A stored color value: a palette name, or nil (`#RRGGBB` colors are not in the menu).
     public init?(stored: String?) {
         guard let stored, let color = WorkspaceColor(rawValue: stored.lowercased()) else { return nil }
@@ -199,6 +225,48 @@ public enum WorkspaceEdge: String, CaseIterable, Hashable, Sendable {
     }
 }
 
+/// Move Workspace Above… / Below… (the Mac's `workspace.moveAbove` / `moveBelow`): the person
+/// picks another row of the workspace's container, and the workspace goes right before or after it.
+public enum WorkspaceNeighborMove: String, CaseIterable, Hashable, Sendable {
+    case above, below
+
+    /// The Mac's titles.
+    public var title: String {
+        switch self {
+        case .above: "Move Workspace Above…"
+        case .below: "Move Workspace Below…"
+        }
+    }
+
+    public var systemImage: String {
+        switch self {
+        case .above: "arrow.up.to.line.compact"
+        case .below: "arrow.down.to.line.compact"
+        }
+    }
+
+    /// The rows `workspace` can go next to on this side, in `order` (its container): every other
+    /// row except the one it already sits right after (above) or right before (below).
+    public func targets(for workspace: Workspace, in order: [Workspace]) -> [Workspace] {
+        guard let position = order.firstIndex(where: { $0.id == workspace.id }) else { return [] }
+        return order.enumerated().compactMap { index, row in
+            guard row.id != workspace.id else { return nil }
+            switch self {
+            case .above: return index == position + 1 ? nil : row
+            case .below: return index == position - 1 ? nil : row
+            }
+        }
+    }
+
+    /// `order` once `workspace` sits on this side of `target`.
+    public func reordered(_ workspace: Workspace, next target: Workspace, in order: [Workspace]) -> [Workspace] {
+        var rows = order.filter { $0.id != workspace.id }
+        guard let at = rows.firstIndex(where: { $0.id == target.id }) else { return order }
+        rows.insert(workspace, at: self == .above ? at : at + 1)
+        return rows
+    }
+}
+
 /// Sort Workspaces by Name / Last Used / Directory (the Mac's `WorkspaceSortKey`): every
 /// container of one Mac's sidebar (its loose rows, each group's members) sorted in place;
 /// pinned rows keep their own order (the Mac's pinned section is not sorted).
@@ -326,10 +394,14 @@ public protocol NotificationClearing: AnyObject {
     /// Mark All Notifications as Read: every tab the Mac shows unread is read
     /// (`ack-tab-notifications`); returns how many.
     func markAllNotificationsRead(on macID: String) async throws -> Int
+    /// Whether Mark All Notifications as Read takes `macID` now (a Mac whose reads wait for it
+    /// while it reconnects says yes).
+    func canMarkAllNotificationsRead(on macID: String) -> Bool
 }
 
 extension NotificationClearing {
     public func markAllNotificationsRead(on macID: String) async throws -> Int { 0 }
+    public func canMarkAllNotificationsRead(on macID: String) -> Bool { canClearNotifications(on: macID) }
 }
 
 extension AppStore {
@@ -470,6 +542,23 @@ extension WorkspaceCreator {
         track(workspace.id) { [weak self] in
             do {
                 try await arranger.place(workspace, next: anchor, after: after)
+            } catch {
+                self?.restore(old)
+                self?.onManageFailure?(workspace, "Couldn't move \(workspace.title)", Self.message(error))
+            }
+        }
+    }
+
+    /// Move Workspace Above… / Below…: right before or after `target`, a row of the same
+    /// container. The list shows the new place at once; the Mac's answer settles it.
+    public func move(_ workspace: Workspace, _ side: WorkspaceNeighborMove, _ target: Workspace) {
+        let order = container(of: workspace)
+        guard canArrange(workspace), let arranger, side.targets(for: workspace, in: order).contains(where: { $0.id == target.id })
+        else { return }
+        let old = reorderLocally(order, to: side.reordered(workspace, next: target, in: order))
+        track(workspace.id) { [weak self] in
+            do {
+                try await arranger.place(workspace, next: target, after: side == .below)
             } catch {
                 self?.restore(old)
                 self?.onManageFailure?(workspace, "Couldn't move \(workspace.title)", Self.message(error))

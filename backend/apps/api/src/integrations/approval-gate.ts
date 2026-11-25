@@ -279,9 +279,7 @@ export const APPROVAL_ITEM_OPS: ReadonlySet<string> = new Set(["integration.appr
  * names the posting owner of `team`: its ConnectionDO (integrations) or its CloudDO (cx-wb5.65).
  */
 export const postIntegrationApproval = async (env: Env, user: string, team: string, prompt: unknown, expiresInMs: number, key: string, source: ApprovalSource = "connections"): Promise<string> => {
-  const feed = env.FEED_DO.get(env.FEED_DO.idFromName(user)) as unknown as {
-    integrationApproval(user: string, team: string, prompt: unknown, expiresInMs: number, key: string, source: ApprovalSource): Promise<{ ok: true; item: string } | { ok: false; message: string }>
-  }
+  const feed = env.FEED_DO.get(env.FEED_DO.idFromName(user))
   const r = await feed.integrationApproval(user, team, prompt, expiresInMs, key, source)
   if (!r.ok) throw new Error(r.message)
   return r.item

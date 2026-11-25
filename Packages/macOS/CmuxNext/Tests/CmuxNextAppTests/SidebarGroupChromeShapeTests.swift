@@ -26,7 +26,7 @@ import Testing
                 let last = try #require(list.rowViews[.workspace(SidebarGroupLineLayoutTests.members[2])])
                 #expect(rail.minX == header.frame.minX)
                 #expect(rail.minY == header.frame.maxY)
-                #expect(rail.width == 4)
+                #expect(rail.width == 3.5)
                 #expect(rail.maxY == last.frame.maxY)
                 let bottomLeft: CACornerMask = header.pill.contentsAreFlipped() ? .layerMinXMaxYCorner : .layerMinXMinYCorner
                 #expect(!header.pill.maskedCorners.contains(bottomLeft), "the chip continues into the rail")
@@ -51,9 +51,8 @@ import Testing
             rail.layoutSubtreeIfNeeded()
             let layer = try #require(rail.layer)
             #expect(layer.cornerRadius == 2)
-            let bottom: CACornerMask = layer.contentsAreFlipped()
-                ? [.layerMinXMaxYCorner, .layerMaxXMaxYCorner] : [.layerMinXMinYCorner, .layerMaxXMinYCorner]
-            #expect(layer.maskedCorners == bottom)
+            #expect(layer.maskedCorners == SidebarGroupLineShape.capCorners(flipped: layer.contentsAreFlipped(), joined: GroupLineView.joinsBar),
+                    "the bottom cap rounds; a rail joined to its bar keeps its top square, any other rounds it too")
             #expect(layer.masksToBounds)
             #expect(layer.bounds.height == 80)
             #expect(rail.railShape.frame.height >= 5000, "the body still covers the spring's previous presentation height")
@@ -70,7 +69,7 @@ import Testing
             #expect(rail.alpha == 1)
             #expect(rail.frame.minX == header.frame.minX)
             #expect(rail.frame.minY == header.frame.maxY)
-            #expect(rail.frame.width == 4)
+            #expect(rail.frame.width == 3.5)
             #expect(rail.frame.maxY == last.frame.maxY)
             for row in list.displayed.rows where row.y >= rail.frame.minY && row.y < rail.frame.maxY {
                 #expect(rail.frame.maxX <= list.frame(for: row).minX, "the parent rail must remain clear of every member and nested header")
@@ -94,13 +93,6 @@ import Testing
         }
     }
 
-    @Test func connectedShoulderHasAClippedJoin() {
-        let shape = SidebarGroupLineShape.connected(width: 4, height: 80)
-        #expect(shape.contains(CGPoint(x: 1, y: 0.1)))
-        #expect(!shape.contains(CGPoint(x: 3.9, y: 0.1)))
-        #expect(shape.contains(CGPoint(x: 3.9, y: 3)))
-    }
-
     @Test(arguments: SidebarGroupHeaderStyle.allCases)
     func quietStylesAndManualOrderSurviveThePrototype(_ style: SidebarGroupHeaderStyle) throws {
         try Self.withShape(true) {
@@ -114,7 +106,7 @@ import Testing
                 return nil
             }
             #expect(ids == [SidebarGroupLineLayoutTests.looseID] + SidebarGroupLineLayoutTests.members)
-            #expect(SidebarStyle.groupBarWidth == (style == .band ? 4 : 2))
+            #expect(SidebarStyle.groupBarWidth == (style == .band ? 3.5 : 2))
         }
     }
 }

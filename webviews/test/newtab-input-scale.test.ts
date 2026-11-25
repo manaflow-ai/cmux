@@ -56,13 +56,13 @@ await requireBrowserLane("newtab-input-scale.test.ts", async () => {
       for (const scale of scales) {
         await page.goto(
           `http://127.0.0.1:${port}${galleryFrame("agent-pane.new-tab", {
-            variant: "template-cards",
+            variant: "minimal-default",
             theme,
             fontSize: scale.fontSize,
           })}`,
         );
         await page.waitForFunction(() => document.documentElement.dataset.galleryReady === "1");
-        // Cards has no idle prefix; enter shell mode through the real editor before measuring it.
+        // Minimal has no idle prefix; enter shell mode through the real editor before measuring it.
         await page.locator(".nt-field").click();
         await page.keyboard.type("!pwd");
         await page.locator(".nt-shell-glyph").waitFor();
@@ -100,7 +100,7 @@ await requireBrowserLane("newtab-input-scale.test.ts", async () => {
       for (const result of results) {
         expect(result.glyphTop).toBeCloseTo(result.fieldPad, 1);
         expect(result.glyphFontSize).toBeCloseTo(result.fontSize, 1);
-        expect(result.plusCenter).toBeCloseTo(result.fieldPad - result.textDrop / 2 + result.lineHeight / 2, 1);
+        expect(result.plusCenter).toBeCloseTo(result.fieldPad + result.lineHeight / 2, 1);
         expect(result.plusBottom).toBeLessThanOrEqual(result.inputBottom + 0.5);
         expect(result.fieldHeight).toBeGreaterThanOrEqual(
           result.lineHeight + 2 * (result.fieldPad - result.textDrop / 2) - 1,
@@ -115,7 +115,7 @@ await requireBrowserLane("newtab-input-scale.test.ts", async () => {
       expect(normal.inputHeight).toBeLessThan(large.inputHeight);
       await page.goto(
         `http://127.0.0.1:${port}${galleryFrame("agent-pane.new-tab", {
-          variant: "template-cards",
+          variant: "minimal-default",
           theme,
           fontSize: 0,
         })}`,

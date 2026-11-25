@@ -1,6 +1,5 @@
 {
   "title": "Home chat: the Chief's status line is one shimmering line, no typing bubble (user 2026-10-30: \"make it just one line with shimmer text\")",
-  "frameInterval": 0.25,
   "steps": [
     {"title": "Launch", "wait": 2, "shot": false},
     {"title": "The Home fixture conversation", "rpc": {"method": "debug.home_native_fixture.open", "params": {}}, "wait": 3, "shot": false},

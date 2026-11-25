@@ -95,8 +95,11 @@ fn a_click_finds_the_latest_process_its_tool_call_started() {
     other["sessionId"] = json!("chat-2");
     let list = vec![older, newer, other];
     let found = find_process(&list, None, Some("chat-1"), Some("toolu_1")).unwrap();
-    assert_eq!(text(found, "id"), "chat-1/task-b7x-2");
-    assert_eq!(text(find_process(&list, Some("chat-2/x"), None, None).unwrap(), "id"), "chat-2/x");
+    assert_eq!(found.get_str("id").unwrap_or(""), "chat-1/task-b7x-2");
+    assert_eq!(
+        find_process(&list, Some("chat-2/x"), None, None).unwrap().get_str("id").unwrap_or(""),
+        "chat-2/x"
+    );
     assert!(find_process(&list, None, Some("chat-9"), Some("toolu_1")).is_none());
 }
 
@@ -117,6 +120,45 @@ fn the_header_names_the_command_folder_start_and_output_file() {
     assert!(h.contains("Claude Code · background"), "{h}");
     assert!(h.contains("log      /srv/tasks/b7x.output"), "{h}");
     assert!(lines.last().unwrap().starts_with('─'), "{h}");
+}
+
+/// A Claude Monitor an agent named "hold" (`sleep 840; echo t`): the view
+/// says it only waits and then wakes the agent, under its
+/// command and the agent's name for it; the tab reads "Waiting 14m · hold".
+#[test]
+fn a_timer_says_what_it_waits_for() {
+    let mut p = proc("running");
+    p["command"] = json!("sleep 840; echo t");
+    p["description"] = json!("hold");
+    let h = header(&p, PLAIN);
+    assert_eq!(h.lines().next(), Some("$ sleep 840; echo t"));
+    assert!(h.contains("named    hold"), "{h}");
+    assert!(h.contains("waits    14m, then wakes the agent; it runs nothing else\n"), "{h}");
+    assert_eq!(title(&p), "Waiting 14m · hold");
+    // The name alone (an older registry knew only it) is not said twice.
+    p["command"] = json!("hold");
+    let h = header(&p, PLAIN);
+    assert!(!h.contains("named"), "{h}");
+    assert_eq!(title(&p), "hold");
+    // A command with no name keeps its command as the title and no named row.
+    assert_eq!(title(&proc("running")), "npm run dev");
+    assert!(!header(&proc("running"), PLAIN).contains("named"));
+}
+
+#[test]
+fn only_a_bare_sleep_reads_as_a_timer() {
+    assert_eq!(timer_secs("sleep 840; echo t"), Some(840));
+    assert_eq!(timer_secs("sleep 2m && echo done"), Some(120));
+    assert_eq!(timer_secs("sleep 1h"), Some(3600));
+    assert_eq!(timer_secs("sleep 30; gh pr checks 1"), None);
+    assert_eq!(timer_secs("sleep 30; echo $(date)"), None);
+    assert_eq!(timer_secs("sleep 30; echo t > f"), None);
+    assert_eq!(timer_secs("sleep 30; echo t & make build"), None);
+    assert_eq!(timer_secs("sleep x"), None);
+    assert_eq!(timer_secs("npm run dev"), None);
+    assert_eq!(span(840), "14m");
+    assert_eq!(span(45), "45s");
+    assert_eq!(span(7200), "2h");
 }
 
 #[test]
@@ -270,4 +312,83 @@ fn keys_map_to_what_the_viewer_does() {
     assert_eq!(Input::of(b'y'), Some(Input::Yes));
     assert_eq!(Input::of(b'\r'), Some(Input::No));
     assert_eq!(Input::of(b'x'), None);
+}
+
+fn start(slow: Option<&str>) -> Start {
+    Start {
+        cwd: None,
+        description: Some("dev server".to_owned()),
+        notify: true,
+        route: Some("code-mode".to_owned()),
+        slow: slow.map(str::to_owned),
+        command: "npm run dev".to_owned(),
+    }
+}
+
+/// `process start` (the Bash hook's rewrite, `bg_hook::decide`) starts the task in the chat its
+/// environment names, in the shell's own folder, for the subagent the hook's mark names.
+#[test]
+fn process_start_asks_for_the_chats_task_in_the_shells_folder() {
+    let env = |k: &str| match k {
+        "ACPMUX_SESSION_ID" => Some("chat-1".to_owned()),
+        "ACPMUX_CALLER_SUBAGENT" => Some("Explore:a0a68e7af3df5967e".to_owned()),
+        _ => None,
+    };
+    let params = start_params(&start(None), &env, Some("/srv/app".into())).unwrap();
+    assert_eq!(
+        params,
+        json!({"sessionId": "chat-1", "command": "npm run dev", "notify": true,
+            "cwd": "/srv/app", "description": "dev server",
+            "callerSubagent": {"id": "a0a68e7af3df5967e", "type": "Explore"}})
+    );
+    // --cwd wins; an odd mark names no subagent.
+    let mut s = start(None);
+    s.cwd = Some("/elsewhere".to_owned());
+    let odd = |k: &str| match k {
+        "ACPMUX_SESSION_ID" => Some("chat-1".to_owned()),
+        "ACPMUX_CALLER_SUBAGENT" => Some("x:a1;rm -rf /".to_owned()),
+        _ => None,
+    };
+    let params = start_params(&s, &odd, Some("/srv/app".into())).unwrap();
+    assert_eq!(params["cwd"], "/elsewhere");
+    assert!(params.get("callerSubagent").is_none(), "{params}");
+    // Outside a chat: no task.
+    assert!(start_params(&start(None), &|_: &str| None, None).is_err());
+}
+
+/// What the agent reads back: the id, that it outlives hibernation, the chat's own call that
+/// reads it, and for a moved foreground command why and how to keep it in the foreground.
+#[test]
+fn process_start_answers_with_the_id_and_how_to_read_it() {
+    let view = json!({"id": "t7", "state": "running", "command": "npm run dev",
+        "description": "dev server"});
+    let text = started_text(&start(None), &view);
+    assert!(text.contains("background task t7"), "{text}");
+    assert!(text.contains("keeps running while this chat's agent hibernates"), "{text}");
+    assert!(text.contains(r#"cmux.acpmux_bg_output({"id":"t7"})"#), "{text}");
+    assert!(!text.contains("# fg-ok"), "{text}");
+    let text = started_text(&start(Some("a follow that never ends on its own")), &view);
+    assert!(text.contains("This is a follow that never ends on its own"), "{text}");
+    assert!(text.contains("# fg-ok"), "{text}");
+}
+
+/// A start that failed says the same call again runs as asked (the hook's key stays); one that
+/// started forgets the key, so the same call later is rewritten again.
+#[cfg(unix)]
+#[test]
+fn process_start_forgets_the_hooks_key_only_once_started() {
+    let dir = tempfile::tempdir().unwrap();
+    let denied = dir.path().join("mcp.json.bg-denied");
+    std::fs::write(&denied, "k1\nk2\n").unwrap();
+    let hook = || Some((denied.clone(), "k1".to_owned()));
+    let failed = |sent| Err(StartFailed { sent, error: anyhow!("no daemon") });
+    let err = finish_start(&start(None), failed(false), hook(), true).unwrap_err();
+    assert!(err.to_string().contains("Send the same Bash call again"), "{err}");
+    assert_eq!(std::fs::read_to_string(&denied).unwrap(), "k1\nk2\n");
+    // Sent but unanswered: the task may run, so never "send it again and it runs".
+    let err = finish_start(&start(None), failed(true), hook(), true).unwrap_err();
+    assert!(err.to_string().contains("look in bg_list"), "{err}");
+    assert!(!err.to_string().contains("Send the same Bash call again"), "{err}");
+    finish_start(&start(None), Ok(json!({"id": "t7", "state": "running"})), hook(), true).unwrap();
+    assert_eq!(std::fs::read_to_string(&denied).unwrap(), "k2\n");
 }

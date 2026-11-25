@@ -1,4 +1,4 @@
-//! The secret methods (`hub/secrets.rs`), routed before every other method
+//! The secret methods (`hub/secrets.rs`) and the sudo card's ask (`hub/elevation.rs`), routed before every other method
 //! (`chats.rs`), so before peer forwarding: a secret never travels to another
 //! daemon, and only a session of this one asks. Each method checks its own
 //! caller: the unix socket asks and spends, the person answers.
@@ -23,8 +23,16 @@ pub(super) async fn dispatch(
     m: &str,
     params: &Value,
 ) -> Option<Result<Value, RpcError>> {
-    if !matches!(m, method::MUX_SECRET_REQUEST | method::MUX_SECRET_SUBMIT | method::MUX_SECRET_RUN)
-    {
+    if !matches!(
+        m,
+        method::MUX_SECRET_REQUEST
+            | method::MUX_SECRET_SUBMIT
+            | method::MUX_SECRET_RUN
+            | method::MUX_ELEVATION_REQUEST
+            | method::MUX_CHAT_SECRETS_SET
+            | method::MUX_CHAT_SECRETS_CLEAR
+            | method::MUX_CHAT_SECRETS_LIST
+    ) {
         return None;
     }
     Some(handle(hub, conn, m, params).await)
@@ -43,26 +51,114 @@ async fn handle(
         Ok(session) => session,
         Err(e) => {
             return Err(match hub.resolve_remote(key) {
+                Some((peer, _, _)) if m == method::MUX_ELEVATION_REQUEST => {
+                    RpcError::invalid_params(format!(
+                        "this chat runs on {}: a password never travels to another daemon, so \
+                         ask from a chat on the machine whose acpmux runs it",
+                        peer.name
+                    ))
+                }
+                Some((peer, _, _)) if is_chat_secrets(m) => RpcError::invalid_params(format!(
+                    "this chat runs on {}: a chat secret is never forwarded, so set it on the \
+                     acpmux of the machine that runs the chat",
+                    peer.name
+                )),
                 Some((peer, _, _)) => on_peer(&peer.name),
                 None => e,
             });
         }
     };
     match m {
+        method::MUX_CHAT_SECRETS_SET => {
+            // The person's own connection only: an agent on this daemon never plants a value
+            // in a chat, its own or another's.
+            if !conn.is_person() {
+                return Err(crate::hub::person::person_required("setting a chat secret"));
+            }
+            let secrets = params
+                .get("secrets")
+                .and_then(Value::as_object)
+                .filter(|o| !o.is_empty())
+                .ok_or_else(|| {
+                    RpcError::invalid_params("secrets is required: {NAME: value}, at least one")
+                })?;
+            let mut pairs = Vec::with_capacity(secrets.len());
+            for (name, value) in secrets {
+                let value = value.as_str().ok_or_else(|| {
+                    RpcError::invalid_params(format!("{name}'s value must be a string"))
+                })?;
+                pairs.push((name.clone(), Zeroizing::new(value.to_owned())));
+            }
+            let ttl = match params.get("ttlSeconds").filter(|v| !v.is_null()) {
+                None => None,
+                Some(v) => Some(std::time::Duration::from_secs(v.as_u64().ok_or_else(|| {
+                    RpcError::invalid_params("ttlSeconds must be a whole number of seconds")
+                })?)),
+            };
+            let names = crate::chat_secrets::set(&session.id, pairs, ttl)
+                .map_err(|e| RpcError::invalid_params(e.to_string()))?;
+            let applied = hub.restart_on_change(&session).await?;
+            Ok(json!({"sessionId": session.id, "names": names, "applied": applied}))
+        }
+        method::MUX_CHAT_SECRETS_CLEAR => {
+            if !conn.is_person() {
+                return Err(crate::hub::person::person_required("clearing a chat secret"));
+            }
+            let cleared = crate::chat_secrets::clear(&session.id);
+            let applied =
+                if cleared == 0 { "unchanged" } else { hub.restart_on_change(&session).await? };
+            Ok(json!({"sessionId": session.id, "cleared": cleared, "applied": applied}))
+        }
+        // Names and seconds left, never a value: anyone who may name the chat.
+        method::MUX_CHAT_SECRETS_LIST => {
+            let secrets: Vec<Value> = crate::chat_secrets::list(&session.id)
+                .into_iter()
+                .map(|(name, left)| json!({"name": name, "expiresInSeconds": left}))
+                .collect();
+            Ok(json!({"sessionId": session.id, "secrets": secrets}))
+        }
         method::MUX_SECRET_REQUEST => {
             refuse_unless_unix(conn, "asking for a secret")?;
             let name = str_param(params, "name").unwrap_or_default();
             let reason = str_param(params, "reason").unwrap_or_default();
             hub.request_secret(&session, name, reason).await
         }
+        // A sudo card (`hub/elevation.rs`): the agent asks over the unix socket, and the person
+        // answers it with `secret_submit` like any private card.
+        method::MUX_ELEVATION_REQUEST => {
+            refuse_unless_unix(conn, "asking to run a command as root")?;
+            hub.request_elevation(&session, params).await
+        }
         method::MUX_SECRET_SUBMIT => {
-            // The card is the person's: never the agent that asked.
-            if !conn.is_person() {
-                return Err(crate::hub::person::person_required("filling a secret card"));
-            }
             let id = str_param(params, "secretId")
                 .ok_or_else(|| RpcError::invalid_params("secretId is required"))?;
             let value = str_param(params, "value").map(|v| Zeroizing::new(v.to_owned()));
+            // The card is the person's: never the agent that asked. A phone answers a sudo card
+            // with its approver signature (`Hub::card_answer_signed`).
+            // The value is checked first: a refused one must not spend the phone's signature.
+            hub.check_card_value(&session, id, value.as_deref().map(String::as_str))?;
+            // A card this daemon no longer holds answers no one: the refusal closes it on every
+            // client (`Hub::submit_secret`), whoever sent it, and grants nothing.
+            if !hub.card_open(&session, id) {
+                hub.submit_secret(&session, id, value)?;
+                return Ok(json!({}));
+            }
+            // "Keep as key NAME" (`Hub::keep_card_value`): checked before a phone's signature is
+            // spent, so a refused keep spends nothing.
+            let keep_as = str_param(params, "keepAs");
+            if let Some(key) = keep_as {
+                if value.is_none() {
+                    return Err(RpcError::invalid_params("keepAs needs the value it keeps"));
+                }
+                hub.check_keep(&session, id, key)?;
+            }
+            if !conn.is_person() && !hub.card_answer_signed(&session, id, value.is_some(), params) {
+                return Err(crate::hub::person::person_required("filling a secret card"));
+            }
+            // Kept before the card is answered: a store that refuses leaves the card open.
+            if let (Some(key), Some(value)) = (keep_as, &value) {
+                hub.keep_card_value(&session, id, key, value).await?;
+            }
             hub.submit_secret(&session, id, value)?;
             Ok(json!({}))
         }
@@ -79,6 +175,15 @@ async fn handle(
             hub.run_with_secret(&session, secret_ref, env, &argv).await
         }
     }
+}
+
+fn is_chat_secrets(m: &str) -> bool {
+    matches!(
+        m,
+        method::MUX_CHAT_SECRETS_SET
+            | method::MUX_CHAT_SECRETS_CLEAR
+            | method::MUX_CHAT_SECRETS_LIST
+    )
 }
 
 /// A secret method for a chat on peer `peer` (this daemon's name for it): never forwarded.

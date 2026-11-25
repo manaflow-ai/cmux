@@ -4,8 +4,10 @@ import CmuxNextHistory
 
 /// The titlebar band's Back and Forward (R69): a click runs
 /// focusHistoryBack / focusHistoryForward, the right-click or long-press list
-/// runs `history.goTo {index}` (laid out by Debug Settings `history.menuLayout`), and each button is enabled only while the
-/// shown page's history or the trail has somewhere to go (history.md 4.2b).
+/// runs `history.goTo {index}` (laid out by Debug Settings `history.menuLayout`), lists Recently
+/// Closed (`history.reopen {id}`) and ends with Show Full History (`history.show`). Each button's
+/// click is enabled only while the shown page's history or the trail has somewhere to go
+/// (history.md 4.2b); its right-click list opens either way.
 extension WindowController {
     func installHistoryButtons() {
         let band = root.toolbarBand
@@ -14,17 +16,20 @@ extension WindowController {
             _ = registry?.perform(direction == .back ? "focusHistoryBack" : "focusHistoryForward", invocation: ActionInvocation(origin: .user))
         }
         band.historyMenu = { [weak services, weak registry] direction in
-            guard let services, services.locationTrail.scope != .surface else { return nil }
-            let layout = TitlebarHistoryTunables.menuLayout.value
-            let sections = services.locationTrail.menuSections(direction, layout: layout)
-            // The `scope` layout is the R69 list as it was: nothing to list, no menu. The others
-            // always open, so a right-click is never dead (Show All History at least).
-            if layout == .scope, sections.isEmpty { return nil }
-            // Show All History is the registered `history.show` row, not a menu-only handler.
-            let showAll = layout == .scope ? nil : registry?.makeMenuItem(for: "history.show")
-            return TitlebarHistoryMenu.make(sections, choose: { index in
-                _ = registry?.perform("history.goTo", invocation: ActionInvocation(arguments: ["index": .int(index)], origin: .user))
-            }, showAll: showAll)
+            guard let services else { return nil }
+            let layout = TitlebarHistoryTunables.menuLayout.value, trail = services.locationTrail
+            // With the `surface` scope the page's own list is Back's walk: no trail rows, Recently Closed still lists.
+            let sections = trail.scope == .surface ? [] : trail.menuSections(direction, layout: layout)
+            // Every layout always opens, a dimmed arrow's too. Recently Closed reads the mirrored closed history (bounded,
+            // no daemon request) and keeps the list's size (`TitlebarHistoryMenuStyle`); Show Full History is the
+            // registered `history.show` row.
+            let closed = TitlebarHistoryClosedSection(services.history.closedEntries(limit: TitlebarHistoryMenu.closedLimit),
+                                                      served: DaemonClosedHistory.isServed(in: services))
+            return TitlebarHistoryMenu.make(sections, closed: closed, style: TitlebarHistoryTunables.menuStyle.value,
+                                            choose: { Self.goTo(registry, $0) }, reopenRow: { id, title in
+                // The row's own item by id, never the "newest closed" of an empty id.
+                registry?.makeArgumentMenuItem(for: "history.reopen", arguments: ["id": .string(id)], title: title)
+            }, showAll: registry?.makeMenuItem(for: "history.show"))
         }
         // The sidebar toggle's right-click (cx-2lm4): the menu of the sidebar's empty space.
         band.sidebarToggle.longPressOpensMenu = false
@@ -36,6 +41,10 @@ extension WindowController {
         // Each window listens for itself; windowWillClose removes it.
         band.historyObserver = services.locationTrail.addObserver { [weak self] in self?.refreshHistoryButtons() }
         refreshHistoryButtons()
+    }
+
+    private static func goTo(_ registry: ActionRegistry?, _ index: Int) {
+        _ = registry?.perform("history.goTo", invocation: ActionInvocation(arguments: ["index": .int(index)], origin: .user))
     }
 
     /// Stops listening to the trail (the window closes).

@@ -1,10 +1,45 @@
-//! `cmux share chat|list|revoke|kick`: guest links to an agent chat (design chat-multiplayer.md 6).
-//! The app's `agent.share` family runs them (CLI names `share chat`, `share list`, `share revoke`,
-//! `share kick`), because the app holds the owner's cmux sign-in that a link's room needs. This
-//! only turns the positional ids of `share revoke ID` and `share kick ID GUEST` into the actions'
-//! `--share-id` and `--guest-id`, and prints `share chat`'s link alone for a person.
+//! `cmux share chat|list|revoke|kick|invite|uninvite`: guest links to an agent chat and the cmux
+//! accounts invited to it (design chat-multiplayer.md 6). The app's `agent.share` family runs them
+//! (CLI names `share chat`, `share list`, `share revoke`, `share kick`, `share invite`, `share
+//! uninvite`), because the app holds the owner's cmux sign-in that a link's room needs. This only
+//! turns the positional words of `share revoke ID`, `share kick ID GUEST`, `share invite ACCOUNT`
+//! and `share uninvite ACCOUNT` into the actions' `--share-id`, `--guest-id` and `--account`, and
+//! prints `share chat`'s link (and an invite's one line) for a person.
 
 use serde_json::Value;
+
+/// The acpmux words for `share screens|start|stop|move …` and `share list --screens`: the screen
+/// shares this machine's daemon device reads and changes at the device hub (acpmux
+/// `share-host`, cmuxterm-hq docs/design/screen-share-under-100ms.md D9), not the app's chat links.
+/// None for every other `share` command. A `--json` before `share` or between `share` and the verb
+/// (`cmux --json share screens`, `cmux share --json screens`) goes last, where share-host reads it
+/// (docs/cli-conventions.md in cmuxterm-hq: `--json` goes anywhere).
+pub(crate) fn screen_verb(raw_args: &[String]) -> Option<Vec<String>> {
+    let is_json = |word: &String| word == "--json";
+    let lead = raw_args.iter().take_while(|word| is_json(word)).count();
+    let [scope, after_scope @ ..] = raw_args.get(lead..)? else { return None };
+    if scope != "share" {
+        return None;
+    }
+    let between = after_scope.iter().take_while(|word| is_json(word)).count();
+    let [verb, rest @ ..] = after_scope.get(between..)? else { return None };
+    let mut words = vec!["share-host".to_owned()];
+    match verb.as_str() {
+        "screens" | "start" | "stop" | "move" => {
+            words.push(verb.clone());
+            words.extend(rest.iter().cloned());
+        }
+        "list" if rest.iter().any(|word| word == "--screens") => {
+            words.push("screens".to_owned());
+            words.extend(rest.iter().filter(|word| *word != "--screens").cloned());
+        }
+        _ => return None,
+    }
+    if (lead > 0 || between > 0) && !words.iter().any(|word| word == "--json") {
+        words.push("--json".to_owned());
+    }
+    Some(words)
+}
 
 /// The app action and its arguments for `share revoke|kick <ids…> [flags]`, or None for other words.
 /// The ids are the words right after the verb. They are base64url and may start with `-`, so a word
@@ -19,6 +54,8 @@ pub(super) fn action(command_args: &[String]) -> Option<Result<(String, Vec<Stri
     let names: &[&str] = match verb.as_str() {
         "revoke" => &["--share-id"],
         "kick" => &["--share-id", "--guest-id"],
+        "invite" | "uninvite" => return Some(account_action(verb, rest)),
+        "chat" => return chat_action(rest),
         _ => return None,
     };
     let positional = rest.iter().take(names.len()).take_while(|arg| !is_flag(arg)).count();
@@ -46,6 +83,73 @@ pub(super) fn action(command_args: &[String]) -> Option<Result<(String, Vec<Stri
         names.iter().zip(ids).map(|(name, id)| format!("{name}={id}")).collect();
     args.extend(flags.iter().cloned());
     Some(Ok((format!("share {verb}"), args)))
+}
+
+/// `share chat --view-only [flags]`: a link where nobody sends, as `--role=view
+/// --signed-in-role=view` (the daemon's `agent-session-share-create {role: "view",
+/// signed_in_role: "view"}`: anonymous link guests always watch, and signed-in ones watch too).
+/// `--view-only` with a `--role` or `--signed-in-role` is refused; without `--view-only` the words
+/// go on as typed (`--role view` and `--signed-in-role view` reach the action as they are).
+fn chat_action(rest: &[String]) -> Option<Result<(String, Vec<String>), String>> {
+    let view_only = rest.iter().filter(|word| *word == "--view-only").count();
+    if view_only == 0 {
+        return None;
+    }
+    if view_only > 1 || argument_keys(rest).iter().any(|key| key == "role" || key == "signedInRole")
+    {
+        return Some(Err(
+            "share chat: give --view-only, or --role and --signed-in-role, once".to_owned()
+        ));
+    }
+    let args = rest
+        .iter()
+        .flat_map(|word| {
+            if word == "--view-only" {
+                vec!["--role=view".to_owned(), "--signed-in-role=view".to_owned()]
+            } else {
+                vec![word.clone()]
+            }
+        })
+        .collect();
+    Some(Ok(("share chat".to_owned(), args)))
+}
+
+/// `share invite|uninvite <account> [flags]`: the account (an email or `@handle`, never dash-led) is
+/// the one word that is neither a flag nor a flag's value, wherever it stands, so `share invite
+/// --surface 3 leo@cmux.com --role view` and `share invite leo@cmux.com --surface 3` agree. An
+/// account given twice (`share invite a@x.com --account b@x.com`) is refused; with none the words
+/// go on as typed, and the app answers that the account is missing.
+fn account_action(verb: &str, rest: &[String]) -> Result<(String, Vec<String>), String> {
+    let mut accounts = Vec::new();
+    let mut flags = Vec::new();
+    let mut words = rest.iter();
+    while let Some(word) = words.next() {
+        if word == "--" {
+            accounts.extend(words.by_ref().cloned());
+            break;
+        }
+        if !word.starts_with('-') {
+            accounts.push(word.clone());
+            continue;
+        }
+        flags.push(word.clone());
+        // `--name value`: the next word is the flag's, not the account (switches take none).
+        if !SWITCHES.contains(&word.as_str())
+            && !ACTION_SWITCHES.contains(&word.as_str())
+            && !word.contains('=')
+            && let Some(value) = words.next()
+        {
+            flags.push(value.clone());
+        }
+    }
+    let named = argument_keys(&flags).iter().filter(|key| *key == "account").count();
+    if accounts.len() + named > 1 {
+        return Err(format!("share {verb}: name one account (an email or @handle)"));
+    }
+    let mut args: Vec<String> =
+        accounts.iter().map(|account| format!("--account={account}")).collect();
+    args.extend(flags);
+    Ok((format!("share {verb}"), args))
 }
 
 /// The action argument each of `args` sets, in every spelling the action parser takes:
@@ -100,6 +204,9 @@ pub(super) fn take_output_switches(args: &mut Vec<String>) -> Vec<String> {
     taken
 }
 
+/// The action parser's own valueless switches (`app::run_action`): never followed by a value.
+const ACTION_SWITCHES: &[&str] = &["--wait", "--no-wait", "--interactive", "--focus"];
+
 /// The switches `share revoke` and `share kick` take besides their ids.
 const SWITCHES: &[&str] = &["--json", "--jsonl", "--quiet", "--help", "-h", "--"];
 
@@ -113,113 +220,32 @@ fn is_flag(arg: &str) -> bool {
                 || matches!(argument_key(arg).as_str(), "shareId" | "guestId" | "arg")))
 }
 
-/// What a person sees for `share chat`: the link alone, so `cmux share chat | pbcopy` works.
-/// None for every other run (and a link-less share, whose fields print as a table).
+/// What a person sees for `share chat`: the link alone, so `cmux share chat | pbcopy` works; for
+/// `share invite` and `share uninvite`, one line naming the account (an invite's followed by its
+/// invite link, when the share has a room). None for every other run (and
+/// a link-less share, whose fields print as a table).
 pub(super) fn human_line(params: &Value, result: &Value) -> Option<String> {
     let action = params.get("action")?.as_str()?;
-    if action != "share chat" && action != "agent.share" {
-        return None;
+    let result = result.get("result")?;
+    match action {
+        "share chat" | "agent.share" => result.get("url")?.as_str().map(|url| format!("{url}\n")),
+        "share invite" | "agent.share.invite" => {
+            let account = result.get("account")?.as_str()?;
+            let can = if result.get("role")?.as_str()? == "view" { "view" } else { "talk" };
+            let mut line = format!("Invited {account} (can {can})\n");
+            // The link the owner sends the invitee (none without a room).
+            if let Some(link) = result.get("invite_url").and_then(Value::as_str) {
+                line.push_str(&format!("Invite link: {link}\n"));
+            }
+            Some(line)
+        }
+        "share uninvite" | "agent.share.uninvite" => {
+            Some(format!("Removed {}\n", result.get("account")?.as_str()?))
+        }
+        _ => None,
     }
-    result.get("result")?.get("url")?.as_str().map(|url| format!("{url}\n"))
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-    use serde_json::json;
-
-    fn words(text: &str) -> Vec<String> {
-        text.split_whitespace().map(str::to_owned).collect()
-    }
-
-    #[test]
-    fn revoke_and_kick_name_their_ids() {
-        assert_eq!(
-            action(&words("share revoke s1 --json")),
-            Some(Ok(("share revoke".to_owned(), words("--share-id=s1 --json"))))
-        );
-        assert_eq!(
-            action(&words("share kick s1 g2")),
-            Some(Ok(("share kick".to_owned(), words("--share-id=s1 --guest-id=g2"))))
-        );
-    }
-
-    #[test]
-    fn an_id_may_start_with_a_dash() {
-        assert_eq!(
-            action(&words("share revoke -Xk3_aQ9 --json")),
-            Some(Ok(("share revoke".to_owned(), words("--share-id=-Xk3_aQ9 --json"))))
-        );
-        assert_eq!(
-            action(&words("share kick --a1b2 -g2")),
-            Some(Ok(("share kick".to_owned(), words("--share-id=--a1b2 --guest-id=-g2"))))
-        );
-    }
-
-    /// The rewritten words go through the action parser the CLI uses, and the ids arrive whole.
-    #[test]
-    fn the_action_parser_reads_dash_led_ids_as_values() {
-        let Some(Ok((name, args))) = action(&words("share kick --a1b2 -g2")) else {
-            panic!("share kick names its ids")
-        };
-        let command =
-            super::super::app::run_action(&name, &args, super::super::app::ActionName::Cli)
-                .expect("the rewritten flags parse");
-        let super::super::app::AppCommand::Call { params, .. } = command else {
-            panic!("share kick is an action call")
-        };
-        assert_eq!(params["args"]["shareId"], "--a1b2", "{params}");
-        assert_eq!(params["args"]["guestId"], "-g2", "{params}");
-    }
-
-    #[test]
-    fn an_id_given_twice_is_refused() {
-        for text in [
-            "share revoke s1 --share-id s2",
-            "share kick s1 g1 --guest-id=g2",
-            "share revoke --share-id=s1 --share-id=s2",
-            "share kick --share-id s1 --guest-id g1 --guest-id g2",
-            "share revoke s1 --arg shareId=s2",
-            "share revoke s1 --arg=shareId=s2",
-            "share revoke s1 --shareId=s2",
-            "share kick s1 g1 --guest_id g2",
-            "share revoke --share-id s1 --shareId s2",
-        ] {
-            assert!(matches!(action(&words(text)), Some(Err(_))), "{text}");
-        }
-        assert_eq!(action(&words("share revoke --share-id=s1")), None, "one flag goes on as typed");
-    }
-
-    #[test]
-    fn an_output_switch_after_a_dash_led_id_reaches_the_output_mode() {
-        let Some(Ok((_, mut args))) = action(&words("share revoke --a1b2 --json")) else {
-            panic!("share revoke names its id")
-        };
-        assert_eq!(take_output_switches(&mut args), words("--json"));
-        assert_eq!(args, words("--share-id=--a1b2"));
-    }
-
-    #[test]
-    fn other_words_go_on_as_typed() {
-        for text in [
-            "share chat --surface 3",
-            "share list",
-            "share revoke",
-            "share kick s1",
-            "host share 3 leo",
-            "share revoke --share-id s1",
-        ] {
-            assert_eq!(action(&words(text)), None, "{text}");
-        }
-    }
-
-    #[test]
-    fn share_chat_prints_only_the_link() {
-        let params = json!({"action": "share chat", "cli": true});
-        let result = json!({"ran": true, "result": {"share_id": "s1", "url": "https://room.example/g/s1#k"}});
-        assert_eq!(human_line(&params, &result).as_deref(), Some("https://room.example/g/s1#k\n"));
-        let roomless = json!({"ran": true, "result": {"share_id": "s1", "url": null}});
-        assert_eq!(human_line(&params, &roomless), None);
-        assert_eq!(human_line(&json!({"action": "share list"}), &result), None);
-    }
-}
+#[path = "share_cli_tests.rs"]
+mod tests;

@@ -236,6 +236,14 @@ public enum CMUXTeamError: Error, Equatable, Sendable {
     /// The service could not answer (network, 5xx, rate limit, an unreadable reply), or this
     /// client has no cmux backend for team management.
     case unavailable
+    /// The invitation was accepted, declined, revoked or expired, or its team is gone
+    /// (410 `invitation_invalid`, 404 `invitation_not_found`).
+    case invitationInvalid
+    /// The invitation was sent to an address that is not one of the user's verified emails
+    /// (409 `email_mismatch`).
+    case emailMismatch
+    /// The team's plan has no seat for another member (`seat_limit`).
+    case seatLimit
 
     /// The error for a non-2xx reply: the code first, then the status.
     public init(status: Int, code: String?) {
@@ -245,6 +253,9 @@ public enum CMUXTeamError: Error, Equatable, Sendable {
         case "forbidden", "last_admin": self = .forbidden
         case "invalid_request": self = .invalidName
         case "unauthorized": self = .signedOut
+        case "invitation_invalid", "invitation_not_found": self = .invitationInvalid
+        case "email_mismatch": self = .emailMismatch
+        case "seat_limit": self = .seatLimit
         default:
             switch status {
             case 401: self = .signedOut

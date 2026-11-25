@@ -1,8 +1,12 @@
 import { describe, expect, test } from "bun:test";
 import { pageError } from "../shared/pageClient";
 import { AppsOps } from "./types";
-import { MockAppsProvider } from "./mockProvider";
+import { MockAppsProvider, sampleApps } from "./mockProvider";
 import { AppsStore } from "./store";
+import { userMessage } from "../shared/userMessage";
+
+/** What a failure without its own sentence says (the owner's text stays in the error). */
+const GENERIC = userMessage(undefined);
 
 describe("AppsStore update center", () => {
   test("projects supervisor updates into installed state", async () => {
@@ -33,7 +37,7 @@ describe("AppsStore update center", () => {
 
     expect(store.getSnapshot().updates).toHaveLength(1);
     expect(store.getSnapshot().updatesStale).toBe(true);
-    expect(store.getSnapshot().updatesError).toBe("update service unavailable");
+    expect(store.getSnapshot().updatesError).toBe(GENERIC);
     store.stop();
   });
 
@@ -46,7 +50,7 @@ describe("AppsStore update center", () => {
 
     expect(store.getSnapshot().updates.map((update) => update.app)).toEqual(["cmux.github-prs"]);
     expect(store.getSnapshot().updatesStale).toBe(true);
-    expect(store.getSnapshot().updatesError).toContain(AppsOps.updatesList);
+    expect(store.getSnapshot().updatesError).toBe(userMessage(pageError("cmux.protocol.unknown_op", "")));
     store.stop();
   });
 
@@ -99,6 +103,38 @@ describe("AppsStore update center", () => {
   });
 });
 
+describe("AppsStore double-clicked mutations", () => {
+  // Leo, 2026-11-16: the install button shows a second confirm dialog. Each call to the host asks
+  // for its own native confirmation, so a second click while the first sheet loads must join it.
+  test("a second Install while the first waits on its confirmation sends one install", async () => {
+    const provider = new MockAppsProvider();
+    const originalCall = provider.call.bind(provider);
+    let confirm: (() => void) | undefined;
+    const confirmed = new Promise<void>((resolve) => {
+      confirm = resolve;
+    });
+    provider.call = async <R>(op: string, params: unknown): Promise<R> => {
+      if (op === AppsOps.install) await confirmed;
+      return originalCall<R>(op, params);
+    };
+    const store = new AppsStore(provider);
+    await store.start();
+    const app = Object.values(provider.details).find((candidate) => !provider.installed[candidate.id]);
+    if (!app) throw new Error("no uninstalled sample app");
+
+    const first = store.install(app.id);
+    const second = store.install(app.id);
+    if (!confirm) throw new Error("install did not start");
+    confirm();
+    await Promise.all([first, second]);
+
+    expect(provider.calls.filter((call) => call.op === AppsOps.install)).toHaveLength(1);
+    await store.install(app.id);
+    expect(provider.calls.filter((call) => call.op === AppsOps.install)).toHaveLength(2);
+    store.stop();
+  });
+});
+
 describe("AppsStore deep link after a catalog failure", () => {
   test("a deep-linked app does not stay Loading when the catalog load fails", async () => {
     const provider = new MockAppsProvider();
@@ -116,5 +152,47 @@ describe("AppsStore deep link after a catalog failure", () => {
   test("without a client a deep link is idle, not loading", () => {
     const store = new AppsStore(null, "#/discover?app=cmux.github-prs");
     expect(store.getSnapshot().detailStatus).toBe("idle");
+  });
+});
+
+describe("AppsStore shelves", () => {
+  // Leo, 2026-11-16: "idk if we want to ship THOSE as standard apps". Discover lists the store
+  // shelf; the SDK examples only when the owner offers them; a `cmux ext dev` app never.
+  const shelved = (examples: boolean) => {
+    const data = sampleApps();
+    data.details["acme.caffeinate"]!.shelf = "example";
+    data.details["someone.weather"]!.shelf = "local";
+    return new MockAppsProvider({ ...data, examples });
+  };
+  const ids = (store: AppsStore) => store.getSnapshot().visible.map((app) => app.id);
+
+  test("Discover shows only the store shelf, and a developer's Examples shows only the examples", async () => {
+    const store = new AppsStore(shelved(true), "#/discover");
+    await store.start();
+    expect(ids(store)).toEqual(["cmux.github-prs", "cmux.coderouter"]);
+    expect(store.getSnapshot().examplesOffered).toBe(true);
+
+    store.setShelf("example");
+    expect(ids(store)).toEqual(["acme.caffeinate"]);
+    expect(store.getSnapshot().categories).toEqual(["productivity"]);
+    store.setShelf("store");
+    expect(ids(store)).toEqual(["cmux.github-prs", "cmux.coderouter"]);
+    store.stop();
+  });
+
+  test("without the owner's offer, Examples never opens, even from a deep link", async () => {
+    const store = new AppsStore(shelved(false), "#/discover?shelf=examples");
+    await store.start();
+    expect(store.getSnapshot().shelf).toBe("store");
+    store.setShelf("example");
+    expect(ids(store)).toEqual(["cmux.github-prs", "cmux.coderouter"]);
+    store.stop();
+  });
+
+  test("a listing from an owner older than shelves stays on Discover", async () => {
+    const store = new AppsStore(new MockAppsProvider(), "#/discover");
+    await store.start();
+    expect(ids(store)).toContain("someone.weather");
+    store.stop();
   });
 });

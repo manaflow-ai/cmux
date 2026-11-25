@@ -24,7 +24,7 @@ enum BrowserTabAudio {
     static func badge(_ state: BrowserTabState?) -> TabAudio? {
         guard let state else { return nil }
         if state.isAudioMuted { return .muted }
-        return state.media?.isAudible == true ? .playing : nil
+        return state.media?.isSounding == true ? .playing : nil
     }
 
     /// What a sidebar row counts for a page in state `state`.

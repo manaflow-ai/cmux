@@ -1,7 +1,9 @@
 import CmuxNextCompat
 import CmuxNextControl
 import CmuxNextDaemon
+import CmuxNextSidebar
 import Foundation
+import os
 
 /// Where one app's `SidebarSnapshotDocument` lives, and its synchronous
 /// read and atomic write. The read runs once per launch before the first
@@ -9,13 +11,56 @@ import Foundation
 /// never waits for the daemon.
 nonisolated struct SidebarSnapshotFile: Sendable {
     static let fileName = "sidebar-snapshot-v1.json"
-    /// A larger file is not read (a sidebar of a few hundred rows is ~100 KB).
+    /// The file's one size limit: the writer compacts a document to fit under it
+    /// (`SidebarSnapshotDocument.fitted`) and the reader refuses a larger file. Leo's
+    /// NIGHTLY on 2026-11-18: 4 windows, 178 rows, 53 KB, about 270 bytes a row.
     static let maximumBytes = 2 * 1024 * 1024
 
-    let url: URL
+    /// What the file reports: a write it had to compact, or a present file it did not read and why.
+    enum Event: Equatable, Sendable {
+        case compacted(SidebarSnapshotDocument.Compaction)
+        case skipped(SkipReason)
+    }
 
-    init(url: URL) {
+    /// Why a present file was not read (a missing one is a first launch, not reported).
+    enum SkipReason: Equatable, Sendable {
+        case tooLarge(bytes: Int, limit: Int)
+        case unreadable(String)
+        case undecodable(String)
+        case otherSchema(Int)
+    }
+
+    let url: URL
+    /// Receives every `Event`; the default logs it (category `sidebar-snapshot`).
+    let report: @Sendable (Event) -> Void
+
+    init(url: URL, report: @escaping @Sendable (Event) -> Void = { SidebarSnapshotFile.log($0) }) {
         self.url = url
+        self.report = report
+    }
+
+    private static let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "sidebar-snapshot")
+
+    static func log(_ event: Event) {
+        switch event {
+        case let .compacted(c):
+            logger.notice("""
+            sidebar snapshot compacted to fit: \(c.bytesBefore, privacy: .public) -> \(c.bytesAfter, privacy: .public) bytes, \
+            limit \(c.limit, privacy: .public); row detail dropped \(c.droppedRowDetail, privacy: .public), \
+            windows dropped \(c.droppedWindows, privacy: .public), rows dropped \(c.droppedRows, privacy: .public)
+            """)
+        case let .skipped(.tooLarge(bytes, limit)):
+            logger.error("sidebar snapshot not read: \(bytes, privacy: .public) bytes is over the limit of \(limit, privacy: .public)")
+        case let .skipped(.unreadable(reason)):
+            logger.error("sidebar snapshot not read: unreadable: \(reason, privacy: .public)")
+        case let .skipped(.undecodable(reason)):
+            logger.error("sidebar snapshot not read: undecodable: \(reason, privacy: .public)")
+        case let .skipped(.otherSchema(version)):
+            logger.error("""
+            sidebar snapshot not read: schema \(version, privacy: .public), \
+            this build reads \(SidebarSnapshotDocument.schemaVersion, privacy: .public)
+            """)
+        }
     }
 
     /// In the build's own folder (``buildDirectory(launch:)``), never in
@@ -26,17 +71,13 @@ nonisolated struct SidebarSnapshotFile: Sendable {
 
     /// The folder of this build's small per-build files (sidebar snapshot,
     /// agent drafts and launch images, diff recents and viewed files). A
-    /// build that keeps its app names (``BuildIdentity/keepsAppNames``: the
-    /// shipped channels, cmux NEXT, a `reload.sh` DEV tag) keeps the folder it
-    /// had, so no file moves: `cmux/tags/<tag>/` for a tagged build, its
-    /// bundle's support folder for an untagged one. Every other build (its
-    /// bundle id names a tag that is not its own, an owned tag, the untagged
-    /// DEV build) uses the parent of its key's daemon state,
-    /// `cmux/builds/<key>/`.
+    /// build that keeps its app names (``BuildIdentity/keepsAppNames``) uses
+    /// `cmux-next/tags/<tag>/`, or its bundle's support folder untagged; every
+    /// other build `cmux-next/builds/<key>/` (``StateFolderMove`` moved both
+    /// out of classic's `cmux`).
     static func buildDirectory(launch: LaunchIdentity) -> URL {
-        let support = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
-        let cmux = support.appending(path: "cmux", directoryHint: .isDirectory)
-        if !launch.build.keepsAppNames, let state = launch.build.daemonStateDirectory(appSupport: cmux) {
+        let support = NextSupport.applicationSupportDirectory()
+        if !launch.build.keepsAppNames, let state = launch.build.daemonStateDirectory(appSupport: DaemonLauncher.nextSupport(support)) {
             return state.deletingLastPathComponent()
         }
         if let tag = launch.tag, !tag.isEmpty {
@@ -46,22 +87,43 @@ nonisolated struct SidebarSnapshotFile: Sendable {
     }
 
     /// The saved document; nil when missing, too large, unreadable or of
-    /// another schema.
+    /// another schema. Every case but missing is reported with its reason.
     func read() -> SidebarSnapshotDocument? {
-        guard let size = (try? url.resourceValues(forKeys: [.fileSizeKey]))?.fileSize, size <= Self.maximumBytes,
-              // concurrency-allow: one capped read of a small local file before the first window, replacing a wait for the daemon
-              let data = try? Data(contentsOf: url),
-              let document = try? JSONDecoder().decode(SidebarSnapshotDocument.self, from: data),
-              document.schemaVersion == SidebarSnapshotDocument.schemaVersion else { return nil }
+        guard let size = (try? url.resourceValues(forKeys: [.fileSizeKey]))?.fileSize else { return nil }
+        guard size <= Self.maximumBytes else {
+            report(.skipped(.tooLarge(bytes: size, limit: Self.maximumBytes)))
+            return nil
+        }
+        let data: Data
+        do {
+            // concurrency-allow: one capped read of a small local file before the first window, replacing a wait for the daemon
+            data = try Data(contentsOf: url)
+        } catch {
+            report(.skipped(.unreadable(String(describing: error))))
+            return nil
+        }
+        let document: SidebarSnapshotDocument
+        do {
+            document = try JSONDecoder().decode(SidebarSnapshotDocument.self, from: data)
+        } catch {
+            report(.skipped(.undecodable(String(describing: error))))
+            return nil
+        }
+        guard document.schemaVersion == SidebarSnapshotDocument.schemaVersion else {
+            report(.skipped(.otherSchema(document.schemaVersion)))
+            return nil
+        }
         return document
     }
 
-    /// Writes `document` atomically, owner-only.
+    /// Writes `document` atomically, owner-only, compacted to fit under
+    /// ``maximumBytes`` when it does not (reported).
     func write(_ document: SidebarSnapshotDocument) throws {
         let directory = url.deletingLastPathComponent()
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true,
                                                 attributes: [.posixPermissions: 0o700])
-        let data = try JSONEncoder().encode(document)
+        let (data, compaction) = try document.fitted(limit: Self.maximumBytes)
+        if let compaction { report(.compacted(compaction)) }
         try data.write(to: url, options: [.atomic])
         try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: url.path)
     }

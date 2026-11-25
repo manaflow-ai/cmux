@@ -151,7 +151,8 @@ fn send_attach_sends_files_of_any_size_and_number_by_reference() {
         let saved = uploads_named(&dir, name);
         assert_eq!(saved.len(), 1, "{name}: {saved:?}");
         assert_eq!(sha(&fs::read(&saved[0]).unwrap()), sha(bytes), "{name}");
-        assert_eq!(fs::metadata(&saved[0]).unwrap().permissions().mode() & 0o777, 0o600);
+        // A file sent by reference is stored once by content (#38190): read-only, owner-only.
+        assert_eq!(fs::metadata(&saved[0]).unwrap().permissions().mode() & 0o777, 0o400);
     }
 
     // Text and a file that together pass one JSON-RPC message (31 MiB) go the same way.

@@ -1,7 +1,8 @@
 import CmuxNextCompat
 public import CmuxNextDaemon
-import CmuxNextDesign
+public import CmuxNextDesign
 public import CmuxNextHome
+public import CmuxNextHomeModel
 public import Foundation
 import os
 
@@ -30,14 +31,12 @@ public final class HomeDock {
     public static let page = WorkspaceModel.homeDockPage
     /// The page tab the dock held before the two views (hq-ec's `home-channels` page alone).
     static let legacyPage = "home-channels"
-    /// Classic Home for one release (`labs.classicHome`): the top page, with the Chief tab in the
-    /// hidden home workspace. `CMUX_NEXT_CLASSIC_HOME=1` at launch selects it too (GUI tests of the
-    /// native Home). Both are read once, at the first read after launch (the settings file is applied
-    /// before any window or Home starts): a change takes effect after cmux restarts, so Home is
-    /// never half docked (the dock ensure runs only on connects; a live flip would leave the old
-    /// form's tabs and refuse Home's actions).
-    public static var classic: Bool { latched }
-    private static let latched: Bool = DesignSettings.shared.classicHome || classicAtLaunch
+    /// Classic Home: the top page, with the Chief tab in the hidden home workspace. Only
+    /// `CMUX_NEXT_CLASSIC_HOME=1` at launch selects it (the GUI checks of the native Home,
+    /// scripts/cmux-next/home_classic.py); its Labs setting `labs.classicHome` is retired. Read once
+    /// at launch, so Home is never half docked (the dock ensure runs only on connects; a live flip
+    /// would leave the old form's tabs and refuse Home's actions).
+    public static var classic: Bool { classicAtLaunch }
     /// `CMUX_NEXT_CLASSIC_HOME=1` in the app's launch environment, read once.
     static let classicAtLaunch = ProcessInfo.processInfo.environment["CMUX_NEXT_CLASSIC_HOME"] == "1"
     public var isClassic: Bool { Self.classic }
@@ -60,8 +59,8 @@ public final class HomeDock {
     /// ever (``placeholderCheckedKey``), so a shell the person opens there later, works in and
     /// leaves at `~` is never closed on a reconnect or a later launch.
     private var placeholderChecked = false
-    /// The allow-tabs step waiting for the dock's resource ids (``allowTabsWhenIdentified``).
-    private var allowTabsWait: Task<Void, Never>?
+    /// The allow-tabs step waiting for the dock's resource ids (``allowTabsWhenIdentified``); read by tests.
+    private(set) var allowTabsWait: Task<Void, Never>?
     private let defaults: UserDefaults
     /// Set once the first launch with `pinned-dock-alone-v1` looked for the placeholder shell.
     static let placeholderCheckedKey = "cmuxNext.home.placeholderShellChecked"
@@ -81,6 +80,23 @@ public final class HomeDock {
             }
         }
         return nil
+    }
+
+    /// Home's page tab is in its dock, where it stays.
+    public static func pageIsDocked(in home: WorkspaceModel) -> Bool {
+        guard let placed = pageTab(in: home) else { return false }
+        return isDocked(placed.pane, on: placed.screen)
+    }
+
+    /// Home shows from its saved state (launch-shell-first.md, piece 3): once `home`'s page is
+    /// mounted in its dock (called after an on-screen workspace's apply), `.home` is ready. The page
+    /// draws its list and last Chief from the Home cache, or its empty first frame on a first
+    /// install, and the Chief owner fills it in under it: the reveal never waits for the owner's
+    /// first page or the deadline. Classic Home keeps its first-page path. True when it marked.
+    @MainActor public static func revealWhenDocked(_ home: WorkspaceModel, reveal: LaunchReveal) -> Bool {
+        guard home.kind == "home", !classic, !reveal.isReady(.home), pageIsDocked(in: home) else { return false }
+        reveal.markReady(.home)
+        return true
     }
 
     /// Whether `pane` is in a left dock column with the agent chat role on `screen`.
@@ -237,6 +253,8 @@ public final class HomeDock {
                 guard let placed = workspace().flatMap(Self.pageTab(in:)) else { return false }
                 return placed.screen.resourceID != nil && placed.pane.resourceID != nil ? true : nil
             }
+            // `self?.shown` holds this HomeDock across the await on purpose: a window Home makes a HomeDock per connect
+            // (`WindowHomes.ensureDock`) and keeps none, so the wait is what keeps it until the ids come or the page goes.
             guard await self?.shown(identified) == true, !Task.isCancelled, let self else { return }
             allowTabsWait = nil // the step below must not cancel the task it runs in
             let step = await allowTabsLogged(store: store, workspace: workspace, fresh: fresh, allow: allow)
@@ -278,7 +296,7 @@ public final class HomeDock {
         let folder = home.hasSuffix("/") ? String(home.dropLast()) : home
         // A shell whose folder is unknown is not known to be the placeholder.
         let atHome = tab.cwd.map { $0 == folder || $0 == folder + "/" } ?? false
-        let title = tab.title.trimmingCharacters(in: .whitespaces)
+        let title = tab.titleText.trimmingCharacters(in: .whitespaces)
         return atHome && (title.isEmpty || title == "~" || title == folder)
     }
 

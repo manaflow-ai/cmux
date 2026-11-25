@@ -118,6 +118,8 @@ class MockBridge {
         this.emit();
         return { ok: true, value: null };
       case "chat.permission":
+      // A plan built elsewhere answers its ask too.
+      case "chat.plan.build":
         this.snapshot = { ...this.snapshot, permission: undefined };
         this.emit();
         break;

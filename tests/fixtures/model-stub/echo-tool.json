@@ -1,0 +1,7 @@
+{
+  "version": 1,
+  "steps": [
+    {"shell": "echo {{nonce}}-tool"},
+    {"text": "Stub reply {{nonce}}. The tool printed {{result.0}}."}
+  ]
+}

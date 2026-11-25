@@ -9,6 +9,10 @@
 //! `server.busy` line. A plain ensure must neither read that as no owner
 //! (spawn a second one that loses the bind) nor fail as `server.unavailable`;
 //! it reports `server.busy`, and the replace option replaces such an owner.
+//!
+//! An owner whose workspace registry lock never comes free (the #32405
+//! lock-order deadlock, #32621) still answers `identify`; every `ensure`
+//! replaces it, since the app never sees it stuck.
 
 #![cfg(any(target_os = "linux", target_os = "macos"))]
 
@@ -26,8 +30,8 @@ struct Fixture {
     dir: PathBuf,
     socket: PathBuf,
     session: String,
-    /// An owner this test froze; killed on drop if the test fails before the
-    /// option replaced it.
+    /// An owner this test froze or intends to replace; killed on drop if the
+    /// test fails before the option replaced it.
     frozen: Option<i32>,
 }
 
@@ -50,7 +54,13 @@ impl Fixture {
     /// Whether a `server` command succeeded, and its result or JSON error
     /// (the last JSON line on stdout or stderr).
     fn run(&self, action: &str, extra: &[&str]) -> (bool, Value) {
+        self.run_with_env(action, extra, &[])
+    }
+
+    /// `run` with `env` set for the command (and so for an owner it starts).
+    fn run_with_env(&self, action: &str, extra: &[&str], env: &[(&str, &str)]) -> (bool, Value) {
         let output = Command::new(env!("CARGO_BIN_EXE_cmux-tui"))
+            .envs(env.iter().copied())
             .args(["server", action, "--json", "--session", &self.session, "--socket"])
             .arg(&self.socket)
             .args(extra)
@@ -101,6 +111,9 @@ impl Fixture {
                 break usize::try_from(stats["connections"]["limit"].as_u64().unwrap()).unwrap();
             }
             assert!(Instant::now() < deadline, "initial clients did not retire: {stats}");
+            // No retirement event is exposed on this control connection.
+            // Bound observation frequency as well as the overall wait (#31077).
+            std::thread::sleep(Duration::from_millis(10));
         };
         assert!((2..512).contains(&limit), "unexpected connection limit: {limit}");
         let mut held = vec![control];
@@ -228,14 +241,39 @@ fn ensure_reports_an_owner_at_its_connection_limit_as_busy_and_adopts_it_later()
     let again = fixture.server("ensure", &[]);
     assert_eq!(again["status"], "running", "{again}");
     assert_eq!(pid_of(&again), pid_of(&first), "{again}");
+    let (alive, status) =
+        fixture.run_with_env("status", &[], &[("CMUX_TUI_DEBUG_WEDGED_HOLD_MS", "1000")]);
+    assert!(alive, "status refused a healthy owner: {status}");
 }
 
 #[test]
 fn replace_unresponsive_replaces_an_owner_at_its_connection_limit() {
-    let fixture = Fixture::new("replace-full");
-    let first = fixture.server("ensure", &[]);
+    replace_full_owner(false);
+}
+
+#[test]
+fn replace_unresponsive_replaces_a_wedged_owner_at_its_connection_limit() {
+    replace_full_owner(true);
+}
+
+fn replace_full_owner(wedged: bool) {
+    let session = if wedged { "replace-full-wedged" } else { "replace-full" };
+    let mut fixture = Fixture::new(session);
+    let env: &[(&str, &str)] = if wedged { &[("CMUX_TUI_DEBUG_WEDGE_REGISTRY", "1")] } else { &[] };
+    let (started, first) = fixture.run_with_env("ensure", &[], env);
+    assert!(started, "owner did not start: {first}");
     let old = pid_of(&first);
-    let _held = fixture.fill_connections();
+    fixture.frozen = Some(old);
+    let mut held = fixture.fill_connections();
+
+    // Both owners answer on an admitted connection, but a new connection
+    // receives only the same busy refusal. Restart has no health probe slot.
+    let identity = Fixture::request(&mut held[0], "identify");
+    assert_eq!(pid_of(&identity), old, "{identity}");
+    if wedged {
+        let stats = Fixture::request(&mut held[0], "server-stats");
+        assert!(stats["registry_lock"]["holder"].is_object(), "{stats}");
+    }
 
     let replaced = fixture.server("ensure", &["--replace-unresponsive"]);
     assert_eq!(replaced["status"], "replaced", "{replaced}");
@@ -243,6 +281,7 @@ fn replace_unresponsive_replaces_an_owner_at_its_connection_limit() {
     let new = pid_of(&replaced);
     assert_ne!(new, old, "{replaced}");
     assert!(!running(old), "the full owner {old} still runs");
+    fixture.frozen = None;
 
     let status = fixture.server("status", &[]);
     assert_eq!(pid_of(&status), new, "{status}");
@@ -281,4 +320,52 @@ fn ensure_reports_a_frozen_owner_unavailable_without_waiting_out_the_restore_bou
         .unwrap_or_else(|_| panic!("stderr is not one JSON error: {stderr}"));
     assert_eq!(error["code"], "server.unavailable", "not reported unavailable: {stderr}");
     assert!(took < Duration::from_secs(60), "ensure waited {took:?} on a frozen owner");
+}
+
+#[test]
+fn ensure_replaces_an_owner_whose_registry_lock_is_wedged() {
+    let mut fixture = Fixture::new("replace-wedged");
+    let (started, first) =
+        fixture.run_with_env("ensure", &[], &[("CMUX_TUI_DEBUG_WEDGE_REGISTRY", "1")]);
+    assert!(started, "the wedged owner did not start: {first}");
+    let old = pid_of(&first);
+    fixture.frozen = Some(old);
+
+    // The wedge is invisible to the app's liveness probe: identify answers.
+    let stream = UnixStream::connect(&fixture.socket).unwrap();
+    stream.set_read_timeout(Some(Duration::from_secs(10))).unwrap();
+    let identity = Fixture::request(&mut BufReader::new(stream), "identify");
+    assert_eq!(pid_of(&identity), old, "{identity}");
+
+    // Past the (shortened) wedge bound, `server status` (the app's first
+    // probe) reports it not running, and a plain ensure replaces it.
+    std::thread::sleep(Duration::from_millis(500));
+    let (alive, status) =
+        fixture.run_with_env("status", &[], &[("CMUX_TUI_DEBUG_WEDGED_HOLD_MS", "200")]);
+    assert!(!alive, "status called the wedged owner running: {status}");
+    assert_eq!(status["code"], "server.wedged", "{status}");
+    let (ensured, replaced) =
+        fixture.run_with_env("ensure", &[], &[("CMUX_TUI_DEBUG_WEDGED_HOLD_MS", "200")]);
+    assert!(ensured, "ensure failed: {replaced}");
+    assert_eq!(replaced["status"], "replaced", "{replaced}");
+    assert_eq!(replaced["replaced_pid"], old, "{replaced}");
+    let new = pid_of(&replaced);
+    assert_ne!(new, old, "{replaced}");
+    assert!(!running(old), "the wedged owner {old} still runs");
+    fixture.frozen = None;
+}
+
+#[test]
+fn ensure_keeps_an_owner_whose_registry_lock_is_free() {
+    let fixture = Fixture::new("keep-unwedged");
+    let first = fixture.server("ensure", &[]);
+    std::thread::sleep(Duration::from_millis(100));
+    let (ensured, again) =
+        fixture.run_with_env("ensure", &[], &[("CMUX_TUI_DEBUG_WEDGED_HOLD_MS", "1000")]);
+    assert!(ensured, "ensure failed: {again}");
+    assert_eq!(again["status"], "running", "{again}");
+    assert_eq!(pid_of(&again), pid_of(&first), "{again}");
+    let (alive, status) =
+        fixture.run_with_env("status", &[], &[("CMUX_TUI_DEBUG_WEDGED_HOLD_MS", "1000")]);
+    assert!(alive, "status refused a healthy owner: {status}");
 }

@@ -74,7 +74,7 @@ extension BookmarksBarView: NSDraggingSource {
         CATransaction.begin()
         CATransaction.setDisableActions(true)
         dropLayer.frame = CGRect(x: x - 1, y: Metrics.space2, width: 2, height: bounds.height - 2 * Metrics.space2)
-        dropLayer.cornerRadius = 1
+        dropLayer.cornerRadius = Metrics.capsuleRadius(dropLayer.frame.size)
         dropLayer.isHidden = false
         CATransaction.commit()
     }

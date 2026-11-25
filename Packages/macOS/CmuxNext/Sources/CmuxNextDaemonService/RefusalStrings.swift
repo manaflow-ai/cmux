@@ -12,7 +12,7 @@ public import Foundation
 /// the user can do instead (CapabilityRefusalTests scans every string).
 public nonisolated enum RefusalStrings {
     public static func text(_ key: StaticString, _ value: String.LocalizationValue) -> String {
-        String(localized: key, defaultValue: value, table: "Refusals", bundle: .module)
+        String(localized: key, defaultValue: value, table: "Refusals", bundle: .localizedModule)
     }
 
     /// A feature an administrator turned off (DisabledFeatures).
@@ -74,6 +74,8 @@ public nonisolated enum RefusalStrings {
     }
     /// A tab action (Cmd-W) while a top page shows: pages have no tabs and do not close.
     public static var topPageHasNoTabs: String { text("handlers.refusal.topPageHasNoTabs", "This page has no tabs.") }
+    /// A new tab or pane refused over a top page (automation, or classic Home's page that stays).
+    public static var topPageHasNoPanes: String { text("handlers.refusal.topPageHasNoPanes", "This page has no panes.") }
     /// Close Workspace with no target while a top page shows (HomeRules).
     public static var topPageIsNotAWorkspace: String { text("handlers.refusal.topPageIsNotAWorkspace", "This page is not a workspace.") }
     /// A close of the store's home workspace (`home_not_closable`).
@@ -133,18 +135,38 @@ public nonisolated enum RefusalStrings {
     /// Why a change or a start did not happen: the disk under cmux-tui's state is full (restore fuzz h2, h3).
     /// A reason after "<action> did not apply: " and inside cmux-tui's start notice.
     public static var diskFull: String { text("refusal.daemon.diskFull", "the disk is full") }
+    /// Why a change did not happen: cmux-tui did not answer within the request's deadline. A reason after
+    /// "<action> did not apply: ", in place of the raw command names (Leo, 2026-11-03, on "Move did not apply:
+    /// set-personal-workspace: timed out: workspace.place (no reply within 2.0 seconds)": "idk what happened here").
+    public static var daemonTimedOut: String {
+        text("refusal.daemon.timedOut", "cmux’s background service was busy and did not answer in time, so it may still apply.")
+    }
     /// The local daemon is alive but has spent over 2 minutes restoring the
     /// session's terminals (`server.restore_timeout`); cmux keeps trying.
     public static var daemonRestoreTimedOut: String {
         text("handlers.refusal.daemonRestoreTimedOut",
              "cmux is still restoring your terminals. This is taking longer than 2 minutes; cmux keeps trying.")
     }
-    /// A daemon error as a user-facing reason: a missing capability goes
-    /// through the capability gate's text, never its id.
+    /// An error as a user-facing reason. A ``DaemonError`` is never its own description (a command
+    /// name, a socket path, "[code]", "cmux-tui connection closed: ..."): a refusal reads the daemon's
+    /// own sentence, a lost connection that cmux is starting the service again, a missed deadline
+    /// that it may still apply, anything else that cmux could not start the service. The raw error
+    /// stays with the caller for the log and Copy Details.
     public static func describe(_ error: any Error) -> String {
-        if case DaemonError.missingCapabilities(let names) = error { return needsDaemonCapability(names.first ?? "") }
-        if case DaemonError.sessionRestoreTimedOut = error { return daemonRestoreTimedOut }
-        return String(describing: error)
+        guard let daemonError = error as? DaemonError else { return String(describing: error) }
+        // The one reason a full disk shows everywhere (restore fuzz h3), as `ActionWorkFailure` reads it.
+        if daemonError.isDiskFull { return diskFull }
+        switch daemonError {
+        case .missingCapabilities(let names): return needsDaemonCapability(names.first ?? "")
+        case .sessionRestoreTimedOut: return daemonRestoreTimedOut
+        case .command(_, let message, _, _, _): return message
+        case .endpointBlocked(let reason): return reason
+        case .unsupportedProtocol: return restartToUpdateDaemon
+        case .timedOut, .terminalStartTimedOut: return daemonTimedOut
+        case .notConnected, .connectionClosed, .daemonShutdown, .connectFailed: return daemonConnecting
+        case .socketPathTooLong, .malformedResponse, .wrongApp, .binaryNotFound, .launchFailed, .invalidSessionName:
+            return daemonUnavailable
+        }
     }
     /// The home session's spaces and workspace groups are not loaded yet.
     static var personalStateLoading: String {
@@ -193,6 +215,10 @@ public nonisolated enum RefusalStrings {
     public static var screenHasOnePane: String { text("handlers.refusal.screenHasOnePane", "the screen has one pane") }
     public static func noDividerToMove(_ direction: String) -> String { format("handlers.refusal.noDividerToMove", "no divider to move %@ (or it is at its limit)", direction) }
     public static var screenHasNoSplits: String { text("handlers.refusal.screenHasNoSplits", "the screen has no splits") }
+    /// Insert New, Hide Divider or Show Divider for a divider the screen no longer shows (a CLI split id that is gone).
+    public static var noDivider: String { text("handlers.refusal.noDivider", "that divider is no longer on the screen") }
+    /// Insert New > Browser where a browser tab cannot open in a split (an incognito or disconnected pane).
+    public static var dividerBrowser: String { text("handlers.refusal.dividerBrowser", "a browser can’t open between these panes") }
     /// A canvas action on a screen that shows its split or column layout.
     public static var canvasNotShown: String { text("handlers.refusal.canvasNotShown", "this screen is not a canvas; use Toggle Canvas Layout first") }
     /// A canvas arrangement with nothing to move, or an overview of an empty canvas.
@@ -224,7 +250,6 @@ public nonisolated enum RefusalStrings {
     public static var sessionLocalHasNoName: String { text("handlers.refusal.sessionLocalHasNoName", "session-local tabs have no name") }
     /// A Close Tab press aimed at a pane the press before it emptied (`PaneCloseAim` in the app).
     public static var closeAimedAtClosedPane: String { text("handlers.refusal.closeAimedAtClosedPane", "That pane closed. Press again to close a tab in this pane.") }
-    public static var pinnedTabKept: String { text("handlers.refusal.pinnedTabKept", "Pinned tabs stay open. Right-click the tab and choose Close Tab to close it.") }
     public static var sessionLocalCannotPin: String { text("handlers.refusal.sessionLocalCannotPin", "session-local tabs cannot be pinned") }
     public static var neverHibernateNoSite: String { text("handlers.refusal.neverHibernateNoSite", "This tab shows no website.") }
     public static var hibernateVisibleTab: String { text("handlers.refusal.hibernateVisibleTab", "Only a hidden tab can hibernate.") }

@@ -29,6 +29,19 @@ impl Mux {
                 self.with_state(|state| run_placement_for_surface(state, surface))
             });
             match resolution.terminal.lifecycle {
+                // A never-started lazy tab (terminal_respawn/lazy.rs) is
+                // placed and starts on its first need: its creator gets its
+                // placement, as for a running one.
+                TerminalLifecycle::Exited
+                    if placement.is_some()
+                        && self.lazy_never_started(&resolution.terminal.terminal_id) =>
+                {
+                    return Ok(RunCommandResult {
+                        placement,
+                        terminal: resolution.terminal,
+                        terminal_revision: resolution.terminal_revision,
+                    });
+                }
                 TerminalLifecycle::Exited => {
                     anyhow::ensure!(
                         resolution.terminal.exit.is_some(),
@@ -274,7 +287,7 @@ impl Mux {
             // hold registry -> state through the binding so a move committed
             // during launch is projected instead of the stale request target.
             let projected = self.bind_running_terminal_to_canonical_workspace(&surface);
-            let (placement, canonical_workspace, changed, created_path) = match projected {
+            let (placement, canonical_workspace, changed, created_path, delta) = match projected {
                 Ok(projected) => projected,
                 Err(error) => {
                     self.fail_hosted_terminal_attachment(
@@ -289,13 +302,20 @@ impl Mux {
             let _ = surface.persist_host_workspace(&canonical_workspace);
             crate::debug_spans::mark("create.host_workspace_persisted");
             if changed {
-                self.emit(MuxEvent::TreeChanged);
+                // The tab, or the first screen that holds it, as an exact delta (#32408). Only a
+                // terminal that moved during its launch is a coarse change.
+                match delta {
+                    Some((delta, selection_resync)) => {
+                        self.emit_tree_delta(delta, selection_resync);
+                    }
+                    None => self.emit(MuxEvent::TreeChanged),
+                }
             }
             drop(pending_surface);
             drop(workspace_lifecycle);
             return Ok((placement, surface, created_path));
         }
-        let notifications = self.tree_decorations();
+        let notifications = self.tab_decorations_placing(&surface);
         let active_at = self.next_active_at();
         let mut rollback_removed = Vec::new();
         let attached = {
@@ -347,6 +367,7 @@ impl Mux {
                             entity,
                             workspace_revision: None,
                             transaction: None,
+                            mutation: None,
                         },
                         true,
                         created_path,
@@ -358,20 +379,12 @@ impl Mux {
                     state.insert_pane(pane);
                     state.register_placed_tab_identity(surface.id);
                     stamp_pane_focus(self, &mut state, pane_id);
-                    state.workspaces[wi].screens.push(Screen {
-                        id: screen_id,
-                        public_id: screen_public_id,
-                        name: None,
-                        root: Node::Leaf(pane_id),
-                        active_pane: pane_id,
-                        zoomed_pane: None,
-                        creation_order_auto_layout: Some(vec![pane_id]),
-                        viewport_splits: Default::default(),
-                        viewport_base_width: None,
-                        layout_columns: Vec::new(),
-                        layout_revision: 0,
-                        layout_undo: Default::default(),
-                    });
+                    state.workspaces[wi].screens.push(Screen::with_one_pane(
+                        screen_id,
+                        screen_public_id,
+                        None,
+                        pane_id,
+                    ));
                     state.workspaces[wi].active_screen = 0;
                     let entity = crate::server::tree_entity_json(
                         &state,
@@ -399,6 +412,7 @@ impl Mux {
                             entity,
                             workspace_revision: None,
                             transaction: None,
+                            mutation: None,
                         },
                         false,
                         created_path,
@@ -433,13 +447,20 @@ impl Mux {
     /// Bind a just-launched hosted surface using the latest durable row, not
     /// the workspace requested before process launch. Holding registry ->
     /// state through projection is the create/move serialization fence.
+    ///
+    /// Also returns, when the binding placed the surface for the first time, its exact delta: the
+    /// first screen it made (`screen-added`), or the tab it added to the active pane (`tab-added`,
+    /// with a selection change). None when it moved a placed surface (a coarse change).
+    #[allow(clippy::type_complexity)]
     pub(super) fn bind_running_terminal_to_canonical_workspace(
         &self,
         surface: &Arc<Surface>,
-    ) -> anyhow::Result<(RunPlacement, String, bool, Value)> {
+    ) -> anyhow::Result<(RunPlacement, String, bool, Value, Option<(TreeDelta, bool)>)> {
         let identity = surface
             .terminal_host_identity()
             .ok_or_else(|| anyhow::anyhow!("created terminal has no host identity"))?;
+        // Before the registry lock: decorations read the state.
+        let notifications = self.tree_decorations_placing(surface);
         let registry = self.workspace_registry.lock().unwrap();
         let terminal = registry
             .terminal_record(&identity.terminal_id)?
@@ -454,6 +475,10 @@ impl Mux {
         if !state.surfaces.contains_key(&surface.id) {
             anyhow::bail!("terminal closed while its topology binding was being created");
         }
+        let was_placed = state.pane_of(surface.id).is_some();
+        let screens_before = state
+            .workspace_by_key(&terminal.workspace_key)
+            .map(|workspace| workspace.screens.len());
         let (placement, changed) = self.project_terminal_to_workspace_in_state(
             &mut state,
             &identity.terminal_id,
@@ -462,7 +487,53 @@ impl Mux {
         let placement =
             placement.ok_or_else(|| anyhow::anyhow!("created terminal has no live surface"))?;
         let created_path = self.created_resource_path_in_state(&state, surface.id)?;
-        Ok((placement, terminal.workspace_key, changed, created_path))
+        let delta = (changed && !was_placed)
+            .then(|| Self::first_binding_delta(&state, &notifications, &placement, screens_before))
+            .flatten();
+        Ok((placement, terminal.workspace_key, changed, created_path, delta))
+    }
+
+    /// The delta of a terminal's first placement: `screen-added` when its workspace had no screen
+    /// before (`screens_before`), else `tab-added` in the pane that took it.
+    fn first_binding_delta(
+        state: &State,
+        notifications: &TreeDecorations,
+        placement: &RunPlacement,
+        screens_before: Option<usize>,
+    ) -> Option<(TreeDelta, bool)> {
+        let workspace = state.workspace_by_id(placement.workspace)?;
+        if screens_before.is_some_and(|before| workspace.screens.len() > before) {
+            let index =
+                workspace.screens.iter().position(|screen| screen.id == placement.screen)?;
+            let entity = crate::server::tree_entity_json(
+                state,
+                notifications,
+                TreeDeltaKind::ScreenAdded,
+                placement.screen,
+            )?;
+            return Some((
+                TreeDelta {
+                    kind: TreeDeltaKind::ScreenAdded,
+                    workspace: placement.workspace,
+                    screen: Some(placement.screen),
+                    pane: None,
+                    surface: None,
+                    index: Some(index),
+                    entity,
+                    workspace_revision: None,
+                    transaction: None,
+                    mutation: None,
+                },
+                false,
+            ));
+        }
+        let delta = presentation::tab_delta(
+            state,
+            notifications,
+            TreeDeltaKind::TabAdded,
+            placement.surface,
+        )?;
+        Some((delta, true))
     }
 }
 

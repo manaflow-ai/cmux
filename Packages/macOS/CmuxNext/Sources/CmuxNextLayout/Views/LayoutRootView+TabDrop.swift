@@ -50,12 +50,16 @@ extension LayoutRootView {
         let region = convert(hit.region, from: view)
         tabDragHighlightOnScreen = window.map { $0.convertToScreen(convert(rect, to: nil)) }
         let style = context.style
-        // Pane zones carry classic's 4 pt padding already (`classicPaneHighlight`); gaps and dock bands float
-        // inside their region. The radius is classic's 8 pt unless the tunable follows the pane (-1).
+        // Pane zones carry classic's 4 pt padding already (`classicPaneHighlight`): their corner is concentric
+        // with the pane's (the one corner radius where panes are square inside the rounded main pane). Gaps and
+        // dock bands float inside their region with the panel radius. A tuned radius (8 is classic) wins.
         let paneZone = hit.target.isPaneZone
         let tunedRadius = CGFloat(DropOverlayTunables.cornerRadius.value)
+        let corners = Metrics.corners
         let radius = tunedRadius >= 0 ? tunedRadius
-            : style.hasPaneChrome && paneZone ? PaneChromeGeometry.cornerRadius(for: rect, style: style) : style.panelCornerRadius
+            : paneZone ? corners.radius(fitting: rect.size, radius: corners.nested(in: style.hasPaneChrome ? style.paneCornerRadius : corners.outer,
+                                                                                   inset: DropZoneGeometry.classicPanePadding))
+            : style.panelCornerRadius
         let inset = paneZone ? 0 : DropOverlayTunables.floatingInset.resolve(Metrics.space2)
         if highlight.show(rect, region: region, zone: DropOverlayZone(hit.target), text: LayoutStrings.label(for: hit.target),
                           inset: inset, cornerRadius: radius, pointer: convert(locationInWindow, from: nil),
@@ -63,25 +67,19 @@ extension LayoutRootView {
         return hit.target
     }
 
-    /// Marks a tab strip's insert slot (`screenRect`, the gap the strip
-    /// opens for the dragged tab) with classic's caret: a 2 pt accent bar,
-    /// 20 pt tall, on the gap's leading edge, where the tab will start; the
-    /// drag ghost sits in the gap itself and would hide a centered caret
-    /// (DESIGN.md (c)6, proof 2026-10-14). The same
-    /// overlay as the pane zones, so it moves between them. Nothing is
-    /// hit-tested; the strip owns that target, and the ghost still lands on
-    /// the slot (`tabDragHighlightOnScreen`).
+    /// A tab strip's insert slot (`screenRect`, the gap the strip opens for
+    /// the dragged tab) took the drag. The strip's own gap, with the dragged
+    /// tab sitting in it and its neighbors sliding aside, is the target, as
+    /// in Chrome and Safari: the overlay draws nothing there (a 2 pt caret by
+    /// the gap read as a stray bar, Lawrence 2026-11-07), and a pane zone
+    /// shown before fades out. Nothing is hit-tested; the strip owns that
+    /// target, and the ghost still lands on the slot (`tabDragHighlightOnScreen`).
     public func showTabDragOutline(screenRect: CGRect) {
-        guard let window else { return }
-        let slot = convert(window.convertFromScreen(screenRect), from: nil)
         tabDragHighlightOnScreen = screenRect
         tabDropHit = nil
         tabDragShownTarget = nil
         tabDragRefusedTarget = nil
-        let height = min(20, slot.height)
-        let caret = CGRect(x: slot.minX - 2, y: slot.midY - height / 2, width: 2, height: height)
-        if highlight.show(caret, region: caret, zone: .center, text: "", inset: 0, cornerRadius: 1,
-                          pointer: CGPoint(x: caret.midX, y: caret.midY), animated: canAnimate, fills: false) { driver.start() }
+        if highlight.hide(animated: canAnimate) { driver.start() }
     }
 
     /// Previews a pane drag's target `pane` (a swap) with the fill a tab dropped in that pane's

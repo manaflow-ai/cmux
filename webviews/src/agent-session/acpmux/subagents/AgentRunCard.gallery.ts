@@ -67,7 +67,7 @@ export default agentPaneEntry({
       snapshot: tracked(false),
     },
     "card-done": {
-      note: "The child session's turn-end record supplies its reply; Open chat uses its actual session id.",
+      note: "The child session's turn-end record supplies its reply; its card header opens the recorded session.",
       snapshot: tracked(true),
     },
     "card-failed": {

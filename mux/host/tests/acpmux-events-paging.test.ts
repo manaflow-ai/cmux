@@ -39,6 +39,13 @@ test("events reads every page of a log longer than one page", async () => {
   expect(fake.calls.filter((c) => c.method === "_acpmux/events").length).toBe(3);
 });
 
+// A hasMore page without an advancing cursor is a failed read, not completed history.
+test("events rejects an empty page that still has more records", async () => {
+  const { client, fake, sessionId } = await fakeWithLog(2);
+  fake.pageEvents = 0;
+  await expect(client.events(sessionId)).rejects.toThrow("_acpmux/events: hasMore without cursor progress");
+});
+
 test("events stops at its limit even when more pages remain", async () => {
   const { client, fake, sessionId } = await fakeWithLog(24);
   fake.pageEvents = 10;
@@ -57,6 +64,21 @@ test("sessions reads every page of a list longer than one reply", async () => {
   expect(sessions.map((s) => s.name)).toEqual(["child", "b", "c", "d", "e"]);
   const pages = fake.calls.filter((c) => c.method === "_acpmux/sessions");
   expect(pages.map((c) => c.params.cursor)).toEqual([undefined, "2", "4"]);
+});
+
+// A malformed session-list response is unknown inventory, never zero sessions.
+// The Rust client rejects this same response before reading continuation pages.
+test("sessions refuses a first reply with no sessions array", async () => {
+  const { client, fake } = await fakeWithLog(0);
+  fake.sessionReplies.push({});
+  await expect(client.sessions()).rejects.toThrow("the reply lists no sessions");
+});
+
+test("sessions refuses a null or non-object first reply", async () => {
+  const { client, fake } = await fakeWithLog(0);
+  fake.sessionReplies.push(null, "invalid");
+  await expect(client.sessions()).rejects.toThrow("invalid session-list reply");
+  await expect(client.sessions()).rejects.toThrow("invalid session-list reply");
 });
 
 test("sessions refuses a cursor that comes back instead of reading forever", async () => {

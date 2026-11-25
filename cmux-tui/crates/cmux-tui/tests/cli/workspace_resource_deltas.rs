@@ -105,11 +105,25 @@ mod sidebar_order {
 
     /// One `cmux.protocol/2` mutation on its own connection; its value.
     fn v2(server: &HeadlessServer, operation: &str, params: Value, key: &str) -> Value {
+        request(server, operation, params, Some(key))
+    }
+
+    /// One `cmux.protocol/2` request on its own connection (a read sends no
+    /// idempotency key); its value.
+    fn request(
+        server: &HeadlessServer,
+        operation: &str,
+        params: Value,
+        key: Option<&str>,
+    ) -> Value {
         let mut fields = json!({"machine": "current", "session": "current"});
         fields.as_object_mut().unwrap().extend(params.as_object().unwrap().clone());
-        let request = json!({"protocol": "cmux.protocol/2", "type": "request",
-                             "id": format!("order-{key}"), "operation": operation,
-                             "params": fields, "idempotency_key": key});
+        let mut request = json!({"protocol": "cmux.protocol/2", "type": "request",
+                                 "id": format!("order-{}", key.unwrap_or(operation)),
+                                 "operation": operation, "params": fields});
+        if let Some(key) = key {
+            request["idempotency_key"] = json!(key);
+        }
         let stream = transport::connect(&server.socket).unwrap();
         let mut writer = stream.try_clone_box().unwrap();
         let mut reader = BufReader::new(stream);
@@ -120,16 +134,19 @@ mod sidebar_order {
             panic!("{request}: no JSON reply: {line}; daemon:\n{}", server.stderr_tail())
         });
         assert_eq!(reply["ok"], true, "{request}: {reply}");
-        reply["result"]["value"].clone()
+        // A mutation answers `result.value`; a read answers `result`.
+        let result = &reply["result"];
+        if result["value"].is_null() { result.clone() } else { result["value"].clone() }
     }
 
     #[test]
     fn workspace_list_answers_the_sidebar_order_to_every_caller() {
-        // The default placement (new workspaces on top), whatever the
-        // developer's own settings file says.
+        // `top` (new workspaces first), whatever the developer's own settings
+        // file says: the default `afterCurrent` puts each after the active one.
         let dir = unique_temp_dir("ws-list-order-config");
         fs::create_dir_all(&dir).unwrap();
         let settings = dir.join("cmux.json");
+        fs::write(&settings, r#"{"workspaces": {"newPlacement": "top"}}"#).unwrap();
         let settings = settings.to_str().unwrap();
         let server = HeadlessServer::start_with_options(
             "ws-list-order",
@@ -177,6 +194,84 @@ mod sidebar_order {
             // sidebar row.
             assert_eq!(ids(&server, in_app, &["workspace", "list", "--order", "session"]), session);
         }
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    /// `top` is the top of the sidebar, not the row below Home: with a
+    /// workspace moved above Home (Move to Top, a row drag), the next new
+    /// workspace is still first. The daemon used to take the slot right
+    /// after Home's row in the old personal order, so with rows above Home
+    /// every new workspace landed in the middle of the list (Lawrence
+    /// 2026-11-15: 188 rows above Home, each Cmd-N at row 189).
+    #[test]
+    fn a_new_workspace_is_first_when_rows_sit_above_home() {
+        let dir = unique_temp_dir("ws-top-above-home-config");
+        fs::create_dir_all(&dir).unwrap();
+        let settings = dir.join("cmux.json");
+        fs::write(&settings, r#"{"workspaces": {"newPlacement": "top"}}"#).unwrap();
+        let settings = settings.to_str().unwrap();
+        let server = HeadlessServer::start_with_options(
+            "ws-top-above-home",
+            None,
+            None,
+            &[("CMUX_NEXT_CONFIG_FILE", settings)],
+        );
+        let home = v2(&server, "workspace.ensure_home", json!({}), "top-home")["workspace_id"]
+            .as_str()
+            .unwrap()
+            .to_string();
+        let old = created(&server, "old");
+        let lifted = created(&server, "lifted");
+        let position =
+            |order: &[String], id: &str| order.iter().position(|candidate| candidate == id);
+        let list = || ids(&server, false, &["workspace", "list", "--order", "personal"]);
+
+        // While Home leads the list, a new workspace is right below it.
+        let before = list();
+        assert_eq!(position(&before, &home), Some(0), "Home does not lead: {before:?}");
+        assert_eq!(position(&before, &lifted), Some(1), "not right below Home: {before:?}");
+
+        // The app's Move to Top or a row drag (`sidebar.move`, the document's
+        // own path; `workspace.place` keeps Home first): one workspace above Home.
+        let doc = request(&server, "sidebar.get", json!({}), None);
+        let item = doc["items"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .find(|item| item["body"]["ref"]["workspace_id"] == lifted.as_str())
+            .unwrap_or_else(|| panic!("the document does not place {lifted}: {doc}"));
+        let to = json!({"section": item["section"], "index": 0});
+        v2(&server, "sidebar.move", json!({"items": [item["id"]], "to": to}), "top-lift");
+        let raised = list();
+        assert!(
+            position(&raised, &lifted) < position(&raised, &home),
+            "the move did not put the workspace above Home: {raised:?}"
+        );
+
+        let first = created(&server, "first");
+        let second = created(&server, "second");
+        let after = list();
+        assert_eq!(
+            after[..2],
+            [second, first],
+            "not first, newest first: {after:?} (home {home}, lifted {lifted}, old {old})"
+        );
+
+        // A group made with no place (`cmux workspace group create`, the
+        // Chief's subagent groups) forms at the same top: the workspace it
+        // takes is first, not below Home.
+        let group =
+            v2(&server, "workspace_group.create", json!({"name": "New"}), "top-group")["id"]
+                .as_str()
+                .unwrap()
+                .to_string();
+        v2(&server, "workspace.place", json!({"workspace": old, "group": group}), "top-group-old");
+        let grouped = list();
+        assert_eq!(
+            position(&grouped, &old),
+            Some(0),
+            "the new group is not first: {grouped:?} (home {home}, old {old})"
+        );
         let _ = fs::remove_dir_all(&dir);
     }
 }

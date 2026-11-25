@@ -34,6 +34,10 @@ int cmux_shim_create_window(int request, void* parent_view, int width, int heigh
   info.runtime_style = CEF_RUNTIME_STYLE_CHROME;
   CefBrowserSettings settings;
   settings.background_color = BackgroundColor();
+  // cmux draws the hovered link itself (CMUX_SHIM_STATUS_MESSAGE): Chrome's
+  // bubble is a child window of the page window, outside the page clip, and
+  // showed over other panes.
+  settings.chrome_status_bubble = STATE_DISABLED;
   CefRefPtr<CefRequestContext> context = RequestContextFor(profile_cache_path ? profile_cache_path : "");
   return CefBrowserHost::CreateBrowser(info, MakeClient(request), url ? url : "", settings, nullptr, context) ? 1 : 0;
 }
@@ -151,6 +155,10 @@ void cmux_shim_set_zoom_level(int browser_id, double level) {
   if (CefRefPtr<CefBrowserHost> host = HostOf(browser_id)) host->SetZoomLevel(level);
 }
 
+void cmux_shim_set_audio_muted(int browser_id, int muted) {
+  if (CefRefPtr<CefBrowserHost> host = HostOf(browser_id)) host->SetAudioMuted(muted != 0);
+}
+
 void cmux_shim_set_accessibility(int browser_id, int enabled) {
   if (CefRefPtr<CefBrowserHost> host = HostOf(browser_id))
     host->SetAccessibilityState(enabled != 0 ? STATE_ENABLED : STATE_DISABLED);
@@ -160,6 +168,23 @@ int cmux_shim_print(int browser_id) {
   CefRefPtr<CefBrowserHost> host = HostOf(browser_id);
   if (!host) return 0;
   host->Print();
+  return 1;
+}
+
+int cmux_shim_page_command(int browser_id, int command) {
+  int id = 0;
+  switch (command) {
+    case CMUX_SHIM_PAGE_SAVE_AS: id = 35004; break;    // IDC_SAVE_PAGE
+    case CMUX_SHIM_PAGE_CAST: id = 35011; break;       // IDC_ROUTE_MEDIA
+    case CMUX_SHIM_PAGE_QR_CODE: id = 35021; break;    // IDC_QRCODE_GENERATOR
+    case CMUX_SHIM_PAGE_TRANSLATE: id = 35009; break;  // IDC_SHOW_TRANSLATE
+    default: return 0;
+  }
+  CefRefPtr<CefBrowserHost> host = HostOf(browser_id);
+  // Chromium's commands act on the page's Browser (its active tab is the
+  // page: the host activates the shown tab), as DevTools' Console does.
+  if (!host || !host->CanExecuteChromeCommand(id)) return 0;
+  host->ExecuteChromeCommand(id, CEF_WOD_CURRENT_TAB);
   return 1;
 }
 
@@ -200,6 +225,10 @@ int cmux_shim_try_close(int browser_id) {
 
 int cmux_shim_devtools_call(int browser_id, const char* method, const char* params_json) {
   CefRefPtr<CefBrowserHost> host = HostOf(browser_id);
+  // A docked DevTools frontend is a browser of its own, not a page browser: a window image asks it for its picture.
+  if (!host) {
+    if (CefRefPtr<CefBrowser> frontend = DevToolsFrontendById(browser_id)) host = frontend->GetHost();
+  }
   const size_t params_size = params_json ? std::strlen(params_json) : 0;
   if (!host || !IsDevToolsMethodName(method) || (params_size > 0 && !IsOneJSONObject(params_json, params_size))) {
     return 0;

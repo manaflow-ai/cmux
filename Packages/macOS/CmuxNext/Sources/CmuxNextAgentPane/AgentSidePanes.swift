@@ -1,3 +1,5 @@
+public import CmuxNextAgentPanePlacement
+
 /// Where a chat's side sessions open (`chat.sideChat`: New side chat and the side sessions `/btw`
 /// starts; `chat.offer.open`: Session Info's sessions and the transcript's session cards), one
 /// tracker per acpmux chat session so every tab on that chat asks the same one. Each opens where
@@ -9,6 +11,9 @@
 @MainActor
 public final class AgentSidePanes {
     private var tabs: [String] = []
+    /// Side sessions `/side` opened: each opens in a new split right of the chat, whatever the right
+    /// column holds (#38042), once.
+    private var splitsRight: Set<String> = []
     private var opening = false
     private var queue: [(session: String, chat: String, hooks: Hooks)] = []
     /// The pane lookup of the latest open, so an idle tracker can tell its side tabs closed.
@@ -64,6 +69,17 @@ public final class AgentSidePanes {
         let opened = hooks.place(RightColumnPlacement.decide(hooks.column(chat)), session, created, finished)
         if !opened { next() }
         return opened
+    }
+
+    /// `/side`'s side session `session` opens as a new split right of the chat, not where
+    /// ``RightColumnPlacement`` would put it.
+    public func splitRight(_ session: String) {
+        splitsRight.insert(session)
+    }
+
+    /// Whether `session` opens as a split right of the chat (``splitRight(_:)``); its open reads it once.
+    public func takeSplitRight(_ session: String) -> Bool {
+        splitsRight.remove(session) != nil
     }
 
     /// Idle, with no side tab still open.

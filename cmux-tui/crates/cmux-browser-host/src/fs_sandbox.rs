@@ -3,6 +3,10 @@
 //! must stay inside the root or the temporary directory. Results are
 //! `{"ok": value}` or `{"error": {"code", "message"}}`.
 
+use base64::Engine;
+use base64::alphabet;
+use base64::engine::DecodePaddingMode;
+use base64::engine::general_purpose::{GeneralPurpose, GeneralPurposeConfig, STANDARD};
 use serde_json::{Value, json};
 use std::path::{Component, Path, PathBuf};
 
@@ -315,97 +319,29 @@ fn file_type(t: &std::fs::FileType) -> &'static str {
     }
 }
 
-const ALPHABET: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+/// Standard base64 that also takes missing padding and loose trailing bits,
+/// as the page's `atob` does.
+const LENIENT: GeneralPurpose = GeneralPurpose::new(
+    &alphabet::STANDARD,
+    GeneralPurposeConfig::new()
+        .with_decode_padding_mode(DecodePaddingMode::Indifferent)
+        .with_decode_allow_trailing_bits(true),
+);
 
 pub fn base64_encode(bytes: &[u8]) -> String {
-    let mut out = String::with_capacity(bytes.len().div_ceil(3) * 4);
-    for chunk in bytes.chunks(3) {
-        let n = (u32::from(chunk[0]) << 16)
-            | (u32::from(*chunk.get(1).unwrap_or(&0)) << 8)
-            | u32::from(*chunk.get(2).unwrap_or(&0));
-        for i in 0..4 {
-            if i <= chunk.len() {
-                out.push(ALPHABET[((n >> (18 - 6 * i)) & 63) as usize] as char);
-            } else {
-                out.push('=');
-            }
-        }
-    }
-    out
+    STANDARD.encode(bytes)
 }
 
+/// Decodes standard base64, skipping ASCII whitespace; `None` on any other
+/// byte outside the alphabet.
 pub fn base64_decode(text: &str) -> Option<Vec<u8>> {
-    let mut out = Vec::with_capacity(text.len() / 4 * 3);
-    let mut acc = 0u32;
-    let mut bits = 0;
-    for c in text.bytes().filter(|c| !c.is_ascii_whitespace() && *c != b'=') {
-        let v = ALPHABET.iter().position(|a| *a == c)? as u32;
-        acc = (acc << 6) | v;
-        bits += 6;
-        if bits >= 8 {
-            bits -= 8;
-            out.push((acc >> bits) as u8);
-            acc &= (1 << bits) - 1;
-        }
+    if text.bytes().any(|c| c.is_ascii_whitespace()) {
+        let compact: String = text.chars().filter(|c| !c.is_ascii_whitespace()).collect();
+        return LENIENT.decode(compact).ok();
     }
-    Some(out)
+    LENIENT.decode(text).ok()
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    fn sandbox() -> (FsSandbox, PathBuf, PathBuf) {
-        let base = std::env::temp_dir().join(format!(
-            "fs-sandbox-{}-{}",
-            std::process::id(),
-            std::thread::current().name().unwrap_or("t").replace("::", "-")
-        ));
-        let _ = std::fs::remove_dir_all(&base);
-        let root = base.join("root");
-        let outside = base.join("outside");
-        std::fs::create_dir_all(&root).unwrap();
-        std::fs::create_dir_all(&outside).unwrap();
-        (FsSandbox::with_tmp(&root, base.join("tmp")), root, outside)
-    }
-
-    #[test]
-    fn intermediate_symlinks_cannot_leave_the_root() {
-        let (fs, root, outside) = sandbox();
-        std::os::unix::fs::symlink(&outside, root.join("link")).unwrap();
-        let made = fs.call("mkdir", &json!({"path": "link/a/b", "recursive": true}));
-        assert_eq!(made["error"]["code"], "EACCES", "{made}");
-        assert!(!outside.join("a").exists());
-        let written = fs.call("writeFile", &json!({"path": "link/x.txt", "base64": "aGk="}));
-        assert_eq!(written["error"]["code"], "EACCES");
-    }
-
-    #[test]
-    fn a_dangling_final_symlink_cannot_write_outside() {
-        let (fs, root, outside) = sandbox();
-        std::os::unix::fs::symlink(outside.join("created.txt"), root.join("dang")).unwrap();
-        let written = fs.call("writeFile", &json!({"path": "dang", "base64": "aGk="}));
-        assert_eq!(written["error"]["code"], "EACCES", "{written}");
-        assert!(!outside.join("created.txt").exists());
-    }
-
-    #[test]
-    fn the_temp_root_is_the_sessions_own() {
-        let (fs, _root, _outside) = sandbox();
-        let shared = std::env::temp_dir().join("not-this-session.txt");
-        let read =
-            fs.call("writeFile", &json!({"path": shared.display().to_string(), "base64": ""}));
-        assert_eq!(read["error"]["code"], "EACCES", "{read}");
-        let tmp = fs.call("resolve", &json!({"path": "."}));
-        assert!(tmp["ok"].is_string());
-    }
-
-    #[test]
-    fn base64_round_trips() {
-        for sample in [&b""[..], b"h", b"hi", b"hi!", b"\x00\xff\x10binary"] {
-            assert_eq!(base64_decode(&base64_encode(sample)).unwrap(), sample);
-        }
-        assert_eq!(base64_encode(b"hi"), "aGk=");
-        assert!(base64_decode("@@").is_none());
-    }
-}
+#[path = "fs_sandbox_tests.rs"]
+mod tests;

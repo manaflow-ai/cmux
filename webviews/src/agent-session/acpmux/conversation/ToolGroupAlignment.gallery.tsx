@@ -5,7 +5,8 @@
 import { componentEntry, type ComponentVariant } from "../../../gallery/format";
 import { tool } from "../../../gallery/fixtures/acpmux";
 import { useEffect } from "react";
-import { TranscriptDisclosureProvider, resetTranscriptDisclosure } from "./transcriptDisclosure";
+import { TranscriptDisclosureProvider } from "./transcriptDisclosure";
+import { resetTranscriptDisclosure } from "./transcriptDisclosureModel";
 import { ToolGroupRow } from "./ToolGroupRow";
 import type { ToolGroupKind } from "./toolGroups";
 

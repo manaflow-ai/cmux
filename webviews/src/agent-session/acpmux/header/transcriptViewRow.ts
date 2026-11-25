@@ -15,7 +15,7 @@ import {
 } from "../conversation/transcriptView";
 import { defaultTranscriptView } from "../chatDisplay";
 import { blockWrapOf, setBlockWrap } from "../conversation/blockWrap";
-import type { ChatMenuChild, ChatMenuItem } from "./ChatHeaderTools";
+import type { ChatMenuChild, ChatMenuItem } from "./chatHeaderToolsModel";
 
 /// The submenu's Wrap lines: whether every command's output wraps (blockWrap.ts "output", one
 /// choice for every Shell block). Verbose opens every Shell block, so the choice lives here once

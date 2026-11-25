@@ -105,6 +105,7 @@ public final class EmptyWorkspaceRepair {
     /// that touches none of them must examine none (sidebar churn).
     @ObservationIgnored private(set) var visited = 0
     private let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "app.empty-workspace")
+    private let createLogger = Logger(subsystem: "com.cmuxterm.app.next", category: "app.workspace-create")
 
     /// The daemon-facing closures come from the App (`init(daemon:)`), which
     /// owns the connection and the workspace close path.
@@ -385,6 +386,31 @@ public final class EmptyWorkspaceRepair {
         }
     }
 
+    /// Creates workspace `key` (`createWorkspace`) and its first terminal or tab (`createTerminal`),
+    /// and never leaves it half-created: when a step fails, `closeWorkspace` closes the key, except
+    /// after a refused create (it made nothing, and the key may name a live workspace). The create
+    /// failure stays the one error thrown; a failed close is logged.
+    public func withTerminal<T>(
+        _ key: WorkspaceKey,
+        createWorkspace: () async throws -> Void,
+        createTerminal: (WorkspaceKey) async throws -> T,
+        closeWorkspace: (WorkspaceKey) async throws -> Void
+    ) async throws -> T {
+        var refused = false // a refused create made nothing (the key may name a live workspace)
+        do {
+            do { try await createWorkspace() } catch { refused = (error as? DaemonError).map { if case .command = $0 { true } else { false } } ?? false; throw error }
+            return try await createTerminal(key)
+        } catch {
+            if !refused { do {
+                try await closeWorkspace(key)
+            } catch let closeError {
+                // The create failure stays the one error the user sees.
+                createLogger.error("closing a half-created workspace failed: \(String(describing: closeError), privacy: .public)")
+            } }
+            throw error
+        }
+    }
+
     /// Marks `key` as being populated by this app for the duration of
     /// `body` (create-workspace then create-terminal). On success the
     /// workspace stays owned until the store shows its pane, because
@@ -404,6 +430,18 @@ public final class EmptyWorkspaceRepair {
 
     /// `WorkspaceCreation` could not close `key` after its terminal failed.
     public func closeFailed(_ key: WorkspaceKey) { keptAfterFailedClose.insert(key) }
+
+    /// Creates workspace `key` with the browser tab `tab` as its only tab, in one request
+    /// (`workspace-first-tab-v1`), owned by this repair while it runs, so the repair never fills it.
+    /// Nothing is half-created: the daemon takes the workspace back when it cannot make the tab.
+    ///
+    /// - Returns: The daemon's reply; its `firstTab` is the tab it made.
+    public func createBrowserWorkspace(_ key: WorkspaceKey, name: String?, tab: WorkspaceFirstBrowserTab,
+                                       on connection: DaemonConnection) async throws -> WorkspaceMutationResult {
+        try await populating(key) {
+            try await connection.createWorkspaceWithFirstTabWaitingForReply(name: name, key: key, firstTab: tab)
+        }
+    }
 
     private func recordFailure(_ key: WorkspaceKey, _ error: Error) {
         failures[key] = String(describing: error)

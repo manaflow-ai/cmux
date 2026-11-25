@@ -2,17 +2,17 @@ import CmuxNextAgentLanes
 import Foundation
 
 extension MachineRegistry {
-    /// The sidebar name (``machineName(_:)``) of the machine an acpmux peer is: the SSH machine
-    /// whose host, short host or sidebar name is the peer's name, else the Cloud machine or
-    /// server of that name. Nil when no machine the app shows matches.
-    func machineName(peer: String) -> String? {
+    /// The sidebar name (``machineName(_:)``) of the machine an acpmux peer is (``machineID(peer:)``).
+    func machineName(peer: String) -> String? { machineID(peer: peer).flatMap { machineName($0) } }
+
+    /// The machine an acpmux peer is: the SSH machine whose host, short host or sidebar name is the peer's name, else
+    /// the Cloud machine or server of that name. Nil when no machine the app shows matches.
+    func machineID(peer: String) -> String? {
         let wanted = peer.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
         guard !wanted.isEmpty else { return nil }
         let matches = { (names: [String]) in names.contains { $0.lowercased() == wanted } }
-        let id = sshMachine(named: [wanted])?.machineID
-            ?? cloud.first { matches([$0.machine.title]) }?.machineID
+        return sshMachine(named: [wanted])?.machineID ?? cloud.first { matches([$0.machine.title]) }?.machineID
             ?? servers.first { matches([$0.name]) }?.machineID
-        return id.flatMap { machineName($0) }
     }
 
     /// The SSH machine whose host, short host or sidebar name is one of `names` (any case, a

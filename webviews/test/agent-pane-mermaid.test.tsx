@@ -5,9 +5,11 @@
 // and why; markup in labels never reaches the page.
 import { afterAll, expect, test } from "bun:test";
 import { JSDOM, VirtualConsole } from "jsdom";
+import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { act } from "react";
 import type { Root } from "react-dom/client";
+import { teardownDom } from "./support/domTeardown";
 
 const dom = new JSDOM("<!doctype html><div id=root></div>", {
   url: "http://localhost/",
@@ -44,14 +46,11 @@ Object.assign(scope, replacements);
 const host = dom.window.document.getElementById("root")!;
 let root: Root | undefined;
 
-afterAll(() => {
+afterAll(async () => {
   act(() => root?.unmount());
   delete scope.ondine;
   delete scope.mermaid;
-  for (const [key, had, value] of saved) {
-    if (had) scope[key] = value;
-    else delete scope[key];
-  }
+  await teardownDom(saved, { scope });
 });
 
 // The pane's scheme handler serves this as `__lib/ondine.js`; loaded here it sets `globalThis.ondine`.
@@ -67,11 +66,11 @@ scope.mermaid = {
 
 const { createRoot } = await import("react-dom/client");
 const { Markdown } = await import("../src/agent-session/acpmux/conversation/Markdown");
-const { isChart } = await import("../src/agent-session/acpmux/conversation/DiagramBlock");
+const { isChart } = await import("../src/agent-session/acpmux/conversation/diagramBlockModel");
 // The page loads the highlighted code card once it has painted (App.tsx); so does this file. Left to
 // load when the first card asks for it, the card was its plain fallback on a fast runner and the
 // highlighted card on a loaded one (react-apps-check, run 39553495850).
-const { loadHighlightedCode } = await import("../src/agent-session/acpmux/conversation/CodeBlock");
+const { loadHighlightedCode } = await import("../src/agent-session/acpmux/conversation/codeBlockModel");
 await loadHighlightedCode();
 
 /// Yields to React and the renderers until `ready` holds: a loaded runner gets more yields, not a
@@ -122,6 +121,25 @@ test("a mermaid fence draws as SVG through Ondine, not a code block", async () =
   expect(svg?.textContent).toContain("Valid?");
   expect(svg?.textContent).toContain("Done");
   expect(host.textContent).toContain("Here is the flow:");
+});
+
+test("the user's front-door chart draws through Ondine", async () => {
+  // The chart from the user's Nov 20 screenshot: subgraphs, <br/> labels, quoted labels with braces,
+  // ::: classes and classDef lines.
+  const chart = readFileSync(join(import.meta.dir, "fixtures", "mermaid-front-door.mmd"), "utf8").trimEnd();
+  mermaidCalls.length = 0;
+  await show("```mermaid\n" + chart + "\n```");
+  // The previous test's diagram stays until this one replaces it.
+  // Ondine wraps long node labels into several lines; a subgraph title stays whole.
+  await settleUntil(
+    () => diagramSvg()?.textContent?.includes("Read path - the only front door") === true,
+    "the diagram",
+  );
+  const svg = diagramSvg()!;
+  expect(svg.getAttribute("class") ?? "").toContain("ondine");
+  expect(svg.textContent).toContain("log each decrypt");
+  expect(host.querySelector(".cv-diagram__error")).toBeNull();
+  expect(mermaidCalls.length).toBe(0);
 });
 
 test("a mermaid fence still streaming stays code", async () => {

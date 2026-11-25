@@ -66,6 +66,22 @@ public final class RemoteAgentSessionLinks {
         return parentsByHost[host] ?? [:]
     }
 
+    /// Records a child returned by a trusted remote fork operation. The daemon's fork response is
+    /// the source of truth here; unlike a guessed session id it is safe to use when opening the
+    /// child in that machine's store.
+    public func noteFork(_ child: String, parent: String, host: String? = nil) {
+        guard !child.isEmpty, !parent.isEmpty, child != parent else { return }
+        if let host {
+            var parents = parentsByHost[host] ?? [:]
+            parents[child] = parent
+            parentsByHost[host] = parents
+        } else {
+            var parents = self.parents
+            parents[child] = parent
+            self.parents = parents
+        }
+    }
+
     /// True when `session` descends from `root` (a child, or a child's child, ...).
     public func descends(_ session: String, from root: String, host: String? = nil) -> Bool {
         var seen: Set<String> = []

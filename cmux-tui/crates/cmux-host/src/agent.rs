@@ -3,19 +3,22 @@
 //! trait (Linux: `crate::linux::LinuxPlatform`; tests: a fake).
 //!
 //! One thread, one blocking wait. Every wake is a kernel event (clock set,
-//! address change, file write, signal, process exit, one-shot timer); there
-//! is no tick.
+//! address change, file write, signal, process exit, one-shot timer) or the
+//! pause watch's report of a resume. The agent thread has no tick; the
+//! pause watch's thread sleeps [`PAUSE_TICK`] at a time and wakes it only
+//! after a pause.
 
 use std::collections::VecDeque;
 use std::fs::{File, OpenOptions};
 use std::io::{self, Write};
 use std::path::Path;
+use std::time::Duration;
 
 use cmux_server_core::layout::Layout;
 use cmux_server_core::platform::InstallMode;
 use cmux_server_core::role::Role;
 
-use crate::machine::{Action, DaemonState, Input, Machine, Observation};
+use crate::machine::{Action, DaemonState, HostLook, Input, Machine, Observation};
 use crate::roles::{Roles, event_name};
 use crate::status::Status;
 
@@ -24,8 +27,18 @@ use crate::status::Status;
 pub enum Wake {
     /// An identity client accepted before this turn's metadata observation.
     Identity,
-    /// The realtime clock was set (`TFD_TIMER_CANCEL_ON_SET`).
+    /// The realtime clock was set (`TFD_TIMER_CANCEL_ON_SET`) and moved
+    /// against the boot clock by at least [`RESUME_CLOCK_JUMP_NS`]: the
+    /// machine was paused, restored or forked.
     ClockSet,
+    /// The realtime clock was set but moved against the boot clock by less
+    /// than [`RESUME_CLOCK_JUMP_NS`]: a provider's clock sync (Freestyle sets
+    /// it on every exec and file operation), not a resume.
+    ClockAdjusted,
+    /// The pause watch woke more than [`PAUSE_GAP`] past its tick on the
+    /// boot clock: the machine was stopped while its boot clock kept running
+    /// (Freestyle), so no clock set moved realtime against it.
+    Paused,
     /// The set of global addresses changed (rtnetlink, filtered).
     Address,
     /// The driver wrote `/run/cmux/instance-id`.
@@ -34,6 +47,8 @@ pub enum Wake {
     BakeFile,
     /// `server.json` was written.
     ConfigFile,
+    /// `/var/lib/cmux/carrier.json` was written.
+    CarrierFile,
     /// The observation retry timer.
     Retry,
     /// The periodic announce timer.
@@ -45,6 +60,295 @@ pub enum Wake {
     Rearm,
     Backoff,
     StopDeadline,
+    /// The look timer of an old-build session host waiting to be replaced.
+    HostLook,
+}
+
+/// How far the realtime clock must move against the boot clock for a clock
+/// set to count as a resume. A snapshot restore (pause, fork) freezes the boot
+/// clock, so the set that follows moves realtime by the whole time the machine
+/// was stopped; a provider's sync on a running machine moves it by its drift.
+pub const RESUME_CLOCK_JUMP_NS: i128 = 2_000_000_000;
+
+/// The wake for a clock set that moved `realtime - boottime` from
+/// `before_ns` to `after_ns`.
+pub fn clock_set_wake(before_ns: i128, after_ns: i128) -> Wake {
+    if (after_ns - before_ns).abs() >= RESUME_CLOCK_JUMP_NS {
+        Wake::ClockSet
+    } else {
+        Wake::ClockAdjusted
+    }
+}
+
+/// How long the pause watch sleeps (monotonic) between two looks at the
+/// boot clock. A pause longer than `PAUSE_TICK + PAUSE_GAP` (30 s) is always
+/// found, so every pause the relay retires a registration over (45 s of
+/// silence) is.
+pub const PAUSE_TICK: Duration = Duration::from_secs(10);
+
+/// How far past [`PAUSE_TICK`] the boot clock must have moved during one
+/// sleep for it to count as a pause. An NTP slew moves the boot clock by at
+/// most 0.5 ms a second and a step never moves it, so 20 s is no clock sync;
+/// it is also far past any scheduling delay of an otherwise idle thread.
+pub const PAUSE_GAP: Duration = Duration::from_secs(20);
+
+/// How long the machine was stopped, at least, during a pause-watch sleep
+/// that read the boot clock at `before_ns` and again at `after_ns`; `None`
+/// when the sleep ended within [`PAUSE_GAP`] of its tick.
+pub fn paused_for(before_ns: i128, after_ns: i128) -> Option<Duration> {
+    let late = after_ns - before_ns - i128::try_from(PAUSE_TICK.as_nanos()).ok()?;
+    if late <= i128::try_from(PAUSE_GAP.as_nanos()).ok()? {
+        return None;
+    }
+    Some(Duration::from_nanos(u64::try_from(late).unwrap_or(u64::MAX)))
+}
+
+/// What the pause watch has seen, for every thread of this process: the boot
+/// clock at its last look (ns, 0 for never) and how many pauses it found. The
+/// supervisor's `Wake::Paused` comes from the same looks; the updater holds a
+/// flip on a pause counted after the last one it handled
+/// ([`PauseWatch::pause_seq`]), or while the watch is still waking from one
+/// ([`PauseWatch::waking`]). A restore that stops the boot clock moves
+/// neither: the updater's own `realtime - boottime` look covers that.
+#[derive(Debug, Default)]
+pub struct PauseWatch {
+    last_look_ns: std::sync::atomic::AtomicI64,
+    pauses: std::sync::atomic::AtomicU64,
+    /// The look the last counted pause came after (its `last_look_ns` then),
+    /// or [`PAUSE_FROM_NONE`]: which wake a count is ([`PauseSeen::pause_from_ns`]).
+    pause_from_ns: std::sync::atomic::AtomicI64,
+    /// Odd while a look is being published: a reader that sees it odd, or
+    /// changed across its reads, reads again ([`PauseWatch::seen`]).
+    version: std::sync::atomic::AtomicU64,
+    /// One publisher at a time (the watch's thread, the supervisor's clock-set
+    /// wake, a reread of the record), and one write of the file.
+    publish: std::sync::Mutex<()>,
+    /// Where this watch writes its record ([`PauseWatch::persist_to`]).
+    file: std::sync::OnceLock<std::path::PathBuf>,
+    /// Where this watch reads its record from at every look ([`PauseWatch::load`]).
+    source: std::sync::OnceLock<std::path::PathBuf>,
+}
+
+/// The pause watch of this process (the Linux platform's thread feeds it).
+pub static PAUSES: PauseWatch = PauseWatch::new();
+
+impl PauseWatch {
+    pub const fn new() -> Self {
+        Self {
+            last_look_ns: std::sync::atomic::AtomicI64::new(0),
+            pauses: std::sync::atomic::AtomicU64::new(0),
+            pause_from_ns: std::sync::atomic::AtomicI64::new(PAUSE_FROM_NONE),
+            version: std::sync::atomic::AtomicU64::new(0),
+            publish: std::sync::Mutex::new(()),
+            file: std::sync::OnceLock::new(),
+            source: std::sync::OnceLock::new(),
+        }
+    }
+
+    /// One look of the watch at boot time `now_ns`: whether it found a pause.
+    pub fn looked(&self, now_ns: i128, paused: bool) {
+        let look = i64::try_from(now_ns).unwrap_or(i64::MAX);
+        self.publish_with(|pauses, last_look, from| {
+            if paused { (pauses + 1, look, last_look) } else { (pauses, look, from) }
+        });
+    }
+
+    /// A resume another way found (a clock set that moved realtime against
+    /// the boot clock, where the boot clock stops).
+    pub fn found(&self) {
+        self.publish_with(|pauses, last_look, _| (pauses + 1, last_look, PAUSE_FROM_NONE));
+    }
+
+    /// Publishes the count and the last look `next` makes of the current
+    /// ones as one look: the version is odd while the fields change, so a
+    /// reader never takes one field old and the other new. Then the file,
+    /// both fields in one rename.
+    fn publish_with(&self, next: impl FnOnce(u64, i64, i64) -> (u64, i64, i64)) {
+        use std::sync::atomic::Ordering;
+        let _one = self.publish.lock().unwrap_or_else(|e| e.into_inner());
+        let (pauses, last_look, from) = next(
+            self.pauses.load(Ordering::SeqCst),
+            self.last_look_ns.load(Ordering::SeqCst),
+            self.pause_from_ns.load(Ordering::SeqCst),
+        );
+        self.version.fetch_add(1, Ordering::SeqCst);
+        self.pauses.store(pauses, Ordering::SeqCst);
+        self.last_look_ns.store(last_look, Ordering::SeqCst);
+        self.pause_from_ns.store(from, Ordering::SeqCst);
+        self.version.fetch_add(1, Ordering::SeqCst);
+        self.write(pauses, last_look, from);
+    }
+
+    /// The count and the last look together, as one look of the watch saw
+    /// them: a reader that took the old count with the new look would miss
+    /// the pause that look just found.
+    pub fn seen(&self) -> PauseSeen {
+        use std::sync::atomic::Ordering;
+        self.refresh();
+        loop {
+            let version = self.version.load(Ordering::SeqCst);
+            if version % 2 == 1 {
+                std::hint::spin_loop();
+                continue;
+            }
+            let pauses = self.pauses.load(Ordering::SeqCst);
+            #[cfg(test)]
+            between_reads();
+            let last_look_ns = i128::from(self.last_look_ns.load(Ordering::SeqCst));
+            let pause_from_ns = i128::from(self.pause_from_ns.load(Ordering::SeqCst));
+            if self.version.load(Ordering::SeqCst) == version {
+                return PauseSeen { pauses, last_look_ns, pause_from_ns };
+            }
+        }
+    }
+
+    /// How many pauses were found so far: a reader that keeps the count it
+    /// last handled sees every newer one, whenever it was found.
+    pub fn pause_seq(&self) -> u64 {
+        self.seen().pauses
+    }
+
+    /// Whether the watch has not looked for longer than a pause takes to find
+    /// ([`paused_for`] from its last look) at boot time `now_ns`: it is still
+    /// waking from one. False while no watch runs.
+    pub fn waking(&self, now_ns: i128) -> bool {
+        self.seen().waking(now_ns)
+    }
+
+    /// From now on, every look and pause found is also written to `path`, so
+    /// the processes that flip outside this one (the operator's `cmux host
+    /// update check`) read the same record ([`PauseWatch::load`]).
+    pub fn persist_to(&self, path: std::path::PathBuf) {
+        let _ = self.file.set(path);
+        self.publish_with(|pauses, last_look, from| (pauses, last_look, from));
+    }
+
+    /// The record another process wrote at `path`, read again at every look
+    /// (an empty one, which never counts a stop, while there is none or it is
+    /// unreadable).
+    pub fn load(path: &Path) -> PauseWatch {
+        let watch = PauseWatch::new();
+        let _ = watch.source.set(path.to_path_buf());
+        watch.refresh();
+        watch
+    }
+
+    /// Whether the watch has looked at all (a watch runs, here or in the
+    /// process that writes the record this one reads).
+    pub fn has_looked(&self) -> bool {
+        self.seen().last_look_ns != 0
+    }
+
+    /// The record as `{"last_look_ns", "pauses", "pause_from_ns"}`, written
+    /// beside and renamed so a reader never sees half of it. Errors are
+    /// dropped: a record that can't be written leaves the other processes
+    /// reading none.
+    fn write(&self, pauses: u64, last_look_ns: i64, pause_from_ns: i64) {
+        let Some(path) = self.file.get() else { return };
+        let body = serde_json::json!({
+            "last_look_ns": last_look_ns,
+            "pauses": pauses,
+            "pause_from_ns": pause_from_ns,
+        });
+        let part = path.with_extension("json.part");
+        if std::fs::write(&part, body.to_string()).is_ok() {
+            let _ = std::fs::rename(&part, path);
+        }
+    }
+
+    /// Reads the record again when this watch is another process's copy.
+    fn refresh(&self) {
+        let Some(path) = self.source.get() else { return };
+        let read = std::fs::read(path)
+            .ok()
+            .and_then(|bytes| serde_json::from_slice::<serde_json::Value>(&bytes).ok());
+        let field = |name: &str| read.as_ref().and_then(|v| v.get(name));
+        let look = field("last_look_ns").and_then(serde_json::Value::as_i64).unwrap_or(0);
+        let pauses = field("pauses").and_then(serde_json::Value::as_u64).unwrap_or(0);
+        // A record from before the field names no wake: its counts are never the refresh's own.
+        let from =
+            field("pause_from_ns").and_then(serde_json::Value::as_i64).unwrap_or(PAUSE_FROM_NONE);
+        self.publish_with(|_, _, _| (pauses, look, from));
+    }
+}
+
+/// One consistent look at a [`PauseWatch`] ([`PauseWatch::seen`]).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct PauseSeen {
+    /// How many pauses were found so far.
+    pub pauses: u64,
+    /// The boot clock at the watch's last look (ns, 0 for never).
+    pub last_look_ns: i128,
+    /// The look the last counted pause came after ([`PAUSE_FROM_NONE`] when
+    /// none, or when it was found another way): a count is the wake from a
+    /// given look only when this names that look.
+    pub pause_from_ns: i128,
+}
+
+/// [`PauseSeen::pause_from_ns`] for no pause counted after a look: a clock
+/// set's [`PauseWatch::found`], a record without the field, or none yet.
+pub const PAUSE_FROM_NONE: i64 = -1;
+
+impl PauseSeen {
+    /// Whether the watch, as seen, has not looked for longer than a pause
+    /// takes to find at boot time `now_ns`: it is still waking from one.
+    pub fn waking(&self, now_ns: i128) -> bool {
+        self.last_look_ns != 0 && paused_for(self.last_look_ns, now_ns).is_some()
+    }
+}
+
+#[cfg(test)]
+thread_local! {
+    /// Runs once inside the next [`PauseWatch::seen`] on this thread, between
+    /// its reads: a test's publish interleaved with the read.
+    pub static BETWEEN_READS: std::cell::RefCell<Option<Box<dyn FnOnce()>>> =
+        const { std::cell::RefCell::new(None) };
+}
+
+#[cfg(test)]
+fn between_reads() {
+    if let Some(publish) = BETWEEN_READS.with(|hook| hook.borrow_mut().take()) {
+        publish();
+    }
+}
+
+/// Wall time within which a clock set and a pause-watch gap are the same
+/// resume. Each fires within about a second of the resume, and on a provider
+/// that has one of them the other never fires.
+pub const SAME_RESUME_NS: i128 = 10_000_000_000;
+
+/// The detector a resume signal came from.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ResumeSource {
+    /// A clock set that moved realtime against the boot clock.
+    ClockSet,
+    /// The pause watch's gap on the boot clock.
+    PauseWatch,
+}
+
+/// One resume can reach the agent both as a clock set and as a pause-watch
+/// gap (a provider whose boot clock runs through a pause and whose realtime
+/// is set late). A signal within [`SAME_RESUME_NS`] of the last resume from
+/// the other detector is that resume, seen again: a clock sync. Each detector
+/// fires once per resume, so a second signal from the same detector is
+/// always a new resume, and a resume absorbs at most one signal from the
+/// other.
+#[derive(Debug, Default)]
+pub struct ResumeOnce {
+    /// The last resume that has not yet absorbed the other detector's signal.
+    last: Option<(ResumeSource, i128)>,
+}
+
+impl ResumeOnce {
+    /// Whether a resume signal from `source` at wall time `wall_ns` is a new
+    /// resume.
+    pub fn first(&mut self, source: ResumeSource, wall_ns: i128) -> bool {
+        let same = self.last.is_some_and(|(last_source, last_ns)| {
+            last_source != source && (wall_ns - last_ns).abs() < SAME_RESUME_NS
+        });
+        self.last = if same { None } else { Some((source, wall_ns)) };
+        !same
+    }
 }
 
 /// A reaped process the machine cares about.
@@ -61,6 +365,9 @@ pub enum Exit {
 pub trait Platform {
     /// End remote authority before a potentially blocking clone/metadata read.
     fn invalidate_remote_authority(&self) {}
+    /// A resume: read the agent harnesses' executables back into the page cache the pause dropped
+    /// (`cloud/page_in.rs`), off the poll loop.
+    fn page_in_harnesses(&self) {}
     /// Blocks until at least one wake.
     fn wait(&mut self) -> io::Result<Vec<Wake>>;
     /// Collects exits after a [`Wake::ProcessExit`].
@@ -77,8 +384,38 @@ pub trait Platform {
     fn run(&mut self, action: &Action) -> io::Result<Option<Input>>;
     /// The supervised session host's pid.
     fn daemon_pid(&self) -> Option<u32>;
+    /// Whether the supervised session host runs with another relay carrier
+    /// route than `carrier.json` names now (`carrier_entry.rs`).
+    fn carrier_changed(&mut self) -> bool {
+        false
+    }
+    /// Whether the adopted session host runs another executable than the
+    /// installed build's (`/proc/<pid>/exe` against the canonical session
+    /// host binary): an update flipped the build under it.
+    fn build_changed(&mut self) -> bool {
+        false
+    }
+    /// One look at the adopted old-build host's carrier sessions.
+    fn look_host(&mut self) -> HostLook {
+        HostLook { attached: Some(0), ..HostLook::default() }
+    }
     /// Publishes the status file.
     fn write_status(&mut self, status: &Status) -> io::Result<()>;
+
+    /// Count one session host stop, with its cause, in the persisted per-day budget of the
+    /// supervisor contract (`cmux-supervise-core`); where the budget stands after it. `None`
+    /// where nothing is kept.
+    fn record_stop(
+        &mut self,
+        _cause: cmux_supervise_core::StopCause,
+    ) -> Option<cmux_supervise_core::BudgetState> {
+        None
+    }
+
+    /// Where the session host's restart budget stands, for the status.
+    fn restart_budget(&self) -> Option<cmux_supervise_core::BudgetState> {
+        None
+    }
     /// Answers accepted identity clients only after the fresh observation's actions.
     fn reply_identity(&mut self, _settled_instance: Option<&str>) {}
 }
@@ -115,7 +452,10 @@ fn describe(action: &Action) -> String {
         | Action::CommitBind(id) => {
             format!("{} id={id}", action.name())
         }
-        Action::ArmBackoff(ms) | Action::ArmRetry(ms) => format!("{} ms={ms}", action.name()),
+        Action::ArmBackoff(ms) | Action::ArmRetry(ms) | Action::ArmHostLook(ms) => {
+            format!("{} ms={ms}", action.name())
+        }
+        Action::ReplaceOldHost(why) => format!("{} why={}", action.name(), why.name()),
         Action::Notify(event) => format!("{} event={}", action.name(), event_name(event)),
         Action::StartRoles(id) => format!("{} id={}", action.name(), id.as_deref().unwrap_or("-")),
         other => other.name().to_owned(),
@@ -130,6 +470,8 @@ pub struct Agent<P: Platform> {
     log: ActionLog,
     last_wake: &'static str,
     wakes: u64,
+    /// (first agent start on this VM disk, an earlier agent already ran): the marker read once at start.
+    first_start: (u64, bool),
 }
 
 impl<P: Platform> Agent<P> {
@@ -142,7 +484,23 @@ impl<P: Platform> Agent<P> {
         log: ActionLog,
     ) -> Self {
         let roles = Roles::new(roles, install);
-        Self { platform, machine: Machine::new(), roles, log, last_wake: "start", wakes: 0 }
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_secs())
+            .unwrap_or(0);
+        let first_start = crate::status::MachineFacts::mark(
+            std::path::Path::new(crate::config::MACHINE_MARKER),
+            now,
+        );
+        Self {
+            platform,
+            machine: Machine::new(),
+            roles,
+            log,
+            last_wake: "start",
+            wakes: 0,
+            first_start,
+        }
     }
 
     pub fn machine(&self) -> &Machine {
@@ -160,9 +518,19 @@ impl<P: Platform> Agent<P> {
             self.log.line(&format!("adopt-daemon pid={pid}"));
         }
         let first = self.platform.observe();
-        if self
-            .dispatch([Input::Boot { adopted_daemon: adopted.is_some() }, Input::Observed(first)])
-        {
+        let mut boot =
+            vec![Input::Boot { adopted_daemon: adopted.is_some() }, Input::Observed(first)];
+        // A session host kept from before an agent restart may run with an
+        // older carrier route.
+        if adopted.is_some() && self.platform.carrier_changed() {
+            boot.push(Input::CarrierChanged);
+        }
+        // Or from before an update's flip (`KillMode=process`: the restart
+        // kept it): replaced once no person's session is in the way.
+        if adopted.is_some() && self.platform.build_changed() {
+            boot.push(Input::BuildChanged);
+        }
+        if self.dispatch(boot) {
             return Ok(());
         }
         loop {
@@ -200,9 +568,19 @@ impl<P: Platform> Agent<P> {
                     // Failure must fence an inherited identity, just like a clone signal.
                     clone_signal = true;
                 }
-                Wake::ClockSet => {
+                Wake::ClockSet | Wake::Paused => {
                     self.platform.invalidate_remote_authority();
+                    self.platform.page_in_harnesses();
                     resumed = true;
+                    observe = true;
+                    clone_signal = true;
+                }
+                // A clock sync on a running machine: the metadata is read
+                // again with the clone signal (a failed read still fences
+                // the identity), but remote authority, the roles and their
+                // receivers stay up and no `Resumed` is sent. Ending them
+                // here dropped the Native receiver on every provider exec.
+                Wake::ClockAdjusted => {
                     observe = true;
                     clone_signal = true;
                 }
@@ -214,6 +592,11 @@ impl<P: Platform> Agent<P> {
                     observe = true;
                 }
                 Wake::ConfigFile => rest.push(Input::ConfigChanged),
+                Wake::CarrierFile => {
+                    if self.platform.carrier_changed() {
+                        rest.push(Input::CarrierChanged);
+                    }
+                }
                 Wake::DriverFile => {
                     self.platform.invalidate_remote_authority();
                     observe = true;
@@ -227,14 +610,17 @@ impl<P: Platform> Agent<P> {
                 Wake::AnnounceTimer => rest.push(Input::AnnounceTick),
                 Wake::Terminate => terminate = true,
                 Wake::ProcessExit => {
-                    rest.extend(self.platform.reap().into_iter().map(|exit| match exit {
-                        Exit::Daemon { lived_ms } => Input::DaemonExited { lived_ms },
-                        Exit::Announce => Input::AnnounceDone,
-                    }));
+                    for exit in self.platform.reap() {
+                        match exit {
+                            Exit::Daemon { lived_ms } => rest.extend(self.daemon_exit(lived_ms)),
+                            Exit::Announce => rest.push(Input::AnnounceDone),
+                        }
+                    }
                 }
                 Wake::Rearm => rest.push(Input::RearmElapsed),
                 Wake::Backoff => rest.push(Input::BackoffElapsed),
                 Wake::StopDeadline => rest.push(Input::StopDeadline),
+                Wake::HostLook => rest.push(Input::HostLookElapsed),
             }
         }
         if let Some(wake) = wakes.first() {
@@ -297,6 +683,17 @@ impl<P: Platform> Agent<P> {
                 Action::Exit => *exit = true,
                 Action::CommitBind(id) => follow.push(Input::BindCommitted(id.clone())),
                 Action::Recheck => follow.push(Input::Observed(self.platform.observe())),
+                Action::LookHost => {
+                    let look = self.platform.look_host();
+                    self.log.line(&format!(
+                        "old-build host: {} attached, input idle {}, {} s since the build changed",
+                        look.attached.map_or("unknown".to_owned(), |n| n.to_string()),
+                        look.input_idle_ms
+                            .map_or("unknown".to_owned(), |ms| format!("{} s", ms / 1000)),
+                        look.since_changed_ms / 1000
+                    ));
+                    follow.push(Input::HostLooked(look));
+                }
                 Action::StartRoles(id) => {
                     let errors = self.roles.start(id.clone());
                     self.log_all(errors);
@@ -340,13 +737,38 @@ impl<P: Platform> Agent<P> {
                             continue;
                         }
                         if *action == Action::SpawnDaemon {
-                            follow.push(Input::DaemonExited { lived_ms: 0 });
+                            follow.extend(self.daemon_exit(0));
                         }
                     }
                 },
             }
         }
         follow
+    }
+
+    /// A session host exit, counted on the supervisor contract before the machine sees it: an
+    /// exit while it was meant to run (a crash, a kill, a failed spawn) is a fault against the
+    /// day's budget; one the agent asked for (a bind, a park, a respawn for a new route or
+    /// build) is counted, never as a fault.
+    fn daemon_exit(&mut self, lived_ms: u64) -> Vec<Input> {
+        use cmux_supervise_core::StopCause;
+        let cause = match self.machine.daemon() {
+            DaemonState::Running if !self.machine.is_parked() => StopCause::Died(format!(
+                "the session host exited after {lived_ms} ms while it was meant to run"
+            )),
+            DaemonState::Stopping(crate::machine::StopReason::Respawn) => {
+                StopCause::Update("respawned for a new carrier route or build".into())
+            }
+            DaemonState::Stopping(reason) => StopCause::Intentional(format!("{reason:?}")),
+            _ => return vec![Input::DaemonExited { lived_ms }],
+        };
+        let fault = cause.counts();
+        let budget = self.platform.record_stop(cause);
+        let exceeded = budget.as_ref().is_some_and(|b| b.exceeded());
+        if fault && exceeded {
+            self.log.line(&format!("restart-budget-exceeded: {budget:?}"));
+        }
+        vec![Input::RestartBudget { exceeded }, Input::DaemonExited { lived_ms }]
     }
 
     fn log_all(&mut self, lines: Vec<String>) {
@@ -367,6 +789,11 @@ impl<P: Platform> Agent<P> {
             roles: self.roles.statuses(),
             last_wake: self.last_wake.to_owned(),
             wakes: self.wakes,
+            restart_budget: self.platform.restart_budget(),
+            machine: Some(crate::status::MachineFacts::live(
+                self.first_start.0,
+                self.first_start.1,
+            )),
         };
         if let Err(err) = self.platform.write_status(&status) {
             self.log.line(&format!("status write failed: {err}"));
@@ -378,10 +805,13 @@ fn wake_name(wake: Wake) -> &'static str {
     match wake {
         Wake::Identity => "identity",
         Wake::ClockSet => "clock",
+        Wake::ClockAdjusted => "clock-adjusted",
+        Wake::Paused => "paused",
         Wake::Address => "net",
         Wake::DriverFile => "driver-file",
         Wake::BakeFile => "bake-file",
         Wake::ConfigFile => "config-file",
+        Wake::CarrierFile => "carrier-file",
         Wake::Retry => "retry",
         Wake::AnnounceTimer => "announce-timer",
         Wake::Terminate => "terminate",
@@ -389,6 +819,7 @@ fn wake_name(wake: Wake) -> &'static str {
         Wake::Rearm => "rearm",
         Wake::Backoff => "backoff",
         Wake::StopDeadline => "stop-deadline",
+        Wake::HostLook => "host-look",
     }
 }
 
@@ -402,63 +833,5 @@ pub fn daemon_name(state: &DaemonState) -> &'static str {
 }
 
 #[cfg(test)]
-mod identity_tests {
-    use super::*;
-
-    struct Fake {
-        observations: VecDeque<Option<&'static str>>,
-        wakes: VecDeque<Wake>,
-        reads: usize,
-        replies: Vec<(usize, Option<String>)>,
-    }
-
-    impl Platform for Fake {
-        fn wait(&mut self) -> io::Result<Vec<Wake>> {
-            Ok(vec![self.wakes.pop_front().unwrap()])
-        }
-        fn reap(&mut self) -> Vec<Exit> {
-            vec![]
-        }
-        fn observe(&mut self) -> Observation {
-            self.reads += 1;
-            Observation {
-                instance_id: self.observations.pop_front().unwrap().map(str::to_owned),
-                bake_id: None,
-                bound_id: Some("a".into()),
-                clone_signal: false,
-            }
-        }
-        fn adopt_daemon(&mut self) -> Option<u32> {
-            Some(1)
-        }
-        fn run(&mut self, _: &Action) -> io::Result<Option<Input>> {
-            Ok(None)
-        }
-        fn daemon_pid(&self) -> Option<u32> {
-            Some(1)
-        }
-        fn write_status(&mut self, _: &Status) -> io::Result<()> {
-            Ok(())
-        }
-        fn reply_identity(&mut self, id: Option<&str>) {
-            self.replies.push((self.reads, id.map(str::to_owned)));
-        }
-    }
-
-    #[test]
-    fn identity_queries_observe_again_and_refuse_failed_metadata_or_clone_transition() {
-        let fake = Fake {
-            observations: [Some("a"), Some("a"), None, Some("b")].into(),
-            wakes: [Wake::Identity, Wake::Identity, Wake::Identity, Wake::Terminate].into(),
-            reads: 0,
-            replies: vec![],
-        };
-        let mut agent =
-            Agent::new(fake, vec![], Err("no roles".into()), ActionLog::new(None).unwrap());
-        agent.run().unwrap();
-        assert_eq!(
-            agent.platform.replies,
-            vec![(2, Some("a".into())), (3, None), (4, None), (4, None)]
-        );
-    }
-}
+#[path = "agent_tests.rs"]
+mod identity_tests;

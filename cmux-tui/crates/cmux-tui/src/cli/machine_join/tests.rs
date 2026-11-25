@@ -4,28 +4,28 @@ use std::sync::{Arc, Mutex, mpsc};
 
 use super::*;
 
-const CREDENTIAL: &str = "cmux-access-credential-0123456789";
-const TOKEN: &str = "cmj_AbCdEfGh0123456789_-xyz";
+pub(super) const CREDENTIAL: &str = "cmux-access-credential-0123456789";
+pub(super) const TOKEN: &str = "cmj_AbCdEfGh0123456789_-xyz";
 const MACHINE_CREDENTIAL: &str = "cmm_secret-machine-credential-0123";
 
-fn strings(words: &[&str]) -> Vec<String> {
+pub(super) fn strings(words: &[&str]) -> Vec<String> {
     words.iter().map(|w| (*w).to_owned()).collect()
 }
 
-fn parsed(words: &[&str]) -> Option<Result<Command, UsageError>> {
+pub(super) fn parsed(words: &[&str]) -> Option<Result<Command, UsageError>> {
     parse(&strings(words))
 }
 
-fn command(words: &[&str]) -> Command {
+pub(super) fn command(words: &[&str]) -> Command {
     parsed(words).expect("ours").expect("parses")
 }
 
 /// One answer per request; the handler sees the request line plus headers and body.
-type Handler = Arc<dyn Fn(&str) -> (u16, String) + Send + Sync>;
+pub(super) type Handler = Arc<dyn Fn(&str) -> (u16, String) + Send + Sync>;
 
 /// A fake cmux platform on a loopback port: every request goes to `handler`
 /// and is recorded, raw, on the returned channel.
-fn fake(handler: Handler) -> (String, mpsc::Receiver<String>) {
+pub(super) fn fake(handler: Handler) -> (String, mpsc::Receiver<String>) {
     let listener = TcpListener::bind("127.0.0.1:0").unwrap();
     let origin = format!("http://{}", listener.local_addr().unwrap());
     let (sender, requests) = mpsc::channel();
@@ -70,11 +70,11 @@ fn fake(handler: Handler) -> (String, mpsc::Receiver<String>) {
     (origin, requests)
 }
 
-fn platform(origin: &str) -> Platform {
+pub(super) fn platform(origin: &str) -> Platform {
     Platform::new(origin.to_owned(), CREDENTIAL.to_owned(), Duration::from_secs(5)).unwrap()
 }
 
-fn mint_answer(expires_at_ms: u64) -> String {
+pub(super) fn mint_answer(expires_at_ms: u64) -> String {
     json!({
         "token": TOKEN,
         "joinTokenId": "jt_1",
@@ -85,7 +85,7 @@ fn mint_answer(expires_at_ms: u64) -> String {
     .to_string()
 }
 
-fn entry(join_token_id: &str) -> Value {
+pub(super) fn entry(join_token_id: &str) -> Value {
     json!({
         "machineId": "m_1",
         "label": "lane-vm-3",
@@ -117,13 +117,13 @@ fn joining(listed: Vec<Value>, expires_at_ms: u64) -> Handler {
     })
 }
 
-struct Ran {
-    code: Result<i32, Failure>,
-    out: String,
-    asked: Vec<String>,
+pub(super) struct Ran {
+    pub code: Result<i32, Failure>,
+    pub out: String,
+    pub asked: Vec<String>,
 }
 
-fn run_with(
+pub(super) fn run_with(
     words: &[&str],
     origin: &str,
     output: OutputMode,
@@ -139,35 +139,69 @@ fn run_with(
         asked.push(question.to_owned());
         answer
     };
+    let mut read_value = |_: &str| -> Result<zeroize::Zeroizing<String>, String> {
+        Err("no value in this test".into())
+    };
+    let mut ssh =
+        |_: &bootstrap::SshPlan| -> std::io::Result<i32> { panic!("no ssh in this test") };
+    let mut hooks = Hooks { confirm: &mut confirm, read_value: &mut read_value, ssh: &mut ssh };
     let options = RunOptions { interactive, every: Duration::from_millis(20) };
-    let code = run(&command, &platform, output, options, &mut out, &mut confirm, interrupt);
+    let code = run(&command, &platform, output, options, &mut out, &mut hooks, interrupt);
     Ran { code, out: String::from_utf8(out).unwrap(), asked }
 }
 
-fn never() -> impl Future<Output = ()> {
+pub(super) fn never() -> impl Future<Output = ()> {
     std::future::pending::<()>()
 }
 
-fn far() -> u64 {
+pub(super) fn far() -> u64 {
     now_ms() + 600_000
 }
 
-fn no_secret(text: &str) {
+pub(super) fn no_secret(text: &str) {
     for secret in [TOKEN, CREDENTIAL, MACHINE_CREDENTIAL, "cmj_", "cmm_"] {
         assert!(!text.contains(secret), "{secret} leaked in {text:?}");
     }
 }
 
 #[test]
+fn selected_team_uses_the_platform_team_header() {
+    let (origin, requests) = fake(Arc::new(|_| (200, "[]".into())));
+    let platform = platform(&origin).with_team(Some("team_0123456789abcdef0123".into()));
+    platform.post("/v1/machines/credentials", json!({})).unwrap();
+    let request = requests.recv_timeout(Duration::from_secs(1)).unwrap();
+    assert!(
+        request
+            .lines()
+            .any(|line| line.eq_ignore_ascii_case("x-cmux-team: team_0123456789abcdef0123"))
+    );
+    assert!(
+        !request
+            .lines()
+            .any(|line| line.eq_ignore_ascii_case("x-cmux-team-id: team_0123456789abcdef0123"))
+    );
+}
+
+#[test]
 fn add_without_a_host_is_ours_and_with_one_is_the_apps_card() {
-    assert_eq!(command(&["machine", "add"]).verb, Verb::Add { name: None, ttl: None, wait: None });
+    assert_eq!(command(&["machine", "add"]).verb, Verb::Add(AddArgs::default()));
     assert_eq!(
         command(&["machine", "add", "--name", "lane-vm-3", "--ttl", "5m", "--no-wait"]).verb,
-        Verb::Add { name: Some("lane-vm-3".into()), ttl: Some(300), wait: Some(false) }
+        Verb::Add(AddArgs {
+            name: Some("lane-vm-3".into()),
+            ttl: Some(300),
+            wait: Some(false),
+            ..AddArgs::default()
+        })
     );
     assert_eq!(
         command(&["machine", "add", "--name=a", "--ttl=600", "--wait"]).verb,
-        Verb::Add { name: Some("a".into()), ttl: Some(600), wait: Some(true) }
+        Verb::Add(AddArgs {
+            name: Some("a".into()),
+            ttl: Some(600),
+            wait: Some(true),
+            ..AddArgs::default()
+        })
     );
     for host in [
         vec!["machine", "add", "mini-7"],
@@ -235,11 +269,12 @@ fn the_credential_comes_from_stdin_a_file_or_the_env_and_errors_name_neither() {
 }
 
 #[test]
-fn the_platform_is_https_and_defaults_to_development() {
+fn the_platform_is_https_and_defaults_to_production() {
     let none = |_: &str| -> Option<String> { None };
-    assert_eq!(platform_origin(None, &none).unwrap(), DEV_ORIGIN);
+    assert_eq!(platform_origin(None, &none).unwrap(), DEFAULT_ORIGIN);
+    assert_eq!(DEFAULT_ORIGIN, "https://cmux-platform-production.debussy.workers.dev");
     let env = |key: &str| -> Option<String> {
-        (key == PLATFORM_ENV).then(|| "https://platform.example/".to_owned())
+        (key == "CMUX_PLATFORM_URL").then(|| "https://platform.example/".to_owned())
     };
     assert_eq!(platform_origin(None, &env).unwrap(), "https://platform.example");
     assert_eq!(platform_origin(Some("http://127.0.0.1:9"), &env).unwrap(), "http://127.0.0.1:9");
@@ -269,15 +304,21 @@ fn add_json_prints_the_env_form_line_and_the_token_only_in_line_and_token() {
     assert_eq!(value["teamId"], "team_1");
     assert_eq!(value["name"], "lane-vm-3");
     assert_eq!(value["scriptUrl"], format!("{origin}/v1/machines/join.sh"));
+    assert_eq!(
+        value["windowsLine"],
+        format!(" $env:CMUX_JOIN='{TOKEN}'; irm {origin}/v1/machines/join.ps1 | iex")
+    );
+    assert_eq!(value["windowsScriptUrl"], format!("{origin}/v1/machines/join.ps1"));
     assert_eq!(value["joined"], Value::Null, "json does not wait unless asked");
-    let holding: Vec<&String> = value
+    let mut holding: Vec<&String> = value
         .as_object()
         .unwrap()
         .iter()
         .filter(|(_, v)| v.to_string().contains(TOKEN))
         .map(|(k, _)| k)
         .collect();
-    assert_eq!(holding, vec!["line", "token"]);
+    holding.sort();
+    assert_eq!(holding, vec!["line", "token", "windowsLine"]);
     let mint = requests.recv().unwrap();
     let (head, body) = mint.split_once("\r\n\r\n").unwrap();
     assert!(head.starts_with("POST /v1/machines/join-tokens HTTP/1.1"), "{head}");
@@ -308,6 +349,13 @@ fn add_human_prints_the_line_and_waits_on_a_terminal_until_it_joins() {
     assert_eq!(
         lines.next().unwrap(),
         format!(" curl -fsSL {origin}/v1/machines/join.sh | CMUX_JOIN={TOKEN} sh")
+    );
+    assert_eq!(lines.next(), Some(""));
+    assert_eq!(lines.next(), Some("On a Windows PC, in PowerShell:"));
+    assert_eq!(lines.next(), Some(""));
+    assert_eq!(
+        lines.next().unwrap(),
+        format!(" $env:CMUX_JOIN='{TOKEN}'; irm {origin}/v1/machines/join.ps1 | iex")
     );
     assert!(ran.out.contains("Waiting for it to join…"), "{}", ran.out);
     assert!(
@@ -608,6 +656,26 @@ fn a_name_on_two_machines_needs_its_id() {
 }
 
 #[test]
+fn joined_online_follows_the_platform_and_falls_back_to_the_heartbeat() {
+    let now = now_ms();
+    // The platform's `online` wins over the local clock either way: it follows the hub's row TTL.
+    let fresh_but_down =
+        joined(&json!({"machineId": "m_1", "lastHeartbeat": now, "online": false})).unwrap();
+    assert_eq!(fresh_but_down.state(now), "offline");
+    let old_but_up =
+        joined(&json!({"machineId": "m_2", "lastHeartbeat": now - 600_000, "online": true}))
+            .unwrap();
+    assert_eq!(old_but_up.state(now), "online");
+    let revoked = joined(&json!({"machineId": "m_3", "online": true, "revoked": true})).unwrap();
+    assert_eq!(revoked.state(now), "revoked");
+    // A platform without the field: the heartbeat within the legacy window.
+    let legacy =
+        |ago: u64| joined(&json!({"machineId": "m_4", "lastHeartbeat": now - ago})).unwrap();
+    assert_eq!(legacy(LEGACY_ONLINE_WITHIN_MS - 1_000).state(now), "online");
+    assert_eq!(legacy(LEGACY_ONLINE_WITHIN_MS + 1_000).state(now), "offline");
+}
+
+#[test]
 fn joined_rows_degrade_when_optional_fields_are_missing() {
     let now = now_ms();
     let full = joined(&entry("jt_1")).unwrap();
@@ -659,6 +727,48 @@ fn list_rows_merge_into_an_array_or_items_and_fail_open() {
     assert_eq!(note.as_deref(), Some("joining isn't available"));
 }
 
+/// hq#11835 row 2: `cmux machine list` showed this machine and the Cloud VMs but not the
+/// machines added with `acpmux machine add`, which `cmux chat --on NAME` now takes. They are
+/// rows now (`kind: "peer"`), each once: a joined machine with that hostname, or a daemon row
+/// of that name, is the same machine; the hub's own rows are the joined list's.
+#[test]
+fn acpmuxs_own_machines_join_the_machine_list_once() {
+    let peers = vec![
+        json!({"name": "gcp-agent-lane-3", "carrier": "ssh", "connected": true}),
+        json!({"name": "cosmic-gray", "carrier": "ssh", "connected": false}),
+        // Joined too: the joined row lists it.
+        json!({"name": "gcp-agent-lane-6", "carrier": "ssh", "connected": true}),
+        json!({"name": "Box", "carrier": "ssh", "connected": true}),
+        json!({"name": "studio", "via": "hub", "connected": true}),
+        json!({"name": "\u{1b}[31m", "connected": true}),
+        json!({"connected": true}),
+    ];
+    let listed = json!([
+        {"id": "machine_mac", "name": "local", "origin": "local"},
+        {"id": "machine_box", "name": "box", "origin": "ssh"},
+        {"kind": "joined", "id": "m_6", "name": "lane six", "hostname": "gcp-agent-lane-6"},
+    ]);
+    let merged = merge_peer_rows(listed, &peers);
+    let added: Vec<&Value> = merged.as_array().unwrap()[3..].iter().collect();
+    let names: Vec<&str> = added.iter().map(|row| row["name"].as_str().unwrap()).collect();
+    assert_eq!(names, ["gcp-agent-lane-3", "cosmic-gray", "[31m"]);
+    assert_eq!(
+        *added[0],
+        json!({"kind": "peer", "id": "gcp-agent-lane-3", "name": "gcp-agent-lane-3",
+               "hostname": "gcp-agent-lane-3", "origin": "acpmux", "status": "connected",
+               "state": "online", "connectable": true, "carrier": "ssh",
+               "target": "gcp-agent-lane-3"})
+    );
+    assert_eq!(
+        (added[1]["status"].as_str(), added[1]["connectable"].as_bool()),
+        (Some("offline"), Some(false))
+    );
+    // `{"items": [...]}` too; anything else is left as it was.
+    let merged = merge_peer_rows(json!({"items": []}), &peers[..1]);
+    assert_eq!(merged["items"][0]["id"], "gcp-agent-lane-3");
+    assert_eq!(merge_peer_rows(json!("x"), &peers), json!("x"));
+}
+
 #[test]
 fn credentials_answers_in_every_list_shape_are_read() {
     let (origin, _requests) =
@@ -684,10 +794,41 @@ fn the_platforms_row_shape_reads_with_mesh_identity_and_a_null_label() {
     assert_eq!(machine.state(now_ms()), "offline");
     assert_eq!(entries(json!({"machines": [row]})).map(|rows| rows.len()), Some(1));
     // Its unavailable store answers 503 machine.join.unavailable: joining is off there too.
-    let failure =
-        CallError::Status { status: 503, code: known_code(Some("machine.join.unavailable")) }
-            .failure("the join token");
+    let failure = CallError::Status {
+        status: 503,
+        code: known_code(Some("machine.join.unavailable")),
+        facts: None,
+    }
+    .failure("the join token");
     assert_eq!(failure.message, "joining isn't available on this server yet (it answered 503)");
+}
+
+/// A plan refusal keeps its code through the reserve, the bind and a workspace's machine, so the
+/// pane can say the team has no Cloud plan instead of a generic refusal.
+#[test]
+fn a_plan_refusal_keeps_its_code() {
+    assert_eq!(known_code(Some("cloud.plan.required")), "cloud.plan.required");
+}
+
+/// Every code of cmux-platform's refusal table (cmux-platform#1192) is one this CLI keeps, so a
+/// cap, a rate limit or a machine's state reaches the person by name, not as a bare status.
+#[test]
+fn every_platform_refusal_code_is_known() {
+    for row in refusals::PLATFORM {
+        assert_eq!(known_code(Some(row.code)), row.code);
+    }
+    // A cap's refusal names its limit and what holds it.
+    let facts = refusals::Facts { limit: Some(20), used: Some(20), ..Default::default() };
+    let failure =
+        CallError::Status { status: 403, code: "cloud.quota.vm_limit", facts: Some(facts) }
+            .failure("the machine");
+    assert!(
+        failure.message.contains(
+            "403 cloud.quota.vm_limit: this team is at its Cloud machine limit (20 of 20 machines)"
+        ),
+        "{}",
+        failure.message
+    );
 }
 
 #[test]
@@ -763,4 +904,50 @@ fn expires_at_reads_the_platforms_iso_string_with_milliseconds() {
     assert_eq!(epoch_ms(&json!("2026-10-29T03:10:00.250Z")), Some(1_793_243_400_250));
     assert_eq!(epoch_ms(&json!(1_793_243_400_250_u64)), Some(1_793_243_400_250));
     assert_eq!(epoch_ms(&json!("not a time")), None);
+}
+
+/// Door A timing run (huge-blue/doora-timing, 2026-11-16): with only `CMUX_PLATFORM_ORIGIN`
+/// set (the name acpmux reads), acpmux joined the staging hub while this CLI's account read went
+/// to production and got a 401. `CMUX_PLATFORM_ORIGIN` is the name, `CMUX_PLATFORM_URL` its
+/// alias, read the way acpmux reads them.
+#[test]
+fn the_platform_reads_acpmuxs_variable_first_and_the_old_name_as_its_alias() {
+    let staging = "https://cmux-platform-staging.example";
+    let only_origin = |key: &str| -> Option<String> {
+        (key == "CMUX_PLATFORM_ORIGIN").then(|| staging.to_owned())
+    };
+    assert_eq!(platform_origin(None, &only_origin).unwrap(), staging);
+    let both = |key: &str| -> Option<String> {
+        match key {
+            "CMUX_PLATFORM_ORIGIN" => Some(staging.to_owned()),
+            "CMUX_PLATFORM_URL" => Some("https://other.example".to_owned()),
+            _ => None,
+        }
+    };
+    assert_eq!(platform_origin(None, &both).unwrap(), staging);
+    assert_eq!(
+        platform_origin(Some("https://flag.example"), &both).unwrap(),
+        "https://flag.example"
+    );
+}
+
+/// `cmux machine add|revoke|rotate|vault --help` prints the verb's own usage (the Cloud and remote
+/// command matrix); without the flag the verb parses as before.
+#[test]
+fn each_join_verb_has_its_own_help() {
+    let words = |text: &str| text.split_whitespace().map(str::to_owned).collect::<Vec<_>>();
+    let revoke = verb_help(&words("machine revoke --help")).unwrap();
+    assert!(revoke.starts_with("usage: cmux machine revoke ID|NAME [--yes]\n"), "{revoke}");
+    assert!(revoke.contains("--cloud-token-file PATH"), "{revoke}");
+    assert!(!revoke.contains("rotate") && !revoke.contains("machine add"), "{revoke}");
+    let add = verb_help(&words("machine add -h")).unwrap();
+    assert!(add.starts_with("usage: cmux machine add [--name NAME]"), "{add}");
+    assert!(add.contains("\n       cmux machine add --usb PATH"), "{add}");
+    assert!(add.contains("opens the app's Add Machine card"), "{add}");
+    assert!(!add.contains("revoke"), "{add}");
+    let rotate = verb_help(&words("machine rotate box --help")).unwrap();
+    assert!(rotate.starts_with("usage: cmux machine rotate ID|NAME\n"), "{rotate}");
+    assert_eq!(verb_help(&words("machine vault --help")).unwrap(), vault::USAGE);
+    assert!(verb_help(&words("machine revoke box")).is_none());
+    assert!(verb_help(&words("machine list --help")).is_none());
 }

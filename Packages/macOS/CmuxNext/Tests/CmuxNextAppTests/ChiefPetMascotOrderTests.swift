@@ -3,12 +3,13 @@ import AppKit
 import CmuxNextFloating
 @testable import CmuxNextHomeEngine
 @testable import CmuxNextSettings
+import CmuxNextTestSupport
 import Foundation
 import Testing
 
 /// Leo 2026-11-01: "we can reorder them a little bit so they orb doesn't come first ... obv i assume
 /// this won't switch up what they've currently selected...?" The characters now run Series 1 without
-/// the orbs, Mochi, Series 2, then the orbs. A choice is kept by its id, never its place: the default
+/// the orbs, the animated sets, Series 2, then the orbs. A choice is kept by its id, never its place: the default
 /// Chief's in cmux.json (`home.chiefPetMascot`), every other Chief's in the app's defaults
 /// (`home.chief.mascots`, participant id to character id). So the same saved choices read back the same
 /// characters, a person who never picked still wears orb, and the grid checks a cell by its id.
@@ -17,10 +18,10 @@ import Testing
     static let seriesOne = ["orb", "orb-spark", "orb-hood", "machine", "machine-cyan", "machine-blue", "moon", "moon-blue", "fox", "mochi"]
 
     @Test func theOrbsNoLongerComeFirstAndEveryOldIdStays() {
-        #expect(HomeChiefPetSetting.mascots.first != "orb")
-        #expect(Array(HomeChiefPetSetting.mascots.suffix(3)) == ["orb", "orb-spark", "orb-hood"])
-        #expect(Set(Self.seriesOne).isSubset(of: Set(HomeChiefPetSetting.mascots)), "no character was dropped or renamed")
-        #expect(HomeChiefPetSetting.defaultMascot == "orb" && ChiefPetMascot.initial == .orb, "the default stays orb")
+        #expect(HomeChiefPetSetting.mascotValues.first != "orb")
+        #expect(Array(HomeChiefPetSetting.mascotValues.suffix(3)) == ["orb", "orb-spark", "orb-hood"])
+        #expect(Set(Self.seriesOne).isSubset(of: Set(HomeChiefPetSetting.mascotValues)), "no character was dropped or renamed")
+        #expect(HomeChiefPetSetting.mascotDefault == "orb" && ChiefPetMascot.initial == .orb, "the default stays orb")
         for id in Self.seriesOne {
             let root = CmuxNextSettings.JSONValue.object(["home": .object(["chiefPetMascot": .string(id)])])
             let parsed = CmuxConfigSnapshot.parse(root, validDensities: [], validMetrics: [])
@@ -42,7 +43,7 @@ import Testing
 
         // Another Chief's choice, in the app's defaults under the key it has always used.
         let suite = "cmux-chief-mascot-order-\(UUID().uuidString)"
-        let defaults = try #require(UserDefaults(suiteName: suite))
+        let defaults = try #require(UserDefaults(testSuiteName: suite))
         defer { defaults.removePersistentDomain(forName: suite) }
         defaults.set(["agent_scout01": "machine-blue"], forKey: "home.chief.mascots")
         let picks = ChiefMascotPicks(defaults: defaults, defaultChief: HomeChiefAvatars.defaultChief)
@@ -68,7 +69,7 @@ import Testing
         #expect(grid.selectedID == "machine-blue")
         // An id that is no character (one retired later, say) checks the default, not the first cell.
         grid.select("retired-character", enabled: true)
-        #expect(grid.selectedID == HomeChiefPetSetting.defaultMascot)
+        #expect(grid.selectedID == HomeChiefPetSetting.mascotDefault)
         #expect(ChiefPetSettingsRows.avatarURL(of: "retired-character") == ChiefPetMascot.orb.avatarURL)
     }
 }

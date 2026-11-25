@@ -26,6 +26,7 @@ extension DaemonEvent {
                 return .unknown(name: name, payload: AgentInventoryProviderDemand.payload(line: line))
             case "agent-inventory-changed", "agent-inventory-watch-ended":
                 return .unknown(name: name, payload: AgentInventoryWatchEvent.decode(name: name, line: line)?.payload ?? .null)
+            case "screen-device-changed": return .screenDeviceChanged(try d(EventPayload.ScreenDeviceChanged.self).id)
             case "workspace-added": return .workspaceAdded(try d(WorkspaceDelta.self))
             case "workspace-closed": return .workspaceClosed(try d(WorkspaceDelta.self))
             case "workspace-renamed": return .workspaceRenamed(try d(WorkspaceDelta.self))
@@ -41,6 +42,8 @@ extension DaemonEvent {
             case "tab-closed": return .tabClosed(try d(TabDelta.self))
             case "tab-renamed": return .tabRenamed(try d(TabDelta.self))
             case "tab-changed": return .tabChanged(try d(TabDelta.self))
+            case "selection-changed": return .selectionChanged(try d(SelectionDelta.self))
+            case "workspace-presentation-changed": return .workspacePresentationChanged(try d(WorkspacePresentationDelta.self))
             case "tree-changed": return .treeChanged(transaction: try d(EventPayload.TransactionField.self).clientTransactionID)
             // Personal state (`profiles-v1`) changed: the store refetches
             // `list-personal` alone (a group fold must not refetch the tree).
@@ -52,8 +55,10 @@ extension DaemonEvent {
                 let layout = e.hasLayout ? try? d(ScreenLayoutDelta.self) : nil
                 return .layoutChanged(screen: e.screen, layout: layout, transaction: e.clientTransactionID)
             case "title-changed":
+                // `text` and `activity` are the daemon's split (D2); a daemon from before them sends the raw title only.
                 let e = try d(EventPayload.TitleChanged.self)
-                return .titleChanged(surface: e.surface, title: e.title ?? "")
+                return .titleChanged(surface: e.surface, title: e.text ?? e.title ?? "",
+                                     activity: e.activity.flatMap(TerminalTitle.Activity.init(rawValue:)))
             case "surface-resized":
                 let e = try d(EventPayload.SurfaceResized.self)
                 return .surfaceResized(surface: e.surface, size: CellSize(cols: e.cols, rows: e.rows))
@@ -76,6 +81,8 @@ extension DaemonEvent {
                 return .historyChanged(revision: e.revision, kinds: e.kinds ?? [])
             case "keybindings-changed":
                 return .keybindingsChanged(revision: try d(EventPayload.KeybindingsChanged.self).revision)
+            case "agent-session-share-changed":
+                return .agentSessionShareChanged(session: try d(EventPayload.SessionField.self).session)
             case "conversation-changed": return .conversationChanged(try d(ConversationEvent.self))
             case "conversation-typing": return .conversationTyping(try d(ConversationTyping.self))
             case "conversation-draft": return .conversationDraft(try d(ConversationDraft.self))
@@ -113,6 +120,19 @@ extension DaemonEvent {
 
 /// Minimal payload shapes for events whose fields map onto enum cases.
 private enum EventPayload {
+    struct ScreenDeviceChanged: Decodable {
+        var id: String?
+        enum CodingKeys: String, CodingKey { case id = "screen_device_id" }
+        init(from decoder: any Decoder) throws {
+            let c = try decoder.container(keyedBy: CodingKeys.self)
+            let raw = try c.decode(String?.self, forKey: .id)
+            id = DaemonIdentity.normalizedScreenDeviceID(raw)
+            if raw != nil && id == nil {
+                throw DecodingError.dataCorruptedError(forKey: .id, in: c, debugDescription: "Screen device identity must be a UUID")
+            }
+        }
+    }
+
     struct HistoryChanged: Decodable {
         var revision: UInt64
         var kinds: [String]?
@@ -124,6 +144,10 @@ private enum EventPayload {
 
     struct KeybindingsChanged: Decodable {
         var revision: UInt64
+    }
+
+    struct SessionField: Decodable {
+        var session: String
     }
 
     struct BookmarksChanged: Decodable {
@@ -167,6 +191,8 @@ private enum EventPayload {
     struct TitleChanged: Decodable {
         var surface: SurfaceID
         var title: String?
+        var text: String?
+        var activity: String?
     }
 
     struct SurfaceResized: Decodable {

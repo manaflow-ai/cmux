@@ -1,19 +1,37 @@
+// The paths, defaults and the AgentPaneComposerRing, AgentPaneAttachmentView, AgentPaneNewChatPlace,
+// AgentPaneDictationSource, AgentPaneComposerLook, AgentPaneEmptyChatComposerPosition and AgentPaneFollowUpMode enums are generated from schemas/settings/source/agent-pane-composer.json
+// (Schema/SettingsSchema+AgentPaneComposer*.generated.swift).
+
 import CmuxNextDesign
 
 /// The agent pane composer's own keys in cmux.json (the pane reads the same names,
 /// webviews/src/agent-session/acpmux/composerSettings.ts):
 ///
 /// ```jsonc
-/// "agentPane": { "showContextUsage": true, "showDictation": true, "spellChecking": false, "attachmentView": "inline", "scrollToBottomOnSend": true, "showMachineLoadWarnings": true }
+/// "agentPane": { "showContextUsage": true, "composerRing": "context", "showDictation": true, "spellChecking": false, "attachmentView": "strip", "scrollToBottomOnSend": true, "showMachineLoadWarnings": true }
 /// ```
 ///
 /// `showContextUsage`: the context usage ring beside the model. The ring's right-click hides it,
-/// the composer footer's right-click shows it again. `showDictation`: the dictation mic beside Send
+/// the composer footer's right-click shows it again. `composerRing`: what that ring shows,
+/// `context` (the chat's context window usage; the default) or `planUsage` (the account's plan
+/// usage limits, 5-hour and weekly, when the harness reports them); `showContextUsage` still hides
+/// or shows the ring either way. Leo, 2026-11-04: "i guess we can turn that into a 5h/weekly usage
+/// type thing instead as well for some people". `showDictation`: the dictation mic beside Send
 /// in every composer (a chat's and the New Tab page's); its right-click hides it, Settings shows it
 /// again. A bad value is the default plus a diagnostic.
+/// `dictationSource`: what that mic dictates with, `cmux` (cmux's own dictation; the default) or the
+/// dictation app the person already uses: `macos` (macOS Dictation), `chatgpt`, `claude`, `gemini`,
+/// `wisprFlow` or `superwhisper`, whose shortcut the mic then sends (design/composer-dictation.md).
+/// `dictationShortcut`: the chord the mic sends for an app source, such as `ctrl+opt+space`, when
+/// the person bound the app to one other than its default; empty (the default) uses the app's.
+/// Leo, 2026-11-07: "you can optionally have it be like, oh, you use Claude's thing, or ChatGPT's
+/// thing ... Or, like, maybe you can map the button to that thing, perhaps?"
 /// `spellChecking`: opt-in system spell checking for web and native composers. It is off by default.
+/// `composerVimKeys`: opt-in modal vim keys in the web composer (Esc for normal mode; i, a, I, A, o, h, j, k, l,
+/// w, b, e, 0, $, x, dd, u). It is off by default and never steals a key when off
+/// (webviews composer/vimKeys.ts).
 /// `attachmentView`: how pictures and files show in every composer and in sent messages, `inline`
-/// (each in the text where it was added, as Messages does; the default), `strip` (in a row) or
+/// (each in the text where it was added, as Messages does), `strip` (in a row; the default) or
 /// `both` (in the text and in the row, each removable from either; sent messages draw it as
 /// `inline`). Only the look: a draft's text, its attachments and their order are the same in all.
 /// `scrollToBottomOnSend`: when enabled, sending while reading up jumps to the newest row (the
@@ -26,6 +44,15 @@ import CmuxNextDesign
 /// machine, the page's `cloud.startChat`). The page decides (runLocationDefault.ts); this only
 /// carries the value. Leo, 2026-10-31: "whenever i start a chat it should be able to send me to
 /// cloud autommatically".
+/// `composerLook`: the composer's look in every chat, `auto` (the app's own; the default) or
+/// `studio` (opt-in: the model, effort and access chips in the box, a paperclip and a round Send).
+/// The New Tab page always draws its own (composerLook.ts).
+/// `emptyChatComposerPosition`: where a chat with no messages yet sits its composer, `bottom`
+/// (docked, the default) or `center` (the middle of the pane, the hero over it; styles.css).
+/// `followUpMode`: what Return and Send do with a message sent while an agent that steers is
+/// mid-turn, `steer` (into the running turn, ⌘Return queues; the default, as before) or `queue`
+/// (waits until the turn ends, ⌘Return steers). The page decides (followUpMode.ts); this only
+/// carries the value.
 ///
 /// `reasoningSlider` is not a cmux.json key: the Debug Settings toggle `agent.reasoningSlider`
 /// (CmuxNextAgentPane AgentPaneTunables, DEV and NIGHTLY, off by default) sets it, and it rides the
@@ -33,21 +60,24 @@ import CmuxNextDesign
 /// `reasoningSliderStyle` carries the Debug Settings visual comparison choice, defaulting to
 /// `accent` so the slider's current treatment remains unchanged.
 public nonisolated struct AgentPaneComposerSetting: Sendable, Hashable {
-    public static let showContextUsagePath = ["agentPane", "showContextUsage"]
-    public static let showDictationPath = ["agentPane", "showDictation"]
-    public static let spellCheckingPath = ["agentPane", "spellChecking"]
-    public static let attachmentViewPath = ["agentPane", "attachmentView"]
-    public static let scrollToBottomOnSendPath = ["agentPane", "scrollToBottomOnSend"]
-    public static let showMachineLoadWarningsPath = ["agentPane", "showMachineLoadWarnings"]
-    public static let newChatsInPath = ["agentPane", "newChatsIn"]
-
-    public var showContextUsage = true
-    public var showDictation = true
-    public var spellChecking = false
-    public var attachmentView = AgentPaneAttachmentView.inline
-    public var scrollToBottomOnSend = true
-    public var showMachineLoadWarnings = true
-    public var newChatsIn = AgentPaneNewChatPlace.local
+    public var showContextUsage = Self.showContextUsageDefault
+    public var composerRing = Self.composerRingDefault
+    public var showDictation = Self.showDictationDefault
+    public var dictationSource = Self.dictationSourceDefault
+    public var dictationShortcut = Self.dictationShortcutDefault
+    public var spellChecking = Self.spellCheckingDefault
+    public var composerVimKeys = Self.composerVimKeysDefault
+    public var attachmentView = Self.attachmentViewDefault
+    public var scrollToBottomOnSend = Self.scrollToBottomOnSendDefault
+    public var showMachineLoadWarnings = Self.showMachineLoadWarningsDefault
+    public var sessionWorktrees = Self.sessionWorktreesDefault
+    public var newChatsIn = Self.newChatsInDefault
+    public var composerLook = Self.composerLookDefault
+    public var emptyChatComposerPosition = Self.emptyChatComposerPositionDefault
+    public var followUpMode = Self.followUpModeDefault
+    /// `agentPane.savedPrompts`, checked here only: acpmux reads it from cmux.json at each list
+    /// (crates/acpmux/src/prompts.rs) and serves it to the page, so it is not in `pageValue`.
+    public var savedPrompts = Self.savedPromptsDefault
     /// The Debug Settings opt-in (`agent.reasoningSlider`); never parsed from cmux.json.
     public var reasoningSlider = false
     /// The Debug Settings visual choice (`agent.reasoningSliderStyle`); never parsed from cmux.json.
@@ -57,16 +87,24 @@ public nonisolated struct AgentPaneComposerSetting: Sendable, Hashable {
 
     public static let fallback = AgentPaneComposerSetting()
 
-    /// The page's value (the `composer` host event): `{showContextUsage, showDictation, spellChecking, attachmentView, scrollToBottomOnSend, showMachineLoadWarnings, newChatsIn, reasoningSlider, reasoningSliderStyle}`.
+    /// The page's value (the `composer` host event): `{showContextUsage, composerRing, showDictation, dictationSource, dictationShortcut, spellChecking, composerVimKeys, attachmentView, scrollToBottomOnSend, showMachineLoadWarnings, newChatsIn, composerLook, emptyChatComposerPosition, followUpMode, reasoningSlider, reasoningSliderStyle}`.
     public var pageValue: JSONValue {
         [
             "showContextUsage": .bool(showContextUsage),
+            "composerRing": .string(composerRing.rawValue),
             "showDictation": .bool(showDictation),
+            "dictationSource": .string(dictationSource.rawValue),
+            "dictationShortcut": .string(dictationShortcut),
             "spellChecking": .bool(spellChecking),
+            "composerVimKeys": .bool(composerVimKeys),
             "attachmentView": .string(attachmentView.rawValue),
             "scrollToBottomOnSend": .bool(scrollToBottomOnSend),
             "showMachineLoadWarnings": .bool(showMachineLoadWarnings),
+            "sessionWorktrees": .string(sessionWorktrees.rawValue),
             "newChatsIn": .string(newChatsIn.rawValue),
+            "composerLook": .string(composerLook.rawValue),
+            "emptyChatComposerPosition": .string(emptyChatComposerPosition.rawValue),
+            "followUpMode": .string(followUpMode.rawValue),
             "reasoningSlider": .bool(reasoningSlider),
             "reasoningSliderStyle": .string(reasoningSliderStyle)
         ]
@@ -85,12 +123,81 @@ public nonisolated struct AgentPaneComposerSetting: Sendable, Hashable {
                 setting.attachmentView = view
                 continue
             }
+            if descriptor.path == composerRingPath {
+                guard descriptor.accepts(value), let ring = value.stringValue.flatMap(AgentPaneComposerRing.init(rawValue:)) else {
+                    diagnostics.append(SettingsDiagnostic(kind: .invalidValue, path: descriptor.id, message: OmnibarSettingsSchema.expectation(descriptor)))
+                    continue
+                }
+                setting.composerRing = ring
+                continue
+            }
+            if descriptor.path == dictationSourcePath {
+                guard descriptor.accepts(value), let source = value.stringValue.flatMap(AgentPaneDictationSource.init(rawValue:)) else {
+                    diagnostics.append(SettingsDiagnostic(kind: .invalidValue, path: descriptor.id, message: OmnibarSettingsSchema.expectation(descriptor)))
+                    continue
+                }
+                setting.dictationSource = source
+                continue
+            }
+            if descriptor.path == dictationShortcutPath {
+                guard descriptor.accepts(value), let shortcut = value.stringValue else {
+                    diagnostics.append(SettingsDiagnostic(kind: .invalidValue, path: descriptor.id, message: OmnibarSettingsSchema.expectation(descriptor)))
+                    continue
+                }
+                // A chord that does not parse is kept, so the mic refuses it (`dictation.bad_shortcut`)
+                // instead of sending the app's default the person replaced.
+                if !shortcut.isEmpty, AgentPaneDictationShortcut(shortcut) == nil {
+                    diagnostics.append(SettingsDiagnostic(kind: .invalidValue, path: descriptor.id, message: OmnibarSettingsSchema.expectation(descriptor)))
+                }
+                setting.dictationShortcut = shortcut
+                continue
+            }
+            if descriptor.path == sessionWorktreesPath {
+                guard descriptor.accepts(value), let place = value.stringValue.flatMap(AgentPaneSessionWorktrees.init(rawValue:)) else {
+                    diagnostics.append(SettingsDiagnostic(kind: .invalidValue, path: descriptor.id, message: OmnibarSettingsSchema.expectation(descriptor)))
+                    continue
+                }
+                setting.sessionWorktrees = place
+                continue
+            }
+            if descriptor.path == savedPromptsPath {
+                guard descriptor.accepts(value) else {
+                    diagnostics.append(SettingsDiagnostic(kind: .invalidValue, path: descriptor.id, message: OmnibarSettingsSchema.expectation(descriptor)))
+                    continue
+                }
+                setting.savedPrompts = value
+                continue
+            }
             if descriptor.path == newChatsInPath {
                 guard descriptor.accepts(value), let place = value.stringValue.flatMap(AgentPaneNewChatPlace.init(rawValue:)) else {
                     diagnostics.append(SettingsDiagnostic(kind: .invalidValue, path: descriptor.id, message: OmnibarSettingsSchema.expectation(descriptor)))
                     continue
                 }
                 setting.newChatsIn = place
+                continue
+            }
+            if descriptor.path == composerLookPath {
+                guard descriptor.accepts(value), let look = value.stringValue.flatMap(AgentPaneComposerLook.init(rawValue:)) else {
+                    diagnostics.append(SettingsDiagnostic(kind: .invalidValue, path: descriptor.id, message: OmnibarSettingsSchema.expectation(descriptor)))
+                    continue
+                }
+                setting.composerLook = look
+                continue
+            }
+            if descriptor.path == emptyChatComposerPositionPath {
+                guard descriptor.accepts(value), let position = value.stringValue.flatMap(AgentPaneEmptyChatComposerPosition.init(rawValue:)) else {
+                    diagnostics.append(SettingsDiagnostic(kind: .invalidValue, path: descriptor.id, message: OmnibarSettingsSchema.expectation(descriptor)))
+                    continue
+                }
+                setting.emptyChatComposerPosition = position
+                continue
+            }
+            if descriptor.path == followUpModePath {
+                guard descriptor.accepts(value), let mode = value.stringValue.flatMap(AgentPaneFollowUpMode.init(rawValue:)) else {
+                    diagnostics.append(SettingsDiagnostic(kind: .invalidValue, path: descriptor.id, message: OmnibarSettingsSchema.expectation(descriptor)))
+                    continue
+                }
+                setting.followUpMode = mode
                 continue
             }
             guard descriptor.accepts(value), let flag = value.boolValue else {
@@ -100,6 +207,7 @@ public nonisolated struct AgentPaneComposerSetting: Sendable, Hashable {
             if descriptor.path == showContextUsagePath { setting.showContextUsage = flag }
             if descriptor.path == showDictationPath { setting.showDictation = flag }
             if descriptor.path == spellCheckingPath { setting.spellChecking = flag }
+            if descriptor.path == composerVimKeysPath { setting.composerVimKeys = flag }
             if descriptor.path == scrollToBottomOnSendPath { setting.scrollToBottomOnSend = flag }
             if descriptor.path == showMachineLoadWarningsPath { setting.showMachineLoadWarnings = flag }
         }
@@ -107,109 +215,47 @@ public nonisolated struct AgentPaneComposerSetting: Sendable, Hashable {
     }
 }
 
-/// How the composer and sent messages show attachments (`agentPane.attachmentView`).
-public nonisolated enum AgentPaneAttachmentView: String, Sendable, Hashable, CaseIterable {
-    /// Each attachment in the text where it was added, as Messages does.
-    case inline
-    /// The attachments together in a row.
-    case strip
-    /// In the text and in the row too, so every attachment shows in one place with its remove
-    /// (Leo, 2026-10-24: "ALSO show the top displayed attachments alongside the inline attachments").
-    case both
-}
-
-/// Where a new chat runs when its composer picks nothing (`agentPane.newChatsIn`).
-public nonisolated enum AgentPaneNewChatPlace: String, Sendable, Hashable, CaseIterable {
-    /// This Mac, as before.
-    case local
-    /// The person's own Cloud machine (a free one of theirs, else a new one).
-    case cloud
-}
-
-/// The composer's rows (General > Agent Chat, next to the edited-files card's).
-nonisolated enum AgentPaneComposerSettingsSchema {
-    static var descriptors: [SettingDescriptor] {
-        let group = SettingsText.keyed("settings.group.agentChat", "Agent Chat")
-        return [
-            SettingDescriptor(
-                AgentPaneComposerSetting.showContextUsagePath, section: .general, group: group,
-                title: SettingsText.keyed("settings.agentPane.showContextUsage", "Show Context Usage"),
-                help: SettingsText.keyed("settings.agentPane.showContextUsage.help",
-                                         "The ring beside the model that fills as the chat uses its context window."),
-                kind: .toggle, default: .bool(AgentPaneComposerSetting.fallback.showContextUsage),
-                keywords: ["context", "usage", "tokens", "window", "ring", "composer", "agent"]
-            ),
-            SettingDescriptor(
-                AgentPaneComposerSetting.showDictationPath, section: .general, group: group,
-                title: SettingsText.keyed("settings.agentPane.showDictation", "Show Dictation Button"),
-                help: SettingsText.keyed("settings.agentPane.showDictation.help",
-                                         "The microphone beside Send in every composer, including the New Tab page."),
-                kind: .toggle, default: .bool(AgentPaneComposerSetting.fallback.showDictation),
-                keywords: ["dictation", "microphone", "mic", "voice", "speech", "composer", "agent", "new tab"]
-            ),
-            SettingDescriptor(
-                AgentPaneComposerSetting.spellCheckingPath, section: .general, group: group,
-                title: SettingsText.keyed("settings.agentPane.spellChecking", "Check Spelling While Typing"),
-                help: SettingsText.keyed("settings.agentPane.spellChecking.help",
-                                         "Underlines misspellings and offers system suggestions in the composer."),
-                kind: .toggle, default: .bool(AgentPaneComposerSetting.fallback.spellChecking),
-                keywords: ["spell", "spelling", "grammar", "misspelling", "composer", "suggestions", "typing"]
-            ),
-            SettingDescriptor(
-                AgentPaneComposerSetting.attachmentViewPath, section: .general, group: group,
-                title: SettingsText.keyed("settings.agentPane.attachmentView", "Attachment View"),
-                help: SettingsText.keyed("settings.agentPane.attachmentView.help",
-                                         "How pictures and files show in the composer and in sent messages. Inline puts each one in the text where you added it; Strip shows them in a row. The message and its order stay the same."),
-                kind: .choice([
-                    SettingChoice(AgentPaneAttachmentView.inline.rawValue,
-                                  SettingsText.keyed("settings.choice.agentChatAttachmentInline", "Inline")),
-                    SettingChoice(AgentPaneAttachmentView.strip.rawValue,
-                                  SettingsText.keyed("settings.choice.agentChatAttachmentStrip", "Strip")),
-                    SettingChoice(AgentPaneAttachmentView.both.rawValue,
-                                  SettingsText.keyed("settings.choice.agentChatAttachmentBoth", "Inline and Strip")),
-                ]),
-                default: .string(AgentPaneComposerSetting.fallback.attachmentView.rawValue),
-                keywords: ["attachment", "attachments", "image", "picture", "file", "inline", "strip", "both", "composer", "messages"]
-            ),
-            SettingDescriptor(
-                AgentPaneComposerSetting.scrollToBottomOnSendPath, section: .general, group: group,
-                title: SettingsText.keyed("settings.agentPane.scrollToBottomOnSend", "Scroll to Bottom When I Send"),
-                help: SettingsText.keyed("settings.agentPane.scrollToBottomOnSend.help",
-                                         "When off, sending while you are reading up keeps your place and shows new messages below."),
-                kind: .toggle, default: .bool(AgentPaneComposerSetting.fallback.scrollToBottomOnSend),
-                keywords: ["scroll", "bottom", "send", "message", "chat", "latest", "follow"]
-            ),
-            SettingDescriptor(
-                AgentPaneComposerSetting.showMachineLoadWarningsPath, section: .general, group: group,
-                title: SettingsText.keyed("settings.agentPane.showMachineLoadWarnings", "Show Machine Load Warnings"),
-                help: SettingsText.keyed("settings.agentPane.showMachineLoadWarnings.help",
-                                         "Shows a warning when a remote machine is at its CPU or memory budget in the Computer menu."),
-                kind: .toggle, default: .bool(AgentPaneComposerSetting.fallback.showMachineLoadWarnings),
-                keywords: ["machine", "load", "memory", "cpu", "warning", "computer", "composer", "agent"]
-            ),
-            SettingDescriptor(
-                AgentPaneComposerSetting.newChatsInPath, section: .general, group: group,
-                title: SettingsText.keyed("settings.agentPane.newChatsIn", "Start New Chats In"),
-                help: SettingsText.keyed("settings.agentPane.newChatsIn.help",
-                                         "Where a new chat runs. Cloud starts it on your own Cloud machine, with your project copied there. The new chat's composer can change it for that chat."),
-                kind: .choice([
-                    SettingChoice(AgentPaneNewChatPlace.local.rawValue,
-                                  SettingsText.keyed("settings.choice.newChatsInLocal", "This Mac")),
-                    SettingChoice(AgentPaneNewChatPlace.cloud.rawValue,
-                                  SettingsText.keyed("settings.choice.newChatsInCloud", "Cloud")),
-                ]),
-                default: .string(AgentPaneComposerSetting.fallback.newChatsIn.rawValue),
-                keywords: ["cloud", "new chat", "start", "machine", "vm", "remote", "this mac", "local", "run"]
-            ),
-        ]
+/// A chord the mic sends for an app source (`agentPane.dictationShortcut`): modifiers and one key,
+/// joined with `+`, such as `ctrl+opt+space` or `cmd+shift+d`. At least one of cmd, ctrl, opt; a
+/// bare key or shift alone would type into the composer instead of reaching the app.
+public nonisolated struct AgentPaneDictationShortcut: Sendable, Hashable {
+    public nonisolated struct Modifiers: OptionSet, Sendable, Hashable {
+        public let rawValue: Int
+        public init(rawValue: Int) { self.rawValue = rawValue }
+        public static let command = Modifiers(rawValue: 1)
+        public static let control = Modifiers(rawValue: 2)
+        public static let option = Modifiers(rawValue: 4)
+        public static let shift = Modifiers(rawValue: 8)
     }
 
-    /// The visual composer choices agents may change; send behavior remains a user-only choice.
-    static var agentSettableKeys: Set<String> {
-        Set([AgentPaneComposerSetting.showContextUsagePath,
-             AgentPaneComposerSetting.showDictationPath,
-             AgentPaneComposerSetting.spellCheckingPath,
-             AgentPaneComposerSetting.attachmentViewPath,
-             AgentPaneComposerSetting.showMachineLoadWarningsPath].map { $0.joined(separator: ".") })
+    public let modifiers: Modifiers
+    /// The key's name: a letter, a digit, `space`, `return`, `tab` or `f1`...`f19`.
+    public let key: String
+
+    public init?(_ text: String) {
+        let parts = text.lowercased().split(separator: "+", omittingEmptySubsequences: false).map { $0.trimmingCharacters(in: .whitespaces) }
+        guard parts.count >= 2, let key = parts.last, Self.isKey(key) else { return nil }
+        var modifiers = Modifiers()
+        for part in parts.dropLast() {
+            let modifier: Modifiers
+            switch part {
+            case "cmd", "command": modifier = .command
+            case "ctrl", "control": modifier = .control
+            case "opt", "option", "alt": modifier = .option
+            case "shift": modifier = .shift
+            default: return nil
+            }
+            guard !modifiers.contains(modifier) else { return nil }
+            modifiers.insert(modifier)
+        }
+        guard !modifiers.isDisjoint(with: [.command, .control, .option]) else { return nil }
+        (self.modifiers, self.key) = (modifiers, key)
+    }
+
+    static func isKey(_ key: String) -> Bool {
+        if ["space", "return", "tab"].contains(key) { return true }
+        if key.count == 1, let character = key.first, character.isASCII, character.isLetter || character.isNumber { return true }
+        if key.hasPrefix("f"), let number = Int(key.dropFirst()), (1...19).contains(number) { return true }
+        return false
     }
 }

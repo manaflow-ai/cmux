@@ -78,11 +78,6 @@ fn span(d: std::time::Duration) -> String {
     }
 }
 
-/// A subagent run shorter than this, that left nothing to land, is a short
-/// task: its workspace closes when it finishes (`mark_workspace`). Oct 20-27
-/// on Lawrence's Chief: 42% of runs were under 30 minutes, the median 48.
-pub const SHORT_TASK: std::time::Duration = std::time::Duration::from_secs(30 * 60);
-
 impl Brain {
     /// Where a spawn's subagents run: `place` (`cloud`/`local`), else the
     /// saved `control cloud` default, else the env's peer; None: here.
@@ -113,12 +108,13 @@ impl Brain {
             peers = vec![crate::subagents::PER_AGENT.to_owned()];
         }
         match place {
-            Some("local") => Ok(Vec::new()),
+            Some("here" | "local" | "mac") => Ok(Vec::new()),
             Some("cloud") if peers.is_empty() => Err(
                 "no cloud peer is set up: `control cloud PEER[,PEER...]` names the acpmux peers (`acpmux host ls`) cloud subagents run on".to_owned(),
             ),
             Some("cloud") => Ok(peers),
-            Some(other) => Err(format!("spawn: no place {other}; cloud or local")),
+            // Paired names are validated by the pure picker against acpmux.
+            Some(_) => Ok(peers),
             None if saved.as_deref() == Some("") => Ok(Vec::new()),
             None => Ok(peers),
         }
@@ -133,6 +129,88 @@ impl Brain {
             .filter(|s| s.peer.as_deref() == Some(peer))
             .filter(|s| matches!(s.status, SubStatus::Starting | SubStatus::Running))
             .count()
+    }
+
+    /// The earliest wall-clock time (ms) one of the cloud checks has work:
+    /// the same rules as `cloud_tick`, `cloud_reap_tick`, `agent_key_tick` and
+    /// `fleet_tick` below (keep them together). A wait not started yet is due
+    /// now (its check starts it). `None`: no check waits for anything.
+    pub(super) fn cloud_due_ms(&self) -> Option<u64> {
+        if self.cloud_vms.is_none() && self.agent_keys.is_none() {
+            return None;
+        }
+        let now = now_ms();
+        let live = |s: &crate::state::SubRecord| {
+            matches!(
+                s.status,
+                SubStatus::Starting | SubStatus::Queued | SubStatus::Running
+            )
+        };
+        let subs = || self.state.spawns.values().flat_map(|r| r.subs.iter());
+        let mut due: Vec<u64> = Vec::new();
+        if self.chief.cloud_auto_pause && self.cloud_vms.is_some() {
+            let mut peers: Vec<String> = subs()
+                .filter(|s| !s.vm_deleted)
+                .filter_map(|s| s.peer.clone())
+                .filter(|p| !self.cloud_reaping.contains(p))
+                .collect();
+            peers.sort_unstable();
+            peers.dedup();
+            for peer in peers {
+                if self.live_on(&peer) > 0 || self.state.cloud_paused.contains(&peer) {
+                    continue;
+                }
+                if let Some(retry) = self.cloud_pause_retry.get(&peer) {
+                    due.push(retry.next_ms);
+                    continue;
+                }
+                let wait = if crate::subagents::is_agent_peer(&peer) {
+                    0
+                } else {
+                    self.cloud_idle.as_millis() as u64
+                };
+                let since = self.cloud_idle_since.get(&peer).copied().unwrap_or(now);
+                due.push(since.saturating_add(wait));
+            }
+        }
+        if self.cloud_vms.is_some() {
+            let reap = self.cloud_reap.as_millis() as u64;
+            for sub in subs().filter(|s| !s.vm_deleted && !live(s)) {
+                if let Some(peer) = sub.peer.as_deref()
+                    && crate::subagents::is_agent_peer(peer)
+                    && !self.cloud_reaping.contains(peer)
+                {
+                    due.push(sub.vm_idle_since.unwrap_or(now).saturating_add(reap));
+                }
+            }
+        }
+        if self.agent_keys.is_some() {
+            let grace = self.agent_key_grace.as_millis() as u64;
+            for sub in subs().filter(|s| s.agent_key.is_some() && !live(s)) {
+                if !self.agent_key_revoking.contains(&sub.id) {
+                    let since = self
+                        .agent_key_done_since
+                        .get(&sub.id)
+                        .copied()
+                        .unwrap_or(now);
+                    due.push(since.saturating_add(grace));
+                }
+            }
+        }
+        if self.fleet.is_some()
+            && subs().any(|s| {
+                !s.fleet_wait.is_empty()
+                    && !s.vm_deleted
+                    && matches!(s.status, SubStatus::Done | SubStatus::Reported)
+                    && !self.fleet_polling.contains(&s.id)
+            })
+        {
+            due.push(
+                self.fleet_polled_ms
+                    .saturating_add(self.fleet_every.as_millis() as u64),
+            );
+        }
+        due.into_iter().min()
     }
 
     /// B4: pauses each cloud peer's VM after `cloud_idle`
@@ -167,7 +245,7 @@ impl Brain {
                 self.cloud_pause_retry.remove(&peer);
                 continue;
             }
-            if self.cloud_paused.contains(&peer) {
+            if self.state.cloud_paused.contains(&peer) {
                 continue;
             }
             // A failed pause waits out its backoff (PAUSE_BACKOFF).
@@ -192,8 +270,9 @@ impl Brain {
             if now.saturating_sub(since) < wait {
                 continue;
             }
-            self.cloud_paused.insert(peer.clone());
+            self.state.cloud_paused.insert(peer.clone());
             self.cloud_idle_since.remove(&peer);
+            self.save();
             if self.cloud_pause_retry.contains_key(&peer) {
                 // A retry: its failure was logged once, the outcome is too.
             } else if own {
@@ -394,7 +473,7 @@ impl Brain {
     /// `peer` (a subagent's own VM) is gone: its subagent is marked so.
     pub(super) fn cloud_vm_deleted(&mut self, peer: &str) {
         self.cloud_reaping.remove(peer);
-        self.cloud_paused.remove(peer);
+        self.state.cloud_paused.remove(peer);
         self.cloud_idle_since.remove(peer);
         self.cloud_pause_retry.remove(peer);
         for sub in self
@@ -526,7 +605,7 @@ impl Brain {
     /// error is logged when it differs from the one logged before, so a VM
     /// that stays busy or broken gives one line, not one per tick.
     pub(super) fn cloud_pause_failed(&mut self, peer: &str, error: &str) {
-        self.cloud_paused.remove(peer);
+        self.state.cloud_paused.remove(peer);
         self.cloud_idle_since.remove(peer);
         // A result that comes back after the VM was deleted starts no streak.
         if !self.has_vm_peer(peer) {
@@ -589,13 +668,14 @@ impl Brain {
         peers.sort_unstable();
         peers.dedup();
         for peer in peers {
-            if self.live_on(&peer) > 0 || self.cloud_paused.contains(&peer) {
+            if self.live_on(&peer) > 0 || self.state.cloud_paused.contains(&peer) {
                 continue;
             }
             let began = std::time::Instant::now();
             match vms.pause(&peer) {
                 Ok(()) => {
-                    self.cloud_paused.insert(peer.clone());
+                    self.state.cloud_paused.insert(peer.clone());
+                    self.save();
                     (self.log)(&format!(
                         "cloud: host stops: paused {peer} in {} ms",
                         began.elapsed().as_millis()
@@ -612,12 +692,16 @@ impl Brain {
     /// [`PER_AGENT`](crate::subagents::PER_AGENT) each subagent gets its
     /// own VM, `chief-sub-<id>`, at `size` or the size its task needs; a
     /// task that needs the Mac stays here unless `place` is `cloud`.
+    #[allow(clippy::too_many_arguments)]
     pub(super) fn register_spawn_sized(
         &mut self,
         tasks: &[String],
         peers: &[String],
         place: Option<&str>,
         size: Option<&str>,
+        machines: &[crate::place_route::Machine],
+        family: crate::acpmux::Family,
+        taken: &[u64],
     ) -> Result<SpawnPlan, String> {
         if let Some(s) = size
             && !crate::subagents::SIZES.contains(&s)
@@ -634,48 +718,93 @@ impl Brain {
         let mut free = self
             .live_cap()
             .map_or(usize::MAX, |n| n.saturating_sub(self.live_subs()));
+        use crate::place_route::{Kind, Machine, Placement, Target};
+        // Paused Cloud VMs are disconnected until the pool resumes them.
+        // Only discard a disconnected saved peer we have no way to resume.
+        let peers: Vec<String> = peers
+            .iter()
+            .filter(|peer| {
+                per_agent
+                    || self.state.cloud_paused.contains(*peer)
+                    || self.cloud_vms.as_ref().is_some_and(|vms| vms.available())
+                    || machines
+                        .iter()
+                        .find(|m| m.kind == Kind::Paired && m.name == **peer)
+                        .is_none_or(|m| m.connected)
+            })
+            .cloned()
+            .collect();
         // B4: each cloud subagent goes to the peer with the fewest live
         // ones (counting this spawn's), ties to the first listed.
         let mut load: Vec<usize> = peers.iter().map(|p| self.live_on(p)).collect();
-        let mut pick = || -> Option<String> {
-            let k = (0..peers.len()).min_by_key(|&k| (load[k], k))?;
-            load[k] += 1;
-            Some(peers[k].clone())
-        };
-        let chosen: Vec<Option<String>> = if per_agent {
-            Vec::new()
-        } else {
-            tasks.iter().map(|_| pick()).collect()
-        };
-        for p in chosen.iter().flatten() {
-            self.cloud_paused.remove(p);
-            self.cloud_idle_since.remove(p);
-            self.cloud_pause_retry.remove(p);
+        let mut machines = machines.to_vec();
+        if !peers.is_empty() {
+            machines.push(Machine {
+                name: "cloud".into(),
+                kind: Kind::Cloud,
+                os: "linux".into(),
+                connected: true,
+                pressure_ok: true,
+                live_sessions: 0,
+                logins: Vec::new(),
+            });
         }
+        // A saved `control cloud off` means here until explicitly overridden.
+        let override_place =
+            place.or_else(|| (self.state.cloud_peer.as_deref() == Some("")).then_some("here"));
+        let placements: Vec<Placement> = tasks
+            .iter()
+            .map(|task| {
+                let mut p = crate::place_route::pick(task, &machines, family, override_place)?;
+                if place.is_none() && override_place == Some("here") {
+                    p.reason = "Cloud is off; staying here".into();
+                }
+                if let Target::Peer(name) = &p.target
+                    && let Some(m) = machines.iter_mut().find(|m| m.name == *name)
+                {
+                    m.live_sessions += 1;
+                }
+                Ok(p)
+            })
+            .collect::<Result<_, String>>()?;
         // Never below an id already handed out: a reset or unreadable
         // counter must not give `a<N>` twice (persistent-ids-DESIGN.md).
         let prior = self.state.next_subagent;
-        let first = self
-            .state
-            .next_subagent
-            .max(highest_subagent(&self.state.spawns) + 1);
+        // Queued before this spawn: its own queued ids come after them.
+        let queued_ahead = self.queued_count();
+        let first = free_subagent_run(
+            self.state
+                .next_subagent
+                .max(highest_subagent(&self.state.spawns) + 1),
+            tasks.len() as u64,
+            taken,
+        );
         let ids: Vec<String> = (0..tasks.len() as u64)
             .map(|k| format!("a{}", first + k))
             .collect();
         self.state.next_subagent = first + tasks.len() as u64;
         // One VM per subagent: its own peer, named after its id; a task that
         // needs the Mac (and was not sent to the cloud) runs here.
-        let chosen: Vec<Option<String>> = if per_agent {
-            ids.iter()
-                .zip(tasks)
-                .map(|(id, task)| {
-                    (place == Some("cloud") || !crate::subagents::needs_mac(task))
-                        .then(|| crate::subagents::agent_peer(id))
-                })
-                .collect()
-        } else {
-            chosen
-        };
+        let chosen: Vec<Option<String>> = ids
+            .iter()
+            .zip(&placements)
+            .map(|(id, p)| match &p.target {
+                Target::Here => None,
+                Target::Peer(name) => Some(name.clone()),
+                Target::CloudVm if per_agent => Some(crate::subagents::agent_peer(id)),
+                Target::CloudVm => {
+                    let k = (0..peers.len()).min_by_key(|&k| (load[k], k))?;
+                    load[k] += 1;
+                    Some(peers[k].clone())
+                }
+            })
+            .collect();
+        for p in chosen.iter().flatten() {
+            self.state.cloud_paused.remove(p);
+            self.cloud_idle_since.remove(p);
+            self.cloud_pause_retry.remove(p);
+        }
+        self.save();
         let sizes: Vec<Option<String>> = chosen
             .iter()
             .zip(tasks)
@@ -733,6 +862,7 @@ impl Brain {
                     .map(|(conversation, _)| conversation.clone())
                     .or_else(|| self.state.conversation.clone()),
             },
+            by_automation: self.turn_from_automation,
             answers: match self.state.turn.as_ref() {
                 Some(turn) => turn.answers.clone(),
                 None => self.state.last_answers.clone(),
@@ -768,11 +898,13 @@ impl Brain {
             spawn,
             ids,
             queued,
+            queued_ahead,
             limit: self.live_cap_source(),
             engine: self.spawn_engine(),
             peer: chosen.iter().flatten().next().cloned(),
             peers: chosen,
             sizes,
+            placements,
         })
     }
 
@@ -785,10 +917,25 @@ impl Brain {
         }
     }
 
-    pub(super) fn sub_started(&mut self, id: &str, session_id: String, policy: Option<String>) {
+    pub(super) fn sub_started(
+        &mut self,
+        id: &str,
+        session_id: String,
+        policy: Option<String>,
+        harness: Option<String>,
+        made: Option<crate::action_lifetime::Made>,
+        goal: bool,
+    ) {
         if let Some(sub) = self.state.sub_mut(id) {
             sub.session_id = Some(session_id);
             sub.policy = policy;
+            sub.goal = goal;
+            if made.is_some() {
+                sub.made = made;
+            }
+            if harness.is_some() {
+                sub.harness = harness;
+            }
             if sub.status == SubStatus::Starting {
                 sub.status = SubStatus::Running;
             }
@@ -893,7 +1040,7 @@ impl Brain {
     }
 
     /// Workspace `key` is gone (opening it failed at spawn or on `control
-    /// show`, or a short task's idle close closed it): it is hidden, and the next `show` opens under a fresh key (a half-made
+    /// show`, or the user closed it): it has none now, and the next `show` or `hide` opens under a fresh key (a half-made
     /// workspace was closed under this one, and the daemon replays its
     /// mutations).
     pub(super) fn sub_workspace_failed(&mut self, id: &str, key: &str) {
@@ -910,14 +1057,15 @@ impl Brain {
         self.rewatch_permission(id);
     }
 
-    /// `id` lost its workspace (hidden, or its open failed): a prompt it
-    /// still waits on has no Allow button any more, so it is watched again
-    /// and denied once overdue, as for any subagent without a workspace.
+    /// `id` lost its workspace (the user closed it, or its open failed), or its Home card
+    /// was retired: a prompt it still waits on with no Allow button left is
+    /// watched again, and denied once overdue.
     pub(super) fn rewatch_permission(&mut self, id: &str) {
+        self.present_home_approval(id);
         let Some((_, sub)) = self.state.sub(id) else {
             return;
         };
-        if Self::approval_shown(sub) || sub.policy.as_deref() == Some(crate::approval::ASK) {
+        if self.approval_shown(sub) || sub.policy.as_deref() == Some(crate::approval::ASK) {
             return;
         }
         let (Some(session_id), Some(p)) = (sub.session_id.clone(), sub.permission.clone()) else {
@@ -931,7 +1079,7 @@ impl Brain {
                 request: p.request,
                 child: Some(id.to_owned()),
             },
-            "the app shows no working approval button for this subagent",
+            "the subagent has no local workspace and its permission remains unanswered",
         );
     }
 
@@ -965,8 +1113,17 @@ impl Brain {
     pub(super) fn sub_answer(&mut self, id: &str, answer: &Result<Value, String>) {
         let mut fields = crate::subagents::answer_fields(answer);
         fields["id"] = json!(id);
-        if let Some((spawn, _)) = self.state.sub(id) {
+        if let Some((spawn, sub)) = self.state.sub(id) {
             fields["spawn"] = json!(spawn);
+            // The usage ledger's attribution, from the durable record: the
+            // trace fold's memory of `subagent.start` is gone after a host
+            // restart, and subagents outlive many of them.
+            if let Some(session) = &sub.session_id {
+                fields["session"] = json!(session);
+            }
+            if let Some(harness) = &sub.harness {
+                fields["harness"] = json!(harness);
+            }
         }
         self.trace.emit("subagent.answer", fields);
         // A prompt the harness failed ends the run with a failure report,
@@ -990,11 +1147,24 @@ impl Brain {
         let Some(status) = self.state.sub(&id).map(|(_, s)| s.status) else {
             return true;
         };
+        if session.pending_permissions == 0 {
+            self.end_home_approval(&id, true);
+        }
         if let Some(sub) = self.state.sub_mut(&id) {
             sub.active_ms = now_ms();
             if session.pending_permissions == 0 {
                 sub.permission = None;
             }
+        }
+        if session.pending_permissions == 0 {
+            self.save();
+            self.flush_outbox();
+        }
+        if self.state.sub(&id).is_some_and(|(_, sub)| sub.cancelled) {
+            if !busy(session.status) {
+                self.cancelled_settled(&id);
+            }
+            return true;
         }
         if busy(session.status) {
             // Running again: a tell, or the user writing in its chat.
@@ -1005,6 +1175,7 @@ impl Brain {
                     sub.stuck_noted = false;
                     sub.auto_continues = 0;
                     sub.continued_ms = 0;
+                    sub.reopened = true;
                 }
                 self.save();
                 self.mark_workspace(&id, false);
@@ -1018,6 +1189,10 @@ impl Brain {
         match session.status {
             SessionStatus::Idle | SessionStatus::Ready => self.finish_sub(&id, &session.session_id),
             SessionStatus::Closed | SessionStatus::Disconnected => {
+                let (reopens, with_last_host) = self.how_closed(&id, &session.session_id);
+                if reopens || (with_last_host && self.resume_closed(&id)) {
+                    return true;
+                }
                 let report = format!(
                     "(stopped without a report: its session is {:?})",
                     session.status
@@ -1029,9 +1204,90 @@ impl Brain {
         true
     }
 
+    /// How running subagent `id`'s session closed: whether a newer prompt is
+    /// queued behind the close (acpmux logged it after the `exited`: it
+    /// reopens, so the close is not its end, and a stale close that reaches
+    /// the host after the prompt that resumes it reports nothing), and
+    /// whether it closed before this host started (it ended with the last
+    /// host: `cmux chief shutdown` stops the daemon and its agents).
+    fn how_closed(&mut self, id: &str, session_id: &str) -> (bool, bool) {
+        let floor = self.state.sub(id).map_or(0, |(_, s)| s.floor);
+        let Ok(events) = self.agents.events(session_id, floor) else {
+            return (false, false);
+        };
+        let closed = events.iter().rev().find(|e| {
+            e.dir == "mux"
+                && (e.kind == "exited"
+                    || (e.kind == "status"
+                        && e.msg.get("status").and_then(Value::as_str) == Some("closed")))
+        });
+        let Some(closed) = closed else {
+            return (false, false);
+        };
+        (
+            super::children::prompt_after(&events, closed.seq),
+            closed.at.is_some_and(|at| at < self.born_ms),
+        )
+    }
+
+    /// Running subagent `id`'s session closed with the last host and no
+    /// report (live: `cmux chief shutdown` mid-turn ends its harness with the
+    /// daemon): this host resumes the run with one prompt, once per run, so
+    /// neither a "stopped without a report" nor a second subagent for the
+    /// same task follows. A session that closes while this host runs ends
+    /// the run as before (its daemon's word).
+    fn resume_closed(&mut self, id: &str) -> bool {
+        let Some((session, ok)) = self.state.sub(id).map(|(_, s)| {
+            (
+                s.session_id.clone(),
+                !(s.paused || s.cancelled || s.closed_resumed),
+            )
+        }) else {
+            return false;
+        };
+        let (Some(session), true) = (session, ok) else {
+            return false;
+        };
+        if let Some(sub) = self.state.sub_mut(id) {
+            sub.closed_resumed = true;
+        }
+        self.save();
+        let prompt_id = format!("{PROMPT_PREFIX}tell:{id}:{}", now_ms());
+        let blocks = vec![json!({"type": "text", "text": CLOSED_RESUME})];
+        match tell_prompt(
+            &*self.agents,
+            &session,
+            blocks,
+            &prompt_id,
+            self.tx.clone(),
+            id.to_owned(),
+        ) {
+            Ok(()) => {
+                (self.log)(&format!(
+                    "subagent {id}: its session closed mid-run; resumed it"
+                ));
+                self.trace.emit("subagent.closed_resume", json!({"id": id}));
+                true
+            }
+            Err(e) => {
+                (self.log)(&format!(
+                    "subagent {id}: its session closed and could not be resumed: {e}"
+                ));
+                false
+            }
+        }
+    }
+
     /// Reads a subagent's turn ends since its floor; when one ended, its
-    /// last reply is its report.
-    fn finish_sub(&mut self, id: &str, session_id: &str) {
+    /// last reply is its report. Under a goal (goal.rs) a Codex subagent's
+    /// next turns are its own (acpmux `background_turn` brackets): their
+    /// words count as replies, and while its goal goes on it is held for the
+    /// tick (`goal_held`) instead of reported.
+    pub(super) fn finish_sub(&mut self, id: &str, session_id: &str) {
+        if self.state.sub(id).is_some_and(|(_, sub)| sub.cancelled) {
+            self.cancelled_settled(id);
+            return;
+        }
         let floor = self.state.sub(id).map_or(0, |(_, s)| s.floor);
         let events = match self.agents.events(session_id, floor) {
             Ok(events) => events,
@@ -1040,13 +1296,125 @@ impl Brain {
                 return;
             }
         };
-        let (replies, last_end, cancelled) = ended_replies(&events);
+        let (mut replies, mut last_end, cancelled) = ended_replies(&events);
+        let goal = super::children::has_goal(&events);
+        if goal
+            && let Some((seq, reply)) = super::children::last_background_reply(&events)
+            && last_end.is_none_or(|end| seq > end)
+        {
+            replies.push(reply);
+            last_end = Some(seq);
+        }
         // Idle before its prompt started (a new session is ready first); the
         // tick settles one that stays idle with no turn end (#7).
         let Some(last_end) = last_end else { return };
+        // A cut turn with a newer prompt queued behind it (a Chief restart cut
+        // the turn, then a tell reopened the session): the next turn ends
+        // the run, not this one.
+        if cancelled && super::children::prompt_after(&events, last_end) {
+            return;
+        }
+        // Codex under its goal ends a turn and starts the next by itself
+        // while the goal is active: that idle is not its end. One quiet for
+        // QUIET_AFTER since reports after all.
+        if !cancelled
+            && super::children::goal_goes_on(&events, self.now(), super::control::QUIET_AFTER)
+        {
+            if let Some(sub) = self.state.sub_mut(id)
+                && !sub.goal_held
+            {
+                sub.goal_held = true;
+                self.save();
+                self.trace.emit("subagent.goal_goes_on", json!({"id": id}));
+            }
+            return;
+        }
+        if let Some(sub) = self.state.sub_mut(id) {
+            sub.goal_held = false;
+        }
         self.trace_sub_events(id, &events, floor);
         let report = report_of(&replies, cancelled);
-        self.sub_done(id, report, cancelled, Some(last_end), Some(&events));
+        // Its background work still pending now: each such task wakes it
+        // again with a notice when it ends.
+        let background = self.state.sub(id).map_or_else(Vec::new, |(_, s)| {
+            super::children::background_after(&s.background, &events)
+        });
+        // Under the goal it ended its last run only with its task done, so a
+        // run that only acpmux notices started (its own background command
+        // finished) after that report wakes no Chief turn: its words go in
+        // quietly (live on build 108: a2 reported again what it had reported).
+        // Not after a report that only waited: this run is where its result
+        // comes (tests/subagent_waiting.rs).
+        let after_report = self
+            .state
+            .sub(id)
+            .is_some_and(|(_, s)| s.goal && s.reopened && s.waiting_ms == 0);
+        if !cancelled && after_report && super::children::notice_only(&events) {
+            (self.log)(&format!(
+                "subagent {id}: a notice turn after its report, passed on quietly"
+            ));
+            self.trace.emit("subagent.notice_quiet", json!({"id": id}));
+            self.sub_done(id, report, true, Some(last_end), Some(&events));
+            if let Some(sub) = self.state.sub_mut(id) {
+                sub.background = background;
+            }
+            self.save();
+            return;
+        }
+        // It ended this run only to wait on work it started (a fleet step, a
+        // CI wait, a monitor), which wakes it again: its words reach the
+        // Chief quietly, with no turn and no outcome owed (Nov 12-18: 51% of
+        // Chief turns had nothing else to wake them). Its next run reports.
+        let waits = !cancelled && !background.is_empty() && crate::sub_watch::waits(&report);
+        if waits {
+            (self.log)(&format!(
+                "subagent {id}: waits on {} background task(s), its report goes in quietly",
+                background.len()
+            ));
+            self.trace.emit(
+                "subagent.waiting",
+                json!({"id": id, "background": background.len()}),
+            );
+        }
+        self.sub_done(
+            id,
+            report,
+            cancelled || waits,
+            Some(last_end),
+            Some(&events),
+        );
+        let now = self.now();
+        if let Some(sub) = self.state.sub_mut(id) {
+            sub.background = background;
+            if waits {
+                if sub.waiting_ms == 0 {
+                    sub.waiting_ms = now;
+                }
+                sub.waiting_checked_ms = now;
+            }
+        }
+        self.save();
+    }
+
+    /// A cancel is already the user-visible outcome. Late idle/close events
+    /// from the harness must not manufacture a second report or an untold
+    /// outcome.
+    fn cancelled_settled(&mut self, id: &str) {
+        let now = self.now();
+        if let Some(sub) = self.state.sub_mut(id) {
+            sub.status = SubStatus::Reported;
+            sub.report = None;
+            sub.stopped = true;
+            sub.waiting_ms = 0;
+            sub.waiting_checked_ms = 0;
+            sub.reported_ms = now;
+            sub.told_ms = now;
+            sub.resume_attempts = 0;
+            sub.reopened = false;
+        }
+        self.save();
+        self.mark_workspace(id, true);
+        self.start_queued();
     }
 
     pub(super) fn sub_done(
@@ -1064,6 +1432,15 @@ impl Brain {
         else {
             return;
         };
+        // Every run end starts as no wait; `finish_sub` marks a wait after.
+        if let Some(sub) = self.state.sub_mut(id) {
+            sub.waiting_ms = 0;
+            sub.waiting_checked_ms = 0;
+        }
+        // A cancelled subagent's sign-ins wait on nobody now (every stop path ends here).
+        if self.state.sub(id).is_some_and(|(_, s)| s.cancelled) {
+            self.sign_ins.abandoned(id);
+        }
         // control interrupt|restart with a message: the cut run reports
         // nothing; the message is its next prompt, sent now that it stopped.
         let follow = self.state.sub_mut(id).and_then(|s| s.after_stop.take());
@@ -1148,9 +1525,14 @@ impl Brain {
         if land_followup {
             stopped = true;
         }
+        let reported_at = self.now();
         let run_ms = if let Some(sub) = self.state.sub_mut(id) {
+            sub.reported_ms = reported_at;
+            sub.last_report = report.chars().take(300).collect();
             sub.fleet_wait = fleet_wait;
             sub.status = SubStatus::Done;
+            sub.reopened = false;
+            sub.closed_resumed = false;
             sub.awaiting_task = false;
             sub.auto_continues = 0;
             sub.continued_ms = 0;
@@ -1188,15 +1570,54 @@ impl Brain {
                 "tools": tools,
                 "tool_errors": tool_errors,
                 "stopped": stopped,
+                // What the report says about its code (sub_watch.rs), as
+                // flags only: product analytics' "first landed work".
+                "landed": !stopped && crate::sub_watch::landed(&report),
+                "unlanded": land_followup,
             }),
         );
         (self.log)(&format!("subagent {id} finished"));
+        // A loop that waits for this run's final report closes now, by code
+        // (memory.rs `close_loops`): only this run's own report, and never a
+        // stopped, held or unlanded one.
+        if !stopped && !held && !resuming && crate::check_in::report_is_final(&report) {
+            self.close_loops(
+                &crate::check_in::CloseWhen::AgentDone(id.to_owned()),
+                &format!("{id} reported its result"),
+            );
+        }
         if land_followup {
             (self.log)(&format!("subagent {id}: not landed, followed up"));
             self.trace.emit("subagent.land_followup", json!({"id": id}));
         }
         self.mark_workspace(id, true);
         self.deliver(&spawn);
+        // A run whose report reaches the Chief is an `agent_done` event
+        // (automations.rs); a quiet or held one is not done yet. Never for a
+        // subagent another person's turn started (its report runs under the
+        // ask floor, an automation's note would not), nor for one an
+        // automation's own turn started (it would fire itself again).
+        let (title, ask, by_automation) = self.state.sub(id).map_or_else(
+            || (String::new(), true, true),
+            |(spawn, s)| {
+                (
+                    s.title.clone(),
+                    report_requires_approval(s.policy.as_deref()),
+                    self.state
+                        .spawns
+                        .get(spawn)
+                        .is_some_and(|r| r.by_automation),
+                )
+            },
+        );
+        if !held && !stopped && !ask && !by_automation {
+            self.automation_event(crate::automations::Event::AgentDone {
+                id: id.to_owned(),
+                title,
+                run_ms,
+                report: report.clone(),
+            });
+        }
         // A tell that could not reach its run goes as its next prompt.
         self.flush_inbox(id);
         self.start_queued();
@@ -1272,6 +1693,32 @@ impl Brain {
                 sub.moving = None;
             }
             return None;
+        }
+        let claude_session = self
+            .state
+            .sub(id)
+            .and_then(|(_, sub)| sub.session_id.as_deref())
+            .and_then(|session| self.session_summary(session))
+            .is_some_and(|session| session.harness.starts_with("claude"));
+        if claude_session
+            && crate::gateway::is_refusal(report)
+            && let Some(gateway) = &self.gateway
+        {
+            let event = gateway.record_refusal(id, report);
+            if matches!(event, crate::gateway::GatewayEvent::EnteredFallback { .. })
+                && let Some(text) = gateway.take_notice()
+            {
+                self.notice("gateway-wide".into(), text);
+            }
+        }
+        if self.gateway.as_ref().is_some_and(|gateway| {
+            gateway.refresh();
+            matches!(
+                gateway.route_for_subagent(self.settings.families.contains_key("codex")),
+                crate::gateway::GatewayRoute::Harness(_)
+            )
+        }) {
+            return Some(self.plan_move(id, "the Claude gateway is unavailable"));
         }
         // A network stop always waits on the probe (off this thread); it
         // returns at once when the endpoint answers.
@@ -1673,61 +2120,41 @@ impl Brain {
     /// Under the close setting, closes a finished subagent's workspace.
     /// Its name is never changed (Lawrence 2026-10-19: "I don't like the
     /// checkmark"): the chat tab's own idle state shows that it is done, and
-    /// a name the user or the Chief gave it stays.
+    /// a name the user or the Chief gave it stays. Nothing else closes it:
+    /// a finished subagent stays where it was, in the sidebar or in the
+    /// "Chief's workspaces" group (Aziz, 2026-11-11: Chief-made agents
+    /// vanished from the sidebar).
     fn mark_workspace(&mut self, id: &str, done: bool) {
         if !done {
+            if let Some(made) = self.state.sub_mut(id).and_then(|s| s.made.as_mut()) {
+                made.expires_ms = None;
+            }
+            return;
+        }
+        if let Some(made) = self.state.sub_mut(id).and_then(|s| s.made.as_mut()) {
+            made.ended(now_ms());
+            self.save();
+        }
+        if !self.sub_close_on_finish {
             return;
         }
         let (Some(workspaces), Some((_, sub))) = (self.workspaces.clone(), self.state.sub(id))
         else {
             return;
         };
-        // Every finished one under the close setting; else a short task's
-        // (a run under SHORT_TASK whose report left nothing to land), so a
-        // sidebar does not fill with workspaces of one-off asks. Its chat
-        // stays readable (zoom).
-        let short = now_ms().saturating_sub(sub.run_ms) < SHORT_TASK.as_millis() as u64
-            && sub.run_ms > 0
-            && !sub.stopped
-            && !sub
-                .report
-                .as_deref()
-                .is_some_and(crate::sub_watch::unlanded);
-        if !(self.sub_close_on_finish || short) {
-            return;
-        }
         let Some(key) = sub.workspace.clone() else {
             return;
         };
-        // The close setting closes every finished one and forgets it; a short
-        // task closes only while none of its terminals runs a command, and its
-        // key is forgotten once that close succeeds (a kept one stays).
-        let explicit = self.sub_close_on_finish;
-        if explicit {
-            if let Some(sub) = self.state.sub_mut(id) {
-                sub.workspace = None;
-                super::control::retire_slot_key(sub);
-            }
-            self.save();
+        // The close setting closes every finished one and forgets it.
+        if let Some(sub) = self.state.sub_mut(id) {
+            sub.workspace = None;
+            super::control::retire_slot_key(sub);
         }
-        let (log, tx, id) = (self.log.clone(), self.tx.clone(), id.to_owned());
+        self.save();
+        let (log, id) = (self.log.clone(), id.to_owned());
         std::thread::spawn(move || {
-            let closed = if explicit {
-                workspaces.close(&key).map(|()| true)
-            } else {
-                workspaces.close_idle(&key)
-            };
-            match closed {
-                // A short task's key is forgotten once its workspace is gone,
-                // so a later `control show` opens a new one.
-                Ok(true) if !explicit => {
-                    let _ = tx.send(super::Input::SubagentWorkspaceFailed { id, key });
-                }
-                Ok(true) => {}
-                Ok(false) => log(&format!(
-                    "subagent {id}: its workspace stays: a terminal runs a command"
-                )),
-                Err(e) => log(&format!("subagent {id}: closing its workspace: {e}")),
+            if let Err(e) = workspaces.close(&key) {
+                log(&format!("subagent {id}: closing its workspace: {e}"));
             }
         });
     }
@@ -1788,6 +2215,14 @@ impl Brain {
                 matches!(&q.source, Source::Spawn(r) if r.spawn == spawn && r.subs.iter().any(|(s, _)| *s == id))
             });
             match queued {
+                // A quiet report still queued (it waited, or only acked)
+                // and now one that wakes: queued anew, so it starts a turn
+                // (replacing it in place woke nothing: tests/subagent_waiting.rs).
+                Some(k) if !quiet && !self.queue[k].wakes() => {
+                    self.queue.remove(k);
+                    (self.log)(&format!("subagent {id}: queued its report"));
+                    self.queue(text, source);
+                }
                 Some(k) => {
                     self.queue[k] = Queued {
                         text,
@@ -1798,7 +2233,10 @@ impl Brain {
                     }
                 }
                 None => {
-                    (self.log)(&format!("subagent {id}: queued its report"));
+                    (self.log)(&format!(
+                        "subagent {id}: queued its report{}",
+                        if quiet { " (quiet)" } else { "" }
+                    ));
                     self.queue(text, source);
                 }
             }
@@ -2119,8 +2557,13 @@ impl Brain {
         key: Option<&str>,
         queue: bool,
     ) -> Result<String, String> {
-        if let Some(name) = super::session_tell::session_name(id) {
-            return self.session_tell(name, message);
+        // acpmux sessions have one send tool, #30082's acpmux_send; tell
+        // names subagents (and Chiefs, before it reaches here).
+        if let Some(name) = id.trim().strip_prefix("session:") {
+            return Err(format!(
+                "tell: {id} is an acpmux session; message it with the acpmux_send tool (to: \"{}\")",
+                name.trim()
+            ));
         }
         let Some((_, sub)) = self.state.sub(id) else {
             return Err(format!("no subagent {id}"));
@@ -2148,9 +2591,14 @@ impl Brain {
         // B4: its VM was paused while it was idle; it resumes before the
         // message (a rare tell to a finished cloud subagent, seconds).
         if !cancelled
-            && let Some(peer) = peer.filter(|p| self.cloud_paused.contains(p))
+            && let Some(peer) = peer.filter(|p| self.state.cloud_paused.contains(p))
             && let Some(vms) = self.cloud_vms.clone()
         {
+            if !vms.available() {
+                return Err(format!(
+                    "{id}'s cloud VM {peer} is paused and this Mac has no pool tool (~/.config/cloud-subagents/vm-cmd) to resume it; set up the pool tool here (deploy.sh install-vm-cmd) or tell it from the Mac that paused it"
+                ));
+            }
             let began = std::time::Instant::now();
             vms.resume(&peer)
                 .map_err(|e| format!("{id}'s cloud VM {peer} did not resume: {e}"))?;
@@ -2158,9 +2606,10 @@ impl Brain {
                 "cloud: resumed {peer} for a tell to {id} in {} ms",
                 began.elapsed().as_millis()
             ));
-            self.cloud_paused.remove(&peer);
+            self.state.cloud_paused.remove(&peer);
             self.cloud_idle_since.remove(&peer);
             self.cloud_pause_retry.remove(&peer);
+            self.save();
         }
         if cancelled {
             return Ok(format!(
@@ -2218,6 +2667,10 @@ impl Brain {
             self.tell_mode(id, message, queue)
                 .map(|answer| format!("outcome: done. {answer}"))
         };
+        if answer.is_ok() {
+            // "Signed in to SITE ...; go on." (chief-auth-escalation): its Feed request closes.
+            self.sign_ins.told(id, message);
+        }
         if answer.is_ok()
             && !told_for.is_empty()
             && let Some(sub) = self.state.sub_mut(id)
@@ -2378,6 +2831,16 @@ impl Brain {
             .state
             .sub(id)
             .is_some_and(|(_, s)| matches!(s.status, SubStatus::Running | SubStatus::Starting));
+        // A read-now tell stops the agent's current step, and while it waits
+        // on the person's approval that step is the request: acpmux would
+        // cancel it, and the person's card would read "no longer open" with
+        // nobody told (Leo, 2026-10-20: "no silent auto-deny on newer
+        // messages"). Such a tell waits for the step instead.
+        let awaits_approval = self
+            .state
+            .sub(id)
+            .is_some_and(|(_, s)| s.permission.is_some());
+        let interrupt = !queue && !awaits_approval;
         let (agents, forward, sub_id) = (self.agents.clone(), self.tx.clone(), id.to_owned());
         let text = message.to_owned();
         let steered = if running {
@@ -2392,13 +2855,13 @@ impl Brain {
                 // for it, as the pane's Send now does (Lawrence 2026-10-26: "interrupt by
                 // default"; a long `cmux-ci wait` no longer holds it). A `queue` tell (a
                 // peer's message, an FYI) waits for the step.
-                let steered = if queue {
-                    agents.steer(&session, blocks.clone(), &prompt_id)
-                } else {
+                let steered = if interrupt {
                     agents.steer_now(&session, blocks.clone(), &prompt_id)
+                } else {
+                    agents.steer(&session, blocks.clone(), &prompt_id)
                 };
                 if let Err(e) = steered {
-                    if !queue {
+                    if interrupt {
                         log(&format!(
                             "subagent {sub_id}: the tell could not be steered ({e}); its turn is interrupted"
                         ));
@@ -2454,7 +2917,11 @@ impl Brain {
             "tell",
             json!({"id": id, "spawn": spawn, "from": "chief", "steered": steered, "queue": queue, "message": self.trace.text(message)}),
         );
-        let answer = if steered && queue {
+        let answer = if steered && awaits_approval && !queue {
+            format!(
+                "sent to {id}; it waits on the person's approval card in Home, so it reads this once that approval is answered (the approval stays open)"
+            )
+        } else if steered && queue {
             format!("sent to {id}; read between tool calls or after its turn")
         } else if steered {
             format!(
@@ -2489,6 +2956,9 @@ impl Brain {
             return;
         }
         let pending = sub.after_stop.is_some();
+        // Interrupting a turn that waits on the person's approval cancels the
+        // request behind their back: the tell goes after the turn instead.
+        let awaits_approval = sub.permission.is_some();
         if let Some(sub) = self.state.sub_mut(id) {
             sub.after_stop = Some(match sub.after_stop.take() {
                 Some(earlier) => format!("{earlier}\n\n{message}"),
@@ -2501,7 +2971,12 @@ impl Brain {
                 .emit("tell.interrupt", json!({"id": id, "joined": true}));
             return;
         }
-        match self.agents.cancel(session) {
+        let cancelled = if awaits_approval {
+            Err("it waits on the person's approval".to_owned())
+        } else {
+            self.agents.cancel(session)
+        };
+        match cancelled {
             Ok(()) => self
                 .trace
                 .emit("tell.interrupt", json!({"id": id, "joined": false})),
@@ -2637,6 +3112,8 @@ impl Brain {
                     Some(summary) => {
                         self.sub_changed(summary);
                     }
+                    // A handed-over session: its own link reports it.
+                    None if self.reported_elsewhere.contains(&session) => {}
                     None => self.sub_done(
                         &id,
                         "(gone: its session no longer exists, so no report will come)".into(),
@@ -2676,8 +3153,51 @@ impl Brain {
         match self.state.live_cap {
             Some(0) => None,
             Some(n) => Some(LiveCap::Control(n)),
-            None => self.max_live.map(LiveCap::Env),
+            None => self.max_live.map(LiveCap::Env).or_else(|| {
+                // The machine's own limit (machine_limits.rs): its ceiling,
+                // and while it is over budget no new start past the floor.
+                let m = self.machine_limit.as_ref()?;
+                let over = self.machine_over.is_some();
+                let n = crate::machine_limits::allowed(m.ceiling, self.live_subs(), over);
+                Some(if over {
+                    LiveCap::Busy(n)
+                } else {
+                    LiveCap::Machine(n)
+                })
+            }),
         }
+    }
+
+    /// Reads the machine's load again (each subagent tick); a machine back
+    /// within budget starts its queued helpers.
+    pub(super) fn read_machine_load(&mut self) {
+        let Some(m) = self.machine_limit.as_ref() else {
+            return;
+        };
+        let over = (m.load)();
+        if over != self.machine_over {
+            match &over {
+                Some(why) => (self.log)(&format!(
+                    "machine over budget ({why}): new helpers wait in the queue"
+                )),
+                None => (self.log)("machine within budget again: queued helpers start"),
+            }
+        }
+        let freed = self.machine_over.is_some() && over.is_none();
+        self.machine_over = over;
+        if freed {
+            self.start_queued();
+        }
+    }
+
+    /// Helpers queued now, in the order they will start (`start_queued`'s).
+    pub(super) fn queued_count(&self) -> usize {
+        self.state
+            .spawns
+            .values()
+            .flat_map(|r| r.subs.iter())
+            .filter(|s| s.status == SubStatus::Queued && !s.cancelled && !s.paused)
+            .count()
     }
 
     /// Subagents starting or running now on this machine (cloud ones, on a
@@ -2709,45 +3229,87 @@ impl Brain {
                             .unwrap_or(u64::MAX),
                     )
                 })
-                .map(|(spawn, s)| crate::subagents::QueuedStart {
-                    id: s.id.clone(),
-                    spawn: spawn.clone(),
-                    launch: s.queued_launch.clone(),
-                    engine: None,
-                    extra: (!s.inbox.is_empty()).then(|| inbox_text(&s.inbox)),
-                });
-            let Some(mut queued) = next else { return };
-            queued.engine = match queued.launch.as_ref().and_then(|l| l.harness.as_deref()) {
-                Some(harness) => Some(self.engine_on(harness)),
-                None => self.spawn_engine(),
-            };
-            let id = queued.id.clone();
-            let sent = self
-                .sub_starter
-                .as_ref()
-                .is_some_and(|starter| starter.send(queued).is_ok());
-            if !sent {
-                self.sub_failed(&id, "this Chief host cannot start queued subagents");
+                .map(|(spawn, s)| (spawn.clone(), s.id.clone()));
+            let Some((spawn, id)) = next else { return };
+            if !self.start_one(&spawn, &id, "a slot is free") {
                 continue;
             }
-            let mut delivered = 0;
-            if let Some(sub) = self.state.sub_mut(&id) {
-                sub.status = SubStatus::Starting;
-                sub.run_ms = now_ms();
-                sub.queued_launch = None;
-                // Its inbox went in with its task.
-                delivered = sub.inbox.len();
-                sub.inbox.clear();
-            }
-            if delivered > 0 {
-                self.queue(
-                    format!("[{id}] got {delivered} queued message(s) from you with its task."),
-                    Source::Note,
-                );
-            }
-            self.save();
-            (self.log)(&format!("subagent {id}: a slot is free, starting it"));
         }
+    }
+
+    /// chief.stop {start: name} (Start now on a queued agent's tab in Home,
+    /// user 2026-11-07 msg 23835): queued subagent `name` starts at once,
+    /// past the live cap, the others keep their places. Answers
+    /// `{"started": bool, "note"?, "error"?}`.
+    pub(super) fn start_subagent_now(&mut self, name: &str) -> Value {
+        let found = self.state.spawns.iter().find_map(|(spawn, r)| {
+            r.subs
+                .iter()
+                .find(|s| s.id == name)
+                .map(|s| (spawn.clone(), s.status, s.cancelled))
+        });
+        let Some((spawn, status, cancelled)) = found else {
+            return json!({"started": false, "error": format!("no subagent {name}")});
+        };
+        if status != SubStatus::Queued || cancelled {
+            return json!({"started": false, "error": format!("{name} is not queued")});
+        }
+        if let Some(s) = self.state.sub_mut(name) {
+            // The person asked for it by name: a pause no longer holds it.
+            s.paused = false;
+        }
+        if !self.start_one(&spawn, name, "the user started it now") {
+            return json!({"started": false, "error": "this Chief host cannot start queued subagents"});
+        }
+        (self.log)(&format!("the owner started subagent {name} past the cap"));
+        json!({"started": true, "note": format!("Started by the user: {name}.")})
+    }
+
+    /// Starts queued subagent `id` of spawn `spawn` now (no cap check): its
+    /// launch goes to the starter, its inbox with it. False when the host
+    /// cannot start it (it failed, and says why).
+    fn start_one(&mut self, spawn: &str, id: &str, why: &str) -> bool {
+        let Some((_, s)) = self.state.sub(id) else {
+            return false;
+        };
+        let mut queued = crate::subagents::QueuedStart {
+            id: s.id.clone(),
+            spawn: spawn.to_owned(),
+            launch: s.queued_launch.clone(),
+            engine: None,
+            extra: (!s.inbox.is_empty()).then(|| inbox_text(&s.inbox)),
+        };
+        queued.engine = match queued.launch.as_ref().and_then(|l| l.harness.as_deref()) {
+            Some(harness) => Some(self.engine_on(harness)),
+            None => self.spawn_engine(),
+        };
+        let id = queued.id.clone();
+        let sent = self
+            .sub_starter
+            .as_ref()
+            .is_some_and(|starter| starter.send(queued).is_ok());
+        if !sent {
+            self.sub_failed(&id, "this Chief host cannot start queued subagents");
+            return false;
+        }
+        let mut delivered = 0;
+        if let Some(sub) = self.state.sub_mut(&id) {
+            sub.status = SubStatus::Starting;
+            sub.run_ms = now_ms();
+            sub.queued_launch = None;
+            // Its inbox went in with its task.
+            delivered = sub.inbox.len();
+            sub.inbox.clear();
+        }
+        if delivered > 0 {
+            self.queue(
+                format!("[{id}] got {delivered} queued message(s) from you with its task."),
+                Source::Note,
+            );
+        }
+        self.save();
+        (self.log)(&format!("subagent {id}: {why}, starting it"));
+        true
     }
 
     /// `text` with every mention of this Chief's subagents written as its link
@@ -2973,6 +3535,7 @@ impl Brain {
                 );
                 if *status == SubStatus::Queued {
                     s.cancelled = true;
+                    s.told_ms = now_ms();
                 }
             }
         }
@@ -3015,6 +3578,7 @@ impl Brain {
                     // session never ends the turn (#7).
                     if let Some(s) = self.state.sub_mut(&id) {
                         s.cancelled = true;
+                        s.told_ms = now_ms();
                     }
                 }
                 // Its session is not made yet: cancelled now, so its turn
@@ -3022,6 +3586,7 @@ impl Brain {
                 (_, None) => {
                     if let Some(s) = self.state.sub_mut(&id) {
                         s.cancelled = true;
+                        s.told_ms = now_ms();
                     }
                     starting.push(id.clone());
                 }
@@ -3139,7 +3704,89 @@ mod security_tests {
 /// What the at-work line adds: their tasks are not finished yet.
 const AT_WORK_NOT_DONE: &str = "Their tasks are not done until each reports: never say they are finished, and keep any reply about them to what is under way.";
 
+/// A subagent's name in `<open-items>`: its workspace title, else its task.
+fn name_of(s: &SubRecord) -> &str {
+    if s.title.trim().is_empty() {
+        s.task.as_str()
+    } else {
+        s.title.as_str()
+    }
+}
+
+/// The most rows `<open-items>` shows (the newest first); the rest are counted.
+const OPEN_ITEMS_MAX: usize = 30;
+
 impl Brain {
+    /// `<open-items>`: what the host knows is still open, so the Chief's
+    /// sleep notes need not carry it as prose (tests/open_items.rs). One row
+    /// per subagent at work or waiting: its title, state and for how long,
+    /// its last report's first words, and whether a Chief post named it
+    /// since that report; then the finished subagents no post told yet.
+    /// None when nothing is open. After the delta, never logged.
+    pub(super) fn open_items_block(&self) -> Option<String> {
+        use super::control::{minutes, one_line, state_name};
+        let now = self.now();
+        let mut open: Vec<&SubRecord> = self
+            .state
+            .spawns
+            .values()
+            .flat_map(|r| r.subs.iter())
+            .filter(|s| s.at_work() || s.waiting())
+            .collect();
+        open.sort_by_key(|s| std::cmp::Reverse(s.reported_ms.max(s.run_ms)));
+        let untold: Vec<String> = self
+            .state
+            .untold
+            .iter()
+            .filter_map(|u| {
+                let (_, s) = self.state.sub(&u.id)?;
+                (!s.at_work() && !s.waiting())
+                    .then(|| format!("{} ({})", s.id, one_line(name_of(s), 50)))
+            })
+            .collect();
+        if open.is_empty() && untold.is_empty() {
+            return None;
+        }
+        let mut lines = vec![
+            "<open-items>".to_owned(),
+            "What is still open, kept by the host (no need to repeat it in a sleep note):"
+                .to_owned(),
+        ];
+        for s in open.iter().take(OPEN_ITEMS_MAX) {
+            let since = if s.waiting() { s.waiting_ms } else { s.run_ms };
+            let state = state_name(s, now);
+            let mut row = format!("- {} · {} · {state}", s.id, one_line(name_of(s), 50));
+            if since > 0 {
+                row.push_str(&format!(" {}", minutes(now.saturating_sub(since))));
+            }
+            let report = s.last_report.as_str();
+            if s.reported_ms > 0 && !report.is_empty() {
+                let told = if s.told_ms >= s.reported_ms {
+                    "told"
+                } else {
+                    "not told yet"
+                };
+                row.push_str(&format!(
+                    " · last report {} ago, {told}: \"{}\"",
+                    minutes(now.saturating_sub(s.reported_ms)),
+                    one_line(report, 90)
+                ));
+            }
+            lines.push(row);
+        }
+        if open.len() > OPEN_ITEMS_MAX {
+            lines.push(format!(
+                "- and {} more at work",
+                open.len() - OPEN_ITEMS_MAX
+            ));
+        }
+        if !untold.is_empty() {
+            lines.push(format!("Finished, not told yet: {}.", untold.join(", ")));
+        }
+        lines.push("</open-items>".to_owned());
+        Some(lines.join("\n"))
+    }
+
     /// `Subagents at work now: a1, a3. ...` when any runs (a turn's line
     /// after the view); None when none does. It also says their work is not
     /// done yet, so a turn never reports a task finished while the subagent
@@ -3150,7 +3797,7 @@ impl Brain {
             .spawns
             .values()
             .flat_map(|r| r.subs.iter())
-            .filter(|s| s.at_work())
+            .filter(|s| s.at_work() || s.waiting())
             .map(|s| s.id.as_str())
             .collect();
         (!ids.is_empty()).then(|| {
@@ -3197,26 +3844,48 @@ impl Brain {
             Ok(s) => s,
             Err(_) => return true,
         };
-        if let Some(sub) = self.state.sub_mut(&id) {
-            sub.permission = Some(crate::state::PendingPermission {
-                id: permission_id.to_owned(),
-                request: request.clone(),
-            });
+        let previous = self.state.sub(&id).and_then(|(_, s)| s.permission.clone());
+        let unchanged = previous
+            .as_ref()
+            .is_some_and(|p| p.id == permission_id && p.request == *request);
+        if !unchanged {
+            if let Some(previous) = &previous {
+                self.forget_unanswered(session_id, &previous.id);
+            }
+            self.cancel_home_approval(&id);
+            if let Some(sub) = self.state.sub_mut(&id) {
+                let asked_by = Some(sub.title.trim().to_owned()).filter(|t| !t.is_empty());
+                sub.permission = Some(crate::state::PendingPermission {
+                    id: permission_id.to_owned(),
+                    request: request.clone(),
+                    home_message: None,
+                    home_closed: false,
+                    asked_by,
+                });
+            }
         }
         self.save();
         if ask {
             self.child_permission(&summary, permission_id.to_owned(), request.clone());
             return true;
         }
+        self.present_home_approval(&id);
+        if !unchanged && !self.home_approval_queued(&id) {
+            // Home cannot draw this request as Allow once / Deny: open the
+            // subagent's workspace, whose tab can answer it, instead of
+            // letting it be denied where nobody sees it (Leo, 2026-11-03).
+            self.show_for_permission(&id);
+        }
         let shown = self
             .state
             .sub(&id)
-            .is_some_and(|(_, s)| Self::approval_shown(s));
+            .is_some_and(|(_, s)| self.approval_shown(s));
         let text = super::control::permission_note(&id, request, shown);
         self.queue(text, Source::Note);
         if !shown {
-            // Nobody can allow it: denied once overdue, unless the Chief
-            // denies or steers it first.
+            // No Allow button yet: denied once overdue, unless its Home card
+            // arrives (which forgets this watch), its workspace opens, or the
+            // Chief denies or steers it first.
             self.watch_unanswered(
                 crate::approval::Pending {
                     session_id: session_id.to_owned(),
@@ -3225,22 +3894,58 @@ impl Brain {
                     request: request.clone(),
                     child: Some(id.clone()),
                 },
-                "the app shows no working approval button for this subagent",
+                "the subagent has no local workspace and its permission remains unanswered",
             );
         }
         true
     }
 
+    /// Opens local subagent `id`'s workspace (when it has none) so its tab shows a prompt
+    /// Home cannot. Nothing when this host makes no workspaces, or for a
+    /// peer, an `ask` subagent or one that has a workspace already.
+    fn show_for_permission(&mut self, id: &str) {
+        let Some((_, sub)) = self.state.sub(id) else {
+            return;
+        };
+        if self.workspaces.is_none()
+            || sub.peer.is_some()
+            || sub.workspace.is_some()
+            || sub.session_id.is_none()
+            || sub.policy.as_deref() == Some(crate::approval::ASK)
+        {
+            return;
+        }
+        let (reply, answer) = std::sync::mpsc::channel();
+        self.control_workspace(
+            &crate::tools::ControlCall {
+                action: "show".into(),
+                id: Some(id.to_owned()),
+                ..crate::tools::ControlCall::default()
+            },
+            reply,
+        );
+        // The open runs on its own thread; its outcome comes back as
+        // SubagentWorkspaceShown or SubagentWorkspaceFailed.
+        drop(answer);
+    }
+
     /// Whether the person's app shows `sub`'s prompt with an Allow button
-    /// that works: a local subagent with a workspace (its agent tab draws
-    /// the prompt). A cloud subagent's peer refuses an allow from this
-    /// Mac's app, and one with no workspace has no tab.
-    pub(super) fn approval_shown(sub: &crate::state::SubRecord) -> bool {
-        sub.workspace.is_some() && sub.peer.is_none()
+    /// that works: a local subagent with a workspace (its agent tab), or a
+    /// Home card the conversation owner acknowledged. Such a request waits
+    /// for the person; only one with neither is denied once overdue.
+    pub(super) fn approval_shown(&self, sub: &crate::state::SubRecord) -> bool {
+        sub.peer.is_none()
+            && (sub.workspace.is_some()
+                || sub.permission.as_ref().is_some_and(|p| {
+                    p.home_message.is_some() && !p.home_closed && self.home_approvals_available()
+                }))
     }
 }
 
 /// A tell as the subagent's next prompt; its answer goes to the brain.
+/// The prompt that resumes a subagent whose session closed mid-run (`resume_closed`).
+const CLOSED_RESUME: &str = "Your session closed before you reported (the Chief or its daemon restarted). Go on with your task where it stopped: run again any command that was cut off, then report.";
+
 fn tell_prompt(
     agents: &dyn crate::acpmux::AgentPort,
     session: &str,
@@ -3293,6 +3998,22 @@ fn user_text(msg: &serde_json::Map<String, Value>) -> String {
         .filter_map(|b| b.get("text").and_then(Value::as_str))
         .collect::<Vec<_>>()
         .join("\n")
+}
+
+/// The first of `count` numbers in a row, from `from` on, none of which is
+/// `taken` (an `a<N>` whose acpmux session name exists): acpmux refuses a
+/// session name it holds, so a counter that restarted below the old
+/// sessions (memory deleted, sessions kept) would fail every spawn.
+pub(crate) fn free_subagent_run(from: u64, count: u64, taken: &[u64]) -> u64 {
+    let mut first = from;
+    while let Some(hit) = taken
+        .iter()
+        .filter(|&&n| n >= first && n < first + count)
+        .max()
+    {
+        first = hit + 1;
+    }
+    first
 }
 
 /// The highest `a<N>` any recorded spawn gave, 0 when none did.

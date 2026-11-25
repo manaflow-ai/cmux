@@ -36,18 +36,35 @@ nonisolated struct CEFShimLibrary: @unchecked Sendable {
     let setDefaultSearch: @convention(c) (UnsafePointer<CChar>?) -> Void
     /// The managed preference domain Chromium reads Chrome policies from (`CEFRuntime.chromePolicyIDSetting`).
     let setChromePolicyID: @convention(c) (UnsafePointer<CChar>?) -> Void
+    /// cmux's own Safe Storage keychain item (`CEFKeychainItem`); nil in a shim without it.
+    let setKeychainItem: (@convention(c) (UnsafePointer<CChar>?, UnsafePointer<CChar>?) -> Int32)?
     let setBackgroundColor: @convention(c) (UInt32) -> Void
     let browserSetBackgroundColor: @convention(c) (Int32, UInt32) -> Int32
     /// A see-through page (fork API 17, `CEFTab.pageSeeThrough`); 0 when the fork lacks it.
     let tabSetTransparentBackground: @convention(c) (Int32, Int32) -> Int32
     /// `cmux_shim_set_file_dialogs`: 1 sends page file choosers to the host (`CMUX_SHIM_FILE_DIALOG`).
     let setFileDialogs: @convention(c) (Int32) -> Void
+    /// `cmux_shim_browser_set_file_dialogs(browser, on)`: 1 sends that browser's choosers to the host.
+    let browserSetFileDialogs: @convention(c) (Int32, Int32) -> Void
     /// `cmux_shim_file_dialog_answer(dialog, multiple, paths)`: newline-separated absolute paths; nil or "" cancels.
     let fileDialogAnswer: @convention(c) (Int32, Int32, UnsafePointer<CChar>?) -> Int32
     /// Fork API 26: `cmux_shim_browser_set_layer_hosting` (the page's CAContextID, 0 when off).
     let browserSetLayerHosting: @convention(c) (Int32, Int32) -> UInt32
     /// Fork API 27: `cmux_shim_browser_set_resize_sync` (deadline in ms, 0 never holds the commit).
     let browserSetResizeSync: @convention(c) (Int32, Int32) -> Int32
+    /// Fork API 32: `cmux_shim_browser_resize_fence(browser, port, timeout ms, done, context)` (1 when the fork took
+    /// the fence); nil in an older shim.
+    let browserResizeFence: (@convention(c) (Int32, UInt32, Int32,
+                                             (@convention(c) (UnsafeMutableRawPointer?, Int32) -> Void)?,
+                                             UnsafeMutableRawPointer?) -> Int32)?
+    /// Fork API 30: `cmux_shim_browser_set_detached_hosting` (1 when the fork took it); nil in an older shim.
+    let browserSetDetachedHosting: (@convention(c) (Int32, Int32) -> Int32)?
+    /// Fork API 35: `cmux_shim_browser_set_draw_on_input` (1 when the fork took it); nil in an older shim
+    /// (`CEFDrawOnInput`).
+    let browserSetDrawOnInput: (@convention(c) (Int32, Int32) -> Int32)?
+    /// Fork API 35: `cmux_shim_draw_on_input_key_frames` (frames that mode drew for a key on this page,
+    /// -1 without the call); nil in an older shim. Proves the mode is live, not inert (`CEFDrawOnInput`).
+    let drawOnInputKeyFrames: (@convention(c) (Int32) -> Int32)?
     let initialize: @convention(c) (
         UnsafePointer<CChar>?, UnsafePointer<CChar>?, UnsafePointer<CChar>?, UnsafePointer<CChar>?,
         UnsafePointer<CChar>?, Int32, UnsafePointer<CChar>?, UnsafePointer<CChar>?,
@@ -72,10 +89,14 @@ nonisolated struct CEFShimLibrary: @unchecked Sendable {
     let stop: @convention(c) (Int32) -> Void
     let setFocus: @convention(c) (Int32, Int32) -> Void
     let setZoomLevel: @convention(c) (Int32, Double) -> Void
+    /// `CefBrowserHost::SetAudioMuted`: browser, 1 muted or 0; nil in a shim that has none.
+    let setAudioMuted: (@convention(c) (Int32, Int32) -> Void)?
     /// Chromium's page accessibility on (1) or off (0) (`CEFAccessibility`).
     let setAccessibility: @convention(c) (Int32, Int32) -> Void
     /// Chromium's print preview over the page; 0 when the browser is gone.
     let printPage: @convention(c) (Int32) -> Int32
+    /// `cmux_shim_page_command` (`cmux_shim_page_command_t`): nil on a shim without it.
+    let pageCommand: (@convention(c) (Int32, Int32) -> Int32)?
     let find: @convention(c) (Int32, Int32, UnsafePointer<CChar>?, Int32, Int32, Int32) -> Void
     let stopFinding: @convention(c) (Int32, Int32) -> Void
     let close: @convention(c) (Int32) -> Void
@@ -102,7 +123,11 @@ nonisolated struct CEFShimLibrary: @unchecked Sendable {
     /// Key downs the page left unhandled (`cmux_shim_set_unhandled_key_handler`).
     let setUnhandledKeyHandler: @convention(c) (KeyFn?) -> Void
     let devToolsSetPlacement: @convention(c) (Int32, UnsafeMutableRawPointer?, Int32, Int32, Int32, Int32) -> Void
+    /// The background the next DevTools starts with (`cmux_shim_devtools_set_background`).
+    let devToolsSetBackground: @convention(c) (Int32, UInt32) -> Void
     let devToolsCommand: @convention(c) (Int32, Int32, Int32, Int32) -> Int32
+    /// The host's dock side into the DevTools frontend's own setting (`cmux_shim_devtools_set_frontend_dock_side`).
+    let devToolsSetFrontendDockSide: @convention(c) (Int32, Int32) -> Int32
     let devToolsBrowser: @convention(c) (Int32) -> Int32
     let devToolsSetFocus: @convention(c) (Int32, Int32) -> Void
     /// Opens DevTools on one frontend panel (`network`, `timeline`); 0 when gone or invalid.
@@ -136,6 +161,8 @@ nonisolated struct CEFShimLibrary: @unchecked Sendable {
     let liveBrowserCount: @convention(c) () -> Int32
     let windowCount: @convention(c) () -> Int32
     let shutdown: @convention(c) () -> Void
+    /// Quit: commits every profile's cookie store before CefShutdown; REPLY answers (reply id).
+    let flushCookieStores: @convention(c) (Int32) -> Int32
     /// Chromium never shows a window of its own (fork API 8; no-op before).
     let setWindowRequestHandler: @convention(c) (WindowRequestFn?) -> Void
     /// Chromium's own focus requests go through cmux (`CefFocusHandler`).
@@ -149,6 +176,8 @@ nonisolated struct CEFShimLibrary: @unchecked Sendable {
     let downloadControl: @convention(c) (Int32, Int32) -> Int32
     /// Answers PERMISSION_PROMPT: 1 allow, 2 deny, else no answer.
     let permissionContinue: @convention(c) (Int32, Int32) -> Int32
+    /// Answers AUTH_PROMPT: a user and password, or nil user to cancel.
+    let authContinue: @convention(c) (Int32, UnsafePointer<CChar>?, UnsafePointer<CChar>?) -> Int32
 
     // Page Info site state (ABI 3).
     let contentSetting: @convention(c) (Int32, UnsafePointer<CChar>?, UnsafePointer<CChar>?) -> Int32
@@ -157,6 +186,8 @@ nonisolated struct CEFShimLibrary: @unchecked Sendable {
     let deleteCookies: @convention(c) (Int32, Int32, UnsafePointer<CChar>?, UnsafePointer<CChar>?) -> Int32
     /// A tab's favicon through its own request context (``CEFRuntime/favicon(_:url:maxPixels:)``).
     let downloadFavicon: @convention(c) (Int32, Int32, UnsafePointer<CChar>?, Int32) -> Int32
+    /// An https GET with the tab's profile cookies (``CEFRuntime/profileFetch(_:url:maxBytes:)``); nil in older shims.
+    let profileFetch: (@convention(c) (Int32, Int32, UnsafePointer<CChar>?, Int32) -> Int32)?
     /// Browser import: cookies into a profile's request context.
     let importCookies: @convention(c) (UnsafePointer<CChar>?, Int32, UnsafePointer<CChar>?) -> Int32
     let clearCookies: @convention(c) (UnsafePointer<CChar>?, Int32, Int64) -> Int32
@@ -171,6 +202,8 @@ nonisolated struct CEFShimLibrary: @unchecked Sendable {
     let setPasswordGenerationEnabled: @convention(c) (Int32) -> Int32
     /// Password filling on or off in one tab (off while an agent drives it).
     let setPasswordFill: @convention(c) (Int32, Int32) -> Int32
+    /// WebAuthn refused (1) or allowed (0) in one tab (refused while an agent drives it; fork API 23).
+    let setWebAuthnMode: @convention(c) (Int32, Int32) -> Int32
     /// Profile (Touch ID) passkeys, metadata only (fork API 18; see CEFRuntime+Passkeys).
     let passkeysAvailable: @convention(c) () -> Int32
     let passkeysList: @convention(c) (UnsafePointer<CChar>?, Int32) -> Int32
@@ -247,6 +280,16 @@ nonisolated struct CEFShimLibrary: @unchecked Sendable {
                                                         UnsafePointer<CChar>?, UnsafePointer<CChar>?) -> Int32
     /// Answers a PAGE_RESOURCE request: token, status, MIME, body, length; 1 when it was waiting.
     let pageResourceRespond: @convention(c) (Int32, Int32, UnsafePointer<CChar>?, UnsafeRawPointer?, Int) -> Int32
+    /// The same for a byte range: token, status, MIME, `Content-Range` and `Accept-Ranges` lines, body, length.
+    let pageResourceRespondRanged: @convention(c) (Int32, Int32, UnsafePointer<CChar>?, UnsafePointer<CChar>?,
+                                                   UnsafeRawPointer?, Int) -> Int32
+    /// The same with the answer's CSP: token, status, MIME, range lines, CSP, body, length (nil in an
+    /// older shim, whose answers always carry the page's own CSP).
+    let pageResourceRespondPage: (@convention(c) (Int32, Int32, UnsafePointer<CChar>?, UnsafePointer<CChar>?,
+                                                  UnsafePointer<CChar>?, UnsafeRawPointer?, Int) -> Int32)?
+    /// Sends every first-party page request to the page host (1) or serves page folders (0): the live
+    /// web loop. Nil in an older shim, which always serves the folders.
+    let pageSchemeSetLive: (@convention(c) (Int32) -> Void)?
 
     // Extension UI the app draws (fork API 12; no-ops and 0/NULL before).
     let setNewTabPageURL: @convention(c) (UnsafePointer<CChar>?) -> Void
@@ -254,6 +297,11 @@ nonisolated struct CEFShimLibrary: @unchecked Sendable {
     let installPromptReply: @convention(c) (Int32, Int32) -> Int32
     let omniboxKeywords: @convention(c) (Int32) -> UnsafeMutablePointer<CChar>?
     let omniboxInput: @convention(c) (Int32, UnsafePointer<CChar>?, Int32, UnsafePointer<CChar>?, Int32) -> Int32
+    /// Omnibox preloading (fork API 33; -1 on older forks): `cmux_shim_omnibox_preload_*`.
+    let omniboxPreloadTextChanged: @convention(c) (Int32, UnsafePointer<CChar>?, UnsafePointer<UnsafePointer<CChar>?>?,
+                                                   UnsafePointer<Int32>?, Int32, UnsafeMutablePointer<Double>?) -> Int32
+    let omniboxPreloadOpened: @convention(c) (Int32, UnsafePointer<CChar>?, Int32) -> Int32
+    let setOmniboxPrerender: @convention(c) (Int32) -> Void
     // Popup windows (fork API 11): exposed for the popup panel; not enabled yet.
     let setPopupWindowsEnabled: @convention(c) (Int32) -> Void
     let popupWindowBounds: @convention(c) (Int32, UnsafeMutablePointer<Int32>?, UnsafeMutablePointer<Int32>?,
@@ -320,13 +368,19 @@ nonisolated struct CEFShimLibrary: @unchecked Sendable {
         setExtensionDeveloperMode = try r("cmux_shim_set_extension_developer_mode")
         setDefaultSearch = try r("cmux_shim_set_default_search")
         setChromePolicyID = try r("cmux_shim_set_chrome_policy_id")
+        setKeychainItem = r.optional("cmux_shim_set_keychain_item")
         setBackgroundColor = try r("cmux_shim_set_background_color")
         browserSetBackgroundColor = try r("cmux_shim_browser_set_background_color")
         tabSetTransparentBackground = try r("cmux_shim_tab_set_transparent_background")
         setFileDialogs = try r("cmux_shim_set_file_dialogs")
+        browserSetFileDialogs = try r("cmux_shim_browser_set_file_dialogs")
         fileDialogAnswer = try r("cmux_shim_file_dialog_answer")
         browserSetLayerHosting = try r("cmux_shim_browser_set_layer_hosting")
         browserSetResizeSync = try r("cmux_shim_browser_set_resize_sync")
+        browserResizeFence = r.optional("cmux_shim_browser_resize_fence")
+        browserSetDetachedHosting = r.optional("cmux_shim_browser_set_detached_hosting")
+        browserSetDrawOnInput = r.optional("cmux_shim_browser_set_draw_on_input")
+        drawOnInputKeyFrames = r.optional("cmux_shim_draw_on_input_key_frames")
         initialize = try r("cmux_shim_initialize")
         doWork = try r("cmux_shim_do_work")
         createWindow = try r("cmux_shim_create_window")
@@ -344,8 +398,10 @@ nonisolated struct CEFShimLibrary: @unchecked Sendable {
         stop = try r("cmux_shim_stop")
         setFocus = try r("cmux_shim_set_focus")
         setZoomLevel = try r("cmux_shim_set_zoom_level")
+        setAudioMuted = r.optional("cmux_shim_set_audio_muted")
         setAccessibility = try r("cmux_shim_set_accessibility")
         printPage = try r("cmux_shim_print")
+        pageCommand = r.optional("cmux_shim_page_command")
         find = try r("cmux_shim_find")
         stopFinding = try r("cmux_shim_stop_finding")
         close = try r("cmux_shim_close")
@@ -357,7 +413,9 @@ nonisolated struct CEFShimLibrary: @unchecked Sendable {
         devToolsSetKeyHandler = try r("cmux_shim_devtools_set_key_handler")
         setUnhandledKeyHandler = try r("cmux_shim_set_unhandled_key_handler")
         devToolsSetPlacement = try r("cmux_shim_devtools_set_placement")
+        devToolsSetBackground = try r("cmux_shim_devtools_set_background")
         devToolsCommand = try r("cmux_shim_devtools_command")
+        devToolsSetFrontendDockSide = try r("cmux_shim_devtools_set_frontend_dock_side")
         devToolsBrowser = try r("cmux_shim_devtools_browser")
         devToolsSetFocus = try r("cmux_shim_devtools_set_focus")
         devToolsShowPanel = try r("cmux_shim_devtools_show_panel")
@@ -386,6 +444,7 @@ nonisolated struct CEFShimLibrary: @unchecked Sendable {
         liveBrowserCount = try r("cmux_shim_live_browser_count")
         windowCount = try r("cmux_shim_window_count")
         shutdown = try r("cmux_shim_shutdown")
+        flushCookieStores = try r("cmux_shim_flush_cookie_stores")
         setWindowRequestHandler = try r("cmux_shim_set_window_request_handler")
         setFocusRequestHandler = try r("cmux_shim_set_focus_request_handler")
         foreignBrowserCount = try r("cmux_shim_foreign_browser_count")
@@ -393,11 +452,13 @@ nonisolated struct CEFShimLibrary: @unchecked Sendable {
         downloadContinue = try r("cmux_shim_download_continue")
         downloadControl = try r("cmux_shim_download_control")
         permissionContinue = try r("cmux_shim_permission_continue")
+        authContinue = try r("cmux_shim_auth_continue")
         contentSetting = try r("cmux_shim_content_setting")
         setContentSetting = try r("cmux_shim_set_content_setting")
         visitCookies = try r("cmux_shim_visit_cookies")
         deleteCookies = try r("cmux_shim_delete_cookies")
         downloadFavicon = try r("cmux_shim_download_favicon")
+        profileFetch = r.optional("cmux_shim_profile_fetch")
         importCookies = try r("cmux_shim_import_cookies")
         clearCookies = try r("cmux_shim_clear_cookies")
         importPasswords = try r("cmux_shim_import_passwords")
@@ -408,6 +469,7 @@ nonisolated struct CEFShimLibrary: @unchecked Sendable {
         passwordPromptAnswer = try r("cmux_shim_password_prompt_answer")
         setPasswordGenerationEnabled = try r("cmux_shim_set_password_generation_enabled")
         setPasswordFill = try r("cmux_shim_set_password_fill")
+        setWebAuthnMode = try r("cmux_shim_tab_set_webauthn_mode")
         passkeysAvailable = try r("cmux_shim_passkeys_available")
         passkeysList = try r("cmux_shim_passkeys_list")
         passkeyDelete = try r("cmux_shim_passkey_delete")
@@ -443,11 +505,17 @@ nonisolated struct CEFShimLibrary: @unchecked Sendable {
         pageSchemeAddFirstParty = try r("cmux_shim_page_scheme_add_first_party")
         pageSchemeAddFirstPartyDynamic = try r("cmux_shim_page_scheme_add_first_party_dynamic")
         pageResourceRespond = try r("cmux_shim_page_resource_respond")
+        pageResourceRespondRanged = try r("cmux_shim_page_resource_respond_ranged")
+        pageResourceRespondPage = r.optional("cmux_shim_page_resource_respond_page")
+        pageSchemeSetLive = r.optional("cmux_shim_page_scheme_set_live")
         setNewTabPageURL = try r("cmux_shim_set_new_tab_page_url")
         addNativeMessagingDir = try r("cmux_shim_add_native_messaging_dir")
         installPromptReply = try r("cmux_shim_install_prompt_reply")
         omniboxKeywords = try r("cmux_shim_omnibox_keywords")
         omniboxInput = try r("cmux_shim_omnibox_input")
+        omniboxPreloadTextChanged = try r("cmux_shim_omnibox_preload_text_changed")
+        omniboxPreloadOpened = try r("cmux_shim_omnibox_preload_opened")
+        setOmniboxPrerender = try r("cmux_shim_set_omnibox_prerender")
         setPopupWindowsEnabled = try r("cmux_shim_set_popup_windows_enabled")
         popupWindowBounds = try r("cmux_shim_popup_window_bounds")
         popupWindowAttach = try r("cmux_shim_popup_window_attach")

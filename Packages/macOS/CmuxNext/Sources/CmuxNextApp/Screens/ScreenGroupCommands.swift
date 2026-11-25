@@ -15,7 +15,7 @@ import CmuxNextTabs
 @MainActor
 enum ScreenGroupCommands {
     static func create(_ screens: [ScreenModel], in workspace: WorkspaceModel, name: String?, color: GroupTint?, daemon: DaemonService) {
-        let handles = screens.map(\.handle), color = (color ?? .palette(nextColor(in: workspace))).wire
+        let handles = screens.map(\.handle), color = (color ?? GroupTint.none).wire
         change("create-screen-group", stateIDs(screens).map { .create(screens: $0, name: name, color: color) }, daemon: daemon) {
             _ = try await $0.createScreenGroup(handles, name: name, color: color)
         }
@@ -122,6 +122,7 @@ enum ScreenGroupCommands {
             return ScreenCommands.close(ref.members, in: ref.workspace, daemon: ref.daemon, services: services)
         }
         let group = ref.group.id
+        services.keyRouter.creationInputCoordinator.drop(closing: ref.members.flatMap(\.panes))
         ref.daemon.send("close-screen-group") { _ = try await $0.closeScreenGroup(group) }
     }
 
@@ -138,10 +139,5 @@ enum ScreenGroupCommands {
         let last = ref.members.last.flatMap { member in ref.workspace.screens.firstIndex { $0 === member } }
         ScreenCommands.create(in: ref.workspace, daemon: ref.daemon, content: ref.content,
                               spec: ScreenSpec(index: last.map { $0 + 1 }, group: ref.group.id))
-    }
-
-    /// The color a new screen group gets (`TabGroupOrdering.nextColor`).
-    static func nextColor(in workspace: WorkspaceModel?) -> GroupColor {
-        TabGroupOrdering.nextColor(used: workspace?.screenGroups.compactMap { $0.color.flatMap(GroupColor.init(rawValue:)) } ?? [])
     }
 }

@@ -38,6 +38,11 @@ export interface Principal {
    * creates get those labels without asking.
    */
   readonly agent?: AgentBudget;
+  /**
+   * Set for a CI trust row (src/auth/ci-trust.ts): every VM the caller creates pauses once a run lasts this long and
+   * is deleted as soon as it stops, so a job that dies before its cleanup leaves nothing running for long.
+   */
+  readonly maxRunSeconds?: number;
 }
 
 /** Whether `labels` carries every label the principal is limited to. */

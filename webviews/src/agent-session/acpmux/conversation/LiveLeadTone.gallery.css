@@ -1,0 +1,25 @@
+.live-lead-tone {
+  box-sizing: border-box;
+  min-height: 100%;
+  padding: 24px;
+  color: var(--cv-text);
+  font-family: var(--cv-font, var(--font-ui));
+}
+/* The stage stacks its lines in flow; the transcript places each one itself. */
+.live-lead-tone .acpmux-row {
+  position: relative;
+  left: auto;
+  right: auto;
+  min-height: 0;
+  padding-bottom: 12px;
+}
+/* Looks kept to compare against the shipped muted lead. */
+.live-lead-tone[data-look="ink"] .cv-worked__lead {
+  color: var(--cv-text);
+}
+.live-lead-tone[data-look="weight"] .cv-worked__lead {
+  font-weight: var(--weight-emphasis);
+}
+.live-lead-tone[data-look="soft"] .cv-worked__lead {
+  color: color-mix(in srgb, var(--cv-text) 50%, currentColor);
+}

@@ -32,12 +32,12 @@ pub(in crate::mux) fn structural_tab_move_plan(
         state.workspaces[source_location.0].screens[source_location.1].layout_snapshot();
     let source_screen_remains = remove_pane_from_layout(&mut source_layout, source_pane);
     if source_screen_remains && source_layout.active_pane == source_pane {
-        source_layout.active_pane =
-            if source_screen_slot == target_location_screen(state, target_location) {
-                target_pane
-            } else {
-                source_layout.root.first_visible_pane()
-            };
+        let next = if source_screen_slot == target_location_screen(state, target_location) {
+            target_pane
+        } else {
+            source_layout.focus_after_leave()
+        };
+        source_layout.set_active_pane(next);
     }
     if source_layout.zoomed_pane == Some(source_pane) {
         source_layout.zoomed_pane = None;
@@ -79,7 +79,7 @@ pub(in crate::mux) fn structural_tab_move_plan(
     ];
 
     let target_durable = if source_screen_slot == target_location_screen(state, target_location) {
-        source_layout.active_pane = target_pane;
+        source_layout.set_active_pane(target_pane);
         registry_screen_from_layout(
             state,
             source_location.0,
@@ -90,7 +90,7 @@ pub(in crate::mux) fn structural_tab_move_plan(
         )?
     } else {
         let mut durable = topology_screen(&after, &target_screen_id)?.clone();
-        durable.active_pane = target_pane_id.clone();
+        floating_panes::focus_registry_pane(&mut durable, &target_pane_id);
         durable
     };
     if let Some(screen) =
@@ -134,11 +134,7 @@ pub(in crate::mux) fn structural_tab_move_plan(
 
     let target_workspace_index = target_location.0;
     changes.push(ResourceChange::UpsertWorkspace {
-        workspace: registry_workspace(
-            state,
-            target_workspace_index,
-            registry.session_id().as_str(),
-        ),
+        workspace: registry_workspace(state, target_workspace_index, &mux.session),
         position: target_workspace_index,
         active_screen: Some(target_screen_id.clone()),
     });
@@ -161,7 +157,7 @@ pub(in crate::mux) fn structural_tab_move_plan(
                 .map(|screen| screen.public_id.clone())
         };
         changes.push(ResourceChange::UpsertWorkspace {
-            workspace: registry_workspace(state, source_location.0, registry.session_id().as_str()),
+            workspace: registry_workspace(state, source_location.0, &mux.session),
             position: source_location.0,
             active_screen,
         });
@@ -191,6 +187,23 @@ pub(in crate::mux) fn structural_tab_move_plan(
     }
     let mut deltas = focus_change_deltas(state, &before, &after, &restated, &[&target_pane_id])?;
     deltas.push(upsert(0, "tab", tab_id.as_str(), tab_value(&moved_tab, &after)?));
+    // The insert shifted the target pane's tabs after it, and its old
+    // active tab lost the focus: restate them, so the journal states their
+    // new index and focus (a scoped projection later trusts it).
+    let old_active = topology_pane(&before, &target_pane_id)?.active_tab.clone();
+    for tab in after.tabs.iter().filter(|tab| tab.pane_id == target_pane_id) {
+        if tab.public_id == tab_id {
+            continue;
+        }
+        let shifted = before
+            .tabs
+            .iter()
+            .find(|candidate| candidate.public_id == tab.public_id)
+            .is_none_or(|candidate| candidate.position != tab.position);
+        if shifted || old_active.as_ref() == Some(&tab.public_id) {
+            deltas.push(upsert(0, "tab", tab.public_id.as_str(), tab_value(tab, &after)?));
+        }
+    }
     let pane = pane_value(state, &target_record, &after)?;
     deltas.push(upsert(0, "pane", target_pane_id.as_str(), pane));
     for (sequence, delta) in deltas.iter_mut().enumerate() {
@@ -240,7 +253,7 @@ pub(in crate::mux) fn structural_tab_move_plan(
                 .expect("planned target screen remains live");
             state.active_workspace = target_workspace;
             state.workspaces[target_workspace].active_screen = target_screen;
-            state.workspaces[target_workspace].screens[target_screen].active_pane = target_pane;
+            state.workspaces[target_workspace].screens[target_screen].set_active_pane(target_pane);
             if previous_active != Some(target_pane) {
                 stamp_pane_focus(&mux, state, target_pane);
             } else if let Some(pane) = state.panes.get_mut(&target_pane) {

@@ -57,7 +57,7 @@ struct BackgroundAccessoryPolicyTests {
             NSApplication.shared.setActivationPolicy(.regular)
             services = AppServices(environment: AppEnvironment.current([:]))
             AppProcessRoot.shared.adopt(services)
-            settings = SettingsController(registry: services.registry, design: DesignSettings(), fileURL: configURL,
+            settings = SettingsController(writer: TestSettingsWriter(), registry: services.registry, design: DesignSettings(), fileURL: configURL,
                                           managedReader: FixedManagedPreferenceReader(ManagedPreferences()), managedWatchFiles: [])
             await settings.reload()
             services.settings = settings
@@ -127,6 +127,47 @@ struct BackgroundAccessoryPolicyTests {
         }
     }
 
+    /// A window delegate that refuses its close, as an incognito window does when the person cancels
+    /// its close confirmation: `windowShouldClose` says no, and nothing follows.
+    @MainActor private final class RefusedClose: NSObject, NSWindowDelegate {
+        var asked = 0
+        func windowShouldClose(_ sender: NSWindow) -> Bool {
+            asked += 1
+            return false
+        }
+    }
+
+    /// Review of #27258: a close the window refuses while the restore runs (a cancelled incognito
+    /// confirmation) is no close. The restore remembers nothing of it and keeps the window open; only
+    /// a close AppKit carries out (`windowWillClose`) counts as the person's.
+    @Test func aCloseTheWindowRefusesDuringTheRestoreKeepsItOpen() async throws {
+        let app = NSApplication.shared
+        let policyBefore = app.activationPolicy()
+        defer { app.setActivationPolicy(policyBefore) }
+        try await Self.withLaunch { launch in
+            let windows = launch.services.windows
+            windows.restoreWhenLoaded()
+            try #require(!windows.restored, "the restore finished before the launch window could close")
+            let controller = try #require(windows.controllers.first, "no launch window")
+            let window = try #require(controller.window)
+            let refusal = RefusedClose()
+            window.delegate = refusal
+            defer { window.delegate = controller }
+            _ = launch.services.registry.perform("closeAllWindows", invocation: ActionInvocation(origin: .user))
+            window.delegate = controller
+            try #require(refusal.asked == 1, "Close All Windows did not ask the window")
+            #expect(windows.controllers.contains { $0 === controller }, "the refused close closed the window")
+            #expect(windows.restoreClosed.windows.isEmpty, "the refused close was remembered as closed: \(windows.restoreClosed.windows)")
+            #expect(windows.closedLaunchWindowID == nil, "the refused close was remembered as the closed launch window")
+            await Self.wait(within: .seconds(90)) { windows.restored && !windows.registry.isLaunching }
+            try #require(windows.restored, "the restore never finished")
+            #expect(!windows.controllers.isEmpty, "the restore tore down the window whose close was refused")
+            let records = windows.registry.value.windows
+            let anyOpen = records.contains { $0.isOpen }
+            #expect(anyOpen, "the restore registered no open window: \(records.map { ($0.id, $0.isOpen) })")
+        }
+    }
+
     @MainActor private final class HeldReports {
         var batches = 0
     }
@@ -184,6 +225,12 @@ struct BackgroundAccessoryPolicyTests {
             let settings = launch.settings
             let configURL = launch.configURL
             let presented = launch.presented
+            // Off by default (first-run audit row 14: a new user who closed the window lost cmux from the Dock);
+            // this test turns it on to check the menu bar mode it gives.
+            #expect(settings.snapshot.hideDockIconWithoutWindows == false, "Hide Dock Icon is off when unset")
+            try Data(#"{"app":{"hideDockIconWithoutWindows":true}}"#.utf8).write(to: configURL)
+            await settings.reload()
+            #expect(settings.snapshot.hideDockIconWithoutWindows == true)
             services.windows.restoreWhenLoaded()
             let windows = services.windows
             let hasWindow = { windows.active.flatMap { windows.registry.members(of: $0.state.id).first } != nil }

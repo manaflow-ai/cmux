@@ -33,6 +33,14 @@ pub fn peer_executable(peer_key: &str) -> Option<PathBuf> {
     peer_process::executable(peer_key)
 }
 
+/// Linux: [`peer_executable`] with that executable opened: the binary the
+/// peer runs, which still reads once no path names it (its path then ends in
+/// ` (deleted)`). Nil when the key is malformed or stale.
+#[cfg(any(target_os = "linux", target_os = "android"))]
+pub fn peer_executable_file(peer_key: &str) -> Option<(PathBuf, File)> {
+    peer_process::executable_file(peer_key)
+}
+
 /// Refuses a connected Unix socket whose peer is not `expected_uid`. Call it
 /// before writing anything to a socket found at a path the caller derived.
 #[cfg(unix)]
@@ -129,6 +137,33 @@ pub fn self_exe_for_spawn() -> io::Result<PathBuf> {
     }
 }
 
+/// Environment variable naming the runtime scope: the app launcher sets it on
+/// an owner whose HOME is not the account's own (a second, isolated app of
+/// the same user), so that owner's sockets and locks live in their own
+/// directory instead of the one every other app of the user shares. Unset,
+/// empty or malformed: the unscoped, historical directories.
+pub const RUNTIME_SCOPE_ENV: &str = "CMUX_TUI_RUNTIME_SCOPE";
+
+/// The runtime scope of this process (`CMUX_TUI_RUNTIME_SCOPE`), if valid.
+pub fn runtime_scope() -> Option<String> {
+    let value = std::env::var(RUNTIME_SCOPE_ENV).ok()?;
+    valid_runtime_scope(&value).then_some(value)
+}
+
+/// A scope is 1 to 16 lowercase hex digits, so it is one short path component.
+pub fn valid_runtime_scope(scope: &str) -> bool {
+    (1..=16).contains(&scope.len())
+        && scope.bytes().all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte))
+}
+
+/// The `cmux-tui-<uid>` directory name, with `-<scope>` for a scoped owner.
+fn runtime_component(scope: Option<&str>) -> String {
+    match scope.filter(|scope| valid_runtime_scope(scope)) {
+        Some(scope) => format!("{}-{scope}", user_id_component()),
+        None => user_id_component(),
+    }
+}
+
 /// Runtime socket/pidfile directory for the current user.
 pub fn runtime_dir() -> PathBuf {
     runtime_dir_for_base(&runtime_base_dir())
@@ -137,7 +172,12 @@ pub fn runtime_dir() -> PathBuf {
 /// The runtime directory an owner started with `TMPDIR=base` (and no
 /// `XDG_RUNTIME_DIR`) uses, for a client whose own environment differs.
 pub fn runtime_dir_for_base(base: &Path) -> PathBuf {
-    base.join(format!("cmux-tui-{}", user_id_component()))
+    runtime_dir_for_base_scoped(base, runtime_scope().as_deref())
+}
+
+/// [`runtime_dir_for_base`] for an owner of the given runtime scope.
+pub fn runtime_dir_for_base_scoped(base: &Path, scope: Option<&str>) -> PathBuf {
+    base.join(format!("cmux-tui-{}", runtime_component(scope)))
 }
 
 /// Short, user-private runtime directory used when the preferred runtime
@@ -147,7 +187,13 @@ pub fn runtime_dir_for_base(base: &Path) -> PathBuf {
 /// fallback without first connecting to the server.
 #[cfg(unix)]
 pub fn fallback_runtime_dir() -> PathBuf {
-    PathBuf::from("/tmp").join(format!("cmux-tui-{}", user_id_component()))
+    fallback_runtime_dir_scoped(runtime_scope().as_deref())
+}
+
+/// [`fallback_runtime_dir`] for an owner of the given runtime scope.
+#[cfg(unix)]
+pub fn fallback_runtime_dir_scoped(scope: Option<&str>) -> PathBuf {
+    PathBuf::from("/tmp").join(format!("cmux-tui-{}", runtime_component(scope)))
 }
 
 /// Preferred root for socket paths that need a fixed-length digest leaf.
@@ -166,7 +212,12 @@ pub fn fallback_hashed_runtime_dir() -> PathBuf {
 /// Construct the digest root below an explicit runtime base. This keeps the
 /// path resolver testable without mutating process environment.
 pub fn hashed_runtime_dir_for_base(base: &Path) -> PathBuf {
-    base.join(format!("cmux-tui-hashed-{}", user_id_component()))
+    hashed_runtime_dir_for_base_scoped(base, runtime_scope().as_deref())
+}
+
+/// [`hashed_runtime_dir_for_base`] for an owner of the given runtime scope.
+pub fn hashed_runtime_dir_for_base_scoped(base: &Path, scope: Option<&str>) -> PathBuf {
+    base.join(format!("cmux-tui-hashed-{}", runtime_component(scope)))
 }
 
 /// Private root for compatibility paths produced from invalid session text.
@@ -485,11 +536,16 @@ pub fn config_path() -> Option<PathBuf> {
     config_dir().map(preferred_config_path)
 }
 
+/// cmux's folder under the config base: `cmux-next` on macOS, where `cmux`
+/// is cmux Classic's; `cmux` elsewhere.
+#[cfg(not(windows))]
+const CONFIG_DIR_NAME: &str = if cfg!(target_os = "macos") { "cmux-next" } else { "cmux" };
+
 #[cfg(not(windows))]
 fn config_dir() -> Option<PathBuf> {
     env_path("XDG_CONFIG_HOME")
-        .map(|config_home| config_home.join("cmux"))
-        .or_else(|| home_dir().map(|home| home.join(".config").join("cmux")))
+        .map(|config_home| config_home.join(CONFIG_DIR_NAME))
+        .or_else(|| home_dir().map(|home| home.join(".config").join(CONFIG_DIR_NAME)))
 }
 
 #[cfg(windows)]
@@ -953,6 +1009,11 @@ pub fn foreground_leader(pid: u32) -> Option<u32> {
     foreground_process_group(pid)
 }
 
+/// The executable of process `pid` (the name [`foreground_process_name`] gives its group leader).
+pub fn process_executable(pid: u32) -> Option<String> {
+    process_name(pid)
+}
+
 /// Program name (basename only, never arguments) of the job a terminal runs
 /// in the foreground when that job is not the terminal's own PTY child
 /// `pid`: the program a shell started and waits for. `None` when the child
@@ -1018,7 +1079,7 @@ fn process_name(pid: u32) -> Option<String> {
 
 #[cfg(target_os = "linux")]
 fn foreground_process_group(pid: u32) -> Option<u32> {
-    let stat = std::fs::read_to_string(format!("/proc/{pid}/stat")).ok()?;
+    let stat = crate::process_resources::stat_line(format!("/proc/{pid}/stat")).ok()?;
     // Fields after the parenthesized command name are state(3) ppid(4)
     // pgrp(5) session(6) tty_nr(7) tpgid(8); tpgid is -1 without a
     // controlling terminal.
@@ -1394,7 +1455,7 @@ fn restrict_permissions(_path: &Path, _mode: u32) -> std::io::Result<()> {
 mod codex_daemon;
 pub use codex_daemon::descends_from_codex_app_server_daemon;
 mod job_launch;
-pub use job_launch::{JobLaunch, foreground_job_launch};
+pub use job_launch::{JobLaunch, foreground_job_launch, process_launch};
 
 #[cfg(test)]
 mod tests;

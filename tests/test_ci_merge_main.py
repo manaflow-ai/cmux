@@ -33,7 +33,15 @@ sys.path.insert(0, str(ROOT / "scripts" / "ci"))
 
 import last_green_base  # noqa: E402
 import merge_main  # noqa: E402
+import merge_main_resolver  # noqa: E402
 import run_ci_guards  # noqa: E402
+# tests/git_fixture_env.py, loaded by path: `python3 -I` puts no script folder on sys.path.
+import importlib.util as _git_fixture_importlib  # noqa: E402
+from os import path as _git_fixture_path  # noqa: E402
+_git_fixture_spec = _git_fixture_importlib.spec_from_file_location(
+    "git_fixture_env", _git_fixture_path.join(_git_fixture_path.dirname(_git_fixture_path.abspath(__file__)), "git_fixture_env.py"))
+git_fixture_env = _git_fixture_importlib.module_from_spec(_git_fixture_spec)
+_git_fixture_spec.loader.exec_module(git_fixture_env)
 
 GIT_ENV = {
     "GIT_CONFIG_NOSYSTEM": "1",
@@ -233,6 +241,25 @@ class MergeTests(TempRepoCase):
         self.assertIn(f"skipping 1 newer commit(s) (1 failure)", output)
         self.assertIn(red[:11], output)
         self.assertIn("Merge main", git(self.repo, "log", "-1", "--format=%s"))
+
+    def test_the_repos_own_hooks_run_on_the_merge_commit(self) -> None:
+        # 2026-11-15: the resolver ran git with `-c core.hooksPath=/dev/null` and `commit --no-verify`; the lane git
+        # guard refuses both as a hook bypass, so `merge-main.sh --remote origin` failed there.
+        self.assertFalse([arg for arg in merge_main_resolver.GIT if "hookspath" in arg.lower()])
+        hooks = self.scratch / "hooks"
+        hooks.mkdir()
+        ran = self.scratch / "pre-commit-ran"
+        hook = hooks / "pre-commit"
+        hook.write_text(f"#!/bin/sh\ntouch '{ran}'\n")
+        hook.chmod(hook.stat().st_mode | stat.S_IXUSR)
+        git(self.repo, "config", "core.hooksPath", str(hooks))
+        commit(self.repo, "branch work", {"feature.txt": "feature\n"})
+        ran.unlink()
+        green = self.main_commit("green", {"green.txt": "green\n"})
+        code, output = self.run_merge({green: "success"}, guards=False)
+        self.assertEqual(code, 0, output)
+        self.assertEqual(git(self.repo, "rev-parse", "HEAD^2"), green)
+        self.assertTrue(ran.exists(), "the pre-commit hook did not run on the merge commit")
 
     def test_a_feat_cmux_next_pr_merges_feat_cmux_next_not_main(self) -> None:
         # 2026-10-29: merge-main.sh could merge only main, so a pull request into feat-cmux-next (#27454) was
@@ -522,6 +549,18 @@ class RemoteTests(unittest.TestCase):
             git(repo, "remote", "add", "mf", "git@github.com:manaflow-ai/cmux.git")
             self.assertEqual(merge_main.cmux_remote(repo), "mf")
             git(repo, "remote", "set-url", "origin", "https://github.com/manaflow-ai/cmux")
+            self.assertEqual(merge_main.cmux_remote(repo), "origin")
+
+    def test_detects_a_partial_clone_remote(self) -> None:
+        # 2026-11-15 huge-blue: a blobless clone's `git remote -v` prints "origin URL (fetch) [blob:none]", four
+        # words, and the old parser skipped that line: "no git remote points at github.com/manaflow-ai/cmux".
+        with tempfile.TemporaryDirectory() as scratch, mock.patch.dict(os.environ, GIT_ENV):
+            repo = Path(scratch)
+            git(repo, "init", "-q")
+            git(repo, "remote", "add", "origin", "https://github.com/manaflow-ai/cmux.git")
+            git(repo, "config", "remote.origin.promisor", "true")
+            git(repo, "config", "remote.origin.partialclonefilter", "blob:none")
+            self.assertIn("[blob:none]", git(repo, "remote", "-v"))
             self.assertEqual(merge_main.cmux_remote(repo), "origin")
 
 

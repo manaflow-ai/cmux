@@ -4,6 +4,7 @@ import { createRoot, type Root } from "react-dom/client";
 import { JSDOM } from "jsdom";
 import { readFileSync } from "node:fs";
 import { TranscriptActivityRow } from "./TranscriptActivityRow";
+import { settleReact } from "../../../../test/support/domTeardown";
 
 const source = (path: string) => readFileSync(new URL(path, import.meta.url), "utf8");
 
@@ -39,9 +40,10 @@ function renderRows(): HTMLElement {
   return host;
 }
 
-afterEach(() => {
+afterEach(async () => {
   act(() => root?.unmount());
   root = undefined;
+  await settleReact();
   dom?.window.close();
   dom = undefined;
   for (const [key, value] of saved) {
@@ -53,6 +55,9 @@ afterEach(() => {
 
 test("subagent, messaging, and inbox activity use the shared row and agent tag", () => {
   expect(source("./ActivityLine.tsx")).toContain("TranscriptActivityRow");
+  expect(source("./ActivityLine.tsx")).toContain('className="cv-activity cv-tool"');
+  expect(source("./ActivityLine.tsx")).toContain('className="cv-tool__icon"');
+  expect(source("./ActivityLine.tsx")).toContain("row.doingCommand ? <TerminalSquare /> : null");
   expect(source("../subagents/SubagentDoneLine.tsx")).toContain("TranscriptActivityRow");
   expect(source("./LaneNoticeBatch.tsx")).toContain("TranscriptActivityRow");
   expect(source("./IncomingMessageCard.tsx")).toContain("AgentTag");
@@ -65,9 +70,14 @@ test("subagent, messaging, and inbox activity use the shared row and agent tag",
   expect(source("./TranscriptActivityRow.tsx")).toContain("<AgentTag name={name}");
 });
 
-test("the shared activity row lights its text on hover and press", () => {
+test("the shared activity row lights only its chevron on hover and press, never its words", () => {
   const css = source("./TranscriptActivityRow.css");
-  expect(css).toContain(".cv-agent-activity-row:is(:hover, :active, :focus-visible, :focus-within)");
+  expect(css).toContain(
+    ".cv-agent-activity-row:is(:hover, :active, :focus-visible, :focus-within):not(:has(.cv-agent-tag.is-open:is(:hover, :focus))) > button.cv-agent-activity__control:not(:disabled) .cv-agent-activity__chevron,",
+  );
+  expect(css).not.toMatch(/\) > \.cv-agent-activity__control \{/);
+  // A chevron beside the line's button lifts too (SubagentDoneLine.tsx).
+  expect(css).toContain(":has(> button.cv-agent-activity__control:not(:disabled)) > .cv-agent-activity__chevron {");
   expect(source("./AgentTag.css")).toContain(":is(:hover, :focus-visible, :active)");
 });
 

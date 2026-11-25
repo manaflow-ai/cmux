@@ -33,7 +33,7 @@ public final class WebUpdatesPageProvider: PageProvider {
         do {
             try await updater.rollBack()
         } catch {
-            throw PageError(code: "cmux.settings.web_updates.failed", message: error.localizedDescription)
+            throw PageError.failed(error, code: "cmux.settings.web_updates.failed")
         }
         return .object([:])
     }
@@ -79,7 +79,8 @@ extension WebUpdates {
     static func pageCode(_ refusal: WebUpdateRefusal) -> String {
         switch refusal {
         case .abiMismatch: "app_too_old"
-        case .notNewer: "not_newer"
+        // The switch file keeps the app on what it serves: to the card, nothing newer to take.
+        case .notNewer, .refusedBySwitchFile: "not_newer"
         case .malformed, .unsigned, .wrongChannel: "untrusted"
         case .integrity: "damaged"
         case .transfer: "offline"

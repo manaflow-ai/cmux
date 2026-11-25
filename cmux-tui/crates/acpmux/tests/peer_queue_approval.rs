@@ -34,7 +34,9 @@ async fn fake_peer(features: Value) -> (u16, Arc<Mutex<Vec<(String, Value)>>>) {
             let Ok(mut ws) = tokio_tungstenite::accept_async(tcp).await else { continue };
             let (seen, features) = (seen.clone(), features.clone());
             tokio::spawn(async move {
-                while let Some(Ok(Ws::Text(text))) = ws.next().await {
+                // Non-text frames (the client's pings, #38015) are not requests: skip them.
+                while let Some(Ok(frame)) = ws.next().await {
+                    let Ws::Text(text) = frame else { continue };
                     let Ok(Message::Request { id, method: m, params }) = Message::parse(&text)
                     else {
                         continue;
@@ -118,7 +120,7 @@ async fn a_held_prompt_goes_only_to_a_peer_that_holds_it() {
         .unwrap();
     let refused = call(&old, method::SESSION_PROMPT, prompt("g-1", Some("owner"))).await;
     assert_eq!(reason(&refused), "queue.approval_unsupported", "{refused}");
-    assert!(refused["error"]["message"].as_str().unwrap().contains("acpmux host update old"));
+    assert!(refused["error"]["message"].as_str().unwrap().contains("acpmux machine update old"));
     for m in [method::MUX_QUEUE_APPROVE, method::MUX_QUEUE_DECLINE, method::MUX_QUEUE_GET] {
         let answer = json!({"sessionId": "far-1", "promptId": "g-1", "revision": 0});
         let refused = call(&old, m, answer).await;

@@ -1,7 +1,9 @@
 public import AppKit
 public import CmuxHomeCore
 public import CmuxNextDesign
+public import CmuxNextHomeModel
 import MessagesLabSidebar
+import Observation
 
 /// The Home page's left column: MessagesLab's conversation list
 /// (`CmuxSidebarView`, vendored byte-identical) drawing a `HomeSidebarModel`
@@ -53,23 +55,66 @@ public final class HomeSidebarView: NSView, WindowControlsAvoiding {
     /// The unread dot's color: the user's `notifications.attention.color`; nil is the notification blue.
     public var unreadDotColor: NSColor? { didSet { if unreadDotColor != oldValue { applyColors() } } }
 
-    let list = CmuxSidebarView()
+    /// Made on first use, after `init` installs the host hooks (`HomeReduceMotion.install()`): the list sets its
+    /// controls' tooltips while it is made, so a list made before the hooks would draw AppKit's stock tooltip.
+    private(set) lazy var list = CmuxSidebarView()
+    /// Messages' floating sidebar (macOS 26, the user 2026-11-23: "EXACTLY like imessage"): the list,
+    /// its note and Message Requests in a rounded panel 8 pt in from the column's left, top and
+    /// bottom, in the App Store build's glass (the user: "that one has a pretty good sidebar",
+    /// `HomeSidebarGlass`): a neutral frost, a deep blue light from above, a one-pixel rim lit blue at
+    /// the top and a soft shadow under it.
+    let panel = NSView()
+    /// The panel's inset from the column's left, top and bottom edges.
+    static let panelInset: CGFloat = 8
+    /// The panel's corner radius (Messages' sidebar, macOS 26: 18 pt, circular).
+    static let panelCornerRadius: CGFloat = 18
+    /// The traffic lights' line below the panel's top edge, as in Messages (macOS 26): the filter on
+    /// that line sits as far in from the panel's top as from its right (the user, 2026-11-23: "imsg
+    /// seems to just do it better"). The panel's top comes up to keep it, never past 2 pt.
+    static let lightsBelowPanelTop: CGFloat = 17.5
+    /// The selected chat's fill: Messages' selection, the system blue (10 132 255 in dark), whatever
+    /// the theme's or the system's accent (the user, 2026-11-23: "make sure that the selected colour is blue").
+    static let selectionBlue = NSColor.systemBlue
+    /// The light from above: a wash under the top edge, under the list (``HomeSidebarGlass``).
+    let wash = CAGradientLayer()
+    /// The glass at the last ``applyColors()``: the wash's stops are in points, so layout reads them.
+    private var glass: HomeSidebarGlass?
+    /// The panel's one-pixel rim over everything in it.
+    let rim = HomePanelRimView()
+    /// The panel's two soft shadows, behind it.
+    let panelShadow = HomePanelShadowView()
     /// The header band behind its row: a drag on its empty space moves the window, as on
     /// Messages' sidebar toolbar.
     let dragStrip = HomeWindowDragStrip()
-    /// The header row (`HomeSidebarHeaderLayout`): search, the Unread toggle, then compose.
+    /// The header row (`HomeSidebarHeaderLayout`): search and the Unread toggle; the list's compose
+    /// stays hidden (``chatCompose``).
     let compose = HomeHeaderButton(symbol: "square.and.pencil", label: HomeConversationStrings.newMessage,
                                    identifier: "cmux.home.sidebar.compose")
-    /// All or Unread: one click, Messages' filter glyph on its glass circle (`filterGlass`), lit
-    /// while only unread conversations show (Home offers no other filter, so no menu).
+    /// All or Unread: one click, Messages' bare filter glyph on the lights' line (on its glass
+    /// circle, `filterGlass`, only in the avatar-only list), lit while only unread conversations
+    /// show (Home offers no other filter, so no menu).
     let unreadToggle = HomeHeaderButton(symbol: "line.3.horizontal.decrease", onSymbol: "line.3.horizontal.decrease",
                                         label: CmuxSidebarView.unreadTitle, identifier: "cmux.home.sidebar.unread", glass: true)
     /// The Unread toggle's glass circle, under it in the header (Messages' round glass filter
     /// button, the user 2026-10-28): Liquid Glass on macOS 26 and later, the frosted material before.
-    let filterGlass = GlassPanelView(style: .regular, cornerRadius: HomeSidebarHeaderLayout.side / 2)
+    let filterGlass = GlassPanelView(style: .regular, cornerRadius: HomeSidebarHeaderMetrics.standard.side / 2) // glass-level-allow: a round or capsule control in the system's untinted button glass, as Messages draws it (the user, 2026-10-28)
+    /// The avatar-only list's search: Messages' magnifier on a glass circle (`searchGlass`) beside
+    /// the Unread toggle; a click opens the search over the band, as ⌘F does.
+    let searchButton = HomeHeaderButton(symbol: "magnifyingglass", label: CmuxSidebarView.searchTitle,
+                                        identifier: "cmux.home.sidebar.searchIcon", glass: true)
+    /// The search circle's glass, under it in the header.
+    let searchGlass = GlassPanelView(style: .regular, cornerRadius: HomeSidebarHeaderMetrics.standard.side / 2) // glass-level-allow: a round or capsule control in the system's untinted button glass, as Messages draws it (the user, 2026-10-28)
+    /// The avatar-only list's two circles in the search field's own look (``applySearchColors()``),
+    /// so search reads the same at every width (the user, 2026-11-23); the glass circles stay hidden.
+    let searchDisc = HomeHeaderDisc()
+    let filterDisc = HomeHeaderDisc()
     /// Compose at the chat's top-left at every list width, as in Messages (`HomeChatColumnView`,
     /// which `HomeSidebarSplitView` places beside this list); the list's `compose` stays hidden.
     let chatCompose = HomeChatComposeButton(label: HomeConversationStrings.newMessage)
+    /// The header's sizes at the sidebar's density and text size (`followHeaderMetrics`).
+    private(set) var headerMetrics = HomeSidebarHeaderMetrics.current
+    /// The on filter's chip under the search row (Unread ×): a click turns the filter off.
+    let filterChip = HomeFilterChip(title: CmuxSidebarView.unreadTitle, metrics: .current)
     /// The search field's glass capsule (Messages' search field, the user 2026-10-28); a hairline
     /// rim shows while the field edits (the composer's focus, #22114), never AppKit's blue ring.
     let searchCapsule = HomeSearchCapsule()
@@ -90,15 +135,25 @@ public final class HomeSidebarView: NSView, WindowControlsAvoiding {
         HomeReduceMotion.install()
         super.init(frame: frame)
         wantsLayer = true
-        list.frame = bounds
-        addSubview(list)
+        panel.wantsLayer = true
+        panel.layer?.cornerRadius = Self.panelCornerRadius // concentric-allow: Messages' sidebar panel radius, measured; it holds rows, not a button row
+        // Circular, as the rim's stroke draws.
+        panel.layer?.cornerCurve = .circular
+        panel.layer?.masksToBounds = true
+        HomeSidebarGlass.configure(wash: wash)
+        panel.layer?.addSublayer(wash)
+        addSubview(panelShadow)
+        addSubview(panel)
+        list.frame = panel.bounds
+        panel.addSubview(list)
         SystemScrollers.follow(list.scrollView)
         installHeader()
+        followHeaderMetrics()
         noteLabel.font = .systemFont(ofSize: NSFont.smallSystemFontSize)
         noteLabel.lineBreakMode = .byTruncatingTail
         noteLabel.isHidden = true
         noteLabel.setAccessibilityIdentifier("cmux.home.sidebar.note")
-        addSubview(noteLabel)
+        panel.addSubview(noteLabel)
         requestsButton.bezelStyle = .accessoryBarAction
         requestsButton.isBordered = false
         requestsButton.alignment = .left
@@ -109,12 +164,10 @@ public final class HomeSidebarView: NSView, WindowControlsAvoiding {
         requestsButton.action = #selector(openRequests)
         requestsButton.isHidden = true
         requestsButton.setAccessibilityIdentifier("cmux.home.sidebar.requests")
-        addSubview(requestsButton)
-        // No system blue in the list: a neutral selection in the theme's tint and grey pinned
-        // names, as Messages' pinned grid.
-        list.neutralSelection = true
-        // A Chief's avatar loops only while Home's loops run (calm mode, speed off, Home's switch).
-        list.avatarLoopGate = { Motion.home.animatesLoops }
+        panel.addSubview(requestsButton)
+        panel.addSubview(rim)
+        // The selected chat in blue with white text, as in Messages (the user, 2026-11-23).
+        list.neutralSelection = false
         // A teammate row is a person, not a conversation: choosing it starts the DM, and it has
         // no pin, read state or conversation menu.
         list.onSelect = { [weak self] id in
@@ -164,9 +217,10 @@ public final class HomeSidebarView: NSView, WindowControlsAvoiding {
     @available(*, unavailable)
     required init?(coder: NSCoder) { nil }
 
-    /// The compact list's width and the width the list is designed for (MessagesLab's).
-    public var minimumWidth: CGFloat { list.minimumWidth }
-    public var preferredWidth: CGFloat { list.preferredWidth }
+    /// The compact list's width and the width the list is designed for (MessagesLab's), with the
+    /// panel's left inset: Messages' panel is 320 pt wide at the standard width.
+    public var minimumWidth: CGFloat { list.minimumWidth + Self.panelInset }
+    public var preferredWidth: CGFloat { list.preferredWidth + Self.panelInset }
     public var selection: ConversationID? { list.selectedID.map { ConversationID($0) } }
 
     public func update(_ model: HomeSidebarModel) {
@@ -202,7 +256,6 @@ public final class HomeSidebarView: NSView, WindowControlsAvoiding {
     }
 
     private func reshow() {
-        list.avatarMotionStyle = HomeTunables.avatarMotion.value.style
         var entries = (model.pinned + model.rows).map(Self.entry)
         if let draftRowTitle {
             entries.insert(CmuxSidebarEntry(id: Self.draftRowID.rawValue, title: draftRowTitle, people: [], preview: "", previewSender: nil,
@@ -246,8 +299,7 @@ public final class HomeSidebarView: NSView, WindowControlsAvoiding {
         CmuxSidebarEntry(id: item.id.rawValue, title: item.title,
                          people: item.people.map { CmuxSidebarEntry.Person(id: $0.id, name: $0.name, initials: $0.initials) },
                          preview: item.preview, previewSender: nil, lastAt: item.lastAt, unreadCount: item.unreadCount,
-                         pinned: item.isPinned, muted: item.isMuted, avatar: item.chiefAvatar.map(avatar), badge: item.listBadge ?? item.backendBadge,
-                         avatarMotion: item.chiefAvatar == nil ? nil : item.chiefIsWorking ? .working : .idle)
+                         pinned: item.isPinned, muted: item.isMuted, avatar: item.chiefAvatar.map(avatar), badge: item.listBadge ?? item.backendBadge)
     }
 
     /// The Chief's avatar as the list draws it: the picture, else its text
@@ -300,11 +352,22 @@ public final class HomeSidebarView: NSView, WindowControlsAvoiding {
         list.unreadColor = unreadDotColor ?? performWithTheme { Palette.notificationBlue }
         noteLabel.textColor = performWithTheme { Palette.textSecondary }
         requestsButton.contentTintColor = performWithTheme { Palette.textSecondary }
-        // The menu ring: the label colour, not the system accent.
-        list.selectionColor = .labelColor
-        list.neutralSelectionFill = performWithTheme { Palette.selectionFill }
-        layer?.backgroundColor = performWithTheme { Palette.fill(for: .home, default: Palette.paneFill).cgColor }
-        for button in [compose, unreadToggle] { button.applyTint() }
+        // The selected chat: Messages' selection blue, whatever the theme's accent.
+        list.selectionColor = Self.selectionBlue
+        let fill = performWithTheme { Palette.fill(for: .home, default: Palette.paneFill) }
+        let text = performWithTheme { Palette.textPrimary }
+        list.neutralSelectionFill = text.withAlphaComponent(0.07)
+        layer?.backgroundColor = fill.cgColor
+        // What already covers the desktop under the panel: the window's tint, then the column's fill.
+        let windowTint = performWithTheme { WindowBackdrop.currentTint(themeTokens) }
+        let cover = 1 - (1 - windowTint) * (1 - Double(fill.alphaComponent))
+        let glass = HomeSidebarGlass(surface: performWithTheme { Palette.windowBackground }, cover: cover, dark: themeTokens.isDark)
+        panel.layer?.backgroundColor = glass.tint.cgColor
+        self.glass = glass
+        layoutWash()
+        rim.apply(glass)
+        panelShadow.apply(glass)
+        for button in [compose, unreadToggle, searchButton] { button.applyTint() }
         applySearchColors()
     }
 
@@ -337,22 +400,35 @@ public final class HomeSidebarView: NSView, WindowControlsAvoiding {
         chatCompose.contextMenu = { [weak self] in self?.composeMenu() }
         unreadToggle.target = self
         unreadToggle.action = #selector(toggleUnread)
+        searchButton.target = self
+        searchButton.action = #selector(openSearch)
         host.addSubview(filterGlass)
-        for button in [unreadToggle, compose] { host.addSubview(button) }
+        host.addSubview(searchGlass)
+        host.addSubview(filterDisc)
+        host.addSubview(searchDisc)
+        for button in [unreadToggle, searchButton, compose] { host.addSubview(button) }
+        filterChip.isHidden = true
+        filterChip.target = self
+        filterChip.action = #selector(showAll)
+        host.addSubview(filterChip)
+        // The empty list's Show All turns the filter off the same way.
+        list.onShowAll = { [weak self] in self?.showAll() }
         list.layoutHeader = { [weak self] bounds in self?.layoutHeader(bounds) ?? HomeSidebarHeaderLayout.band }
     }
 
     /// The search is open while the field edits or holds a query.
     var searchOpen: Bool { list.searchField.isEditing || !list.searchField.stringValue.isEmpty }
 
-    /// The traffic lights over the header's band at its last layout (`homeWindowControls`).
+    /// The traffic lights' row over the header's band at its last layout (`homeLightsRow`).
     private var windowControls: CGRect?
 
     /// Re-reads the traffic lights after the list moved in its window without a resize of its
     /// header (the window's sidebar opened or closed beside the Home page); relays out the header
     /// only when what lies over it changed. `HomeSidebarSplitView` calls it on every layout.
     public func updateWindowControlsAvoidance() {
-        guard list.headerView.homeWindowControls(band: HomeSidebarHeaderLayout.band) != windowControls else { return }
+        // The panel's top follows the lights' line, which a density change moves with no resize.
+        if abs((bounds.height - panel.frame.maxY) - panelTopInset) > 0.25 { needsLayout = true }
+        guard list.headerView.homeLightsRow(band: HomeSidebarHeaderLayout.band) != windowControls else { return }
         // The header's layout also places the list under it (its height may change). Laid out
         // now, not at the next display pass: an occluded window gets none until it shows, and
         // the next frame on screen would still have the search field under the lights.
@@ -361,19 +437,41 @@ public final class HomeSidebarView: NSView, WindowControlsAvoiding {
     }
 
     private func layoutHeader(_ bounds: CGRect) -> CGFloat {
-        let controls = list.headerView.homeWindowControls(band: HomeSidebarHeaderLayout.band)
-        windowControls = controls
-        let h = HomeSidebarHeaderLayout(width: bounds.width, searchOpen: searchOpen, windowControls: controls)
+        // One header, lights over the list or not: the lights' row (`homeLightsRow`) is the top row
+        // either way and the same in both, so a toggle of the window's sidebar moves Home sideways
+        // only. A list clear of the lights keeps their row with nothing on it; full screen, with
+        // no lights, has the one-row band.
+        let row = list.headerView.homeLightsRow(band: HomeSidebarHeaderLayout.band)
+        windowControls = row
+        // The row's x is as the lights lie over a list at the window's left edge, and the list
+        // (the panel) starts ``panelInset`` in from the column's.
+        let controls = row?.offsetBy(dx: -Self.panelInset, dy: 0)
+        var chipRow = unreadOnly, chipFill = false, chipCentered = false
+        #if DEBUG || CMUX_BENCH_HOOKS
+        chipRow = unreadOnly && debugFilterLook.showsChip
+        chipFill = debugFilterLook == .banner
+        chipCentered = debugFilterLook == .centeredChip
+        #endif
+        let h = HomeSidebarHeaderLayout(width: bounds.width, searchOpen: searchOpen, windowControls: controls, filterOn: chipRow,
+                                        metrics: headerMetrics)
         header = h
+        filterChip.isHidden = h.filterChip.isEmpty
+        if !h.filterChip.isEmpty {
+            let w = chipFill ? h.filterChip.width : min(h.filterChip.width, filterChip.fittingSize.width)
+            filterChip.frame = CGRect(x: h.compact || chipCentered ? ((bounds.width - w) / 2).rounded() : h.filterChip.minX,
+                                      y: h.filterChip.minY, width: w, height: h.filterChip.height)
+        }
         dragStrip.frame = CGRect(x: 0, y: 0, width: bounds.width, height: h.listTop)
         let compactClosed = h.compact && !h.buttonsCovered
         searchCapsule.frame = h.search
         searchCapsule.isHidden = compactClosed
         searchCapsule.layer?.cornerRadius = h.search.height / 2
-        // The field inside its capsule, its text centred on the row. In the avatar-only list it
-        // waits closed at zero width (alpha 0), so ⌘F and type-to-search still reach it and open it
-        // over the band, and the band stays the window's drag area.
-        let fieldHeight: CGFloat = 22
+        // The field inside its capsule, its text centred on the row: an unbezeled search cell draws
+        // its line from the frame's top, so the field is one text line tall (a 22 pt field put the
+        // text 2.75 pt above the buttons' centre line). In the avatar-only list it waits closed at
+        // zero width (alpha 0), so ⌘F and type-to-search still reach it and open it over the band,
+        // and the band stays the window's drag area.
+        let fieldHeight = list.searchField.font.map { ceil(NSLayoutManager().defaultLineHeight(for: $0)) } ?? 22
         if compactClosed {
             list.searchField.frame = CGRect(x: h.search.minX, y: h.search.midY - fieldHeight / 2, width: 0, height: fieldHeight)
             list.searchField.alphaValue = 0
@@ -385,15 +483,39 @@ public final class HomeSidebarView: NSView, WindowControlsAvoiding {
             list.searchField.alphaValue = 1
             list.searchField.setAccessibilityElement(true)
         }
+        unreadToggle.fixedGlyphSize = h.filterGlyph
         unreadToggle.frame = h.filter
         compose.frame = h.compose
-        unreadToggle.isHidden = h.compact
-        filterGlass.frame = h.filter
-        filterGlass.cornerRadius = h.filter.height / 2
-        filterGlass.isHidden = h.compact
+        unreadToggle.isHidden = h.filter.isEmpty
+        // Messages draws the filter bare on its sidebar's glass; the glass circle stays for the
+        // avatar-only list's pair of circles.
+        filterGlass.isHidden = true
+        filterDisc.frame = h.filter
+        filterDisc.isHidden = h.filter.isEmpty || !h.compact
+        searchButton.frame = h.searchIcon
+        searchButton.isHidden = h.searchIcon.isEmpty
+        searchGlass.isHidden = true
+        searchDisc.frame = h.searchIcon
+        searchDisc.isHidden = h.searchIcon.isEmpty
         // Compose is the chat's (`chatCompose`) at every width.
         compose.isHidden = true
         return h.listTop
+    }
+
+    /// `sidebar.density` and `sidebar.textSize`, live: the filter circle, the search field, the
+    /// Unread chip and the empty list's text take the new sizes, and the header lays out again.
+    private func followHeaderMetrics() {
+        let metrics = withObservationTracking {
+            HomeSidebarHeaderMetrics.current
+        } onChange: { [weak self] in
+            Task { @MainActor [weak self] in self?.followHeaderMetrics() }
+        }
+        filterChip.metrics = metrics
+        list.emptyTextStep = metrics.emptyTextStep
+        // Another sidebar setting changed (the same sizes): no new layout.
+        guard metrics != headerMetrics else { return }
+        headerMetrics = metrics
+        list.headerView.needsLayout = true
     }
 
     /// Focus moves into or out of the field: the ring steps, the caret takes the accent, and in
@@ -404,19 +526,39 @@ public final class HomeSidebarView: NSView, WindowControlsAvoiding {
     }
 
     /// The capsule's focus rim, and the field's text, placeholder and caret, in the theme scope.
-    /// The glass is the capsule's whole look at rest (no fill, no rim); while the field edits a
-    /// one-pixel rim of the text at 36 % (the composer's focused edge, `--acpmux-composer-edge`
-    /// 18 % stepped 22 % toward the text, doubled to read on glass) marks the focus.
+    /// The field's look at rest: a faint fill and a one-pixel outline of the text at 14 % (10 % in
+    /// light); while the field edits the outline is the text at 36 % (the composer's focused edge,
+    /// `--acpmux-composer-edge` 18 % stepped 22 % toward the text, doubled to read on glass). The
+    /// avatar-only list's circles take the rest look.
     func applySearchColors() {
         let field = list.searchField
         let editing = field.isEditing
         performWithTheme {
             let text = Palette.textPrimary
-            searchCapsule.layer?.backgroundColor = nil
-            searchCapsule.layer?.borderColor = text.withAlphaComponent(editing ? 0.36 : 0).cgColor
-            searchCapsule.layer?.borderWidth = editing ? 1 / max(1, window?.backingScaleFactor ?? 2) : 0
+            // Messages' search field on an opaque fill: no glass. In dark its capsule holds back the
+            // light from above (the user's recording, 2026-11-23: 24 28 32 in the field under 20 33 44
+            // around it): the surface 3 % toward white at 60 %. Black at 5 % in light. Over a
+            // see-through fill the glass keeps the composer's surface under the placeholder
+            // (`searchCapsuleTintInScope`).
+            let tint = Self.searchCapsuleTintInScope()
+            let dark = themeTokens.isDark
+            let surface = Palette.fill(for: .home, default: Palette.paneFill)
+            let fill = dark ? HomeSidebarGlass.mix(surface.withAlphaComponent(1), 0.97, .white).withAlphaComponent(0.6)
+                : NSColor.black.withAlphaComponent(0.05)
+            let pixel = 1 / max(1, window?.backingScaleFactor ?? 2)
+            let rest = text.withAlphaComponent(dark ? 0.14 : 0.10)
+            searchCapsule.glass.isHidden = tint == nil
+            searchCapsule.glass.tintColor = tint
+            searchCapsule.layer?.backgroundColor = tint != nil ? nil : fill.cgColor
+            searchCapsule.layer?.borderColor = editing ? text.withAlphaComponent(0.36).cgColor : rest.cgColor
+            searchCapsule.layer?.borderWidth = pixel
+            for disc in [searchDisc, filterDisc] {
+                disc.layer?.backgroundColor = (tint ?? fill).cgColor
+                disc.layer?.borderColor = rest.cgColor
+                disc.layer?.borderWidth = pixel
+            }
             field.textColor = text
-            field.placeholderAttributedString = NSAttributedString(string: CmuxSidebarView.searchTitle, attributes: [
+            field.placeholderAttributedString = NSAttributedString(string: searchPlaceholder, attributes: [
                 .foregroundColor: Palette.textSecondary,
                 .font: field.font ?? .systemFont(ofSize: NSFont.systemFontSize),
             ])
@@ -427,14 +569,52 @@ public final class HomeSidebarView: NSView, WindowControlsAvoiding {
         }
     }
 
+    /// The search capsule's tint. Over a see-through Home fill the clear capsule showed the art under
+    /// its placeholder (2.05:1 on the Great Wave in dark); there it takes the fill every field takes
+    /// (the web composer's surface, `HomeThemePalette.composerSurfaceOverGlass`, the Chief field's
+    /// `composeFillOverGlass`). An opaque Home fill keeps the clear glass (nil).
+    static func searchCapsuleTintInScope() -> NSColor? { // theme-scoped
+        let fill = Palette.fill(for: .home, default: Palette.paneFill).usingColorSpace(.sRGB)
+        guard (fill?.alphaComponent ?? 1) < 1 else { return nil }
+        let surface = HomeThemePalette.composerSurfaceOverGlass(HomeThemePalette.baseThemeInScope())
+        return surface.nsColor
+    }
+
     @objc func toggleUnread() { unreadOnly.toggle() }
 
-    /// Only unread conversations show (the Unread toggle's state).
+    #if DEBUG || CMUX_BENCH_HOOKS
+    /// DEBUG ONLY: the playground's way to show an on filter (`debug.home.sidebar_fixture` `filter_look`).
+    var debugFilterLook: HomeFilterLook = .chip {
+        didSet {
+            applySearchColors()
+            list.headerView.needsLayout = true
+        }
+    }
+    #endif
+
+    /// The search field's placeholder (DEBUG: the playground's Search Unread variant names the filter).
+    private var searchPlaceholder: String {
+        #if DEBUG || CMUX_BENCH_HOOKS
+        if debugFilterLook == .searchPlaceholder, unreadOnly { return "Search Unread" }
+        #endif
+        return CmuxSidebarView.searchTitle
+    }
+
+    /// The filter chip's click and the empty list's Show All: every conversation shows again.
+    @objc func showAll() { unreadOnly = false }
+
+    /// Only unread conversations show (the Unread toggle's state): the toggle lights, the chip
+    /// shows under the search row, and an empty list says No Unread Chats with Show All.
     public var unreadOnly: Bool {
         get { list.unreadOnly }
         set {
             list.unreadOnly = newValue
             unreadToggle.isOn = newValue
+            // The chip row moves the list down: the header lays out again now.
+            list.headerView.needsLayout = true
+            #if DEBUG || CMUX_BENCH_HOOKS
+            if debugFilterLook == .searchPlaceholder { applySearchColors() }
+            #endif
         }
     }
 
@@ -459,9 +639,10 @@ public final class HomeSidebarView: NSView, WindowControlsAvoiding {
     /// points from the top-left or NSNull while hidden); nil when `select` names no row, and
     /// nothing changes then. `buttons` is the compose and Unread buttons' glyph state
     /// (`HomeHeaderButton.debugState`) as the call found it (`before`) and after its layout.
-    public func debugLook(width: Double?, select: Int?, unread: Bool?, search: Bool?) -> [String: Any]? {
+    public func debugLook(width: Double?, select: Int?, unread: Bool?, search: Bool?, filterLook: Int? = nil, selectPinned: Int? = nil) -> [String: Any]? {
         if let select, !model.rows.indices.contains(select) { return nil }
-        let before = [compose, unreadToggle].map(\.debugState)
+        if let selectPinned, !model.pinned.indices.contains(selectPinned) { return nil }
+        let before = [compose, unreadToggle, searchButton].map(\.debugState)
         // The header as it stood before this call lays anything out, and the traffic lights it
         // used then and sees now (a stale header under the lights shows here).
         func rect(_ r: CGRect?) -> Any { r.map { [$0.minX, $0.minY, $0.width, $0.height].map(Double.init) } ?? NSNull() }
@@ -475,6 +656,11 @@ public final class HomeSidebarView: NSView, WindowControlsAvoiding {
             onSelect(model.rows[select].id)
             self.select(model.rows[select].id)
         }
+        if let selectPinned {
+            onSelect(model.pinned[selectPinned].id)
+            self.select(model.pinned[selectPinned].id)
+        }
+        if let filterLook, let look = HomeFilterLook(rawValue: filterLook) { debugFilterLook = look }
         if let unread { unreadOnly = unread }
         if let search { debugSearch(search) }
         (split?.superview ?? self).layoutSubtreeIfNeeded()
@@ -486,19 +672,26 @@ public final class HomeSidebarView: NSView, WindowControlsAvoiding {
             chat = CGRect(x: r.minX, y: height - r.maxY, width: r.width, height: r.height)
         }
         return ["width": Double(split?.sidebarWidth ?? bounds.width),
-                "header": ["search": frame(h.search), "filter": frame(h.filter), "compose": frame(h.compose),
+                "header": ["search": frame(h.search), "searchIcon": frame(h.searchIcon), "filter": frame(h.filter),
+                           "compose": frame(h.compose),
                            "compact": h.compact, "buttonsCovered": h.buttonsCovered,
                            "chatCompose": frame(chat)] as [String: Any],
                 "beforeLayout": stale,
-                "buttons": ["before": before, "after": [compose, unreadToggle].map(\.debugState)]]
+                "buttons": ["before": before, "after": [compose, unreadToggle, searchButton].map(\.debugState)]]
     }
     #endif
 
-    /// The search capsule's click: the field takes the keyboard.
+    /// The search capsule's or the search circle's click: the field takes the keyboard.
     @objc func openSearch() {
         // An edit already under way keeps its caret and selection.
         guard !list.searchField.isEditing else { return }
         window?.makeFirstResponder(list.searchField)
+    }
+
+    /// The search field's and the circles' one-pixel outlines follow the display's scale.
+    public override func viewDidChangeBackingProperties() {
+        super.viewDidChangeBackingProperties()
+        applySearchColors()
     }
 
     public override func viewDidChangeEffectiveAppearance() {
@@ -520,15 +713,42 @@ public final class HomeSidebarView: NSView, WindowControlsAvoiding {
         updateWindowControlsAvoidance()
     }
 
+    /// The panel's inset from the column's top: ``lightsBelowPanelTop`` above the traffic lights'
+    /// line when it crosses the column's top band, else ``panelInset`` (full screen).
+    var panelTopInset: CGFloat {
+        guard let window, let lights = TrafficLightsLine.restingFrame(in: window) else { return Self.panelInset }
+        let line = convert(lights, from: nil)
+        let fromTop = isFlipped ? line.midY : bounds.maxY - line.midY
+        guard fromTop > 0, fromTop < HomeSidebarHeaderLayout.band else { return Self.panelInset }
+        return min(Self.panelInset, max(2, (fromTop - Self.lightsBelowPanelTop).rounded()))
+    }
+
+    /// The wash in its band under the panel's top edge (stops in points, so colours and frame together).
+    private func layoutWash() {
+        guard let glass else { return }
+        let band = glass.washBand
+        let g = HomeSidebarGlass.gradient(glass.wash, height: band)
+        wash.colors = g.colors
+        wash.locations = g.locations
+        wash.frame = CGRect(x: 0, y: panel.bounds.height - band, width: panel.bounds.width, height: band)
+    }
+
     public override func layout() {
         super.layout()
         // The note's and the requests button's strips at the bottom; the list ends above them.
         // The header is the list's (`layoutHeader`), in its flipped root view.
+        let inset = Self.panelInset
+        let top = panelTopInset
+        panel.frame = NSRect(x: inset, y: inset, width: max(0, bounds.width - inset), height: max(0, bounds.height - inset - top))
+        let area = panel.bounds
+        layoutWash()
+        rim.frame = area
+        panelShadow.frame = panel.frame
         let note: CGFloat = noteLabel.isHidden ? 0 : 30
         let requests: CGFloat = requestsButton.isHidden ? 0 : 30
-        list.frame = NSRect(x: 0, y: note + requests, width: bounds.width, height: bounds.height - note - requests)
-        noteLabel.frame = NSRect(x: 14, y: 8, width: max(0, bounds.width - 28), height: 16)
-        requestsButton.frame = NSRect(x: 10, y: note + 4, width: max(0, bounds.width - 20), height: 22)
+        list.frame = NSRect(x: 0, y: note + requests, width: area.width, height: max(0, area.height - note - requests))
+        noteLabel.frame = NSRect(x: 14, y: 8, width: max(0, area.width - 28), height: 16)
+        requestsButton.frame = NSRect(x: 10, y: note + 4, width: max(0, area.width - 20), height: 22)
     }
 
 }
@@ -538,7 +758,7 @@ public final class HomeSidebarView: NSView, WindowControlsAvoiding {
 final class HomeSearchCapsule: NSView {
     var onClick: () -> Void = {}
     /// The capsule's glass, edge to edge, its corners half its height.
-    let glass = GlassPanelView(style: .regular)
+    let glass = GlassPanelView(style: .regular) // glass-level-allow: a round or capsule control in the system's untinted button glass, as Messages draws it (the user, 2026-10-28)
 
     init() {
         super.init(frame: .zero)
@@ -560,6 +780,26 @@ final class HomeSearchCapsule: NSView {
         super.setFrameSize(newSize)
         glass.frame = bounds
         glass.cornerRadius = bounds.height / 2
+    }
+}
+
+/// The avatar-only list's circle under its search or Unread button: the search field's rest look
+/// (`HomeSidebarView.applySearchColors`). Takes no clicks: they reach the button over it.
+final class HomeHeaderDisc: NSView {
+    init() {
+        super.init(frame: .zero)
+        wantsLayer = true
+        layer?.actions = ["bounds": NSNull(), "position": NSNull(), "cornerRadius": NSNull()]
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) { nil }
+
+    override func hitTest(_ point: NSPoint) -> NSView? { nil }
+
+    override func setFrameSize(_ newSize: NSSize) {
+        super.setFrameSize(newSize)
+        layer?.cornerRadius = min(newSize.width, newSize.height) / 2
     }
 }
 

@@ -30,7 +30,7 @@ import Testing
         let (accent, diagnostic) = AccentSetting().parse(root)
         #expect(accent == .neutral)
         #expect(diagnostic == nil)
-        #expect(SettingsSchema.descriptor(for: AccentSetting().configPath)?.accepts("art") == true)
+        #expect(SettingsSchema.descriptor(for: AccentSetting.configPath)?.accepts("art") == true)
     }
 
     @Test func aWindowsAccentTakesTheHueOfTheWorkItShows() throws { try Self.withAnotherSuitesAppTheme {

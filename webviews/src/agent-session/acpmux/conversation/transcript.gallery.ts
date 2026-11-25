@@ -5,18 +5,21 @@ import { agentPaneEntry } from "../../../gallery/format";
 import { activity, assistant, chat, row, summary, thought, tool, user } from "../../../gallery/fixtures/acpmux";
 import { SUBAGENTS } from "../subagents/subagentFold";
 import { BACKGROUND_TURN, backgroundTurnRowId } from "./backgroundTurns";
+import { drawsBackgroundTurnLines } from "./backgroundTurnLook.experiment";
 import { childRows } from "../subagents/childRows";
 import type { PlayContext } from "../../../gallery/play";
 import type { AcpmuxActivity, AcpmuxRow } from "../model";
 import { workedTurnRows } from "../workedTurn";
+import { openEndedStretch } from "./endedStretchPlay";
 import { checkRunningLineLoops, hasCompleteRunningLineShimmer } from "./runningLineMotion";
-import { GALLERY_NOW, minutesAgo } from "../../../gallery/clock";
+import { FRESH_REPLY_MINUTES, GALLERY_NOW, minutesAgo } from "../../../gallery/clock";
 import {
   BUILD_REPORT_PDF_PAGE_PNG,
   BUILD_TIMES_PNG,
   LOGIN_SCREENSHOT_PNG,
   LOGIN_TESTS_MP4,
 } from "../../../gallery/fixtures/toolImages";
+import { JUMP_LATEST_SHOWN } from "../transcriptSelectors";
 
 const prompt = "Add retries with backoff to the fetch helper";
 
@@ -144,6 +147,38 @@ const messageSurfaceChat = chat([
   summary(5.7, { status: "completed", durationMs: 78_000, toolCount: 2 }),
 ]);
 
+// The prompt bubble's ink (--cv-user-bubble-text, schemas/agent-pane/style-tokens.json): a filled pill
+// as Codex draws its prompt, white on blue, applied the way the host sends a look's agent-pane/theme.css.
+// The prompt carries a quote and inline code, so the bubble's quiet line and code wash are in the shot.
+const bubbleInkChat = chat([
+  user(
+    "> The prompt should read as Codex's\n\nMake the prompt a blue pill with `white` text and keep the quote quiet",
+    7,
+    {
+      id: "bubble-ink-user",
+    },
+  ),
+  activity([tool("Edit agent-pane/theme.css", "edit", "completed")], 6.8, { id: "bubble-ink-tools" }),
+  assistant("The prompt is a filled pill now, and its quote and code follow its ink.", 6.4, {
+    id: "bubble-ink-answer",
+  }),
+  user("Same in light", 6, { id: "bubble-ink-short" }),
+  summary(5.9, { status: "completed", durationMs: 24_000, toolCount: 1 }),
+]);
+const BUBBLE_PILL_TINT =
+  "--cv-user-bubble-tint: light-dark(color-mix(in srgb, var(--agent-accent) 78%, var(--agent-text)), color-mix(in srgb, var(--agent-accent) 30%, var(--agent-page-bg)));";
+const BUBBLE_PILL_INK = "--cv-user-bubble-text: light-dark(var(--agent-page-bg), var(--agent-text));";
+/// A play that sends `css` as the person's agent-pane/theme.css (AgentPaneCustomization.swift's path).
+const applyLookCss =
+  (css: string) => async (ctx: { document: Document; waitFor(condition: () => boolean): Promise<void> }) => {
+    const page = ctx.document.defaultView as unknown as {
+      cmuxAcpmuxBridge?: { applyCustomization?(customization: { themeCSS: string }): void };
+    };
+    await ctx.waitFor(() => typeof page.cmuxAcpmuxBridge?.applyCustomization === "function");
+    const stage = ctx.document.getElementById("acpmux-user-theme")?.textContent ?? "";
+    page.cmuxAcpmuxBridge!.applyCustomization!({ themeCSS: `${stage}\n${css}` });
+  };
+
 const keyboardRows = [
   user("Open the work details with the keyboard", 4, { id: "gallery-keyboard-user" }),
   activity(
@@ -226,7 +261,7 @@ const longCommandRows = [
 /// sent to the in-page mock daemon (mock.ts).
 type GalleryCall = {
   method: string;
-  params?: { id?: string; sessionId?: string; archived?: unknown };
+  params?: { id?: string; sessionId?: string; archived?: unknown; throughSeq?: unknown };
 };
 /// The pane's client attached the mock daemon's chat (the menu can show before, from the stage's
 /// snapshot), and its header offers the chat menu.
@@ -278,6 +313,12 @@ const openFoldedRun = async (ctx: PlayContext) => {
   );
 };
 
+/// The collapsed-run scenes' play: the ended stretch's Worked for opened, then its first run's line.
+const openEndedRun = async (ctx: PlayContext) => {
+  await openEndedStretch(ctx);
+  await openFoldedRun(ctx);
+};
+
 const openGroupedShells = async (ctx: PlayContext) => {
   await openWorked(ctx);
   // A finished run that is one group folds to its line ("Ran 2 commands"); opened, it lists its calls.
@@ -306,7 +347,7 @@ const clickHoldsLine = async (ctx: PlayContext, selector: string, expanded: bool
   if (Math.abs(moved) > 1) throw new Error(`the clicked line moved ${moved.toFixed(1)}px`);
 };
 
-/// A turn that wrote one file whole: its Edited card opens to the file's diff (EditedFilesCard.tsx).
+/// A turn that wrote one file whole, used by the raw edit-tool diff fixtures.
 const editedRows = (id: string, path: string, text: string) => [
   user(`Write ${path}`, 3, { id: `${id}-user` }),
   activity(
@@ -321,7 +362,14 @@ const editedRows = (id: string, path: string, text: string) => [
 ];
 
 const openEditedDiff = async (ctx: PlayContext) => {
-  await ctx.click({ selector: ".acpmux-edited-toggle" });
+  // Exercise the edit tool's diff; the summary card opens the native changes pane instead.
+  (ctx.document.defaultView as unknown as { cmuxAcpmuxEditedFiles(value: unknown): void }).cmuxAcpmuxEditedFiles({
+    show: "never",
+  });
+  await openEndedStretch(ctx);
+  const toggle = "button.cv-tool.is-toggle[data-tool-id], button.cv-tool.is-toggle[data-tool-group]";
+  await ctx.waitFor(() => ctx.document.querySelector(toggle));
+  if (ctx.find({ selector: toggle }).getAttribute("aria-expanded") !== "true") await ctx.click({ selector: toggle });
   await ctx.waitFor(() => Boolean(ctx.document.querySelector(".cv-edit-diff")));
 };
 
@@ -358,8 +406,10 @@ const SHELL_LONG_LOG = Array.from({ length: 6 }, (_, index) => shellLogLine(inde
 /// A log past the eight-line preview, every line wider than the column.
 const SHELL_LONG_LOG_CUT = Array.from({ length: 14 }, (_, index) => shellLogLine(index)).join("\n");
 
-/// A command still running, its output streaming in, in its own row: the turn went on past it
-/// (a lone running call reads only on the turn's live line).
+/// A command still running, its output streaming in, in its own row: its stretch ended with its
+/// summary while it ran on, and the turn went on past it (a lone running call reads only on the
+/// turn's live line, and under the live-turn-work `line` the stretch still running draws no
+/// run, so the command is in sight only from a stretch that ended: turns.ts `codexRuns`).
 const liveShellRows = (id: string, output: string) => [
   user("Follow the retry log", 1, { id: `${id}-user` }),
   activity(
@@ -373,17 +423,32 @@ const liveShellRows = (id: string, output: string) => [
     0.8,
     { id: `${id}-activity` },
   ),
+  summary(0.7, { id: `${id}-summary`, status: "completed", durationMs: 6_000, toolCount: 1 }),
   activity([tool("Read retryPolicy.ts", "read", "in_progress")], 0.5, { id: `${id}-read` }),
 ];
 
-/// Opens the one call's row (inside the turn's fold once it is done; a running turn shows it) and
-/// turns its Wrap lines off.
+/// Leaves `body`'s lines whole, each on its own row: output opens that way (blockWrap.ts), and a
+/// viewer who turned Wrap lines on is flipped back, so the variant draws the same state either way.
+const unwrap = (body: string, actions: string) => async (ctx: PlayContext) => {
+  if (ctx.document.querySelector(body)?.getAttribute("data-wrap") === "true")
+    await ctx.click({ selector: `${actions} button[aria-label="Wrap lines"]` });
+  await ctx.waitFor(() => ctx.document.querySelector(body)?.getAttribute("data-wrap") === "false");
+};
+
+/// Folds `body`'s long lines back under their start: what Wrap lines gives from the opening state.
+const wrapOn = (body: string, actions: string) => async (ctx: PlayContext) => {
+  if (ctx.document.querySelector(body)?.getAttribute("data-wrap") !== "true")
+    await ctx.click({ selector: `${actions} button[aria-label="Wrap lines"]` });
+  await ctx.waitFor(() => ctx.document.querySelector(body)?.getAttribute("data-wrap") === "true");
+};
+
+/// Opens the one call's row (inside the turn's fold once it is done; a running turn shows it) with
+/// its output's lines whole.
 const unwrapCall = (body: string, actions: string) => async (ctx: PlayContext) => {
   if (!ctx.document.querySelector(".cv-tool.is-toggle")) await openWorked(ctx);
   await ctx.click({ selector: ".cv-tool.is-toggle" });
   await ctx.waitFor(() => Boolean(ctx.document.querySelector(body)));
-  await ctx.click({ selector: `${actions} button[aria-label="Wrap lines"]` });
-  await ctx.waitFor(() => ctx.document.querySelector(body)?.getAttribute("data-wrap") === "false");
+  await unwrap(body, actions)(ctx);
 };
 
 const shellDisclosureChecks = {
@@ -426,19 +491,38 @@ const showCutLine = (open: boolean) => async (ctx: PlayContext) => {
   if (text.scrollWidth > text.clientWidth + 1) throw new Error("the opened line's label is still cut");
 };
 
-/// A long command output at the transcript's end, opened with Show all: closing it from its Show
+/// A long file list at the transcript's end, opened with Show all N files: closing it from its Show
 /// less, scrolled down to, leaves the reader at the control they clicked, never on a view of blank
 /// room under rows that closed up above it (foldAnchor.ts `foldHoldTarget`, review BLOCK at 5e59e449).
-const SHOW_LESS_LOG = Array.from(
-  { length: 160 },
-  (_, index) => `(pass) retry backoff case ${index + 1} [0.${index % 10}ms]`,
-).join("\n");
+/// A Glob's card is the block whose row still grows it: a long Shell block or output scrolls in its
+/// eight-line box, opened or not (Leo, 2026-11-12: "this is a really useless show all 9 lines").
+const SHOW_LESS_FILES = Array.from({ length: 160 }, (_, index) => `/work/app/src/net/retry${index + 1}.ts`).join("\n");
+const showLessRows = [
+  user("List every retry module", 3, { id: "gallery-show-less-user" }),
+  activity(
+    [
+      tool("Glob src/net/**/*.ts", "read", "completed", {
+        inputSummary: JSON.stringify({ pattern: "src/net/**/*.ts" }),
+        output: SHOW_LESS_FILES,
+      }),
+    ],
+    2.8,
+    { id: "gallery-show-less-activity" },
+  ),
+  assistant("There are 160 retry modules under src/net.", 2.6, { id: "gallery-show-less-answer" }),
+  summary(2.6, { id: "gallery-show-less-summary", status: "completed", toolCount: 1 }),
+];
 const showLessAtEnd = async (ctx: PlayContext) => {
-  await openSingleShell(ctx);
-  const more = { selector: ".cv-shell .cv-output-more" };
-  await ctx.click(more);
+  await openWorked(ctx);
+  await ctx.click({ selector: ".cv-tool.is-toggle" });
+  await ctx.waitFor(() => Boolean(ctx.document.querySelector(".cv-filematches .cv-output-more")));
+  const more = { selector: ".cv-filematches .cv-output-more" };
+  // The reader clicks the row's words, at its start. The row is the block's whole width
+  // (ExpandRow.tsx), so its centre sits under Jump to latest, centred over the view's foot.
+  const words = { selector: ".cv-filematches .cv-output-more .cv-expand-row__label" };
+  await ctx.click(words);
   await ctx.waitFor(() => ctx.find(more).getAttribute("aria-expanded") === "true");
-  // The opened output lands first: its fold plays and the rows under it place by their drawn
+  // The opened list lands first: its fold plays and the rows under it place by their drawn
   // heights, so the content stops growing (three frames at one height, nothing animating).
   const scroller = ctx.find({ selector: ".acpmux-scroll" }) as HTMLElement;
   let height = -1;
@@ -448,7 +532,7 @@ const showLessAtEnd = async (ctx: PlayContext) => {
     height = scroller.scrollHeight;
     return still >= 3 && scroller.getAnimations({ subtree: true }).every((a) => a.playState !== "running");
   });
-  // The reader scrolls down to Show less, under the opened output, at the view's foot. A reader's
+  // The reader scrolls down to Show less, under the opened list, at the view's foot. A reader's
   // scroll is a wheel, which lets go of the hold Show all's click started (App.tsx `release`); an
   // offset set alone, inside that hold, is put back where the click held the row. The wheel is a
   // pixel, so its own glide moves nothing that matters.
@@ -458,8 +542,8 @@ const showLessAtEnd = async (ctx: PlayContext) => {
   const view = () => scroller.getBoundingClientRect();
   await ctx.waitFor(() => (ctx.find(more) as HTMLElement).getBoundingClientRect().bottom <= view().bottom + 1);
   const row = ctx.find(more).closest(".acpmux-row")!;
-  if (row.getBoundingClientRect().top >= view().top) throw new Error("the opened output's row top is still in view");
-  await ctx.click(more);
+  if (row.getBoundingClientRect().top >= view().top) throw new Error("the opened list's row top is still in view");
+  await ctx.click(words);
   const clicked = performance.now();
   // The hold is over well before 1.7 s (FOLD_HOLD_MIN_MS, or the fold and its settle); the view is the reader's after it.
   await ctx.waitFor(
@@ -468,7 +552,7 @@ const showLessAtEnd = async (ctx: PlayContext) => {
   );
   const control = (ctx.find(more) as HTMLElement).getBoundingClientRect();
   if (control.bottom <= view().top || control.top >= view().bottom)
-    throw new Error("closing the output left the view on blank room: the control the reader clicked is out of view");
+    throw new Error("closing the list left the view on blank room: the control the reader clicked is out of view");
 };
 
 /// One long finished turn, shaped like the ones Lawrence and Leo pasted (synthetic text): runs of
@@ -582,8 +666,11 @@ const longChatRows = Array.from({ length: 24 }, (_, index) => {
   ];
 }).flat();
 
-/// A thought of a few lines, and a live turn whose step holds `items` and a call, then `after` and a
-/// second call (ThoughtRow.tsx, thoughts.ts).
+/// A thought of a few lines, and a step that holds `items` and a call, then `after` and a second
+/// call (ThoughtRow.tsx, thoughts.ts). The chat still works, but the step's stretch already ended
+/// with its summary: under the live-turn-work `line` a running stretch draws none of its
+/// finished work, only the live line, so a finished thought's row shows once its stretch ended
+/// (turns.ts `codexRuns`, liveTurnWork.experiment.ts).
 const SHORT_THOUGHT =
   "Check how the helper parses errors first.\n\nThe retry wrapper in src/net/client.ts swallows the status code, so a 429 looks like a network failure.\n\nRetry only on 429 and 5xx, with jittered backoff capped at three attempts.";
 const thoughtChat = (items: AcpmuxActivity[], after: AcpmuxActivity[] = []) =>
@@ -601,6 +688,7 @@ const thoughtChat = (items: AcpmuxActivity[], after: AcpmuxActivity[] = []) =>
         ],
         1.5,
       ),
+      summary(1.4, { status: "completed", durationMs: 14_000, toolCount: after.length ? 2 : 1 }),
     ],
     { isWorking: true },
   );
@@ -710,6 +798,74 @@ const BUILD_CHART = [
   "Splitting the app target's type check (41% of its time) is the biggest win.",
 ].join("\n");
 
+// A ```chart fence (chartSpec.ts): the same kinds of answer in the small JSON an agent writes without
+// Vega-Lite, one per chart type.
+const chartReply = (lead: string, chart: unknown, tail: string) =>
+  [lead, "", "```chart", JSON.stringify(chart, null, 2), "```", "", tail].join("\n");
+const CHART_FENCE = {
+  bar: chartReply(
+    "Per-target build time from the last 20 CI runs on main, in seconds:",
+    {
+      type: "bar",
+      title: "Build time by target",
+      data: [
+        { target: "app", p50: 312, p90: 371 },
+        { target: "api", p50: 204, p90: 229 },
+        { target: "worker", p50: 171, p90: 190 },
+        { target: "ui-kit", p50: 122, p90: 140 },
+        { target: "docs", p50: 88, p90: 97 },
+      ],
+      x: "target",
+      y: ["p50", "p90"],
+    },
+    "The app target is most of it.",
+  ),
+  line: chartReply(
+    "Cold start over the last week, by build:",
+    {
+      type: "line",
+      labels: ["Nov 8", "Nov 9", "Nov 10", "Nov 11", "Nov 12", "Nov 13", "Nov 14"],
+      series: [
+        { name: "nightly", values: [910, 880, 870, 640, 610, 600, 590] },
+        { name: "release", values: [940, 940, 930, 930, 925, 930, 920] },
+      ],
+      yTitle: "ms",
+    },
+    "The nightly dropped by a third after the cache landed on Nov 11.",
+  ),
+  pie: chartReply(
+    "Where this week's CI minutes went:",
+    {
+      type: "pie",
+      data: [
+        { job: "macOS build", minutes: 2400 },
+        { job: "Linux tests", minutes: 900 },
+        { job: "Web checks", minutes: 600 },
+        { job: "Other", minutes: 200 },
+      ],
+    },
+    "The macOS build is more than half.",
+  ),
+  scatter: chartReply(
+    "Chat length against memory, one point per open chat:",
+    {
+      type: "scatter",
+      data: [
+        { messages: 40, mb: 61 },
+        { messages: 120, mb: 66 },
+        { messages: 300, mb: 70 },
+        { messages: 800, mb: 74 },
+        { messages: 1500, mb: 79 },
+        { messages: 2600, mb: 82 },
+        { messages: 4000, mb: 86 },
+      ],
+      xTitle: "messages",
+      yTitle: "MB",
+    },
+    "Memory grows slowly with length.",
+  ),
+};
+
 const MARKDOWN_MIX = [
   "## What changed",
   "",
@@ -798,14 +954,15 @@ const footerActionsPlacement = (placement: "left" | "right") => async (ctx: Play
       datasetMatches &&
       group !== null &&
       group.querySelector('button[aria-label="Copy"]') !== null &&
-      group.querySelector('button[aria-label="Retry"]') !== null
+      group.querySelector('button[aria-label="Read aloud"]') !== null
     );
   });
   const footer = ctx.document.querySelector<HTMLElement>(".cv-turn-actions");
   const group = ctx.document.querySelector<HTMLElement>(".cv-turn-action-group");
   const copy = group?.querySelector('button[aria-label="Copy"]');
-  const retry = group?.querySelector('button[aria-label="Retry"]');
-  if (!footer || !group || !copy || !retry) throw new Error("turn footer actions did not render");
+  const readAloud = group?.querySelector('button[aria-label="Read aloud"]');
+  if (!footer || !group || !copy || !readAloud) throw new Error("turn footer actions did not render");
+  if (group.querySelector('button[aria-label="Retry"]')) throw new Error("completed resend belongs in the menu");
   await ctx.focus({ selector: 'button[aria-label="Copy"]' });
   const footerBox = footer.getBoundingClientRect();
   const groupBox = group.getBoundingClientRect();
@@ -815,28 +972,18 @@ const footerActionsPlacement = (placement: "left" | "right") => async (ctx: Play
     throw new Error(`turn footer actions are not ${placement}-aligned`);
 };
 
-/// The live line at the bottom of a running turn stands clear of the row over it, never flush
-/// under it (Leo, 2026-10-21: "THE RUNNING A COMMAND IS WAY TOO CLOSE"); its words shimmer, and
-/// its "⌃B to run in background" waits for the pointer.
-const liveLineClear = async (ctx: PlayContext) => {
-  const doc = ctx.document;
-  await ctx.waitFor(() => doc.querySelector(".cv-worked.is-below .cv-thinking"));
-  const words = doc.querySelector<HTMLElement>(".cv-worked.is-below .cv-thinking")!.getBoundingClientRect();
-  const over = [...doc.querySelectorAll(".cv-tool, .cv-md")]
-    .map((node) => node.getBoundingClientRect().bottom)
-    .filter((bottom) => bottom <= words.top + 1);
-  if (!over.length) throw new Error("no tool row or reply draws over the live line");
-  const gap = words.top - Math.max(...over);
-  if (!(gap >= 14)) throw new Error(`the live line sits ${gap.toFixed(1)}px under the row over it, not 14px or more`);
-  const hint = doc.querySelector<HTMLElement>(".cv-worked.is-below .cv-command__bg");
-  if (hint && getComputedStyle(hint).opacity !== "0")
-    throw new Error("the ⌃B hint shows before the pointer is on the line");
-  if (!matchMedia("(prefers-reduced-motion: reduce)").matches) {
-    const line = doc.querySelector<HTMLElement>(".cv-worked.is-below .cv-thinking")!;
-    const loops = line
+/** Observe the finite sweep while it runs, rather than requiring a loop during its three-second rest. */
+const runningLineSweep = async (ctx: PlayContext, line: HTMLElement) => {
+  await ctx.waitFor(() => {
+    const animations = line
       .getAnimations({ subtree: true })
-      .filter((animation) => animation.effect?.getTiming().iterations === Infinity)
-      .map((animation) => {
+      .filter(
+        (animation) =>
+          animation.effect?.getTiming().iterations === Infinity ||
+          (animation as CSSAnimation).animationName?.startsWith("cmux-cadenced-shimmer-"),
+      );
+    const check = checkRunningLineLoops(
+      animations.map((animation) => {
         const effect = animation.effect as KeyframeEffect | null;
         return {
           name: (animation as CSSAnimation).animationName,
@@ -845,12 +992,52 @@ const liveLineClear = async (ctx: PlayContext) => {
           playbackRate: animation.playbackRate,
           currentTime: animation.currentTime,
           duration: Number(effect?.getTiming().duration),
+          iterations: effect?.getTiming().iterations ?? 0,
           progress: effect?.getComputedTiming().progress ?? null,
         };
-      });
-    const check = checkRunningLineLoops(loops);
-    if (check.unapproved.length || check.duplicateTargets.length || !hasCompleteRunningLineShimmer(check))
-      throw new Error("the live line's words do not shimmer as one loop per text layer");
+      }),
+    );
+    return hasCompleteRunningLineShimmer(check);
+  });
+};
+
+/// The live line never overlaps the row over it: work keeps the grid's run-gap token and prose
+/// keeps at least the footer gap. Its words sweep, and "⌃B to run in background" waits for hover.
+const liveLineClear = async (ctx: PlayContext) => {
+  const doc = ctx.document;
+  await ctx.waitFor(() => doc.querySelector(".cv-worked.is-below .cv-thinking"));
+  const words = doc.querySelector<HTMLElement>(".cv-worked.is-below .cv-thinking")!.getBoundingClientRect();
+  const live = doc.querySelector<HTMLElement>(".cv-worked.is-below")!.getBoundingClientRect();
+  // Resolve through a box so both Interface Size and document zoom enter the same geometry.
+  const probe = doc.createElement("span");
+  // The gap over the live line in a run, from its one source (transcriptGrid.ts transcriptLiveVars, set on the
+  // scroller), including Interface Size.
+  probe.style.cssText = "position:absolute;visibility:hidden;width:0;height:var(--cv-live-step-gap)";
+  (doc.querySelector<HTMLElement>(".acpmux-scroll") ?? doc.body).append(probe);
+  const stepGap = probe.getBoundingClientRect().height;
+  probe.style.height = "var(--grid-gap-footer)";
+  const footerGap = probe.getBoundingClientRect().height;
+  probe.remove();
+  // A stacked message row's first line under it (messageLineLook.ts) is the row's last line.
+  const over = [...doc.querySelectorAll(".cv-tool, .cv-msgline__preview, .cv-md")]
+    .map((node) => ({
+      step: node.matches(".cv-tool, .cv-msgline__preview"),
+      bottom: node.getBoundingClientRect().bottom,
+    }))
+    .filter(({ bottom }) => bottom <= words.top + 1);
+  if (!over.length) throw new Error("no tool row or reply draws over the live line");
+  const nearest = over.reduce((a, b) => (b.bottom > a.bottom ? b : a));
+  const gap = live.top - nearest.bottom;
+  if (nearest.step && Math.abs(gap - stepGap) > 0.5)
+    throw new Error(`the live line sits ${gap.toFixed(1)}px under the run over it, not its ${stepGap}px gap`);
+  if (!nearest.step && gap < footerGap - 0.5)
+    throw new Error(`the live line sits ${gap.toFixed(1)}px under the reply over it, not ${footerGap}px or more`);
+  const hint = doc.querySelector<HTMLElement>(".cv-worked.is-below .cv-command__bg");
+  if (hint && getComputedStyle(hint).opacity !== "0")
+    throw new Error("the ⌃B hint shows before the pointer is on the line");
+  if (!matchMedia("(prefers-reduced-motion: reduce)").matches) {
+    const line = doc.querySelector<HTMLElement>(".cv-worked.is-below .cv-thinking")!;
+    await runningLineSweep(ctx, line);
   }
   await ctx.hover({ selector: ".cv-worked.is-below" });
   if (hint) await ctx.waitFor(() => getComputedStyle(hint).opacity === "1");
@@ -905,31 +1092,9 @@ const runningLineStill =
     if (line.querySelector(".cv-working-mark, .cv-activity__dots")) throw new Error("a working mark draws on the line");
     const first = line.firstElementChild?.textContent?.trim() ?? "";
     if (!label.test(first)) throw new Error(`the line starts with ${JSON.stringify(first)}, not its words`);
-    const loops = line
-      .getAnimations({ subtree: true })
-      .filter((animation) => animation.effect?.getTiming().iterations === Infinity);
-    const check = checkRunningLineLoops(
-      loops.map((animation) => {
-        const effect = animation.effect as KeyframeEffect | null;
-        return {
-          name: (animation as CSSAnimation).animationName,
-          target: effect?.target instanceof Element ? effect.target : null,
-          playState: animation.playState,
-          playbackRate: animation.playbackRate,
-          currentTime: animation.currentTime,
-          duration: Number(effect?.getTiming().duration),
-          progress: effect?.getComputedTiming().progress ?? null,
-        };
-      }),
-    );
-    if (check.unapproved.length || check.duplicateTargets.length)
-      throw new Error(
-        `${check.unapproved.length + check.duplicateTargets.length} unapproved or duplicate animations loop on the running line`,
-      );
-    // Motion allowed (the gallery stage), the word Thinking sweeps; Reduce Motion stills it (CSS).
-    if (shimmers && !hasCompleteRunningLineShimmer(check))
-      throw new Error(`Thinking shimmers ${check.shimmer.length} times, not one loop per text layer`);
-    if (!shimmers && check.shimmer.length) throw new Error("a line other than Thinking shimmers");
+    if (shimmers) await runningLineSweep(ctx, line);
+    else if (line.getAnimations({ subtree: true }).some((animation) => animation.playState === "running"))
+      throw new Error("a line other than Thinking animates");
   };
 
 /// A run of commands longer than a group shows at once (ToolGroupRow.tsx GROUP_TAIL).
@@ -984,18 +1149,25 @@ const loneToolCalls = () =>
     summary(2.6, { status: "completed", toolCount: 2, durationMs: 24_000 }),
   ]);
 
-/// Opens the turn's Worked for and its folded run ("Searched the web"). At rest the finished
-/// call's check and time are hidden and keep their room; the failure's red word shows.
+/// Opens the turn's Worked for and its folded run ("Searched the web"). A finished call draws no
+/// check and no time (Codex parity, 2026-11-11); the failure's word is for screen readers only.
+const noFinishedCallMarks = (ctx: PlayContext) => {
+  if (ctx.document.querySelector(".cv-tool .cv-command__ok, .cv-tool .cv-command__time"))
+    throw new Error("a finished call draws a check or a time");
+};
 const loneToolMetaAtRest = async (ctx: PlayContext) => {
-  await openGroupedRun(ctx);
-  await ctx.waitFor(() => ctx.document.querySelector(".cv-tool .cv-command__ok"));
+  await openWorked(ctx);
+  // Each call between the agent's asides is its own run, so a lone call draws as its own row; a
+  // folded run line, when there is one, opens too.
+  if (ctx.document.querySelector(".cv-tools > .cv-tool.is-toggle")) await openFoldedRun(ctx);
+  await ctx.waitFor(() => ctx.document.querySelector(".cv-tool .cv-tool__failed"));
   const view = ctx.document.defaultView!;
-  for (const node of ctx.document.querySelectorAll(".cv-tool .cv-command__ok, .cv-tool .cv-command__time"))
-    if (view.getComputedStyle(node).opacity !== "0") throw new Error("a finished call's check or time shows at rest");
+  noFinishedCallMarks(ctx);
+  // For Codex parity a failure draws no word: it stays for screen readers, clipped away whole.
   const failed = ctx.find({ selector: ".cv-tool__failed" });
   const style = view.getComputedStyle(failed);
-  if (style.opacity !== "1" || style.color === view.getComputedStyle(failed.parentElement!).color)
-    throw new Error("the failed call's mark is not red at rest");
+  if (style.position !== "absolute" || style.clipPath !== "inset(50%)")
+    throw new Error("the failed call's word is drawn");
 };
 
 /// A quiet turn under a second with no answer, a sub-second answer, then a 5s one (sub-second-turns).
@@ -1071,6 +1243,10 @@ const collapsedRunChat = (extra: AcpmuxActivity[] = []) =>
         "The helper is in and the client uses it. Next I check that nothing else in src/net already retries, so a failing request never backs off twice.",
         3,
       ),
+      // The stretch above ended with its summary: under the live-turn-work `line` only an
+      // ended stretch draws its runs while the chat works (turns.ts `codexRuns`); the work after it
+      // is the live line's.
+      summary(2.9, { status: "completed", durationMs: 66_000, toolCount: 6 }),
       activity(
         [
           shellTool("rg -n retry src/net"),
@@ -1207,10 +1383,8 @@ const ENVELOPE_TOOLS = [
       ],
     }),
   }),
-  tool("Read package.json", "read", "completed", {
-    output:
-      '{\n  "name": "@cmux/webviews",\n  "private": true,\n  "type": "module",\n  "scripts": {\n    "test": "bun test"\n  }\n}\n',
-  }),
+  // (A read of a JSON file drew here, kept as printed; a read is a plain row that does not open since
+  // 2026-11-17, readPath.ts, so its output has no card.)
 ];
 
 /// A render call (renderCall.ts); one with `update` redraws the card it names and draws nothing itself.
@@ -1232,7 +1406,7 @@ const backgroundTurnRows = [
   summary(8.9, { status: "completed", durationMs: 3_000 }),
   row(BACKGROUND_TURN, 7, {
     id: backgroundTurnRowId("gallery-bg-quiet"),
-    background: { id: "gallery-bg-quiet", trigger: "task_notification", running: false, quiet: true },
+    background: { id: "gallery-bg-quiet", trigger: "task_notification", running: false, quiet: true, hasRows: true },
   }),
   activity(
     [tool("tail -n 5 out.log", "execute", "completed", { command: "tail -n 5 out.log", output: "12 passed" })],
@@ -1249,6 +1423,28 @@ const backgroundTurnRows = [
     4.9,
     { inBackground: "gallery-bg-loud" },
   ),
+];
+
+/// Turns the agent ran on its own with no rows of their own (Leo, 2026-11-03: "these background
+/// updates don't really expand out to anything? idk what those are even for"): their events only
+/// updated a call an earlier turn started. One that ended quiet draws nothing; one still running is
+/// a plain spinner line with no chevron, and no button, until a row of its own comes.
+const backgroundTurnEmptyRows = [
+  user("Run the migration tests", 9),
+  activity(
+    [tool("bun test migrations", "execute", "completed", { command: "bun test migrations", output: "14 passed" })],
+    8.95,
+  ),
+  assistant("The migration tests pass.", 8.9),
+  summary(8.9, { status: "completed", durationMs: 3_000 }),
+  row(BACKGROUND_TURN, 7, {
+    id: backgroundTurnRowId("gallery-bg-empty"),
+    background: { id: "gallery-bg-empty", trigger: "system", running: false, quiet: true },
+  }),
+  row(BACKGROUND_TURN, 5, {
+    id: backgroundTurnRowId("gallery-bg-waiting"),
+    background: { id: "gallery-bg-waiting", trigger: "system", running: true },
+  }),
 ];
 
 /// A long turn among turns opened by what the person never typed (incomingMessage.ts): a background
@@ -1339,6 +1535,88 @@ const BASH_PERMISSION = chat(
   },
 );
 
+const gridRhythmSnapshot = chat(
+  [
+    // Prior history exercises the followed composer boundary, including narrow panes.
+    assistant(Array.from({ length: 32 }, (_, i) => `Earlier verification result ${i + 1}.`).join("\n\n"), 5, {
+      id: "grid-history",
+    }),
+    user("Check the verification and report the result.", 4, { id: "grid-prompt" }),
+    user("Review the current verification results", 3, {
+      id: "grid-header",
+      incoming: {
+        kind: "message",
+        message: {
+          name: "review-agent",
+          text: "Review the current verification results",
+          raw: "Review the current verification results",
+        },
+      },
+      untyped: true,
+    }),
+    assistant(
+      "I am reading the verification report and checking the current changes.\n\nThe same column and equal block gaps keep the progress easy to follow.",
+      2.8,
+      { id: "grid-message" },
+    ),
+    activity(
+      [
+        tool("Read verification results", "execute", "completed", { command: "cat verification.txt" }),
+        tool("Inspect current changes", "execute", "completed", { command: "git diff --stat" }),
+        tool("Run focused checks", "execute", "in_progress", {
+          command: "bun test transcript",
+          startedAt: minutesAgo(0.5),
+        }),
+      ],
+      2.7,
+      { id: "grid-tools" },
+    ),
+  ],
+  { isWorking: true },
+);
+
+const gridHistory = assistant(
+  Array.from({ length: 32 }, (_, i) => `Earlier verification result ${i + 1}.`).join("\n\n"),
+  5,
+  { id: "grid-history" },
+);
+// A sent prompt with no output yet: the working indicator alone between it and the composer.
+const gridWaitingSnapshot = chat(
+  [gridHistory, user("Check the verification and report the result.", 0.2, { id: "grid-prompt" })],
+  { isWorking: true },
+);
+// A settled reply as the last element: the composer gap after a message keeps room for its actions.
+const gridSettledSnapshot = chat([
+  gridHistory,
+  user("Check the verification and report the result.", 1, { id: "grid-prompt" }),
+  assistant("The verification passed on every check.", 0.5, { id: "grid-message" }),
+  summary(0.4, { id: "grid-summary", status: "completed", durationMs: 9_000 }),
+]);
+
+// Codex's turn header (Leo, 2026-11-02: "i assume the x previous messages are when there's a mix and
+// the worked for is if it's one contiguous thing"): the first turn's work has a note between its
+// calls, the second's is one stretch of calls.
+const codexHeadersSnapshot = chat(
+  [
+    user("Find why the parser drops the last line.", 6, { id: "codex-mix-prompt" }),
+    activity([tool("Read parser.ts", "read", "completed"), tool("Run the parser tests", "execute", "completed")], 5.8),
+    assistant("The tokenizer stops one character early on a file without a final newline.", 5.5),
+    activity(
+      [tool("Edit tokenizer.ts", "edit", "completed"), tool("Run the parser tests", "execute", "completed")],
+      5.2,
+    ),
+    assistant("Fixed: the tokenizer now reads to the end of the input, and the parser tests pass.", 5, {
+      id: "codex-mix-answer",
+    }),
+    summary(4.9, { id: "codex-mix-summary", status: "completed", durationMs: 66_000 }),
+    user("Run the whole suite.", 3, { id: "codex-run-prompt" }),
+    activity([tool("Run the test suite", "execute", "completed"), tool("Run the linter", "execute", "completed")], 2.8),
+    assistant("All 412 tests and the linter pass.", 2, { id: "codex-run-answer" }),
+    summary(1.9, { id: "codex-run-summary", status: "completed", durationMs: 54_000 }),
+  ],
+  { harness: "codex", model: "gpt-6-astra" },
+);
+
 export default agentPaneEntry({
   id: "agent-pane.transcript",
   title: "Transcript rows",
@@ -1356,8 +1634,45 @@ export default agentPaneEntry({
   },
   covers: [
     "page:cmux.agent",
-    "agent-session/acpmux/App.tsx#VirtualTranscript",
+    "agent-session/acpmux/VirtualTranscript.tsx#VirtualTranscript",
     "agent-session/acpmux/App.tsx#AcpmuxApp",
+    "agent-session/acpmux/rows/ActivityLineRow.tsx",
+    "agent-session/acpmux/rows/AgentPairRow.tsx",
+    "agent-session/acpmux/rows/BackgroundTaskRow.tsx",
+    "agent-session/acpmux/rows/BackgroundTurnRow.tsx",
+    "agent-session/acpmux/rows/CompactionRow.tsx",
+    "agent-session/acpmux/rows/DateRow.tsx",
+    "agent-session/acpmux/rows/EditedFilesRow.tsx",
+    "agent-session/acpmux/rows/FailoverRow.tsx",
+    "agent-session/acpmux/rows/LaneNoticeBatchRow.tsx",
+    "agent-session/acpmux/rows/MessageRow.tsx",
+    "agent-session/acpmux/rows/MessageRunRow.tsx",
+    "agent-session/acpmux/rows/NextStepRow.tsx",
+    "agent-session/acpmux/rows/NoticeRow.tsx",
+    "agent-session/acpmux/rows/OfferResultRow.tsx",
+    "agent-session/acpmux/rows/PendingMessagesRow.tsx",
+    "agent-session/acpmux/rows/PermissionAsk.tsx",
+    "agent-session/acpmux/rows/PermissionRecordRow.tsx",
+    "agent-session/acpmux/rows/PermissionRow.tsx",
+    "agent-session/acpmux/rows/PlanRow.tsx",
+    "agent-session/acpmux/rows/PolicyUnenforcedRow.tsx",
+    "agent-session/acpmux/rows/QuestionRecordRow.tsx",
+    "agent-session/acpmux/rows/QueuedMessageRow.tsx",
+    "agent-session/acpmux/rows/RecapRow.tsx",
+    "agent-session/acpmux/rows/RenderRow.tsx",
+    "agent-session/acpmux/rows/SessionOfferRow.tsx",
+    "agent-session/acpmux/rows/SessionStartRow.tsx",
+    "agent-session/acpmux/rows/StartedSessionsRow.tsx",
+    "agent-session/acpmux/rows/SubagentDoneRow.tsx",
+    "agent-session/acpmux/rows/SubagentGroupRow.tsx",
+    "agent-session/acpmux/rows/SubagentRow.tsx",
+    "agent-session/acpmux/rows/SummaryRow.tsx",
+    "agent-session/acpmux/rows/TaskLineRow.tsx",
+    "agent-session/acpmux/rows/ThinkingRow.tsx",
+    "agent-session/acpmux/rows/ToolActivityRow.tsx",
+    "agent-session/acpmux/rows/WorkedRow.tsx",
+    "agent-session/acpmux/rows/WorkflowCardRow.tsx",
+    "agent-session/acpmux/rows/WorkingRow.tsx",
     "agent-session/acpmux/SecretCard.tsx#SecretCard",
     "agent-session/acpmux/conversation/ChatFindScope.tsx#ChatFindScope",
     "agent-session/acpmux/conversation/MessageCard.tsx",
@@ -1384,14 +1699,12 @@ export default agentPaneEntry({
     "agent-session/acpmux/conversation/EditDiff.tsx",
     "agent-session/acpmux/conversation/EditDiffHunks.tsx",
     "agent-session/acpmux/conversation/EditedFilesCard.tsx",
-    "agent-session/acpmux/conversation/PreviewCard.tsx",
     "agent-session/acpmux/conversation/Thinking.tsx",
     "agent-session/acpmux/conversation/WorkingFor.tsx",
     "agent-session/acpmux/conversation/TurnRows.tsx",
     "agent-session/acpmux/conversation/DateLine.tsx",
     "agent-session/acpmux/conversation/PromptDelivery.tsx#DeliveryFailure",
-    "agent-session/acpmux/conversation/PromptDelivery.tsx#DeliveryMark",
-    "agent-session/acpmux/conversation/PromptDelivery.tsx#FailedSendsContext",
+    "agent-session/acpmux/conversation/PromptDelivery.tsx#PendingDelivery",
     "agent-session/acpmux/conversation/icons.tsx#Clock",
     "agent-session/acpmux/conversation/icons.tsx#DoubleCheck",
     "agent-session/acpmux/conversation/icons.tsx#MultiTool",
@@ -1399,6 +1712,37 @@ export default agentPaneEntry({
     "agent-session/acpmux/chips/BareReferenceChip.tsx#BareReferenceChip",
   ],
   variants: {
+    "grid-rhythm": {
+      height: 900,
+      note: "One received header, a two-paragraph reply, two completed commands and a live command above the composer. Synthetic grid measurement fixture.",
+      snapshot: gridRhythmSnapshot,
+    },
+    "grid-waiting": {
+      height: 900,
+      note: "A prompt waiting for its first output: the working indicator sits centred, the block gap above and below it.",
+      snapshot: gridWaitingSnapshot,
+    },
+    "codex-turn-headers": {
+      height: 640,
+      note: "Codex turn headers: N previous messages over work mixed with the agent's notes, Worked for over one stretch of calls.",
+      snapshot: codexHeadersSnapshot,
+    },
+    "grid-settled": {
+      height: 900,
+      note: "A settled reply above the composer: its footer row 8 under it (32 buttons), then the composer gap.",
+      snapshot: gridSettledSnapshot,
+    },
+    "grid-rhythm-hover": {
+      height: 900,
+      note: "The rhythm scene with the pointer on the reply mid-turn: it draws no action row of its own (Copy once per turn, #29740), so the block gap does not move on hover.",
+      snapshot: gridRhythmSnapshot,
+      play: async (ctx) => {
+        await ctx.hover({ selector: '[data-row-id="grid-message"] .cv-md' });
+        await ctx.waitFor(() => ctx.document.querySelector('[data-row-id="grid-message"]')?.matches(":hover"));
+        if (ctx.document.querySelector('[data-row-id="grid-message"] .cv-reply-actions'))
+          throw new Error("A reply mid-turn drew its own action row");
+      },
+    },
     "activity-tone-secondary": {
       note: "Selected activity hierarchy: tool calls, Worked for and received peer messages (their Markdown too) use one AA-readable secondary tone; prompts and assistant text stay primary. Capture in light and dark.",
       snapshot: messageSurfaceChat,
@@ -1428,18 +1772,39 @@ export default agentPaneEntry({
       snapshot: messageSurfaceChat,
       play: messageSurfaceComputedStyle,
     },
+    "user-bubble-ink-default": {
+      note: "Before: no look sets --cv-user-bubble-text, so the prompt keeps the grey glass and the transcript's text, as today.",
+      snapshot: bubbleInkChat,
+    },
+    "user-bubble-ink-tint-only": {
+      note: "Why the ink exists: a blue tint alone keeps the transcript's text on it (dark text on blue in light). The look-addons contrast check fails this.",
+      snapshot: bubbleInkChat,
+      play: applyLookCss(`:root { ${BUBBLE_PILL_TINT} }`),
+    },
+    "user-bubble-ink-pill": {
+      note: "A filled pill: the accent tint with --cv-user-bubble-text from the theme's own colors (white on blue in light and dark). The quote takes the ink at 88%, inline code a wash of it. Capture in light and dark.",
+      snapshot: bubbleInkChat,
+      play: applyLookCss(`:root { ${BUBBLE_PILL_TINT} ${BUBBLE_PILL_INK} }`),
+    },
+    "user-bubble-ink-codex": {
+      note: "The Codex pack's prompt: the pill with its 20 px corner and no edge, as chameleon-codex sets it. Paint only: no row moves from the default arm.",
+      snapshot: bubbleInkChat,
+      play: applyLookCss(
+        `:root { ${BUBBLE_PILL_TINT} ${BUBBLE_PILL_INK} --cv-user-bubble-edge: transparent; --cv-user-bubble-radius: 20px; }`,
+      ),
+    },
     conversation: {
       note: "A finished exchange: prompt, markdown reply, turn footer.",
       snapshot: completedFooterSnapshot,
     },
     "footer-actions-left": {
-      note: "A completed answer keeps Copy and Retry at the transcript's left edge.",
+      note: "A completed answer keeps Copy and Read aloud at the transcript's left edge.",
       theme: { turnActionsPlacement: "left" },
       snapshot: completedFooterSnapshot,
       play: footerActionsPlacement("left"),
     },
     "footer-actions-right": {
-      note: "A completed answer keeps Copy and Retry at the transcript's right edge.",
+      note: "A completed answer keeps Copy and Read aloud at the transcript's right edge.",
       theme: { turnActionsPlacement: "right" },
       snapshot: completedFooterSnapshot,
       play: footerActionsPlacement("right"),
@@ -1473,6 +1838,23 @@ export default agentPaneEntry({
         summary(5.6, { status: "completed", durationMs: 14_000 }),
       ]),
       play: hoverReference(24175, ".cv-link-preview.acpmux-pr-card"),
+    },
+    "github-references-scroll": {
+      note: 'Leo 2026-11-10: "just tried this touchpad scrolling the github preview is kinda bad". A long reply with a pull request chip on every paragraph: a wheel or touchpad scroll puts an open card away at once, and a chip sliding under a still pointer opens nothing until the pointer moves again.',
+      ...LEO_WORKSPACE,
+      snapshot: chat([
+        user("Which pull requests landed tonight?", 6),
+        assistant(
+          Array.from(
+            { length: 24 },
+            (_, index) =>
+              `Paragraph ${index + 1}: the lane landed #${LANE_NUMBERS[index % LANE_NUMBERS.length]} after review, ` +
+              "and the follow-up keeps the transcript readable while it waits for the next base merge.",
+          ).join("\n\n"),
+          5.6,
+        ),
+        summary(5.6, { status: "completed", durationMs: 14_000 }),
+      ]),
     },
     "github-references-same-number": {
       note: "A bare #843 is a pull request in both leo-workspace (the folder's) and cmux (which the chat linked): the chip names its repository.",
@@ -1589,6 +1971,51 @@ export default agentPaneEntry({
         );
       },
     },
+    "try-another-approach-cloud": {
+      note: "Cloud's latest completed turn offers Try another approach. It snapshots the machine now, copies the transcript through that turn, and opens one sibling labelled with its parent; the parent stays selected.",
+      // This action is host-owned; keep the preview transport so the fixture's transcript remains
+      // the selected parent's latest turn while the native call is recorded by the gallery bridge.
+      ready: { cloudMachineID: "vm_gallery_cloud" },
+      native: {
+        "chat.tryAnotherApproach": {
+          childId: "child-gallery",
+          parentLabel: "Try another approach · Add retries to the fetch helper",
+        },
+      },
+      snapshot: forkTurns(undefined),
+      play: async (ctx) => {
+        const page = ctx.document.defaultView as unknown as { cmuxGalleryLog: GalleryCall[] };
+        await ctx.focus({ selector: "[contenteditable='true']" });
+        await ctx.waitFor(
+          () =>
+            ctx.document.querySelectorAll('.cv-turn-actions button[aria-label="Try another approach"]').length === 1,
+        );
+        const buttons = ctx.document.querySelectorAll<HTMLButtonElement>(
+          '.cv-turn-actions button[aria-label="Try another approach"]',
+        );
+        buttons[0]!.click();
+        await ctx.waitFor(() =>
+          page.cmuxGalleryLog.some(
+            ({ method, params }) => method === "chat.tryAnotherApproach" && params?.throughSeq === 6,
+          ),
+        );
+        // The button says it is working until the snapshot call answers, then offers itself again.
+        await ctx.waitFor(() => ctx.document.querySelector('.cv-turn-try-another[data-try-state="idle"]'));
+        if (ctx.document.querySelectorAll('.cv-turn-actions button[aria-label="Try another approach"]').length !== 1)
+          throw new Error("parent action changed");
+      },
+    },
+    "try-another-approach-child": {
+      note: "Sibling chat opened by Try another approach, with the parent label visible in its title.",
+      ready: { cloudMachineID: "vm_gallery_cloud" },
+      snapshot: forkTurns(undefined, "Try another approach · Add retries to the fetch helper"),
+      play: async (ctx) => {
+        await ctx.focus({ selector: "[contenteditable='true']" });
+        await ctx.waitFor(() =>
+          ctx.document.querySelector('[aria-label="Try another approach · Add retries to the fetch helper"]'),
+        );
+      },
+    },
     "mark-unread-menu": {
       note: "Play: the chat menu's Mark as Unread (cx-ncc.78, Codex parity) asks acpmux on the pane's own connection (cx-jlzsf), never the host.",
       // The whole chat menu fits, so its last rows are on screen for the click.
@@ -1665,23 +2092,32 @@ export default agentPaneEntry({
       },
     },
     "thought-row": {
-      note: 'Play: a finished thought is one quiet row, "Thought for 12s" with none of its text inline and no tooltip, as Claude Desktop and Codex draw it (Leo 2026-10-20: "Thought <first line>" read weird). Debug Settings agentPane.debug.thoughtFoldThreshold "Taller than the transcript" brings back the short thought in full after Thought.',
+      note: 'Play: a finished thought is one quiet row, for Codex parity: the brain glyph and its own first line, cut with an ellipsis when it runs past the row, with no tooltip and how long it took at the row\'s end. Opened, the rest of its text unfolds under that line. Debug Settings agentPane.debug.thoughtFoldThreshold "Taller than the transcript" brings back the short thought in full after Thought.',
       snapshot: thoughtChat([thought(SHORT_THOUGHT, { startedAt: 0, endedAt: 12_000 })]),
       play: async (ctx) => {
+        await openEndedStretch(ctx);
         const row = () => ctx.document.querySelector<HTMLElement>(".cv-thought");
-        await ctx.waitFor(() => row()?.textContent === "Thought for 12s");
+        // Its own first line (thoughtRowModel.ts thoughtHead), then how long it took.
+        const line = SHORT_THOUGHT.split("\n")[0]!;
+        await ctx.waitFor(() => row()?.querySelector(".cv-thought__preview")?.textContent === line);
+        if (row()!.querySelector(".cv-thought__time")?.textContent !== "12s")
+          throw new Error("a dated thought shows how long it took at the row's end");
+        if (row()!.textContent?.includes("Thought")) throw new Error("a thought's row reads its words, not Thought");
         await ctx.hover({ selector: ".cv-thought" });
         if (!row()!.matches("button") || row()!.getAttribute("aria-expanded") !== "false")
           throw new Error("a finished thought is a closed toggle");
+        if (!row()!.querySelector(".cv-tool__icon svg")) throw new Error("a folded thought draws the brain glyph");
         if (Math.round(row()!.getBoundingClientRect().height) !== 22)
           throw new Error("a finished thought uses the compact 22px tool-row rhythm");
-        if (ctx.document.querySelector(".cv-thought__text") || ctx.document.body.textContent?.includes("jittered"))
-          throw new Error("a folded thought shows none of its text");
+        const preview = row()!.querySelector<HTMLElement>(".cv-thought__preview");
+        if (!preview || preview.getBoundingClientRect().height > 22)
+          throw new Error("a folded thought's words are one line");
+        if (ctx.document.querySelector(".cv-thought__text")) throw new Error("a folded thought draws no body");
         if (row()!.closest("[title]") || row()!.querySelector("[title]")) throw new Error("a thought shows no tooltip");
       },
     },
     "thought-expanded": {
-      note: "Play: the folded thought opens to its full text under one left rule; the line still reads Thought for 12s.",
+      note: "Play: the folded thought opens to the rest of its text under its own first line, which stays where it was.",
       checks: {
         layoutShiftMax: {
           value: 0.02,
@@ -1691,11 +2127,23 @@ export default agentPaneEntry({
       },
       snapshot: thoughtChat([thought(SHORT_THOUGHT, { startedAt: 0, endedAt: 12_000 })]),
       play: async (ctx) => {
+        await openEndedStretch(ctx);
+        const line = () => ctx.document.querySelector<HTMLElement>("button.cv-thought .cv-thought__preview");
+        await ctx.waitFor(() => line());
+        const before = line()!.getBoundingClientRect();
+        const words = line()!.textContent;
         await ctx.click({ selector: "button.cv-thought" });
         const body = () => ctx.document.querySelector<HTMLElement>(".cv-thought__body");
         await ctx.waitFor(() => body()?.textContent?.includes("jittered backoff capped at three attempts") ?? false);
         if (ctx.document.querySelector("button.cv-thought")?.getAttribute("aria-expanded") !== "true")
           throw new Error("the opened thought is not expanded");
+        // No word is swapped and the line does not move: the rest opens under it.
+        const after = line()!.getBoundingClientRect();
+        if (line()!.textContent !== words || words !== SHORT_THOUGHT.split("\n")[0])
+          throw new Error(`the opened thought's line reads ${line()!.textContent}, not its own first line`);
+        if (Math.abs(after.left - before.left) > 0.5 || Math.abs(after.top - before.top) > 0.5)
+          throw new Error("the thought's line moved when it opened");
+        if (body()!.textContent?.includes(words!)) throw new Error("the opened thought repeats its first line");
       },
     },
     "thoughts-merged": {
@@ -1714,12 +2162,18 @@ export default agentPaneEntry({
         }),
       ]),
       play: async (ctx) => {
+        await openEndedStretch(ctx);
         const rows = () => [...ctx.document.querySelectorAll<HTMLElement>(".cv-thought")];
-        await ctx.waitFor(() => rows()[0]?.textContent === "Thought for 12s");
+        await ctx.waitFor(() => rows()[0]?.textContent?.includes("parses errors first") ?? false);
         if (rows().length !== 1) throw new Error(`two thoughts side by side draw ${rows().length} rows, not one`);
         await ctx.click({ selector: "button.cv-thought" });
+        // The first thought is the row's line; the second opens under it.
         const body = () => ctx.document.querySelector<HTMLElement>(".cv-thought__body")?.textContent ?? "";
-        await ctx.waitFor(() => body().includes("parses errors first") && body().includes("On second thought"));
+        await ctx.waitFor(() => body().includes("On second thought"));
+        if (!rows()[0]!.querySelector(".cv-thought__preview")?.textContent?.includes("parses errors first"))
+          throw new Error("the first thought is not the row's line");
+        const time = ctx.document.querySelector("button.cv-thought .cv-thought__time")?.textContent;
+        if (time !== "12s") throw new Error(`the opened thoughts took ${time}, not 12s`);
       },
     },
     "thought-quiet": {
@@ -1729,6 +2183,7 @@ export default agentPaneEntry({
         [thought("I am here", { startedAt: 0, endedAt: 300 })],
       ),
       play: async (ctx) => {
+        await openEndedStretch(ctx);
         // The step draws its calls (a live run may show only its newest), and nothing else.
         await ctx.waitFor(() => ctx.document.querySelector(".cv-tools .cv-tool"));
         await ctx.hover({ selector: ".cv-tools .cv-tool" });
@@ -1736,28 +2191,8 @@ export default agentPaneEntry({
         if (ctx.document.body.textContent?.includes("I am here")) throw new Error("a quiet thought shows its text");
       },
     },
-    "thought-streaming-short": {
-      note: 'A short thought still streaming (Debug toggle agentPane.debug.codexToolRuns off, where the live thought draws in the run) reads "Thinking" on its own line with the text under it, never "Thought I am here" as one sentence (Leo 2026-10-21).',
-      theme: { codexToolRuns: false },
-      snapshot: chat(
-        [
-          user(prompt, 2),
-          activity(
-            [thought("I am here, reading the retry helper before changing it.", { startedAt: 0, endedAt: 2_000 })],
-            1.5,
-          ),
-        ],
-        { isWorking: true },
-      ),
-      play: async (ctx) => {
-        const label = () => ctx.document.querySelector<HTMLElement>(".cv-thought__label");
-        await ctx.waitFor(() => label()?.textContent === "Thinking");
-        if (!ctx.document.querySelector(".cv-thought.is-full"))
-          throw new Error("the live thought's text is not under its label");
-      },
-    },
     "thought-codex-headings": {
-      note: 'Play: a Codex reasoning summary opened: "Thought for 12s", then each **Heading** as a muted title of its own over its text, never with its marks and never after "Thought".',
+      note: "Play: a Codex reasoning summary: its leading **Heading** is the row's line, in bold without its marks; opened, its text and each later heading as a muted title of its own unfold under it.",
       checks: {
         layoutShiftMax: {
           value: 0.01,
@@ -1771,21 +2206,25 @@ export default agentPaneEntry({
         ),
       ]),
       play: async (ctx) => {
+        await openEndedStretch(ctx);
         await ctx.click({ selector: "button.cv-thought" });
         const titles = () => [...ctx.document.querySelectorAll(".cv-thought__title")].map((node) => node.textContent);
-        await ctx.waitFor(() => titles().length === 2);
+        await ctx.waitFor(() => titles().length === 1);
+        const line = ctx.document.querySelector("button.cv-thought .cv-thought__preview.is-title")?.textContent;
+        if (line !== "Planning the retry fix") throw new Error(`the leading heading is not the row's line: ${line}`);
+        if (titles()[0] !== "Checking the callers") throw new Error(`the later heading reads ${titles()[0]}`);
         if (ctx.document.querySelector(".cv-thought__body")?.textContent?.includes("**"))
           throw new Error("a heading shows its ** marks");
       },
     },
     "long-thought-streaming": {
-      note: "A long thought still streaming holds a seven-line viewport with its newest line in view (Debug toggle agentPane.debug.liveThoughtViewport) and folds once done; with agentPane.debug.foldLongThoughts off, it shows in full.",
+      note: "A long thought still streaming holds a seven-line viewport with its newest line in view and folds once done.",
       snapshot: chat([user(prompt, 2), activity([thought(LONG_THOUGHT)], 1.5)], {
         isWorking: true,
       }),
     },
     "long-thought-done": {
-      note: 'A long thought followed by a step folds to "Thought for 12s" (with Debug Settings agentPane.debug.thoughtHeader preview, "Thought" and its first line); with agentPane.debug.foldLongThoughts off (data-fold-long-thoughts="off" on <html>), it shows in full as before.',
+      note: "A long thought followed by a step folds to its brain glyph and its leading heading; opened, the rest of its text unfolds under that line.",
       snapshot: chat(
         [
           user(prompt, 2),
@@ -1907,17 +2346,6 @@ export default agentPaneEntry({
         { isWorking: true },
       ),
     },
-    "working-line-above": {
-      note: "Debug toggle agentPane.debug.liveLineBelow off: the older line over the turn's work.",
-      theme: { liveLineBelow: false },
-      snapshot: chat(
-        [
-          user(prompt, 2),
-          activity([tool("bun test src/net", "execute", "in_progress", { command: "bun test src/net" })], 1.5),
-        ],
-        { isWorking: true },
-      ),
-    },
     "steer-continuous": {
       note: "A message sent now while the turn ran, to an agent that cannot steer: acpmux stopped that turn and ran the message next, yet it reads as one turn. The message draws inline with no mark of its own, the line counts from the first prompt, and nothing says the turn was stopped.",
       snapshot: chat(
@@ -1975,10 +2403,12 @@ export default agentPaneEntry({
       },
     },
     "working-tokens": {
-      note: "A live Claude turn says its tokens so far after its time, on its one live line at the bottom: Thinking 5m 54s · ↓ 12.4K out ↑ 2.1M in. Output comes first, as Anthropic counts a turn, and is only what the model generated (never folded into one total with the context); then all it read (fresh input, cache reads and writes, named on hover). The time and the tokens are in the line's quieter color, in tabular numerals. No blinking dots before it and no Working for over the turn. A harness that does not report each call shows the time alone. Play: the line holds still.",
+      // Reads the clock on the live line (liveTurnClock.experiment.ts `line`); the shipped `top` puts it over the work.
+      experiments: { "live-turn-clock": "line" },
+      note: "A live Claude turn with reported usage shows Thinking and elapsed time only. Nonzero output and input usage must not add a token count or tooltip. Play: the line holds still.",
       snapshot: chat(
         [
-          user(prompt, 5.9),
+          user(prompt, 0.6),
           activity(
             [
               thought("The helper lives in src/net/client.ts; check how errors are parsed first."),
@@ -1987,9 +2417,11 @@ export default agentPaneEntry({
               }),
               tool("Search for parseError", "search", "completed"),
             ],
-            5.85,
+            0.55,
           ),
-          assistant("The parser drops the status code; I'll keep it and retry only on 5xx.", 5.5),
+          // Past WRITING_MS and inside SILENT_MS (thinkingModel.ts): the line reads "Thinking"; a reply
+          // silent for longer reads "Waiting" (reconvene/live-line.gallery.ts `after-reply-silent`).
+          assistant("The parser drops the status code; I'll keep it and retry only on 5xx.", FRESH_REPLY_MINUTES),
         ],
         {
           isWorking: true,
@@ -2000,19 +2432,21 @@ export default agentPaneEntry({
       play: runningLineStill(/^Thinking/, true),
     },
     "working-tokens-total": {
-      note: "A live turn whose calls named their output but not what they read: the line says the output alone, Thinking 5m 54s · 2.1M out, in the same quieter color.",
+      // Reads the clock on the live line (liveTurnClock.experiment.ts `line`); the shipped `top` puts it over the work.
+      experiments: { "live-turn-clock": "line" },
+      note: "A live turn with output usage only still shows Thinking and elapsed time, without token counts.",
       snapshot: chat(
         [
-          user(prompt, 5.9),
-          activity([tool("Search for parseError", "search", "completed")], 5.85),
-          assistant("The parser drops the status code; I'll keep it and retry only on 5xx.", 5.5),
+          user(prompt, 0.6),
+          activity([tool("Search for parseError", "search", "completed")], 0.55),
+          assistant("The parser drops the status code; I'll keep it and retry only on 5xx.", FRESH_REPLY_MINUTES),
         ],
         { isWorking: true, turnTokens: 2_140_000 },
       ),
       play: runningLineStill(/^Thinking/, true),
     },
     "worked-tokens": {
-      note: "A finished Claude turn: its Worked for line says the turn's tokens from its result, output first (↓ 9.8K out ↑ 1.4M in), with its time and tokens in the line's quieter color.",
+      note: "A finished Claude turn whose result named its tokens: its Worked for line says its time alone, Worked for 1m 18s, as Codex does (Codex parity). Token counts stay hidden on both running and completed lines.",
       snapshot: chat([
         user(prompt, 5.9),
         activity(
@@ -2068,6 +2502,45 @@ export default agentPaneEntry({
         ],
         { isWorking: true },
       ),
+    },
+    "turn-end-tool-only": {
+      note: "A finished turn that only ran a command ends on its footer row at rest: Copy copies the command's line and its output (G04).",
+      snapshot: chat([
+        user("Run the sidebar tests", 6),
+        activity(
+          [
+            tool("bun test src/sidebar", "execute", "completed", {
+              command: "bun test src/sidebar",
+              output: "12 pass\n0 fail\n",
+              exitCode: 0,
+            }),
+          ],
+          5.9,
+        ),
+        summary(5.6, { status: "completed", durationMs: 24_000, toolCount: 1 }),
+      ]),
+    },
+    "turn-end-api-error": {
+      note: "A turn that ran a command and then ended in an API error: the error card, then its footer row with Copy and the failed mark (G04).",
+      snapshot: chat([
+        user("Run the sidebar tests", 6),
+        activity(
+          [
+            tool("bun test src/sidebar", "execute", "completed", {
+              command: "bun test src/sidebar",
+              output: "12 pass\n0 fail\n",
+              exitCode: 0,
+            }),
+          ],
+          5.9,
+        ),
+        summary(5.6, {
+          status: "failed",
+          durationMs: 41_000,
+          toolCount: 1,
+          error: "API Error: Request rejected (429) · This request would exceed your account's rate limit.",
+        }),
+      ]),
     },
     "dense-live-run": {
       note: "A running turn folds its finished calls into one counted summary line (Read a file, ran 7 commands) and names the running MCP call on the live line, never a growing stack of rows.",
@@ -2169,24 +2642,24 @@ export default agentPaneEntry({
     "collapsed-run-open": {
       note: "The same line opened: the rows it holds, drawn as they are on their own.",
       snapshot: collapsedRunChat(),
-      play: openFoldedRun,
+      play: openEndedRun,
     },
     "collapsed-run-spacing-tight": {
       note: "Gallery comparison: the tool rows use a 20px line and 2px after the run.",
       snapshot: collapsedRunChat(),
       documentAttributes: { "transcript-tool-spacing": "tight" },
-      play: openFoldedRun,
+      play: openEndedRun,
     },
     "collapsed-run-spacing-selected": {
       note: "Selected gallery rhythm: compact 22px tool rows and a 4px gap before the reply, matching the Codex reference.",
       snapshot: collapsedRunChat(),
-      play: openFoldedRun,
+      play: openEndedRun,
     },
     "collapsed-run-spacing-roomy": {
       note: "Gallery comparison: the prior 26px tool rows and 8px after-run gap.",
       snapshot: collapsedRunChat(),
       documentAttributes: { "transcript-tool-spacing": "roomy" },
-      play: openFoldedRun,
+      play: openEndedRun,
     },
     "collapsed-run-failed": {
       note: "A failed call in the collapsed run is counted on its line.",
@@ -2241,11 +2714,22 @@ export default agentPaneEntry({
             1.7,
           ),
           activity([shellTool("cd ~/wt/lanes/sidebar-drag && git status --short && git log --oneline -3")], 1.6),
+          // The stretch ended with its summary while the chat works on: under the shipped
+          // live-turn-work `line` only an ended stretch draws its calls (turns.ts `codexRuns`).
+          summary(1.5, { status: "completed", durationMs: 30_000, toolCount: 4 }),
         ],
         { isWorking: true },
       ),
       play: async (ctx: PlayContext) => {
-        await ctx.click({ selector: ".cv-tool.is-toggle" });
+        await openEndedStretch(ctx);
+        // The run of sends and the shell call folds into one line ("Sent 3 messages, ran a command",
+        // MessageRunLine.tsx, #31398): open it, then the shell call under it.
+        const run = () => ctx.document.querySelector("button[data-message-run]");
+        if (run()?.getAttribute("aria-expanded") === "false") {
+          await ctx.click({ selector: "button[data-message-run]" });
+          await ctx.waitFor(() => run()?.getAttribute("aria-expanded") === "true");
+        }
+        await ctx.click({ selector: ".cv-tool.is-toggle:not([data-message-run])" });
         await ctx.waitFor(() => Boolean(ctx.document.querySelector(".cv-shell__folder")));
       },
     },
@@ -2311,7 +2795,9 @@ export default agentPaneEntry({
       ),
     },
     "codex-turn-command-under-messages": {
-      note: 'Leo, 2026-10-22: "the ran thing basiclly replcaes the thinking usually". A command still running in an earlier run while the agent writes and messages others: it is the live line at the bottom (Running cp … with its time, ⌃B to run in background at its right on hover), not a Ran cp row with the hint over a Thinking line. Play: the line names the cp, no transcript row draws the hint or runs.',
+      // Reads the clock on the live line (liveTurnClock.experiment.ts `line`); the shipped `top` puts it over the work.
+      experiments: { "live-turn-clock": "line" },
+      note: 'Leo, 2026-10-22: "the ran thing basiclly replcaes the thinking usually". A command still running in an earlier run while the agent writes and messages others: it is the live line at the bottom (cp … with its time, ⌃B to run in background at its right on hover), not a Ran cp row with the hint over a Thinking line. Leo, 2026-11-23: "running" doesn\'t need text. Play: the line names the cp, no transcript row draws the hint or runs.',
       snapshot: chat(
         [
           user("Copy the session log into recovery and tell the lanes what changed.", 3),
@@ -2335,7 +2821,7 @@ export default agentPaneEntry({
       play: async (ctx: PlayContext) => {
         const doc = ctx.document;
         await ctx.waitFor(() =>
-          (doc.querySelector(".cv-worked.is-below .cv-thinking")?.textContent ?? "").startsWith("Running cp "),
+          (doc.querySelector(".cv-worked.is-below .cv-thinking")?.textContent ?? "").startsWith("cp "),
         );
         const stray = [...doc.querySelectorAll(".cv-command__bg")].filter((node) => !node.closest(".cv-worked"));
         if (stray.length) throw new Error(`${stray.length} transcript rows draw the ⌃B hint`);
@@ -2345,7 +2831,9 @@ export default agentPaneEntry({
       },
     },
     "codex-turn-raw-commands": {
-      note: "Leo's turn-toolcalls-now.png: commands that all start with export PATH=… and send no description. Each reads as its meaningful command (acpmux ls, gh pr view 22363); the two runs and the short note between them are one folded line; the call in flight is the one live line at the bottom (Running acpmux send 13s), shimmering, no dots, 16px clear of the run over it; ⌃B to run in background shows on hover. Play: hover the line.",
+      // Reads the clock on the live line (liveTurnClock.experiment.ts `line`); the shipped `top` puts it over the work.
+      experiments: { "live-turn-clock": "line" },
+      note: "Leo's turn-toolcalls-now.png: commands that all start with export PATH=… and send no description. Each reads as its meaningful command (acpmux ls, gh pr view 22363); the two runs and the short note between them are one folded line; the call in flight is the one live line at the bottom (acpmux send 13s), shimmering, no dots, under the run over it, its words in a 22px box at the top of the 32px slot it has under a reply, the footer gap (8) over it, so it holds still when a run or a reply lands (#31497, cmux#47098; transcriptGrid.ts LIVE_GAP_LOOKS); Leo, 2026-11-23: \"running\" doesn't need text. ⌃B to run in background shows on hover. Play: hover the line.",
       snapshot: chat(
         [
           user("What did the lanes decide? Relay it and answer.", 2),
@@ -2478,7 +2966,7 @@ export default agentPaneEntry({
       },
     },
     "tool-hover-meta": {
-      note: "A finished command's check and run time show only while it is pointed at; a failed one keeps its red exit mark at rest. Play: hover the first command.",
+      note: "A finished command draws no check and no run time, pointed at or not, and a failed one draws no word (Codex parity), which a screen reader still reads. Play: hover the first command.",
       snapshot: chat([
         user("Run the checks", 3),
         activity(
@@ -2493,33 +2981,28 @@ export default agentPaneEntry({
       ]),
       play: async (ctx) => {
         await openGroupedRun(ctx);
-        const ok = () => ctx.find({ selector: ".cv-command .cv-command__ok" });
-        const failed = ctx.find({ selector: ".cv-command .cv-command__failed" });
-        if (ctx.document.defaultView!.getComputedStyle(failed).opacity !== "1")
-          throw new Error("the failure mark hides at rest");
-        if (ctx.document.defaultView!.getComputedStyle(ok()).opacity !== "0")
-          throw new Error("the check shows at rest");
+        const failed = ctx.document.defaultView!.getComputedStyle(
+          ctx.find({ selector: ".cv-command .cv-command__failed" }),
+        );
+        if (failed.position !== "absolute" || failed.clipPath !== "inset(50%)")
+          throw new Error("the failure word is drawn");
+        noFinishedCallMarks(ctx);
         await ctx.hover({ selector: ".cv-command" });
-        await ctx.waitFor(() => ctx.document.defaultView!.getComputedStyle(ok()).opacity === "1");
+        noFinishedCallMarks(ctx);
       },
     },
     "tool-hover-meta-lone": {
-      note: "Calls that are not shells, at rest: a finished fetch shows no check or time, a failed one says failed in red. Play: open Worked for and its run.",
+      note: "Calls that are not shells, at rest: a finished fetch draws no check or time, a failed one draws no word (Codex parity). Play: open Worked for and its run.",
       snapshot: loneToolCalls(),
       play: loneToolMetaAtRest,
     },
     "tool-hover-meta-lone-hovered": {
-      note: "The same calls with the finished fetch pointed at: its green check and run time fade in; the failure stays as it was. Play: open Worked for and its run, hover the fetch.",
+      note: "The same calls with the finished fetch pointed at: it still draws no check and no run time (Codex parity); the failed call stays as it was. Play: open Worked for and its run, hover the fetch.",
       snapshot: loneToolCalls(),
       play: async (ctx) => {
         await loneToolMetaAtRest(ctx);
-        const row = ctx.find({ selector: ".cv-tool:has(.cv-command__ok)" });
-        await ctx.hover({ selector: ".cv-tool:has(.cv-command__ok)" });
-        await ctx.waitFor(() =>
-          [...row.querySelectorAll(".cv-command__ok, .cv-command__time")].every(
-            (node) => getComputedStyle(node).opacity === "1",
-          ),
-        );
+        await ctx.hover({ selector: ".cv-tool:not(.is-toggle):not(:has(.cv-tool__failed))" });
+        noFinishedCallMarks(ctx);
       },
     },
     "mcp-calls": {
@@ -2533,23 +3016,28 @@ export default agentPaneEntry({
       ),
     },
     "tool-result-envelopes": {
-      note: "Opened tool results read as their content, not the JSON a harness wrapped them in: one-line JSON pretty-printed, an MCP text list as Markdown, a result envelope and Codex's output as their text, a JSON file kept as printed.",
+      note: "Opened tool results read as their content, not the JSON a harness wrapped them in: one-line JSON pretty-printed, an MCP text list as Markdown, a result envelope and Codex's output as their text.",
       height: 1100,
       snapshot: chat(
         // The reply under the calls keeps every call a row: with nothing after it, the live line
-        // would hold the last finished call instead.
+        // would hold the last finished call instead. The stretch ended with its summary while the
+        // chat works on: under the live-turn-work `line` only an ended stretch draws its
+        // calls (turns.ts `codexRuns`).
         [
           user("Stop the watcher, check the issues and run the tests.", 1),
           activity(ENVELOPE_TOOLS, 0.8),
           assistant("The watcher is stopped and the tests pass.", 0.5),
+          summary(0.5, { status: "completed", durationMs: 30_000, toolCount: ENVELOPE_TOOLS.length }),
         ],
         { isWorking: true },
       ),
       play: async (ctx) => {
-        // A settled run folds to its line; opened, it lists the calls, each opened in turn.
+        // The ended stretch folds under its Worked for; opened, a run folded to its line opens to
+        // its calls. Each call is then opened in turn.
+        await openEndedStretch(ctx);
         await ctx.waitFor(() => Boolean(ctx.document.querySelector(".cv-tool.is-toggle")));
-        if (ctx.document.querySelector(".cv-tools > .cv-tool.is-toggle")) await openFoldedRun(ctx);
         const closed = '.cv-tool.is-toggle[aria-expanded="false"]';
+        if (ctx.document.querySelectorAll(closed).length < ENVELOPE_TOOLS.length) await openFoldedRun(ctx);
         await ctx.waitFor(() => ctx.document.querySelectorAll(closed).length === ENVELOPE_TOOLS.length);
         // Each row centered first: the runner scrolls a target only as far as needed, which parks a row
         // at the transcript's foot, under Jump to latest (shown while a run is working), and the click
@@ -2854,7 +3342,7 @@ export default agentPaneEntry({
       },
     },
     "prompt-delivery": {
-      note: "Each sent prompt's way to the agent: the read check once it started, unread once acpmux took it, a clock and Still sending while it waits, and one that failed with Retry, Edit, Remove and Details.",
+      note: "Each sent prompt's way to the agent, one state per row: the read check once it started, unread once acpmux took it, Sending in the footer's time slot while it waits (no age beside it, no second label), and one that failed with Retry, Edit, Remove and Details and no sent footer.",
       snapshot: chat([
         user("Add retries to the client", 6, {
           delivery: { state: "read", promptId: "p1", sessionId: "s", sentAt: 0, acceptedAt: 40, readAt: 90 },
@@ -2884,6 +3372,7 @@ export default agentPaneEntry({
         }),
       ]),
     },
+    ...promptPendingLooks(),
     "failed-sends-grouped": {
       note: "Three prompts acpmux held behind the folder's trust question (Leo 2026-10-21): one card under the last of them, one plain sentence with Trust folder, and Retry, Edit, Remove and Details once for the three; the raw code only under Details.",
       snapshot: chat([
@@ -2949,8 +3438,7 @@ export default agentPaneEntry({
         summary(5.5, { status: "completed" }),
         user("Why does the dashboard look like this on the staging build?", 1, {
           failed: true,
-          error:
-            "Not sent: this message is too large to send at once. Take out dashboard-recording.png with Edit, or send it in a message of its own.",
+          error: "Not sent: too large. Remove dashboard-recording.png with Edit, or send it separately.",
           delivery: {
             state: "failed",
             promptId: "p1",
@@ -2971,24 +3459,6 @@ export default agentPaneEntry({
     "edited-files": {
       note: "A turn that edited three files: the edited-files card with Undo.",
       snapshot: chat([...workedTurnRows(minutesAgo(15)), summary(14, { status: "completed", toolCount: 3 })]),
-    },
-    "preview-card": {
-      note: "A turn that started a local server. Its address stays a link in the reply; the preview card under the answer shows only with the Debug toggle agentPane.debug.turnPreviewCards (data-turn-preview-cards on <html>).",
-      snapshot: chat([
-        user("Start the dev server", 9),
-        activity(
-          [
-            tool("bun run dev", "execute", "completed", {
-              command: "bun run dev",
-              output: "  VITE v8.0.0  ready in 412 ms\n\n  ➜  Local:   http://localhost:5173/",
-              exitCode: 0,
-            }),
-          ],
-          8.9,
-        ),
-        assistant("The dev server runs at http://localhost:5173/.", 8.8),
-        summary(8.8, { status: "completed", toolCount: 1 }),
-      ]),
     },
     "token-link": {
       note: "An agent's bare local address with a token (Leo 2026-10-20): plain link text with the token as •••, no card under the answer; hovering it offers Open and Open in.",
@@ -3101,6 +3571,30 @@ export default agentPaneEntry({
       height: 520,
       snapshot: chat([user("Which build targets are slowest?", 3), assistant(BUILD_CHART, 2.9), summary(2.9)]),
     },
+    "chart-fence-bar": {
+      note: "A ```chart fence (small JSON): two y fields draw as grouped bars, one color per field.",
+      height: 560,
+      snapshot: chat([user("Which build targets are slowest?", 3), assistant(CHART_FENCE.bar, 2.9), summary(2.9)]),
+    },
+    "chart-fence-line": {
+      note: "A ```chart fence in the labels-and-series shape: a line per series, labels in order.",
+      height: 560,
+      snapshot: chat([user("How did cold start move this week?", 3), assistant(CHART_FENCE.line, 2.9), summary(2.9)]),
+    },
+    "chart-fence-pie": {
+      note: "A ```chart pie: one slice per row, colored by category in the order given.",
+      height: 520,
+      snapshot: chat([user("Where do our CI minutes go?", 3), assistant(CHART_FENCE.pie, 2.9), summary(2.9)]),
+    },
+    "chart-fence-scatter": {
+      note: "A ```chart scatter: numeric x and y, axis titles from xTitle and yTitle.",
+      height: 560,
+      snapshot: chat([
+        user("Does memory grow with chat length?", 3),
+        assistant(CHART_FENCE.scatter, 2.9),
+        summary(2.9),
+      ]),
+    },
     "long-code": {
       note: "Long code blocks: wide lines, many lines, two languages.",
       height: 720,
@@ -3167,6 +3661,39 @@ export default agentPaneEntry({
           value: 0.08,
           reason:
             "The card leaves the bottom stack, which lies over the transcript's foot (bottomStack.css): the stack's unpainted wrapper (div.acpmux-dock, the only source) shrinks from its top, 0.062 measured; the composer and the rows do not move.",
+        },
+      },
+    },
+    "secret-card-keep": {
+      note: "Play: the person ticks Keep as key STRIPE_API_KEY before Provide, so acpmux also stores the value in Keys under that name (docs/design/safe-keys.md); the answer carries keepAs, never more.",
+      snapshot: chat([user("Create the Stripe test webhook", 1), assistant("I need your Stripe key for that.", 0.9)], {
+        isWorking: true,
+        secret: {
+          secretId: "gallery-secret",
+          name: "STRIPE_API_KEY",
+          reason: "Create the test webhook",
+        },
+      }),
+      afterCall: {
+        "chat.secret": chat(
+          [user("Create the Stripe test webhook", 1), assistant("I need your Stripe key for that.", 0.9)],
+          {
+            isWorking: true,
+          },
+        ),
+      },
+      play: async (ctx) => {
+        await ctx.click({ selector: ".acpmux-secret-card-field" });
+        await ctx.type("sk-test-51Hx9", { selector: ".acpmux-secret-card-field" });
+        await ctx.click({ selector: ".acpmux-secret-card-keep input" });
+        await ctx.click({ role: "button", name: "Provide" });
+        await ctx.waitFor(() => !ctx.document.querySelector(".acpmux-secret-card"));
+      },
+      checks: {
+        layoutShiftMax: {
+          value: 0.08,
+          reason:
+            "The card leaves the bottom stack, which lies over the transcript's foot (bottomStack.css): the stack's unpainted wrapper (div.acpmux-dock, the only source) shrinks from its top; the composer and the rows do not move.",
         },
       },
     },
@@ -3243,7 +3770,7 @@ export default agentPaneEntry({
       snapshot: chat(longChatRows),
       play: async (ctx) => {
         await ctx.scroll({ selector: ".acpmux-scroll" }, "top");
-        await ctx.waitFor(() => ctx.document.querySelector(".acpmux-jump-latest[data-shown]"));
+        await ctx.waitFor(() => ctx.document.querySelector(JUMP_LATEST_SHOWN));
       },
     },
     "jump-latest-working": {
@@ -3252,7 +3779,7 @@ export default agentPaneEntry({
       snapshot: chat(longChatRows, { isWorking: true }),
       play: async (ctx) => {
         await ctx.scroll({ selector: ".acpmux-scroll" }, "top");
-        await ctx.waitFor(() => ctx.document.querySelector(".acpmux-jump-latest[data-shown]"));
+        await ctx.waitFor(() => ctx.document.querySelector(JUMP_LATEST_SHOWN));
       },
     },
     selection: {
@@ -3336,7 +3863,7 @@ export default agentPaneEntry({
       },
     },
     "shell-long-colored-output": {
-      note: "A long, coloured test run: no colour codes, its end scrolling in an eight-line box with Show all 1200 lines (every line, though only the last 400 draw until opened), and Wrap lines and Copy in the label.",
+      note: "A long, coloured test run: no colour codes, its last 400 lines scrolling in an eight-line box, with Show all output under it to draw the rest, and Wrap lines and Copy in the label.",
       checks: shellDisclosureChecks,
       snapshot: chat(
         shellRows("gallery-shell-long", "Run the whole suite", "bun test", {
@@ -3349,67 +3876,83 @@ export default agentPaneEntry({
       ),
       play: async (ctx) => {
         await openSingleShell(ctx);
-        await ctx.waitFor(() => ctx.document.querySelector(".cv-output-more")?.textContent === "Show all 1200 lines");
+        await ctx.waitFor(() => ctx.document.querySelector(".cv-output-more")?.textContent === "Show all output");
       },
     },
     "edit-long-line-code": {
-      note: "An Edited card's diff for code: long lines stay whole, the right edge fades while more lies past it, a thin sideways scrollbar shows under the lines at rest (trackpad or Shift-wheel scrolls it), and Wrap lines sits beside Copy.",
+      note: "An edit tool's inline diff for code: long lines stay whole, the right edge fades while more lies past it, a thin sideways scrollbar shows under the lines at rest (trackpad or Shift-wheel scrolls it), and Wrap lines sits beside Copy.",
       checks: shellDisclosureChecks,
       snapshot: chat(editedRows("gallery-edit-code", "src/net/retryPolicy.ts", EDIT_LONG_CODE)),
       play: openEditedDiff,
     },
     "edit-long-line-prose": {
-      note: "An Edited card's diff for a Markdown file: long lines wrap, each hanging under its start; its first eight lines show under a fade with Show all 21 lines.",
+      note: "An edit tool's inline diff for a Markdown file: long lines wrap, each hanging under its start; it scrolls in an eight-line box whose bottom edge fades, with no Show all row under it.",
       checks: shellDisclosureChecks,
       snapshot: chat(editedRows("gallery-edit-prose", "docs/codex-excursions.md", EDIT_LONG_PROSE)),
       play: openEditedDiff,
     },
-    "edit-preview-open": {
-      note: "Show all 21 lines opens the whole diff and turns into Show less.",
+    "edit-preview-scrolled": {
+      note: "The long diff scrolled to its end in its box: its last line shows whole, the bottom edge hard.",
       checks: shellDisclosureChecks,
-      snapshot: chat(editedRows("gallery-edit-open", "docs/codex-excursions.md", EDIT_LONG_PROSE)),
+      snapshot: chat(editedRows("gallery-edit-scrolled", "docs/codex-excursions.md", EDIT_LONG_PROSE)),
       play: async (ctx) => {
         await openEditedDiff(ctx);
-        await ctx.click({ role: "button", name: "Show all 21 lines" });
-        await ctx.waitFor(
-          () => ctx.document.querySelector(".cv-edit-diff .cv-output-more")?.textContent === "Show less",
+        // The rendered diff's lines, not the placeholder drawn while their renderer loads
+        // (EditDiffLoading.tsx; the inline-diff-loading entry covers that).
+        await ctx.waitFor(() =>
+          ctx.document.querySelector(".cv-edit-diff diffs-container")?.shadowRoot?.querySelector("[data-line]"),
         );
+        const body = ctx.document.querySelector<HTMLElement>(".cv-edit-diff__body")!;
+        body.scrollTop = body.scrollHeight;
+        await ctx.waitFor(() => !body.hasAttribute("data-more-below"));
       },
     },
     "shell-unwrapped-long-line": {
       note: "A command's output with Wrap lines off: each line stays whole, the right edge fades while more lies past it, and a thin sideways scrollbar shows under the lines at rest.",
       checks: shellDisclosureChecks,
       snapshot: chat(
-        shellRows("gallery-shell-unwrapped", "Print the retry log", "cat logs/retry.log", {
+        shellRows("gallery-shell-unwrapped", "Print the retry log", "./scripts/retry-log.sh", {
           output: SHELL_LONG_LOG,
           exitCode: 0,
         }),
       ),
       play: async (ctx) => {
         await openSingleShell(ctx);
-        await ctx.click({ selector: '.cv-shell__actions button[aria-label="Wrap lines"]' });
-        await ctx.waitFor(() => ctx.document.querySelector(".cv-shell__body")?.getAttribute("data-wrap") === "false");
+        await unwrap(".cv-shell__body", ".cv-shell__actions")(ctx);
+      },
+    },
+    "shell-wrapped-long-line": {
+      note: "The same output after Wrap lines: each long row folds back under its start, so a table's columns no longer line up. Output opens aligned instead (blockWrap.ts); this is what the toggle gives.",
+      checks: shellDisclosureChecks,
+      snapshot: chat(
+        shellRows("gallery-shell-wrapped", "Print the retry log", "./scripts/retry-log.sh", {
+          output: SHELL_LONG_LOG,
+          exitCode: 0,
+        }),
+      ),
+      play: async (ctx) => {
+        await openSingleShell(ctx);
+        await wrapOn(".cv-shell__body", ".cv-shell__actions")(ctx);
       },
     },
     "edit-long-line-code-cut": {
-      note: "An Edited card's diff for code past eight lines, lines whole: the first eight under a fade, and below them the thin sideways scrollbar, shown at rest while the lines run past the right edge.",
+      note: "An edit tool's inline diff for code past eight lines, lines whole: it scrolls in an eight-line box whose bottom fades, and below the lines the thin sideways scrollbar, shown at rest while the lines run past the right edge.",
       checks: shellDisclosureChecks,
       snapshot: chat(editedRows("gallery-edit-code-cut", "src/net/uploadRoutes.ts", EDIT_LONG_CODE_CUT)),
       play: openEditedDiff,
     },
     "shell-unwrapped-long-cut": {
-      note: "A long command output with Wrap lines off: the first eight lines under a fade, and below them the thin sideways scrollbar, shown at rest while the lines run past the right edge.",
+      note: "A long command output with Wrap lines off: it scrolls in an eight-line box whose bottom fades, and below the lines the thin sideways scrollbar, shown at rest while the lines run past the right edge.",
       checks: shellDisclosureChecks,
       snapshot: chat(
-        shellRows("gallery-shell-unwrapped-cut", "Print the retry log", "cat logs/retry.log", {
+        shellRows("gallery-shell-unwrapped-cut", "Print the retry log", "./scripts/retry-log.sh", {
           output: SHELL_LONG_LOG_CUT,
           exitCode: 0,
         }),
       ),
       play: async (ctx) => {
         await openSingleShell(ctx);
-        await ctx.click({ selector: '.cv-shell__actions button[aria-label="Wrap lines"]' });
-        await ctx.waitFor(() => ctx.document.querySelector(".cv-shell__body")?.getAttribute("data-wrap") === "false");
+        await unwrap(".cv-shell__body", ".cv-shell__actions")(ctx);
       },
     },
     "shell-live-unwrapped-long-line": {
@@ -3419,7 +3962,7 @@ export default agentPaneEntry({
       play: unwrapCall(".cv-shell__body", ".cv-shell__actions"),
     },
     "shell-live-unwrapped-long-cut": {
-      note: "A running command's long output with Wrap lines off: the first eight lines under a fade and the sideways scrollbar's lane under them while it runs.",
+      note: "A running command's long output with Wrap lines off: it scrolls in an eight-line box that follows its end, with the sideways scrollbar's lane under the lines while it runs.",
       checks: shellDisclosureChecks,
       snapshot: chat(liveShellRows("gallery-shell-live-cut", SHELL_LONG_LOG_CUT), { isWorking: true }),
       play: unwrapCall(".cv-shell__body", ".cv-shell__actions"),
@@ -3438,14 +3981,14 @@ export default agentPaneEntry({
       play: unwrapCall(".cv-tool-output", ".cv-tool-output__actions"),
     },
     "output-unwrapped-long-cut": {
-      note: "A call's long output with Wrap lines off: its first eight lines whole under a fade, and the thin sideways scrollbar under them in the output's bottom padding, the preview that much taller (Codex review of #23967).",
+      note: "A call's long output with Wrap lines off: it scrolls in a box of eight whole lines whose bottom fades, and the thin sideways scrollbar under them in the output's bottom padding, the preview that much taller (Codex review of #23967).",
       checks: shellDisclosureChecks,
       snapshot: chat([
         user("Fetch the whole retry log", 3, { id: "gallery-output-unwrapped-cut-user" }),
         activity([tool("Fetch the whole retry log", "fetch", "completed", { output: SHELL_LONG_LOG_CUT })], 2.8, {
           id: "gallery-output-unwrapped-cut-activity",
         }),
-        assistant("Its first eight lines show; Show all opens the rest.", 2.6, {
+        assistant("It scrolls in an eight-line box.", 2.6, {
           id: "gallery-output-unwrapped-cut-answer",
         }),
         summary(2.6, { id: "gallery-output-unwrapped-cut-summary", status: "completed", toolCount: 1 }),
@@ -3474,15 +4017,19 @@ export default agentPaneEntry({
       play: openGroupedShells,
     },
     "long-commands-fill-row": {
-      note: 'Leo 2026-10-22, of Ran rows cut with an ellipsis about two thirds across: "shouldnt these also ellipsis later". Long commands (a cp of two long paths, a gh pr comment) draw their whole first step and end in an ellipsis at the row\'s right edge, before the chevron; no 60-character cut. Play: open Worked for and the run; each command line is the whole step.',
+      note: 'Leo 2026-10-22, of Ran rows cut with an ellipsis about two thirds across: "shouldnt these also ellipsis later". Long commands (a cp of two long paths, a gh pr comment) draw their whole first step and end in an ellipsis at the row\'s right edge, before the chevron; no 60-character cut. The cp row says what it did, its two file names in full (commandActions.ts); the gh row, a command the verb table does not know, draws its whole step. Play: open Worked for and the run; the cp row names both files and the gh line is the whole step.',
       checks: shellDisclosureChecks,
       snapshot: chat(longCommandRows),
       play: async (ctx) => {
         await openWorked(ctx);
         await openFoldedRun(ctx);
         await ctx.waitFor(() => ctx.document.querySelectorAll(".cv-command").length === 2);
+        const [cp] = ctx.document.querySelectorAll(".cv-command");
+        const copied = cp?.textContent ?? "";
+        if (!copied.includes("ellipsis-before.png") || !copied.includes("ellipsis-after.png"))
+          throw new Error(`the cp row reads ${copied}, not both of its files`);
         const lines = [...ctx.document.querySelectorAll(".cv-command__line")].map((line) => line.textContent);
-        if (lines[0] !== LONG_CP) throw new Error(`the cp row reads ${lines[0]}, not the whole command`);
+        if (!lines.includes(LONG_GH)) throw new Error(`the gh row reads ${lines.join(" | ")}, not the whole command`);
       },
     },
     "worked-for-opening": {
@@ -3530,17 +4077,15 @@ export default agentPaneEntry({
       play: showCutLine(true),
     },
     "show-less-keeps-place": {
-      note: "A long command output at the transcript's end, opened with Show all, then closed from Show less after scrolling down to it: the view stays on the control the reader clicked, with the rows above it, not on blank room under a row that closed up above the view.",
+      note: "A long Glob file list at the transcript's end, opened with Show all 160 files, then closed from Show less after scrolling down to it: the view stays on the control the reader clicked, with the rows above it, not on blank room under a row that closed up above the view.",
       checks: {
         layoutShiftMax: {
           value: 1,
           reason:
-            "Show all and Show less open and close a 160-line output; the play checks the clicked control stays in view.",
+            "Show all and Show less open and close a 160-file list; the play checks the clicked control stays in view.",
         },
       },
-      snapshot: chat(
-        shellRows("gallery-show-less", "Run the whole suite", "bun test", { output: SHOW_LESS_LOG, exitCode: 0 }),
-      ),
+      snapshot: chat(showLessRows),
       play: showLessAtEnd,
     },
     "background-turns": {
@@ -3553,9 +4098,23 @@ export default agentPaneEntry({
         },
       },
       play: async (ctx) => {
+        if (!drawsBackgroundTurnLines()) return;
         const line = { selector: `[data-row-id="${backgroundTurnRowId("gallery-bg-quiet")}"] .cv-background-turn` };
         await ctx.click(line);
         await ctx.waitFor(() => ctx.find(line).getAttribute("aria-expanded") === "true");
+      },
+    },
+    "background-turns-nothing-to-open": {
+      note: "Two turns the agent ran on its own whose events only updated rows that are not theirs. The quiet one that ended draws nothing (before: a Background update line whose chevron opened to nothing). The one still running is a plain spinner line, Background update, with no chevron and no button.",
+      snapshot: chat(backgroundTurnEmptyRows),
+      play: async (ctx) => {
+        if (ctx.document.querySelector(`[data-row-id="${backgroundTurnRowId("gallery-bg-empty")}"]`))
+          throw new Error("an ended background turn with nothing to open drew a line");
+        if (!drawsBackgroundTurnLines()) return;
+        const line = { selector: `[data-row-id="${backgroundTurnRowId("gallery-bg-waiting")}"] .cv-background-turn` };
+        if (ctx.find(line).tagName === "BUTTON") throw new Error("a background line with nothing to open is a button");
+        if (ctx.find(line).querySelector(".cv-agent-activity__chevron"))
+          throw new Error("a background line with nothing to open has a chevron");
       },
     },
     "fold-no-blank-collapsed": {
@@ -3598,7 +4157,7 @@ async function forkEarlierTurn(ctx: PlayContext) {
   );
 }
 
-function forkTurns(family: string | undefined) {
+function forkTurns(family: string | undefined, title = "Add retries to the fetch helper") {
   const snapshot = chat([
     user("Add retry with backoff to the uploader", 9, { seq: 1 }),
     assistant("Done: three tries, doubling from 200 ms, only on 5xx and timeouts.", 8.5),
@@ -3607,5 +4166,50 @@ function forkTurns(family: string | undefined) {
     assistant("Added `uploader.retry.test.ts`; it passes and fails without the retry.", 5),
     summary(5, { seq: 6, status: "completed" }),
   ]);
-  return { ...snapshot, summary: snapshot.summary && { ...snapshot.summary, family } };
+  return {
+    ...snapshot,
+    summary: snapshot.summary && { ...snapshot.summary, family, title },
+    sessions: snapshot.sessions.map((entry) => ({ ...entry, displayTitle: title })),
+  };
+}
+
+/// A slow acknowledgement on a prompt, and a steer on its way into the running turn, in each look
+/// (Leo, 2026-11-11: "what's up with this still sending thing? ... it already, like, shows that it's
+/// sent. So this is incongruous."). Every look keeps the state in the footer's time slot, the age's
+/// place once it lands, so the row moves nothing and never says sent and sending at once.
+function promptPendingLooks() {
+  const rows = () =>
+    chat(
+      [
+        user("Add retries to the client", 6, {
+          delivery: { state: "read", promptId: "p1", sessionId: "s", sentAt: 0, acceptedAt: 40, readAt: 90 },
+        }),
+        assistant("Added retries with backoff.", 5.5, { streaming: true }),
+        user("Use the cache dir, not tmp", 1, {
+          pending: true,
+          delivery: { state: "sending", promptId: "p2", sessionId: "s", sentAt: 0, queued: true },
+        }),
+        user("Then open a PR", 0.5, {
+          pending: true,
+          delivery: { state: "sending", promptId: "p3", sessionId: "s", sentAt: 0, slow: true },
+        }),
+      ],
+      { isWorking: true },
+    );
+  return {
+    "prompt-pending": {
+      note: "Chosen (A): a prompt still on its way says so in its footer's time slot, a clock and one sentence (Sending), shown at rest, its row anchored at the bubble's right edge so Copy never moves; a steer queued behind the running turn looks sent (its age, no words; Leo, 2026-11-17); the row's buttons come with the pointer and the age takes the slot once it lands.",
+      snapshot: rows(),
+    },
+    "prompt-pending-clock": {
+      note: "Variant B, not shipped: the clock alone in the time slot, its words for VoiceOver only. Quietest, but the clock alone says less than Sending.",
+      snapshot: rows(),
+      documentAttributes: { "prompt-pending-look": "clock" },
+    },
+    "prompt-pending-dim": {
+      note: "Variant C, not shipped: A's words, and the bubble's text muted until it lands. Clearest at a glance, but the bubble changing tone when the send lands reads as a second event.",
+      snapshot: rows(),
+      documentAttributes: { "prompt-pending-look": "dim" },
+    },
+  };
 }

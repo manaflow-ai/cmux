@@ -389,3 +389,68 @@ fn cmux_socket_path_alone_fails_with_no_daemon_on_every_daemon_path() {
         assert_eq!(method, "events.stream", "mcp: a daemon request reached the app: {line}");
     }
 }
+
+/// One `cmux --json` call: its words and the variables it adds.
+type Case<'a> = (&'a [&'a str], Vec<(&'a str, &'a str)>);
+
+/// `cmux --json identify` on a session no app owns (a headless daemon on a
+/// runner) answered `socket.no_app` or `app.not_found`, although the agent
+/// guide's first step is `cmux --json identify` (agent-ergonomics scorecard,
+/// gap 7). The session daemon answers instead, saying no app answered, and
+/// still no app socket sees a connection.
+#[test]
+fn identify_with_no_app_answers_from_the_session_daemon() {
+    let world = World::start("identify-headless");
+    let daemon = world.daemon.socket.to_str().unwrap().to_owned();
+    let cases: [Case<'_>; 3] = [
+        (&["--session", "main", "identify"], vec![]),
+        (&["identify"], vec![("CMUX_SOCKET_PATH", ""), ("CMUX_TUI_SOCKET", daemon.as_str())]),
+        (&["identify"], vec![("CMUX_BUNDLE_ID", ""), ("CMUX_SOCKET_PATH", "")]),
+    ];
+    for (args, env) in cases {
+        let what = format!("{args:?} {env:?}");
+        let output = world.cmux(args, &env);
+        assert_success(&output);
+        let value = serde_json::from_slice::<serde_json::Value>(&output.stdout).unwrap();
+        assert_eq!(value["app_connected"], false, "{what}: {value}");
+        assert_eq!(value["app"], serde_json::Value::Null, "{what}");
+        let code = value["app_error"]["code"].as_str().unwrap_or_default();
+        assert!(matches!(code, "socket.no_app" | "app.not_found"), "{what}: {value}");
+        assert_eq!(value["session"]["name"], "main", "{what}: {value}");
+        assert!(value["session"]["id"].is_string(), "{what}: {value}");
+        assert!(value["machine"]["id"].is_string(), "{what}: {value}");
+        assert_eq!(value["caller"]["found"], false, "{what}: {value}");
+        let socket = value["socket_path"].as_str().unwrap_or_default();
+        assert!(socket.ends_with("main.sock"), "{what}: {value}");
+        world.assert_app_untouched(&what);
+    }
+    // A named app socket keeps the classic answer: a dead one is an error.
+    let dead = world.dead_path();
+    let output = world.cmux(&["--app-socket", dead.to_str().unwrap(), "identify"], &[]);
+    assert_ne!(output.status.code(), Some(0), "{}", String::from_utf8_lossy(&output.stdout));
+}
+
+/// `--json` on a stream used to give `usage.invalid` ("streams require
+/// --jsonl, --quiet, or human output"). It names the command to run now.
+#[test]
+fn json_on_a_stream_names_the_jsonl_command() {
+    let world = World::start("stream-json");
+    let daemon = world.daemon.socket.to_str().unwrap().to_owned();
+    let env = [("CMUX_SOCKET_PATH", ""), ("CMUX_TUI_SOCKET", daemon.as_str())];
+    for (args, command) in [
+        (&["session", "current", "events"][..], "cmux --jsonl session current events"),
+        (
+            &["session", "current", "journal", "subscribe"][..],
+            "cmux --jsonl session current journal subscribe",
+        ),
+    ] {
+        let output = world.cmux(args, &env);
+        assert_eq!(failure_code(&output), (Some(2), "cli.use_jsonl".into()), "{args:?}");
+        let error = stderr_error(&output);
+        let message = error["message"].as_str().unwrap_or_default();
+        assert!(message.starts_with("this command streams; use --jsonl"), "{message}");
+        assert!(message.ends_with(command), "{args:?}: {message}");
+        assert_eq!(error["details"]["command"], command, "{args:?}");
+        assert!(output.stdout.is_empty(), "{args:?}");
+    }
+}

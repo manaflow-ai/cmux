@@ -51,7 +51,8 @@ public struct NewColumnCommand: Sendable {
         options.tabID = provisional.tabID
         options.terminalID = TerminalID(rawValue: provisional.terminalID)
         let pane = pane, width = width, left = left, sent = options
-        let intent = Intent.splitPane(pane: pane, direction: .right, ratio: 0.5, provisional: provisional)
+        // The stand-in's terminal opens in the folder this create sends: its tab shows it from the key's frame.
+        let intent = Intent.splitPane(pane: pane, direction: .right, ratio: 0.5, provisional: provisional.opening(in: options.cwd))
         // The target at send time: a stand-in (a create pressed on a create in flight) has become the
         // daemon's pane by then (``DaemonStore/daemonHandle(showing:)``; creates of one workspace go
         // out in order, each once the store holds the one before).

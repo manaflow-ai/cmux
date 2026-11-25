@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # Runs `swift test` with the given arguments. It names the tests open at least
-# CMUX_NEXT_TEST_STUCK_SECONDS, samples the test processes so the log shows where
-# they are stuck, kills them, and fails when the run STALLS: no Swift Testing test
+# CMUX_NEXT_TEST_STUCK_SECONDS, samples the test processes and the cmux-tui and
+# acpmux daemons this run's tests started (job_daemons) so the log shows where
+# they are stuck, kills the test processes, and fails when the run STALLS: no Swift Testing test
 # has finished for CMUX_NEXT_TEST_STUCK_SECONDS (default 300; checked every
 # CMUX_NEXT_TEST_STUCK_POLL_SECONDS, default 10) and the test processes sat idle
 # in that time (under CMUX_NEXT_TEST_IDLE_CPU_SHARE of one core, default 0.05: a
@@ -9,7 +10,19 @@
 # CMUX_NEXT_TEST_BUSY_STUCK_SECONDS (default 3x the stuck limit) although they kept
 # using CPU (a spin, or a runner so starved that one test takes minutes). A slow
 # run that is still finishing tests is never a stall. CMUX_NEXT_TEST_HANG_SECONDS
-# (default 1200) is only the hard ceiling on the whole run. Swift Testing has no package-wide time limit (its default limit
+# (default 1200) is only the hard ceiling on the whole run.
+#
+# The STARTUP rule covers the stretch before the first test line, where the stall rule cannot look
+# (output lags there): when a test helper (xctest, swiftpm-testing-helper) of this run has lived
+# CMUX_NEXT_TEST_STARTUP_SECONDS (default 120; 0 turns the rule off) with no Swift Testing or
+# XCTest line in the log and the run's processes used under CMUX_NEXT_TEST_IDLE_CPU_SHARE of one
+# core in that time, the helper is deadlocked before its first test. On 2026-11-15
+# (cmuxs-mac-mini-6, run 43743518734) XCTest's class scan (objc_copyClassList -> SwiftUI metadata ->
+# +[NSView initialize]) held the ObjC runtime lock while +[CNContactStore initialize]'s preferences
+# read waited on that lock: two live-daemon steps sat at 0.2 s of CPU until the 900 s and 480 s
+# whole-run limits, holding 11 of the mini's 14 units. The rule samples and ends the run, and since
+# no test ran it runs `swift test` once more (CMUX_NEXT_TEST_STARTUP_RETRY, default 1; 0 fails at
+# once); a second startup hang fails the step. Swift Testing has no package-wide time limit (its default limit
 # cannot be set from `swift test`), so a test without its own `.timeLimit`
 # would otherwise hold the run until the whole-run limit with no name. Run from
 # Packages/macOS/CmuxNext.
@@ -66,14 +79,19 @@ tee_pid=$!
 # ReportCrash had written no report for it within the window either (the search
 # of both report directories found 316 reports, all older than the run).
 #
-# symbolicate=full, not the `symbolicate=off` the xcodebuild jobs use: an
-# unsymbolicated stack answers none of the question, and this costs only on a
-# run that has already crashed. interactive=no and timeout=0s so it never waits
-# for a keypress that cannot come; color=no so the log stays readable.
+# symbolicate=fast, not the `symbolicate=off` the xcodebuild jobs use: an
+# unsymbolicated stack answers none of the question. Not `full` either: full
+# also looks up inlined frames and source lines in the test binary's debug info,
+# and for CmuxNextPackageTests that took longer than the stall limit. Run
+# 41465146517 crashed in VideoJob.frame (shard 14), the backtracer was still
+# symbolicating 15 minutes later, the stall rule killed the run with exit 143
+# and the stack never printed. fast still names every function.
+# interactive=no and timeout=0s so it never waits for a keypress that cannot
+# come; color=no so the log stays readable.
 # The test bundle drops the variable from its environment once the runtime has read it
 # (Tests/Support/CmuxNextTestExitTrace), so only the test process gets a backtracer: an exit
 # test's child traps on purpose and must not spend minutes symbolicating.
-export SWIFT_BACKTRACE="${SWIFT_BACKTRACE:-enable=yes,interactive=no,timeout=0s,symbolicate=full,color=no,threads=crashed}"
+export SWIFT_BACKTRACE="${SWIFT_BACKTRACE:-enable=yes,interactive=no,timeout=0s,symbolicate=fast,color=no,threads=crashed}"
 swift test "$@" >&3 2>&1 &
 test_pid=$!
 # Only this run's processes: on a shared CI Mac other jobs run xctest and
@@ -93,6 +111,10 @@ poll="${CMUX_NEXT_TEST_STUCK_POLL_SECONDS:-10}"
 # the pass with 223 tests open). Busy and silent, the run gets busy_limit before it is called stuck.
 busy_limit="${CMUX_NEXT_TEST_BUSY_STUCK_SECONDS:-$(( stuck_limit * 3 ))}"
 idle_share="${CMUX_NEXT_TEST_IDLE_CPU_SHARE:-0.05}"
+startup_limit="${CMUX_NEXT_TEST_STARTUP_SECONDS:-120}"
+# This run may retry a startup hang once: not when it is the retry, nor when the retry is off.
+startup_retry=""
+[[ -n "${CMUX_NEXT_TEST_STARTUP_RETRIED:-}" || "${CMUX_NEXT_TEST_STARTUP_RETRY:-1}" == 0 ]] || startup_retry=1
 helpers="$log.helpers"
 : > "$helpers"
 cpu_state="$log.cpu"
@@ -202,6 +224,29 @@ names_awk='
     at = index(key, block_sep())
     if (at > 1 && substr(key, 1, at - 1) ~ /^[0-9]+$/) return substr(key, at + 1)
     return key
+  }
+  # A pass line another stream cut into ("✔ Test aFailureNothingRetriesShowsAtOnceswift runtime:
+  # backtrace-on-crash ...", run 41665450504: the helper was killed with the rest of its line
+  # unwritten). ✔ is printed only for a test that passed, so it closes the open start in this block
+  # whose name, up to its "(", begins the line and is not followed by more of a test name and its
+  # "(" (foo() is not taken for fooBar()); the longest such name. KEY when none fits.
+  function spliced_start(key,    cut, i, n, stem, at, best, best_len) {
+    cut = block_name(key)
+    best = key
+    best_len = 0
+    for (i = 1; i <= name_count; i++) {
+      n = names[i]
+      if (index(n, (count_block + 0) block_sep()) != 1 || first_open_run(n) > started[n]) continue
+      stem = block_name(n)
+      at = index(stem, "(")
+      if (at < 2) continue
+      stem = substr(stem, 1, at - 1)
+      if (index(cut, stem) == 1 && substr(cut, at) !~ /^[A-Za-z0-9_]*\(/ && at - 1 > best_len) {
+        best = n
+        best_len = at - 1
+      }
+    }
+    return best
   }'
 # The bookkeeping both readers share. Occurrences matched in order, not a set of names: one log
 # can hold the same name more than once. A finish only closes a start still open; one with no
@@ -220,6 +265,7 @@ count_awk='
   }
   is_finish($0) && $0 !~ /^➜ Test .* skipped/ {
     counted_name = block_key(name_of($0))
+    if (!(counted_name in started) && $0 ~ /^✔ Test / && $0 !~ /^✔ Test run with /) counted_name = spliced_start(counted_name)
     # Read it into a variable first. Naming first_open[counted_name] as the target of an
     # assignment CREATES that key before the right-hand side is evaluated, so
     # `first_open[n] = first_open_run(n) + 1` made first_open_run take its "already set" branch
@@ -238,9 +284,52 @@ open_tests() {
     }
   ' "$1"
 }
-# Samples this run's test processes, then ends them and the run.
+# The cmux-tui and acpmux daemons this run's tests started, one pid a line. A live-daemon test
+# waits on a daemon that is not its child: `cmux-tui server ensure` starts the owner in its own
+# session (setsid), so it is reparented to launchd, and a sample of the test process alone shows
+# it idle in a socket read (run 41497919334 job 125458481373). A daemon belongs to this run when
+# its program is cmux-tui or acpmux (never a terminal host of one) and
+#   - it is in this run's process tree (a `server ensure` client still waiting), or
+#   - its command line has `--exit-with-pid P` (the owner's form is `P:<start ms>`) for a pid P
+#     of this run: the harnesses tie their owner to the test process that way
+#     (BranchDaemonHarness, FirstLaunchTests), or
+#   - its command line, or on macOS its environment (ps -E: the job's ACPMUX_HOME, TMPDIR and
+#     RUNNER_TEMP reach the daemons the tests start), names a path under this job's RUNNER_TEMP.
+# Never by name alone: a CI mini runs other jobs' daemons, and the person's own, as this user.
+# $1: the run's pids, space separated.
+job_daemons() {
+  local listing
+  if [ "$(uname)" = Darwin ]; then
+    listing="$(ps -A -E -ww -o pid= -o command= 2>/dev/null)"
+  else
+    listing="$(ps -A -ww -o pid= -o args= 2>/dev/null)"
+  fi
+  awk -v run_pids="$1" -v temp="${RUNNER_TEMP:-}" '
+    BEGIN { count = split(run_pids, list, " "); for (i = 1; i <= count; i++) run[list[i]] = 1 }
+    function base(word) { sub(/.*\//, "", word); return word }
+    {
+      pid = $1
+      if (pid !~ /^[0-9]+$/ || $0 ~ / __terminal-host( |$)/) next
+      program = base($2)
+      if (program ~ /^(sh|bash|zsh|env)$/) program = base($3)
+      if (program !~ /^(cmux-tui|acpmux)/) next
+      mine = (pid in run)
+      rest = $0
+      while (!mine && match(rest, /--exit-with-pid[ =][0-9]+/)) {
+        owner = substr(rest, RSTART, RLENGTH); sub(/.*[ =]/, "", owner)
+        if (owner in run) mine = 1
+        rest = substr(rest, RSTART + RLENGTH)
+      }
+      if (!mine && length(temp) > 1 && index($0, temp "/")) mine = 1
+      if (mine) print pid
+    }' <<<"$listing"
+}
+# Samples this run's test processes and the daemons its tests started, then ends the test
+# processes and the run. The daemons are sampled, never killed here: the job's own stop step and
+# their --exit-with-pid end them. At most CMUX_NEXT_TEST_SAMPLE_DAEMONS (default 4) daemons, each
+# for the same 5 s as a test process.
 sample_and_kill() {
-  local tree p
+  local tree p daemons daemon_count max_daemons
   tree="$(descendants "$test_pid")"
   for p in $tree; do
     case "$(ps -o comm= -p "$p" 2>/dev/null)" in
@@ -248,6 +337,18 @@ sample_and_kill() {
         echo "=== sample $p"
         sample "$p" 5 -mayDie 2>&1 | head -n 800 ;;
     esac
+  done
+  daemons="$(job_daemons "$test_pid ${tree//$'\n'/ }")"
+  daemon_count=$(grep -c . <<<"$daemons" || true)
+  max_daemons="${CMUX_NEXT_TEST_SAMPLE_DAEMONS:-4}"
+  if (( daemon_count == 0 )); then
+    echo "=== no cmux-tui or acpmux daemon of this run to sample"
+  elif (( daemon_count > max_daemons )); then
+    echo "=== $daemon_count daemons of this run; sampling the first $max_daemons (CMUX_NEXT_TEST_SAMPLE_DAEMONS)"
+  fi
+  for p in $(head -n "$max_daemons" <<<"$daemons"); do
+    echo "=== sample daemon $p: $(ps -o args= -p "$p" 2>/dev/null | cut -c 1-300)"
+    sample "$p" 5 -mayDie 2>&1 | head -n 800
   done
   for p in $tree; do
     kill "$p" 2>/dev/null
@@ -273,6 +374,13 @@ sample_and_kill() {
   # already reported as busy (one line per spell, not one per poll).
   cpu_since=0
   said_busy=""
+  # The startup rule's spell: the poll that first saw a live helper with no test line yet, and the
+  # CPU the run used since.
+  startup_since=""
+  startup_cpu=0
+  # Any test line of either framework ends the startup stretch for good.
+  any_test_re="^(◇ Test |Test Suite '|Test Case ')"
+  any_test_seen=""
   while :; do
     sleep "$poll" &
     sleeper=$!
@@ -328,6 +436,41 @@ sample_and_kill() {
     size=$(wc -c < "$log" 2>/dev/null | tr -d ' ')
     # Read every poll, so each poll's use lands in the spell it belongs to.
     used=$(cpu_used)
+    if (( startup_limit > 0 )) && [ -z "$any_test_seen" ]; then
+      if grep -qE "$any_test_re" "$log" 2>/dev/null; then
+        any_test_seen=1
+        startup_since=""
+      else
+        live=""
+        for p in $(cat "$helpers"); do kill -0 "$p" 2>/dev/null && live="$live $p"; done
+        if [ -z "$live" ]; then
+          startup_since=""
+        elif [ -z "$startup_since" ]; then
+          startup_since="$now"
+          startup_cpu=0
+        else
+          startup_cpu=$(awk -v a="$startup_cpu" -v b="${used:-0}" 'BEGIN { printf "%.2f", a + b }')
+          waited=$(( now - startup_since ))
+          if (( waited >= startup_limit )) \
+            && awk -v c="$startup_cpu" -v q="$waited" -v f="$idle_share" 'BEGIN { exit !(c < q * f) }'; then
+            echo "the startup rule" > "$fired"
+            what="test helper${live} printed no test in ${waited}s and the run used ${startup_cpu} s of CPU in that time (CMUX_NEXT_TEST_STARTUP_SECONDS ${startup_limit}): a deadlock before the first test"
+            printf '\n'
+            if [ -n "$startup_retry" ]; then
+              : > "$log.startup"
+              echo "::warning title=cmux-next swift test startup hang::$what; sampling it, then running swift test once more"
+            else
+              echo "::error title=cmux-next swift test startup hang::$what; sampling the test processes"
+            fi
+            if [ -n "${GITHUB_STEP_SUMMARY:-}" ]; then
+              printf '### Startup hang: %s\n\n' "$what" >> "$GITHUB_STEP_SUMMARY"
+            fi
+            sample_and_kill
+            exit 0
+          fi
+        fi
+      fi
+    fi
     if [ "$finishes" != "$last_finishes" ] || { [ ! -s "$open" ] && [ "${size:-0}" != "$last_size" ]; } \
       || ! grep -q '^◇ Test ' "$log" 2>/dev/null; then
       last_progress="$now"
@@ -393,6 +536,16 @@ else
   wait "$watcher" 2>/dev/null
 fi
 exec 3>&-
+# A startup hang ran no test: run once more, with what is left of the whole-run limit (at least
+# 300 s), as this run's retry. exec runs no EXIT trap, so the log goes first.
+if [ -e "$log.startup" ]; then
+  wait "$tee_pid" 2>/dev/null
+  rm -f "$log" "$log".*
+  trap - EXIT
+  left=$(( limit - ($(date +%s) - started_at) ))
+  (( left >= 300 )) || left=300
+  CMUX_NEXT_TEST_STARTUP_RETRIED=1 CMUX_NEXT_TEST_HANG_SECONDS="$left" exec bash "$0" "$@"
+fi
 # The report reads the log, so its writer must be done. bash 3.2 cannot wait for a
 # process substitution (wait returns at once), so watch tee's pid end, up to 10 s.
 if ! wait "$tee_pid" 2>/dev/null; then
@@ -400,6 +553,22 @@ if ! wait "$tee_pid" 2>/dev/null; then
     kill -0 "$tee_pid" 2>/dev/null || break
     sleep 0.05
   done
+fi
+# A shard that was cut short can leave SwiftPM's package state briefly held while
+# the next isolated process starts. SwiftPM then reports a package-save or binary
+# artifact-mapping error before any test runs. That is infrastructure contention,
+# not a test result: retry this exact no-test signature twice, with bounded backoff.
+# Keep genuine manifest, artifact, and test failures red.
+swiftpm_retry_count="${CMUX_NEXT_TEST_SWIFTPM_RETRY_COUNT:-0}"
+if (( status != 0 && swiftpm_retry_count < 2 )) \
+  && ! grep -q '^◇ Test' "$log" \
+  && grep -qE 'couldn.*be saved in the folder|binary target .* could not be mapped to an artifact with expected name|unable to attach DB: database is locked' "$log"; then
+  retry_delay=$(( swiftpm_retry_count == 0 ? 5 : 20 ))
+  echo "::warning title=cmux-next swift test::SwiftPM failed before any test ran; retrying package state in ${retry_delay}s"
+  sleep "$retry_delay"
+  rm -f "$log" "$log".*
+  trap - EXIT
+  CMUX_NEXT_TEST_SWIFTPM_RETRY_COUNT=$((swiftpm_retry_count + 1)) exec bash "$0" "$@"
 fi
 
 # Prints the ::error lines and the step summary for the run's log. Exits 3 when

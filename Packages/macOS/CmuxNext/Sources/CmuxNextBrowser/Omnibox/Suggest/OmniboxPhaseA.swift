@@ -12,12 +12,13 @@ public nonisolated struct OmniboxLocalQuery: Sendable {
     /// Enabled sources, in tie-break order.
     public var sources: [OmniboxSource]
     public var inlineAutocomplete: Bool
-    /// Open tabs of the profile, without the tab that asks.
-    public var tabs: [OmniboxTabRow]
+    /// The tab that asks: never offered as its own Switch to Tab row. The open tabs themselves are the index's
+    /// (`OmniboxLocalIndex.setOpenTab`), kept as tabs open, navigate and close; a query carries none of them.
+    public var excludedTab: String?
     public var now: Date
 
     public init(generation: UInt64, gate: OmniboxGenerationGate, text: String, resolver: OmniboxResolver, maxRows: Int = 8,
-                sources: [OmniboxSource] = OmniboxSource.defaultOrder, inlineAutocomplete: Bool = true, tabs: [OmniboxTabRow] = [],
+                sources: [OmniboxSource] = OmniboxSource.defaultOrder, inlineAutocomplete: Bool = true, excludedTab: String? = nil,
                 now: Date = Date()) {
         self.generation = generation
         self.gate = gate
@@ -26,7 +27,7 @@ public nonisolated struct OmniboxLocalQuery: Sendable {
         self.maxRows = maxRows
         self.sources = sources
         self.inlineAutocomplete = inlineAutocomplete
-        self.tabs = tabs
+        self.excludedTab = excludedTab
         self.now = now
     }
 }
@@ -42,9 +43,9 @@ public nonisolated struct OmniboxPhaseA {
     static let bookmarkLimit = 4
     static let tabLimit = 3
 
-    /// The local rows for `query`. `tabKeys` maps a tab row's dedupe key to its tab.
+    /// The local rows for `query`. `tabKeys` maps a tab row's dedupe key to the open tabs on it, in key order.
     public static func rows(for query: OmniboxLocalQuery, history: OmniboxQuickIndex, bookmarks: OmniboxQuickIndex,
-                            tabs: OmniboxQuickIndex, tabKeys: [String: String]) -> [BrowserSuggestion] {
+                            tabs: OmniboxQuickIndex, tabKeys: [String: [String]]) -> [BrowserSuggestion] {
         let text = query.text
         let typed = Self.primary(for: text, resolver: query.resolver)
         var result = typed.map { [$0] } ?? []
@@ -65,11 +66,15 @@ public nonisolated struct OmniboxPhaseA {
                     candidates.append((Self.row(match, kind: .bookmark), match.key, order, match.allowsInlineCompletion))
                 }
             case .tabs:
-                for match in tabs.search(text, now: query.now, limit: tabLimit) {
+                // One more match than shown when the asking tab may take one: it is never its own row.
+                var offered = 0
+                for match in tabs.search(text, now: query.now, limit: tabLimit + (query.excludedTab == nil ? 0 : 1)) where offered < tabLimit {
+                    guard let key = tabKeys[match.key]?.first(where: { $0 != query.excludedTab }) else { continue }
                     var tab = Self.row(match, kind: .switchToTab)
                     tab.detail = Strings.switchToTab
-                    tab.tabKey = tabKeys[match.key]
-                    if tab.tabKey != nil { candidates.append((tab, match.key, order, false)) }
+                    tab.tabKey = key
+                    candidates.append((tab, match.key, order, false))
+                    offered += 1
                 }
             case .calculator:
                 if let answer = OmniboxCalculator.row(for: text) { candidates.append((answer, "answer:" + answer.title, order, false)) }

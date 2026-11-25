@@ -38,3 +38,16 @@ test("rows only shrink; --add writes rows for new states", () => {
   const states = invariantsOf([result("a", "x", []), result("b", "y", ["menu-fit:M"])]);
   expect(shrunk({ states: { "a#x": ["icon-column:row 1"] } }, states, true).states).toEqual({ "a#x": [], "b#y": ["menu-fit:M"] });
 });
+
+test("a row renumbered by the fixture is the same listed violation; one more row of the kind still fails", () => {
+  const listed = { states: { "a#x": ["center-line:row activity-24", "icon-column:row turnSummary-3"] } };
+  const moved = invariantsOf([result("a", "x", ["center-line:row activity-28", "icon-column:row turnSummary-7"])]);
+  const same = judgeInvariants(moved, listed);
+  expect(same.broke).toEqual([]);
+  expect(same.mended).toEqual([]);
+  const more = invariantsOf([result("a", "x", ["center-line:row activity-28", "center-line:row activity-30"])]);
+  const found = judgeInvariants(more, listed);
+  expect(found.broke.map(({ violations }) => violations.map(({ key }) => key))).toEqual([["center-line:row activity-28"]]);
+  expect(found.mended).toEqual([{ state: "a#x", keys: ["icon-column:row turnSummary-3"] }]);
+  expect(shrunk(listed, moved).states).toEqual({ "a#x": ["center-line:row activity-28", "icon-column:row turnSummary-7"] });
+});

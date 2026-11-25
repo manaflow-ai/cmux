@@ -39,7 +39,7 @@ def _record(authorization: str, headers: Mapping[str, str] | None, status: int) 
     if status in (403, 429):
         entry["refused"] += 1
     for header, key in (("X-RateLimit-Limit", "limit"), ("X-RateLimit-Remaining", "remaining"),
-                        ("X-RateLimit-Resource", "resource")):
+                        ("X-RateLimit-Resource", "resource"), ("X-RateLimit-Reset", "reset")):
         value = headers.get(header) if hasattr(headers, "get") else None
         if value is not None:
             entry[key] = value
@@ -53,7 +53,8 @@ def report(stream: TextIO | None = None) -> None:
     stream = stream or sys.stderr
     for name, entry in sorted(_spend.items()):
         print(f"GitHub API spend: token {name}: {entry['requests']} requests ({entry['refused']} refused); "
-              f"{entry.get('resource', '?')} limit {entry.get('limit', '?')}, remaining {entry.get('remaining', '?')}",
+              f"{entry.get('resource', '?')} limit {entry.get('limit', '?')}, remaining {entry.get('remaining', '?')}, "
+              f"reset {entry.get('reset', '?')}",
               file=stream)
 
 

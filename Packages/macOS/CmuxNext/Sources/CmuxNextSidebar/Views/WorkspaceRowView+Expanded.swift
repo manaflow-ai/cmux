@@ -11,20 +11,35 @@ extension WorkspaceRowView {
     /// y the icon and trailing marks center on.
     func textMetrics(head b: NSRect) -> (title: CGFloat, line: CGFloat, top: CGFloat, center: CGFloat) {
         let th = ceil(title.intrinsicContentSize.height)
-        let sh = SidebarTunables.evenRowText.value ? SidebarStyle.detailLineHeight : ceil(subtitle.intrinsicContentSize.height)
-        let lines = (hasSubtitle ? 1 : 0) + (hasMeta ? 1 : 0)
-        let stackTop = (b.height - th - CGFloat(lines) * (lineGap + sh)) / 2
-        let center = lines > 0 ? stackTop + th / 2 : b.midY
-        let top = SidebarStyle.columns(rowWidth: b.width).textOriginY(centerY: center, baseline: title.font.ascender,
-                                                                    capHeight: title.font.capHeight)
-        return (th, sh, top, center)
+        // Each detail line adds exactly its own height (`SidebarDensityTokens.rowHeightWithSubtitle`), with no gap
+        // between stacked lines; the labels' own line spacing separates them.
+        let sh = SidebarStyle.detailLineHeight
+        let lines = Self.stackedDetailLines(expanded: isExpanded, subtitle: hasSubtitle, meta: hasMeta)
+        let stackTop = (b.height - th - CGFloat(lines) * sh) / 2
+        // The title centers its capitals on its line of the stack (#27598).
+        let titleCenter = stackTop + th / 2
+        // A browser density places the baseline as its tab does (`SidebarStyle.capCenteredBaseline`); the marquee label
+        // draws its baseline one ascender, on a whole pixel, under its top (`titlePenOrigin`).
+        let scale = window?.backingScaleFactor ?? 2
+        let top = SidebarStyle.capCenteredBaseline(title.font, centerY: titleCenter, scale: scale).map { $0 - (title.font.ascender * scale).rounded() / scale }
+            ?? SidebarStyle.columns(rowWidth: b.width).textOriginY(centerY: titleCenter, baseline: title.font.ascender,
+                                                                 capHeight: title.font.capHeight)
+        // The icon and the trailing marks center on the whole row, one line or two (Leo 2026-10-14: "wait that's
+        // not centered? why is it superscript?"); only an expanded row puts them on its title's line.
+        return (th, sh, top, isExpanded ? titleCenter : b.midY)
     }
 
-    var hasMeta: Bool { isExpanded && !metaLabel.stringValue.isEmpty }
+    var hasMeta: Bool { !metaLabel.stringValue.isEmpty }
 
-    /// Between stacked text lines: none when each detail line adds exactly its own height to the row
-    /// (`SidebarDensityTokens.rowHeightWithSubtitle`); the labels' own line spacing separates them.
-    var lineGap: CGFloat { SidebarTunables.evenRowText.value ? 0 : Metrics.space1 }
+    /// The detail lines the title stacks with. An expanded row is always two lines tall (`SidebarLayoutMetrics.rowStep`), so
+    /// it stacks its title over one detail line's room even while it has none: a summary or preview arriving late (a chat's
+    /// first message, a notification's text) fills that room and never moves the title, the icon or the trailing marks,
+    /// which center on the title's line (Leo 2026-11-24: "we need to have more things decoupled from possible shifts").
+    /// A third line (meta) grows the row by itself, and the title stays where it was.
+    static func stackedDetailLines(expanded: Bool, subtitle: Bool, meta: Bool) -> Int {
+        let lines = (subtitle ? 1 : 0) + (meta ? 1 : 0)
+        return expanded ? max(1, lines) : lines
+    }
 
     /// Lays out the age (or a one-line status) left of `trailing` and returns the new trailing edge.
     func layoutTime(trailing: CGFloat, cy: CGFloat, height: CGFloat) -> CGFloat {
@@ -40,24 +55,24 @@ extension WorkspaceRowView {
         return columns.trailingEdge(before: timeLabel.frame)
     }
 
-    /// The Unpin button of an expanded pinned row, with the menu button (hover,
-    /// not renaming): left of it, fading in and out in place with it. Returns
-    /// its minX while it shows. An unpinned row draws no pin, at rest or on
-    /// hover; Pin Workspace stays in its ⋮ menu (Leo 2026-10-21: "no empty pin
-    /// symbol by default").
-    func layoutPin(rowWidth: CGFloat, showMore: Bool, control: CGFloat, fades: Bool) -> CGFloat? {
-        let pinned = isExpanded && isPinned?() == true
-        setHoverShown(pinButton, showMore && pinned, fades: fades)
-        guard pinned else { return nil }
-        (pinButton.icon, pinButton.label) = (.statePinned, Strings.unpinWorkspace)
+    /// The hover pin, with the menu button (hover, not renaming): left of it, fading in and out in place with it, on
+    /// every row the App wires a pin to (`SidebarModel.workspacePin`), at every density. Pin on an unpinned row, Unpin
+    /// on a pinned one (David Beyer 2026-11-20: pinning by drag is awkward). No row draws a pin at rest (Leo
+    /// 2026-10-21: "no empty pin symbol by default"). Returns its minX while it shows.
+    func layoutPin(rowWidth: CGFloat, showMore: Bool, moreFrame: NSRect, control: CGFloat, fades: Bool) -> CGFloat? {
+        // The pin state is read only while the controls show: a row at rest asks nothing.
+        let pinned = showMore ? isPinned?() : nil
+        setHoverShown(pinSlot, pinned != nil, fades: fades)
+        guard let pinned else { return nil }
+        pinSlot.made.map { applyPin($0, pinned: pinned) }
         if SidebarTunables.rowCloseSpot.value.atEnd {
             let center = SidebarStyle.trailingColumnCenterX(rowWidth: rowWidth)
-            let nextSlot = Int(round((center - moreButton.frame.midX) / SidebarStyle.trailingSlotPitch)) + 1
-            pinButton.frame = trailingActionFrame(rowWidth: rowWidth, cy: moreButton.frame.midY, control: control, minimumSlot: nextSlot)
+            let nextSlot = Int(round((center - moreFrame.midX) / SidebarStyle.trailingSlotPitch)) + 1
+            pinSlot.frame = trailingActionFrame(rowWidth: rowWidth, cy: moreFrame.midY, control: control, minimumSlot: nextSlot)
         } else {
-            pinButton.frame = moreButton.frame.offsetBy(dx: -SidebarStyle.trailingSlotPitch, dy: 0)
+            pinSlot.frame = moreFrame.offsetBy(dx: -SidebarStyle.trailingSlotPitch, dy: 0)
         }
-        return showMore ? pinButton.frame.minX : nil
+        return pinSlot.frame.minX
     }
 
     /// The title, the second line and the meta line, top to bottom from `top`.
@@ -65,12 +80,12 @@ extension WorkspaceRowView {
                          top: CGFloat, title th: CGFloat, line sh: CGFloat) {
         title.frame = NSRect(x: x + inset, y: top, width: titleWidth, height: th)
         let lineWidth = isExpanded ? max(0, b.width - Metrics.space3 - x) : width
+        // The second and meta lines stack under the title's line box, so a two-line row keeps a one-line row's room
+        // below its last line (Leo 2026-10-20, `SidebarRowLineSpacingTests`). Stepping them by the title's capital
+        // center instead put the second line about a point lower and ate that room.
         subtitle.isHidden = !hasSubtitle
-        let titleCenter = top + title.font.ascender - title.font.capHeight / 2
-        let subtitleCenter = titleCenter + th + lineGap
-        subtitle.frame = NSRect(x: x, y: SidebarStyle.textY(subtitle, centerY: subtitleCenter), width: lineWidth, height: sh)
+        subtitle.frame = NSRect(x: x, y: top + th, width: lineWidth, height: sh)
         metaLabel.isHidden = !hasMeta
-        let metaCenter = hasSubtitle ? subtitleCenter + sh + lineGap : titleCenter + th + lineGap
-        metaLabel.frame = NSRect(x: x, y: SidebarStyle.textY(metaLabel, centerY: metaCenter), width: lineWidth, height: sh)
+        metaLabel.frame = NSRect(x: x, y: hasSubtitle ? subtitle.frame.maxY : top + th, width: lineWidth, height: sh)
     }
 }

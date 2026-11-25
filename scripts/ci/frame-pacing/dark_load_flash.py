@@ -108,9 +108,9 @@ def _record(driver, folder: Path, seconds: float, act=None) -> dict:
     started = driver.call("debug.window_record", {"dir": str(folder), "seconds": seconds})
     if "error" in started:
         return {"error": f"window_record: {started['error']}"}
-    time.sleep(0.2)
+    time.sleep(0.2)  # sleep-ok: the recording's lead-in, frames at rest before `act()`
     acted = act() if act else None
-    time.sleep(seconds)
+    time.sleep(seconds)  # sleep-ok: the recording window itself; frames.json is polled for below
     # Poll rather than sleep a fixed margin: `finish()` queues the JSON write behind every
     # frame's encode, and a 2.6 s pass at 120 Hz leaves a few hundred of those in the
     # queue. A margin that ran out would read no `frames.json`, which reports "not
@@ -131,7 +131,10 @@ def _record(driver, folder: Path, seconds: float, act=None) -> dict:
 def drive(driver, out: Path) -> None:
     """Dark theme, a Chromium tab on a dark page, then a navigation that stalls before paint."""
     theme = driver.call("settings.set", {"path": "appearance.theme", "value": THEME})
-    time.sleep(1.0)
+    # Until the window shows the theme (Nord is dark), then its colors stop changing.
+    driver.until(lambda: ((driver.read("debug.themes", {}).get("windows") or [{}])[0]).get("is_dark") is True,
+                 f"the window taking the {THEME} theme")
+    driver.settle(f"the window's colors in {THEME}", lambda: json.dumps(driver.read("debug.themes", {}), sort_keys=True))
     themes = driver.call("debug.themes", {})
     window = (themes.get("windows") or [{}])[0]
     content = str(window.get("window_background") or "")
@@ -168,7 +171,10 @@ def drive(driver, out: Path) -> None:
         driver.save("dark_load_flash", {"error": "the first page never loaded in a Chromium tab",
                                         "opened": opened, "state": state, "theme": theme})
         return
-    time.sleep(1.0)
+    # Until the first page painted (its first contentful paint) and the window's layout settled.
+    driver.until(lambda: evaluate("performance.getEntriesByType('paint').some(e => e.name === 'first-contentful-paint')") is True,
+                 "the first page's first contentful paint")
+    driver.settle("the window with the first page")
 
     rest = _record(driver, pages / "rest", 0.6)
     navigate = _record(driver, pages / "navigate", 2.6,

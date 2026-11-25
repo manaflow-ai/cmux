@@ -15,6 +15,10 @@
 //!   (`local_app.rs`) or peer token (`peer_auth.rs`) raises it. A paired
 //!   machine's credential (`crate::pairing`) stands in for the listener
 //!   token: [`ConnAuth::Device`] or [`ConnAuth::ReadOnlyDevice`].
+//! - the Cloud carrier socket (`carrier.rs`): the VM's session host bridges the
+//!   carrier's acpmux service to it and names the person the carrier grant
+//!   names, as the owner ([`ConnAuth::CarrierOwner`]) or a teammate
+//!   ([`ConnAuth::CarrierTeam`]).
 //!
 //! [`ConnAuth::None`] is the value of any connection no proof was checked
 //! for. It gets no sessions and no data: every request is refused and no
@@ -31,6 +35,8 @@ pub enum ConnAuth {
     LocalSocket,
     /// The WebSocket listener token, checked at the handshake.
     ListenerToken,
+    /// The browser app launch link. Session access also requires its enrolled device.
+    BrowserApp,
     /// This launch's LocalApp token (`local_app.rs`), presented with the
     /// listener token at the upgrade. It outlives a listener token rotation.
     LocalApp,
@@ -42,6 +48,26 @@ pub enum ConnAuth {
     /// A paired machine's `read-only` credential: served as Web, and every
     /// request goes through the read-only gate (`pairing::read_only`).
     ReadOnlyDevice,
+    /// The Cloud carrier socket, for the VM's owner (`carrier.rs`). Served as
+    /// Peer, with every right [`ConnAuth::PeerToken`] has.
+    CarrierOwner,
+    /// The Cloud carrier socket, for a teammate of the VM's team (`carrier.rs`).
+    /// Served as Web, and every request goes through the teammate matrix.
+    CarrierTeam,
+    /// A browser on the WebSocket listener (its listener token proven at the upgrade) that then
+    /// presented its own enrolled device credential (`web_device.rs`, `_acpmux/device_hello`).
+    /// Served as Web, under every Web rule (`remote_guard.rs`). It is what the connection
+    /// reports (`Conn::proof`); the guard and the mode rule read [`ConnAuth::ListenerToken`],
+    /// which `Conn::auth` keeps. Its hub reads go with that device credential only, never with
+    /// this daemon's identity (`mesh_read.rs` `read_hub`).
+    WebDevice,
+    /// A lifecycle control the mesh hub relayed (`mesh_relay.rs` `run_control`), admitted by an
+    /// owner-configured `meshRelay.controlFrom` entry whose `maxPolicy` is below approve-all.
+    /// Served as Peer under the peer rules, but never owner control (`remote_guard::
+    /// owner_control`): its start is a remote start that settles into asking mode, its policy
+    /// held to that `maxPolicy`. The hub's stamp is the only proof behind it, not this launch's
+    /// peer token.
+    MeshControl,
 }
 
 impl ConnAuth {
@@ -56,11 +82,23 @@ impl ConnAuth {
             ConnAuth::None => "none",
             ConnAuth::LocalSocket => "localSocket",
             ConnAuth::ListenerToken => "listenerToken",
+            ConnAuth::BrowserApp => "browserApp",
             ConnAuth::LocalApp => "localApp",
             ConnAuth::PeerToken => "peerToken",
             ConnAuth::Device => "device",
             ConnAuth::ReadOnlyDevice => "readOnlyDevice",
+            ConnAuth::CarrierOwner => "carrierOwner",
+            ConnAuth::CarrierTeam => "carrierTeam",
+            ConnAuth::WebDevice => "webDevice",
+            ConnAuth::MeshControl => "meshControl",
         }
+    }
+
+    /// The owner's own acpmux daemon on another machine, by its link's proof: this launch's
+    /// peer token, or the Cloud carrier socket naming the VM's owner (`carrier.rs`), which
+    /// gets the same rules. A paired machine's credential (`Device`) is not.
+    pub fn peer_daemon(self) -> bool {
+        matches!(self, ConnAuth::PeerToken | ConnAuth::CarrierOwner)
     }
 
     /// The proof a transport's checks give `origin`: the daemon socket's

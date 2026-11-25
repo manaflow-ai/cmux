@@ -24,9 +24,21 @@ public nonisolated struct HoverCardMachine: Hashable, Sendable {
         /// A card just hid; a hover before `token` fires shows at once
         /// (quick reshow).
         case grace(token: Int)
+
+        /// A card just hid and the next hover shows at once (Chrome's `kShowWithoutDelayTimeBuffer`).
+        public var isGrace: Bool {
+            if case .grace = self { return true }
+            return false
+        }
     }
 
-    public private(set) var phase: Phase = .idle
+    public private(set) var phase: Phase = .idle {
+        didSet { if let shown = shownTarget { lastShownID = shown.id } }
+    }
+    /// The target whose card showed last (kept through its hide): a quick return to it is the same card
+    /// again, which shows with no crossfade of its own content (Leo 2026-11-02: "THE HOVER PREVIEW SHOULD
+    /// NOT MAKE THE SIDEBAR FLICKER ... THEN I LEAVE IT THEN I GO BACK AND IT RE-RENDERS THE SPINNER VIEW").
+    public private(set) var lastShownID: HoverTargetID?
     /// Active suppressions; no card is pending or shown while any lasts.
     public private(set) var suppressions: Set<HoverSuppression> = []
     /// What the last hit test found under the pointer.
@@ -58,8 +70,10 @@ public nonisolated struct HoverCardMachine: Hashable, Sendable {
     /// instant card, so content passing under it flashes none.
     public var stillPointerDelay: Duration
 
+    // hover-timing: a pinned card's lifetime (Show Resource Usage), not a hover delay
     public init(reshowWindow: Duration = HoverCardTiming.reshowWindow, pinLifetime: Duration = .seconds(10),
                 leaveWindow: Duration = HoverIntentTiming.standard.cardGrace, aimWindow: Duration = HoverIntentTiming.standard.cardAim,
+                // hover-timing: only for a target with no delay that content moves under a still pointer
                 stillPointerDelay: Duration = .milliseconds(300)) {
         self.reshowWindow = reshowWindow
         self.pinLifetime = pinLifetime
@@ -102,8 +116,10 @@ public nonisolated struct HoverCardMachine: Hashable, Sendable {
         case .deadline(let token):
             switch phase {
             case .pending(let target, let armed) where armed == token:
+                // A card still fading out for another target fades this one's content in over it.
+                let other = lastShownID.map { $0 != target.id } ?? false
                 phase = .shown(target)
-                return [.show(target, sliding: false)]
+                return [.show(target, sliding: other)]
             case .grace(let armed) where armed == token:
                 phase = .idle
                 return []
@@ -161,8 +177,16 @@ public nonisolated struct HoverCardMachine: Hashable, Sendable {
             guard activeTarget?.id == id else { return [] }
             return end() + resume()
         case .owned(let shown):
+            let wasShown = ownedCardShown
             ownedCardShown = shown
-            guard shown else { return [] }
+            guard shown else {
+                // The owner's card went: a hover this soon shows the next card at once, as after any
+                // card (Chrome's `kShowWithoutDelayTimeBuffer`, `reshowWindow`).
+                guard wasShown, phase == .idle, suppressions.isEmpty else { return [] }
+                let grace = takeToken()
+                phase = .grace(token: grace)
+                return [.schedule(token: grace, after: reshowWindow)]
+            }
             // The owner's card takes the window: no card of a target is pending or shown, and
             // nothing hides (the window morphs to the owner's content).
             quiet = false
@@ -213,8 +237,10 @@ public nonisolated struct HoverCardMachine: Hashable, Sendable {
             return arm(target, moved: moved)
         case .grace:
             guard let target else { return [] }
+            // Back on the card that just hid: the same content, no crossfade; another target's content fades in.
+            let returning = target.id == lastShownID
             phase = .shown(target)
-            return [.cancelTimer, .show(target, sliding: false)]
+            return [.cancelTimer, .show(target, sliding: !returning)]
         case .shown(let shown):
             if case .hides(let reshow) = shown.leave, target?.id != shown.id {
                 guard let target else {

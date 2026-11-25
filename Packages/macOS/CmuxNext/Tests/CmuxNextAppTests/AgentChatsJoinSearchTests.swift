@@ -19,7 +19,7 @@ struct AgentChatsJoinSearchTests {
         var sources = PaletteSources()
         sources.searchContributions = [
             PaletteSearchContribution(id: "agentChats", title: AgentChatsPalettePage.title, order: 30, searchesChats: true) {
-                AgentChatsPalettePage(windows: windows, history: { _ in nil }, open: { _ in }).page()
+                AgentChatsPalettePage(windows: windows, history: { _ in nil }, open: { _, _ in }).page()
             },
         ]
         let registry = ActionRegistry.standard()

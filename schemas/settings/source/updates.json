@@ -1,5 +1,5 @@
 {
-  "$comment": "HAND-EDITED source of the Updates and Announcements settings (cx-d5b5d). scripts/cmux-next/gen-settings-sources.py writes the Swift descriptors and the parser constants (paths, defaults, ranges, choice values) from this file; schemas/settings/settings-schema.json is still exported from Swift and must not change when this file moves. Row fields: key (dotted cmux.json path), name (identifier for generated constants; default the last path part), title/help/summary {key: string catalog key, text: English}, kind (toggle | number | choice | folder_list | string_list), choices [{value, title}], range {min, max, step, unit, placeholder (default min)}, default, aliases {old value: value it loads as}, keywords, note (developer note, not shown).",
+  "$comment": "HAND-EDITED source of the Updates and Announcements settings (cx-d5b5d). scripts/cmux-next/gen-settings-sources.py writes the Swift descriptors and the parser constants (paths, defaults, ranges, choice values) from this file; schemas/settings/settings-schema.json is still exported from Swift and must not change when this file moves. Row fields: key (dotted cmux.json path), name (identifier for generated constants; default the last path part), title/help/summary {key: string catalog key, text: English}, kind (toggle | number | choice | folder_list | string_list), choices [{value, title}], range {min, max, step, unit, placeholder (default min)}, default, aliases {old value: value it loads as}, keywords, placeholder {key, text} (what an empty list field shows; a list row only), note (developer note, not shown).",
   "lists": [
     {
       "name": "updates",
@@ -19,9 +19,12 @@
           },
           "help": {
             "key": "settings.updates.channel.help",
-            "text": "Canary and Dev get builds before they reach Nightly. Stable gets only builds that have run a week without problems, so switching to it may mean no updates for a while."
+            "text": "Stable gets builds that ran a week without problems; Canary and Dev get them first."
           },
           "kind": "choice",
+          "swift_enum": {
+            "name": "UpdatesChannelSetting"
+          },
           "choices": [
             {
               "value": "stable",
@@ -112,15 +115,59 @@
           },
           "help": {
             "key": "settings.updates.downloadAutomatically.help",
-            "text": "Off: cmux checks for updates and asks before it downloads one. On: updates download by themselves. Either way, cmux asks before it restarts into an update."
+            "text": "Off: cmux asks before downloading. It always asks before restarting."
           },
           "kind": "toggle",
-          "default": false,
+          "default": true,
           "keywords": [
             "update",
             "download",
             "background",
             "metered"
+          ]
+        },
+        {
+          "key": "updates.oneClickInstall",
+          "note": "One click on a found update's Update downloads it with its progress, then installs and restarts (Leo 2026-11-04, after the Codex app's Update available button). Off: the Update Ready card asks before the restart.",
+          "title": {
+            "key": "settings.updates.oneClickInstall",
+            "text": "Update in One Click"
+          },
+          "help": {
+            "key": "settings.updates.oneClickInstall.help",
+            "text": "One click on Update downloads, installs and restarts. Terminals and agents keep running."
+          },
+          "kind": "toggle",
+          "default": false,
+          "keywords": [
+            "update",
+            "install",
+            "restart",
+            "relaunch",
+            "one click"
+          ]
+        },
+        {
+          "key": "updates.whatsNewInstall",
+          "note": "What's New's Versions list offers Install on each build (Leo 2026-11-05: \"Like literally with a click to a past nightly\", cmux#36375). Off until a nightly proves the install end to end on a fleet Mac; then a follow-up turns it on.",
+          "title": {
+            "key": "settings.updates.whatsNewInstall",
+            "text": "Install Versions from What's New"
+          },
+          "help": {
+            "key": "settings.updates.whatsNewInstall.help",
+            "text": "An Install button for each version listed in What's New."
+          },
+          "kind": "toggle",
+          "default": false,
+          "keywords": [
+            "update",
+            "install",
+            "version",
+            "rollback",
+            "earlier",
+            "nightly",
+            "what's new"
           ]
         },
         {
@@ -135,6 +182,9 @@
             "text": "While downloads wait, a found update shows on Settings and one click downloads it."
           },
           "kind": "choice",
+          "swift_enum": {
+            "name": "UpdatesMeteredSetting"
+          },
           "choices": [
             {
               "value": "defer-low-data",
@@ -176,9 +226,12 @@
           },
           "help": {
             "key": "settings.updates.web.help",
-            "text": "Every Merge: changes to the web UI arrive minutes after they land, without waiting for the next app update. Off: the web UI this app shipped with."
+            "text": "Every Merge gets web UI changes minutes after they land."
           },
           "kind": "choice",
+          "swift_enum": {
+            "name": "UpdatesWebSetting"
+          },
           "choices": [
             {
               "value": "every-merge",
@@ -214,6 +267,75 @@
           ]
         },
         {
+          "key": "updates.daemon",
+          "note": "Live daemon updates between app updates (Leo 2026-11-22: \"i wonder how many we can actually just ship and not even need the user to restart to update, tbh.\"): NIGHTLY and tip builds only. The app's own daemon reads this key (cmux-tui cli/app/try_cmd/daemon_updates.rs): at Every Merge it checks the signed mac-live channel and, while no agent works and input is quiet, runs the bundled `cmux --json app try channel`, which swaps Contents/Resources/bin and hands the terminal daemon over. Swift only shows the row. Off by default.",
+          "title": {
+            "key": "settings.updates.daemon",
+            "text": "Live Background Updates"
+          },
+          "help": {
+            "key": "settings.updates.daemon.help",
+            "text": "Every merge's background services (terminals, agents' daemon) update in place, with no restart. NIGHTLY only."
+          },
+          "kind": "choice",
+          "swift_enum": {
+            "name": "UpdatesDaemonSetting"
+          },
+          "choices": [
+            {
+              "value": "off",
+              "title": {
+                "key": "settings.choice.updatesDaemonOff",
+                "text": "Off"
+              }
+            },
+            {
+              "value": "every-merge",
+              "title": {
+                "key": "settings.choice.updatesDaemonEveryMerge",
+                "text": "Every Merge"
+              }
+            }
+          ],
+          "default": "off",
+          "keywords": [
+            "update",
+            "daemon",
+            "terminal",
+            "live",
+            "background",
+            "no restart",
+            "nightly",
+            "merge"
+          ]
+        },
+        {
+          "key": "updates.liveWebReload",
+          "note": "Your own web edits, live in this app (docs/cmux-next/hot-reload.md): pages and agent panes load from the server or overlay ~/.config/cmux/web-dev.json names, in WebKit and Chromium, in every build. On by default (Leo 2026-11-05: \"we probably want to have this feature like toggleable on by default\"); a missing web-dev.json changes nothing.",
+          "title": {
+            "key": "settings.updates.liveWebReload",
+            "text": "cmux Live"
+          },
+          "help": {
+            "key": "settings.updates.liveWebReload.help",
+            "text": "Lets cmux live start show your checkout's web UI, each saved edit at once."
+          },
+          "kind": "toggle",
+          "default": true,
+          "keywords": [
+            "web",
+            "live",
+            "hot reload",
+            "reload",
+            "dev server",
+            "overlay",
+            "edit",
+            "web-dev",
+            "cmux live",
+            "live web reload"
+          ]
+        },
+        {
           "key": "updates.installOnQuit",
           "title": {
             "key": "settings.updates.installOnQuit",
@@ -232,6 +354,55 @@
           ]
         },
         {
+          "key": "updates.installWhenIdle",
+          "note": "Update when idle (Leo 2026-11-19: \"maybe even having it as an opt-in option would be pretty interesting. Yeah, like update when idle\"): a downloaded update installs once the person is away (no input for updates.installWhenIdleMinutes, or the screen locked), never over an unsent draft; a running agent turn does not hold it, since the relaunch keeps every terminal and agent and its turn runs on (Leo 2026-11-22: \"cosmic-gray was supposed to auto-update when i was away from the keyboard. like, auto be de facto able to click the restart button\"). Off in the schema; on in cmux NEXT NIGHTLY through its build default (SettingsBuildDefaults).",
+          "title": {
+            "key": "settings.updates.installWhenIdle",
+            "text": "Update When Idle"
+          },
+          "help": {
+            "key": "settings.updates.installWhenIdle.help",
+            "text": "Installs a downloaded update and restarts while you are away: no input for the time below, or the screen locked. Never over an unsent message. Agents and their turns keep running."
+          },
+          "kind": "toggle",
+          "default": false,
+          "keywords": [
+            "update",
+            "install",
+            "idle",
+            "automatic",
+            "restart"
+          ]
+        },
+        {
+          "key": "updates.installWhenIdleMinutes",
+          "note": "How long cmux must be idle before updates.installWhenIdle installs a downloaded update.",
+          "title": {
+            "key": "settings.updates.installWhenIdleMinutes",
+            "text": "Idle Time Before Updating"
+          },
+          "help": {
+            "key": "settings.updates.installWhenIdleMinutes.help",
+            "text": "How long cmux must be idle before Update When Idle installs."
+          },
+          "kind": "number",
+          "range": {
+            "min": 1,
+            "max": 240,
+            "step": 1,
+            "unit": "minutes"
+          },
+          "default": 15,
+          "keywords": [
+            "update",
+            "install",
+            "idle",
+            "automatic",
+            "restart",
+            "minutes"
+          ]
+        },
+        {
           "key": "updates.notify",
           "note": "How a ready update makes itself known: the control on the Settings item, or nothing (installs on quit). The old card value (the update card, removed 2026-10-05) loads as badge.",
           "title": {
@@ -239,6 +410,9 @@
             "text": "When an Update Is Ready"
           },
           "kind": "choice",
+          "swift_enum": {
+            "name": "UpdatesNotifySetting"
+          },
           "choices": [
             {
               "value": "badge",
@@ -301,7 +475,7 @@
           },
           "help": {
             "key": "settings.updates.showWhatsNew.help",
-            "text": "After an update, a card at the bottom of the sidebar links to What's New until you open or dismiss it."
+            "text": "A sidebar card links to What's New after an update."
           },
           "kind": "toggle",
           "default": true,
@@ -322,10 +496,10 @@
           },
           "help": {
             "key": "settings.updates.showFeatureTips.help",
-            "text": "Now and then, a small tip points at a feature an update added. Close it or use the feature and it never comes back."
+            "text": "A small tip now and then points at a feature an update added."
           },
           "kind": "toggle",
-          "default": true,
+          "default": false,
           "keywords": [
             "tips",
             "whats new",
@@ -344,7 +518,7 @@
           },
           "help": {
             "key": "settings.updates.idleInstallMaxWait.help",
-            "text": "A downloaded nightly installs by itself once agents and commands finish and you stop typing, and never waits longer than this. Terminals and agents carry on after the restart."
+            "text": "A nightly installs when you are idle, and never waits longer than this."
           },
           "kind": "number",
           "range": {
@@ -373,7 +547,7 @@
           },
           "help": {
             "key": "settings.updates.idleInstallQuiet.help",
-            "text": "How long the keyboard and mouse must be idle before a downloaded nightly installs by itself."
+            "text": "How long you must be idle before a nightly installs."
           },
           "kind": "number",
           "range": {

@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { Button } from "../../../ui/Button";
 import { useSettingsState, useStore } from "../context";
 import { settingsFileName } from "../format";
 import { t } from "../strings";
@@ -16,9 +17,9 @@ export function PlaceholderSection({ section }: { section: string }) {
         {section === "advanced" && (
           <>
             <ActionRow title={t("settingsPage.openConfig", fileName)} help={t("settingsPage.openConfigHelp")}>
-              <button type="button" className="button" onClick={() => store.openNative("cmuxJSON")}>
+              <Button type="button" className="button" onClick={() => store.openNative("cmuxJSON")}>
                 {t("settingsPage.openConfig", fileName)}
-              </button>
+              </Button>
             </ActionRow>
             <ActionRow
               title={confirming ? t("settingsPage.resetAllTitle") : t("settingsPage.resetAll")}
@@ -26,10 +27,11 @@ export function PlaceholderSection({ section }: { section: string }) {
             >
               {confirming ? (
                 <>
-                  <button type="button" className="button" onClick={() => setConfirming(false)}>
+                  <Button type="button" className="button" onClick={() => setConfirming(false)}>
                     {t("settingsPage.cancel")}
-                  </button>
-                  <button
+                  </Button>
+                  <Button
+                    danger
                     type="button"
                     className="button danger"
                     data-confirm-reset-all=""
@@ -40,10 +42,11 @@ export function PlaceholderSection({ section }: { section: string }) {
                     }}
                   >
                     {t("settingsPage.resetAllConfirm")}
-                  </button>
+                  </Button>
                 </>
               ) : (
-                <button
+                <Button
+                  danger
                   type="button"
                   className="button danger"
                   data-reset-all=""
@@ -51,7 +54,7 @@ export function PlaceholderSection({ section }: { section: string }) {
                   onClick={() => setConfirming(true)}
                 >
                   {t("settingsPage.resetAll")}
-                </button>
+                </Button>
               )}
             </ActionRow>
           </>

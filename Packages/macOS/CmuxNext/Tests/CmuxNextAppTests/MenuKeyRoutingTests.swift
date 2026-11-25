@@ -41,10 +41,16 @@ import CmuxNextTestSupport
             io.finish()
             terminalWindow.close()
             for controller in services.windows.controllers { controller.window?.close() }
+            // What the app opened for its window while the test ran (its overlay panel).
+            AppHarnessWindows.closeThoseThisTestOpened()
         }
     }
 
     private static func harness(userConfig: String) throws -> Harness {
+        var completed = false
+        defer {
+            if !completed { AppHarnessWindows.closeThoseThisTestOpened() }
+        }
         _ = NSApplication.shared
         _ = GhosttyRuntime.shared
         let services = AppServices(environment: AppEnvironment.current([:]))
@@ -60,6 +66,8 @@ import CmuxNextTestSupport
 
         // The Ghostty config as the app loads it: cmux's keybind defaults, then the user's lines.
         let user = try #require(ghostty_config_new())
+        var themeOwnsUser = false
+        defer { if !themeOwnsUser { ghostty_config_free(user) } }
         GhosttyRuntime.loadKeybindDefaults(into: user)
         userConfig.withCString { ghostty_config_load_string(user, $0, UInt(userConfig.utf8.count), "cmux-next-test") }
         ghostty_config_finalize(user)
@@ -76,16 +84,19 @@ import CmuxNextTestSupport
                                                claims: claims, keyNames: keyNames)
 
         let io = ScriptedTerminalIO()
+        defer { if !completed { io.finish() } }
         let session = TerminalSession(io: io)
         try #require(session.surfaceView.surface != nil, "libghostty created no surface")
         // The theme config owns `user` (and frees it).
         session.setTheme(GhosttyThemeConfig(config: user, themeName: "cmux-next-test", colors: nil))
+        themeOwnsUser = true
         let terminalWindow = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 480, height: 240), styleMask: [.borderless],
                                       backing: .buffered, defer: false)
         terminalWindow.isReleasedWhenClosed = false
         terminalWindow.contentView = session.view
         session.view.layoutSubtreeIfNeeded()
         try #require(terminalWindow.makeFirstResponder(session.surfaceView), "the terminal never took the keyboard")
+        completed = true
         return Harness(services: services, shell: shell, session: session, io: io, terminalWindow: terminalWindow)
     }
 

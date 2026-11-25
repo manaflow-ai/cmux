@@ -23,7 +23,6 @@
 //! so two sends at once never lose each other's pins, and written to a
 //! temporary name and renamed.
 
-use std::collections::BTreeSet;
 use std::io::Write as _;
 use std::os::unix::fs::{DirBuilderExt as _, OpenOptionsExt as _};
 use std::path::{Path, PathBuf};
@@ -71,6 +70,15 @@ struct Entry {
     place: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     copied_chat: Option<String>,
+    /// The exact remote root the finished copy pushed, before the chat's subpath.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    copied_folder: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    target_pane: Option<String>,
+    /// `machine_id` was made for this send (the App's create it pinned, or the platform's
+    /// ensure that created it): a retry that fails for good still deletes it ([`Ledger::made`]).
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    made: bool,
 }
 
 impl Entry {
@@ -92,6 +100,35 @@ pub(crate) struct AppEntry {
     pub(crate) place: Option<String>,
 }
 
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub(crate) struct PendingCreate {
+    pub(crate) key: String,
+    pub(crate) account: String,
+    pub(crate) name: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub(crate) team: Option<String>,
+    #[serde(default)]
+    pub(crate) sent: bool,
+    #[serde(default)]
+    pub(crate) refused: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub(crate) create_key: Option<String>,
+    /// How the sent create reached the server: `direct` (as the signed-in person) or `relay` (the
+    /// Mac's install; also what a create sent before routes were kept took). The server keeps a
+    /// key per caller, so a retry on the other route would be a second machine.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub(crate) route: Option<String>,
+}
+
+/// The route of a sent create that names none: the relay, the only route before they were kept.
+pub(crate) const RELAY: &str = "relay";
+
+impl PendingCreate {
+    fn is(&self, send: &Send) -> bool {
+        self.key == send.key && self.account == send.account
+    }
+}
+
 /// The machine a Mac workspace picked, in the account it sent in. The file allows other
 /// workspaces on it too; the pick gives each workspace its own for now.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -106,6 +143,8 @@ struct Binding {
 struct File {
     sends: Vec<Entry>,
     #[serde(default)]
+    pending_creates: Vec<PendingCreate>,
+    #[serde(default)]
     workspaces: Vec<Binding>,
 }
 
@@ -113,6 +152,7 @@ struct File {
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub(crate) struct Ledger {
     entries: Vec<Entry>,
+    pending_creates: Vec<PendingCreate>,
     workspaces: Vec<Binding>,
 }
 
@@ -122,18 +162,106 @@ impl Ledger {
         self.entry(send).map(|entry| entry.machine_id.clone())
     }
 
-    /// Every machine a kept send of the account `account` ran on, or one of
-    /// its workspaces picked: what counts as that account's own machine when the
-    /// server names no creator. Another user's sends on this Mac, or another
-    /// team's, never do.
-    pub(crate) fn machines_of(&self, account: &str) -> BTreeSet<String> {
-        let account = account.to_lowercase();
-        self.entries
-            .iter()
-            .filter(|entry| entry.account == account)
-            .map(|entry| entry.machine_id.clone())
-            .chain(self.workspace_machines(&account))
-            .collect()
+    pub(crate) fn pending_create(&self, send: &Send) -> Option<PendingCreate> {
+        self.pending_creates.iter().rev().find(|pending| pending.is(send)).cloned()
+    }
+
+    pub(crate) fn begin_create(&mut self, send: &Send, name: &str, key: &str) -> bool {
+        if let Some(pending) = self.pending_creates.iter_mut().find(|pending| pending.is(send)) {
+            if pending.create_key.as_deref().unwrap_or(&super::Keys::of(send.key()).create) != key {
+                return false;
+            }
+            if pending.refused {
+                pending.name = name.to_string();
+                pending.refused = false;
+            }
+            return true;
+        }
+        if super::Keys::of(send.key()).create != key {
+            return false;
+        }
+        self.pending_creates.push(PendingCreate {
+            key: send.key.clone(),
+            account: send.account.clone(),
+            name: name.to_string(),
+            team: None,
+            sent: false,
+            refused: false,
+            create_key: None,
+            route: None,
+        });
+        let over = self.pending_creates.len().saturating_sub(LIMIT);
+        self.pending_creates.drain(..over);
+        true
+    }
+
+    /// The create with `key` goes out to `team` on `route` (none: the relay). A key that went out
+    /// once keeps its first team and route: a send to another team or on the other route is refused.
+    pub(crate) fn mark_create_sent(
+        &mut self,
+        send: &Send,
+        team: &str,
+        key: &str,
+        route: Option<&str>,
+    ) -> bool {
+        let Some(pending) = self.pending_creates.iter_mut().rev().find(|pending| pending.is(send))
+        else {
+            return false;
+        };
+        if pending.refused
+            || pending.create_key.as_deref().unwrap_or(&super::Keys::of(send.key()).create) != key
+            || (pending.sent && pending.team.as_deref() != Some(team))
+            || (pending.sent && pending.route.as_deref().unwrap_or(RELAY) != route.unwrap_or(RELAY))
+        {
+            return false;
+        }
+        if !pending.sent {
+            pending.team = Some(team.to_string());
+            pending.route = route.map(str::to_string);
+            pending.sent = true;
+        }
+        true
+    }
+
+    /// Only a definitive refusal permits another paid create. Fence delayed answers by the key
+    /// they refused, so a cancelled attempt cannot rotate a newer attempt's key.
+    pub(crate) fn refuse_create(&mut self, send: &Send, key: &str) -> bool {
+        let Some(pending) = self.pending_creates.iter_mut().find(|pending| pending.is(send)) else {
+            return false;
+        };
+        if pending.refused
+            || pending.create_key.as_deref().unwrap_or(&super::Keys::of(send.key()).create) != key
+        {
+            return false;
+        }
+        pending.create_key = Some(format!("cloud-start-chat-{}", uuid::Uuid::new_v4()));
+        pending.refused = true;
+        pending.sent = false;
+        pending.team = None;
+        pending.route = None;
+        true
+    }
+
+    pub(crate) fn target_pane(&self, send: &Send, machine: &str) -> Option<String> {
+        self.entry(send)
+            .filter(|entry| entry.machine_id == machine)
+            .and_then(|entry| entry.target_pane.clone())
+    }
+
+    pub(crate) fn record_target_pane(&mut self, send: &Send, machine: &str, pane: &str) -> bool {
+        let Some(entry) = self
+            .entries
+            .iter_mut()
+            .rev()
+            .find(|entry| entry.is(send) && entry.machine_id == machine)
+        else {
+            return false;
+        };
+        if let Some(kept) = &entry.target_pane {
+            return kept == pane;
+        }
+        entry.target_pane = Some(pane.to_string());
+        true
     }
 
     /// The machine the Mac workspace `workspace` picked in `account`, once a send from it ran on one.
@@ -153,16 +281,6 @@ impl Ledger {
                 && binding.account == account
                 && binding.workspace != workspace
         })
-    }
-
-    /// The machines some workspace in `account` picked.
-    fn workspace_machines(&self, account: &str) -> BTreeSet<String> {
-        let account = account.to_lowercase();
-        self.workspaces
-            .iter()
-            .filter(|binding| binding.account == account)
-            .map(|binding| binding.machine_id.clone())
-            .collect()
     }
 
     /// `workspace` picks `machine` in `account` from now on.
@@ -187,16 +305,57 @@ impl Ledger {
     /// Pins `send` to `machine` (before anything runs there). A pin to the
     /// same machine keeps its copy's place and finished copy.
     pub(crate) fn record(&mut self, machine: &str, send: &Send) {
+        self.record_made(machine, send, false);
+    }
+
+    /// [`Self::record`], and `made`: `machine` was made for `send` (kept once true for the same machine).
+    pub(crate) fn record_made(&mut self, machine: &str, send: &Send, made: bool) {
+        self.pending_creates.retain(|pending| !pending.is(send));
         let same = self.entry(send).filter(|entry| entry.machine_id == machine);
-        let (place, copied_chat) =
-            same.map_or((None, None), |entry| (entry.place.clone(), entry.copied_chat.clone()));
+        let (place, copied_chat, copied_folder, target_pane, was_made) =
+            same.map_or((None, None, None, None, false), |entry| {
+                (
+                    entry.place.clone(),
+                    entry.copied_chat.clone(),
+                    entry.copied_folder.clone(),
+                    entry.target_pane.clone(),
+                    entry.made,
+                )
+            });
         self.put(Entry {
             key: send.key.clone(),
             account: send.account.clone(),
             machine_id: machine.to_string(),
             place,
             copied_chat,
+            copied_folder,
+            target_pane,
+            made: made || was_made,
         });
+    }
+
+    /// The App's pin of `send` to `machine` (`start-chat pin`): made for the send when its create was
+    /// pending ([`Self::begin_create`]), the App's create; a repick's machine, chosen, never is.
+    pub(crate) fn record_pin(&mut self, machine: &str, send: &Send) {
+        let made = self.pending_create(send).is_some_and(|pending| !pending.refused);
+        self.record_made(machine, send, made);
+    }
+
+    /// Whether `machine` was made for `send` ([`Self::record_made`]).
+    pub(crate) fn made(&self, send: &Send, machine: &str) -> bool {
+        self.entry(send).is_some_and(|entry| entry.machine_id == machine && entry.made)
+    }
+
+    /// What a retry's plan onto `send`'s pinned `machine` says: the tab's target pane, and an
+    /// `ensured` of `{"created": true}` when the machine was made for the send (else null), so the
+    /// App deletes it when the retry fails for good too (Codex review on #40957: only the first try knew).
+    pub(crate) fn retry_facts(
+        &self,
+        send: &Send,
+        machine: &str,
+    ) -> (Option<String>, serde_json::Value) {
+        let made = self.made(send, machine).then(|| serde_json::json!({"created": true}));
+        (self.target_pane(send, machine), made.unwrap_or_default())
     }
 
     /// The chat's folder on `machine` when `send`'s copy finished there.
@@ -204,6 +363,28 @@ impl Ledger {
         self.entry(send)
             .filter(|entry| entry.machine_id == machine)
             .and_then(|entry| entry.copied_chat.clone())
+    }
+
+    /// The finished copy's root, independent of the retry's current arguments.
+    /// Older ledgers kept only `place` and `copied_chat`: the root is the one
+    /// ancestor immediately below that place, when it identifies exactly one.
+    pub(crate) fn copied_folder(&self, send: &Send, machine: &str) -> Option<String> {
+        let entry = self.entry(send).filter(|entry| entry.machine_id == machine)?;
+        if let Some(folder) = &entry.copied_folder {
+            return Some(folder.clone());
+        }
+        let place = Path::new(entry.place.as_deref()?);
+        if place.as_os_str().is_empty()
+            || !place.components().all(|part| matches!(part, std::path::Component::Normal(_)))
+        {
+            return None;
+        }
+        let chat = Path::new(entry.copied_chat.as_deref()?);
+        let mut roots = chat
+            .ancestors()
+            .filter(|folder| folder.parent().is_some_and(|parent| parent.ends_with(place)));
+        let root = roots.next()?;
+        roots.next().is_none().then(|| root.to_string_lossy().into_owned())
     }
 
     /// The folder of `send`'s copy to `machine` that started and did not
@@ -225,17 +406,30 @@ impl Ledger {
             machine_id: machine.to_string(),
             place: Some(place.to_string()),
             copied_chat: None,
+            copied_folder: None,
+            target_pane: self.target_pane(send, machine),
+            made: self.made(send, machine),
         });
     }
 
     /// `send`'s copy into `place` finished on `machine`, its chat's folder there `chat`.
-    pub(crate) fn record_copy(&mut self, chat: &str, send: &Send, machine: &str, place: &str) {
+    pub(crate) fn record_copy(
+        &mut self,
+        chat: &str,
+        folder: &str,
+        send: &Send,
+        machine: &str,
+        place: &str,
+    ) {
         self.put(Entry {
             key: send.key.clone(),
             account: send.account.clone(),
             machine_id: machine.to_string(),
             place: Some(place.to_string()),
             copied_chat: Some(chat.to_string()),
+            copied_folder: Some(folder.to_string()),
+            target_pane: self.target_pane(send, machine),
+            made: self.made(send, machine),
         });
     }
 
@@ -260,6 +454,9 @@ impl Ledger {
                 machine_id: old.machine_id.clone(),
                 place: old.place.clone(),
                 copied_chat: old.copied_chat.clone(),
+                copied_folder: None,
+                target_pane: None,
+                made: false,
             });
         }
         let count = imported.len();
@@ -270,9 +467,26 @@ impl Ledger {
         count
     }
 
+    /// A start that can't go on gives up `machine`, the one made for it: drops `send`'s pin, and
+    /// answers whether the machine is the start's alone to delete. It is when no other send of
+    /// any account is pinned to it; then every workspace binding to it goes too, so no later
+    /// plan picks it (a plan pins under this same lock, so a send that took it first keeps it,
+    /// and one after this never finds it). When another send is on it, its bindings stay and
+    /// the machine is only released (Codex review F1 on #40957: a second chat on the
+    /// workspace's machine while the first start was still copying).
+    pub(crate) fn strand(&mut self, send: &Send, machine: &str) -> bool {
+        self.forget(send);
+        let shared = self.entries.iter().any(|entry| entry.machine_id == machine);
+        if !shared {
+            self.workspaces.retain(|binding| binding.machine_id != machine);
+        }
+        !shared
+    }
+
     /// Drops `send`'s pin (its machine is gone).
     pub(crate) fn forget(&mut self, send: &Send) {
         self.entries.retain(|entry| !entry.is(send));
+        self.pending_creates.retain(|pending| !pending.is(send));
     }
 
     fn entry(&self, send: &Send) -> Option<&Entry> {
@@ -337,11 +551,15 @@ impl Ledger {
         };
         let file = serde_json::from_slice::<File>(&bytes).or_else(|error| {
             serde_json::from_slice::<Vec<Entry>>(&bytes)
-                .map(|sends| File { sends, workspaces: Vec::new() })
+                .map(|sends| File { sends, pending_creates: Vec::new(), workspaces: Vec::new() })
                 .map_err(|_| error)
         });
         match file {
-            Ok(file) => Ok(Self { entries: file.sends, workspaces: file.workspaces }),
+            Ok(file) => Ok(Self {
+                entries: file.sends,
+                pending_creates: file.pending_creates,
+                workspaces: file.workspaces,
+            }),
             Err(error) => {
                 let aside = unreadable_path(path);
                 std::fs::rename(path, &aside).with_context(|| {
@@ -369,7 +587,11 @@ impl Ledger {
             .custom_flags(libc::O_NOFOLLOW)
             .open(&part)
             .with_context(|| format!("cannot write {}", part.display()))?;
-        let ledger = File { sends: self.entries.clone(), workspaces: self.workspaces.clone() };
+        let ledger = File {
+            sends: self.entries.clone(),
+            pending_creates: self.pending_creates.clone(),
+            workspaces: self.workspaces.clone(),
+        };
         file.write_all(&serde_json::to_vec(&ledger)?)?;
         file.sync_all()?;
         std::fs::rename(&part, path).with_context(|| format!("cannot write {}", path.display()))
@@ -384,11 +606,27 @@ pub(crate) fn unreadable_path(path: &Path) -> PathBuf {
     path.with_extension(format!("unreadable-{now}.json"))
 }
 
+/// The ledger's file name in the start-chat state folder ([`path`]).
+pub(crate) const FILE: &str = "destinations.json";
+
 /// Where this Mac keeps the ledger; None when it has no state folder.
 pub(crate) fn path() -> Option<PathBuf> {
-    Some(
-        cmux_tui_core::platform::workspace_state_dir()?
-            .join("cloud-start-chat")
-            .join("destinations.json"),
-    )
+    Some(cmux_tui_core::platform::workspace_state_dir()?.join("cloud-start-chat").join(FILE))
 }
+
+/// The machines the ledger at `path` pins a send to: every machine a start took (a reserve's
+/// bind, the platform's ensure, a pinned existing machine, the App's create pinned with `pin`).
+/// Read with no lock and nothing moved aside: a ledger missing, busy or unreadable names none,
+/// so a reader that only uses it to skip a taken machine never fails because of it.
+pub(crate) fn pinned_machines(path: &Path) -> std::collections::HashSet<String> {
+    let Ok(bytes) = std::fs::read(path) else { return Default::default() };
+    let sends = serde_json::from_slice::<File>(&bytes)
+        .map(|file| file.sends)
+        .or_else(|_| serde_json::from_slice::<Vec<Entry>>(&bytes))
+        .unwrap_or_default();
+    sends.into_iter().map(|entry| entry.machine_id).collect()
+}
+
+#[cfg(test)]
+#[path = "made_tests.rs"]
+mod made_tests;

@@ -72,6 +72,12 @@ impl TurnWatch {
         if self.chief.is_empty() { AGENT_MUX } else { &self.chief }
     }
 
+    /// The Chief is in a turn now (typing): a message it has not read waits
+    /// for that turn, and its brain is running.
+    pub(super) fn chief_busy(&self) -> bool {
+        self.typing
+    }
+
     /// Watches for the replies that answer message `id` (E22).
     pub(super) fn answering(mut self, id: &str, wait_agents: bool) -> Self {
         self.id = Some(id.to_owned());

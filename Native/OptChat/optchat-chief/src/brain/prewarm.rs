@@ -14,6 +14,19 @@ impl Brain {
     /// prompt), and else the preset the session names (the family's own
     /// when the turn left the default harness's family; None: the port's
     /// turn preset).
+    /// [`Self::session_presets`] for a turn on `harness`: an open-source brain's own turn preset
+    /// (brain_home.rs), else its family's.
+    pub(super) fn harness_presets(
+        &self,
+        harness: &str,
+        family: Family,
+    ) -> (Option<String>, Option<String>) {
+        match self.settings.brains.get(harness) {
+            Some(brain) => (None, brain.preset.clone()),
+            None => self.session_presets(family),
+        }
+    }
+
     pub(super) fn session_presets(&self, family: Family) -> (Option<String>, Option<String>) {
         let cached = (matches!(self.settings.engine, Engine::Acpmux) && family == Family::Claude)
             .then(|| self.settings.turn_preset.clone())
@@ -31,7 +44,13 @@ impl Brain {
     /// The engine the next turn takes (engine.json over the defaults), and
     /// the harness engine.json named when acpmux does not have it (the
     /// default harness runs instead).
-    pub(super) fn next_engine(&self) -> (crate::engine::TurnEngine, Option<String>) {
+    pub(super) fn next_engine(
+        &self,
+    ) -> (
+        crate::engine::TurnEngine,
+        Option<String>,
+        crate::engine::EngineChoice,
+    ) {
         let s = &self.settings;
         let choice = s
             .engine_file
@@ -40,11 +59,21 @@ impl Brain {
             .unwrap_or_default();
         let mut engine =
             crate::engine::resolve(&choice, &s.harness, s.model.as_deref(), s.effort.as_deref());
+        if let Some(gateway) = &self.gateway {
+            gateway.refresh();
+            if let crate::gateway::GatewayRoute::Harness(harness) = gateway.route()
+                && (s.families.is_empty() || s.families.contains_key(&harness))
+            {
+                engine.harness = harness;
+                engine.model = None;
+                engine.effort = None;
+            }
+        }
         let mut unknown = None;
         if !s.families.is_empty() && !s.families.contains_key(&engine.harness) {
             unknown = Some(std::mem::replace(&mut engine.harness, s.harness.clone()));
         }
-        (engine, unknown)
+        (engine, unknown, choice)
     }
 
     /// Hints the pool with the next turn session's harness profile (as the
@@ -67,8 +96,19 @@ impl Brain {
         {
             return;
         }
-        let (engine, _) = self.next_engine();
-        let (cached, plain) = self.session_presets(self.family_of(&engine.harness));
+        if self.gateway.as_ref().is_some_and(|gateway| {
+            matches!(
+                gateway.route(),
+                crate::gateway::GatewayRoute::DirectAnthropic
+            )
+        }) {
+            return;
+        }
+        let (mut engine, _, _) = self.next_engine();
+        // A brain that cannot run now is never started: the stand-in harness is (turns.rs).
+        let _ = self.brain_stand_in(&mut engine);
+        let (cached, plain) =
+            self.harness_presets(&engine.harness, self.family_of(&engine.harness));
         if cached.is_some() {
             // The pooled Claude Code reads its cache settings when it
             // starts: the next turn's TTL, and whether that turn carries our

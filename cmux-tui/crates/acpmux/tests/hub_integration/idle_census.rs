@@ -50,10 +50,13 @@ async fn an_idle_harness_ends_only_once_nothing_but_its_mcp_servers_runs_under_i
     let mcp = json!({"mcpServers": {"side": {"command": "sleep", "args": ["3599"]}}});
     std::fs::write(root.join(".mcp.json"), mcp.to_string()).unwrap();
     let children = Children(root.join("children.json"));
-    let (hub, mut c) = stop::claude_setup_env(BTreeMap::from([(
-        "FAKE_CLAUDE_IDLE_CHILDREN".into(),
-        children.0.to_string_lossy().into_owned(),
-    )]))
+    // A Claude store the harness writes its conversation to, as Claude Code does: the prompt
+    // after the idle end resumes only a conversation the store has (`new_request.rs`
+    // `claude_resume_refusal`, #48596).
+    let (hub, mut c) = stop::claude_setup_env(BTreeMap::from([
+        ("FAKE_CLAUDE_IDLE_CHILDREN".into(), children.0.to_string_lossy().into_owned()),
+        ("CLAUDE_CONFIG_DIR".into(), root.join("claude").to_string_lossy().into_owned()),
+    ]))
     .await;
     let clock = acpmux::clock::ManualClock::new();
     hub.set_clock(clock.clone());

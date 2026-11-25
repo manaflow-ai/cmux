@@ -1,5 +1,5 @@
 public import CmuxHomeCore
-public import CmuxNextHome
+public import CmuxNextHomeModel
 import Foundation
 
 /// The one path every "Send Message…" entry point takes into the Home chat

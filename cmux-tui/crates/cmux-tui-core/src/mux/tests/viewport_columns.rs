@@ -19,7 +19,7 @@ fn new_pane_right_wraps_the_screen_in_a_viewport_split() {
         assert_eq!(screen.active_pane, appended_pane);
         assert_eq!(screen.zoomed_pane, None);
         assert_eq!(screen.viewport_splits.len(), 1);
-        let Node::Split { id, dir, ratio, a, b } = &screen.root else {
+        let Node::Split { id, dir, ratio, a, b, .. } = &screen.root else {
             panic!("viewport pane must wrap the screen root");
         };
         assert_eq!(*dir, SplitDir::Right);

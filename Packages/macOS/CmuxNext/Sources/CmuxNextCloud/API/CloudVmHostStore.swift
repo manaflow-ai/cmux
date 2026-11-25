@@ -47,11 +47,7 @@ public final class CloudVmHostStore {
     /// a minute ago) and `readable` (connected, with exec). Nil until the first answer.
     public func state(_ machineID: String, readable: Bool) -> Entry? {
         let entry = entries[machineID]
-        let stale: Bool = switch entry {
-        case nil: true
-        case .failed(_, let at, _): now() - at >= Self.retryAfter
-        default: false
-        }
+        let stale = Self.stale(entry, now: now())
         if stale, readable, !setting.contains(machineID), reading[machineID] == nil { read(machineID) }
         return entry
     }
@@ -114,6 +110,19 @@ public final class CloudVmHostStore {
 
     private struct Failure: Error {
         let why: String
+    }
+
+    /// Whether a row's entry is read again (cmux-cloud-machine `vm_host::stale`): none known yet, or a failure a minute old.
+    private static func stale(_ entry: Entry?, now: ContinuousClock.Instant) -> Bool {
+        struct Request: Encodable { var known: Bool, failedAgeMs: Int? }
+        struct Reply: Decodable { var stale: Bool }
+        let request: Request = switch entry {
+        case nil: Request(known: false, failedAgeMs: nil)
+        case .known: Request(known: true, failedAgeMs: nil)
+        case .failed(_, let at, _):
+            Request(known: false, failedAgeMs: max(0, Int((now - at).components.seconds * 1000 + (now - at).components.attoseconds / 1_000_000_000_000_000)))
+        }
+        return CloudMachineRules().call("cloud_model_vm_host_stale", request, as: Reply.self)?.stale ?? (entry == nil)
     }
 
     private static func known(_ entry: Entry?) -> CloudVmHost.State? {

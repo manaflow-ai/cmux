@@ -38,9 +38,11 @@ public nonisolated enum TunableKind: Sendable, Hashable {
     /// Response and damping, as `MotionSpring` tokens.
     case spring
 
-    /// Limits for spring tunables (seconds, fraction).
+    /// Limits for spring tunables (seconds, fraction). The damping starts at 1, critically damped:
+    /// under 1 a spring passes its target, and no motion does (Lawrence 2026-11-10), so a Debug
+    /// Settings override cannot either; a stored one under 1 is read as 1.
     public static let springResponseRange: ClosedRange<Double> = 0.02...2
-    public static let springDampingRange: ClosedRange<Double> = 0.1...1.5
+    public static let springDampingRange: ClosedRange<Double> = 1...1.5
 
     /// `value` made valid for this kind (numbers clamped to the range,
     /// springs to their limits), or nil when it has the wrong type or names

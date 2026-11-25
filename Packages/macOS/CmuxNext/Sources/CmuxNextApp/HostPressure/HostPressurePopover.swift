@@ -14,7 +14,7 @@ final class HostPressurePopover {
     private let card: OverlaySurfaceView
 
     init() {
-        card = Glass.makeOverlayPanel(content: content, cornerRadius: PopupStyle.standard.cornerRadius)
+        card = Glass.makeMenuPanel(content: content)
         popup.panel.adoptPopupStyle(card: card)
     }
 

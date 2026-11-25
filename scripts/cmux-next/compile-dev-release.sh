@@ -38,7 +38,12 @@
 # runs after the mode is chosen) and it fills the cache the next landing
 # replays (a whole-module first build would leave no singlefile entries, and
 # the next one would be cold again). Any
-# other build (lock busy, setup failed, cache off, not a mini) has no cache to
+# A Blacksmith VM keeps nothing between jobs, so the workflow restores its cache
+# from actions/cache (served next to the runner) and sets CMUX_NEXT_DEV_VM_CACHE=1:
+# vm mode builds from the checkout into RUNNER_TEMP (the same paths on every VM,
+# dev-vm-cas-key.sh) singlefile, like a host build, and the workflow saves the
+# cache after it. Any other build (lock busy, setup failed, cache off, a mini-less
+# runner without a restored cache) has no cache to
 # replay and never fills the host's, so it compiles whole-module: 0/509 hits
 # singlefile took about 808 s, whole-module about 545 s.
 #
@@ -95,7 +100,11 @@ host_setup() {
   build_root="$src"
 }
 
-if [[ "${CMUX_NEXT_RUNNER:-}" != glaeda-* ]]; then
+if [[ "${CMUX_NEXT_RUNNER:-}" != glaeda-* && "${CMUX_NEXT_DEV_VM_CACHE:-0}" == 1 && "${CMUX_NEXT_COMPILATION_CACHE:-0}" == 1 ]]; then
+  # A Blacksmith VM whose cache the workflow restored from actions/cache (dev-vm-cas-key.sh): it
+  # builds from the checkout into RUNNER_TEMP, the same paths on every VM, so the cache replays.
+  mode=vm
+elif [[ "${CMUX_NEXT_RUNNER:-}" != glaeda-* ]]; then
   reason="not a mini"
 elif [[ "${CMUX_NEXT_COMPILATION_CACHE:-0}" != 1 ]]; then
   reason="compilation cache off"
@@ -135,6 +144,8 @@ case "${CMUX_NEXT_SWIFT_COMPILATION_MODE:-auto}" in
       swift_mode=singlefile swift_why="host cache from $previous_sha"
     elif [[ "$mode" == host ]]; then
       swift_mode=singlefile swift_why="no host cache yet: singlefile, so the fleet seed applies and this build fills the cache"
+    elif [[ "$mode" == vm ]]; then
+      swift_mode=singlefile swift_why="VM cache from actions/cache: singlefile, so it replays and this build refills it"
     else
       swift_mode=wholemodule swift_why="cache cold: $reason"
     fi

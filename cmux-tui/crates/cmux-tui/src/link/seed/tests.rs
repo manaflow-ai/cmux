@@ -33,6 +33,20 @@ fn git(dir: &Path, args: &[&str]) -> String {
     String::from_utf8_lossy(&out.stdout).trim_end().to_string()
 }
 
+/// Whether a blob is present in this local Git object store.
+fn git_has_blob(work: &Path, oid: &str) -> bool {
+    Command::new("git")
+        .arg("-C")
+        .arg(work)
+        .args(["cat-file", "-e", &format!("{oid}^{{blob}}")])
+        .env("GIT_CONFIG_NOSYSTEM", "1")
+        .env("GIT_CONFIG_GLOBAL", "/dev/null")
+        .stderr(std::process::Stdio::null())
+        .status()
+        .expect("git cat-file runs")
+        .success()
+}
+
 fn write(path: &Path, text: impl AsRef<[u8]>) {
     if let Some(parent) = path.parent() {
         std::fs::create_dir_all(parent).unwrap();
@@ -94,6 +108,7 @@ fn previous_of(planned: &Planned) -> PreviousSeed {
         head: planned.params.head.clone(),
         index: planned.params.index.clone(),
         work: planned.params.work.clone(),
+        stash: planned.params.stash.clone(),
     }
 }
 
@@ -237,12 +252,80 @@ fn the_same_tree_gives_the_same_commits() {
 fn a_secret_with_a_non_utf8_name_is_left_out() {
     use std::os::unix::ffi::OsStrExt as _;
     let f = Fixture::new();
-    std::fs::write(f.work.join(std::ffi::OsStr::from_bytes(b".env-\xff")), "SECRET=1\n").unwrap();
+    let secret = std::ffi::OsStr::from_bytes(b".env-\xff");
+    // APFS (macOS) refuses a name that is not UTF-8 (EILSEQ), so no folder there can hold
+    // such a secret; ext4 and the other Linux filesystems take raw bytes, and the Linux runs
+    // of the cmux-tui tests cover this case (as git_seed/secrets.rs since #32091).
+    match std::fs::write(f.work.join(secret), "SECRET=1\n") {
+        Err(e) if cfg!(target_os = "macos") && e.raw_os_error() == Some(libc::EILSEQ) => return,
+        written => written.unwrap(),
+    }
+    let hashed =
+        Command::new("git").arg("-C").arg(&f.work).arg("hash-object").arg(secret).output().unwrap();
+    assert!(hashed.status.success());
+    let secret_oid = String::from_utf8_lossy(&hashed.stdout).trim().to_string();
+    assert!(!git_has_blob(&f.work, &secret_oid));
     write(&f.work.join("README.md"), "changed\n");
     let planned = plan(&f.work, &f.path("one.bundle")).unwrap();
     assert_eq!(planned.skipped.len(), 1, "{:?}", planned.skipped);
     let names = git(&f.work, &["ls-tree", "-r", "--name-only", &planned.params.work]);
     assert!(!names.contains(".env"), "{names}");
+    assert!(!git_has_blob(&f.work, &secret_oid), "non-UTF8 secret blob was written locally");
+}
+
+#[test]
+fn a_seed_plan_never_writes_skipped_secret_blobs_into_local_git_objects() {
+    let f = Fixture::new();
+    let work = &f.work;
+    // Tracked secrets stay included under the existing Git seed contract.
+    write(&work.join(".env.tracked"), "TRACKED_FIXTURE_ONLY\n");
+    git(work, &["add", ".env.tracked"]);
+    write(&work.join("README.md"), "staged README\n");
+    git(work, &["add", "README.md"]);
+    write(&work.join("README.md"), "unstaged README\n");
+    write(&work.join("notes.txt"), "ordinary untracked work\n");
+
+    let excluded = [
+        (".env.local", "FAKE_ENV_TOKEN_UNTRACKED\n"),
+        ("config/with[glob].pem", "FAKE_PEM_UNTRACKED\n"),
+        ("config/colon:name.key", "FAKE_KEY_UNTRACKED\n"),
+        ("secrets/id_rsa", "FAKE_SSH_KEY_UNTRACKED\n"),
+        (".npmrc", "//registry.example.invalid/:_authToken=FAKE_ONLY\n"),
+        // A plain copy's credential folders and files, by the same rule.
+        (".aws/credentials", "[default]\naws_secret_access_key=FAKE_ONLY\n"),
+        (".config/gh/hosts.yml", "github.com:\n  oauth_token: FAKE_ONLY\n"),
+        (".cargo/credentials.toml", "[registry]\ntoken = \"FAKE_ONLY\"\n"),
+    ];
+    for &(path, contents) in &excluded {
+        write(&work.join(path), contents);
+    }
+    let secret_ids: Vec<String> =
+        excluded.iter().map(|(path, _)| git(work, &["hash-object", path])).collect();
+    assert!(secret_ids.iter().all(|id| !git_has_blob(work, id)), "fixture blobs already existed");
+    let before = snapshot(work);
+    let bundle = f.path("seed.bundle");
+    let planned = plan(work, &bundle).unwrap();
+    assert_eq!(snapshot(work), before, "the real index/refs/status changed");
+    let work_paths = git(work, &["ls-tree", "-r", "--name-only", &planned.params.work]);
+    assert!(work_paths.lines().any(|path| path == "notes.txt"));
+    assert!(work_paths.lines().any(|path| path == ".env.tracked"));
+    for ((path, _), id) in excluded.iter().zip(&secret_ids) {
+        assert!(
+            planned.skipped.iter().any(|skipped| skipped.path == *path),
+            "{path} was not classified as skipped"
+        );
+        assert!(!work_paths.lines().any(|present| present == *path), "{path} entered WORK");
+        assert!(!git_has_blob(work, id), "{path} left a blob in the local Git object store");
+    }
+
+    let machine = f.machine(&planned, &bundle, "machine");
+    git(&machine, &["checkout", "-q", "--detach", &planned.params.work]);
+    assert_eq!(
+        std::fs::read_to_string(machine.join("notes.txt")).unwrap(),
+        "ordinary untracked work\n"
+    );
+    assert_eq!(std::fs::read_to_string(machine.join("README.md")).unwrap(), "unstaged README\n");
+    assert!(excluded.iter().all(|(path, _)| !machine.join(path).exists()));
 }
 
 #[test]
@@ -299,6 +382,9 @@ fn sparse_patterns_are_sent() {
     assert!(!f.work.join("gone.txt").exists());
     write(&f.work.join("src/new.rs"), "new\n");
     write(&f.work.join("outside.txt"), "untracked outside the patterns\n");
+    write(&f.work.join("src/.env.local"), "FAKE_SPARSE_SECRET_ONLY\n");
+    let secret_id = git(&f.work, &["hash-object", "src/.env.local"]);
+    assert!(!git_has_blob(&f.work, &secret_id));
     let before = snapshot(&f.work);
     let planned = plan(&f.work, &f.path("seed.bundle")).unwrap();
     let sparse = planned.params.sparse.clone().expect("sparse patterns");
@@ -309,6 +395,11 @@ fn sparse_patterns_are_sent() {
     assert!(tree.lines().any(|path| path == "gone.txt"), "{tree}");
     assert!(tree.lines().any(|path| path == "src/new.rs"), "{tree}");
     assert!(tree.lines().any(|path| path == "outside.txt"), "{tree}");
+    assert!(!tree.lines().any(|path| path == "src/.env.local"), "{tree}");
+    assert!(
+        !git_has_blob(&f.work, &secret_id),
+        "sparse seed wrote an excluded secret blob into local Git"
+    );
     assert_eq!(snapshot(&f.work), before);
 }
 
@@ -316,8 +407,14 @@ fn sparse_patterns_are_sent() {
 fn lfs_attributes_are_noticed() {
     let f = Fixture::new();
     write(&f.work.join(".gitattributes"), "*.psd filter=lfs diff=lfs merge=lfs -text\n");
+    write(&f.work.join("art/.gitattributes"), "*.png filter=lfs diff=lfs merge=lfs -text\n");
+    write(&f.work.join("docs/.gitattributes"), "*.md text\n");
     let planned = plan(&f.work, &f.path("seed.bundle")).unwrap();
     assert!(planned.params.lfs);
+    // Where they are, for a head-first seed to tell whether one reaches its head.
+    let mut files = planned.lfs_attributes;
+    files.sort();
+    assert_eq!(files, [".gitattributes", "art/.gitattributes"]);
 }
 
 #[test]
@@ -370,6 +467,58 @@ fn bases_fall_back_to_the_default_tip() {
     assert!(!machine.join("upstream.txt").exists());
 }
 
+/// A clean checkout of a pushed feature branch, on a local branch with no
+/// upstream, in a clone that fetches only another branch (so no
+/// `origin/HEAD`, `origin/main` or `origin/master`): the seed bases on the
+/// remote branch that has HEAD and sends almost nothing. RED before: no base
+/// was found (`no_base`) and the start copied the whole folder (46,516 files,
+/// 1.8 GB for a cmux checkout) instead of cloning it on the machine.
+#[test]
+fn a_pushed_head_with_no_upstream_and_no_default_branch_seeds_from_the_remote() {
+    let f = Fixture::new();
+    git(&f.work, &["checkout", "-q", "-b", "feature", "--no-track"]);
+    write(&f.work.join("src/feature.rs"), "pub fn feature() {}\n");
+    git(&f.work, &["add", "-A"]);
+    git(&f.work, &["commit", "-q", "-m", "feature"]);
+    git(&f.work, &["push", "-q", "origin", "HEAD:feature"]);
+    // The person's clone tracks one other branch only, and the local branch
+    // has another name with no upstream.
+    git(&f.work, &["checkout", "-q", "-b", "local-name", "--no-track"]);
+    git(&f.work, &["branch", "-q", "-D", "feature"]);
+    git(&f.work, &["update-ref", "-d", "refs/remotes/origin/HEAD"]);
+    git(&f.work, &["update-ref", "-d", "refs/remotes/origin/main"]);
+    git(&f.work, &["fetch", "-q", "origin", "+refs/heads/feature:refs/remotes/origin/feature"]);
+    let head = git(&f.work, &["rev-parse", "HEAD"]);
+    let planned = plan(&f.work, &f.path("seed.bundle")).unwrap();
+    assert_eq!(planned.params.base, head, "the remote branch that has HEAD");
+    assert_eq!(planned.bases, vec![head.clone()]);
+    // The bundle names HEAD as its prerequisite: no commit goes, only the state.
+    assert_eq!(bundle_prerequisites(&f.path("seed.bundle")), vec![head.clone()]);
+    let machine = f.machine(&planned, &f.path("seed.bundle"), "machine");
+    git(&machine, &["checkout", "-q", "--detach", &planned.params.work]);
+    assert_eq!(
+        std::fs::read_to_string(machine.join("src/feature.rs")).unwrap(),
+        "pub fn feature() {}\n"
+    );
+
+    // A commit made since the push: the base is the pushed commit under it.
+    write(&f.work.join("later.txt"), "later\n");
+    git(&f.work, &["add", "later.txt"]);
+    git(&f.work, &["commit", "-q", "-m", "not pushed"]);
+    let planned = plan(&f.work, &f.path("later.bundle")).unwrap();
+    assert_eq!(planned.params.base, head, "the newest pushed commit under HEAD");
+    let machine = f.machine(&planned, &f.path("later.bundle"), "machine-later");
+    git(&machine, &["checkout", "-q", "--detach", &planned.params.work]);
+    assert!(machine.join("later.txt").exists());
+}
+
+/// A submodule whose commit is on its remote seeds at that commit even with
+/// uncommitted changes in it: the changes stay on this Mac and the plan
+/// names the submodule, so the folder is cloned on the machine instead of
+/// copied whole. RED before: any uncommitted change in a submodule refused
+/// the seed (cmuxterm-hq's three submodules), and the start copied 12.8 GB.
+/// A submodule commit that is not on its remote still refuses: the machine
+/// could not fetch it.
 #[test]
 fn submodule_local_work_falls_back() {
     let f = Fixture::new();
@@ -391,8 +540,15 @@ fn submodule_local_work_falls_back() {
 
     let checkout = f.work.join("vendor/lib");
     write(&checkout.join("lib.txt"), "dirty\n");
-    let dirty = plan(&f.work, &f.path("seed.bundle")).unwrap_err();
-    assert_eq!(dirty.code, FallbackCode::SubmoduleLocalWork, "{}", dirty.why);
+    let dirty = plan(&f.work, &f.path("seed.bundle")).unwrap_or_else(|why| panic!("{why:?}"));
+    assert_eq!(dirty.submodules[0].commit, lib_head);
+    let named: Vec<(&str, &str)> =
+        dirty.skipped.iter().map(|item| (item.path.as_str(), item.why.as_str())).collect();
+    assert_eq!(
+        named,
+        [("vendor/lib/", "a submodule's uncommitted changes stay on this Mac")],
+        "{named:?}"
+    );
     git(&checkout, &["commit", "-q", "-am", "local only"]);
     let unpushed = plan(&f.work, &f.path("seed.bundle")).unwrap_err();
     assert_eq!(unpushed.code, FallbackCode::SubmoduleLocalWork, "{}", unpushed.why);
@@ -512,10 +668,227 @@ fn a_delta_seed_needs_the_previous_commits() {
     let f = Fixture::new();
     let head = git(&f.work, &["rev-parse", "HEAD"]);
     let missing = "0123456789abcdef0123456789abcdef01234567".to_string();
-    let previous = PreviousSeed { head: head.clone(), index: missing.clone(), work: missing };
+    let previous =
+        PreviousSeed { head: head.clone(), index: missing.clone(), work: missing, stash: None };
     let fallback = plan_since(&f.work, &f.path("seed.bundle"), &previous).unwrap_err();
     assert_eq!(fallback.code, FallbackCode::NoPrevious, "{}", fallback.why);
-    let short = PreviousSeed { head: head[..7].to_string(), index: head.clone(), work: head };
+    let short =
+        PreviousSeed { head: head[..7].to_string(), index: head.clone(), work: head, stash: None };
     let fallback = plan_since(&f.work, &f.path("seed.bundle"), &short).unwrap_err();
     assert_eq!(fallback.code, FallbackCode::NoPrevious);
+}
+
+#[test]
+fn untracked_heavy_folders_and_files_past_the_cap_stay_here_and_are_named() {
+    // The fixture's .gitignore names node_modules/, so the heavy folder here is one it doesn't.
+    let f = Fixture::new();
+    let work = &f.work;
+    write(&work.join("notes.txt"), "ordinary untracked work\n");
+    write(&work.join("web/package.json"), "{}\n");
+    write(&work.join("web/.next/server/page.js"), "module.exports = 1;\n");
+    write(&work.join("web/.next/build-manifest.json"), "{}\n");
+    write(&work.join("assets/model.bin"), vec![7_u8; 6 * 1024 * 1024]);
+    write(&work.join("assets/icon.png"), vec![7_u8; 64 * 1024]);
+    // Past the one-file cap: sparse, so the test writes nothing.
+    std::fs::File::create(work.join("assets/huge.bin"))
+        .unwrap()
+        .set_len(super::plan::BIG_UNTRACKED_FILE_CAP + 1)
+        .unwrap();
+
+    let planned = plan(work, &f.path("seed.bundle")).unwrap();
+    let skipped: Vec<(&str, &str)> =
+        planned.skipped.iter().map(|item| (item.path.as_str(), item.why.as_str())).collect();
+    let heavy = skipped.iter().filter(|(path, _)| path.contains(".next")).collect::<Vec<_>>();
+    assert_eq!(heavy.len(), 1, "one entry for the heavy folder, none for its files: {skipped:?}");
+    assert_eq!(heavy[0].0, "web/.next/");
+    assert!(heavy[0].1.contains("heavy folder"), "{skipped:?}");
+    // A big file under the cap goes (RFD 0066 piece 4); one past it is named with its size.
+    let huge = skipped.iter().find(|(path, _)| *path == "assets/huge.bin");
+    assert!(huge.is_some_and(|(_, why)| why.contains("100 MB")), "{skipped:?}");
+    assert!(!skipped.iter().any(|(path, _)| *path == "assets/model.bin"), "{skipped:?}");
+    assert!(!skipped.iter().any(|(path, _)| *path == "assets/icon.png"), "{skipped:?}");
+
+    let work_paths = git(work, &["ls-tree", "-r", "--name-only", &planned.params.work]);
+    assert!(work_paths.lines().any(|path| path == "notes.txt"), "{work_paths}");
+    assert!(work_paths.lines().any(|path| path == "web/package.json"), "{work_paths}");
+    assert!(work_paths.lines().any(|path| path == "assets/icon.png"), "{work_paths}");
+    assert!(!work_paths.contains(".next"), "{work_paths}");
+    assert!(work_paths.lines().any(|path| path == "assets/model.bin"), "{work_paths}");
+    assert!(!work_paths.contains("huge.bin"), "{work_paths}");
+    let model =
+        git(work, &["cat-file", "-s", &format!("{}:assets/model.bin", planned.params.work)]);
+    assert_eq!(model, (6 * 1024 * 1024).to_string());
+}
+
+#[test]
+fn big_untracked_files_share_one_budget_and_the_rest_are_named() {
+    use super::plan::{BIG_UNTRACKED_FILE_CAP, BIG_UNTRACKED_TOTAL_CAP, big_left_here};
+    let mut sent = 0;
+    assert_eq!(big_left_here(BIG_UNTRACKED_FILE_CAP, &mut sent), None);
+    assert_eq!(sent, BIG_UNTRACKED_FILE_CAP);
+    let over = big_left_here(BIG_UNTRACKED_FILE_CAP + 1, &mut sent).unwrap();
+    assert!(over.contains("100 MB") && over.contains("limit for one untracked file"), "{over}");
+    assert_eq!(sent, BIG_UNTRACKED_FILE_CAP, "a file left here counts for nothing");
+    sent = BIG_UNTRACKED_TOTAL_CAP - 10_000_000;
+    let past = big_left_here(20_000_000, &mut sent).unwrap();
+    assert!(past.contains("(20 MB)") && past.contains("carries 990 MB"), "{past}");
+    assert!(past.contains("limit is 1 GB"), "{past}");
+    // A smaller one that still fits goes after it.
+    assert_eq!(big_left_here(10_000_000, &mut sent), None);
+    assert_eq!(sent, BIG_UNTRACKED_TOTAL_CAP);
+}
+
+// RFD 0066 piece 13: LFS pointers in the work commit.
+mod lfs_files {
+    use super::{Fixture, git, write};
+    use crate::link::seed::lfs::{
+        LfsFile, object_path, parse_pointer, scan, skipped, stage_objects,
+    };
+    use sha2::{Digest as _, Sha256};
+    use std::path::Path;
+
+    fn sha(bytes: &[u8]) -> String {
+        Sha256::digest(bytes).iter().map(|b| format!("{b:02x}")).collect()
+    }
+
+    fn pointer_text(bytes: &[u8]) -> String {
+        format!(
+            "version https://git-lfs.github.com/spec/v1\noid sha256:{}\nsize {}\n",
+            sha(bytes),
+            bytes.len()
+        )
+    }
+
+    #[test]
+    fn pointer_parsing() {
+        let text = pointer_text(b"hello");
+        let pointer = parse_pointer(text.as_bytes()).unwrap();
+        assert_eq!((pointer.oid.as_str(), pointer.size), (sha(b"hello").as_str(), 5));
+        // Extra keys are fine; a real file, a bad oid, a repeated key or a big file are not pointers.
+        assert!(parse_pointer(format!("{text}x-extra a\n").as_bytes()).is_some());
+        assert!(parse_pointer(b"just text\n").is_none());
+        assert!(parse_pointer(text.replace("sha256:", "sha256:Z").as_bytes()).is_none());
+        assert!(parse_pointer(format!("{text}size 3\n").as_bytes()).is_none());
+        assert!(parse_pointer(&[b'a'; 2000]).is_none());
+        assert!(parse_pointer(b"version https://git-lfs.github.com/spec/v1\nsize 3\n").is_none());
+    }
+
+    fn commit_pointers(f: &Fixture, files: &[(&str, &[u8], bool)]) -> String {
+        // `(path, content, fetched)`: the pointer is committed either way.
+        write(&f.work.join(".gitattributes"), "*.bin filter=lfs diff=lfs merge=lfs -text\n");
+        write(&f.work.join("plain.txt"), "not lfs\n");
+        for (path, bytes, fetched) in files {
+            write(&f.work.join(path), pointer_text(bytes));
+            if *fetched {
+                let oid = sha(bytes);
+                write(&object_path(&f.work.join(".git/lfs"), &oid), bytes);
+            }
+        }
+        git(&f.work, &["add", "-A"]);
+        git(&f.work, &["commit", "-q", "-m", "lfs"]);
+        git(&f.work, &["rev-parse", "HEAD"])
+    }
+
+    #[test]
+    fn present_and_unfetched_objects_are_told_apart() {
+        let f = Fixture::new();
+        let commit = commit_pointers(
+            &f,
+            &[("a/have.bin", b"have me", true), ("b/gone.bin", b"never fetched", false)],
+        );
+        let files = scan(&f.work, &f.work.join(".git/lfs"), &commit);
+        assert_eq!(
+            files,
+            [
+                LfsFile { path: "a/have.bin".into(), oid: sha(b"have me"), size: 7, present: true },
+                LfsFile {
+                    path: "b/gone.bin".into(),
+                    oid: sha(b"never fetched"),
+                    size: 13,
+                    present: false
+                },
+            ]
+        );
+        let left = skipped(&files);
+        assert_eq!(left.len(), 1);
+        assert_eq!(left[0].path, "b/gone.bin");
+        assert!(left[0].why.contains("not fetched"));
+    }
+
+    #[test]
+    fn a_truncated_object_is_not_present() {
+        let f = Fixture::new();
+        let commit = commit_pointers(&f, &[("t.bin", b"whole content", true)]);
+        write(&object_path(&f.work.join(".git/lfs"), &sha(b"whole content")), b"whole");
+        let files = scan(&f.work, &f.work.join(".git/lfs"), &commit);
+        assert!(!files[0].present);
+    }
+
+    #[test]
+    fn staging_copies_verified_objects_once() {
+        let f = Fixture::new();
+        let commit = commit_pointers(
+            &f,
+            &[("one.bin", b"same", true), ("two.bin", b"same", true), ("no.bin", b"zzz", false)],
+        );
+        let lfs = f.work.join(".git/lfs");
+        let files = scan(&f.work, &lfs, &commit);
+        assert_eq!(files.len(), 3);
+        let dest = f.dir.path().join("stage");
+        assert_eq!(stage_objects(&files, &lfs, &dest).unwrap(), 4);
+        assert_eq!(std::fs::read(object_path(&dest, &sha(b"same"))).unwrap(), b"same");
+        assert!(!object_path(&dest, &sha(b"zzz")).exists());
+        // A same-size object with other bytes is refused, not sent.
+        write(&object_path(&lfs, &sha(b"same")), b"evil");
+        let error = stage_objects(&files, &lfs, &f.dir.path().join("stage2")).unwrap_err();
+        assert!(error.contains("does not match"), "{error}");
+    }
+
+    /// With the real `git lfs`: the clean filter writes the pointer and the object, and a clone
+    /// without the objects shows pointers that are not present. Skipped when git-lfs is absent
+    /// (the tests above cover pointer parsing and scanning without it).
+    #[test]
+    fn real_git_lfs_clean_filter() {
+        let have = std::process::Command::new("git")
+            .args(["lfs", "version"])
+            .output()
+            .is_ok_and(|out| out.status.success());
+        if !have {
+            eprintln!("git-lfs not installed: skipping the real-filter test");
+            return;
+        }
+        let f = Fixture::new();
+        let home = f.dir.path().join("home");
+        std::fs::create_dir_all(&home).unwrap();
+        let lfs = |dir: &Path, args: &[&str]| {
+            let out = std::process::Command::new("git")
+                .arg("-C")
+                .arg(dir)
+                .args(["-c", "user.name=T", "-c", "user.email=t@example.invalid"])
+                .args(args)
+                .env("HOME", &home)
+                .env("GIT_CONFIG_GLOBAL", "/dev/null")
+                .env("GIT_CONFIG_NOSYSTEM", "1")
+                .output()
+                .unwrap();
+            assert!(out.status.success(), "{args:?}: {}", String::from_utf8_lossy(&out.stderr));
+        };
+        lfs(&f.work, &["lfs", "install", "--local"]);
+        lfs(&f.work, &["lfs", "track", "*.dat"]);
+        write(&f.work.join("blob.dat"), vec![7u8; 4096]);
+        lfs(&f.work, &["add", "-A"]);
+        lfs(&f.work, &["commit", "-q", "-m", "dat"]);
+        let head = git(&f.work, &["rev-parse", "HEAD"]);
+        let files = scan(&f.work, &f.work.join(".git/lfs"), &head);
+        assert_eq!(files.len(), 1, "{files:?}");
+        assert_eq!(
+            (files[0].path.as_str(), files[0].size, files[0].present),
+            ("blob.dat", 4096, true)
+        );
+        assert_eq!(files[0].oid, sha(&vec![7u8; 4096]));
+        // The same commit seen from a store without the objects.
+        let empty = f.dir.path().join("empty-lfs");
+        let files = scan(&f.work, &empty, &head);
+        assert!(!files[0].present);
+    }
 }

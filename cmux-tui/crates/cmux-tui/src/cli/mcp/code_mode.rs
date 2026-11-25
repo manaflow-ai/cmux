@@ -3,8 +3,9 @@
 //! full tool list (daemon operations, browser host, agents, app actions)
 //! stays the API: `cmux_docs` searches it and a `cmux_exec` script calls
 //! it through the same `Server::call` path, so a script has exactly the
-//! rights of a direct tool call and nothing else. 638 tool schemas were
-//! about 208k tokens in every agent turn; these two are about 1k.
+//! rights of a direct tool call and nothing else. When code mode came in,
+//! 638 tool schemas (well over a thousand now) were about 208k tokens in
+//! every agent turn; these two are about 1k.
 //!
 //! A script runs in an embedded QuickJS engine on its own thread. The engine
 //! has no file system, network, process or timer access: its only host
@@ -20,8 +21,11 @@ use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use cmux_json::JsonSet as _;
-use rquickjs::{CatchResultExt, Context, Function, Object, Runtime};
+use rquickjs::{CatchResultExt, Context, Function, Object, Persistent, Runtime};
 use serde_json::{Map, Value, json};
+
+pub(super) mod computer_use;
+mod workflow;
 
 pub(super) const DOCS: &str = "cmux_docs";
 pub(super) const EXEC: &str = "cmux_exec";
@@ -55,8 +59,6 @@ impl Default for Limits {
     }
 }
 
-/// Calls and docs searches in one script.
-const MAX_CALLS: usize = 2_000;
 /// Calls a result lists one by one; the rest are only counted.
 const MAX_CALL_RECORDS: usize = 200;
 /// The longest tool name a script may call (the longest real one is under 60).
@@ -87,50 +89,47 @@ const BOILERPLATE: [&str; 4] = [
      focus.",
 ];
 
-pub(super) const INSTRUCTIONS: &str = "This chat runs in cmux: a terminal, tab or workspace \
-    the person asks for (\"on my right\", \"a new workspace\") is a cmux one, made and run with \
-    these tools, not your own shell. cmux tools run through cmux_exec scripts; its \
-    description lists the common ones. Selectors take a public id (ws_…, pane_…, tab_…, \
-    term_…), a unique prefix, <session>:<id> or an exact name; workspace, screen, pane and tab \
-    also take `current` (this chat's own) or `focused` (the one the person looks at). Tools of the chat's \
-    other cmux servers (cua_*: computer use on Mac \
-    apps; secrets_*, sessions_*, subsessions_*, forum_*) come with their \
-    rules in `servers` of a cmux.docs answer: follow them. A change takes idempotency_key: on \
-    in_progress, retry with the key from the error; another server's call that fails \
-    in_progress has no key and may have run, so check its effect first. Tools never move the \
-    person's focus unless the call passes focus: true or the tool's purpose is focus. Name workspaces and tabs to the person \
-    by title, never by id. When they must act in a tab (log in, confirm), tab_update {tab, \
-    attention: \"reason\"} marks it. In a reply, ![alt](/abs/path.png) shows an image.";
+pub(super) const INSTRUCTIONS: &str = acpmux::agent_tools::prompt_sources::CODE_MODE_INSTRUCTIONS;
 
-/// The tool family of the computer use server (`cmux-cua` folds as `cua_*`).
-pub(super) const COMPUTER_USE_FAMILY: &str = "cua";
-/// What `cmux_exec` says when the chat has computer use.
-pub(super) const COMPUTER_USE_NOTE: &str = " It includes cmux Computer Use: the cua_* tools see \
-    and operate the apps on the person's Mac (screenshots, clicks, typing). Use them for any \
-    task in a desktop app, never osascript or AppleScript keystrokes; `cmux.docs(\"cua\")` \
-    lists them with their rules. Never type into a terminal or script tool, never copy app \
-    data out of the app unless the person asked, and stop before a payment, a password, \
-    sending a message or deleting that they did not ask for, and say what is left.";
-
+/// The tool family of the computer use server (`cmux-computer-use` folds as `cu_*`).
+pub(super) const COMPUTER_USE_FAMILY: &str = acpmux::computer_use::tools::TOOL_PREFIX;
 /// The one tool `serve` lists in code mode, `cmux_exec` (Lawrence 2026-10-23:
 /// an agent sees no other cmux tool name; a script searches with
 /// `cmux.docs`, and `cmux_docs` stays callable for older prompts). `tools`
 /// is the full list, for the family summary in its description.
-pub(super) fn descriptors(tools: &[Value]) -> Vec<Value> {
+pub(super) fn descriptors(tools: &[Value], computer_use_only: bool) -> Vec<Value> {
+    if computer_use_only {
+        return vec![computer_use::only_descriptor(tools)];
+    }
     // A chat with acpmux's background tasks (acpmux `acpmux_mcp_bg.rs`) is told to use them in
     // the one description every turn shows: in code mode a server's own instructions reach the
     // agent only through `cmux.docs`, and a Codex chat has no hook to steer its shell.
     let bg = if tools.iter().any(|t| t["name"] == BG_START) { BG_STEER } else { "" };
+    let github = if tools.iter().any(|t| t["name"] == GITHUB_STATUS) { GITHUB_STEER } else { "" };
+    let wrap_up = if tools.iter().any(|t| t.get("name").and_then(Value::as_str) == Some(WRAP_UP)) {
+        WRAP_UP_STEER
+    } else {
+        ""
+    };
+    let offers = if tools.iter().any(|t| t.get("name").and_then(Value::as_str) == Some(OFFER)) {
+        OFFER_STEER
+    } else {
+        ""
+    };
+    let send = if tools.iter().any(|t| t.get("name").and_then(Value::as_str) == Some(SEND)) {
+        SEND_STEER
+    } else {
+        ""
+    };
     let grouped = families(tools);
     // A harness that shows one tool must still find computer use in it: a
     // chat asked to "open Calculator" used osascript (2026-10-27).
-    let computer_use =
-        if grouped.contains_key(COMPUTER_USE_FAMILY) { COMPUTER_USE_NOTE } else { "" };
-    let families = grouped
-        .iter()
-        .map(|(family, names)| format!("{family} ({})", names.len()))
-        .collect::<Vec<_>>()
-        .join(", ");
+    let cu_note = computer_use::exec_note(tools, grouped.contains_key(COMPUTER_USE_FAMILY));
+    // Names only, no counts: `cmux_exec` is always loaded, so its description sits in the tools
+    // block at the front of the prompt cache, and a count moved with every app action the
+    // catalog gained or lost (`action.catalog.changed` re-lists tools mid-chat). One changed
+    // byte there makes the chat's next turn write its whole prompt to the cache again.
+    let families = grouped.keys().map(String::as_str).collect::<Vec<_>>().join(", ");
     vec![json!({
         "name": EXEC,
         "title": "Run a cmux script",
@@ -138,7 +137,7 @@ pub(super) fn descriptors(tools: &[Value]) -> Vec<Value> {
             "Run JavaScript that calls cmux tools and return its result. This chat runs in \
              cmux: a terminal, tab or workspace the person asks for is a cmux one, made here, \
              not in your own shell, and \"this workspace\" is the cmux workspace this chat is \
-             in (workspace: \"current\"), never the folder.{computer_use} An async \
+             in (workspace: \"current\"), never the folder.{cu_note} An async \
              function \
              body, `await cmux.<tool>({{...}})` per call, `return` a JSON value. Do related \
              steps in one script: look up, act and check together. No file system, network or \
@@ -147,7 +146,8 @@ pub(super) fn descriptors(tools: &[Value]) -> Vec<Value> {
              - workspace_list, workspace_get, pane_list {{workspace}}, tab_list {{pane | \
              workspace}}, terminal_list, terminal_get: ids and names. Lists answer {{items: \
              [...]}}; a change answers {{value: {{...}}}} with the new ids (value.terminal_id, \
-             value.pane_id, value.tab_id).\n\
+             value.pane_id, value.tab_id). workspace_list also lists Cloud machines' \
+             workspaces, each with machine_id; {{machine}} picks one machine's.\n\
              - pane_neighbor_get {{pane: \"current\", direction: \"right\"}} answers {{pane: \
              {{id, ...}}}} for the pane on the person's right, or {{pane: null}}; \
              terminal_process_get {{terminal}} names the program running in a terminal.\n\
@@ -177,8 +177,10 @@ pub(super) fn descriptors(tools: &[Value]) -> Vec<Value> {
              pane that a moved tab can go into; initial_content: \"empty\" has no pane); \
              terminal_input_keys \
              {{terminal, keys: [\"ctrl+c\"]}} presses keys (enter, escape, up).\n\
-             - Groups: tab_group_create {{tabs: [ids], name}}; workspace_group_create {{name}}, \
-             then workspace_place {{workspace, group: <its id>}} for each member.\n\
+             - Groups: tab_group_create {{tabs: [ids], name}}; workspace_group_create {{name, \
+             reuse: true}} (the space's group of that name, made only when none has it; ask once, \
+             not once per member), then workspace_place {{workspace, group: <its id>}} for each \
+             member.\n\
              - Open a file, diff or page in cmux (not a terminal): open {{kind: \"file\" | \
              \"diff\" | \"page\", path | url, where}} in one call; where: right (default), \
              left, below, above, here, sticky (a docked column; edge), pane {{pane}}, workspace \
@@ -197,7 +199,7 @@ pub(super) fn descriptors(tools: &[Value]) -> Vec<Value> {
              inputSchema}}], more: [names]}}; a tool's exact name finds it first. \
              app_* tools are the app's menu actions. A failed call throws an Error whose `cmux` \
              field has the error, its state and its idempotency key; its message names the fix. \
-             A failed script reports the calls that already ran. Families: {families}.{bg}"
+             A failed script reports the calls that already ran. Families: {families}.{bg}{github}{wrap_up}{offers}{send}"
         ),
         "inputSchema": {
             "type": "object",
@@ -212,15 +214,77 @@ pub(super) fn descriptors(tools: &[Value]) -> Vec<Value> {
             "required": ["script"],
         },
         "annotations": {"destructiveHint": true, "openWorldHint": false},
+        // Claude Code defers MCP tools behind its tool search unless a tool says it always
+        // loads. Every NEXT chat that used cmux_exec first spent a round trip on
+        // `ToolSearch select:mcp__cmux__cmux_exec` (5 of 5 guided chats, 64 searches in 172
+        // transcripts, 2026-11-09 audit), and its description is the guide to cmux's tools.
+        // Other harnesses ignore the key.
+        "_meta": {"anthropic/alwaysLoad": true},
     })]
 }
 
 /// acpmux's `bg_start` behind this server (its upstream prefix `acpmux`).
+/// Only the bg_start rule: the parallel-work rule reaches the chat once, in the
+/// first-turn context (`acpmux::agent_tools::CONCURRENT_WORK_RULE`), and Claude Code's
+/// own prompt says it too.
 const BG_START: &str = "acpmux_bg_start";
 const BG_STEER: &str = " Long-running commands (a dev server, a watcher, a long build or \
     test run) go to `cmux.acpmux_bg_start({command, cwd})`, not a background shell or terminal \
     of your own: this chat's agent hibernates after 2 idle minutes and its own background shells \
     end with it, while that task keeps running; `cmux.acpmux_bg_output({id, fromByte})` reads it.";
+
+/// acpmux's `github_status` behind this server (acpmux `github_status.rs`).
+const GITHUB_STATUS: &str = "acpmux_github_status";
+const GITHUB_STEER: &str = " When the person asks about their GitHub (can you see my GitHub, \
+    which account), call `cmux.acpmux_github_status({})`: it lists the GitHub accounts cmux can \
+    see for this chat and how cmux checked each, with no token. Answer with those logins and say \
+    they are connected through cmux; an organization account is the one their cmux team \
+    connected, not the person.";
+
+/// acpmux's `wrap_up` behind this server (acpmux `acpmux_mcp_wrap_up.rs`): the next-step box the
+/// person sees under the answer. Its `call_log` record carries what it showed (`shown`), which
+/// the agent pane reads to draw the box (webviews `conversation/wrapUp.ts`). The steer goes in
+/// `cmux_exec`'s description, which Claude Code always loads: while it was deferred, a DEV chat
+/// asked for "your next-step box" reached for AskUserQuestion instead (2026-11-04), and the
+/// server's instructions carried a second copy until `cmux_exec` stopped being deferred.
+pub(super) const WRAP_UP: &str = "acpmux_wrap_up";
+pub(super) const WRAP_UP_STEER: &str = " When you end a turn that did work, call \
+    `cmux.acpmux_wrap_up({recap, ask, actions})` from cmux_exec as its last step: it draws the \
+    next-step box under your answer. recap says in two or three plain sentences what changed and \
+    where things stand, including what is not done or not verified. Add ask (one short question) \
+    and actions (one or two answers, your pick first) only when a decision waits on the person, \
+    in place of AskUserQuestion or a question in prose; their click comes back as their next \
+    message. When the person corrected you this turn, or a command failed and a later one \
+    worked, add learned: at most three one-line facts about this project for its instructions \
+    file (\"Use pnpm, not npm.\"); leave it out otherwise. Then end the turn without repeating the \
+    recap.";
+
+/// acpmux's `offer_session` behind this server (acpmux `offer_mcp.rs`, its upstream `cmux-sessions`
+/// folds as `sessions`): a new chat the agent suggests, which the agent pane draws as a card with
+/// Options, Do it here and Start (webviews `offer/SuggestedTasks.tsx`). Its server's instructions
+/// reach a code-mode chat only through `cmux.docs`, so a default chat never offered one; the steer
+/// goes in `cmux_exec`'s description, as the wrap-up's does. Leo,
+/// 2026-11-05, on Claude Desktop's suggested-session card: "I want to be able to, like, recommend
+/// Claude to be able to do that as well. in our cmux-next app. and have it be rendered."
+pub(super) const OFFER: &str = "sessions_offer_session";
+pub(super) const OFFER_STEER: &str = " When you notice work outside the task at hand that the \
+    person would likely want (a bug, a follow-up, a cleanup), do not do it inline and do not only \
+    mention it: call `cmux.sessions_offer_session({title, prompt, worktree?})` from cmux_exec. It \
+    draws a card in this chat; the person starts it as a new chat (or has you do it here) with your \
+    prompt, which must carry the whole task and its context, since the new chat has none of this \
+    one's history. It returns at once: go on with your task. For a few follow-ups at the end of a \
+    turn, `cmux.sessions_suggest_tasks({tasks: [{title, prompt}]})`.";
+
+/// acpmux's `send` behind this server (acpmux `acpmux_mcp_send.rs`). Its own description says to
+/// use it instead of `acpmux send` in a shell, but code mode shows that description only after a
+/// `cmux.docs` search, so a folded chat never read it: in 172 NEXT Claude transcripts, chats that
+/// had only `cmux_exec` sent 9,260 messages with `acpmux send` in Bash and 2 with
+/// `cmux.acpmux_send`, while chats shown `mcp__acpmux__send` itself sent a third through it
+/// (117 of 340), 2026-11-09 audit.
+const SEND: &str = "acpmux_send";
+const SEND_STEER: &str = " Message another agent session (a lane, a coordinator, host/name) \
+    with `cmux.acpmux_send({to, text})` (messages: [...] batches; file, attach, class, pr), not \
+    `acpmux send` in a shell; `cmux.acpmux_inbox_reply({thread, text})` answers an inbox thread.";
 
 /// Tool names grouped by their first word (`pane_split` is `pane`).
 fn families(tools: &[Value]) -> BTreeMap<String, Vec<String>> {
@@ -232,8 +296,24 @@ fn families(tools: &[Value]) -> BTreeMap<String, Vec<String>> {
     families
 }
 
-/// `cmux_docs`: tools that match, with schemas; or every name by family.
+/// How a docs answer's tools answer. 8 of 1,100 sampled `cmux_exec` calls failed with "not a
+/// function" from calling an array method on a list's `{items}` answer (2026-11-09 audit). A
+/// folded server's tool keeps its own shape (`acpmux_ls` answers `{sessions, more}`), so the
+/// note names cmux's own tools only (#39279 review F1).
+const RESULTS_NOTE: &str = "cmux's own list tools answer {items: [...]}, not an array: (await \
+    cmux.tab_list({pane})).items.map((t) => t.id); its changes answer {value: {...}}. A tool of \
+    another server (acpmux_*, cua_*, sessions_*) answers in its own shape: read its description.";
+
+/// `cmux_docs`: tools that match, with schemas, and [`RESULTS_NOTE`]; or every name by family.
 pub(super) fn docs(tools: &[Value], arguments: &Map<String, Value>) -> Result<Value, String> {
+    let mut answer = lookup(tools, arguments)?;
+    if answer.get("tools").and_then(Value::as_array).is_some_and(|tools| !tools.is_empty()) {
+        answer.set("results", json!(RESULTS_NOTE));
+    }
+    Ok(answer)
+}
+
+fn lookup(tools: &[Value], arguments: &Map<String, Value>) -> Result<Value, String> {
     if let Some(name) =
         arguments.keys().find(|name| !matches!(name.as_str(), "query" | "names" | "limit"))
     {
@@ -273,6 +353,9 @@ pub(super) fn docs(tools: &[Value], arguments: &Map<String, Value>) -> Result<Va
     let Some(query) = query else {
         return Ok(json!({"families": families(tools)}));
     };
+    if let Some(answer) = computer_use::family_docs(tools, &query, limit, arguments) {
+        return Ok(answer);
+    }
     // A query of exact tool names (`cmux.docs("tab_create_browser")`, or several) answers
     // those tools only; the rest of the search goes in `more` by name. A full search put
     // 8 schemas (11k characters) in front of the model for one name (tests/tool-evals r13a).
@@ -471,6 +554,10 @@ pub(super) enum Request {
     Call { name: String, arguments: Map<String, Value> },
     /// `cmux.docs(query)`.
     Docs { query: String },
+    /// Launch or reattach without waiting; the workflow runner journals it first.
+    ActivityStart { kind: String, prompt: String, options: Map<String, Value> },
+    /// Wait for one of the named activities; the journal records completion order.
+    ActivityWait { ids: Vec<String> },
 }
 
 enum ToServer {
@@ -492,14 +579,27 @@ pub(super) fn exec(
     limits: Limits,
     answer: &mut dyn FnMut(Request) -> Value,
 ) -> Result<Value, String> {
-    if let Some(name) = arguments.keys().find(|name| name.as_str() != "script") {
+    exec_mode(arguments, limits, answer, None)
+}
+
+fn exec_mode(
+    arguments: &Map<String, Value>,
+    limits: Limits,
+    answer: &mut dyn FnMut(Request) -> Value,
+    workflow_inputs: Option<Value>,
+) -> Result<Value, String> {
+    let workflow_mode = workflow_inputs.is_some();
+    // `code` is what models that know other code-mode tools send (6 of 1,100 cmux_exec calls
+    // in NEXT transcripts failed on it, 2026-11-09 audit): it is the script under another name.
+    let key = if arguments.contains_key("script") { "script" } else { "code" };
+    if let Some(name) = arguments.keys().find(|name| name.as_str() != key) {
         return Err(format!("{EXEC} has no argument {name:?}"));
     }
-    let script = match arguments.get("script") {
+    let script = match arguments.get(key) {
         Some(Value::String(script)) if !script.trim().is_empty() => script.clone(),
         _ => return Err(format!("{EXEC} needs script, a non-empty string")),
     };
-    if script.len() > MAX_SCRIPT_BYTES {
+    if workflow_inputs.is_none() && script.len() > MAX_SCRIPT_BYTES {
         return Err(format!("{EXEC} script is larger than {} KiB", MAX_SCRIPT_BYTES >> 10));
     }
     let (to_server, from_script) = mpsc::channel();
@@ -507,7 +607,7 @@ pub(super) fn exec(
         .name("cmux-mcp-code-mode".into())
         .stack_size(THREAD_STACK)
         .spawn(move || {
-            let outcome = run_script(&script, limits, &to_server);
+            let outcome = run_script(&script, limits, &to_server, workflow_inputs);
             let _ = to_server.send(ToServer::Done(outcome));
         })
         .map_err(|error| format!("{EXEC} cannot start its engine: {error}"))?;
@@ -522,6 +622,8 @@ pub(super) fn exec(
             ToServer::Request(request, reply) => {
                 let name = match &request {
                     Request::Call { name, .. } => Some(name.clone()),
+                    Request::ActivityStart { kind, .. } => Some(kind.clone()),
+                    Request::ActivityWait { .. } => None,
                     Request::Docs { .. } => None,
                 };
                 let answered = answer(request);
@@ -537,6 +639,14 @@ pub(super) fn exec(
                         }
                         if let Some(key) = answered["error"]["idempotency_key"].as_str() {
                             record.set("idempotency_key", json!(key));
+                        }
+                        // The wrap-up's box, for the agent pane to draw from the transcript.
+                        if ok
+                            && name == WRAP_UP
+                            && let Some(shown) =
+                                answered.get("value").filter(|value| value.is_object())
+                        {
+                            record.set("shown", shown.clone());
                         }
                         records.push(record);
                     }
@@ -570,17 +680,40 @@ pub(super) fn exec(
     Ok(match outcome.result {
         Ok(result) => {
             value.set("result", result);
-            super::success(fit(value), applied)
+            if workflow_mode {
+                json!({"isError":false,"content":[],"structuredContent":value})
+            } else {
+                super::success(fit(value), applied)
+            }
         }
         Err(error) => {
             value.set("error", error);
             // `partial`: some call may have applied; `call_log` says which,
             // with each failed call's state and idempotency key.
             value.set("state", json!(if applied { "partial" } else { "not_run" }));
-            super::tool_error(fit(value))
+            if workflow_mode {
+                json!({"isError":true,"content":[],"structuredContent":value})
+            } else {
+                super::tool_error(fit(value))
+            }
         }
     })
 }
+
+/// The daemon-owned runner uses this entry point with pinned inputs and source.
+pub(super) fn workflow_exec(
+    script: &str,
+    inputs: Value,
+    limits: Limits,
+    answer: &mut dyn FnMut(Request) -> Value,
+) -> Result<Value, String> {
+    let mut arguments = Map::new();
+    arguments.insert("script".into(), Value::String(workflow::body(script)));
+    exec_mode(&arguments, limits, answer, Some(inputs))
+}
+
+#[cfg(test)]
+mod workflow_tests;
 
 /// Keeps a result under the server's limit: a large `result` becomes a
 /// text preview, then logs are cut.
@@ -667,13 +800,52 @@ const PRELUDE: &str = r#"
       });
     },
   });
+  // `cu.click({...})` is `cmux.cu_click({...})`: cmux Computer Use as a namespace, so a
+  // script reads like the steps it takes. camelCase works too (`cu.listWindows`).
+  // `cu.elements(tree)` flattens a get_ui_tree result (or element) depth first, and
+  // `cu.find(tree, {role, name, value})` answers the first match (a string is equal, a
+  // RegExp tests; a function is a predicate), `cu.findAll` every one; no calls.
+  const elements = (tree) => {
+    const out = [];
+    const stack = [tree && tree.root ? tree.root : tree];
+    while (stack.length) {
+      const element = stack.pop();
+      if (!element || typeof element !== "object") continue;
+      out.push(element);
+      const children = Array.isArray(element.children) ? element.children : [];
+      for (let i = children.length - 1; i >= 0; i--) stack.push(children[i]);
+    }
+    return out;
+  };
+  const matches = (match) => typeof match === "function" ? match : (element) =>
+    Object.entries(match ?? {}).every(([key, want]) => want instanceof RegExp
+      ? want.test(String(element[key] ?? "")) : element[key] === want);
+  const helpers = {
+    elements,
+    find: (tree, match) => elements(tree).find(matches(match)),
+    findAll: (tree, match) => elements(tree).filter(matches(match)),
+  };
+  globalThis.cu = new Proxy(helpers, {
+    get(target, key) {
+      if (key in target) return target[key];
+      if (typeof key !== "string" || key === "then") return undefined;
+      const tool = "cu_" + key.replace(/[A-Z]/g, (c) => "_" + c.toLowerCase());
+      return (args) => globalThis.cmux[tool](args);
+    },
+  });
+  // The usual cause: an array method on a list's answer, which is {items: [...]} (8 of 1,100
+  // sampled cmux_exec calls, 2026-11-09 audit). QuickJS's message names no method.
+  const notAFunction = (message) => /not a function/.test(message)
+    ? `${message} (an answer is an object, not an array: cmux's lists are {items: [...]}, so use .items.map(...); another server's tool names its own fields)`
+    : message;
   // `({cmux}) => {...}` takes the object a function script is called with: cmux itself.
   base.cmux = globalThis.cmux;
+  base.cu = globalThis.cu;
   globalThis.__cmuxFinish = (promise) => promise.then(
     (value) => native.done(true, encode(value)),
     (error) => native.done(false, encode({
       code: "script.error",
-      message: String(error && error.message !== undefined ? error.message : error),
+      message: notAFunction(String(error && error.message !== undefined ? error.message : error)),
       stack: error && error.stack ? String(error.stack) : undefined,
       cmux: error && error.cmux,
     })),
@@ -772,7 +944,13 @@ fn block_end(text: &str, open: usize) -> Option<usize> {
 }
 
 /// Runs one script on this (the engine) thread.
-fn run_script(script: &str, limits: Limits, to_server: &mpsc::Sender<ToServer>) -> Outcome {
+fn run_script(
+    script: &str,
+    limits: Limits,
+    to_server: &mpsc::Sender<ToServer>,
+    workflow_inputs: Option<Value>,
+) -> Outcome {
+    let workflow_mode = workflow_inputs.is_some();
     let logs = Rc::new(RefCell::new((Vec::<String>::new(), 0usize, 0usize)));
     let done = Rc::new(RefCell::new(None::<Result<Value, Value>>));
     let failed = |message: String| Outcome {
@@ -793,7 +971,7 @@ fn run_script(script: &str, limits: Limits, to_server: &mpsc::Sender<ToServer>) 
         let progress = progress.clone();
         let stopped = stopped.clone();
         runtime.set_interrupt_handler(Some(Box::new(move || {
-            let over = started.elapsed() > limits.total
+            let over = (!workflow_mode && started.elapsed() > limits.total)
                 || progress.lock().map(|at| at.elapsed() > limits.compute).unwrap_or(true);
             if over && let Ok(mut stopped) = stopped.lock() {
                 *stopped = true;
@@ -805,24 +983,17 @@ fn run_script(script: &str, limits: Limits, to_server: &mpsc::Sender<ToServer>) 
         Ok(context) => context,
         Err(error) => return failed(format!("engine: {error}")),
     };
-    let calls = Rc::new(RefCell::new(0usize));
+    let mut workflow_poll: Option<Persistent<Function<'static>>> = None;
     let evaluated = context.with(|ctx| -> Result<(), String> {
         let native = Object::new(ctx.clone()).map_err(|e| e.to_string())?;
-        let count = calls.clone();
         let request = {
             let to_server = to_server.clone();
             let progress = progress.clone();
             move |request: Request| -> String {
-                let mut used = count.borrow_mut();
-                if *used >= MAX_CALLS {
-                    return failure(
-                        "script.too_many_calls",
-                        &format!("a script makes at most {MAX_CALLS} calls and docs searches"),
-                    );
-                }
-                *used += 1;
-                drop(used);
-                if started.elapsed() > limits.total {
+                // No count limit: a call waits for its answer before the next, so the
+                // script's time and memory limits bound it, and past MAX_CALL_RECORDS a
+                // call is only counted.
+                if !workflow_mode && started.elapsed() > limits.total {
                     return failure(
                         "script.timeout",
                         &format!("a script runs at most {} s", limits.total.as_secs()),
@@ -840,6 +1011,7 @@ fn run_script(script: &str, limits: Limits, to_server: &mpsc::Sender<ToServer>) 
                 value.to_string()
             }
         };
+        let workflow_request = request.clone();
         let call_request = request.clone();
         native
             .set(
@@ -896,6 +1068,11 @@ fn run_script(script: &str, limits: Limits, to_server: &mpsc::Sender<ToServer>) 
             .map_err(|e| e.to_string())?;
         ctx.globals().set("__cmuxNative", native).map_err(|e| e.to_string())?;
         ctx.eval::<(), _>(PRELUDE).catch(&ctx).map_err(|e| format!("prelude: {e}"))?;
+        if let Some(inputs) = workflow_inputs {
+            let poll = workflow::install(&ctx, workflow_request, inputs)
+                .catch(&ctx).map_err(|error| format!("workflow prelude: {error}"))?;
+            workflow_poll = Some(Persistent::save(&ctx, poll));
+        }
         // The body runs inside an async function so it can await and return.
         // `finish` leaves the global scope first, so the script cannot
         // report a result of its own through it.
@@ -922,7 +1099,33 @@ fn run_script(script: &str, limits: Limits, to_server: &mpsc::Sender<ToServer>) 
     loop {
         match runtime.execute_pending_job() {
             Ok(true) => {}
-            Ok(false) => break,
+            Ok(false) => {
+                // Activity starts are short host calls. After JS has launched
+                // every runnable branch, wait for any activity to complete.
+                // The journal preserves that completion order on replay.
+                let polled = match &workflow_poll {
+                    Some(poll) if done.borrow().is_none() => context.with(|ctx| {
+                        let poll = poll.clone().restore(&ctx).map_err(|error| error.to_string())?;
+                        poll.call::<_, usize>((false,))
+                            .catch(&ctx)
+                            .map_err(|error| error.to_string())
+                    }),
+                    _ => Ok(0),
+                };
+                match polled {
+                    Ok(0) => break,
+                    Ok(_) => continue,
+                    Err(error) => {
+                        let mut outcome = take_logs(&logs);
+                        let interrupted = stopped.lock().map(|stopped| *stopped).unwrap_or(false);
+                        outcome.result = Err(json!({
+                            "code": if interrupted { "script.timeout" } else { "workflow.wait" },
+                            "message": error,
+                        }));
+                        return outcome;
+                    }
+                }
+            }
             Err(error) => {
                 if let Ok(mut logs) = logs.try_borrow_mut() {
                     let line = format!("[error] job: {error}");
@@ -942,6 +1145,15 @@ fn run_script(script: &str, limits: Limits, to_server: &mpsc::Sender<ToServer>) 
     let mut outcome = take_logs(&logs);
     let interrupted = stopped.lock().map(|stopped| *stopped).unwrap_or(false);
     let result = done.borrow_mut().take();
+    // A settled root promise must not hide running children, including siblings
+    // left behind when Promise.all rejects early. Inspect without waiting.
+    let pending = match &workflow_poll {
+        Some(poll) if !interrupted => context.with(|ctx| {
+            let poll = poll.clone().restore(&ctx).map_err(|error| error.to_string())?;
+            poll.call::<_, usize>((true,)).catch(&ctx).map_err(|error| error.to_string())
+        }),
+        _ => Ok(0),
+    };
     outcome.result = if interrupted {
         // The interrupt also stops the rejection handler, so `done` may hold
         // the engine's bare "interrupted" or nothing.
@@ -952,6 +1164,14 @@ fn run_script(script: &str, limits: Limits, to_server: &mpsc::Sender<ToServer>) 
                 limits.compute.as_millis(),
                 limits.total.as_secs()
             ),
+        }))
+    } else if !matches!(&pending, Ok(0)) {
+        Err(json!({
+            "code": "script.unfinished",
+            "message": match pending {
+                Ok(count) => format!("the script ended with {count} unfinished workflow activities"),
+                Err(message) => format!("cannot inspect unfinished workflow activities: {message}"),
+            },
         }))
     } else {
         match result {
@@ -995,6 +1215,10 @@ fn closed() -> Value {
 /// total base64 bytes.
 const MAX_IMAGES: usize = super::video_tools::MAX_FRAMES;
 const MAX_IMAGE_BYTES: usize = 8 << 20;
+/// Images a running script's calls may hold until it returns, so a loop of
+/// screenshots can still return its last one.
+const MAX_KEPT_IMAGES: usize = 200;
+const MAX_KEPT_IMAGE_BYTES: usize = 48 << 20;
 
 /// A tool result as a script sees it. A result without structured content
 /// (another server's tool) becomes its JSON text, or `{content}`; its
@@ -1044,6 +1268,30 @@ fn from_content(content: &Value, images: &mut Vec<Value>, failed: bool) -> Value
     {
         return value;
     }
+    // A JSON text body next to images (a Computer Use screenshot or state): the
+    // body as the value, its images as placeholders in `images`. An error's JSON
+    // body (`{error, code}`) gives the message and code.
+    let json_body = blocks.first().and_then(|block| {
+        (block["type"] == "text")
+            .then(|| block["text"].as_str())
+            .flatten()
+            .and_then(|text| serde_json::from_str::<Value>(text).ok())
+            .filter(Value::is_object)
+    });
+    if failed && let Some(body) = &json_body {
+        let message = body["error"]
+            .as_str()
+            .or_else(|| body.pointer("/error/message").and_then(Value::as_str))
+            .or_else(|| body["message"].as_str());
+        if let Some(message) = message {
+            let mut error = json!({"message": message});
+            let text_at = |pointer: &str| body.pointer(pointer).and_then(Value::as_str);
+            if let Some(code) = text_at("/code").or_else(|| text_at("/error/code")) {
+                error.set("code", json!(code));
+            }
+            return json!({"error": error, "body": body});
+        }
+    }
     let message =
         blocks.iter().find_map(|block| block["text"].as_str()).unwrap_or_default().to_owned();
     let used = |images: &Vec<Value>| -> usize {
@@ -1056,7 +1304,7 @@ fn from_content(content: &Value, images: &mut Vec<Value>, failed: bool) -> Value
                 return block;
             }
             let size = block["data"].as_str().map_or(0, str::len);
-            if images.len() >= MAX_IMAGES || used(images) + size > MAX_IMAGE_BYTES {
+            if images.len() >= MAX_KEPT_IMAGES || used(images) + size > MAX_KEPT_IMAGE_BYTES {
                 return json!({"type": "image", "dropped": true, "mimeType": block["mimeType"]});
             }
             images.push(block.clone());
@@ -1066,54 +1314,67 @@ fn from_content(content: &Value, images: &mut Vec<Value>, failed: bool) -> Value
     if failed {
         return json!({"content": blocks, "error": {"message": message}});
     }
+    // A JSON body, then Computer Use outlines (text blocks marked with where
+    // they were in the result) and images: each outline back in its place, the
+    // images in `images`.
+    let outline = |block: &Value| -> Option<String> {
+        block
+            .get("_meta")
+            .and_then(|meta| meta.get(acpmux::computer_use::OUTLINE_META))
+            .and_then(Value::as_str)
+            .map(str::to_owned)
+    };
+    if let Some(mut body) = json_body
+        && blocks.len() > 1
+        && blocks.iter().skip(1).all(|block| block["type"] == "image" || outline(block).is_some())
+        && body.get("images").is_none()
+    {
+        let mut images = Vec::new();
+        for block in blocks.into_iter().skip(1) {
+            match (outline(&block), block.get("text").and_then(Value::as_str)) {
+                (Some(place), Some(text)) => match place.as_str() {
+                    "state.tree" if body.get("state").is_some_and(Value::is_object) => {
+                        body.set_path(&["state", "tree"], json!(text));
+                    }
+                    _ => {
+                        body.set("tree", json!(text));
+                    }
+                },
+                _ => images.push(block),
+            }
+        }
+        if !images.is_empty() {
+            body.set("images", Value::Array(images));
+        }
+        return body;
+    }
     json!({"content": blocks})
 }
 
 #[cfg(test)]
-mod bg_steer_tests {
-    use super::*;
-
-    /// A chat whose tools include acpmux's `bg_start` is told in `cmux_exec`'s own description
-    /// to run long commands there; one without it is not (acpmux docs/hibernation.md).
-    #[test]
-    fn the_exec_description_steers_long_commands_to_bg_start_only_where_it_is() {
-        let with = descriptors(&[json!({"name": BG_START}), json!({"name": "pane_split"})]);
-        let text = with[0]["description"].as_str().unwrap();
-        assert!(text.contains("cmux.acpmux_bg_start({command, cwd})"), "{text}");
-        assert!(text.contains("hibernates after 2 idle minutes"), "{text}");
-        let without = descriptors(&[json!({"name": "pane_split"})]);
-        assert!(!without[0]["description"].as_str().unwrap().contains("acpmux_bg_start"));
-    }
-}
+#[path = "code_mode_bg_steer_tests.rs"]
+mod bg_steer_tests;
 
 #[cfg(test)]
-mod block_end_tests {
-    use super::*;
+#[path = "code_mode_stable_description_tests.rs"]
+mod stable_description_tests;
 
-    /// Braces inside strings, template literals and comments are skipped; a block that never
-    /// closes, or a string, escape or comment cut off at the end, is `None`, not a panic.
-    #[test]
-    fn block_end_skips_quoted_and_commented_braces_and_stops_at_the_end() {
-        let script = "{ \"}\" '}' `}` /* } */ // }\n }";
-        assert_eq!(block_end(script, 0), Some(script.len() - 1));
-        for cut in ["{ \"open", "{ 'a\\", "{ /* never closed", "{ // to the end", "{ {", "{ /"] {
-            assert_eq!(block_end(cut, 0), None, "{cut:?}");
-        }
-    }
+#[cfg(test)]
+#[path = "code_mode_github_steer_tests.rs"]
+mod github_steer_tests;
 
-    /// Only the descriptor's own reads change: a cmux tool keeps its required list,
-    /// read-only and destructive hints in the compact form.
-    #[test]
-    fn compact_keeps_required_and_hints() {
-        let tool = json!({
-            "name": "pane_close",
-            "description": "Close a pane (cmux.protocol/2 `pane.close`).",
-            "inputSchema": {"type": "object", "properties": {"pane": {"type": "string"}}, "required": ["pane"]},
-            "annotations": {"readOnlyHint": false, "destructiveHint": true},
-        });
-        let out = compact(&tool);
-        assert_eq!(out["inputSchema"]["required"], json!(["pane"]));
-        assert_eq!(out.get("destructive"), Some(&json!(true)));
-        assert_eq!(out.get("readOnly"), None);
-    }
-}
+#[cfg(test)]
+#[path = "code_mode_send_steer_tests.rs"]
+mod send_steer_tests;
+
+#[cfg(test)]
+#[path = "code_mode_wrap_up_steer_tests.rs"]
+mod wrap_up_steer_tests;
+
+#[cfg(test)]
+#[path = "code_mode_block_end_tests.rs"]
+mod block_end_tests;
+
+#[cfg(test)]
+#[path = "code_mode_outline_tests.rs"]
+mod outline_tests;

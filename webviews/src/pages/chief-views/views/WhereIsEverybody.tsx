@@ -3,6 +3,7 @@
 // the same order (what needs you first) and the same filter, plus each agent's folder, the time
 // since its last output and its pull request.
 import { useMemo, useState } from "react";
+import { Input } from "../../../ui/Input";
 import { branchPRs, byMachine, stateCounts } from "../model";
 import { AgentRow, agentsOf, Loaded, machineLabel, stateKey, StateMark } from "../parts";
 import type { ChiefViewProps } from "../registry";
@@ -10,7 +11,7 @@ import type { AgentState } from "../types";
 
 const STATES: AgentState[] = ["waiting", "failed", "working", "idle"];
 
-export function WhereIsEverybodyView({ data, strings, now, placement, onOpenAgent }: ChiefViewProps) {
+export function WhereIsEverybodyView({ data, strings, placement, onOpenAgent }: ChiefViewProps) {
   const [filter, setFilter] = useState("");
   const agents = agentsOf(data);
   const prs = useMemo(() => branchPRs(data.fleet.status === "ready" ? data.fleet.reply.prs : undefined), [data.fleet]);
@@ -29,7 +30,8 @@ export function WhereIsEverybodyView({ data, strings, now, placement, onOpenAgen
             </li>
           ))}
         </ul>
-        <input
+        <Input
+          size="sm"
           className="cv-filter"
           type="search"
           value={filter}
@@ -56,7 +58,6 @@ export function WhereIsEverybodyView({ data, strings, now, placement, onOpenAgen
                   <AgentRow
                     key={`${agent.kind}:${agent.id}`}
                     agent={agent}
-                    now={now}
                     strings={strings}
                     compact={compact}
                     prs={prs}

@@ -60,11 +60,12 @@ nonisolated struct CloseSizing {
         return after.compactMap { abs($0.width - share) > 0.001 ? ColumnResize(column: $0.id, width: share) : nil }
     }
 
-    /// The split tree `pane` lives in (a column's own tree; a column with rows sizes its rows elsewhere).
+    /// The split tree `pane` lives in: a column's own tree, or its row's in a column with rows (a
+    /// row's only pane has no chain to size: the rows left keep their heights).
     private func tree(in layout: ScreenLayout, holding pane: PaneID) -> SplitNode? {
         switch layout {
         case let .splits(root): root.contains(pane) ? root : nil
-        case .columns: layout.column(containing: pane).flatMap { $0.hasRows ? nil : $0.root }
+        case .columns: layout.column(containing: pane)?.tree(containing: pane)
         }
     }
 

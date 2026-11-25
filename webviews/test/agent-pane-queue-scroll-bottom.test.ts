@@ -30,8 +30,13 @@ import { PAPERCUT_CHAT, papercutEvents } from "./support/papercutChat";
 import { installPaintedFrames } from "./support/paintedFrames";
 import { requireBrowserLane } from "./support/requireBrowserLane";
 import { warmViteServer } from "./support/warmDevServer";
+import { MAIN_DOCK } from "../src/agent-session/acpmux/composerSelectors";
 
 await requireBrowserLane("agent-pane-queue-scroll-bottom.test.ts", async () => {
+  /// Pins the composer dock to its push arm (composer/dockMotion.experiment.ts): these cases measure the
+  /// rows riding the composer's growth, which the overlay arm (the default) leaves still under the card
+  /// by design (test/agent-pane-composer-dock-motion.test.ts measures both arms).
+  const pushDock = () => localStorage.setItem("cmux.experiments", JSON.stringify({ "composer-dock-motion": "push" }));
   setDefaultTimeout(300_000);
   const engines: [string, BrowserType][] = [];
   for (const engine of [
@@ -152,7 +157,7 @@ await requireBrowserLane("agent-pane-queue-scroll-bottom.test.ts", async () => {
   /// The placement in each painted frame for `ms`, starting with the next one; `act` runs first.
   async function paintedFor(page: Page, ms: number, act?: () => Promise<unknown>): Promise<Placement[]> {
     const done = page.evaluate(
-      (ms) =>
+      ({ ms, MAIN_DOCK }) =>
         new Promise<Placement[]>((resolve) => {
           const out: Placement[] = [];
           let start: number | undefined;
@@ -160,7 +165,7 @@ await requireBrowserLane("agent-pane-queue-scroll-bottom.test.ts", async () => {
             start ??= frame;
             const scroller = document.querySelector<HTMLElement>(".acpmux-scroll")!;
             const rows = document.querySelectorAll<HTMLElement>(".acpmux-thread .acpmux-row");
-            const dock = document.querySelector<HTMLElement>(".acpmux-main > .acpmux-dock")!;
+            const dock = document.querySelector<HTMLElement>(MAIN_DOCK)!;
             out.push({
               top: scroller.scrollTop,
               fromEnd: scroller.scrollHeight - scroller.scrollTop - scroller.clientHeight,
@@ -173,7 +178,7 @@ await requireBrowserLane("agent-pane-queue-scroll-bottom.test.ts", async () => {
             return false;
           });
         }),
-      ms,
+      { ms, MAIN_DOCK },
     );
     await act?.();
     return done;
@@ -182,7 +187,7 @@ await requireBrowserLane("agent-pane-queue-scroll-bottom.test.ts", async () => {
   /// animation runs.
   const settle = (page: Page) =>
     page.evaluate(
-      () =>
+      ({ MAIN_DOCK }) =>
         new Promise<void>((resolve) => {
           let last = "";
           let still = 0;
@@ -191,7 +196,7 @@ await requireBrowserLane("agent-pane-queue-scroll-bottom.test.ts", async () => {
             frames++;
             const scroller = document.querySelector<HTMLElement>(".acpmux-scroll")!;
             const rows = document.querySelectorAll<HTMLElement>(".acpmux-thread .acpmux-row");
-            const dock = document.querySelector<HTMLElement>(".acpmux-main > .acpmux-dock")!;
+            const dock = document.querySelector<HTMLElement>(MAIN_DOCK)!;
             const now = [
               scroller.scrollTop,
               scroller.scrollHeight,
@@ -211,6 +216,7 @@ await requireBrowserLane("agent-pane-queue-scroll-bottom.test.ts", async () => {
             return false;
           });
         }),
+      { MAIN_DOCK },
     );
   const placement = async (page: Page) => (await paintedFor(page, 0))[0];
   /// The wheel over the transcript's rows above the stack, in steps of 40 px as a trackpad sends.
@@ -224,8 +230,11 @@ await requireBrowserLane("agent-pane-queue-scroll-bottom.test.ts", async () => {
     page.locator(".acpmux-composer-box [contenteditable=true], .acpmux-composer-box textarea").first();
 
   /// Opens the chat at its latest row and notes where the last row rests over the stack there.
-  async function open(name: string) {
-    const page = await browsers.get(name)!.newPage({ viewport: { width: 900, height: 700 } });
+  async function open(name: string, look?: "push") {
+    // 980px: the 88px side gutters this suite had at 900px beside the old 720px column, so a point 8px
+    // left of the composer is the transcript's, clear of the thread rail at the pane's edge.
+    const page = await browsers.get(name)!.newPage({ viewport: { width: 980, height: 700 } });
+    if (look === "push") await page.addInitScript(pushDock);
     await installPaintedFrames(page);
     const { port } = vite!.httpServer!.address() as { port: number };
     const endpoint = `ws://127.0.0.1:${daemon!.port}/`;
@@ -291,8 +300,7 @@ await requireBrowserLane("agent-pane-queue-scroll-bottom.test.ts", async () => {
       // (one the fold hides, or past an opened list's cap) changes no size, so no size observer noted
       // it. Still noted as queued, the next resize that shrank the stack took it for a card that left
       // then, and kept FLOOR_HOLD_MS of room for it above the stack, which then glided away.
-      const stack = (page: Page) =>
-        page.locator(".acpmux-main > .acpmux-dock").evaluate((dock) => dock.getBoundingClientRect().height);
+      const stack = (page: Page) => page.locator(MAIN_DOCK).evaluate((dock) => dock.getBoundingClientRect().height);
       /// Another client runs queued prompt `id` (acpmux `dequeued`); waits until the pane drew it.
       async function runElsewhere(page: Page, id: string) {
         hear("dequeued", { promptId: id });
@@ -310,7 +318,7 @@ await requireBrowserLane("agent-pane-queue-scroll-bottom.test.ts", async () => {
       }
 
       test("a prompt the fold hides, run elsewhere, leaves no room as the stack shrinks, opens and closes", async () => {
-        const { page, rest } = await open(name);
+        const { page, rest } = await open(name, "push");
         await prompt(page).click();
         await page.keyboard.type("Check the parser");
         await page.keyboard.press("Shift+Enter");
@@ -379,7 +387,7 @@ await requireBrowserLane("agent-pane-queue-scroll-bottom.test.ts", async () => {
       });
 
       test("a new line in the composer leaves the transcript's distance from its end as it was", async () => {
-        const { page, rest } = await open(name);
+        const { page, rest } = await open(name, "push");
         await prompt(page).click();
         await page.keyboard.type("Check the parser");
         await settle(page);

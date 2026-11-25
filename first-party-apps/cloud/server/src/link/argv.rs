@@ -1,22 +1,17 @@
-//! The link carrier command: the per-machine local socket and the `cmux
-//! link dial --host <host_…>` each stream runs (super::dial, super::carrier).
+//! The link carrier command: the per-machine local socket and the Mac app's
+//! carrier socket each stream connects to (super::dial, super::carrier).
 //!
-//! No credential is ever on argv or in the environment: `cmux link`
-//! resolves the host and mints its own dial token (contract 1.7).
+//! No credential is ever on argv, in the environment or in a file this
+//! server reads: the app's `cmux carrier serve` child holds it (super::dial).
 
-use super::dial::{DialCode, dial_args};
+use super::dial::DialCode;
 use serde_json::Value;
 use sha2::{Digest, Sha256};
 use std::path::{Path, PathBuf};
 
-/// Where the link keeps its state and socket, and what it runs.
+/// Where the link keeps its state and its local socket.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct LinkPaths {
-    /// The `cmux` binary that runs `link dial` (injected by the host).
-    pub binary: PathBuf,
-    /// The live `cmux link` socket the host reported (`hub_socket`); a null
-    /// one means no link runs (super::config::LinkConfig::NoHub).
-    pub hub_socket: PathBuf,
     /// The remote client's state directory (owner only, 0700).
     pub state_dir: PathBuf,
     /// Directory of the link's local socket (short: `sun_path` is 104 bytes).
@@ -37,30 +32,19 @@ impl LinkPaths {
 /// A fully built carrier command.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct LinkCommand {
-    /// The `cmux` binary; each stream runs `binary args`.
-    pub binary: PathBuf,
-    /// The argv of one dial (super::dial::dial_args).
-    pub args: Vec<String>,
-    /// The dial child's whole environment: the carrier clears everything else.
-    pub env: Vec<(String, String)>,
+    /// The Mac app's carrier socket of the machine (its `cmux carrier
+    /// serve`, super::dial): each stream is one connection to it.
+    pub upstream: PathBuf,
     pub state_dir: PathBuf,
-    /// The carrier's local socket: each connection to it is one dial.
+    /// The carrier's local socket: each connection to it is one stream.
     pub local_socket: PathBuf,
 }
 
-/// The carrier command for `machine`, whose overlay host id is `host`.
-/// `child_env` is the whole environment of each dial child
-/// (crate::app_env::AppEnv::child_env).
-pub fn link_command(
-    paths: &LinkPaths,
-    machine: &str,
-    host: &str,
-    child_env: &[(String, String)],
-) -> LinkCommand {
+/// The carrier command for `machine`, whose streams go to the app's
+/// carrier socket `upstream`.
+pub fn link_command(paths: &LinkPaths, machine: &str, upstream: &Path) -> LinkCommand {
     LinkCommand {
-        binary: paths.binary.clone(),
-        args: dial_args(host, &paths.hub_socket),
-        env: child_env.to_vec(),
+        upstream: upstream.to_path_buf(),
         state_dir: paths.state_dir.clone(),
         local_socket: paths.link_socket(machine),
     }
@@ -70,8 +54,11 @@ pub fn link_command(
 /// a stream's typed dial refusal.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum LinkLine {
-    Connected { local_socket: PathBuf },
-    DialFailed(DialCode),
+    Connected {
+        local_socket: PathBuf,
+    },
+    /// The typed code and the detail of what failed, if one came.
+    DialFailed(DialCode, Option<String>),
     Other,
 }
 
@@ -81,11 +68,12 @@ pub fn ready_line(local_socket: &Path) -> String {
         .to_string()
 }
 
-/// `{"event":"dial-failed","error_code":...,"reason":...}`.
-pub fn dial_failed_line(code: &DialCode) -> String {
+/// `{"event":"dial-failed","error_code":...,"reason":...}`: the reason is
+/// an unavailable link's text, or the refusal's detail.
+pub fn dial_failed_line(code: &DialCode, detail: Option<&str>) -> String {
     let reason = match code {
         DialCode::Unavailable(why) => why.as_str(),
-        _ => "",
+        _ => detail.unwrap_or(""),
     };
     serde_json::json!({ "event": "dial-failed", "error_code": code.as_str(), "reason": reason })
         .to_string()
@@ -102,12 +90,18 @@ pub fn parse_line(line: &str) -> LinkLine {
         },
         Some("dial-failed") => {
             let code = value["error_code"].as_str().unwrap_or_default();
-            LinkLine::DialFailed(match code {
-                "unavailable" => DialCode::Unavailable(
-                    value["reason"].as_str().unwrap_or("cmux link is unavailable").to_owned(),
+            match code {
+                "unavailable" => LinkLine::DialFailed(
+                    DialCode::Unavailable(
+                        value["reason"].as_str().unwrap_or("the carrier is unavailable").to_owned(),
+                    ),
+                    None,
                 ),
-                other => DialCode::parse(other),
-            })
+                other => LinkLine::DialFailed(
+                    DialCode::parse(other),
+                    value["reason"].as_str().and_then(super::dial::clip_detail),
+                ),
+            }
         }
         _ => LinkLine::Other,
     }

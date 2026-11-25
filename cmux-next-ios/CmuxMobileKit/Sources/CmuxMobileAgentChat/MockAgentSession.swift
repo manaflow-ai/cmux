@@ -1,7 +1,9 @@
 // DEBUG and Demo builds only: mock content is never compiled into Production.
 #if DEBUG
 import CmuxAgentQuestion
+import CmuxMobileDesign
 import CmuxMobileModel
+import CmuxMobileTransport
 import Foundation
 
 /// An offline `AgentSessionSource` that streams a realistic Claude Code style
@@ -56,13 +58,36 @@ public final class MockAgentSession: AgentSessionSource {
         let replayed = batch ?? []
         batch = nil
         continuation.yield(.batch(replayed))
+        // `CMUX_MOBILE_MOCK_LINK=down`: the chat's history is there, its Mac is not.
+        if link == .down { continuation.yield(.status(.disconnected)) }
+        observeHostLoad()
         return stream
     }
 
+    /// The link to the "Mac" (`CMUX_MOBILE_MOCK_LINK`): a slow one holds what each side
+    /// sends and lets it through in bursts; a down one carries nothing.
+    let link = MockLinkCondition.current
+    private var held: [AgentSessionEvent] = []
+    private var burst: Task<Void, Never>?
+
     public func send(_ intent: AgentClientIntent) {
+        switch link {
+        case .healthy: receive(intent)
+        case .down: return
+        case .slow:
+            Task { [weak self] in
+                try? await Task.sleep(for: MockLinkCondition.burst)
+                self?.receive(intent)
+            }
+        }
+    }
+
+    private func receive(_ intent: AgentClientIntent) {
         switch intent {
-        case .prompt(let text, let attachments, let steer, _, _):
-            let promptID = UUID().uuidString
+        case .prompt(let text, let attachments, let steer, let sentID, _):
+            // The client's id comes back on the echo, as acpmux does: the store
+            // matches its send to it (`chat_send_acked`, a resend's dedupe).
+            let promptID = sentID.isEmpty ? UUID().uuidString : sentID
             if running != nil, !steer {
                 queued.append((promptID, text, attachments))
                 emit(.queued(text: text, promptId: promptID, position: queued.count))
@@ -84,9 +109,9 @@ public final class MockAgentSession: AgentSessionSource {
             questionWaiter = nil
         case .respondPermission(let id, let optionID):
             guard id == pendingPermissionID else { return }
-            // DEBUG: an allow waits for mock "Face ID" (Settings → Developer), so the
+            // DEBUG: an allow waits for a slow mock approval (Settings → Developer), so the
             // waiting state shows. A deny never waits.
-            let delay = DeveloperOptions.mockFaceIDDelay
+            let delay = DeveloperOptions.mockApprovalDelay
             if delay > .zero, let optionID, !optionID.lowercased().contains("deny"), !optionID.lowercased().contains("reject") {
                 Task { [weak self] in
                     try? await Task.sleep(for: delay)
@@ -126,6 +151,12 @@ public final class MockAgentSession: AgentSessionSource {
         case .sendQueuedNow(let promptID):
             queued.removeAll { $0.id == promptID }
             emit(.dequeued(promptId: promptID))
+        case .resumeQueue:
+            emit(.queuePaused(false, reason: nil))
+        case .cancelSend, .deleteSend, .retrySend:
+            break
+        case .answerElevation(let ask, _):
+            emit(.elevationDecision(id: ask.id))
         }
     }
 
@@ -145,10 +176,43 @@ public final class MockAgentSession: AgentSessionSource {
         permissionWaiter = nil
     }
 
+    /// `HostLoadSim`'s observers (DEBUG host load).
+    private var hostLoad: [NSObjectProtocol] = []
+
+    /// `HostLoadSim`: a heavy tick re-sends the session's status (every other
+    /// tick, as the daemon's status events do while an agent works); a cut
+    /// disconnects it.
+    private func observeHostLoad() {
+        guard hostLoad.isEmpty else { return }
+        if HostLoadSim.mode == .cut { emit(.status(.disconnected)) }
+        let center = NotificationCenter.default
+        hostLoad.append(center.addObserver(forName: HostLoadSim.tick, object: nil, queue: .main) { [weak self] note in
+            let tick = note.object as? Int ?? 0
+            MainActor.assumeIsolated {
+                guard let self, tick % 2 == 0 else { return }
+                self.emit(.status(self.summary.status))
+            }
+        })
+        hostLoad.append(center.addObserver(forName: HostLoadSim.cut, object: nil, queue: .main) { [weak self] _ in
+            MainActor.assumeIsolated { self?.emit(.status(.disconnected)) }
+        })
+    }
+
     func emit(_ event: AgentSessionEvent) {
         if batch != nil {
             batch?.append(event)
-        } else {
+        } else if link == .slow {
+            held.append(event)
+            guard burst == nil else { return }
+            burst = Task { [weak self] in
+                try? await Task.sleep(for: MockLinkCondition.burst)
+                guard let self else { return }
+                let events = self.held
+                self.held = []
+                self.burst = nil
+                for event in events { self.continuation?.yield(event) }
+            }
+        } else if link == .healthy {
             continuation?.yield(event)
         }
     }
@@ -187,6 +251,7 @@ public final class MockAgentSession: AgentSessionSource {
         let turnID = "history-1"
         emit(.userMessage(text: "What does the link framing look like today?", promptId: "p-h1", turnId: turnID, attachments: [], at: start))
         emit(.turnStarted(turnId: turnID, at: start))
+        replayWhoElseCall()
         emit(.update(.toolCall(ACPToolCall(
             id: "h-read", title: "Read frame.rs", kind: .read, status: .completed,
             content: [.content(.text("pub struct Frame { len: u32, channel: u32, kind: FrameKind, payload: Bytes }"))],
@@ -194,6 +259,7 @@ public final class MockAgentSession: AgentSessionSource {
         ))))
         emit(.update(.agentMessageChunk(text: MockScript.historyAnswer, messageId: "h-m1")))
         emit(.turnResult(turnId: turnID, status: .completed, errorText: nil, at: start.addingTimeInterval(41)))
+        replayAgentMessageTurns(at: Date().addingTimeInterval(-2700))
         let second = Date().addingTimeInterval(-1800)
         replaySubagentTurn(at: second)
         replayStressTurns(ListStressSettings.shared.historyTurns)
@@ -263,7 +329,10 @@ public final class MockAgentSession: AgentSessionSource {
         running = Task { [weak self] in
             guard let self else { return }
             do {
-                if ListStressSettings.shared.streams {
+                if ListStressSettings.shared.holdsTurn {
+                    // The rig's running chat: the turn stays open, with no output, until stopped.
+                    try await Task.sleep(for: .seconds(24 * 3600))
+                } else if ListStressSettings.shared.streams {
                     try await self.stream(MockStressContent.streamedAnswer, messageID: "stress-stream-\(turnID)")
                 } else if rich {
                     try await self.richTurn()

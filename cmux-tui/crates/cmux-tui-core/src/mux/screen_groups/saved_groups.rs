@@ -38,6 +38,17 @@ impl Mux {
         let outcome = self.screen_group_outcome(group);
         let Some(record) = outcome.group else { return Ok(()) };
         let Some(saved_id) = record.saved_id.clone() else { return Ok(()) };
+        // A remote device never sees an incognito workspace's saved group
+        // (#31210; server/incognito_remote.rs).
+        let incognito = self.with_state(|state| {
+            state.workspaces.iter().any(|workspace| {
+                workspace.key == record.workspace_key
+                    && crate::state::store::was_ephemeral(workspace.public_id.as_str())
+            })
+        });
+        if incognito {
+            crate::state::store::note_incognito_saved(&saved_id);
+        }
         let profile_id = self
             .presentation_snapshot()
             .saved_screen_groups

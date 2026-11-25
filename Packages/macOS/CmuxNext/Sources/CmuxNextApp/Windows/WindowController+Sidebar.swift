@@ -1,6 +1,7 @@
 import AppKit
 import CmuxNextCompat
 import CmuxNextDesign
+import CmuxNextLiveCode
 import CmuxNextPages
 
 extension WindowController {
@@ -17,20 +18,27 @@ extension WindowController {
         // own (a hide sizes it once at the start): every move of the card, its last frame
         // included, has its header re-read the traffic lights (no change, no work).
         root.onMainPaneMove = { [weak self] in WindowControlsAvoiders.refresh(in: self?.window) }
-        // The host pressure indicator joins the top row after the band and badge (cmuxterm-hq#2995).
-        root.hostPressureIndicator = HostPressureIndicatorView(services: services) { [weak self] in
-            // Shown or hidden: the top row places it (layoutTitlebarAccessories), then strips avoid it.
+        // The host pressure indicator, then extensions' status items (cmux.status/1), join the top row after the band and badge (cmuxterm-hq#2995).
+        let topRowChanged = { [weak self] in
             self?.root.needsLayout = true
             self?.root.layoutSubtreeIfNeeded()
             self?.relayoutTopRowStrips()
         }
+        root.hostPressureIndicator = HostPressureIndicatorView(services: services, onVisibilityChange: topRowChanged)
+        root.extensionStatusStrip = services.apps.client.statusItems.titlebarStrip(onWidthChange: topRowChanged)
+        // Swift live mode's mark: in the sidebar's footer, and in the top row while the sidebar is hidden.
+        services.liveCode.whenLive { [weak self] in
+            self?.sidebar.container.sidebarView.liveModeBadge = LiveModeBadgeView()
+            self?.root.liveModeBadge = LiveModeBadgeView()
+            self?.relayoutTopRowStrips()
+        }
+        sidebar.container.sidebarView.experimentsMark = services.customizeExperiments.makeMark { [weak services = services] in try? services?.settingsWindow.show(section: nil, focus: true, route: CustomizeExperiments.libraryRoute) } // PR pages on: native, so a broken page can't hide the way out
+        root.sidebarFloat.isAllowed = { [weak self] in self.map { $0.state.page != .home && !$0.root.presentsPage } ?? false }
         let model = sidebar.model
         sidebarObservation = Task { [weak self] in
             for await hidden in ObservationStream({ model.isHidden }) {
                 guard let self else { return }
-                if hidden { services.hoverCards.suppress(.sidebarHide) }
-                else { services.hoverCards.unsuppress(.sidebarHide) }
-                if hidden { services.hoverCards.dismiss(.action) }
+                if let window { services.hoverCards.sidebarHidden(hidden, in: window) }
                 root.showsTitlebarBadge = hidden && root.titlebarBadge != nil
                 root.sidebarHidden = hidden
                 root.layoutSubtreeIfNeeded()
@@ -53,8 +61,8 @@ extension WindowController {
     /// and in the top row after the traffic lights while the sidebar is
     /// hidden (strips under it start after it).
     func showIncognitoBadge() {
-        sidebar.container.sidebarView.titlebarAccessory = IncognitoBadgeView()
-        root.titlebarBadge = IncognitoBadgeView()
+        sidebar.container.sidebarView.titlebarAccessory = IncognitoBadgeView(title: WindowStrings.incognitoBadge, help: WindowStrings.incognitoHelp)
+        root.titlebarBadge = IncognitoBadgeView(title: WindowStrings.incognitoBadge, help: WindowStrings.incognitoHelp)
         root.showsTitlebarBadge = sidebar.model.isHidden
         root.needsLayout = true
     }

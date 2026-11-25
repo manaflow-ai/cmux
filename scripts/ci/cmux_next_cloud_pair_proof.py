@@ -7,6 +7,7 @@ history reply. prompt and expected_reply are synthetic templates containing
 Only UI actions send the prompt and copy the assistant's resulting answer.
 Simulator push injection proves routing only, never APNs delivery.
 """
+import hashlib
 import json
 import os
 import re
@@ -14,11 +15,95 @@ import secrets
 import stat
 import subprocess
 import time
+import zipfile
 from pathlib import Path
 
 
 class ProofFailure(RuntimeError):
     """Messages name the failed check, never runner inputs or credentials."""
+
+
+def public_hash(value, salt):
+    """Hash a proof value with a per-run salt before it can enter evidence."""
+    return hashlib.sha256((salt + "\0" + value).encode("utf-8")).hexdigest()
+
+
+def public_evidence(proof, expected_reply, salt):
+    """Return export-safe proof facts; raw manifest/chat values never leave this function."""
+    return {
+        "schema": "cmux-cloud-ui-proof-public-v2",
+        "hash": "sha256(salt || NUL || value)",
+        "machine_id_sha256": public_hash(proof["machine_id"], salt),
+        "team_id_sha256": public_hash(proof["team_id"], salt),
+        "session_id_sha256": public_hash(proof["session_id"], salt),
+        "owner_user_id_sha256": public_hash(proof["owner_user_id"], salt),
+        "stack_project_id_sha256": public_hash(proof["stack_project_id"], salt),
+        "machine_name_sha256": public_hash(proof["machine_name"], salt),
+        "session_name_sha256": public_hash(proof["session_name"], salt),
+        "history_reply_sha256": public_hash(proof["history_reply"], salt),
+        "reply_sha256": public_hash(expected_reply.strip(), salt),
+        "owner_and_project_match": True,
+        "history_copied_from_assistant": True,
+        "reply_copied_from_assistant": True,
+        "notification_tap": True,
+        "notification_transport": "simulator injection; routing proof only",
+        "apns_delivery_proven": False,
+    }
+
+
+def remove_private_cloud_captures(out):
+    """Keep Cloud UI screenshots runner-private; the public zip carries only the receipt."""
+    for name in ("phone-cloud-history.png", "phone-cloud-reply.png", "phone-cloud-notification-tap.png"):
+        Path(out, "screens", name).unlink(missing_ok=True)
+
+
+def allowlist_public_cloud_artifact(out):
+    """On every exit path, leave only the sanitized receipt in Cloud proof output."""
+    root = Path(out)
+    receipt = root / "cloud-ui-proof.json"
+    for path in sorted(root.rglob("*"), reverse=True):
+        if path == receipt:
+            continue
+        if path.is_dir():
+            path.rmdir()
+        else:
+            path.unlink(missing_ok=True)
+    if not receipt.is_file():
+        raise ProofFailure("Cloud proof ended without a sanitized receipt")
+
+
+def export_cloud_artifact(out, status):
+    """Sanitize and create the receipt-only archive on success, failure, or signal cleanup."""
+    root = Path(out)
+    receipt = root / "cloud-ui-proof.json"
+    try:
+        allowlist_public_cloud_artifact(out)
+    except ProofFailure:
+        receipt = root / "cloud-ui-proof.json"
+    summary = root / "SUMMARY.md"
+    if receipt.is_file():
+        line = "- Cloud proof: sanitized receipt exported; raw captures and logs omitted"
+    else:
+        line = f"- Cloud proof: no sanitized receipt (step status {int(status)})"
+    summary.write_text(line + "\n")
+    archive = root / "evidence.zip"
+    archive.unlink(missing_ok=True)
+    with zipfile.ZipFile(archive, "w", compression=zipfile.ZIP_DEFLATED) as bundle:
+        if receipt.is_file():
+            bundle.write(receipt, receipt.name)
+        bundle.write(summary, summary.name)
+    return receipt.is_file()
+
+
+if __name__ == "__main__":
+    import argparse
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--export-out")
+    parser.add_argument("--status", type=int, default=0)
+    options = parser.parse_args()
+    if options.export_out is None:
+        raise SystemExit("--export-out is required")
+    raise SystemExit(0 if export_cloud_artifact(options.export_out, options.status) else 1)
 
 
 FIELDS = frozenset(("owner_user_id", "stack_project_id", "machine_id", "team_id",
@@ -141,8 +226,9 @@ class PhoneUI:
                   "-x", str((left + right) / 2), "-y", str((top + bottom) / 2)] +
                  (["--down", "--up", "--delay", "0.08"] if press else ["--tap-style", "simulator"]))
 
-    def named(self, text):
-        self.tap(self.control(lambda n: n.get("type") == "Button" and label(n) == text, text))
+    def named(self, text, what="Cloud control"):
+        # `text` is a manifest/UI value; never use it as a failure description.
+        self.tap(self.control(lambda n: n.get("type") == "Button" and label(n) == text, what))
 
     def launch(self, args):
         self.run(self.simctl + ["terminate", self.udid, self.bundle], check=False)
@@ -186,7 +272,7 @@ class PhoneUI:
 
     def select_mac(self, rig_name):
         self.tap(self.control(self.is_mac_picker, "relay Mac picker"), press=True)
-        self.named(rig_name)
+        self.named(rig_name, "Cloud machine")
 
     @staticmethod
     def is_mac_picker(node):
@@ -250,12 +336,12 @@ def run_cloud_leg(proof, *, root, mac_env, email, rpc, phone_log, simctl, udid, 
         raise ProofFailure("Simulator notification permission is denied; no permission bypass is used")
     if state == "Not set":
         ui.tap(row)
-        ui.named("Allow")
+        ui.named("Allow", "notification permission")
         ui.wait(lambda: (permission() or (None, None))[1] == "On", "notification authorization")
     ui.launch(["-cmux-mobile-tab", "home"])
-    ui.named("Cloud chats")
+    ui.named("Cloud chats", "Cloud chats entry")
     ui.select_mac(rig_name)
-    ui.named(proof["machine_name"])
+    ui.named(proof["machine_name"], "Cloud machine")
     ui.tap(ui.control(lambda n: n.get("type") == "Button" and
                       (label(n) == proof["session_name"] or label(n).startswith(proof["session_name"] + ",")
                        or label(n).startswith(proof["session_name"] + "\n")), "Cloud session"))
@@ -264,7 +350,7 @@ def run_cloud_leg(proof, *, root, mac_env, email, rpc, phone_log, simctl, udid, 
     shot("phone-cloud-history")
     ui.tap(ui.control(lambda n: n.get("AXUniqueId") == "chat.composer.field", "Cloud composer"))
     ui.run(["axe", "type", prompt, "--udid", udid])
-    ui.named("Send")
+    ui.named("Send", "Cloud send button")
     ui.reply(expected)
     shot("phone-cloud-reply")
 
@@ -299,9 +385,7 @@ def run_cloud_leg(proof, *, root, mac_env, email, rpc, phone_log, simctl, udid, 
         shot("phone-cloud-notification-tap")
     finally:
         push_file.unlink(missing_ok=True)
-    evidence = {"machine_id": proof["machine_id"], "team_id": proof["team_id"], "session_id": proof["session_id"],
-                "owner_and_project_match": True, "history_copied_from_assistant": True,
-                "reply_copied_from_assistant": expected.strip(), "notification_tap": True,
-                "notification_transport": "simulator injection; routing proof only", "apns_delivery_proven": False}
+    evidence = public_evidence(proof, expected, nonce)
     Path(out, "cloud-ui-proof.json").write_text(json.dumps(evidence, indent=2) + "\n")
+    remove_private_cloud_captures(out)
     note("- Cloud: real paired history, unique UI send and assistant reply readback passed; cold notification tap passed (simulator routing only, no APNs receipt)")

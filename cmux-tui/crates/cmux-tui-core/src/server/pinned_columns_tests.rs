@@ -388,6 +388,48 @@ fn a_screens_only_tab_becomes_a_lone_pinned_dock_without_a_respawn() {
     assert_eq!(dock.role, Some(crate::model::DockRole::AgentChat));
 }
 
+/// https://github.com/manaflow-ai/cmux/issues/37391: a column that opens beside
+/// Home's dock alone makes an even split, whatever width the dock stored while
+/// alone (1.0 here: the screen's base column when it first became columns,
+/// drawn at the dock's 0.75 cap, so a link showed at 3/4 chat, 1/4 page). A
+/// tab moved or dropped beside it (`move-tab-to-column`, the app's open of a
+/// background link) gets the same split as a split or a link, whatever width
+/// it asked for; a column opened beside a dock with company keeps the widths.
+#[test]
+fn a_column_opened_beside_a_lone_pinned_dock_is_an_even_split() {
+    let (mut wire, panes) = Wire::home();
+    let right = wire.tabs(panes[1])[0];
+    wire.ok(json!({"cmd": "close-surface", "surface": right}));
+    let widths = |wire: &Wire| {
+        wire.mux.with_state(|state| {
+            let screen = &state.workspaces[0].screens[0];
+            screen.layout_columns.iter().map(|c| c.width).collect::<Vec<_>>()
+        })
+    };
+    let stale = widths(&wire);
+    assert_eq!(stale.len(), 1, "the dock is alone: {stale:?}");
+    assert!(stale[0] > crate::model::LONE_DOCK_WIDTH, "a stale wide dock: {stale:?}");
+
+    let other = wire.mux.new_workspace(None, Some((80, 22))).unwrap().id;
+    wire.ok(json!({
+        "cmd": "move-tab-to-column", "surface": other, "pane": panes[0], "width": 0.3,
+    }));
+    assert_eq!(
+        widths(&wire),
+        vec![crate::model::LONE_DOCK_WIDTH, crate::mux::LONE_DOCK_NEIGHBOR_WIDTH],
+        "the dock and its new neighbour split the window evenly"
+    );
+
+    // With company the dock is no longer alone: a second column keeps every width.
+    let third = wire.mux.new_workspace(None, Some((80, 22))).unwrap().id;
+    wire.ok(json!({
+        "cmd": "move-tab-to-column", "surface": third, "pane": panes[0], "width": 0.3,
+    }));
+    let after = widths(&wire);
+    assert_eq!(after.len(), 3, "{after:?}");
+    assert_eq!(&after[..2], &[crate::model::LONE_DOCK_WIDTH, crate::mux::LONE_DOCK_NEIGHBOR_WIDTH]);
+}
+
 /// `pinned-dock-alone-v1`: the pinned dock alone still takes no tab. A
 /// browser tab made in it (an agent's page beside its chat, a conversation
 /// tab) opens in a new column right of it in the same commit, so nothing is
@@ -426,7 +468,7 @@ fn a_browser_tab_made_in_a_lone_pinned_dock_opens_in_a_new_column_beside_it() {
             .collect::<Vec<_>>();
         (columns, state.pane_of(browser.id), state.active_pane())
     });
-    assert!(columns[0].1, "{columns:?}");
+    assert_eq!(columns[0], (crate::model::LONE_DOCK_WIDTH, true), "an even split: {columns:?}");
     assert_eq!(columns[1], (crate::mux::LONE_DOCK_NEIGHBOR_WIDTH, false), "{columns:?}");
     assert_eq!(columns.len(), 2);
     assert_ne!(beside, Some(panes[0]));

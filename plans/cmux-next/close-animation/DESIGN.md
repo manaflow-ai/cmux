@@ -4,15 +4,32 @@ Lawrence 2026-10-19: "Animation for closing a pane and closing a window needs to
 first principles. Let me know if it's the last tab of a pane. We don't need to animate the tab
 closing." Chief's brief: the last tab of a pane closes the whole pane with motion (the siblings
 spring into its space together, one layout pass, terminals resize once at the end); a window close
-animates the whole window; a tab that is not the last closes at once; Reduce Motion closes at once.
+animates the whole window; a tab that is not the last closes at once (since cmux-ad m49, 2026-11-07:
+it slides out on the tab strip, see Before); Reduce Motion closes at once.
 Same spring and geometry as the split ([split DESIGN.md](../split-spring-animation/DESIGN.md)).
 
 Tests: `Packages/macOS/CmuxNext/Tests/CmuxNextAppTests/PaneCloseMotionTests.swift`.
 
 ## Before
 
-- **Tab that is not the last.** Instant already: the strip's close tween runs only with
-  `ui.animations.newTab` on, which is off by default (`TabStripView+Sync.swift`). No change.
+- **Tab that is not the last (close case A).** Lawrence, cmux-ad m49 (2026-11-07), verbatim:
+  "A: animate the tab strip". This replaces the instant close of 92b2e0515f9 (Lawrence 2026-10-19,
+  msg 2833, "tab close instant"). The closed tab shrinks out on the strip's `tabClose` tween
+  (Chrome's StartRemoveTabAnimation: 200 ms ease-out, its left edge on the previous tab's right
+  edge, its content frozen as it was), and the tabs right of it, the + and the controls slide to
+  their new places on the same tween (`TabStripView+Sync.swift`, `pinClosingTabs`), and so does the
+  pinned group's divider. Tabs closed in one change ("Close Tabs to the Right") each pin to the
+  nearest tab left of them that stays. It runs through `Motion.tabs` alone (`ui.animations.newTab`
+  gates a new tab's growth, not a close); with animation off or under Reduce Motion the final strip
+  shows in the close's frame. The pane, its siblings and the split do not move, and the content area shows the next tab
+  in the frame of the key (no content motion). Chrome's closing mode (a mouse close under a still
+  pointer) keeps every tab's width; the tabs right of the closed one slide into its room. A second
+  close during the slide starts from where every tab shows: the strip moves are additive, so they
+  sum (`TabStripMove`). Tests: `TabCloseMotionTests` (the strip's frames per 120 Hz tick after a
+  close, and the pane's geometry in each), `TabMoveMotionTargetTests`, and
+  `TabStripFollowsPaneTickTests.aPaneWidthChangeStartsNoStripMoveWhileATabCloses`, `TabCloseEchoWorkTests`
+  (an echo of the close during the slide walks no row). A pane's or a
+  workspace's last tab (cases B, C, D) is never a strip close.
 - **Last tab of a pane.** The tab left the strip in the key's turn (`pendingClosed`), but the pane
   stayed in the layout, empty, until the daemon's tree without it came back (one round trip, about
   100 ms, more with a browser's `prepareClose`). Then its host went at once and the neighbours
@@ -51,8 +68,10 @@ Tests: `Packages/macOS/CmuxNext/Tests/CmuxNextAppTests/PaneCloseMotionTests.swif
   screens (`overlaid`) and shows the close sizing it leaves (derived on every overlay, nothing held per split);
   it moves the model's focus to the `successor` (the first pane of the closed pane's sibling) when
   the closed pane had it. A pane with a sibling in its split tree, or a column's only pane while
-  another column stays (its column goes with it, see Doubts), closes this way: the last pane of a
-  screen and a pane in a column with rows leave with the daemon's tree, as before. The hold ends when a snapshot no longer holds the pane, or
+  another column stays (its column goes with it, see Doubts), closes this way, and so does a pane in
+  a column with rows (`removingRowPane`, cmux-tui's `normalize_rows`: an emptied row leaves its
+  column, the rows left keep their heights, one row left is a plain column): only the last pane of a
+  screen leaves with the daemon's tree. The hold ends when a snapshot no longer holds the pane, or
   after `settlePaneClose` (the next snapshot wins); `cancelPaneClose` brings the pane back.
 - **The last tab:** `PaneController.close(_:)` shows the pane close when its strip has no tab left
   (`PaneController+PaneClose.swift`), moves the window's focus to the successor when the pane had

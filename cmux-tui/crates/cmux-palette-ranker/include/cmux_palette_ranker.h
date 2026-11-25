@@ -28,10 +28,19 @@ int32_t cmux_palette_ranker_install(
     int64_t version,
     const uint8_t *entries,
     size_t entries_len);
+/* Holds a JSON usage history (PaletteFrecency) for `revision`; a request whose
+ * `historyRevision` is that revision may omit `frecency`. */
+int32_t cmux_palette_ranker_install_history(
+    CmuxPaletteRanker *ranker,
+    int64_t revision,
+    const uint8_t *history,
+    size_t history_len);
 /* Ranks one JSON request. On OK, `*response` is the ranked sections JSON; on an
  * error it is a message, except CMUX_PALETTE_RANKER_ERR_NULL, which leaves a null
  * response of length 0 (nothing is written when an out pointer is null). The
- * bytes stay valid until the next call on `ranker`. A handle is not thread-safe. */
+ * bytes stay valid until the next call on `ranker`. A handle is not thread-safe.
+ * A request with "operation": "filter" answers the query's search filter
+ * ({"rest", "include", "exclude", "applied"}) for its "sectionNames" instead. */
 int32_t cmux_palette_ranker_rank(
     CmuxPaletteRanker *ranker,
     const uint8_t *request,

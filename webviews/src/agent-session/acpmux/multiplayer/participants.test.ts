@@ -2,7 +2,7 @@
 // The shared chat's readers: an author only from the daemon's `person_message` provenance, an
 // answerer only from a person `answeredBy`, presence without the reader, and pictures only inline.
 import { expect, test } from "bun:test";
-import { answeredBy, chatPresence, displayName, initials, promptAuthor } from "./participants";
+import { answeredBy, chatPresence, displayName, initials, promptAuthor, queuedAuthor } from "./participants";
 
 test("a prompt's author comes only from person_message provenance", () => {
   const msg = {
@@ -93,4 +93,24 @@ test("a name loses hidden characters and is bounded; an id is kept whole", () =>
   );
   expect(presence.viewing.map((p) => p.id)).toEqual([`${long}b`]);
   expect(answeredBy({ id: "x".repeat(300), name: "Too long" })).toBeUndefined();
+});
+
+test("a prompt's author keeps acpmux's https picture (fromAvatar); other pictures stay inline only", () => {
+  const author = (fromAvatar: unknown) =>
+    promptAuthor({
+      _meta: { provenance: { kind: "person_message", from: "guest:s.g", fromName: "Priya", fromAvatar } },
+    });
+  expect(author("https://avatars.example.com/p.png")?.avatar).toBe("https://avatars.example.com/p.png");
+  expect(author("http://avatars.example.com/p.png")?.avatar).toBeUndefined();
+  expect(author("javascript:alert(1)")?.avatar).toBeUndefined();
+  expect(author(`https://a.example/${"x".repeat(1024)}`)?.avatar).toBeUndefined();
+  // The cap is 1024 UTF-8 bytes, not characters: 510 two-byte characters (528 characters, 1038 bytes) are over it.
+  expect(author(`https://a.example/${"é".repeat(510)}`)?.avatar).toBeUndefined();
+  const fits = `https://a.example/${"x".repeat(1024 - "https://a.example/".length)}`;
+  expect(author(fits)?.avatar).toBe(fits);
+  expect(author(undefined)).toEqual({ id: "guest:s.g", name: "Priya" });
+  expect(queuedAuthor({ id: "guest:s.g", name: "Priya", avatar: "https://a.example/p.png" })?.avatar).toBe(
+    "https://a.example/p.png",
+  );
+  expect(queuedAuthor(null)).toBeUndefined();
 });

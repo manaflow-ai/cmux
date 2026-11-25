@@ -10,13 +10,13 @@ import Testing
 /// Preview in a theme picker; Esc reverts). `cmux.settings.preview` of `appearance.theme` puts the
 /// theme on the terminals and of `appearance.appTheme` on the chrome; ending the preview restores
 /// the saved ones, and the file never changes.
-@MainActor @Suite(.serialized) struct ThemeLivePreviewTests {
+@MainActor @Suite(.serialized, .ghosttyOverrides) struct ThemeLivePreviewTests {
     func make() async throws -> (SettingsController, URL) {
         let directory = FileManager.default.temporaryDirectory.appending(path: "cnc-theme-preview-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         let url = directory.appending(path: "cmux.json")
         try Data(#"{"appearance":{"theme":"Nord"}}"#.utf8).write(to: url)
-        let settings = SettingsController(registry: ActionRegistry(catalog: []), design: DesignSettings(), fileURL: url,
+        let settings = SettingsController(writer: TestSettingsWriter(), registry: ActionRegistry(catalog: []), design: DesignSettings(), fileURL: url,
                                           managedReader: FixedManagedPreferenceReader(ManagedPreferences()), managedWatchFiles: [])
         await settings.reload()
         return (settings, url)

@@ -12,8 +12,20 @@
 set -euo pipefail
 feeds=()
 for appcast in appcast.xml appcast-arm64.xml appcast-x86_64.xml; do
-  feeds+=(--feed-if-present "${NIGHTLY_NEXT_FEED_BASE}/${appcast}" --feed "${NIGHTLY_NEXT_LEGACY_FEED_BASE}/${appcast}" --feed "https://files.cmux.com/nightly/${appcast}")
+  feeds+=(--feed "${NIGHTLY_NEXT_FEED_BASE}/${appcast}" --feed "https://files.cmux.com/nightly/${appcast}")
 done
+# A cmux NEXT build is superseded only by a newer cmux NEXT build. Classic NIGHTLY publishes on its own
+# schedule from the same run-id counter, so a classic run that started later and published first sank every
+# NEXT publication with "superseded by 4181616539301 in https://files.cmux.com/nightly/appcast.xml" (run
+# 41815641855). The NEXT build number still clears the classic floor when it is assigned
+# (app-resolve-daemon-metadata.sh); here the classic feeds are dropped for the nightly-next track.
+if [ "${TRACK:-}" = nightly-next ]; then
+  next_feeds=()
+  for ((i = 0; i < ${#feeds[@]}; i += 2)); do
+    [[ "${feeds[i+1]}" == https://files.cmux.com/nightly/* ]] || next_feeds+=("${feeds[i]}" "${feeds[i+1]}")
+  done
+  feeds=("${next_feeds[@]}")
+fi
 # cmux NEXT builds run side by side and publication is latest-wins: a build a newer one already
 # published past is superseded, a no-op like an already published one, not a failure (run
 # 40825878411's 4082587841101 after 4082702109901 opened a failure issue). Classic keeps its

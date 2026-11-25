@@ -265,6 +265,13 @@ await requireBrowserLane("chat-open-perf.test.ts", async () => {
   const SLOW_LIVE_MS = 1_800;
   const SLOW_ATTACH_MS = 2_400;
   const LIVE_MARKER = "Live line before the read.";
+  /// The attach of the hover test's chats (`readable`). That test asks which came first, the
+  /// page's draw or its attach's answer, so the attach must outlast any draw from the host's copy:
+  /// at ATTACH_MS (150 ms, from about 25 ms after `initialize`) the copy's draw (the list's round
+  /// trip, then one dev-bundle render, 150-290 ms after `initialize` on a loaded runner) tied with
+  /// it, and a hovered tab that drew from the copy 130 ms ahead of its cold twin read "no".
+  /// Long enough that only a page holding no copy waits for it; nothing here measures its length.
+  const HOVER_ATTACH_MS = 1_000;
 
   let daemon: ReturnType<typeof Bun.serve> | undefined;
   let vite: Awaited<ReturnType<typeof createServer>> | undefined;
@@ -358,7 +365,9 @@ await requireBrowserLane("chat-open-perf.test.ts", async () => {
             slow
               ? SLOW_ATTACH_MS
               : message.method === "_acpmux/attach"
-                ? ATTACH_MS
+                ? readable.has(String(message.params?.sessionId))
+                  ? HOVER_ATTACH_MS
+                  : ATTACH_MS
                 : slowSideReads && sideRead(message.method)
                   ? SIDE_READ_MS
                   : CALL_MS,

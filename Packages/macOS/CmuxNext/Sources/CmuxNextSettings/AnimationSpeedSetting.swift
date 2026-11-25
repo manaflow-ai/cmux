@@ -3,8 +3,7 @@ public import CmuxNextDesign
 /// `ui.animationSpeed` in cmux.json: "fast" (default), "normal" or "off"
 /// (plans/cmux-next/motion.md).
 public nonisolated enum AnimationSpeedSetting {
-    public static let configPath = ["ui", "animationSpeed"]
-    public static let fallback: MotionSpeed = .fast
+    // The path and default are generated from schemas/settings/source/appearance.json.
 
     /// A missing key is the default with no diagnostic; a bad value is the
     /// default plus a diagnostic.

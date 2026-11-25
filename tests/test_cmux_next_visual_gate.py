@@ -16,12 +16,14 @@ import struct
 import subprocess
 import sys
 import tempfile
+import time
 import unittest
 import zlib
 
 ROOT = Path(__file__).resolve().parents[1]
 GATE = ROOT / "scripts/cmux-next/visual-gate"
 sys.path.insert(0, str(ROOT / "tests"))
+import workflow_jobs  # noqa: E402
 from nightly_workflow_text import nightly_text  # noqa: E402
 spec = importlib.util.spec_from_file_location("visual_gate", GATE / "visual_gate.py")
 gate = importlib.util.module_from_spec(spec)
@@ -1044,6 +1046,39 @@ class CaptureStatesTests(unittest.TestCase):
                 result = json.loads((out / name / "result.json").read_text())
                 self.assertIn("Info.plist", result["errors"][0])
 
+    def test_a_step_settles_on_two_matching_snapshots_with_no_hold(self):
+        spec = importlib.util.spec_from_file_location("capture_states_settle", GATE / "capture_states.py")
+        capture = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(capture)
+
+        class App:
+            def __init__(self, frames):
+                self.frames, self.reads, self.calls = list(frames), 0, []
+
+            def request(self, method, params, timeout=None):
+                self.calls.append(method)
+                if method == "debug.window_snapshot":
+                    picture = self.frames[min(self.reads, len(self.frames) - 1)]
+                    self.reads += 1
+                    Path(params["path"]).write_bytes(picture)
+                return {}
+
+        # A still picture: two reads end it, whatever the step's `wait` (6 s used to mean 25 reads).
+        app = App([b"still"])
+        started = time.monotonic()
+        record = capture.run_step(app, {"title": "seed", "rpc": {"method": "debug.showcase.seed"}, "wait": 6})
+        self.assertEqual(record["status"], "ok")
+        self.assertEqual(app.reads, 2)
+        self.assertLess(time.monotonic() - started, 1.0)
+        # A picture still changing is read until two match.
+        app = App([b"a", b"b", b"c", b"c"])
+        self.assertTrue(capture.picture_settled(app, "the window", timeout=5))
+        self.assertEqual(app.reads, 4)
+        # `wait: 0` skips the settle.
+        app = App([b"still"])
+        capture.run_step(app, {"title": "now", "rpc": {"method": "debug.fine"}, "wait": 0})
+        self.assertEqual(app.reads, 0)
+
     def test_a_bad_state_file_is_refused(self):
         with tempfile.TemporaryDirectory(prefix="visual-gate-test.") as tmp:
             bad = Path(tmp) / "bad.json"
@@ -1056,10 +1091,12 @@ class CaptureStatesTests(unittest.TestCase):
 
 
 def load_media_runner():
-    spec = importlib.util.spec_from_file_location("media_runner_for_gate", ROOT / "scripts/ci/cmux_next_media_runner.py")
-    module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(module)
-    return module
+    # Imported by name, never loaded by path: one module object per file, so a test that patches it
+    # patches what every other test reads (tests/test_script_module_loads.py).
+    if str(ROOT / "scripts/ci") not in sys.path:
+        sys.path.insert(0, str(ROOT / "scripts/ci"))
+    import cmux_next_media_runner
+    return cmux_next_media_runner
 
 
 def runner(name, *labels, busy=False, status="online"):
@@ -1221,23 +1258,27 @@ class WiringTests(unittest.TestCase):
         # The gate's needs, plus the signed build's last check: publication's wait for the gate
         # starts only once the build is ready, so it never runs beside the build for nothing.
         self.assertEqual(line(verdict, "needs"), line(gate, "needs").replace("]", ", verify-final-dmg-nightly]"))
-        # A Linux runner of its own, never the gate's Mac.
+        # A runner of its own, never the gate's Mac, and never Blacksmith (nightlies run only on ours).
         runs_on = line(verdict, "runs-on")
-        self.assertIn("'blacksmith-32vcpu-ubuntu-2404'", runs_on)
+        self.assertIn("'glaeda-nightly-only-m4pro'", runs_on)
+        self.assertNotIn("RUNNER_POOLS", runs_on)
+        self.assertNotIn("blacksmith", runs_on)
         self.assertNotIn("route-visual-gate-nightly", runs_on)
         perms = verdict[verdict.index("    permissions:\n"):verdict.index("    outputs:\n")]
         self.assertEqual(re.findall(r"^      ([a-z-]+): ", perms, re.MULTILINE), ["contents", "actions"])
         self.assertIn("contents: read", perms)
         self.assertIn("actions: read", perms)
         self.assertNotIn("environment:", verdict)
-        self.assertNotIn("secrets.", verdict)
+        self.assertEqual(workflow_jobs.secret_names(verdict), set())
         # Bounded: on attempt 1 at most 10 min past the signed build (5 for a gate still queued); a
         # re-run, which starts the gate beside this job, the queue budget plus the gate's own timeout.
         self.assertIn('budget=(--queue-budget-minutes 5 --hold-minutes 10 --since-job "Verify final nightly DMG")', verdict)
         self.assertIn("budget=(--queue-budget-minutes 15 --gate-timeout-minutes 75)", verdict)
         self.assertIn("GATE_MODE: ${{ needs.route-visual-gate-nightly.outputs.mode }}", verdict)
         self.assertIn("timeout-minutes: 75", gate)
-        self.assertEqual(int(re.search(r"timeout-minutes: (\d+)", verdict).group(1)), 100)
+        # 100 min, or 220 in one-mini mode (132f7cef: one-mini jobs get 120 more for the capacity wait).
+        self.assertEqual(re.search(r"timeout-minutes: (.+)", verdict).group(1).strip(),
+                         "${{ vars.CI_NIGHTLY_MINI != '' && 220 || 100 }}")
         self.assertIn("persist-credentials: false", verdict)
         self.assertIn("sparse-checkout: |\n            scripts/ci/nightly_next_canary_mode.py\n", verdict)
         self.assertIn("blocks: ${{ steps.await.outputs.blocks }}", verdict)

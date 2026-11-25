@@ -26,6 +26,12 @@ import Foundation
 /// branch New Worktree made go, and `discard` (the page's "Remove anyway")
 /// lets work found nowhere else go with them.
 ///
+/// `git.worktree.setup.run` with `{path, approve?, idempotency_key}` is a new
+/// worktree's Run Setup or Retry: the setup of the worktree the chat is in (its
+/// session's folder, or before the first send the folder it was started in),
+/// with `approve` the fingerprint of the repository recipe the person read.
+/// The session host refuses a recipe that changed after it was read.
+///
 /// The page offers only what its buttons do: no paths, amend, no-verify,
 /// remote or branch. The key is the page's, one per user action, so a
 /// retry of the same action replays its first result instead of committing
@@ -35,8 +41,10 @@ public nonisolated enum AgentPaneGitWrite: Equatable, Sendable {
     /// toggle); with `all` every tracked change, and `includeUntracked` adds
     /// untracked, nonignored files.
     case commit(sessionId: String, message: String, all: Bool, includeUntracked: Bool, expectedHead: String?, key: String)
-    /// The current branch to where `git push` would send it; never forced.
-    case push(sessionId: String, expectedHead: String?, key: String)
+    /// The current branch to where `git push` would send it; never forced. Create PR leaves
+    /// `setUpstream` false so Rust establishes tracking only for a fresh branch and preserves
+    /// the published head identity of an existing branch.
+    case push(sessionId: String, expectedHead: String?, setUpstream: Bool, key: String)
     /// A new chat's own worktree of `cwd`, the chat's folder (cx-lyqio.2).
     case worktree(cwd: String, name: String?, key: String)
     /// The chat's worktree work, onto its main checkout (cx-lyqio.4).
@@ -44,9 +52,13 @@ public nonisolated enum AgentPaneGitWrite: Equatable, Sendable {
     /// The chat's worktree removed; `discard` removes work found nowhere
     /// else too (cx-lyqio.5).
     case worktreeRemove(sessionId: String, discard: Bool, key: String)
+    /// The setup of the worktree at `cwd` run again, or for the first time
+    /// once `approve` (a recipe fingerprint) says the person read it.
+    case worktreeSetupRun(cwd: String, approve: String?, key: String)
 
     /// The page methods that carry a write.
-    public static let methods: Set<String> = ["git.commit", "git.push", "git.worktree.create", "git.worktree.apply", "git.worktree.remove"]
+    public static let methods: Set<String> = ["git.commit", "git.push", "git.worktree.create", "git.worktree.apply", "git.worktree.remove",
+                                                 "git.worktree.setup.run"]
 
     /// The session host's limit on a worktree name.
     static let maximumNameCharacters = 100
@@ -62,14 +74,15 @@ public nonisolated enum AgentPaneGitWrite: Equatable, Sendable {
         case .worktree: "git.worktree.create"
         case .worktreeApply: "git.worktree.apply"
         case .worktreeRemove: "git.worktree.remove"
+        case .worktreeSetupRun: "git.worktree.setup.run"
         }
     }
 
     /// The page's idempotency key for this user action.
     public var key: String {
         switch self {
-        case .commit(_, _, _, _, _, let key), .push(_, _, let key), .worktree(_, _, let key), .worktreeApply(_, let key),
-             .worktreeRemove(_, _, let key): key
+        case .commit(_, _, _, _, _, let key), .push(_, _, _, let key), .worktree(_, _, let key), .worktreeApply(_, let key),
+             .worktreeRemove(_, _, let key), .worktreeSetupRun(_, _, let key): key
         }
     }
 
@@ -77,9 +90,9 @@ public nonisolated enum AgentPaneGitWrite: Equatable, Sendable {
     /// new chat's worktree.
     public var sessionId: String? {
         switch self {
-        case .commit(let sessionId, _, _, _, _, _), .push(let sessionId, _, _), .worktreeApply(let sessionId, _),
+        case .commit(let sessionId, _, _, _, _, _), .push(let sessionId, _, _, _), .worktreeApply(let sessionId, _),
              .worktreeRemove(let sessionId, _, _): sessionId
-        case .worktree: nil
+        case .worktree, .worktreeSetupRun: nil
         }
     }
 
@@ -110,6 +123,15 @@ public nonisolated enum AgentPaneGitWrite: Equatable, Sendable {
             }
             return
         }
+        if method == "git.worktree.setup.run" {
+            guard let cwd = params["path"] as? String, cwd.hasPrefix("/"), !cwd.contains("\0") else { return nil }
+            switch params["approve"] {
+            case nil, is NSNull: self = .worktreeSetupRun(cwd: cwd, approve: nil, key: key)
+            case let approve as String where Self.isKey(approve): self = .worktreeSetupRun(cwd: cwd, approve: approve, key: key)
+            default: return nil
+            }
+            return
+        }
         guard let sessionId = params["session_id"] as? String, Self.isKey(sessionId) else { return nil }
         let expectedHead: String?
         switch params["expected_head"] {
@@ -126,7 +148,7 @@ public nonisolated enum AgentPaneGitWrite: Equatable, Sendable {
                   all || !untracked else { return nil }
             self = .commit(sessionId: sessionId, message: message, all: all, includeUntracked: untracked, expectedHead: expectedHead, key: key)
         case "git.push":
-            self = .push(sessionId: sessionId, expectedHead: expectedHead, key: key)
+            self = .push(sessionId: sessionId, expectedHead: expectedHead, setUpstream: false, key: key)
         case "git.worktree.apply":
             self = .worktreeApply(sessionId: sessionId, key: key)
         case "git.worktree.remove":

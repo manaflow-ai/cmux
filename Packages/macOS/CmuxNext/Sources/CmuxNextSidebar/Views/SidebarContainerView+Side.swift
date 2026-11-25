@@ -12,18 +12,19 @@ extension SidebarContainerView {
         ]
     }
 
-    /// How far past the container's content-side edge the sidebar shows: the outer half of the
-    /// border line when it shows at rest (the resize handle centers it on the edge), else 0.
+    /// How far past the container's content-side edge the sidebar shows: its pane reach plus the
+    /// outer half of the border line when it shows at rest.
     /// Hover cards beside a row touch this edge (`sidebarColumnOnScreen`).
     var visibleEdgeOutset: CGFloat {
-        guard !handle.isHiddenOrHasHiddenAncestor, handle.restingLineWidth > 0 else { return 0 }
-        return handle.lineWidth / 2
+        guard !handle.isHiddenOrHasHiddenAncestor else { return 0 }
+        return visualPaneReach + (handle.restingLineWidth > 0 ? handle.lineWidth / 2 : 0)
     }
 
     /// Swaps the pins to `side` without animating.
     func applySide() {
         for (pinSide, constraints) in sidePins where pinSide != side { NSLayoutConstraint.deactivate(constraints) }
         NSLayoutConstraint.activate(sidePins[side] ?? [])
+        setClipReach(paneReach, collapsed: isPanelCollapsed, animated: false)
         mountHandle()
         needsLayout = true
     }
@@ -31,7 +32,7 @@ extension SidebarContainerView {
     /// The resize band for the current tokens: the pane dividers' hit width, at least
     /// ``SidebarResizeBand/minimumWidth``.
     var resizeBand: SidebarResizeBand {
-        SidebarResizeBand(width: max(Metrics.dividerHitWidth, SidebarResizeBand.minimumWidth), gutter: Metrics.mainPaneGutter)
+        SidebarResizeBand(width: max(Metrics.dividerHitWidth, SidebarResizeBand.minimumWidth), gutter: max(0, Metrics.mainPaneGutter - paneReach))
     }
 
     /// The resize band in window coordinates; nil while the handle is hidden or out of a window.
@@ -73,7 +74,10 @@ extension SidebarContainerView {
         }
         let band = resizeBand
         mountedBand = band
-        handle.edgeOffset = side == .left ? band.inside : band.outside
+        mountedPaneReach = paneReach
+        // Keep the grab target centred on the container's logical edge so the existing hit area
+        // stays stable; only the resting line follows the extended surface edge.
+        handle.edgeOffset = side == .left ? band.inside + paneReach : band.outside - paneReach
         handleConstraints = [
             handle.topAnchor.constraint(equalTo: topAnchor),
             handle.bottomAnchor.constraint(equalTo: bottomAnchor),

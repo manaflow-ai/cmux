@@ -37,11 +37,10 @@ SCRIPT = ROOT / "scripts/ci/required_status_checks.py"
 WORKFLOW = ROOT / ".github/workflows/required-checks-drift.yml"
 MERGE_QUEUE_GUARD = ROOT / "tests/test_ci_merge_queue_required_checks.py"
 
-SPEC = importlib.util.spec_from_file_location("required_status_checks", SCRIPT)
-checks = importlib.util.module_from_spec(SPEC)
-assert SPEC.loader is not None
-sys.modules["required_status_checks"] = checks
-SPEC.loader.exec_module(checks)
+# Imported by name, never loaded by path: one module object per file (tests/test_script_module_loads.py).
+if str(ROOT / "scripts/ci") not in sys.path:
+    sys.path.insert(0, str(ROOT / "scripts/ci"))
+import required_status_checks as checks  # noqa: E402
 
 
 def rules(*contexts: str, other_rules: bool = True) -> list[dict]:

@@ -255,6 +255,11 @@ fn engine_speed_and_a_named_stop_reach_the_brain() {
         json!({"tool":"engine","action":"set","classifier_model":"claude-haiku-5-5","classifier_harness":"claude",
             "classifier_prompt":"Wake only on 👎.","reactions_can_wake":"false"})
     );
+    // The Chief card's Computer picker (cmux issue 36047).
+    assert_eq!(
+        tool_line(ResourceOperation::ChiefEngineSet, &fields(json!({"computer":"machine:vm-1"}))),
+        json!({"tool":"engine","action":"set","computer":"machine:vm-1"})
+    );
     assert_eq!(
         tool_line(ResourceOperation::ChiefStop, &fields(json!({"name":"a3"}))),
         json!({"tool":"stop","name":"a3"})
@@ -265,6 +270,23 @@ fn engine_speed_and_a_named_stop_reach_the_brain() {
     assert_eq!(
         stop["value"],
         json!({"stopped":true,"subagents":["a3"],"note":"Stopped by the user: a3."})
+    );
+}
+
+/// Start now on a queued agent in Home (user 2026-11-07, msg 23835): chief.stop
+/// forwards `start` to the brain, and its result keeps the brain's `started` and note.
+#[test]
+fn start_now_reaches_the_brain() {
+    assert_eq!(
+        tool_line(ResourceOperation::ChiefStop, &fields(json!({"start":"a7"}))),
+        json!({"tool":"stop","start":"a7"})
+    );
+    let mux = Mux::new_for_test("chief-control", crate::SurfaceOptions::default());
+    let brain_answer = json!({"started":true,"note":"Started by the user: a7."});
+    let start = result(&mux, ResourceOperation::ChiefStop, Ok(brain_answer)).unwrap();
+    assert_eq!(
+        start["value"],
+        json!({"stopped":false,"started":true,"note":"Started by the user: a7."})
     );
 }
 
@@ -299,4 +321,101 @@ fn stop_all_and_restart_reach_the_brain() {
         restarted["value"],
         json!({"stopped":false,"restarted":["a1"],"errors":["a2: no subagent a2"]})
     );
+}
+
+/// Runs `operation` with `params` (beside the selectors) on `client`, with
+/// the fake brain at `socket`; the response line.
+fn call_with(mux: &Arc<Mux>, client: u64, operation: &str, params: Value, socket: &Path) -> Value {
+    let (writer, outbound) = tests::captured_writer();
+    let mut all = json!({"machine":"current","session":"current"});
+    for (key, value) in params.as_object().cloned().unwrap_or_default() {
+        all[key] = value;
+    }
+    let mut line = json!({"protocol":"cmux.protocol/2","type":"request","id":"c","operation":operation,
+                          "params":all});
+    if operation != "chief.automation.list" {
+        line["idempotency_key"] = json!("k-automation");
+    }
+    let actor = crate::workspace_registry::Actor::local_user();
+    let request =
+        crate::resource_router::parse_resource_request_as(&line.to_string(), actor).unwrap();
+    assert!(handle_with(mux, client, request, &writer, Some(socket.to_owned())));
+    let deadline = Instant::now() + Duration::from_secs(5);
+    loop {
+        if let Some(line) = outbound.try_pop() {
+            return serde_json::from_str(&line).unwrap();
+        }
+        assert!(Instant::now() < deadline, "no response within 5 s");
+        std::thread::yield_now();
+    }
+}
+
+/// The Chief's automations (issue 25573): Home lists them and pauses,
+/// resumes, deletes or runs one through the owner's connection; the brain
+/// owns them and its list passes through unchanged.
+#[test]
+fn the_owner_lists_and_updates_the_chiefs_automations_through_the_brain() {
+    assert_eq!(
+        tool_line(ResourceOperation::ChiefAutomationList, &fields(json!({}))),
+        json!({"tool":"automations","action":"list"})
+    );
+    assert_eq!(
+        tool_line(
+            ResourceOperation::ChiefAutomationUpdate,
+            &fields(json!({"automation":"au1","action":"pause","chief":"agent_x"}))
+        ),
+        json!({"tool":"automations","automation":"au1","action":"pause"})
+    );
+    let mux = Mux::new_for_test("chief-automations", crate::SurfaceOptions::default());
+    let owner = mux.control_clients.register(ClientTransport::Unix, writer());
+    let list =
+        json!({"automations":[{"id":"au1","name":"Morning PRs","paused":true}],"outcome":"done"});
+    let (_dir, sock, seen) = brain(list.clone());
+    let listed = call_with(&mux, owner, "chief.automation.list", json!({}), &sock);
+    assert_eq!(listed["result"], list, "{listed}");
+    let paused = call_with(
+        &mux,
+        owner,
+        "chief.automation.update",
+        json!({"automation":"au1","action":"pause"}),
+        &sock,
+    );
+    assert_eq!(paused["result"]["value"], list, "{paused}");
+    assert_eq!(
+        seen.lock().unwrap().as_slice(),
+        [
+            json!({"tool":"automations","action":"list"}),
+            json!({"tool":"automations","automation":"au1","action":"pause"}),
+        ]
+    );
+    // A page or any other connection never reaches them.
+    let page = mux.control_clients.register(ClientTransport::WebSocket, writer());
+    let refused = call_with(&mux, page, "chief.automation.list", json!({}), &sock);
+    assert_eq!(refused["error"]["code"], "origin.forbidden", "{refused}");
+    assert_eq!(seen.lock().unwrap().len(), 2);
+    // The brain's not_found keeps its code.
+    let gone = result(
+        &mux,
+        ResourceOperation::ChiefAutomationUpdate,
+        Ok(json!({"error":{"code":"not_found","message":"no automation au9"}})),
+    )
+    .unwrap_err();
+    assert_eq!(gone.details["reason"], "not_found");
+}
+
+#[test]
+fn an_automation_update_names_one_of_the_brains_actions() {
+    let actor = crate::workspace_registry::Actor::local_user();
+    let line = |action: &str| {
+        json!({"protocol":"cmux.protocol/2","type":"request","id":"c","operation":"chief.automation.update",
+               "idempotency_key":"k","params":{"machine":"current","session":"current","automation":"au1","action":action}})
+        .to_string()
+    };
+    for action in ["pause", "resume", "delete", "run"] {
+        assert!(
+            crate::resource_router::parse_resource_request_as(&line(action), actor.clone()).is_ok(),
+            "{action}"
+        );
+    }
+    assert!(crate::resource_router::parse_resource_request_as(&line("explode"), actor).is_err());
 }

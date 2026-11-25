@@ -3,13 +3,51 @@ import AppKit
 import CmuxNextDesign
 import CmuxNextTestSupport
 import Foundation
+import Observation
 import Testing
 
 /// Sleepy Mode's scene costs the main thread nothing per frame (every-action sweep, m27
 /// other-main-work: `SleepySceneView.drawSky` held main 20-38 ms per frame, ten frames a
 /// second, while the scene showed and agents kept working). The sky's loops run in the render
-/// server; the main thread only updates the clock once a second.
+/// server; the main thread updates the clock once a minute and the agent count on changes.
 @MainActor @Suite(.serialized, .closesItsWindows) struct SleepySceneCostTests {
+    @Observable @MainActor final class AgentCount {
+        var working = 0
+        @ObservationIgnored var reads = 0
+        @ObservationIgnored var rendered = -1
+
+        func read() -> Int {
+            reads += 1
+            rendered = working
+            return working
+        }
+    }
+
+    @Test(.enabled(if: NSScreen.main != nil, "the scene draws only on a screen: run on a GUI host"))
+    func agentCountUpdatesOnChangeWithoutIdlePolling() throws {
+        _ = NSApplication.shared
+        let screen = try #require(NSScreen.main)
+        let count = AgentCount()
+        let window = NSWindow(contentRect: screen.frame, styleMask: [.borderless], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        window.contentView = SleepySceneView.hostView(workingAgents: { count.read() }, wake: {}, lockMac: {})
+        window.orderFrontRegardless()
+        defer { window.close() }
+        spin(0.5)
+        #expect(count.rendered == 0)
+        let before = count.reads
+        spin(3.2)
+        let idleReads = count.reads - before
+        print("SLEEPY-IDLE-READS seconds=3.2 count=\(idleReads)")
+        #expect(idleReads == 0, "a clock tick must not poll the agent count")
+        count.working = 3
+        spin(0.2)
+        #expect(count.rendered == 3, "agent changes must render without waiting for a clock tick")
+        count.working = 0
+        spin(0.2)
+        #expect(count.rendered == 0, "the final agent finishing must update the count too")
+    }
+
     /// Runs the main run loop for `seconds`.
     private func spin(_ seconds: TimeInterval) {
         let end = Date(timeIntervalSinceNow: seconds)

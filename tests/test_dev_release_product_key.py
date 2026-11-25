@@ -15,11 +15,19 @@ import subprocess
 import sys
 import tempfile
 import unittest
+import unittest.mock
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "scripts/ci"))
 import job_input_fingerprint as fingerprint  # noqa: E402
+# tests/git_fixture_env.py, loaded by path: `python3 -I` puts no script folder on sys.path.
+import importlib.util as _git_fixture_importlib  # noqa: E402
+from os import path as _git_fixture_path  # noqa: E402
+_git_fixture_spec = _git_fixture_importlib.spec_from_file_location(
+    "git_fixture_env", _git_fixture_path.join(_git_fixture_path.dirname(_git_fixture_path.abspath(__file__)), "git_fixture_env.py"))
+git_fixture_env = _git_fixture_importlib.module_from_spec(_git_fixture_spec)
+_git_fixture_spec.loader.exec_module(git_fixture_env)
 
 TOOLCHAIN = {"xcode": "Xcode 26.0 Build version 17A324", "sdk": "26.0 25A350", "arch": "arm64",
              "recipe": "dev-release-product-v1", "tui_tree": "own"}
@@ -54,8 +62,16 @@ FILES = {
 }
 
 
+# Every `git commit` starts a detached `git maintenance run --auto` (gc.auto and maintenance.auto
+# default on). That child can still be writing in .git when a test's TemporaryDirectory cleanup removes
+# it, and the cleanup then fails with ENOTEMPTY on .git (test_nightly_release_product_reuse tearDown).
+# The fixtures' repositories are throwaway: no background maintenance, so nothing outlives the call.
+NO_BACKGROUND_MAINTENANCE = ("-c", "gc.auto=0", "-c", "maintenance.auto=false")
+
+
 def git(repo: Path, *args: str) -> str:
-    return subprocess.run(["git", "-C", str(repo), *args], check=True, capture_output=True, text=True,
+    return subprocess.run(["git", *NO_BACKGROUND_MAINTENANCE, "-C", str(repo), *args], check=True,
+                          capture_output=True, text=True,
                           env={**os.environ, "GIT_AUTHOR_NAME": "t", "GIT_AUTHOR_EMAIL": "t@t", "GIT_COMMITTER_NAME": "t",
                                "GIT_COMMITTER_EMAIL": "t@t", "GIT_CONFIG_GLOBAL": os.devnull,
                                "GIT_CONFIG_SYSTEM": os.devnull}).stdout
@@ -192,6 +208,23 @@ class RealTree(unittest.TestCase):
                         with self.subTest(script=script.name, path=path):
                             self.assertTrue(self.covered(inputs, path), f"{script.name} names {path}, not keyed")
 
+
+
+class FixtureGit(unittest.TestCase):
+    def test_a_fixture_commit_starts_no_background_maintenance(self):
+        # The detached maintenance child is what raced the tearDown; git's trace names every child it
+        # starts, so this fails on every run where the helper lets git start one.
+        with tempfile.TemporaryDirectory() as tmp:
+            repo, trace = Path(tmp) / "repo", Path(tmp) / "trace.json"
+            repo.mkdir()
+            git(repo, "init", "-q")
+            (repo / "f").write_text("x\n")
+            git(repo, "add", "-A")
+            with unittest.mock.patch.dict(os.environ, {"GIT_TRACE2_EVENT": str(trace)}):
+                git(repo, "commit", "-q", "-m", "c")
+            children = [line for line in trace.read_text().splitlines() if '"event":"child_start"' in line]
+            self.assertTrue(any('"commit"' in line for line in trace.read_text().splitlines()), "traced")
+            self.assertEqual([c for c in children if "maintenance" in c or '"gc"' in c], [])
 
 
 if __name__ == "__main__":

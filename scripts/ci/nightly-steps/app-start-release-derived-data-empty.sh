@@ -11,8 +11,8 @@ set -euo pipefail
 # then link into the app. Warm state that stays: the compilation cache restored into it
 # below (content-keyed, with explicit module dependencies in each
 # key) and the Swift package checkouts in .spm-cache.
-# The exception is the dedicated nightly-next builder, which runs only
-# this build: nightly_build_state.py keeps its DerivedData and builds
+# The exception is the dedicated nightly-next builder and every runner of
+# the nightly-only minis: nightly_build_state.py keeps its DerivedData and builds
 # each tip on it, starting clean when the last build did not finish,
 # the toolchain, a build setting, a lockfile or a submodule changed, a
 # module- or link-shaping file (Package.swift, *.pbxproj, ...), an import

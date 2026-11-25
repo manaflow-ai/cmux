@@ -1,10 +1,12 @@
 import AppKit
 import CmuxNextActions
+import CmuxNextAgentPane
 import CmuxNextBrowser
 import CmuxNextDaemonService
 import CmuxNextDiff
 import CmuxNextPalette
 import typealias CmuxNextDaemon.SurfaceID
+import class CmuxNextDaemon.PaneModel
 
 /// The viewers' shared parts (R89): the recents store, the cmux picker,
 /// and the seams to the diff host and the code editor.
@@ -51,12 +53,34 @@ final class ViewerService {
         return fileOpener.open(file, in: pane)
     }
 
+    /// `file` as a tab of `model`, a pane no window shows (``FilePageService/open(_:parkedIn:of:window:userChose:)``):
+    /// Markdown in its page, any other text in the code editor. Returns why it did not open.
+    func openFile(_ file: URL, parkedIn model: PaneModel, userChose: Bool, asText: Bool) -> String? {
+        guard let url = AgentPaneFileOpen.resolve(file.path) else { return FilePageStrings.notAFile }
+        let route = FilePageOpener.route(for: url, userChose: userChose, asText: asText)
+        guard route != .preview, let window = owner.windows.active ?? owner.windows.controllersActingFirst.first,
+              (route == .markdown ? markdownPages : editorPages).open(url, parkedIn: model, of: owner.daemon(for: model), window: window, userChose: userChose)
+        else { return FilePageStrings.noPane }
+        return nil
+    }
+
     /// An explicit file action in a machine's pane. Returns its refusal to the action caller;
     /// the remote path is never resolved or opened on this Mac.
     func openFile(_ file: URL, on machine: DaemonService, in pane: PaneController?, userChose: Bool, asText: Bool = false) -> String? {
         guard !machine.isLocal else { return openFile(file, in: pane, userChose: userChose, asText: asText) }
         guard let opener = fileOpener as? FilePageOpener else { return FilePageStrings.notAFile }
         return opener.open(file, on: machine, in: pane, userChose: userChose, asText: asText)
+    }
+
+    /// An action's file open on `pane` (`file.open`, `openMarkdownFile`, `cmux open`), of `machine` (nil: this Mac's): on
+    /// a pane that shows an agent chat it goes on the chat's right as the chat's own file links do (``LinkOpener``), never as
+    /// a tab beside the chat (Leo, 2026-11-04); elsewhere in `pane`. Returns why it did not open.
+    func openFile(_ file: URL, on machine: DaemonService?, from pane: PaneController, userChose: Bool, asText: Bool = false) -> String? {
+        guard AgentBesidePlacement.showsChat(pane), let opener = fileOpener as? FilePageOpener, let links = services?.linkOpener else {
+            if let machine { return openFile(file, on: machine, in: pane, userChose: userChose, asText: asText) }
+            return openFile(file, in: pane, userChose: userChose, asText: asText)
+        }
+        return links.openViewerFile(file, on: machine, from: pane, opener: opener, userChose: userChose, asText: asText) { [weak self] in self?.showRefusal($0) }
     }
 
     /// A local Markdown file a new browser tab would show as text opens the markdown page instead
@@ -125,6 +149,8 @@ final class ViewerService {
                                              filter: markdown ? .markdown : nil)
         return picker.openPage(options) { [weak self, weak pane] urls in
             guard let self, let file = urls?.first else { return }
+            // Picked for a chat's pane: on the chat's right, as an Open Markdown File with a path is.
+            if let pane, AgentBesidePlacement.showsChat(pane) { _ = self.services?.linkOpener.openFile(file, from: pane, markdown: markdown, besideChat: true); return }
             self.openFile(file, in: pane, markdown: markdown)
         }
     }
@@ -159,10 +185,10 @@ final class ViewerService {
     /// open (the refusal shows). The recents are this Mac's files, so it records none.
     @discardableResult
     func openFile(_ file: URL, on machine: DaemonService, in pane: PaneController?, asText: Bool = false, at position: FilePosition? = nil,
-                  placed: (@MainActor (SurfaceID) -> Void)? = nil, shownInPlace: (@MainActor () -> Void)? = nil) -> Bool {
+                  noFollow: Bool = false, placed: (@MainActor (SurfaceID) -> Void)? = nil, shownInPlace: (@MainActor () -> Void)? = nil) -> Bool {
         guard let opener = fileOpener as? FilePageOpener else { return false }
-        if let reason = opener.open(file, on: machine, in: pane, userChose: true, asText: asText, at: position, placed: placed,
-                                    shownInPlace: shownInPlace) {
+        if let reason = opener.open(file, on: machine, in: pane, userChose: true, asText: asText, at: position, noFollow: noFollow,
+                                    placed: placed, shownInPlace: shownInPlace) {
             showRefusal(reason)
             return false
         }
