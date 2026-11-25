@@ -20,7 +20,10 @@ function write(path: string, text: string) {
 write("package.json", JSON.stringify({ name: "webviews-fixture", dependencies: { "@base-ui/react": "*" } }));
 write("test/preload.ts", "");
 const react = "node_modules/@base-ui/react";
-write(`${react}/package.json`, JSON.stringify({ name: "@base-ui/react", exports: { "./tooltip": "./tooltip/index.js" } }));
+write(
+  `${react}/package.json`,
+  JSON.stringify({ name: "@base-ui/react", exports: { "./tooltip": "./tooltip/index.js" } }),
+);
 write(`${react}/tooltip/index.js`, "");
 const utils = `${react}/node_modules/@base-ui/utils`;
 write(
@@ -28,7 +31,10 @@ write(
   JSON.stringify({ name: "@base-ui/utils", exports: { "./useIsoLayoutEffect": "./useIsoLayoutEffect.js" } }),
 );
 write(`${utils}/useIsoLayoutEffect.js`, "");
-write(`${react}/node_modules/@floating-ui/react-dom/package.json`, JSON.stringify({ name: "@floating-ui/react-dom", main: "index.js" }));
+write(
+  `${react}/node_modules/@floating-ui/react-dom/package.json`,
+  JSON.stringify({ name: "@floating-ui/react-dom", main: "index.js" }),
+);
 write(`${react}/node_modules/@floating-ui/react-dom/index.js`, "");
 const preload = join(root, "test/preload.ts");
 
