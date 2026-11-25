@@ -5,7 +5,7 @@ import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { JSDOM } from "jsdom";
 import { teardownDom } from "../../../test/support/domTeardown";
-import { DRAFT_SETTLE_HOLD_MS, useDraftWaitOver } from "./draftSettleHold";
+import { DRAFT_SETTLE_HOLD_MS, type DraftWaitEnd, useDraftWaitOver } from "./draftSettleHold";
 
 let root: Root | undefined;
 let dom: JSDOM | undefined;
@@ -24,7 +24,7 @@ afterEach(async () => {
   dom = undefined;
 });
 
-function harness() {
+function harness(prompt: { shown: boolean } = { shown: false }) {
   dom = new JSDOM("<!doctype html><html><body><main></main></body></html>");
   const timers = new Map<number, { at: number; run: () => void }>();
   let now = 0;
@@ -46,8 +46,16 @@ function harness() {
   });
   root = createRoot(dom.window.document.querySelector("main")!);
   let over: string | undefined;
+  const ended: DraftWaitEnd[] = [];
+  const promptRoot = dom.window.document.querySelector("main")!.appendChild(dom.window.document.createElement("div"));
   function Probe(props: { rows: string | undefined; draft: string | undefined }) {
-    over = useDraftWaitOver(props.rows, props.draft);
+    over = useDraftWaitOver(
+      props.rows,
+      props.draft,
+      () => prompt.shown,
+      () => promptRoot,
+      (by) => ended.push(by),
+    );
     return null;
   }
   return {
@@ -65,6 +73,16 @@ function harness() {
     armed: () => armed,
     live: () => timers.size,
     over: () => over,
+    /// How each wait ran out, in order (the copy's record and the restart bench read it).
+    ended: () => ended,
+    /// The prompt's text changes to `text`, and whether it now shows what the copy shows.
+    type: async (text: string, shown: boolean) => {
+      prompt.shown = shown;
+      await act(async () => {
+        promptRoot.textContent = text;
+        await Promise.resolve();
+      });
+    },
   };
 }
 
@@ -76,6 +94,7 @@ test("a chat whose draft settled before or with its rows arms no hold timer", ()
   pane.advance(DRAFT_SETTLE_HOLD_MS * 3);
   expect(pane.armed()).toBe(0);
   expect(pane.over()).toBeUndefined();
+  expect(pane.ended()).toEqual([]);
 });
 
 test("a draft that settles during the hold clears its timer", () => {
@@ -86,6 +105,7 @@ test("a draft that settles during the hold clears its timer", () => {
   expect(pane.live()).toBe(0);
   pane.advance(DRAFT_SETTLE_HOLD_MS * 3);
   expect(pane.over()).toBeUndefined();
+  expect(pane.ended()).toEqual([]);
 });
 
 test("a draft read that never answers still ends the wait after DRAFT_SETTLE_HOLD_MS", () => {
@@ -96,4 +116,27 @@ test("a draft read that never answers still ends the wait after DRAFT_SETTLE_HOL
   pane.advance(1);
   expect(pane.over()).toBe("A");
   expect(pane.armed()).toBe(1);
+  expect(pane.ended()).toEqual(["cap"]);
+});
+
+test("a prompt that already shows the copy's ends the wait at once, with no timer (after a restart)", () => {
+  // first-load-after-restart.bench.ts MODE=down: the rows are in at 0.4 s, the draft read waits on acpmux.
+  const pane = harness({ shown: true });
+  pane.render("A", undefined);
+  expect(pane.over()).toBe("A");
+  expect(pane.armed()).toBe(0);
+  expect(pane.ended()).toEqual(["shown"]);
+});
+
+test("a prompt that comes to show the copy's ends the wait then, and its timer goes", async () => {
+  const pane = harness();
+  pane.render("A", undefined);
+  expect(pane.over()).toBeUndefined();
+  expect(pane.live()).toBe(1);
+  await pane.type("not yet", false);
+  expect(pane.over()).toBeUndefined();
+  await pane.type("the saved draft", true);
+  expect(pane.over()).toBe("A");
+  expect(pane.live()).toBe(0);
+  expect(pane.ended()).toEqual(["match"]);
 });
