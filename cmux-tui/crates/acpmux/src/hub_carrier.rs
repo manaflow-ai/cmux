@@ -425,6 +425,9 @@ const REGISTER_WAIT_MAX: Duration = Duration::from_secs(60);
 /// the next line comes. At the 60 s backoff cap this is about one line per 8 to 10 asks, six an
 /// hour, which keeps a day of refusals readable and the current state never older than 10 min.
 const REFUSAL_SAID_EVERY: Duration = Duration::from_secs(600);
+/// How often the carrier looks for kept circuits that ended under it ([`HubCarrier::keep_reopening`]):
+/// a scan of its own table, no I/O unless one ended.
+const REOPEN_SCAN: Duration = Duration::from_secs(1);
 
 /// The carrier's timings.
 #[derive(Debug, Clone, Copy)]
@@ -484,6 +487,8 @@ pub struct Stats {
     pub received: AtomicU64,
     /// Relay records (one Noise record each) both ways.
     pub records: AtomicU64,
+    /// Kept circuits opened again after they ended under the carrier ([`HubCarrier::keep_reopening`]).
+    pub kept_reopens: AtomicU64,
     /// Dials that rode a kept circuit as a new stream (`hub_carrier_mux.rs`), not a new circuit.
     pub kept_opens: AtomicU64,
     /// Kept circuits opened.
@@ -1115,6 +1120,8 @@ impl HubCarrier {
                             Ok(Ok(Ok(()))) => {
                                 self.stats.kept_circuits.fetch_add(1, Ordering::Relaxed);
                                 kept.live = Some(mux.clone());
+                                kept.path = Some(path);
+                                kept.reopen_at = None;
                             }
                             // The far machine refused the `mux` hello before reading any
                             // stream: early bytes behind it were never read.
@@ -1255,6 +1262,89 @@ impl HubCarrier {
             self.timings.kept_idle,
         );
         Ok((mux, said, stages))
+    }
+
+    /// Keep every kept circuit open (Leo, 2026-11-25: "small, chatty calls stay on whichever
+    /// machine holds the files, batched over one always-open connection, never a new connection
+    /// per call"): every [`REOPEN_SCAN`], open again each kept circuit that ended under this
+    /// carrier (the far machine restarted, the relay or the hub dropped it, the keepalive heard
+    /// nothing), rather than leave the next dial a whole new circuit (0.5 to 0.9 s against a
+    /// stream's 0.07 s). Ends with the carrier. A circuit closed on purpose (no stream for
+    /// `kept_idle`) is not opened again, and one whose machine stays away is given up once it
+    /// would have idled out anyway.
+    pub fn keep_reopening(self: &Arc<Self>) {
+        let carrier = Arc::downgrade(self);
+        mux::spawn_reopening(async move {
+            loop {
+                tokio::time::sleep(REOPEN_SCAN).await;
+                let Some(carrier) = carrier.upgrade() else { return };
+                carrier.reopen_closed().await;
+            }
+        });
+    }
+
+    /// One pass of [`Self::keep_reopening`]: every machine at once, each slot locked while its
+    /// circuit opens, so a dial to that machine waits on this open rather than racing it.
+    pub async fn reopen_closed(&self) -> usize {
+        let slots: Vec<_> =
+            self.kept.to_reopen().into_iter().chain(self.direct.kept.to_reopen()).collect();
+        let opened = futures::future::join_all(
+            slots
+                .into_iter()
+                .map(|(daemon, slot)| async move { self.reopen(&daemon, &slot).await }),
+        )
+        .await;
+        opened.into_iter().filter(|opened| *opened).count()
+    }
+
+    async fn reopen(&self, daemon: &str, slot: &tokio::sync::Mutex<mux::Kept>) -> bool {
+        let mut kept = slot.lock().await;
+        let Some(old) = kept.live.clone().filter(|mux| mux.wants_reopen()) else { return false };
+        if kept.reopen_at.is_some_and(|at| Instant::now() < at) {
+            return false;
+        }
+        let Some(path) = kept.path else { return false };
+        if old.quiet_for() >= self.timings.kept_idle {
+            kept.live = None;
+            return false;
+        }
+        let why = match self.open_kept(daemon, path).await {
+            Ok((mux, said, _)) => match tokio::time::timeout(self.timings.handshake, said).await {
+                Ok(Ok(Ok(()))) => {
+                    self.stats.kept_circuits.fetch_add(1, Ordering::Relaxed);
+                    self.stats.kept_reopens.fetch_add(1, Ordering::Relaxed);
+                    tracing::info!(daemon, ?path, "hub carrier: opened a kept circuit again");
+                    kept.live = Some(mux);
+                    kept.reopen_at = None;
+                    kept.reopen_wait = Duration::ZERO;
+                    return true;
+                }
+                Ok(Ok(Err(refusal))) => {
+                    mux.close().await;
+                    kept.live = None;
+                    kept.no_mux_until = Some(Instant::now() + mux::NO_MUX_ASK_AGAIN);
+                    tracing::info!(
+                        daemon,
+                        "hub carrier: the machine keeps no circuits now: {refusal}"
+                    );
+                    return false;
+                }
+                Ok(Err(_)) | Err(_) => {
+                    mux.close().await;
+                    mux.ended().unwrap_or_else(|| "no answer to the `mux` hello".into())
+                }
+            },
+            Err(e) => e,
+        };
+        kept.reopen_wait =
+            (kept.reopen_wait * 2).clamp(mux::REOPEN_BACKOFF_MIN, mux::REOPEN_BACKOFF_MAX);
+        kept.reopen_at = Some(Instant::now() + kept.reopen_wait);
+        tracing::debug!(
+            daemon,
+            "hub carrier: a kept circuit did not open again ({why}); next try in {:?}",
+            kept.reopen_wait
+        );
+        false
     }
 
     /// `false` answers a kept circuit's hello as an acpmux that predates kept circuits does
@@ -2481,6 +2571,7 @@ pub async fn start_configured(
     carrier.set_lane_gh_broker_gate(Arc::new(broker::ConfiguredBrokerGate::new(hub)));
     hub.set_transfer_dial(Arc::new(crate::transfer_service::CarrierDial::new(hub)));
     hub.hub_carrier.set(carrier.clone());
+    carrier.keep_reopening();
     // The start's answer, whether or not the relay takes the registration yet (it retries).
     tracing::info!(
         "hub carrier: on, bridging admitted circuits to this daemon's listener {websocket}"
@@ -2584,7 +2675,7 @@ pub mod direct;
 
 /// Which path a kept circuit runs on.
 #[derive(Clone, Copy, Debug)]
-enum Path {
+pub(crate) enum Path {
     Relay,
     Direct(SocketAddr),
 }
