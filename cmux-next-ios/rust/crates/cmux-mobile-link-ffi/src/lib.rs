@@ -18,6 +18,7 @@ mod browser;
 mod classic_leftovers;
 mod composer_outbox;
 mod follow_camera;
+mod last_place;
 mod link_side;
 pub mod local_link;
 mod mac_screen;
@@ -25,6 +26,7 @@ mod pair_requests;
 mod share_approval;
 mod tabs;
 mod terminal_chat;
+mod terminal_fit;
 mod terminal_prediction;
 mod terminal_projection;
 mod window_layout;
@@ -35,12 +37,16 @@ pub use composer_outbox::{
     ComposerOutbox, ComposerSendAnswer, ComposerSendDone, ComposerSendOutcome, ComposerSendRequest,
 };
 pub use follow_camera::{FollowCamera, FollowCameraMode, FollowRect};
+pub use last_place::{LastPlaceAnchor, LastPlaceRecord, LastPlaceScreen, LastPlaceStore};
 pub use link_side::{LinkOpenSide, link_open_side};
 pub use mac_screen::{MacScreenAnswer, MacScreenDisplay, MacScreenIceServer, MacScreenObserver, MacScreenRd};
 pub use share_approval::{ShareApprovalDraft, ShareAsk, share_approval_draft, share_approval_signed};
 pub use tabs::{TabsEvent, TabsMirror, TabsRow, TabsViewport};
 pub use terminal_chat::{
     TabFace, TerminalChatCandidate, TerminalChatFaces, TerminalChatFacts, TerminalChatSwap,
+};
+pub use terminal_fit::{
+    TerminalFitDecision, TerminalFitPolicy, TerminalFitReason, TerminalZoomGeometry, TerminalZoomState,
 };
 pub use terminal_prediction::{PredictedGlyph, PredictionLayout, TerminalPrediction};
 pub use terminal_projection::{ProjectionSegment, ProjectionStats, TerminalProjection};
@@ -541,6 +547,13 @@ impl LinkHandle {
     pub fn probe_timeout_ms(&self, floor_ms: u32) -> u32 {
         let timeout = self.link.probe_timeout(Duration::from_millis(u64::from(floor_ms)));
         u32::try_from(timeout.as_millis()).unwrap_or(u32::MAX)
+    }
+
+    /// How long a resumed parked link may stay silent before the app races a
+    /// fresh dial against it: three smoothed round trips plus 100 ms, within
+    /// 250 ms and 1.5 s (500 ms before any round trip was measured).
+    pub fn resume_hedge_ms(&self) -> u32 {
+        u32::try_from(self.link.resume_hedge_after().as_millis()).unwrap_or(u32::MAX)
     }
 
     /// The app is in the foreground with a terminal or chat on screen
@@ -1224,6 +1237,8 @@ async fn network_changed_on(
     team_id: String,
     device_id: String,
 ) -> Vec<TimingMark> {
+    // The ads were seen on the old network: a dial now would wait on a dead hub.
+    local_link::local_link_forget_all();
     let roam = tokio::spawn(cmux_mobile_link::dial::wireguard::network_changed());
     let timeline = Timeline::new();
     let key = SocketKey { base_url, team_id, device_id, build_space: build_space() };
