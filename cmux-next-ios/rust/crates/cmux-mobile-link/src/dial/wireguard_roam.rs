@@ -1317,7 +1317,18 @@ impl Session {
 
 async fn send_message(socket: &WgDatagramSocket, peer: SocketAddr, message: &RoamMessage) {
     let bytes = serde_json::to_vec(message).expect("roam message serializes");
-    if let Err(error) = socket.send_to(&bytes, peer, Priority::Interactive).await {
+    // An endpoint announcement keeps Ultra Mode's repair: it is what a roam
+    // on a lossy network waits for. `reach`, `ack` and `metered` are
+    // repeated by their senders and nothing answers them, so each goes as
+    // one liveness datagram: no floor parity (which cost a lone `reach` as
+    // much again, 12 a minute on an idle link) and no silence watch armed.
+    let result = match message {
+        RoamMessage::Endpoints { .. } => socket.send_to(&bytes, peer, Priority::Interactive).await,
+        RoamMessage::Ack { .. } | RoamMessage::Metered { .. } | RoamMessage::Reach { .. } => {
+            socket.send_liveness(&bytes, peer, true).await
+        }
+    };
+    if let Err(error) = result {
         tracing::debug!(%error, "roam message not sent");
     }
 }
@@ -1917,6 +1928,7 @@ mod tests {
             keeps_turn: false,
             turn_dead: None,
             route_to: Arc::new(watch::channel(None).0),
+            peer_version: super::super::WG_VERSION,
             relay: None,
             relay_shared: Arc::new(RelayShared::default()),
         });
@@ -2065,8 +2077,10 @@ mod tests {
             addresses: vec!["[2001:db8::1234:5678:9abc:def0]:65535".into(); MAX_METERED],
         };
         assert!(serde_json::to_vec(&many).unwrap().len() <= 1232);
-        const { assert!(super::super::WG_VERSION >= super::super::multipath::MULTIPATH_VERSION) };
-        assert!(2 < super::super::multipath::MULTIPATH_VERSION, "a version-2 peer gets no second socket");
+        const {
+            assert!(super::super::WG_VERSION >= super::super::multipath::MULTIPATH_VERSION);
+            assert!(2 < super::super::multipath::MULTIPATH_VERSION, "a version-2 peer gets no second socket");
+        };
     }
 
     /// PROTOCOL.md "Mapped endpoints": a mapped endpoint is a plain endpoint
