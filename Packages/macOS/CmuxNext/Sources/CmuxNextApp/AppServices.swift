@@ -569,7 +569,7 @@ final class AppServices {
     /// Where imported bookmarks go (the bookmarks feature sets it); nil keeps them in the import store only.
     var importedBookmarkSink: (any ImportedBookmarkSink)?
     /// Browser tab favicons per profile, for tab strips.
-    let favicons = TabFaviconStore(loader: BrowserFaviconLoader.shared)
+    let favicons = TabFaviconStore(loader: BrowserFaviconLoader.shared, originDirectory: BuildStatePaths.current.originFaviconsCache)
     /// The one owner of hover cards in the app: at most one card, ever
     /// (plans/cmux-next/hovercards.md).
     let hoverCards = HoverCardCoordinator()
