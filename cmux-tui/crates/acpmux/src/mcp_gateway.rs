@@ -79,6 +79,7 @@ const PORTS_REMEMBERED: usize = 24;
 /// Where a port with no kept one is derived: the IANA dynamic range, so a derived port cannot be
 /// a registered service's.
 const DERIVED_PORT_BASE: u16 = 49_152;
+#[cfg(test)]
 const DERIVED_PORT_SPAN: u16 = 8_192;
 /// `DERIVED_PORT_SPAN - 1`. The span is a power of two, so a port is derived with a mask instead
 /// of a division or a remainder: no arithmetic that can panic in a debug build, and none that can
@@ -435,7 +436,7 @@ fn ports_chats_are_configured_at(home: &Path) -> Vec<u16> {
         }
     }
     // Newest config first: the ports most likely to belong to a chat that is still running.
-    found.sort_by(|a, b| b.0.cmp(&a.0));
+    found.sort_by_key(|a| std::cmp::Reverse(a.0));
     let mut seen = std::collections::HashSet::new();
     found.into_iter().map(|(_, port)| port).filter(|p| seen.insert(*p)).collect()
 }
