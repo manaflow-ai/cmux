@@ -46,6 +46,8 @@ pub struct Admission {
     committed: AtomicBool,
     acquired: AtomicBool,
     came: Instant,
+    /// Someone waits on its answer and a queued answer serves them ([`Unanswered::Defer`]).
+    listened: AtomicBool,
     session: String,
 }
 
@@ -64,6 +66,7 @@ impl Admission {
             committed: AtomicBool::new(false),
             acquired: AtomicBool::new(false),
             came: Instant::now(),
+            listened: AtomicBool::new(false),
             session: session.id.clone(),
         })
     }
@@ -77,7 +80,7 @@ impl Admission {
 
     /// Takes the session's admission, waiting at most [`ADMISSION_BOUND`], and holds it at most
     /// that long (its lease). Once: a prompt the RPC layer admitted does not wait again.
-    pub(crate) async fn acquire(self: &Arc<Self>, session: &Arc<Session>) {
+    pub(crate) async fn acquire(self: &Arc<Self>, session: &Arc<Session>, scope: &cmux_scope::Scope) {
         if self.acquired.swap(true, Ordering::SeqCst) {
             return;
         }
@@ -89,7 +92,7 @@ impl Admission {
         *self.guard.lock().unwrap_or_else(|e| e.into_inner()) = Some(guard);
         self.enter("setup");
         let lease = Arc::downgrade(self);
-        tokio::spawn(async move {
+        scope.spawn_named("prompt-admission-lease", async move {
             tokio::time::sleep(ADMISSION_BOUND).await;
             let Some(admission) = lease.upgrade() else { return };
             let lapsed = admission.guard.lock().unwrap_or_else(|e| e.into_inner()).take();
@@ -129,13 +132,23 @@ impl Admission {
     pub(super) fn answer_due(&self) -> Instant {
         self.came + ANSWER_BOUND
     }
+
+    /// Someone waits on it, and an answer that it is queued serves them.
+    pub(super) fn listen(&self) {
+        self.listened.store(true, Ordering::SeqCst);
+    }
+
+    /// The due time `queue_slot` keeps to for the turn lock: None when no one waits on it.
+    pub(super) fn queue_due(&self) -> Option<Instant> {
+        self.listened.load(Ordering::SeqCst).then(|| self.answer_due())
+    }
 }
 
 /// Takes `session`'s prompt admission for a prompt that came now ([`Admission::acquire`]). The
 /// only way a prompt takes it.
-pub(crate) async fn admit(session: &Arc<Session>) -> Arc<Admission> {
+pub(crate) async fn admit(session: &Arc<Session>, scope: &cmux_scope::Scope) -> Arc<Admission> {
     let admission = Admission::new(session);
-    admission.acquire(session).await;
+    admission.acquire(session, scope).await;
     admission
 }
 
@@ -256,6 +269,7 @@ impl Hub {
             admitted: d.admitted,
             after_turn: false,
             steer_on_start: false,
+            answer_due: None,
         };
         if let Some(refused) = self.takes_no_prompt(session, &slot) {
             return Err(refused);
