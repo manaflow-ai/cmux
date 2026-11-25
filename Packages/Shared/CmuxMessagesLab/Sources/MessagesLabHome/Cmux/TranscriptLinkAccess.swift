@@ -113,13 +113,22 @@ extension MarkdownLayout {
 }
 
 /// cmux: one link of a transcript message for accessibility: a press opens it as a click does.
-final class TranscriptLinkElement: NSAccessibilityElement {
+final class TranscriptLinkElement: NSAccessibilityElement, NSAccessibilityButton {
     weak var controller: ChatController?
     var target: PaneLinkTarget = .text(nil)
     var ref = PartRef(messageId: "", partIndex: 0)
 
     override func isAccessibilityElement() -> Bool { true }
     override func accessibilityPerformPress() -> Bool { controller?.openLink(target, ref: ref) ?? false }
+    /// AXPress in the element's AXActionNames, the list an AX client reads (AXUIElementCopyActionNames).
+    /// CuaDriver indexes a node, so a target can click it, only when that list is not empty (cmux-cua
+    /// ax/tree.rs). The custom action below never reached it: on Nightly 4552290304601, which has it, the
+    /// walk of 2026-11-25T06:25Z still found the link unindexed. AppKit answers AXActionNames and performs
+    /// an action through these two methods, so the press is listed and routed here.
+    override func accessibilityActionNames() -> [NSAccessibility.Action] { [.press] }
+    override func accessibilityPerformAction(_ action: NSAccessibility.Action) {
+        if action == .press { _ = accessibilityPerformPress() }
+    }
     /// The same press as a named action. AppKit lists no AXPress in this element's AXActionNames (the
     /// onboarding walk of 2026-11-23T05:04Z: the link sat in the tree with role AXLink but CuaDriver, which
     /// indexes only a node that advertises an action or a settable value, gave it no index), and a custom
