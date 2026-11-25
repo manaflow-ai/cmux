@@ -7421,7 +7421,6 @@ function TranscriptView({
     sinceKey,
     onJumpToSince,
     sinceRow,
-    sinceHasNews,
     clearTop,
     sinceIndex,
     jumpUp,
