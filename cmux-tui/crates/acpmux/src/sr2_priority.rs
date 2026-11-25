@@ -19,9 +19,14 @@
 //! ([`is_sr2_launcher`]: `sr2`, the `claude-sr2` wrapper the app's default chat
 //! profile runs, or a profile named for it), which keeps every line that is not
 //! `X-Cmux-*`.
-//! Any other route gets nothing, and any older priority line is dropped, so a
-//! lane never inherits one from its login. The gateway reads and removes the
-//! header before routing (subrouter `internal/proxy/person_reserve.go`).
+//! Any other route gets nothing. An older priority line is dropped, so a lane
+//! never inherits one from its login, except the one acpmux itself set from
+//! [`crate::subrouter_priority::ENV`] (a coordinator's `coordinator`, a
+//! lane's `background`): until 2026-11-24 this pass dropped that one too, so
+//! on sr2 every coordinator ran as a lane and its `/compact` got the pool's
+//! 503 (Leo, 2026-11-24: "fix 529s properly with better designs"). The
+//! gateway reads the header as an admission class (subrouter
+//! `internal/proxy/admission_class.go`).
 
 use crate::subrouter_session::HEADERS_ENV;
 
@@ -67,18 +72,24 @@ pub fn custom_headers(
     let existing = get(HEADERS_ENV).unwrap_or_default();
     let is_priority =
         |l: &str| l.split(':').next().unwrap_or("").trim().eq_ignore_ascii_case(HEADER);
-    if !person && !existing.lines().any(is_priority) {
-        return None;
-    }
+    // acpmux's own class for this session (subrouter_priority.rs), which a
+    // login's line must not replace and this pass must not drop.
+    let own = get(crate::subrouter_priority::ENV)
+        .map(|v| v.trim().to_ascii_lowercase())
+        .filter(|v| crate::subrouter_priority::is_known(v));
+    let want = if person { Some("person".to_owned()) } else { own };
     let mut lines: Vec<String> = existing
         .lines()
         .filter(|l| !l.trim().is_empty() && !is_priority(l))
         .map(str::to_owned)
         .collect();
-    if person {
-        lines.push(format!("{HEADER}: person"));
+    if let Some(value) = &want {
+        lines.push(format!("{HEADER}: {value}"));
     }
-    Some(lines.join("\n"))
+    let joined = lines.join("\n");
+    let unchanged =
+        existing.lines().filter(|l| !l.trim().is_empty()).collect::<Vec<_>>().join("\n");
+    (joined != unchanged).then_some(joined)
 }
 
 #[cfg(test)]

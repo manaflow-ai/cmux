@@ -500,13 +500,20 @@ pub const CANARY_PERIOD: Duration = Duration::from_millis(10);
 /// late by the block's length, and the next one is back at [`CANARY_PERIOD`].
 pub const CANARY_IDLE_PERIOD: Duration = Duration::from_secs(4);
 
+/// How late a wake may come with no work before the canary reads it as a block: macOS wakes a tokio
+/// sleep of 10-160 ms up to 6.7 ms late on an idle runtime (3.7 ms p50 at 10 ms; cmux-lawrence,
+/// 2026-11-24), where Linux is within a millisecond. With 2 ms here every macOS wake was a "block",
+/// the canary never backed off, and each acpmux daemon woke about 150 times a second at idle
+/// (cmux20-bench, step 7289b85b). `gauges.workerLag` still records every wake's real lateness.
+pub const CANARY_TIMER_SLACK: Duration = Duration::from_millis(10);
+
 /// How long the runtime stays quiet before the canary starts to back off.
 pub const CANARY_QUIET_BEFORE_BACKOFF: Duration = Duration::from_secs(1);
 
 /// The canary's next sleep after a wake that slept `slept` and came `late`, while the runtime's
 /// workers were busy for `busy` of it, and the runtime has been quiet for `quiet` before it. Work
-/// (workers busy over 1% of the time slept) or a late wake (over 2 ms plus 2% of the sleep, so a
-/// coalesced idle timer is not read as a block) puts it back at [`CANARY_PERIOD`]; a second of
+/// (workers busy over 1% of the time slept) or a late wake (over [`CANARY_TIMER_SLACK`] plus 2% of
+/// the sleep, so the system's timer slack and a coalesced idle timer are not read as a block) puts it back at [`CANARY_PERIOD`]; a second of
 /// quiet starts doubling it to [`CANARY_IDLE_PERIOD`]. Returns the sleep and the new quiet span.
 pub fn canary_next(
     slept: Duration,
@@ -515,7 +522,7 @@ pub fn canary_next(
     quiet: Duration,
 ) -> (Duration, Duration) {
     let worked = busy > slept / 100;
-    let held = late > Duration::from_millis(2) + slept / 50;
+    let held = late > CANARY_TIMER_SLACK + slept / 50;
     if worked || held {
         return (CANARY_PERIOD, Duration::ZERO);
     }

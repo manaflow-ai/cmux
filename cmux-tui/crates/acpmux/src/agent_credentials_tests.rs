@@ -180,6 +180,20 @@ fn environ(pairs: &[(&str, &str)]) -> Vec<u8> {
 }
 
 #[test]
+fn the_host_says_only_the_launch_credential_and_never_shows_its_value() {
+    let c = AgentCredential::parse(&json!({"env": {CLAUDE_OAUTH: "sk-ant-oat01-abc"}})).unwrap();
+    let (mut argv, mut e) = (vec!["claude".to_owned()], env(&[("HOME", "/home/cmux")]));
+    assert!(apply(&c, "claude", &mut argv, &mut e));
+    let spec_env: Vec<(String, String)> = e.into_iter().collect();
+    let said = launched_with(&spec_env);
+    assert!(said.iter().all(|(k, _)| k != "HOME"), "only the credential's variables: {said:?}");
+    assert_eq!(recovered_from_launch(&said), Some(c));
+    let shown = format!("{:?}", crate::agent_host::LaunchCredential(said));
+    assert!(!shown.contains("sk-ant-oat01-abc"), "{shown}");
+    assert!(launched_with(&[("HOME".into(), "/h".into())]).is_empty());
+}
+
+#[test]
 fn the_marked_variable_comes_back_from_the_agents_env() {
     let c = AgentCredential::parse(&json!({"env": {CLAUDE_OAUTH: "sk-ant-oat01-abc"}})).unwrap();
     let (mut argv, mut e) = (vec!["claude".to_owned()], env(&[("HOME", "/home/cmux")]));

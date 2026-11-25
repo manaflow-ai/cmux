@@ -165,7 +165,7 @@ struct TerminalComposer: View {
         } label: {
             ComposerCircleLabel(systemImage: "plus")
         }
-        .buttonStyle(.cmuxPressFillInLabel)
+        .buttonStyle(.cmuxPressGlass)
         .accessibilityLabel("Add Attachment")
         .accessibilityIdentifier("terminal.composer.attach")
     }
@@ -191,22 +191,20 @@ struct TerminalComposer: View {
         // rounded shape clips the cut lines at the corners too.
         .frame(minHeight: TerminalDockMetrics.control, alignment: .top)
         .clipShape(.rect(cornerRadius: TerminalDockMetrics.fieldCornerRadius, style: .continuous))
-        // The terminal theme's own background with a hairline border, not
-        // glass: glass lifted the field lighter than the pane (Leo,
-        // 2026-11-22: "dont draw unnecessary attention by making it light";
-        // the border alone marks it). A flat fill also looks the same at
-        // every height (Leo, 2026-11-21: "the composer brightening up when
-        // you have >3 lines"; TerminalComposerLookUITests: 1, 3, 4, 8 lines).
-        .background(themeBackground, in: .rect(cornerRadius: TerminalDockMetrics.fieldCornerRadius, style: .continuous))
+        // Liquid Glass with a hairline border (Aziz, 2026-11-23: "someone also
+        // changed the composer bar input field and + button to not have a
+        // border and not look as glassy anymore, undo that"; the flat
+        // theme-colored fill came in #50740). Clear glass, not regular:
+        // regular glass changes its material with the shape's size, so the
+        // field turned a lighter gray once a draft passed three lines (Leo,
+        // 2026-11-21); clear glass looks the same at every height
+        // (TerminalComposerLookUITests: 1, 3, 4 and 8 lines).
+        .glassEffect(.clear.interactive(), in: .rect(cornerRadius: TerminalDockMetrics.fieldCornerRadius, style: .continuous))
         .overlay {
             RoundedRectangle(cornerRadius: TerminalDockMetrics.fieldCornerRadius, style: .continuous)
                 .strokeBorder(ComposerChrome.border, lineWidth: 1)
+                .allowsHitTesting(false)
         }
-    }
-
-    /// The pane's background: the Mac's terminal theme, else the app default.
-    private var themeBackground: Color {
-        Color(uiColor: model.hostTheme?.backgroundColor ?? CmuxMobileGhosttyApp.background)
     }
 
     private var fieldRow: some View {
@@ -416,18 +414,18 @@ struct ComposerCircleLabel: View {
             .font(.system(size: 15, weight: .semibold))
             .foregroundStyle(foreground)
             .frame(width: TerminalDockMetrics.control, height: TerminalDockMetrics.control)
-            // Off: the pane shows through, ringed like the field (no lighter
-            // glass disc, Leo 2026-11-22). On: a solid accent disc, as send.
-            .cmuxMobilePressBackground(tint ?? Color.clear, in: Circle())
-            .overlay { Circle().strokeBorder(tint == nil ? ComposerChrome.border : .clear, lineWidth: 1) }
+            // A Liquid Glass circle ringed like the field (restored after
+            // #50740 made it a bare ring); on, the glass takes the accent.
+            .glassEffect(tint.map { .regular.tint($0).interactive() } ?? .regular.interactive(), in: .circle)
+            .overlay { Circle().strokeBorder(tint == nil ? ComposerChrome.border : .clear, lineWidth: 1).allowsHitTesting(false) }
             .contentShape(.circle)
     }
 }
 
-/// The composer's quiet chrome on the terminal theme's background.
+/// The composer's chrome around its glass.
 enum ComposerChrome {
-    /// The field's and the + circle's hairline: it alone marks them.
-    static let border = Color.primary.opacity(0.16)
+    /// The field's and the + circle's hairline, over their glass.
+    static let border = Color.primary.opacity(0.22)
     /// The disabled send disc.
     static let idleFill = Color.primary.opacity(0.08)
 }
@@ -598,7 +596,7 @@ private struct TerminalComposerVoiceSlot: View {
                                     tint: active ? Color.cmuxMobileAccent : nil)
                     .symbolEffect(.variableColor.iterative, isActive: active)
             }
-            .buttonStyle(.cmuxPressFillInLabel)
+            .buttonStyle(.cmuxPressGlass)
             .accessibilityLabel(active ? "End Voice Mode" : "Voice Mode")
             .accessibilityIdentifier("terminal.composer.voice")
         }

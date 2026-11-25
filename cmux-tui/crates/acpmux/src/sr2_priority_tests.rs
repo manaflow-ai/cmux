@@ -50,6 +50,36 @@ fn a_lane_never_carries_it() {
     assert_eq!(run(&[(PERSON_ENV, "0")], true), None);
 }
 
+// Until 2026-11-24 this pass dropped the line subrouter_priority had just
+// set, so on sr2 a coordinator ran as a lane and its /compact got the
+// pool's 503.
+#[test]
+fn acpmuxs_own_class_survives_on_the_gateway() {
+    let env = |value: &'static str, headers: &'static str| {
+        [GATEWAY, (crate::subrouter_priority::ENV, value), (HEADERS_ENV, headers)]
+    };
+    let coord = "X-Subrouter-Session: k\nX-Subrouter-Priority: coordinator";
+    assert_eq!(run(&env("coordinator", coord), false), None, "already right");
+    assert_eq!(
+        run(&env("coordinator", "X-Subrouter-Priority: person\nX-Subrouter-Session: k"), false)
+            .as_deref(),
+        Some(coord),
+        "a login's line gives way to acpmux's own"
+    );
+    assert_eq!(
+        run(&env("batch", "X-Subrouter-Priority: batch"), true),
+        None,
+        "a review keeps batch through the launcher"
+    );
+    let mut person = env("coordinator", coord).to_vec();
+    person.push((PERSON_ENV, "1"));
+    assert_eq!(
+        run(&person, false).as_deref(),
+        Some("X-Subrouter-Session: k\nX-Subrouter-Priority: person"),
+        "the person's mark wins"
+    );
+}
+
 #[test]
 fn other_routes_get_nothing() {
     assert_eq!(run(&[(PERSON_ENV, "1")], false), None, "Claude talks to Anthropic directly");
