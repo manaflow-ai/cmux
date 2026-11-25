@@ -609,6 +609,9 @@ pub struct Session {
     /// one it started itself for a task notification, which acpmux never prompted and
     /// `turn` does not show (`subagent_retry.rs` waits for its end).
     pub(super) harness_turn: AtomicBool,
+    /// The person's own turn has had no token and no tool result yet: while they wait on it in a
+    /// chat they attend, its harness never yields the CPU (`hub/cpu_pressure.rs`).
+    pub(super) awaiting_reply: AtomicBool,
     /// The sections of the last `system/init` its log kept whole (`logged_init.rs`).
     pub(super) logged_init: StdMutex<crate::claude_stdio::LoggedInit>,
     /// The state update sections its log last kept (`update_repeats.rs`).
