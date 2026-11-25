@@ -7,6 +7,7 @@
 //! | `browser_rules_is_top_level_domain` | `{label}` or `{labels}` | a bool, or one per label |
 //! | `browser_rules_host_typo_fix` | `{text}` | [`TypoFix`](crate::address::TypoFix) `{text, typedHost}`, or null |
 //! | `browser_rules_https_upgrade_falls_back` | `{domain, code}` | a bool |
+//! | `browser_rules_calculator_answer` | `{text}` | the answer text, or null when `text` is not arithmetic |
 //! | `browser_rules_link_gesture` | `{command, shift, option, button}` | the [`Gesture`] |
 //! | `browser_rules_link_action` | `{mapping, gesture}` | the [`LinkAction`](crate::links::LinkAction) |
 //! | `browser_rules_webkit_link_click` | `{command, shift, option, button, mapping}` | [`WebKitLinkClick`] |
@@ -14,11 +15,11 @@
 //! | `browser_rules_window_placement` | `{request, links}` | [`LinkPlacement`] |
 //! | `browser_rules_window_decide` | `{request, candidates, links}` | [`WindowDecision`] |
 
-use crate::address;
 use crate::links::{
     self, CefDisposition, ClickMapping, ClickRecord, Gesture, LinkContext, LinkPlacement,
     Modifiers, WebKitLinkClick, WindowCandidate, WindowDecision, WindowRequest,
 };
+use crate::{address, calculator};
 use serde::Deserialize;
 use serde::de::DeserializeOwned;
 use serde_json::{Value, json};
@@ -136,6 +137,10 @@ pub fn call(op: &str, request: Value) -> Result<Value, OpError> {
         "browser_rules_https_upgrade_falls_back" => {
             let LoadErrorRequest { domain, code } = parse(request)?;
             Ok(json!(address::https_upgrade_falls_back(&domain, code)))
+        }
+        "browser_rules_calculator_answer" => {
+            let TextRequest { text } = parse(request)?;
+            Ok(json!(calculator::answer(&text)))
         }
         "browser_rules_link_gesture" => {
             let GestureRequest { modifiers, button } = parse(request)?;
