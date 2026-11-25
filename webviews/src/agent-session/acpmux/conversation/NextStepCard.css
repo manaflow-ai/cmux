@@ -23,11 +23,7 @@
   letter-spacing: var(--text-body--letter-spacing);
   line-height: var(--text-body--line-height);
 }
-.acpmux-next-step__bar .ui-dismiss {
-  width: var(--ds-control-row, 28px);
-  height: var(--ds-control-row, 28px);
-  border-radius: var(--ds-radius-control, 8px);
-}
+/* Its × is the question card's (question/CardDismiss.tsx; questionCard.css sizes it in the bar). */
 .acpmux-next-step__question,
 .acpmux-next-step__detail {
   margin: 0;
