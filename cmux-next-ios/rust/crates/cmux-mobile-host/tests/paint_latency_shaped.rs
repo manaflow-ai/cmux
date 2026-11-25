@@ -137,8 +137,9 @@ async fn run_link(
 ) -> (paint_latency::Summary, paint_latency::Summary, StreamBytes) {
     let lines = load.reads.len() as u64;
     let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
-    let shaper =
-        Arc::new(Shaper::start(listener.local_addr().unwrap(), link_profile, 7, &Trace::new()).await.unwrap());
+    let shaper = Arc::new(
+        Shaper::start(listener.local_addr().unwrap(), link_profile, 7, &Trace::new()).await.unwrap(),
+    );
     let resetter = resets.map(|(period, dark)| {
         let shaper = Arc::clone(&shaper);
         tokio::spawn(async move {
