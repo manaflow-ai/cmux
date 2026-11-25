@@ -63,7 +63,14 @@ struct ChatComposer: View {
     @State private var mentionIndex = MentionIndex()
 
     private var trimmed: String { text.trimmingCharacters(in: .whitespacesAndNewlines) }
-    private var hasContent: Bool { !trimmed.isEmpty || !attachments.isEmpty }
+    /// Read by the body on every key: stops at the draft's first visible character, where
+    /// trimming copied the whole draft through Foundation per key (ComposerTypingLagUITests).
+    private var hasContent: Bool {
+        #if DEBUG
+        if ComposerReturnTextView.measuresWholeDraft { return !trimmed.isEmpty || !attachments.isEmpty }
+        #endif
+        return text.contains(where: { !$0.isWhitespace }) || !attachments.isEmpty
+    }
     private var collapsedTarget: Bool { collapsible && !focus.wrappedValue && !hasContent && !expandRequested }
     /// Follows `collapsedTarget` inside an explicit `.cmuxMobileSmooth` animation.
     /// Losing focus to the keyboard's dismissal changes the target in an
@@ -73,6 +80,9 @@ struct ChatComposer: View {
     private var collapsed: Bool { shownCollapsed ?? collapsedTarget }
     /// `collapsible` as last placed: it flips when the chat's first turns come.
     @State private var placedCollapsible: Bool?
+    #if DEBUG
+    @State private var didFillTypingDemo = false
+    #endif
 
     var body: some View {
         #if DEBUG
@@ -124,15 +134,26 @@ struct ChatComposer: View {
             Task { await loadPhotos(items) }
         }
         .cmuxMobileSensoryFeedback(.impact(weight: .light), trigger: sendCount)
-        .onChange(of: focus.wrappedValue) { _, focused in
-            if focused { expandRequested = false }
+        .onChange(of: expandRequested && focus.wrappedValue) { _, expansionFocused in
+            if expansionFocused { expandRequested = false }
         }
-        .onAppear { if expandOnAppear { expand() } }
+        .onAppear {
+            if expandOnAppear { expand() }
+            #if DEBUG
+            guard !didFillTypingDemo,
+                  let mode = ProcessInfo.processInfo.environment["CMUX_MOBILE_DEMO_CHAT_COMPOSER"],
+                  mode.hasPrefix("chars:"), text.isEmpty,
+                  let count = Int(mode.dropFirst("chars:".count).prefix(while: \.isNumber)) else { return }
+            didFillTypingDemo = true
+            text = Self.demoTypingText(count, oneParagraph: mode.hasSuffix(":oneline"))
+            focus.wrappedValue = true
+            #endif
+        }
         #if DEBUG
         .task {
             let arguments = ProcessInfo.processInfo.arguments
             guard let index = arguments.firstIndex(of: "-cmux-mobile-demo"),
-                  arguments.indices.contains(index + 1), arguments[index + 1] == "offline-send",
+                  arguments.indices.contains(index + 1), ["offline-send", "offline-held"].contains(arguments[index + 1]),
                   !ranOfflineSendDemo else { return }
             ranOfflineSendDemo = true
             text = "Run the tests and summarize the results."
@@ -175,6 +196,22 @@ struct ChatComposer: View {
             }
         }
     }
+
+    #if DEBUG
+    /// ComposerTypingLagUITests' long draft: the terminal's demo prose (a paragraph break every
+    /// four sentences), or with `oneParagraph` the same text as a single paragraph.
+    private static func demoTypingText(_ count: Int, oneParagraph: Bool) -> String {
+        let sentence = "The build fails on the second step when the cache is cold, so check the log and the screenshots before rerunning it. "
+        var text = ""
+        var index = 0
+        while text.utf8.count < count {
+            text += sentence
+            index += 1
+            if index % 4 == 0, !oneParagraph { text += "\n\n" }
+        }
+        return String(text.prefix(count))
+    }
+    #endif
 
     /// A copied image or file pasted into the field: attached as Photos or
     /// Files would attach it (`UIPasteboard.composerImages`).
@@ -300,6 +337,10 @@ struct ChatComposer: View {
         // card (user report 2026-11-12, the same rule as the terminal composer).
         .fixedSize(horizontal: false, vertical: true)
         .glassEffect(.regular, in: .rect(cornerRadius: 24, style: .continuous))
+        // The card is one container element that holds its own identifier: on the bare
+        // content the identifier went to every element inside, and the composer field
+        // read `chat.composer.card` instead of `chat.composer.field`.
+        .accessibilityElement(children: .contain)
         .accessibilityIdentifier("chat.composer.card")
         .padding(.horizontal, collapsed ? 20 : 12)
     }
