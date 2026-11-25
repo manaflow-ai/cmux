@@ -53,6 +53,7 @@ def driver_env():
     return env
 
 
+ONBOARDING_STEPS = 8  # welcome steps a fresh launch shows before the agents step, at most
 CUA_CANDIDATES = (os.path.join(account_home(), ".local/bin/cua-driver"),
                   "/Applications/CuaDriver.app/Contents/MacOS/cua-driver")
 CUA = next((p for p in CUA_CANDIDATES if os.access(p, os.X_OK)), None)
@@ -329,7 +330,15 @@ class Journey:
                 self.mark("settings.open replied", ms=round((time.monotonic() - started) * 1000, 1), reply=str(reply)[:200])
                 anchor, label = "ChatGPT and Codex", "Add Account"
             else:
-                anchor, label = "ChatGPT", "Sign in"
+                # The agents step's row button reads "Sign In" (onboarding.agents.signIn); a fresh launch opens on
+                # the welcome steps, so walk Continue until the ChatGPT row's button is there.
+                anchor, label = "ChatGPT", "Sign In"
+                for step in range(ONBOARDING_STEPS):
+                    if self.ax("has", label)[0] == 0:
+                        break
+                    code, text = self.ax("press", "", "Continue")
+                    self.mark("onboarding continue", step=step + 1, code=code, out=text[:200])
+                    time.sleep(1.5)  # sleep-ok: let the next onboarding step render before reading the tree
             pressed = self.wait_for("sign-in button found",
                                     lambda: self.ax("has", label)[0] == 0, 40)
             self.dump("before-press")
