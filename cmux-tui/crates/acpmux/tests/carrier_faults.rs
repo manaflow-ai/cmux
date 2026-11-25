@@ -867,14 +867,20 @@ async fn run(row: Row) -> Times {
         outcome,
         why.as_deref().unwrap_or("null")
     );
-    // A black hole ends on acpmux's own deadline: the link says `timeout`, or `pathChanged`
-    // when it moved to another carrier.
+    // A black hole that dropped the link ended on acpmux's own deadline: the link says `timeout`,
+    // or `pathChanged` when it moved to another carrier. One over WireGuard can lift before that
+    // deadline (above): its tunnel's TCP retransmits, the link heals from `degraded` in place,
+    // and a route that never went down names no reason (#56198).
     if matches!(row.cut, Cut::BlackHole) {
-        assert!(
-            matches!(why.as_deref(), Some("timeout" | "pathChanged")),
-            "{}: a black hole read downReason {why:?}",
-            row.tag
-        );
+        if dropped.is_some() || row.route != Route::Wg {
+            assert!(
+                matches!(why.as_deref(), Some("timeout" | "pathChanged")),
+                "{}: a black hole read downReason {why:?}: {states:?}",
+                row.tag
+            );
+        } else {
+            assert_eq!(why, None, "{}: a link that never went down named why: {states:?}", row.tag);
+        }
     }
     assert!(detect <= DETECT_BOUND, "{}: the cut took {detect:?} to notice", row.tag);
     assert!(redial <= REDIAL_BOUND, "{}: the redial took {redial:?}", row.tag);
