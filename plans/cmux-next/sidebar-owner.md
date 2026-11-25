@@ -520,6 +520,10 @@
   `AAAppHealthIndicatorGalleryTests` and `SidebarProfileChipTests.theHealthLineMovesNothingInTheFooterRow`. The health
   model and its self-repairs stay and say nothing; the "Restoring sessions…" card's Details opens app health's
   popover through `SidebarView.onHealthDetails`.
+- 2026-11-24: the Restoring sessions card loses its Details too (ask-a78f915862). Leo, verbatim (2026-11-22): "the
+  fuck is actionable about "needs a repair". if it's unactionable, get rid of it. plus the text is overlapping."
+  `SidebarNoticeCard.detailsAction`, `SidebarView.onHealthDetails` and app health's card (`AppHealthPopover`) are gone;
+  the card is a status line with a bar and no button (`DaemonRestoreProgressTests` asserts it asks for nothing).
 - 2026-11-10 (lane/small-views-react-sidebar-history): the session tree's chat history blocks (Pinned, Earlier) are a
   React page (webviews/src/pages/sidebar-chats) in each block's gap of the list (`SidebarChatHistoryHost`,
   CmuxNextSidebar); the AppKit `SidebarChatHistoryView`, `SidebarChatHistoryRow` and `SidebarChatHistoryHeader` are
