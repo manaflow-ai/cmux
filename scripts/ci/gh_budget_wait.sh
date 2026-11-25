@@ -16,10 +16,22 @@
 #
 # A refused call is tried at most GH_BUDGET_WAIT_ATTEMPTS times (default 6), and
 # one job waits at most GH_BUDGET_WAIT_MAX_SECONDS in all (default 3600, the
-# longest a reset can be away); each wait is logged. Reading /rate_limit costs
-# nothing. A refused request did nothing on GitHub's side, so retrying a write is
-# safe. Standard input is replayed only when the call reads it (`--input -`,
-# `@-`, `-F -`); otherwise it is left alone for the caller.
+# longest a reset can be away); each wait is logged. A budget whose reset is
+# further away than the job has left to wait fails at once instead of sleeping
+# into the same refusal. Reading /rate_limit costs nothing. A refused request did
+# nothing on GitHub's side, so retrying a write is safe. Standard input is
+# replayed only when the call reads it (`--input -`, `@-`, `-F -`); otherwise it
+# is left alone for the caller.
+#
+# GitHub's own server errors (HTTP 5xx) are tried again too, after 10, 20 and
+# 40 s, at most GH_BUDGET_WAIT_5XX_ATTEMPTS tries in all (default 4), within the
+# same job total. A limit or server error that outlasts every try fails loud
+# (an ::error annotation, or the step summary when stderr is read as data).
+#
+# --install also copies gh_budget_wait.cjs, the same waits for actions/github-script
+# steps, next to the wrapper and names it in GH_BUDGET_WAIT_JS (GITHUB_ENV):
+#   if (process.env.GH_BUDGET_WAIT_JS) require(process.env.GH_BUDGET_WAIT_JS).install({ github, core });
+# (The guard keeps the scripts runnable by test harnesses that have no wrapper.)
 # Runs on macOS's bash 3.2.
 
 REAL_GH=gh # --install writes the real gh's path here
@@ -29,6 +41,7 @@ set -u
 ledger_dir="${RUNNER_TEMP:-${TMPDIR:-/tmp}}/gh-budget-wait"
 max_total="${GH_BUDGET_WAIT_MAX_SECONDS:-3600}"
 attempts="${GH_BUDGET_WAIT_ATTEMPTS:-6}"
+server_attempts="${GH_BUDGET_WAIT_5XX_ATTEMPTS:-4}"
 
 # No ledger yet is nothing waited; one that cannot be read or parsed counts as the whole
 # budget spent (fail closed: an earlier step's waits are unknown).
@@ -42,7 +55,8 @@ waited_so_far() {
 # Seconds until the exhausted budget resets (core, graphql or search). When none reads
 # exhausted, the refusal is GitHub's secondary limit on bursts (it sends no reset; all of
 # the repository's GITHUB_TOKENs count as one actor), so back off: 60 s on the first try,
-# then 120, 240 and 300 s per wait. $1 is the try number.
+# then 120, 240 and 300 s per wait. $1 is the try number. Prints the seconds and
+# `reset` (an exhausted budget's own reset) or `backoff`.
 seconds_to_reset() {
   local now reset left try="${1:-1}"
   now="$(date +%s)"
@@ -51,12 +65,12 @@ seconds_to_reset() {
     2>/dev/null || echo 0)"
   case "$reset" in '' | *[!0-9]*) reset=0 ;; esac
   if [ "$reset" -gt "$now" ]; then
-    left=$((reset - now + 5))
+    echo "$((reset - now + 5)) reset"
   else
     left=$((60 << (try - 1)))
     [ "$left" -le 300 ] || left=300
+    echo "$left backoff"
   fi
-  echo "$left"
 }
 
 # Seconds until the core budget resets, for --reserve.
@@ -77,6 +91,17 @@ log_wait() {
     [ -z "${GITHUB_STEP_SUMMARY:-}" ] || echo "- GitHub API budget: $1" >>"$GITHUB_STEP_SUMMARY"
   else
     echo "::notice title=GitHub API budget::$1" >&2
+  fi
+}
+
+# A call that failed through every retry: an error annotation, or the step summary when the
+# caller reads stderr with stdout (the annotation would land in its data).
+log_error() {
+  { mkdir -p "$ledger_dir" && echo "$(date -u +%H:%M:%SZ) FAILED: $1" >>"$ledger_dir/waits.log"; } 2>/dev/null
+  if [ /dev/fd/1 -ef /dev/fd/2 ]; then
+    [ -z "${GITHUB_STEP_SUMMARY:-}" ] || echo "- GitHub API: $1" >>"$GITHUB_STEP_SUMMARY"
+  else
+    echo "::error title=GitHub API::$1" >&2
   fi
 }
 
@@ -125,6 +150,13 @@ wait_for_budget() {
 }
 
 if [ "${1:-}" = "--install" ]; then
+  # The github-script half needs no gh: copy it first, so a step's require() finds it.
+  js="$(dirname "$0")/gh_budget_wait.cjs"
+  if [ -f "$js" ] && mkdir -p "$ledger_dir" && cp "$js" "$ledger_dir/gh_budget_wait.cjs"; then
+    [ -z "${GITHUB_ENV:-}" ] || echo "GH_BUDGET_WAIT_JS=$ledger_dir/gh_budget_wait.cjs" >>"$GITHUB_ENV"
+  else
+    echo "::warning title=GitHub API budget::no gh_budget_wait.cjs beside this script; github-script steps in this job will not wait through a rate limit"
+  fi
   real="$(command -v gh 2>/dev/null || true)"
   if [ -z "$real" ] || [ -z "${GITHUB_PATH:-}" ]; then
     echo "::warning title=GitHub API budget::no gh or GITHUB_PATH; gh calls in this job will not wait through a rate limit"
@@ -160,21 +192,46 @@ done
 [ -z "$stdin_file" ] || cat >"$stdin_file"
 
 try=1
-while [ "$try" -le "$attempts" ]; do
+server_tries=0
+gave_up=""
+while :; do
   if [ -n "$stdin_file" ]; then
     "$REAL_GH" "$@" <"$stdin_file" >"$work/out" 2>"$work/err"
   else
     "$REAL_GH" "$@" >"$work/out" 2>"$work/err"
   fi
   rc=$?
-  if [ "$rc" -eq 0 ] || [ "$try" -eq "$attempts" ] ||
-    ! grep -qiE 'rate limit exceeded|secondary rate limit|abuse detection|too many requests|HTTP 429' "$work/err" "$work/out"; then
+  [ "$rc" -ne 0 ] || { gave_up=""; break; }
+  if grep -qiE 'rate limit exceeded|secondary rate limit|abuse detection|too many requests|HTTP 429' "$work/err" "$work/out"; then
+    gave_up="was refused for the API rate limit"
+    [ "$try" -lt "$attempts" ] || { gave_up="$gave_up on all $attempts tries"; break; }
+    log_refusal "$@"
+    read -r want kind <<<"$(seconds_to_reset "$try")"
+    remaining=$((max_total - $(waited_so_far)))
+    # A budget that resets later than this job may still wait gains nothing from a partial
+    # wait: fail now, naming the reset, instead of sleeping into the same refusal.
+    if [ "$kind" = reset ] && [ "$want" -gt "$remaining" ]; then
+      gave_up="$gave_up; the budget resets in ${want}s, past this job's ${remaining}s left to wait (GH_BUDGET_WAIT_MAX_SECONDS=$max_total)"
+      break
+    fi
+    wait_for_budget "$want" "gh ${1:-} ${2:-} $gave_up (try $try of $attempts)" ||
+      { gave_up="$gave_up; this job's ${max_total}s of waiting is spent"; break; }
+  elif grep -qE 'HTTP 5[0-9][0-9]|(502 Bad Gateway|503 Service Unavailable|504 Gateway Time-?out)' "$work/err"; then
+    # GitHub's own 5xx (2026-11-20: `gh workflow run` answered "HTTP 500: Failed to run workflow
+    # dispatch"): back off 10, 20, 40 s, at most GH_BUDGET_WAIT_5XX_ATTEMPTS tries in all.
+    gave_up="got a GitHub server error"
+    server_tries=$((server_tries + 1))
+    [ "$server_tries" -lt "$server_attempts" ] || { gave_up="$gave_up on all $server_attempts tries"; break; }
+    wait_for_budget $((10 << (server_tries - 1))) "gh ${1:-} ${2:-} $gave_up (try $server_tries of $server_attempts)" ||
+      { gave_up="$gave_up; this job's ${max_total}s of waiting is spent"; break; }
+  else
+    gave_up=""
     break
   fi
-  log_refusal "$@"
-  wait_for_budget "$(seconds_to_reset "$try")" "gh ${1:-} ${2:-} was refused for the API rate limit (try $try of $attempts)" || break
   try=$((try + 1))
 done
 cat "$work/out"
 cat "$work/err" >&2
+# A limit or server error that outlasted every retry fails loud, once per call.
+[ -z "$gave_up" ] || log_error "gh ${1:-} ${2:-} $gave_up; failing"
 exit "$rc"

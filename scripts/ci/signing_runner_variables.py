@@ -123,8 +123,17 @@ def ephemeral_label(value: str | None) -> bool:
     return bool(EPHEMERAL_LABEL.match((value or "").strip()))
 
 
+# The persistent Linux pool's labels, accepted for now in a signing job's variable. Leo, 2026-11-21 00:38Z: "just...
+# accept all labels. stop worrying about secrets for awhile since literally nobody else other than us are using
+# them". The pool also registers every x64 Linux label, so no label isolates signing until that is undone;
+# re-isolating signing is deferred until CI is stable (cmux#13742). Remove a label here when it comes back.
+SIGNING_ISOLATION_DEFERRED = frozenset({"cmux-fleet-linux-x64", "cmux-linux"})
+
+
 def allowed_value(name: str, value: str | None, env: dict[str, str] | None = None) -> bool:
-    """Whether `name` may hold `value`: any value unless a signing job reads it; then unset or ephemeral."""
+    """Whether `name` may hold `value`: any value unless a signing job reads it; then unset, ephemeral, or a
+    persistent-pool label while isolation is deferred (SIGNING_ISOLATION_DEFERRED)."""
     if not is_signing_variable(name, env):
         return True
-    return not (value or "").strip() or ephemeral_label(value)
+    value = (value or "").strip()
+    return not value or ephemeral_label(value) or value in SIGNING_ISOLATION_DEFERRED
