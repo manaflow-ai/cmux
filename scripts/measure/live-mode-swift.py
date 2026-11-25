@@ -45,6 +45,7 @@ VIEW = os.path.join(ROOT, "Packages/macOS/CmuxNext/Sources/CmuxNextApp/Home/Home
 ORIGINAL = "layer?.backgroundColor = nil"
 RED = "layer?.backgroundColor = NSColor.systemRed.cgColor"
 BLUE = "layer?.backgroundColor = NSColor.systemBlue.cgColor"
+SAVE_ROUNDS = 3  # after the first save, this many red-then-blue rounds: seven saves timed
 LIVE_LOG = os.path.join(account_home(), "Library/Caches/cmux-next/live-code/live-code.log")  # the app's home, not the step's $HOME
 
 
@@ -297,11 +298,28 @@ def main():
         edited = time.time()
         with open(VIEW, "w") as f:
             f.write(source.replace(ORIGINAL, BLUE))
-        applied = wait_log(r"applied \S+ functions=(\d+) load_ms=(\d+)", since, 90)
+        applied = wait_log(r"applied \S+ functions=(\d+) load_ms=(\d+) at=([\d.]+)", since, 90)
         result["save_edit"] = {"applied": bool(applied), "functions": int(applied.group(1)) if applied else None,
                                "save_to_applied_s": round(time.time() - edited, 2) if applied else None,
+                               # The app's own "applied ... at=" time: no 0.2 s read interval in it.
+                               "save_to_applied_at_s": round(float(applied.group(3)) - edited, 3) if applied else None,
                                "same_pid": rpc_at(path, "system.identify").get("pid") == result["live_pid"],
                                **snap(opts.tag, opts.out, "live-blue")}
+        # More saves, red then blue each round, so the newest is blue over a red one (the rollback below
+        # goes back to red) and the median is of warm saves.
+        saves = [result["save_edit"]["save_to_applied_at_s"]]
+        for _ in range(SAVE_ROUNDS):
+            for text in (RED, BLUE):
+                time.sleep(0.5)
+                since = len(log_text())
+                edited = time.time()
+                with open(VIEW, "w") as f:
+                    f.write(source.replace(ORIGINAL, text))
+                again = wait_log(r"applied \S+ functions=\d+ load_ms=\d+ at=([\d.]+)", since, 90)
+                saves.append(round(float(again.group(1)) - edited, 3) if again else None)
+        done = sorted(x for x in saves if x is not None)
+        result["saves"] = {"save_to_applied_at_s": saves, "applied": len(done), "of": len(saves),
+                           "median_s": done[len(done) // 2] if done else None}
         result["status_saved"] = status_line(opts.tag)
         result["shells_live"] = shells(pid_files)
 
@@ -331,6 +349,11 @@ def main():
     mode_log = os.path.join(account_home(), f"Library/Caches/cmux-next/live-mode/{opts.tag}/live-mode.log")
     if os.path.exists(mode_log):
         subprocess.run(["cp", mode_log, os.path.join(opts.out, "live-mode.log")])
+    # Each save's phases as the watcher logged them (saved, heard, lookup, compile, link, placed, applied).
+    phases = os.path.join(os.path.dirname(mode_log), "phases.jsonl")
+    if os.path.exists(phases):
+        with open(phases) as f:
+            result["phases"] = [json.loads(line) for line in f if line.strip()][-16:]
     start, stop = result.get("start", {}), result.get("stop", {})
     base = result.get("before", {})
     red = result.get("start_edit", {})

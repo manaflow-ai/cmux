@@ -93,6 +93,26 @@ nonisolated enum UpdaterStrings {
     static var rollbackStoresUnknown: String {
         text("updater.rollback.storesUnknown", "cmux can't tell whether the previous version reads your data, so it didn't roll back.")
     }
+    static var rollbackNothingOlder: String {
+        text("updater.rollback.nothingOlder", "This Mac keeps no build older than the one running.")
+    }
+    static func rollbackRelaunchFailed(_ version: String) -> String {
+        format("updater.rollback.relaunchFailed", "cmux %@ is in place, but cmux could not reopen itself. Quit cmux and open it again to finish.", version)
+    }
+    // Go back (the Updated card, the menu, the progress on the notice card)
+    static func versionFrom(_ version: String, _ day: String) -> String {
+        format("updater.goBack.versionFrom", "%1$@ from %2$@", version, day)
+    }
+    static func goBackTitle(_ label: String) -> String { format("updater.goBack.title", "Go Back to %@", label) }
+    static var revertChecking: String { text("updater.goBack.checking", "Checking the kept build…") }
+    static var revertFinding: String { text("updater.goBack.finding", "Finding the previous build…") }
+    static var revertDownloading: String { text("updater.goBack.downloading", "Downloading…") }
+    static var revertVerifying: String { text("updater.goBack.verifying", "Checking the signature…") }
+    static var revertSwapping: String { text("updater.goBack.swapping", "Putting it in place…") }
+    static var revertRestarting: String { text("updater.goBack.restarting", "Restarting…") }
+    static var revertFailed: String { text("updater.goBack.failed", "Could Not Go Back") }
+    static func revertGoingBack(_ label: String) -> String { format("updater.goBack.going", "Going Back to %@", label) }
+    static var revertGoingBackPlain: String { text("updater.goBack.goingPlain", "Going Back to the Previous Build") }
 
     // Test feed
     static var testFeedRefused: String {
@@ -125,11 +145,16 @@ nonisolated enum UpdaterStrings {
         case .menu: text("updater.held.menu", "The update waits to restart while a menu is open. Restart to Update installs it now.")
         case .composing: text("updater.held.composing", "The update waits to restart while you compose text. Restart to Update installs it now.")
         case .notIdle: text("updater.held.notIdle", "The update waits until cmux is idle. Restart to Update installs now.")
-        case .agentWorking: text("updater.held.agentWorking", "The update waits to restart while an agent is working. Restart to Update installs it now.")
         case .unsentDraft: text("updater.held.unsentDraft", "The update waits to restart while a message is unsent. Restart to Update installs it now.")
         case .unknown: text("updater.held.unknown", "The update waits until cmux can tell no agent is working. Restart to Update installs it now.")
+        case .backoff: text("updater.held.backoff", "The update will try to restart again in a little while. Restart to Update installs it now.")
         }
     }
+    // Settings > Updates' App Update card: when this build arrived and when the next check runs.
+    static var settingsLastUpdated: String { text("updater.settings.lastUpdated", "Last Updated") }
+    static var settingsNextCheck: String { text("updater.settings.nextCheck", "Next Check") }
+    static var settingsNextCheckSoon: String { text("updater.settings.nextCheckSoon", "Soon") }
+    static var settingsNextCheckOff: String { text("updater.settings.nextCheckOff", "Automatic checks are off") }
     static var keepsRunning: String { text("updater.card.keepsRunning", "Your terminals and agents keep running.") }
     static var whatsChanged: String { text("updater.card.whatsChanged", "What's changed") }
     static func moreChanges(_ count: Int) -> String {

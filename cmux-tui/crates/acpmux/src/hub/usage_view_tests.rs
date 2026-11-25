@@ -69,8 +69,8 @@ async fn a_pass_reads_the_chats_a_walk_of_every_session_reads() {
     let every: Vec<String> = hub.session_handles().iter().map(|s| s.id.clone()).collect();
     let gone = |sources: &[(String, Source)]| {
         let mut trackers: HashMap<String, ()> = every.iter().map(|id| (id.clone(), ())).collect();
-        let mut stats = trackers.clone();
-        let mut gone = prune_unlisted(&mut trackers, &mut stats, sources);
+        let stats: HashSet<String> = every.iter().cloned().collect();
+        let mut gone = prune_unlisted(&mut trackers, &stats, sources);
         gone.sort();
         gone
     };
@@ -105,7 +105,7 @@ async fn a_whole_pass_counts_the_chats_it_read() {
 fn stats_found(hub: &Hub, id: &str) {
     let stats: UsageStats =
         serde_json::from_value(json!({"autocompact": "unknown", "updatedAt": 1})).unwrap();
-    hub.usage_stats.stats.lock().unwrap().insert(id.to_owned(), stats);
+    hub.usage_stats.stats.lock().unwrap().insert_for_test(id, stats);
 }
 
 fn every_row_generation(hub: &Hub) -> u64 {
@@ -124,7 +124,7 @@ async fn a_chat_aged_out_between_passes_tells_its_own_row_only() {
     let session = hub.insert_test_session(chat);
     stats_found(&hub, "aging");
     hub.refresh_usage_stats().await;
-    assert!(hub.usage_stats.stats.lock().unwrap().contains_key("aging"), "read today: kept");
+    assert!(hub.usage_stats.stats.lock().unwrap().get("aging").is_some(), "read today: kept");
     assert_eq!(hub.usage_passes_for_test(), (1, 1));
 
     hub.edit_test_meta(&session, |m| m.updated_at = now - 2 * DAY_MS);
@@ -133,7 +133,7 @@ async fn a_chat_aged_out_between_passes_tells_its_own_row_only() {
     hub.usage_pass_due_for_test();
     hub.refresh_usage_stats().await;
     assert_eq!(hub.usage_passes_for_test(), (2, 0), "no chat to read");
-    assert!(!hub.usage_stats.stats.lock().unwrap().contains_key("aging"), "its stats went");
+    assert!(hub.usage_stats.stats.lock().unwrap().get("aging").is_none(), "its stats went");
     assert!(session.summary_gen.load(Ordering::SeqCst) > own, "its own row was told");
     assert_eq!(every_row_generation(&hub), every, "no other closed row went stale");
     let told = hub.events.list_since(head).unwrap().rows;
@@ -151,7 +151,7 @@ async fn a_purged_chats_stats_make_every_closed_row_stale() {
     stats_found(&hub, "purged");
     let every = every_row_generation(&hub);
     hub.refresh_usage_stats().await;
-    assert!(!hub.usage_stats.stats.lock().unwrap().contains_key("purged"));
+    assert!(hub.usage_stats.stats.lock().unwrap().get("purged").is_none());
     assert!(every_row_generation(&hub) > every, "every closed row went stale");
 }
 
@@ -176,4 +176,100 @@ async fn a_pass_before_the_order_is_sorted_sorts_it_once() {
     let _ = hub.own_rows_from(None, 20);
     assert_eq!(hub.list_order_rebuilds_for_test(), 1, "a page read patched it");
     assert_eq!(hub.usage_passes_for_test(), (2, 4));
+}
+
+/// Session Info's usage read (`_acpmux/sessions {usage: true}`, `acpmux ls -w`) with a cache
+/// already filled: it answers with what is cached at once and the pass runs behind it, never
+/// waiting on a slow read (hq#13932). A cold read, with nothing cached yet, still waits for its
+/// pass. The pass's read is a stub that takes `SLOW` longer than its own.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_warm_usage_read_answers_before_its_slow_pass() {
+    const SLOW: u64 = 400;
+    let hub = Hub::new(Config::default(), Box::new(crate::store::MemoryStore::default()));
+    let now = crate::store::now_ms();
+    for n in 0..3 {
+        let live = meta(&format!("live-{n}"), "claude", Some("s"), "idle", now - n);
+        hub.store.save(&live).unwrap();
+        hub.insert_test_session(live);
+    }
+    hub.slow_usage_reads_for_test(SLOW);
+    let cold = std::time::Instant::now();
+    hub.read_usage_for_list().await;
+    let cold = cold.elapsed();
+    assert_eq!(hub.usage_passes_for_test(), (1, 3), "a cold read waits for its pass");
+    assert!(cold >= Duration::from_millis(SLOW), "the cold read waited: {cold:?}");
+
+    hub.usage_pass_due_for_test();
+    let warm = std::time::Instant::now();
+    hub.read_usage_for_list().await;
+    let warm = warm.elapsed();
+    eprintln!("usage read with a {SLOW} ms pass: cold {cold:?}, warm {warm:?}");
+    assert!(warm < Duration::from_millis(SLOW / 4), "the warm read waited for its pass: {warm:?}");
+    // The pass the warm read started runs behind it.
+    let deadline = std::time::Instant::now() + Duration::from_secs(10);
+    while hub.usage_passes_for_test().0 < 2 && std::time::Instant::now() < deadline {
+        tokio::time::sleep(Duration::from_millis(10)).await;
+    }
+    assert_eq!(hub.usage_passes_for_test(), (2, 3), "the revalidation ran behind the read");
+}
+
+/// A chat's cached stats carry its tags: its turn's end and a change the chat index's file watch
+/// saw in its transcript each leave them stale, one write whatever is cached, and a stale entry
+/// is still what a row draws until the read behind it writes the new one.
+#[tokio::test]
+async fn a_chats_stats_go_stale_by_its_turn_and_its_transcript() {
+    let hub = Hub::new(Config::default(), Box::new(crate::store::MemoryStore::default()));
+    let chat = meta("c", "claude", Some("s1"), "idle", crate::store::now_ms());
+    hub.store.save(&chat).unwrap();
+    let session = hub.insert_test_session(chat);
+    let key = ChatKey { harness: AdapterKind::ClaudeCode, session_id: "s1".into() };
+    let other = ChatKey { harness: AdapterKind::ClaudeCode, session_id: "s2".into() };
+    let write = || {
+        let stats: UsageStats =
+            serde_json::from_value(json!({"autocompact": "unknown", "updatedAt": 1})).unwrap();
+        let tags = vec![UsageTag::Chat("c".into()), UsageTag::Transcript(key.clone())];
+        let mut cache = hub.usage_stats.stats();
+        let now = cache.cache.stamp();
+        cache.insert_at("c".into(), stats, tags, now);
+    };
+    let fresh = || hub.usage_stats.stats().fresh("c").is_some();
+    let kept = || hub.usage_stats.stats().get("c").is_some();
+    write();
+    assert!(fresh());
+
+    hub.usage_transcripts_changed(std::iter::once(&ChatChange::Removed { key: other }));
+    assert!(fresh(), "another chat's transcript leaves it fresh");
+    hub.usage_stats.dirty.store(false, Ordering::SeqCst);
+    hub.usage_transcripts_changed(std::iter::once(&ChatChange::Removed { key: key.clone() }));
+    assert!(!fresh() && kept(), "its transcript changed: stale, still served");
+    assert!(hub.usage_stats.dirty.load(Ordering::SeqCst), "the next read starts a pass");
+    assert!(hub.usage_stats_of(&session, &session.meta()).is_some(), "the row draws it");
+
+    write();
+    assert!(fresh(), "read again: fresh");
+    hub.refresh_usage_stats_of(&session);
+    assert!(!fresh() && kept(), "its turn ended: stale, still served");
+}
+
+/// A chat on a Claude Code wrapper profile (`family = "claude-sr2"`) is read as Claude Code,
+/// from Claude Code's own transcript; Chief's is not.
+#[tokio::test]
+async fn a_claude_sr2_chat_is_read_as_claude_code() {
+    let hub = Hub::new(Config::default(), Box::new(crate::store::MemoryStore::default()));
+    let now = crate::store::now_ms();
+    for meta in [
+        meta("sr2", "claude-sr2", Some("s1"), "idle", now - 1_000),
+        meta("sr2-pipe", "claude-sr2-pipe", Some("s2"), "closed", now - 2_000),
+        meta("chief", "chief", Some("s3"), "idle", now - 3_000),
+    ] {
+        hub.store.save(&meta).unwrap();
+        hub.insert_test_session(meta);
+    }
+    let read = hub.usage_sources(&hub.sessions(), now).await;
+    assert_eq!(ids(&read), ["sr2", "sr2-pipe"]);
+    assert!(read.iter().all(|(_, s)| s.family == "claude"), "read from Claude Code's transcript");
+    assert_eq!(transcript_family("claude"), Some("claude"));
+    assert_eq!(transcript_family("codex"), Some("codex"));
+    assert_eq!(transcript_family("claudette"), None);
+    assert_eq!(transcript_family("gemini"), None);
 }
