@@ -118,7 +118,9 @@ fn ends_or_removes(id: &str) -> bool {
         }
     }
     words.iter().any(|w| ENDS_OR_REMOVES.contains(&w.as_str()))
-        || words.windows(2).any(|p| (p[0] == "sign" || p[0] == "log") && p[1] == "out")
+        || words.windows(2).any(|pair| {
+            matches!(pair, [first, second] if (first == "sign" || first == "log") && second == "out")
+        })
 }
 
 fn problem(path: String, why: &str) -> Problem {
