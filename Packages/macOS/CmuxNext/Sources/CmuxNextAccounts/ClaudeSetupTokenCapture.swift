@@ -17,6 +17,12 @@ nonisolated enum ClaudeSetupTokenCapture {
     static let outputCap = 256 * 1024
     static let columns: UInt16 = 4096
     static let prefix = "sk-ant-oat"
+    /// The kill switch: `defaults write com.cmuxterm.app.next cmuxNext.claudeSetupTokenCapture.off -bool YES`
+    /// (or the app's own domain) hides Sign In and leaves the paste field, as before this ran in the app.
+    static let killSwitch = "cmuxNext.claudeSetupTokenCapture.off"
+
+    /// Whether Sign In runs `claude setup-token` in the app: on unless the kill switch is set.
+    static func enabled(_ defaults: UserDefaults = .standard) -> Bool { !defaults.bool(forKey: killSwitch) }
 
     enum Failure: Error, Equatable {
         /// No pseudo-terminal could be opened or the CLI could not be started.
@@ -182,3 +188,4 @@ nonisolated enum ClaudeSetupTokenCapture {
         return token
     }
 }
+

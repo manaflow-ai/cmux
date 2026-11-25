@@ -1045,7 +1045,8 @@ export { isClaudeToken };
 
 /** Add a Connection > Claude Code: Sign In runs `claude setup-token` in the app (no terminal tab),
  * which opens the browser; the token it prints is saved with nothing to copy, and the sheet closes
- * once the new connection is listed. The paste field stays for a token from elsewhere. A pasted
+ * once the new connection is listed. The paste field stays for a token from elsewhere, and is all
+ * that shows with the app's kill switch set (`claudeSetup` null). A pasted
  * token leaves the page's state before it is sent. */
 function ClaudeTokenForm({
   busy,
@@ -1100,23 +1101,27 @@ function ClaudeTokenForm({
       }}
     >
       <p className="row-help">{t("settingsWindow.models.claude.help")}</p>
-      <div className="row-title">{t("settingsWindow.models.claude.step1")}</div>
-      <div className="accounts-buttons">
-        <Button
-          type="button"
-          className="button"
-          data-models-action="claudeSetupToken"
-          disabled={busy || waiting}
-          onClick={signInNow}
-        >
-          {signIn.t("signIn.account.signIn")}
-        </Button>
-        {waiting && (
-          <output className="row-help" data-claude-setup="waiting">
-            {signIn.t("signIn.waiting")}
-          </output>
-        )}
-      </div>
+      {setup !== null && (
+        <>
+          <div className="row-title">{t("settingsWindow.models.claude.step1")}</div>
+          <div className="accounts-buttons">
+            <Button
+              type="button"
+              className="button"
+              data-models-action="claudeSetupToken"
+              disabled={busy || waiting}
+              onClick={signInNow}
+            >
+              {signIn.t("signIn.account.signIn")}
+            </Button>
+            {waiting && (
+              <output className="row-help" data-claude-setup="waiting">
+                {signIn.t("signIn.waiting")}
+              </output>
+            )}
+          </div>
+        </>
+      )}
       {startedWith !== null && setup?.error && (
         <p className="row-error" role="alert" data-claude-setup="error">
           {setup.error}
@@ -1173,3 +1178,4 @@ function ClaudeTokenForm({
     </form>
   );
 }
+

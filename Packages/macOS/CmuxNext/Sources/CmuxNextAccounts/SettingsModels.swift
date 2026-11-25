@@ -63,6 +63,7 @@ public final class SettingsModels {
     @ObservationIgnored private var watch: Task<Void, Never>?
     @ObservationIgnored private var watchers = 0
     @ObservationIgnored private let setupToken: (@Sendable () async throws -> String)?
+    @ObservationIgnored private let setupTokenCapture: @MainActor () -> Bool
     @ObservationIgnored private(set) var claudeSetupTask: Task<Void, Never>?
 
     /// - Parameters:
@@ -71,6 +72,8 @@ public final class SettingsModels {
     ///   - team: the active team's id and name; nil signed out or for the personal team.
     ///   - spreadSetting, writeSpreadSetting: `models.spreadUsage`, read and written through the settings writer.
     ///   - setupToken: a test's stand-in for `claude setup-token`; nil runs it (``ClaudeSetupTokenCapture``).
+    ///   - setupTokenCapture: whether Sign In runs it at all; false (the kill switch,
+    ///     ``ClaudeSetupTokenCapture/killSwitch``) leaves only the paste field.
     public init(environment: @escaping @MainActor () -> AcpmuxEnvironment?,
                 call: (@Sendable (AcpmuxEnvironment, AcpmuxHarnessMethod, [String: any Sendable]) async throws -> Data)? = nil,
                 keys: any ModelKeyStoring,
@@ -81,7 +84,8 @@ public final class SettingsModels {
                 policy: TeamModelsPolicy? = nil,
                 spreadSetting: (@MainActor () -> Bool)? = nil,
                 writeSpreadSetting: (@MainActor (Bool) async throws -> Void)? = nil,
-                setupToken: (@Sendable () async throws -> String)? = nil) {
+                setupToken: (@Sendable () async throws -> String)? = nil,
+                setupTokenCapture: @escaping @MainActor () -> Bool = { ClaudeSetupTokenCapture.enabled() }) {
         self.environment = environment
         self.call = call
         self.keys = keys
@@ -93,6 +97,7 @@ public final class SettingsModels {
         self.spreadSetting = spreadSetting
         self.writeSpreadSetting = writeSpreadSetting
         self.setupToken = setupToken
+        self.setupTokenCapture = setupTokenCapture
     }
 
     // MARK: State
@@ -117,7 +122,9 @@ public final class SettingsModels {
             ],
             "members": members,
             "chatgpt": ["attempt": chatgptAttempt.map(JSONValue.string) ?? .null, "error": chatgptError.map(JSONValue.string) ?? .null],
-            "claudeSetup": ["waiting": .bool(claudeSetupWaiting), "error": claudeSetupError.map(JSONValue.string) ?? .null],
+            // Null with the kill switch set: the page shows only the paste field.
+            "claudeSetup": setupTokenCapture()
+                ? .object(["waiting": .bool(claudeSetupWaiting), "error": claudeSetupError.map(JSONValue.string) ?? .null]) : .null,
         ]
     }
 
@@ -274,6 +281,9 @@ public final class SettingsModels {
         case "claudeSetupToken":
             // The person's own gesture: Claude Code's `claude setup-token` runs with no terminal tab, opens
             // their browser, and the token it prints is saved as a pasted one is: nothing to copy.
+            guard setupTokenCapture() else {
+                throw PageError.unavailable("Sign In with claude setup-token is turned off here. Paste the token instead.")
+            }
             let capture: @Sendable () async throws -> String
             if let setupToken {
                 capture = setupToken
@@ -408,3 +418,4 @@ public final class SettingsModels {
         return PageError(code: "cmux.models.failed", message: "the change could not be made")
     }
 }
+

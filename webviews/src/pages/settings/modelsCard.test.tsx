@@ -166,6 +166,15 @@ test("Claude Code's Sign In saves the token setup-token prints and closes, with 
   expect(connectionIds(rendered)).toEqual(["claude-token"]);
 });
 
+test("with the app's setup-token kill switch set, Claude Code shows only the paste field", async () => {
+  const rendered = await render({ ...mockModels.empty, claudeSetup: null });
+  await click(action(card(rendered), "add")!);
+  await click(sheet()!.querySelector('[data-models-choice="claude"]')!);
+  const form = sheet()!.querySelector<HTMLFormElement>("[data-models-claude-form]")!;
+  expect(action(form, "claudeSetupToken")).toBeNull();
+  expect(form.querySelector('input[type="password"]')).not.toBeNull();
+});
+
 test("Claude Code still adds a pasted token once", async () => {
   const rendered = await render(mockModels.empty);
   await click(action(card(rendered), "add")!);
@@ -216,3 +225,4 @@ test("the Models state is read again only while this Mac's connections can't be 
   expect(modelsRetryMs(state(true))).toBe(false);
   expect(modelsRetryMs(state(false))).toBe(2000);
 });
+

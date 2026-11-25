@@ -72,7 +72,8 @@ import Testing
 
     private func make(daemon: Daemon, keys: Keys = Keys(), opened: Opened = Opened(), harnesses: SettingsHarnesses? = nil,
                       spread: (read: @MainActor () -> Bool, write: @MainActor (Bool) async throws -> Void)? = nil,
-                      setupToken: (@Sendable () async throws -> String)? = nil) -> SettingsModels {
+                      setupToken: (@Sendable () async throws -> String)? = nil,
+                      setupTokenCapture: Bool = true) -> SettingsModels {
         let directory = FileManager.default.temporaryDirectory.appending(path: "cn-models-\(UUID().uuidString)")
         let environment = AcpmuxEnvironment(executable: directory.appending(path: "acpmux"), home: directory,
                                             socketPath: directory.appending(path: "a.sock").path, daemonArguments: [], childEnvironment: [:])
@@ -114,7 +115,8 @@ import Testing
             harnesses: harnesses,
             spreadSetting: spread?.read,
             writeSpreadSetting: spread?.write,
-            setupToken: setupToken)
+            setupToken: setupToken,
+            setupTokenCapture: { setupTokenCapture })
     }
 
     private var click: PageCallContext {
@@ -324,6 +326,16 @@ import Testing
         await #expect(throws: PageError.self) { _ = try await models.run(["action": "claudeSetupToken"], context: script) }
     }
 
+    @Test func theSetupTokenKillSwitchLeavesOnlyThePasteField() async throws {
+        let ran = OSAllocatedUnfairLock(initialState: false)
+        let models = make(daemon: Daemon(), setupToken: { ran.withLock { $0 = true }; return "sk-ant-oat01-x" }, setupTokenCapture: false)
+        #expect(models.state["claudeSetup"] == .null)
+        await #expect(throws: PageError.self) { _ = try await models.run(["action": "claudeSetupToken"], context: click) }
+        #expect(ran.withLock { $0 } == false)
+        // Unset, it is on.
+        #expect(ClaudeSetupTokenCapture.enabled(UserDefaults(suiteName: "cn-kill-\(UUID().uuidString)")!))
+    }
+
     @Test func aSetupTokenRunThatPrintsNoTokenSaysSoAndSavesNothing() async throws {
         let daemon = Daemon()
         let keys = Keys()
@@ -395,3 +407,4 @@ import Testing
         #expect(daemon.calls.withLock { $0 }.last?.method == "_acpmux/connections")
     }
 }
+

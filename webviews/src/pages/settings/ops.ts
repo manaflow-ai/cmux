@@ -778,8 +778,9 @@ export type ModelsState = {
    * failure code (`access_denied`, `no_chatgpt_account`, ...). */
   chatgpt: { attempt: string | null; error: string | null };
   /** `claude setup-token` run by the app with no terminal tab: `waiting` on the person's approval in
-   * the browser, `error` why the last run saved no token. Absent from an older app. */
-  claudeSetup?: { waiting: boolean; error: string | null };
+   * the browser, `error` why the last run saved no token. Absent from an older app; null with the
+   * app's kill switch set (`cmuxNext.claudeSetupTokenCapture.off`), which leaves only the paste field. */
+  claudeSetup?: { waiting: boolean; error: string | null } | null;
 };
 
 /** One Settings > Models gesture. `addKey`, `addClaudeToken` and `orgKey` carry a pasted secret once:
@@ -2700,3 +2701,4 @@ export function revisionNumber(value: unknown): number {
 export function newIdempotencyKey(): string {
   return `settings-page-${crypto.randomUUID()}`;
 }
+
