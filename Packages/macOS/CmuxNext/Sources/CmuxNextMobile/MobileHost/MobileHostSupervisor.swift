@@ -306,17 +306,17 @@ public actor MobileHostSupervisor {
         process?.send(line)
     }
 
-    /// A browser tab's favicon or thumbnail (``MobileHostLaunch/tabPictureLine(surface:part:path:width:height:capturedAtMs:)``):
+    /// A browser tab's favicon or thumbnail (``MobileHostLaunch/tabPictureLine(surface:part:path:width:height:capturedAtMs:tab:)``):
     /// kept for each new hostd and sent to the running one. hostd serves it on `tabs` (`tab_snapshots.rs`).
-    public func setTabPicture(surface: UInt64, part: String, line: Data) {
-        tabPictureLines["\(surface)-\(part)"] = line
+    public func setTabPicture(tab: String, part: String, line: Data) {
+        tabPictureLines["\(tab)-\(part)"] = line
         process?.send(line)
     }
 
     /// The tab of `surface` closed: no new hostd gets its pictures (the running one drops them with the tab).
-    public func forgetTabPictures(surface: UInt64) {
-        tabPictureLines.removeValue(forKey: "\(surface)-thumb")
-        tabPictureLines.removeValue(forKey: "\(surface)-favicon")
+    public func forgetTabPictures(tab: String) {
+        tabPictureLines.removeValue(forKey: "\(tab)-thumb")
+        tabPictureLines.removeValue(forKey: "\(tab)-favicon")
     }
 
     /// Forgets the kept set (the feed's account changed or signed out): no hostd started from now

@@ -382,6 +382,7 @@ impl Tabs {
     pub fn set_tabs(&self, listed: Vec<ListedTab>) -> bool {
         let mut state = self.lock();
         let mut changed = false;
+        let mut preserve_screens = false;
         if let Some(epoch) = state.pending.take() {
             let proven = !state.trimmed
                 && listed.iter().all(|t| match (&t.key, state.bound.get(&t.id)) {
@@ -395,8 +396,28 @@ impl Tabs {
                 state.bound.clear();
                 state.trimmed = false;
                 changed = true;
+            } else {
+                preserve_screens = true;
             }
         }
+        // Surface ids may be renumbered by a daemon restart. Keep a terminal's
+        // last screen by its durable tab id while the next list remaps it.
+        let mut screens_by_key = if preserve_screens {
+            state
+                .tabs
+                .values()
+                .filter_map(|known| {
+                    known
+                        .tab
+                        .key
+                        .clone()
+                        .zip(known.screen.clone())
+                        .map(|(key, screen)| (key, (screen, known.captured_at_ms)))
+                })
+                .collect::<HashMap<_, _>>()
+        } else {
+            HashMap::new()
+        };
         let ids: Vec<String> = listed.iter().map(|t| t.id.clone()).collect();
         let keep: HashSet<&str> = ids.iter().map(String::as_str).collect();
         let gone: Vec<String> = state
@@ -425,7 +446,11 @@ impl Tabs {
             let known = state.tabs.remove(&id).filter(|k| k.tab.key == tab.key);
             let (screen, captured_at_ms) = match known {
                 Some(k) => (k.screen, k.captured_at_ms),
-                None => (None, now_ms()),
+                None => tab
+                    .key
+                    .as_ref()
+                    .and_then(|key| screens_by_key.remove(key))
+                    .map_or((None, now_ms()), |(screen, captured_at_ms)| (Some(screen), captured_at_ms)),
             };
             let screen = screen.map(|s| ScreenInput { cols: tab.cols, rows: tab.rows, ..s });
             state.bound.insert(id.clone(), tab.key.clone());

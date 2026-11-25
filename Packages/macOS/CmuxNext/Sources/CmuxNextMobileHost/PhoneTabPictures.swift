@@ -208,8 +208,8 @@ public final class PhoneTabPictures {
             guard previous?.hash != written.hash else { return }
             self.sent[key] = written
             let line = MobileHostLaunch.tabPictureLine(surface: surface, part: part.rawValue, path: written.file.path,
-                                                       width: width, height: height, capturedAtMs: capturedAtMs)
-            await self.iphone?.setTabPicture(surface: surface, part: part.rawValue, line: line)
+                                                       width: width, height: height, capturedAtMs: capturedAtMs, tab: key)
+            await self.iphone?.setTabPicture(tab: key, part: part.rawValue, line: line)
             if let previous, previous.file != written.file { Self.remove([previous.file]) }
         }
     }
@@ -225,7 +225,7 @@ public final class PhoneTabPictures {
         if !files.isEmpty { Self.remove(files) }
         let iphone = iphone
         // task-owner: one hop to the supervisor actor; ends on its own.
-        Task { await iphone?.forgetTabPictures(surface: surface) }
+        Task { await iphone?.forgetTabPictures(tab: key) }
     }
 
     private nonisolated static func remove(_ files: [URL]) {
@@ -239,12 +239,12 @@ public final class PhoneTabPictures {
 extension IPhoneHostService {
     /// A browser tab's picture line for the phones (``PhoneTabPictures``): one hop to the supervisor, which keeps the
     /// newest of each tab's part for each new hostd.
-    func setTabPicture(surface: UInt64, part: String, line: Data) async {
-        await supervisor.setTabPicture(surface: surface, part: part, line: line)
+    func setTabPicture(tab: String, part: String, line: Data) async {
+        await supervisor.setTabPicture(tab: tab, part: part, line: line)
     }
 
     /// The tab of `surface` closed: no new hostd gets its pictures.
-    func forgetTabPictures(surface: UInt64) async {
-        await supervisor.forgetTabPictures(surface: surface)
+    func forgetTabPictures(tab: String) async {
+        await supervisor.forgetTabPictures(tab: tab)
     }
 }

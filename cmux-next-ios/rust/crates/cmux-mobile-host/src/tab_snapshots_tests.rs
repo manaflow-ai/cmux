@@ -80,6 +80,40 @@ fn a_new_daemon_run_drops_every_id_of_the_old_one_under_a_new_epoch() {
     assert!(!tabs.set_screen("3", "gone".into()), "an old run's tab is not listed");
 }
 
+#[test]
+fn a_restarted_daemon_keeps_a_terminal_screen_by_its_durable_id_when_surface_changes() {
+    let tabs = Tabs::new("e");
+    tabs.set_tabs(vec![keyed("1", "tab-term", Kind::Terminal)]);
+    assert!(tabs.set_screen("1", "last command".to_owned()));
+    assert!(!tabs.daemon_run("e", Some("first-run".into())));
+    assert!(tabs.daemon_run("e2", Some("new-run".into())));
+
+    // The daemon assigned a different surface id, but the durable tab id is
+    // unchanged. The phone must retain the last terminal preview.
+    tabs.set_tabs(vec![keyed("9", "tab-term", Kind::Terminal)]);
+    let row = row(&tabs, "9");
+    assert_eq!(row.screen_hash, hash(b"last command"));
+    assert_eq!((row.screen_cols, row.screen_rows), (80, 24));
+}
+
+#[tokio::test]
+async fn a_picture_line_with_a_durable_id_cannot_follow_a_reused_surface() {
+    let dir = tempfile::tempdir().unwrap();
+    let image = dir.path().join("old.jpg");
+    std::fs::write(&image, JPEG).unwrap();
+    let tabs = Tabs::new("e");
+    tabs.set_tabs(vec![keyed("4", "tab-old", Kind::Browser)]);
+    let mut line = picture(&image, Part::Thumb);
+    line.tab = Some("tab-old".to_owned());
+    assert!(tabs.offer_file(&line).await);
+    assert!(!tabs.daemon_run("e", Some("first-run".into())));
+    tabs.daemon_run("e2", Some("new-run".into()));
+    tabs.set_tabs(vec![keyed("4", "tab-new", Kind::Browser)]);
+    assert_eq!(row(&tabs, "4").thumb_hash, None);
+    tabs.set_tabs(vec![keyed("9", "tab-old", Kind::Browser)]);
+    assert_eq!(row(&tabs, "9").thumb_hash, hash(JPEG));
+}
+
 const JPEG: &[u8] = &[0xFF, 0xD8, 0xFF, 0xE0, 1, 2, 3];
 const PNG: &[u8] = b"\x89PNG\r\n\x1a\nrest";
 
