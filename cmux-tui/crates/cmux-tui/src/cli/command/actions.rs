@@ -32,6 +32,20 @@ pub(in crate::cli) struct OptionSpec {
     pub about: &'static str,
 }
 
+/// The options of `agent start`, `agent resume` and `terminal <t> resume`
+/// (`cli/agent_start.rs`). Words after `--` are extra launcher arguments.
+const AGENT_START_OPTIONS: &[OptionSpec] = &[
+    opt("cmd", "<launcher>", "Launcher command line (default: $CMUX_AGENT_COMMAND, else claude)"),
+    opt("harness", "<name>", "Agent harness when the launcher does not name it"),
+    opt("pane", "<selector>", "Open the agent as a tab in this pane"),
+    opt("split", "<right|down|left|up>", "Split the pane in this direction (default: right)"),
+    opt("cwd", "<path>", "Working directory"),
+    switch("focus", "Focus the agent's tab (default)"),
+    switch("no-focus", "Do not focus the agent's tab"),
+    opt("timeout", "<duration>", "Give up the wait after this long (default: 90s)"),
+    switch("no-wait", "Return once the agent runs, without waiting until it is ready"),
+];
+
 const fn req(name: &'static str, value: &'static str, about: &'static str) -> OptionSpec {
     OptionSpec { spelling: name, value: Some(value), required: true, about }
 }
@@ -419,8 +433,13 @@ pub(in crate::cli) const ACTIONS: &[ActionSpec] = &[
     action(
         "screen create",
         Some(Op::ScreenCreate),
-        "Create a screen",
-        &[opt("name", "<value>", "Screen name")],
+        "Create a screen; the focus stays where it is unless --focus",
+        &[
+            opt("workspace", "<selector>", "Workspace to add the screen to (default: current)"),
+            opt("name", "<value>", "Screen name"),
+            switch("focus", "Make the new screen its workspace's focused screen"),
+            switch("no-focus", "Keep the focus where it is (the default)"),
+        ],
     ),
     action("screen <selector> show", Some(Op::ScreenGet), "Show one screen", &[]),
     action(
@@ -520,6 +539,27 @@ pub(in crate::cli) const ACTIONS: &[ActionSpec] = &[
     ),
     action("pane <selector> close", Some(Op::PaneClose), "Close a pane", &[]),
     action(
+        "pane <selector> move",
+        None,
+        "Move every tab of a pane to another pane, a tab's pane or a new screen",
+        &[
+            opt("to-pane", "<selector>", "Put the tabs at the end of this pane"),
+            opt(
+                "split",
+                "<right|down|left|up>",
+                "With --to-pane: into a new pane split off it in this direction",
+            ),
+            opt("to-tab", "<selector>", "Put the tabs after this tab, in its pane"),
+            opt("to-workspace", "<selector>", "Put the tabs in a new screen in this workspace"),
+            switch("new-screen", "Put the tabs in a new screen in the pane's own workspace"),
+            switch("new-tab", "Same as --new-screen"),
+            opt("name", "<value>", "Name of the new screen"),
+            switch("focus", "Focus the destination pane (default: the focus stays)"),
+            switch("no-focus", "Keep the focus where it is (the default)"),
+            IDEMPOTENCY_KEY,
+        ],
+    ),
+    action(
         "pane <selector> run -- <argv...>",
         Some(Op::PaneRun),
         "Run a command in a new tab of a pane",
@@ -611,13 +651,21 @@ pub(in crate::cli) const ACTIONS: &[ActionSpec] = &[
         "terminal <selector> screen read",
         Some(Op::TerminalScreenRead),
         "Print the visible screen",
-        &[],
+        &[
+            switch("unwrap", "Join soft-wrapped rows into the lines the program printed"),
+            opt("lines", "<n>", "Print the last N lines of scrollback and screen (1-10000)"),
+            switch("details", "Print the screen record's fields, not its text alone"),
+        ],
     ),
     action(
         "terminal <selector> read",
         Some(Op::TerminalScreenRead),
         "Print the visible screen",
-        &[],
+        &[
+            switch("unwrap", "Join soft-wrapped rows into the lines the program printed"),
+            opt("lines", "<n>", "Print the last N lines of scrollback and screen (1-10000)"),
+            switch("details", "Print the screen record's fields, not its text alone"),
+        ],
     ),
     action(
         "terminal <selector> screen wait",
@@ -626,7 +674,24 @@ pub(in crate::cli) const ACTIONS: &[ActionSpec] = &[
         &[
             req("pattern", "<regex>", "Pattern to wait for"),
             opt("timeout-ms", "<n>", "Give up after this many milliseconds"),
+            switch("new", "Match only output printed below the cursor's line from now on"),
         ],
+    ),
+    action(
+        "terminal <selector> wait",
+        None,
+        "Wait until the terminal's agent can take a message; exits 0 ready, 4 blocked, 1 exited, \
+         124 timeout",
+        &[
+            req("until", "<ready>", "Condition to wait for"),
+            opt("timeout", "<duration>", "Give up after this long, like 90s or 5m"),
+        ],
+    ),
+    action(
+        "terminal <selector> resume",
+        None,
+        "Start the agent that exited in this terminal again with its harness session",
+        AGENT_START_OPTIONS,
     ),
     action(
         "terminal <selector> state read",
@@ -663,7 +728,10 @@ pub(in crate::cli) const ACTIONS: &[ActionSpec] = &[
         "terminal <selector> copy",
         Some(Op::TerminalCopy),
         "Copy terminal text",
-        &[opt("mode", "<screen|selection|scrollback>", "What to copy")],
+        &[
+            opt("mode", "<screen|selection|scrollback>", "What to copy"),
+            switch("unwrap", "Join soft-wrapped rows (screen and scrollback)"),
+        ],
     ),
     action(
         "terminal <selector> process show",
@@ -820,6 +888,17 @@ pub(in crate::cli) const ACTIONS: &[ActionSpec] = &[
             opt("desktop", "<bool>", "Accepted for compatibility; ignored"),
         ],
     ),
+    // attention
+    action(
+        "attention next",
+        None,
+        "Show the next tab that needs you (blocked agents, then unread notifications)",
+        &[
+            opt("after", "<tab_id>", "Start after this tab (default: the focused tab)"),
+            switch("focus", "Also focus that tab"),
+        ],
+    ),
+    action("attention list", None, "List the tabs that need you, in visiting order", &[]),
     // agent
     action(
         "agent list",
@@ -827,8 +906,25 @@ pub(in crate::cli) const ACTIONS: &[ActionSpec] = &[
         "List agents",
         &[
             opt("terminal", "<term_id>", "Only this terminal's agent"),
-            opt("state", "<working|blocked|idle|done|unknown>", "Only agents in this state"),
+            opt(
+                "state",
+                "<working|blocked|done|idle|unknown|ended>",
+                "Only agents with this status (done: idle with an unread notification; \
+                 ended: the session ended, which --state done selected before)",
+            ),
         ],
+    ),
+    action(
+        "agent start <name>",
+        None,
+        "Start a coding agent in a tab named NAME and wait until it can take a message",
+        AGENT_START_OPTIONS,
+    ),
+    action(
+        "agent resume <name>",
+        None,
+        "Start the agent NAME that exited again with its harness session",
+        AGENT_START_OPTIONS,
     ),
     action(
         "agent report",

@@ -660,6 +660,10 @@ command  last-window  aliases=-
 command  layout  aliases=-
   arg  --workspace  kind=option  completion=custom
   arg  arguments  kind=argument  completion=-
+command  left-sidebar  aliases=-
+  arg  --window  kind=option  completion=custom
+  arg  --workspace  kind=option  completion=custom
+  arg  arguments  kind=argument  completion=-
 command  list-buffers  aliases=-
   arg  arguments  kind=argument  completion=-
 command  list-log  aliases=-
@@ -1275,6 +1279,7 @@ command  ssh-tmux  aliases=-
   arg  --new-window  kind=flag  completion=-
   arg  --no-focus  kind=flag  completion=-
   arg  --port  kind=option  completion=-
+  arg  --socket-name  kind=option  completion=-
   arg  arguments  kind=argument  completion=-
   arg  destination  kind=argument  completion=-
 command  sudo  aliases=-

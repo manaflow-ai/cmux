@@ -8,6 +8,7 @@ mod key;
 mod kitty;
 mod mouse;
 mod render;
+mod screen_text;
 mod terminal;
 
 /// Raw bindings, re-exported for key/mode constants.
@@ -28,6 +29,7 @@ pub use render::{
     ATTR_STRIKETHROUGH, Cell, CellWidth, ColorSpec, CursorInfo, CursorShape, Dirty,
     KittyGraphicsFrameDelta, RenderFrame, RenderState, StyledRun, UnderlineStyle, rows_to_runs,
 };
+pub use screen_text::{ScreenRowText, ScreenSearch, ScreenTextCell};
 pub use terminal::{
     Callbacks, ClearHistoryOutcome, KittyGraphicsLimits, KittyImageIdCursors, KittyReplayState,
     NotifyFn, PtyWriteFn, Rgb, Screen, Scrollbar, SelectionPoint, SelectionRange, Terminal,

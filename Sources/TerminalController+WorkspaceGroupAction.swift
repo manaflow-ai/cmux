@@ -68,7 +68,15 @@ extension TerminalController {
             case .pin:
                 tabManager.setWorkspaceGroupPinned(groupId: groupID, isPinned: true)
             case .unpin:
-                tabManager.setWorkspaceGroupPinned(groupId: groupID, isPinned: false)
+                // Chief Home stays pinned while `chief.enabled` is on; say so instead of reporting OK.
+                guard tabManager.setWorkspaceGroupPinned(groupId: groupID, isPinned: false) else {
+                    mutationError = .err(
+                        code: "protected",
+                        message: TabManager.chiefHomeCannotUnpinMessage,
+                        data: ["group_id": groupID.uuidString]
+                    )
+                    return
+                }
             case .rename:
                 guard let title else {
                     mutationError = .err(code: "invalid_params", message: "Missing or invalid title", data: nil)

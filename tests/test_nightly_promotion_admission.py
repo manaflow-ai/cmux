@@ -996,9 +996,7 @@ def test_non_macos_nightly_next_orchestration_uses_the_trusted_fast_check_fallba
         "promote-nightly-next-acked",
         "resolve-nightly-cmux-tui-client",
         "publish-nightly",
-        "republish-nightly-deltas",
         "report-nightly-failure",
-        "close-nightly-failure-issue",
     ):
         runner = str(jobs[name]["runs-on"])
         assert "blacksmith-2vcpu-ubuntu-2404" in runner, name

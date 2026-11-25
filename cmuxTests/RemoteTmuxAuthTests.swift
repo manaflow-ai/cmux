@@ -468,7 +468,7 @@ import Testing
         connection.handleMessageForTesting(.commandResult(commandNumber: 1, lines: [], isError: false))
 
         #expect(connection.pendingCommandKindsForTesting == [
-            .listWindows(reorderGeneration: 0, retainedPaneIDs: [])
+            .listWindows(reorderGeneration: 0, retainedPaneIDs: []), .other, // then the window-order subscription
         ])
     }
 

@@ -99,6 +99,7 @@ extension ContentView {
     )
     static let commandPaletteLaunchClaudeTeamsCommandID = "palette.launchClaudeTeams"
     static let commandPaletteLaunchCodexTeamsCommandID = "palette.launchCodexTeams"
+    static let commandPaletteLaunchOpenCodeCommandID = "palette.launchOpenCode"
 
     /// Builds launcher commands from availability already resolved away from the main actor.
     static func commandPaletteAgentLauncherContributions(
@@ -138,6 +139,23 @@ extension ContentView {
                 when: canLaunchFromCurrentWorkspace
             ))
         }
+        if availableProviders.contains(.opencode) {
+            contributions.append(CommandPaletteCommandContribution(
+                commandId: commandPaletteLaunchOpenCodeCommandID,
+                title: { _ in
+                    // `cmux omo` runs OpenCode with the oh-my-opencode plugin
+                    // (installed on first run), so name that mode like the
+                    // Claude Teams and Codex Teams launchers do.
+                    String(
+                        localized: "menu.help.ohMyOpenCode",
+                        defaultValue: "oh-my-opencode"
+                    )
+                },
+                subtitle: { _ in "cmux omo" },
+                keywords: ["opencode", "omo", "agent", "launcher"],
+                when: canLaunchFromCurrentWorkspace
+            ))
+        }
         return contributions
     }
 
@@ -158,6 +176,9 @@ extension ContentView {
         }
         registry.register(commandId: Self.commandPaletteLaunchCodexTeamsCommandID) {
             startCommandPaletteAgentLauncherActivation(provider: .codex, subcommand: "codex-teams")
+        }
+        registry.register(commandId: Self.commandPaletteLaunchOpenCodeCommandID) {
+            startCommandPaletteAgentLauncherActivation(provider: .opencode, subcommand: "omo")
         }
     }
 

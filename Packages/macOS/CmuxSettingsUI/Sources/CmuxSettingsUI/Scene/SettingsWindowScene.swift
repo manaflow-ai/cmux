@@ -164,7 +164,8 @@ public struct SettingsWindowRoot: View {
             SettingsSidebarList(
                 query: searchQuery,
                 selection: sidebarSelectionBinding,
-                isCloudSectionAvailable: isCloudSectionAvailable
+                isCloudSectionAvailable: isCloudSectionAvailable,
+                isChiefAvailable: hostActions.isChiefAvailable
             )
         } detail: {
             detailScroll

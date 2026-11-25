@@ -7,10 +7,15 @@ struct SettingsSidebarList: View {
     @Bindable var query: SettingsSearchQuery
     @Binding var selection: String
     let isCloudSectionAvailable: Bool
+    var isChiefAvailable: Bool = false
 
     var body: some View {
         List(selection: $selection) {
-            SettingsSidebarRows(query: query, isCloudSectionAvailable: isCloudSectionAvailable)
+            SettingsSidebarRows(
+                query: query,
+                isCloudSectionAvailable: isCloudSectionAvailable,
+                isChiefAvailable: isChiefAvailable
+            )
         }
         .listStyle(.sidebar)
         .navigationTitle(String(localized: "settings.title", defaultValue: "Settings"))
@@ -26,6 +31,7 @@ struct SettingsSidebarList: View {
 private struct SettingsSidebarRows: View {
     let query: SettingsSearchQuery
     let isCloudSectionAvailable: Bool
+    let isChiefAvailable: Bool
 
     var body: some View {
         let matches = query.results.filter { isEntryVisible($0) }
@@ -57,13 +63,11 @@ private struct SettingsSidebarRows: View {
     }
 
     private func isEntryVisible(_ entry: SettingsSearchIndex.Entry) -> Bool {
-        guard !isCloudSectionAvailable else { return true }
-        switch entry.kind {
-        case .section:
-            return entry.id != "section:\(SettingsSectionID.cloudMachines.rawValue)"
-        case .setting(let parent):
-            return parent != .cloudMachines
-        }
+        SettingsSidebarEntryVisibility.isVisible(
+            entry,
+            isCloudSectionAvailable: isCloudSectionAvailable,
+            isChiefAvailable: isChiefAvailable
+        )
     }
 
     /// Renders one existing search-index entry as a selectable sidebar leaf.
@@ -100,6 +104,28 @@ private struct SettingsSidebarRows: View {
             return nil
         case .setting(let parent):
             return parent.title
+        }
+    }
+}
+
+/// Which search entries the sidebar offers, given the host's availability.
+enum SettingsSidebarEntryVisibility {
+    /// Search entries for the Chief card (`setting:automation:chief*`), hidden
+    /// with the card while the host doesn't offer Chief.
+    static let chiefEntryIDPrefix = "setting:\(SettingsSectionID.automation.rawValue):chief"
+
+    static func isVisible(
+        _ entry: SettingsSearchIndex.Entry,
+        isCloudSectionAvailable: Bool,
+        isChiefAvailable: Bool
+    ) -> Bool {
+        if !isChiefAvailable, entry.id.hasPrefix(chiefEntryIDPrefix) { return false }
+        guard !isCloudSectionAvailable else { return true }
+        switch entry.kind {
+        case .section:
+            return entry.id != "section:\(SettingsSectionID.cloudMachines.rawValue)"
+        case .setting(let parent):
+            return parent != .cloudMachines
         }
     }
 }

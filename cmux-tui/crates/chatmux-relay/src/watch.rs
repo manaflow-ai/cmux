@@ -1096,6 +1096,63 @@ mod tests {
         serde_json::from_str(&frame.text).expect("valid frame json")
     }
 
+    /// Rewrites `name` under `root` until a watch frame reports it. A new
+    /// macOS FSEvents stream has no "armed" signal and never reports a write
+    /// made before it starts, so one write after a fixed pause loses the
+    /// event whenever the host is slow to start the stream. Each rewrite is a
+    /// fresh change, so a live watch reports one of them within a debounce
+    /// window; a retired watch reports none and the deadline fails the test.
+    ///
+    /// A loaded host can also drop FSEvents: the stream then reports only a
+    /// "must rescan" flag, which the watch forwards as `overflow: true`
+    /// ("refresh the tree") with no per-file change. That frame is the
+    /// watch's report of the write too: a client re-pulls the tree on it.
+    /// Run 42719832208 lost all three watch tests at once this way.
+    async fn write_until_reported(
+        critical: &mut Receiver<OutboundFrame>,
+        watch: &mut Receiver<OutboundFrame>,
+        root: &Path,
+        name: &str,
+        what: &str,
+    ) -> Value {
+        let reported = |value: &Value| {
+            value["type"] == "fs_watch_event"
+                && (value["overflow"] == true
+                    || value["changes"]
+                        .as_array()
+                        .is_some_and(|changes| changes.iter().any(|change| change["path"] == name)))
+        };
+        let seen = Mutex::new(Vec::<String>::new());
+        tokio::time::timeout(Duration::from_secs(20), async {
+            let mut attempt = 0_u32;
+            loop {
+                attempt += 1;
+                std::fs::write(root.join(name), format!("attempt {attempt}\n")).expect("write");
+                let rewrite = tokio::time::sleep(DEBOUNCE_MAX_LATENCY * 2);
+                tokio::pin!(rewrite);
+                loop {
+                    let frame = tokio::select! {
+                        biased;
+                        frame = critical.recv() => frame,
+                        frame = watch.recv() => frame,
+                        () = &mut rewrite => break,
+                    };
+                    let frame = frame.expect("channel open");
+                    let value: Value = serde_json::from_str(&frame.text).expect("valid frame json");
+                    if reported(&value) {
+                        return value;
+                    }
+                    seen.lock().unwrap_or_else(std::sync::PoisonError::into_inner).push(frame.text);
+                }
+            }
+        })
+        .await
+        .unwrap_or_else(|_| {
+            let seen = seen.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+            panic!("no {what} reporting {name} within 20s; other frames: {seen:?}")
+        })
+    }
+
     async fn wait_for_opening_to_finish(registry: &WatchRegistry, watch_id: &str) {
         tokio::time::timeout(Duration::from_secs(10), async {
             loop {
@@ -1128,17 +1185,8 @@ mod tests {
         assert_eq!(opened["type"], "fs_watch_opened");
         assert_eq!(opened["watchId"], "w1");
         assert_eq!(opened["root"].as_str(), root.to_str());
-        // Give the watcher backend a beat to arm before mutating.
-        tokio::time::sleep(Duration::from_millis(400)).await;
-        std::fs::write(root.join("fresh.txt"), "hello\n").expect("write");
-        let event = loop {
-            let frame = next_frame(&mut critical, &mut watch, "change").await;
-            assert_eq!(frame["type"], "fs_watch_event");
-            let changes = frame["changes"].as_array().expect("changes").clone();
-            if changes.iter().any(|change| change["path"] == "fresh.txt") {
-                break frame;
-            }
-        };
+        let event =
+            write_until_reported(&mut critical, &mut watch, &root, "fresh.txt", "change").await;
         assert_eq!(event["watchId"], "w1");
         registry.close("w1");
     }
@@ -1163,18 +1211,14 @@ mod tests {
 
         // Validation happens before registry mutation. A change in the
         // original root proves that the refused replacement kept it active.
-        tokio::time::sleep(Duration::from_millis(400)).await;
-        std::fs::write(root.join("still-watched.txt"), "kept\n").expect("write");
-        loop {
-            let event = next_frame(&mut critical, &mut watch, "existing watch event").await;
-            if event["type"] == "fs_watch_event"
-                && event["changes"].as_array().is_some_and(|changes| {
-                    changes.iter().any(|change| change["path"] == "still-watched.txt")
-                })
-            {
-                break;
-            }
-        }
+        write_until_reported(
+            &mut critical,
+            &mut watch,
+            &root,
+            "still-watched.txt",
+            "existing watch event",
+        )
+        .await;
         registry.close("same");
     }
 
@@ -1242,23 +1286,15 @@ mod tests {
             .map(|active| active.generation);
         assert_eq!(current_generation, Some(old_generation));
 
-        tokio::time::sleep(Duration::from_millis(400)).await;
-        std::fs::write(root.join("still-watched.txt"), "kept\n").expect("write");
-        let frame = tokio::time::timeout(Duration::from_secs(10), async {
-            loop {
-                let frame = watch.recv().await.expect("watch channel open");
-                let value: Value = serde_json::from_str(&frame.text).expect("watch json");
-                if value["type"] == "fs_watch_event"
-                    && value["changes"].as_array().is_some_and(|changes| {
-                        changes.iter().any(|change| change["path"] == "still-watched.txt")
-                    })
-                {
-                    return value;
-                }
-            }
-        })
-        .await
-        .expect("old watch did not survive queue failure");
+        // The 256 filler frames still in the critical queue are skipped.
+        let frame = write_until_reported(
+            &mut critical,
+            &mut watch,
+            &root,
+            "still-watched.txt",
+            "event from the old watch after the queue failure",
+        )
+        .await;
         assert_eq!(frame["watchId"], "same");
         registry.close("same");
     }

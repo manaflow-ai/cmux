@@ -33,5 +33,11 @@ gh run download RUN_ID -R manaflow-ai/cmux -n sealed-secrets -D "$(mktemp -d)"
 python3 scripts/ci/sealed_secrets.py put DIR/sealed-secrets.json
 ```
 
-Rerun it to rotate the password. The capture job reads only the two secrets. It never sees the
+Rerun it to rotate the password.
+
+With `-f target=journey`, the same run provisions the Cloud journey's own staging account
+(`cmux-cloud-capture-journey@manaflow.dev`) and seals `CMUX_DOGFOOD_STACK_EMAIL` and
+`CMUX_DOGFOOD_STACK_PASSWORD` to this repository's `cmux-next-vm-image-dev` environment, where
+backend.yml's `journey-staging` and cloud-chat-proof.yml read them. Those environment secrets take
+precedence over the repository's own pair (the production test account) in that environment only. The capture job reads only the two secrets. It never sees the
 staging server key and never creates users.

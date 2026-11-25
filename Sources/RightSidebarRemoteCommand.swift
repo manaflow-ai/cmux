@@ -1,15 +1,6 @@
 import AppKit
 import Foundation
 
-struct RightSidebarRemoteTarget: Equatable, Sendable {
-    var windowId: UUID? = nil
-    var workspaceId: UUID? = nil
-
-    var isActiveTarget: Bool {
-        windowId == nil && workspaceId == nil
-    }
-}
-
 extension FileExplorerState {
     var rightSidebarRemoteModeRawValue: String {
         mode.rawValue
@@ -30,7 +21,7 @@ enum RightSidebarRemoteCommand: Equatable, Sendable {
 
 struct RightSidebarRemoteRequest: Equatable, Sendable {
     let command: RightSidebarRemoteCommand
-    let target: RightSidebarRemoteTarget
+    let target: SidebarRemoteTarget
 }
 
 struct RightSidebarRemoteParseError: Error, Equatable, Sendable {
@@ -49,60 +40,31 @@ enum RightSidebarRemoteApplyResult: Equatable, Sendable {
 }
 
 extension RightSidebarRemoteRequest {
-    static func parse(tokens: [String]) -> Result<RightSidebarRemoteRequest, RightSidebarRemoteParseError> {
-        var positional: [String] = []
-        var target = RightSidebarRemoteTarget()
-        var noFocus = false
-        var index = 0
+    private static var argumentsMessages: SidebarRemoteArgumentsMessages {
+        SidebarRemoteArgumentsMessages(
+            optionRequiresID: { option in
+                String(localized: "rightSidebar.remote.error.optionRequiresID", defaultValue: "ERROR: \(option) requires an id")
+            },
+            unknownOption: { option in
+                String(localized: "rightSidebar.remote.error.unknownOption", defaultValue: "ERROR: Unknown right sidebar option '\(option)'")
+            },
+            invalidTargetID: { name, value in
+                String(localized: "rightSidebar.remote.error.invalidTargetID", defaultValue: "ERROR: Invalid right sidebar --\(name) id '\(value)'")
+            }
+        )
+    }
 
-        while index < tokens.count {
-            let token = tokens[index]
-            if token == "--no-focus" {
-                noFocus = true
-                index += 1
-                continue
-            }
-            if token == "--workspace" || token == "--tab" || token == "--window" {
-                guard index + 1 < tokens.count else {
-                    return .failure(.init(message: String(localized: "rightSidebar.remote.error.optionRequiresID", defaultValue: "ERROR: \(token) requires an id")))
-                }
-                let value = tokens[index + 1]
-                if let error = parseTargetOption(name: String(token.dropFirst(2)), value: value, target: &target) {
-                    return .failure(error)
-                }
-                index += 2
-                continue
-            }
-            if token.hasPrefix("--workspace=") {
-                let value = String(token.dropFirst("--workspace=".count))
-                if let error = parseTargetOption(name: "workspace", value: value, target: &target) {
-                    return .failure(error)
-                }
-                index += 1
-                continue
-            }
-            if token.hasPrefix("--tab=") {
-                let value = String(token.dropFirst("--tab=".count))
-                if let error = parseTargetOption(name: "tab", value: value, target: &target) {
-                    return .failure(error)
-                }
-                index += 1
-                continue
-            }
-            if token.hasPrefix("--window=") {
-                let value = String(token.dropFirst("--window=".count))
-                if let error = parseTargetOption(name: "window", value: value, target: &target) {
-                    return .failure(error)
-                }
-                index += 1
-                continue
-            }
-            if token.hasPrefix("--") {
-                return .failure(.init(message: String(localized: "rightSidebar.remote.error.unknownOption", defaultValue: "ERROR: Unknown right sidebar option '\(token)'")))
-            }
-            positional.append(token)
-            index += 1
+    static func parse(tokens: [String]) -> Result<RightSidebarRemoteRequest, RightSidebarRemoteParseError> {
+        let arguments: SidebarRemoteArguments
+        switch SidebarRemoteArguments.parse(tokens: tokens, acceptsNoFocus: true, messages: argumentsMessages) {
+        case .success(let value):
+            arguments = value
+        case .failure(let error):
+            return .failure(.init(message: error.message))
         }
+        let positional = arguments.positional
+        let target = arguments.target
+        let noFocus = arguments.noFocus
 
         guard let action = positional.first?.lowercased() else {
             return .failure(.init(message: String(localized: "rightSidebar.remote.error.usage", defaultValue: "ERROR: Usage: right_sidebar <toggle|show|hide|focus|set|mode> [mode] [--workspace=<workspace-id>] [--window=<window-id>] [--no-focus]")))
@@ -167,24 +129,5 @@ extension RightSidebarRemoteRequest {
             }
             return .failure(.init(message: String(localized: "rightSidebar.remote.error.unknownCommand", defaultValue: "ERROR: Unknown right sidebar command '\(action)'")))
         }
-    }
-
-    private static func parseTargetOption(
-        name: String,
-        value: String,
-        target: inout RightSidebarRemoteTarget
-    ) -> RightSidebarRemoteParseError? {
-        guard let uuid = UUID(uuidString: value.trimmingCharacters(in: .whitespacesAndNewlines)) else {
-            return .init(message: String(localized: "rightSidebar.remote.error.invalidTargetID", defaultValue: "ERROR: Invalid right sidebar --\(name) id '\(value)'"))
-        }
-        switch name {
-        case "window":
-            target.windowId = uuid
-        case "workspace", "tab":
-            target.workspaceId = uuid
-        default:
-            return .init(message: String(localized: "rightSidebar.remote.error.unknownTargetOption", defaultValue: "ERROR: Unknown right sidebar target option '\(name)'"))
-        }
-        return nil
     }
 }

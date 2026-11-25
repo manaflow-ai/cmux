@@ -40,6 +40,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import re
 import subprocess
 import sys
@@ -279,8 +280,9 @@ query($owner: String!, $name: String!, $oid: GitObjectID!, $number: Int!, $after
 """
 
 
-def gh(args: list[str]) -> str:
-    result = subprocess.run(["gh", *args], capture_output=True, text=True)
+def gh(args: list[str], token: str | None = None) -> str:
+    env = None if not token else {**os.environ, "GH_TOKEN": token}
+    result = subprocess.run(["gh", *args], capture_output=True, text=True, env=env)
     if result.returncode:
         print(result.stderr, file=sys.stderr)
         result.check_returncode()
@@ -293,7 +295,9 @@ def graphql(query: str, **variables: object) -> dict:
         if value is None:
             continue
         args += ["-F" if isinstance(value, int) else "-f", f"{key}={value}"]
-    return json.loads(gh(args))["data"]
+    # The check rollup needs checks and statuses read, which the job's own token has (CHECKS_TOKEN); GraphQL is
+    # its own hourly pool, apart from the REST one the comment and label writes spend.
+    return json.loads(gh(args, os.environ.get("CHECKS_TOKEN")))["data"]
 
 
 def fetch(repo: str, number: int) -> dict:
@@ -333,7 +337,12 @@ def command_post(args: argparse.Namespace) -> int:
     print(f"unverified={str(result.unverified).lower()}")
     if args.dry_run:
         return 0
-    pr_status.upsert(args.repo, args.pr, "receipt", result.body, legacy=MARKER)
+    try:
+        pr_status.upsert(args.repo, args.pr, "receipt", result.body, legacy=MARKER)
+    except pr_status.QuotaSpent as error:
+        # The receipt is advisory and comes after the merge: a spent hourly REST quota (2026-11-16, #40579: HTTP 403
+        # on the comment read) is infrastructure, so it warns and the label below is still written.
+        print(f"::warning title=merge-receipt::#{args.pr} receipt not written: {str(error)[:300]}")
     has_label = LABEL in snapshot["labels"]
     if result.unverified and not has_label:
         gh(["api", f"repos/{args.repo}/issues/{args.pr}/labels", "-f", f"labels[]={LABEL}"])

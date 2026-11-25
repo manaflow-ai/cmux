@@ -48,6 +48,24 @@ class SidebarAliasTests(unittest.TestCase):
                     server.shutdown()
                     thread.join(timeout=5)
 
+    def test_blank_targets_are_rejected_before_the_socket(self):
+        cli = os.environ["CMUX_CLI_BIN"]
+        env = {k: v for k, v in os.environ.items() if not k.startswith("CMUX_")}
+        with tempfile.TemporaryDirectory(prefix="sidebar-alias-", dir="/tmp") as root:
+            socket_path = str(Path(root) / "s")
+            for args, message in [
+                (["toggle", "--window", ""], "right-sidebar: --window requires an id"),
+                (["toggle", "--window="], "right-sidebar: --window requires an id"),
+                (["toggle", "--workspace", " "], "right-sidebar: --workspace requires an id"),
+            ]:
+                with self.subTest(args=args):
+                    result = subprocess.run(
+                        [cli, "--socket", socket_path, "right-sidebar", *args],
+                        env=env, capture_output=True, text=True, timeout=15
+                    )
+                    self.assertNotEqual(result.returncode, 0)
+                    self.assertIn(message, result.stderr)
+
 
 if __name__ == "__main__":
     unittest.main()

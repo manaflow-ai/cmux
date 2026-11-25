@@ -1086,6 +1086,7 @@ final class DockSplitStore: BonsplitDelegate, FilePreviewTabMetadataHost {
                 websiteDataStore: websiteDataStore
             )
         case .chief:
+            guard ChiefSettings.isEnabled else { return nil }
             return ChiefPanel(conversationID: conversationID)
         }
     }
@@ -1111,6 +1112,7 @@ final class DockSplitStore: BonsplitDelegate, FilePreviewTabMetadataHost {
                 chromeVisibility: def.showsBrowserChrome ? .visible : .chromeless
             )
         case .chief:
+            guard ChiefSettings.isEnabled else { return nil }
             return ChiefPanel()
         }
     }

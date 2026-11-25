@@ -36,7 +36,9 @@ mod journal_extensions;
 mod public_projection_store;
 mod resource_store;
 mod session_journal;
+mod startup_recovery;
 mod terminal_exit_store;
+mod terminal_unplaced_store;
 
 pub(crate) use effect_store::ResourceWorkspaceClose;
 pub use effect_store::{
@@ -82,7 +84,8 @@ use resource_store::{
     initialize_resource_mutation_retention, migrate_resource_agent_projections,
     migrate_resource_browser_metadata, migrate_resource_mutations_to_session_scope,
     migrate_resource_tabs_to_multiview, repair_dangling_terminal_resources,
-    resource_tabs_needs_multiview_normalization, validate_resource_invariants,
+    resource_tabs_needs_multiview_normalization, restate_legacy_pending_panes,
+    validate_resource_invariants,
 };
 pub use session_journal::{
     JournalAuthority, JournalClass, JournalProducer, JournalReplayPolicy, JournalSensitivity,
@@ -94,6 +97,11 @@ use session_journal::{
     migrate_resource_events_to_session_journal,
 };
 pub(crate) use session_journal::{SessionJournalReader, unix_epoch_ms};
+pub use startup_recovery::{
+    RegistryIntegrityFailure, RegistryRecovery, RegistryStartupDamage,
+    UnrecoverableInterruptedCreations, quarantine_session_registry,
+    recover_registry_after_failed_open, registry_startup_damage,
+};
 
 // Schema 9 shipped independently on the journal and multiview development
 // branches. Schema 10 shipped the journal extensions. Version 11 is the first
@@ -689,6 +697,9 @@ pub struct WorkspaceRegistry {
     resource_effect_pepper: ResourceEffectPepper,
     #[cfg(test)]
     resource_patch_failures_remaining: Cell<u64>,
+    /// How many next topology snapshot reads fail (tests).
+    #[cfg(test)]
+    topology_snapshot_failures_remaining: Cell<u64>,
     #[cfg(test)]
     journal_before_commit: Option<(std::sync::mpsc::SyncSender<()>, std::sync::mpsc::Receiver<()>)>,
     #[cfg(test)]
@@ -2704,6 +2715,7 @@ impl WorkspaceRegistry {
             initialize_resource_input_receipt_retention(&tx)?;
             initialize_resource_mutation_retention(&tx)?;
             repair_dangling_terminal_resources(&tx)?;
+            restate_legacy_pending_panes(&tx)?;
             tx.commit()?;
         }
         let stored_name = required_meta(&connection, "session_name")?;
@@ -2733,6 +2745,8 @@ impl WorkspaceRegistry {
             resource_effect_pepper,
             #[cfg(test)]
             resource_patch_failures_remaining: Cell::new(0),
+            #[cfg(test)]
+            topology_snapshot_failures_remaining: Cell::new(0),
             #[cfg(test)]
             journal_before_commit: None,
             #[cfg(test)]
@@ -3987,7 +4001,7 @@ fn check_registry_integrity(connection: &Connection) -> anyhow::Result<()> {
         let pragma = format!("PRAGMA quick_check('{}')", table.replace('\'', "''"));
         let result: String = connection.query_row(&pragma, [], |row| row.get(0))?;
         if result != "ok" {
-            anyhow::bail!("workspace registry integrity check failed: {result}");
+            return Err(RegistryIntegrityFailure { report: result }.into());
         }
     }
     // History is validated incrementally when replayed. Touch only each
@@ -4132,6 +4146,7 @@ fn create_terminal_schema(transaction: &Transaction<'_>) -> anyhow::Result<()> {
            ON terminal_events(terminal_id, revision);",
     )?;
     idle_policy_store::create_terminal_idle_policy_schema(transaction)?;
+    terminal_unplaced_store::create_terminal_unplaced_schema(transaction)?;
     Ok(())
 }
 

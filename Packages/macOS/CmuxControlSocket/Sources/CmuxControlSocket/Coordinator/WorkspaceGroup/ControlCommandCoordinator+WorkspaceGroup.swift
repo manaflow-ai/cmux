@@ -229,14 +229,22 @@ extension ControlCommandCoordinator {
         guard let gid = uuid(params, "group_id") else {
             return .err(code: "invalid_params", message: "Missing or invalid group_id", data: nil)
         }
-        guard let ok = context?.controlSetWorkspaceGroupPinned(
+        let resolution = context?.controlSetWorkspaceGroupPinned(
             routing: routingSelectors(params), groupID: gid, isPinned: isPinned
-        ) else {
+        ) ?? .tabManagerUnavailable
+        switch resolution {
+        case .tabManagerUnavailable:
             return .err(code: "unavailable", message: "TabManager not available", data: nil)
+        case .notFound:
+            return .err(code: "not_found", message: "Group not found", data: .object(["group_id": .string(gid.uuidString)]))
+        case .protected(let message):
+            return .err(code: "protected", message: message, data: .object([
+                "group_id": .string(gid.uuidString),
+                "is_pinned": .bool(!isPinned),
+            ]))
+        case .applied:
+            return .ok(.object(["group_id": .string(gid.uuidString), "is_pinned": .bool(isPinned)]))
         }
-        return ok
-            ? .ok(.object(["group_id": .string(gid.uuidString), "is_pinned": .bool(isPinned)]))
-            : .err(code: "not_found", message: "Group not found", data: .object(["group_id": .string(gid.uuidString)]))
     }
 
     // MARK: - Add / Remove / Anchor

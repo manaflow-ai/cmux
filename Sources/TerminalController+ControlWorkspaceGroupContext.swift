@@ -244,11 +244,13 @@ extension TerminalController: ControlWorkspaceGroupContext {
         routing: ControlRoutingSelectors,
         groupID: UUID,
         isPinned: Bool
-    ) -> Bool? {
-        guard let tabManager = resolveTabManager(routing: routing) else { return nil }
-        let ok = tabManager.workspaceGroups.contains(where: { $0.id == groupID })
-        if ok { tabManager.setWorkspaceGroupPinned(groupId: groupID, isPinned: isPinned) }
-        return ok
+    ) -> ControlWorkspaceGroupPinResolution {
+        guard let tabManager = resolveTabManager(routing: routing) else { return .tabManagerUnavailable }
+        guard tabManager.workspaceGroups.contains(where: { $0.id == groupID }) else { return .notFound }
+        guard tabManager.setWorkspaceGroupPinned(groupId: groupID, isPinned: isPinned) else {
+            return .protected(message: TabManager.chiefHomeCannotUnpinMessage)
+        }
+        return .applied
     }
 
     func controlAddWorkspaceToGroup(

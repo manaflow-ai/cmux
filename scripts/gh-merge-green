@@ -8,6 +8,8 @@
 # and refuses a completed red in those, in the web, app size or crash families, or in a
 # full-gate lane (ci-status, Release compile, swift test). It also checks conflict markers and freezes. The full suites run after
 # the merge; the culprit bot and the base sheriff revert or fix forward.
+# Into feat-cmux-next, --wait also bounds the check-path gate's reruns of the fast gates
+# (scripts/ci/merge_check_paths.py): they get what the fast gate and the merged-tree checks left of it.
 # --full keeps the wait for every check (main, classic), as does every base other than
 # feat-cmux-next. Every feat-cmux-next merge, on either gate, also needs an independent review's SHIP
 # receipt for the exact head (scripts/ci/review_receipt.py), which nothing waives.
@@ -80,6 +82,7 @@ case "${1:-}" in
       '       gh-merge-green --revert OWNER/REPO#PR' \
       'Merges only when the PR head'"'"'s required-in-practice checks are green.' \
       'Into feat-cmux-next it waits only for the fast gate (scripts/ci/merge_fast_gate.py); --full waits for every check.' \
+      '--wait SECONDS (default 2400) bounds the fast gate'"'"'s wait and, into feat-cmux-next, the check-path gate'"'"'s reruns of the fast gates after it; the merged-tree checks'"'"' time counts against it too (the first dispatched run always gets its own 1200s).' \
       '--dry-run runs every gate, then posts and merges nothing.' \
       '--sha SHA (or --match-head-commit SHA) refuses unless SHA is the current head.' \
       'gh pr merge flags passed on: --squash --merge --rebase --delete-branch --subject --body --body-file --author-email --auto --disable-auto --admin' \
@@ -274,7 +277,7 @@ while [ "$#" -gt 0 ]; do
     --wait)
       [ "$#" -ge 2 ] && [[ "$2" =~ ^[0-9]+$ ]] || refuse \
         'not green: --wait requires a number of seconds' \
-        'pass --wait followed by the most seconds the fast gate may wait, for example --wait 1800'
+        'pass --wait followed by the most seconds the fast gate and the check-path reruns may wait, for example --wait 1800'
       wait_seconds="$2"
       shift
       ;;
@@ -360,11 +363,11 @@ refuse_rate_limited() {
 rest_pull_request_metadata() {
   local raw
   raw=$(gh api "repos/$repo/pulls/$num") || return 1
-  jq -c '{headRefOid:(.head.sha // ""), baseRefName:(.base.ref // ""), labels:(.labels // []), isCrossRepository:(((.head.repo.full_name // "") != (.base.repo.full_name // ""))), headRepositoryOwnerLogin:(.head.repo.owner.login // ""), headRepositoryNameWithOwner:(.head.repo.full_name // ""), title:(.title // ""), body:(.body // "")}' <<<"$raw"
+  jq -c '{headRefOid:(.head.sha // ""), baseRefName:(.base.ref // ""), labels:(.labels // []), isCrossRepository:(((.head.repo.full_name // "") != (.base.repo.full_name // ""))), headRepositoryOwnerLogin:(.head.repo.owner.login // ""), headRepositoryNameWithOwner:(.head.repo.full_name // ""), title:(.title // ""), body:(.body // ""), mergeable:(if .mergeable == true then "MERGEABLE" elif .mergeable == false then "CONFLICTING" else "UNKNOWN" end), mergeStateStatus:((.mergeable_state // "unknown") | ascii_upcase)}' <<<"$raw"
 }
 
 graphql_error_file=$(mktemp "${TMPDIR:-/tmp}/gh-merge-green-graphql.XXXXXX")
-if ! pr_json=$(gh pr view "$num" --repo "$repo" --json headRefOid,baseRefName,labels,isCrossRepository,headRepositoryOwner,headRepository,title,body 2>"$graphql_error_file"); then
+if ! pr_json=$(gh pr view "$num" --repo "$repo" --json headRefOid,baseRefName,labels,isCrossRepository,headRepositoryOwner,headRepository,title,body,mergeable,mergeStateStatus 2>"$graphql_error_file"); then
   if graphql_quota_error "$graphql_error_file"; then
     if ! pr_json=$(rest_pull_request_metadata 2>"$graphql_error_file"); then
       if graphql_quota_error "$graphql_error_file"; then
@@ -423,6 +426,23 @@ if [ -n "$expected_head" ] && [ "${sha#"$expected_head"}" = "$sha" ]; then
     "not green: $ref head is $sha, not the expected $expected_head; nothing was checked or merged" \
     'review the current head, then retry with its SHA'
 fi
+# A pull request GitHub reports as conflicting cannot merge, and every fast-gates run of it is red:
+# refuse before any gate waits or dispatches (2026-11-09: the #39027 try spent 4m39s and dispatched
+# the fast gates, then gh pr merge refused "the merge commit cannot be cleanly created"). GitHub
+# computes the state lazily: UNKNOWN is no evidence of a conflict, so the gates go on at once (no
+# re-read loop); the check-path gate reads it again before each dispatch, and gh pr merge refuses a
+# real conflict.
+mergeable=$(jq -r '"\(.mergeable // "")\t\(.mergeStateStatus // "")"' <<<"$pr_json" 2>/dev/null || true)
+case "$mergeable" in
+  CONFLICTING*|*DIRTY)
+    refuse \
+      "not merged: conflicting: rebase $ref onto $base (GitHub reports $(tr '\t' ' ' <<<"$mergeable")); nothing was checked or dispatched" \
+      'merge or rebase the base into the pull request (scripts/merge-main.sh), push, and retry'
+    ;;
+  UNKNOWN*)
+    echo "note: GitHub is still computing whether $ref merges cleanly; going on (gh pr merge refuses a conflict)" >&2
+    ;;
+esac
 if jq -e 'any(.labels[]?; .name == "exploration")' <<<"$pr_json" >/dev/null 2>&1; then
   refuse \
     'exploration PR, needs a decision from Leo or the team before merging.' \
@@ -728,9 +748,13 @@ if ! check_runs_json=$(gh api "repos/$repo/commits/$sha/check-runs?per_page=100"
   echo "note: used GraphQL fallback to inspect check runs for $sha" >&2
   fallback_answered
 fi
+# The newest check run of each name, but a completed skipped run never replaces an older one of
+# that name: a skip is no verdict (2026-11-09: a same-tree dispatch of cmux-next.yml on #39027's
+# branch posted newer skipped runs of every job it did not run, which hid an older red). A name
+# with only skipped runs stays skipped.
 if ! runs=$(jq -r '
   (map(.check_runs) | add)
-  | sort_by(.name, (.id // 0))
+  | sort_by(.name, (if .status == "completed" and .conclusion == "skipped" then 0 else 1 end), (.id // 0))
   | group_by(.name)[]
   | last
   | [.name,.status,(.conclusion // "")]
@@ -1169,33 +1193,57 @@ fast_gate() {
 # check path (the base's scripts/ci/check-paths.txt) changed after the PR's
 # cmux-next/fast-gates base, it dispatches the fast gates against the current tip and
 # waits for a fresh success. 2026-10-21: #22967, #22975 and #23094 merged after a
-# new check landed, never ran it, and turned it red on the base.
+# new check landed, never ran it, and turned it red on the base. When the tip changes
+# a check path again during that run, it dispatches again on the new tip, inside what
+# --wait left (2026-11-09: that race refused #39632, #39631 twice and #39705 with "retry").
+check_paths_listed=0
+check_paths_dispatched=0
+check_paths_ran=0
 check_paths_gate() {
-  local out err status=0 why check_only=()
+  # $1=final: the check right before gh pr merge (see final_check_paths below).
+  local out err status=0 why check_only=() rerun=() budget checked label=''
   [ "$dry_run" -eq 0 ] || check_only=(--check-only)
+  # A run was dispatched earlier in this merge: no further run gets a timeout past --wait.
+  [ "$check_paths_dispatched" -eq 0 ] || rerun=(--rerun)
+  [ "${1:-}" != final ] || label='final '
+  check_paths_ran=0
   err=$(mktemp)
   tmp_files+=("$err")
-  # Its wait (a rerun, up to 900s) adds to the fast gate's in the summary, and in a SIGTERM's.
+  # The reruns share --wait with the fast gate; the first run keeps its own 1200s timeout.
+  budget=$(( wait_seconds - waited_seconds ))
+  [ "$budget" -ge 0 ] || budget=0
+  # Its wait adds to the fast gate's in the summary, and in a SIGTERM's.
   gate_waiting_since=$(( $(date +%s) - waited_seconds ))
-  out=$(python3 "$script_dir/ci/merge_check_paths.py" "$repo" "$num" "$sha" --base "$base" \
-      --interval "${GH_MERGE_GREEN_CHECK_PATHS_INTERVAL:-20}" "${check_only[@]+"${check_only[@]}"}" 2>"$err") || status=$?
+  out=$(python3 "$script_dir/ci/merge_check_paths.py" "$repo" "$num" "$sha" --base "$base" --budget "$budget" \
+      --interval "${GH_MERGE_GREEN_CHECK_PATHS_INTERVAL:-20}" "${check_only[@]+"${check_only[@]}"}" \
+      "${rerun[@]+"${rerun[@]}"}" 2>"$err") || status=$?
   waited_seconds=$(( $(date +%s) - gate_waiting_since ))
   gate_waiting_since=''
   sed -n '/^note: /p' "$err" >&2
+  # A refusal after a dispatch counts as one too: the next call is a rerun.
+  if [ "$dry_run" -eq 0 ] && grep -q '^note: .*dispatching ' "$err"; then
+    check_paths_dispatched=1
+  fi
   if [ "$status" -ne 0 ]; then
     why=$(sed '/^note: /d' "$err")
     rm -f "$err"
     [ "$status" -eq 3 ] && refuse_rate_limited "the check-path gate: ${why#rate-limited: }"
     if [ -n "$override_reason" ]; then
-      printf 'note: --override waives the check-path gate on %s: %s\n' "$sha" "${why:-merge_check_paths.py failed}" >&2
+      printf 'note: --override waives the %scheck-path gate on %s: %s\n' "$label" "$sha" "${why:-merge_check_paths.py failed}" >&2
       return 0
     fi
     refuse \
-      "not green: check-path gate on $sha: ${why:-merge_check_paths.py failed}" \
-      'fix what the fast gates found on the current tip (their run is linked above), or retry once they report'
+      "not green: ${label}check-path gate on $sha: ${why:-merge_check_paths.py failed}" \
+      'fix what the fast gates found on the current tip (their run is linked above), or retry once they report (or pass --wait with more seconds)'
   fi
   rm -f "$err"
-  gate_checked="${gate_checked:+$gate_checked, }$(sed -n 's/^checked=//p' <<<"$out")"
+  checked=$(sed -n 's/^checked=//p' <<<"$out")
+  case "$checked" in
+    'check paths (no '*) ;;
+    *) check_paths_listed=1 ;;
+  esac
+  [ "$checked" != 'check paths (fast gates rerun on the current tip)' ] || check_paths_ran=1
+  gate_checked="${gate_checked:+$gate_checked, }$label$checked"
 }
 
 if [ "$fast" -eq 1 ]; then
@@ -1397,47 +1445,55 @@ merged_head_checks() {
   fi
 }
 # The changed files under a protected gate path: workflows, shared CI scripts,
-# gh-merge-green itself and gate config. The list is read from the base, so a PR
-# cannot shrink it; before the base carries the file, the helper checkout's copy
-# (origin/main) applies, and with neither every file counts as protected.
+# gh-merge-green itself and gate config. The one list is the helper checkout's own
+# scripts/ci/merge-fast-gate-protected-paths.txt, read with the gate code it guards: no
+# pull request into feat-cmux-next can change it (feat-cmux-next never carried it; #20566
+# landed on main after the fork). A missing, unreadable or empty list fails; the caller refuses.
 protected_gate_paths() {
-  local list_file="scripts/ci/merge-fast-gate-protected-paths.txt" list
-  if ! list=$(gh api "repos/$repo/contents/$list_file?ref=$base" -H 'Accept: application/vnd.github.raw' 2>/dev/null) ||
-     [ -z "$list" ]; then
-    if [ -f "$script_dir/ci/merge-fast-gate-protected-paths.txt" ]; then
-      echo "note: $base has no readable $list_file; using the helper checkout's copy" >&2
-      list=$(cat "$script_dir/ci/merge-fast-gate-protected-paths.txt")
-    else
-      echo "note: no readable $list_file; every changed file counts as protected" >&2
-      printf '%s\n' "$changed"
-      return 0
-    fi
-  fi
   python3 -c '
 import sys
-prefixes = [line.strip() for line in open(sys.argv[1]) if line.strip() and not line.lstrip().startswith("#")]
+try:
+    with open(sys.argv[1]) as handle:
+        text = handle.read()
+except (OSError, UnicodeDecodeError) as error:
+    sys.exit(f"cannot read {sys.argv[1]}: {error}")
+prefixes = [line.strip() for line in text.splitlines() if line.strip() and not line.lstrip().startswith("#")]
+if not prefixes:
+    sys.exit(f"{sys.argv[1]} lists no path")
 for name in open(sys.argv[2]).read().split():
     if any(name == p or (p.endswith("/") and name.startswith(p)) for p in prefixes):
         print(name)
-' <(printf '%s\n' "$list") <(printf '%s\n' "$changed")
+' "$script_dir/ci/merge-fast-gate-protected-paths.txt" <(printf '%s\n' "$changed")
 }
 # The full gate runs the merged-tree checks on every feat-cmux-next PR. The fast gate
 # leaves vp check and the god-file check to the post-merge suites (they take minutes
 # on a cold install), except for a PR touching a protected gate path (leoli-f6,
 # 2026-10-19): that one gets every merged-tree check back.
-if [ "$base" = feat-cmux-next ] && [ "$fast" -eq 0 ]; then
-  merged_head_checks
-elif [ "$fast" -eq 1 ]; then
-  if ! protected=$(protected_gate_paths); then
-    refuse "not merged: cannot match $ref against the protected gate paths" 'retry; python3 is required'
+merged_tree_gate() {
+  # Their time (bun install and vp check: minutes) counts against --wait like the gates' waits, so the
+  # final check-path reruns stop at the --wait limit.
+  local started
+  started=$(date +%s)
+  merged_tree_checks
+  waited_seconds=$(( waited_seconds + $(date +%s) - started ))
+}
+merged_tree_checks() {
+  if [ "$base" = feat-cmux-next ] && [ "$fast" -eq 0 ]; then
+    merged_head_checks
+  elif [ "$fast" -eq 1 ]; then
+    if ! protected=$(protected_gate_paths); then
+      refuse "not merged: cannot match $ref against the protected gate paths ($script_dir/ci/merge-fast-gate-protected-paths.txt)" \
+        "restore scripts/ci/merge-fast-gate-protected-paths.txt in the helper checkout from origin/main (git -C $script_dir checkout origin/main -- ci/merge-fast-gate-protected-paths.txt), then retry"
+    fi
+    if [ -n "$protected" ]; then
+      printf 'note: %s touches protected gate paths (%s); running the merged-tree checks\n' "$ref" \
+        "$(paste -sd ';' - <<<"$protected" | sed 's/;/; /g')" >&2
+      case ", $gate_checked," in *', merged-tree checks,'*) ;; *) gate_checked="$gate_checked, merged-tree checks" ;; esac
+      merged_head_checks 1
+    fi
   fi
-  if [ -n "$protected" ]; then
-    printf 'note: %s touches protected gate paths (%s); running the merged-tree checks\n' "$ref" \
-      "$(paste -sd ';' - <<<"$protected" | sed 's/;/; /g')" >&2
-    gate_checked="$gate_checked, merged-tree checks"
-    merged_head_checks 1
-  fi
-fi
+}
+merged_tree_gate
 [ "$base" != feat-cmux-next ] || review_receipt_gate final
 if [ "$dry_run" -eq 1 ]; then
   printf 'dry-run: every gate passes for %s at %s; would run: gh pr merge %s --repo %s --match-head-commit %s%s\n' \
@@ -1447,6 +1503,24 @@ if [ "$dry_run" -eq 1 ]; then
   outcome='dry-run passed'
   exit 0
 fi
+# The final race (#39725): gh pr merge --match-head-commit pins the head, not the base, and
+# feat-cmux-next lands often. Between the check-path gate's pass and here (the diff, the freezes,
+# the merged-tree checks, the review receipt) a check path may have changed on the base. Check
+# again (one status, tip and compare read; no dispatch when fresh). When it changed, the
+# check-path loop reruns the fast gates on the new tip inside what --wait left, and the merged-tree
+# checks run again, since they too ran on the old tip; then check again. The head-only gates
+# (conflict markers, freezes, the review receipt) do not depend on the base and are not repeated.
+# Not a poll: each round after the first waits for a dispatched fast-gates run, and the
+# check-path gate refuses once --wait has less than one run (370s) left, so the rounds end.
+final_check_paths() {
+  [ "$base" = feat-cmux-next ] && [ "$gate_mode" != main-fix ] && [ "$check_paths_listed" -eq 1 ] || return 0
+  check_paths_gate final
+  [ "$check_paths_ran" -eq 1 ] || return 0
+  echo "note: $base changed a check path after the check-path gate passed; the merged-tree checks run again on the new tip" >&2
+  merged_tree_gate
+  final_check_paths
+}
+final_check_paths
 if [ -n "$trust_fork_head" ]; then
   trust_scope='local merged-tree checks; normal CI, freeze, and merged-tree gates apply'
   [ "$fast" -eq 1 ] && trust_scope='the fast gate; its lanes, freezes and conflict markers apply, and the full suites run after the merge'

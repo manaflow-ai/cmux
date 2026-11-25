@@ -1,4 +1,5 @@
 import AppKit
+import CmuxSettings
 import CmuxTerminal
 import Foundation
 import Testing
@@ -163,13 +164,14 @@ extension AppDelegate {
         tabManager: TabManager,
         cmuxConfigStore: CmuxConfigStore? = nil,
         fileExplorerState: FileExplorerState? = nil,
+        sidebarState: SidebarState = SidebarState(),
         window: NSWindow? = nil
     ) -> UUID {
         tabManager.windowId = windowId
         let context = MainWindowContext(
             windowId: windowId,
             tabManager: tabManager,
-            sidebarState: SidebarState(),
+            sidebarState: sidebarState,
             sidebarSelectionState: SidebarSelectionState(),
             fileExplorerState: fileExplorerState,
             cmuxConfigStore: cmuxConfigStore,
@@ -369,4 +371,31 @@ struct ExclusiveAppContextTrait: SuiteTrait, TestTrait, TestScoping {
 
 extension Trait where Self == ExclusiveAppContextTrait {
     static var exclusiveAppContext: Self { Self() }
+}
+
+/// Turns `chief.enabled` off until `restore()`.
+///
+/// App-host test processes run with the `chief-enabled-release` flag on
+/// (https://github.com/manaflow-ai/cmux/pull/32585), so every real main window
+/// adds a Chief Home workspace when its ContentView appears. A test that
+/// counts a window's workspaces, or expects an emptied window to close, holds
+/// this for the window's lifetime. Restores nest in reverse order, so two
+/// windows in one test each hold their own.
+@MainActor
+struct ChiefHomeOffForTesting {
+    private let key = ChiefCatalogSection().enabled.userDefaultsKey
+    private let original: Any?
+
+    init() {
+        original = UserDefaults.standard.object(forKey: key)
+        ChiefSettings.setEnabled(false)
+    }
+
+    func restore() {
+        if let original {
+            UserDefaults.standard.set(original, forKey: key)
+        } else {
+            UserDefaults.standard.removeObject(forKey: key)
+        }
+    }
 }

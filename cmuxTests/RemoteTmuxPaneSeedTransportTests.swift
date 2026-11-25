@@ -1897,9 +1897,9 @@ import Testing
         connection.handleMessageForTesting(
             .commandResult(commandNumber: 0, lines: [], isError: false)
         )
-        connection.handleMessageForTesting(
-            .commandResult(commandNumber: 1, lines: [], isError: false)
-        )
+        for commandNumber in 1...2 { // the window list, then the window-order subscription
+            connection.handleMessageForTesting(.commandResult(commandNumber: commandNumber, lines: [], isError: false))
+        }
         _ = pipe.fileHandleForReading.availableData
         return Fixture(connection: connection, writer: writer, pipe: pipe)
     }

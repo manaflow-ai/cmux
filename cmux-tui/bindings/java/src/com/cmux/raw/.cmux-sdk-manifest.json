@@ -1,14 +1,19 @@
 {
   "files": [
     {
+      "path": "AckTabNotificationsRequest.java",
+      "sha256": "2b4e10860739e10323e615e88e1855e589c4bdfceef68efcad11094738361d19",
+      "size": 2118
+    },
+    {
       "path": "AgentChangedEvent.java",
       "sha256": "1bf1faa342e0c77bb7f1cb4345924165ab99ff4764ba67da50dc7f2846f7dc3f",
       "size": 5857
     },
     {
       "path": "AgentRecord.java",
-      "sha256": "eef00432f4ddccf77ea227a7a744562bb05d4d529c03e789caaf21bb4a8969be",
-      "size": 4707
+      "sha256": "694cb2f5cae7ca50e11495cb4b90503539d66ffb712cc3f0c68db2c99cdf5d6e",
+      "size": 5658
     },
     {
       "path": "AgentReportSource.java",
@@ -317,8 +322,8 @@
     },
     {
       "path": "Commands.java",
-      "sha256": "3d249f670c7d8e0c01dc0796dcfb4ed290b18d95de55e038c5b001c6d4a1cabc",
-      "size": 29446
+      "sha256": "c34bab70e40836a1bbe6f89122bfc3e254fcf0743e7e816550cdd33afe5ba4d3",
+      "size": 29690
     },
     {
       "path": "ConfigReloadRequestedEvent.java",
@@ -512,8 +517,8 @@
     },
     {
       "path": "GeneratedCmuxClient.java",
-      "sha256": "7933a4559895f50ba42e334edac904ce2a93d443a962a821aa42fad4e4a16f4c",
-      "size": 27673
+      "sha256": "90b44880c7e8f1632ccfb577ed73585c85799ba7a46a468320469756fb8afe70",
+      "size": 27909
     },
     {
       "path": "GetBrowserProviderRequest.java",
@@ -932,7 +937,7 @@
     },
     {
       "path": "Protocol.java",
-      "sha256": "5f8f26287b7d0d48eddb7d1847c31fd91d458d8a9d6dce38c64b84ab5ac1dbf6",
+      "sha256": "9835f36d7cb4d26262bfa48ab3214eede934d198d373175b1b1b03cb6e8a7bb3",
       "size": 4325
     },
     {
@@ -1732,7 +1737,7 @@
     }
   ],
   "format": 1,
-  "ir_sha256": "2276a5909634a1bb0c2b453023c77914bcd7b8174fc74ac06a818cf1d7b56298",
+  "ir_sha256": "93af6692f7f686eafe3bfcb03c01e8570f8cf4dfa8a84ad93824ed07160b504d",
   "language": "java",
   "mux_protocol": 12,
   "schema_version": 2

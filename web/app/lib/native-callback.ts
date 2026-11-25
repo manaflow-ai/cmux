@@ -40,16 +40,25 @@ export function trustedNativeCallbackScheme(
 const DEV_BUILD_SCHEME = /^cmux-dev(?:-[a-z0-9]+)*$/;
 
 /**
+ * A side instance's callback scheme: `cmux-side-<name>-<hash>`, as
+ * scripts/cmux-next/side-instance.sh writes it for a copy of an installed app
+ * (`cmux app try`, try-pr.sh): NAME is a lowercase letter or digit then up to 39
+ * letters, digits or dashes, and the hash is 6 hex digits of the copy's root.
+ * A copy of cmux NIGHTLY signs in on production with it, as its own session.
+ */
+const SIDE_INSTANCE_SCHEME = /^cmux-side-[a-z0-9][a-z0-9-]{0,39}-[0-9a-f]{6}$/;
+
+/**
  * Whether a sign-in may hand its session back to `scheme`: a shipped
- * channel, or any cmux DEV build. A DEV build pointed at production
- * (`CMUX_AUTH_ENVIRONMENT=production`) signs in through the same hosted page
+ * channel, any cmux DEV build, or a side-instance copy. A DEV build pointed at production
+ * (`CMUX_AUTH_ENVIRONMENT=production`) or a copy signs in through the same hosted page
  * as the shipped app, and the app that started the sign-in checks the
  * callback's `cmux_auth_state` against its own attempt, so no per-build
  * allowlist on the server is needed. Every other scheme is refused.
  */
 export function isNativeSignInScheme(scheme: string): boolean {
   if (NATIVE_SCHEMES.has(scheme)) return true;
-  return DEV_BUILD_SCHEME.test(scheme);
+  return DEV_BUILD_SCHEME.test(scheme) || SIDE_INSTANCE_SCHEME.test(scheme);
 }
 
 /**

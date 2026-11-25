@@ -5,6 +5,7 @@ from __future__ import annotations
 import copy
 import json
 import os
+import shutil
 from pathlib import Path
 import subprocess
 import tempfile
@@ -32,6 +33,35 @@ class GlaedaExecutionCLITests(unittest.TestCase):
             timeout=10,
             check=False,
         )
+
+    def test_standalone_usage_does_not_require_resource_bundles(self) -> None:
+        # Also deny the bundle at the original build path: SwiftPM's generated
+        # accessor can otherwise find that fallback after copying the binary.
+        sandbox = shutil.which("sandbox-exec")
+        self.assertIsNotNone(sandbox, "This native CLI regression requires sandbox-exec")
+        profile = (
+            '(version 1) (allow default) '
+            '(deny file-read* (regex #"/CmuxFoundation_CmuxFoundation[.]bundle(/|$)"))'
+        )
+        with tempfile.TemporaryDirectory(prefix="cmux-cli-usage-") as tmp:
+            executable = Path(tmp) / "cmux"
+            shutil.copy2(CLI, executable)
+            for isolated in (False, True):
+                command = [sandbox, "-p", profile] if isolated else []
+                for args in ([], ["--help"]):
+                    with self.subTest(args=args, bundle_inaccessible=isolated):
+                        result = subprocess.run(
+                            [*command, str(executable), *args],
+                            cwd=tmp,
+                            stdout=subprocess.PIPE,
+                            stderr=subprocess.PIPE,
+                            timeout=10,
+                            check=False,
+                        )
+                        output = result.stdout + result.stderr
+                        self.assertIn(result.returncode, (0, 2), output.decode(errors="replace"))
+                        self.assertIn(b"usage", output.lower())
+                        self.assertNotIn(b"unable to find bundle", output.lower())
 
     def request_args(self) -> list[str]:
         return [

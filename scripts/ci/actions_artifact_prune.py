@@ -50,7 +50,11 @@ REQUIRED_WORKFLOW = "cmux-tui-release.yml"  # the publish workflows accept only 
 DELETE_INTERVAL = 0.4  # seconds between deletes: at most 150 a minute, 750 of the 900 points
 
 
-class SlowDown(Exception):
+class Unavailable(Exception):
+    """GitHub could not answer this time (a 5xx, or a rate limit): this run warns and goes on; the next one retries."""
+
+
+class SlowDown(Unavailable):
     """GitHub's secondary rate limit: stop this run; the next one continues."""
 
 
@@ -84,6 +88,8 @@ class GitHub:
             if error.code == 429 or (error.code == 403 and (
                     error.headers.get("Retry-After") or error.headers.get("X-RateLimit-Remaining") == "0")):
                 raise SlowDown(f"{method} {path}: HTTP {error.code}") from error
+            if error.code >= 500:
+                raise Unavailable(f"{method} {path}: HTTP {error.code}") from error
             raise
         if remaining is not None and remaining.isdigit():
             self.remaining = int(remaining)
@@ -138,9 +144,15 @@ def prune(api, now: dt.datetime, *, delete: bool, max_deletes: int) -> dict:
     since = now - dt.timedelta(days=RELEASE_DAYS)
     # Read every protected run id before the first delete: a failure here must stop the run, not
     # leave release artifacts unprotected.
-    protected = {run for workflow in RELEASE_WORKFLOWS for run in api.runs_since(workflow, since)}
-    summary = {"protected_runs": len(protected), "candidates": 0, "candidate_bytes": 0,
-               "deleted": 0, "deleted_bytes": 0, "kept_release": 0, "capped": False, "by_name": {}}
+    summary = {"protected_runs": 0, "candidates": 0, "candidate_bytes": 0, "deleted": 0, "deleted_bytes": 0,
+               "kept_release": 0, "capped": False, "by_name": {}, "skipped": []}
+    try:
+        protected = {run for workflow in RELEASE_WORKFLOWS for run in api.runs_since(workflow, since)}
+    except Unavailable as error:
+        # GitHub, not this script: nothing is deleted unprotected, and the run is a warning, not a red.
+        summary["skipped"].append(f"release runs: {error}")
+        return summary
+    summary["protected_runs"] = len(protected)
     for name, days in rules().items():
         cutoff = now - dt.timedelta(days=days)
         row = summary["by_name"].setdefault(name, {"candidates": 0, "bytes": 0})
@@ -152,7 +164,12 @@ def prune(api, now: dt.datetime, *, delete: bool, max_deletes: int) -> dict:
                                 delete=delete, max_deletes=max_deletes)
         except SlowDown as error:
             print(f"stopping: {error}", file=sys.stderr)
+            summary["skipped"].append(f"{name} and the rest: {error}")
             capped = True
+        except Unavailable as error:
+            # One name's listing failing on GitHub's side (a 5xx) leaves the other names to prune.
+            summary["skipped"].append(f"{name}: {error}")
+            continue
         summary["capped"] = summary["capped"] or capped
     return summary
 
@@ -223,6 +240,9 @@ def main(argv: list[str] | None = None) -> int:
     summary = prune(api, dt.datetime.now(dt.timezone.utc), delete=args.delete, max_deletes=args.max_deletes)
     print(render(summary, args.delete))
     print(f"API calls: {api.calls}")
+    for line in summary.get("skipped", []):
+        # GitHub errors and rate limits are the platform's, not a broken pruner: a warning, and the next run retries.
+        print(f"::warning title=Artifact prune::GitHub did not answer, left for the next run: {line}")
     return 0
 
 

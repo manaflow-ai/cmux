@@ -50,6 +50,9 @@ final class CmuxFeatureFlags {
     private static let agentInboxQuickViewDefault = false
     nonisolated static let cloudMachinesDefault = true
     private nonisolated static let conversationSidebarDefault = false
+    /// Off in every build. App-host test processes alone run with it on, so
+    /// the existing Chief tests keep exercising Chief.
+    private nonisolated static let chiefDefault = TestProcessDefaults.isolatedDomainName != nil
 
     private static let overrideKeyPrefix = "cmux.flags.override."
     private static let remoteCacheKeyPrefix = "cmux.flags.remote."
@@ -180,6 +183,24 @@ final class CmuxFeatureFlags {
         title: String(localized: "featureFlags.agentInbox.title", defaultValue: "Agent Inbox quick view"),
         flagDescription: String(localized: "featureFlags.agentInbox.description", defaultValue: "Shows a keyboard-summoned inbox for agent messages, pending Feed decisions, and finished turns."),
         defaultWhenUnavailable: CmuxFeatureFlags.agentInboxQuickViewDefault
+    )
+
+    // FLAG(key: chief-enabled-release, owner: austinwang,
+    //      reviewBy: 2027-02-01, defaultWhenUnavailable: false)
+    // Offers Chief in cmux classic. Off, every Chief surface is gone: Home,
+    // the View menu and palette entries, the Settings card, the shortcut row,
+    // and the chief.* socket and mobile capabilities. `chief.enabled` still
+    // lets a user turn Chief off when this is on. Off for everyone, dev builds
+    // included, until someone turns it on with `cmux __internal_flags` or the
+    // PostHog flag enables it.
+    nonisolated static let chiefFlag = CmuxFeatureFlagDefinition(
+        key: "chief-enabled-release",
+        title: String(localized: "featureFlags.chief.title", defaultValue: "Chief Home agent"),
+        flagDescription: String(
+            localized: "featureFlags.chief.description",
+            defaultValue: "Offers Chief, the Home agent, with its Home row, menu items and settings."
+        ),
+        defaultWhenUnavailable: CmuxFeatureFlags.chiefDefault
     )
 
     // FLAG(key: conversation-sidebar-release, owner: teamleaderleo,
@@ -346,6 +367,7 @@ final class CmuxFeatureFlags {
             CmuxFeatureFlags.goPlanFlag,
             CmuxFeatureFlags.agentInboxQuickViewFlag,
             CmuxFeatureFlags.conversationSidebarFlag,
+            CmuxFeatureFlags.chiefFlag,
             CmuxFeatureFlags.macAccountDirectoryFlag,
             CmuxFeatureFlags.windowHintsFlag
         ]
@@ -402,6 +424,10 @@ final class CmuxFeatureFlags {
 
     var isWindowHintsEnabled: Bool {
         effectiveValue(for: Self.windowHintsFlag) || ClickByHintPreview.isOptedIn()
+    }
+
+    var isChiefAvailable: Bool {
+        effectiveValue(for: Self.chiefFlag)
     }
 
     var isConversationSidebarAvailable: Bool {

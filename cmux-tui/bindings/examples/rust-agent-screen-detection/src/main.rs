@@ -92,6 +92,8 @@ fn run_explain(arguments: Vec<String>) -> ExitCode {
     let mut process = None;
     let mut screen_path = None;
     let mut live_target = None;
+    let mut live_session = None;
+    let mut live_socket = None;
     let mut title = String::new();
     let mut progress = String::new();
     let mut json_output = true;
@@ -121,6 +123,18 @@ fn run_explain(arguments: Vec<String>) -> ExitCode {
                     return print_error("live explain target was supplied more than once".into());
                 }
                 live_target = Some(match next(&mut index, "--terminal") {
+                    Ok(value) => value,
+                    Err(error) => return print_error(error),
+                });
+            }
+            "--session" => {
+                live_session = Some(match next(&mut index, "--session") {
+                    Ok(value) => value,
+                    Err(error) => return print_error(error),
+                });
+            }
+            "--socket" => {
+                live_socket = Some(match next(&mut index, "--socket") {
                     Ok(value) => value,
                     Err(error) => return print_error(error),
                 });
@@ -161,6 +175,9 @@ fn run_explain(arguments: Vec<String>) -> ExitCode {
     if !live && live_target.is_some() {
         return print_error("--terminal requires --live".into());
     }
+    if !live && (live_session.is_some() || live_socket.is_some()) {
+        return print_error("--session and --socket require --live".into());
+    }
     if live {
         if process.is_some() || screen_path.is_some() || !title.is_empty() || !progress.is_empty() {
             return print_error(
@@ -169,16 +186,22 @@ fn run_explain(arguments: Vec<String>) -> ExitCode {
         }
         let Some(target) = live_target else {
             return print_error(
-                "usage: cmux-agent-screen-detection explain --live <terminal-id-or-title>".into(),
+                "usage: cmux-agent-screen-detection explain --live [--session <name>] [--socket <path>] <terminal-id-or-title>"
+                    .into(),
             );
         };
-        let socket = match env::var("CMUX_TUI_SOCKET") {
-            Ok(value) if !value.is_empty() => value,
-            _ => return print_error("CMUX_TUI_SOCKET is required for live explain".into()),
+        let route = match cmux_agent_screen_detection::diagnostics::live_route(
+            live_socket.as_deref(),
+            live_session.as_deref(),
+            |name| env::var(name).ok(),
+        ) {
+            Ok(route) => route,
+            Err(error) => return print_error(error),
         };
-        let session = env::var("CMUX_TUI_SESSION_ID").unwrap_or_else(|_| "main".into());
         return match cmux_agent_screen_detection::diagnostics::explain_live(
-            &socket, &session, &target,
+            &route.socket,
+            route.session.as_deref(),
+            &target,
         ) {
             Ok(value) if json_output => print_json(&value),
             Ok(value) => print_explain_text(&value),
@@ -318,7 +341,7 @@ fn print_explain_text(value: &serde_json::Value) -> ExitCode {
 
 fn print_help() {
     eprintln!(
-        "usage:\n  cmux-agent-screen-detection\n  cmux-agent-screen-detection list\n  cmux-agent-screen-detection status\n  cmux-agent-screen-detection explain <process> <screen-file> [--title <text>] [--progress <text>] [--format json|text]\n  cmux-agent-screen-detection explain --live <terminal-id-or-title> [--format json|text]\n  cmux-agent-screen-detection update [--url <catalog-url>] [--cache-dir <path>]"
+        "usage:\n  cmux-agent-screen-detection\n  cmux-agent-screen-detection list\n  cmux-agent-screen-detection status\n  cmux-agent-screen-detection explain <process> <screen-file> [--title <text>] [--progress <text>] [--format json|text]\n  cmux-agent-screen-detection explain --live [--session <name>] [--socket <path>] <terminal-id-or-title> [--format json|text]\n  cmux-agent-screen-detection update [--url <catalog-url>] [--cache-dir <path>]"
     );
 }
 

@@ -1,9 +1,11 @@
 import { useTranslations, useLocale } from "next-intl";
+import { PRO_CHECKOUT_URL } from "@/app/lib/billing";
 import { HeroScreenshot } from "@/app/[locale]/components/hero-screenshot";
 import { TypingTagline } from "@/app/[locale]/typing";
 import { DownloadButton } from "@/app/[locale]/components/download-button";
 import { GitHubButton } from "@/app/[locale]/components/github-button";
 import { WaitlistCallout } from "@/app/[locale]/components/waitlist-callout";
+import { NextCallout } from "@/app/[locale]/components/next-callout";
 import { FaqPlatformAnswer } from "@/app/[locale]/components/faq-platform-answer";
 import { SiteHeader } from "@/app/[locale]/components/site-header";
 import { BrandLogoLink } from "@/app/[locale]/components/brand-logo-link";
@@ -104,11 +106,12 @@ function HomeContent() {
         <div
           className="flex flex-wrap items-center gap-3"
           data-dev="download"
-          style={{ marginTop: 21, marginBottom: 16 }}
+          style={{ marginTop: 21, marginBottom: 10 }}
         >
           <DownloadButton location="hero" />
           <GitHubButton />
         </div>
+        <NextCallout className="mb-4" />
 
         {/* Features */}
         <section
@@ -170,7 +173,7 @@ function HomeContent() {
               <span>
                 <strong className="font-medium">
                   <a
-                    href="https://github.com/manaflow-ai/cmux#founders-edition"
+                    href={PRO_CHECKOUT_URL}
                     className={linkClass}
                   >
                     {t("feature.ios")}
@@ -227,9 +230,9 @@ function HomeContent() {
               <p className="font-medium mb-1">{t("faqIosQ")}</p>
               <p className="text-muted">
                 {t.rich("faqIosA", {
-                  foundersLink: (chunks) => (
+                  proLink: (chunks) => (
                     <a
-                      href="https://github.com/manaflow-ai/cmux#founders-edition"
+                      href={PRO_CHECKOUT_URL}
                       className={linkClass}
                     >
                       {chunks}
@@ -431,9 +434,9 @@ function HomeContent() {
               <p className="font-medium mb-1">{t("faqSupportQ")}</p>
               <p className="text-muted">
                 {t.rich("faqSupportA", {
-                  foundersLink: (chunks) => (
+                  proLink: (chunks) => (
                     <a
-                      href="https://github.com/manaflow-ai/cmux#founders-edition"
+                      href={PRO_CHECKOUT_URL}
                       className={linkClass}
                     >
                       {chunks}

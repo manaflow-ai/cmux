@@ -164,13 +164,21 @@ extension CMUXCLI {
         }
     }
 
+    /// Whether the global file holds an enabled cmux lifecycle hook, the
+    /// kind the agent config also reports. A disabled entry runs nothing
+    /// (including the ownership marker a partial uninstall leaves behind),
+    /// and the message entries only claim queued messages, so neither counts.
     static func kiroGlobalHooksInstalled(_ def: AgentHookDef) -> Bool {
         guard let data = FileManager.default.contents(atPath: kiroGlobalHooksFilePath(for: def)),
               let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
               let entries = json["hooks"] as? [[String: Any]] else {
             return false
         }
-        return entries.contains(where: isCmuxOwnedKiroGlobalHookEntry)
+        return entries.contains { entry in
+            guard isCmuxOwnedKiroGlobalHookEntry(entry), entry["enabled"] as? Bool != false else { return false }
+            let name = entry["name"] as? String
+            return kiroGlobalHookEvents.contains { $0.name == name && !$0.deliversMessages }
+        }
     }
 
     /// `cmux hooks setup kiro --global`: writes cmux's lifecycle hooks to the

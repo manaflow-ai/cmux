@@ -129,10 +129,8 @@ def main() -> int:
     # The app as it is now: a helper-finished app has a new seal, and the
     # archive in the source artifact is the app from before that.
     archive = args.recovery_dir / original["app_archive_path"]
-    subprocess.run(
-        ["tar", "-C", str(args.app.parent), "-czf", str(archive), args.app.name],
-        check=True,
-    )
+    subprocess.run([str(Path(__file__).resolve().parent / "archive-recovery-app.sh"), str(args.app), str(archive)],
+                   check=True)
     print(f"Staged outer submission {submission_id} ({'stapled app' if stapled_app else 'outer DMG'})")
     return 0
 

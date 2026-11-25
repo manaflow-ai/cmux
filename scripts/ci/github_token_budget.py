@@ -14,7 +14,12 @@ the open one when it has not been updated for an hour, so a person sees it
 outside the run log without a comment every sweep. A healthy budget writes
 nothing. Every failure is a warning: this never fails the job that runs it.
 
-    BUDGET_TOKEN=<github.token> python3 scripts/ci/github_token_budget.py [--threshold 0.2]
+With --notice it also prints one machine-readable annotation per read,
+`::notice title=github-token-budget::{"remaining":N,"limit":N,"used":N,"reset":EPOCH,"read_at":ISO}`,
+for readers that have no repository token of their own: cmuxterm-hq's NOW reads it from the newest
+ci-hosted-light-rescue.yml run (every 5 minutes) and alerts under 20%.
+
+    BUDGET_TOKEN=<github.token> python3 scripts/ci/github_token_budget.py [--threshold 0.2] [--notice]
 """
 
 from __future__ import annotations
@@ -75,20 +80,34 @@ def file_issue(repo: str, token: str, text: str, run_url: str, now: datetime | N
     return f"opened {out.strip()}"
 
 
+NOTICE_TITLE = "github-token-budget"
+
+
+def notice(core: dict, read_at: datetime) -> str:
+    """The one-line annotation NOW parses: the core pool's counts and when they were read."""
+    body = {key: int(core.get(key) or 0) for key in ("remaining", "limit", "used", "reset")}
+    body["read_at"] = read_at.astimezone(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    return f"::notice title={NOTICE_TITLE}::{json.dumps(body, separators=(',', ':'))}"
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__.split("\n", 1)[0])
     parser.add_argument("--threshold", type=float, default=0.2)
+    parser.add_argument("--notice", action="store_true", help="also print the github-token-budget notice")
     args = parser.parse_args(argv)
     token = os.environ.get("BUDGET_TOKEN") or os.environ.get("GH_TOKEN", "")
     repo = os.environ.get("GITHUB_REPOSITORY", "")
     run_url = f"{os.environ.get('GITHUB_SERVER_URL', 'https://github.com')}/{repo}/actions/runs/{os.environ.get('GITHUB_RUN_ID', '')}"
     try:
         core = json.loads(gh(["api", "rate_limit"], token))["resources"]["core"]
+        read_at = datetime.now(timezone.utc)
     except (OSError, subprocess.SubprocessError, ValueError, KeyError, TypeError) as error:
         print(f"::warning title=GITHUB_TOKEN budget::could not read /rate_limit: {str(error)[:200]}")
         return 0
     text = report(core)
     print(text)
+    if args.notice:
+        print(notice(core, read_at))
     if not low(core, args.threshold):
         return 0
     print(f"::warning title=GITHUB_TOKEN budget low::{text}")

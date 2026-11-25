@@ -197,14 +197,19 @@ def sign_table(source: str) -> dict[str, tuple[str, ...]]:
     raise ValueError(f"{RESCUE_SCRIPT} defines no {SIGN_TABLE_NAME}")
 
 
+def sign_jobs(workflow_text: str) -> dict[str, str]:
+    """Every sign, verify or DMG job of a nightly.yml (by its id), wherever it runs, with its runs-on. A branch whose
+    nightly runs only on owned Macs (feat-cmux-next since d5997935ef7) still has these jobs, but none of them is a
+    sign_stall_candidates() job, so an empty candidate list there is not a detector that stopped matching."""
+    spec = _load(workflow_text).get("jobs") or {}
+    return {str(key): str(job.get("runs-on") or "") for key, job in spec.items()
+            if isinstance(job, dict) and SIGN_STALL_JOB_ID.search(str(key))}
+
+
 def sign_stall_candidates(workflow_text: str) -> dict[str, str]:
     """The jobs of a nightly.yml (either branch's) the signing-stall rescue must cover, with their runs-on."""
-    spec = _load(workflow_text).get("jobs") or {}
     found: dict[str, str] = {}
-    for key, job in spec.items():
-        if not isinstance(job, dict) or not SIGN_STALL_JOB_ID.search(str(key)):
-            continue
-        runs_on = str(job.get("runs-on") or "")
+    for key, runs_on in sign_jobs(workflow_text).items():
         bare = OUTAGE_MACOS_FALLBACK.sub("", runs_on)
         if BLACKSMITH_MACOS.search(bare) or "MACOS_RUNNER_26" in bare:
             found[str(key)] = runs_on
