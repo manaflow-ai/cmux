@@ -95,7 +95,6 @@ enum EgressHosts {
         "stun.l.google.com",
         "suggestqueries.google.com",
         "thumb.wikimedia.org",
-        "turn.cloudflare.com",
         "uniichat.com",
         "unpkg.com",
         "upload.wikimedia.org",

@@ -98,6 +98,8 @@ each part it fills in. Reserved names (`.example`, `.test`, `.invalid`, `localho
 | `*.*.wdev.cmux.dev` | connects | a cmux developer's preview stack, only when the iPhone app's backend override names one |
 | `api.*.wdev.cmux.dev` | connects | the API of a cmux developer's preview stack, only when the iPhone app's backend override names one |
 | `stun.cloudflare.com` | connects | a STUN server for the phone and remote-desktop links when the link names none: it learns only the device's public address, no session traffic |
+| `index.crates.io` | connects | the crates.io sparse index, fetched through the machine git cache for a cargo build in a cloud VM |
+| `static.crates.io` | connects | crate downloads, fetched through the machine git cache for a cargo build in a cloud VM |
 | `stun.l.google.com` | connects | the second fallback STUN server for the remote-desktop link: it learns only the public address, no session traffic |
 | `claude.ai` | connects | Claude sign-in and the Claude Code installer, when you install or sign in Claude Code |
 | `opencode.ai` | connects | OpenCode's config schema and installer, when you install OpenCode |
