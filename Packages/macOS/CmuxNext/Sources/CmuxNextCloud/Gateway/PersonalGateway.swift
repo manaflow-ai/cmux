@@ -100,6 +100,13 @@ public final class PersonalGateway {
             relaunch.reset()
             lastStop = nil
             if child == nil { spawn() }
+        } else if state == .offline("refused"), let refused = child {
+            // Refused and still running: its own next ask is seconds away (its backoff), past most of `deadline`.
+            // This start asks once now with a new child; `spawn()` fences the old one's lines and exit.
+            refused.stop()
+            child = nil
+            lastStop = nil
+            spawn()
         }
         // Refused at its last connect: asking again now is the restart above; waiting would only delay the turn.
         if lastStop == "refused", state != .starting { return false }
@@ -181,7 +188,9 @@ public final class PersonalGateway {
 
     private func set(_ new: State) {
         state = new
-        guard new == .online || new == .stopped || new == .replaced || new == .unavailable else { return }
+        // A refusal is the Cloud service's answer to this ask: a wait that sat out its deadline behind it held a Cloud
+        // chat's first prompt for 10 s (the child's fifth refusal, which stops it, comes after 15 s of its backoff).
+        guard new == .online || new == .stopped || new == .replaced || new == .unavailable || new == .offline("refused") else { return }
         for id in Array(waiters.keys) { finishWait(id, online: new == .online) }
     }
 

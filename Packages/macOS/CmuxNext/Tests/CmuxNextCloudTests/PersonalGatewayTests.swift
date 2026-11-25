@@ -66,6 +66,28 @@ struct PersonalGatewayTests {
         #expect(await wait.value == false)
     }
 
+    /// The Cloud service refuses the gateway and the child keeps running to ask again on its own backoff: the
+    /// start's wait ends at the refusal, with no deadline passing (the clock is never advanced).
+    @Test func aRefusedGatewayEndsTheWaitAtOnce() async {
+        let children = Children([[#"{"event":"offline","reason":"refused"}"#]])
+        let gateway = make(children)
+        gateway.start()
+        #expect(await gateway.ensureOnline(within: .seconds(10)) == false)
+        #expect(gateway.state == .offline("refused"))
+        #expect(children.live.count == 1)
+    }
+
+    /// A start after a refusal asks once more with a new child, not behind the refused child's backoff.
+    @Test func aStartAfterARefusalAsksAgainWithANewChild() async {
+        let children = Children([[#"{"event":"offline","reason":"refused"}"#], [#"{"event":"online"}"#]])
+        let gateway = make(children)
+        gateway.start()
+        #expect(await gateway.ensureOnline(within: .seconds(10)) == false)
+        #expect(await gateway.ensureOnline(within: .seconds(10)))
+        #expect(children.live.count == 2)
+        #expect(gateway.state == .online)
+    }
+
     @Test func anotherGatewayTakingOverIsNotFoughtUntilAChatStartsHere() async {
         let children = Children([[#"{"event":"stopped","reason":"replaced"}"#, "EXIT"], [#"{"event":"online"}"#]])
         let gateway = make(children)
