@@ -1117,6 +1117,12 @@
     },
     {
       "kind": "request",
+      "name": "_acpmux/chat_move",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
       "name": "_acpmux/auto_session/leftover",
       "params": true,
       "result": true
@@ -1367,6 +1373,12 @@
     {
       "kind": "request",
       "name": "_acpmux/team/ack",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/team/listen",
       "params": true,
       "result": true
     },
@@ -2540,6 +2552,30 @@
     {
       "kind": "request",
       "name": "_acpmux/connections/claude_token.add",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/connections/claude_token.begin",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/connections/claude_token.wait",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/connections/claude_token.code",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/connections/claude_token.cancel",
       "params": true,
       "result": true
     },
@@ -6757,17 +6793,6 @@
       },
       "type": "object"
     },
-    "QueueRemoveParams": {
-      "additionalProperties": false,
-      "properties": {
-        "_meta": {
-          "$ref": "#/types/RequestMeta"
-        },
-        "promptId": true,
-        "sessionId": true
-      },
-      "type": "object"
-    },
     "QueueOrigin": {
       "description": "Who put a queued prompt in the queue ([`of`]).",
       "oneOf": [
@@ -6787,6 +6812,17 @@
           "type": "string"
         }
       ]
+    },
+    "QueueRemoveParams": {
+      "additionalProperties": false,
+      "properties": {
+        "_meta": {
+          "$ref": "#/types/RequestMeta"
+        },
+        "promptId": true,
+        "sessionId": true
+      },
+      "type": "object"
     },
     "QueuedAuthor": {
       "description": "The person who queued a prompt in a shared chat.",
