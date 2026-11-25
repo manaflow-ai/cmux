@@ -4,9 +4,9 @@
 //! Same rule as [`super::replica::read_text`]: a stale replica, or a folder the seed left
 //! incomplete, is [`NeedsMachine`] and the caller resumes the machine.
 
-use super::replica::NeedsMachine;
+use super::replica::{NeedsMachine, ReplicaRead, ReplicaSource};
 use super::seed::SeededReplica;
-use super::{Op, ReplicaSource, WriteJournal, rel_path};
+use super::{Op, WriteJournal, rel_path};
 use std::collections::BTreeMap;
 use std::io;
 
@@ -143,7 +143,7 @@ pub fn search(
         let text = match journaled {
             Some(t) => t,
             None => match replica.read(&path)? {
-                super::ReplicaRead::Present(b) => match String::from_utf8(b) {
+                ReplicaRead::Present(b) => match String::from_utf8(b) {
                     Ok(t) => t,
                     Err(_) => continue,
                 },

@@ -1,5 +1,6 @@
 use super::*;
 use crate::write_journal::MemoryJournalStore;
+use crate::write_journal::browse::{ListOutcome, SearchOutcome};
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::time::{Duration, Instant};
 
@@ -44,7 +45,8 @@ fn fixture(files: &[(&str, &str)], bounds: SeedBounds) -> Fixture {
         std::fs::write(p, text).unwrap();
     }
     let fs =
-        PausedFs::new(Arc::new(MemoryJournalStore::default()), dir.path().join("replicas"), bounds);
+        PausedFs::new(Arc::new(MemoryJournalStore::default()), dir.path().join("replicas"), bounds)
+            .with_serve_reads(true);
     Fixture { machine, fs, _dir: dir }
 }
 
@@ -196,4 +198,89 @@ async fn paused_read_latency_journal_vs_resume_then_read() {
             assert!(j < w, "journal {j:?} vs resume-then-read {w:?}");
         }
     }
+}
+
+fn names(r: Routed<ListOutcome>) -> Vec<(String, bool)> {
+    match r {
+        Routed::Answered(ListOutcome::Entries(e)) => {
+            e.into_iter().map(|e| (e.name, e.is_dir)).collect()
+        }
+        other => panic!("expected entries, got {other:?}"),
+    }
+}
+
+#[test]
+fn a_paused_machine_lists_and_searches_with_no_resume_and_the_journal_on_top() {
+    let f = fixture(
+        &[("src/a.rs", "fn a() {}\nlet needle = 1;\n"), ("b.txt", "hello\n"), ("c.txt", "x\n")],
+        SeedBounds::default(),
+    );
+    let resume = FakeResume::new(Duration::ZERO);
+    f.fs.pause("m1", &f.machine, resume.clone(), 0).unwrap();
+    assert_eq!(
+        names(f.fs.list_dir("m1", &f.machine, 0).unwrap()),
+        [("b.txt".into(), false), ("c.txt".into(), false), ("src".into(), true)]
+    );
+    // The journal is laid over the copy: a new file under a new folder, and a delete.
+    f.fs.write("m1", &f.machine.join("new/d.txt"), "needle too\n", 0, 1).unwrap();
+    f.fs.write("m1", &f.machine.join("b.txt"), "changed\n", 0, 2).unwrap();
+    let deleted = f.fs.write("m1", &f.machine.join("c.txt"), "", 0, 3).unwrap();
+    assert!(matches!(deleted, Routed::Answered(_)));
+    assert_eq!(
+        names(f.fs.list_dir("m1", &f.machine, 0).unwrap()),
+        [
+            ("b.txt".into(), false),
+            ("c.txt".into(), false),
+            ("new".into(), true),
+            ("src".into(), true)
+        ]
+    );
+    assert_eq!(
+        f.fs.list_dir("m1", &f.machine.join("nope"), 0).unwrap(),
+        Routed::Answered(ListOutcome::NotFound)
+    );
+    let Routed::Answered(SearchOutcome::Hits { hits, truncated }) =
+        f.fs.search("m1", &f.machine, "needle", 10, 0).unwrap()
+    else {
+        panic!("search was not answered");
+    };
+    assert!(!truncated);
+    let at: Vec<_> = hits.iter().map(|h| (h.path.as_str(), h.line)).collect();
+    assert_eq!(at, [("new/d.txt", 1), ("src/a.rs", 2)]);
+    assert_eq!(resume.calls.load(Ordering::SeqCst), 0, "a read never wakes the machine");
+}
+
+#[test]
+fn listings_and_searches_stop_answering_once_the_machine_ran() {
+    let f = fixture(&[("a.txt", "needle\n")], SeedBounds::default());
+    f.fs.pause("m1", &f.machine, FakeResume::new(Duration::ZERO), 0).unwrap();
+    // The daemon saw a resume since the seed: anything may have run.
+    assert!(matches!(
+        f.fs.list_dir("m1", &f.machine, 1).unwrap(),
+        Routed::Answered(ListOutcome::NeedsMachine(NeedsMachine::Stale))
+    ));
+    assert!(matches!(
+        f.fs.search("m1", &f.machine, "needle", 5, 1).unwrap(),
+        Routed::Answered(SearchOutcome::NeedsMachine(NeedsMachine::Stale))
+    ));
+}
+
+#[test]
+fn listings_and_searches_are_off_unless_the_setting_is_on() {
+    let mut f = fixture(&[("a.txt", "x\n")], SeedBounds::default());
+    f.fs = f.fs.with_serve_reads(false);
+    f.fs.pause("m1", &f.machine, FakeResume::new(Duration::ZERO), 0).unwrap();
+    assert_eq!(f.fs.list_dir("m1", &f.machine, 0).unwrap(), Routed::NotPaused);
+    assert_eq!(f.fs.search("m1", &f.machine, "x", 5, 0).unwrap(), Routed::NotPaused);
+}
+
+#[test]
+fn a_file_the_seed_left_out_is_still_in_the_tree() {
+    let bounds = SeedBounds { max_file_bytes: 4, ..SeedBounds::default() };
+    let f = fixture(&[("big.txt", "much too large\n"), ("s.txt", "ok\n")], bounds);
+    f.fs.pause("m1", &f.machine, FakeResume::new(Duration::ZERO), 0).unwrap();
+    assert_eq!(
+        names(f.fs.list_dir("m1", &f.machine, 0).unwrap()),
+        [("big.txt".into(), false), ("s.txt".into(), false)]
+    );
 }
