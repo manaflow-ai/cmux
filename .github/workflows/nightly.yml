@@ -2570,7 +2570,8 @@ jobs:
           read -ra peers <<< "$NIGHTLY_PUBLISH_PEERS"
           python3 "$check" "${peers[@]}"
 
-      - name: Finish building in-tree acpmux for the compilation cache
+      - &x33
+        name: Finish building in-tree acpmux for the compilation cache
         if: (inputs.nightly_next_unsigned_run == '') && steps.nightly-product.outputs.hit != 'true' && needs.resolve-nightly-cmux-tui-client.outputs.tree_pending != 'true' && !env.LEFT_SLOT
         run: bash scripts/ci/nightly-steps/app-build-in-tree-acpmux.sh join
 
@@ -7061,6 +7062,7 @@ jobs:
       - *x30
       - *x31
       - *x32
+      - *x33
       # Why: docs/ci/nightly-workflow-notes.md#note-48
       - name: Build nightly app (Release)
         if: (inputs.nightly_next_unsigned_run == '') && steps.nightly-product.outputs.hit != 'true' && !env.LEFT_SLOT
