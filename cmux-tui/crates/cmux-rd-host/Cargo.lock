@@ -738,6 +738,7 @@ dependencies = [
  "md-5",
  "sha1",
  "snow",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
