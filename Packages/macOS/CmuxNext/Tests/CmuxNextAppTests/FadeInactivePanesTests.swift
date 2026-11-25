@@ -65,7 +65,10 @@ import Testing
             guard style.inactiveDim(dimsInactive: false).amount == 0 else { return }
             harness.root.syncWithModel()
             Commit.rest(harness)
-            #expect(try Self.overlay(harness, "p2").dimOpacity == 0, "a pane dims with the setting off")
+            // The `try` stays out of `#expect`: a closure infers `throws` before the macro expands, so a
+            // `try` inside it is "not handled" and the test target does not compile.
+            let p2 = try Self.overlay(harness, "p2")
+            #expect(p2.dimOpacity == 0, "a pane dims with the setting off")
         }
     }
 }
