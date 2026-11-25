@@ -289,11 +289,11 @@ fn an_unknown_service_is_refused_and_never_reaches_acpmux() {
         let acpmux = TcpListener::bind("127.0.0.1:0").await.unwrap();
         let record = live_home(acpmux.local_addr().unwrap());
         let target = live(&record);
-        // Inbound: an unknown service, and acpmux with a token a paired peer never sends.
+        // Inbound: an unknown service, and acpmux with a token a paired peer never sends. A field a
+        // newer peer adds is ignored (#49743), so it is no refusal of its own.
         for hello in [
             "{\"service\":\"nonsense\"}\n",
             "{\"service\":\"acpmux\",\"link_token\":\"t\",\"epoch\":1}\n",
-            "{\"service\":\"acpmux\",\"extra\":1}\n",
         ] {
             assert_eq!(inbound(hello, &target).await, Err(InboundRefused::BadHello), "{hello}");
         }
