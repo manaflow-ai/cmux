@@ -1322,6 +1322,18 @@ async fn send_message(socket: &WgDatagramSocket, peer: SocketAddr, message: &Roa
     }
 }
 
+/// `reach` goes the way a liveness ping does: on the routes data takes,
+/// with no Ultra Mode parity and no replay copy. The underlay asks for it
+/// again and again (12 times in an idle minute), so a lost one costs
+/// nothing, and Auto's floor parity for it was a second 110 B datagram each
+/// time: 1320 B of an idle minute's 7000 on each side (`tests/idle_budget.rs`).
+async fn send_reach(socket: &WgDatagramSocket, peer: SocketAddr, message: &RoamMessage) {
+    let bytes = serde_json::to_vec(message).expect("roam message serializes");
+    if let Err(error) = socket.send_liveness(&bytes, peer, false).await {
+        tracing::debug!(%error, "roam reach not sent");
+    }
+}
+
 /// Stop a TURN monitor task, unless it is the one running this (a monitor
 /// that installs the new allocation replaces its own handle).
 fn stop_monitor(task: Option<JoinHandle<()>>) {
@@ -1443,7 +1455,7 @@ async fn run_control(
                     Carrier::Udp => "udp",
                 };
                 let message = RoamMessage::Reach { from: Some(from.to_string()), via: Some(via.to_owned()) };
-                send_message(&socket, peer, &message).await;
+                send_reach(&socket, peer, &message).await;
             }
             endpoints = announce.recv() => {
                 let Some(Announcement { mut endpoints, relayed, relayed_tls, mapped, mapped_by }) = endpoints

@@ -765,6 +765,9 @@ pub(crate) struct UltraUnderlay {
     /// The staged datagram was rebuilt from parity.
     staged_rebuilt: bool,
     counters: Arc<UltraCounters>,
+    /// Measurement only ([`crate::testing::set_receive_tap`]): the tunnel's
+    /// first interface address, set only while a tap is installed.
+    tap_local: Option<std::net::IpAddr>,
 }
 
 impl UltraUnderlay {
@@ -793,7 +796,14 @@ impl UltraUnderlay {
             staged_bytes: Vec::new(),
             staged_rebuilt: false,
             counters,
+            tap_local: None,
         }
+    }
+
+    /// Measurement only: report received parity to the receive tap as this
+    /// tunnel's (`local` is its first interface address).
+    pub(crate) fn set_tap_local(&mut self, local: Option<std::net::IpAddr>) {
+        self.tap_local = local.filter(|_| crate::testing::tapping());
     }
 
     /// Carry on over a new carrier after a network change; the mode stays.
@@ -1211,6 +1221,11 @@ impl Underlay for UltraUnderlay {
                 return Poll::Ready(Ok(received));
             };
             if datagram.first() == Some(&TAG) {
+                crate::testing::tap_received(
+                    self.tap_local,
+                    crate::testing::Received::Repair,
+                    datagram.len(),
+                );
                 // Parity from an origin WireGuard never authenticated is
                 // dropped unread and uncopied.
                 if self.trusts(received.origin) {

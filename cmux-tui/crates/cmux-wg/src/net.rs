@@ -163,6 +163,7 @@ impl WgNet {
         let mut underlay = UltraUnderlay::new(Box::new(underlay), mode, Arc::clone(&ultra));
         underlay.set_max_datagram(max_datagram);
         underlay.set_floor(auto.is_some());
+        underlay.set_tap_local(config.addresses.first().map(|address| address.address));
         let driver =
             Driver::new(config, underlay, negotiation, auto, commands_rx, Arc::clone(&wake))?;
         let wakeups = Arc::clone(&driver.wakeups);
