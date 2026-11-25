@@ -488,6 +488,7 @@ pub mod presence;
 mod processes;
 pub(crate) mod pull_requests;
 pub(crate) mod purge_tombstones;
+pub mod synced;
 pub(crate) use crate::questions;
 mod remote_cwd;
 mod remote_floor;
@@ -557,6 +558,7 @@ mod trigger_quiet_tests;
 mod trust_wait;
 mod turn_attestation;
 mod turn_cost;
+pub(crate) mod turn_frames;
 mod turn_git;
 pub(crate) mod turn_shots;
 mod turn_usage;
@@ -1504,6 +1506,8 @@ pub struct Hub {
     pub presence: presence::Presence,
     /// Who is on this machine now, across devices, in memory only (`here.rs`).
     pub here: here::HereTable,
+    /// Chat titles and read marks as a sync replica, opened on first use (`synced.rs`).
+    pub synced: std::sync::OnceLock<synced::Synced>,
     /// How long a move may go without its client (`transfer_watch.rs`).
     pub(super) transfer_lease: StdMutex<std::time::Duration>,
     /// The moves one watch ends, or whose begin still makes them (`transfer_watch.rs`).
@@ -1927,6 +1931,7 @@ impl Hub {
             person: Default::default(),
             presence: Default::default(),
             here: Default::default(),
+            synced: std::sync::OnceLock::new(),
             workflow_index: Default::default(),
             suggestion_gate,
             page_replies: Default::default(),
@@ -3108,6 +3113,8 @@ impl Hub {
         }
         // Off the append lock: it reads the disk.
         tool_paths::add_canonical_paths(session, kind, &mut msg);
+        // A finished UI edit or shell call asks for a frame of the page (`turn_frames.rs`).
+        turn_frames::record(&session.id, kind, &msg);
         let _order = session.append_lock.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
         self.catch_up_locked(session);
         self.append_at_locked(session, dir, kind, msg, host_seq, at, false, true)
