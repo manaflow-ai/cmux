@@ -11,6 +11,7 @@ that replaces itself by name is not a hand-back and must still run again.
 
 from __future__ import annotations
 
+import os
 import shutil
 import socket
 import subprocess
@@ -106,6 +107,12 @@ if [[ -n "${{VERSION_MANAGER_SELECTED_DIR:-}}" ]]; then
     export PATH="${{PATH/$self_dir/$VERSION_MANAGER_SELECTED_DIR:$self_dir}}"
     exec "$VERSION_MANAGER_SELECTED_DIR/$name" "$@"
 fi
+if [[ -n "${{ORPHAN_FIFO:-}}" && ! -e "$ORPHAN_FIFO.reached" ]]; then
+    # Hand the launch back only once the process that started it has gone.
+    : > "$ORPHAN_FIFO.reached"
+    echo reached > "$ORPHAN_FIFO"
+    while [[ "$(ps -o ppid= -p $$ | tr -d ' ')" == "$ORPHAN_LAUNCHER_PID" ]]; do :; done
+fi
 IFS=:
 deduplicated=""
 for directory in $PATH; do
@@ -135,6 +142,9 @@ name="${0##*/}"
     done
     printf '\\n'
 } >> "$AGENT_RUN_LOG"
+if [[ -n "${AGENT_LAUNCH_EXECUTABLE_LOG:-}" ]]; then
+    printf '%s\n' "${CMUX_AGENT_LAUNCH_EXECUTABLE-__UNSET__}" > "$AGENT_LAUNCH_EXECUTABLE_LOG"
+fi
 if [[ -n "${AGENT_CMUX_VARIABLES_LOG:-}" ]]; then
     printf '%s\n' "${!CMUX_@}" > "$AGENT_CMUX_VARIABLES_LOG"
 fi
@@ -150,6 +160,16 @@ if [[ -n "${AGENT_REPLACES_ITSELF:-}" ]]; then
     fi
     exec "$name" "$@" --replaced
 fi
+exit 0
+"""
+
+# Starts the agent in the background and leaves once the version manager has
+# the launch, as `(agent &)` in a script does. The hand-back then reaches a
+# wrapper whose parent has gone.
+ORPHANING_LAUNCHER = """#!/bin/bash
+export ORPHAN_LAUNCHER_PID=$$
+"$@" &
+read -r _ < "$ORPHAN_FIFO"
 exit 0
 """
 
@@ -467,9 +487,12 @@ def check_session_launch_is_prepared_once(agent: Agent, node: str | None, failur
         # Bound, never accepted: the Claude wrapper only checks that the socket exists.
         socket_path = fixture.root / "cmux.sock"
         listener = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+        launch_executable_log = fixture.root / "launch-executable.log"
+        environment = fixture.cmux_terminal_environment(socket_path)
+        environment["AGENT_LAUNCH_EXECUTABLE_LOG"] = str(launch_executable_log)
         try:
             listener.bind(str(socket_path))
-            result = fixture.run(fixture.cmux_terminal_environment(socket_path), *agent.session_args)
+            result = fixture.run(environment, *agent.session_args)
         finally:
             listener.close()
 
@@ -480,6 +503,15 @@ def check_session_launch_is_prepared_once(agent: Agent, node: str | None, failur
                 f"the installed agent once: runs {runs!r}, {describe(result)}"
             )
             return
+        # cmux resumes a session with the executable captured here. It has to
+        # be the agent that ran, not the shim that handed the launch back,
+        # which may be gone by then. Pi's extension captures its own.
+        launch_executable = launch_executable_log.read_text(encoding="utf-8").strip()
+        if agent.command != "pi" and launch_executable != str(fixture.installed_agent):
+            failures.append(
+                f"{agent.command}: the captured launch executable is {launch_executable!r}, "
+                f"expected the installed agent {str(fixture.installed_agent)!r}"
+            )
         arguments = runs[0]
         if arguments[-len(agent.session_args):] != list(agent.session_args):
             failures.append(f"{agent.command}: session arguments changed: {arguments!r}")
@@ -506,6 +538,44 @@ def check_session_launch_is_prepared_once(agent: Agent, node: str | None, failur
         elif agent.command == "hermes":
             if calls.count("hooks hermes-agent install --yes") != 1:
                 failures.append(f"hermes: the hook installer did not run once: {calls!r}")
+
+
+def check_hand_back_to_an_orphaned_launch_is_prepared_once(agent: Agent, node: str | None, failures: list[str]) -> None:
+    """A launch whose parent exits while the version manager has it is still one launch."""
+    with tempfile.TemporaryDirectory(prefix=f"cmux-vm-{agent.command}-") as directory:
+        fixture = Fixture(Path(directory), agent, node=node)
+        launcher = fixture.root / "orphaning-launcher"
+        write_executable(launcher, ORPHANING_LAUNCHER)
+        fifo = fixture.root / "version-manager-reached.fifo"
+        os.mkfifo(fifo)
+        socket_path = fixture.root / "cmux.sock"
+        environment = fixture.cmux_terminal_environment(socket_path)
+        environment["ORPHAN_FIFO"] = str(fifo)
+        listener = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+        try:
+            listener.bind(str(socket_path))
+            # Returns once the orphaned launch has closed the output pipes too.
+            result = subprocess.run(
+                [str(launcher), str(fixture.cmux_shim), *agent.session_args],
+                env=environment,
+                cwd=fixture.root,
+                stdin=subprocess.DEVNULL,
+                capture_output=True,
+                text=True,
+                timeout=120,
+                check=False,
+            )
+        finally:
+            listener.close()
+
+        runs = fixture.agent_runs()
+        prepared = fixture.cmux_calls().count(agent.preparation_call)
+        if len(runs) != 1 or prepared != 1 or len(fixture.version_manager_shim_pids()) != 1:
+            failures.append(
+                f"{agent.command}: a launch orphaned during the hand-back was not prepared and started "
+                f"once: prepared {prepared}, shim passes {len(fixture.version_manager_shim_pids())}, "
+                f"runs {runs!r}, {describe(result)}"
+            )
 
 
 def check_claude_loop_guard_survives_a_fallback(failures: list[str]) -> None:
@@ -647,6 +717,7 @@ def main() -> int:
             skipped = " (claude session launch and native claude checks skipped: node not found)"
             continue
         check_session_launch_is_prepared_once(agent, node, failures)
+        check_hand_back_to_an_orphaned_launch_is_prepared_once(agent, node, failures)
         check_restart_of_a_selected_version_is_prepared_again(agent, node, failures)
     check_claude_loop_guard_survives_a_fallback(failures)
     if node is not None:
