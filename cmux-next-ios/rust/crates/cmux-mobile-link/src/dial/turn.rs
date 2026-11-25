@@ -9,6 +9,12 @@
 //!   gets no allocation: networks that block UDP almost always pass TLS on
 //!   443. Plain TCP (`turn:...?transport=tcp`) is the last choice.
 //!
+//! The TCP leg goes through the system's proxy for the TURN server (PAC
+//! included) with `CONNECT` or SOCKS5, and TLS verifies against the OS trust
+//! store ([`crate::egress`]), so a network whose only way out is its proxy,
+//! or that inspects TLS with a company root, still carries the tunnel. A
+//! proxy that refuses it says why ([`Allocated::refusal`]).
+//!
 //! Over TCP and TLS every STUN message and ChannelData message is framed
 //! by its own length (RFC 5766 §11.5, ChannelData padded to 4 bytes), so
 //! [`StreamConn`] turns the stream back into the messages the `turn` crate's
@@ -59,6 +65,9 @@ const NO_STREAM_UDP_WAIT: Duration = Duration::from_millis(3000);
 const STREAM_STAGGER: Duration = Duration::from_millis(500);
 /// Bound on a stream allocation (TCP, TLS and two TURN round trips).
 const STREAM_WAIT: Duration = Duration::from_millis(4000);
+/// The same through a proxy: one more round trip (`CONNECT`) and the
+/// proxy's own connection to the server.
+const PROXIED_STREAM_WAIT: Duration = Duration::from_millis(6000);
 /// When the stream allocation finished first, UDP gets this much longer.
 const UDP_GRACE: Duration = Duration::from_millis(250);
 /// STUN retransmission timeout on a stream: TCP already retransmits, so
@@ -247,18 +256,51 @@ pub fn missing_turn(options: &DialOptions) -> Option<&'static str> {
     None
 }
 
-/// The TLS client configuration for TURN over TLS.
+/// The TLS client configuration for TURN over TLS: the OS trust store (a
+/// company root an MDM profile installed included), or a test's own roots.
+/// This TLS is not what keeps the link private: WireGuard encrypts and
+/// authenticates every datagram end to end inside it, so a TLS-inspecting
+/// proxy that the OS trusts sees the same ciphertext the TURN server sees
+/// (SECURITY.md "Link transport").
 fn tls_config(options: &DialOptions) -> Result<Arc<rustls::ClientConfig>, String> {
-    let roots = options.turn_tls_roots.clone().unwrap_or_else(|| {
-        Arc::new(rustls::RootCertStore { roots: webpki_roots::TLS_SERVER_ROOTS.to_vec() })
-    });
-    let config =
-        rustls::ClientConfig::builder_with_provider(Arc::new(rustls::crypto::ring::default_provider()))
-            .with_safe_default_protocol_versions()
-            .map_err(|error| error.to_string())?
-            .with_root_certificates(roots)
-            .with_no_client_auth();
-    Ok(Arc::new(config))
+    match &options.turn_tls_roots {
+        Some(roots) => crate::egress::tls::client_config(&crate::egress::TlsTrust::Only(Arc::clone(roots))),
+        None => crate::egress::tls::client_config(&options.egress.trust),
+    }
+}
+
+/// Why an allocation failed: a proxy's answer (it will say the same again
+/// soon, and a person can act on it), or anything else.
+#[derive(Debug)]
+enum AllocFailure {
+    Proxy(crate::egress::EgressError),
+    Other(String),
+}
+
+impl From<String> for AllocFailure {
+    fn from(message: String) -> Self {
+        Self::Other(message)
+    }
+}
+
+impl std::fmt::Display for AllocFailure {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Proxy(error) => error.fmt(f),
+            Self::Other(message) => f.write_str(message),
+        }
+    }
+}
+
+impl std::error::Error for AllocFailure {}
+
+/// An allocation, or why the stream one was refused.
+#[derive(Default)]
+pub(crate) struct Allocated {
+    pub carrier: Option<TurnCarrier>,
+    /// The proxy refused the TCP or TLS leg (sign-in it cannot do, a
+    /// policy): a dial with no other path fails with this, at once.
+    pub refusal: Option<crate::egress::EgressError>,
 }
 
 /// The next STUN or ChannelData message on a TURN stream, into `buffer`:
@@ -425,7 +467,7 @@ impl TurnCarrier {
     /// blocked), then, if UDP gives nothing, a stream (TLS on 443 first).
     /// `None` when there is no server or every allocation failed in time.
     pub async fn allocate(options: &DialOptions) -> Option<Self> {
-        Self::allocate_with(options, None, false).await
+        Self::allocate_with(options, None, false).await.carrier
     }
 
     /// [`Self::allocate`], told by the STUN wait running beside it whether
@@ -440,6 +482,18 @@ impl TurnCarrier {
         options: &DialOptions,
         udp_silent: Option<watch::Receiver<bool>>,
         stream_now: bool,
+    ) -> Allocated {
+        let refusal = std::sync::Mutex::new(None);
+        let carrier = Self::allocate_noting(options, udp_silent, stream_now, &refusal).await;
+        let refusal = refusal.into_inner().unwrap_or_else(std::sync::PoisonError::into_inner);
+        Allocated { refusal: if carrier.is_some() { None } else { refusal }, carrier }
+    }
+
+    async fn allocate_noting(
+        options: &DialOptions,
+        udp_silent: Option<watch::Receiver<bool>>,
+        stream_now: bool,
+        refusal: &std::sync::Mutex<Option<crate::egress::EgressError>>,
     ) -> Option<Self> {
         let silent_now = || udp_silent.as_ref().is_some_and(|silent| *silent.borrow());
         let (udp, stream) = turn_servers(&options.ice_servers);
@@ -453,7 +507,7 @@ impl TurnCarrier {
             if stream.is_some() { UDP_WAIT } else { NO_STREAM_UDP_WAIT.min(options.timeout.max(UDP_WAIT)) };
         let udp = async {
             match udp {
-                Some(server) => bounded(udp_wait, Self::allocate_on(server, options)).await,
+                Some(server) => bounded(udp_wait, Self::allocate_on(server, options)).await.ok(),
                 None => None,
             }
         };
@@ -462,11 +516,36 @@ impl TurnCarrier {
             let silent = udp_silent.clone();
             async move {
                 let server = stream?;
-                tokio::select! {
-                    () = tokio::time::sleep(delay) => {}
-                    () = until_silent(silent) => {}
+                // Ask the system's proxy settings (a PAC file may be fetched
+                // and run) beside the stagger, not inside the allocation's bound.
+                let hops = async {
+                    let (host, port) = split_host_port(&server.address, 443).unwrap_or_default();
+                    crate::egress::proxy::hops(
+                        &host,
+                        port,
+                        server.transport == TurnTransport::Tls,
+                        &options.egress.proxy,
+                    )
+                    .await
+                };
+                let wait = async {
+                    tokio::select! {
+                        () = tokio::time::sleep(delay) => {}
+                        () = until_silent(silent) => {}
+                    }
+                };
+                let (hops, ()) = tokio::join!(hops, wait);
+                let proxied = hops.first().is_some_and(|hop| *hop != crate::egress::Hop::Direct);
+                let limit = if proxied { PROXIED_STREAM_WAIT } else { STREAM_WAIT };
+                match bounded(limit, Self::allocate_on(server, options)).await {
+                    Ok(carrier) => Some(carrier),
+                    Err(AllocFailure::Proxy(error)) => {
+                        tracing::warn!(%error, "the proxy refused TURN over TLS");
+                        *refusal.lock().unwrap_or_else(std::sync::PoisonError::into_inner) = Some(error);
+                        None
+                    }
+                    Err(AllocFailure::Other(_)) => None,
                 }
-                bounded(STREAM_WAIT, Self::allocate_on(server, options)).await
             }
         };
         if !tried_udp {
@@ -507,7 +586,7 @@ impl TurnCarrier {
     /// Allocate on `server` in a task of its own: a caller that gives up (a
     /// timeout, the losing side of the UDP and TLS race) drops only the
     /// answer, and the task still finishes and releases what it opened.
-    async fn allocate_on(server: TurnServer, options: &DialOptions) -> Result<Self, String> {
+    async fn allocate_on(server: TurnServer, options: &DialOptions) -> Result<Self, AllocFailure> {
         let (tx, rx) = tokio::sync::oneshot::channel();
         let options = options.clone();
         tokio::spawn(async move {
@@ -515,14 +594,33 @@ impl TurnCarrier {
             // Unwanted by now: dropping the carrier releases the allocation.
             let _ = tx.send(result);
         });
-        rx.await.map_err(|_| "the TURN allocation task ended".to_owned())?
+        rx.await.map_err(|_| AllocFailure::Other("the TURN allocation task ended".to_owned()))?
+    }
+
+    /// The TCP leg to `server`: through the system's proxy for it when the
+    /// settings name one (`CONNECT host:443`, the TURN server's name, not an
+    /// address: the proxy resolves it).
+    async fn connect_tcp(server: &TurnServer, options: &DialOptions) -> Result<TcpStream, AllocFailure> {
+        let (host, port) = split_host_port(&server.address, 443)
+            .ok_or_else(|| AllocFailure::Other(format!("bad TURN address {}", server.address)))?;
+        let secure = server.transport == TurnTransport::Tls;
+        match crate::egress::connect_tcp(&host, port, secure, &options.egress).await {
+            Ok((tcp, via)) => {
+                if let crate::egress::Via::Proxy(hop) = via {
+                    tracing::info!(%hop, server = server.address, "TURN over TLS through the proxy");
+                }
+                Ok(tcp)
+            }
+            Err(error) if error.is_proxy_refusal() => Err(AllocFailure::Proxy(error)),
+            Err(error) => Err(AllocFailure::Other(error.to_string())),
+        }
     }
 
     async fn connect_stream(
         server: &TurnServer,
         options: &DialOptions,
-    ) -> Result<(Arc<dyn Conn + Send + Sync>, watch::Receiver<bool>), String> {
-        let tcp = TcpStream::connect(server.address.as_str()).await.map_err(|e| e.to_string())?;
+    ) -> Result<(Arc<dyn Conn + Send + Sync>, watch::Receiver<bool>), AllocFailure> {
+        let tcp = Self::connect_tcp(server, options).await?;
         let _ = tcp.set_nodelay(true);
         let keepalive =
             socket2::TcpKeepalive::new().with_time(STREAM_KEEPALIVE).with_interval(STREAM_KEEPALIVE / 2);
@@ -538,21 +636,32 @@ impl TurnCarrier {
         let tls = tokio_rustls::TlsConnector::from(tls_config(options)?)
             .connect(name, tcp)
             .await
-            .map_err(|e| e.to_string())?;
+            .map_err(|e| format!("TLS to {}: {e}", server.host))?;
         let conn = StreamConn::new(tls, local, peer);
         let dead = conn.dead();
         Ok((Arc::new(conn), dead))
     }
 
-    async fn allocate_inner(server: TurnServer, options: &DialOptions) -> Result<Self, String> {
+    async fn allocate_inner(server: TurnServer, options: &DialOptions) -> Result<Self, AllocFailure> {
         let (conn, dead): (Arc<dyn Conn + Send + Sync>, Option<watch::Receiver<bool>>) = match server
             .transport
         {
-            TurnTransport::Udp => (Arc::new(super::wireguard::bind_udp().map_err(|e| e.to_string())?), None),
+            TurnTransport::Udp => {
+                let socket: Arc<dyn Conn + Send + Sync> =
+                    Arc::new(super::wireguard::bind_udp().map_err(|e| e.to_string())?);
+                // Behind a firewall that drops WireGuard (debug): the
+                // allocation works, the tunnel's datagrams through it do not.
+                let socket: Arc<dyn Conn + Send + Sync> = if options.drop_wireguard_udp {
+                    Arc::new(super::dpi::DpiConn::new(socket))
+                } else {
+                    socket
+                };
+                (socket, None)
+            }
             TurnTransport::Tcp | TurnTransport::Tls => {
                 let (conn, dead) = tokio::time::timeout(CONNECT_WAIT, Self::connect_stream(&server, options))
                     .await
-                    .map_err(|_| "TURN server connect timed out".to_owned())??;
+                    .map_err(|_| AllocFailure::Other("TURN server connect timed out".to_owned()))??;
                 (conn, Some(dead))
             }
         };
@@ -599,7 +708,7 @@ impl TurnCarrier {
             Err(error) => {
                 let _ = client.close().await;
                 let _ = conn.close().await;
-                return Err(error.to_string());
+                return Err(error.to_string().into());
             }
         };
         let relayed = relay.local_addr().map_err(|e| e.to_string())?;
@@ -1151,20 +1260,20 @@ async fn until_silent(silent: Option<watch::Receiver<bool>>) {
     std::future::pending::<()>().await;
 }
 
-/// `attempt`, or `None` when it fails or takes longer than `limit`.
+/// `attempt`, failed when it takes longer than `limit`.
 async fn bounded(
     limit: Duration,
-    attempt: impl std::future::Future<Output = Result<TurnCarrier, String>>,
-) -> Option<TurnCarrier> {
+    attempt: impl std::future::Future<Output = Result<TurnCarrier, AllocFailure>>,
+) -> Result<TurnCarrier, AllocFailure> {
     match tokio::time::timeout(limit, attempt).await {
-        Ok(Ok(carrier)) => Some(carrier),
+        Ok(Ok(carrier)) => Ok(carrier),
         Ok(Err(error)) => {
             tracing::debug!(%error, "TURN allocation failed");
-            None
+            Err(error)
         }
         Err(_) => {
             tracing::debug!("TURN allocation timed out");
-            None
+            Err(AllocFailure::Other("TURN allocation timed out".to_owned()))
         }
     }
 }
@@ -1350,6 +1459,76 @@ mod tests {
         // No credentials, no TURN.
         let bare = vec![IceServer { urls: vec!["turn:t.example".into()], username: None, credential: None }];
         assert_eq!(turn_servers(&bare), (None, None));
+    }
+
+    /// TURN over TLS alone (UDP blocked), leaving this device as `egress` says.
+    fn tls_only(turn: &crate::testing::TestTurn, egress: crate::egress::Egress) -> DialOptions {
+        DialOptions {
+            ice_servers: vec![turn.ice.clone()],
+            block_udp: true,
+            include_loopback: true,
+            egress,
+            ..DialOptions::default()
+        }
+    }
+
+    /// A company network that inspects TLS re-signs the TURN server's
+    /// certificate with its own root, which an MDM profile installed and the
+    /// OS trusts. TURN over TLS takes it (the OS trust store), and still
+    /// refuses it where the OS does not trust that root.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn turn_over_tls_trusts_a_company_root_the_os_trusts() {
+        use crate::egress::{Egress, TlsTrust};
+        let ca = crate::testing::TestCa::new();
+        let turn = crate::testing::TestTurn::start_signed_by(&ca).await;
+        let trusted = Egress { trust: TlsTrust::SystemWith(ca.roots()), ..Egress::default() };
+        let carrier = TurnCarrier::allocate(&tls_only(&turn, trusted))
+            .await
+            .expect("TURN over TLS through the company's TLS inspection, its root trusted by the OS");
+        assert_eq!(carrier.transport, TurnTransport::Tls);
+        drop(carrier);
+        // The OS does not trust that root: refused.
+        assert!(TurnCarrier::allocate(&tls_only(&turn, Egress::default())).await.is_none());
+        // The web PKI bundled in the app alone refuses it even where the OS
+        // trusts it: what the link did before.
+        let bundled = Egress { trust: TlsTrust::Bundled, ..Egress::default() };
+        assert!(TurnCarrier::allocate(&tls_only(&turn, bundled)).await.is_none());
+        // The refused handshakes never finished on the server's side.
+        assert_eq!(turn.stream_connections(), 1);
+    }
+
+    /// A network whose only way out is its proxy: TURN over TLS goes through
+    /// it, an HTTP proxy with `CONNECT` (with and without Basic sign-in) or a
+    /// SOCKS5 one, and never around it ("Proxy only").
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn turn_over_tls_goes_through_the_proxy() {
+        use crate::egress::{Egress, Hop, ProxyConfig, ProxyServer};
+        use crate::testing::{ProxyAuth, TestProxy, TestSocks5, TestTurn};
+        let turn = TestTurn::start().await;
+        for auth in [ProxyAuth::None, ProxyAuth::Basic("ann".into(), "s3cret".into())] {
+            let proxy = TestProxy::start(auth.clone()).await;
+            let egress = Egress { proxy: proxy.config(), require_proxy: true, ..Egress::default() };
+            let options =
+                DialOptions { turn_tls_roots: Some(Arc::clone(&turn.roots)), ..tls_only(&turn, egress) };
+            let carrier = TurnCarrier::allocate(&options)
+                .await
+                .unwrap_or_else(|| panic!("no TURN over TLS through the proxy ({auth:?})"));
+            assert_eq!(carrier.transport, TurnTransport::Tls);
+            assert_eq!(proxy.tunnels(), vec![turn.tls_address()], "{auth:?}");
+            assert_eq!(proxy.refused(), 0, "{auth:?}");
+        }
+        let socks = TestSocks5::start(Some(("ann", "s3cret"))).await;
+        let server = ProxyServer::new("127.0.0.1", socks.port).with_credentials("ann", "s3cret");
+        let egress = Egress {
+            proxy: ProxyConfig::Fixed(vec![Hop::Socks5(server)]),
+            require_proxy: true,
+            ..Egress::default()
+        };
+        let options =
+            DialOptions { turn_tls_roots: Some(Arc::clone(&turn.roots)), ..tls_only(&turn, egress) };
+        let carrier = TurnCarrier::allocate(&options).await.expect("TURN over TLS through the SOCKS proxy");
+        assert_eq!(carrier.transport, TurnTransport::Tls);
+        assert_eq!(socks.tunnels(), vec![turn.tls_address()]);
     }
 
     #[test]

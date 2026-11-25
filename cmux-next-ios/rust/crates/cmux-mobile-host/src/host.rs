@@ -696,6 +696,16 @@ async fn answer_session(
         // video while it works (media_session.rs; CMUX_MOBILE_WEBRTC_MEDIA=0 turns
         // it off).
         webrtc_media: std::env::var("CMUX_MOBILE_WEBRTC_MEDIA").map_or(true, |v| v != "0"),
+        // The corporate network simulations, as on the phone (PROTOCOL.md
+        // "Corporate networks"): CMUX_MOBILE_DEV_DROP_WIREGUARD=1 drops every
+        // WireGuard-shaped UDP datagram, CMUX_MOBILE_DEV_PROXY_ONLY=1 lets
+        // TURN over TLS out only through the system's proxy.
+        drop_wireguard_udp: std::env::var_os("CMUX_MOBILE_DEV_DROP_WIREGUARD").is_some(),
+        egress: cmux_mobile_link::egress::Egress {
+            require_proxy: std::env::var_os("CMUX_MOBILE_DEV_PROXY_ONLY").is_some(),
+            ..Default::default()
+        },
+        block_udp: std::env::var_os("CMUX_MOBILE_DEV_PROXY_ONLY").is_some(),
         ..DialOptions::default()
     };
     let connected = match dial::answer(&signaling, first, events, &options, LinkConfig::default()).await {

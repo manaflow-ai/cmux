@@ -33,6 +33,10 @@ getrandom.workspace = true
 reqwest.workspace = true
 rcgen = { version = "0.13", optional = true }
 rustls.workspace = true
+# The OS trust store for the link's own TLS (signaling, `/v1/ice`, TURN over TLS): the Apple
+# Security framework on iOS and macOS, so a root an MDM profile installed (a company network that
+# inspects TLS) is trusted like Safari trusts it (src/egress/tls.rs).
+rustls-platform-verifier = "0.7"
 serde.workspace = true
 serde_json.workspace = true
 # The local ad's key tag (local.rs); already in the graph.
@@ -46,11 +50,18 @@ tokio-rustls = { version = "0.26", default-features = false, features = ["ring",
 tokio-tungstenite.workspace = true
 tokio-util.workspace = true
 tracing.workspace = true
+url.workspace = true
 uuid.workspace = true
 webpki-roots = "1"
 webrtc.workspace = true
 x25519-dalek.workspace = true
 zeroize.workspace = true
+
+[target.'cfg(target_vendor = "apple")'.dependencies]
+# The system's proxy settings (manual, PAC, WPAD, MDM) through CFNetwork (src/egress/apple.rs);
+# already in the graph through rustls-platform-verifier.
+core-foundation = "0.10"
+core-foundation-sys = "0.8"
 
 [dev-dependencies]
 cmux-mobile-link = { path = ".", features = ["testing"] }

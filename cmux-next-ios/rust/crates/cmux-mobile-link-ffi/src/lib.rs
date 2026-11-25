@@ -753,6 +753,18 @@ pub struct ConnectOptions {
     /// TLS on 443 (path `TurnTls`). WebRTC ignores it.
     #[uniffi(default = false)]
     pub block_udp: bool,
+    /// Debug "simulate a network whose only way out is its proxy": like
+    /// `block_udp`, and TURN over TLS must leave through the system's proxy
+    /// (Settings > Wi-Fi > HTTP Proxy, PAC, an MDM profile); with none for the
+    /// TURN server the dial fails at once and says so. WebRTC ignores it.
+    #[uniffi(default = false)]
+    pub proxy_only: bool,
+    /// Debug "simulate a firewall that drops WireGuard": STUN and TURN's own
+    /// requests pass, every UDP datagram carrying WireGuard (plain, or inside
+    /// TURN over UDP) is dropped both ways, so WireGuard falls through to TURN
+    /// over TLS (path `TurnTls`). WebRTC ignores it.
+    #[uniffi(default = false)]
+    pub drop_wireguard: bool,
     /// Debug "Relay via cmux (HTTPS) only": WireGuard sends no plain UDP and
     /// takes no TURN allocation; it joins cmux's WebSocket relay at once and
     /// rides it (path `HttpsRelay`). WebRTC ignores it.
@@ -825,6 +837,8 @@ pub async fn connect_with_options(
         include_loopback: false,
         relay_only: options.relay_only,
         block_udp: options.block_udp,
+        proxy_only: options.proxy_only,
+        drop_wireguard: options.drop_wireguard,
         force_relay: options.force_relay,
         video_lane: !options.no_video_lane,
         webrtc_media: !options.no_webrtc_media
@@ -858,6 +872,10 @@ pub struct ConnectRequest {
     pub include_loopback: bool,
     pub relay_only: bool,
     pub block_udp: bool,
+    /// `ConnectOptions::proxy_only`.
+    pub proxy_only: bool,
+    /// `ConnectOptions::drop_wireguard`.
+    pub drop_wireguard: bool,
     /// Debug: ride cmux's WebSocket relay only (`ConnectOptions::force_relay`).
     pub force_relay: bool,
     /// Offer the media lane (browser video as RTP: a WebRTC track, or UDP inside the WireGuard tunnel).
@@ -1622,6 +1640,8 @@ mod redial_tests {
             relay_only: true,
             force_relay: false,
             block_udp: false,
+            proxy_only: false,
+            drop_wireguard: false,
             video_lane: false,
             webrtc_media: false,
             ultra: cmux_mobile_link::UltraSetting::Off,
@@ -1879,7 +1899,17 @@ fn dial_options(request: &ConnectRequest, ice_servers: Vec<IceServer>, timeline:
         relay_only: request.relay_only || std::env::var_os("CMUX_MOBILE_DEV_RELAY_ONLY").is_some(),
         // The rig's UDP-blocked runs (simulator:
         // SIMCTL_CHILD_CMUX_MOBILE_DEV_BLOCK_UDP=1) without touching app settings.
-        block_udp: request.block_udp || std::env::var_os("CMUX_MOBILE_DEV_BLOCK_UDP").is_some(),
+        // A proxy-only network blocks UDP too.
+        block_udp: request.block_udp
+            || std::env::var_os("CMUX_MOBILE_DEV_BLOCK_UDP").is_some()
+            || proxy_only(request),
+        // The corporate network simulations (PROTOCOL.md "Corporate networks";
+        // simulator: SIMCTL_CHILD_CMUX_MOBILE_DEV_DROP_WIREGUARD=1,
+        // SIMCTL_CHILD_CMUX_MOBILE_DEV_PROXY_ONLY=1, and
+        // SIMCTL_CHILD_CMUX_MOBILE_DEV_PROXY=http://host:port for the proxy).
+        drop_wireguard_udp: request.drop_wireguard
+            || std::env::var_os("CMUX_MOBILE_DEV_DROP_WIREGUARD").is_some(),
+        egress: cmux_mobile_link::egress::Egress { require_proxy: proxy_only(request), ..Default::default() },
         video_lane: request.video_lane,
         webrtc_media: request.webrtc_media,
         ultra: request.ultra,
@@ -1970,6 +2000,11 @@ async fn dial_service(
         }
         Err(Attempt::Failed(error)) => Err(fail(pool, &socket, error).await),
     }
+}
+
+/// The debug "Proxy only" network, from the app or the rig's environment.
+fn proxy_only(request: &ConnectRequest) -> bool {
+    request.proxy_only || std::env::var_os("CMUX_MOBILE_DEV_PROXY_ONLY").is_some()
 }
 
 /// Measurement support (simulator: SIMCTL_CHILD_CMUX_MOBILE_DEV_NO_TURN=1): no

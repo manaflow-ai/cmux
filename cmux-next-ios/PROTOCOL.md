@@ -317,8 +317,9 @@ closed with 4001 `moved`.
   UDP, so the Mac sends plain UDP to the relayed address like to any
   endpoint. On the stream every STUN message and ChannelData message is
   framed by its own length, ChannelData padded to 4 bytes (RFC 5766
-  §11.5). The TLS server name is the URL's host, checked against the
-  public web PKI. The dialer sends through its allocation to the Mac's
+  §11.5). The TLS server name is the URL's host, checked against the OS
+  trust store, and the TCP leg goes through the system's proxy for it
+  ("Corporate networks" below). The dialer sends through its allocation to the Mac's
   public endpoints and reports the path `turn`, or `turn-tls` when the
   allocation rides TCP or TLS. TURN servers sit on well-routed anycast
   addresses: on 2026-10-13 TURN over UDP measured 16 ms RTT against 240 to
@@ -1582,6 +1583,8 @@ one redials.
   server the dial fails at once. The media session gets no candidates and
   fails, so browser video stays in the tunnel. The rig sets it without the
   app's settings: simulator `SIMCTL_CHILD_CMUX_MOBILE_DEV_BLOCK_UDP=1`.
+- Proxy only and Drop WireGuard (WireGuard; WebRTC ignores them; they apply
+  at the next dial): the corporate networks below ("Corporate networks").
 - No media session (measurement): simulator
   `SIMCTL_CHILD_CMUX_MOBILE_DEV_NO_WEBRTC_MEDIA=1` leaves `webrtc-media` out of
   `wg-init`, so browser video rides RTP in the tunnel ("WireGuard only").
@@ -1593,6 +1596,90 @@ The phone's link line names the path: "WireGuard direct", "WireGuard relay
 (TURN)", "WireGuard relay (TURN over TLS)", "WireGuard relay (cmux, HTTPS)"
 (and the same for WebRTC's TURN). cmux-mobile-host reports the path as
 `direct`, `turn`, `turn-tls`, `https-relay` or `none` (`phone_up`, `phone_path`).
+
+## Corporate networks
+
+The link's own connections (the signaling WebSocket, the HTTP API and TURN
+over TLS or TCP, on the phone and on the Mac's hostd) leave the device the
+way URLSession's do. No wire change; `cmux-mobile-link` `egress/`.
+
+- **TLS inspection.** A company network that inspects TLS re-signs every
+  server's certificate with its own root, which an MDM profile (or Settings
+  → General → About → Certificate Trust Settings) made the OS trust. The
+  link verifies every server against the OS trust store
+  (`rustls-platform-verifier`: the Security framework on iOS and macOS, the
+  system bundle elsewhere), so it trusts that root as Safari does. A
+  certificate the OS does not trust still fails. This is safe for the link
+  because WireGuard authenticates and encrypts every byte end to end inside
+  that TLS (SECURITY.md "Link transport").
+- **Proxy only.** A network whose only way out is its HTTP proxy. Each
+  connection asks the system for the proxies of its destination
+  (`CFNetworkCopyProxiesForURL` for `https://host:port/` on iOS and macOS: a
+  manual HTTP, HTTPS or SOCKS proxy, a PAC file or script, run by CFNetwork
+  itself, WPAD, an MDM global proxy; the `https_proxy`, `http_proxy`,
+  `all_proxy` and `no_proxy` variables elsewhere) and tries them in order. An
+  HTTP proxy carries the connection with `CONNECT host:port` (the TURN
+  server's name, unresolved: the proxy resolves it), a SOCKS proxy with SOCKS5.
+  Credentials the system's settings hold go along: HTTP Basic
+  (`Proxy-Authorization`) and SOCKS5 user name and password (RFC 1929). The
+  answer is cached for 30 s per destination, and a PAC file gets 4 s to answer
+  (then direct, as CFNetwork does). Loopback is never proxied.
+  - A proxy that asks for **NTLM or Kerberos (Negotiate)** fails the dial at
+    once, before `wg-init`, with a sentence that names the proxy, the server
+    and the schemes it asked for. The link does not do those: Apple exposes no
+    API that hands an app a proxy-authenticated byte stream it can run TURN
+    on. `URLSessionStreamTask` (and `URLSessionWebSocketTask`) do follow the
+    system proxy and answer its challenges from the keychain, but only from
+    Swift, not the Rust core, and a stream task carries TCP for one host only,
+    so moving TURN's socket there means a Swift transport the language
+    boundary rules out; Network.framework's `ProxyConfiguration` (iOS 17)
+    takes a user name and password only (`applyCredential`), and
+    `NWConnection` does not follow the system proxy on its own. A Basic proxy
+    with no password in the settings, or one that refuses it, fails the same
+    way with its own sentence.
+  - A dial whose STUN never answered (or never resolved) and whose TURN over
+    TLS the proxy refused fails with that sentence instead of a timeout.
+- **A firewall that drops WireGuard.** Packet inspection that lets STUN and
+  TURN's own requests through (so UDP looks open and TURN over UDP grants an
+  allocation) but drops every datagram carrying a WireGuard message, bare or
+  inside TURN over UDP. A tunnel that has no route (nothing from its peer
+  authenticated) for 3 s on the dialing phone, 6 s on the answering Mac, from
+  its start or after a roam, takes a TURN allocation over TCP or TLS
+  (timeline mark `wg_silent_turn_tls`) and announces it as a roam does,
+  through signaling too (`wg-endpoints`), so the peer sends there. Until its
+  next roam that side takes TURN over TCP or TLS only. A side already on TURN
+  over TLS, or with no `turns:` or TCP `turn:` server, does nothing. Both
+  sides then send a handshake initiation at once (the escalating side on its
+  new allocation, the peer on the announcement); after answering the peer's,
+  a side with data queued waits for the peer's first data before it starts
+  another (cmux-wg `wait_for_handshake_until`), so the two crossing
+  handshakes complete instead of replacing each other.
+- **Then the WebSocket relay.** The relay's "nothing reached the peer" join
+  (WebSocket relay, above) waits while this fallback may still take TURN over
+  TLS: from the moment the tunnel has no route until a route comes, or the TLS
+  allocation came up and had 3 s (`RELAY_AFTER`) to carry a handshake
+  (`RelayClock::turn_window`). So a network that drops WireGuard links over
+  TURN over TLS, and joins the relay only when that fails too (TLS to TURN
+  blocked, or the proxy refuses it).
+
+Debug builds add Settings → Transport → Developer → "Proxy only" and "Drop
+WireGuard" (`DeveloperOptions.proxyOnlyKey`, `dropWireGuardKey`;
+`ConnectOptions.proxyOnly`, `dropWireguard`), read at each dial:
+
+- Proxy only: Block UDP, and TURN over TLS must leave through a proxy the
+  system's settings name for the TURN server; with none the dial fails at once
+  and says so.
+- Drop WireGuard: every UDP datagram carrying WireGuard is dropped on this
+  side, both ways, on the tunnel's socket and its TURN over UDP; STUN and TURN
+  requests pass. The link should come up on `turn-tls` within about 4 s.
+
+The rig sets them without the app's settings: simulator
+`SIMCTL_CHILD_CMUX_MOBILE_DEV_PROXY_ONLY=1`,
+`SIMCTL_CHILD_CMUX_MOBILE_DEV_DROP_WIREGUARD=1`, and
+`SIMCTL_CHILD_CMUX_MOBILE_DEV_PROXY=http://user:pass@host:port` (or
+`socks5://...`, or `direct`) in place of the system's proxy settings. hostd
+reads the same three variables; `cmux-mobile-dial` takes `--proxy-only` and
+`--drop-wireguard`.
 
 ## Terminal size claims
 

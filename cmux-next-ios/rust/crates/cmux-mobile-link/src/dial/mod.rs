@@ -15,8 +15,11 @@ use crate::link::{Link, LinkConfig, Role};
 use crate::signaling::{SessionEvent, SignalEnvelope, SignalPayload, SignalingClient, SignalingEvent};
 
 pub mod diagnosis;
+pub(crate) mod dpi;
 pub mod relay;
 pub(crate) mod turn;
+#[doc(hidden)]
+pub use dpi::dropped_wireguard_datagrams;
 /// Measurement support (cmux-mobile-path-probe).
 pub use turn::{TimedAllocation, TurnTransport, timed_allocation};
 pub mod webrtc;
@@ -136,6 +139,16 @@ pub struct DialOptions {
     /// server the dial fails at once. WebRTC ignores it (webrtc-rs has no
     /// TURN over TCP or TLS).
     pub block_udp: bool,
+    /// WireGuard UDP dropped (the app's debug "Drop WireGuard" mode): this
+    /// side acts as behind a firewall whose packet inspection blocks
+    /// WireGuard (`dial/dpi.rs`). STUN and TURN's requests pass, every datagram
+    /// carrying WireGuard (plain UDP, or TURN over UDP) is dropped both ways,
+    /// so only TURN over TLS carries the tunnel.
+    pub drop_wireguard_udp: bool,
+    /// How TURN over TLS or TCP leaves this device: the system's proxy for
+    /// the TURN server (PAC included), the OS trust store, and whether only a
+    /// proxy may carry it (the debug "Proxy only" mode). [`crate::egress`].
+    pub egress: crate::egress::Egress,
     /// cmux's WebSocket relay (PROTOCOL.md "WebSocket relay"): where this
     /// side joins it when neither plain UDP nor TURN reaches the peer.
     /// `None`: no relay (tests, tools, and the dial fails as before).
@@ -152,8 +165,8 @@ pub struct DialOptions {
     /// before the relay socket is let go (default 60 s).
     #[doc(hidden)]
     pub relay_leave_after: Option<Duration>,
-    /// Test support: trust these roots, not the public web PKI, for TURN
-    /// over TLS (a test TURN server's self-signed certificate).
+    /// Test support: trust these roots and nothing else for TURN over TLS (a
+    /// test TURN server's self-signed certificate); wins over `egress.trust`.
     #[doc(hidden)]
     pub turn_tls_roots: Option<std::sync::Arc<rustls::RootCertStore>>,
     /// Test support: WireGuard silently drops every UDP datagram this side
@@ -281,6 +294,8 @@ impl Default for DialOptions {
             exclude_cgnat: false,
             relay_only: false,
             block_udp: false,
+            drop_wireguard_udp: false,
+            egress: crate::egress::Egress::default(),
             turn_tls_roots: None,
             drop_outbound_udp: false,
             refuse_udp_to: None,
