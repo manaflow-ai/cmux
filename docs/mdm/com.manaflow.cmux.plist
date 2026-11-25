@@ -7571,7 +7571,7 @@
 		</dict>
 		<dict>
 			<key>pfm_default</key>
-			<true/>
+			<false/>
 			<key>pfm_description</key>
 			<string>A Live button after the profile button turns presence on or off. Off: use the palette.</string>
 			<key>pfm_name</key>
