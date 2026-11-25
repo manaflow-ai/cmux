@@ -932,7 +932,6 @@ impl Hub {
             admitted();
         }
         admission.enter("queue");
-        admission.commit();
         let (turn_id, waiting, mut guard, run) =
             match self.queue_slot(session, slot, &mut accept).await {
                 Ok(slot) => slot,
