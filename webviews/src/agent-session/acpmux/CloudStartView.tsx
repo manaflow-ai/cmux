@@ -498,9 +498,19 @@ function ConnectGitHubAction({
   const waiting = useRef<(() => void) | undefined>(undefined);
   const retry = useRef(onConnected);
   retry.current = onConnected;
-  useEffect(() => () => waiting.current?.(), []);
+  // Unmounted (the start went on, or the chat closed): a connect still out retries nothing.
+  const mounted = useRef(true);
+  useEffect(() => {
+    mounted.current = true;
+    return () => {
+      mounted.current = false;
+      waiting.current?.();
+      waiting.current = undefined;
+    };
+  }, []);
   const connect = () => {
     void picker.connectRepo(githubFullName(repository)).then((outcome) => {
+      if (!mounted.current) return;
       if (outcome === "connected") retry.current?.();
       else if (outcome === "opened" && !waiting.current)
         waiting.current = picker.afterChange(() => {

@@ -201,6 +201,13 @@ struct CloudGitHubReposTests {
         let missing = Self.body(#"{"configured":false}"#)
         #expect(CloudGitHubPicker.connectFromStatus(status: 200, body: missing, repo: "acme/api") == CloudGitHubPicker.connectFromStatus(status: 200, body: missing))
         #expect(CloudGitHubPicker.connectFromStatus(status: 503, body: Data(), repo: "acme/api") == .unavailable(.unreachable))
+        // A suspended install on the repository's owner opens its settings page (only it lifts the suspension); one on
+        // another account, or a personal page that names no account, asks the API.
+        let suspended = Self.body(#"{"configured":true,"app_slug":"cmux","connection":{"status":"needs_reauth","configure_url":"https://github.com/organizations/acme/settings/installations/7"}}"#)
+        #expect(CloudGitHubPicker.connectFromStatus(status: 200, body: suspended, repo: "ACME/api") == .open(URL(string: "https://github.com/organizations/acme/settings/installations/7")!))
+        #expect(CloudGitHubPicker.connectFromStatus(status: 200, body: suspended, repo: "other/api") == nil)
+        let personal = Self.body(#"{"configured":true,"app_slug":"cmux","connection":{"status":"needs_reauth","configure_url":"https://github.com/settings/installations/7"}}"#)
+        #expect(CloudGitHubPicker.connectFromStatus(status: 200, body: personal, repo: "acme/api") == nil)
     }
 
     /// Each repository card keeps its own flow: one repository's page is never reopened for another, and a covered
@@ -215,6 +222,10 @@ struct CloudGitHubReposTests {
         #expect(await connects.answer(team: "team_a", repo: "acme/web", now: now) { _ in .connected } == .connected)
         #expect(await connects.answer(team: "team_a", repo: "acme/web", now: now) { _ in .refused } == .refused)
         #expect(await connects.page(team: "team_a", now: now) { _ in .connected } == nil, "the folder menu's page opens nothing for connected")
+        // A finished completion spends every page: the next click asks again instead of reopening a used state.
+        connects.forgetPages()
+        let fresh = URL(string: "https://github.com/login/oauth/authorize?state=x.eyJleHAiOjQxMDI0NDQ4MDB9.y")!
+        #expect(await connects.answer(team: "team_a", repo: "acme/api", now: now) { _ in .page(fresh) } == .page(fresh))
     }
 
     /// A row's size (`size_kb`, GitHub's KB) sizes a Cloud start in it; a row without one, or a bad one, has none.

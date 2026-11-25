@@ -67,7 +67,8 @@ test("returns only to a cmux chat link the API answered", () => {
 // page asked a web sign-in that could not finish anything. A stateless save is not a connect: it says so, no sign-in.
 test("a save on GitHub's installation page with no state asks no sign-in", () => {
   expect(integrationSavedOnGitHub({ installation_id: "183460287", setup_action: "update", code: "901636c8dc556" } as never)).toBe(true)
-  expect(integrationSavedOnGitHub({ installation_id: "183460287", setup_action: "install" })).toBe(true)
+  // A fresh install from the App's public page is linked to no team: not "picked up by itself".
+  expect(integrationSavedOnGitHub({ installation_id: "183460287", setup_action: "install" })).toBe(false)
   // A connect (state), a cancel, an owner's approval request or anything without an installation is the page's as before.
   expect(integrationSavedOnGitHub({ state: "a.b.c", installation_id: "1", setup_action: "update" })).toBe(false)
   expect(integrationSavedOnGitHub({ installation_id: "1", setup_action: "update", error: "access_denied" })).toBe(false)
