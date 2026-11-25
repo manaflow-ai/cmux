@@ -197,7 +197,10 @@ final class PaneLayerController: UIViewController {
     /// `barMinX`: the bar's leading edge as it is drawn this frame, in `root`.
     private func mask(_ bar: UINavigationBar, to visible: ClosedRange<CGFloat>, in root: UIView, barMinX: CGFloat) {
         guard PaneLayerProbe.masks else { return }
-        if PaneLayerProbe.follows { fadeGlass(in: bar, to: visible, barMinX: barMinX) }
+        if PaneLayerProbe.follows {
+            fadeGlass(in: bar, to: visible, barMinX: barMinX)
+            fadeBar(bar, to: visible, in: root)
+        }
         let layer: CALayer
         if let existing = bar.layer.mask, maskedBar === bar {
             layer = existing
@@ -251,7 +254,43 @@ final class PaneLayerController: UIViewController {
         CATransaction.commit()
     }
 
+    /// The bar as a whole, while it belongs to the page under this one: UIKit draws parts of
+    /// it (the iOS 26 platter glass and its buttons) outside the reach of its mask, so it
+    /// shows only once the page leaving has cleared all but the last of the screen, fading in
+    /// over that last stretch (a cancelled swipe keeps it out). Never drawn over the page.
+    private weak var fadedBar: UINavigationBar?
+    private var fadedBarOpacity: Float = 1
+
+    private func fadeBar(_ bar: UINavigationBar, to visible: ClosedRange<CGFloat>, in root: UIView) {
+        let width = max(root.bounds.width, 1)
+        // `visible` starts at 0 when the bar's page is the one under: its upper end is the
+        // leaving page's edge. Under the page on the other side, the bar is that page's.
+        guard visible.lowerBound <= 0.5 else { return unfadeBar() }
+        if fadedBar !== bar {
+            unfadeBar()
+            fadedBar = bar
+            fadedBarOpacity = bar.layer.opacity
+        }
+        let start = width * 0.86
+        let opacity = fadedBarOpacity * Float(max(0, min(1, (visible.upperBound - start) / (width - start))))
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        if bar.layer.animation(forKey: "opacity") != nil { bar.layer.removeAnimation(forKey: "opacity") }
+        if abs(bar.layer.opacity - opacity) >= 0.002 { bar.layer.opacity = opacity }
+        CATransaction.commit()
+    }
+
+    private func unfadeBar() {
+        guard let bar = fadedBar else { return }
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        bar.layer.opacity = fadedBarOpacity
+        CATransaction.commit()
+        fadedBar = nil
+    }
+
     private func unfadeGlass() {
+        unfadeBar()
         guard !fadedGlass.isEmpty else { return }
         CATransaction.begin()
         CATransaction.setDisableActions(true)
@@ -265,6 +304,7 @@ final class PaneLayerController: UIViewController {
             link?.invalidate()
             maskedBar?.layer.mask = nil
             for entry in fadedGlass.values { entry.layer.opacity = entry.opacity }
+            fadedBar?.layer.opacity = fadedBarOpacity
         }
     }
 }
