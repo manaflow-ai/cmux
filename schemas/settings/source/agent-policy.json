@@ -1721,10 +1721,13 @@
     },
     {
       "agent": "userOnly",
-      "why": "Compacting on a timer spends the person's usage (one model call each): their call.",
+      "why": "Compacting on a timer or before a cold wake, and batching the person's chats' wakes, spends their usage (one model call each) and delays delivery: their call.",
       "keys": [
         "agents.cacheCompact.enabled",
-        "agents.cacheCompact.minContextPercent"
+        "agents.cacheCompact.minContextPercent",
+        "agents.coldWake.enabled",
+        "agents.coldWake.compact",
+        "agents.coldWake.compactAboveTokens"
       ]
     },
     {

@@ -1522,6 +1522,30 @@ picks this backend automatically when `claude` is on PATH. Interrupt uses Claude
 `control_request` `interrupt`; the interrupted turn ends with `stopReason: cancelled` and the
 process keeps running.
 
+### Tuning compaction
+
+acpmux compacts an idle Claude Code chat in two places: before its prompt cache expires (warm,
+`hub/cache_compact.rs`) and before a batch of messages wakes a chat whose cache already lapsed
+(cold, `hub/cold_wake.rs`, which tries context surgery before `/compact`). Every knob is a
+setting in the cmux settings file (`~/.config/cmux/cmux-next.json`, or `CMUX_NEXT_CONFIG_FILE`;
+Settings > General > Prompt Cache, or `cmux settings set KEY VALUE`) and an environment variable
+of the acpmux daemon. The variable wins over the file; a value outside the range is clamped to
+it, and one that does not parse is ignored. Both are read each time a timer arms or a batch
+opens, so a change applies without a restart (the variable needs the daemon restarted with it).
+
+| Knob | Setting | Environment variable | Default | Range |
+|---|---|---|---|---|
+| Compact before the cache expires | `agents.cacheCompact.enabled` | `ACPMUX_CACHE_COMPACT=0\|1` | on | on, off |
+| Only above context used (%) | `agents.cacheCompact.minContextPercent` | `ACPMUX_CACHE_COMPACT_MIN_CONTEXT_PERCENT=N` | 30 | 10-95 |
+| Batch wakes of cold chats | `agents.coldWake.enabled` | `ACPMUX_COLD_WAKE=0\|1` | on | on, off |
+| Compact cold chats before waking (needs batching on) | `agents.coldWake.compact` | `ACPMUX_COLD_WAKE_COMPACT=0\|1` | on | on, off |
+| Compact cold chats above (tokens) | `agents.coldWake.compactAboveTokens` | `ACPMUX_COLD_COMPACT_ABOVE_TOKENS=N` | 50000 | 10000-500000 |
+
+On/off variables take `1`, `true`, `on` or `0`, `false`, `off`. Context surgery itself (masking old
+tool output instead of `/compact`) is `agents.harnessMagic.surgery.enabled`, off with
+`ACPMUX_HM_SURGERY=0`. The daemon logs each decision under `acpmux::hub::cold_wake` and
+`acpmux::hub::idle::cache_compact`.
+
 ### cmux tools in every session
 
 Every local session gets cmux's own agent tools: the `cmux-computer-use` MCP server

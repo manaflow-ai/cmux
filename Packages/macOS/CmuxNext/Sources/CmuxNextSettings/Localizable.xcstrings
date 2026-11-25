@@ -220288,6 +220288,798 @@
         }
       }
     },
+    "settings.agents.coldWake.enabled": {
+      "comment": "Settings > General > Prompt Cache: toggle that gathers the messages that would wake an idle chat whose prompt cache expired into one batch",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تجميع إيقاظ المحادثات الباردة"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Grupiši buđenja hladnih chatova"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Saml vækninger af kolde chats"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Weckrufe kalter Chats bündeln"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Batch Wakes of Cold Chats"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Agrupar activaciones de chats fríos"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Regrouper les réveils des chats froids"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Raggruppa i risvegli delle chat fredde"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "コールドチャットの起動をまとめる"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ដាក់ការដាស់ការជជែកត្រជាក់ជាបាច់"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "콜드 채팅 깨우기 묶기"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Samle vekkinger av kalde chatter"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Grupuj wybudzenia zimnych czatów"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Agrupar ativações de chats frios"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Группировать пробуждения холодных чатов"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "รวมการปลุกแชตที่เย็นเป็นชุด"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Soğuk sohbet uyandırmalarını grupla"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Групувати пробудження холодних чатів"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Gộp các lần đánh thức cuộc trò chuyện nguội"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "批量唤醒冷聊天"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "批次喚醒冷聊天"
+          }
+        }
+      }
+    },
+    "settings.agents.coldWake.enabled.help": {
+      "comment": "Settings > General > Prompt Cache: help under the batch-cold-wakes toggle",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تنتظر الرسائل إلى محادثة خاملة انتهت ذاكرتها المؤقتة قليلًا وتصل معًا، فيُقرأ سياقها مرة واحدة."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Poruke neaktivnom chatu čiji je keš istekao malo čekaju i stižu zajedno, pa se njegov kontekst čita jednom."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Beskeder til en inaktiv chat, hvis cache er udløbet, venter lidt og ankommer samlet, så konteksten læses én gang."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nachrichten an einen ruhenden Chat mit abgelaufenem Cache warten kurz und kommen gemeinsam an, sodass sein Kontext einmal gelesen wird."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Messages to an idle chat whose cache expired wait a little and arrive together, so its context is read once."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Los mensajes a un chat inactivo cuya caché caducó esperan un poco y llegan juntos, así su contexto se lee una vez."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Les messages destinés à un chat inactif dont le cache a expiré attendent un peu et arrivent ensemble : son contexte n’est lu qu’une fois."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "I messaggi a una chat inattiva con la cache scaduta attendono un po’ e arrivano insieme, così il contesto viene letto una volta."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "キャッシュが期限切れのアイドルチャットへのメッセージは少し待ってまとめて届くため、コンテキストの読み込みは1回で済みます。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "សារទៅការជជែកទំនេរដែលឃ្លាំងសម្ងាត់ផុតកំណត់ រង់ចាំបន្តិច ហើយមកដល់ជាមួយគ្នា ដូច្នេះបរិបទរបស់វាត្រូវបានអានតែម្តង។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "캐시가 만료된 유휴 채팅으로 가는 메시지는 잠시 기다렸다가 함께 도착하므로 컨텍스트를 한 번만 읽습니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Meldinger til en inaktiv chat med utløpt hurtigbuffer venter litt og kommer samlet, så konteksten leses én gang."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Wiadomości do bezczynnego czatu z wygasłą pamięcią podręczną chwilę czekają i docierają razem, więc jego kontekst jest czytany raz."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mensagens para um chat ocioso cujo cache expirou esperam um pouco e chegam juntas, para que o contexto seja lido uma vez."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Сообщения в простаивающий чат с истёкшим кэшем немного ждут и приходят вместе, поэтому его контекст читается один раз."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ข้อความถึงแชตที่ว่างซึ่งแคชหมดอายุจะรอสักครู่แล้วมาถึงพร้อมกัน จึงอ่านบริบทเพียงครั้งเดียว"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Önbelleği dolmuş boştaki bir sohbete giden mesajlar biraz bekler ve birlikte gelir; böylece bağlamı bir kez okunur."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Повідомлення до неактивного чату з простроченим кешем трохи чекають і надходять разом, тож його контекст читається один раз."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tin nhắn tới cuộc trò chuyện rảnh có bộ nhớ đệm đã hết hạn sẽ chờ một chút và đến cùng nhau, nên ngữ cảnh chỉ được đọc một lần."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "发给缓存已过期的空闲聊天的消息会稍等片刻再一起送达，这样只需读取一次上下文。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "傳給快取已過期之閒置聊天的訊息會稍候片刻再一起送達，只需讀取一次上下文。"
+          }
+        }
+      }
+    },
+    "settings.agents.coldWake.compact": {
+      "comment": "Settings > General > Prompt Cache: toggle that compacts a large chat whose prompt cache expired before batched messages are delivered",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ضغط المحادثات الباردة قبل الإيقاظ"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sažmi hladne chatove prije buđenja"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Komprimér kolde chats før vækning"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kalte Chats vor dem Wecken komprimieren"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Compact Cold Chats Before Waking"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Compactar chats fríos antes de activarlos"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Compacter les chats froids avant le réveil"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Compatta le chat fredde prima del risveglio"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "起動前にコールドチャットを圧縮"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "បង្រួមការជជែកត្រជាក់មុនដាស់"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "깨우기 전에 콜드 채팅 압축"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Komprimer kalde chatter før vekking"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kompaktuj zimne czaty przed wybudzeniem"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Compactar chats frios antes de ativar"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Сжимать холодные чаты перед пробуждением"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "บีบอัดแชตที่เย็นก่อนปลุก"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Uyandırmadan önce soğuk sohbetleri sıkıştır"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Стискати холодні чати перед пробудженням"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nén cuộc trò chuyện nguội trước khi đánh thức"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "唤醒前压缩冷聊天"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "喚醒前壓縮冷聊天"
+          }
+        }
+      }
+    },
+    "settings.agents.coldWake.compact.help": {
+      "comment": "Settings > General > Prompt Cache: help under the compact-cold-chats toggle",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تُضغط المحادثة الكبيرة التي انتهت ذاكرتها المؤقتة قبل وصول الرسائل المجمّعة."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Veliki chat čiji je keš istekao sažima se prije nego stignu grupisane poruke."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "En stor chat, hvis cache er udløbet, komprimeres, før samlede beskeder ankommer."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ein großer Chat mit abgelaufenem Cache wird komprimiert, bevor gebündelte Nachrichten ankommen."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A large chat whose cache expired is compacted before batched messages arrive."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Un chat grande cuya caché caducó se compacta antes de que lleguen los mensajes agrupados."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Un grand chat dont le cache a expiré est compacté avant l’arrivée des messages regroupés."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Una chat grande con la cache scaduta viene compattata prima che arrivino i messaggi raggruppati."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "キャッシュが期限切れの大きなチャットは、まとめたメッセージが届く前に圧縮されます。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ការជជែកធំដែលឃ្លាំងសម្ងាត់ផុតកំណត់ ត្រូវបានបង្រួម មុនសារជាបាច់មកដល់។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "캐시가 만료된 큰 채팅은 묶인 메시지가 도착하기 전에 압축됩니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "En stor chat med utløpt hurtigbuffer komprimeres før samlede meldinger kommer."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Duży czat z wygasłą pamięcią podręczną jest kompaktowany, zanim dotrą zgrupowane wiadomości."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Um chat grande cujo cache expirou é compactado antes que as mensagens agrupadas cheguem."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Большой чат с истёкшим кэшем сжимается до прихода сгруппированных сообщений."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "แชตขนาดใหญ่ที่แคชหมดอายุจะถูกบีบอัดก่อนที่ข้อความที่รวมไว้จะมาถึง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Önbelleği dolmuş büyük bir sohbet, gruplanan mesajlar gelmeden önce sıkıştırılır."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Великий чат із простроченим кешем стискається до надходження згрупованих повідомлень."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cuộc trò chuyện lớn có bộ nhớ đệm đã hết hạn được nén trước khi các tin nhắn gộp đến."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "缓存已过期的大型聊天会在批量消息送达前被压缩。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "快取已過期的大型聊天會在批次訊息送達前被壓縮。"
+          }
+        }
+      }
+    },
+    "settings.agents.coldWake.compactAbove": {
+      "comment": "Settings > General > Prompt Cache: number field, the context (tokens) from which a cold chat is compacted before batched messages are delivered",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ضغط المحادثات الباردة فوق (رموز)"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sažmi hladne chatove iznad (tokena)"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Komprimér kolde chats over (tokens)"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kalte Chats komprimieren ab (Tokens)"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Compact Cold Chats Above (Tokens)"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Compactar chats fríos por encima de (tokens)"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Compacter les chats froids au-delà de (jetons)"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Compatta le chat fredde oltre (token)"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "コールドチャットを圧縮する下限 (トークン)"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "បង្រួមការជជែកត្រជាក់លើស (តូខឹន)"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "콜드 채팅 압축 기준 (토큰)"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Komprimer kalde chatter over (tokens)"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kompaktuj zimne czaty powyżej (tokeny)"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Compactar chats frios acima de (tokens)"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Сжимать холодные чаты от (токенов)"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "บีบอัดแชตที่เย็นเมื่อเกิน (โทเค็น)"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Şunun üzerindeki soğuk sohbetleri sıkıştır (token)"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Стискати холодні чати від (токенів)"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nén cuộc trò chuyện nguội trên (token)"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "冷聊天压缩阈值（令牌）"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "冷聊天壓縮門檻（權杖）"
+          }
+        }
+      }
+    },
+    "settings.agents.coldWake.compactAbove.help": {
+      "comment": "Settings > General > Prompt Cache: help under the cold-compaction threshold field",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تُوقَظ المحادثات الباردة ذات السياق الأقل من هذا دون ضغط."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hladni chatovi s manje konteksta od ovoga bude se bez sažimanja."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kolde chats med mindre kontekst end dette vækkes uden komprimering."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kalte Chats mit weniger Kontext werden ohne Komprimierung geweckt."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cold chats with less context than this are woken without compacting."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Los chats fríos con menos contexto que esto se activan sin compactar."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Les chats froids ayant moins de contexte que cela sont réveillés sans compactage."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Le chat fredde con meno contesto di questo vengono risvegliate senza compattarle."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "コンテキストがこれより少ないコールドチャットは、圧縮せずに起動します。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ការជជែកត្រជាក់ដែលមានបរិបទតិចជាងនេះ ត្រូវបានដាស់ដោយមិនបង្រួម។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "컨텍스트가 이보다 적은 콜드 채팅은 압축하지 않고 깨웁니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kalde chatter med mindre kontekst enn dette vekkes uten komprimering."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zimne czaty z mniejszym kontekstem są wybudzane bez kompaktowania."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chats frios com menos contexto que isso são ativados sem compactar."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Холодные чаты с меньшим контекстом пробуждаются без сжатия."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "แชตที่เย็นซึ่งมีบริบทน้อยกว่านี้จะถูกปลุกโดยไม่บีบอัด"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bundan daha az bağlamı olan soğuk sohbetler sıkıştırılmadan uyandırılır."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Холодні чати з меншим контекстом пробуджуються без стискання."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cuộc trò chuyện nguội có ngữ cảnh ít hơn mức này được đánh thức mà không nén."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "上下文少于此值的冷聊天在唤醒时不压缩。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "上下文少於此值的冷聊天在喚醒時不壓縮。"
+          }
+        }
+      }
+    },
     "settings.agentPane.dictationSource": {
       "comment": "Settings > Agent Chat > Composer: the row choosing what the dictation button dictates with",
       "extractionState": "manual",
