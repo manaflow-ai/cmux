@@ -280,7 +280,6 @@ pub(super) const MUX: &[Kind] = &[
     not("subagents_working", UNREAD),
     page("subsession"),
     not("subsessions_waiting", UNREAD),
-    not("summarized", UNREAD),
     not("tags", UNREAD),
     not("task_list", UNREAD),
     not("team_message_consumed", UNREAD),

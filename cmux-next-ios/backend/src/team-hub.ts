@@ -4,6 +4,8 @@ import type { CachedIce } from "./ice.ts"
 import type { Env } from "./env.ts"
 import { MAILBOX_PENDING_LIMIT, MAILBOX_TTL_MS } from "./push.ts"
 import { userTeams } from "./stack.ts"
+import { relayRoomName } from "./link-relay.ts"
+import { FIRST_GRANT, MIB, MibBucket, newTicket, RELAY_CLOSE, ticketsMatch, userMibPerMinute, type BudgetAnswer, type MibBucketState } from "./relay-access.ts"
 
 /** Per-socket identity, set by the Worker after auth and device checks (never by the client). */
 export interface Attachment {
@@ -281,6 +283,16 @@ export const userHubName = (ownerKey: string, space = "") => (space ? `${space}|
 export type HubOwner = string | { readonly ownerKey: string; readonly space: string }
 const ownerOf = (o: HubOwner): { ownerKey: string; space: string } => (typeof o === "string" ? { ownerKey: o, space: "" } : o)
 
+/** A signaling session: its two devices, and each one's relay ticket (null for a session opened before tickets). */
+interface SessionRow {
+  initiator: string
+  responder: string
+  initiatorTicket: string | null
+  responderTicket: string | null
+  /** When the session's first signal was admitted (ms): a session lives `SESSION_TTL_MS`. */
+  createdAt: number
+}
+
 /** Thrown when a call names a device of another owner than the hub's: a Worker bug, never served. */
 export class WrongHubError extends Error {}
 
@@ -310,7 +322,11 @@ export class TeamHub extends DurableObject<Env> {
   private readonly sql: SqlStorage
   private readonly members = new Map<string, { ok: boolean; at: number }>()
   private readonly buckets = new WeakMap<WebSocket, { text: { t: number; at: number }; binary: { t: number; at: number } }>()
-  private readonly sessions = new Map<string, { initiator: string; responder: string }>()
+  private readonly sessions = new Map<string, SessionRow>()
+  /** The owner's relay budget (`relayBudget`), loaded from storage after a wake, so a wake grants no fresh minute. */
+  private relayBucket: MibBucket | undefined
+  /** Budget requests this instance answered (`relayBudgetCalls`: tests and diagnostics). */
+  private relayBudgetAsked = 0
   /** Deserialized attachments: read on every frame, and deserializing each time is the costly part. */
   private readonly attachments = new WeakMap<WebSocket, Attachment>()
   private colo: string | null | undefined
@@ -358,6 +374,11 @@ export class TeamHub extends DurableObject<Env> {
         at INTEGER NOT NULL, expires_at INTEGER NOT NULL, keep_until INTEGER NOT NULL, state TEXT NOT NULL, reason TEXT)`
     )
     addColumn("mailbox", "sig")
+    // Each party's relay ticket (PROTOCOL.md "WebSocket relay"), made when the session opens.
+    addColumn("sessions", "initiator_ticket")
+    addColumn("sessions", "responder_ticket")
+    // Sessions whose relay object has had a join: their live relay sockets close when the session ends.
+    this.sql.exec(`CREATE TABLE IF NOT EXISTS relay_sessions (session_id TEXT PRIMARY KEY)`)
   }
 
   // ---- RPC from the Worker -------------------------------------------------------------------
@@ -504,8 +525,10 @@ export class TeamHub extends DurableObject<Env> {
       } catch {}
     }
     this.live.delete(deviceId)
-    for (const r of this.sql.exec<{ session_id: string }>(`SELECT session_id FROM sessions WHERE initiator = ? OR responder = ?`, deviceId, deviceId).toArray())
+    for (const r of this.sql.exec<{ session_id: string }>(`SELECT session_id FROM sessions WHERE initiator = ? OR responder = ?`, deviceId, deviceId).toArray()) {
       this.sessions.delete(r.session_id)
+      this.closeRelay(r.session_id, RELAY_CLOSE.removed, "removed")
+    }
     this.sql.exec(`DELETE FROM sessions WHERE initiator = ? OR responder = ?`, deviceId, deviceId)
     // A removed phone's replies never reach a Mac, and a removed Mac's queue goes with it.
     this.sql.exec(`DELETE FROM mailbox WHERE mac = ? OR from_device = ?`, deviceId, deviceId)
@@ -537,7 +560,10 @@ export class TeamHub extends DurableObject<Env> {
     this.live.clear()
     this.sessions.clear()
     this.members.clear()
-    for (const t of ["macs", "devices", "sessions", "meta", "forgotten", "turn_pushes", "mailbox"]) this.sql.exec(`DELETE FROM ${t}`)
+    // Before `meta` (the owner key names the relay objects) goes.
+    for (const r of this.sql.exec<{ session_id: string }>(`SELECT session_id FROM relay_sessions`).toArray())
+      this.closeRelay(r.session_id, RELAY_CLOSE.removed, "removed")
+    for (const t of ["macs", "devices", "sessions", "meta", "forgotten", "turn_pushes", "mailbox", "relay_sessions"]) this.sql.exec(`DELETE FROM ${t}`)
     this.ownerKey = null
   }
 
@@ -577,15 +603,46 @@ export class TeamHub extends DurableObject<Env> {
    * the devices its first admitted signal bound, while the session lives (24 h, or until `bye` or the device's
    * removal ends it). Null for anyone else, so only the phone and the Mac of one session can join its relay.
    */
-  async relayPeer(owner: HubOwner, sessionId: string, deviceId: string): Promise<{ peer: string; ingress: Ingress | null } | null> {
+  async relayPeer(owner: HubOwner, sessionId: string, deviceId: string, ticket?: string | null): Promise<{ peer: string; ingress: Ingress | null } | null> {
     this.bind(owner)
     const s = this.session(sessionId)
     if (!s) return null
+    // The device must present its own ticket: the one stamped on the signals sent to its own socket.
     const peer = s.initiator === deviceId ? s.responder : s.responder === deviceId ? s.initiator : null
-    if (!peer) return null
+    if (!peer || !ticketsMatch(ticket, this.ticketOf(sessionId, s, deviceId))) return null
+    this.sql.exec(`INSERT INTO relay_sessions (session_id) VALUES (?) ON CONFLICT(session_id) DO NOTHING`, sessionId)
     // Where the peer's signal socket entered Cloudflare (and its netcheck): the relay's other end, for placement.
     const sock = this.ctx.getWebSockets(peer).find((ws) => !this.attach(ws)?.replaced)
     return { peer, ingress: (sock && this.attach(sock)?.ingress) ?? null }
+  }
+
+  /**
+   * The relay's per-user budget (PROTOCOL.md "WebSocket relay"): whether the owner may relay `mib` more MiB now,
+   * across every session of this hub. LinkRelay asks for grants of 64 KiB doubling to a MiB, so this is a few
+   * calls a second at most per busy socket.
+   */
+  async relayBudget(owner: HubOwner, mib: number): Promise<BudgetAnswer> {
+    this.bind(owner)
+    this.relayBudgetAsked += 1
+    // Test only: a hub that sheds load (the relay must fail closed, test/link-relay.test.ts).
+    if (this.env.ENVIRONMENT === "test" && this.env.LINK_RELAY_TEST_BUDGET_ERROR === "1") throw new Error("test: the hub is overloaded")
+    if (!this.relayBucket) {
+      const row = this.sql.exec<{ value: string }>(`SELECT value FROM meta WHERE key = 'relay_budget'`).toArray()[0]
+      const stored = row ? (JSON.parse(row.value) as MibBucketState) : undefined
+      this.relayBucket = new MibBucket(userMibPerMinute(this.env.LINK_RELAY_USER_MIB_PER_MIN), stored)
+    }
+    const granted = this.relayBucket.take(mib)
+    this.sql.exec(
+      `INSERT INTO meta (key, value) VALUES ('relay_budget', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value`,
+      JSON.stringify(this.relayBucket.state())
+    )
+    return { granted, retryAfterMs: granted ? 0 : this.relayBucket.msUntil(Math.min(mib, FIRST_GRANT / MIB)) }
+  }
+
+  /** How many budget requests this hub answered since it last woke (tests and diagnostics). */
+  async relayBudgetCalls(owner: HubOwner): Promise<number> {
+    this.bind(owner)
+    return this.relayBudgetAsked
   }
 
   /**
@@ -895,9 +952,15 @@ export class TeamHub extends DurableObject<Env> {
         return this.error(ws, "bad_request", "unknown payload kind", f.sessionId)
       if (!this.admit(att, f.to, f.sessionId)) return this.error(ws, "not_owner", "not allowed to signal this device", f.sessionId)
       const target = this.open(f.to)
-      if (!target) return this.error(ws, "offline", "device is offline", f.sessionId)
-      // fromUserId is always the verified sender (PROTOCOL.md); any client value is dropped.
-      target.send(JSON.stringify({ type: "signal", to: f.to, from: att.deviceId, fromUserId: att.userId, sessionId: f.sessionId, payload: f.payload }))
+      if (!target) {
+        // A bye still ends the session (and its relay) when the peer cannot hear it.
+        if (f.payload.kind === "bye") this.endSession(f.sessionId)
+        return this.error(ws, "offline", "device is offline", f.sessionId)
+      }
+      // fromUserId is always the verified sender (PROTOCOL.md); any client value is dropped. A WireGuard signal
+      // also carries the recipient's own relay ticket (PROTOCOL.md "WebSocket relay"), never a client's.
+      const relayTicket = f.payload.kind.startsWith("wg-") ? this.ticketFor(f.sessionId, f.to) : undefined
+      target.send(JSON.stringify({ type: "signal", to: f.to, from: att.deviceId, fromUserId: att.userId, sessionId: f.sessionId, payload: f.payload, ...(relayTicket ? { relayTicket } : {}) }))
       if (f.payload.kind === "bye") this.endSession(f.sessionId)
       return
     }
@@ -1015,25 +1078,93 @@ export class TeamHub extends DurableObject<Env> {
     const mac = this.macRow(to)
     if (!mac || mac.owner_user_id !== att.userId || (mac.owner_project_id ?? this.primary) !== (att.projectId ?? this.primary)) return false
     const now = Date.now()
-    this.sql.exec(`DELETE FROM sessions WHERE created_at < ?`, now - SESSION_TTL_MS)
-    this.sql.exec(`INSERT INTO sessions (session_id, initiator, responder, created_at) VALUES (?, ?, ?, ?)`, sessionId, att.deviceId, to, now)
-    this.sessions.set(sessionId, { initiator: att.deviceId, responder: to })
+    // Expired sessions go, and so do their relays (review of #53240: a pruned session's relay stayed open, and a
+    // later device delete no longer found it).
+    for (const r of this.sql.exec<{ session_id: string }>(`SELECT session_id FROM sessions WHERE created_at < ?`, now - SESSION_TTL_MS).toArray())
+      this.expireSession(r.session_id)
+    const row: SessionRow = { initiator: att.deviceId, responder: to, initiatorTicket: newTicket(), responderTicket: newTicket(), createdAt: now }
+    this.sql.exec(
+      `INSERT INTO sessions (session_id, initiator, responder, created_at, initiator_ticket, responder_ticket) VALUES (?, ?, ?, ?, ?, ?)`,
+      sessionId,
+      att.deviceId,
+      to,
+      now,
+      row.initiatorTicket,
+      row.responderTicket
+    )
+    this.sessions.set(sessionId, row)
     return true
   }
 
-  private session(id: string): { initiator: string; responder: string } | undefined {
+  private session(id: string): SessionRow | undefined {
     const hit = this.sessions.get(id)
-    if (hit) return hit
-    const r = this.sql.exec<{ initiator: string; responder: string; created_at: number }>(`SELECT initiator, responder, created_at FROM sessions WHERE session_id = ?`, id).toArray()[0]
-    if (!r || Date.now() - r.created_at > SESSION_TTL_MS) return undefined
-    const s = { initiator: r.initiator, responder: r.responder }
+    if (hit) {
+      if (Date.now() - hit.createdAt <= SESSION_TTL_MS) return hit
+      this.expireSession(id)
+      return undefined
+    }
+    const r = this.sql
+      .exec<{ initiator: string; responder: string; created_at: number; initiator_ticket: string | null; responder_ticket: string | null }>(
+        `SELECT initiator, responder, created_at, initiator_ticket, responder_ticket FROM sessions WHERE session_id = ?`,
+        id
+      )
+      .toArray()[0]
+    if (!r) return undefined
+    if (Date.now() - r.created_at > SESSION_TTL_MS) {
+      this.expireSession(id)
+      return undefined
+    }
+    const s: SessionRow = { initiator: r.initiator, responder: r.responder, initiatorTicket: r.initiator_ticket, responderTicket: r.responder_ticket, createdAt: r.created_at }
     this.sessions.set(id, s)
     return s
+  }
+
+  /** `deviceId`'s relay ticket of session `s`, made now for a session opened before tickets existed. */
+  private ticketOf(id: string, s: SessionRow, deviceId: string): string | null {
+    const initiator = s.initiator === deviceId
+    if (!initiator && s.responder !== deviceId) return null
+    const stored = initiator ? s.initiatorTicket : s.responderTicket
+    if (stored) return stored
+    const made = newTicket()
+    this.sql.exec(`UPDATE sessions SET ${initiator ? "initiator_ticket" : "responder_ticket"} = ? WHERE session_id = ?`, made, id)
+    if (initiator) s.initiatorTicket = made
+    else s.responderTicket = made
+    return made
+  }
+
+  /** The ticket to stamp on a signal of session `id` sent to `to` (synchronous, so signals keep their order). */
+  private ticketFor(id: string, to: string): string | null {
+    const s = this.session(id)
+    return s ? this.ticketOf(id, s, to) : null
   }
 
   private endSession(id: string) {
     this.sessions.delete(id)
     this.sql.exec(`DELETE FROM sessions WHERE session_id = ?`, id)
+    this.closeRelay(id, RELAY_CLOSE.ended, "ended")
+  }
+
+  /** A session past its 24 h: gone, like an ended one, its relay sockets closed. */
+  private expireSession(id: string) {
+    this.sessions.delete(id)
+    this.sql.exec(`DELETE FROM sessions WHERE session_id = ?`, id)
+    this.closeRelay(id, RELAY_CLOSE.ended, "expired")
+  }
+
+  /**
+   * Close the live relay sockets of session `id` (PROTOCOL.md "WebSocket relay"), when its relay object ever had
+   * a join: a session's end, a device's removal and an account's deletion stop what is already relaying, not only
+   * new joins. Never awaited by the caller: it must not hold up signaling.
+   */
+  private closeRelay(id: string, code: number, reason: string) {
+    if (this.sql.exec(`SELECT 1 FROM relay_sessions WHERE session_id = ?`, id).toArray().length === 0) return
+    this.sql.exec(`DELETE FROM relay_sessions WHERE session_id = ?`, id)
+    const owner = this.ownerKey ?? this.sql.exec<{ value: string }>(`SELECT value FROM meta WHERE key = 'owner'`).toArray()[0]?.value
+    if (!owner) return
+    const room = this.env.LINK_RELAY.get(this.env.LINK_RELAY.idFromName(relayRoomName(owner, this.boundSpace(), id)))
+    this.ctx.waitUntil(
+      room.closeAll(code, reason).catch((e: unknown) => console.log(JSON.stringify({ msg: "relay close failed", error: String(e) })))
+    )
   }
 
   private macRow(deviceId: string) {
