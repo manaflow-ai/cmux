@@ -369,8 +369,9 @@ fn a_delete_whose_record_cannot_be_saved_changes_nothing() {
 #[test]
 fn a_cache_that_cannot_keep_bytes_fetches_one_file_per_read() {
     let (state, manifest, fake) = setup(false);
-    let overlay = open(state.path(), &manifest, &fake);
-    // Nothing can be kept: the cache's folder is gone and a file holds its name.
+    // Neither store can retain a read: the content store has no free space above its floor,
+    // and a regular file occupies the per-listing cache directory.
+    let overlay = open(state.path(), &manifest, &fake).with_content_floor(u64::MAX);
     fs::remove_dir_all(state.path().join("cache")).unwrap();
     fs::write(state.path().join("cache"), b"").unwrap();
     let src = path_ino(&overlay, "src");
