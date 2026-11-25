@@ -731,28 +731,43 @@ def shallow_boundary(root: Path) -> set[str]:
         return set()
 
 
-def added_by(path: str, root: Path, boundary: set[str]) -> str | None:
-    """`<sha> (<subject>)` of the commit that added `path`, or None when the history here lacks it."""
+def added_by_each(paths: set[str], root: Path, boundary: set[str]) -> dict[str, str]:
+    """`<sha> (<subject>)` of the commit that added each path; a path the history here lacks is absent.
+
+    One newest-first walk names them all: a `git log` per path walked the whole history each time
+    (138 walks, 12 s of the check's 20).
+    """
+    if not paths:
+        return {}
     try:
-        line = subprocess.check_output(
-            ["git", "log", "-1", "--diff-filter=A", "--format=%H%x09%s", "HEAD", "--", path],
-            cwd=root, text=True, stderr=subprocess.DEVNULL).strip()
+        out = subprocess.check_output(
+            ["git", "log", "--diff-filter=A", "--no-renames", "--name-only", "-z",
+             "--format=%x01%H%x09%s", "HEAD", "--", *sorted(paths)],
+            cwd=root, text=True, stderr=subprocess.DEVNULL)
     except (OSError, subprocess.CalledProcessError):
-        return None
-    sha, _, subject = line.partition("\t")
-    if not sha or sha in boundary:
-        return None
-    return f"{sha[:12]} ({subject})"
+        return {}
+    found: dict[str, str] = {}
+    for record in out.split("\x01")[1:]:
+        header, _, names = record.partition("\n")
+        sha, _, subject = header.strip("\0\n").partition("\t")
+        for name in names.split("\0"):
+            name = name.strip("\n")
+            if name in paths and name not in found:
+                found[name] = "" if sha in boundary else f"{sha[:12]} ({subject})"
+        if len(found) == len(paths):
+            break
+    return {path: commit for path, commit in found.items() if commit}
 
 
 def attribute(warnings: list[str], root: Path) -> list[str]:
     """Each warning about a test file, with the commit that added the file in its first line."""
-    boundary = shallow_boundary(root)
+    split = [warning.partition("\n") for warning in warnings]
+    paths = {headline.split(":", 1)[0] for headline, _, _ in split}
+    commits = added_by_each({path for path in paths if TEST_PATH_RE.fullmatch(path)}, root,
+                            shallow_boundary(root))
     out = []
-    for warning in warnings:
-        headline, newline, rest = warning.partition("\n")
-        path = headline.split(":", 1)[0]
-        commit = added_by(path, root, boundary) if TEST_PATH_RE.fullmatch(path) else None
+    for warning, (headline, newline, rest) in zip(warnings, split):
+        commit = commits.get(headline.split(":", 1)[0])
         out.append(f"{headline} Added by {commit}.{newline}{rest}" if commit else warning)
     return out
 
