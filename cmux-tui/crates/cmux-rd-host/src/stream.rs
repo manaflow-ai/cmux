@@ -35,11 +35,19 @@ pub struct SessionCfg {
     /// or none is the whole X screen). macOS picks through `display` itself.
     #[cfg_attr(not(target_os = "linux"), allow(dead_code))]
     pub display_pick: Option<String>,
+    /// Share this one window instead of a display (Linux X11: an X window id, it wins over
+    /// `display_pick`; macOS: a CGWindowID). The session ends when the window is closed or
+    /// resized. The Wayland portal refuses a session that names one.
+    #[cfg_attr(not(any(target_os = "linux", target_os = "macos")), allow(dead_code))]
+    pub window: Option<u32>,
     pub max_fps: u32,
     /// `--encode-profile`: standard (default) or ultra (the engine marks every frame with it).
     pub encode_profile: cmux_rd_core::profile::EncodeProfile,
     pub start_kbps: u32,
     pub max_kbps: u32,
+    /// `--pin-kbps N` (bench builds): the controller's floor, equal to its start and ceiling,
+    /// so the target holds at N. `None` keeps the controller's own floor.
+    pub pin_kbps: Option<u32>,
     #[cfg_attr(target_os = "macos", allow(dead_code))] // software encoders only
     pub preset: String,
     pub profile: String,
@@ -131,11 +139,42 @@ pub struct MediaSession {
     /// The viewer offered cap `ledger`: each frame's host times follow its last shard
     /// (a `FrameTimes` datagram).
     ledger: bool,
+    /// After an outage, replace any frame waiting in the link with the newest encoded frame.
+    send_newest_after_outage: bool,
 }
 
 /// Whether frames are paced (`CMUX_RD_PACE=0` turns it off, for A/B measurement).
 fn pacing_enabled() -> bool {
     std::env::var_os("CMUX_RD_PACE").is_none_or(|v| v != "0")
+}
+
+fn carrier_send_queue_busy(carrier: &dyn Carrier) -> bool {
+    carrier
+        .media_queue_stats()
+        .is_some_and(|stats| stats.queue_frames != 0 || stats.queue_datagrams != 0)
+}
+
+fn encoded_frame_waits_for_queues(
+    carrier: &dyn Carrier,
+    pacer: Option<&Pacer>,
+    send_newest_after_outage: bool,
+) -> bool {
+    !send_newest_after_outage
+        && (pacer.is_some_and(|pacer| !pacer.is_empty()) || carrier_send_queue_busy(carrier))
+}
+
+/// Drains the carrier's departure receipts into `out` and hands each one's header and
+/// transport-write time to `on_departed`. The only departure source for frame shards:
+/// `send_datagram` returning means queued (a link carrier only enqueues), not departed.
+fn drain_departures(
+    carrier: &mut dyn Carrier,
+    out: &mut Vec<DatagramDeparture>,
+    mut on_departed: impl FnMut(&DatagramHeader, u64),
+) {
+    carrier.drain_departures(out);
+    for departure in out.iter() {
+        on_departed(&departure.header, departure.departed_us);
+    }
 }
 
 /// Original video and FEC shards are one replaceable frame. Key, recovery,
@@ -436,6 +475,9 @@ impl MediaSession {
                 max_fps: cfg.max_fps,
                 start_bps: u64::from(cfg.start_kbps) * 1000,
                 max_bps: u64::from(cfg.max_kbps) * 1000,
+                min_bps: cfg
+                    .pin_kbps
+                    .map_or(EngineConfig::default().min_bps, |k| u64::from(k) * 1000),
                 max_datagram,
                 path: PathKind::ViaCloudRegion,
                 frames_in_flight: cfg.frames_in_flight,
@@ -475,6 +517,7 @@ impl MediaSession {
             frame_interval_us: 1_000_000 / u64::from(cfg.max_fps.max(1)),
             paced: PacedFrames::default(),
             ledger: negotiated_caps.iter().any(|c| c == cmux_rd_core::service::caps::LEDGER),
+            send_newest_after_outage: false,
         })
     }
 
@@ -588,6 +631,8 @@ impl MediaSession {
             if let Err(reason) = carrier.receive(&mut incoming) {
                 return reason;
             }
+            // Departures before the feedback that answers them.
+            self.take_departures(carrier);
             self.engine.update_frames_in_flight_from_rtt(carrier.path_rtt_us());
             for item in incoming.drain(..) {
                 match item {
@@ -730,20 +775,36 @@ impl MediaSession {
         Ok(())
     }
 
-    /// Hands the engine the frame the encode thread finished, if there is one, and sends its
-    /// datagrams.
     /// Drains the carrier's bounded departure receipts so they never overflow while a session
-    /// runs; the totals go out with the stats line.
+    /// runs: the engine learns when each frame shard left (the receipt's time), and the totals
+    /// go out with the stats line.
     fn take_departures(&mut self, carrier: &mut dyn Carrier) {
-        carrier.drain_departures(&mut self.departures);
+        let engine = &mut self.engine;
+        drain_departures(carrier, &mut self.departures, |header, departed_us| {
+            engine.datagram_departed(header, departed_us);
+        });
         self.departed_datagrams += self.departures.len() as u64;
         self.departed_bytes += self.departures.iter().map(|d| d.wire_bytes as u64).sum::<u64>();
         self.departures.clear();
     }
 
+    /// Hands the engine the frame the encode thread finished, if there is one, and sends its
+    /// datagrams.
     fn send_encoded(&mut self, carrier: &mut dyn Carrier) -> Res<()> {
         self.take_departures(carrier);
+        // Keep one encoded frame at the send boundary. A link carrier reports frames/datagrams
+        // still pending in its bounded queue; the pacer is the equivalent queue for paced
+        // carriers. Leave the encoder result in its one-slot completion channel until that
+        // queue drains instead of turning queue pressure into an acknowledgement-shaped backlog.
+        if encoded_frame_waits_for_queues(
+            carrier,
+            self.pacer.as_ref(),
+            self.send_newest_after_outage || self.engine.outage_frozen(),
+        ) {
+            return Ok(());
+        }
         let Some(Done { req, result }) = self.encoder.take_done()? else { return Ok(()) };
+        self.send_newest_after_outage = false;
         let frame = result?;
         let idr = frame.idr.then(|| idr_reason(&req, frame.idr_cause));
         if let Some(reason) = idr {
@@ -865,9 +926,9 @@ impl MediaSession {
         let due = pacer.due(now);
         // Repairs left first; only the frame datagrams count toward a frame's send time.
         let left = pacer.take_frame_datagrams_sent();
+        // Frame shards are stamped from the carrier's departure receipts (take_departures).
         for datagram in &due {
             carrier.send_datagram(datagram)?;
-            self.engine.datagram_sent(datagram, now);
         }
         for done in self.paced.sent(left, now, now_us()) {
             if self.ledger {
@@ -921,6 +982,9 @@ impl MediaSession {
     ) {
         if out.outage_ended.is_some() {
             self.drop_stale_queue(&mut out);
+            // One freshly encoded frame replaces a waiting link frame instead of being held
+            // behind queue depth.
+            self.send_newest_after_outage = true;
         }
         self.send_output(carrier, std::mem::take(&mut out.datagrams));
         self.upstreams.deliver(&out.upstream);

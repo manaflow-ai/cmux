@@ -40,6 +40,7 @@ use cmux_transport::{
 use tokio::sync::{broadcast, watch};
 use tokio::time::Instant;
 
+use crate::pacing::Priority;
 use crate::probe_schedule::{PathWatch, ProbeConfig};
 use crate::underlay::{DueProbes, Origin, Received, Underlay, is_transient};
 
@@ -51,17 +52,9 @@ const TRANSIENT_RETRIES: usize = 8;
 const EVENT_INTERVAL: std::time::Duration = std::time::Duration::from_secs(5);
 /// Path events a slow subscriber may fall behind before it misses some.
 const EVENT_BACKLOG: usize = 64;
-/// The shortest silence window: below it, scheduling jitter alone would
-/// look like a dead path.
-const SILENCE_FLOOR: std::time::Duration = std::time::Duration::from_millis(100);
-
 /// How long the current path may stay silent, and then leave a probe
-/// unanswered, before the underlay acts: four smoothed round trips, at
-/// least [`SILENCE_FLOOR`].
-pub fn silence_window(rtt_us: Option<u64>) -> std::time::Duration {
-    let rtt = std::time::Duration::from_micros(rtt_us.unwrap_or(0));
-    rtt.saturating_mul(4).max(SILENCE_FLOOR)
-}
+/// unanswered, before the underlay acts (shared with every path set).
+pub use cmux_braid_path::silence_window;
 
 /// `path.changed` (transport.md 12a): the path the session uses and how it
 /// performs. Sent on every switch, and every 5 s while the session carries
@@ -458,8 +451,10 @@ impl MultipathControl {
     }
 }
 
-impl Underlay for Multipath {
-    fn send(&mut self, datagram: &[u8]) {
+impl Multipath {
+    /// Send on the current path, or on every live path when none is chosen,
+    /// in class `priority` when it has one (the carrier marks it).
+    fn send_in(&mut self, datagram: &[u8], priority: Option<Priority>) {
         let mut shared = lock(&self.shared);
         let current = shared.selector.current();
         let targeted = current.is_some_and(|id| shared.slots.iter().any(|slot| slot.id == id));
@@ -467,10 +462,23 @@ impl Underlay for Multipath {
             if slot.failed || (targeted && Some(slot.id) != current) {
                 continue;
             }
-            slot.carrier.send(datagram);
+            match priority {
+                Some(priority) => slot.carrier.send_classified(datagram, priority),
+                None => slot.carrier.send(datagram),
+            }
             slot.sent += 1;
             slot.watch.sent(Instant::now());
         }
+    }
+}
+
+impl Underlay for Multipath {
+    fn send(&mut self, datagram: &[u8]) {
+        self.send_in(datagram, None);
+    }
+
+    fn send_classified(&mut self, datagram: &[u8], priority: Priority) {
+        self.send_in(datagram, Some(priority));
     }
 
     fn send_on(&mut self, path: PathId, datagram: &[u8]) {
@@ -479,6 +487,12 @@ impl Underlay for Multipath {
         {
             slot.carrier.send(datagram);
             slot.sent += 1;
+        }
+    }
+
+    fn hold_routine_probes(&mut self, floor: Option<Instant>) {
+        for slot in &mut lock(&self.shared).slots {
+            slot.watch.hold_routine(floor);
         }
     }
 

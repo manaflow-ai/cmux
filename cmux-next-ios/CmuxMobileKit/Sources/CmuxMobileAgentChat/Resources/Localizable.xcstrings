@@ -1507,6 +1507,18 @@
           }
         }
       }
+    },
+    "mobile.agentChat.selection.label": {
+      "comment": "Agent chat: the accessibility label of the text a long press selected in a message.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Selected text"
+          }
+        }
+      }
     }
   },
   "version": "1.0"

@@ -65,4 +65,11 @@ import Testing
         #expect(abs(cloud.title.frame.minX - local.title.frame.minX) < 0.5, "a Cloud row's title moved for a leading cloud")
         #expect(cloud.cloudMark.frame.minX > 240 / 2 && cloud.cloudMark.frame.maxX <= 240, "the cloud is not in the trailing cluster")
     }
+
+    /// Leo 2026-11-24: "dont have such a dinky cloud icon". The wide, short cloud draws in a box grown past the
+    /// indicator's so its ink reads as large as the bell-slash's (same fit rule as the leading glyphs).
+    @Test func theTrailingCloudIsNotDinkierThanTheBell() {
+        #expect(WorkspaceRowView.cloudMarkSide > SidebarStyle.indicatorSize)
+        #expect(WorkspaceRowView.cloudMarkSide <= SidebarStyle.indicatorSize * 1.5)
+    }
 }
