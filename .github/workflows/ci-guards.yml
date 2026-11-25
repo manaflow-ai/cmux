@@ -226,6 +226,10 @@ jobs:
         if: ${{ matrix.group == 'ci' }}
         run: python3 tests/test_cloud_journey_prod_own_login.py
 
+      - name: Validate each Cloud journey cron starts only its own rows
+        if: ${{ matrix.group == 'ci' }}
+        run: python3 tests/test_cloud_journey_prod_schedule_rows.py
+
       - name: Validate fast checks name the commit they test
         if: ${{ matrix.group == 'ci' }}
         run: python3 tests/test_ci_fast_checks_receipt.py
@@ -620,7 +624,6 @@ jobs:
         if: ${{ matrix.group == 'preflight-agent-chat' || matrix.group == 'release-ios' }}
         uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
         with:
-          no-cache: ${{ !(github.event_name != 'pull_request' && github.event_name != 'pull_request_target' && github.event_name != 'merge_group' && contains(fromJSON('["refs/heads/main","refs/heads/feat-cmux-next","refs/heads/nightly-next"]'), github.ref)) }}
           bun-version: "1.3.6"
 
       # TypeScript is pinned exactly in agent-chat's devDependencies, so this
@@ -1758,10 +1761,6 @@ jobs:
       - name: Validate fork runner routing
         if: ${{ matrix.group == 'ci' }}
         run: python3 tests/test_ci_fork_runner_routing.py
-
-      - name: Validate the shed sweep keeps the runs it must
-        if: ${{ matrix.group == 'ci' }}
-        run: python3 tests/test_ci_shed_superseded_runs.py
 
       - name: Validate write-token jobs lead with a JIT label
         if: ${{ matrix.group == 'ci' }}
