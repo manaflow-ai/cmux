@@ -1367,7 +1367,9 @@ jobs:
     needs: [action-areas]
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && (vars.CI_FORK_LINUX_RUNNER || 'ubuntu-24.04') || 'cmux-linux' }}
     timeout-minutes: 5
-    if: ${{ (github.event_name != 'pull_request' || github.event.pull_request.draft != true || contains(github.event.pull_request.labels.*.name, 'full-ci') || (vars.CI_DRAFT_CHEAP_TIER || '1') == '0') && (!cancelled() && !contains(github.event.pull_request.labels.*.name, 'generated-drift-ok')) }}
+    # A pull request into feat-cmux-next runs ci/steps.toml's generated-drift step in pr-pipeline.yml's linux job
+    # instead; this job keeps its docs-only fallback runs.
+    if: ${{ (github.event_name != 'pull_request' || github.event.pull_request.draft != true || contains(github.event.pull_request.labels.*.name, 'full-ci') || (vars.CI_DRAFT_CHEAP_TIER || '1') == '0') && (!cancelled() && !contains(github.event.pull_request.labels.*.name, 'generated-drift-ok')) && (github.event_name != 'pull_request' || github.base_ref != 'feat-cmux-next' || github.workflow == 'docs-only fallback') }}
     permissions:
       contents: read
       pull-requests: read
