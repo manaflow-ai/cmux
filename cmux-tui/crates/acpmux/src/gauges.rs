@@ -9,6 +9,8 @@
 //! Every gauge here is a few atomics or a short lock that no request holds, so `daemon status`
 //! reads them even while startup runs.
 
+pub mod carrier;
+
 use serde_json::{Value, json};
 use std::sync::atomic::{AtomicU32, AtomicU64, AtomicUsize, Ordering};
 use std::sync::{Mutex, OnceLock, PoisonError};
@@ -101,6 +103,7 @@ impl Gauges {
             "fanout": fanout_status(),
             "links": links().status(),
             "workerLag": worker_lag().status(),
+            "carrier": carrier::global().status(),
         })
     }
 }

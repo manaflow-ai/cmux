@@ -9,6 +9,7 @@ import { usePaneLanguage, useT } from "../../i18n";
 import { useConnectionQuiet } from "../../../../ui/lasting";
 import type { AcpmuxRow } from "../../model";
 import { planDone, type SessionInfoPlan } from "../progressSectionModel";
+import { planStepParts } from "../../conversation/planStepText";
 import { postNative } from "../../native";
 import { screenSharingKind, useScreenSharing } from "../screenSharing";
 import { opensProcessTerminal } from "../../processTerminal";
@@ -58,6 +59,7 @@ import { byUsage, compactingUsage, type UsageSort } from "../../usageStats";
 import { sourcesSection } from "./sources";
 import { subagentsSection } from "./subagents";
 import { tasksSection, useNativeWorkflowPhases } from "./tasks";
+import type { AgentSideRow } from "../agentSide";
 import { CloudRepositoryPicker } from "../CloudRepositoryPicker";
 import { chatMachine, type ChatPlace } from "../../chatMachine";
 import { useCloudRepositories } from "./useCloudRepositories";
@@ -66,6 +68,7 @@ import { copyText } from "../../conversation/clipboard";
 import { useSubagentLimitController } from "../subagentLimitStepperModel";
 import { useIMessage } from "../imessage";
 import { orderSections } from "./nativeSessionInfoModel";
+import { useLiveSummary } from "../../liveSummary";
 
 const NO_SCHEDULED: readonly SummaryWakeup[] = [];
 
@@ -121,6 +124,8 @@ export type NativeSessionInfoProps = {
   processes: readonly SessionInfoProcess[];
   listed: boolean;
   transcriptTasks: readonly SummaryBackgroundTask[];
+  /// What waits on the agent's side (agentSide.ts), at the foot of Background tasks.
+  agentSide?: readonly AgentSideRow[];
   sessions: readonly StartedSession[];
   workflows: readonly WorkflowSummary[];
   agent?: Subagent;
@@ -199,7 +204,9 @@ export function NativeSessionInfo(props: NativeSessionInfoProps) {
   const t = useT();
   const language = usePaneLanguage();
   const state = useSessionInfoState();
-  const { shown, summary, onShowUsage } = props;
+  const { shown, onShowUsage } = props;
+  // A usage update reaches the panel without the pane (liveSummary.ts).
+  const summary = useLiveSummary(props.summary);
   const screenSharing = useScreenSharing(
     summary?.sessionId,
     screenSharingKind(chatMachine(summary, props.machineName, props.peerKinds, props.place)),
@@ -214,7 +221,12 @@ export function NativeSessionInfo(props: NativeSessionInfoProps) {
   useEffect(() => {
     if (imessage?.expanded) setSessionInfoSection("connectors", true);
   }, [imessage?.expanded]);
-  const contextUsage = props.usage ?? compactingUsage(summary?.usage, summary?.usageStats, summary?.contextBreakdown);
+  // The pane's usage (`props.usage`) is as of its last draw; a usage update since reached `summary`
+  // alone (liveSummary.ts).
+  const contextUsage =
+    summary !== props.summary || !props.usage
+      ? compactingUsage(summary?.usage, summary?.usageStats, summary?.contextBreakdown)
+      : props.usage;
   const environmentEditor = useSyncExternalStore(subscribeCloudEnvironment, cloudEnvironmentRequest);
   const cloudSession =
     props.cloudRepositoryAvailable &&
@@ -343,9 +355,12 @@ export function NativeSessionInfo(props: NativeSessionInfoProps) {
             : entry.status === "in_progress"
               ? "circle"
               : "circle.dashed";
+        // A multi-line step: its first line the row's title, the rest its second line, the whole its tooltip.
+        const { title, detail } = planStepParts(entry.content);
         return {
           id: `progress:${index}`,
-          title: entry.content,
+          title,
+          ...(detail ? { subtitle: detail, help: entry.content } : {}),
           ...(symbol ? { symbol } : {}),
           tone: entry.status === "completed" ? "muted" : working ? "running" : "waiting",
           working,
@@ -515,6 +530,7 @@ export function NativeSessionInfo(props: NativeSessionInfoProps) {
           open: state.sections.tasks,
           processes: props.processes,
           transcriptTasks: props.transcriptTasks,
+          agentSide: props.agentSide,
           listed: props.listed,
           scheduled: props.made?.scheduled ?? NO_SCHEDULED,
           language,

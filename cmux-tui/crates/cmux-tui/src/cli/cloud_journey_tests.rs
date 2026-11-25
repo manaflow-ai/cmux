@@ -140,6 +140,16 @@ fn run_tags_look_like_the_ts_tags() {
     assert!(tag[3..].bytes().all(|b| b.is_ascii_digit() || b.is_ascii_lowercase()));
 }
 
+#[test]
+fn start_size_is_the_spare_shape_unless_killed() {
+    // The platform's CHAT_START_SHAPE (2 vCPU, 4 GiB, 20 GiB): the only size its Scaler claims a warm spare for.
+    assert_eq!(start_size(None), (2, 4_096, 20_480));
+    assert_eq!(start_size(Some("1")), (2, 4_096, 20_480));
+    for kill in ["0", "false", " OFF "] {
+        assert_eq!(start_size(Some(kill)), NO_SPARE_SIZE, "{kill}");
+    }
+}
+
 fn machine(
     id: &str,
     name: &str,
