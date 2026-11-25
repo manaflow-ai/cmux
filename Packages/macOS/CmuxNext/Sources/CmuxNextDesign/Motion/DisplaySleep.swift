@@ -1,4 +1,4 @@
-import AppKit
+public import AppKit
 import CmuxNextCompat
 
 /// Whether a screen's display is asleep, for ``Motion/canAnimate(in:)``.

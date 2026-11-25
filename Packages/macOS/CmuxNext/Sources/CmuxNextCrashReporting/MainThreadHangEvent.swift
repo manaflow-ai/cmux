@@ -13,11 +13,18 @@ public nonisolated struct MainThreadHangEvent: Sendable {
     /// Every other thread's stack at the report (name, return addresses innermost first):
     /// for a main thread waiting on a lock or a reply, the thread it waits for.
     public let otherThreads: [(name: String, addresses: [UInt])]
+    /// The app's open descriptors and pipes at the report (``MainThreadHangReporter`` counts them on the watchdog
+    /// thread): a pipe leak used up the kernel's pipe memory before the 391 s pipe-write hang (cmuxterm-hq#8747).
+    public let openDescriptors: Int?
+    public let openPipes: Int?
 
-    public init(duration: Duration, addresses: [UInt], otherThreads: [(name: String, addresses: [UInt])] = []) {
+    public init(duration: Duration, addresses: [UInt], otherThreads: [(name: String, addresses: [UInt])] = [],
+                openDescriptors: Int? = nil, openPipes: Int? = nil) {
         self.duration = duration
         self.addresses = addresses
         self.otherThreads = otherThreads
+        self.openDescriptors = openDescriptors
+        self.openPipes = openPipes
     }
 
     public func event() -> Event {
@@ -67,9 +74,19 @@ public nonisolated struct MainThreadHangEvent: Sendable {
             meta.codeFile = image.path
             return meta
         }
-        event.tags = ["hang_source": "main_thread_watchdog"]
-        event.extra = ["hang_ms": Int(duration / .milliseconds(1))]
+        var tags = ["hang_source": "main_thread_watchdog"]
+        var extra: [String: Any] = ["hang_ms": Int(duration / .milliseconds(1))]
+        if let openDescriptors { extra["open_fds"] = openDescriptors; tags["open_fds_bucket"] = Self.bucket(openDescriptors) }
+        if let openPipes { extra["open_pipes"] = openPipes; tags["open_pipes_bucket"] = Self.bucket(openPipes) }
+        event.tags = tags
+        event.extra = extra
         return event
+    }
+
+    /// A searchable tag for a descriptor count: its power-of-two floor (`0`, `1`, `2`, `4`, ... `1024`, `2048`).
+    static func bucket(_ count: Int) -> String {
+        guard count > 0 else { return "0" }
+        return String(1 << (Int.bitWidth - 1 - count.leadingZeroBitCount))
     }
 
     /// The most frames the other threads add to one event (about 100 bytes each without a package).

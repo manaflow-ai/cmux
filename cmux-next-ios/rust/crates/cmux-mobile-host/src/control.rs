@@ -356,6 +356,10 @@ pub enum Event {
     /// 4002 `removed`). hostd exits after this line and must not be restarted until
     /// the person allows iPhone connections again (a new device id then).
     Removed,
+    /// The service refused this Mac's device id: another account registered it
+    /// (`POST /v1/devices` answered `403 not_owner`). hostd exits (status 79); the app
+    /// makes a new id for the signed-in account and starts hostd again.
+    DeviceNotOwned,
     /// A phone's link is up.
     PhoneUp {
         session_id: String,
@@ -620,6 +624,7 @@ pub fn path_name(path: cmux_mobile_link::dial::LinkPath) -> &'static str {
         cmux_mobile_link::dial::LinkPath::Direct => "direct",
         cmux_mobile_link::dial::LinkPath::Turn => "turn",
         cmux_mobile_link::dial::LinkPath::TurnTls => "turn-tls",
+        cmux_mobile_link::dial::LinkPath::HttpsRelay => "https-relay",
         cmux_mobile_link::dial::LinkPath::NoPath => "none",
     }
 }
@@ -895,6 +900,7 @@ mod tests {
         );
         assert!(!serde_json::to_string(&request(None)).unwrap().contains("bundle_id"));
         assert_eq!(serde_json::to_string(&Event::Removed).unwrap(), r#"{"type":"removed"}"#);
+        assert_eq!(serde_json::to_string(&Event::DeviceNotOwned).unwrap(), r#"{"type":"device_not_owned"}"#);
         assert_eq!(
             serde_json::to_string(&Event::NeedBrowser {
                 request: 1,

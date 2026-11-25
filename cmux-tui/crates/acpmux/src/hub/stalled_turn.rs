@@ -97,6 +97,9 @@ impl Hub {
         }
         self.note_harness_sandbox(session, update);
         self.note_claim_run(session, update);
+        self.note_prefetch_read(session, update);
+        self.surgery_note_tool(session, update);
+        self.turn_rules_tool(session, update);
         // RFD 0144's command placer, in shadow behind `cloud.autoCloud`: records only.
         crate::placement::command_sampler::note_update(
             &session.id,
@@ -348,7 +351,7 @@ impl Hub {
                 .map(str::to_owned),
         };
         let Some(owner) = owner.filter(|o| *o != m.id) else { return false };
-        let owner = self.sessions.lock().unwrap_or_else(|e| e.into_inner()).get(&owner).cloned();
+        let owner = self.session_get(&owner);
         owner.is_some_and(|o| matches!(o.status(), SessionStatus::Running | SessionStatus::Waiting))
     }
 

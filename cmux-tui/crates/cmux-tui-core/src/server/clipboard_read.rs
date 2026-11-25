@@ -6,11 +6,12 @@
 //! subscribed to that terminal with a `terminal-clipboard-read` event that
 //! carries an unguessable request id, and that connection alone answers it
 //! once with `terminal-clipboard-reply`. Every other case is refused at once:
-//! no subscriber or several, a terminal that already has an open read, a
-//! frontend that already holds [`MAX_OPEN_PER_FRONTEND`] reads, or a surface
-//! with no public terminal id. Only the frontend user path (the verified cmux
-//! app, client kind `frontend`) may subscribe or reply; agents, page relays
-//! and the socket get `origin.forbidden`. Clipboard text is never logged or
+//! no subscriber or several, a terminal that already has an open read, or a
+//! surface with no public terminal id. Open reads are at most one per
+//! terminal and subscribers at most one per connection, each one map entry
+//! with no thread, so neither count is capped. Only the frontend user path
+//! (the verified cmux app, client kind `frontend`) may subscribe or reply;
+//! agents, page relays and the socket get `origin.forbidden`. Clipboard text is never logged or
 //! kept: it goes straight to the host connection.
 
 use std::collections::{BTreeMap, HashMap, HashSet};
@@ -25,9 +26,8 @@ use crate::request_origin::{ORIGIN_FORBIDDEN, RequestOrigin};
 use crate::resource::TerminalPublicId;
 
 pub(super) const CAPABILITY: &str = "terminal-clipboard-read-v1";
+/// The longest terminal list one subscribe carries (input validation of one request).
 const MAX_SUBSCRIBED_TERMINALS: usize = 256;
-const MAX_SUBSCRIBERS: usize = 16;
-const MAX_OPEN_PER_FRONTEND: usize = 16;
 
 /// Answers one host read: `Some(text)` grants it, `None` refuses it. True
 /// when the answer reached the host.
@@ -141,10 +141,6 @@ impl ClipboardReads {
         let Some((client, writer)) = state.single_subscriber(&terminal) else {
             return Some(read);
         };
-        if state.open.values().filter(|open| open.client == client).count() >= MAX_OPEN_PER_FRONTEND
-        {
-            return Some(read);
-        }
         let request_id = crate::workspace_registry::new_uuid_v4();
         let event = json!({
             "event": "terminal-clipboard-read",
@@ -179,10 +175,6 @@ impl ClipboardReads {
             TerminalPublicId::parse(terminal.clone())?;
         }
         let mut state = lock(&self.0);
-        anyhow::ensure!(
-            state.subscribers.len() < MAX_SUBSCRIBERS || state.subscribers.contains_key(&client),
-            "too many clipboard-read frontends"
-        );
         state
             .subscribers
             .insert(client, Subscriber { terminals: terminals.into_iter().collect(), writer });
