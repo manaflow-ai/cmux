@@ -31,7 +31,7 @@ import { openPicker } from "../pickerOpeners";
 import { startRefusalRoute } from "../startRefusal";
 import { paneKnowsNewChat } from "../locationRow";
 import { translate, type Translate } from "../i18n";
-import { inThisVisit, type useFolderTrustAsk } from "../useFolderTrustAsk";
+import { composerTrustBlock, inThisVisit, type useFolderTrustAsk } from "../useFolderTrustAsk";
 import { bindsHeldSendNow } from "../heldSendBinding";
 import { TrayPullTab } from "../subagents/TrayPullTab";
 import { pullTabCounts } from "../subagents/trayPullTabModel";
@@ -268,6 +268,7 @@ export type PaneComposerDeps = {
   /// Return during a Cloud start queues the message for the started chat ("just go"); false: it waits.
   onCloudStartQueue?: (text: string) => boolean;
   composerDrawn: AcpmuxSnapshot;
+  composerTurnQueue: AcpmuxSnapshot["queue"];
   guestsHere: boolean;
   composerSnapshot: AcpmuxSnapshot;
   isSideSession: boolean;
@@ -526,6 +527,7 @@ export function drawPaneComposer({
   cloudStarting,
   onCloudStartQueue,
   composerDrawn,
+  composerTurnQueue,
   guestsHere,
   composerSnapshot,
   isSideSession,
@@ -1000,7 +1002,7 @@ export function drawPaneComposer({
             snapshot={composerDrawn}
             guestHarnesses={guestsHere ? composerSnapshot.catalog : undefined}
             headerCwd={snapshot.summary?.cwd ?? ""}
-            turnQueue={snapshot.queue}
+            turnQueue={composerTurnQueue}
             sessionId={snapshot.sessionId ?? snapshot.summary?.sessionId}
             placeholder={isSideSession ? t("sideSession.placeholder") : undefined}
             switching={Boolean(switchView.intent)}
@@ -1668,7 +1670,7 @@ export function drawPaneComposer({
             // The folder's trust question holds Send only for a remote chat and Start Agent
             // (trustSendOff): a prompt sent under it waits in the pane (trustHeld.ts), or goes now to
             // a chat whose agent already runs (trustPasses). A read in flight (`{}`) holds nothing.
-            blocked={trustSendOff || !trustAsk.blocked?.reason ? trustAsk.blocked : undefined}
+            blocked={composerTrustBlock(trustSendOff, trustAsk.blocked)}
             // A new chat on another machine holds Send while its agent is not set up there.
             blockSend={
               blockSend ||

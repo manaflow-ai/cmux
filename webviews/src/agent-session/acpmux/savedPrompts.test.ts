@@ -106,6 +106,28 @@ describe("saved prompts", () => {
     ]);
   });
 
+  test("a reconnect that reads the same list keeps the list the page holds", async () => {
+    // Leo, 2026-11-22: "idk if the waiting for agent service bullshit has anything to do with it".
+    const transport = (prompts: SavedPrompt[]) => ({
+      list: async () => ({ prompts: prompts.map((prompt) => ({ ...prompt })) }),
+      save: async () => ({}),
+      remove: async () => ({}),
+    });
+    setSavedPromptsTransport(transport([]));
+    await refreshSavedPrompts();
+    const empty = savedPromptsNow();
+    setSavedPromptsTransport(transport([]));
+    await refreshSavedPrompts();
+    expect(savedPromptsNow()).toBe(empty);
+    const one: SavedPrompt[] = [{ name: "kept", text: "k", source: "saved" }];
+    setSavedPromptsTransport(transport(one));
+    await refreshSavedPrompts();
+    const held = savedPromptsNow();
+    expect(held).toEqual(one);
+    await refreshSavedPrompts();
+    expect(savedPromptsNow()).toBe(held);
+  });
+
   test("save, list and delete go through acpmux; a refusal keeps the list", async () => {
     const calls: string[] = [];
     let held: SavedPrompt[] = [{ name: "kept", text: "k", source: "settings" }];
