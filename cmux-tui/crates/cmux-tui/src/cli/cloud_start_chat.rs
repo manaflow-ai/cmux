@@ -1855,6 +1855,11 @@ fn steps(
     if let Some(estimate) = estimate {
         answer.set("estimate", estimate);
     }
+    // How the machine came (a warm spare, made fresh, or one that already existed), when the start said:
+    // a lane's readback proves a spare claim from it (direct.rs `spare_origin`).
+    if let Some(origin) = started.get("machine_origin").filter(|v| v.is_object()) {
+        answer.set("machine_origin", origin.clone());
+    }
     progress.machine = Some(Machine::Target(machine_id.to_owned()));
     progress.chat = Some((machine_id.to_owned(), session.to_owned(), answer.clone()));
     // With `--account`: the machine is that account's before anything is sent to it. A refusal names
