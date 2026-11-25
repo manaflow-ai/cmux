@@ -1364,32 +1364,6 @@ impl TitlesConfig {
     }
 }
 
-/// `summaries` in the config: each chat's rolling summary and next action
-/// (`hub/rolling_summary.rs`).
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Default)]
-#[serde(rename_all = "camelCase")]
-pub struct SummariesConfig {
-    /// `generate`: ask the summary model after a person's turn that ended on no `wrap_up`.
-    /// Default on. Off, a turn's own `wrap_up` still summarizes it (it costs nothing).
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub generate: Option<bool>,
-    /// `command`: an argv that reads the request on stdin and prints the summary. Env
-    /// `ACPMUX_SUMMARY_COMMAND` (one program) wins. Unset: one completion on the chat's own
-    /// harness (`_acpmux/complete`), on `model`.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub command: Option<Vec<String>>,
-    /// `model`: the completion's model. Unset: `titles.model`, else the harness's small model
-    /// (`haiku` on Claude).
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub model: Option<String>,
-}
-
-impl SummariesConfig {
-    pub fn is_default(&self) -> bool {
-        self == &Self::default()
-    }
-}
-
 /// Opt-in synchronization of local agent memories and artifacts with cmux-platform.
 /// The feature is disabled unless `enabled` is explicitly set to true.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -1743,9 +1717,6 @@ pub struct Config {
     /// `titles`: short titles for chats their harness never titles (`hub/titles.rs`).
     #[serde(default, skip_serializing_if = "TitlesConfig::is_default")]
     pub titles: TitlesConfig,
-    /// `summaries`: each chat's rolling summary and next action (`hub/rolling_summary.rs`).
-    #[serde(default, skip_serializing_if = "SummariesConfig::is_default")]
-    pub summaries: SummariesConfig,
     /// `usageWarnings`: when a session's usage gets a visible warning (`hub/usage_warnings.rs`).
     #[serde(default, skip_serializing_if = "UsageWarningsConfig::is_default")]
     pub usage_warnings: UsageWarningsConfig,
@@ -1764,6 +1735,13 @@ pub struct Config {
     /// (`cmux_tui_service.rs`). Set with `acpmux config --set remote_daemon=127.0.0.1:PORT`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub remote_daemon: Option<String>,
+    /// `laneGhBroker`: the lane-gh broker's unix socket on this machine (its `socket`, e.g.
+    /// `~/.cache/lane-gh-broker/broker.sock`), which the person's other machines reach as a
+    /// carrier service, each its own `client-<machine>.sock` beside it (RFD 0127 cut 2,
+    /// `hub_carrier_broker.rs`). Unset (the default): no stream reaches it. Set with
+    /// `acpmux config --set lane_gh_broker=PATH`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub lane_gh_broker: Option<String>,
     /// `directPort`: the TCP port of this machine's direct carrier path (Weft move 2,
     /// `hub_carrier_direct.rs`). Set, the carrier also listens on it and dials the person's other
     /// machines on it first when their name resolves to a private address (one GCP region's VPC),
