@@ -55,6 +55,8 @@ export function DiskBar({ bar, strings, variant = "segmented", compact = false }
   const track = (
     <span
       className="cloud-meter-track cloud-disk-bar-track"
+      // The track draws its segments as child spans, which an <img> cannot hold; it reads as one picture.
+      // oxlint-disable-next-line jsx-a11y/prefer-tag-over-role
       role="img"
       aria-label={`${sentence}. ${split}`}
       title={split}
