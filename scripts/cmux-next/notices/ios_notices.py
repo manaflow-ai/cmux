@@ -27,7 +27,7 @@
       --check fails when the committed pane differs.
   ios_notices.py macos-link-set --xcframework DIR --manifest FILE
       (a Mac) ghosttykit-macos-link-set.json: the DWARF owners of the macos slice
-      that the macOS cmux-next app links (Contents/MacOS/cmux).
+      that the macOS cmux-next app links (Contents/Frameworks/CmuxNextApp.framework).
   ios_notices.py check-macos --ghostty-tree DIR
       Every package of the macOS link set has a license text in the ghostty-next
       tree at the pin's revision (the tree that nightly-next bundles).
@@ -70,7 +70,7 @@ HERE = Path(__file__).resolve().parent
 ROOT = HERE.parents[2]
 DATA = HERE / "ios"
 LINK_SET = DATA / "link-set.json"
-# The macOS cmux-next app links the macos slice into Contents/MacOS/cmux and ships the
+# The macOS cmux-next app links the macos slice into CmuxNextApp.framework and ships the
 # ghostty-next license tree (nightly.yml); like vt-link-graph.json for libghostty-vt.
 MACOS_LINK_SET = HERE / "ghosttykit-macos-link-set.json"
 MACOS_SLICE = "macos-arm64_x86_64"

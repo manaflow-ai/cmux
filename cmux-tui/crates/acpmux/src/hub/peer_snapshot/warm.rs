@@ -7,13 +7,25 @@
 //! forwarded page is kept (`Hub::capture_peer_page`): the chat then paints at once from its copy,
 //! whether its peer answers or not, and the peer's own page continues it once it does.
 //!
+//! A peer this daemon's config names as its own machine (`githubBroker`, Add Machine) or as a
+//! dedicated agent VM (`vmBoundary`) is read ahead whether or not a client here opened a peer chat
+//! ([`keeps_copies`]): its copy is what `acpmux session move --from-snapshot` starts from when that
+//! machine dies, and a fleet daemon with no clients of its own (the one that watches lane VMs die)
+//! otherwise held no copy of any chat it never opened (cmuxterm-hq
+//! `docs/design/fleet-dogfoods-remote.md`, move 2: "Copy each chat's journal to the owner Mac's
+//! peer snapshot, so a move can start from a dead host"). Its reads are the same rounds, within the
+//! same bounds.
+//!
 //! Bounds: [`WARM_PER_PEER`] chats of each peer, changed in the last [`WARM_WITHIN_MS`]; a read is
 //! the pane's open page ([`WARM_LIMIT`] records within [`WARM_BYTES`]), only past what the copy
 //! covers once it covers some, one page a chat a round; a chat is read (or tried) at most once each
 //! [`WARM_EVERY`], and its last change, a refusal and a page cut short are read again after it; one round at a
 //! time per peer, one read at a time in it, and a round ends at the first read the link refuses (a
 //! chat the peer refuses is passed over). What is kept stays within the copies' own bounds. Rounds
-//! stop with the daemon (`Hub::stop_idle_reaper`), before its last flush.
+//! stop with the daemon (`Hub::stop_idle_reaper`), before its last flush. A read ahead is the
+//! first work to give way: its pages fill at most [`WARM_QUEUED_BYTES`] of the store's queue, a
+//! page past it is passed over alone (never a loss of the peer's copies), and a round whose
+//! store is behind stops and comes again after [`WARM_EVERY`].
 
 use super::*;
 use std::sync::Weak;
@@ -115,6 +127,13 @@ impl Warm {
     }
 }
 
+/// Whether this daemon keeps copies of `peer`'s chats with no client here asking: its config names
+/// it as this person's own machine (`githubBroker`) or as a dedicated agent VM (`vmBoundary`), a
+/// machine whose death a move from its copy outlives (module docs).
+pub(crate) fn keeps_copies(peer: &crate::peer::Peer) -> bool {
+    peer.github_broker() || peer.vm_boundary()
+}
+
 /// `d` after `at`; `at` itself on a clock that cannot go that far (it never comes to that).
 fn after(at: Instant, d: Duration) -> Instant {
     at.checked_add(d).unwrap_or(at)
@@ -190,6 +209,9 @@ pub(super) fn plan(
                                 "kinds": WARM_KINDS});
         if let Some(object) = params.as_object_mut() {
             object.insert(cursor.to_owned(), json!(seq));
+            if cursor == "beforeSeq" {
+                object.insert("turnOpener".to_owned(), json!(true));
+            }
         }
         asks.push(Ask { mux: mux.to_owned(), generation, params });
     }
@@ -202,30 +224,42 @@ impl PeerSnapshots {
         self.warm.stop();
     }
 
-    /// What the copies of peer `peer` cover: each session's generation and last seq. Empty when
-    /// the store does not answer within [`ANSWER_WITHIN`] or the queue is full.
-    pub(crate) fn covers(&self, peer: &str) -> HashMap<String, (Option<u64>, u64)> {
+    /// What the copies of peer `peer` cover: each session's generation and last seq. None when
+    /// the store is behind: its queue is past what reads ahead may fill ([`WARM_QUEUED_BYTES`])
+    /// or it does not answer within [`ANSWER_WITHIN`]. Before, that read as no copy at all, and
+    /// the round read every chat whole into a queue already full.
+    pub(crate) fn covers(&self, peer: &str) -> Option<HashMap<String, (Option<u64>, u64)>> {
         let (tx, rx) = mpsc::sync_channel(1);
         let sent = {
             let mut dropped = self.dropped();
             self.send_unsent(&mut dropped)
-                && self.reserve(OP_BYTES)
+                && self.reserve_within(OP_BYTES, WARM_QUEUED_BYTES)
                 && self.enqueue(OP_BYTES, Op::Covers { peer: peer.to_owned(), reply: tx })
         };
         if !sent {
-            return HashMap::new();
+            return None;
         }
-        blocking(|| rx.recv_timeout(ANSWER_WITHIN)).unwrap_or_default()
+        blocking(|| rx.recv_timeout(ANSWER_WITHIN)).ok()
     }
 }
 
 impl Store {
+    /// What each copy of peer `peer` covers, and how far each copy a bound evicted covered
+    /// ([`Store::evicted`]): a chat that has not moved past it is not read again only to be
+    /// evicted again; one that moved is read from there, a page that starts a small copy.
     pub(super) fn covers(&self, peer: &str) -> HashMap<String, (Option<u64>, u64)> {
-        self.copies
+        let evicted = self
+            .evicted
             .iter()
             .filter(|(k, _)| k.0 == peer)
-            .map(|(k, c)| (k.1.clone(), (c.head.generation, c.head.last_seq)))
-            .collect()
+            .map(|(k, (generation, last))| (k.1.clone(), (Some(*generation), *last)));
+        let kept = self
+            .copies
+            .iter()
+            .filter(|(k, _)| k.0 == peer)
+            .map(|(k, c)| (k.1.clone(), (c.head.generation, c.head.last_seq)));
+        // A copy kept wins over an older eviction of the same session.
+        evicted.chain(kept).collect()
     }
 }
 
@@ -242,10 +276,15 @@ impl Hub {
         }
     }
 
-    /// Peer `peer`'s rows changed (or it listed them): its round is due soon.
+    /// Peer `peer`'s rows changed (or it listed them): its round is due soon, when a client here
+    /// opened a peer chat or the peer is one whose copies this daemon keeps ([`keeps_copies`]).
     pub(crate) fn warm_peer_copies(self: &Arc<Self>, peer: &str) {
         let warm = &self.peer_snapshots.warm;
-        if !warm.wanted.load(Ordering::SeqCst) || self.peer_snapshots.dir.is_none() {
+        if self.peer_snapshots.dir.is_none() {
+            return;
+        }
+        if !warm.wanted.load(Ordering::SeqCst) && !self.peer(peer).is_some_and(|p| keeps_copies(&p))
+        {
             return;
         }
         warm.due_by(peer, after(Instant::now(), WARM_SETTLE));
@@ -295,8 +334,11 @@ impl Hub {
     async fn warm_reads(&self, peer: &crate::peer::Peer) -> Option<Instant> {
         let warm = &self.peer_snapshots.warm;
         let name = peer.name.as_str();
-        // `covers` waits for the store's thread.
-        let covers = self.peer_snapshots.covers(name);
+        // `covers` waits for the store's thread. One behind reads nothing this round: the round
+        // comes again after the interval.
+        let Some(covers) = self.peer_snapshots.covers(name) else {
+            return Some(after(Instant::now(), WARM_EVERY));
+        };
         let rows = self.peer_rows(name);
         let (asks, later) = {
             let mut s = warm.state();
@@ -344,7 +386,11 @@ impl Hub {
                     return None;
                 }
                 let on = (name, peer.generation, link, Some(ask.generation));
-                self.capture_peer_page(on, (&ask.mux, true), &ask.params, &page);
+                if !self.capture_peer_page_ahead(on, &ask.mux, &ask.params, &page) {
+                    // The store is behind: this page and the rest wait for the next round.
+                    again(&mut later);
+                    return later;
+                }
             }
             // New records past the copy that did not fit one page: the rest is read after the
             // interval, one page a round (the plan continues from what the copy covers then).

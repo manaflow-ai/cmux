@@ -141,7 +141,11 @@ Leo then: "For the swift bit why can't we simply apply after switching the build
 - **While on**, a watcher (`live-mode.py watch`, in the background) patches each saved CmuxNextApp
   file in, and once saves stop for 20 s it makes the optimized build of the edited checkout
   (`reload.sh --tag TAG --build-only`, the tag's own warm derived data, at background priority).
-  It stops when live mode does.
+  It stops when live mode does. It hears a save by FSEvents (no poll; only the saved files are read
+  again) and patch.py reads the build's compile command from `xcodebuild.log` once, into
+  `xcodebuild.log.commands.json`, which the watcher fills when it starts. Each save's phases (saved,
+  heard, lookup, compile, link, placed, applied by the app) are one line in the tag's
+  `~/Library/Caches/cmux-next/live-mode/TAG/phases.jsonl`.
 - **Stop** restarts into that optimized build, so the edits are kept and fast. If saves came after
   it, stop builds the rest first (incremental). `--discard` restarts into the build that ran before
   live mode instead; your files are not touched.
@@ -170,6 +174,13 @@ a save while on, and a stop into the optimized build, counted in pixels.
 
 - Can: cmux Live for the web UI (`cmux live start`), and a pull request's Swift in a copy
   (`scripts/cmux-next/try-pr.sh <PR> --live-code <log>`).
+- Can: a commit's Swift, optimized, in a copy of the NIGHTLY that stays on disk and launches cold, with no
+  dev build: `scripts/cmux-next/swap-binary.sh build <sha> OUT` on a fleet Mac (the app's executable and its
+  packages' resource bundles, built Release as the nightly builds them), then
+  `scripts/cmux-next/side-instance.sh make NAME --from "/Applications/cmux NIGHTLY.app" --swap OUT`.
+  Remove the copy to take the change out. `swap-binary.sh check <nightly commit> <sha>` says whether the
+  commit's diff is one a swap carries (not Info.plist, entitlements, the project, helpers or web bundles).
+  Launch A/Bs use it as `scripts/measure/launch-ready.sh dmg=swap`.
 - Can't: live mode. `cmux live start --swift` refuses a NIGHTLY, and so do the palette and Settings
   buttons: no live code build of its commit is built or signed for it to restart into, and a
   Release build may load only patches signed by the app's own team (cmux#13742), which a person's

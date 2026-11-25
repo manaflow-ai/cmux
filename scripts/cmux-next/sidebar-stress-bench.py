@@ -34,7 +34,7 @@ Fleet entry: scripts/measure/sidebar-stress.sh (1x and scale, customization incl
 Usage (nx-remote --needs gui --app-from-fleet cmux --tag T --ref SHA):
   sidebar-stress-bench.py --app "$NX_APP" --tag "$NX_APP_TAG" --out "$NX_ARTIFACTS/stress" [--sizes 100,500,1000]
 """
-import argparse, glob, json, math, os, re, shutil, socket, statistics, subprocess, sys, tempfile, time
+import argparse, glob, json, math, os, re, shutil, socket, statistics, subprocess, sys, tempfile, threading, time
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--app", required=True)
@@ -66,6 +66,7 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
 from bench_idle import usage  # noqa: E402
 from bench_launch import launch_app, pinned_tiles, unlisted_workspaces, wait_for_count  # noqa: E402
+from state_wait import wait_stable, wait_until  # noqa: E402
 
 SOCKET = f"/tmp/cmux-debug-{opts.tag}.sock"
 SCRATCH = tempfile.mkdtemp(prefix=f"sbstress-{opts.tag}-")
@@ -158,6 +159,39 @@ def topology():
     return snap.get("topology") or snap
 
 
+def row_layout():
+    """The workspace rows' keys, titles and frames: unchanged across reads once a scroll, move or pin has landed."""
+    return [(r.get("key"), r.get("title"), r.get("window_frame")) for r in workspace_rows()]
+
+
+def settle_rows(what, timeout=15):
+    """Waits until the sidebar's rows stop moving (`row_layout` the same for ~0.5 s); notes it when they never do."""
+    if wait_stable(row_layout, what, timeout=timeout, interval=0.25, raise_on_timeout=False) is None:
+        note(f"the sidebar rows did not settle in {timeout} s ({what})")
+
+
+def tick_marks():
+    """What a ticker's tick changes: the row feed's invalidation counter and the ticking rows' state."""
+    return (sidebar_perf().get("row_invalidations"),
+            [r.get("row_state") for r in workspace_rows() if "tick" in str(r.get("title", ""))])
+
+
+def ticks_on():
+    """ticking(True), then waits for a tick to land in the sidebar (a counter or a ticking row changed)."""
+    start = tick_marks()
+    ticking(True)
+    if not wait_until(lambda: tick_marks() != start, "a ticker's tick in the sidebar", timeout=15, interval=TICK_S / 2,
+                      raise_on_timeout=False):
+        note("no tick showed in the sidebar 15 s after ticking was turned on")
+
+
+def ticks_off():
+    """ticking(False), then waits until no tick lands for ~1 s (4 tick periods)."""
+    ticking(False)
+    if wait_stable(tick_marks, "the tickers to stop", timeout=20, interval=TICK_S, reads=5, raise_on_timeout=False) is None:
+        note("the sidebar still changed 20 s after ticking was turned off")
+
+
 def percentiles(values):
     if not values:
         return {}
@@ -169,7 +203,7 @@ def percentiles(values):
 
 def cpu_share(pid, seconds):
     before, t0 = usage(pid), time.monotonic()
-    time.sleep(seconds)  # the measurement window itself
+    time.sleep(seconds)  # sleep-ok: the CPU measurement window itself
     after, wall = usage(pid), time.monotonic() - t0
     if not before or not after:
         return None
@@ -193,13 +227,27 @@ class Trace:
         self.proc = subprocess.Popen(["xcrun", "xctrace", "record", "--template", self.template, "--attach", str(self.pid),
                                       "--time-limit", f"{self.seconds}s", "--output", self.path, "--no-prompt"],
                                      stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
-        time.sleep(4)  # the recorder attaches
+        # The recorder attached once it prints that it started (as bench_hover_preload.py reads xctrace).
+        self.lines, self.started = [], threading.Event()
+        self.reader = threading.Thread(target=self.read, daemon=True)
+        self.reader.start()
+        if not self.started.wait(60):
+            note(f"xctrace {self.template}: no 'Starting recording' in 60 s: {self.lines[-3:]}")
         return self
+
+    def read(self):
+        for line in self.proc.stdout or []:
+            self.lines.append(line.rstrip())
+            if "Starting recording" in line or "Ctrl-C to stop" in line:
+                self.started.set()
+        self.started.set()  # the recorder ended (an error): nothing more to wait for
 
     def __exit__(self, *exc):
         if self.proc:
             try:
-                out, _ = self.proc.communicate(timeout=self.seconds + 180)
+                self.proc.wait(timeout=self.seconds + 180)
+                self.reader.join(10)
+                out = "\n".join(self.lines)
             except subprocess.TimeoutExpired:
                 self.proc.terminate()
                 out = "timeout"
@@ -371,7 +419,7 @@ def grow(target):
         if ws_id:
             action("palette.toggleWorkspacePin", target=f"workspace:{ws_id}")
             made["pinned"].append(ws_id)
-    time.sleep(3)  # the sidebar settles
+    settle_rows("the sidebar after the pins", timeout=30)
 
 
 def close_scratch(why):
@@ -500,7 +548,7 @@ def visible_rows(wait_s=5.0):
 
 def scenario_scroll(pid, size, label, trace=True):
     scroll_to_top()
-    time.sleep(1)
+    settle_rows("the list after the scroll")
     frames("start")
     handle = []
     tr = Trace(pid, f"{size}-{label}", 22) if trace else None
@@ -518,33 +566,40 @@ def scenario_scroll(pid, size, label, trace=True):
 
 
 def scenario_ticks(pid, size):
-    ticking(False)
-    time.sleep(2)
+    ticks_off()
     idle = cpu_share(pid, 10)
-    ticking(True)
-    time.sleep(2)
+    ticks_on()
     busy = cpu_share(pid, 10)
     frames("start")
+    before = sidebar_perf()
     tr = Trace(pid, f"{size}-ticks", 12)
     tr.__enter__()
     t0 = time.monotonic()
+    if opts.no_trace:
+        time.sleep(12)  # sleep-ok: the measured window the recording would take; the counters and frames measure it
     tr.__exit__(None, None, None)
     wall = time.monotonic() - t0
+    work = perf_delta(before, sidebar_perf())
     stats = frames("stop")
     profile = main_thread_profile(tr.path)
     ticks = len(made["tickers"]) * (min(wall, 12) / TICK_S)
     per_tick = None
     if profile and profile.get("main_samples"):
         per_tick = round(profile["main_samples"] / ticks, 3) if ticks else None  # 1 ms per Time Profiler sample
+    # Rows the feed mapped per tick (`SidebarRowFeed`): one ticking workspace's change maps its own row, so this stays
+    # at or under 1 at 100 workspaces as at 1,000; a read every row shares (a global observable) shows as N per tick.
+    rows = {k: round(work[k] / ticks, 3) if ticks and k in work else None for k in ROW_KEYS}
     return {"tickers": len(made["tickers"]), "tick_hz_each": 1 / TICK_S, "idle": idle, "ticking": busy,
             "trace_window_s": 12, "ticks_in_trace": round(ticks), "main_ms_per_tick": per_tick,
             "main_ms_per_s": round(profile["main_samples"] / 12, 1) if profile and profile.get("main_samples") else None,
+            "sidebar_work": work, "per_tick": rows,
+            "feed_ms_per_s": round(work["main_ns"] / 1e6 / wall, 2) if work.get("main_ns") is not None and wall else None,
             "frames_while_ticking": stats, "trace": os.path.relpath(tr.path, OUT), "profile": profile}
 
 
 def scenario_switch(pid, size, count=24):
     scroll_to_top()
-    time.sleep(1)
+    settle_rows("the list after the scroll")
     rows = visible_rows()
     if len(rows) < 2:
         listed = sidebar().get("rows") or []
@@ -617,16 +672,26 @@ def switch_targets():
         open(path, "w").write("<!doctype html><title>p</title><body style='font:14px system-ui'>" +
                               "".join(f"<p>row {i} <b>bold</b> <code>code</code></p>" for i in range(400)) + "</body>")
         accepted(f"goToWorkspace {name}", action("goToWorkspace", {"workspace": refs[name]}, focus=True))
-        time.sleep(0.5)
+        if not wait(lambda: selected_title() == name, 15, step=0.05):
+            raise SwitchStop(f"switch matrix: {name} is not the selected workspace 15 s after goToWorkspace")
         accepted(f"openBrowser.chromium in {name}", action("openBrowser.chromium", {"url": "file://" + path}, focus=True))
-        time.sleep(2)
+        if not wait(lambda: "browser" in workspace_tab_kinds(refs[name]), 30, step=0.1):
+            raise SwitchStop(f"switch matrix: no browser tab in {name} 30 s after openBrowser.chromium "
+                             f"(its tabs: {workspace_tab_kinds(refs[name])})")
     # Move to top in reverse so the order is chromium a, chromium b, term a, term b.
     for name in ("sw term b", "sw term a", "sw chromium b", "sw chromium a"):
         accepted(f"palette.moveWorkspaceToTop {name}", action("palette.moveWorkspaceToTop", target={"kind": "workspace", "id": refs[name]}))
         time.sleep(0.3)
     made["switch_targets"] = refs
-    time.sleep(2)
+    settle_rows("the moved switch targets")
     return refs
+
+
+def workspace_tab_kinds(ref):
+    for w in topology().get("workspaces") or []:
+        if w.get("id") == ref:
+            return [t.get("kind") for sc in w.get("screens") or [] for p in sc.get("panes") or [] for t in p.get("tabs") or []]
+    return []
 
 
 def selected_title():
@@ -660,9 +725,8 @@ def scenario_switch_matrix(pid, size):
     Chromium page) while the tickers tick. Old builds answer every call it makes."""
     refs = switch_targets()
     scroll_to_top()
-    time.sleep(1)
-    ticking(True)
-    time.sleep(2)
+    settle_rows("the list after the scroll")
+    ticks_on()
     out = {"tickers": len(made["tickers"])}
     digits = cmd_digits(sidebar())
     rows = {r.get("title"): r for r in workspace_rows()}
@@ -747,7 +811,7 @@ def scenario_switch_matrix(pid, size):
 
 def scenario_drag(pid, size, moves=180):
     scroll_to_top()
-    time.sleep(1)
+    settle_rows("the list after the scroll")
     rows = [r for r in workspace_rows() if r["window_frame"]["y"] > 80 and r["window_frame"]["y"] < WINDOW[3] - 120]
     if len(rows) < 4:
         return {"error": "fewer than four visible rows"}
@@ -779,7 +843,9 @@ def scenario_drag(pid, size, moves=180):
     tr.__exit__(None, None, None)
     profile = main_thread_profile(tr.path)
     per_move = round(profile["main_samples"] / moves, 3) if profile and profile.get("main_samples") else None
-    time.sleep(1)
+    if not wait(lambda: not sidebar().get("dragging"), 10, step=0.1):
+        note("drag: the sidebar still reports a drag 10 s after the mouse-up")
+    settle_rows("the drop")
     action("undo")  # a drop may have moved the row; put it back
     return {"moves": moves, "drag_engaged": dragging, "post_rpc_ms": percentiles(times), "main_ms_per_move_upper_bound": per_move,
             "frames": stats, "trace": os.path.relpath(tr.path, OUT), "profile": profile}
@@ -824,8 +890,11 @@ def scenario_hitches(pid, size):
 
 
 # ---------------------------------------------------------------- customization: theme and extension sections
+# The row feed's own counters (rows marked dirty, rows mapped, rows mapped from their stores, flushes): per tick in the
+# ticks scenario.
+ROW_KEYS = ("row_invalidations", "row_maps", "rows_made", "row_maps_unchanged", "row_flushes", "row_patches")
 PERF_KEYS = ("rebuilds", "section_sets", "list_reloads", "layout_rows", "row_configures", "row_patches", "band_updates",
-             "scroll_realizes", "rows_walked", "main_ns")
+             "scroll_realizes", "rows_walked", "main_ns", *ROW_KEYS[:-1])
 
 
 def sidebar_perf():
@@ -853,7 +922,7 @@ def scroll_event(x, y, dy, phase):
     ms, _ = timed_rpc("debug.mouse", {"action": "scroll", "x": x, "y": y, "dy": dy, "phase": phase})
     rest = 1 / 60 - (time.perf_counter() - t0)
     if rest > 0:
-        time.sleep(rest)  # 60 events per second, as a trackpad sends them
+        time.sleep(rest)  # sleep-ok: rate pacing, 60 events per second as a trackpad sends them
     return ms
 
 
@@ -905,10 +974,10 @@ def scenario_theme_scroll(pid, size):
     themes = [t.strip() for t in opts.themes.split(",") if t.strip()]
     count = opts.theme_switches
     scroll_to_top()
-    time.sleep(1)
+    settle_rows("the list after the scroll")
     baseline = windowed_gesture(None, count)
     scroll_to_top()
-    time.sleep(1)
+    settle_rows("the list after the scroll")
     replies = []
 
     def switch(i):
@@ -1030,7 +1099,7 @@ def scenario_custom_sections(pid, size, count):
     if not views:
         entry["error"] = f"no section view of {count} mounted 60 s after the write and 30 s after a scroll to the end"
         return entry
-    time.sleep(2)
+    settle_rows("the sidebar with the sections mounted")
     before = sidebar_perf()
     entry["scroll"] = scenario_scroll(pid, size, f"sections{count}-scroll", trace=count == max(section_counts()))
     entry["scroll"]["perf"] = perf_delta(before, sidebar_perf())
@@ -1040,7 +1109,7 @@ def scenario_custom_sections(pid, size, count):
         scroll_to_bottom()
     else:
         scroll_to_top()
-    time.sleep(1)
+    settle_rows("the list after the scroll")
     shown = mounted_indexes(settled_views(10))
     edited = shown[0] if shown else 0
     entry["edited_section"] = edited
@@ -1145,9 +1214,12 @@ def main():
             cli("workspace", "create", "--name", "bench start")
             if not wait(workspace_rows, 60):
                 sys.exit(f"the sidebar lists no workspace row: {json.dumps(sidebar())[:600]}")
-        time.sleep(3)
+        settle_rows("the first rows after launch", timeout=30)
         results["stale_closed"] = close_scratch("before")
-        time.sleep(2)
+        if not wait(lambda: not any(str(w.get("name") or w.get("title") or "").startswith("ws ")
+                                    for w in topology().get("workspaces") or []), 60):
+            note("scratch workspaces still listed 60 s after the close")
+        settle_rows("the sidebar after the scratch close", timeout=30)
         results["baseline"] = {"rows": len(workspace_rows()), "cpu": cpu_share(app.pid, 5), "noop_rpc_ms": noop_ms()}
         for size in sizes:
             note(f"== size {size} (load {os.getloadavg()})")
@@ -1220,8 +1292,11 @@ def main():
             note(f"size {size}: done")
         # A second window: does a status tick cost scale with windows?
         if not opts.no_trace:
+            windows_before = len((rpc("debug.sidebar_rows") or {}).get("windows") or [])
             action("newWindow")
-            time.sleep(3)
+            if not wait(lambda: len((rpc("debug.sidebar_rows") or {}).get("windows") or []) > windows_before, 30):
+                note("newWindow: no second sidebar window 30 s after the action")
+            settle_rows("the sidebar after the new window")
             ticking(True)
             tr = Trace(app.pid, f"{sizes[-1]}-ticks-2windows", 12)
             tr.__enter__()

@@ -24,14 +24,33 @@ export default settingsPageEntry({
     empty: variant(mockModels.empty, "Nothing connected: each row Not set up for Cloud, with its Set Up."),
     "mac-only": variant(
       mockModels.macOnly,
-      "Only this Mac's Claude Code and Codex CLI logins: not set up for Cloud, each saying why in plain words.",
+      "Only this Mac's Claude Code and Codex CLI logins: not listed, every row Not set up for Cloud.",
     ),
     "claude-token": variant(mockModels.claudeForCloud, "A Claude Code token: Claude is Connected for Cloud."),
     chatgpt: variant(mockModels.chatgptForCloud, "A ChatGPT plan: ChatGPT is Connected for Cloud."),
-    "set-up-claude": variant(mockModels.macOnly, "Set Up on Claude: Models' Claude Code steps (setup-token, paste).", [
-      shown,
-      { selector: '[data-cloud-action="setUpClaude"]', action: "click" },
-      { selector: "[data-models-claude-form]", action: "wait" },
-    ]),
+    "chatgpt-signed-out": variant(mockModels.chatgptSignedOut, "The ChatGPT plan signed out: Sign in with ChatGPT."),
+    "chatgpt-off": variant(mockModels.chatgptOff, "The ChatGPT plan turned off: Turn On, in place."),
+    "connect-claude-starting": variant(
+      mockModels.claudeStarting,
+      "Connect Claude pressed: one progress line, Opening the Claude sign-in page…, with Cancel.",
+    ),
+    "connect-claude-signing-in": variant(
+      mockModels.claudeSigningIn,
+      "Waiting for you to sign in to Claude in the browser…, with Cancel.",
+    ),
+    "connect-claude-saving": variant(mockModels.claudeSaving, "Saving… once the browser handed the token back."),
+    "connect-claude-error": variant(
+      mockModels.claudeError,
+      "The sign-in ended with an error: its words and Try Again.",
+    ),
+    "set-up-claude": variant(
+      mockModels.macOnly,
+      "Paste a token instead: Models' sheet opens with the paste field out.",
+      [
+        shown,
+        { selector: '[data-cloud-action="setUpClaude"]', action: "click" },
+        { selector: "[data-models-claude-form]", action: "wait" },
+      ],
+    ),
   },
 });

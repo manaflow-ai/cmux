@@ -63,6 +63,8 @@ pub(super) enum Offer {
 
 impl Inbox {
     pub(super) fn new(link: u64, counters: Arc<DialCounters>) -> (Self, Lines) {
+        // Bounded in bytes by `offer`, not by the channel (RFD 0124 R4): past
+        // [`MIRROR_INBOX_BYTES`] the mirror ends and `inbox_overflows` counts it.
         let (frames, lines) = mpsc::unbounded_channel();
         let held = Arc::new(AtomicU64::new(0));
         (Self { link, frames, held: held.clone(), counters }, Lines { lines, held })
@@ -128,6 +130,10 @@ impl Peer {
             tracing::warn!(peer = %self.name, "the peer sent past its credit; its list mirror ends");
             inbox.take();
         }
+    }
+
+    pub(super) fn controls_enabled(&self) -> bool {
+        self.mirror.links.get().and_then(|links| links.v2()).is_some()
     }
 
     fn mirror_index(&self) -> Option<Arc<Index>> {

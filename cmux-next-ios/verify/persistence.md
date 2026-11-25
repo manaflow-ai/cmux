@@ -35,7 +35,9 @@ and the remembered Mac per team was lost.
   `fromUserId` is its own user (`cmux-mobile-host` `host::admitted`), the device id
   is one that user registered (the Worker answers `403 not_owner` for another
   user's id), and the phone proves the keys the Mac's person approved for that
-  id. The Mac keeps that list per signed-in Mac user (`MobileHostPairedDevices.userID`).
+  id. The Mac keeps that list per signed-in Mac account (`MobileHostPairedDevices.userID`;
+  since 2026-11-12 every account's list is kept side by side, so another account signing in to the
+  Mac neither sees nor erases it), and its own device id per account (`device-id.<user>`).
   So another account on this phone reaches none of the first account's Macs,
   and the keys never leave the enclave.
 - **Sign-out** stops pushes (`DELETE /v1/devices/:id/push`, before the session
@@ -70,7 +72,7 @@ and the remembered Mac per team was lost.
 | Link and presence device ids | Keychain, `AfterFirstUnlockThisDeviceOnly`, `link.<user>` / `presence.<user>` | identifier | yes | **kept** | deleted |
 | Identity key (Secure Enclave blob) | Keychain, `AfterFirstUnlockThisDeviceOnly`; the key needs no prompt | secret, device-bound | yes | **kept** | deleted |
 | Approval key (Secure Enclave blob) | Keychain item `AfterFirstUnlockThisDeviceOnly`; the key itself is `WhenUnlocked` + user presence | secret, device-bound | yes | **kept** | deleted |
-| The Mac's approval of this phone | Mac: `paired-devices.json` (0600, per Mac user) | trust | Mac user | **kept** | revoked (`unpair`) |
+| The Mac's approval of this phone | Mac: `paired-devices.json` (0600, one list per Mac account, sealed as one file) | trust | Mac account | **kept** (a sign-out on the Mac forgets that account's list only) | revoked (`unpair`) |
 | Pinned Mac identity keys | App Support `mac-pins-<user>.json`, complete file protection | public keys | **yes** | kept | one shared `mac-pins.json` |
 | Push registration | Worker | identifier | n/a | unregistered | same |
 | Signed-in user cache, has-tokens flag | UserDefaults `cmuxMobile.auth.cachedUser`, `cmuxMobile.auth.hasTokens` (auth runtime) | low | n/a | cleared | same |
@@ -86,8 +88,13 @@ and the remembered Mac per team was lost.
 | Feed items | App Support `Feed/<user>.json` | private (agent names, places, turn text) | yes | **deleted** (and cleared in memory) | kept on disk |
 | Feed read marks | App Support `Feed/read-<user>.json` | low (event ids) | **yes** | kept | one shared `read.json` |
 | Workspace snapshots | App Support `cmux-mobile-live/snapshot-<user>.json` | private (workspace titles, folders) | yes | deleted | same |
-| Unsent Chief messages | App Support `cmux-mobile-chief-outbox.json` | private (message text, images) | no | **discarded** | kept: the next account would send them |
+| Unsent Chief messages from builds before the outbox was removed (2026-11-17) | App Support `cmux-mobile-chief-outbox.json`, `cmux-mobile-cloud-chief-outbox.json` | private (message text, images) | no | **left on disk, unread** | same |
 | Diff "viewed" marks | UserDefaults `cmuxMobile.diff.viewed` | low (file paths with a diff fingerprint) | no | kept | kept |
+
+Open: the Chief outbox files an earlier build wrote stay in Application Support. Nothing reads,
+sends or deletes them now, so another account never sees them in the app, but they hold that
+account's unsent text until the app is deleted. Deleting them is a follow-up (a new delete of user
+files is a risk:high change).
 
 Open: the diff "viewed" marks hold file paths and are not per account yet. They
 only mark a diff that matches path and content, so another account sees no

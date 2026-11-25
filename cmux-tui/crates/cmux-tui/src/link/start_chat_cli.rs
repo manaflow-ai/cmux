@@ -83,7 +83,7 @@ use pick::{Candidate, Destination};
 const USAGE: &str = "usage: cmux link start-chat plan --request JSON\n       \
 cmux link start-chat pin --key KEY --account ACCOUNT --machine ID [--workspace ID]\n       \
 cmux link start-chat create-begin --key KEY --account ACCOUNT --name NAME --create-key CREATE_KEY\n       \
-cmux link start-chat create-sent --key KEY --account ACCOUNT --team TEAM --create-key CREATE_KEY\n       \
+cmux link start-chat create-sent --key KEY --account ACCOUNT --team TEAM --create-key CREATE_KEY [--route relay|direct]\n       \
 cmux link start-chat create-refused --key KEY --account ACCOUNT --create-key CREATE_KEY\n       \
 cmux link start-chat target-pane --key KEY --account ACCOUNT --machine ID --pane PANE\n       \
 cmux link start-chat strand --key KEY --account ACCOUNT --machine ID\n       \
@@ -139,9 +139,21 @@ pub(super) fn run(args: &[String]) -> i32 {
             }
         }
         "create-sent" => {
-            match (flags.key(), flags.account(), flags.one("--team"), flags.one("--create-key")) {
-                (Some(key), Some(account), Some(team), Some(create_key)) => {
-                    Some(create_sent(&ledger, &key, account, team, create_key))
+            // `--route relay|direct`: how the create goes out; not given, the relay.
+            let route = match flags.all("--route").as_slice() {
+                [] => Some(None),
+                [route] if ["relay", "direct"].contains(route) => Some(Some(*route)),
+                _ => None,
+            };
+            match (
+                flags.key(),
+                flags.account(),
+                flags.one("--team"),
+                flags.one("--create-key"),
+                route,
+            ) {
+                (Some(key), Some(account), Some(team), Some(create_key), Some(route)) => {
+                    Some(create_sent(&ledger, &key, account, team, create_key, route))
                 }
                 _ => None,
             }
@@ -177,9 +189,9 @@ pub(super) fn run(args: &[String]) -> i32 {
             }
             copy.run(&ledger, &|socket: &Path, local: &Path, remote: &str| {
                 if copy.seed_only {
-                    push_seed_only(socket, local, remote, &copy.subpath)
+                    push_seed_only(socket, local, remote, &copy.subpath, &copy.key)
                 } else {
-                    push(socket, local, remote, &copy.subpath)
+                    push(socket, local, remote, &copy.subpath, &copy.key)
                 }
             })
         }),
@@ -231,8 +243,10 @@ impl Keys {
         }
     }
 
+    /// `create_routes`: this ledger keeps a sent create's route (`create-sent --route`), so the
+    /// App may send a person's own create direct; without it every create is the relay's.
     fn json(&self) -> Value {
-        json!({"create_key": self.create, "tab_key": self.tab, "remote_place": self.place})
+        json!({"create_key": self.create, "tab_key": self.tab, "remote_place": self.place, "create_routes": true})
     }
 }
 
@@ -415,6 +429,7 @@ fn plan_with_calls(
             if !pending.refused {
                 return json!({"ok": true, "machine": null, "new_name": pending.name,
             "create_team": pending.team, "create_sent": pending.sent, "create_key": keys.create,
+            "create_route": pending.route, "create_routes": true,
             "tab_key": keys.tab, "remote_place": keys.place});
             }
         }
@@ -719,6 +734,28 @@ fn folder_repo(local: &str) -> Option<String> {
 
 /// The git directory that holds the config of the repository `folder` is in: the nearest `.git` at or above
 /// it, followed through a worktree's `gitdir:` file and its `commondir`.
+/// The project id a folder's agent memory is keyed by (`cmux link memory plan`): the folder's
+/// normalised git remote, else, with a ledger, this installation's folder id in it (the one a
+/// start-chat copy records). `None`: not a folder, or no remote and no ledger.
+pub(in crate::link) fn memory_project_id(
+    ledger: Option<&Path>,
+    folder: &Path,
+) -> anyhow::Result<Option<String>> {
+    let Some(local) = folder.to_str() else { return Ok(None) };
+    match ledger {
+        Some(ledger) => project::folder_key(ledger, local),
+        None => Ok(git_common_dir(folder)
+            .and_then(|dir| std::fs::read_to_string(dir.join("config")).ok())
+            .and_then(|config| origin_url(&config))
+            .and_then(|remote| project::remote_key(&remote))),
+    }
+}
+
+/// The start-chat ledger this Mac keeps, if it has a state folder.
+pub(in crate::link) fn default_ledger() -> Option<PathBuf> {
+    ledger::path()
+}
+
 fn git_common_dir(folder: &Path) -> Option<PathBuf> {
     let dot_git =
         folder.ancestors().map(|dir| dir.join(".git")).find(|dot_git| dot_git.exists())?;
@@ -826,9 +863,12 @@ impl Ensure {
         }
         let project_key = match optional("--project-key")? {
             Some(key) => Some(project::normalize_key(&key)?),
-            // Without a project key the ensure needs the repository.
+            // Without a project key the ensure needs the repository, or the cloud environment it boots in
+            // (`cloud new-machine --environment`: the platform injects its variables and runs its setup).
             None => {
-                repo.as_ref()?;
+                if repo.is_none() {
+                    environment.as_ref()?;
+                }
                 None
             }
         };
@@ -1121,9 +1161,16 @@ fn create_begin(ledger: &Path, key: &str, account: &str, name: &str, create_key:
     }
 }
 
-fn create_sent(ledger: &Path, key: &str, account: &str, team: &str, create_key: &str) -> Value {
+fn create_sent(
+    ledger: &Path,
+    key: &str,
+    account: &str,
+    team: &str,
+    create_key: &str,
+    route: Option<&str>,
+) -> Value {
     match Ledger::update(ledger, |pins| {
-        pins.mark_create_sent(&Send::new(key, account), team, create_key)
+        pins.mark_create_sent(&Send::new(key, account), team, create_key, route)
     }) {
         Ok(true) => json!({"ok": true}),
         Ok(false) => refused("not_found", "no pending create"),
@@ -1187,24 +1234,84 @@ pub(super) type Push<'a> = dyn Fn(&Path, &Path, &str) -> Result<Value, Value> + 
 /// chat still sees the whole checkout. The send's copy counts as finished then
 /// ([`StartCopy::run`]): the chat may open in that folder, so a retry of the send
 /// never pushes over it. What a later delta builds on waits for the fill to be
-/// done (`seed_cli`'s record).
-fn push(socket: &Path, local: &Path, remote: &str, subpath: &str) -> Result<Value, Value> {
-    super::seed_cli::push(socket, local, remote, Some(subpath))
+/// done (`seed_cli`'s record). A folder outside git that the machine has nothing of
+/// takes the held copy (`seed_cli::held`), which answers at its head the same way.
+/// A projection goes before all of these ([`project_first`]).
+fn push(
+    socket: &Path,
+    local: &Path,
+    remote: &str,
+    subpath: &str,
+    chat: &str,
+) -> Result<Value, Value> {
+    projected_or(
+        || project_first(socket, local, remote, chat),
+        || super::seed_cli::push(socket, local, remote, Some(subpath)),
+    )
+}
+
+/// The projection when `project` makes one, else `seed_or_copy`'s push: the head-first
+/// seed or held copy with the chat's subpath, which opens the chat at its head while the
+/// machine fills the rest, never the whole copy first. A machine without `projection-v1`
+/// (every one whose image predates it) takes that path.
+fn projected_or(
+    project: impl FnOnce() -> Option<Result<Value, Value>>,
+    seed_or_copy: impl FnOnce() -> anyhow::Result<super::seed_cli::Pushed>,
+) -> Result<Value, Value> {
+    if let Some(projected) = project() {
+        return projected;
+    }
+    seed_or_copy()
         .map(|pushed| pushed_fields(&pushed.json()))
         .map_err(|error| super::seed_cli::failure(&error))
 }
 
+/// An attached folder is projected when that is on, whatever its size or whether it is a git
+/// repository (sync_cli/project.rs); only a GitHub repository the person picked is cloned: the chat
+/// opens on all of it at once, its files read from this Mac on first use. None when it is not, and for any failure to project, so the
+/// caller seeds or copies as before (head first). Both pushes try it first: the App's first copy asks
+/// (`--on-seed-refusal ask`), and a folder its machine's disk cannot hold would end there,
+/// refused, before a projection that needs no room was tried.
+fn project_first(
+    socket: &Path,
+    local: &Path,
+    remote: &str,
+    chat: &str,
+) -> Option<Result<Value, Value>> {
+    match super::sync_cli::project::start(socket, local, remote, chat) {
+        Ok(Ok(answer)) => {
+            Some(Ok(json!({"mode": "projected", "projected": answer.get("data").cloned()})))
+        }
+        Ok(Err(why)) => {
+            eprintln!(
+                "cmux link start-chat: {} is not projected ({why:?}); seeding or copying it",
+                local.display()
+            );
+            None
+        }
+        Err(error) => {
+            eprintln!(
+                "cmux link start-chat: projecting {} failed: {error:#}; seeding or copying it",
+                local.display()
+            );
+            None
+        }
+    }
+}
+
 /// [`push`] that never copies: a refused seed is `seed_refused`
-/// (`--on-seed-refusal ask`).
+/// (`--on-seed-refusal ask`). A projection is no copy: it is tried first, as in [`push`].
 fn push_seed_only(
     socket: &Path,
     local: &Path,
     remote: &str,
     subpath: &str,
+    chat: &str,
 ) -> Result<Value, Value> {
-    super::seed_cli::push_seed_only(socket, local, remote, Some(subpath))
-        .map(|pushed| pushed_fields(&pushed.json()))
-        .map_err(|error| super::seed_cli::failure(&error))
+    projected_or(
+        || project_first(socket, local, remote, chat),
+        || super::seed_cli::push_seed_only(socket, local, remote, Some(subpath)),
+    )
 }
 
 /// What the copy's answer carries of the push's own line: how it went
@@ -1514,19 +1621,14 @@ fn join(base: &str, name: &str) -> String {
     if base.ends_with('/') { format!("{base}{name}") } else { format!("{base}/{name}") }
 }
 
-/// A copied folder's name on a machine: its own name and a short hash
-/// (32-bit FNV-1a, low 24 bits) of where it is on this Mac, so two folders
-/// with one name never share a copy. The same name Move to Cloud gives
-/// (`CloudMoveFolder.remoteName`).
+/// A copied folder's name on a machine: its own name, as on this Mac. Two folders with one
+/// name never share a copy, as each copy has its own place (Move to Cloud, which has none,
+/// keeps its hashed name: `CloudMoveFolder.remoteName`).
 pub(super) fn remote_name(root: &str) -> String {
-    let mut hash: u32 = 0x811c_9dc5;
-    for byte in root.bytes() {
-        hash ^= u32::from(byte);
-        hash = hash.wrapping_mul(0x0100_0193);
-    }
+    // The folder's own name: each copy already has a place of its own (`fresh_place`), so the
+    // chat sees `cmuxterm-hq`, as on the Mac, not a name with a hash after it.
     let name = root.trim_end_matches('/').rsplit('/').next().unwrap_or("");
-    let name = if name.is_empty() { "folder" } else { name };
-    format!("{name}-{:06x}", hash & 0x00ff_ffff)
+    if name.is_empty() { "folder".to_owned() } else { name.to_owned() }
 }
 
 /// `--flag value` pairs; a flag may repeat (`--work-root`).

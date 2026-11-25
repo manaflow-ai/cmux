@@ -138,7 +138,7 @@ impl Hub {
 /// child working directory. Freeze a bare PATH program or configured
 /// absolute path to its canonical absolute executable before any spawn.
 pub(super) fn fix_remote_executable(profile: &mut HarnessProfile) -> Result<(), RpcError> {
-    let Some(program) = profile.argv.first() else { return Err(remote_executable_refused()) };
+    let Some(program) = profile.argv.first() else { return Err(remote_executable_refused("")) };
     profile.argv[0] = remote_executable(program)?;
     Ok(())
 }
@@ -151,16 +151,19 @@ pub(super) fn remote_executable(program: &str) -> Result<String, RpcError> {
         || program.starts_with("~/")
         || (!path.is_absolute() && (program.contains('/') || program.contains('\\')))
     {
-        return Err(remote_executable_refused());
+        return Err(remote_executable_refused(program));
     }
     let selected = if path.is_absolute() {
         path.to_path_buf()
     } else {
-        crate::config::which(program).map(PathBuf::from).ok_or_else(remote_executable_refused)?
+        crate::config::which(program)
+            .map(PathBuf::from)
+            .ok_or_else(|| remote_executable_refused(program))?
     };
-    let selected = std::fs::canonicalize(selected).map_err(|_| remote_executable_refused())?;
+    let selected =
+        std::fs::canonicalize(selected).map_err(|_| remote_executable_refused(program))?;
     if !selected.is_file() || !selected.is_absolute() {
-        return Err(remote_executable_refused());
+        return Err(remote_executable_refused(program));
     }
     Ok(selected.to_string_lossy().into_owned())
 }
@@ -169,20 +172,44 @@ pub(super) fn refuse_remote_cwd_executable(program: &str, cwd: &Path) -> Result<
     let program = Path::new(program);
     let cwd = std::fs::canonicalize(cwd).unwrap_or_else(|_| cwd.to_path_buf());
     if program.starts_with(cwd) {
-        return Err(remote_executable_refused());
+        return Err(remote_executable_refused(&program.to_string_lossy()));
     }
     Ok(())
 }
 
-fn remote_executable_refused() -> RpcError {
+/// A remote start whose program cannot be fixed to one canonical executable outside the chat's
+/// folder. Its own words, not the asking-mode refusal's: the two read the same until the Door A
+/// timing run (2026-11-16), where a refused Claude start on a joined VM could not be told apart.
+fn remote_executable_refused(program: &str) -> RpcError {
+    let program = if program.is_empty() { "(none)" } else { program };
+    RpcError::invalid_params(format!(
+        "this harness's program {program:?} cannot start for a remote connection: it is not on this machine's PATH, is not one fixed executable, or lies in the chat's folder"
+    ))
+    .with_data(json!({"reason": "remote.executable_refused", "program": program}))
+}
+
+/// A remote start whose launch would put the request's folder or model into its command.
+fn remote_launch_shape_refused() -> RpcError {
     RpcError::invalid_params(
-        "this harness has no reviewed asking mode for a remote WebSocket connection",
+        "this harness's launch puts the chat's folder or model into its command, which a remote connection never starts",
     )
     .with_data(json!({"reason": "remote.executable_refused"}))
 }
 
-fn remote_launch_shape_refused() -> RpcError {
-    remote_executable_refused()
+#[cfg(test)]
+mod remote_refusal_tests {
+    /// Door A timing run: the VM refused a remote Claude start with the asking-mode text while
+    /// the reason was its program. A program refusal names the program in its own words.
+    #[test]
+    fn a_program_refusal_names_the_program_and_is_not_the_asking_mode_refusal() {
+        let error = super::remote_executable("cmux-no-such-program-door-a").unwrap_err();
+        assert!(!error.message.contains("no reviewed asking mode"), "{}", error.message);
+        assert!(error.message.contains("cmux-no-such-program-door-a"), "{}", error.message);
+        let data = error.data.unwrap_or_default();
+        assert_eq!(data["reason"], "remote.executable_refused");
+        let shape = super::refuse_remote_launch_shape([&"run ${cwd}".to_owned()]).unwrap_err();
+        assert!(!shape.message.contains("no reviewed asking mode"), "{}", shape.message);
+    }
 }
 
 /// The request's cwd and model are data passed to a reviewed agent, never
@@ -315,7 +342,12 @@ pub(super) fn draft_meta(d: Draft<'_>) -> SessionMeta {
         schema: META_SCHEMA.into(),
         id: d.id,
         name: String::new(),
+        handle: None,
+        icon: None,
         name_given: false,
+        former_names: Vec::new(),
+        succeeds: Vec::new(),
+        roles: Vec::new(),
         harness: d.agent.into(),
         harness_argv: d.profile.argv.clone(),
         spawn_argv: None,
@@ -323,8 +355,13 @@ pub(super) fn draft_meta(d: Draft<'_>) -> SessionMeta {
         family: Some(d.family.to_owned()),
         preset: d.preset,
         model_request: d.model_request,
+        effort_request: None,
+        capacity_fallback: None,
         cwd: d.cwd,
         additional_directories: Vec::new(),
+        stop_condition: None,
+        stop_condition_sent: false,
+        restricted: false,
         agent_session_id: d.agent_session_id,
         previous_agent_session_ids: Vec::new(),
         retired_agent_session_ids: Vec::new(),
@@ -341,6 +378,7 @@ pub(super) fn draft_meta(d: Draft<'_>) -> SessionMeta {
         history_from: None,
         history_kept_through: None,
         fork_requests: Default::default(),
+        fork_start: None,
         fork_parent_verified: None,
         agent_info: None,
         agent_capabilities: None,
@@ -372,6 +410,7 @@ pub(super) fn draft_meta(d: Draft<'_>) -> SessionMeta {
         usage_limits: None,
         available_commands: None,
         goal: None,
+        task_list: None,
         permission_rules: None,
         tags: Default::default(),
         unread: false,
@@ -379,13 +418,19 @@ pub(super) fn draft_meta(d: Draft<'_>) -> SessionMeta {
         unread_turns: 0,
         last_return: None,
         away_recap: None,
+        approved_plan: None,
         read_through: Default::default(),
         claude_unstored: false,
+        claude_unstored_work: false,
         // Never the parent's: only its creator asks (`SessionMeta::wait_start`).
         wait_start: false,
         throwaway: false,
+        create_key: None,
+        agent_behind_seq: None,
         hibernated_ms: 0,
+        close: None,
         idle_launch: None,
+        start_level: None,
         moved_to: None,
         claude_profile: None,
         last_turn: None,
@@ -401,12 +446,14 @@ pub(super) fn draft_meta(d: Draft<'_>) -> SessionMeta {
         harness_roots: vec![],
         watching: None,
         composer_draft: None,
+        pinned: false,
         preset_mode_approval: None,
         bookmarks: Default::default(),
         tools: Default::default(),
         // Read off the async runtime by `session/new` (`adoption::start_folder`).
         totals: None,
         harness_cost_usd: None,
+        task_cost_usd: None,
         pull_requests: vec![],
         pull_request_times: Default::default(),
         closed_pull_requests: vec![],
@@ -425,6 +472,8 @@ pub(super) fn draft_meta(d: Draft<'_>) -> SessionMeta {
         turn_cap_noticed: None,
         delegator: None,
         cold: None,
+        auto_session: None,
+        fork_of_subagent: None,
     }
 }
 

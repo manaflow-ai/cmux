@@ -61,7 +61,8 @@ public actor DaemonConnection {
     private var pacer: RetryPacer
     private let wake: RetryWake
     private let healthy: DemandTimer
-    private nonisolated let heartbeat = ConnectionHeartbeat()
+    /// Internal for the sync barrier (``syncBarrierSequence()``), which ends at its not-answering verdict.
+    nonisolated let heartbeat = ConnectionHeartbeat()
 
     /// Identity of the current (or last) daemon.
     public private(set) var identity: DaemonIdentity?
@@ -206,7 +207,11 @@ public actor DaemonConnection {
     /// A terminal start the daemon makes exactly once under its client-chosen terminal id (`new-tab` with
     /// `terminal-placement-env-v1`): sent once, with the shell-integration arguments ``request(_:)`` adds, and answered
     /// by its reply or the connection's end (``LineTransport`` fails every pending request on close). No client deadline
-    /// decides it: the start's outcome is the daemon's (principled-audit R5, R-L5).
+    /// decides it: the start's outcome is the daemon's (principled-audit R5, R-L5). Nor does the heartbeat's
+    /// not-answering verdict (P0 2026-10-30: a create failed under swap while its daemon still made the terminal):
+    /// a silent daemon whose process lives is the Restart offer's (``DaemonRecovery``, and the unresponsive-owner
+    /// watch restarts a stuck owner), and that restart's close ends this wait; a dead or bridged daemon's
+    /// connection closes at the verdict itself (``ConnectionHeartbeat``).
     func requestAwaitingStart<R: TerminalSpawningRequest>(_ request: R) async throws -> R.Response {
         try await self.request(withShellIntegration(request), timeout: nil)
     }
@@ -448,7 +453,7 @@ public actor DaemonConnection {
             if pacer.socketFailures == pacer.policy.socketRetries {
                 logger.error("cmux-tui reconnect: \(self.pacer.socketFailures) new daemon sockets failed; waiting for app activation or a reconnect")
             }
-            if delay == nil, !Task.isCancelled, !isClosedPhase { retriesSpentObserver?(serial) }
+            if delay == nil || pacer.spentTimedRetries, !Task.isCancelled, !isClosedPhase { retriesSpentObserver?(serial) }
             if pacer.waitsForToken, let delay {
                 logger.info("cmux-tui reconnect: drop budget spent; next attempt in \(String(describing: delay), privacy: .public) or on an event")
             }
@@ -480,6 +485,9 @@ public actor DaemonConnection {
                 }
             } catch {
                 logger.info("cmux-tui reconnect attempt \(self.pacer.failures) failed: \(String(describing: error), privacy: .public)")
+            }
+            if pacer.spentTimedRetries, !pacer.waitsForEventOnly, let tail = pacer.policy.slowTail {
+                logger.info("cmux-tui reconnect: timed retries spent; next attempt in \(String(describing: tail), privacy: .public) or on an event")
             }
             if pacer.waitsForEventOnly {
                 logger.info("cmux-tui reconnect: timed retries spent; waiting for the daemon socket or another event")

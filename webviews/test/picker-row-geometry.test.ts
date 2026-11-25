@@ -35,8 +35,7 @@ await requireBrowserLane("picker-row-geometry.test.ts", async () => {
     // project selectin". Do not work in a project (checked), New project and app-icon projects.
     { ...project, name: "agent chat project picker, app icons", variant: "open-app-icons" },
     { ...project, name: "agent chat project picker, lane worktrees", variant: "lane-worktrees" },
-    // The composer's folder menu (Leo, 2026-11-06: "it's just folder"): the actions under the folders
-    // carry their glyph in the badge column, so every label starts in one column.
+    // The composer aligns labels for plain folders, No folder and the marked Add project row.
     {
       name: "composer folder menu",
       entry: "agent-pane.composer-context",

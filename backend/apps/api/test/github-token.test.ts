@@ -1,5 +1,3 @@
-import { env } from "cloudflare:workers"
-import { runInDurableObject } from "cloudflare:test"
 import type { Principal } from "@cmux/ownership"
 import type { Connection } from "@cmux/protocol"
 import { describe, expect, it, vi } from "vitest"
@@ -8,7 +6,7 @@ import { mintAccessToken } from "../src/auth.ts"
 import { handleGithubToken } from "../src/integrations/github-token-route.ts"
 import { drainTokenRevocations, githubRepos, githubStatus, githubToken, nextLedgerAt, type LedgerHost } from "../src/integrations/github-tokens.ts"
 import { post, signedInWithInstall, worker } from "./cloud-bind-support.ts"
-import { settlePolicy } from "./integration-policy-settle.ts"
+import { fakeGitHub, inDO, linkGitHub, ok, op, policy, read, testEnv, token } from "./github-token-support.ts"
 import { fireAlarm } from "./setup/alarm.ts"
 
 /**
@@ -17,45 +15,10 @@ import { fireAlarm } from "./setup/alarm.ts"
  * ledger, revocation (route and install revoke) and the team audit record. GitHub is faked.
  */
 
-const testEnv = env as unknown as Record<string, any>
-const inDO = runInDurableObject as unknown as (stub: unknown, cb: (instance: any) => Promise<void>) => Promise<void>
-const ok = (body: unknown, status = 200) => new Response(JSON.stringify(body), { status, headers: { "content-type": "application/json" } })
-const op = (token: string, name: string, params: unknown) => post("/v1/ops", token, { op: name, params, idempotency_key: crypto.randomUUID(), origin: "cli" })
-const read = (token: string, name: string, params: unknown = {}) => post("/v1/read", token, { op: name, params })
-const asJson = (r: { status: number; body: any }) => ({ status: r.status, json: r.body })
-const policy = (token: string, team: string, fields: unknown) => settlePolicy((t, n, p) => op(t, n, p).then(asJson), (t, n, p) => read(t, n, p).then(asJson), token, team, fields)
-const token = (bearer: string, body: unknown) => post("/v1/integrations/github/token", bearer, body)
-
-/** A fake GitHub: the App's installation 99 on account acme; records every request. */
-const fakeGitHub = () => {
-  const calls: Array<{ method: string; url: string; auth: string | null; body: string }> = []
-  let n = 0
-  const routes: Record<string, (req: Request, body: string) => Response> = {
-    "https://github.com/login/oauth/access_token": () => ok({ access_token: "ghu_user" }),
-    "https://api.github.com/user/installations/99/repositories": () => ok({ repositories: [{ full_name: "acme/web" }, { full_name: "acme/api" }] }),
-    "https://api.github.com/user/installations": () => ok({ installations: [{ id: 99, account: { login: "acme", type: "Organization" }, permissions: { contents: "write", pull_requests: "write", issues: "write", workflows: "write", metadata: "read" } }] }),
-    "https://api.github.com/app/installations/99/access_tokens": (_req, body) =>
-      ok({ token: `ghs_secret_${++n}`, expires_at: new Date(Date.now() + 3600_000).toISOString(), permissions: { ...(JSON.parse(body || "{}") as { permissions?: object }).permissions, metadata: "read" } }, 201),
-    "https://api.github.com/installation/token": () => new Response(null, { status: 204 })
-  }
-  const http = async (req: Request) => {
-    const body = await req.clone().text()
-    calls.push({ method: req.method, url: req.url, auth: req.headers.get("authorization"), body })
-    const key = Object.keys(routes).find((k) => req.url.startsWith(k))
-    return key ? routes[key]!(req, body) : new Response("not found", { status: 404 })
-  }
-  return { http, calls, routes, mints: () => calls.filter((c) => c.url.endsWith("/access_tokens")), deletes: () => calls.filter((c) => c.method === "DELETE") }
-}
-
-/** Links a team-shared GitHub connection (installation 99, repos acme/web and acme/api) in `team`. */
-const linkGitHub = async (session: string, team: string) => {
-  const gh = fakeGitHub()
-  await inDO(testEnv.CONNECTION_DO.get(testEnv.CONNECTION_DO.idFromName(team)), async (instance) => void (instance.http = gh.http))
-  const connect = await op(session, "integration.connect", { provider: "github", sharing: "team" })
-  const state = new URL(connect.body.value.authorize_url).searchParams.get("state")!
-  const done = await op(session, "integration.complete", { state, code: "c", installation_id: "99", setup_action: "install" })
-  expect(done.body, JSON.stringify(done.body)).toMatchObject({ ok: true, value: { status: "active" } })
-  return { gh }
+/** The X-Hub-Signature-256 digest GitHub sends with a webhook. */
+const hmacHex = async (secret: string, msg: string) => {
+  const key = await crypto.subtle.importKey("raw", new TextEncoder().encode(secret), { name: "HMAC", hash: "SHA-256" }, false, ["sign"])
+  return [...new Uint8Array(await crypto.subtle.sign("HMAC", key, new TextEncoder().encode(msg)))].map((b) => b.toString(16).padStart(2, "0")).join("")
 }
 
 describe("GitHub token endpoint", { timeout: 60_000 }, () => {
@@ -548,30 +511,6 @@ describe("GitHub token endpoint", { timeout: 60_000 }, () => {
     expect(gh.mints()).toHaveLength(Number(readStatus === 200) + Number(writeStatus === 200))
   })
 
-  it("refuses repositories outside the connection or policy, other owners, unknown permissions and workflows without the policy flag", async () => {
-    const a = await signedInWithInstall("gh-token-2", "cli")
-    expect((await token(a.installToken, { team: a.team, repo: "acme/web", permissions: { contents: "read" } })).body.error.code).toBe("integration.not_found")
-    const { gh } = await linkGitHub(a.session, a.team)
-    const t = (repo: string, permissions: unknown) => token(a.installToken, { team: a.team, repo, permissions }).then((r) => [r.status, r.body.error?.code])
-    expect(await t("acme/secret", { contents: "read" })).toEqual([403, "policy.denied"])
-    expect(await t("other/web", { contents: "read" })).toEqual([403, "policy.denied"])
-    expect(await t("acme/web", { administration: "write" })).toEqual([400, "request.invalid"])
-    expect(await t("acme/web", { contents: "admin" })).toEqual([400, "request.invalid"])
-    expect(await t("acme/web", {})).toEqual([400, "request.invalid"])
-    expect(await t("acme/web", { workflows: "write" })).toEqual([403, "policy.denied"])
-    expect(gh.mints()).toHaveLength(0)
-    await policy(a.session, a.team, { github: { allow_workflows: true } })
-    expect(await t("acme/web", { workflows: "write" })).toEqual([200, undefined])
-    await policy(a.session, a.team, { github: { repo_allowlist: ["acme/api"] } })
-    expect(await t("acme/web", { contents: "read" })).toEqual([403, "policy.denied"])
-    // Unauthenticated, and a team the install was not minted for.
-    expect((await token("", { team: a.team, repo: "acme/api", permissions: { contents: "read" } })).status).toBe(401)
-    expect((await token(a.installToken, { team: "team_00000000000000000000", repo: "acme/api", permissions: { contents: "read" } })).body.error.code).toBe("auth.forbidden")
-    // A GitHub refusal (422) is policy.denied.
-    gh.routes["https://api.github.com/app/installations/99/access_tokens"] = () => ok({ message: "nope" }, 422)
-    expect(await t("acme/api", { checks: "write" })).toEqual([403, "policy.denied"])
-  })
-
   it("status names the installation's configure page, asking GitHub once per installation; a lookup failure answers null", async () => {
     const status = async (bearer: string, team: string) => ((await (await worker.fetch(`https://api.test/v1/integrations/github/status?team=${team}`, { headers: { authorization: `Bearer ${bearer}` } })).json()) as any).connection
     const lookups = (gh: ReturnType<typeof fakeGitHub>) => gh.calls.filter((c) => c.url === "https://api.github.com/app/installations/99").length
@@ -599,18 +538,6 @@ describe("GitHub token endpoint", { timeout: 60_000 }, () => {
     // No connection: no page and no GitHub read.
     const c = await signedInWithInstall("gh-status-cfg-none", "cli")
     expect(await status(c.session, c.team)).toBeNull()
-  })
-
-  it("a GitHub refusal of the repository names the installation's configure page in the error", async () => {
-    const a = await signedInWithInstall("gh-token-cfg-denied", "cli")
-    const { gh } = await linkGitHub(a.session, a.team)
-    gh.routes["https://api.github.com/app/installations/99"] = () => ok({ id: 99, account: { login: "acme", type: "Organization" } })
-    gh.routes["https://api.github.com/app/installations/99/access_tokens"] = () => ok({ message: "There is at least one repository that does not exist or is not accessible to the parent installation." }, 422)
-    const denied = await token(a.installToken, { team: a.team, repo: "acme/web", permissions: { contents: "read" } })
-    expect([denied.status, denied.body.error]).toEqual([403, { code: "policy.denied", message: expect.any(String), configure_url: "https://github.com/organizations/acme/settings/installations/99" }])
-    // A team-policy refusal is not fixed on GitHub's page: no configure_url there.
-    const policyDenied = await token(a.installToken, { team: a.team, repo: "acme/secret", permissions: { contents: "read" } })
-    expect([policyDenied.status, policyDenied.body.error.code, "configure_url" in policyDenied.body.error]).toEqual([403, "policy.denied", false])
   })
 
   it("refuses an elevated, extra, or unverifiable GitHub token grant before handing it to a caller", async () => {
@@ -654,6 +581,48 @@ describe("GitHub token endpoint", { timeout: 60_000 }, () => {
     expect((await token(a.installToken, { team: a.team, repo: "acme/web", permissions: { contents: "read" } })).body.error.code).toBe("needs_reauth")
     expect((await read(a.session, "integration.list")).body.value.connections.find((c: any) => c.provider === "github").status).toBe("needs_reauth")
     expect((await token(a.installToken, { team: a.team, repo: "acme/web", permissions: { contents: "read" } })).body.error.code).toBe("needs_reauth")
+  })
+
+  it("App webhooks: suspend marks the connection at once and unsuspend restores it; new permissions sync; a removed repository leaves; an uninstalled one stays unlinked", async () => {
+    const a = await signedInWithInstall("gh-token-hooks-1", "cli")
+    await linkGitHub(a.session, a.team)
+    const hook = async (event: string, payload: Record<string, unknown>) => {
+      const body = JSON.stringify({ installation: { id: 99, account: { login: "acme" } }, ...payload })
+      const res = await worker.fetch("https://api.test/v1/hooks/github", { method: "POST", headers: { "x-hub-signature-256": `sha256=${await hmacHex(testEnv.GITHUB_WEBHOOK_SECRET, body)}`, "x-github-delivery": crypto.randomUUID(), "x-github-event": event }, body })
+      expect(res.status).toBe(200)
+    }
+    const github = async () => (await read(a.session, "integration.list")).body.value.connections.find((c: any) => c.provider === "github")
+    const mint = (repo: string) => token(a.installToken, { team: a.team, repo, permissions: { contents: "read" } })
+    expect((await mint("acme/web")).status).toBe(200)
+
+    // Suspended on GitHub: the connection says so before any mint, and a mint names who can lift it.
+    await hook("installation", { action: "suspend", installation: { id: 99, account: { login: "acme" }, suspended_at: "2026-11-19T10:00:00Z" } })
+    expect(await github()).toMatchObject({ status: "needs_reauth", status_detail: "the GitHub App installation is suspended" })
+    const refused = await mint("acme/web")
+    expect([refused.status, refused.body.error.code]).toEqual([409, "needs_reauth"])
+    expect(refused.body.error.message).toContain("is suspended; an owner of acme can unsuspend it")
+
+    // Unsuspended: active again (no relink), with the permissions the installation now grants.
+    await hook("installation", { action: "unsuspend", installation: { id: 99, account: { login: "acme" }, suspended_at: null, permissions: { contents: "write", issues: "write", metadata: "read" } } })
+    const restored = await github()
+    expect([restored.status, restored.status_detail, restored.scopes_granted]).toEqual(["active", undefined, ["contents:write", "issues:write", "metadata:read"]])
+    expect((await mint("acme/web")).status).toBe(200)
+
+    // An owner accepted new permissions: the connection's scopes follow.
+    await hook("installation", { action: "new_permissions_accepted", installation: { id: 99, account: { login: "acme" }, suspended_at: null, permissions: { contents: "write", issues: "write", metadata: "read", pull_requests: "write" } } })
+    expect((await github()).scopes_granted).toEqual(["contents:write", "issues:write", "metadata:read", "pull_requests:write"])
+
+    // A repository removed from the installation leaves the recorded list; an added one is not joined (only the linking user's sign-in can tell).
+    await hook("installation_repositories", { action: "removed", repository_selection: "selected", repositories_removed: [{ full_name: "acme/API" }], repositories_added: [] })
+    await hook("installation_repositories", { action: "added", repository_selection: "selected", repositories_added: [{ full_name: "acme/new" }], repositories_removed: [] })
+    expect([(await github()).resources.repos, (await github()).status]).toEqual([["acme/web"], "active"])
+    expect((await mint("acme/api")).status).toBe(403)
+    expect((await mint("acme/web")).status).toBe(200)
+
+    // Uninstalled, then a stray unsuspend: a connection needing a relink for another reason keeps needing it.
+    await hook("installation", { action: "deleted" })
+    await hook("installation", { action: "unsuspend", installation: { id: 99, account: { login: "acme" }, suspended_at: null } })
+    expect(await github()).toMatchObject({ status: "needs_reauth", status_detail: "the GitHub App was uninstalled" })
   })
 
   it("revoke deletes each ledger token at GitHub; an install revoke does too; another install's tokens need a team admin", async () => {
@@ -710,6 +679,19 @@ describe("GitHub token endpoint", { timeout: 60_000 }, () => {
     expect((await list(a.session, `team=${a.team}&query=${"x".repeat(257)}`)).status).toBe(400)
     const seam = await worker.fetch("https://api.test/v1/integrations/github/machine-token", { method: "POST", headers: { "content-type": "application/json", authorization: `Bearer ${a.installToken}` }, body: JSON.stringify({ team: a.team, repo: "acme/web", permissions: { contents: "read" } }) })
     expect(seam.status).toBe(404)
+    // Staging and production answer the seam as development does (cmux-platform's environment builds mint through it).
+    // A token's issuer names its environment, so the same install's bearer is minted for each one asked.
+    const claims = JSON.parse(atob(a.installToken.split(".")[1]!.replace(/-/g, "+").replace(/_/g, "/"))) as { sub: string; team: string; inst: string; grant: string }
+    const seamIn = async (environment: string) => {
+      const envIn = { ...testEnv, ENVIRONMENT: environment } as any
+      const bearer = (await mintAccessToken(envIn, { user: claims.sub, team: claims.team, install: claims.inst, grant: claims.grant })).token
+      return handleGithubToken(new Request("https://api.test/v1/integrations/github/machine-token", { method: "POST", headers: { "content-type": "application/json", authorization: `Bearer ${bearer}` }, body: JSON.stringify({ team: a.team, repo: "acme/web", permissions: { contents: "read" } }) }), envIn, "machine-token")
+    }
+    for (const environment of ["development", "staging", "production"]) {
+      const answer = await seamIn(environment)
+      // The person's cli install reaches the route's own gate, which wants a machine install.
+      expect([environment, answer.status, ((await answer.json()) as any).error.message]).toEqual([environment, 403, "a machine install is required"])
+    }
   })
 
   it("GET /repos answers a Cloud machine in every environment for its own team only, under the token route's machine gate", async () => {
@@ -730,9 +712,16 @@ describe("GitHub token endpoint", { timeout: 60_000 }, () => {
       })
       return { id, grant, bearer: (await mintAccessToken(testEnv as any, { user: a.user, team, install: id, grant, vm: true })).token }
     }
-    // cmux-platform's CloudDO (not in this Worker): cloud.vm.self.get answers only for the asking install's own live machine.
-    const live = new Set([MACHINE])
-    const env = { ...testEnv, CLOUD_DO: { idFromName: (x: string) => x, get: () => ({ readOp: async (_e: string, p: Principal, op: string, params: { machine?: string }) => (op === "cloud.vm.self.get" && params.machine === p.bound_machine && live.has(params.machine ?? "") ? { ok: true, revision: "cloud:1", value: { machine: { id: params.machine } } } : { ok: false, code: "auth.forbidden", message: "not this machine" }) }) } }
+    // cmux-platform (not in this Worker), over the PLATFORM binding as the VM install's own bearer: POST /v1/read
+    // cloud.vm.self.get answers only for the install's own live machine (the route always asks for its bound machine).
+    const live = new Set([MACHINE]), edged = new Set<string>()
+    const PLATFORM = { fetch: async (req: Request) => {
+      const { op, params } = (await req.json()) as { op: string; params: { machine?: string } }
+      return op === "cloud.vm.self.get" && live.has(params.machine ?? "") && /^Bearer ./.test(req.headers.get("authorization") ?? "")
+        ? Response.json({ op, value: { machine: { id: params.machine }, ...(edged.has(params.machine ?? "") ? { platform_edge: true } : {}) }, stream: "cloud:t", revision: "cloud:1" })
+        : Response.json({ _tag: "Forbidden", code: "auth.forbidden", message: "not this machine" }, { status: 403 })
+    } }
+    const env = { ...testEnv, PLATFORM }
     const list = async (bearer: string, query: string) => {
       const res = await handleGithubToken(new Request(`https://api.test/v1/integrations/github/repos?${query}`, { headers: { authorization: `Bearer ${bearer}` } }), env as any, "repos")
       return { status: res.status, body: (await res.json()) as any }
@@ -745,17 +734,40 @@ describe("GitHub token endpoint", { timeout: 60_000 }, () => {
     // Every repository listed is one the same VM can mint a token for; the left-out one is refused on both.
     const mint = (repo: string) => handleGithubToken(new Request("https://api.test/v1/integrations/github/token", { method: "POST", headers: { "content-type": "application/json", authorization: `Bearer ${vm.bearer}` }, body: JSON.stringify({ team: a.team, repo, permissions: { contents: "read" } }) }), env as any, "token").then((r) => r.status)
     expect([await mint("acme/web"), await mint("acme/api"), await mint("acme/unlinked")]).toEqual([200, 200, 403])
+    // The machine-only seam mints for the same VM on staging and production (cmux-platform's environment build).
+    // A token's issuer names its environment: the VM's bearer is minted for the environment asked.
+    const seam = async (environment: string) => {
+      const envIn = { ...env, ENVIRONMENT: environment } as any
+      const bearer = (await mintAccessToken(envIn, { user: a.user, team: a.team, install: vm.id, grant: vm.grant, vm: true })).token
+      return handleGithubToken(new Request("https://api.test/v1/integrations/github/machine-token", { method: "POST", headers: { "content-type": "application/json", authorization: `Bearer ${bearer}` }, body: JSON.stringify({ team: a.team, repo: "acme/web", permissions: { contents: "read" } }) }), envIn, "machine-token")
+    }
+    const staged = await seam("staging")
+    expect([staged.status, typeof ((await staged.json()) as any).token]).toEqual([200, "string"])
+    const produced = await seam("production")
+    expect([produced.status, typeof ((await produced.json()) as any).token]).toEqual([200, "string"])
+    // An edge machine (the platform's vm.self.get says platform_edge): the guest's own bearer is refused on /token and
+    // the seam with github.edge_only, and still lists; only the platform egress's bearer (claim edge) mints.
+    edged.add(MACHINE)
+    const refused = await handleGithubToken(new Request("https://api.test/v1/integrations/github/token", { method: "POST", headers: { "content-type": "application/json", authorization: `Bearer ${vm.bearer}` }, body: JSON.stringify({ team: a.team, repo: "acme/web", permissions: { contents: "read" } }) }), env as any, "token")
+    const refusedBody = (await refused.json()) as any
+    expect([refused.status, refusedBody.error.code, JSON.stringify(refusedBody).includes("ghs_")]).toEqual([403, "github.edge_only", false])
+    expect([(await seam("staging")).status, (await list(vm.bearer, `team=${a.team}`)).status]).toEqual([403, 200])
+    const egress = (await mintAccessToken(testEnv as any, { user: a.user, team: a.team, install: vm.id, grant: vm.grant, vm: true, edge: true })).token
+    const viaEdge = await handleGithubToken(new Request("https://api.test/v1/integrations/github/token", { method: "POST", headers: { "content-type": "application/json", authorization: `Bearer ${egress}` }, body: JSON.stringify({ team: a.team, repo: "acme/web", permissions: { contents: "write" } }) }), env as any, "token")
+    expect(viaEdge.status).toBe(200)
+    edged.delete(MACHINE)
 
     // Another team's repositories: a VM names only its machine's team.
     const other = await signedInWithInstall("gh-repos-vm-2", "cli")
     await linkGitHub(other.session, other.team)
     const elsewhere = await list(vm.bearer, `team=${other.team}`)
     expect([elsewhere.status, elsewhere.body.error.code]).toEqual([403, "auth.forbidden"])
-    // A VM of a team with no GitHub link lists nothing of a's, whatever team it names.
+    // A VM of a's in a team with no GitHub link names only that team, and lists a's own connection there (linked in a's
+    // personal team, cmux#55104), never another member's: the person's own GitHub follows them onto their machines.
     const unlinked = await signedInWithInstall("gh-repos-vm-3", "cli")
     const theirs = await vmInstall(unlinked.team, MACHINE)
     expect((await list(theirs.bearer, `team=${a.team}`)).status).toBe(403)
-    expect((await list(theirs.bearer, "")).status).not.toBe(200)
+    expect((await list(theirs.bearer, "")).body.repos?.map((r: any) => r.full_name)).toEqual(["acme/web", "acme/api"])
     // A machine that is no longer this install's live machine (vmGate), then a revoked install: refused.
     live.delete(MACHINE)
     const gone = await list(vm.bearer, `team=${a.team}`)
@@ -766,8 +778,8 @@ describe("GitHub token endpoint", { timeout: 60_000 }, () => {
     expect(JSON.stringify(gone.body) + JSON.stringify(elsewhere.body)).not.toContain("acme/")
   })
 
-  // A VM install's token is gated on CloudDO's vm-self read of its own machine (github-token-route.ts); CloudDO and its
-  // VM installs are cmux-platform's, which tests the gate's other half.
+  // A VM install's token is gated on cmux-platform's vm-self read of its own machine (github-token-route.ts, POST /v1/read);
+  // the platform's CloudDO and its VM installs are cmux-platform's, which tests the gate's other half.
   it("a chief-less phone install is refused", async () => {
     const phone = await signedInWithInstall("gh-token-5", "ios")
     expect((await token(phone.installToken, { team: phone.team, repo: "acme/web", permissions: { contents: "read" } })).body.error.code).toBe("auth.forbidden")

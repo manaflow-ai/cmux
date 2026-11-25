@@ -1,10 +1,11 @@
 //! Subagent attribution for session updates.
 //!
-//! Harnesses report subagents three ways: native ACP subagent sessions
+//! Harnesses report subagents four ways: native ACP subagent sessions
 //! (draft agentclientprotocol/agent-client-protocol#1992: `subagent_spawned`,
 //! `subagent_state_update`, and the child's updates under its own session
-//! id), Codex's legacy `spawnAgent` collaboration calls, and Codex's legacy
-//! subagent activity items. The hub forwards every update under its own
+//! id), Codex's legacy `spawnAgent` collaboration calls, Codex's legacy
+//! subagent activity items, and OpenCode's `task` tool calls
+//! (`subagents_opencode.rs`). The hub forwards every update under its own
 //! session id, so the child's id would be lost; this module writes one model
 //! into each update's `_meta.acpmux` instead:
 //!
@@ -36,8 +37,16 @@
 //!   every subagent below it: a client never waits on one for the turn's end.
 
 use crate::protocol::merge_mux_meta;
+use expiry::Expiry;
 use serde_json::{Map, Value, json};
 use std::collections::{HashMap, HashSet};
+
+#[path = "subagents_recent.rs"]
+mod recent;
+pub use recent::{RECENT_SUBAGENTS, RecentSubagent};
+#[path = "subagents_listed.rs"]
+pub(crate) mod listed;
+pub use listed::{ListedSubagent, SubagentListing};
 
 /// Whether a `session/update` params object is a subagent's (the hub tags it
 /// `_meta.acpmux.subagent`, ``SubagentTree::annotate``). A subagent's text and
@@ -50,7 +59,7 @@ pub fn is_subagents(params: &Value) -> bool {
 
 /// The subagents seen in one session, each mapped to its parent subagent
 /// (`None` for the session's own).
-#[derive(Debug, Default)]
+#[derive(Debug, Default, Clone, serde::Serialize, serde::Deserialize)]
 pub struct SubagentTree {
     parents: HashMap<String, Option<String>>,
     /// Children whose sender was not in the replay window yet. Once that sender
@@ -85,9 +94,32 @@ pub struct SubagentTree {
     /// conversation names a new root, so every root learned is kept: replayed
     /// history still names the earlier ones.
     root_threads: HashSet<String>,
+    /// What ends a subagent its harness never said ended (`expiry.rs`).
+    expiry: Expiry,
+    /// The latest subagents, live and finished, each with its state: the summary's
+    /// `recentSubagents`, which the sidebar nests under the chat (`subagents_recent.rs`).
+    #[serde(default)]
+    recent: std::collections::VecDeque<recent::RecentEntry>,
+    /// Moves once on each live change to `recent`, so the hub tells watchers the list moved
+    /// even when the running count did not (`hub/tap.rs`).
+    #[serde(default)]
+    recent_revision: u64,
+    /// Every subagent the chat started with its last state, for the Background tasks panel's
+    /// whole list (`_acpmux/subagents`, `subagents_listed.rs`): one small entry per id `parents`
+    /// already holds, so it grows no faster than the tree.
+    #[serde(default)]
+    listed: HashMap<String, listed::Listed>,
+    /// Moves on each state change `listed` takes: the order the ended ones list in, latest first.
+    #[serde(default)]
+    listed_seq: u64,
+    /// The stamp of the logged update a fold of the chat's log reads now (`set_log_clock`), so
+    /// `listed` takes the log's times, not the fold's: an adoption resumed from its checkpoint
+    /// lists what a whole read does. None for a live update (`set_clock`).
+    #[serde(skip)]
+    logged_at: Option<u64>,
 }
 
-#[derive(Debug, Default)]
+#[derive(Debug, Default, Clone, serde::Serialize, serde::Deserialize)]
 struct ChildPreview {
     text: String,
     message_id: Option<String>,
@@ -168,6 +200,52 @@ impl SubagentTree {
         self.names.values().any(|name| name == to)
             || self.parents.contains_key(to)
             || self.previews.values().any(|p| p.agent_id.as_deref() == Some(to))
+    }
+
+    /// The name a `SendMessage` to `to` reads by: the subagent whose agent id (what Claude Code
+    /// names it by), session id or name `to` is, as its list names it (its name, else its task).
+    /// None when no subagent of this session is `to`, or nothing names it.
+    pub fn recipient(&self, to: &str) -> Option<String> {
+        let to = to.trim();
+        if to.is_empty() {
+            return None;
+        }
+        let child = if self.parents.contains_key(to) {
+            Some(to)
+        } else {
+            self.previews
+                .iter()
+                .find(|(_, p)| p.agent_id.as_deref() == Some(to))
+                .map(|(id, _)| id.as_str())
+        }?;
+        self.names
+            .get(child)
+            .cloned()
+            .or_else(|| {
+                self.previews.get(child).and_then(|p| p.task.as_deref()).map(truncate_label)
+            })
+            .filter(|name| !name.trim().is_empty() && name != to)
+    }
+
+    /// The recipient a Claude Code `SendMessage` call of the chat's own agent names, for its
+    /// `_meta.acpmux.recipient` (``recipient``). The row that draws it ("Sent to <name>") reads
+    /// this, and so names the subagent even when the chat's page holds no row of its Agent call:
+    /// a reload's window starts after it (Leo, 2026-11-22, on "Sent to a6c31b7e": "some bullshit
+    /// line about like... cmux... did something", paraphrased).
+    fn send_recipient(&self, update: &Value) -> Option<String> {
+        if !matches!(
+            update.get("sessionUpdate").and_then(Value::as_str),
+            Some("tool_call" | "tool_call_update")
+        ) || update.pointer("/_meta/claude/tool").and_then(Value::as_str) != Some("SendMessage")
+        {
+            return None;
+        }
+        self.recipient(update.pointer("/rawInput/to").and_then(Value::as_str)?)
+    }
+
+    /// Whether `session_id` is one this session knows: one of its subagents, or a root thread.
+    pub fn knows(&self, session_id: &str) -> bool {
+        self.parents.contains_key(session_id) || self.is_root(session_id)
     }
 
     /// Whether `session_id` is one of this session's subagents.
@@ -271,6 +349,8 @@ impl SubagentTree {
             }
             let state = event.get("state").and_then(Value::as_str);
             let ended = matches!(state, Some("completed" | "failed" | "cancelled"));
+            // A replayed `running` is history, not news of it.
+            let running = state == Some("running");
             if state == Some("completed")
                 && event.get("result").is_none()
                 && !preview.result_cut
@@ -282,6 +362,11 @@ impl SubagentTree {
             if ended {
                 preview.free_result();
             }
+            if (live || !running)
+                && let Some(id) = event.get("id").and_then(Value::as_str).map(str::to_owned)
+            {
+                self.expiry_event(&id, running);
+            }
         }
         let mut fields = Map::new();
         if let Some(owner) = &owner {
@@ -291,8 +376,13 @@ impl SubagentTree {
             self.note_background(&events);
             self.note_running(&events);
         }
+        self.note_recent(&events, live);
+        self.note_listed(&events, live);
         if !events.is_empty() {
             fields.insert("subagents".into(), Value::Array(events));
+        }
+        if let Some(recipient) = params.get("update").and_then(|u| self.send_recipient(u)) {
+            fields.insert("recipient".into(), json!(recipient));
         }
         if !fields.is_empty() {
             merge_mux_meta(params, Value::Object(fields));
@@ -338,6 +428,9 @@ impl SubagentTree {
             }
         }
         self.root_threads.extend(log.root_threads);
+        self.adopt_expiry(log.expiry, &known);
+        self.adopt_recent(log.recent);
+        self.adopt_listed(log.listed, &known);
     }
 
     /// Learns `id`'s name from `event` when it names it, or gives `event` the name learned before
@@ -378,6 +471,7 @@ impl SubagentTree {
 
     /// The harness is gone, and its background subagents with it.
     pub fn end_background(&mut self) {
+        self.expiry_harness_exit();
         self.background.clear();
         self.running.clear();
     }
@@ -561,6 +655,16 @@ impl SubagentTree {
                 if let Some(tokens) = update.get("tokens").and_then(Value::as_u64) {
                     event.insert("tokens".into(), json!(tokens));
                 }
+                // An end acpmux wrote after the fact (`expiry.rs`): when it really ended and
+                // started, and that it was recovered, so a client draws it where it ended.
+                for key in ["endedAt", "startedAt"] {
+                    if let Some(at) = update.get(key).and_then(Value::as_u64) {
+                        event.insert(key.into(), json!(at));
+                    }
+                }
+                if update.get("recovered") == Some(&Value::Bool(true)) {
+                    event.insert("recovered".into(), json!(true));
+                }
                 self.remember_label(&id, &event);
                 self.label(&id, &mut event);
                 vec![Value::Object(event)]
@@ -615,7 +719,10 @@ impl SubagentTree {
                 self.label(&id, &mut event);
                 vec![Value::Object(event)]
             }
-            Some("tool_call" | "tool_call_update") => self.codex_legacy(update, owner),
+            Some("tool_call" | "tool_call_update") => match self.opencode_task(update, owner) {
+                Some(events) => events,
+                None => self.codex_legacy(update, owner),
+            },
             _ => vec![],
         }
     }
@@ -779,6 +886,7 @@ impl SubagentTree {
         }
         if let Some(v) = text("agentId") {
             self.previews.entry(id.to_owned()).or_default().agent_id = Some(v.to_owned());
+            self.expiry_agent(id, v);
         }
     }
 
@@ -969,6 +1077,9 @@ fn truncate_last_message(text: &str) -> String {
     }
 }
 
+#[path = "subagent_expiry.rs"]
+pub mod expiry;
+
 #[cfg(test)]
 mod codex_tests {
     use super::*;
@@ -1062,6 +1173,51 @@ mod codex_tests {
                     "name": "Push relay"})
             ]
         );
+    }
+
+    /// A `SendMessage` to a subagent's agent id carries the name its list gives it, so the
+    /// "Sent to" row names it even when the chat's page holds no row of its Agent call (Leo,
+    /// 2026-11-22, on "Sent to a6c31b7e" after a reload). One to an id nothing names, or any other
+    /// tool, carries none.
+    #[test]
+    fn a_send_message_names_its_recipient() {
+        let mut tree = SubagentTree::default();
+        subagents(
+            &mut tree,
+            json!({"sessionUpdate": "subagent_spawned", "subagentSessionId": "s1/t1",
+                   "name": "Watch the cmux-ci run"}),
+        );
+        subagents(
+            &mut tree,
+            json!({"sessionUpdate": "subagent_state_update", "subagentSessionId": "s1/t1",
+                   "state": "running", "agentId": "a6c31b7ee45d67550"}),
+        );
+        subagents(
+            &mut tree,
+            json!({"sessionUpdate": "subagent_spawned", "subagentSessionId": "s1/t2",
+                   "task": "Find why the agent chat pane blanked out"}),
+        );
+        let recipient = |tree: &mut SubagentTree, update: Value| {
+            let mut params = json!({"sessionId": "s1", "update": update});
+            tree.annotate(&mut params);
+            params.pointer("/_meta/acpmux/recipient").cloned()
+        };
+        let send = |to: &str| {
+            json!({"sessionUpdate": "tool_call", "toolCallId": "c1", "title": "SendMessage",
+                   "_meta": {"claude": {"tool": "SendMessage"}}, "rawInput": {"to": to, "message": "Queued"}})
+        };
+        assert_eq!(
+            recipient(&mut tree, send("a6c31b7ee45d67550")),
+            Some(json!("Watch the cmux-ci run"))
+        );
+        assert_eq!(
+            recipient(&mut tree, send("s1/t2")),
+            Some(json!("Find why the agent chat pane blanked out"))
+        );
+        assert_eq!(recipient(&mut tree, send("a0000000000000000")), None);
+        let read = json!({"sessionUpdate": "tool_call", "toolCallId": "c2", "title": "Read",
+                          "_meta": {"claude": {"tool": "Read"}}, "rawInput": {"to": "a6c31b7ee45d67550"}});
+        assert_eq!(recipient(&mut tree, read), None);
     }
 
     /// A subagent's later progress and end repeat the name and task its spawn gave, so a reader
@@ -1787,3 +1943,6 @@ mod codex_tests {
 #[cfg(test)]
 #[path = "subagents_background_tests.rs"]
 mod background_tests;
+
+#[path = "subagents_opencode.rs"]
+mod opencode;
