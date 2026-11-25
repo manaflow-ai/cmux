@@ -1,0 +1,138 @@
+{
+  "sourceLanguage" : "en",
+  "strings" : {
+    "settings.cloud.turnCheckpoints.help" : {
+      "comment" : "Settings > Machines: help for the Save a Checkpoint Before Each Cloud Chat Turn toggle. Back to Before This Turn is the chat's undo action.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Back to Before This Turn restores the machine in seconds. Keeps the newest few."
+          }
+        },
+        "ar" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "تستعيد «العودة إلى ما قبل هذا الدور» الآلة في ثوانٍ. يحتفظ بأحدث بضع نقاط استعادة."
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Nazad prije ovog poteza vraća mašinu za nekoliko sekundi. Zadržava nekoliko najnovijih."
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Tilbage til før denne tur gendanner maskinen på få sekunder. Beholder de nyeste få."
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "„Zurück vor diesen Zug“ stellt die Maschine in Sekunden wieder her. Behält die neuesten paar."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Volver a antes de este turno restaura la máquina en segundos. Conserva los más recientes."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Revenir avant ce tour restaure la machine en quelques secondes. Garde les plus récents."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Torna a prima di questo turno ripristina la macchina in pochi secondi. Conserva gli ultimi."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "「このターンの前に戻る」で数秒でマシンを復元できます。最新のいくつかを保持します。"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "ត្រឡប់ទៅមុនវេននេះ ស្ដារម៉ាស៊ីនក្នុងរយៈពេលប៉ុន្មានវិនាទី។ រក្សាថ្មីៗបំផុតមួយចំនួន។"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "이 턴 이전으로 되돌리기가 몇 초 만에 머신을 복원합니다. 최신 몇 개만 보관합니다."
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Tilbake til før denne turen gjenoppretter maskinen på sekunder. Beholder de nyeste."
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Wróć do stanu sprzed tej tury przywraca maszynę w kilka sekund. Zachowuje kilka najnowszych."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Voltar para antes deste turno restaura a máquina em segundos. Mantém os checkpoints mais recentes."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "«Вернуться к моменту до этого хода» восстанавливает машину за секунды. Хранит несколько последних."
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "ย้อนกลับไปก่อนรอบนี้ กู้คืนเครื่องได้ในไม่กี่วินาที เก็บจุดตรวจสอบล่าสุดไม่กี่จุด"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Bu Turdan Öncesine Dön makineyi saniyeler içinde geri yükler. En yeni birkaçını saklar."
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "«Повернутися до моменту перед цим ходом» відновлює машину за секунди. Зберігає кілька найновіших."
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Quay lại trước lượt này khôi phục máy trong vài giây. Giữ vài điểm khôi phục mới nhất."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "“回到这一轮之前”可在几秒内恢复机器。保留最新的几个检查点。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "「回到這一輪之前」可在幾秒內還原機器。保留最新的幾個。"
+          }
+        }
+      }
+    }
+  },
+  "version" : "1.0"
+}
