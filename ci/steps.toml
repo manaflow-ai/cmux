@@ -1366,7 +1366,7 @@ exit "$status"
 #
 # Leo, 2026-11-25: "stop waiting on ci to get these fucking things in" and "we need to not only build, but use".
 job = "linux"
-timeout = 2400
+timeout = 420
 alone = true
 title = "Swift canary (build fleet)"
 about = "the build fleet's Debug compile of the app at the pull request's head, every target the change reaches (fleet_compile_result.py --phase app-debug)"
@@ -1395,7 +1395,7 @@ if [ "$fork" = "1" ]; then
   exit 0
 fi
 repo="${GITHUB_REPOSITORY:-manaflow-ai/cmux}"
-args=(--sha "$head" --repo "$repo" --phase app-debug --wait 1800 --no-record 600)
+args=(--sha "$head" --repo "$repo" --phase app-debug --wait 240 --no-record 120)
 [ "$pr" = "-" ] || args+=(--pr "$pr")
 word="$(python3 -I scripts/ci/fleet_compile_result.py "${args[@]}")" || word=none
 case "$word" in
