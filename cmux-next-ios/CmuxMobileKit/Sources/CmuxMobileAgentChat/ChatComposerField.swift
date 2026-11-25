@@ -170,8 +170,26 @@ extension EnvironmentValues {
 final class ChatComposerTextView: ComposerReturnTextView {
     var focusWhenInWindow = false
 
+    /// A finger is scrolling a draft taller than the field (past `maxLines`). Both swipe-down-to-dismiss
+    /// paths (the bottom stack's drag and the dock's pan) read it and leave the keyboard up: a drag that
+    /// scrolls the draft scrolls the draft (Leo, 2026-11-23: "when i try to scroll in the composer in ios
+    /// it [...] swipes the entire thing down instead of scrolling through the composer").
+    @MainActor static var isScrollingDraft = false
+
     init() {
         super.init(policy: ComposerReturnPolicy(style: .chat, maxLines: ChatComposerField.maxLines))
+        panGestureRecognizer.addTarget(self, action: #selector(draftPan(_:)))
+    }
+
+    @objc private func draftPan(_ pan: UIPanGestureRecognizer) {
+        switch pan.state {
+        case .began:
+            Self.isScrollingDraft = contentSize.height > bounds.height + 1
+        case .ended, .cancelled, .failed:
+            Self.isScrollingDraft = false
+        default:
+            break
+        }
     }
 
     @available(*, unavailable)
