@@ -213,7 +213,10 @@ async function run(): Promise<Reading> {
     }
     const url =
       `http://127.0.0.1:${statics.port}/#endpoint=${encodeURIComponent(`ws://127.0.0.1:${daemon.port}/`)}` +
-      `&token=t&session=${encodeURIComponent(log.sessionId)}`;
+      `&token=t&session=${encodeURIComponent(log.sessionId)}` +
+      // A shipped build's scheme, as Leo's NIGHTLY names: the dev host's default `cmux-dev` turns on the dev-only
+      // layout-motion audit (devMotionAudit.ts), which sampled every box each frame and was ~8% of this reading.
+      `&scheme=cmux`;
     const consoleTail: string[] = [];
     page.on("console", (m) => consoleTail.push(`${m.type()}: ${m.text()}`.slice(0, 300)));
     page.on("pageerror", (e) => consoleTail.push(`pageerror: ${e.message}`.slice(0, 300)));
