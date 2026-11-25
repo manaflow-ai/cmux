@@ -32,6 +32,9 @@ export type LoopEffect = "pulse" | "breathe" | "spin" | "float" | "wiggle" | "bo
 /** `period` in seconds; `amount` scales the effect's default amplitude. */
 export type Loop = { effect: LoopEffect; period?: number; amount?: number }
 export type Transition = "opacity" | "slide" | "scale" | "move" | "pop"
+/** A transition on its own timing: `motion` times the move and the fade, in and out. Without one the
+ * renderer's own springs time it, as the bare kind does. */
+export type TimedTransition = { kind: Transition; motion?: Motion | null }
 export type ParticlePreset = "confetti" | "sparkles" | "rain" | "snow" | "embers" | "stars"
 /** A `cmux.particles/1` document (ABI.md "Particles choreography"); the host validates it. */
 export type ParticleChoreography = { $schema: "cmux.particles/1" } & Record<string, unknown>
@@ -134,8 +137,9 @@ export class ViewNode {
   /** How the node comes in and goes out when a render adds or removes it (kept on screen until its
    * exit ends): `opacity` fades, `slide` comes up from below and leaves upward, `scale` grows from
    * 90 %, `move` slides in from the leading edge and out to the trailing one, `pop` grows from 60 %
-   * past full size and back. A node the first scene draws does not animate in. */
-  transition(v: Bindable<Transition | null>) { return this.set("transition", v) }
+   * past full size and back. A node the first scene draws does not animate in. `{kind, motion}`
+   * times it with a motion token, spring or timed curve (a panel matching another app's timing). */
+  transition(v: Bindable<Transition | TimedTransition | null>) { return this.set("transition", v) }
   /** Clip the node's content (children, a sliding transition, a glow) to its frame and corner radius. */
   clipped(v: Bindable<boolean> = true) { return this.set("clipped", v) }
   /** SwiftUI's name for `rotation`: turns the node clockwise by `degrees` about its center. A change
