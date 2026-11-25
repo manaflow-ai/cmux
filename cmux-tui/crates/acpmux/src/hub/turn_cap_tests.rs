@@ -570,3 +570,35 @@ async fn past_the_cap_an_fyi_waits_and_asks_for_no_notice() {
     f.open("g").await;
     tokio::time::timeout(WAIT, turn).await.unwrap().unwrap().unwrap();
 }
+
+/// A steer that is still acquiring its child hasn't written anything into the running turn.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn admission_deadline_during_steer_setup_does_not_append_or_queue_a_steer_only_request() {
+    let mut f = fixture().await;
+    let turn = f.gated_turn("held").await;
+    let turn_id = f.session.turn().unwrap().turn_id;
+    let spawning = f.session.spawn_lock.lock().await;
+    let opts = PromptOptions {
+        prompt_id: Some("slow-steer".into()),
+        steer_only: true,
+        ..Default::default()
+    };
+    let bound = super::prompt_admission::ANSWER_BOUND + Duration::from_secs(2);
+    let (answer, task) = tokio::time::timeout(bound, f.send_with("steer", true, opts))
+        .await
+        .expect("answered while setup still waits");
+    assert_eq!(answer.unwrap_err().data.unwrap()["reason"], "steer.unavailable");
+    task.await.unwrap().unwrap_err();
+    assert_eq!(f.session.turn().unwrap().turn_id, turn_id);
+    assert!(f.session.queue().is_empty());
+    assert!(
+        !f.hub
+            .events(&f.session.id, 0, 10000)
+            .unwrap()
+            .iter()
+            .any(|e| e.kind == "user_message" && e.msg["promptId"] == "slow-steer")
+    );
+    drop(spawning);
+    f.open("held").await;
+    tokio::time::timeout(WAIT, turn).await.unwrap().unwrap().unwrap();
+}

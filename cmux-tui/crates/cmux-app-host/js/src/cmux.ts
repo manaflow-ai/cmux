@@ -20,6 +20,10 @@ export interface Native {
   paletteDone?(reqId: number, ok: boolean, json: string): void
   /** An IANA zone's offset at `atMs`: `{offsetMinutes, abbreviation}` or `{error}` (ABI.md). Hosts with Intl may omit it. */
   zone?(name: string, atMs: number): string
+  /** Joins the daemon's signals cache entry of (name, params) for `mountId` ("" outside a mount); states arrive at `__cmuxAppWatch` (ABI.md, Signals). */
+  watch?(name: string, paramsJSON: string, mountId: string, everySeconds: number): number
+  /** Leaves a watch, or with `refresh` asks its entry for a read now. */
+  unwatch?(watchId: number, refresh: boolean): void
 }
 
 export class CmuxError extends Error {
@@ -52,7 +56,7 @@ export interface CallOptions {
 }
 
 /** Ops the host always provides, whatever the catalog lists. */
-export const HOST_OPS = new Set(["action.run", "action.list", "app.storage.get", "app.storage.set", "app.storage.delete", "app.storage.keys", "app.settings.set", "net.fetch", "integration.request", "clipboard.write", "toast.show"])
+export const HOST_OPS = new Set(["action.run", "action.list", "app.storage.get", "app.storage.set", "app.storage.delete", "app.storage.keys", "app.settings.set", "net.fetch", "integration.request", "clipboard.write", "toast.show", "app.pane.open", "app.pane.close", "app.view.state"])
 
 export interface CallResult<T = unknown> {
   value: T
@@ -72,6 +76,8 @@ export const state = {
   app: { id: "", version: "" },
   /** The active mount's context while its render or event handler runs. */
   context: null as Record<string, unknown> | null,
+  /** The active mount's id while its render or event handler runs (a watch's visibility follows it). */
+  mount: null as string | null,
   apiVersion: "0.0.0",
   allowedOps: null as Set<string> | null,
   knownOps: null as Set<string> | null,
@@ -391,7 +397,22 @@ export function createCmux(gesture: () => string | undefined): Record<string, un
       settings: Object.assign(() => state.settings[0](), {
         set: (values: Record<string, unknown>) => c("app.settings.set", { values })
       }),
-      context: () => state.context ?? {}
+      context: () => state.context ?? {},
+      /** Opens this app's own pane (`cmux.pane/1`) with `args` (its mount context's `args`) and resolves
+       * with what the pane returns through `ctx.close(result)`: `{result, dismissed: false}`, or
+       * `{result: null, dismissed: true}` when the person closes the pane first or a newer open replaces this one.
+       * Opening the tab is a view change: call it from a user event handler (or pass `options.gesture`). */
+      openPane: async (args: Record<string, unknown> = {}, options: CallOptions = {}) => {
+        const waiting = c<{ result: unknown; dismissed: boolean }>("app.pane.open", { args })
+        try {
+          await c("action.run", { id: "app.open", args: { app: state.app.id } }, options)
+        } catch (e) {
+          await c("app.pane.close", {}).catch(() => undefined)
+          await waiting.catch(() => undefined)
+          throw e
+        }
+        return waiting
+      }
     },
     theme,
     /** A short notice at the bottom of the window, drawn by the app's own toast presenter. One slot per app: a new toast replaces the app's last. */

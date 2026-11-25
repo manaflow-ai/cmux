@@ -31,6 +31,13 @@ pub(crate) fn check(m: &Value, first_party: bool, out: &mut Vec<Issue>) {
             "a sidebar item, screen or tab needs content: implement cmux.pane/1 or give presentation.web",
         ));
     }
+    if p.get("overlay").is_some() && !page {
+        out.push(Issue::error(
+            "/presentation/overlay",
+            "presentation.overlayNeedsPane",
+            "an overlay draws the app's cmux.pane/1 scene: implement cmux.pane/1",
+        ));
+    }
     if page && web {
         out.push(Issue::error(
             "/presentation/web",

@@ -7,8 +7,8 @@ import Testing
 
 /// Lawrence 2026-11-20, two shots of the tab bar's `+ ⌄` and the pane's ⋮: "roundness of this button needs to always be
 /// same as roundness of tabs and size of plus button must be same as size of these buttons (watch out for padding)".
-/// At every density the tab bar's + (and its ⌄ segment) round exactly as a tab pill does, and the + is the pane ⋮'s
-/// square: the same frame, the same hover fill, centered on the tabs, its glyph inside it.
+/// At every density the tab bar's + (and its ⌄ segment) round exactly as a tab pill does, and the + is a tab bar
+/// button's square, a tab tall (``Metrics/tabBarControlSide``), centered on the tabs, its glyph inside it.
 @MainActor @Suite(.serialized, .closesItsWindows)
 struct TabBarPlusShapeTests {
     init() { _ = NSApplication.shared }
@@ -45,14 +45,6 @@ struct TabBarPlusShapeTests {
             let tabRadius = cell.backgroundLayer.cornerRadius
             #expect(tabRadius == Metrics.tabCornerRadius, "\(preset): the tab pill rounds at the tab token")
 
-            // The pane's ⋮, as a pane's tab row lays it out.
-            let toolbar = PaneToolbarView(frame: NSRect(x: 0, y: 0, width: 120, height: TabStripView.preferredHeight))
-            toolbar.show(more: true, lit: false)
-            toolbar.layoutSubtreeIfNeeded()
-            let more = toolbar.moreButton
-            more.updateLayer()
-            let moreRadius = try #require(more.layer?.cornerRadius)
-
             let plus = strip.newTabButton
             plus.layoutSubtreeIfNeeded()
             let fill = plus.look.fillLayer
@@ -60,9 +52,8 @@ struct TabBarPlusShapeTests {
             // The tab's radius, never past a circle on the +'s own square.
             #expect(fill.cornerRadius == min(tabRadius, side / 2),
                     "\(preset): the +'s fill rounds \(fill.cornerRadius), a tab \(tabRadius)")
-            #expect(fill.cornerRadius == moreRadius, "\(preset): the + rounds \(fill.cornerRadius), the ⋮ \(moreRadius)")
-            #expect(plus.frame.size == more.frame.size, "\(preset): the + is \(plus.frame.size), the ⋮ \(more.frame.size)")
-            #expect(fill.bounds.size == more.bounds.size, "\(preset): the +'s fill is \(fill.bounds.size), the ⋮ \(more.bounds.size)")
+            let buttonSide = Metrics.tabBarControlSide
+            #expect(plus.frame.size == CGSize(width: buttonSide, height: buttonSide), "\(preset): the + is \(plus.frame.size), a tab bar button \(buttonSide)")
 
             // Centered on the tab pill, its glyph whole inside it.
             let pill = strip.convert(cell.frame, from: strip.tabsClip)
@@ -92,7 +83,7 @@ struct TabBarPlusShapeTests {
     @Test(arguments: DensityPreset.allCases)
     func everyTabBarPlusLookRoundsAsATab(_ preset: DensityPreset) {
         at(preset) {
-            let side = TitlebarBandButton.side
+            let side = Metrics.tabBarControlSide
             let bounds = CGRect(x: 0, y: 0, width: side, height: side)
             for segment in [PlusButtonLook.Segment.alone, .leading] {
                 let geometry = PlusButtonLook.geometry(in: bounds, segment: segment, hoverStyle: .plate, showsChevron: false,

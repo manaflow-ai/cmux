@@ -1,7 +1,9 @@
 import Foundation
 import Testing
 import CmuxHomeCoreTestSupport
+#if canImport(UniformTypeIdentifiers)
 import UniformTypeIdentifiers
+#endif
 @testable import CmuxHomeCore
 
 /// A compose field's pictures and files survive a relaunch with its text

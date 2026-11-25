@@ -4,12 +4,15 @@ import Foundation
 
 /// `notifications.banners`: the banners this app asked for, newest last (the bounded
 /// `DesktopNotifier.posted`), as `{banners: [{id, title, subtitle, body, surface, reply, approval,
-/// category}], authorization}`. A read: it moves no focus. An incognito window's banner is listed as
+/// category, posted_at_ms}], authorization}`. `posted_at_ms` is the Unix ms the app asked for the banner,
+/// the same clock as a daemon notification's `created_at_ms`, so daemon-to-banner latency is read from the
+/// two stamps rather than from how often a caller polls. A read: it moves no focus. An incognito window's banner is listed as
 /// it showed, naming nothing of the window, its surface included (`DesktopNotifier.post`).
 ///
 /// `notifications.open {"id": <banner id>}`: shows a tab banner's own surface, as its click does
 /// (`DesktopNotifier.openTab`), never one the caller names, and answers `{opened, surface}`; an id no
-/// listed banner has is `not_found` and runs nothing. Only a daemon notification's banner opens: any
+/// listed banner has is `not_found` and runs nothing, except a tab banner an earlier launch posted that is still in
+/// Notification Center: it opens from the delivered banner's surface and answers `{opened, surface, source: "delivered"}`. Only a daemon notification's banner opens: any
 /// other (passkey, iPhone pairing, attention, Runs) acts on the person's own click and is
 /// `person_required`, and a web page's banner runs none of the page's click handler. It is an
 /// explicit focus-intent command (skills/cmux-socket-policy): it shows the tab and moves in-app focus there.
@@ -37,10 +40,19 @@ extension ControlMethod {
                 guard let notifier = notifier() else { return .value(.null) }
                 // The newest banner with that id: a repeated id is the same tab's later banner.
                 guard let banner = notifier.posted.last(where: { $0.id == id }) else {
-                    let message = String(format: String(localized: "notifications.control.bannerNotFound",
-                        defaultValue: "No banner %@: notifications.banners lists the banners this app asked for",
-                        table: "NotificationsPanel", bundle: .localizedModule), id)
-                    throw ControlError(code: "not_found", message: message, data: ["id": .string(id)])
+                    // An earlier launch's tab banner still in Notification Center (`posted` is this launch's
+                    // only): its surface comes from the delivered banner's userInfo, as its click's does.
+                    guard id.hasPrefix(DesktopNotifier.tabBannerPrefix) else { throw bannerNotFound(id) }
+                    return .followUp {
+                        let delivered = await notifier.deliveredSurface(id)
+                        guard delivered.found else { throw bannerNotFound(id) }
+                        await notifier.openTab(id: id, surface: delivered.surface)
+                        return [
+                            "opened": .string(id),
+                            "surface": delivered.surface.map { .number(Double($0)) } ?? .null,
+                            "source": .string("delivered"),
+                        ]
+                    }
                 }
                 // A passkey, pairing, attention or Run banner's click acts on the person's intent (a passkey's
                 // starts a WebAuthn ceremony: agent-browser-passkey-DESIGN.md), so a script opens only a tab's.
@@ -55,6 +67,13 @@ extension ControlMethod {
             },
         ]
     }
+
+    nonisolated private static func bannerNotFound(_ id: String) -> ControlError {
+        let message = String(format: String(localized: "notifications.control.bannerNotFound",
+            defaultValue: "No banner %@: notifications.banners lists the banners this app asked for",
+            table: "NotificationsPanel", bundle: .localizedModule), id)
+        return ControlError(code: "not_found", message: message, data: ["id": .string(id)])
+    }
 }
 
 extension DesktopNotifier.Posted {
@@ -67,6 +86,7 @@ extension DesktopNotifier.Posted {
             "surface": listedSurface,
             "reply": .bool(reply), "approval": .bool(approval),
             "category": category.map(JSONValue.string) ?? .null,
+            "posted_at_ms": .number((postedAt.timeIntervalSince1970 * 1000).rounded()),
         ]
     }
 

@@ -1,5 +1,5 @@
 import type { Env } from "../env.ts"
-import { appJwt, ghHeaders, type Http } from "./providers.ts"
+import { appJwt, ghHeaders, githubInstallBase, type Http } from "./providers.ts"
 
 /**
  * Connect's one page for a GitHub repository (design: remote-integrations, "a connect is one inline card, one
@@ -73,12 +73,12 @@ export const githubConnectTarget = async (env: Env, http: Http, repo: string): P
 }
 
 /** The URL Connect answers for a target: never a permission beyond what the App already asks for. */
-export const githubConnectUrl = (env: Env, target: GithubConnectTarget, state: string, redirectUri: string): string => {
+export const githubConnectUrl = async (env: Env, target: GithubConnectTarget, state: string, redirectUri: string): Promise<string> => {
   if (target.kind === "installed") {
     const q = new URLSearchParams({ client_id: env.GITHUB_APP_CLIENT_ID!, redirect_uri: redirectUri, state })
     return `https://github.com/login/oauth/authorize?${q}`
   }
-  const base = `https://github.com/apps/${env.GITHUB_APP_SLUG}/installations/new`
+  const base = await githubInstallBase(env)
   return target.target_id ? `${base}/permissions?target_id=${target.target_id}&state=${encodeURIComponent(state)}` : `${base}?state=${encodeURIComponent(state)}`
 }
 
@@ -91,30 +91,45 @@ export const configureAfterLink = (repos: ReadonlyArray<string> | null | undefin
 
 /**
  * Where "Add more repositories" goes for a linked installation: its configure page, cached per ConnectionDO so
- * GET /status (read on every repository picker open) asks GitHub at most once a day per installation. The
+ * GET /status (read on every repository picker open) asks GitHub at most once per CONFIGURE_PAGE_TTL_MS per
+ * installation. The cache is short because it is also how a read verifies the installation still exists: a missed
+ * `installation.deleted` webhook (or an App the installation no longer belongs to) left a deleted installation's
+ * page cached for a day, and Connect opened GitHub's 404 (cmux#55104). GitHub's 404 answers `gone`, caches
+ * nothing, and the caller marks the connection gone. The
  * connection stores the installation id and account login but not whether the account is an organization,
  * which picks the page's path, so the first ask reads GET /app/installations/:id with the App's own key, within
  * CONFIGURE_LOOKUP_TIMEOUT_MS. A failed or refused ask is remembered for CONFIGURE_MISS_TTL_MS and answers null.
  * A row is used only for the same account login, so a relink to a renamed account asks again.
  */
 export const CONFIGURE_LOOKUP_TIMEOUT_MS = 2_000
-export const CONFIGURE_PAGE_TTL_MS = 24 * 3600_000
+export const CONFIGURE_PAGE_TTL_MS = 5 * 60_000
 export const CONFIGURE_MISS_TTL_MS = 10 * 60_000
 
 export const createConfigurePageTable = (sql: SqlStorage) =>
   sql.exec(`CREATE TABLE IF NOT EXISTS github_configure_pages (installation INTEGER PRIMARY KEY, login TEXT NOT NULL, url TEXT NOT NULL, checked_at INTEGER NOT NULL)`)
 
-export const installationConfigureUrl = async (sql: SqlStorage, env: Env, http: Http, installation: number, login: string, now: number): Promise<string | null> => {
-  const row = sql.exec<{ login: string; url: string; checked_at: number }>(`SELECT login, url, checked_at FROM github_configure_pages WHERE installation = ?`, installation).toArray()[0]
+/** What GitHub says about a linked installation: its configure page (null when not known), and whether it is gone (404). */
+export type InstallationPage = { readonly url: string | null; readonly gone: boolean }
+
+/** Installation `installation`'s page; `fresh` skips the cache (a reinstall's check of the installation it replaces). */
+export const installationPage = async (sql: SqlStorage, env: Env, http: Http, installation: number, login: string, now: number, fresh = false): Promise<InstallationPage> => {
+  const row = fresh ? undefined : sql.exec<{ login: string; url: string; checked_at: number }>(`SELECT login, url, checked_at FROM github_configure_pages WHERE installation = ?`, installation).toArray()[0]
   if (row && row.login === login.toLowerCase() && now - Number(row.checked_at) < (row.url ? CONFIGURE_PAGE_TTL_MS : CONFIGURE_MISS_TTL_MS))
-    return row.url && GITHUB_CONFIGURE_URL.test(row.url) ? row.url : null
+    return { url: row.url && GITHUB_CONFIGURE_URL.test(row.url) ? row.url : null, gone: false }
   let url: string | undefined
   try {
     const res = await http(new Request(`${GH_API}/app/installations/${installation}`, { headers: ghHeaders(await appJwt(env)), signal: AbortSignal.timeout(CONFIGURE_LOOKUP_TIMEOUT_MS) }))
+    if (res.status === 404) {
+      sql.exec(`DELETE FROM github_configure_pages WHERE installation = ?`, installation)
+      return { url: null, gone: true }
+    }
     url = res.ok ? configurePage(installation, (await res.json()) as Installation, login) : undefined
   } catch {
     url = undefined
   }
   sql.exec(`INSERT OR REPLACE INTO github_configure_pages (installation, login, url, checked_at) VALUES (?, ?, ?, ?)`, installation, login.toLowerCase(), url ?? "", now)
-  return url ?? null
+  return { url: url ?? null, gone: false }
 }
+
+export const installationConfigureUrl = async (sql: SqlStorage, env: Env, http: Http, installation: number, login: string, now: number): Promise<string | null> =>
+  (await installationPage(sql, env, http, installation, login, now)).url
