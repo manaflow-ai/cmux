@@ -143,7 +143,7 @@ impl ProofMessage {
 }
 
 /// One entry of `user.presence_key.list`.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct Key {
     pub platform: String,
     /// The uncompressed SEC1 point (`04 || x || y`), base64url without padding.
