@@ -117,7 +117,26 @@ ATTACH_NAME = "cmux-attach-e2e.mov"
 ATTACH_LINE = re.compile(r"demo step: live-attach (\S+) ?(.*)")
 
 
-def attach_leg(simctl, udid, bundle_id, phone_env, phone_log, phone_shot, work, note):
+def mac_workspace(app, sock, home):
+    """A terminal workspace on the Mac, made by its bundled CLI (`cmux workspace create`, as
+    relaunch_restore_check does): "created <id8>, terminal <id8>", or why not."""
+    cli = os.path.join(app, "Contents/Resources/bin/cmux")
+    env = {"HOME": home, "PATH": "/usr/bin:/bin:/usr/sbin:/sbin", "CMUX_NEXT_SOCKET_PATH": sock, "CMUX_QUIET": "1"}
+    try:
+        done = subprocess.run([cli, "--json", "--app-socket", sock, "workspace", "create", "--name", "pair-e2e"],
+                              env=env, cwd=home, capture_output=True, text=True, stdin=subprocess.DEVNULL, timeout=60)
+        lines = [line for line in done.stdout.splitlines() if line.strip()]
+        made = json.loads(lines[-1]) if lines else {}
+    except (OSError, ValueError, subprocess.TimeoutExpired) as error:
+        return f"NOT created ({type(error).__name__})"
+    made = made.get("result", made) if isinstance(made, dict) else {}
+    ws, term = (made.get("workspace_id"), made.get("terminal_id")) if isinstance(made, dict) else (None, None)
+    if not ws:
+        return f"NOT created (exit {done.returncode}: {redact((done.stderr or done.stdout).strip())[-200:]})"
+    return f"created {str(ws)[:8]}, terminal {str(term)[:8] if term else 'none'}"
+
+
+def attach_leg(simctl,udid, bundle_id, phone_env, phone_log, phone_shot, work, note):
     """A picked 8 GiB video in the paired Mac's first terminal composer (DEBUG demo `live-attach`)
     shows progress on its tile while it uploads to the real Mac's hostd, then is removed mid-send
     and text is sent at once. Screens at each step; passes on the app's own step lines. Link speed
@@ -545,6 +564,9 @@ def main():
              f"{mac_shot('mac-settings')}")
         if mac_id:
             phone_env["SIMCTL_CHILD_CMUX_MOBILE_FOCUS_MAC"] = mac_id
+            # A new tag's Mac opens with no workspace, so the phone's live-terminal and live-attach
+            # demos found "no terminal" (run 45538405955): one terminal workspace for them to open.
+            note(f"- Mac terminal workspace: {mac_workspace(a.mac_app, sock, rig)}")
 
         # ---- the phone ------------------------------------------------------
         # A new install, setup marked done (the account's preferences are the live keys until the
