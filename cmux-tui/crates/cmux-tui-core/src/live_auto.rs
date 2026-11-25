@@ -284,7 +284,10 @@ pub fn parse_diff(text: &str) -> HashMap<String, Vec<(char, String)>> {
         } else if let Some(path) = &current
             && let Some(sign @ ('+' | '-')) = line.chars().next()
         {
-            diffs.entry(path.clone()).or_default().push((sign, line.get(1..).unwrap_or_default().to_string()));
+            diffs
+                .entry(path.clone())
+                .or_default()
+                .push((sign, line.get(1..).unwrap_or_default().to_string()));
         }
     }
     diffs
@@ -673,7 +676,11 @@ pub fn stop(worktree: Option<&Path>) -> Value {
     }
     drop(router);
     let mut out = status();
-    put(&mut out, "stopped", json!(names.iter().map(|n| n.display().to_string()).collect::<Vec<_>>());
+    put(
+        &mut out,
+        "stopped",
+        json!(names.iter().map(|n| n.display().to_string()).collect::<Vec<_>>()),
+    );
     out
 }
 
