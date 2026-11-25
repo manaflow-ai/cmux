@@ -205,6 +205,8 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
     public var inactiveWindowDim = 0.0
     /// `appearance.wallpaperTint`: on unless set to false.
     public var wallpaperTint = WallpaperTintSetting.fallback
+    /// `appearance.liveWallpaperFrameRate`: a live wallpaper's frame cap, 15, 30 (the default) or 60.
+    public var liveWallpaperFrameRate = 30
     /// `appearance.backgroundPlacement`: where each picture lies; empty (every picture centered and
     /// filled) unless set.
     public var backgroundPlacements: [String: BackdropPlacement] = [:]
@@ -468,6 +470,7 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
         snapshot.windowBackground = WindowBackgroundSetting.parse(root, diagnostics: &snapshot.diagnostics)
         snapshot.inactiveWindowDim = WindowBackgroundSetting.parseInactiveDim(root, diagnostics: &snapshot.diagnostics)
         snapshot.wallpaperTint = WallpaperTintSetting().parse(root, diagnostics: &snapshot.diagnostics)
+        snapshot.liveWallpaperFrameRate = LiveWallpaperFrameRateSetting().parse(root, diagnostics: &snapshot.diagnostics)
         snapshot.backgroundPlacements = BackdropPlacementSetting.parse(root, diagnostics: &snapshot.diagnostics)
         snapshot.surfaceBackgrounds = SurfaceBackgroundSetting.parse(root, diagnostics: &snapshot.diagnostics)
         snapshot.surfaceBackgrounds.twoTone = TwoToneSetting.parse(root, diagnostics: &snapshot.diagnostics)

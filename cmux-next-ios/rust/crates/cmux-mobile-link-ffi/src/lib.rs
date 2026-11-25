@@ -22,7 +22,10 @@ mod last_place;
 mod link_side;
 pub mod local_link;
 mod mac_screen;
+mod mailbox_client;
 mod pair_requests;
+mod read_store;
+mod row_layout;
 mod share_approval;
 mod tabs;
 mod terminal_chat;
@@ -40,6 +43,7 @@ pub use follow_camera::{FollowCamera, FollowCameraMode, FollowRect};
 pub use last_place::{LastPlaceAnchor, LastPlaceRecord, LastPlaceScreen, LastPlaceStore};
 pub use link_side::{LinkOpenSide, link_open_side};
 pub use mac_screen::{MacScreenAnswer, MacScreenDisplay, MacScreenIceServer, MacScreenObserver, MacScreenRd};
+pub use read_store::{PhoneReadKey, PhoneReadStore, PhoneReadStoreError};
 pub use share_approval::{ShareApprovalDraft, ShareAsk, share_approval_draft, share_approval_signed};
 pub use tabs::{TabsEvent, TabsMirror, TabsRow, TabsViewport};
 pub use terminal_chat::{
@@ -608,6 +612,20 @@ impl LinkHandle {
         u64::try_from(self.link.traffic_ago().as_millis()).unwrap_or(u64::MAX)
     }
 
+    /// Milliseconds since the link last made progress: anything heard from
+    /// the Mac, or a write other than a keepalive taken by the transport
+    /// (`Link::progress_ago`). The one progress clock a send's hold reads:
+    /// `ChatPromptOutbox.progressed(nowMs - progressAgoMs())` is the adapter.
+    pub fn progress_ago_ms(&self) -> u64 {
+        u64::try_from(self.link.progress_ago().as_millis()).unwrap_or(u64::MAX)
+    }
+
+    /// How many times the link made progress; monotonic, so a change since
+    /// the last read means it moved in between (`Link::progress_count`).
+    pub fn progress_count(&self) -> u64 {
+        self.link.progress_count()
+    }
+
     /// Close the link and its transport. The signaling socket stays warm
     /// for the next dial (`reset_warm_state` closes it).
     pub fn close(&self) {
@@ -993,6 +1011,7 @@ async fn finish_link(
         connected.path.clone(),
         timeline.clone(),
         current_signaling(pool, &signaling),
+        connected.session_id.clone(),
     );
     Ok(Arc::new(LinkHandle {
         link: connected.link,
@@ -1508,6 +1527,56 @@ pub async fn prewarm(base_url: String, token: String, team_id: String, device_id
 #[uniffi::export]
 pub fn set_cellular_path(cellular: bool) {
     cmux_mobile_link::dial::wireguard::set_cellular_path(cellular);
+}
+
+/// What a network interface is (mirror of `cmux_mobile_link::dial::wireguard::InterfaceKind`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, uniffi::Enum)]
+pub enum InterfaceKind {
+    Wifi,
+    Cellular,
+    Wired,
+    Other,
+}
+
+/// One interface that is up, as iOS `NWPath.availableInterfaces` says
+/// (mirror of `cmux_mobile_link::dial::wireguard::NetInterface`).
+#[derive(Debug, Clone, PartialEq, Eq, uniffi::Record)]
+pub struct NetInterface {
+    pub name: String,
+    pub kind: InterfaceKind,
+    pub expensive: bool,
+    pub constrained: bool,
+    pub primary: bool,
+}
+
+/// The interfaces that are up now (every path update). Rust decides what to
+/// do with them (a second socket on cell beside Wi-Fi, roaming).
+#[uniffi::export]
+pub fn set_network_interfaces(interfaces: Vec<NetInterface>) {
+    use cmux_mobile_link::dial::wireguard as wg;
+    wg::set_interfaces(
+        interfaces
+            .into_iter()
+            .map(|i| wg::NetInterface {
+                name: i.name,
+                kind: match i.kind {
+                    InterfaceKind::Wifi => wg::InterfaceKind::Wifi,
+                    InterfaceKind::Cellular => wg::InterfaceKind::Cellular,
+                    InterfaceKind::Wired => wg::InterfaceKind::Wired,
+                    InterfaceKind::Other => wg::InterfaceKind::Other,
+                },
+                expensive: i.expensive,
+                constrained: i.constrained,
+                primary: i.primary,
+            })
+            .collect(),
+    );
+}
+
+/// The person allows cell beside Wi-Fi (on unless they turn it off).
+#[uniffi::export]
+pub fn set_cellular_assist(allowed: bool) {
+    cmux_mobile_link::dial::wireguard::set_cellular_assist(allowed);
 }
 
 /// The Mac answered a typed batch's `send` `ack_ms` after its first key's tap

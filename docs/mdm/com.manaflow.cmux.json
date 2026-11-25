@@ -3183,6 +3183,23 @@
       "title" : "Show Customize Menu…",
       "type" : "boolean"
     },
+    "customize.checklist.done" : {
+      "default" : [
+
+      ],
+      "description" : "The checklist steps you marked done yourself.",
+      "items" : {
+        "type" : "string"
+      },
+      "title" : "Checked Off Customize Steps",
+      "type" : "array"
+    },
+    "customize.checklist.enabled" : {
+      "default" : true,
+      "description" : "Shows the steps for making cmux your own at the top of Settings, with how many are done.",
+      "title" : "Show the Customize cmux Checklist",
+      "type" : "boolean"
+    },
     "customize.doctorNotice" : {
       "default" : true,
       "description" : "customize.doctorNotice",
