@@ -180,7 +180,7 @@ extension CloudWait {
     /// what happened here"). A paused machine proceeds: the caller's attach resumes it. Logs one
     /// `cloud machine settle:` line when it waited. Only the host loop; the rule is Rust's.
     public static func settle(of status: @escaping @MainActor @Sendable () -> CloudMachine.Status, within limit: Duration,
-                              log: (String) -> Void = { settleLogger.notice("\($0, privacy: .public)") },
+                              log: ((String) -> Void)? = nil,
                               read: @escaping @MainActor @Sendable () async -> Void) async -> Settled {
         struct Look: Encodable { var status: CloudMachine.Status, waitedMs: UInt64, resumes: UInt32, limitMs: UInt64 }
         struct Act: Decodable { var act: String, reason: String? }
@@ -190,7 +190,8 @@ extension CloudWait {
         defer {
             if !waited.isEmpty {
                 let ms = began.duration(to: clock.now).components
-                log("cloud machine settle: waited \(waited.joined(separator: ",")) \(ms.seconds * 1000 + ms.attoseconds / 1_000_000_000_000_000) ms, now \(status().rawValue)")
+                let line = "cloud machine settle: waited \(waited.joined(separator: ",")) \(ms.seconds * 1000 + ms.attoseconds / 1_000_000_000_000_000) ms, now \(status().rawValue)"
+                if let log { log(line) } else { settleLogger.notice("\(line, privacy: .public)") }
             }
         }
         // wakeup-allow: each pass is one bounded wait on the record (outwaitPause / outwaitResume); Rust ends it at `limit`
