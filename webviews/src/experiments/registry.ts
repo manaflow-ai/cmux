@@ -6,6 +6,7 @@ import { sessionReplay } from "../agent-session/acpmux/replay/replay.experiment"
 import { steerQueueExperiment } from "../agent-session/acpmux/steerQueue/steerQueue.experiment";
 import { statusIslandExperiment } from "../agent-session/acpmux/statusIsland/statusIsland.experiment";
 import { chiefDock } from "../agent-session/acpmux/chiefDock.experiment";
+import { chiefPlans } from "../pages/home-channels/chiefPlans.experiment";
 import { newTabComposerTrailingGap } from "../agent-session/acpmux/newtab/composerGap.experiment";
 import { newTabIconColumn } from "../agent-session/acpmux/newtab/iconColumn.experiment";
 import { homeCardGlow } from "../agent-session/acpmux/newtab/homeCardGlow.experiment";
@@ -132,7 +133,6 @@ import { menuStyleV2 } from "../ui/menuStyleV2.experiment";
 import { menuRowStates } from "../ui/menuRowStates.experiment";
 import { jumpLatestPlace } from "../agent-session/acpmux/jumpPlace.experiment";
 import { hatPillPlace } from "../agent-session/acpmux/hatPillPlace.experiment";
-import { earlierPlanHat } from "../agent-session/acpmux/subagents/earlierPlanHat.experiment";
 import { dockBand } from "../agent-session/acpmux/dockBand.experiment";
 import { draftFoot } from "../agent-session/acpmux/draftFoot.experiment";
 import { outcomeAsk } from "../agent-session/acpmux/outcomeAsk.experiment";
@@ -153,6 +153,7 @@ export const EXPERIMENTS: readonly Experiment[] = [
   steerQueueExperiment,
   statusIslandExperiment,
   chiefDock,
+  chiefPlans,
   hoverActions,
   startedSessionCards,
   agentDotGrid,
@@ -280,7 +281,6 @@ export const EXPERIMENTS: readonly Experiment[] = [
   holdToApproveDuration,
   jumpLatestPlace,
   hatPillPlace,
-  earlierPlanHat,
   dockBand,
   draftFoot,
   outcomeAsk,
