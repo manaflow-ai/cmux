@@ -15,7 +15,7 @@ extension AgentTabStore {
             guard let self else { return AgentPaneHeaderState() }
             let chat = resolve(provisional, machine: scoped.machine)
             var state = toggles.headerState(chat: chat, store: record(for: resolvedKey(scoped))?.store, pullRequest: gitLinkScoped?(resolvedKey(scoped))?.isLocal == true ? pullRequest : nil)
-            state.placeData = placeState(record(for: resolvedKey(scoped))?.record) // read here, so every step of a move pushes
+            state.placeData = placeState(resolvedKey(scoped)) // read here, so every step of a move pushes
             state.evacuateData = evacuateState()
             return state
         }, push: { [weak self] state in

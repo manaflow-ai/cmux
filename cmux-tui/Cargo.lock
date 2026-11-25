@@ -2359,6 +2359,7 @@ name = "cmux-migrate"
 version = "0.1.0"
 dependencies = [
  "cmux-git",
+ "rusqlite",
  "serde",
  "serde_json",
  "tempfile",
@@ -2688,6 +2689,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "cmux-repro"
+version = "0.1.0"
+dependencies = [
+ "cmux-process",
+ "serde",
+ "serde_json",
+ "sha2 0.10.9",
+]
+
+[[package]]
 name = "cmux-scope"
 version = "0.1.0"
 dependencies = [
@@ -2873,8 +2884,10 @@ dependencies = [
 name = "cmux-sync"
 version = "0.1.0"
 dependencies = [
+ "diffy",
  "serde",
  "serde_json",
+ "sha2 0.10.9",
 ]
 
 [[package]]
@@ -3132,6 +3145,7 @@ dependencies = [
  "cmux-relay",
  "cmux-remote",
  "cmux-remote-protocol",
+ "cmux-repro",
  "cmux-scope",
  "cmux-sdk",
  "cmux-server",
