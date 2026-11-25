@@ -18,6 +18,7 @@ import type { Strings } from "../shared/i18n";
 import { AppDetailView } from "./AppDetailView";
 import { CloudFeature } from "./CloudFeature";
 import { CustomizeFeature } from "./CustomizeFeature";
+import { FeaturesView } from "./FeaturesView";
 import { InstalledView } from "./InstalledView";
 import { CategoryBar, ItemCard, ItemRow, HeroCard, ListRow } from "./items";
 import {
@@ -57,9 +58,16 @@ export function AppsPage({ store, strings }: { store: AppsStore; strings: String
   // The `tab` placement of Examples (DEV, examples=tab) is a third toolbar tab: Discover on the
   // Examples shelf. Every other placement keeps two tabs.
   const examplesTab = snap.examplesOffered && snap.examplesStyle === "tab";
-  const tabs: ToolbarTab[] = examplesTab ? ["discover", "examples", "installed"] : ["discover", "installed"];
+  // Features (Leo, 10-21): every built-in feature as a switch, between Discover and Installed.
+  const tabs: ToolbarTab[] = examplesTab
+    ? ["discover", "examples", "features", "installed"]
+    : ["discover", "features", "installed"];
   const current: ToolbarTab =
-    snap.tab === "installed" ? "installed" : examplesTab && snap.shelf === "example" ? "examples" : "discover";
+    snap.tab === "installed" || snap.tab === "features"
+      ? snap.tab
+      : examplesTab && snap.shelf === "example"
+        ? "examples"
+        : "discover";
   // Discover is a plain tab change unless the Examples shelf is the one showing.
   const show = (tab: ToolbarTab) => {
     if (tab === "examples") store.setShelf("example");
@@ -135,6 +143,8 @@ export function AppsPage({ store, strings }: { store: AppsStore; strings: String
       {down && snap.catalog.length === 0 && snap.installed.length === 0 ? (
         // Nothing read yet and the link is down: blank, and no false empty shelf either.
         <div className="apps-state" />
+      ) : snap.tab === "features" ? (
+        <FeaturesView snap={snap} store={store} strings={strings} />
       ) : snap.tab === "installed" ? (
         <InstalledView snap={snap} store={store} strings={strings} />
       ) : (
