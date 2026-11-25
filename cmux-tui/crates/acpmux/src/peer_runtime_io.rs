@@ -255,6 +255,7 @@ impl Peer {
                 return;
             }
         }
+        self.watch_tailnet();
         let mut immediate_redial = false;
         while !self.stop.load(Ordering::SeqCst) {
             crate::gauges::bump(&crate::gauges::links().link_dials);
