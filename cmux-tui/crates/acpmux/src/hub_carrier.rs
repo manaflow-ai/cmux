@@ -523,6 +523,12 @@ pub struct DialStages {
     pub answer: Duration,
 }
 
+/// Count a call that got its stream in `gauges.carrier.calls`: a port pipe (ssh, scp, a forwarded
+/// port: the bulk lane) or a cheap call, on a kept circuit or a new one (RFD 0056 part 5).
+fn record_call(lane: CircuitLane, kept: bool) {
+    crate::gauges::carrier::global().call(lane == CircuitLane::Bulk, kept);
+}
+
 impl DialStages {
     pub fn total(&self) -> Duration {
         self.ticket + self.relay + self.peer_join + self.noise + self.answer
@@ -971,7 +977,10 @@ impl HubCarrier {
             }
         }
         match self.plain_service(daemon, hello, report).await? {
-            Ok(secure) => after_answer(self.carry_plain(secure)).await,
+            Ok(secure) => {
+                record_call(lane, false);
+                after_answer(self.carry_plain(secure)).await
+            }
             Err(refusal) => Err(refusal.to_string()),
         }
     }
@@ -1016,6 +1025,7 @@ impl HubCarrier {
         crate::gauges::bump(&crate::gauges::links().hub_plain_dials);
         let (secure, stages) = self.open_circuit(daemon).await?;
         stages.log(daemon, "plain");
+        record_call(lane, false);
         Ok(self.carry_plain(secure))
     }
 
@@ -1157,7 +1167,10 @@ impl HubCarrier {
                             }
                         }
                         match first {
-                            Ok(Ok(stream)) => return KeptOpen::Stream(stream),
+                            Ok(Ok(stream)) => {
+                                record_call(lane, false);
+                                return KeptOpen::Stream(stream);
+                            }
                             Ok(Err(refusal)) => return KeptOpen::Refused(refusal),
                             Err(e) if e.early_out => {
                                 mux.close().await;
@@ -1183,6 +1196,7 @@ impl HubCarrier {
             };
             if matches!(opened, Ok(Ok(_))) {
                 crate::gauges::carrier::global().kept_stream(report.stream);
+                record_call(lane, true);
             }
             match opened {
                 Ok(Ok(stream)) => return KeptOpen::Stream(stream),
@@ -1311,16 +1325,20 @@ impl HubCarrier {
     pub async fn reopen_closed(&self) -> usize {
         let slots: Vec<_> =
             self.kept.to_reopen().into_iter().chain(self.direct.kept.to_reopen()).collect();
-        let opened = futures::future::join_all(
-            slots
-                .into_iter()
-                .map(|(daemon, slot)| async move { self.reopen(&daemon, &slot).await }),
-        )
-        .await;
+        let opened =
+            futures::future::join_all(slots.into_iter().map(|(daemon, lane, slot)| async move {
+                self.reopen(&daemon, lane, &slot).await
+            }))
+            .await;
         opened.into_iter().filter(|opened| *opened).count()
     }
 
-    async fn reopen(&self, daemon: &str, slot: &tokio::sync::Mutex<mux::Kept>) -> bool {
+    async fn reopen(
+        &self,
+        daemon: &str,
+        lane: CircuitLane,
+        slot: &tokio::sync::Mutex<mux::Kept>,
+    ) -> bool {
         let mut kept = slot.lock().await;
         let Some(old) = kept.live.clone().filter(|mux| mux.wants_reopen()) else { return false };
         if kept.reopen_at.is_some_and(|at| Instant::now() < at) {
@@ -1331,7 +1349,7 @@ impl HubCarrier {
             kept.live = None;
             return false;
         }
-        let why = match self.open_kept(daemon, path).await {
+        let why = match self.open_kept(daemon, lane, path).await {
             Ok((mux, said, _)) => match tokio::time::timeout(self.timings.handshake, said).await {
                 Ok(Ok(Ok(()))) => {
                     self.stats.kept_circuits.fetch_add(1, Ordering::Relaxed);
