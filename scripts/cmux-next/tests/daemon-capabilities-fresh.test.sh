@@ -86,7 +86,7 @@ write_swift "workspaceGroups,
                                        sidebarLayout" "remoteTerminalTabs"
 if out="$(run)"; then fail "a Swift-only move passed: $out"; fi
 [[ "$out" == *"sidebar-layout-v1"* ]] || fail "the failure does not name sidebar-layout-v1: $out"
-[[ "$out" == *"CMUX_UPDATE_DAEMON_CAPABILITIES=1"* ]] || fail "the failure lacks the regenerate command: $out"
+[[ "$out" == *"check-daemon-capabilities-fresh.py --write"* ]] || fail "the failure lacks the regenerate command: $out"
 
 # The JSON regenerated with it passes again.
 write_json "sidebar-layout-v1 workspace-groups-v1" "remote-terminal-tabs-v1"
@@ -224,6 +224,62 @@ write_swift "workspaceGroups, sidebarLayout" "remoteTerminalTabs, sidebarLayout"
 write_json "sidebar-layout-v1 workspace-groups-v1" "remote-terminal-tabs-v1 sidebar-layout-v1"
 if out="$(run)"; then fail "a capability in optional and unserved passed: $out"; fi
 [[ "$out" == *"in both optional and unservedByBundledDaemon"*"sidebar-layout-v1"* ]] || fail "the failure does not name the overlap: $out"
+
+# The catalog JSON (cmux-tui/spec/gui-capabilities.json) is the source once it exists: the build writes the enum
+# from it, DaemonEndpoint.swift keeps only an extension with the derived lists, and the check renders the
+# enum the way the build does.
+catalog="$tmp/cmux-tui/spec/gui-capabilities.json"
+mkdir -p "$(dirname "$catalog")"
+write_catalog() { # tier-of-sidebarLayout
+  cat > "$catalog" <<EOF
+{
+  "\$comment": [
+    "fixture"
+  ],
+  "capabilities": [
+    {"case": "workspaceRegistry", "wire": "workspace-registry-v1", "tier": "required"},
+    {"case": "attachInitialSize", "wire": "attach-initial-size", "tier": "required"},
+    {"case": "workspaceGroups", "wire": "workspace-groups-v1", "tier": "optional", "doc": [
+      "Docs with a [bracket] and a { brace."
+    ]},
+    {"case": "sidebarLayout", "wire": "sidebar-layout-v1", "tier": "$1"},
+    {"case": "remoteTerminalTabs", "wire": "remote-terminal-tabs-v1", "tier": "unservedByBundledDaemon"}
+  ]
+}
+EOF
+}
+cat > "$swift" <<'SWIFT'
+public struct DaemonEndpoint: Sendable {
+    public var socketPath: String
+}
+
+extension DaemonCapability {
+    public static let required: [String] = names(in: .required)
+    public static let homeOnly: [String] = names([.workspaceGroups])
+}
+SWIFT
+write_catalog optional
+write_json "sidebar-layout-v1 workspace-groups-v1" "remote-terminal-tabs-v1"
+out="$(run)" || fail "a fresh export of the catalog JSON failed: $out"
+[[ "$out" == *"matches cmux-tui/spec/gui-capabilities.json"* ]] || fail "the check did not read the catalog JSON: $out"
+
+# A JSON-only move to unserved makes the export stale, and --write repairs it with no build.
+write_catalog unservedByBundledDaemon
+if out="$(run)"; then fail "a catalog-only move passed: $out"; fi
+[[ "$out" == *"sidebar-layout-v1"* ]] || fail "the failure does not name sidebar-layout-v1: $out"
+out="$(python3 "$check" --repo "$tmp" --write 2>&1)" || fail "write mode did not repair the export from the JSON: $out"
+out="$(run)" || fail "the export written from the JSON failed freshness: $out"
+
+# DaemonEndpoint.swift is now an extension file: a String static in it is still refused.
+printf '%s\n' 'extension DaemonCapability {' '    static let stray = "stray-v1"' '}' >> "$swift"
+if out="$(run)"; then fail "a String static beside the derived lists passed: $out"; fi
+[[ "$out" == *"stray"*"DaemonEndpoint.swift"* ]] || fail "the failure does not name the stray and its file: $out"
+
+# An unknown tier is refused with the entry named.
+write_catalog sometimes
+if out="$(run)"; then fail "an unknown tier passed: $out"; fi
+[[ "$out" == *"tier 'sometimes'"* ]] || fail "the failure does not name the bad tier: $out"
+rm -r "$tmp/cmux-tui"
 
 # The committed export passes as it is.
 repo="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)"
