@@ -90,6 +90,18 @@ class Classify(unittest.TestCase):
     def test_no_directory_at_all_is_all_infra(self) -> None:
         self.assertEqual(shards_with(mod.classify(self.dir / "missing"), "infra"), list(range(1, 13)))
 
+    def test_an_older_attempts_failure_is_infra_but_its_success_stands(self) -> None:
+        # Attempt 2 after "Re-run failed jobs": shard 3 failed in attempt 1 and was rerun but died before answering
+        # (its attempt 1 file is still there); shard 4 passed in attempt 1 and was not rerun; shard 5 failed again.
+        recorded = {s: "success 1" for s in range(1, 13)}
+        recorded[3] = "failure 1"
+        recorded[5] = "failure 2"
+        write_verdicts(self.dir, recorded)
+        v = mod.classify(self.dir, attempt=2)
+        self.assertEqual(shards_with(v, "infra"), [3])
+        self.assertEqual(shards_with(v, "fail"), [5])
+        self.assertEqual(v[4], "pass")
+
     def test_cli_prints_output_lines(self) -> None:
         # Run 45562739059: 1/12 failed its tests; 5/12, 10/12 and 12/12 died before answering.
         recorded = all_pass_but()
@@ -146,6 +158,7 @@ class GateRerunStep(unittest.TestCase):
             "GITHUB_OUTPUT": str(self.output),
             "RAN_LOG": str(self.ran),
             "FAIL_SHARDS": fail_shards,
+            "GITHUB_RUN_ATTEMPT": "1",
             **{k: str(v) for k, v in self.step.get("env", {}).items()},
         }
         proc = subprocess.run(
@@ -212,7 +225,8 @@ class WorkflowWiring(unittest.TestCase):
         self.assertTrue(upload["uses"].startswith("actions/upload-artifact@"))
         self.assertTrue(upload.get("continue-on-error"))
         self.assertEqual(upload["with"]["path"], "${{ runner.temp }}/api-workerd-verdict/${{ matrix.shard }}")
-        self.shard_artifact = upload["with"]["name"]
+        self.assertGreaterEqual(upload["with"]["retention-days"], 30, "a re-run needs the passing shards' verdicts")
+        self.assertIn("${{ github.run_attempt }}", record["run"])
 
         gate = self.jobs["test"]["steps"]
         download = find_step(gate, "Download the API Worker shards' test verdicts")
@@ -225,7 +239,7 @@ class WorkflowWiring(unittest.TestCase):
                 fnmatch.fnmatchcase(upload["with"]["name"].replace("${{ matrix.shard }}", shard), download["with"]["pattern"])
             )
         rerun = find_step(gate, RERUN_STEP)
-        self.assertIn('--verdict-dir "$RUNNER_TEMP/api-workerd-verdict"', rerun["run"])
+        self.assertIn('--verdict-dir "$RUNNER_TEMP/api-workerd-verdict" --attempt "$GITHUB_RUN_ATTEMPT"', rerun["run"])
         self.assertEqual(download["if"], rerun["if"])
 
     def test_node_is_an_exact_pin_restored_from_the_bucket_first(self) -> None:
@@ -243,6 +257,7 @@ class WorkflowWiring(unittest.TestCase):
             self.assertTrue(restore.get("continue-on-error"), job)
             pins = (ROOT / "scripts" / "ci" / "toolchain-archives.sha256").read_text()
             self.assertIn(f"node-v{version}-linux-x64.tar.gz", pins)
+            self.assertIn(f"node-v{version}-linux-arm64.tar.gz", pins)
 
     def test_gate_fails_only_without_a_passing_rerun(self) -> None:
         test = self.jobs["test"]

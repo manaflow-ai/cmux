@@ -199,7 +199,9 @@ jobs:
       - name: Record the shard's test verdict
         if: ${{ !cancelled() && (steps.shard.outcome == 'success' || steps.shard.outcome == 'failure') }}
         working-directory: backend
-        run: mkdir -p "$RUNNER_TEMP/api-workerd-verdict" && echo "${{ steps.shard.outcome }}" > "$RUNNER_TEMP/api-workerd-verdict/${{ matrix.shard }}"
+        # "<outcome> <attempt>": artifacts belong to the run, so after "Re-run failed jobs" the gate tells this
+        # attempt's answer from an older one's.
+        run: mkdir -p "$RUNNER_TEMP/api-workerd-verdict" && echo "${{ steps.shard.outcome }} ${{ github.run_attempt }}" > "$RUNNER_TEMP/api-workerd-verdict/${{ matrix.shard }}"
       - name: Upload the shard's test verdict
         if: ${{ !cancelled() && (steps.shard.outcome == 'success' || steps.shard.outcome == 'failure') }}
         continue-on-error: true
@@ -207,7 +209,8 @@ jobs:
         with:
           name: api-workerd-verdict-${{ matrix.shard }}
           path: ${{ runner.temp }}/api-workerd-verdict/${{ matrix.shard }}
-          retention-days: 1
+          # As long as the run can still be re-run: a passing shard is not rerun, and its verdict must still be here.
+          retention-days: 30
           overwrite: true
           if-no-files-found: error
 
@@ -382,7 +385,7 @@ jobs:
         env:
           MAX_INFRA_SHARDS: "4"
         run: |
-          verdicts=$(python3 "$GITHUB_WORKSPACE/scripts/ci/api_workerd_infra_shards.py" --verdict-dir "$RUNNER_TEMP/api-workerd-verdict") || { echo "::warning::could not sort the api-workerd shards; the gate keeps their result"; exit 0; }
+          verdicts=$(python3 "$GITHUB_WORKSPACE/scripts/ci/api_workerd_infra_shards.py" --verdict-dir "$RUNNER_TEMP/api-workerd-verdict" --attempt "$GITHUB_RUN_ATTEMPT") || { echo "::warning::could not sort the api-workerd shards; the gate keeps their result"; exit 0; }
           infra=$(sed -n 's/^infra=//p' <<< "$verdicts"); fail=$(sed -n 's/^fail=//p' <<< "$verdicts")
           if [ -n "$fail" ]; then
             echo "::error title=API Worker tests::shard(s) $fail failed their tests (after their own rerun of the failed files); see those api-workerd jobs."
