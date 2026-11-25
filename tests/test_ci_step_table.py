@@ -48,6 +48,15 @@ def table(steps: str, jobs: str = 'linux = "l"\nadvisory = "a"') -> ci_steps.Tab
     return ci_steps.parse(tomllib.loads(f"[jobs]\n{jobs}\n{textwrap.dedent(steps)}"))
 
 
+
+# pr-pipeline.yml's heavy linux jobs run at the land tier (Leo, 2026-11-23: "de facto, im asking for 99% fewer minutes
+# of ci time, period."): tests/test_head_tier.py land_tier_condition and the label guard of
+# tests/test_ci_label_events_skip_full_ci.py, exactly as #54886 put them on every gated workflow. The router (a
+# workflow_call caller) passes its pull_request event through, so the same expression reads the same head.
+PIPELINE_LAND_TIER_JOBS = ("linux", "web-browser")
+PIPELINE_LAND_TIER = "(github.event_name != 'pull_request' || contains(github.event.pull_request.labels.*.name, 'full-ci') || (github.event.pull_request.draft == true && (vars.CI_DRAFT_CHEAP_TIER || '1') == '0') || (github.event.pull_request.draft != true && (contains(github.event.pull_request.labels.*.name, 'ready-to-land') || github.event.pull_request.base.ref != 'feat-cmux-next' || github.event.pull_request.head.repo.full_name != github.repository || (vars.CI_LAND_TIER || '1') == '0')))"
+PIPELINE_LABEL_GUARD = '!(github.event_name == \'pull_request\' && github.event.pull_request.base.ref == \'feat-cmux-next\' && (github.event.action == \'labeled\' || github.event.action == \'unlabeled\') && !contains(fromJSON(\'["full-ci","ready-to-land"]\'), github.event.label.name))'
+
 class TableRulesTest(unittest.TestCase):
     def test_the_repository_table_loads(self) -> None:
         t = ci_steps.load()
@@ -934,7 +943,12 @@ class PipelineTest(unittest.TestCase):
                 continue
             with self.subTest(job=name):
                 self.assertIn(name, table_jobs, "a pr-pipeline.yml job is a job of ci/steps.toml")
-                self.assertEqual(job["if"], f"${{{{ inputs.jobs == '' || contains(fromJSON(inputs.jobs), '{name}') }}}}")
+                routed = f"inputs.jobs == '' || contains(fromJSON(inputs.jobs), '{name}')"
+                if name in PIPELINE_LAND_TIER_JOBS:
+                    # The land tier (#54886's condition and label guard): runs only at the head handed to land.
+                    self.assertEqual(job["if"], f"${{{{ ({routed}) && {PIPELINE_LAND_TIER} && {PIPELINE_LABEL_GUARD} }}}}")
+                else:
+                    self.assertEqual(job["if"], f"${{{{ {routed} }}}}")
                 runs = [s for s in job["steps"] if f"ci/run run --job {name} " in s.get("run", "")]
                 self.assertEqual(len(runs), 1)
                 self.assertEqual(job["steps"][0]["with"]["fetch-depth"], 2)
