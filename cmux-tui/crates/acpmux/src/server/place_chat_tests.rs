@@ -82,3 +82,22 @@ fn place_chat_never_spills_to_a_target_whose_room_is_not_known() {
     assert_eq!(v["reason"]["places"][0]["headroom"], "unknown");
     assert!(v["why"].as_str().unwrap().contains("cloud room unknown"));
 }
+
+#[test]
+fn place_chat_with_auto_cloud_off_has_no_fork() {
+    let params = json!({"where": "auto", "parent": {"machine": "vm_a", "fork": true}, "key": "s1"});
+    let v = super::with_fork(place_chat_decision(&params, within()), &params, false);
+    assert!(v.get("fork").is_none(), "{v}");
+}
+
+#[test]
+fn place_chat_with_auto_cloud_on_forks_the_parent_and_keeps_the_warm_placement() {
+    let params = json!({"where": "auto", "targets": [{"place": "cloud", "headroom": "room"}],
+        "parent": {"machine": "vm_a", "fork": true}, "key": "s1"});
+    let v = super::with_fork(place_chat_decision(&params, over()), &params, true);
+    assert_eq!(v["fork"], json!({"at": "fork", "machine": "vm_a", "clientKey": "autocloud-s1"}));
+    assert_eq!(v["placement"], json!({"at": "there", "place": "cloud"}));
+    let local = json!({"where": "auto", "key": "s1"});
+    let v = super::with_fork(place_chat_decision(&local, within()), &local, true);
+    assert_eq!(v["fork"]["at"], "warm");
+}
