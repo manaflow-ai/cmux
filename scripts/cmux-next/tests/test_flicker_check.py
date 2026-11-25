@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""flicker-check.py on seeded recordings: a layout shift (rows pushed down by a
+"""flicker-check.py (and recording-shifts-report.py, which runs it on CI's recordings) on seeded recordings: a layout shift (rows pushed down by a
 banner, a card pushed sideways), a blink, a glide, content arriving in place, a
 still screen, and a jump in a 30 fps capture. The recordings are YUV4MPEG2
 files written here, so the test needs neither ffmpeg nor numpy, and a change
@@ -21,6 +21,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[3]
 SCRIPT = ROOT / "scripts/cmux-next/flicker-check.py"
+REPORT = ROOT / "scripts/cmux-next/recording-shifts-report.py"
 spec = importlib.util.spec_from_file_location("flicker_check", SCRIPT)
 check = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(check)
@@ -177,6 +178,29 @@ class SeededRecordings(unittest.TestCase):
         self.assertEqual(code, 1)
         self.assertEqual(len(jumps), 1, report["events"])
         self.assertEqual(jumps[0]["dy"], 24)
+
+
+class Report(unittest.TestCase):
+    """recording-shifts-report.py: one row per recording, a JSON beside each, exit 0 whatever it finds."""
+
+    def test_rows_count_the_planted_jump_and_never_fail_the_run(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            folder = Path(tmp) / "media" / "after"
+            folder.mkdir(parents=True)
+            screen = Screen()
+            write_y4m(folder / "banner.y4m", [screen.frame()] * 10 + [screen.frame(push_from=64, push=24)] * 10)
+            write_y4m(folder / "still.y4m", [screen.frame()] * 10)
+            (folder / "broken.mov").write_bytes(b"not a movie")
+            summary = Path(tmp) / "summary.md"
+            proc = subprocess.run([sys.executable, "-I", str(REPORT), str(Path(tmp) / "media"), "--summary", str(summary)],
+                                  capture_output=True, text=True, timeout=300, env={"PATH": "/nonexistent"})
+            self.assertEqual(proc.returncode, 0, proc.stderr)
+            rows = {line.split("`")[1]: line for line in proc.stdout.splitlines() if line.startswith("| `")}
+            self.assertIn("| 1 | 0 | 0 | 0 | 0.17s (0,24)px", rows["after/banner.y4m"])
+            self.assertIn("| 10 | 0 | 0 | 0 | 0 | - |", rows["after/still.y4m"])
+            self.assertIn("not read", next(v for k, v in rows.items() if k.endswith("broken.mov")))
+            self.assertEqual(json.loads((folder / "banner.y4m.shifts.json").read_text())["counts"]["jump"], 1)
+            self.assertEqual(summary.read_text().strip(), proc.stdout.strip())
 
 
 if __name__ == "__main__":

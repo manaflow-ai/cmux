@@ -34,6 +34,7 @@ without ffmpeg, at its own frame rate; anything else is decoded by ffmpeg at
 
 import argparse
 import json
+from array import array
 import subprocess
 import sys
 from pathlib import Path
@@ -303,18 +304,18 @@ def shift_of(before, after, width, height, box, reach, tol, min_lines, chunks=8)
     return None
 
 
-def moves(frame_list, series, width, height, cell, change, reach, tol, min_lines, min_cells):
-    """Every (frame, box px, dx, dy) where a changed region is the earlier frame's content moved."""
+def moves_between(before, after, means_before, means_after, frame, width, height, cell, change, reach, tol,
+                  min_lines, min_cells):
+    """Each changed region between two frames that is the earlier frame's content moved: (frame, box px, dx, dy)."""
     columns, rows = width // cell, height // cell
     found = []
-    for i in range(1, len(series)):
-        for count, (cx0, cy0, cx1, cy1) in changed_regions(series[i - 1], series[i], change, columns, rows):
-            if count < min_cells:
-                continue
-            box = [cx0 * cell, cy0 * cell, cx1 * cell, cy1 * cell]
-            shift = shift_of(frame_list[i - 1], frame_list[i], width, height, box, reach, tol, min_lines)
-            if shift:
-                found.append({"frame": i, "box": box, "dx": shift[0], "dy": shift[1]})
+    for count, (cx0, cy0, cx1, cy1) in changed_regions(means_before, means_after, change, columns, rows):
+        if count < min_cells:
+            continue
+        box = [cx0 * cell, cy0 * cell, cx1 * cell, cy1 * cell]
+        shift = shift_of(before, after, width, height, box, reach, tol, min_lines)
+        if shift:
+            found.append({"frame": frame, "box": box, "dx": shift[0], "dy": shift[1]})
     return found
 
 
@@ -408,8 +409,16 @@ def analyse(recording, crop=None, cell=6, change=6.0, blink_frames=6, settle_fra
     source_width, source_height = (crop[2], crop[3]) if crop else (width, height)
     grid = cell * GRID
     scaled_height = max(grid, round(source_height * WIDTH / source_width))
-    frame_list = list(frames(recording, crop, WIDTH, scaled_height, RATE))
-    series = [cell_means(f, WIDTH, scaled_height, grid) for f in frame_list]
+    # Streamed: only the previous frame is kept, and each frame's cell means
+    # as floats, so a recording of minutes fits in a few hundred MB at most.
+    series, found, previous = [], [], None
+    for frame in frames(recording, crop, WIDTH, scaled_height, RATE):
+        means = array("f", cell_means(frame, WIDTH, scaled_height, grid))
+        if previous is not None:
+            found += moves_between(previous, frame, series[-1], means, len(series), WIDTH, scaled_height, grid,
+                                   change, reach, shift_tol, min_lines, 2)
+        series.append(means)
+        previous = frame
     columns = WIDTH // grid
     scale = source_width / WIDTH
     events = merge(find(series, change, blink_frames), columns, grid, scale, fps)
@@ -419,7 +428,6 @@ def analyse(recording, crop=None, cell=6, change=6.0, blink_frames=6, settle_fra
         del event["frames"]
         events.append(event)
     events = [e for e in events if e["cells"] >= min_cells]
-    found = moves(frame_list, series, WIDTH, scaled_height, grid, change, reach, shift_tol, min_lines, 2)
     # Held frames of a variable-rate capture read as still frames between moves.
     gap = max(2, round(RATE / max(captured, 1)) + 1)
     for event in jumps(found, glide_frames, gap, grid):
