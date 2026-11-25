@@ -147,6 +147,8 @@ final class FFIMacLink: TimedMacLink, @unchecked Sendable {
 }
 
 extension FFIMacLink: ParkableMacLink {
+    var resumeHedge: Duration? { .milliseconds(handle.resumeHedgeMs()) }
+
     func park(hold: Duration, timeout: Duration) async -> Bool {
         (try? await handle.park(holdMs: Self.millis(hold), timeoutMs: Self.millis(timeout))) ?? false
     }
