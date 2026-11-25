@@ -2888,6 +2888,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
                 "CmuxNextChiefMemory",
                 "CmuxNextChiefPetWiring",
                 "CmuxNextChromiumRuntime",
+                "CmuxNextCloud",
                 "CmuxNextCloudCredentials",
                 "CmuxNextCloudPlace",
                 "CmuxNextCloudUI",
