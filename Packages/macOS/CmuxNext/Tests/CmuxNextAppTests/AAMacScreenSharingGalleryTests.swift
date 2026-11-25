@@ -1,5 +1,6 @@
 import AppKit
 @testable import CmuxNextDesign
+import CmuxNextDevices
 @testable import CmuxNextMacScreen
 import CmuxNextTestSupport
 import CmuxNextWakeups
@@ -22,6 +23,11 @@ import Testing
     ]
 
     static func render(look: MacScreenSharingLook, sharing: MacScreenHomeSnapshot.Sharing, theme: String, dark: Bool) throws -> CGImage {
+        try render(MacScreenHomeSnapshot(sharing: sharing, keyboard: .init(enabled: false, needsAccessibility: false), sharingLook: look),
+                   theme: theme, dark: dark)
+    }
+
+    static func render(_ snapshot: MacScreenHomeSnapshot, theme: String, dark: Bool) throws -> CGImage {
         _ = NSApplication.shared
         let width: CGFloat = 720, height: CGFloat = 640
         let window = NSWindow(contentRect: NSRect(x: 100, y: 100, width: width, height: height), styleMask: [.borderless],
@@ -44,7 +50,7 @@ import Testing
         root.addSubview(home)
         window.orderFrontRegardless()
         home.resolveColors()
-        home.build(MacScreenHomeSnapshot(sharing: sharing, keyboard: .init(enabled: false, needsAccessibility: false), sharingLook: look))
+        home.build(snapshot)
         home.layoutPage()
         root.layoutSubtreeIfNeeded()
         for view in AANestedGroupsGalleryTests.all(root) { view.needsDisplay = true; view.displayIfNeeded() }
@@ -76,6 +82,64 @@ import Testing
         tar.executableURL = URL(fileURLWithPath: "/usr/bin/tar")
         tar.currentDirectoryURL = AANestedGroupsGalleryTests.packageRoot
         tar.arguments = ["cf", "mac-screen-sharing-gallery.tar", "mac-screen-sharing-gallery"]
+        try tar.run()
+        tar.waitUntilExit()
+        #expect(tar.terminationStatus == 0)
+    }
+
+    /// Set Up cmux and Start cmux on NAME (Leo 2026-11-14, "agents need to be able to help set up and
+    /// propagate the app for me"): Your Devices in every placement of the two buttons
+    /// (``MacScreenSetupPlacement``), with an offline Mac, an offline Mac starting, an online Mac
+    /// whose setup failed and a phone. Written as `mac-screen-device-setup-gallery/PLACEMENT-MODE.png`
+    /// and `mac-screen-device-setup-gallery.tar`. Runs only with `CMUX_TEST_REQUIRE_GUI=1`.
+    static var setupDevices: [MacScreenHomeSnapshot.Device] {
+        let verbs = MacScreenDeviceVerbs([.setup, .start])
+        let starting = MacScreenDeviceRun(verb: .start, steps: [
+            MacScreenDeviceStep(device: "studio-mac", step: "reach", state: .ok, detail: "ssh studio-mac"),
+            MacScreenDeviceStep(device: "studio-mac", step: "app", state: .ok, detail: "cmux NIGHTLY 0.62.0 is installed"),
+        ])
+        let failed = MacScreenDeviceRun(verb: .setup, steps: [
+            MacScreenDeviceStep(device: "build-box", step: "reach", state: .ok, detail: "ssh build-box"),
+            MacScreenDeviceStep(device: "build-box", step: "app", state: .fail, detail: "the download did not verify",
+                                fix: "Check the Mac’s network, then try again."),
+            MacScreenDeviceStep(device: "build-box", step: "daemon", state: .skip, detail: "needs app"),
+        ], phase: .failed(""))
+        return [
+            .init(id: "d1", name: "Office Mac", isPhone: false, online: false, macScreenShared: true, access: MacScreenAccess(.full),
+                  setup: .make(isMac: true, online: false, verbs: verbs, run: nil)),
+            .init(id: "d2", name: "studio-mac", isPhone: false, online: false, macScreenShared: true, access: MacScreenAccess(.full),
+                  setup: .make(isMac: true, online: false, verbs: verbs, run: starting)),
+            .init(id: "d3", name: "build-box", isPhone: false, online: true, macScreenShared: true, access: MacScreenAccess(.view),
+                  setup: .make(isMac: true, online: true, verbs: verbs, run: failed)),
+            .init(id: "d4", name: "iPhone", isPhone: true, online: true, macScreenShared: true, access: MacScreenAccess(.full),
+                  setup: .make(isMac: false, online: true, verbs: verbs, run: nil)),
+        ]
+    }
+
+    @Test(.enabled(if: ProcessInfo.processInfo.environment["CMUX_TEST_REQUIRE_GUI"] == "1"))
+    func renderDeviceSetupGallery() throws {
+        let out = AANestedGroupsGalleryTests.packageRoot.appending(path: "mac-screen-device-setup-gallery")
+        try? FileManager.default.removeItem(at: out)
+        try FileManager.default.createDirectory(at: out, withIntermediateDirectories: true)
+        // Each placement on the classic rows, then the quiet rows (the page's default look) with the offline
+        // Macs listed, where Start cmux is an offline row's one button and Set Up cmux is in More.
+        let variants: [(name: String, look: MacScreenDevicesLook, placement: MacScreenSetupPlacement)] =
+            MacScreenSetupPlacement.allCases.map { ($0.rawValue, .classic, $0) } + [("quiet", .offlineLines, .standard)]
+        for variant in variants {
+            for (mode, theme, dark) in [("light", "Soft Blue Light", false), ("dark", "Soft Blue", true)] {
+                var snapshot = MacScreenHomeSnapshot(devices: .list(Self.setupDevices), sharingLook: .list, devicesLook: variant.look)
+                snapshot.setupPlacement = variant.placement
+                let image = try Self.render(snapshot, theme: theme, dark: dark)
+                let url = out.appending(path: "\(variant.name)-\(mode).png")
+                let dest = try #require(CGImageDestinationCreateWithURL(url as CFURL, "public.png" as CFString, 1, nil))
+                CGImageDestinationAddImage(dest, image, nil)
+                #expect(CGImageDestinationFinalize(dest))
+            }
+        }
+        let tar = Process()
+        tar.executableURL = URL(fileURLWithPath: "/usr/bin/tar")
+        tar.currentDirectoryURL = AANestedGroupsGalleryTests.packageRoot
+        tar.arguments = ["cf", "mac-screen-device-setup-gallery.tar", "mac-screen-device-setup-gallery"]
         try tar.run()
         tar.waitUntilExit()
         #expect(tar.terminationStatus == 0)

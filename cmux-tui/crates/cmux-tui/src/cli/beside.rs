@@ -201,16 +201,19 @@ pub(super) enum CliOutcome {
 }
 
 /// [`placement`] for `cmux tab create terminal` run by an agent
-/// (`CMUX_AGENT_SESSION`) with no `--workspace`, `--screen` or `--pane`, on
-/// the request's own connection. A person's terminal keeps the daemon's
-/// default, the pane they type in. [`browser_placement`] for `cmux browser
-/// open` / `cmux tab create browser` with no place, run by anyone: a browser
-/// never opens over the terminal that asked for it.
+/// (`CMUX_AGENT_SESSION`, or a Chief turn's `CMUX_CALLER_HOME_CHAT`) with
+/// no `--workspace`, `--screen` or `--pane`, on the request's own
+/// connection, when the app that owns `daemon_socket` places it. A person's
+/// terminal opens it in its own pane instead (command/plan.rs).
+/// [`browser_placement`] for `cmux browser open` / `cmux tab create browser`
+/// with no place, run by anyone: a browser never opens over the terminal that
+/// asked for it.
 #[cfg(unix)]
 pub(super) fn apply_cli(
     global: &super::GlobalArgs,
     plan: &mut super::command::RequestPlan,
     reader: &mut std::io::BufReader<Box<dyn cmux_tui_core::platform::transport::Stream>>,
+    daemon_socket: &std::path::Path,
     idempotency_key: Option<&str>,
 ) -> CliOutcome {
     use cmux_tui_core::resource::ResourceOperation;
@@ -221,18 +224,32 @@ pub(super) fn apply_cli(
         matches!(plan.operation, WireOperation::Typed(ResourceOperation::TabCreateTerminal));
     let creates_browser =
         matches!(plan.operation, WireOperation::Typed(ResourceOperation::TabCreateBrowser));
-    let agent = std::env::var("CMUX_AGENT_SESSION").is_ok_and(|session| !session.is_empty());
+    // An agent chat, or a Chief turn the app places beside the Home chat.
+    let env = |key: &str| std::env::var(key).ok().filter(|value| !value.is_empty());
+    let agent =
+        env("CMUX_AGENT_SESSION").is_some() || env("CMUX_CALLER_HOME_CHAT").as_deref() == Some("1");
     let Some(params) = plan.params.as_object_mut() else { return CliOutcome::Unchanged };
     // A browser with no place goes beside any caller (an agent's or a person's
     // terminal); a terminal only beside an agent's chat.
     if !(creates_browser || creates_terminal && agent) || !names_no_place(params) {
         return CliOutcome::Unchanged;
     }
-    let identity = super::app::socket_path(global)
-        .and_then(|socket| super::app::connect(&socket))
-        .and_then(|mut app| {
-            super::app::request(&mut app, "system.identify", json!({}), super::app::READ_TIMEOUT)
-        });
+    // Only the app that owns this daemon places a terminal in its topology:
+    // a Cloud Chief turn reaches the person's Mac app over a relay while its
+    // daemon is the VM's, where the Mac's ids name nothing.
+    let app = if creates_browser {
+        super::app::socket_path(global).ok()
+    } else {
+        let local = params
+            .get("machine")
+            .and_then(Value::as_str)
+            .is_none_or(|machine| machine == "current");
+        local.then(|| super::frontend_browser::owning_app_socket(global, daemon_socket)).flatten()
+    };
+    let Some(app) = app else { return CliOutcome::Unchanged };
+    let identity = super::app::connect(&app).and_then(|mut app| {
+        super::app::request(&mut app, "system.identify", json!({}), super::app::READ_TIMEOUT)
+    });
     let decide = if creates_browser { browser_placement } else { placement };
     let Some(placed) = identity.ok().and_then(Result::ok).and_then(|identity| decide(&identity))
     else {
@@ -296,6 +313,7 @@ pub(super) fn run_cli(
     plan: &mut super::command::RequestPlan,
     request: &mut Value,
     reader: &mut std::io::BufReader<Box<dyn cmux_tui_core::platform::transport::Stream>>,
+    daemon_socket: &std::path::Path,
     caller_route: bool,
     key_report: &super::wire::KeyReport,
 ) -> Result<Option<Vec<u8>>, i32> {
@@ -303,7 +321,7 @@ pub(super) fn run_cli(
         return Ok(None);
     }
     let key = request.get("idempotency_key").and_then(Value::as_str).map(str::to_owned);
-    match apply_cli(global, plan, reader, key.as_deref()) {
+    match apply_cli(global, plan, reader, daemon_socket, key.as_deref()) {
         CliOutcome::Unchanged => Ok(None),
         CliOutcome::Placed => {
             request["params"] = plan.params.clone();

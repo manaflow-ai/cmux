@@ -23,6 +23,9 @@ pub(crate) trait PageRow {
     fn updated_ms(&self) -> u64;
     fn peer(&self) -> Option<&str>;
     fn status(&self) -> Option<&str>;
+    /// Whether a chat list shows it on its own (`_acpmux/sessions {topLevelOnly}`): not a side
+    /// chat and not a session another chat's agent started ([`top_level_summary`]).
+    fn top_level(&self) -> bool;
 }
 
 impl<R: PageRow + ?Sized> PageRow for &R {
@@ -40,6 +43,10 @@ impl<R: PageRow + ?Sized> PageRow for &R {
 
     fn status(&self) -> Option<&str> {
         (**self).status()
+    }
+
+    fn top_level(&self) -> bool {
+        (**self).top_level()
     }
 }
 
@@ -59,4 +66,21 @@ impl PageRow for Value {
     fn status(&self) -> Option<&str> {
         self.get("status").and_then(Value::as_str)
     }
+
+    fn top_level(&self) -> bool {
+        top_level_summary(self)
+    }
+}
+
+/// Whether a chat list shows the chat `summary` describes on its own, the rule every list's
+/// `topLevelOnly` read keeps (the phone's lists, which used to apply it in Swift): not a side chat
+/// (a `side` tag, `hub/btw.rs`) and no session another chat's agent started (`spawnedBy`, or a
+/// sub-session's `startedBy`, which stays set after its parent closes: it lists under its
+/// parent).
+pub(crate) fn top_level_summary(summary: &Value) -> bool {
+    let set = |value: Option<&Value>| value.is_some_and(|value| !value.is_null());
+    let named = |key: &str| summary.get(key).and_then(Value::as_str).is_some_and(|v| !v.is_empty());
+    !set(summary.get("tags").and_then(|tags| tags.get("side")))
+        && !named("spawnedBy")
+        && !named("startedBy")
 }

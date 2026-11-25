@@ -1,30 +1,5 @@
 import type { Principal, Reject } from "@cmux/ownership"
-import {
-  cloudInternalOps,
-  cloudOpByName,
-  InstallRegister,
-  MachineId,
-  ServerCapabilities,
-  ServerNetworkReservation,
-  HostId,
-  connectionInternalOps,
-  DisplayName,
-  feedInternalOps,
-  pushInternalOps,
-  userConfirmInternalOps,
-  InstallId,
-  Platform,
-  schedulerInternalOps,
-  teamMemberInternalOps,
-  teamSshInternalOps,
-  teamVmInternalOps,
-  TeamId,
-  UserId,
-  WgPublicKey,
-  type CloudOpDef,
-  teamAgentKeyInternalOps,
-  teamModelsPolicyInternalOps,
-} from "@cmux/protocol";
+import { cloudInternalOps, cloudOpByName, InstallRegister, MachineId, ServerCapabilities, ServerNetworkReservation, HostId, connectionInternalOps, DisplayName, feedInternalOps, pushInternalOps, userConfirmInternalOps, InstallId, Platform, schedulerInternalOps, teamMemberInternalOps, teamAgentKeyInternalOps, teamModelsPolicyInternalOps, teamSshInternalOps, teamVmInternalOps, TeamId, UserId, WgPublicKey, type CloudOpDef } from "@cmux/protocol"
 import { Exit, Schema } from "effect"
 import { HostNetworkBoundParams } from "./host-network-params.ts"
 
@@ -496,6 +471,57 @@ export const internalOps: ReadonlyMap<string, CloudOpDef> = new Map([
       result: Schema.Unknown,
       errors: [],
       docs: "Internal: UserDO confirmed the revocation of a removed server's install.",
+      cli: { path: "", visible: false },
+      mcp: { expose: "never", group: "internal" }
+    } as CloudOpDef
+  ],
+  [
+    "server.pairing.recorded",
+    {
+      name: "server.pairing.recorded",
+      owner: "cloud:TeamDO",
+      class: "mutation",
+      risk: "mutate-shared",
+      target: "host",
+      principals: ["system"],
+      params: Schema.Struct({ host: HostId, install: InstallId, pairing_object: Schema.String, invite_object: Schema.NullOr(Schema.String) }),
+      result: Schema.Unknown,
+      errors: [],
+      docs: "Internal: the Durable Object ids of the pairing record and invite that made a server (never the codes), kept a while so a revoke can spend them.",
+      cli: { path: "", visible: false },
+      mcp: { expose: "never", group: "internal" }
+    } as CloudOpDef
+  ],
+  [
+    "server.pairing.spent",
+    {
+      name: "server.pairing.spent",
+      owner: "cloud:TeamDO",
+      class: "mutation",
+      risk: "mutate-shared",
+      target: "host",
+      principals: ["system"],
+      params: Schema.Struct({ host: HostId }),
+      result: Schema.Unknown,
+      errors: [],
+      docs: "Internal: TeamDO spent a removed server's pairing record and invite.",
+      cli: { path: "", visible: false },
+      mcp: { expose: "never", group: "internal" }
+    } as CloudOpDef
+  ],
+  [
+    "server.signed_out",
+    {
+      name: "server.signed_out",
+      owner: "cloud:TeamDO",
+      class: "mutation",
+      risk: "mutate-shared",
+      target: "host",
+      principals: ["system"],
+      params: Schema.Struct({ install: InstallId }),
+      result: Schema.Unknown,
+      errors: [],
+      docs: "Internal: a paired server's own install signed itself out (cmux server unpair); its host leaves the directory.",
       cli: { path: "", visible: false },
       mcp: { expose: "never", group: "internal" }
     } as CloudOpDef

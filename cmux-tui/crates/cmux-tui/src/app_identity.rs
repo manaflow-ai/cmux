@@ -8,7 +8,7 @@
 
 use std::path::{Path, PathBuf};
 
-use cmux_agent_pane_policy::build_identity::BuildIdentity;
+use cmux_agent_pane_policy::build_identity::{self, BuildIdentity};
 
 const DEBUG_BUNDLE_ID: &str = "com.cmuxterm.app.debug";
 /// `action.list`'s per-action surface plan key (where the app offers the
@@ -135,11 +135,15 @@ impl AppIdentity {
     }
 
     /// The app control socket (`ControlSocketPath.resolve` of the build:
-    /// [`BuildIdentity::control_socket`], per-build isolation S3) in the
-    /// user's `~/.local/state/cmux`, since a host's /tmp cleaner deleted a
-    /// running app's `/tmp` socket (hq#1870). A path too long for `sun_path`
-    /// keeps its old `/tmp` name, and so does an app from before the move:
-    /// when only the old name exists, that is where it listens.
+    /// [`BuildIdentity::control_socket`], per-build isolation S3) in NEXT's
+    /// own `~/.local/state/cmux-next` ([`build_identity::SOCKET_STATE_DIR`]),
+    /// since a host's /tmp cleaner deleted a running app's `/tmp` socket
+    /// (hq#1870), and never classic cmux's `~/.local/state/cmux`. A path too
+    /// long for `sun_path` keeps its old `/tmp` name. An app from before a
+    /// move listens where it did: when only its older name exists (in
+    /// `~/.local/state/cmux`, else `/tmp`), that is the path. Release's
+    /// `cmux.sock` never falls back to classic's folder, where classic
+    /// cmux's own release socket has that name.
     pub(crate) fn control_socket(&self, home: &Path) -> PathBuf {
         if let Some(path) = &self.socket_override {
             return path.clone();
@@ -147,12 +151,21 @@ impl AppIdentity {
         let old = self
             .build()
             .control_socket(home)
-            .unwrap_or_else(|| home.join(".local/state/cmux/cmux.sock"));
+            .unwrap_or_else(|| build_identity::socket_state_dir(home).join("cmux.sock"));
         let Ok(name) = old.strip_prefix("/tmp") else { return old };
-        let moved = home.join(".local/state/cmux").join(name);
-        if moved.as_os_str().len() > cmux_unix_socket::PORTABLE_MAX_PATH_BYTES
-            || (!moved.exists() && old.exists())
+        let moved = build_identity::socket_state_dir(home).join(name);
+        if moved.as_os_str().len() > cmux_unix_socket::PORTABLE_MAX_PATH_BYTES {
+            return old;
+        }
+        if moved.exists() {
+            return moved;
+        }
+        let before = home.join(build_identity::SOCKET_STATE_DIR_BEFORE).join(name);
+        if before.as_os_str().len() <= cmux_unix_socket::PORTABLE_MAX_PATH_BYTES && before.exists()
         {
+            return before;
+        }
+        if old.exists() {
             return old;
         }
         moved
@@ -288,12 +301,26 @@ fn warn_other_app_once(own: &AppIdentity, other: &AppIdentity) {
 
 /// The app's session socket: `DaemonLauncher` starts the owner with
 /// `TMPDIR` set to the per-user Darwin temp directory, whatever this
-/// process's `TMPDIR` is.
+/// process's `TMPDIR` is, and in the runtime directory of its HOME's scope
+/// (`cmux_daemon_launch_core::runtime_scope`; none on the account's own HOME).
 #[cfg(target_os = "macos")]
 pub(crate) fn app_daemon_socket(identity: &AppIdentity) -> Option<PathBuf> {
     let session = identity.daemon_session()?;
     let base = darwin_user_temp_dir().unwrap_or_else(|| PathBuf::from("/tmp"));
-    cmux_tui_core::server::try_default_socket_path_in_base(&session, &base).ok()
+    let scope = app_runtime_scope();
+    cmux_tui_core::server::try_default_socket_path_in_base_scoped(&session, &base, scope.as_deref())
+        .ok()
+}
+
+/// The runtime scope of the app this process belongs to: the app's terminals
+/// carry the app's HOME, so the HOME rule gives the scope its launcher chose.
+#[cfg(target_os = "macos")]
+pub(crate) fn app_runtime_scope() -> Option<String> {
+    let home = std::env::var("HOME").ok();
+    cmux_daemon_launch_core::runtime_scope::scope(
+        home.as_deref(),
+        cmux_daemon_launch_core::runtime_scope::account_home().as_deref(),
+    )
 }
 
 /// `confstr(_CS_DARWIN_USER_TEMP_DIR)`, as the app's `userTemporaryDirectory`.
@@ -319,8 +346,16 @@ pub(crate) fn darwin_user_temp_dir() -> Option<PathBuf> {
 }
 
 /// `…/Foo.app` for an executable at `…/Foo.app/Contents/Resources/bin/cmux`
-/// or `…/Foo.app/Contents/MacOS/cmux`.
+/// or `…/Foo.app/Contents/MacOS/cmux`, or a link to one from outside the
+/// bundle (Homebrew's `/opt/homebrew/bin/cmux`, a PATH shim): macOS's
+/// `current_exe` is the path the process was started by, not the link's
+/// target, so a linked `cmux` lost its app and reached `main.sock`, a session
+/// nothing starts, while the app's daemon ran (cmux#53045).
 pub(crate) fn containing_app_bundle(exe: &Path) -> Option<PathBuf> {
+    lexical_app_bundle(exe).or_else(|| lexical_app_bundle(&std::fs::canonicalize(exe).ok()?))
+}
+
+fn lexical_app_bundle(exe: &Path) -> Option<PathBuf> {
     exe.ancestors()
         .find(|path| path.extension().is_some_and(|extension| extension == "app"))
         .filter(|bundle| exe.starts_with(bundle.join("Contents")))

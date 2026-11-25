@@ -1,0 +1,14 @@
+# The Chief's self-update, only while the Chief host is wanted (cmux-chief.service Wants= this timer):
+# a machine that never runs the Chief never wakes for it. One check 10 minutes after the Chief starts (a clone
+# resumed from a snapshot booted long ago, so not OnBootSec), then every 6 h.
+[Unit]
+Description=cmux Cloud Chief self-update check
+
+[Timer]
+OnActiveSec=10min
+OnUnitActiveSec=6h
+RandomizedDelaySec=15min
+Persistent=false
+
+[Install]
+WantedBy=timers.target

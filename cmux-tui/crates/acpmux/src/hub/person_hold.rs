@@ -209,6 +209,7 @@ impl Hub {
                     triage_prompt(&text),
                     TRIAGE_MAX_TOKENS,
                     TRIAGE_TIMEOUT,
+                    super::complete::ModelFallback::HarnessDefault,
                 );
                 match tokio::time::timeout(TRIAGE_TIMEOUT + Duration::from_secs(1), call).await {
                     Ok(Ok(answer)) => answer,

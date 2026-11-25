@@ -63,6 +63,7 @@ async function page(overrides: Partial<GitHubSnapshot>): Promise<Document> {
     patches: {},
     merge: { phase: "idle" },
     rerun: { phase: "idle" },
+    write: { phase: "idle" },
     ...overrides,
   };
   // The page only reads the snapshot here; every action is a no-op.

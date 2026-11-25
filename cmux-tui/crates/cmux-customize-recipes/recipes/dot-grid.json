@@ -1,0 +1,9 @@
+{
+  "cmuxProfile": 1,
+  "name": "dot-grid",
+  "description": "The living Dot Field wallpaper behind frosted glass, black and white only, block panes and Geist type.",
+  "settings": {
+    "appearance.themeFile": "dot-grid",
+    "agentPane.display.font.ui": "geist"
+  }
+}

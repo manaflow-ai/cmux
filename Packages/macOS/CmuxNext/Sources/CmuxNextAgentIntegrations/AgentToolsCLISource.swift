@@ -3,8 +3,8 @@ public import CmuxNextSettings
 public import Foundation
 import os
 
-/// The cmux Tools question's source over the bundled CLI: the answer is `agents.cmuxMcp`, read from
-/// and written through the app's settings owner (the person's own write; `ask` removes the key); the
+/// Settings' cmux Tools source over the bundled CLI: the choice is `agents.cmuxMcp`, read from and
+/// written through the app's settings owner (the person's own write; no key is the default `on`); the
 /// agents are `cmux setup mcp`'s report (the code a person or an agent runs in a terminal), which
 /// writes nothing. The CLI runs off the main thread with the login `PATH` a terminal has, so it
 /// finds the `claude` and `codex` a terminal finds.
@@ -21,7 +21,7 @@ public final class AgentToolsCLISource: AgentToolsSource {
 
     /// Read inside observation, so a view of it follows an answer given anywhere.
     public func agentToolsChoice() -> AgentToolsChoice {
-        settings()?.snapshot.root.value(at: AgentToolsChoice.path)?.stringValue.flatMap(AgentToolsChoice.init(rawValue:)) ?? .ask
+        AgentToolsChoice(settingsValue: settings()?.snapshot.root.value(at: AgentToolsChoice.path)?.stringValue)
     }
 
     public func setAgentToolsChoice(_ choice: AgentToolsChoice) async -> Bool {

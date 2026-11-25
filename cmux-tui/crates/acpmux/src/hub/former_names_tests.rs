@@ -146,3 +146,69 @@ async fn a_hand_rename_titles_the_chat_by_the_name_in_words() {
     hub.rename_as(&s, "lane-7".into(), super::super::task_names::Naming::Address).await.unwrap();
     assert_eq!(s.meta().title.as_deref(), Some("Session name aliases"));
 }
+
+/// A harness that titles its threads (Codex) sends its title again after a rename: the chat keeps
+/// the title its new name gave, so no list shows the old name (Leo, 2026-11-22: "I DON'T KNOW
+/// WHO'S BEEN RENAMED TO WHAT").
+#[tokio::test]
+async fn a_harness_title_after_a_hand_rename_keeps_the_new_name() {
+    let hub = hub();
+    let s = chat(&hub, "s1", "codex-2");
+    let harness_title = |title: &str| {
+        json!({"sessionId": "agent-session", "update": {
+            "sessionUpdate": "session_info_update", "title": title}})
+    };
+    hub.on_update(&s, Some(&harness_title("Old thread title")), false);
+    assert_eq!(s.meta().title.as_deref(), Some("Old thread title"));
+    hub.rename(&s, "mango".into()).await.unwrap();
+    hub.on_update(&s, Some(&harness_title("Old thread title")), false);
+    let m = s.meta();
+    assert_eq!(m.title.as_deref(), Some("Mango"), "a harness title took the rename back");
+    assert_eq!(m.title_source.as_deref(), Some(super::super::titles::NAMED));
+    let summary = hub.session_summary(&s);
+    assert_eq!(summary["name"], "mango", "{summary}");
+    assert_eq!(summary["title"], "Mango", "{summary}");
+}
+
+/// Leo, 2026-11-23: "the renaming paradigm still hasn't hit yet, and the send/recieve messages
+/// are still only the older names. you guys need migration steps and whatnot for cutting over
+/// things." After a session is given a name, the new name, the old session name, `HOST/` forms of
+/// both and a replaced given name all reach it, for `send`, `attach` and `ls` alike (all resolve
+/// through `resolve` and `key_route`).
+#[tokio::test]
+async fn a_given_name_and_every_older_name_reach_the_session() {
+    let hub = hub();
+    let s = chat(&hub, "s1", "claude-sr2-coord-old");
+    hub.rename_spoken_handle(&s, "Honey").unwrap();
+    hub.rename_spoken_handle(&s, "Mango").unwrap();
+    assert_eq!(s.meta().handle.as_deref(), Some("Mango"));
+    assert_eq!(s.meta().former_names, ["Honey"], "the replaced given name stays an alias");
+    let own = crate::pairing::machine_name();
+    for key in [
+        "Mango".to_owned(),
+        "mango".to_owned(),
+        "claude-sr2-coord-old".to_owned(),
+        "Honey".to_owned(),
+        format!("{own}/Mango"),
+        format!("{own}/claude-sr2-coord-old"),
+        format!("{own}/Honey"),
+    ] {
+        assert_eq!(id_of(hub.resolve(&key)), "s1", "{key}");
+        // `None` is the route to the usual lookup (`name_on`: an exact `HOST/NAME` here), which
+        // `resolve` above answers.
+        let route = hub.key_route(&key).unwrap();
+        assert!(matches!(route.as_deref(), None | Some("s1")), "{key}: {route:?}");
+    }
+    // A given name is one session's: another asking for it is refused.
+    let other = chat(&hub, "o1", "lane-b");
+    let e = hub.rename_spoken_handle(&other, "Mango").unwrap_err();
+    assert!(e.message.contains("taken"), "{}", e.message);
+    // An old name two sessions kept is refused with both, by the existing resolver.
+    hub.edit_test_meta(&other, |m| m.former_names = vec!["Honey".into()]);
+    let Err(e) = hub.resolve("Honey") else { panic!("an old name two sessions kept resolved") };
+    assert!(
+        e.message.contains("claude-sr2-coord-old (s1)") && e.message.contains("lane-b (o1)"),
+        "{}",
+        e.message
+    );
+}

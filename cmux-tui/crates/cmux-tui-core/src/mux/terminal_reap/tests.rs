@@ -238,13 +238,27 @@ fn terminal_reap_grace_runs_across_an_owner_restart() {
     close_workspace_of(&mux, &closed);
     let mut schedule = ReapSchedule::default();
     assert!(mux.reap_unplaced_terminals(&mut schedule, Instant::now()).is_empty());
-    // A restart: a new schedule; the terminal was closed a grace ago.
+    // A restart: a new schedule; the terminal was closed a grace ago. The new owner holds it
+    // once for the app to attach again (cold adoption), and ends it when that hold is over.
     mux.workspace_registry.lock().unwrap().backdate_terminal_unplaced(&closed_id, grace).unwrap();
     let mut restarted = ReapSchedule::default();
+    let start = Instant::now();
+    assert!(mux.reap_unplaced_terminals(&mut restarted, start).is_empty());
+    assert_eq!(restarted.deadline(&closed_id), Some(start + COLD_ADOPTION_HOLD));
+    // A second restart inside the hold does not give it again: the hold's start is durable.
     assert_eq!(
-        mux.reap_unplaced_terminals(&mut restarted, Instant::now()),
+        mux.workspace_registry
+            .lock()
+            .unwrap()
+            .backdate_terminal_adoptions(COLD_ADOPTION_HOLD)
+            .unwrap(),
+        1
+    );
+    let mut restarted_again = ReapSchedule::default();
+    assert_eq!(
+        mux.reap_unplaced_terminals(&mut restarted_again, Instant::now()),
         vec![closed_id.clone()],
-        "a restart must not count the grace again from zero"
+        "a restart must not count the grace, or the adoption hold, again from zero"
     );
     assert_eq!(lifecycle(&mux, &closed_id), TerminalLifecycle::Tombstoned);
     assert_eq!(lifecycle(&mux, &host_id(&mux, &placed)), TerminalLifecycle::Running);
@@ -506,6 +520,39 @@ fn terminal_reap_attached_terminals_do_not_count_toward_the_grace_cap() {
     );
 }
 
+/// Restart to Update left more than 16 terminals unplaced for a moment while the new window
+/// restored its tabs, and the grace cap ended the extras at once: agents running in them exited
+/// 143 (Leo, 2026-11-24: "mochi is still deadge"). The cap stands down while the app is gone and
+/// for one grace after it is back; a daemon that never served an app keeps it.
+#[test]
+fn terminal_reap_grace_cap_stands_down_across_an_app_relaunch() {
+    let grace = Duration::from_secs(30);
+    let start = Instant::now();
+    let mut schedule = ReapSchedule::default();
+    assert!(
+        !schedule.relaunch_hold(start, grace, false, false),
+        "a daemon that never had an app frontend keeps the cap (STATUS 7998)"
+    );
+    assert!(schedule.relaunch_hold(start, grace, true, false), "the app it served is gone");
+    let back = start + Duration::from_secs(5);
+    assert!(schedule.relaunch_hold(back, grace, true, true), "the app just came back");
+    assert!(
+        schedule.relaunch_hold(back + grace - Duration::from_millis(1), grace, true, true),
+        "inside one grace of its return the window may still be placing its tabs"
+    );
+    assert!(
+        !schedule.relaunch_hold(back + grace, grace, true, true),
+        "one grace after the app is back the cap applies again"
+    );
+    assert!(schedule.relaunch_hold(back + grace * 2, grace, true, false), "gone again");
+    let again = back + grace * 3;
+    assert!(
+        schedule.relaunch_hold(again, grace, true, true),
+        "a second return starts its own grace"
+    );
+    assert!(!schedule.relaunch_hold(again + grace, grace, true, true), "and ends one grace later");
+}
+
 /// The reaper checked attach streams before its close, outside the close's locks (the screen
 /// archive capture sits in between): a client that attached in that gap lost the terminal it had
 /// just attached to. The reap close checks attach streams under the same locks as the close.
@@ -542,4 +589,46 @@ fn terminal_reap_attached_terminal_survives_the_guarded_reap_close() {
     )
     .unwrap();
     mux.close_surface(placed.id).unwrap();
+}
+
+mod cold_adoption;
+mod detach_cap;
+
+/// While the app this owner served is gone no closed terminal's grace runs out; each gets a whole
+/// grace from the reconnect, and the hold ends once the app has stayed away past its bound.
+#[test]
+fn frontend_away_holds_each_terminals_grace_until_it_is_back_or_gone_for_good() {
+    let start = Instant::now();
+    let grace = Duration::from_secs(30);
+    let reapable: HashSet<String> = ["a".to_string(), "b".to_string()].into_iter().collect();
+    let mut schedule = ReapSchedule::default();
+    schedule.observe(start, grace, &reapable);
+    // The app quit; ten graces later nothing is due.
+    let mut now = start;
+    for _ in 0..10 {
+        now += grace;
+        schedule.observe(now, grace, &reapable);
+        assert!(schedule.relaunch_hold(now, grace, true, false));
+        assert!(schedule.due(now).is_empty(), "a grace ran out while the app was relaunching");
+    }
+    // It is back: a whole grace from here, then they end as usual.
+    let back = now + Duration::from_secs(5);
+    schedule.observe(back, grace, &reapable);
+    assert!(schedule.relaunch_hold(back, grace, true, true));
+    assert!(schedule.due(back + grace - Duration::from_millis(1)).is_empty());
+    assert_eq!(schedule.due(back + grace).len(), 2);
+
+    // An app that never comes back: past the bound the graces run out again.
+    let mut schedule = ReapSchedule::default();
+    schedule.observe(start, grace, &reapable);
+    assert!(schedule.relaunch_hold(start, grace, true, false));
+    let late = start + MAX_FRONTEND_AWAY_HOLD;
+    assert!(!schedule.relaunch_hold(late, grace, true, false), "the hold has an end");
+    assert_eq!(schedule.due(late).len(), 2);
+
+    // An owner that never served an app holds nothing.
+    let mut schedule = ReapSchedule::default();
+    schedule.observe(start, grace, &reapable);
+    assert!(!schedule.relaunch_hold(start + grace, grace, false, false));
+    assert_eq!(schedule.due(start + grace).len(), 2);
 }

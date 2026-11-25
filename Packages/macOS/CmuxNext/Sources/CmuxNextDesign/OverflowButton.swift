@@ -90,6 +90,15 @@ public final class OverflowButton: ClickableButton {
         didSet { if plateCornerRadius != oldValue { needsDisplay = true } }
     }
     private var renderedSize: CGFloat = 0
+    /// The ⋮'s side where the host sizes it with the controls beside it (a sidebar row's, `SidebarStyle.rowSymbolSide`);
+    /// nil draws ``glyphSize``. Read at layout time so density changes apply live.
+    public var glyphSide: (() -> CGFloat)? {
+        didSet {
+            renderedSize = 0
+            renderGlyph()
+            needsLayout = true
+        }
+    }
 
     public init(label: String) {
         self.label = label
@@ -147,7 +156,7 @@ public final class OverflowButton: ClickableButton {
     }
 
     private func renderGlyph() {
-        let size = drawsPaneGlyph ? Self.paneGlyphSize : Self.glyphSize
+        let size = drawsPaneGlyph ? Self.paneGlyphSize : glyphSide?() ?? Self.glyphSize
         guard size != renderedSize else { return }
         renderedSize = size
         let image = NSImage.icon(drawsPaneGlyph ? Self.paneGlyph : Self.glyph, size: size)
@@ -179,8 +188,11 @@ public final class OverflowButton: ClickableButton {
         performWithTheme {
             // Without a fill, a press or an open menu shows in the glyph's own ink, as the tab bar's + does.
             let pressedInk = hoverStyle == .glyph ? Palette.litGlyph : Palette.textPrimary
+            // On a popover's glass the glyph's ink is fit to the glass over any page (``NSView/glassInk(_:minimum:)``).
+            let hoverInk = glassInk(\.textPrimary, minimum: CmuxDialogButtonLook.minimumContrast) ?? Palette.textPrimary
+            let restInk = glassInk(\.textSecondary, minimum: CmuxDialogButtonLook.minimumContrast) ?? Palette.textSecondary
             contentTintColor = !isEnabled ? disabledInk
-                : tintOverride ?? (hover.state.pressed ? pressedInk : hover.state.hovering ? Palette.textPrimary : Palette.textSecondary)
+                : tintOverride ?? (hover.state.pressed ? pressedInk : hover.state.hovering ? hoverInk : restInk)
             if drawsInGlyphView { paneGlyphView.contentTintColor = contentTintColor }
         }
         hover.refresh(animated: false)

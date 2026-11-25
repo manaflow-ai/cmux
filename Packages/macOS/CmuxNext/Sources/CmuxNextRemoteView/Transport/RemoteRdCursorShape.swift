@@ -37,4 +37,17 @@ public nonisolated extension RemoteRdHello {
     /// The cap a viewer offers when it draws the remote cursor itself (cmux-rd-core
     /// `caps::CURSOR`): the host then leaves the cursor out of its pictures.
     static let cursorCap = "cursor"
+    /// The cap a viewer offers to take frames larger than one FEC block (cmux-rd-core
+    /// `caps::FEC_BLOCKS`): the host splits them across interleaved FEC blocks and the Rust
+    /// reassembler (`RemoteRdCore`) rebuilds them.
+    static let fecBlocksCap = "fec.blocks"
+    /// The cap a viewer offers when it shows a picture smaller than the stream scaled up to the
+    /// stream's size (welcome `width`/`height`) and keeps sending input in stream pixels: the
+    /// host may then encode a smaller picture on a slow link (its resolution ladder).
+    static let videoScaledCap = "video.scaled"
+    /// The session clock (`caps::CLOCK`): the viewer probes the host's clock, so its
+    /// times convert to the host's.
+    static let clockCap = "clock"
+    /// The stage ledger (`caps::LEDGER`): each frame's host times follow its last shard.
+    static let ledgerCap = "ledger"
 }

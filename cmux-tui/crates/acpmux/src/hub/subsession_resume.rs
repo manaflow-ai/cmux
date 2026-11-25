@@ -23,6 +23,10 @@
 //!   answers once its turn started: `{promptId, turnId, kind: "turn"}`, `promptId`
 //!   `stopped-resume-<ms>` (never an attempt of the stopped prompt, which a workflow's stop of
 //!   that prompt refuses for good, `auto_resume.rs` `prompt_stop_set`).
+//! - The account's rate limit holds it as any retry (`retry_turn.rs` `retry_rate_gate`): a held
+//!   chat refuses it until the reset, a parked one goes on at the person's own Resume, and at
+//!   another's (its parent agent's `retry_session`) only once the park's backoff ran out. Its
+//!   `auto_resume` provenance never goes past a hold (`rate_hold.rs` `rate_holds`).
 //! - A top-level chat is not changed: its stopped turn's Continue is the pane's, and its retry
 //!   still says `retry.nothing_failed`. Capability `subsession-resume-v1`.
 
@@ -74,6 +78,11 @@ impl Hub {
                 .with_data(json!({"reason": "retry.nothing_failed", "why": "closed"})));
         }
         self.retry_allowed(session, &by).await?;
+        // The account's limit decides first, as for any retry (`retry_turn.rs`): a held chat
+        // waits for its reset, a parked one for the person or the park's backoff.
+        if let Some(answered) = self.retry_rate_gate(session, by.person)? {
+            return Ok(answered);
+        }
         // Checked here for a clear answer; the queue checks it again under its lock.
         let busy_now = session.turn().is_some()
             || session.queue().iter().any(|q| !q.aside())

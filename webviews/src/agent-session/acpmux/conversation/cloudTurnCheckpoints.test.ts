@@ -53,6 +53,25 @@ function harness(on = true) {
 
 const settle = () => new Promise((resolve) => setTimeout(resolve, 0));
 
+test("hidden lifecycle notifications preserve checkpoints without snapshots and deduplicate on wake", async () => {
+  const h = harness();
+  h.snap(false);
+  const notify = (isWorking: boolean, turnsEnded: number, completedSeq?: number) =>
+    h.checkpoints.observeHiddenTurn({ sessionId: "s1", isWorking, turnsEnded, completedSeq });
+  notify(true, 0);
+  notify(false, 1);
+  expect(h.asked).toHaveLength(0);
+  notify(false, 1, 9);
+  expect(h.asked.map((a) => a.afterSeq)).toEqual([9]);
+  h.asked[0]!.resolve({ rowId: "user-10" });
+  await settle();
+  notify(true, 1);
+  notify(false, 2, 15);
+  expect(h.asked.map((a) => a.afterSeq)).toEqual([9, 15]);
+  h.checkpoints.observe({ sessionId: "s1", isWorking: false, turnsEnded: 2, rows: [{ kind: "turnSummary", seq: 15 }] });
+  expect(h.asked).toHaveLength(2);
+});
+
 test("asks once per completed turn, for its summary's seq, and not on load", async () => {
   const h = harness();
   h.snap(false); // the chat loads with turns already ended: no checkpoint

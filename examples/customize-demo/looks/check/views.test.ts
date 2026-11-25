@@ -1,4 +1,4 @@
-// Mounts every view of the three looks (claude, codex, studio) in cmux-app-host's fake host, with
+// Mounts every view of the four looks (claude, codex, studio, hosts) in cmux-app-host's fake host, with
 // only the ops their manifests' scopes grant, and fails on any script error or empty mount.
 // Run from cmux-tui/crates/cmux-app-host/js (it needs dist/cmux-app-runtime.js):
 //   bun test ../../../../examples/customize-demo/looks/check/views.test.ts
@@ -24,13 +24,13 @@ const USAGE = {
 }
 const CARD = { title: "web", age: "2m", status: "Working", statusSinceMs: NOW - 40_000, facts: [{ kind: "task", text: "Fix the login race" }, { kind: "branch", text: "fix/login", sinceMs: NOW - 60_000 }] }
 
-function host(look: string) {
+function host(look: string, source?: string) {
   const dir = new URL(`${look}/customize/`, looks)
   const manifest = JSON.parse(readFileSync(new URL("cmux-app.json", dir), "utf8"))
   const scopes = Object.keys(manifest.scopes ?? {})
   const table: Record<string, { scope: string }> = JSON.parse(readFileSync(scopesTable, "utf8")).ops
   const ops = Object.entries(table).filter(([, v]) => v.scope === "none" || scopes.includes(v.scope)).map(([op]) => op)
-  const h = new FakeHost(readFileSync(new URL("main.js", dir), "utf8"), { app: { id: "local/customize", version: "1.0.0" }, apiVersion: "1.0.0", ops })
+  const h = new FakeHost(source ?? readFileSync(new URL("main.js", dir), "utf8"), { app: { id: "local/customize", version: "1.0.0" }, apiVersion: "1.0.0", ops })
   const ok = (value: unknown) => () => ({ ok: true, body: { value } })
   h.handlers["agent_chat.list"] = ok({ chats: CHATS })
   h.handlers["workspace.list"] = ok([{ id: "w1", name: "web", focused: true }])
@@ -54,7 +54,7 @@ const texts = (h: FakeHost, m: string) => {
   return out
 }
 
-for (const look of ["claude", "codex", "studio"]) {
+for (const look of ["claude", "codex", "studio", "hosts"]) {
   describe(look, () => {
     const { manifest } = host(look)
     for (const [iface, spec] of Object.entries(manifest.implements) as Array<[string, { export: string }]>) {
@@ -87,3 +87,73 @@ test("studio's thread list stays bounded with 2000 chats", async () => {
   expect(nodes).toBeLessThan(1500)
   expect(texts(h, "m").some((t) => t.includes("more · Command-K"))).toBe(true)
 })
+
+// Both list dimensions must stay bounded, including when the host inventory grows.
+// Run an optional before source in a separate process: it may exceed the runtime's node limit.
+for (const size of [100, 3000]) {
+  for (const render of ["renderHosts", "renderPicker"]) {
+    test(`hosts ${render} stays bounded with ${size} sessions`, async () => {
+      const many = Array.from({ length: size }, (_, i) => ({ ...CHATS[0], id: `c${i}`, title: `Chat ${i}`,
+        workspace: null, machine: `host-${String(Math.floor(i / 20)).padStart(3, "0")}`, updated_ms: NOW - i }))
+      const sources: Array<[string, string | undefined]> = process.env.DEMO_BEFORE_HOSTS
+        ? [["before", readFileSync(process.env.DEMO_BEFORE_HOSTS, "utf8")]]
+        : [["after", undefined]]
+      for (const [version, source] of sources) {
+        const { h } = host("hosts", source)
+        h.handlers["agent_chat.list"] = () => ({ ok: true, body: { value: { chats: many } } })
+        const start = performance.now()
+        expect(h.mount("m", render, {})).toBe("")
+        await h.settle(10)
+        const nodes = h.tree("m").nodes.size
+        console.log(`hosts scale: ${version} ${render} sessions=${size} nodes=${nodes} ms=${(performance.now() - start).toFixed(1)}`)
+        if (version === "before") continue
+        expect(h.logs.filter(([level]) => level === "error")).toEqual([])
+        expect(nodes).toBeLessThan(700)
+        // Later sessions are accessible through the actual rendered controls.
+        const nextSessions = h.findNode("m", (n) => n.type === "Button" && (n.props.title === "Next sessions" || n.props.help === "Next sessions"))!
+        expect(nextSessions).toBeDefined()
+        h.dispatch("m", nextSessions, "tap")
+        await h.settle()
+        expect(texts(h, "m")).toContain("Chat 6")
+        expect(texts(h, "m")).toContain("2 / 4")
+        const previousSessions = h.findNode("m", (n) => n.type === "Button" && n.props.help === "Previous sessions")!
+        expect(previousSessions).toBeDefined()
+        h.dispatch("m", previousSessions, "tap")
+        await h.settle()
+        expect(texts(h, "m")).toContain("Chat 0")
+        expect(texts(h, "m")).not.toContain("Chat 6")
+        expect(h.tree("m").nodes.get(previousSessions)!.props.disabled).toBe(true)
+        if (size === 3000) {
+          const nextHosts = h.findNode("m", (n) => n.type === "Button" && n.props.title === "Next hosts")!
+          expect(nextHosts).toBeDefined()
+          h.dispatch("m", nextHosts, "tap")
+          await h.settle()
+          expect(texts(h, "m")).toContain(render === "renderHosts" ? "host-005" : "host-006")
+          // Changing activity order must not move hosts between pages under the pointer.
+          const hostNames = () => texts(h, "m").filter((text) => /^host-\d+$/.test(text))
+          const before = hostNames()
+          h.handlers["agent_chat.list"] = () => ({ ok: true, body: { value: {
+            chats: many.map((chat, i) => ({ ...chat, updated_ms: NOW + i }))
+          } } })
+          h.emit("agent_chat.changed")
+          await h.settle(10)
+          expect(hostNames()).toEqual(before)
+        }
+        if (render === "renderPicker") {
+          const search = h.findNode("m", (n) => n.type === "TextField")!
+          h.dispatch("m", search, "edit", { text: `Chat ${size - 1}` })
+          await h.settle()
+          expect(texts(h, "m")).toContain(`Chat ${size - 1}`)
+        }
+        // A shrinking inventory must clamp a previously selected page.
+        h.handlers["agent_chat.list"] = () => ({ ok: true, body: { value: { chats: many.slice(0, 1) } } })
+        if (render === "renderPicker") h.dispatch("m", h.findNode("m", (n) => n.type === "TextField")!, "edit", { text: "" })
+        h.emit("agent_chat.changed")
+        await h.settle(10)
+        expect(texts(h, "m")).toContain("Chat 0")
+        expect(h.tree("m").nodes.size).toBeLessThan(700)
+        expect(h.logs.filter(([level]) => level === "error")).toEqual([])
+      }
+    })
+  }
+}

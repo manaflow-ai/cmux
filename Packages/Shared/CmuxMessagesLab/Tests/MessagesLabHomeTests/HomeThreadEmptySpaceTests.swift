@@ -8,7 +8,7 @@ import Testing
 /// Lawrence, 2026-11-07 (a screenshot of a reply thread open over the blurred transcript): "clicking some parts of
 /// empty space still doesn't get out of this view". A click anywhere off the thread's bubbles, links and the message
 /// box closes the thread: the space beside a bubble in its row, the date and "Read" lines, the blurred backdrop
-/// (also where the opener's row lies under the blur, away from its "N Replies"). A click on a bubble or on the
+/// (also where the opener's row lies under the blur, its "N Replies" too: `HomeThreadOpenerSpotTests`). A click on a bubble or on the
 /// message box keeps it open. The real view over a real `HomeStore` (`HomeChatRig`); clicks go through the pane's
 /// click path (`ChatController.clicked`).
 @MainActor @Suite(.serialized) struct HomeThreadEmptySpaceTests {
@@ -51,9 +51,9 @@ import Testing
     }
 
     /// Empty spots of the open thread view: beside each bubble in its row (the side away from it), each line that is
-    /// no bubble (the date, "Read"), and the backdrop above and below the rows. None on a bubble, the message box,
-    /// or the opener's own band.
-    private func emptySpots(_ demo: MessagesWindowView, opener: CGRect) -> [(String, CGPoint)] {
+    /// no bubble (the date, "Read"), and the backdrop above and below the rows. None on a bubble or the message box;
+    /// the opener's spot under the blur counts as empty space (Lawrence 2026-11-23).
+    private func emptySpots(_ demo: MessagesWindowView) -> [(String, CGPoint)] {
         var spots: [(String, CGPoint)] = []
         let field = demo.compose.fieldRect.insetBy(dx: -60, dy: -8)
         for (v, spec) in zip(demo.threadViews, demo.threadSpecs) {
@@ -74,7 +74,7 @@ import Testing
             spots.append(("the backdrop below the rows", CGPoint(x: area.maxX - 16, y: min(area.maxY - 6, bottom + 30))))
         }
         return spots.filter { _, p in
-            demo.hit(p) == nil && !field.contains(p) && !opener.contains(p) && demo.bounds.contains(p)
+            demo.hit(p) == nil && !field.contains(p) && demo.bounds.contains(p)
         }
     }
 
@@ -82,9 +82,9 @@ import Testing
         let r = try await threadRig()
         defer { r.stop() }
         let demo = try #require(r.view.controller.demo)
-        let (p, band) = try opener(demo)
+        let (p, _) = try opener(demo)
         try open(r, at: p)
-        let spots = emptySpots(demo, opener: band)
+        let spots = emptySpots(demo)
         #expect(spots.count >= 5, "too few empty spots found: \(spots.map(\.0))")
         for (name, spot) in spots {
             try open(r, at: p)
@@ -107,7 +107,7 @@ import Testing
         #expect(await r.post([.text("\(HomeChatRig.tag) nested answer")], key: IdempotencyKey("empty-nested-1"), threadRoot: root, parent: parent))
         for _ in 0..<4 { r.frame() }
         let demo = try #require(r.view.controller.demo)
-        let (p, band) = try opener(demo)
+        let (p, _) = try opener(demo)
         try open(r, at: p)
         let field = demo.compose.fieldRect.insetBy(dx: -60, dy: -8)
         var spots: [(String, CGPoint)] = []
@@ -122,7 +122,7 @@ import Testing
             }
         }
         try #require(!labels.isEmpty, "no \"N Replies\" line in the open thread view")
-        spots = spots.filter { _, q in demo.hit(q) == nil && !field.contains(q) && !band.contains(q) && demo.bounds.contains(q) }
+        spots = spots.filter { _, q in demo.hit(q) == nil && !field.contains(q) && demo.bounds.contains(q) }
         #expect(spots.count >= 2, "too few empty spots on the line: \(spots.map(\.0))")
         for (name, spot) in spots {
             try open(r, at: p)
@@ -177,12 +177,12 @@ import Testing
         let r = try await threadRig()
         defer { r.stop() }
         let demo = try #require(r.view.controller.demo)
-        let (p, band) = try opener(demo)
+        let (p, _) = try opener(demo)
         try open(r, at: p)
         #expect(demo.threadHeaderFrame == nil, "the real Home drew a thread header")
         let top = try #require(demo.threadViews.map(\.frame.minY).min())
         let spot = CGPoint(x: demo.threadArea.midX, y: max(demo.threadArea.minY + 4, top + RowDraw.margin - 14))
-        try #require(demo.hit(spot) == nil && !band.contains(spot), "no empty spot above the root at \(spot)")
+        try #require(demo.hit(spot) == nil, "no empty spot above the root at \(spot)")
         r.view.controller.clicked(spot)
         for _ in 0..<4 { r.frame() }
         #expect(r.view.debugOpenThread == nil, "a click above the thread's root at \(spot) did not close the thread")
@@ -194,13 +194,13 @@ import Testing
         let r = try await threadRig()
         defer { r.stop() }
         let demo = try #require(r.view.controller.demo)
-        let (p, band) = try opener(demo)
+        let (p, _) = try opener(demo)
         try open(r, at: p)
         let readOnly = ReadOnlyIntents()
         let replying = r.view.controller.intents
         r.view.controller.intents = readOnly
         defer { r.view.controller.intents = replying }
-        let spots = emptySpots(demo, opener: band)
+        let spots = emptySpots(demo)
         let spot = try #require(spots.first, "no empty spot in the open thread view")
         r.view.controller.clicked(spot.1)
         for _ in 0..<4 { r.frame() }
