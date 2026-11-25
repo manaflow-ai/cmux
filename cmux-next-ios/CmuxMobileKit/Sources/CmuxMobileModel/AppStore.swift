@@ -56,6 +56,10 @@ public final class AppStore {
     public var macData: [String: MacDataMachine] = [:]
     /// Live mode: this phone's connection to each Mac it dials.
     public var macConnection: [String: MacConnection] = [:]
+    /// Live mode: why this phone's last try at each Mac failed (``MacReachability``); nil once it works.
+    public var macFailure: [String: MacLinkFailure] = [:]
+    /// Live mode: a Retry from a Mac's view, step by step (``MacRecoveryAttempt``).
+    public var macRecovery: [String: MacRecoveryAttempt] = [:]
     /// What each Mac's host said it does (`version` service `capabilities`), for
     /// Macs this phone has linked to. Absent: unknown (older host, or never linked).
     public var macCapabilities: [String: Set<String>] = [:]
@@ -193,12 +197,18 @@ public final class AppStore {
     public func updateWorkspaces(macID: String, rows: [Workspace]) {
         var rows = rows
         groupEdits.apply(to: &rows, now: now())
+        // One write for the whole push: each `workspaces[index] = row` was a copy, a
+        // whole-list compare and a notification of every reader, per row, on main.
+        var next = workspaceStorage
+        var changed = false
         for row in rows {
             guard !pendingWorkspaceIDs.contains(row.id),
-                  let index = workspaces.firstIndex(where: { $0.macID == macID && $0.id == row.id }),
-                  workspaces[index] != row else { continue }
-            workspaces[index] = row
+                  let index = next.firstIndex(where: { $0.macID == macID && $0.id == row.id }),
+                  next[index] != row else { continue }
+            next[index] = row
+            changed = true
         }
+        if changed { workspaces = next }
     }
 
     /// `current` with one Mac's rows replaced by `next` in place: the Mac's

@@ -23,6 +23,8 @@ public nonisolated struct WorkspaceRowContent: Hashable, Sendable {
     public var railLook = WorkspaceRailLook.standard
     /// The second line: the shown second-line elements in order, joined.
     public var detail: String?
+    /// The normalized custom title; nil retains every legacy row behavior.
+    public var titleParts: [TitlePart]?
     /// The tab count, when that element is on.
     public var tabCount: Int?
     /// The pull request / CI badge text, when that element is on.
@@ -41,6 +43,9 @@ public nonisolated struct WorkspaceRowContent: Hashable, Sendable {
     /// The row badge draws each state apart (`sidebar.detailedStatusIcons`): working, waiting,
     /// error, done. Off (the default), it draws Working or Ready only (`WorkspaceRowBadges`).
     public var detailedStatus = false
+    /// The status mark draws in the leading icon slot, before the title (`sidebar.workspaceRow.statusPlacement`
+    /// `leading`); the row keeps that slot while idle so the title never moves. Off, it draws on the trailing column.
+    public var statusLeads = false
     /// An expanded row (`sidebar.density`): its trailing marks sit on the title's line.
     public var expanded = false
     /// Expanded rows: the time since the last change, on the title's line.
@@ -86,6 +91,17 @@ public nonisolated struct WorkspaceRowContent: Hashable, Sendable {
     public var rollUp: SidebarTreeRollUp?
     /// Its chats' subagents under the name: a line each (a click opens one) or one stacked line; nil without any.
     public var subagents: SidebarSubagentStrip?
+    /// Failed subagents of its chats while it lists none (folded, or the tree off): counted in the title line's failed
+    /// chip (`SidebarTreeRollUpView`), the row's one failed mark. 0 while the rows show them.
+    public var subagentsFailed = 0
+    /// What the title line's roll-up draws: the tree's hidden sessions with the failed subagents added to its failed
+    /// count, so a failed session or subagent reads as one mark; nil with neither.
+    public var drawnRollUp: SidebarTreeRollUp? {
+        guard subagentsFailed > 0 else { return rollUp }
+        var drawn = rollUp ?? SidebarTreeRollUp()
+        drawn.failed += subagentsFailed
+        return drawn
+    }
     /// The Priority view's chip (`SidebarWorkspace.agentChip`) when it asks for something
     /// (`rowChip`), for the row's accessibility label. Never drawn: a row shows no status words
     /// (Leo 2026-10-21); needs you is the badge's yellow dot.
@@ -93,9 +109,6 @@ public nonisolated struct WorkspaceRowContent: Hashable, Sendable {
     /// What the working agent does now (`SidebarWorkspace.agentStep`), in place of the second
     /// line's text: the row view draws it as "Now: …". Set only on a row that has a second line.
     public var now: String?
-    /// The agent chat's task progress (`SidebarWorkspace.taskProgress`) when the row draws its
-    /// count on the name's line (`trailingStatus`); its accessibility label says it in words.
-    public var tasks: SidebarTaskProgress?
 
     public init(icon: WorkspaceIcon? = nil, detail: String? = nil, tabCount: Int? = nil, badge: String? = nil,
                 activity: StatusIndicatorState = .idle, progress: SidebarProgress? = nil, showsWorking: Bool = false,
@@ -130,6 +143,10 @@ public nonisolated struct WorkspaceRowContent: Hashable, Sendable {
     }
 
     private init(_ ws: SidebarWorkspace, preferences: WorkspaceRowPreferences, now: Date, machine: String?, ageCache ages: AgeTextCache) {
+        if let layout = preferences.layouts.layout(for: ws.rowKind, agent: ws.kindBrand) {
+            self.init(ws, layout: layout, now: now)
+            return
+        }
         let set = preferences.resolved(for: ws.rowKind)
         let secondLine = set.secondLine.compactMap { element in Self.text(of: element, in: ws, now: now).map { (element, $0) } }
         var items = secondLine.map(\.1)
@@ -182,7 +199,7 @@ public nonisolated struct WorkspaceRowContent: Hashable, Sendable {
             icon: ws.icon,
             detail: Self.nonRedundantDetail(
                 (showsNotification ? Self.nonEmpty(ws.notificationText) : nil) ?? Self.descriptionLine(ws)
-                    ?? Self.summaryLine(ws) ?? Self.nonEmpty(ws.lastMessage) ?? Self.nonEmpty(ws.status)
+                    ?? Self.nonEmpty(ws.lastMessage) ?? Self.nonEmpty(ws.status)
                     ?? (place.isEmpty ? nil : place.joined(separator: Self.separator)),
                 title: ws.title),
             activity: Self.activity(ws.activity, working: ws.agentWorking, progress: true),
@@ -264,14 +281,6 @@ public nonisolated struct WorkspaceRowContent: Hashable, Sendable {
     static func bar(_ ws: SidebarWorkspace) -> SidebarProgress? {
         guard let progress = ws.progress else { return nil }
         return progress.value != nil || progress.isError || ws.rowState == .placeholder ? progress : nil
-    }
-
-    /// The agent chat's rolling summary, with its next action after an arrow ("Tests pass → Open
-    /// the PR"): where the chat stands, said better than its raw last reply.
-    static func summaryLine(_ ws: SidebarWorkspace) -> String? {
-        guard let summary = nonEmpty(ws.detail.summary) else { return nil }
-        guard let next = nonEmpty(ws.detail.nextAction) else { return summary }
-        return Strings.summaryWithNext(summary, next)
     }
 
     /// The description's first non-empty line, trimmed: what a row shows of it.

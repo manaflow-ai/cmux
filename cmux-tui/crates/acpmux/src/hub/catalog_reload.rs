@@ -93,10 +93,13 @@ impl Hub {
                 auto_evacuate,
                 default_permission_mode,
                 remote_daemon,
+                lane_gh_broker,
+                direct_port,
                 notify_command,
                 disk_low_bytes,
                 agent_inbox,
                 person_hold,
+                page_rule,
                 hold_agent_starts_to_starter,
                 auto_resume_delays_ms,
                 login_env_allow,
@@ -105,7 +108,6 @@ impl Hub {
                 peer_wake,
                 btw,
                 titles,
-                summaries,
                 context_overrides,
                 send_relay,
                 new_relay,
@@ -118,9 +120,11 @@ impl Hub {
                 artifacts_sync: _, // its sync task starts with the daemon
                 write_journal: _,  // the replica and journal open at start
                 store: _,          // the open store
-                websocket: _,      // the bound listener
-                transport: _,      // WireGuard and the hub carrier start with the daemon
-                mesh_relay: _,     // started at start, then owned by join and leave
+                // The bound listener, its port and token stay; the hosts and origins it admits
+                // follow the file at once (`server::configured_policy`, `acpmux web --tailnet`).
+                websocket,
+                transport: _,  // WireGuard and the hub carrier start with the daemon
+                mesh_relay: _, // started at start, then owned by join and leave
                 // The daemon's default policy is its own setter's (`_acpmux/start_mode`), not
                 // the file's: an agent can write the file.
                 permission_policy: _,
@@ -135,6 +139,10 @@ impl Hub {
                 saved: _,              // what this process last wrote (`save_merge.rs`)
                 mcp_store,
             } = next;
+            if let (Some(now), Some(next)) = (current.websocket.as_mut(), websocket) {
+                now.allowed_origins = next.allowed_origins;
+                now.allowed_hosts = next.allowed_hosts;
+            }
             current.harnesses = harnesses;
             // A profile that is new or changed back is served its disk list, if any.
             self.serve_acp_cache(&current.harnesses);
@@ -178,12 +186,19 @@ impl Hub {
             // The next circuit asking for the cmux-tui remote daemon reads it
             // (`cmux_tui_service.rs`): `acpmux config --set remote_daemon=...` serves it at once.
             current.remote_daemon = remote_daemon;
+            // The next broker stream reads it (`hub_carrier_broker.rs`).
+            current.lane_gh_broker = lane_gh_broker;
+            // The carrier binds its direct port at its start (`hub_carrier_direct.rs`); a
+            // restart applies a change.
+            current.direct_port = direct_port;
             // Each of these is read where it is used, so the next use follows the file.
             current.notify_command = notify_command;
             current.disk_low_bytes = disk_low_bytes;
             current.agent_inbox = agent_inbox;
             // The next person's prompt to an idle chat reads it (`person_hold.rs`).
             current.person_hold = person_hold;
+            // The next message to a coordinator's inbox reads it (`inbox_page_rule.rs`).
+            current.page_rule = page_rule;
             current.mcp_store = mcp_store;
             current.hold_agent_starts_to_starter = hold_agent_starts_to_starter;
             current.auto_resume_delays_ms = auto_resume_delays_ms;
@@ -195,7 +210,6 @@ impl Hub {
             current.peer_wake = peer_wake;
             current.btw = btw;
             current.titles = titles;
-            current.summaries = summaries;
             current.context_overrides = context_overrides;
             current.send_relay = send_relay;
             current.new_relay = new_relay;
@@ -267,6 +281,8 @@ mod tests {
                 swap_mb: Some(2048),
                 tasks_max: Some(8192),
                 sessions_tasks_max: Some(131_072),
+                lanes: Some(6),
+                disk_mb: Some(8192),
                 cpu_class: Some(crate::cpu_class::CpuClass::Normal),
             },
             SessionResourceConfig::default(),

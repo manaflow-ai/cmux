@@ -1053,6 +1053,20 @@
     for (const [key, fn] of live) {
       let last = firstValues.get(key);
       let first = true;
+      if (view.type === "TextField" && key === "text") {
+        record.shown = (text) => {
+          last = text;
+        };
+        record.settle = () => {
+          if (nodes.get(id) !== record)
+            return;
+          const value = scalar(untrack(fn));
+          if (JSON.stringify(value) === JSON.stringify(last))
+            return;
+          last = value;
+          m.pending.push({ op: "update", id, props: { [key]: value } });
+        };
+      }
       effect(() => {
         const value = scalar(fn());
         if (first) {
@@ -2489,6 +2503,95 @@
         pollFloorSeconds: 60,
         staleAfterSeconds: 300
       },
+      "media.now_playing": {
+        docs: "What plays in cmux now, the track the Now Playing card shows: cmux's own player, else a browser tab playing aloud, else another music app while sidebar.nowPlaying.otherApps is on (media.get). The Mac app pushes media.changed when the track, its play state, its position jump or its artwork changes, so the runtime never polls it; between pushes, move the position on from position_ms with rate yourself.",
+        scopes: [
+          "media:read"
+        ],
+        params: {
+          type: "object",
+          additionalProperties: false,
+          properties: {}
+        },
+        value: {
+          type: "object",
+          required: [
+            "track"
+          ],
+          properties: {
+            track: {
+              description: "What plays, or null while nothing does.",
+              oneOf: [
+                {
+                  type: "null"
+                },
+                {
+                  type: "object",
+                  required: [
+                    "title",
+                    "artist",
+                    "playing",
+                    "rate",
+                    "position_ms",
+                    "can_previous",
+                    "can_next"
+                  ],
+                  properties: {
+                    title: {
+                      type: "string"
+                    },
+                    artist: {
+                      type: "string",
+                      description: "The artist, or the site a browser tab plays from; may be empty."
+                    },
+                    artwork: {
+                      type: "string",
+                      description: "The artwork as a small data:image/png;base64 URL, for Image(); absent without artwork."
+                    },
+                    playing: {
+                      type: "boolean"
+                    },
+                    position: {
+                      type: "number",
+                      description: "Seconds in at position_ms; absent for a live stream."
+                    },
+                    duration: {
+                      type: "number",
+                      description: "The length in seconds; absent when unknown or endless."
+                    },
+                    rate: {
+                      type: "number",
+                      description: "How fast the position moves while playing (1 is normal speed)."
+                    },
+                    position_ms: {
+                      type: "number",
+                      description: "When position was read, in Unix milliseconds."
+                    },
+                    can_previous: {
+                      type: "boolean"
+                    },
+                    can_next: {
+                      type: "boolean"
+                    },
+                    source: {
+                      type: "string",
+                      description: "The name of the other app that plays; absent for cmux's own player and tabs."
+                    }
+                  }
+                }
+              ]
+            }
+          }
+        },
+        read: {
+          op: "media.get"
+        },
+        push: [
+          "media.changed"
+        ],
+        pollFloorSeconds: 5,
+        staleAfterSeconds: 60
+      },
       "system_calendar.events": {
         docs: "The next events in the calendars on this Mac (system_calendar.events): the access status, and the events from now through params.days once access is granted. The Mac app pushes system_calendar.changed when EventKit says a calendar changed, so the runtime never polls it; the daemon shares one read among every watcher for 30 s.",
         scopes: [
@@ -3093,8 +3196,10 @@
       const r = fn();
       if (r && typeof r.then === "function")
         r.catch((e) => log("error", `${label}: ${describe2(e)}`));
+      return r;
     } catch (e) {
       log("error", `${label}: ${describe2(e)}`);
+      return;
     }
   }
   function install() {
@@ -3165,24 +3270,39 @@
       if (Number.isFinite(nowMs))
         widgetClocks.get(mountId)?.(nowMs);
     }, undefined);
-    g.__cmuxAppDispatch = (mountId, nodeId, event, payloadJSON) => entry("dispatch", () => {
-      if (!mountExists(mountId))
+    g.__cmuxAppDispatch = (mountId, nodeId, event, payloadJSON) => {
+      let settle;
+      entry("dispatch", () => {
+        if (!mountExists(mountId))
+          return;
+        const record = nodeRecord(nodeId);
+        if (!record || record.mount.id !== mountId)
+          return;
+        const payload = payloadJSON ? JSON.parse(payloadJSON) : {};
+        state.gesture = typeof payload.gesture === "string" ? payload.gesture : null;
+        state.context = record.mount.context;
+        state.mount = mountId;
+        try {
+          settle = dispatchEvent(record, event, payload);
+        } finally {
+          state.gesture = null;
+          state.context = null;
+          state.mount = null;
+        }
+      }, undefined);
+      settle?.();
+    };
+    function textSettle(record, result) {
+      const settle = record.settle;
+      if (!settle)
         return;
-      const record = nodeRecord(nodeId);
-      if (!record || record.mount.id !== mountId)
+      const run = () => entry("settle", settle, undefined);
+      if (result && typeof result.then === "function") {
+        result.then(run, run);
         return;
-      const payload = payloadJSON ? JSON.parse(payloadJSON) : {};
-      state.gesture = typeof payload.gesture === "string" ? payload.gesture : null;
-      state.context = record.mount.context;
-      state.mount = mountId;
-      try {
-        dispatchEvent(record, event, payload);
-      } finally {
-        state.gesture = null;
-        state.context = null;
-        state.mount = null;
       }
-    }, undefined);
+      return run;
+    }
     function dispatchEvent(record, event, payload) {
       switch (event) {
         case "menu":
@@ -3209,13 +3329,21 @@
         }
         case "submit":
         case "edit": {
+          if (typeof payload.text === "string")
+            record.shown?.(payload.text);
           const h = record.handlers[event];
-          runHandler(event, h && (() => h(String(payload.text ?? ""))));
-          break;
+          const result = runHandler(event, h && (() => h(String(payload.text ?? ""))));
+          return event === "submit" && typeof payload.text === "string" ? textSettle(record, result) : undefined;
         }
-        default:
-          runHandler(event, record.handlers[event]);
+        default: {
+          const text = event === "cancel" && typeof payload.text === "string" ? payload.text : undefined;
+          if (text !== undefined)
+            record.shown?.(text);
+          const result = runHandler(event, record.handlers[event]);
+          return text !== undefined ? textSettle(record, result) : undefined;
+        }
       }
+      return;
     }
     g.__cmuxAppRunCommand = (exportName, argsJSON, cbId, ctxJSON) => entry("command", () => {
       const fn = exportsOf2()[exportName];

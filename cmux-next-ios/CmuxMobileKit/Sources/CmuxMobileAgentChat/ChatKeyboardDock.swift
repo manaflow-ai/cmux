@@ -263,7 +263,9 @@ final class ChatTranscriptController: UIViewController, UIScrollViewDelegate, Ch
         scrollView.keyboardDismissMode = .interactive
         scrollView.alwaysBounceVertical = true
         scrollView.backgroundColor = .cmuxMobileBackground
-        scrollView.topEdgeEffect.style = .soft
+        // A hard edge: text scrolled under the header stops at it instead of showing through
+        // into the title (iOS release bar read-back, 2026-11-22, shot 08; tbd d-189cea06b1).
+        scrollView.topEdgeEffect.style = .hard
         list.scrollDelegate = self
         // Safari's bottom bar: a tap on the page while the field is being edited ends the
         // editing and lowers the keyboard (CMUX-34). The draft stays in the composer, and the
@@ -569,7 +571,7 @@ final class ChatTranscriptController: UIViewController, UIScrollViewDelegate, Ch
         guard !scrollView.isTracking else { return }
         if !positionedInitially, contentHeight > 0 || surfaceIsEmpty {
             positionedInitially = true
-            scrollView.contentOffset = bottomOffset
+            scrollView.contentOffset = restoredOffset() ?? bottomOffset
         } else if positionedInitially, surface.following {
             // Inside the keyboard's animation: the newest turn rides the
             // stack frame by frame and the top of the transcript is covered.
@@ -712,12 +714,19 @@ final class ChatTranscriptController: UIViewController, UIScrollViewDelegate, Ch
             // laying out the hosted stack from here aborts in AttributeGraph
             // (step a9eaae4e), so the spring starts on the next main-queue turn.
             springTarget = target
+            // The stack's own spring: 0.35 s for its other changes, `ComposerLineMotion` for a
+            // line the draft gained or lost, so the transcript and the composer move as one.
+            let motion = surface.stackMotion
+            let began = CACurrentMediaTime()
             DispatchQueue.main.async { [weak self] in
                 guard let self, self.springTarget == target else { return }
                 self.springTarget = nil
-                UIView.animate(springDuration: 0.35, bounce: 0, options: [.allowUserInteraction, .beginFromCurrentState]) {
+                UIView.animate(springDuration: motion.seconds, bounce: 0, options: [.allowUserInteraction, .beginFromCurrentState]) {
                     self.applyStackHeight(target)
                     self.view.layoutIfNeeded()
+                } completion: { [weak self] finished in
+                    guard finished else { return }
+                    self?.noteStackMotionSettled(motion, since: began)
                 }
             }
             return
@@ -725,6 +734,35 @@ final class ChatTranscriptController: UIViewController, UIScrollViewDelegate, Ch
         springTarget = nil
         applyStackHeight(height)
     }
+
+    /// The transcript settled after the stack's height change: its length, from the first drawn
+    /// frame of the stack's change to the transcript's spring completing (the composer's line
+    /// motion end to end). Under `-CmuxMobileFrameLog` a `STACKMOTION` line in the log; in DEBUG
+    /// with `-cmux-mobile-motion-probe`, the value of the `chat.stackMotion` element, which
+    /// ComposerLineMotionUITests reads.
+    private func noteStackMotionSettled(_ motion: AgentChatSurface.StackMotion, since began: CFTimeInterval) {
+        let ms = Int(((CACurrentMediaTime() - began) * 1000).rounded())
+        let line = "kind=\(motion.rawValue) spring_ms=\(Int((motion.seconds * 1000).rounded())) settled_ms=\(ms)"
+        if FrameLogSwitch.isEnabled { print("STACKMOTION \(line)") }
+        #if DEBUG
+        if Self.motionProbeEnabled {
+            if motionProbe == nil {
+                let probe = UIView(frame: CGRect(x: 0, y: 0, width: 1, height: 1))
+                probe.isAccessibilityElement = true
+                probe.accessibilityIdentifier = "chat.stackMotion"
+                probe.alpha = 0.02
+                probe.isUserInteractionEnabled = false
+                view.addSubview(probe)
+                motionProbe = probe
+            }
+            motionProbe?.accessibilityValue = line
+        }
+        #endif
+    }
+    #if DEBUG
+    private static let motionProbeEnabled = ProcessInfo.processInfo.arguments.contains("-cmux-mobile-motion-probe")
+    private var motionProbe: UIView?
+    #endif
 
     private func applyStackHeight(_ height: CGFloat) {
         stackHeight = height
@@ -930,6 +968,7 @@ final class ChatTranscriptController: UIViewController, UIScrollViewDelegate, Ch
 
     func scrollViewDidEndDragging(_ scrollView: UIScrollView, willDecelerate decelerate: Bool) {
         followDraggedKeyboard(false)
+        if !decelerate { noteReadingPlace() }
         #if DEBUG
         if decelerate, Self.jumpsMidFling { jumpMidFling() }
         #endif
@@ -991,6 +1030,37 @@ final class ChatTranscriptController: UIViewController, UIScrollViewDelegate, Ch
         surface.following = !toTop
         view.layoutIfNeeded()
         scroll(to: toTop ? CGPoint(x: 0, y: -scrollView.contentInset.top) : bottomOffset, animated: animated)
+        // Back on the newest turn: that is where the next launch opens.
+        if !toTop { surface.onReadingAnchor?(nil) }
+    }
+
+    func scrollViewDidEndDecelerating(_ scrollView: UIScrollView) {
+        noteReadingPlace()
+    }
+
+    /// The reader came to rest: the row at the top and how far past its top, or nil on the
+    /// newest turn (`AgentChatSurface.onReadingAnchor`, kept for the next launch).
+    private func noteReadingPlace() {
+        guard let note = surface.onReadingAnchor else { return }
+        let y = scrollView.contentOffset.y + scrollView.adjustedContentInset.top
+        guard !surface.following, let row = list.layout.firstRow(below: y) else { return note(nil) }
+        note(ChatReadingAnchor(row: row.id, offset: Double(y - row.top)))
+    }
+
+    /// The first position of a chat with a reading place kept from the last run
+    /// (`AgentChatSurface.restoreAnchor`), used once: its row's top plus the offset, in range. Nil
+    /// (the newest turn) when the row is not among the rows laid out, or the place is that close
+    /// to the bottom that the chat would follow anyway.
+    private func restoredOffset() -> CGPoint? {
+        // The tab grid's card is not where the person reads: the page keeps the place for itself.
+        guard !surface.holdsTranscript, let anchor = surface.restoreAnchor else { return nil }
+        surface.restoreAnchor = nil
+        guard anchor.offset.isFinite, let top = list.layout.top(of: anchor.row) else { return nil }
+        let bottom = bottomOffset.y
+        let y = min(max(-scrollView.contentInset.top, top + CGFloat(anchor.offset) - scrollView.adjustedContentInset.top), bottom)
+        guard bottom - y > 80 else { return nil }
+        surface.following = false
+        return CGPoint(x: 0, y: y)
     }
 
     /// Room the find bar takes under the header (its 44 pt row and its margins).
@@ -1175,11 +1245,35 @@ private final class NextFrame: NSObject {
 /// Takes touches only in its bottom `interactiveHeight` (the stack); the
 /// empty space above lets them through to the transcript. (SwiftUI handles
 /// its gestures in the hosting view itself, so the hit view cannot tell.)
+///
+/// While it rides the keyboard's slide, a touch resolves where the stack is
+/// drawn: UIKit hit-tests the model frame, already at the slide's end, so a
+/// tap on the field as drawn landed on whatever sat under the finger at the
+/// end (a button of the stack, or nothing) instead of the field.
 final class PassthroughView: UIView {
     var interactiveHeight: CGFloat = 0
 
     override func point(inside point: CGPoint, with event: UIEvent?) -> Bool {
         point.y >= bounds.height - interactiveHeight && super.point(inside: point, with: event)
+    }
+
+    override func hitTest(_ point: CGPoint, with event: UIEvent?) -> UIView? {
+        guard let shift = drawnShift else { return super.hitTest(point, with: event) }
+        return super.hitTest(CGPoint(x: point.x + shift.x, y: point.y + shift.y), with: event)
+    }
+
+    /// From a point in the model's coordinates to the same screen point in
+    /// the drawn (presentation) ones; nil when no move is in flight.
+    var drawnShift: CGPoint? {
+        guard let keys = layer.animationKeys(),
+              keys.contains(where: { $0.hasPrefix("position") || $0.hasPrefix("bounds") }),
+              let drawn = layer.presentation() else { return nil }
+        func origin(_ l: CALayer) -> CGPoint {
+            CGPoint(x: l.position.x - l.anchorPoint.x * l.bounds.width - l.bounds.minX,
+                    y: l.position.y - l.anchorPoint.y * l.bounds.height - l.bounds.minY)
+        }
+        let model = origin(layer), now = origin(drawn)
+        return CGPoint(x: model.x - now.x, y: model.y - now.y)
     }
 }
 

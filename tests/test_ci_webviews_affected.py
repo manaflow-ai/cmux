@@ -320,6 +320,128 @@ class SelectTest(unittest.TestCase):
 
 
 
+STAGE = """import { chromium } from "playwright";
+import { createServer } from "vite";
+import { galleryFrame } from "./support/galleryFrame";
+const server = await createServer({ configFile: "vite.config.gallery-dev.ts" });
+const page = await (await chromium.launch()).newPage();
+await page.goto(`http://x${galleryFrame("button-basic")}`);
+"""
+GALLERY = {
+    "webviews/vite.config.gallery-dev.ts": 'import { defineConfig } from "vite";\nexport default defineConfig({});\n',
+    "webviews/src/gallery/frame/main.ts": 'import { shell } from "../shell";\nexport const frame = shell;\n',
+    "webviews/src/gallery/shell.ts": "export const shell = 1;\n",
+    "webviews/scripts/agent-pane/bundle.mjs": 'import fs from "node:fs";\nexport const bundle = fs;\n',
+    "webviews/src/agent-session/acpmux/dev.tsx": "export const dev = 1;\n",
+    "webviews/test/support/galleryFrame.ts": 'import fs from "node:fs";\nexport const galleryFrame = (id: string) => id;\n',
+    "webviews/src/ui/button.tsx": 'import "./button.css";\nexport const Button = 1;\n',
+    "webviews/src/ui/button.css": ".button {}\n",
+    "webviews/src/ui/button.gallery.tsx": 'import { Button } from "./button";\nexport default [{\n  id: "button-basic",\n  Button,\n}];\n',
+    "webviews/src/ui/card.tsx": "export const Card = 1;\n",
+    "webviews/src/ui/card.gallery.tsx": 'import { Card } from "./card";\nexport default [{\n  id: "card-basic",\n  Card,\n}];\n',
+    "webviews/test/button-stage.test.ts": STAGE,
+    "webviews/test/reads-stage.test.ts": STAGE.replace('import { chromium }', 'import { readFileSync } from "node:fs";\nimport { chromium }')
+    + 'readFileSync("baseline.txt");\n',
+    "webviews/test/support/sweep.ts": 'import { chromium } from "playwright";\nexport async function sweep(o: object) { return [o, chromium]; }\n',
+    "webviews/test/sweep-1.test.ts": '// Part 1 of 2.\nimport { sweep } from "./support/sweep";\n\nawait sweep({\n  part: 1,\n  parts: 2,\n});\n',
+    "webviews/test/sweep-env.test.ts": 'import { sweep } from "./support/sweep";\n\nawait sweep({ part: process.env.PART });\n',
+    "webviews/vite.config.pane.mjs": 'import { defineConfig } from "vite";\nexport default defineConfig({ root: "src/pane" });\n',
+    "webviews/src/pane/index.html": '<script type="module" src="./main.ts"></script>\n',
+    "webviews/src/pane/main.ts": 'import { Card } from "../ui/card";\nexport const pane = Card;\n',
+    "webviews/test/pane-page.test.ts": 'import { chromium } from "playwright";\nimport { createServer } from "vite";\n'
+    'const server = await createServer({ configFile: "vite.config.pane.mjs" });\nconst url = "http://x/";\n'
+    "const page = await (await chromium.launch()).newPage();\nawait page.goto(url);\n",
+    "webviews/src/ops.ts": "/** The last import (RowState) of a profile. */\nexport const ops = 1;\n",
+    "webviews/test/ops.test.ts": 'import { ops } from "../src/ops";\n',
+    "schemas/theme/colors.json": "{}\n",
+}
+HARNESS = ("webviews/vite.config.gallery-dev.ts", "webviews/scripts/agent-pane/bundle.mjs",
+           "webviews/test/support/galleryFrame.ts", "webviews/vite.config.pane.mjs")
+EDGED = {"webviews/test/button-stage.test.ts", "webviews/test/sweep-1.test.ts", "webviews/test/pane-page.test.ts"}
+
+
+class GalleryEdgesTest(unittest.TestCase):
+    """Stage, sweep and page tests leave the always-run set only through edges the selector follows."""
+
+    def setUp(self) -> None:
+        import hashlib  # noqa: PLC0415
+        self.root = Path(tempfile.mkdtemp())
+        git(self.root, "init", "-q")
+        for path, text in {**TREE, **GALLERY}.items():
+            (self.root / path).parent.mkdir(parents=True, exist_ok=True)
+            (self.root / path).write_text(text)
+        git(self.root, "add", "-A")
+        pin = lambda f: hashlib.sha256((self.root / f).read_bytes()).hexdigest()  # noqa: E731
+        self.saved = (wa.GALLERY_HARNESS, wa.SWEEP_HELPERS, wa.VITE_PAGES, wa.GALLERY_EDGES)
+        wa.GALLERY_HARNESS = {f: pin(f) for f in HARNESS}
+        wa.SWEEP_HELPERS = {"webviews/test/support/sweep.ts": pin("webviews/test/support/sweep.ts")}
+        wa.VITE_PAGES = {"webviews/vite.config.pane.mjs": "webviews/src/pane"}
+
+    def tearDown(self) -> None:
+        wa.GALLERY_HARNESS, wa.SWEEP_HELPERS, wa.VITE_PAGES, wa.GALLERY_EDGES = self.saved
+
+    def selected(self, selector: wa.Selector, path: str) -> set[str]:
+        found, _ = selector.select([path])
+        return set(found or ())
+
+    def test_stage_sweep_and_page_tests_leave_the_always_set(self) -> None:
+        selector = wa.Selector(self.root)
+        self.assertEqual(set(selector.gallery), EDGED)
+        self.assertTrue(EDGED.isdisjoint(selector.always))
+        for kept in ("webviews/test/reads-stage.test.ts", "webviews/test/sweep-env.test.ts"):
+            self.assertIn(kept, selector.always, "a read or a computed option keeps a test always-run")
+        self.assertEqual(self.selected(selector, "webviews/src/leaf.ts") & EDGED, set())
+
+    def test_a_stage_runs_for_its_entry_the_frame_and_the_zone(self) -> None:
+        selector = wa.Selector(self.root)
+        stage = "webviews/test/button-stage.test.ts"
+        self.assertIn(stage, self.selected(selector, "webviews/src/ui/button.tsx"))
+        self.assertNotIn(stage, self.selected(selector, "webviews/src/ui/card.tsx"))
+        self.assertIn("webviews/test/pane-page.test.ts", self.selected(selector, "webviews/src/ui/card.tsx"))
+        for path in ("webviews/src/gallery/shell.ts", "webviews/test/baseline.txt", "schemas/theme/colors.json"):
+            with self.subTest(path=path):
+                self.assertTrue(EDGED <= self.selected(selector, path))
+
+    def test_an_imported_stylesheet_selects_its_importers_not_every_stage(self) -> None:
+        selected = self.selected(wa.Selector(self.root), "webviews/src/ui/button.css")
+        self.assertIn("webviews/test/button-stage.test.ts", selected)
+        self.assertNotIn("webviews/test/pane-page.test.ts", selected)
+        (self.root / "webviews/src/ui/theme.css").write_text('@import "./button.css";\n')
+        git(self.root, "add", "-A")
+        self.assertTrue(EDGED <= self.selected(wa.Selector(self.root), "webviews/src/ui/button.css"),
+                        "a stylesheet another one @imports stays in the zone")
+
+    def test_a_sweep_runs_for_every_entry(self) -> None:
+        selector = wa.Selector(self.root)
+        for path in ("webviews/src/ui/button.tsx", "webviews/src/ui/card.tsx", "webviews/test/support/sweep.ts"):
+            with self.subTest(path=path):
+                self.assertIn("webviews/test/sweep-1.test.ts", self.selected(selector, path))
+
+    def test_an_edited_pin_or_the_switch_restores_the_always_set(self) -> None:
+        (self.root / "webviews/scripts/agent-pane/bundle.mjs").write_text('import fs from "node:fs";\nfs.readdirSync(".");\n')
+        self.assertEqual(wa.Selector(self.root).gallery, {})
+        (self.root / "webviews/scripts/agent-pane/bundle.mjs").write_text(GALLERY["webviews/scripts/agent-pane/bundle.mjs"])
+        (self.root / "webviews/test/support/sweep.ts").write_text(GALLERY["webviews/test/support/sweep.ts"] + "// edited\n")
+        self.assertNotIn("webviews/test/sweep-1.test.ts", wa.Selector(self.root).gallery)
+        wa.GALLERY_EDGES = False
+        self.assertTrue(EDGED <= wa.Selector(self.root).always)
+
+    def test_a_line_comment_naming_an_import_is_not_a_dynamic_import(self) -> None:
+        prose = "const x = 1;\n// inflated on import (CMUX-570, app size).\n"
+        self.assertFalse(wa.outside_doc(wa.UNTRACKED, prose))
+        self.assertTrue(wa.outside_doc(wa.UNTRACKED, 'const x = 1; import (path);\n'))
+        self.assertTrue(wa.outside_doc(wa.UNTRACKED, '// note\nimport (path);\n'))
+
+    def test_a_doc_comment_naming_an_import_is_not_a_dynamic_import(self) -> None:
+        self.assertNotIn("webviews/test/ops.test.ts", wa.Selector(self.root).always)
+        self.assertTrue(wa.outside_doc(wa.UNTRACKED, '/** note */\nimport fs from "node:fs";\n'))
+        wa.NARROW = False
+        try:
+            self.assertTrue(wa.outside_doc(wa.UNTRACKED, GALLERY["webviews/src/ops.ts"]))
+        finally:
+            wa.NARROW = True
+
+
 class PullRequestShardsTest(unittest.TestCase):
     """scripts/ci/webviews_pr_shards.py: a pull request runs shard 1 and each shard that holds a test its change
     touches (edits, or imports a changed webviews file); never the always-run set alone; every shard for a build
@@ -405,7 +527,7 @@ class PullRequestShardsTest(unittest.TestCase):
     def test_no_touched_test_runs_shard_1_and_all_means_all(self) -> None:
         import webviews_pr_shards as ps  # noqa: PLC0415
         self.touched("unrelated/tool.py")
-        self.assertEqual(ps.pick(self.root, "HEAD^1", "HEAD", 12), ([1], "the change touches no webviews test", {}))
+        self.assertEqual(ps.pick(self.root, "HEAD^1", "HEAD", 12), ([1], "the change touches no webviews test", {1: []}))
         run = subprocess.run([sys.executable, str(ROOT / "scripts/ci/webviews_pr_shards.py"), "--all", "--count", "3"],
                              capture_output=True, text=True, check=True)
         self.assertEqual(run.stdout.strip(), '[{"shard":1,"shard_count":3},{"shard":2,"shard_count":3},{"shard":3,"shard_count":3}]')
@@ -430,17 +552,17 @@ class PullRequestShardsTest(unittest.TestCase):
         """--direct-out: one job past shard 1 runs the touched tests the pick found, not any shard's closure share."""
         import webviews_pr_shards as ps  # noqa: PLC0415
         self.touched("webviews/src/leaf.ts")
-        split = {2: {"webviews/test/leaf.test.ts", "webviews/test/a.test.ts"}, 3: {"webviews/test/other.test.ts"},
+        split = {1: set(), 2: {"webviews/test/leaf.test.ts", "webviews/test/a.test.ts"}, 3: {"webviews/test/other.test.ts"},
                  4: set()}
         real = ps.shard_files
         ps.shard_files = lambda repo, shard, count, selected: split[shard]
         try:
             shards, _, own = ps.pick(self.root, "HEAD^1", "HEAD", 4)
-            self.assertEqual((shards, own), ([1, 2], {2: ["test/leaf.test.ts"]}))
+            self.assertEqual((shards, own), ([1, 2], {1: [], 2: ["test/leaf.test.ts"]}))
             # Touched tests in several shards past 1 become one job, under the lowest of them.
             self.touched("webviews/test/other.test.ts", "webviews/test/leaf.test.ts")
             shards, _, own = ps.pick(self.root, "HEAD^1", "HEAD", 4)
-            self.assertEqual((shards, own), ([1, 2], {2: ["test/leaf.test.ts", "test/other.test.ts"]}))
+            self.assertEqual((shards, own), ([1, 2], {1: [], 2: ["test/leaf.test.ts", "test/other.test.ts"]}))
         finally:
             ps.shard_files = real
         self.touched("webviews/package.json")
@@ -459,16 +581,16 @@ class PullRequestShardsTest(unittest.TestCase):
                 sample = ps.sampled_shards(head, 12)
                 self.assertEqual(len(sample), 2)
                 self.assertTrue(set(sample) <= set(range(2, 13)))
-                self.assertEqual((shards, own), ([1, *sample], {}))
+                self.assertEqual((shards, own), ([1, *sample], {1: []}))
                 self.assertIn(ps.SAMPLE_WHY, why)
             # A source edit beside it adds its touched tests as one job, unless a sampled shard already runs them.
             self.touched(".github/workflows/ci-web.yml", "webviews/src/leaf.ts")
             sample = ps.sampled_shards(git(self.root, "rev-parse", "HEAD").strip(), 12)
             shards, _, own = ps.pick(self.root, "HEAD^1", "HEAD", 12)
             if 5 in sample:
-                self.assertEqual((shards, own), ([1, *sample], {}))
+                self.assertEqual((shards, own), ([1, *sample], {1: []}))
             else:
-                self.assertEqual((shards, own), (sorted({1, 5, *sample}), {5: ["test/leaf.test.ts"]}))
+                self.assertEqual((shards, own), (sorted({1, 5, *sample}), {1: [], 5: ["test/leaf.test.ts"]}))
         finally:
             ps.shard_files = real
         # A build input beside it still runs every shard.
@@ -570,7 +692,7 @@ class PushClassTest(unittest.TestCase):
 
     def test_a_code_edit_is_sampled_with_its_touched_tests(self) -> None:
         cls, shards, _, own = self.classify({"webviews/src/leaf.ts": 'import { hub } from "./hub";\nexport const leaf = hub + 1;\n'})
-        self.assertEqual((cls, shards, own), ("sampled", [1, 5], {5: ["test/leaf.test.ts"]}))
+        self.assertEqual((cls, shards, own), ("sampled", [1, 5], {1: [], 5: ["test/leaf.test.ts"]}))
         cls, shards, why, _ = self.classify({"unrelated/tool.py": "x = 2\n"})
         self.assertEqual((cls, shards), ("sampled", [1]))
         self.assertIn("touches no webviews test", why)
@@ -586,6 +708,36 @@ class PushClassTest(unittest.TestCase):
         # A comment-only edit of this workflow is fast.
         self.commit({".github/workflows/ci-web.yml": "on: push\n"})
         self.assertEqual(self.classify({".github/workflows/ci-web.yml": "# why\non: push\n"})[0], "fast")
+
+    def test_a_package_json_scripts_only_edit_is_sampled(self) -> None:
+        import json  # noqa: PLC0415
+        import webviews_pr_shards as ps  # noqa: PLC0415
+        pkg = {"name": "w", "scripts": {"gallery:build": "vite build", "check:pieces": "a"},
+               "devDependencies": {"react": "19.0.0"}}
+        dump = lambda value: json.dumps(value, indent=2) + "\n"  # noqa: E731
+        self.commit({"webviews/package.json": dump(pkg),
+                     "scripts/ci/run-webviews-tests.sh": "bun run gallery:build\n"})
+        # A new check:NAME and its check:pieces line: no pin moves, the test run calls neither.
+        added = {**pkg, "scripts": {**pkg["scripts"], "check:foo": "b", "check:pieces": "a && b"}}
+        cls, shards, why, _ = self.classify({"webviews/package.json": dump(added)})
+        self.assertEqual(cls, "sampled", why)
+        self.assertTrue(set(shards) >= {1, *ps.sampled_shards(self.head(), 12)} and len(shards) <= 4, shards)
+        # A script the runner calls is a runner input: FULL.
+        self.commit({"webviews/package.json": dump(pkg)})
+        called = {**pkg, "scripts": {**pkg["scripts"], "gallery:build": "vite build --mode x"}}
+        self.assertEqual(self.classify({"webviews/package.json": dump(called)})[0], "full")
+        # So is one a test calls by name.
+        self.commit({"webviews/package.json": dump(pkg),
+                     "webviews/test/leaf.test.ts": 'spawn(["bun", "run", "check:pieces"]);\n'})
+        piece = {**pkg, "scripts": {**pkg["scripts"], "check:pieces": "a && c"}}
+        self.assertEqual(self.classify({"webviews/package.json": dump(piece)})[0], "full")
+        # A pin, and a scripts edit riding with one, stay FULL.
+        self.commit({"webviews/package.json": dump(pkg)})
+        pin = {**pkg, "devDependencies": {"react": "19.1.0"}}
+        self.assertEqual(self.classify({"webviews/package.json": dump(pin)})[0], "full")
+        self.commit({"webviews/package.json": dump(pkg)})
+        both = {**pin, "scripts": {**pkg["scripts"], "check:foo": "b"}}
+        self.assertEqual(self.classify({"webviews/package.json": dump(both)})[0], "full")
 
     def test_full_paths_run_every_shard(self) -> None:
         import webviews_pr_shards as ps  # noqa: PLC0415

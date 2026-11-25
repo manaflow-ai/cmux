@@ -75,9 +75,10 @@ DOCS_ONLY_PATHS: tuple[str, ...] = (
     # Read by a ci-guards group test (test_no_guard_group_test_reads_docs lists any new one).
     "docs/ci/health-report.md",  # tests/test_ci_health_report.py
     "docs/privacy.md",  # tests/test_outbound_hosts.py
+    "docs/network-requirements.md",  # tests/test_network_allowlist.py
     "**/notices/**",  # third-party notice inputs (hand-written.md, REVIEW.md) that the bundle and release tests read
     "vendor/stack-auth-swift-sdk-prerelease/README.cmux.md",  # tests/test_supplychain_security.py
-    "cmux-tui/README.md",  # tests/test_testbox_demo_cleanup.sh -> scripts/blacksmith-testbox-demo.sh
+    "cmux-tui/README.md",  # the Testbox tour named its public fallback here
     # Compiled in by include_str! (the detector lists any new one).
     "docs/remote-agents-and-cloud.md",
     "docs/cmux-next/customize-recipes.md",

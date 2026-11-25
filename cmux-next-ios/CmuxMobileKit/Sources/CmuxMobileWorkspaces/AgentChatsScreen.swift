@@ -229,7 +229,6 @@ struct AgentChatsScreen: View {
     let source: WorkspaceTabsSource
     @State private var model: AgentChatsModel
     @State private var confirmingStopAll = false
-    @State private var showsUpdating = false
 
     private var stopAllTitle: String {
         let count = model.activeChats.count
@@ -245,17 +244,8 @@ struct AgentChatsScreen: View {
         @Bindable var model = model
         content
             .navigationTitle(model.scope == .archived ? "Archived Chats" : "Agent Chats")
-            // Like the Workspaces list: a reopen's refresh of the kept rows says "Updating…" here,
-            // and only once it is slow, instead of a row that pushes every chat down and back up.
-            .navigationSubtitle(showsUpdating && model.refreshing && !model.reconnecting ? "Updating…" : "")
-            .task(id: model.refreshing) {
-                guard model.refreshing else {
-                    showsUpdating = false
-                    return
-                }
-                try? await Task.sleep(for: .seconds(1.5))
-                if !Task.isCancelled { showsUpdating = true }
-            }
+            // Like the Workspaces list: a reopen's refresh of the kept rows says nothing; they
+            // update in place (Leo, 2026-11-24: "they dont need to know that it's updating before they KNOW it's updating").
             .navigationBarTitleDisplayMode(.inline)
             .toolbar(.visible, for: .navigationBar)
             .searchable(text: $model.query, placement: .navigationBarDrawer(displayMode: .always), prompt: "Search chats")
@@ -304,9 +294,12 @@ struct AgentChatsScreen: View {
     private var content: some View {
         switch model.phase {
         case .loading:
-            CmuxSpinner(label: Text(model.reconnecting ? "Connecting to your Mac…" : "Loading chats…"))
+            // Never "Connecting to your Mac…" (Leo, 2026-11-23: "i dont wanna see connecting to
+            // cosmic-gray... with the spinner, i want it to just work"): the list's own load only.
+            CmuxSpinner(label: Text("Loading chats…"))
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
                 .accessibilityIdentifier("agentChats.loading")
+                .placeholderBound("agentChats.loading", .milliseconds(2000))
         case .failed(let message):
             ContentUnavailableView {
                 Label("Couldn't load chats", systemImage: "exclamationmark.triangle")
@@ -330,8 +323,19 @@ struct AgentChatsScreen: View {
     private var linkChip: some View {
         Group {
             if model.reconnecting {
-                ConnectionChip((model.stale ? ListStatusRow.State.stale : .reconnecting).chip)
-                    .padding(.top, 8)
+                Group {
+                    // Still redialing: a symbol, not "Reconnecting" (Leo, 2026-11-23: "i dont
+                    // wanna see reconnecting to the Mac in a toast, i want it to just connect").
+                    // The model held it past the quiet gate, so the chip shows at once.
+                    if model.stale {
+                        ConnectionChip(ListStatusRow.State.stale.chip, downSince: nil)
+                            .placeholderBound("agentChats.connection.chip", .milliseconds(0))
+                    } else {
+                        ConnectionChip.SymbolOnly(ListStatusRow.State.reconnecting.chip, downSince: nil)
+                            .placeholderBound("agentChats.connection.chip", .milliseconds(0))
+                    }
+                }
+                .padding(.top, 8)
                     .accessibilityIdentifier("agentChats.reconnecting")
                     .transition(.opacity)
             }
@@ -342,9 +346,9 @@ struct AgentChatsScreen: View {
     private var list: some View {
         let rows = model.visible
         return List {
-            // The kept rows show while the Mac's newest page loads; "Updating…" is the nav bar
-            // subtitle (see body) and a dropped link is a chip over the list (``linkChip``), so
-            // no row is inserted above them and nothing shifts.
+            // The kept rows show while the Mac's newest page loads, with no word that they do;
+            // a dropped link is a chip over the list (``linkChip``), so no row is inserted above
+            // them and nothing shifts.
             ForEach(rows) { chat in
                 row(chat)
             }
@@ -447,13 +451,6 @@ struct AgentChatRow: View {
                     .font(.body)
                     .foregroundStyle(theme.colors.label.color)
                     .lineLimit(1)
-                // Where the chat stands and its next action (the Mac's acpmux rolling summary).
-                if let line = chat.summaryLine {
-                    Text(line)
-                        .font(.footnote)
-                        .foregroundStyle(theme.colors.label.color.opacity(0.8))
-                        .lineLimit(2)
-                }
                 // No blank line under the title when there is nothing to say (no status, no folder).
                 if chat.isActive || !subtitle.isEmpty {
                     HStack(spacing: 6) {

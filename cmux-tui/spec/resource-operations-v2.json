@@ -8128,6 +8128,80 @@
       },
       "extra": false
     },
+    "SettingsHistory": {
+      "kind": "object",
+      "fields": {
+        "entries": {
+          "required": true,
+          "type": {
+            "kind": "array",
+            "items": {
+              "kind": "ref",
+              "name": "SettingsHistoryEntry"
+            }
+          },
+          "description": "Recorded changes of the settings file, newest first."
+        }
+      },
+      "extra": false
+    },
+    "SettingsHistoryEntry": {
+      "kind": "object",
+      "fields": {
+        "at": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "decimal"
+          },
+          "description": "When the change was published, in unix milliseconds."
+        },
+        "keys": {
+          "required": true,
+          "type": {
+            "kind": "array",
+            "items": {
+              "kind": "primitive",
+              "name": "string"
+            }
+          },
+          "description": "Dotted keys whose effective or file value changed."
+        },
+        "origin": {
+          "required": true,
+          "type": {
+            "kind": "enum",
+            "values": [
+              "user",
+              "cli",
+              "mcp",
+              "script",
+              "remote",
+              "app",
+              "file"
+            ]
+          },
+          "description": "Who made the change; file is a hand edit the daemon found on disk."
+        },
+        "revision": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "decimal"
+          },
+          "description": "The settings revision the change produced; settings.restore takes it."
+        },
+        "undoes": {
+          "required": false,
+          "type": {
+            "kind": "primitive",
+            "name": "decimal"
+          },
+          "description": "Present on a settings.undo: the revision it took back."
+        }
+      },
+      "extra": false
+    },
     "SettingsEdit": {
       "kind": "object",
       "fields": {
@@ -10035,6 +10109,219 @@
             "max_items": 500
           },
           "description": "The root's saved comments, oldest first: by createdAt, then the order they were first saved. Each is the page's object with the daemon's id, createdAt and updatedAt."
+        },
+        "review": {
+          "required": false,
+          "type": {
+            "kind": "ref",
+            "name": "DiffReviewTarget"
+          },
+          "description": "The pull request the comments go to, for a worktree git.review.start made."
+        }
+      },
+      "extra": false
+    },
+    "DiffReviewTarget": {
+      "kind": "object",
+      "fields": {
+        "url": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "min_length": 1
+          },
+          "description": "The pull request's link, https://github.com/OWNER/REPO/pull/N."
+        },
+        "repo": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "min_length": 1
+          },
+          "description": "OWNER/REPO."
+        },
+        "number": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "uint32",
+            "minimum": 1
+          }
+        },
+        "title": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          },
+          "description": "The pull request's title when the review started."
+        },
+        "head": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "min_length": 4,
+            "max_length": 64
+          },
+          "description": "The head commit reviewed; the posted review is on it."
+        },
+        "base": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "min_length": 4,
+            "max_length": 64
+          },
+          "description": "The merge-base of the head and the base branch: the worktree's diff starts there."
+        }
+      },
+      "extra": false
+    },
+    "GitReviewPostResult": {
+      "kind": "object",
+      "fields": {
+        "url": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "min_length": 1
+          },
+          "description": "The posted review's link."
+        },
+        "posted": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "uint32",
+            "minimum": 0
+          },
+          "description": "Drafts posted as inline comments."
+        },
+        "in_body": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "uint32",
+            "minimum": 0
+          },
+          "description": "Drafts on lines the pull request's diff does not show, posted in the review's body."
+        },
+        "cleared": {
+          "required": true,
+          "type": {
+            "kind": "array",
+            "items": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 1
+            },
+            "max_items": 500
+          },
+          "description": "The ids of the drafts removed: every posted one still unchanged."
+        }
+      },
+      "extra": false
+    },
+    "GitReviewStartResult": {
+      "kind": "object",
+      "fields": {
+        "root": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "min_length": 1
+          },
+          "description": "The review worktree's folder, the root its drafts are kept under."
+        },
+        "branch": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "min_length": 1
+          },
+          "description": "The worktree's branch, cmux/review-<number> (a taken name gets a suffix)."
+        },
+        "url": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "min_length": 1
+          }
+        },
+        "repo": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "min_length": 1
+          }
+        },
+        "number": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "uint32",
+            "minimum": 1
+          }
+        },
+        "title": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          }
+        },
+        "head": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "min_length": 4,
+            "max_length": 64
+          }
+        },
+        "base": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "min_length": 4,
+            "max_length": 64
+          },
+          "description": "The merge-base, recorded as branch.<branch>.cmuxBase so the diff page's branch scope shows the pull request's change."
+        },
+        "diff": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "min_length": 1
+          },
+          "description": "The git command that prints the pull request's diff in the worktree."
+        },
+        "setup": {
+          "required": true,
+          "type": {
+            "kind": "ref",
+            "name": "GitWorktreeSetupStart"
+          },
+          "description": "Always state none: a review runs no setup recipe, which would run the pull request's code before anyone read it."
+        },
+        "reused": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "boolean"
+          },
+          "description": "The worktree is one an earlier review of the pull request made on the same head, kept with its drafts."
         }
       },
       "extra": false
@@ -10090,7 +10377,7 @@
             "kind": "primitive",
             "name": "uint32"
           },
-          "description": "How many comments the prompt carried: the length of ids."
+          "description": "How many comments the prompt carried: the length of ids; for a threaded send, how many threads it carried."
         },
         "cleared": {
           "required": true,
@@ -10105,6 +10392,34 @@
             "max_items": 500
           },
           "description": "The ids removed, in store order; a comment edited since the caller read it, or unknown, is not among them."
+        },
+        "threads": {
+          "required": false,
+          "type": {
+            "kind": "array",
+            "items": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 1,
+              "max_length": 128
+            },
+            "max_items": 500
+          },
+          "description": "A threaded send: the ids of the threads it marked read (sentIn), in store order; cleared is then empty."
+        }
+      },
+      "extra": false
+    },
+    "DiffCommentsThreadResult": {
+      "kind": "object",
+      "fields": {
+        "comment": {
+          "required": true,
+          "type": {
+            "kind": "ref",
+            "name": "DiffComment"
+          },
+          "description": "The thread's comment as stored after the change: replies (each {id, author reviewer or agent, text, createdAt, sentIn}), resolved, resolvedAt and updatedAt."
         }
       },
       "extra": false
@@ -15670,7 +15985,8 @@
                 "ghostty",
                 "base16",
                 "iterm2",
-                "windows-terminal"
+                "windows-terminal",
+                "vscode"
               ]
             }
           },
@@ -15695,7 +16011,8 @@
               "ghostty",
               "base16",
               "iterm2",
-              "windows-terminal"
+              "windows-terminal",
+              "vscode"
             ]
           },
           "description": "The format text is written in."
@@ -15794,7 +16111,8 @@
               "ghostty",
               "base16",
               "iterm2",
-              "windows-terminal"
+              "windows-terminal",
+              "vscode"
             ]
           },
           "description": "The format text is written in."
@@ -20283,7 +20601,8 @@
             "description": "The rev the caller read; refused with rev_mismatch when the record changed."
           }
         },
-        "extra": false
+        "extra": false,
+        "unknown_params": "refuse"
       },
       "result": {
         "kind": "apply",
@@ -20654,7 +20973,8 @@
             "description": "The person's lock: while true no Chief (the Chief itself included) changes the record (operation.failed details.reason chief_locked). Owner only; on the page a gesture field."
           }
         },
-        "extra": false
+        "extra": false,
+        "unknown_params": "refuse"
       },
       "result": {
         "kind": "apply",
@@ -21814,6 +22134,128 @@
         "extra": false,
         "constraints": [
           "Moves a Chief's own Cloud machine up the Chief ladder (included 2 CPU / 4 GiB / 32 GiB, M 2/8/32, L 4/16/64, XL 8/32/128) over cmux-platform's cloud.machine.resize (idempotency key chief-machine-<key>-resize): grow only on every axis, the disk only on a running machine, held to the plan and the spending cap. Owner or worker auth; args are machine (the Chief's machine id), key (1 to 48 of a-z, 0-9 and -) and size (included, M, L or XL; chief_m, chief_l, chief_xl; default the size cloud.plan.get's chief_size gives a Chief). Then reads the machine until it has the new size, up to 5 minutes. Answers {machine, size, shape {cpu, memory_mb, disk_mb}, stage (done, or pending while the platform still grows it)}; a platform refusal (cloud.size.grow_only, cloud.machine.busy, cloud.machine.not_running, a plan or budget refusal) comes back as it is.",
+          "The daemon keeps no credential and grants none: the call runs with the request's own. Only a local socket client may call (operation.failed reason \"operation requires a trusted local connection\" otherwise).",
+          "A Cloud refusal is operation.failed: reason is the failure's kind (timed_out, transport, no_backend, http, plan_required or decoding) and extra.failure the failure object (kind and its fields: path; message; status, code, message, action, trace_id; upgrade_url, plan). Neither credential is ever in it.",
+          "No redirect is followed and nothing is cached. An answer over 16 MiB less 64 KiB is a transport failure.",
+          "The daemon keeps no ledger of these calls: revision is \"0\" and replayed is false. A call that must not run twice carries the API's own key in args (idempotencyKey)."
+        ]
+      },
+      "result": {
+        "kind": "apply",
+        "name": "MutationResult",
+        "arguments": [
+          {
+            "kind": "ref",
+            "name": "JsonValue"
+          }
+        ]
+      },
+      "errors": [
+        "idempotency.conflict",
+        "operation.failed",
+        "origin.forbidden",
+        "selector.ambiguous",
+        "selector.invalid",
+        "selector.not_found",
+        "validation.invalid"
+      ]
+    },
+    "cloud.machine.fork": {
+      "class": "mutation",
+      "idempotency": "required",
+      "target": "session",
+      "ancestors": [
+        "machine"
+      ],
+      "params": {
+        "selectors": {
+          "machine": "required",
+          "session": "required"
+        },
+        "fields": {
+          "api": {
+            "required": true,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 1,
+              "max_length": 2048
+            },
+            "description": "The API's base URL: https, or http to a loopback host; no user, query or fragment. A path prefix is kept."
+          },
+          "auth": {
+            "required": true,
+            "type": {
+              "kind": "enum",
+              "values": [
+                "stack",
+                "owner",
+                "worker"
+              ]
+            },
+            "description": "Which credentials and headers the call sends: stack (classic cmux.com's Stack session), owner (the API Worker's person routes) or worker (the platform's machine routes)."
+          },
+          "access_token": {
+            "required": true,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 1
+            },
+            "description": "The caller's bearer credential. Never kept, logged, put in a URL or echoed in a refusal."
+          },
+          "refresh_token": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 1
+            },
+            "description": "stack: the Stack refresh token, sent as X-Stack-Refresh-Token."
+          },
+          "team": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 1,
+              "max_length": 256
+            },
+            "description": "The team the call acts for."
+          },
+          "app_version": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 1,
+              "max_length": 128
+            },
+            "description": "stack: X-Cmux-App-Version (default cmux-next)."
+          },
+          "local_only": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "boolean"
+            },
+            "description": "The build points at a loopback backend: a refused connection is the no_backend failure."
+          },
+          "args": {
+            "required": false,
+            "type": {
+              "kind": "map",
+              "values": {
+                "kind": "ref",
+                "name": "JsonValue"
+              }
+            },
+            "description": "The call's arguments (the cmux-cloud-api crate's call of the same name reads them)."
+          }
+        },
+        "extra": false,
+        "constraints": [
+          "Forks a Cloud machine over cmux-platform's POST /v1/machines/{id}/fork (machines.fork): a running copy, memory and disk, made by the carrier's snapshot then restore, so a session placed on it starts with the parent's files, processes and warm caches (RFD 0168). Only the machine's creator may fork it; the copy bills its creator from its first running second. Worker auth; args are machine (the parent's id), clientKey (1 to 128 characters; a retry with the same key answers the same copy) and visibility (private or team, optional). Answers the platform's TeamMachine for the copy; a platform refusal (400, 401, 403) comes back as it is. Stack auth is refused (not on this cloud).",
           "The daemon keeps no credential and grants none: the call runs with the request's own. Only a local socket client may call (operation.failed reason \"operation requires a trusted local connection\" otherwise).",
           "A Cloud refusal is operation.failed: reason is the failure's kind (timed_out, transport, no_backend, http, plan_required or decoding) and extra.failure the failure object (kind and its fields: path; message; status, code, message, action, trace_id; upgrade_url, plan). Neither credential is ever in it.",
           "No redirect is followed and nothing is cached. An answer over 16 MiB less 64 KiB is a transport failure.",
@@ -26836,7 +27278,8 @@
             "description": "Optimistic concurrency cursor revision. Omit for no revision precondition."
           }
         },
-        "extra": false
+        "extra": false,
+        "unknown_params": "refuse"
       },
       "result": {
         "kind": "apply",
@@ -27896,14 +28339,14 @@
             "description": "The acpmux session id of a chat on this machine that gets the prompt: 1 to 128 visible ASCII characters."
           },
           "text": {
-            "required": true,
+            "required": false,
             "type": {
               "kind": "primitive",
               "name": "string",
               "min_length": 1,
               "max_length": 262144
             },
-            "description": "The prompt the agent reads: every sent comment's block (file and line, the quoted lines, the comment), as the diff page writes it. Not blank, at most 256 KiB."
+            "description": "The prompt the agent reads: every sent comment's block (file and line, the quoted lines, the comment), as the diff page writes it. Not blank, at most 256 KiB. Required unless threads is true; a threaded send's text is the reviewer's optional note above the threads."
           },
           "ids": {
             "required": true,
@@ -27921,7 +28364,7 @@
             "description": "The ids of the comments the prompt carries, 1 to 500; they are removed once the agent's session takes it."
           },
           "versions": {
-            "required": true,
+            "required": false,
             "type": {
               "kind": "map",
               "values": {
@@ -27929,7 +28372,15 @@
                 "name": "string"
               }
             },
-            "description": "Each id's updatedAt as the caller last read it, at most 500 (an empty object is allowed). A sent comment whose updatedAt differs (edited since) is kept."
+            "description": "Each id's updatedAt as the caller last read it, at most 500 (an empty object is allowed). A sent comment whose updatedAt differs (edited since) is kept. Required unless threads is true."
+          },
+          "threads": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "boolean"
+            },
+            "description": "true: the session host writes the prompt from the named threads (each comment, its replies and resolve state the agent has not read yet) and marks them read instead of removing them, so the agent answers in each thread with diff.comments.thread."
           }
         },
         "extra": false
@@ -27955,8 +28406,99 @@
       "constraints": [
         "The text goes to the acpmux session acp_session of this machine's acpmux as one prompt whose acpmux promptId is the idempotency key, queued behind a running turn and never steered into it; acpmux runs a prompt id once, so a retry under the same key never gives the agent the review twice.",
         "Once acpmux takes the prompt, the named comments still at their versions are removed under the root's lock, as diff.comments.delete removes them; the root's lock is not held while acpmux takes the prompt. A refused send keeps every comment.",
+        "A threaded send renders what the named threads hold that the agent has not read (a new comment, reviewer replies not sent yet, a resolve or reopen since the last send) into one prompt naming every thread's id and the cmux git comments reply and resolve commands; with none it is operation.failed nothing_to_send, over 256 KiB prompt_too_large. Once acpmux takes it, each carried comment and reply gets sentIn, the prompt id; nothing is removed.",
         "A replayed key returns the first result with replayed true and sends nothing; the same key with other arguments is idempotency.conflict.",
-        "operation.failed details.reason is the machine reason: no_session (acpmux is not running, runs no such session, or moves it to another machine; nothing was sent), send_failed (acpmux refused the prompt), send_unsettled (the prompt went out and acpmux did not answer in time: the agent may have it, and a retry with the same key runs it once), no_state_directory or store_failed; extra.message explains it."
+        "operation.failed details.reason is the machine reason: no_session (acpmux is not running, runs no such session, or moves it to another machine; nothing was sent), send_failed (acpmux refused the prompt), send_unsettled (the prompt went out and acpmux did not answer in time: the agent may have it, and a retry with the same key runs it once), nothing_to_send, prompt_too_large, no_state_directory or store_failed; extra.message explains it."
+      ]
+    },
+    "diff.comments.thread": {
+      "class": "mutation",
+      "idempotency": "required",
+      "target": "session",
+      "ancestors": [
+        "machine"
+      ],
+      "params": {
+        "selectors": {
+          "machine": "required",
+          "session": "required"
+        },
+        "fields": {
+          "root": {
+            "required": true,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 1,
+              "max_length": 4096
+            },
+            "description": "The worktree root the comments belong to: an absolute path (starting with /, at most 4096 bytes, no NUL), used only as a key. Nothing reads the folder it names."
+          },
+          "id": {
+            "required": true,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 1,
+              "max_length": 128
+            },
+            "description": "The thread: the id of a saved comment of the root."
+          },
+          "reply": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 1,
+              "max_length": 16384
+            },
+            "description": "A reply appended to the thread: not blank, at most 16 KiB."
+          },
+          "author": {
+            "required": false,
+            "type": {
+              "kind": "enum",
+              "values": [
+                "reviewer",
+                "agent"
+              ]
+            },
+            "description": "Who wrote reply: reviewer (the diff page; the default) or agent."
+          },
+          "resolved": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "boolean"
+            },
+            "description": "true resolves the thread, false reopens it."
+          }
+        },
+        "extra": false
+      },
+      "result": {
+        "kind": "apply",
+        "name": "MutationResult",
+        "arguments": [
+          {
+            "kind": "ref",
+            "name": "DiffCommentsThreadResult"
+          }
+        ]
+      },
+      "errors": [
+        "idempotency.conflict",
+        "operation.failed",
+        "origin.forbidden",
+        "selector.invalid",
+        "selector.not_found",
+        "validation.invalid"
+      ],
+      "constraints": [
+        "A change names reply, resolved or both. A reply gets an id derived from the idempotency key, its author and createdAt now; a thread keeps at most 200 replies (operation.failed too_many_replies) and the comment stays at most 64 KiB serialized (validation.invalid comment_too_large).",
+        "resolved sets resolved and resolvedAt (dropped on reopen); updatedAt is now. diff.comments.save keeps the stored replies, resolved state and sentIn of the comment it replaces, whatever the page sends.",
+        "A replayed key returns the first result with replayed true; the same key with other arguments is idempotency.conflict.",
+        "operation.failed details.reason is the machine reason: no_comment (the root has no comment with that id), too_many_replies, no_state_directory or store_failed; extra.message explains it."
       ]
     },
     "frontend_projection.get": {
@@ -29336,6 +29878,259 @@
         "The commit read at the branch's tip (and checked against expected_head) is the one pushed, also by a retry after a lost reply or a timeout. Pushing a commit the remote already has succeeds with up_to_date true.",
         "A replayed key returns the first result with replayed true; the same key with other arguments is idempotency.conflict.",
         "operation.failed details.reason is the machine reason: not_a_repository, no_working_directory, target_not_found, no_remote, push_refspec_configured, mirror_remote, upstream_mismatch, detached_head, branch_not_found, head_moved, rejected_non_fast_forward, rejected_by_remote, hook_failed, auth_failed, network_failed, timed_out, repository_changed, store_failed or git_failed; extra.message explains it, extra.output carries what git and the remote printed (at most 16 KiB) and extra.ref_status the remote's verdict on the ref."
+      ]
+    },
+    "git.review.comment": {
+      "class": "mutation",
+      "idempotency": "required",
+      "target": "session",
+      "ancestors": [
+        "machine"
+      ],
+      "params": {
+        "selectors": {
+          "machine": "required",
+          "session": "required",
+          "workspace": "optional",
+          "screen": "optional",
+          "pane": "optional",
+          "tab": "optional",
+          "terminal": "optional"
+        },
+        "fields": {
+          "path": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 1
+            },
+            "description": "An absolute path to a file or folder inside a repository. Use it, or a workspace, pane, tab or terminal selector whose working directory names the repository."
+          },
+          "file": {
+            "required": true,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 1,
+              "max_length": 4096
+            },
+            "description": "The file, relative to the worktree's root (or absolute under it), as the pull request names it."
+          },
+          "line": {
+            "required": true,
+            "type": {
+              "kind": "primitive",
+              "name": "uint32",
+              "minimum": 1
+            },
+            "description": "The line the draft is on (the last of a range)."
+          },
+          "start_line": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "uint32",
+              "minimum": 1
+            },
+            "description": "The first line of a range; default line."
+          },
+          "side": {
+            "required": false,
+            "type": {
+              "kind": "enum",
+              "values": [
+                "new",
+                "old",
+                "additions",
+                "deletions"
+              ]
+            },
+            "description": "new (the pull request's version, default) or old (the base's, for a removed line)."
+          },
+          "message": {
+            "required": true,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 1,
+              "max_length": 16384
+            },
+            "description": "The draft's text."
+          }
+        },
+        "extra": false
+      },
+      "result": {
+        "kind": "apply",
+        "name": "MutationResult",
+        "arguments": [
+          {
+            "kind": "ref",
+            "name": "DiffCommentsSaveResult"
+          }
+        ]
+      },
+      "errors": [
+        "idempotency.conflict",
+        "operation.failed",
+        "selector.ambiguous",
+        "selector.invalid",
+        "selector.not_found",
+        "selector.wrong_parent",
+        "validation.invalid"
+      ],
+      "constraints": [
+        "The worktree must be one git.review.start made. The lines must lie in one hunk of the pull request's diff as GitHub shows it (merge-base to head, renames found, three lines of context) on that side; otherwise operation.failed not_in_diff, whose extra.new_lines or old_lines lists the lines that side shows.",
+        "The draft is saved as diff.comments.save saves the diff page's comment, with its filePath, side, startLine, endLine, lineText and message, so the diff page shows it at once.",
+        "A replayed key returns the first result with replayed true; the same key with other arguments is idempotency.conflict.",
+        "operation.failed details.reason is the machine reason: not_a_review, not_in_diff, not_a_repository, no_working_directory, target_not_found, too_many_comments, no_state_directory, store_failed or git_failed; extra.message explains it."
+      ]
+    },
+    "git.review.post": {
+      "class": "mutation",
+      "risk": "send-external",
+      "idempotency": "required",
+      "target": "session",
+      "ancestors": [
+        "machine"
+      ],
+      "params": {
+        "selectors": {
+          "machine": "required",
+          "session": "required"
+        },
+        "fields": {
+          "root": {
+            "required": true,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 1,
+              "max_length": 4096
+            },
+            "description": "The review worktree's root, as diff.comments.list names it."
+          },
+          "ids": {
+            "required": true,
+            "type": {
+              "kind": "array",
+              "items": {
+                "kind": "primitive",
+                "name": "string",
+                "min_length": 1
+              },
+              "max_items": 500
+            },
+            "description": "The drafts to post."
+          },
+          "versions": {
+            "required": true,
+            "type": {
+              "kind": "map",
+              "values": {
+                "kind": "primitive",
+                "name": "string",
+                "min_length": 1
+              }
+            },
+            "description": "Every id's updatedAt as the caller read it: a draft edited since is not posted and stays, also when the post is a retry that finds its review already on GitHub."
+          }
+        },
+        "extra": false
+      },
+      "result": {
+        "kind": "apply",
+        "name": "MutationResult",
+        "arguments": [
+          {
+            "kind": "ref",
+            "name": "GitReviewPostResult"
+          }
+        ]
+      },
+      "errors": [
+        "idempotency.conflict",
+        "operation.failed",
+        "origin.forbidden",
+        "selector.invalid",
+        "selector.not_found",
+        "validation.invalid"
+      ],
+      "constraints": [
+        "The drafts are posted as one review (event COMMENT) on the reviewed head with the person's own gh (gh api POST repos/OWNER/REPO/pulls/N/reviews), never prompting, stopped after 120 s. A draft on lines the pull request's diff shows is an inline comment; any other goes in the review's body with its file and lines.",
+        "Once GitHub took the review, the posted drafts still unchanged leave the store, in the same locked step; cleared names them.",
+        "The app calls it only on the person's click; agents leave drafts and never post.",
+        "A replayed key returns the first result with replayed true; the same key with other arguments is idempotency.conflict.",
+        "operation.failed details.reason is the machine reason: not_a_review, nothing_to_post, gh_unavailable, gh_failed, timed_out, no_state_directory, store_failed or git_failed; extra.message explains it and extra.output carries what gh printed."
+      ]
+    },
+    "git.review.start": {
+      "class": "mutation",
+      "risk": "execute",
+      "idempotency": "required",
+      "target": "session",
+      "ancestors": [
+        "machine"
+      ],
+      "params": {
+        "selectors": {
+          "machine": "required",
+          "session": "required",
+          "workspace": "optional",
+          "screen": "optional",
+          "pane": "optional",
+          "tab": "optional",
+          "terminal": "optional"
+        },
+        "fields": {
+          "path": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 1
+            },
+            "description": "An absolute path to a file or folder inside a repository. Use it, or a workspace, pane, tab or terminal selector whose working directory names the repository."
+          },
+          "url": {
+            "required": true,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 1,
+              "max_length": 2048
+            },
+            "description": "The pull request's link, https://github.com/OWNER/REPO/pull/N; anything after the number is left out."
+          }
+        },
+        "extra": false
+      },
+      "result": {
+        "kind": "apply",
+        "name": "MutationResult",
+        "arguments": [
+          {
+            "kind": "ref",
+            "name": "GitReviewStartResult"
+          }
+        ]
+      },
+      "errors": [
+        "idempotency.conflict",
+        "operation.failed",
+        "selector.ambiguous",
+        "selector.invalid",
+        "selector.not_found",
+        "selector.wrong_parent",
+        "validation.invalid"
+      ],
+      "constraints": [
+        "The repository named must have a remote that is OWNER/REPO on github.com. gh pr view reads the pull request; git fetch brings its head and base branch; both run in the user's environment, never prompt, and stop after 120 s.",
+        "The worktree is git.worktree.create's, named review-<number>, at the pull request's head, with the merge-base recorded as branch.<branch>.cmuxBase and the link as branch.<branch>.cmuxReview. A worktree an earlier review made on the same head is reused with its drafts.",
+        "The pull request is recorded with the worktree's diff comments, so diff.comments.list answers it as review.",
+        "A replayed key returns the first result with replayed true; the same key with other arguments is idempotency.conflict.",
+        "operation.failed details.reason is the machine reason: not_a_repository, no_working_directory, target_not_found, no_remote, gh_unavailable, gh_failed, fetch_failed, pull_request_moved, name_taken, path_exists, no_home, timed_out, store_failed, no_state_directory or git_failed; extra.message explains it and extra.output carries what gh or git printed (at most 16 KiB)."
       ]
     },
     "git.status": {
@@ -36733,6 +37528,39 @@
         "validation.invalid"
       ]
     },
+    "settings.history": {
+      "class": "read",
+      "idempotency": "forbidden",
+      "target": "setting",
+      "ancestors": [
+        "machine",
+        "session"
+      ],
+      "params": {
+        "selectors": {
+          "machine": "required",
+          "session": "required"
+        },
+        "fields": {},
+        "extra": false,
+        "constraints": [
+          "Every published change of the settings file this daemon recorded (at most 100, newest first), whoever made it: settings writes from the page, palette, CLI and MCP, and hand edits of the file (origin file). Each entry's revision is what settings.restore takes; the file texts stay in the daemon's state directory. No state directory: no entries."
+        ]
+      },
+      "result": {
+        "kind": "ref",
+        "name": "SettingsHistory"
+      },
+      "errors": [
+        "operation.failed",
+        "origin.forbidden",
+        "resource.not_found",
+        "selector.ambiguous",
+        "selector.invalid",
+        "selector.not_found",
+        "validation.invalid"
+      ]
+    },
     "settings.list": {
       "class": "read",
       "idempotency": "forbidden",
@@ -36955,6 +37783,161 @@
         "validation.invalid"
       ]
     },
+    "settings.reset_group": {
+      "class": "mutation",
+      "idempotency": "required",
+      "target": "setting",
+      "ancestors": [
+        "machine",
+        "session"
+      ],
+      "params": {
+        "selectors": {
+          "machine": "required",
+          "session": "required"
+        },
+        "fields": {
+          "group": {
+            "required": true,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 1
+            },
+            "description": "A Settings section id (appearance), every row of the section, or section.group (appearance.sidebar: the section and the last part of the group's localization key), the rows of that group."
+          },
+          "if_revision": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "decimal"
+            },
+            "description": "The settings revision the caller saw; a mismatch is revision.conflict and writes nothing."
+          },
+          "origin": {
+            "required": false,
+            "type": {
+              "kind": "enum",
+              "values": [
+                "user",
+                "cli",
+                "mcp",
+                "script",
+                "remote",
+                "app"
+              ]
+            },
+            "description": "Who asks; absent is cli. Origin mcp may change only agent-settable schema keys (settings.agent_refused)."
+          }
+        },
+        "extra": false,
+        "constraints": [
+          "Removes every key of the group's schema rows (their defaults apply) in one write with one revision and one settings.history entry; rows of other groups, keys the schema does not know and managed keys stay. An unknown group is validation.invalid and its message lists the groups. An origin other than user or app is settings.agent_refused when the group sets a user-only row."
+        ]
+      },
+      "result": {
+        "kind": "apply",
+        "name": "MutationResult",
+        "arguments": [
+          {
+            "kind": "ref",
+            "name": "SettingsChange"
+          }
+        ]
+      },
+      "errors": [
+        "idempotency.conflict",
+        "operation.failed",
+        "origin.forbidden",
+        "resource.not_found",
+        "revision.conflict",
+        "selector.ambiguous",
+        "selector.invalid",
+        "selector.not_found",
+        "settings.agent_refused",
+        "settings.invalid",
+        "settings.managed",
+        "settings.removed",
+        "validation.invalid"
+      ]
+    },
+    "settings.restore": {
+      "class": "mutation",
+      "idempotency": "required",
+      "target": "setting",
+      "ancestors": [
+        "machine",
+        "session"
+      ],
+      "params": {
+        "selectors": {
+          "machine": "required",
+          "session": "required"
+        },
+        "fields": {
+          "if_revision": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "decimal"
+            },
+            "description": "The settings revision the caller saw; a mismatch is revision.conflict and writes nothing."
+          },
+          "origin": {
+            "required": false,
+            "type": {
+              "kind": "enum",
+              "values": [
+                "user",
+                "cli",
+                "mcp",
+                "script",
+                "remote",
+                "app"
+              ]
+            },
+            "description": "Who asks; absent is cli. Origin mcp may change only agent-settable schema keys (settings.agent_refused)."
+          },
+          "revision": {
+            "required": true,
+            "type": {
+              "kind": "primitive",
+              "name": "decimal"
+            },
+            "description": "A settings.history entry's revision: the file goes back to its text just before that change."
+          }
+        },
+        "extra": false,
+        "constraints": [
+          "The settings file becomes its text just before the change that produced revision, as one write that is itself recorded (settings.undo takes it back). A revision settings.history does not hold is validation.invalid. A settings file that does not parse is never rewritten. A managed key's file value may change; the managed value still wins. An origin other than user or app may restore only when every row whose value changes is one settings.set lets it change (settings.agent_refused)."
+        ]
+      },
+      "result": {
+        "kind": "apply",
+        "name": "MutationResult",
+        "arguments": [
+          {
+            "kind": "ref",
+            "name": "SettingsChange"
+          }
+        ]
+      },
+      "errors": [
+        "idempotency.conflict",
+        "operation.failed",
+        "origin.forbidden",
+        "resource.not_found",
+        "revision.conflict",
+        "selector.ambiguous",
+        "selector.invalid",
+        "selector.not_found",
+        "settings.agent_refused",
+        "settings.invalid",
+        "settings.managed",
+        "settings.removed",
+        "validation.invalid"
+      ]
+    },
     "settings.schema": {
       "class": "read",
       "idempotency": "forbidden",
@@ -37133,6 +38116,75 @@
         "selector.ambiguous",
         "selector.invalid",
         "selector.not_found",
+        "validation.invalid"
+      ]
+    },
+    "settings.undo": {
+      "class": "mutation",
+      "idempotency": "required",
+      "target": "setting",
+      "ancestors": [
+        "machine",
+        "session"
+      ],
+      "params": {
+        "selectors": {
+          "machine": "required",
+          "session": "required"
+        },
+        "fields": {
+          "if_revision": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "decimal"
+            },
+            "description": "The settings revision the caller saw; a mismatch is revision.conflict and writes nothing."
+          },
+          "origin": {
+            "required": false,
+            "type": {
+              "kind": "enum",
+              "values": [
+                "user",
+                "cli",
+                "mcp",
+                "script",
+                "remote",
+                "app"
+              ]
+            },
+            "description": "Who asks; absent is cli. Origin mcp may change only agent-settable schema keys (settings.agent_refused)."
+          }
+        },
+        "extra": false,
+        "constraints": [
+          "Takes back the newest change in settings.history that is not itself an undo and was not undone yet, whoever made it (page, palette, CLI, MCP, a hand edit): the settings file becomes its text before that change, as one write that is itself recorded. Repeated undo walks back one change at a time; a change made after an undo is undone first. Nothing left to undo is validation.invalid. A settings file that does not parse is never rewritten. A managed key's file value may change; the managed value still wins. An origin other than user or app may undo only changes to the rows settings.set lets it change (settings.agent_refused)."
+        ]
+      },
+      "result": {
+        "kind": "apply",
+        "name": "MutationResult",
+        "arguments": [
+          {
+            "kind": "ref",
+            "name": "SettingsChange"
+          }
+        ]
+      },
+      "errors": [
+        "idempotency.conflict",
+        "operation.failed",
+        "origin.forbidden",
+        "resource.not_found",
+        "revision.conflict",
+        "selector.ambiguous",
+        "selector.invalid",
+        "selector.not_found",
+        "settings.agent_refused",
+        "settings.invalid",
+        "settings.managed",
+        "settings.removed",
         "validation.invalid"
       ]
     },
@@ -40594,7 +41646,8 @@
             "description": "When true, end the terminal only if it has no tab, is not marked keep and has no attach stream (the reaper's rule, without the grace). Otherwise the close fails with operation.failed (extra.terminal_retained: true) and nothing changes. Omitted or false: end it with its tabs, as before. A daemon whose identify lacks terminal-close-if-unplaced-v1 refuses it as an unknown parameter (validation.invalid, before the request is keyed)."
           }
         },
-        "extra": false
+        "extra": false,
+        "unknown_params": "refuse"
       },
       "result": {
         "kind": "apply",
@@ -42020,11 +43073,12 @@
                   "ghostty",
                   "base16",
                   "iterm2",
-                  "windows-terminal"
+                  "windows-terminal",
+                  "vscode"
                 ]
               }
             },
-            "description": "The text's format; absent detects it from file and the text (an XML plist is iterm2, a JSON object windows-terminal, baseXX lines base16, else a Ghostty theme)."
+            "description": "The text's format; absent detects it from file and the text (an XML plist is iterm2, a JSON object with a colors object of dotted keys or tokenColors vscode, another JSON object windows-terminal, baseXX lines base16, else a Ghostty theme)."
           },
           "to": {
             "required": false,
@@ -42036,7 +43090,8 @@
                   "ghostty",
                   "base16",
                   "iterm2",
-                  "windows-terminal"
+                  "windows-terminal",
+                  "vscode"
                 ]
               }
             },
@@ -42096,7 +43151,8 @@
                   "ghostty",
                   "base16",
                   "iterm2",
-                  "windows-terminal"
+                  "windows-terminal",
+                  "vscode"
                 ]
               }
             },
@@ -42197,7 +43253,8 @@
                   "ghostty",
                   "base16",
                   "iterm2",
-                  "windows-terminal"
+                  "windows-terminal",
+                  "vscode"
                 ]
               }
             },

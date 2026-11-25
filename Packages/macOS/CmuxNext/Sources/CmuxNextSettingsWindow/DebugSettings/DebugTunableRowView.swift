@@ -3,7 +3,7 @@ import CmuxNextIcons
 import SwiftUI
 
 /// One tunable: label (with a dot when changed), key, help, its control,
-/// the default, and Reset.
+/// the default, "Needs a relaunch" when the app reads it only at launch, and Reset.
 struct DebugTunableRowView: View {
     let model: DebugSettingsModel
     let descriptor: TunableDescriptor
@@ -30,6 +30,11 @@ struct DebugTunableRowView: View {
                 DebugTunableControl(model: model, descriptor: descriptor)
                 Text(DebugSettingsStrings.defaultIs(DebugSettingsStrings.display(descriptor.defaultValue, kind: descriptor.kind)))
                     .font(SettingsStyle.caption).foregroundStyle(SettingsStyle.tertiary)
+                if descriptor.readCadence == .launch {
+                    Text(DebugSettingsStrings.needsRelaunch)
+                        .font(SettingsStyle.caption).foregroundStyle(SettingsStyle.secondary)
+                        .accessibilityIdentifier("cmux.debugSettings.needsRelaunch.\(descriptor.key)")
+                }
             }
             Button { model.reset(descriptor) } label: {
                 Icon(.actionUndo, size: 12)

@@ -33,6 +33,8 @@ import { rememberRecentFolders } from "../newtab/recentProject";
 import { publishWarmNewTab } from "../newtab/warmSnapshot";
 import { drawPaneSnapshot, type PendingPaneDraw } from "../paneSnapshotLane";
 import { setBookmarkTransport } from "../threadMinimap/bookmarks";
+import { setSavedPromptsTransport } from "../savedPrompts";
+import { setStashTab, setStashTransport } from "../composer/draftStash";
 import {
   composerDraft,
   DRAFT_SETTLE_MS,
@@ -74,6 +76,12 @@ import { type PastTurn, readPastTurns } from "../pastChatModel";
 import { uploadForSend } from "../sendUploads";
 import { isStartSuperseded, startFailureNotice } from "../startFailure";
 import { translate } from "../i18n";
+import {
+  computerUseGate,
+  computerUseHoldText,
+  computerUseState,
+  type ComputerUsePlace,
+} from "../computerUse/computerUseState";
 import { cloudMachineAsleep } from "../cloudMachines";
 import type { TrustHeldPrompt, useTrustHeldPrompts } from "../trustHeld";
 import { routeCurrentTrustRefusal, routeOwnedTrustRefusal, type TrustRefusalOwner } from "../trustRefusalRoute";
@@ -133,16 +141,20 @@ import {
   hostIsReconnecting,
   hostRefusedTooLarge,
   type HostRestoring,
+  hostRetryStep,
+  HOST_WAKE_EVENTS,
+  hostWakeAsks,
   jitteredDelay,
   lostRetryDelay,
+  lostRetryStep,
   nextRetryDelay,
   offersAcpmuxRestart,
   quickRetry,
   readHostRestoring,
   troubleSinceAfterLoss,
+  hostPlannedRestart,
 } from "../hostRetry";
 import { heldStartStop, sendsHeldForHost, untilHostAnswers } from "../sendWhenReady";
-import type { Subagent } from "../subagents/subagentFold";
 import { newChatFolder } from "../startFolderModel";
 import { dismissPlanScopeDrift, keepPlanScopeArea } from "../planScopeDriftStore";
 import { setPaneNotices } from "../paneNoticeStore";
@@ -162,12 +174,12 @@ import { setSuggestedTasks } from "../offer/offersShown";
 import { offerPicks } from "../offer/offerChoice";
 import { offerWorktree } from "../offer/offerWorktree";
 import { setLinkPlaces, updateLinkPlaces } from "../chips/cmuxLinkPlaces";
-import type { StartedSession } from "../started/startedSessions";
 import { setExperimentSwitches } from "../../../experiments/switches";
 import { setSessionStatus } from "../sessionStatus";
 import { pageEditHold, pageReleaseHold } from "../../../pages/shared/webSwap";
 import type { SandboxTab } from "../sandboxRun";
 import { callNative } from "../callNative";
+import { pullRequestUrl, reviewPrompt } from "../prReview";
 import { nativeUnsentPrompts } from "../unsentPrompts";
 import { flushHeldModePick } from "../heldModePick";
 import type { NativeRegistry, OpenDiff } from "../rows/rowProps";
@@ -212,6 +224,7 @@ export type PaneSnapshotArgs = {
   setPastWaitsForTrust: React.Dispatch<React.SetStateAction<boolean>>;
   setMachineName: React.Dispatch<React.SetStateAction<string | undefined>>;
   setLocalMachineName: React.Dispatch<React.SetStateAction<string | undefined>>;
+  setAutoCloudStartKey: React.Dispatch<React.SetStateAction<string | undefined>>;
   setCloudMachineID: React.Dispatch<React.SetStateAction<string | undefined>>;
   cloudMachineIDRef: React.RefObject<string | undefined>;
   setCloudRepositoryAvailable: React.Dispatch<React.SetStateAction<boolean>>;
@@ -309,9 +322,6 @@ export type PaneSnapshotArgs = {
   paletteCommands: React.RefObject<{ sessionId: string; commands: Record<string, () => void> }>;
   counted: React.RefObject<{
     summary: AcpmuxSnapshot["summary"];
-    runningAgents: readonly Subagent[];
-    runningCommands: readonly BackgroundCommand[];
-    runningSessions: readonly StartedSession[];
     sourceRows: AcpmuxRow[];
     childRows: AcpmuxRow[] | undefined;
     transcriptRows: AcpmuxRow[];
@@ -327,6 +337,11 @@ export type PaneSnapshotArgs = {
   toolOutputEpoch: React.RefObject<number>;
   pendingPaneDraw: PendingPaneDraw;
   snapshotRef: React.RefObject<AcpmuxSnapshot | undefined>;
+  /// Whether a prompt naming `@computer-use` waits for Computer Use setup (App.tsx
+  /// `holdsForComputerUseSetup`, #48541): `/side` forks nothing while it holds.
+  holdsForComputerUseSetupRef: React.RefObject<
+    (text: string, toast?: boolean, place?: ComputerUsePlace, opensSetup?: boolean) => boolean
+  >;
   readSendAgain: () => SendPromptAgainState;
   readInterruptedResume: () => InterruptedResumeState;
   opensSideChat: React.RefObject<boolean>;
@@ -358,11 +373,11 @@ export type PaneSnapshotArgs = {
   cancelRetry: React.RefObject<(() => void) | undefined>;
   setAcpmuxRestartOffered: React.Dispatch<React.SetStateAction<boolean>>;
   restartGate: AcpmuxRestartGate;
-  setWaitingSince: React.Dispatch<React.SetStateAction<number | undefined>>;
-  setRestartUnavailable: React.Dispatch<React.SetStateAction<boolean>>;
-  setRelinkingSince: React.Dispatch<React.SetStateAction<number | undefined>>;
+  setLinkDown: React.Dispatch<React.SetStateAction<boolean>>;
   /// When the pane's trouble began (`troubleSince` below): bounds the bare "Reconnecting…".
   setHostTroubleSince: React.Dispatch<React.SetStateAction<number | undefined>>;
+  /// The handshake loop stopped (hostRetry.ts `hostRetryStep`): the line offers Restart agent service.
+  setHostGaveUp: React.Dispatch<React.SetStateAction<boolean>>;
   setHostRestoring: React.Dispatch<React.SetStateAction<HostRestoring | undefined>>;
   runPendingAdoption: React.RefObject<() => void>;
   freshRef: React.RefObject<boolean>;
@@ -395,6 +410,7 @@ export function paneSnapshotEffect({
   setMachineName,
   setLocalMachineName,
   setCloudMachineID,
+  setAutoCloudStartKey,
   cloudMachineIDRef,
   setCloudRepositoryAvailable,
   setCloudChatIdentity,
@@ -477,6 +493,7 @@ export function paneSnapshotEffect({
   toolOutputEpoch,
   pendingPaneDraw,
   snapshotRef,
+  holdsForComputerUseSetupRef,
   readSendAgain,
   readInterruptedResume,
   opensSideChat,
@@ -500,10 +517,9 @@ export function paneSnapshotEffect({
   cancelRetry,
   setAcpmuxRestartOffered,
   restartGate,
-  setWaitingSince,
-  setRestartUnavailable,
-  setRelinkingSince,
+  setLinkDown,
   setHostTroubleSince,
+  setHostGaveUp,
   setHostRestoring,
   runPendingAdoption,
   freshRef,
@@ -827,6 +843,8 @@ export function paneSnapshotEffect({
         runMode: () => automationCompose.current?.runMode(),
         setRunMode: (mode) => automationCompose.current?.setRunMode(mode) ?? false,
         cloudStart: () => automationCompose.current?.cloudStart() ?? null,
+        blocked: () => automationCompose.current?.blocked?.(),
+        runPlace: () => automationCompose.current?.runPlace?.() ?? {},
       },
     },
   });
@@ -857,6 +875,11 @@ export function paneSnapshotEffect({
   /// never stays open stops being a bare "Reconnecting…" past SELF_RETRY_SAID_MS.
   let troubleSince: number | undefined;
   let connecting = false;
+  /// The loop stopped (hostRetry.ts `hostRetryStep`): no timer asks again; an event does
+  /// (`HOST_WAKE_EVENTS`), as does the line's Retry.
+  let stopped = false;
+  /// The host's `acpmux-daemon-answered` already asked once in this stop (hostRetry.ts `hostWakeAsks`).
+  let answerSpent = false;
   /// The user asked to retry while an attempt was in flight; run a full one when it ends.
   let retryPending = false;
   // A seeded first prompt (onboarding's first task). Swift hands it out once, so it is kept
@@ -892,6 +915,13 @@ export function paneSnapshotEffect({
   const heldRowPrompt = heldPrompts((intent) =>
     postNative<{ ticket?: string }>("transport.gesture", { intent }).then((reply) => reply?.ticket),
   );
+  /// Where `client`'s chat runs, for `@computer-use` (CMUX-682): only a chat on this Mac has cmux's
+  /// Computer Use tools. A chat on another machine that has not answered yet starts on its first send.
+  const chatPlace = (client: AcpmuxDirectClient): ComputerUsePlace => {
+    const shown = trustRouteSnapshot.current?.summary;
+    if (shown?.hostKind === "cloud") return "cloud";
+    return shown?.host || shown?.peer || client.startsOnSend ? "machine" : "here";
+  };
   const restorePrompt = (text: string, attachments: ComposerAttachment[]) => {
     if (composerHandle.current) composerHandle.current.restore(text, attachments);
     else heldBack.current = [...(heldBack.current ?? []), { text, attachments }];
@@ -910,8 +940,6 @@ export function paneSnapshotEffect({
       acpmuxPerf.markAgent("handshakeStart");
       acpmuxPerf.markLaunch("handshakeStart");
       acpWire.lifecycle("handshake", { reconnect });
-      setWaitingSince(Date.now());
-      setRestartUnavailable(false);
       const answered = await callNative<{
         protocolVersion: number;
         transport?: string;
@@ -956,6 +984,7 @@ export function paneSnapshotEffect({
         pickCloud?: unknown;
         /// Another chat's `/side --on cloud` or `/cd --on cloud` opened this tab (commandPlace.ts).
         cloudStartHandoff?: unknown;
+        autoCloudStartKey?: string;
         model?: unknown;
         sandboxState?: unknown;
         /// The tab this page is (AgentPaneHandshake `tab`); an older app sends none.
@@ -969,9 +998,13 @@ export function paneSnapshotEffect({
       const host = received.host;
       if (received.folder) setHandedFolder(received.folder);
       // Before anything draws the chat: its Session Info is this tab's, not another tab's of the chat.
-      if (typeof host.tab === "string" && host.tab) setSessionInfoTab(host.tab);
+      if (typeof host.tab === "string" && host.tab) {
+        setSessionInfoTab(host.tab);
+        setStashTab(host.tab);
+      }
       acpmuxPerf.markAgent("handshakeReady");
       acpmuxPerf.markLaunch("handshakeReady");
+      if (typeof host.autoCloudStartKey === "string") setAutoCloudStartKey(host.autoCloudStartKey);
       setCloudTeamMachine(host.cloudTeamMachine === true);
       const turnRewind =
         Array.isArray(host.cloudTurnRewind) && host.cloudTurnRewind.every((id) => typeof id === "string")
@@ -1231,16 +1264,31 @@ export function paneSnapshotEffect({
           notifyDraftActionsChanged();
           // Until a client connects again, an open handed this page would wait for that connect.
           if (!mock) void postNative("pane.clientReady", { ready: false }).catch(() => undefined);
-          // Quiet while it comes back: one quiet "Reconnecting…" line (HostRecoveringLine) until
-          // the handshakes fail past the deadline, then the waiting line or the failure.
+          // A drop alone says nothing: its reconnect usually lands. Only a failed attempt marks
+          // the link down (`linkDown`, the quiet chip).
           failingSince = Date.now();
-          setRelinkingSince(failingSince);
           troubleSince = troubleSinceAfterLoss(troubleSince, failingSince - connectedAt, failingSince);
           setHostTroubleSince(troubleSince);
           // A client lost soon after it connected keeps the backoff growing: a daemon that drops
           // the pane right after every connect is not asked again every 250 ms. Jittered so the
           // tabs that lost one daemon together do not ask it again in lockstep.
           const lost = lostRetryDelay(retryDelay, Date.now() - connectedAt);
+          // Bounded: a daemon that keeps dropping the pane past SELF_RETRY_SAID_MS is not asked
+          // again on a timer; the line says so with Retry, and an event asks again (`stopped`).
+          const step = lostRetryStep({
+            troubleForMs: failingSince - troubleSince,
+            upForMs: failingSince - connectedAt,
+            waitMs: lost.wait,
+          });
+          if (step.kind === "stop") {
+            stopped = true;
+            setHostGaveUp(true);
+            const failure = new Error("The agent service keeps closing this chat's connection.");
+            setHostError(failure.message);
+            setHostFailure(failure);
+            setHostErrorShown(true);
+            return;
+          }
           retryTimer = window.setTimeout(() => void connectHost(), jitteredDelay(lost.wait));
           retryDelay = lost.next;
         },
@@ -1293,6 +1341,20 @@ export function paneSnapshotEffect({
         get: (id) => client.readBookmarks(id),
         set: (id, seq, on) => client.setBookmark(id, seq, on),
       });
+      // Saved prompts live in acpmux, one list for every chat on the machine (savedPrompts.ts).
+      setSavedPromptsTransport({
+        list: () => client.listPrompts(),
+        save: (name, text) => client.savePrompt(name, text),
+        remove: (name) => client.deletePrompt(name),
+      });
+      // Stashed drafts live in acpmux too: the page's own storage is gone with it (draftStash.ts).
+      setStashTransport({
+        list: (chat) => client.listStash(chat),
+        push: (chat, text, attachments, replaces) => client.pushStash(chat, text, attachments, replaces),
+        get: (chat, id) => client.getStash(chat, id),
+        drop: (chat, id) => client.dropStash(chat, id),
+        move: (chat, to) => client.moveStash(chat, to),
+      });
       // Every trust refusal (a new chat, a resumed one, a switch, a prewarm, a prompt) shows the
       // folder's one question above the composer; Trust re-runs the refused step (cx-nn3e).
       client.onPeerSessionStarted = () => {
@@ -1327,8 +1389,11 @@ export function paneSnapshotEffect({
       // Only a connected client clears the error, so a stale endpoint doesn't flicker it away.
       setHostError(undefined);
       setHostErrorShown(false);
+      stopped = false;
+      answerSpent = false;
+      setHostGaveUp(false);
       failingSince = undefined;
-      setRelinkingSince(undefined);
+      setLinkDown(false);
       setHostRestoring(undefined);
       setAcpmuxRestartOffered(false);
       catalogClientId.current += 1;
@@ -1710,9 +1775,37 @@ export function paneSnapshotEffect({
           client.answerHeld(String(promptId), true, typeof revision === "number" ? revision : 0),
         "chat.queue.decline": ({ promptId }) => client.answerHeld(String(promptId), false),
         "chat.agentPair.resume": ({ peer }) => client.resumeAgentPair(String(peer)),
-        "chat.queue.edit": ({ promptId, ...edit }) => client.editQueued(String(promptId), edit as QueueEdit),
-        "chat.secret": ({ secretId, value }) =>
-          client.secret(String(secretId), typeof value === "string" ? value : undefined),
+        // The transcript's queue controls (Send Now, an edit): held as the composer's are (CMUX-682), on
+        // the text this page has (a long queued prompt's preview may cut a later mention: the agent's own
+        // Computer Use tool still refuses while it is not set up).
+        "chat.queue.edit": ({ promptId, ...edit }) => {
+          const change = edit as QueueEdit;
+          const queued =
+            change.op === "update"
+              ? change.text
+              : change.op === "send_now"
+                ? // Send Now also releases the steers still waiting to be read: each is its own message.
+                  [
+                    trustRouteSnapshot.current?.queue.find((entry) => entry.id === String(promptId))?.prompt ?? "",
+                    ...client.waitingSteerTexts(),
+                  ].find((words) => computerUseGate(words, computerUseState(), chatPlace(client)) !== "free")
+                : undefined;
+          const place = chatPlace(client);
+          if (queued && computerUseGate(queued, computerUseState(), place) !== "free") {
+            holdsForComputerUseSetupRef.current(queued, false, place);
+            // An edit's typed refusal keeps the editor's text; Send Now leaves the row queued.
+            return change.op === "update"
+              ? Promise.reject(Object.assign(new Error("held"), { code: "computer_use_held" }))
+              : Promise.resolve(false);
+          }
+          return client.editQueued(String(promptId), change);
+        },
+        "chat.secret": ({ secretId, value, keepAs }) =>
+          client.secret(
+            String(secretId),
+            typeof value === "string" ? value : undefined,
+            typeof keepAs === "string" ? keepAs : undefined,
+          ),
         "chat.permission": ({ permissionId, optionId, answers, annotations, sessionId }) =>
           client.permission(
             String(permissionId),
@@ -2023,6 +2116,15 @@ export function paneSnapshotEffect({
         // A failure card acts on its run of prompts (`rowIds`, in order; sendFailure.ts), else on `rowId`.
         // Retry sends the run again as one prompt: one click is one gesture (direct.ts `retryPrompts`).
         "chat.retryPrompt": ({ rowId, rowIds }) => {
+          // Retry sends the text again: one that names `@computer-use` is held as a send is, now, whatever
+          // the state was when it first failed; the failure card stays (CMUX-682).
+          const retried = failedRowIds(rowId, rowIds)
+            .map((id) => client.failedPromptText(id) ?? "")
+            .join("\n\n");
+          const retryPlace = chatPlace(client);
+          const retryGate = computerUseGate(retried, computerUseState(), retryPlace);
+          if (retryGate !== "free" && holdsForComputerUseSetupRef.current(retried, false, retryPlace))
+            throw new CmuxCommandRefused(translate(computerUseHoldText(retryGate).title));
           // The retry belongs to the chat it was clicked in: a trust refusal goes to that chat's
           // question, whose Trust sends the run again (no second manual Retry).
           const owner: TrustOwner = {
@@ -2262,6 +2364,20 @@ export function paneSnapshotEffect({
         // `splitRight`: `/side`'s, always a new split right of the chat (the menu's keeps the right
         // column's placement, AgentSidePanes).
         "chat.side": async ({ throughSeq, live, prompt, splitRight, attachments, gesture }) => {
+          // `/side` with `@computer-use` forks nothing while Computer Use is not ready on this Mac, nor
+          // on the chat's own machine, which has no Computer Use tools (`holdsForComputerUseSetup`,
+          // decided at once, #48541); held, the composer keeps `/side <prompt>`.
+          if (typeof prompt === "string") {
+            const side = snapshotRef.current;
+            const place: ComputerUsePlace = !side?.sideChatOnMachine
+              ? "here"
+              : side.summary?.hostKind === "cloud"
+                ? "cloud"
+                : "machine";
+            const gate = computerUseGate(prompt, computerUseState(), place);
+            if (gate !== "free" && holdsForComputerUseSetupRef.current(prompt, false, place, false))
+              throw new CmuxCommandRefused(translate(computerUseHoldText(gate).title));
+          }
           // The chat it is beside, read before the fork (the reader may open another chat meanwhile).
           const chat = client.selectedSession;
           const split = splitRight === true ? { split: "right" } : {};
@@ -2274,6 +2390,9 @@ export function paneSnapshotEffect({
           // acpmux's own refusal shows in the side chat; one the host made never reached it.
           const sidePromptRefused = (error: unknown) => {
             const code = (error as { code?: unknown } | null)?.code;
+            // Held at dispatch for Computer Use (direct.ts `sendHold`): the reason, as a send's bubble says it.
+            if (code === "computer_use_held")
+              return notices.failed(translate("prompt.notSent", { reason: (error as Error).message }));
             if (typeof code === "string" && code.startsWith("transport."))
               notices.failed(
                 translate("prompt.notSent", { reason: knownRefusalText(error) ?? translate("transport.refused") }),
@@ -2309,7 +2428,44 @@ export function paneSnapshotEffect({
           }
           const text = typeof prompt === "string" ? prompt.trim() : "";
           if (!text && !files.length) return;
-          void client.promptSide(sessionId, text, files, held).catch(sidePromptRefused);
+          // Asked again once the fork is open (CMUX-682): Computer Use may have stopped meanwhile. The
+          // composer keeps `/side <prompt>` and its files, the side chat opens empty, and the chat says why.
+          // The Enter's ticket first, so a hold found after its wait still reaches the composer.
+          const ticket = held ? await held.ticket : undefined;
+          const lateHold = text ? client.sendHold?.(text) : undefined;
+          if (lateHold) throw new CmuxCommandRefused(lateHold);
+          void client
+            .promptSide(sessionId, text, files, held ? { ...held, ticket: Promise.resolve(ticket) } : undefined)
+            .catch((error: unknown) => {
+              // Held right before the wire (the child attach outlasted Computer Use): the words and files
+              // come back to the composer, never lost with only a notice.
+              if ((error as { code?: unknown } | null)?.code === "computer_use_held") restorePrompt(text, files);
+              sidePromptRefused(error);
+            });
+        },
+        // Review from link: a pull request link's Review (LinkHoverCard; the composer's URL chip
+        // calls this same action, so its params stay `{url}`). A side chat right of this one gets
+        // the review prompt (prReview.ts), as `/side <prompt>` would; a chat with nothing to fork
+        // yet takes the prompt itself, as the person's own.
+        "pr.review": async ({ url }) => {
+          const pullRequest = pullRequestUrl(String(url ?? ""));
+          // l10n-allow: a caller's bug; both entries offer Review on a pull request only.
+          if (!pullRequest) throw new Error("pr.review takes a GitHub pull request URL");
+          const prompt = reviewPrompt(pullRequest);
+          const shown = snapshotRef.current;
+          const target = shown ? forkToTarget(shown) : undefined;
+          if (!target) {
+            void send(prompt).catch(() => undefined);
+            return;
+          }
+          try {
+            await callNative("chat.side", { ...target, splitRight: true, prompt });
+          } catch (error) {
+            const reason = errorMessage(error);
+            notices.transient(
+              reason ? translate("notice.forkFailedReason", { reason }) : translate("notice.forkFailed"),
+            );
+          }
         },
         // An offer's Start (cx-807da): the offered chat starts beside this one, which stays shown.
         // `worktree`: the task's Options > Worktree, else the agent's ask; `harness`, `model`,
@@ -2662,6 +2818,13 @@ export function paneSnapshotEffect({
       flushHeldModePick();
       // A pending chat's access chip asks this client the mode acpmux starts it in.
       setStartModeSource((harness, cwd) => client.startMode(harness, cwd));
+      // Asked again at dispatch, after a send's uploads (direct.ts `sendHold`, CMUX-682).
+      client.sendHold = (text) => {
+        const place = chatPlace(client);
+        const gate = computerUseGate(text, computerUseState(), place);
+        if (gate === "free" || !holdsForComputerUseSetupRef.current(text, false, place, false)) return undefined;
+        return translate(computerUseHoldText(gate).title);
+      };
       acpmuxPerf.markAgent("composerReady");
       client.snapshot();
       void client.warmRecentProjects();
@@ -2677,7 +2840,19 @@ export function paneSnapshotEffect({
       // the prompt waits in the composer instead of vanishing.
       const prompt = pendingPrompt;
       const attachments = pendingAttachments ?? [];
-      const hasPrompt = Boolean(prompt || attachments.length);
+      // A seeded prompt that names `@computer-use` while Computer Use is not ready on this Mac (or for a
+      // chat on another machine, which has none) goes nowhere: it waits in the composer, and the chat says
+      // why (CMUX-682). The native New Tab and a palette prompt seed one that would go by itself.
+      const heldForComputerUse =
+        !!prompt &&
+        holdsForComputerUseSetupRef.current(
+          prompt,
+          false,
+          host.peer || client.startsOnSend ? "machine" : "here",
+          false,
+        );
+      if (heldForComputerUse) restorePrompt(prompt, attachments);
+      const hasPrompt = !heldForComputerUse && Boolean(prompt || attachments.length);
       const harness = pendingHarness;
       const model = pendingModel;
       // The picker's effort with its model (a Cloud start), held under its kind's id (heldOptions.ts).
@@ -2730,7 +2905,11 @@ export function paneSnapshotEffect({
         // hostLine.ts words the line: only the pane's own text stands on it, the rest is Details.
         setHostError(tooLarge ? translate("host.tooLarge") : errorMessage(error) || String(error));
         setHostFailure(error);
-        setHostRestoring(readHostRestoring((error as { details?: unknown } | null)?.details, Date.now()));
+        const restoring = readHostRestoring((error as { details?: unknown } | null)?.details, Date.now());
+        setHostRestoring(restoring);
+        // The transport's word that the link is down: any failed attempt but a planned restart's
+        // (an update's handoff, a start under way), which ends when the restarted daemon answers.
+        if (restoring || !hostPlannedRestart(error)) setLinkDown(true);
         failingSince ??= Date.now();
         troubleSince ??= failingSince;
         setHostTroubleSince(troubleSince);
@@ -2746,8 +2925,14 @@ export function paneSnapshotEffect({
         // Back off so a host without a daemon is not asked four times a second. A Restart acpmux
         // in flight asks again itself when it ends.
         // A reply too large to send is the same at every ask: only the line's Retry asks again.
-        if (!tooLarge && restartGate.mayAsk()) {
-          retryTimer = window.setTimeout(() => void connectHost(), jitteredDelay(retryDelay));
+        // Bounded (hostRetry.ts `hostRetryStep`): past SELF_RETRY_SAID_MS of trouble the timer
+        // stops; the line says why with Retry, and an event asks again (`stopped`).
+        const step = hostRetryStep({ error, troubleForMs: Date.now() - troubleSince, waitMs: retryDelay });
+        // A chat too large to open gets the same reply at every ask: only the line's Retry asks again.
+        stopped = step.kind === "stop" && !tooLarge;
+        setHostGaveUp(stopped);
+        if (step.kind === "retry" && restartGate.mayAsk()) {
+          retryTimer = window.setTimeout(() => void connectHost(), jitteredDelay(step.waitMs));
           retryDelay = nextRetryDelay(
             retryDelay,
             reconnect || recovering,
@@ -2761,7 +2946,6 @@ export function paneSnapshotEffect({
       }
     } finally {
       connecting = false;
-      setWaitingSince(undefined);
       // The Retry this attempt ran for (`retryNow`) has its answer.
       setRetryQueued(false);
       if (retryPending) {
@@ -2798,9 +2982,22 @@ export function paneSnapshotEffect({
     retryPending = true;
     setRetryQueued(true);
   };
+  // A stopped loop asks once more on an event, never on a tick: the window shown or focused again,
+  // the network back, or the host's word that its agent service changed.
+  const wake = (event: Event) => {
+    if (cancelled || !restartGate.mayAsk()) return;
+    const hidden = document.visibilityState === "hidden";
+    if (!hostWakeAsks({ event: event.type, stopped, connecting, hidden, answerSpent })) return;
+    answerSpent = event.type === "acpmux-daemon-answered";
+    void connectHost();
+  };
+  for (const name of HOST_WAKE_EVENTS.document) document.addEventListener(name, wake);
+  for (const name of HOST_WAKE_EVENTS.window) window.addEventListener(name, wake);
   void connectHost();
   return () => {
     cancelled = true;
+    for (const name of HOST_WAKE_EVENTS.document) document.removeEventListener(name, wake);
+    for (const name of HOST_WAKE_EVENTS.window) window.removeEventListener(name, wake);
     window.removeEventListener(NEW_TAB_CLOSE_EVENT, discardUnsent);
     harnessSwitch.disconnect();
     setStartModeSource(undefined);
@@ -2811,6 +3008,8 @@ export function paneSnapshotEffect({
     directClient.current?.close();
     directClient.current = undefined;
     setBookmarkTransport(undefined);
+    setSavedPromptsTransport(undefined);
+    setStashTransport(undefined);
     delete window.cmuxAcpmuxActions;
     notifyDraftActionsChanged();
   };

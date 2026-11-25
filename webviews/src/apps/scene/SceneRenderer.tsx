@@ -49,6 +49,8 @@ export type SceneAssetResolver = (bundlePath: string) => string | undefined;
 type NodeProps = { id: string; store: SceneStore; dispatch: SceneDispatch };
 const DisabledContext = createContext(false);
 const AssetContext = createContext<SceneAssetResolver | undefined>(undefined);
+/** False where a scene shares the page with a field of cmux's own (the New Tab slot): its `autofocus` is ignored. */
+const AutofocusContext = createContext(true);
 
 function SceneImage({ source }: { source: unknown }) {
   const resolveAsset = useContext(AssetContext);
@@ -123,11 +125,26 @@ function SceneRow({ node }: { node: SceneNode }) {
   );
 }
 
-function SceneTextField({ node, dispatch, disabled }: { node: SceneNode; dispatch: SceneDispatch; disabled: boolean }) {
+/** `TextField`: the text is the person's while they type. Each change goes into the scene mirror
+ * (`SceneStore.reflectText`), as the host takes it from each edit, submit and cancel, so the app's
+ * `text` replaces what the field shows only when it differs from it: an app that clears its draft
+ * after a submit clears the field, and the host never echoes an edit back over newer typing. */
+function SceneTextField({
+  node,
+  store,
+  dispatch,
+  disabled,
+}: {
+  node: SceneNode;
+  store: SceneStore;
+  dispatch: SceneDispatch;
+  disabled: boolean;
+}) {
   const external = sceneText(node.props.text);
   const [text, setText] = useState(external);
   const input = useRef<HTMLInputElement>(null);
-  const autofocus = node.props.autofocus === true;
+  const autofocusAllowed = useContext(AutofocusContext);
+  const autofocus = autofocusAllowed && node.props.autofocus === true;
   useEffect(() => {
     if (autofocus) input.current?.focus();
   }, [autofocus]);
@@ -145,6 +162,7 @@ function SceneTextField({ node, dispatch, disabled }: { node: SceneNode; dispatc
       onChange={(event) => {
         const next = event.currentTarget.value;
         setText(next);
+        store.reflectText(node.id, next);
         if (node.props.onEdit === true) dispatch(node.id, "edit", { text: next });
       }}
       onKeyDown={(event) => {
@@ -156,7 +174,7 @@ function SceneTextField({ node, dispatch, disabled }: { node: SceneNode; dispatc
         if (event.key === "Escape") {
           event.preventDefault();
           event.stopPropagation();
-          dispatch(node.id, "cancel");
+          dispatch(node.id, "cancel", { text });
         }
       }}
     />
@@ -354,6 +372,7 @@ function shapeBox(props: SceneNode["props"]): [number, number] {
 function contentOf(
   node: SceneNode,
   children: ReactNode,
+  store: SceneStore,
   dispatch: SceneDispatch,
   disabled: boolean,
   partRef: RefObject<Element | null>,
@@ -451,7 +470,7 @@ function contentOf(
       );
     }
     case "TextField":
-      return <SceneTextField node={node} dispatch={dispatch} disabled={disabled} />;
+      return <SceneTextField node={node} store={store} dispatch={dispatch} disabled={disabled} />;
     case "Circle":
     case "Capsule":
     case "Rectangle":
@@ -522,7 +541,7 @@ const SceneNodeView = memo(function SceneNodeView({ id, store, dispatch, leaving
     ) : (
       shown.map(childView)
     );
-  const content = contentOf(node, children, dispatch, disabled, partRef);
+  const content = contentOf(node, children, store, dispatch, disabled, partRef);
   if (content === undefined) return null;
   const style = sceneStyle(props) as SceneStyle & Record<`--${string}`, string | undefined>;
   // `loop`: scene.css runs the effect from these (no script per frame); the period follows ui.animationSpeed.
@@ -664,22 +683,27 @@ export function SceneRenderer({
   store,
   dispatch,
   resolveAsset,
+  autofocus = true,
 }: {
   store: SceneStore;
   dispatch: SceneDispatch;
   resolveAsset?: SceneAssetResolver;
+  /** False: the scene's fields never take focus on their own; a click still focuses them. */
+  autofocus?: boolean;
 }) {
   const root = useSyncExternalStore(store.subscribeRoot, store.getRoot, store.getRoot);
   const generation = useSyncExternalStore(store.subscribeRoot, store.getGeneration, store.getGeneration);
   return (
     <AssetContext.Provider value={resolveAsset}>
-      {root ? (
-        <div className="cmux-app-scene-root">
-          <SceneAppeared key={generation} store={store} generation={generation}>
-            <SceneNodeView id={root} store={store} dispatch={dispatch} />
-          </SceneAppeared>
-        </div>
-      ) : null}
+      <AutofocusContext.Provider value={autofocus}>
+        {root ? (
+          <div className="cmux-app-scene-root">
+            <SceneAppeared key={generation} store={store} generation={generation}>
+              <SceneNodeView id={root} store={store} dispatch={dispatch} />
+            </SceneAppeared>
+          </div>
+        ) : null}
+      </AutofocusContext.Provider>
     </AssetContext.Provider>
   );
 }

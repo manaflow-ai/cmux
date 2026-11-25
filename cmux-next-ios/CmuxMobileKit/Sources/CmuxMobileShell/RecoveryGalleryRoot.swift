@@ -1,4 +1,5 @@
 #if DEBUG && os(iOS)
+import CmuxMobileAgentChat
 import CmuxMobileChief
 import CmuxMobileDesign
 import CmuxMobileModel
@@ -24,7 +25,8 @@ import SwiftUI
 /// - `chiefoff`: Home's "Chief Is Off" card (the Cloud Chief's brain is off, as every new
 ///   account's is): A, the one Home shows, in its four states (off, turning on, failed,
 ///   unavailable on this account), then the variants it was picked from, B and C;
-/// - `cloudmachines`: Settings → Cloud → Cloud Machines with fixed machines, plan and snapshots.
+/// - `cloudmachines`: Settings → Cloud → Cloud Machines with fixed machines, plan and snapshots;
+///   `cloudmachines-held`: the same with a start and a new machine waiting for approval in the Feed.
 /// - `theme-mocha`, `theme-solarized`, `theme-wallpaper`: the chrome under a Mac's theme (`MacThemeGallery`).
 /// - `chip`: the terminal's connection chip (Leo 2026-11-21: "a symbol or short thing,
 ///   not a sentence. stop layout shifting"): A, the top-center toast the terminal shows,
@@ -33,7 +35,17 @@ import SwiftUI
 /// - `chiplist`: a list's connection state (the Workspaces list, Home, Agent Chats) as a chip over
 ///   the rows, which never move: A, top center (the one `cmuxMobileBanner` draws), in the link
 ///   states and over the signed-out banner; B, top leading; C, symbol only at the top trailing edge.
+/// - `stills`: what a tab card's picture draws for math, a running tool's spinner and a menu, A (the
+///   app's), B and C, each through `ImageRenderer` (`StillPictureGallery`).
 /// - `keybar`: the terminal key row's layouts, A (the default), B and C (`TerminalKeyBarGallery`).
+/// - `lastsent`: the terminal's top strip back to the last line sent (Leo 2026-11-23: "click (tap)
+///   the top bit of the terminal in phone to jump to that last sent bit"): A, the pill the page
+///   shows; B, a full-width bar; C, the top edge alone (`TerminalLastSentGallery`).
+/// - `skeleton`: the Workspaces list's placeholder rows with nothing cached (Leo 2026-11-24: "i noticed
+///   the skeleton for this was a bit off on ios"; 2026-11-12: "just show the cache"): A, the rows at the
+///   list's text column and row height with the caption spoken only (the one the list shows); B, the
+///   caption under the rows; C, the caption above them at the text column; then the rows before.
+///   `skeleton-a`, `-b`, `-c`, `-before` draw one each, full page, for side-by-side shots.
 /// - `reconnect`: a list riding out a dropped or quiet connection to the Mac with its rows kept
 ///   (Leo 2026-11-21: no "didn't answer in time"): A, the line the Chats list shows
 ///   (`ListStatusRow`), in its three states, then the variants it was picked from, B and C.
@@ -52,7 +64,7 @@ public struct RecoveryGalleryRoot: View {
         let index = arguments.firstIndex(of: "-cmux-mobile-recovery-gallery")
         let named = index.flatMap { i in arguments.indices.contains(i + 1) ? arguments[i + 1] : nil } ?? "states"
         let parts = named.split(separator: "-", maxSplits: 1).map(String.init)
-        if ["chip", "chiplist"].contains(parts[0]), parts.count == 2 {
+        if ["chip", "chiplist", "stills", "skeleton"].contains(parts[0]), parts.count == 2 {
             scene = parts[0]
             variant = parts[1]
         } else {
@@ -83,14 +95,28 @@ public struct RecoveryGalleryRoot: View {
                 NavigationStack { CloudMachinesScreen(model: .gallery(), openChats: {}) }
             case "reconnect":
                 reconnect
+            case "skeleton":
+                skeletons
             case "chip":
                 connectionChips
             case "chiplist":
                 listChips
+            case "cloudmachines-held":
+                NavigationStack { CloudMachinesScreen(model: .gallery(held: true), openChats: {}) }
             case "theme-mocha", "theme-solarized", "theme-wallpaper":
                 MacThemeGallery(variant: scene)
             case "keybar":
                 TerminalKeyBarGallery()
+            case "stills":
+                // `stills-mocha`, `stills-solarized`: the same under a Mac's dark or light theme.
+                StillPictureGallery()
+                    .onAppear {
+                        guard let fixture = variant == "mocha" ? MacThemeGallery.mocha : variant == "solarized" ? MacThemeGallery.solarized : nil else { return }
+                        CmuxMobileMacTheme.shared.matchesMac = true
+                        CmuxMobileMacTheme.shared.apply(fixture, chatWallpaper: nil)
+                    }
+            case "lastsent":
+                TerminalLastSentGallery()
             default:
                 states
             }
@@ -98,6 +124,43 @@ public struct RecoveryGalleryRoot: View {
         .ignoresSafeArea(edges: scene == "terminal" ? .all : [])
         .accessibilityIdentifier("recoveryGallery.\(scene)")
         .preferredColorScheme(scheme)
+    }
+
+    /// The Workspaces placeholder rows, as `skeleton` above describes.
+    @ViewBuilder private var skeletons: some View {
+        if let variant {
+            NavigationStack {
+                ScrollView { skeleton(variant) }
+                    .scrollDisabled(true)
+                    .navigationTitle("Workspaces")
+                    .navigationBarTitleDisplayMode(.large)
+            }
+        } else {
+            ScrollView {
+                VStack(alignment: .leading, spacing: 8) {
+                    galleryLabel("A · picked · caption spoken")
+                    skeleton("a")
+                    galleryLabel("B · caption under the rows")
+                    skeleton("b")
+                    galleryLabel("C · caption above, at the text column")
+                    skeleton("c")
+                    galleryLabel("Before")
+                    skeleton("before")
+                }
+                .padding(.vertical, 60)
+            }
+            .background(CmuxMobileTheme.standard.colors.bg.color)
+        }
+    }
+
+    @ViewBuilder private func skeleton(_ variant: String) -> some View {
+        let caption: LocalizedStringKey = "Loading workspaces…"
+        switch variant {
+        case "b": SkeletonList(rows: 3, delay: .zero, caption: caption, style: .plainList, captionPlacement: .below)
+        case "c": SkeletonList(rows: 3, delay: .zero, caption: caption, style: .plainList, captionPlacement: .above)
+        case "before": SkeletonList(rows: 3, delay: .zero, caption: caption)
+        default: SkeletonList(rows: 3, delay: .zero, caption: caption, style: .plainList, captionPlacement: .spoken)
+        }
     }
 
     private var states: some View {
@@ -284,7 +347,7 @@ public struct RecoveryGalleryRoot: View {
             .frame(height: 280)
             .overlay(alignment: alignment) { chip().padding(.top, 8).padding(.horizontal, 20) }
         }
-        let states: [ConnectionBannerState] = [.reconnecting(to: "Mac Studio"), .macOffline("Mac Studio"), .offline]
+        let states: [ConnectionBannerState] = [.connectionFailed, .macOffline("Mac Studio"), .offline]
         return ScrollView {
             VStack(spacing: 12) {
                 if showsVariant("a") {
@@ -312,11 +375,11 @@ public struct RecoveryGalleryRoot: View {
                 }
                 if showsVariant("b") {
                     galleryLabel("B · top leading")
-                    list(.topLeading) { ConnectionChip(ConnectionBannerState.reconnecting(to: "Mac Studio").chip!) }
+                    list(.topLeading) { ConnectionChip(ConnectionBannerState.connectionFailed.chip!, downSince: nil) }
                 }
                 if showsVariant("c") {
                     galleryLabel("C · symbol only, top trailing · Mac offline")
-                    list(.topTrailing) { ConnectionChip.SymbolOnly(ConnectionBannerState.macOffline("Mac Studio").chip!) }
+                    list(.topTrailing) { ConnectionChip.SymbolOnly(ConnectionBannerState.macOffline("Mac Studio").chip!, downSince: nil) }
                 }
             }
             .padding(.vertical, 60)

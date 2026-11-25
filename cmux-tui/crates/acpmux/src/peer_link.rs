@@ -137,6 +137,10 @@ pub struct SilenceBudget {
     /// gone, so requests to it wait out the budget rather than drop the link. Until the budget
     /// is back at the start.
     slow_proven: bool,
+    /// The smoothed time a stamped ping waited for its pong, and its mean deviation (RFC 6298),
+    /// on this peer's links (`answered_in`): how late this peer answers now, as measured.
+    srtt: Option<Duration>,
+    rttvar: Duration,
 }
 
 impl SilenceBudget {
@@ -158,6 +162,8 @@ impl SilenceBudget {
             struggled: false,
             probe_dropped: false,
             slow_proven: false,
+            srtt: None,
+            rttvar: Duration::ZERO,
         }
     }
 
@@ -180,6 +186,43 @@ impl SilenceBudget {
         if gap * 2 > self.current {
             self.raise(gap * 2, now);
         }
+    }
+
+    /// A stamped ping was answered after `rtt`. A host at load 80 answers its pings seconds
+    /// late, and so does a link from a loaded Mac whose ssh tunnel waits for a CPU: the round
+    /// trip, smoothed (RFC 6298: 7/8 of the last estimate, its deviation 3/4), sets how long a
+    /// request's probe waits ([`Self::probe_wait`]), and the budget is kept at twice its
+    /// retransmit timeout. cosmic-gray, 2026-11-22, load 80 to 100: 788 links dropped in 3 h,
+    /// 295 by a probe after 2 s on a link silent 2 to 5 s, 493 for 6 to 19 s of silence.
+    pub fn answered_in(&mut self, rtt: Duration, now: tokio::time::Instant) {
+        match self.srtt {
+            None => {
+                self.srtt = Some(rtt);
+                self.rttvar = rtt / 2;
+            }
+            Some(srtt) => {
+                let deviation = srtt.abs_diff(rtt);
+                self.rttvar = (self.rttvar * 3 + deviation) / 4;
+                self.srtt = Some((srtt * 7 + rtt) / 8);
+            }
+        }
+        self.raise(self.rto() * 2, now);
+    }
+
+    /// The retransmit timeout of the measured round trip: its smoothed value and four times its
+    /// deviation. Zero before any pong.
+    pub fn rto(&self) -> Duration {
+        self.srtt.map_or(Duration::ZERO, |srtt| srtt + self.rttvar * 4)
+    }
+
+    /// How long a request's probe on a silent link waits for an answer: `floor`
+    /// (`NETWORK_PROBE`, a dead network found in 2 s), or this peer's measured retransmit
+    /// timeout when it answers later than that, never past the silence budget.
+    pub fn probe_wait(&self, floor: Duration) -> Duration {
+        if self.fixed {
+            return floor;
+        }
+        floor.max(self.rto()).min(self.current.max(floor))
     }
 
     /// The link is dropped for silence.
@@ -216,6 +259,9 @@ impl SilenceBudget {
             self.moved_at = None;
             self.longest = Duration::ZERO;
             self.slow_proven = false;
+            // A new route: its round trip is measured again.
+            self.srtt = None;
+            self.rttvar = Duration::ZERO;
             return;
         }
         if probed {
@@ -233,7 +279,13 @@ impl SilenceBudget {
         if now.saturating_duration_since(at) < self.stable_after {
             return;
         }
-        self.current = (self.current / 2).max(self.longest * 2).max(self.floor);
+        // Nor under twice the measured round trip's timeout: a peer that still answers late
+        // keeps the room it needs (`answered_in`).
+        self.current = (self.current / 2)
+            .max(self.longest * 2)
+            .max(self.rto() * 2)
+            .max(self.floor)
+            .min(self.cap);
         self.moved_at = (self.current > self.floor).then_some(now);
         self.longest = Duration::ZERO;
         if self.moved_at.is_none() {
@@ -366,6 +418,30 @@ where
     wake_probe.map_or(end, |probe| probe.min(end))
 }
 
+/// How a frame write is bounded: by `budget` of silence on the transport's writes (`wrote`, the
+/// bytes it took), so a large frame on a slow uplink that keeps moving is never cut off, and one
+/// that moved nothing for `budget` is. A running wake probe's deadline stays a total cap, so a
+/// write to a link that died while the computer slept never holds the probe past it. With no
+/// `wrote` (a test transport), `budget` counts from the start (`write_deadline`).
+pub async fn write_within<F, T>(
+    write: F,
+    budget: Duration,
+    wake_probe: Option<tokio::time::Instant>,
+    wrote: Option<&cmux_deadline::Progress>,
+) -> Option<T>
+where
+    F: std::future::Future<Output = T>,
+{
+    let now = tokio::time::Instant::now();
+    match wrote {
+        Some(wrote) => {
+            let cap = wake_probe.map(|probe| probe.saturating_duration_since(now));
+            cmux_deadline::progress_timeout(budget, cap, wrote, write).await.ok()
+        }
+        None => tokio::time::timeout_at(write_deadline(now, budget, wake_probe), write).await.ok(),
+    }
+}
+
 /// When the transport under a link last read a byte, and the longest gap between two reads
 /// since `take_gap` last asked. A link is alive while bytes arrive, also in
 /// the middle of a large frame that takes longer than the silence budget to come in, so the
@@ -375,6 +451,10 @@ pub struct Heard {
     origin: tokio::time::Instant,
     at_ms: std::sync::Arc<std::sync::atomic::AtomicU64>,
     gap_ms: std::sync::Arc<std::sync::atomic::AtomicU64>,
+    /// Bytes the transport took from a write (`cmux_deadline::ProgressIo`): a frame write ends
+    /// on `send` of silence since the last byte went out, not `send` after it started
+    /// (`write_within`).
+    wrote: cmux_deadline::Progress,
 }
 
 impl Default for Heard {
@@ -383,6 +463,7 @@ impl Default for Heard {
             origin: tokio::time::Instant::now(),
             at_ms: Default::default(),
             gap_ms: Default::default(),
+            wrote: cmux_deadline::Progress::new(),
         }
     }
 }
@@ -406,15 +487,160 @@ impl Heard {
         self.origin.elapsed().saturating_sub(at)
     }
 
+    /// The transport's write progress: each byte it took from a write.
+    pub fn wrote(&self) -> &cmux_deadline::Progress {
+        &self.wrote
+    }
+
     pub fn wrap<S>(&self, inner: S) -> HeardStream<S> {
-        HeardStream { inner, heard: self.clone() }
+        self.wrap_early(inner, Vec::new())
+    }
+
+    /// [`Self::wrap`], with `early` (a whole WebSocket frame, `masked_text_frame`) written right
+    /// behind the first write, which is the HTTP upgrade request: the peer's first request
+    /// travels in the request's own flight instead of a round trip after its 101.
+    pub fn wrap_early<S>(&self, inner: S, early: Vec<u8>) -> HeardStream<S> {
+        HeardStream {
+            inner: cmux_deadline::ProgressIo::new(inner, self.wrote.clone()),
+            heard: self.clone(),
+            early,
+            pending: Vec::new(),
+        }
+    }
+}
+
+/// How long this daemon may keep a link from reading before the silence it saw meanwhile is
+/// no longer counted as the peer's (`ReaderHeld`).
+pub const READER_HELD: Duration = Duration::from_millis(500);
+
+/// When this daemon last stopped reading a link, and since when it reads it again after holding
+/// it at least `READER_HELD`. The link's loop reads only while it waits in its `select!`: a step
+/// that awaits (a notice waiting for room in the hub's queue, a write behind a large frame)
+/// reads nothing, and the transport's `Heard` marks no byte however many the peer sent.
+/// Counted as the peer's silence, a few seconds of that dropped a healthy link: about 42 resets
+/// in two hours of the link from the Mac to a lane VM, each "machine is unreachable; queued
+/// here" for the sends meanwhile.
+#[derive(Debug)]
+pub struct ReaderHeld {
+    stopped: std::sync::Mutex<Option<tokio::time::Instant>>,
+    since: tokio::time::Instant,
+}
+
+impl Default for ReaderHeld {
+    fn default() -> Self {
+        Self { stopped: std::sync::Mutex::new(None), since: tokio::time::Instant::now() }
+    }
+}
+
+impl ReaderHeld {
+    /// The read for one `select!`: dropped as the select returns, before any branch's handler
+    /// runs, so the time it stops is the time this daemon stopped reading.
+    pub fn listen<F>(&self, read: F) -> Listen<'_, F> {
+        Listen { read, held: self }
+    }
+
+    /// The loop is about to read again: how long it did not, when that was `READER_HELD` or
+    /// more (the silence measured from now on).
+    pub fn resume(&mut self) -> Option<Duration> {
+        let stopped =
+            self.stopped.get_mut().unwrap_or_else(std::sync::PoisonError::into_inner).take()?;
+        let now = tokio::time::Instant::now();
+        let held = now.saturating_duration_since(stopped);
+        if held < READER_HELD {
+            return None;
+        }
+        self.since = now;
+        Some(held)
+    }
+
+    /// How long this daemon has read the link without holding it `READER_HELD`: no silence
+    /// longer than this is the peer's.
+    pub fn reading(&self) -> Duration {
+        self.since.elapsed()
+    }
+}
+
+/// A link's read inside its `select!` (`ReaderHeld::listen`).
+pub struct Listen<'a, F> {
+    read: F,
+    held: &'a ReaderHeld,
+}
+
+impl<F: std::future::Future + Unpin> std::future::Future for Listen<'_, F> {
+    type Output = F::Output;
+
+    fn poll(
+        mut self: std::pin::Pin<&mut Self>,
+        cx: &mut std::task::Context<'_>,
+    ) -> std::task::Poll<F::Output> {
+        std::pin::Pin::new(&mut self.read).poll(cx)
+    }
+}
+
+impl<F> Drop for Listen<'_, F> {
+    fn drop(&mut self) {
+        *self.held.stopped.lock().unwrap_or_else(std::sync::PoisonError::into_inner) =
+            Some(tokio::time::Instant::now());
     }
 }
 
 /// A stream that marks its `Heard` on each read that returned bytes.
 pub struct HeardStream<S> {
-    inner: S,
+    /// Its writes count toward `Heard::wrote`.
+    inner: cmux_deadline::ProgressIo<S>,
     heard: Heard,
+    /// Bytes to send behind the first write (`Heard::wrap_early`).
+    early: Vec<u8>,
+    /// Bytes taken from a write but not yet on the inner stream.
+    pending: Vec<u8>,
+}
+
+/// One client WebSocket text frame for `payload`, masked with a fresh random key (RFC 6455 5.3).
+pub fn masked_text_frame(payload: &[u8]) -> Vec<u8> {
+    let mut mask = [0u8; 4];
+    let _ = getrandom::fill(&mut mask);
+    let mut frame = Vec::with_capacity(payload.len() + 14);
+    frame.push(0x81);
+    match payload.len() {
+        n if n < 126 => frame.push(0x80 | n as u8),
+        n if n <= u16::MAX as usize => {
+            frame.push(0x80 | 126);
+            frame.extend_from_slice(&(n as u16).to_be_bytes());
+        }
+        n => {
+            frame.push(0x80 | 127);
+            frame.extend_from_slice(&(n as u64).to_be_bytes());
+        }
+    }
+    frame.extend_from_slice(&mask);
+    frame.extend(
+        payload
+            .iter()
+            .enumerate()
+            .map(|(i, b)| b ^ mask.get(i % mask.len()).copied().unwrap_or_default()),
+    );
+    frame
+}
+
+impl<S: tokio::io::AsyncWrite + Unpin> HeardStream<S> {
+    /// Write out what a write left behind (`early`).
+    fn drain(&mut self, cx: &mut std::task::Context<'_>) -> std::task::Poll<std::io::Result<()>> {
+        use std::task::Poll;
+        use tokio::io::AsyncWrite as _;
+        while !self.pending.is_empty() {
+            match std::pin::Pin::new(&mut self.inner).poll_write(cx, &self.pending) {
+                Poll::Ready(Ok(0)) => {
+                    return Poll::Ready(Err(std::io::ErrorKind::WriteZero.into()));
+                }
+                Poll::Ready(Ok(n)) => {
+                    self.pending.drain(..n);
+                }
+                Poll::Ready(Err(e)) => return Poll::Ready(Err(e)),
+                Poll::Pending => return Poll::Pending,
+            }
+        }
+        Poll::Ready(Ok(()))
+    }
 }
 
 impl<S: tokio::io::AsyncRead + Unpin> tokio::io::AsyncRead for HeardStream<S> {
@@ -438,13 +664,25 @@ impl<S: tokio::io::AsyncWrite + Unpin> tokio::io::AsyncWrite for HeardStream<S> 
         cx: &mut std::task::Context<'_>,
         buf: &[u8],
     ) -> std::task::Poll<std::io::Result<usize>> {
-        std::pin::Pin::new(&mut self.inner).poll_write(cx, buf)
+        std::task::ready!(self.drain(cx))?;
+        if self.early.is_empty() {
+            return std::pin::Pin::new(&mut self.inner).poll_write(cx, buf);
+        }
+        // The first write, and the frame behind it, go out together; the flush finishes them.
+        let early = std::mem::take(&mut self.early);
+        self.pending.extend_from_slice(buf);
+        self.pending.extend_from_slice(&early);
+        if let std::task::Poll::Ready(Err(e)) = self.drain(cx) {
+            return std::task::Poll::Ready(Err(e));
+        }
+        std::task::Poll::Ready(Ok(buf.len()))
     }
 
     fn poll_flush(
         mut self: std::pin::Pin<&mut Self>,
         cx: &mut std::task::Context<'_>,
     ) -> std::task::Poll<std::io::Result<()>> {
+        std::task::ready!(self.drain(cx))?;
         std::pin::Pin::new(&mut self.inner).poll_flush(cx)
     }
 
@@ -452,6 +690,7 @@ impl<S: tokio::io::AsyncWrite + Unpin> tokio::io::AsyncWrite for HeardStream<S> 
         mut self: std::pin::Pin<&mut Self>,
         cx: &mut std::task::Context<'_>,
     ) -> std::task::Poll<std::io::Result<()>> {
+        std::task::ready!(self.drain(cx))?;
         std::pin::Pin::new(&mut self.inner).poll_shutdown(cx)
     }
 }
@@ -1058,6 +1297,57 @@ mod tests {
         budget.answered_after(secs(8), at);
         budget.settle(at + t.stable_after);
         assert_eq!(budget.current(), secs(16));
+    }
+
+    /// cosmic-gray at load 80 to 100: its pongs came 2 to 5 s late, and a request's probe gave up
+    /// after a fixed 2 s. The measured round trip sets the probe's wait and keeps the budget up
+    /// while the peer stays late; a fast peer keeps the 2 s probe and the 6 s budget.
+    #[tokio::test(start_paused = true)]
+    async fn a_measured_slow_round_trip_widens_the_probe_and_keeps_the_budget() {
+        let t = LinkTimings::default();
+        let probe = Duration::from_secs(2);
+        let ms = Duration::from_millis;
+        let secs = Duration::from_secs;
+        let start = tokio::time::Instant::now();
+        let mut fast = SilenceBudget::new(&t);
+        for _ in 0..20 {
+            fast.answered_in(ms(40), start);
+        }
+        assert_eq!(fast.probe_wait(probe), probe, "a fast peer: a dead network still found in 2 s");
+        assert_eq!(fast.current(), secs(6));
+
+        let mut slow = SilenceBudget::new(&t);
+        assert_eq!(slow.probe_wait(probe), probe, "nothing measured yet");
+        for late in [3_000, 4_500, 2_500, 5_000, 3_500, 4_000] {
+            slow.answered_in(ms(late), start);
+        }
+        let wait = slow.probe_wait(probe);
+        assert!(wait >= secs(6), "a probe waits past the peer's late answers: {wait:?}");
+        assert!(wait <= slow.current(), "never past the budget: {wait:?}");
+        assert!(slow.current() >= secs(12), "{:?}", slow.current());
+        // Calm for a while, still late: the budget does not fall back under what it needs.
+        let mut at = start;
+        for _ in 0..5 {
+            at += t.stable_after;
+            slow.answered_in(ms(4_000), at);
+            slow.settle(at);
+        }
+        assert!(slow.current() >= slow.rto() * 2, "{:?} < 2 x {:?}", slow.current(), slow.rto());
+        // The load goes: answers fast again, and it comes back down to the start.
+        for _ in 0..60 {
+            slow.answered_in(ms(40), at);
+        }
+        for _ in 0..6 {
+            at += t.stable_after;
+            slow.settle(at);
+        }
+        assert_eq!(slow.current(), secs(6));
+        assert_eq!(slow.probe_wait(probe), probe);
+        // A fixed `ACPMUX_PEER_PING_SECS` keeps both.
+        let fixed = LinkTimings { fixed_silence: true, ..t };
+        let mut fixed = SilenceBudget::new(&fixed);
+        fixed.answered_in(secs(5), start);
+        assert_eq!((fixed.current(), fixed.probe_wait(probe)), (secs(6), probe));
     }
 
     /// Run 43783279032: 10 s network drops grew the budget 6 -> 12 -> 20 s, and each later drop

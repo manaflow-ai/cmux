@@ -339,6 +339,15 @@ struct TerminalPage: View {
                 Text("On a slow connection, what you type shows at once, underlined until the remote confirms it.")
             }
             Section {
+                Toggle(isOn: $settings.predictiveEchoFullScreen) {
+                    SettingsLabel("Predictive Echo in Full-Screen Apps", symbol: "bolt.horizontal.circle")
+                }
+                .accessibilityIdentifier("settings.predictiveEchoFullScreen")
+                .disabled(!settings.predictiveEcho)
+            } footer: {
+                Text("Also predicts typing into full-screen apps such as Claude Code and Codex. A key shows only after the app printed the two before it where they were typed.")
+            }
+            Section {
                 Toggle(isOn: $settings.terminalJumpToBottom) {
                     SettingsLabel("Jump to Bottom Button", symbol: "arrow.down.to.line")
                 }
@@ -347,12 +356,28 @@ struct TerminalPage: View {
                 Text("Shows a Jump to bottom button above the composer when you scroll up. Full-screen apps such as vim never show it.")
             }
             Section {
+                Toggle(isOn: $settings.terminalComposerAutocorrect) {
+                    SettingsLabel("Composer Autocorrect", symbol: "textformat.abc")
+                }
+                .accessibilityIdentifier("settings.terminalComposerAutocorrect")
+            } footer: {
+                Text("Corrects and predicts words in the terminal composer, for talking to an agent in prose. Also in the composer's + menu.")
+            }
+            Section {
                 Toggle(isOn: $settings.terminalChatToggle) {
                     SettingsLabel("Terminal and Chat Toggle", symbol: "arrow.left.arrow.right")
                 }
                 .accessibilityIdentifier("settings.terminalChatToggle")
             } footer: {
                 Text("Adds Show Chat and Show Terminal to a Claude Code or Codex tab's menu when both views can open.")
+            }
+            Section {
+                Toggle(isOn: $settings.terminalZoomFullScreenApps) {
+                    SettingsLabel("Zoom Full-Screen Apps", symbol: "plus.magnifyingglass")
+                }
+                .accessibilityIdentifier("settings.terminalZoomFullScreenApps")
+            } footer: {
+                Text("Shows vim, htop or Codex at the Mac's size: pinch to zoom, drag to pan, and the Mac pane keeps its size. Typing into one fits it to the phone, which remembers that program. Applies to terminals opened next.")
             }
             Section {
                 Toggle(isOn: $settings.wrapCode) { SettingsLabel("Wrap code and diff lines", symbol: "text.word.spacing") }
@@ -378,6 +403,9 @@ struct ComposerPage: View {
             Section {
                 Toggle(isOn: $settings.dismissKeyboardAfterSend) {
                     SettingsLabel("Dismiss keyboard after sending", symbol: "keyboard.chevron.compact.down")
+                }
+                Toggle(isOn: $settings.swipeDownCollapsesComposer) {
+                    SettingsLabel("Swipe down to collapse", symbol: "chevron.compact.down")
                 }
                 Picker(selection: $settings.followUp) {
                     ForEach(FollowUpBehavior.allCases) { Text($0.title).tag($0) }
@@ -549,6 +577,7 @@ struct TransportPage: View {
     #if DEBUG
     @AppStorage(DeveloperOptions.relayOnlyKey) private var relayOnly = false
     @AppStorage(DeveloperOptions.blockUDPKey) private var blockUDP = false
+    @AppStorage(DeveloperOptions.forceRelayKey) private var forceRelay = false
     @AppStorage(DeveloperOptions.browserVideoOnChannelKey) private var browserVideoOnChannel = false
     #endif
 
@@ -631,6 +660,11 @@ struct TransportPage: View {
                 }
                 .disabled(relayAvailable == false && !blockUDP)
                 .accessibilityIdentifier("settings.transport.blockUDP")
+                // The last resort on its own: cmux's WebSocket relay over HTTPS, at the next connection.
+                Toggle(isOn: $forceRelay) {
+                    Text("Relay via cmux (HTTPS) only")
+                }
+                .accessibilityIdentifier("settings.transport.forceRelay")
                 Toggle(isOn: $browserVideoOnChannel) {
                     Text("Browser video on channel")
                 }
@@ -665,10 +699,8 @@ struct TransportDetails: View {
                     VStack(alignment: .leading, spacing: 4) {
                         Text(verbatim: store.teams.lazy.flatMap(\.macs).first(where: { $0.id == macID })?.name ?? String(localized: "Mac"))
                             .font(theme.type.rowTitle)
-                        Text(verbatim: store.macLinkDiagnostics[macID] ?? "")
-                            .font(theme.type.meta)
-                            .foregroundStyle(theme.colors.label2)
-                            .textSelection(.enabled)
+                        InPlaceSelectionLabel(store.macLinkDiagnostics[macID] ?? "", textStyle: .footnote,
+                                              color: theme.colors.label2.uiColor)
                     }
                     .accessibilityElement(children: .combine)
                 }
@@ -771,6 +803,7 @@ struct Acknowledgement: Sendable {
             Acknowledgement("marked", "MIT", "Markdown in the Feed", "https://github.com/markedjs/marked"),
             Acknowledgement("Temml", "MIT", "Math", "https://github.com/ronkok/Temml"),
             Acknowledgement("highlight.js", "BSD 3-Clause", "Code highlighting", "https://github.com/highlightjs/highlight.js"),
+            Acknowledgement("Geist", "SIL OFL 1.1", "The welcome screen's wordmark and tagline", "https://github.com/vercel/geist-font"),
         ]),
     ]
 }
