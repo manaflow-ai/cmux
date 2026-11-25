@@ -12,7 +12,8 @@ import Testing
 /// The pane that grows is opaque and whole in each frame; only the other panes dim. A cut of an act before (a mask
 /// under one pane that moves, `PaneCommitMotion+Under`; a window under several, `PaneCommitMotion+Cover`) is made
 /// for the place that its pane had then. A second act that moves that pane, or that takes it back, takes the cut
-/// off it: the pane is not cut at a place that is not its own.
+/// off it: the pane is not cut at a place that is not its own. And a second act that keeps a pane under its one
+/// pane that moves ends the move that the pane still had of the act before: the mask is for a pane at rest.
 extension PaneCommitMotionTests {
     /// What is wrong with `host`, a pane that had a cut of an act before and has a move of its own now, or is back
     /// in the layout: it does not show, it or its clip has a mask, or the motion keeps a cut or a window for it.
@@ -132,6 +133,88 @@ extension PaneCommitMotionTests {
         guard let layer = host.layer else { return 0 }
         let cell = rect(of: layer, at: part), end = move(of: layer, only: []).end
         return max(abs(cell.minX - end.minX), abs(cell.minY - end.minY), abs(cell.maxX - end.maxX), abs(cell.maxY - end.maxY))
+    }
+
+    /// The 5 panes of the 6 that an unzoom of the last one does not close: the zoom in that unzoom's move is of one of them.
+    nonisolated static let othersOfSix = ["p", "paab", "pab", "pb", "pbab"]
+
+    /// An unzoom in a glass window, and in its move the zoom of another pane (`name`): the one pane that moves now.
+    /// The pane that the unzoom closed is under it, and it still had its own move. In each frame from the one that
+    /// shows the zoom:
+    /// 1. The pane that the unzoom closed is at its place at rest: its own move ends in the pass that shows the zoom,
+    ///    so the mask that the zoom puts on its clip is on a pane at rest. The eye gets that pane at its place in one
+    ///    frame.
+    /// 2. No part of that pane that shows is inside the rect of the pane that grows.
+    /// 3. By its clip and the mask on that clip, that pane shows in each part of its place outside that rect.
+    /// 4. No part of another pane that shows is inside the rect of the pane that grows.
+    ///
+    /// The row prints how far the pane was from its place in the frame before (the jump), and the most that a mask
+    /// takes in one frame of another pane's place outside the pane that grows: the mask of such a pane keeps the
+    /// hole's move of the unzoom, so its hole is larger than the pane that grows until that move's end (a known
+    /// limit). A layer's animations are read each at its own part of its act.
+    @Test(arguments: movingSpeeds, othersOfSix)
+    func aZoomOfAnotherPaneInAnUnzoomsMoveShowsNoOtherPaneInsideIt(_ speed: MotionSpeed, _ name: String) throws {
+        let over = try Self.overPicture("unzoom", panes: 6, gap: "glass", speed: speed)
+        defer { over.harness.window.closeAfterTest() }
+        try Self.requireKind("glass", of: over)
+        let screen = over.screen, harness = over.harness, motion = screen.zoomDim.motion
+        let mover = try #require(Self.movers(of: "unzoom", on: screen).first, "SETUP: the unzoom puts no pane over another")
+        for _ in 0..<Self.framesBeforeTheKey { _ = harness.root.advanceFrame(Self.dt) }
+        try #require(Self.inFlight(screen), "SETUP: no pane moves \(Self.framesBeforeTheKey) frames after the frame that showed the unzoom")
+        let first = motion.serial
+        let found = Self.paneHosts(screen).first { host in host !== mover && !host.isHidden && host.pane == PaneID(name) }
+        let next = try #require(found, "SETUP: the screen shows no other pane `\(name)` in the unzoom's move")
+        let jump = Self.awayFromRest(mover, on: screen, at: { _ in Self.way(of: "unzoom", at: speed, tick: Self.framesBeforeTheKey) })
+        try #require(jump > 0.5, "SETUP: the pane that the unzoom closes is at its place \(Self.framesBeforeTheKey) frames into its move")
+
+        harness.model.focus(next.pane, notify: false)
+        try Self.secondAct(on: over, zoomed: next.pane, of: 6, closing: nil)
+        try #require(motion.serial == first + 1, "SETUP: the zoom of \(next.pane) in the unzoom's move shows in one frame: no second act moves")
+        try #require(!Self.hasFullGround(next), "SETUP: the pane that grows has a ground in a glass window")
+        try #require(!mover.isHidden, "SETUP: the zoom of \(next.pane) does not keep the pane that the unzoom closed on the screen")
+        let others = Self.paneHosts(screen).filter { $0 !== next }
+        var away: [String] = [], inside: [String] = [], taken: [String] = [], faults: [String] = []
+        var under = 0, tick = 0, most: CGFloat = 0
+        while Self.inFlight(screen), tick < 2 * Commit.frames {
+            let now = tick
+            let part: (Int) -> CGFloat = { act in
+                act == first
+                    ? Self.way(of: "unzoom", at: speed, tick: Self.framesBeforeTheKey + 1 + now)
+                    : Self.way(of: "zoom", at: speed, tick: now)
+            }
+            if let layer = next.layer {
+                let rect = Self.rect(of: layer, at: part)
+                var shows: [String] = []
+                for other in others where !other.isHidden {
+                    if Self.area(other.frame.intersection(rect)) >= 1 { under += 1 }
+                    let within = Self.showing(other, on: screen, at: part).reduce(CGFloat(0)) { $0 + Self.area($1.intersection(rect)) }
+                    let seen = Self.kept(other, on: screen, over: [], at: part)
+                    let room = Self.area(seen.shows) - Self.area(seen.shows.intersection(rect))
+                    let lost = room - (seen.area(in: seen.shows) - seen.area(in: rect))
+                    if other === mover {
+                        if within >= 1 { inside.append("tick \(tick): \(Int(within)) pt2 inside \(next.pane) at \(rect)") }
+                        if lost > 1 { taken.append("tick \(tick): \(Int(lost)) pt2 of the \(Int(room)) pt2 outside \(next.pane)") }
+                    } else {
+                        if within >= 1 { shows.append("\(other.pane) in \(Int(within)) pt2") }
+                        most = max(most, lost)
+                    }
+                }
+                if !shows.isEmpty { faults.append("tick \(tick), inside \(next.pane) at \(rect): \(shows.joined(separator: ", "))") }
+            }
+            let far = mover.isHidden ? 0 : Self.awayFromRest(mover, on: screen, at: part)
+            if far > 0.5 { away.append("tick \(tick): \((far * 10).rounded() / 10) pt") }
+            _ = harness.root.advanceFrame(Self.dt)
+            tick += 1
+        }
+        try #require(!Self.inFlight(screen), "SETUP: a pane still moves \(tick) frames after the frame that showed the zoom of \(next.pane)")
+        try #require(under > 0, "SETUP: in no frame after the zoom is the place of another pane under the pane that grows")
+        print("ROW (A): \(speed), the zoom of \(next.pane) in the unzoom of \(mover.pane): in the frame before, \(mover.pane) is",
+              "\((jump * 10).rounded() / 10) pt from its place (the jump); frames read: \(tick); frames with \(mover.pane) not at its place:",
+              "\(away.count); the most that a mask takes of another pane's place outside \(next.pane) in one frame: \(Int(most)) pt2")
+        #expect(away.isEmpty, "(1) in \(away.count) frames from the one that shows the zoom of \(next.pane), \(mover.pane) is not at its place; the first: \(away.prefix(3))")
+        #expect(inside.isEmpty, "(2) in \(inside.count) frames \(mover.pane), the pane that the unzoom closed, shows inside the pane that grows; the first: \(inside.prefix(3))")
+        #expect(taken.isEmpty, "(3) in \(taken.count) frames \(mover.pane) does not show in each part of its place outside the pane that grows; the first: \(taken.prefix(3))")
+        #expect(faults.isEmpty, "(4) \(faults.count) reads after the zoom of \(next.pane) in the unzoom's move show another pane inside it; the first: \(faults.prefix(3))")
     }
 
     /// A close in a glass window, and in its move the close of a pane that the first close made grow. The move keeps
