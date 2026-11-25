@@ -105,6 +105,7 @@ members = [
     "crates/cmux-projection",
     "crates/cmux-deadline",
     "crates/cmux-tailnet-join",
+    "crates/cmux-bounded",
     "crates/cmux-remote-protocol",
     "crates/cmux-braid-session",
     "crates/cmux-build-identity",
@@ -114,6 +115,7 @@ members = [
     "crates/cmux-relay",
     "crates/cmux-fault",
     "crates/cmux-composer-send",
+    "crates/cmux-mobile-last-place",
     "crates/cmux-duress",
     "crates/chatmux-relay",
     "crates/cmux-tui-machine-agent-protocol",
@@ -263,6 +265,7 @@ default-members = [
     "crates/cmux-install-check",
     "crates/cmux-deadline",
     "crates/cmux-tailnet-join",
+    "crates/cmux-bounded",
     "crates/cmux-remote-protocol",
     "crates/cmux-braid-session",
     "crates/cmux-build-identity",
@@ -402,6 +405,7 @@ cmux-web-pieces = { path = "crates/cmux-web-pieces" }
 cmux-projection = { path = "crates/cmux-projection" }
 cmux-deadline = { path = "crates/cmux-deadline" }
 cmux-tailnet-join = { path = "crates/cmux-tailnet-join" }
+cmux-bounded = { path = "crates/cmux-bounded" }
 cmux-worktree-care = { path = "crates/cmux-worktree-care" }
 cmux-conductor-import = { path = "crates/cmux-conductor-import" }
 cmux-browser-import = { path = "crates/cmux-browser-import" }
@@ -488,6 +492,7 @@ cmux-build-identity = { path = "crates/cmux-build-identity" }
 cmux-netwatch = { path = "crates/cmux-netwatch" }
 cmux-fault = { path = "crates/cmux-fault" }
 cmux-composer-send = { path = "crates/cmux-composer-send" }
+cmux-mobile-last-place = { path = "crates/cmux-mobile-last-place" }
 cmux-duress = { path = "crates/cmux-duress" }
 cmux-remote = { path = "crates/cmux-remote", default-features = false, features = ["wireguard-transport"] }
 cmux-wg = { path = "crates/cmux-wg" }
