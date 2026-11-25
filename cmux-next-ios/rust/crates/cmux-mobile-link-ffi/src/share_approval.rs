@@ -47,9 +47,17 @@ pub struct ShareApprovalDraft {
 }
 
 impl ShareApprovalDraft {
+    /// The approval this draft was made for. Its format is the first line of the bytes the tap
+    /// signs ([`Self::canonical`]): a share approval, or a control approval
+    /// ([`draft_for`]). Any other first line reads as a share approval, whose
+    /// canonical then differs from the draft's, so [`share_approval_signed`] refuses it.
     fn approval(&self) -> ShareApproval {
+        let version = match self.canonical.lines().next() {
+            Some(cmux_share_approval::CONTROL_VERSION) => cmux_share_approval::CONTROL_VERSION,
+            _ => cmux_share_approval::VERSION,
+        };
         ShareApproval {
-            v: cmux_share_approval::VERSION.into(),
+            v: version.into(),
             target: self.target.clone(),
             target_name: self.target_name.clone(),
             asker: self.asker.clone(),
@@ -71,7 +79,23 @@ pub fn share_approval_draft(ask: ShareAsk) -> Result<ShareApprovalDraft, CmuxMob
 
 /// [`share_approval_draft`] at a given time and nonce (tests).
 pub fn draft_at(ask: &ShareAsk, now: u64, nonce: &str) -> Result<ShareApprovalDraft, CmuxMobileError> {
-    let approval = ShareApproval::asked(
+    draft_for(cmux_share_approval::VERSION, ask, now, nonce)
+}
+
+/// A draft of the approval format `version` at a given time and nonce. With
+/// `cmux_share_approval::CONTROL_VERSION` it is the control approval: the person, on this phone,
+/// allows control of `ask.target_id` (a Mac of theirs) from their other signed-in machines, so
+/// nobody has to click Allow at that Mac. Leo, 2026-11-22: "who's gonna walk over and click
+/// allow on a headless mac mini, or a remote macbook???". It is signed and finished like a
+/// share approval ([`share_approval_signed`]) and goes to the hub's `control-approval` path.
+pub fn draft_for(
+    version: &str,
+    ask: &ShareAsk,
+    now: u64,
+    nonce: &str,
+) -> Result<ShareApprovalDraft, CmuxMobileError> {
+    let approval = ShareApproval::asked_for(
+        version,
         Device { id: &ask.target_id, name: &ask.target_name },
         Device { id: &ask.asker_id, name: &ask.asker_name },
         &ask.account,

@@ -110,7 +110,7 @@ pub(super) fn split(command_args: &[String]) -> Option<(Scope, &[String])> {
     scope.owns(rest.first().map(String::as_str)).then_some((scope, rest))
 }
 
-const VERBS: &str = "run, new, show, pause, resume, start, stop, rm, exec, fork, snapshot, access, key, creation, file";
+const VERBS: &str = "run, new, show, pause, resume, start, stop, rm, exec, fork, snapshot, access, key, creation, file, tailnet";
 
 /// `cmux vm`'s usage for the VM API verbs; `cmux vm --help` adds the Cloud verbs.
 fn help() -> String {
@@ -574,8 +574,19 @@ pub(super) fn vm_runs_cloud_verb(verb: &str) -> bool {
 
 /// Words `vm` answers itself that are not [`MACHINE_VERBS`]: the VM API's list, help, and the
 /// pointers of [`plan`].
-const VM_OWN_WORDS: &[&str] =
-    &["ls", "list", "help", "resize", "workspace", "start-chat", "chat", "pool", "runner", "file"];
+const VM_OWN_WORDS: &[&str] = &[
+    "ls",
+    "list",
+    "help",
+    "resize",
+    "workspace",
+    "start-chat",
+    "chat",
+    "pool",
+    "runner",
+    "file",
+    "tailnet",
+];
 
 /// `cmux cloud …` typed at a terminal: one line on stderr with its new name. A script (no
 /// terminal on stderr) and this binary's own steps read nothing new.
@@ -923,6 +934,24 @@ pub(super) fn run_if_requested(args: &[String]) -> Option<i32> {
         && verb == "pool"
     {
         return Some(run_pool(tail, global.output, &env));
+    }
+    if scope == Scope::Vm
+        && let [verb, tail @ ..] = rest
+        && verb == "tailnet"
+    {
+        return Some(super::vm_tailnet::run(tail, global.output == OutputMode::Json, &env));
+    }
+    if let Some(vm_id) = super::vm_tailnet::cloned_vm(rest)
+        && let Some(refusal) = super::vm_tailnet::refuse_clone_of_joined(vm_id, &env)
+    {
+        eprintln!("{refusal}");
+        return Some(2);
+    }
+    if let [verb, vm_id, ..] = rest
+        && matches!(verb.as_str(), "rm" | "delete")
+        && !vm_id.starts_with('-')
+    {
+        super::vm_tailnet::leave_before_delete(vm_id, &env);
     }
     if scope == Scope::Vm
         && let [verb, tail @ ..] = rest

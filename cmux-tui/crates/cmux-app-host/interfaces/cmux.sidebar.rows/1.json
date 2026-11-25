@@ -1,7 +1,7 @@
 {
   "name": "cmux.sidebar.rows/1",
   "version": 1,
-  "docs": "Decorations of the sidebar's workspace rows (honored from the user's own local/customize app only). The render export returns one Group per decorated row with props {row, icon?, weight?, indicator?, badge?}: icon is an SF Symbol name or one emoji; weight is regular, medium, semibold or bold; indicator is default, none or an SF Symbol name; badge is short text. Rows without a Group keep the defaults (no icon, regular weight).",
+  "docs": "Decorations of the sidebar's workspace rows (honored from the user's own local/customize app only). The render export returns one Group per decorated row with props {row, icon?, weight?, indicator?, badge?}: icon is an SF Symbol name or one emoji; weight is regular, medium, semibold or bold; indicator is default, none, an indicator style, \"glyph\" (the look's agentPane.display.thinking.glyph played while the row works) or {choreography, trigger?}: a cmux.particles/1 document (or \"glyph\") played in the loading indicator's place while the row works, with the trigger to play (an acpmux tool kind or session state; checked like a Particles node's choreography); badge is short text. Rows without a Group keep the defaults (no icon, regular weight).",
   "props": {},
   "methods": {
     "render": "scene"

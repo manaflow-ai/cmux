@@ -1727,6 +1727,7 @@
 /* The lightbox: the page dims and blurs behind one image (board principle 9). */
 .hc-lightbox-backdrop {
   background: color-mix(in srgb, var(--lg-solid) 72%, transparent);
+  /* one-material-allow: the lightbox's modal scrim (the dialog above it is the glass), not a glass surface */
   backdrop-filter: var(--surface-blur);
 }
 .hc-lightbox.ui-dialog {

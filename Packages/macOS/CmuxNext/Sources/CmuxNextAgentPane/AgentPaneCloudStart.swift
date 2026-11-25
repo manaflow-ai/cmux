@@ -56,6 +56,7 @@ public nonisolated struct AgentPaneCloudStart: Sendable, Equatable {
     public var replacesChat: String?
     /// The page's send: a second call with the same key while one runs is the same send.
     public var key: String
+    var autoPlaced = false
     /// The folder the copy uploads (the Git working copy that holds ``cwd``, else ``cwd``), set by
     /// the pane once it checked that folder against its roots too (``AgentPaneHandOff``); nil when
     /// the page named no folder. The App copies only this folder, never one it finds anew.
@@ -110,6 +111,7 @@ public nonisolated struct AgentPaneCloudStart: Sendable, Equatable {
         (self.home, self.repository) = (home as? Bool ?? false, repository)
         self.team = team
         self.replacesChat = replacesChat
+        self.autoPlaced = params?["autoPlaced"] as? Bool == true
         self.mode = mode
         (self.effort, self.account) = (effort, account)
         self.attachments = attachments
@@ -171,6 +173,7 @@ public nonisolated struct AgentPaneCloudStart: Sendable, Equatable {
         var seed = AgentPaneSeed(cwd: cwd, draft: draft, prompt: task, promptAttachments: attachments.isEmpty ? nil : attachments,
                                  promptBy: .person, harness: harness, model: model, mode: mode)
         seed.effort = effort
+        seed.autoCloudStartKey = autoPlaced ? key : nil
         return seed
     }
 }
@@ -401,6 +404,14 @@ extension AgentPaneCloudStart {
         if let setupHasScript { setupFields["hasScript"] = .bool(setupHasScript) }
         if !setupFields.isEmpty { value["setup"] = .object(setupFields) }
         let push = JSONValue.object(value)
+        view.deliver([AgentPageEvent(kind: "cloudStartProgress", value: push)],
+                     scripts: ["window.cmuxAcpmuxBridge?.cloudStartProgress?.(\(push.compactText));"])
+    }
+
+    /// Whether the card's machine step says "Waking machine": while the start's machine settles out of a pause or
+    /// a resume in flight, as Rust's `cloud_move_settle` answers (ask-259986a6c4). Keeps the step it is on.
+    @MainActor public static func waking(_ on: Bool, start key: String, to view: AgentPaneView) {
+        let push = JSONValue.object(["key": .string(key), "waking": .bool(on)])
         view.deliver([AgentPageEvent(kind: "cloudStartProgress", value: push)],
                      scripts: ["window.cmuxAcpmuxBridge?.cloudStartProgress?.(\(push.compactText));"])
     }
