@@ -1,5 +1,13 @@
 import { expect, test } from "bun:test";
-import { latestFrameParams, pictureOf, readFrame, readFrames, readLatest, turnFramesParams } from "./turnFrames";
+import {
+  frameFullParams,
+  latestFrameParams,
+  pictureOf,
+  readFrame,
+  readFrames,
+  readLatest,
+  turnFramesParams,
+} from "./turnFrames";
 
 const PNG = "data:image/png;base64,AAAA";
 
@@ -49,4 +57,5 @@ test("readLatest returns the newest frame and the next seq", () => {
 test("request params", () => {
   expect(turnFramesParams("s", "t")).toEqual({ sessionId: "s", turnId: "t" });
   expect(latestFrameParams("s", 3)).toEqual({ sessionId: "s", sinceSeq: 3 });
+  expect(frameFullParams("s", "t", 2)).toEqual({ sessionId: "s", turnId: "t", index: 2 });
 });
