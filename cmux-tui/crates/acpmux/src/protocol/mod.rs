@@ -196,6 +196,7 @@ pub fn registry() -> Vec<MethodDecl> {
         // First-request pipe to another machine's cmux-tui remote daemon (cmux_tui_service.rs).
         untyped(method::MUX_REMOTE_PIPE, Request),
         // Embedded tailnet controls (also report not_built in unsupported builds).
+        untyped(method::MUX_TAILNET_JOIN, Request),
         untyped(method::MUX_TAILNET_LOGIN, Request),
         untyped(method::MUX_TAILNET_LOGOUT, Request),
         untyped(method::MUX_TAILNET_START, Request),
@@ -348,6 +349,7 @@ pub fn registry() -> Vec<MethodDecl> {
         untyped(method::MUX_DETACH_PARENT, Request),
         untyped(method::MUX_CONTROLS, Request),
         untyped(method::MUX_INFO, Request),
+        untyped(method::MUX_SESSION_RESYNC, Request),
         untyped(method::MUX_MACHINE_INFO, Request),
         untyped(method::MUX_SCORECARD, Request),
         untyped(method::MUX_SESSION_FILES, Request),
@@ -461,6 +463,8 @@ pub fn registry() -> Vec<MethodDecl> {
         untyped("_acpmux/chat_settings", Request),
         untyped("_acpmux/chat_settled", Request),
         untyped("_acpmux/chat_transcript", Request),
+        untyped(method::MUX_CHAT_TRANSCRIPT_PAGE, Request),
+        untyped(method::MUX_CHAT_TRANSCRIPT_FIND, Request),
         untyped("_acpmux/chats_search", Request),
         untyped("_acpmux/chats_warm", Request),
         untyped("_acpmux/chat_fork", Request),
