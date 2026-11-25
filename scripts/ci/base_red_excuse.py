@@ -8076,6 +8076,23 @@ def failure_text(verdict: dict, step: str, test: str) -> frozenset:
     return verdict["steps"].get(step, {}).get("failures", {}).get(test, frozenset())
 
 
+def ws_check_step_keys(verdict: dict, step: str) -> list[str]:
+    """The VERDICT step key(s) a head's STEP is compared against. A step label names a workflow step, not a failure's
+    identity: a PR that renames, splits or shards a step moves every unit key with it (leo-workspace#10806 split one
+    catch-all step into 1130 of them), and keyed on the label alone the base's own red stops matching and reads as the
+    head's own red (13 land stops on 2026-11-25, every one naming that split step). With the head's label on the
+    verdict, that label alone; without it, every step the verdict has - a failure is still matched by test name and
+    failure text there, so the base's red is found wherever the base ran it."""
+    return [step] if step in verdict.get("steps", {}) else sorted(verdict.get("steps", {}))
+
+
+def ws_check_step_key(verdict: dict, step: str, test: str) -> str:
+    """The one VERDICT step key to read TEST's failure text from (ws_check_step_keys): STEP when the verdict has it,
+    else the step that ran TEST, else STEP (no failure text)."""
+    keys = ws_check_step_keys(verdict, step)
+    return next((key for key in keys if test in verdict["steps"][key]["tests"]), step)
+
+
 def ws_check_units(steps: dict) -> list[tuple[str, str, str]]:
     """(step, kind, item) for each thing a red must match on the base: each failing test, and each compared line."""
     return [(step, "test", test) for step, red in steps.items() for test in sorted(red["tests"])] + [
@@ -8304,17 +8321,18 @@ def ws_check_red(repo: str, base: str, sha: str, github, evidence: "Evidence | N
 
     def has(verdict: dict, unit) -> bool:
         step, kind, item = unit
-        if step not in verdict["steps"]:
+        reds = [verdict["steps"][key] for key in ws_check_step_keys(verdict, step)]
+        if not reds:
             return False
-        red = verdict["steps"][step]
         if kind != "test":
-            return item in red["lines"]
+            return any(item in red["lines"] for red in reds)
         # A failing test is the base's red only when it fails there the same way: every line of its failure text
         # (normalised: numbers masked, file names kept) is in the base's failure of that test. 2026-11-17:
         # leo-workspace#5683 at 16b96c09 merged with its test_text_io_encoding.py red excused by name, main d240eaab
         # failing that test too, though the head's failure listed a new offender (tools/test_merge_hold.py) main's
         # did not.
-        return item in red["tests"] and failure_text(head, step, item) <= failure_text(verdict, step, item)
+        return any(item in red["tests"] and failure_text(head, step, item) <= red["failures"].get(item, frozenset())
+                   for red in reds)
 
     if tip_kind == "pass":
         header = f"'{WS_CHECK}' is green on {base} {tip[:12]}, red on {sha[:12]}\n"
@@ -8379,7 +8397,8 @@ def ws_check_red(repo: str, base: str, sha: str, github, evidence: "Evidence | N
         none of the head's lines NEW that the tip does not print names a path the PR changes (a repo-wide lint test's
         new offender, leo-workspace#5683: its suite red on main too, its new line naming the PR's own file)."""
         ok = bool(suites) and tip_fresh and all(
-            suite and suite in tip_verdict["steps"].get(step, {}).get("suites", ()) for suite in suites)
+            suite and any(suite in tip_verdict["steps"].get(key, {}).get("suites", ())
+                          for key in ws_check_step_keys(tip_verdict, step)) for suite in suites)
         if ok and (any(ws_check_suite_touched(suite, changed()) for suite in suites)
                    or ws_check_names_paths(new, changed() or [])):
             return False
@@ -8422,16 +8441,19 @@ def ws_check_red(repo: str, base: str, sha: str, github, evidence: "Evidence | N
                 lines.append(f"excused '{WS_CHECK}' test '{step} :: {test}': {where(found)} "
                              f"({found[1]['url'] or 'no run'})")
             elif by_suite(step, {ws_check_test_suite(test)},
-                          failure_text(head, step, test) - failure_text(tip_verdict, step, test)):
+                          failure_text(head, step, test)
+                          - failure_text(tip_verdict, ws_check_step_key(tip_verdict, step, test), test)):
                 lines.append(f"excused '{WS_CHECK}' test '{step} :: {test}': "
                              f"{suite_said(step, {ws_check_test_suite(test)})}")
             else:
                 # Red by name on a base verdict, but failing another way there: the failure lines none of those
                 # verdicts' failures of it print, a few (a lint's new offender is often not its first new line).
                 named = [verdict for _, verdict in window + at_merge_base
-                         if test in verdict["steps"].get(step, {}).get("tests", ())]
+                         if any(test in verdict["steps"].get(key, {}).get("tests", ())
+                                for key in ws_check_step_keys(verdict, step))]
                 new = sorted(line for line in failure_text(head, step, test)
-                             if not any(line in failure_text(verdict, step, test) for verdict in named))
+                             if not any(line in failure_text(verdict, ws_check_step_key(verdict, step, test), test)
+                                        for verdict in named))
                 if named and new:
                     missing.append(f"'{step} :: {test}' failure '{new[0][:200]}'")
                     shown = "".join(f", then '{line[:200]}'" for line in new[1:3])

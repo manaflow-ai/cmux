@@ -8365,6 +8365,27 @@ class WsCheckPerTest(unittest.TestCase):
         del self.gh.statuses[self.gh.TIP]
         self.assertIn("a per-suite base red", "\n".join(self.judge()))
 
+    def test_a_red_under_a_step_label_the_pr_moved_is_still_the_bases_red(self):
+        # 2026-11-25: leo-workspace#10806 split one catch-all tools-tests step into 1130 steps, so every head after it
+        # carried step labels main's verdict did not have. Keyed on the label, has() returned False at once and the
+        # base's own red read as the head's: 13 land stops that day ("N failure(s) not on main"), every one naming
+        # that step. A failure's identity is its test name and failure text, not the workflow step label it ran under.
+        split = self.DEPLOY + " [test_a.py 1/2]"
+        self.gh.verdict(HEAD, 1, {split: self.ws_deploy("test_a")})
+        self.gh.verdict(self.gh.TIP, 2, {self.DEPLOY: self.ws_deploy("test_a")})
+        audit = self.judge()
+        self.assertIn(f"excused 'ws-check': every failure on {HEAD[:12]} is red on main too", audit[0])
+        self.assertIn(f"excused 'ws-check' test '{split} :: test_a (__main__.FastForward.test_a)': red on main "
+                      f"{self.gh.TIP[:12]} too (https://github.com/{self.gh.HOST}/actions/runs/2)", audit)
+
+    def test_a_head_only_red_under_a_moved_step_label_is_still_refused(self):
+        # The fallback matches by test name and failure text, so a test the base never failed is still the head's own.
+        split = self.DEPLOY + " [test_a.py 1/2]"
+        self.gh.verdict(HEAD, 1, {split: self.ws_deploy("test_a", "test_b")})
+        self.gh.verdict(self.gh.TIP, 2, {self.DEPLOY: self.ws_deploy("test_a")})
+        with self.assertRaisesRegex(excuse.Refused, r"1 failure\(s\) not on main: .*test_b"):
+            self.judge()
+
     def test_a_step_not_split_into_suites_is_still_read_per_test(self):
         # A whole-step test or lint keeps its strict reading (test_another_test_of_a_step_red_on_main_is_not_excused):
         # only a "STEP [SUITE]" unit is judged as a suite.
