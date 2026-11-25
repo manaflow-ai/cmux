@@ -2135,7 +2135,7 @@ class PlanReportTests(unittest.TestCase):
         with mock.patch.object(cron, "now_utc", lambda: now), mock.patch.object(cron, "git", git), \
                 mock.patch.object(cron, "measure_version", lambda sha: 2), \
                 mock.patch.object(cron, "commit_on_branch", lambda repo, t, known=(): cron.is_sha), \
-                mock.patch.object(cron, "tree_published", lambda sha: True), \
+                mock.patch.object(cron, "tree_published", lambda sha, deadline=None: True), \
                 mock.patch.object(cron, "github_busy", lambda *a: None), \
                 mock.patch.object(cron, "frame_pacing_runs", lambda repo: []), \
                 mock.patch.object(cron, "is_ancestor", lambda a, b: False), \
@@ -3654,7 +3654,7 @@ class NoHostTipTests(OneRunRule):
             with mock.patch.object(cron, "now_utc", lambda: at(1)), mock.patch.object(cron, "git", git), \
                     mock.patch.object(cron, "measure_version", lambda sha: 3), \
                     mock.patch.object(cron, "commit_on_branch", lambda repo, t, known=(): cron.is_sha), \
-                    mock.patch.object(cron, "tree_published", lambda sha: False), \
+                    mock.patch.object(cron, "tree_published", lambda sha, deadline=None: False), \
                     mock.patch.object(cron, "github_busy", lambda *a: None), \
                     mock.patch.object(cron, "frame_pacing_runs", lambda repo: []), \
                     mock.patch.object(cron, "is_ancestor", lambda a, b: False), \
@@ -4039,14 +4039,16 @@ class BisectBudgetTests(unittest.TestCase):
     """2026-11-19: the bisect judged every commit of 16 ranges of 300 to 1,900 commits, none measurable, each tick,
     and the plan job hit its 75 min timeout every tick."""
 
-    def tick(self, d, commits, judged):
+    def tick(self, d, commits, judged, lookup_seconds=0):
         tip = "f" * 40
+        clock = [1000.0]
 
         def git(*args, check=True):
             return tip if args[0] in ("rev-parse", "rev-list") else ""
 
-        def tree_published(sha):
+        def tree_published(sha, deadline=None):
             judged.append(sha)
+            clock[0] += lookup_seconds
             return False
         out = os.path.join(d, "plan.out")
         with mock.patch.object(cron, "now_utc", lambda: at(1)), mock.patch.object(cron, "git", git), \
@@ -4059,6 +4061,7 @@ class BisectBudgetTests(unittest.TestCase):
                 mock.patch.object(cron, "frame_pacing_runs", lambda repo: []), \
                 mock.patch.object(cron, "is_ancestor", lambda a, b: False), \
                 mock.patch.object(cron, "supported_parts_at", lambda sha: ["motion"]), \
+                mock.patch.object(cron.time, "monotonic", lambda: clock[0]), \
                 contextlib.redirect_stdout(io.StringIO()) as said:
             cron.cmd_plan(argparse.Namespace(repo="o/r", dir=d, tip="HEAD", yield_mode="queued", no_mac=False,
                                              output=out))
@@ -4088,6 +4091,27 @@ class BisectBudgetTests(unittest.TestCase):
             with open(os.path.join(d, "state.json")) as f:
                 looked = json.load(f)["regressions"][0]["range"]["looked"]
             self.assertEqual(looked["place"], 2 * cron.BISECT_JUDGED_PER_TICK)
+
+
+    def test_slow_tree_lookups_stop_at_the_plan_s_budget_and_the_plan_still_answers(self):
+        """Run 45536170489 (2026-11-25): tree lookups slow enough that the plan step's `timeout 600` killed the plan,
+        so no tick planned. They share TREE_LOOKUP_SECONDS; past it a commit reads as unpublished and the plan goes on."""
+        ranges = [("1" * 40, "2" * 40)]
+        commits = {ranges[0]: [f"{i:040x}" for i in range(500)]}
+        with tempfile.TemporaryDirectory() as d:
+            state = cron.empty_state(T0)
+            state["persisted"] = True
+            state["last_tried"] = {"sha": "f" * 40, "at": cron.iso(at(0))}
+            state["regressions"] = [{"name": "cmd_d.e2e@cmux20", "p95": 30.0, "base": 20.0, "confirmed": True,
+                                     "range": {"good": ranges[0][0], "bad": ranges[0][1], "skip": [], "steps": 0}}]
+            with open(os.path.join(d, "state.json"), "w") as f:
+                json.dump(state, f)
+            judged = []
+            plan, said = self.tick(d, commits, judged, lookup_seconds=200)
+            self.assertEqual(plan["action"], "none", plan.get("reason"))
+            self.assertEqual(len(judged), -(-cron.TREE_LOOKUP_SECONDS // 200), "lookups stop once the budget is spent")
+            self.assertIn(f"tree lookups used this plan's {cron.TREE_LOOKUP_SECONDS} s", said)
+            self.assertIn("took 200 s", said)
 
 
 class DiffBenchVersionTests(unittest.TestCase):
@@ -4169,7 +4193,7 @@ class NotMeasuringTests(unittest.TestCase):
         with mock.patch.object(cron, "now_utc", lambda: at(1)), mock.patch.object(cron, "git", git), \
                 mock.patch.object(cron, "measure_version", lambda sha: version), \
                 mock.patch.object(cron, "commit_on_branch", lambda repo, t, known=(): cron.is_sha), \
-                mock.patch.object(cron, "tree_published", lambda sha: True), \
+                mock.patch.object(cron, "tree_published", lambda sha, deadline=None: True), \
                 mock.patch.object(cron, "github_busy", lambda *a: None), \
                 mock.patch.object(cron, "frame_pacing_runs", lambda repo: []), \
                 mock.patch.object(cron, "is_ancestor", lambda a, b: False), \
@@ -5075,7 +5099,7 @@ class BatchTests(unittest.TestCase):
         with mock.patch.object(cron, "now_utc", lambda: now), mock.patch.object(cron, "git", lambda *a, check=True: self.SHA), \
                 mock.patch.object(cron, "measure_version", lambda sha: 2), \
                 mock.patch.object(cron, "commit_on_branch", lambda repo, t, known=(): cron.is_sha), \
-                mock.patch.object(cron, "tree_published", lambda sha: True), \
+                mock.patch.object(cron, "tree_published", lambda sha, deadline=None: True), \
                 mock.patch.object(cron, "github_busy", lambda *a: None), \
                 mock.patch.object(cron, "frame_pacing_runs", lambda repo: []), \
                 mock.patch.object(cron, "is_ancestor", lambda a, b: False), \
