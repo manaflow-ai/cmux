@@ -218,6 +218,63 @@
    ],
    "affects_why": "swift-logic-delta.py --gate counts swift_logic_lines + mirror_lines (swift-logic-lines.py) at the base and the merge commit: it reads only Swift files, the class table plans/cmux-next/swift-logic-classes.tsv and its own counter. A change touching none of them moves neither number. Before: the 400 feat-cmux-next merges to 2026-11-25T23Z added 3,334 lines in 43 PRs, none asked why.",
    "skip_docs_only": true
+  },
+  "nightly-pr-build.yml": {
+   "types": [
+    "opened",
+    "synchronize",
+    "reopened",
+    "ready_for_review"
+   ],
+   "paths": [
+    "Packages/**",
+    "vendor/**",
+    "Resources/**",
+    "ghostty",
+    "ghostty-next",
+    ".gitmodules",
+    ".xcode-version",
+    "*.xcodeproj/**",
+    "Sources/**",
+    "cmux-tui/**",
+    "cmux-next-ios/rust/**",
+    "Native/OptChat/**",
+    "Native/DiffSidecar/**",
+    ".cargo/**",
+    "scripts/cmux-next/check-release-compile.sh",
+    "scripts/cmux-next/lib/**",
+    "scripts/ci/xcode-pins.txt",
+    "scripts/select-ci-xcode.sh",
+    "scripts/ci/nightly_pr_build.py",
+    "scripts/ci/job_input_fingerprint.py",
+    "scripts/ci/cmux_next_route.py",
+    ".github/workflows/nightly-pr-build.yml"
+   ],
+   "affects": [
+    "Packages/**",
+    "vendor/**",
+    "Resources/**",
+    "ghostty",
+    "ghostty-next",
+    ".gitmodules",
+    ".xcode-version",
+    "*.xcodeproj/**",
+    "Sources/**",
+    "cmux-tui/**",
+    "cmux-next-ios/rust/**",
+    "Native/OptChat/**",
+    "Native/DiffSidecar/**",
+    ".cargo/**",
+    "scripts/cmux-next/check-release-compile.sh",
+    "scripts/cmux-next/lib/**",
+    "scripts/ci/xcode-pins.txt",
+    "scripts/select-ci-xcode.sh",
+    "scripts/ci/nightly_pr_build.py",
+    "scripts/ci/job_input_fingerprint.py",
+    "scripts/ci/cmux_next_route.py",
+    ".github/workflows/nightly-pr-build.yml"
+   ],
+   "affects_why": "The Nightly's app compile reads the packages, vendored sources, resources, the Xcode project and the compile script with what it sources; the helpers read cmux-tui, cmux-next-ios/rust, Native/OptChat and DiffSidecar and the cargo config. nightly_pr_build.py route narrows it per build; nothing else changes what it builds."
   }
  }
 }
