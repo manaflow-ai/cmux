@@ -26,7 +26,7 @@ import Testing
         // Neither UDP nor the TURN host: cmux's WebSocket relay (PROTOCOL.md "WebSocket relay").
         _ = machine.handle(.linkUpdated(generation: machine.generation, path: .httpsRelay, rttMillis: nil))
         #expect(machine.phase.diagnosticLine(macName: "Studio") == "Connected · WireGuard relay (cmux, HTTPS) · 40 ms")
-        // A live link says nothing on the status line (#53778: no Connected flash); the path is diagnostics only.
+        // The header says nothing for a connected link, on cmux's relay as on any path (#53778).
         #expect(machine.phase.statusLine(macName: "Studio") == nil)
         _ = machine.handle(.linkUpdated(generation: machine.generation, path: .noPath, rttMillis: nil))
         #expect(machine.phase.diagnosticLine(macName: "Studio") == "Connected · WireGuard no path · 40 ms")
