@@ -112,6 +112,8 @@ mod forward_wait;
 mod title_log_tests;
 pub use fork::Retarget;
 #[cfg(test)]
+mod admission_restore_tests;
+#[cfg(test)]
 mod forum_held_turn_tests;
 #[cfg(test)]
 mod host_notice_tests;
