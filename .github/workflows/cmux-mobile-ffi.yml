@@ -19,40 +19,15 @@
 name: cmux-mobile-ffi
 
 #
-# A pull request into feat-cmux-next on the same paths runs the rust job as an advisory check, on the 4 vCPU pool: no
-# ruleset requires it and its name ends "(advisory)" on a pull request, so land-judge and next-autoland neither wait
-# on nor refuse for it; a red there is a follow-up (ci-oops soft class), not a merge block. apple (a macOS runner)
-# and android (two NDK targets) stay on pushes and dispatch.
+# CI cut 2026-11-24 (goal ci-runner-min-per-day-50k): pull requests no longer run this advisory check; it gated
+# nothing (no ruleset requires it, land-judge skips "(advisory)" names). Landings on feat-cmux-next and dispatch
+# still run it, so a red shows up on base. The "(advisory)" name and pull_request conditions below stay inert.
 on:
   push:
     branches:
       - feat-cmux-next
       - "feat-cmux-next-hq39-mobile-*"
       - "feat-cmux-next-object-sync*"
-    paths:
-      - ".github/workflows/cmux-mobile-ffi.yml"
-      - ".github/actions/setup-cmux-tui-rust/**"
-      - ".github/actions/runner-cargo-home/**"
-      - "cmux-tui/Cargo.toml"
-      - "cmux-tui/Cargo.lock"
-      - "cmux-tui/rust-toolchain.toml"
-      - "cmux-tui/crates/cmux-terminal-sizing/**"
-      - "cmux-tui/crates/cmux-mobile-core/**"
-      - "cmux-tui/crates/cmux-mobile-ffi/**"
-      - "cmux-tui/crates/cmux-cloud-wire/**"
-      - "schemas/terminal-sizing/**"
-      # The generated wire types (cmux-cloud-wire) and their vector gate.
-      - "backend/catalog/cloud-operations.json"
-      - "backend/catalog/cloud-vectors.json"
-      - "backend/packages/protocol/scripts/export-rust-client.ts"
-      # The ownership mirror (cmux-cloud-wire::mirror) and its trace vectors.
-      - "schemas/ownership-mirror/**"
-      - "backend/packages/ownership/src/**"
-      - "backend/packages/ownership/scripts/export-mirror-vectors.ts"
-  pull_request:
-    types: [opened, synchronize, reopened, ready_for_review, labeled]
-    branches:
-      - feat-cmux-next
     paths:
       - ".github/workflows/cmux-mobile-ffi.yml"
       - ".github/actions/setup-cmux-tui-rust/**"
@@ -82,7 +57,7 @@ on:
         type: string
 
 concurrency:
-  group: cmux-mobile-ffi-${{ github.ref }}${{ github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' || github.event.action == 'unlabeled') && !contains(fromJSON('["full-ci","ready-to-land"]'), github.event.label.name) && format('-label-{0}', github.run_id) || '' }}
+  group: cmux-mobile-ffi-${{ github.ref }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' || github.ref != 'refs/heads/feat-cmux-next' }}
 
 permissions: {}
@@ -100,7 +75,7 @@ env:
 jobs:
   rust:
     name: rust (fmt, clippy, tests)${{ github.event_name == 'pull_request' && ' (advisory)' || '' }}
-    if: ${{ (github.event_name != 'pull_request' || contains(github.event.pull_request.labels.*.name, 'full-ci') || (github.event.pull_request.draft == true && (vars.CI_DRAFT_CHEAP_TIER || '1') == '0') || (github.event.pull_request.draft != true && (contains(github.event.pull_request.labels.*.name, 'ready-to-land') || github.event.pull_request.base.ref != 'feat-cmux-next' || github.event.pull_request.head.repo.full_name != github.repository || (vars.CI_LAND_TIER || '1') == '0'))) && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && !(github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' || github.event.action == 'unlabeled') && !contains(fromJSON('["full-ci","ready-to-land"]'), github.event.label.name)) }}
+    if: ${{ (github.event_name != 'pull_request' || github.event.pull_request.draft != true || contains(github.event.pull_request.labels.*.name, 'full-ci') || (vars.CI_DRAFT_CHEAP_TIER || '1') == '0') && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && (vars.CI_FORK_LINUX_RUNNER || 'ubuntu-24.04') || 'cmux-linux' }}
     timeout-minutes: 30
     permissions:
@@ -149,7 +124,7 @@ jobs:
 
   apple:
     name: apple (xcframework, Swift tests)
-    if: ${{ (github.event_name != 'pull_request' || contains(github.event.pull_request.labels.*.name, 'full-ci') || (github.event.pull_request.draft == true && (vars.CI_DRAFT_CHEAP_TIER || '1') == '0') || (github.event.pull_request.draft != true && (contains(github.event.pull_request.labels.*.name, 'ready-to-land') || github.event.pull_request.base.ref != 'feat-cmux-next' || github.event.pull_request.head.repo.full_name != github.repository || (vars.CI_LAND_TIER || '1') == '0'))) && (github.event_name != 'pull_request') && !(github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' || github.event.action == 'unlabeled') && !contains(fromJSON('["full-ci","ready-to-land"]'), github.event.label.name)) }}
+    if: ${{ (github.event_name != 'pull_request' || github.event.pull_request.draft != true || contains(github.event.pull_request.labels.*.name, 'full-ci') || (vars.CI_DRAFT_CHEAP_TIER || '1') == '0') && (github.event_name != 'pull_request') }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || vars.CI_PAID_MACOS_OVERFLOW == '1' && vars.MACOS_RUNNER_15 || fromJSON(vars.RUNNER_POOLS).macos_15 }}
     timeout-minutes: 60
     permissions:
@@ -409,7 +384,7 @@ jobs:
 
   android:
     name: android (cargo-ndk, AAR, Kotlin tests)
-    if: ${{ (github.event_name != 'pull_request' || contains(github.event.pull_request.labels.*.name, 'full-ci') || (github.event.pull_request.draft == true && (vars.CI_DRAFT_CHEAP_TIER || '1') == '0') || (github.event.pull_request.draft != true && (contains(github.event.pull_request.labels.*.name, 'ready-to-land') || github.event.pull_request.base.ref != 'feat-cmux-next' || github.event.pull_request.head.repo.full_name != github.repository || (vars.CI_LAND_TIER || '1') == '0'))) && (github.event_name != 'pull_request') && !(github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' || github.event.action == 'unlabeled') && !contains(fromJSON('["full-ci","ready-to-land"]'), github.event.label.name)) }}
+    if: ${{ (github.event_name != 'pull_request' || github.event.pull_request.draft != true || contains(github.event.pull_request.labels.*.name, 'full-ci') || (vars.CI_DRAFT_CHEAP_TIER || '1') == '0') && (github.event_name != 'pull_request') }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && (vars.CI_FORK_LINUX_RUNNER || 'ubuntu-24.04') || 'cmux-linux' }}
     timeout-minutes: 45
     permissions:

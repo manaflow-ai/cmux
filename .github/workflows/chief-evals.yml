@@ -7,24 +7,12 @@
 # and are reported in the job summary. When the model route is down they are
 # skipped with a warning, so a subrouter outage never reads as a Chief failure.
 #
-# A pull request into feat-cmux-next that touches Chief code runs it too, as an advisory check: no ruleset requires
-# it, and on a pull request the job is named "evals (advisory)", so land-judge and next-autoland neither wait on nor
-# refuse for it. A red there is a follow-up (ci-oops soft class), not a merge block. A pull request run whose tailnet
-# join is refused skips the model cases with the warning above; the deterministic cases still run.
+# CI cut 2026-11-24 (goal ci-runner-min-per-day-50k): pull requests no longer run this advisory check; it gated
+# nothing (no ruleset requires it, land-judge skips "(advisory)" names). Landings on feat-cmux-next and dispatch
+# still run it, so a red shows up on base. The "(advisory)" name and pull_request conditions below stay inert.
 name: chief-evals
 on:
   push:
-    branches: [feat-cmux-next]
-    paths:
-      - "Native/OptChat/**"
-      - "cmux-tui/crates/cmux-chief/**"
-      - "cmux-tui/crates/cmux-conversation/**"
-      - ".github/workflows/chief-evals.yml"
-      # A README or notes file alone starts nothing here (tests/test_ci_docs_only_prs.py); no build reads them.
-      - "!**/README.md"
-      - "!**/COORDINATION.md"
-  pull_request:
-    types: [opened, synchronize, reopened, ready_for_review, labeled]
     branches: [feat-cmux-next]
     paths:
       - "Native/OptChat/**"
@@ -47,7 +35,7 @@ permissions: {}
 # One run at a time, never cancelled on the branch: it moves every few minutes, and
 # a cancelled run scores nothing. A pull request's newer push replaces its older run.
 concurrency:
-  group: chief-evals-${{ github.ref }}${{ github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' || github.event.action == 'unlabeled') && !contains(fromJSON('["full-ci","ready-to-land"]'), github.event.label.name) && format('-label-{0}', github.run_id) || '' }}
+  group: chief-evals-${{ github.ref }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 env:
   # Temporary REST budget attribution: one gh-call line per GitHub API call (scripts/ci/api_call_log/env.sh, fetched at a fixed commit when the checkout has no copy).
@@ -58,7 +46,7 @@ jobs:
     name: evals${{ github.event_name == 'pull_request' && ' (advisory)' || '' }}
     # A pull request joins the tailnet only once the Tailscale trust credential admits pull_request: set the repo
     # variable CHIEF_EVALS_PR_TAILNET=true then (tests/test_ci_workflow_tailnet_oidc_pr_gate.py, cmux#43753).
-    if: ${{ (github.event_name != 'pull_request' || contains(github.event.pull_request.labels.*.name, 'full-ci') || (github.event.pull_request.draft == true && (vars.CI_DRAFT_CHEAP_TIER || '1') == '0') || (github.event.pull_request.draft != true && (contains(github.event.pull_request.labels.*.name, 'ready-to-land') || github.event.pull_request.base.ref != 'feat-cmux-next' || github.event.pull_request.head.repo.full_name != github.repository || (vars.CI_LAND_TIER || '1') == '0'))) && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository && vars.CHIEF_EVALS_PR_TAILNET == 'true') && !(github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' || github.event.action == 'unlabeled') && !contains(fromJSON('["full-ci","ready-to-land"]'), github.event.label.name)) }}
+    if: ${{ (github.event_name != 'pull_request' || github.event.pull_request.draft != true || contains(github.event.pull_request.labels.*.name, 'full-ci') || (vars.CI_DRAFT_CHEAP_TIER || '1') == '0') && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository && vars.CHIEF_EVALS_PR_TAILNET == 'true') }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && (vars.CI_FORK_LINUX_RUNNER || 'ubuntu-24.04') || 'cmux-linux' }}
     timeout-minutes: 30
     outputs:
@@ -186,7 +174,7 @@ jobs:
   fleet-ab:
     name: model cases A/B on the fleet
     needs: evals
-    if: ${{ (!cancelled() && github.repository_owner == 'manaflow-ai' && vars.CI_EVAL_STEP_GATEWAY != '' && github.event_name == 'push' && needs.evals.outputs.tailnet != 'success' && github.event.before != '' && github.event.before != '0000000000000000000000000000000000000000') && (github.event_name != 'pull_request' || contains(github.event.pull_request.labels.*.name, 'full-ci') || (github.event.pull_request.draft == true && (vars.CI_DRAFT_CHEAP_TIER || '1') == '0') || (github.event.pull_request.draft != true && (contains(github.event.pull_request.labels.*.name, 'ready-to-land') || github.event.pull_request.base.ref != 'feat-cmux-next' || github.event.pull_request.head.repo.full_name != github.repository || (vars.CI_LAND_TIER || '1') == '0'))) && !(github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' || github.event.action == 'unlabeled') && !contains(fromJSON('["full-ci","ready-to-land"]'), github.event.label.name)) }}
+    if: ${{ !cancelled() && github.repository_owner == 'manaflow-ai' && vars.CI_EVAL_STEP_GATEWAY != '' && github.event_name == 'push' && needs.evals.outputs.tailnet != 'success' && github.event.before != '' && github.event.before != '0000000000000000000000000000000000000000' }}
     runs-on: ${{ vars.CI_EVAL_STEP_GATEWAY }}
     timeout-minutes: 120
     continue-on-error: true

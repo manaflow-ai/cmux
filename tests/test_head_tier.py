@@ -204,17 +204,45 @@ class IdleTests(unittest.TestCase):
 
     def test_two_base_merges_on_a_branch_idle_three_days_run_nothing(self) -> None:
         facts = head_tier.head_facts(self.event(self.head))
-        self.assertEqual(facts, {"base_merge_only": True, "own_last": self.now - 3 * DAY})
+        self.assertEqual(facts, {"base_merge_only": True, "own_last": self.now - 3 * DAY, "by_github": False})
         self.assertEqual(head_tier.tier("pull_request", self.event(self.head), facts=facts, now=self.now)[0], "none")
 
     def test_a_recent_own_commit_is_not_idle(self) -> None:
         facts = head_tier.head_facts(self.event(self.head))
         self.assertEqual(head_tier.tier("pull_request", self.event(self.head), facts=facts,
-                                        now=self.now - 2 * DAY - 60)[0], "full")
+                                        now=self.now - 2 * DAY - 60, sync_switch="0")[0], "full")
+
+    def test_a_local_base_merge_on_an_active_branch_runs_the_cheap_tier(self) -> None:
+        facts = head_tier.head_facts(self.event(self.head))
+        fresh = self.now - 3 * DAY + 3600  # the branch's own last commit is an hour old: not idle
+        got = head_tier.tier("pull_request", self.event(self.head), facts=facts, now=fresh)
+        self.assertEqual(got[0], "cheap", got)
+        self.assertEqual(head_tier.tier("pull_request", self.event(self.head), facts=facts, now=fresh,
+                                        sync_switch="0")[0], "full")
+        self.assertEqual(head_tier.tier("pull_request", self.event(self.head, labels=("full-ci",)), facts=facts,
+                                        now=fresh)[0], "full")
+        self.assertEqual(head_tier.tier("pull_request", self.event(self.head, "ready_for_review"), facts=facts,
+                                        now=fresh)[0], "full")
+
+    def test_a_merge_github_made_keeps_the_full_tier(self) -> None:
+        self.git("checkout", "-q", "feat-cmux-next")
+        self.git("commit", "-q", "--allow-empty", "-m", "base moves a third time", when=self.now - 20)
+        self.git("checkout", "-q", "lane/x")
+        env = git_fixture_env.fixture_env()
+        env.update(GIT_COMMITTER_NAME="GitHub", GIT_COMMITTER_EMAIL="noreply@github.com",
+                   GIT_COMMITTER_DATE=f"{self.now - 10} +0000", GIT_AUTHOR_DATE=f"{self.now - 10} +0000")
+        subprocess.run(["git", "-c", "commit.gpgsign=false", "merge", "-q", "--no-ff", "-m",
+                        "Merge branch 'feat-cmux-next' into lane/x", "feat-cmux-next"],
+                       cwd=self.dir, env=env, check=True, capture_output=True)
+        head = self.git("rev-parse", "HEAD")
+        facts = head_tier.head_facts(self.event(head))
+        self.assertEqual(facts, {"base_merge_only": True, "own_last": self.now - 3 * DAY, "by_github": True})
+        self.assertEqual(head_tier.tier("pull_request", self.event(head), facts=facts,
+                                        now=self.now - 3 * DAY + 3600)[0], "full")
 
     def test_an_own_commit_head_is_full(self) -> None:
         facts = head_tier.head_facts(self.event(self.own))
-        self.assertEqual(facts, {"base_merge_only": False, "own_last": None})
+        self.assertEqual(facts, {"base_merge_only": False, "own_last": None, "by_github": False})
         self.assertEqual(head_tier.tier("pull_request", self.event(self.own), facts=facts, now=self.now)[0], "full")
 
     def test_full_ci_the_switch_and_other_actions_override(self) -> None:
@@ -222,8 +250,8 @@ class IdleTests(unittest.TestCase):
         tier = head_tier.tier
         self.assertEqual(tier("pull_request", self.event(self.head, labels=("full-ci",)), facts=facts,
                               now=self.now)[0], "full")
-        self.assertEqual(tier("pull_request", self.event(self.head), facts=facts, now=self.now, idle_switch="0")[0],
-                         "full")
+        self.assertEqual(tier("pull_request", self.event(self.head), facts=facts, now=self.now, idle_switch="0",
+                              sync_switch="0")[0], "full")
         self.assertEqual(tier("pull_request", self.event(self.head, "ready_for_review"), facts=facts,
                               now=self.now)[0], "full")
         self.assertIsNone(head_tier.head_facts(self.event(self.head, "opened")))
@@ -253,13 +281,12 @@ class IdleTests(unittest.TestCase):
 # classic frozen guard) or already skips feat-cmux-next pull requests (scripts/ci/affected_jobs.py PR_SKIP_IF).
 GATED = {name: "pull_request" for name in (
     "app-store-shelf.yml", "auth-refresh-tests.yml", "backend.yml", "billing.yml", "chat-open-perf-report.yml",
-    "chief-evals.yml", "cloud-chief-machine.yml", "cloud-journey-pr.yml", "cloud-vm-guest-install.yml",
-    "cloudflare-relay.yml", "cmux-cloud-cli.yml", "cmux-mobile-ffi.yml", "cmux-next-car-guards.yml",
-    "cmux-next-fast-gates.yml", "cmux-next-guards.yml", "cmux-next-hot-verify.yml", "cmux-next-ios-kit.yml",
-    "cmux-next-pr-autofix.yml", "cmux-next-shell-integration.yml", "cmux-next-terminal.yml", "cmux-rd-windows.yml",
-    "cmux-vm.yml", "cmux-vm-clients.yml", "cmux-vm-cloud.yml", "cmux-vnc.yml", "ios-e2e.yml",
-    "ios-reliability-matrix.yml", "iroh-v2.yml", "measure-swift-typecheck.yml", "relay-tls.yml", "release-rails.yml",
-    "signing-keychain-macos.yml", "terminal-hang-diagnostics.yml", "test-ios.yml")}
+    "cloud-chief-machine.yml", "cloud-journey-pr.yml", "cloud-vm-guest-install.yml", "cloudflare-relay.yml",
+    "cmux-cloud-cli.yml", "cmux-next-car-guards.yml", "cmux-next-fast-gates.yml", "cmux-next-guards.yml",
+    "cmux-next-hot-verify.yml", "cmux-next-ios-kit.yml", "cmux-next-pr-autofix.yml",
+    "cmux-next-shell-integration.yml", "cmux-vm.yml", "cmux-vm-clients.yml", "cmux-vm-cloud.yml", "cmux-vnc.yml",
+    "ios-e2e.yml", "ios-reliability-matrix.yml", "iroh-v2.yml", "measure-swift-typecheck.yml", "relay-tls.yml",
+    "release-rails.yml", "signing-keychain-macos.yml", "terminal-hang-diagnostics.yml", "test-ios.yml")}
 GATED["backend-migrations.yml"] = "pull_request_target"
 # Only the draft tier: its one job runs only when the motion-golden label is the one added (a person asks for it).
 DRAFT_ONLY = {"cmux-next-motion-golden.yml": "pull_request"}
@@ -269,7 +296,9 @@ KEEP_ON_LABELED = {"backend-migrations.yml"}
 # first run never starts them either.
 RERUN_ONLY_ON_PULL_REQUEST = {("cmux-next-pr-autofix.yml", "repair")}
 # Push-only jobs: their if: excludes a pull request, so no cheap head ever runs them.
-NEVER_ON_PULL_REQUEST = {("cmux-next-pr-autofix.yml", "push"), ("chief-evals.yml", "fleet-ab")}
+# chief-evals, cmux-mobile-ffi, cmux-next-terminal and cmux-rd-windows have no pull_request trigger since #54661
+# (advisory-only PR runs off), so no head of theirs is gated.
+NEVER_ON_PULL_REQUEST = {("cmux-next-pr-autofix.yml", "push")}
 # Runs on every head: deletes the pull request's preview when it closes.
 KEEP_ON_EVERY_HEAD = {("backend.yml", "preview-cleanup")}
 # Runs for a closed pull request (cancels its hot-verify) or a head handed to land.
