@@ -4,10 +4,6 @@ enum PlaceholderKnownOverBound {
     /// Placeholder id -> the item and pull request that removes it.
     static let ids: [String: String] = [
         "chat.user.empty": "item 1b (ios-optimistic-send), cmux#54993",
-        "tabgrid.browser.globe": "item 1a (mobile-open-fast), cmux#54985",
-        "tabgrid.stream.icon": "item 1a (mobile-open-fast), cmux#54985",
-        "tabgrid.terminal.connecting": "item 1a (mobile-open-fast), cmux#54985",
-        "tabgrid.terminal.placeholder": "item 1a (mobile-open-fast), cmux#54985",
         "tabgrid.terminal.unavailable": "item 1a (mobile-open-fast), cmux#54985",
     ]
     /// Flow -> the item and pull request that brings its layout-shift count to zero.

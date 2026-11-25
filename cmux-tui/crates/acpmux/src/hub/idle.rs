@@ -357,14 +357,20 @@ impl Hub {
         if !busy {
             self.confirm_claude_stored(&session).await;
         }
-        // A recap the person will want is asked before the process goes (`away_recap.rs`).
-        if busy || !self.idle_eligible(&session) || self.recap_before_sleep(&session) {
+        // A recap the person will want is asked before the process goes (`away_recap.rs`), and
+        // an armed cache compaction runs now, into this live harness, while its cache is warm:
+        // one into the respawned harness rewrites the whole context (`cache_compact.rs`).
+        if busy
+            || !self.idle_eligible(&session)
+            || self.recap_before_sleep(&session)
+            || self.cache_compact_before_reap(&session)
+        {
             self.touch(&session);
             return;
         }
         // Its MCP servers, read before the leases: the configs are files (`idle_census.rs`).
         let Some(child) = session.child.lock().await.clone() else { return };
-        let sidecars = self.sidecars(&child).await;
+        let sidecars = self.sidecars(&session, &child).await;
         // Held until the harness is ended: no turn, start, mode change, fork or stop
         // begins meanwhile, and one that already began keeps the harness up.
         let turn = session.turn_lock.try_lock();
@@ -484,6 +490,8 @@ impl Hub {
         session.meta.lock().unwrap_or_else(|e| e.into_inner()).hibernated_ms =
             crate::store::now_ms().max(1);
         self.save_meta(session);
+        // Its `cmux` server, which the daemon runs (`mcp_gateway.rs`), goes with the harness.
+        crate::mcp_gateway::hibernated(&session.id);
         true
     }
 
@@ -716,7 +724,7 @@ impl Hub {
     }
 
     /// What holds `session` at work, or None when nothing does.
-    fn at_work(&self, session: &Session) -> Option<SessionAtWork> {
+    pub(super) fn at_work(&self, session: &Session) -> Option<SessionAtWork> {
         let turn = self.turn_at_work(session);
         let subagents =
             session.subagents.lock().unwrap_or_else(|e| e.into_inner()).background_running();
@@ -724,7 +732,9 @@ impl Hub {
         let processes = self.running_processes(session) + self.bg_running_count(session);
         // A move off this machine not yet committed or aborted: the chat stays frozen here until
         // its watch settles it, so a pause now would strand it mid-move.
-        let moving = session.moving().is_some() && session.meta().moved_to.is_none();
+        // Auto's own freeze is no move: a chat another holder runs has no work here.
+        let moving = session.moving().is_some_and(|mark| mark != super::AUTO_AWAY)
+            && session.meta().moved_to.is_none();
         if !(turn || subagents > 0 || below || processes > 0 || moving) {
             return None;
         }
