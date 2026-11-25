@@ -24,10 +24,10 @@ use super::{OutputMode, UsageError};
 #[path = "cloud_connect/capture.rs"]
 pub(super) mod capture;
 
-/// The Keychain service of every model key and token (`SettingsModelsLive.service` in the app).
-pub(super) use acpmux::claude_token::store::SERVICE;
 /// What `claude setup-token` prints (`claudeTokenPrefix` in the app).
 pub(super) use acpmux::claude_token::pty::TOKEN_PREFIX;
+/// The Keychain service of every model key and token (`SettingsModelsLive.service` in the app).
+pub(super) use acpmux::claude_token::store::SERVICE;
 /// The longest key or token (`keyLimit` in the app).
 const KEY_LIMIT: usize = 16_384;
 /// The providers `api-key` adds.

@@ -99,7 +99,11 @@ enum Read {
 impl Service {
     /// A service that stores tokens in `store` and runs `program` (`None`: [`pty::program`]),
     /// waiting `url_timeout` for the link.
-    pub fn new(store: Arc<dyn store::Store>, program: Option<PathBuf>, url_timeout: Duration) -> Self {
+    pub fn new(
+        store: Arc<dyn store::Store>,
+        program: Option<PathBuf>,
+        url_timeout: Duration,
+    ) -> Self {
         Self { store, program, url_timeout, attempts: Mutex::new(HashMap::new()) }
     }
 

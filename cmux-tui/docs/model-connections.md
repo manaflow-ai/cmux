@@ -222,7 +222,8 @@ Connections (all held on the Mac: acpmux routes + Keychain references):
   (cmux never implements Claude's OAuth). One click: the daemon runs `claude setup-token` itself
   (`claude_token.begin` / `wait` / `code` / `cancel` above) and stores the token; no terminal, no
   copy and paste. The paste field stays as a fallback: the pasted value is checked (`sk-ant-oat`
-  prefix, whitespace removed), stored in the Keychain, and only `keychain:ITEM` reaches
+  prefix, every whitespace character taken out first, inner ones too: a terminal wraps and pads the
+  printed line), stored in the Keychain, and only `keychain:ITEM` reaches
   acpmux (`_acpmux/connections/claude_token.add {secret, label?}` -> state; kind `claude-token`,
   provider anthropic, family claude). An Anthropic API key (`api-key`, anthropic) also serves Claude.
 - **Codex**: `chatgpt-plan` (Sign in with ChatGPT, lane A as built) or an OpenAI API key.

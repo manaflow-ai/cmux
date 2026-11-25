@@ -423,8 +423,7 @@ fn the_pty_run_fails_with_no_token_and_names_a_missing_claude() {
     assert!(String::from_utf8_lossy(&out).contains("login failed"));
 
     let missing = dir.path().join("no-such-claude");
-    let error =
-        capture::run(missing.to_str().unwrap(), None, 200, &mut out).unwrap_err();
+    let error = capture::run(missing.to_str().unwrap(), None, 200, &mut out).unwrap_err();
     assert!(error.contains("not installed"), "{error}");
 }
 

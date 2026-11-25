@@ -1117,6 +1117,12 @@
     },
     {
       "kind": "request",
+      "name": "_acpmux/chat_move",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
       "name": "_acpmux/auto_session/leftover",
       "params": true,
       "result": true
@@ -1287,6 +1293,14 @@
       "name": "_acpmux/turn_shots",
       "params": {
         "$ref": "#/types/TurnShotsParams"
+      },
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/turn_frames",
+      "params": {
+        "$ref": "#/types/TurnFramesParams"
       },
       "result": true
     },
@@ -2716,6 +2730,24 @@
     {
       "kind": "request",
       "name": "_acpmux/attachments_held",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/trace/spans",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/trace/status",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "agent/credentials.update",
       "params": true,
       "result": true
     },
@@ -9679,6 +9711,20 @@
         "level": true,
         "peer": true,
         "sessionId": true
+      },
+      "type": "object"
+    },
+    "TurnFramesParams": {
+      "additionalProperties": false,
+      "properties": {
+        "_meta": {
+          "$ref": "#/types/RequestMeta"
+        },
+        "index": true,
+        "look": true,
+        "sessionId": true,
+        "sinceSeq": true,
+        "turnId": true
       },
       "type": "object"
     },

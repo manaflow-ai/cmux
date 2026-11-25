@@ -143,10 +143,7 @@ async fn cancel_ends_the_child_and_a_new_begin_cancels_the_pending_one() {
     assert_eq!(svc.cancel(&second.attempt).await.unwrap(), Status::Cancelled);
     assert!(started.elapsed() < Duration::from_secs(5));
     assert!(!alive(&pid), "cancel ended the child");
-    assert_eq!(
-        svc.wait(&second.attempt, Duration::from_secs(1)).await.unwrap(),
-        Status::Cancelled
-    );
+    assert_eq!(svc.wait(&second.attempt, Duration::from_secs(1)).await.unwrap(), Status::Cancelled);
     assert_eq!(svc.cancel("nope").await.unwrap_err().code, "unknown_attempt");
     assert!(secrets(dir.path()).is_empty());
 }
@@ -155,7 +152,8 @@ async fn cancel_ends_the_child_and_a_new_begin_cancels_the_pending_one() {
 async fn no_link_in_time_ends_the_child_with_no_url() {
     let dir = tempfile::tempdir().unwrap();
     let pid = dir.path().join("pid");
-    let body = format!("echo $$ > '{}'\necho 'Opening browser to sign in'\nsleep 30", pid.display());
+    let body =
+        format!("echo $$ > '{}'\necho 'Opening browser to sign in'\nsleep 30", pid.display());
     let svc = service(dir.path(), fake_claude(dir.path(), &body), Duration::from_millis(700));
     let (_, add) = adder(Ok("claude-token"));
     let started = Instant::now();

@@ -151,7 +151,7 @@ pub fn find_url(output: &[u8]) -> Option<String> {
         let rest = text.get(start..)?;
         let len = rest.iter().position(|&b| !url_byte(b));
         from = start + 8;
-        let Some(len) = len else { return None };
+        let len = len?;
         let url = std::str::from_utf8(rest.get(..len)?).ok()?;
         let host = url.trim_start_matches("https://").split('/').next().unwrap_or_default();
         if matches!(host, "claude.ai" | "claude.com") && url.contains("oauth/authorize") {
