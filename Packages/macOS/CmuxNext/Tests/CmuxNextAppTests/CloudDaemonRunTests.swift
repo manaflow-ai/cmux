@@ -50,7 +50,7 @@ struct CloudDaemonRunTests {
         var api = CloudDaemon.workerMachines(baseURL: URL(string: "https://owner.standin.invalid") ?? URL(fileURLWithPath: "/"),
                                                 accessToken: access, teamID: { "team_cmux" })
         if let daemon { api.daemonCall = { input, _ in try daemon.run(input) } }
-        return api.daemon.runningAs(Self.account)
+        return api.runningAs(Self.account)
     }
 
     nonisolated static let account = CloudDaemon.RunAccount(user: "u1", team: "t1")
