@@ -28,8 +28,8 @@
 #   CMUX_SIGN_MODE             "all" (default), "all-except-computer-use", or
 #                              "main-only". The split Computer Use notarization
 #                              flow uses all-except-computer-use while Apple's
-#                              service processes the helpers (Computer Use and the
-#                              Screen Sharing helper, one submission), then
+#                              service processes the Computer Use helper (with
+#                              the screen sharing executable inside), then
 #                              main-only after stapling so the submitted helper
 #                              CDHashes survive.
 #
@@ -107,6 +107,8 @@ COMMON=(--force --options runtime "${TS_FLAG[@]}" --sign "$IDENTITY")
 COMPUTER_USE_HELPER="$APP_PATH/Contents/Library/cmux Computer Use.app"
 SYSTEM_EXTENSIONS_DIR="$APP_PATH/Contents/Library/SystemExtensions"
 CEF_FRAMEWORK_NAME="Chromium Embedded Framework.framework"
+SHARE_EXTENSION=CmuxShare.appex
+SHARE_EXTENSION_ENTITLEMENTS="$SCRIPT_DIR/cmux-next/share-extension.entitlements"
 
 # Effective app entitlements: the desired file reconciled against the embedded
 # provisioning profile. Deterministic, so every CMUX_SIGN_MODE pass agrees.
@@ -145,6 +147,15 @@ if [[ "$SIGN_MODE" == "all" || "$SIGN_MODE" == "all-except-computer-use" ]]; the
   # signature in all-except-computer-use mode; changing it would invalidate the
   # ticket that finish is waiting to staple.
   if [[ "$SIGN_MODE" == "all" && -d "$COMPUTER_USE_HELPER" ]]; then
+    # The screen sharing executable inside it (one permission identity for screen sharing and
+    # computer use, bundle-screen-sharing-helper.sh) first: nested code is signed before the
+    # bundle that seals it, with the helper's identifier, so a macOS that checks the process by
+    # its own signature finds the same com.cmuxterm.cua row. No entitlements.
+    if [[ -f "$COMPUTER_USE_HELPER/Contents/MacOS/cmux-screen-sharing" ]]; then
+      echo "==> signing cmux-screen-sharing inside $(basename "$COMPUTER_USE_HELPER")"
+      "$SCRIPT_DIR/codesign-retry.sh" "${COMMON[@]}" --identifier com.cmuxterm.cua \
+        "$COMPUTER_USE_HELPER/Contents/MacOS/cmux-screen-sharing"
+    fi
     echo "==> signing nested helper $(basename "$COMPUTER_USE_HELPER")"
     "$SCRIPT_DIR/codesign-retry.sh" \
       "${COMMON[@]}" \
@@ -152,8 +163,11 @@ if [[ "$SIGN_MODE" == "all" || "$SIGN_MODE" == "all-except-computer-use" ]]; the
       "$COMPUTER_USE_HELPER"
   fi
 
-  # 2b. The Screen Sharing helper app (Contents/Library, bundle-screen-sharing-helper.sh;
-  # plans/cmux-next/screen-sharing-helper.md): stamped for this app's final bundle id and name
+  # 2b. A separate Screen Sharing helper app (Contents/Library, bundle-screen-sharing-helper.sh;
+  # plans/cmux-next/screen-sharing-helper.md), which only an app packaged before the screen
+  # sharing executable moved into the Computer Use helper carries (--stamp removes it from an
+  # app whose Computer Use helper has the executable; verify-computer-use-helper.sh fails a
+  # release app that keeps both): stamped for this app's final bundle id and name
   # (nightly and RC rename the app after the build), then signed as its own app with the
   # hardened runtime and no entitlements. Its bundle id and team are what macOS keeps its
   # Screen Recording and Accessibility grants under, so a grant survives every update.
@@ -189,11 +203,18 @@ if [[ "$SIGN_MODE" == "all" || "$SIGN_MODE" == "all-except-computer-use" ]]; the
     done
   fi
 
-  # 3. Plugins
+  # 3. Plugins. The Share extension (bundle-share-extension.sh) is stamped for this app's
+  # final bundle id, name and version first (nightly and RC rename the app after the build),
+  # then signed with the App Sandbox, without which macOS does not load an app extension.
   if [[ -d "$APP_PATH/Contents/PlugIns" ]]; then
+    "$SCRIPT_DIR/cmux-next/bundle-share-extension.sh" --stamp "$APP_PATH"
     while IFS= read -r -d '' plugin; do
       echo "==> signing plugin $(basename "$plugin")"
-      "$SCRIPT_DIR/codesign-retry.sh" "${COMMON[@]}" --deep "$plugin"
+      if [[ "$(basename "$plugin")" == "$SHARE_EXTENSION" ]]; then
+        "$SCRIPT_DIR/codesign-retry.sh" "${COMMON[@]}" --entitlements "$SHARE_EXTENSION_ENTITLEMENTS" "$plugin"
+      else
+        "$SCRIPT_DIR/codesign-retry.sh" "${COMMON[@]}" --deep "$plugin"
+      fi
     done < <(find "$APP_PATH/Contents/PlugIns" -mindepth 1 -maxdepth 1 -print0)
   fi
 
@@ -255,6 +276,15 @@ for screen_helper in "$APP_PATH/Contents/Library/"*" Screen Sharing.app"; do
   [[ -d "$screen_helper" ]] || continue
   /usr/bin/codesign --verify --strict --verbose=2 "$screen_helper"
 done
+# An unsandboxed app extension is one macOS never lists in the Share menu.
+share_extension="$APP_PATH/Contents/PlugIns/$SHARE_EXTENSION"
+if [[ -d "$share_extension" ]]; then
+  /usr/bin/codesign --verify --strict --verbose=2 "$share_extension"
+  /usr/bin/codesign -d --entitlements :- "$share_extension" 2>/dev/null | grep -q "com.apple.security.app-sandbox" || {
+    echo "error: $SHARE_EXTENSION is not signed with the App Sandbox; macOS would not load it" >&2
+    exit 1
+  }
+fi
 # The sidecar must carry exactly the slices the app does: universal for stable
 # and the transitional nightly, one architecture for thinned nightlies.
 SIDECAR_CHECK=(--archs "$(lipo -archs "$APP_PATH/Contents/MacOS/cmux")" --require-signed)

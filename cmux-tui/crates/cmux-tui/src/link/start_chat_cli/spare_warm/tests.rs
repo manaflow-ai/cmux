@@ -33,8 +33,11 @@ fn stdin(team: Option<&str>) -> String {
     format!("tok\n{}\n", install(team))
 }
 
+/// The platform's answer as it sends it (SpareWarmRoute.ts): the warm's object under `value`.
 fn owner(_: &Request, _: &str, _: &str) -> Result<Value, PlatformCallError> {
-    Ok(json!({"machine": MACHINE, "warm_until": 1_600_000, "vm_kind": "owner"}))
+    Ok(
+        json!({"ok": true, "value": {"machine": MACHINE, "warm_until": 1_600_000, "vm_kind": "owner"}}),
+    )
 }
 
 #[test]
@@ -193,6 +196,31 @@ fn a_lock_that_cannot_be_taken_refuses_before_the_platform_call() {
 }
 
 #[test]
+fn a_warm_reads_the_spare_from_the_platforms_wrapped_answer_and_from_a_bare_one() {
+    for body in [
+        json!({"ok": true, "value": {"machine": MACHINE, "warm_until": 1_600_000, "vm_kind": "owner"}}),
+        json!({"machine": MACHINE, "warm_until": 1_600_000, "vm_kind": "owner"}),
+    ] {
+        let dir = tempfile::tempdir().unwrap();
+        let transport = move |_: &Request, _: &str, _: &str| Ok(body.clone());
+        let answer = run(
+            &flags(r#"{"account":"user_a"}"#),
+            dir.path(),
+            1,
+            &mut stdin(Some(TEAM)).as_bytes(),
+            &transport,
+        )
+        .unwrap();
+        assert_eq!(
+            (answer["machine"].clone(), answer["fresh"].clone(), answer["vm_kind"].clone()),
+            (json!(MACHINE), json!(true), json!("owner"))
+        );
+        assert_eq!(answer["warm_until"], json!(1_600_000));
+        assert_eq!(answer["copy"]["machine"], json!(MACHINE));
+    }
+}
+
+#[test]
 fn no_spare_is_no_copy_and_a_refusal_keeps_its_code() {
     let input = stdin(Some(TEAM));
     let warm =
@@ -206,6 +234,16 @@ fn no_spare_is_no_copy_and_a_refusal_keeps_its_code() {
     assert_eq!(
         warm(r#"{"account":"u"}"#, &input, &none),
         json!({"ok": true, "machine": null, "fresh": false, "reason": "spare.none"})
+    );
+    // The platform's own shape: the reason and what it said about the pool come through.
+    let wrapped = |_: &Request, _: &str, _: &str| {
+        Ok(
+            json!({"ok": true, "value": {"machine": null, "reason": "no_plan", "why": "plan", "spares": 0}}),
+        )
+    };
+    assert_eq!(
+        warm(r#"{"account":"u"}"#, &input, &wrapped),
+        json!({"ok": true, "machine": null, "fresh": false, "reason": "no_plan", "why": "plan", "spares": 0})
     );
     let refused_ = |_: &Request, _: &str, _: &str| {
         Err(PlatformCallError::Status { status: 403, code: "auth.forbidden", facts: None })
@@ -280,8 +318,12 @@ fn an_abandoned_copy_is_answered_again_within_the_gap() {
         (json!(true), json!(MACHINE))
     );
     assert_eq!(calls.get(), 1);
-    // Handed out again: the next warm in the gap copies nothing.
-    assert_eq!(warm(1_030_000)["fresh"], json!(false));
+    // Handed out again: the next warm in the gap copies nothing, and still says the spare is the person's own.
+    let replayed = warm(1_030_000);
+    assert_eq!(
+        (replayed["fresh"].clone(), replayed["vm_kind"].clone()),
+        (json!(false), json!("owner"))
+    );
     assert!(warm(1_040_000).get("copy").is_none());
     // Another machine's abandon is not this warm's.
     let other = r#"{"account":"user_a","abandoned":"vm_ffffffffffffffffffff"}"#;

@@ -452,10 +452,10 @@ final class TabContentCache {
 
     /// Stand-in tab `key`'s page and chrome become daemon tab `tab`'s (`PaneBrowserTabOpener.openStandIn`), in the
     /// turn the store swaps the two: nothing is rebuilt or reloaded, and the pane that shows the
-    /// stand-in keeps the same view when it moves to `tab`. False when the stand-in has no page
-    /// (yet) or `tab` has one: `tab` then makes its own.
+    /// stand-in keeps the same view when it moves to `tab`, and its omnibar what was typed into it. False when the stand-in
+    /// has no entry (yet) or `tab` has one: `tab` then makes its own.
     func moveBrowser(_ key: String, to tab: TabModel) -> Bool {
-        guard !pendingBrowsers.contains(key), browsers[tab.id] == nil, let entry = browsers.removeValue(forKey: key) else { return false }
+        guard browsers[tab.id] == nil, let entry = browsers.removeValue(forKey: key) else { return false } // its entry moves also while its page is pending (a cold Chromium, its first frame): release ends that wait
         release(key, displacing: false)
         mount(entry, as: tab.id)
         goneTabs.track(tab.id, in: browserTabs.daemon(for: tab).store) { [weak self] in self?.release($0) }

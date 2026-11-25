@@ -15,8 +15,13 @@
 # install and the service, or to finish a join that was cut off; a joined
 # machine never spends a new token.
 #
-# The join grants mesh membership only. Screen sharing and control stay off
-# until a person at this machine allows them.
+# The join grants mesh membership. On Linux it also shares the screen with
+# your own account only: the person who joined this machine can view its
+# screen from their other devices with nothing to do here, and other
+# accounts can't reach it (the device hub pairs only one account's own
+# devices). The acpmux daemon sets that up itself at its start, through
+# cmux-rd (~/.local/bin/cmux-rd, the path its screen host unit runs); this
+# script does not install cmux-rd yet: no channel publishes it.
 #
 # Once joined: Claude Code (its official installer) and Codex (acpmux's
 # pinned, checked runtime) are installed when missing; the person's vault (env
@@ -226,7 +231,24 @@ tmp="$(mktemp -d "${TMPDIR:-/tmp}/cmux-join.XXXXXX")"
 trap 'rm -rf "$tmp"' EXIT
 trap 'exit 130' HUP INT TERM
 
-fetch() { curl --proto '=https' --tlsv1.2 -fsSL "$1" -o "$2"; }
+# A transport failure (a reset, a timeout, DNS: curl's 5 6 7 18 28 35 52 55
+# 56) is retried, 4 tries with waits of 2, 8 and 20 s: a 23 s network blip
+# failed a whole join (run 44192875334). An HTTP status the server sent
+# (curl's 22) is an answer, not a blip: no retry. Not --retry-all-errors: it
+# needs curl 7.71.
+fetch() {
+  for fetch_wait in 2 8 20 ''; do
+    fetch_rc=0
+    curl --proto '=https' --tlsv1.2 -fsSL "$1" -o "$2" || fetch_rc=$?
+    case "$fetch_rc" in
+      0) return 0 ;;
+      5 | 6 | 7 | 18 | 28 | 35 | 52 | 55 | 56) [ -n "$fetch_wait" ] || return "$fetch_rc" ;;
+      *) return "$fetch_rc" ;;
+    esac
+    say "the network dropped $1 (curl exit $fetch_rc); retrying in $fetch_wait s"
+    sleep "$fetch_wait"
+  done
+}
 
 # The value of "name": "<hex>" in a JSON file, pretty or not.
 json_hex() {
@@ -541,7 +563,17 @@ if "$acpmux" host doctor --help 2>/dev/null | grep -q -- '--here'; then
 elif has_capability "$acpmux"; then
   "$acpmux" host join --status || rc=$?
 fi
-printf '%s\n' "Screen sharing and control are off on this machine. To allow them, run here: acpmux host consent grant --screen (or --control). Your team's machines cannot turn them on."
+if [ "$os" != Linux ]; then
+  printf '%s\n' "Screen sharing and control are off on this machine. To allow them, run here: acpmux host consent grant --screen (or --control). Your team's machines cannot turn them on."
+elif [ "$is_joined" != 1 ]; then
+  # Only a join's daemon sets cmux-rd's host up (acpmux share_host/linux.rs).
+  printf '%s\n' "This machine is not joined, so its screen is not shared."
+elif [ -x "$bin_dir/cmux-rd" ]; then
+  # The daemon runs cmux-rd's enable at its start (acpmux share_host/linux.rs).
+  printf '%s\n' "Your own account can view this machine's screen from your other devices, with nothing to do here. Other accounts can't reach it."
+else
+  printf '%s\n' "This machine's screen is not shared: cmux-rd is not installed at $bin_dir/cmux-rd. Once it is there, run $acpmux daemon restart and your own account can view this screen from your other devices, with nothing to do here. Other accounts can't reach it."
+fi
 
 # 9. Last: the agents' own sign-in, on this machine.
 if [ "$is_joined" = 1 ]; then

@@ -57,10 +57,10 @@ ALLOWED: dict[str, str] = {
         'only when this run deferred to a same-key owner whose hand-off job has started: one owner-run read every 15 s, at most 12 passes',
     'cmux-next-generated-catch-up.yml: Select PRs that conflict with feat-cmux-next':
         "per feat-cmux-next push, only while a PR's mergeable is UNKNOWN: re-lists open PRs every 20 s, at most 5 more times",
-    "app-ffi-release.yml: Watch the build and rescue it to Blacksmith macOS":
-        "per feat-cmux-next app-ffi-release run, only while vars.CI_BLACKSMITH_MACOS is pr-rescue or on "
-        "(app_ffi_rescue.py, #45076, hq#3690): one jobs page every 120 s, at most 50 reads, ending once the "
-        "build has a runner; a candidate for the owned-pool rescue's one sweeper",
+    "app-ffi-release.yml: Watch the build and rescue it":
+        "per feat-cmux-next app-ffi-release run (app_ffi_rescue.py, #45076, #45176, hq#3690): one jobs page every "
+        "120 s, at most 50 reads, ending once the build has a runner; a candidate for the owned-pool rescue's one "
+        "sweeper",
     'published-in.yml: Comment the release on its PRs':
         'per stable release: one comment per PR, 7.5 s apart for the secondary limit on content writes; stops at the first rate-limit refusal',
     'nightly.yml: Comment the build on its PRs':
@@ -107,6 +107,9 @@ ALLOWED: dict[str, str] = {
         'hourly: paces artifact deletes 0.4 s apart (at most 150 a minute) and stops at 50 calls left',
     'ci-cloud-overflow-probe.yml: Probe and switch':
         'every 10 min: watches its probe job, one jobs read every 15 s for at most CI_CLOUD_PROBE_MINUTES + 5 (7 to 25 min); a candidate for an App token',
+    'cmux-next-hot-verify.yml: Dispatch the look':
+        'retry only (#45104): a look dispatch that failed is tried again, at most 6 tries in 20 minutes, 30 s doubling; '
+        'a rate limit waits for its reset, read from the rate_limit endpoint (no quota)',
     'ci-macos.yml: Try parallel GitHub artifact transport':
         'retry only: an artifact download is retried after a failure, at most 4 tries, 1-8 s apart',
     'ci-owned-pool-rescue.yml: Watch runs on persistent pools':

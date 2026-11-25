@@ -121,7 +121,8 @@
     "Packages/macOS/CmuxNext/CEFShim/src/helper_main.mm": {"count": 2, "reason": "safe: comments naming pkill and killall as the stray signals the helper ignores; it signals nothing"},
     "Packages/macOS/CmuxNext/CEFShim/src/helper_signal_policy.h": {"count": 2, "reason": "safe: comments naming pkill and killall as the stray signals the policy ignores; it signals nothing"},
     "Packages/macOS/CmuxNext/CEFShim/tests/helper_signal_policy_test.cpp": {"count": 4, "reason": "safe: test comments and case names describing a stranger's pkill or killall; the test signals its own child only"},
-    "scripts/ci/signal-quit-probe.sh": {"count": 1, "reason": "safe: a usage comment comparing the probe's own SIGTERM to pkill -TERM; the probe signals only the app it launched"}
+    "scripts/ci/signal-quit-probe.sh": {"count": 1, "reason": "safe: a usage comment comparing the probe's own SIGTERM to pkill -TERM; the probe signals only the app it launched"},
+    "webviews/src/agent-session/acpmux/newtab/commandIntent.ts": {"count": 2, "reason": "safe: the words killall and pkill in the list of command names the new tab field reads as a shell command (#45483); nothing here signals a process"}
   },
   "big-red": {
     "Packages/macOS/CmuxNext/Sources/CmuxNextActions/DeepLink/DeepLink.swift": {"count": 1, "reason": "debt: sample host name in a doc comment, example or inline test; nothing depends on it. Use a neutral name (my-vm) when the file is next touched"},

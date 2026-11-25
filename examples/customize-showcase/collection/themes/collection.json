@@ -1,0 +1,23 @@
+// Arcade: the collection's look. A night-purple page, a darker sidebar, magenta accents, no
+// borders. Edit and save: the running app repaints at once, no relaunch.
+{
+  "name": "Arcade",
+  "description": "A night-purple page, a darker sidebar, magenta accents, no borders.",
+
+  // The terminal theme, and its own colors.
+  "appearance.theme": "Builtin Dark",
+  "colors": { "background": "#1a1325", "foreground": "#f2e9ff", "selection": "#3d2a5c", "accent": "#ff5fd2" },
+  "appearance.accent": "magenta",
+
+  "appearance.background": "none",
+  "appearance.borders": "none",
+
+  "appearance.sidebarSurface": "separate",
+  "appearance.surfaces.sidebar.color": "#120c1b",
+  "appearance.surfaces.sidebar.opacity": 1,
+  "appearance.surfaces.agentPane.color": "#1a1325",
+  "appearance.surfaces.agentPane.opacity": 1,
+  "sidebar.sectionLook": "card",
+
+  "ui.animationSpeed": "fast"
+}

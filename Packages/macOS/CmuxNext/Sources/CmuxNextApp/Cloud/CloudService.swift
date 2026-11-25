@@ -79,6 +79,8 @@ final class CloudService {
     @ObservationIgnored private var credentialProvider: CloudCredentialProvider?
     @ObservationIgnored private var credentialEvents: UInt64?
     @ObservationIgnored let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "app.cloud")
+    /// Composer sends timed to their chat's first token (cmux#45953), found again by the chat's tab.
+    @ObservationIgnored let sendTimelines = CloudSendTimelines()
     /// The last list or connection failure, for diagnostics and refusals.
     private(set) var lastError: String?
     private(set) var hasLoadedMachines = false

@@ -93,11 +93,6 @@ nonisolated enum UpdaterStrings {
     static var rollbackStoresUnknown: String {
         text("updater.rollback.storesUnknown", "cmux can't tell whether the previous version reads your data, so it didn't roll back.")
     }
-    // The question every rollback entrypoint asks (UpdateDropBack.confirmation)
-    static var rollbackConfirmTitle: String { text("updater.rollback.confirm.title", "Roll Back to the Previous Version?") }
-    static var rollbackConfirmBody: String {
-        text("updater.rollback.confirm.body", "cmux quits and reopens the build this Mac kept. Your terminals and agents keep running.")
-    }
 
     // Test feed
     static var testFeedRefused: String {
@@ -183,8 +178,6 @@ nonisolated enum UpdaterStrings {
     // The newest build replaces a stale or pulled one (UpdateCard.gettingNewest)
     static var gettingNewest: String { text("updater.notice.gettingNewest", "Getting the Newest Build…") }
     static var runningBuildPulled: String { text("updater.notice.runningBuildPulled", "This build was pulled.") }
-    /// The rollback confirmation's button (``UpdateDropBack/confirmation``).
-    static var rollBackButton: String { text("updater.pulled.rollBack", "Roll Back") }
     static var noticeCheckFailed: String { text("updater.notice.checkFailed", "Update Check Failed") }
     static func foundVersion(_ version: String) -> String { format("updater.notice.foundVersion", "Version %@", version) }
     // The update changelog (cx-lntk)

@@ -20,12 +20,17 @@ name: Machine join E2E (development)
 #
 # share: true adds, while joined, the zero-touch share of a headless Linux
 # machine (Leo, 2026-11-16: "if you've connected to a headlessly running mini
-# why... would it need anything?"): cmux-rd built from the run's commit; on the
-# joined user's side only what the join runs, `cmux-rd linux-host enable
-# --non-interactive` against the development device hub; a second disposable
-# user with its own home and Xvfb, signed in to the same account, must get a
-# decoded frame of the joined machine's screen within 60 s with no request
-# waiting on the host. Its numbers (first frame bound, Mbit/s) are in the evidence.
+# why... would it need anything?"): cmux-rd built from the run's commit, put
+# where the joined machine's daemon looks for it (~/.local/bin/cmux-rd). Nothing
+# runs on the joined user's side after the join: its acpmux daemon sets up
+# cmux-rd's screen host against the development device hub by itself. A second
+# disposable user with its own home and Xvfb, signed in to the same account, must
+# see the machine within 240 s of the daemon's start and get a decoded frame of
+# its screen within 60 s with no request waiting on the host. The share's guest
+# account (CMUX_DOGFOOD_GUEST_STACK_*, sealed to the same environment) must not
+# see the machine, and the hub must refuse its request for it by device id. Its
+# numbers (online wait, first frame bound, Mbit/s) and the guest's result are in
+# the evidence.
 on:
   workflow_dispatch:
     inputs:
@@ -49,7 +54,7 @@ on:
           - deps
           - deps-slow
       share:
-        description: "while joined, share the machine with no step on it: the join's `cmux-rd linux-host enable --non-interactive`, then a viewer of the same account must decode a frame within 60 s"
+        description: "while joined, share the machine with no step on it: its daemon sets up cmux-rd's screen host, a viewer of the same account must decode a frame within 60 s, and another account must be refused"
         required: false
         default: false
         type: boolean
@@ -62,7 +67,7 @@ jobs:
     if: github.ref == 'refs/heads/feat-cmux-next'
     # A secret-reading dispatch job runs in an environment (tests/test_supplychain_security.py). This
     # existing one is limited to feat-cmux-next by GitHub's branch policy; its own secret is never read here
-    # (tests/test_machine_join_e2e_workflow.py pins the job's two secret references).
+    # (tests/test_machine_join_e2e_workflow.py pins the job's four secret references).
     environment:
       name: cmux-next-vm-image-dev
       deployment: false
@@ -237,8 +242,8 @@ jobs:
           fi
 
       # With share: the run's cmux-rd root-owned beside acpmux and linked where the host's user unit runs it
-      # (~/.local/bin/cmux-rd, where a join installs it); the joined user's user manager running (lingering,
-      # started explicitly so a failure names its reason, as that user's ssh login would start it: `enable` installs and starts the host unit through it, and
+      # (~/.local/bin/cmux-rd, where the joined machine's daemon looks for it); the joined user's user manager running (lingering,
+      # started explicitly so a failure names its reason, as that user's ssh login would start it: the daemon's setup installs and starts the host unit through it, and
       # the host starts the virtual display through it); and a second disposable user for the viewer, with
       # its own empty home. Nothing of the share itself runs here. No secret here.
       - name: Prepare the share
@@ -346,6 +351,9 @@ jobs:
         env:
           CMUX_UITEST_STACK_EMAIL: ${{ secrets.CMUX_DOGFOOD_STACK_EMAIL }}
           CMUX_UITEST_STACK_PASSWORD: ${{ secrets.CMUX_DOGFOOD_STACK_PASSWORD }}
+          # The share's guest account (cloud-capture-provision.yml's journey-guest): it must be refused.
+          CMUX_UITEST_GUEST_STACK_EMAIL: ${{ secrets.CMUX_DOGFOOD_GUEST_STACK_EMAIL }}
+          CMUX_UITEST_GUEST_STACK_PASSWORD: ${{ secrets.CMUX_DOGFOOD_GUEST_STACK_PASSWORD }}
           JOIN_NAME: ${{ steps.inputs.outputs.name }}
           JOIN_USER: ${{ steps.user.outputs.user }}
           JOIN_BASE: ${{ steps.user.outputs.base }}

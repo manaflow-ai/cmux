@@ -22,7 +22,7 @@ pub enum Outcome<'a> {
     SignedIn,
     /// The person said no on ChatGPT's page (`error=access_denied`).
     Cancelled,
-    /// Any other failure, by its stable code (`no_plan_scope`, `state_mismatch`, ...).
+    /// Any other failure, by its stable code (`no_chatgpt_account`, `state_mismatch`, ...).
     Failed(&'a str),
 }
 
@@ -165,16 +165,17 @@ fn words(outcome: Outcome<'_>) -> (Tone, &'static str, &'static str) {
             "Sign-in cancelled",
             "ChatGPT was not connected. You can try again from cmux at any time.",
         ),
-        Outcome::Failed("no_plan_scope") => (
+        Outcome::Failed("no_chatgpt_account") => (
             Tone::Problem,
-            "ChatGPT plan not shared",
-            "ChatGPT did not let cmux use your plan. Try again from cmux and allow access, \
-             or sign in with an account that has a ChatGPT plan.",
+            "No ChatGPT plan on this account",
+            "This account has no ChatGPT plan cmux can use. Try again from cmux \
+             with an account that has one.",
         ),
         Outcome::Failed("state_mismatch") => (
             Tone::Problem,
             "This sign-in has expired",
-            "This page came from an older sign-in. Start Sign in with ChatGPT again from cmux.",
+            "This page came from an older sign-in. Use the newest sign-in tab, \
+             or start Sign in with ChatGPT again from cmux.",
         ),
         Outcome::Failed("network" | "discovery_failed") => (
             Tone::Problem,
@@ -302,9 +303,9 @@ mod tests {
         assert!(cancelled.contains("Sign-in cancelled"));
         assert!(cancelled.contains("data-auto=\"1\""));
         assert!(!cancelled.contains("Error:"));
-        let failed = render(Outcome::failed("no_plan_scope"), Some(&back));
-        assert!(failed.contains("ChatGPT plan not shared"));
-        assert!(failed.contains("Error: no_plan_scope"));
+        let failed = render(Outcome::failed("no_chatgpt_account"), Some(&back));
+        assert!(failed.contains("No ChatGPT plan on this account"));
+        assert!(failed.contains("Error: no_chatgpt_account"));
         assert!(failed.contains("href=\"cmux-dev://settings\""));
         assert!(!failed.contains("data-auto"), "a failure is read, not left at once");
         let bare = render(Outcome::SignedIn, None);

@@ -1,5 +1,6 @@
 public import CmuxNextActions
 public import CmuxNextCloud
+import CmuxNextCompat
 public import Foundation
 
 /// The new chat folder picker's GitHub section: `github.status {}`, `github.connect {}` and
@@ -103,12 +104,14 @@ public struct AgentPaneGitHub {
     public var repos: @MainActor (String?) async -> Result<CloudGitHubRepos, CloudGitHubRepos.Failure>
     /// The sizes the repos list gave, shared by every pane's copy: a Cloud start in a picked repository is sized from them.
     public let sizes: AgentPaneGitHubRepoSizes
+    /// The installs the app finished (``CloudAuth/gitHubChanges``): each one, the page reads GitHub again. Nil: none.
+    public let changes: CloudGitHubChanges?
 
     public init(status: @escaping @MainActor () async -> CloudGitHubPicker.Status,
                 connect: @escaping @MainActor () async -> AgentPaneGitHubConnect,
                 repos: @escaping @MainActor (String?) async -> Result<CloudGitHubRepos, CloudGitHubRepos.Failure>,
-                sizes: AgentPaneGitHubRepoSizes = AgentPaneGitHubRepoSizes()) {
-        (self.status, self.connect, self.repos, self.sizes) = (status, connect, repos, sizes)
+                sizes: AgentPaneGitHubRepoSizes = AgentPaneGitHubRepoSizes(), changes: CloudGitHubChanges? = nil) {
+        (self.status, self.connect, self.repos, self.sizes, self.changes) = (status, connect, repos, sizes, changes)
     }
 
     /// The App's: `picker` reads and connects as the person in the team a Cloud start's machine is made in, `open`
@@ -117,7 +120,7 @@ public struct AgentPaneGitHub {
     @MainActor public static func live(_ picker: CloudGitHubPicker, open: @escaping @MainActor (URL) -> Void) -> AgentPaneGitHub {
         AgentPaneGitHub(status: { await picker.status() },
                         connect: { AgentPaneGitHubConnect(await picker.connect(), open: open) { _ = picker.auth.beginSignIn() } },
-                        repos: { await picker.repos(query: $0) })
+                        repos: { await picker.repos(query: $0) }, changes: picker.auth.gitHubChanges)
     }
 }
 
@@ -183,5 +186,24 @@ public nonisolated struct AgentPaneGitHubFolder {
         guard isGitHub(folder) else { return nil }
         let name = String(folder.dropFirst(prefix.count))
         return CloudGitHubRepos.isFullName(name) ? name : nil
+    }
+}
+
+public extension AgentPaneView {
+    /// Gives the page `gitHub` (``AgentPaneModel/gitHub``) and follows its finished installs (``AgentPaneGitHub/changes``).
+    func useGitHub(_ gitHub: AgentPaneGitHub?) {
+        model.gitHub = gitHub
+        gitHubChangeObservation = gitHub?.changes.map { changes in
+            Task { [weak self] in
+                for await _ in ObservationStream({ changes.count }).dropFirst() { self?.gitHubChanged() }
+            }
+        }
+    }
+
+    /// GitHub changed under the page (the app finished an install GitHub handed back to it, #46018): the folder menu
+    /// reads `github.status` and the repositories again. No repository or account data goes with it.
+    func gitHubChanged() {
+        deliver([AgentPageEvent(kind: "github.changed", value: .null)],
+                scripts: ["window.dispatchEvent(new Event('cmux-github-changed'));"])
     }
 }

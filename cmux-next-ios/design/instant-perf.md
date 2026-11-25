@@ -18,7 +18,11 @@ parsing) is `plans/feat-ios-instant-list/DESIGN.md` in manaflow-ai/cmuxterm-hq.
   with `CMUX_INSTANT_PERF_STRICT=1` (`TEST_RUNNER_CMUX_INSTANT_PERF_STRICT=1` under
   xcodebuild), on a quiet harness; elsewhere a miss is listed in the JSON line's
   `failing` and printed as `INSTANTPERF warning:`. The god budget and the ratio
-  always assert.
+  always assert, except the ratio of a metric timed under a load the test makes on
+  purpose (`home_list_first_screen_under_load`, `record(underLoad: true)`): that
+  ratio follows how the host shares its caches and allocator with the load, so it
+  is enforced only under `CMUX_INSTANT_PERF_STRICT=1`, like the small budget (base
+  kit jobs read it from passing to 1.41x on the same code, 2026-11-17).
 - **Ratio (1.2x)**: god at most 1.2x small, computed as
   `god / max(small, 1 ms)`. Below 1 ms nobody sees a difference, and a
   sub-millisecond small would make any ratio noise; the floor keeps "god costs

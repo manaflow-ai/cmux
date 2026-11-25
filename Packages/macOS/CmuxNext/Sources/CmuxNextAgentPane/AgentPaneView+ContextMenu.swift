@@ -48,6 +48,12 @@ final class AgentPaneWKWebView: WKWebView {
     /// + button (Leo, 2026-10-21).
     @objc var preferredTextAccessoryPlacement: NSTextCursorAccessoryPlacement { .invisible }
 
+    /// The key's edit renders now, not at the next display refresh (``NSView/renderKeyEditNow()``).
+    override func keyDown(with event: NSEvent) {
+        super.keyDown(with: event)
+        renderKeyEditNow()
+    }
+
     override func mouseDown(with event: NSEvent) {
         menuAutoFill.noteContextClick(event)
         super.mouseDown(with: event)

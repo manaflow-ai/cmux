@@ -218,6 +218,16 @@ pub struct SessionMeta {
     /// canonical, each once, never `cwd` itself.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub additional_directories: Vec<PathBuf>,
+    /// When the chat's agent may stop (`_meta.acpmux.stopCondition`, `hub/stop_condition.rs`):
+    /// every start of its Claude Code gets it as a prompt Stop hook, so a would-be stop is
+    /// checked against it and the agent goes on until it holds; a Codex (codex-acp) chat gets it
+    /// once as Codex's own goal. Kept only for those two; None for none.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub stop_condition: Option<String>,
+    /// A Codex chat's stop condition was written to Codex as its goal (`stop_condition.rs`):
+    /// Codex keeps the goal in its thread, so it is set once.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub stop_condition_sent: bool,
     #[serde(default)]
     pub agent_session_id: Option<String>,
     /// Claude Code can replace its native session id when a chat is forked. Keep ids this

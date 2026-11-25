@@ -7,7 +7,7 @@ import { claudeTranscriptModelsProgram, transcriptModels } from "./cloud-journey
 import { ensureBenchCommand, ensureBenchMarkdown, parseEnsureBench } from "./cloud-journey";
 import { execProbe, execProbeCommand, execProbeHop, execProbeMarkdown, markRanOnGuest, EXEC_PROBE_NONCES, type ExecProbeRun } from "./cloud-journey";
 import { Api, clientPlatformOrigin, Journey, preclaimDeployFields, preclaimGuestFacts, preclaimHoldMinutes, preclaimMetMarkdown, preclaimRefillImage, preclaimRefillToReady, runPreclaimBurst, runPreclaimChat, warmSpareRefusal } from "./cloud-journey";
-import { claudeLoginPrograms, credentialSeen, judgeStubCredentials, launchCredentialStartProgram, loginBearer, loginPrograms, MODEL_PLANE_PLACEHOLDER, preclaimPublicMeta, preclaimPublicStep, stubCodexAuth, validLogin, INSTALLER_SWIFT, JOURNEY_STUB_SCRIPT, MODEL_STUB_PY, newReds, probeRow, readEnvFile, readyMs, resolveBackend, scrub, summaryMarkdown, swiftRawString } from "./cloud-journey";
+import { claudeLoginPrograms, credentialSeen, judgeStubCredentials, launchCredentialStartProgram, loginBearer, loginPrograms, MODEL_PLANE_PLACEHOLDER, startsOnLaunchCredential, preclaimPublicMeta, preclaimPublicStep, stubCodexAuth, validLogin, INSTALLER_SWIFT, JOURNEY_STUB_SCRIPT, MODEL_STUB_PY, newReds, probeRow, readEnvFile, readyMs, resolveBackend, scrub, summaryMarkdown, swiftRawString } from "./cloud-journey";
 import { oidcSignIn, waitPreflight, CODEX_STUB_CONFIG, PREFLIGHT_PROBE } from "./cloud-journey";
 import { directExec, keyProbeCommand, keyProbeDetail, keyProbeStatus, parseKeyProbe, KEY_PROBE_PY } from "./cloud-journey";
 import { deleteJourneyMachines, journeyMachineEligible, leakProof, machineLine, parseDeleteEntries, provenLeak, type MachineScope } from "./cloud-journey";
@@ -392,6 +392,25 @@ describe("cloud journey", () => {
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }
+  });
+});
+
+describe("cloud journey: Claude login route (cmux#40159)", () => {
+  const base = { modelStub: false, provider: "claude", login: "sk-ant-oat01-x", gatewayAny: false, startVia: "acp" };
+  test("a real-model Claude chat runs on the launch credential, as the app sends it, never a copied login", () => {
+    // Production machines hold no login and have no model route of their own (acpmux cloud_model_plane where_resolves):
+    // a copied login is a path no person's chat takes since cmux#40159, so the matrix's subscription row must not use it.
+    expect(startsOnLaunchCredential(base)).toBe(true);
+    expect(startsOnLaunchCredential({ ...base, modelStub: true })).toBe(true);
+  });
+  test("Codex, a gateway run, an app-driven start and a run with no login keep their own routes", () => {
+    expect(startsOnLaunchCredential({ ...base, provider: "codex" })).toBe(false);
+    expect(startsOnLaunchCredential({ ...base, gatewayAny: true })).toBe(false);
+    expect(startsOnLaunchCredential({ ...base, startVia: "app" })).toBe(false);
+    expect(startsOnLaunchCredential({ ...base, login: "" })).toBe(false);
+    // A --preclaim-login run measures the spare.ready copy itself.
+    expect(startsOnLaunchCredential({ ...base, preclaimLogin: true })).toBe(false);
+    expect(startsOnLaunchCredential({ ...base, modelStub: true, preclaimLogin: true })).toBe(true);
   });
 });
 
