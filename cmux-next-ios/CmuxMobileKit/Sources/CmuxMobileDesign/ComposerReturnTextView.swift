@@ -226,6 +226,20 @@ open class ComposerReturnTextView: UITextView {
                             maxLines: returnPolicy.maxLines)
     }
 
+    /// Shares the card with `reserved` points above the field (the attachment strip): the
+    /// field grows to `baseMaxLines` less the lines the strip takes
+    /// (``ComposerFieldHeight/maxLines(_:sharing:lineHeight:)``). True when that changed the
+    /// field's limit; its size is asked again then.
+    @discardableResult
+    public func shareCard(reserved: CGFloat, baseMaxLines: Int) -> Bool {
+        let lineHeight = Self.laidOutLineHeight(font ?? .preferredFont(forTextStyle: .body))
+        let lines = ComposerFieldHeight.maxLines(baseMaxLines, sharing: reserved, lineHeight: lineHeight)
+        guard lines != returnPolicy.maxLines else { return false }
+        returnPolicy = ComposerReturnPolicy(style: returnPolicy.style, maxLines: lines)
+        invalidateIntrinsicContentSize()
+        return true
+    }
+
     /// One line's height as a text view lays it out in `font`. It is taller
     /// than `font.lineHeight` (22 pt against 20.3 for the 17 pt body), so a
     /// maximum computed from the font cut the sixth line in half and
@@ -495,6 +509,7 @@ open class ComposerReturnTextView: UITextView {
         let id = accessibilityIdentifier ?? "composer"
         let start = CACurrentMediaTime()
         trace.typed()
+        trace.beginKey("\(id)_key_frame")
         let cpu = InputLatencyTrace.threadCPUms()
         let units = Self.measuredUnits
         let calls = Self.measureCalls

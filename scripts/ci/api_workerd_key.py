@@ -17,7 +17,7 @@ import sys
 KEY_VERSION = "v1"
 # Keep in step with backend.yml's api-workerd job (setup-bun, setup-node, matrix).
 BUN_VERSION = "1.4.4"
-NODE_VERSION = "24"
+NODE_VERSION = "24.22.1"
 SHARDS = 12
 
 INPUTS = [

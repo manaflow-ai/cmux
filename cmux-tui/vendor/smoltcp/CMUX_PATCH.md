@@ -142,6 +142,32 @@ size, so any peer works. cmux-wg turns it on; its detector is
 `cmux-wg/tests/path_mtu.rs`, a 4 MiB transfer at tunnel MTU 1420 over a
 1400 byte IPv6 path that drops longer packets.
 
+The patch adds a BBR-style controller, `CongestionControl::Bbr`, behind the
+`socket-tcp-bbr` feature (RFD 0142 O1), and cmux-wg makes it the tunnel default
+(`CMUX_WG_ULTRA_CC=cubic` goes back). Its window is twice the bandwidth-delay
+product: the highest delivery rate of the last 10 rounds that were not
+app-limited, times the minimum RTT of the last 10 s. Startup grows the window
+by every acknowledged byte, up to 2.885 times the BDP measured so far, until
+the rate grows under 25 % for 3 rounds or a loss comes. A loss episode bounds
+the window to 0.7 of the flight at the loss but never under the BDP, so a random
+loss costs no throughput, and the bound grows one segment a round (BBRv2's
+inflight_hi): a queue shallower than the BDP is not overfilled every few rounds.
+A round counts at most the window it began with as delivered, so a repaired
+hole, whose cumulative ACK covers data SACKed rounds ago, does not read as a
+burst of bandwidth. An RTO saves the window and resends one segment
+(packet conservation); the next ACK of new data brings the window back. Two RTOs
+in a row, with nothing acknowledged between them, restart the model. cmux-wg paces its
+datagrams itself, so the controller has no pacing gain cycle and no PROBE_RTT.
+`RttEstimator` keeps its latest raw sample for the controller's minimum. Its
+tests are in `congestion/bbr.rs`.
+
+A SACK resend of the head that is lost too goes again once the peer SACKed three
+segments of data sent after it (Linux's `tcp_mark_lost_retrans`). Before, it
+waited for the RTO, which Karn's backoff stretched past the user timeout under
+heavy loss; with a window that loss does not shrink, that failed 2 of the first 48
+seeds of cmux-wg's tunnel TCP model at 12% loss. The detector is
+`test_sack_lost_resend_of_the_head_goes_again_once_later_data_is_sacked`.
+
 A keep-alive probe from the remote (one octet or none, just below the receive
 window) counts as hearing from it for the user timeout. On the passive side
 (the socket listened) it also pushes the socket's own next probe to 1.25
@@ -159,8 +185,9 @@ any peer works. The detectors are
 `test_remote_keep_alive_deferral_survives_a_crossing_ack` and
 `test_remote_keep_alive_leaves_the_active_sides_beat`.
 
-The changes are in `src/socket/tcp/congestion/cubic.rs` and `src/socket/tcp.rs`,
-each marked `cmux patch`, with tests next to them. Reno's own start is unchanged;
+The changes are in `src/socket/tcp/congestion/cubic.rs`,
+`src/socket/tcp/congestion/bbr.rs` and `src/socket/tcp.rs`, each marked
+`cmux patch`, with tests next to them. Reno's own start is unchanged;
 cmux does not enable it.
 
 ## Taken from upstream main

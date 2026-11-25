@@ -206,7 +206,7 @@ export function verdict(rows: RunRow[], meta: Record<string, unknown>) {
   };
 }
 
-async function firstExec(exec: Exec, budgetMs: number): Promise<number> {
+export async function firstExec(exec: Exec, budgetMs: number): Promise<number> {
   const t0 = Date.now();
   let last = "";
   while (Date.now() - t0 < budgetMs) {
@@ -223,7 +223,7 @@ async function firstExec(exec: Exec, budgetMs: number): Promise<number> {
 }
 
 /** A cmux access token for a fresh install (P-256 key, challenge, signed nonce): what the app sends the platform. */
-async function mintInstallToken(api: Api, apiBase: string, userId: string, tag: string, team?: string): Promise<{ id: string; token: string; renew: () => Promise<string> }> {
+export async function mintInstallToken(api: Api, apiBase: string, userId: string, tag: string, team?: string): Promise<{ id: string; token: string; renew: () => Promise<string> }> {
   const pair = (await crypto.subtle.generateKey({ name: "ECDSA", namedCurve: "P-256" }, true, ["sign", "verify"])) as CryptoKeyPair;
   const jwk = await crypto.subtle.exportKey("jwk", pair.publicKey);
   const inst = await api.op("install.register", { public_jwk: { kty: "EC", crv: "P-256", x: jwk.x, y: jwk.y }, kind: "cli", name: `cloud journey jr-${tag.slice(3)}`, device_name: "cloud fork placement", platform: "linux" }, `${tag}-install`);
