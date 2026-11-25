@@ -492,7 +492,8 @@ impl Paths {
         Self::from_env(|key| std::env::var_os(key).filter(|v| !v.is_empty()), other_app)
     }
 
-    /// `$CMUX_NEXT_KEYS_AUDIT_FILE`, else `$HOME/.config/cmux/keys.json`. A `cmux` bundled in another
+    /// `$CMUX_NEXT_KEYS_AUDIT_FILE`, else `$HOME/.config/cmux/keys.json` (`.config/cmux-next/` on
+    /// macOS, `cmux_config::NEXT_DIR`). A `cmux` bundled in another
     /// app than the terminal's (`other_app`) ignores the variable: it is that app's audit.
     pub(super) fn from_env(
         env: impl Fn(&str) -> Option<std::ffi::OsString>,
@@ -502,7 +503,12 @@ impl Paths {
             return Ok(Self { audit: PathBuf::from(path) });
         }
         let home = env("HOME").ok_or("HOME is not set")?;
-        Ok(Self { audit: PathBuf::from(home).join(".config/cmux/keys.json") })
+        Ok(Self {
+            audit: PathBuf::from(home)
+                .join(".config")
+                .join(cmux_config::NEXT_DIR)
+                .join("keys.json"),
+        })
     }
 }
 

@@ -155,6 +155,24 @@ zig_bin="$(sed -n 's/^CMUX_ZIG=//p' "$CI_TOOLS/zig-env" | tail -n 1)"
 ln -sf "$zig_bin" "$CI_TOOLS/bin/zig"
 '''
 
+# Valgrind for the instruction-count step (Callgrind). A host valgrind is used as is; otherwise the distribution's
+# package is fetched with `apt-get download` (no root: apt checks it against the signed index) and unpacked into
+# $CI_TOOLS, with a wrapper that points it at its own tool directory.
+valgrind = '''
+if command -v valgrind >/dev/null 2>&1; then
+  valgrind --version
+  exit 0
+fi
+mkdir -p "$CI_TOOLS/valgrind-deb" "$CI_TOOLS/bin"
+(cd "$CI_TOOLS/valgrind-deb" && apt-get download valgrind)
+dpkg -x "$CI_TOOLS"/valgrind-deb/valgrind_*.deb "$CI_TOOLS/valgrind-root"
+lib="$(dirname "$(find "$CI_TOOLS/valgrind-root" -name 'callgrind-*-linux' | head -n 1)")"
+[ -d "$lib" ] || { echo "the valgrind package holds no callgrind"; exit 1; }
+printf '#!/bin/sh\nVALGRIND_LIB=%s exec %s "$@"\n' "$lib" "$CI_TOOLS/valgrind-root/usr/bin/valgrind" > "$CI_TOOLS/bin/valgrind"
+chmod +x "$CI_TOOLS/bin/valgrind"
+"$CI_TOOLS/bin/valgrind" --version
+'''
+
 # Python contract tests that each had a workflow, a runner and a checkout of their own
 # (indexnow-tests.yml, vendored-agent-cursor.yml, r2-upload-tests.yml, cmux-skill-contract.yml,
 # ci-cache-receipts.yml). `inputs` is each one's former path filter.
@@ -1354,6 +1372,42 @@ bun run typecheck || rc=1
 exit "$rc"
 '''
 
+# acpmux's hot paths in instructions, not time (Leo: "are we also doing more work on perf while we're here? for the
+# app especially?"): Callgrind counts each case of cmux-tui/crates/acpmux/benches/icount.rs (an MCP connect to the
+# chat's tool servers, the chat pane's client core on v2 chat frames, a JSON-RPC parse and serialize) and the step
+# fails when one is more than the baseline file's tolerance (2%) over benches/icount_baseline.json. A count does not
+# move with the runner's load, so this is not a timing gate. A change that costs more on purpose rewrites the
+# baseline in the same pull request: `cargo bench --profile gate -p acpmux --bench icount -- check --update` on Linux.
+# The gate profile: release's code generation at opt-level 3 without its link-time cost (a release build of acpmux
+# runs past 40 minutes on a CI runner, Cargo.toml's [profile.gate] note).
+[step.acpmux-icount]
+job = "linux"
+# A cold gate-profile build of acpmux, then three Callgrind runs of a few seconds each.
+alone = true
+timeout = 2400
+title = "acpmux instruction counts (Callgrind)"
+about = "each acpmux hot-path case's Callgrind instruction count is within its tolerance of benches/icount_baseline.json"
+needs = ["rust", "valgrind"]
+inputs = [
+  "cmux-tui/crates/acpmux/**",
+  "cmux-tui/crates/acpmux-client/**",
+  "cmux-tui/crates/acpmux-list-types/**",
+  "cmux-tui/Cargo.toml",
+  "cmux-tui/Cargo.lock",
+  "cmux-tui/rust-toolchain.toml",
+]
+ignore = [
+  "cmux-tui/crates/acpmux/**/*.md",
+  "cmux-tui/crates/acpmux/spec/**",
+]
+run = '''
+cd cmux-tui
+channel="$(sed -n 's/^channel *= *"\([^"]*\)".*/\1/p' rust-toolchain.toml)"
+rustup toolchain install "$channel" --profile minimal
+export CARGO_NET_RETRY=10 CARGO_HTTP_TIMEOUT=120 CARGO_INCREMENTAL=0
+cargo bench --profile gate -p acpmux --bench icount --locked -- check
+'''
+
 # cmux-tui-artifacts.yml's `cmux_next_ daemon tests` job, which ran after the branch push only (its pass writes the
 # tree's daemon-tests marker, which that workflow keeps). The same cargo test, on the pull request's merge commit:
 # only the workspace members whose sources name cmux_next_, retried only on a recognized Cargo fetch failure.
@@ -1712,7 +1766,7 @@ inputs = [
   "cmux-tui/spec/**", "Native/OptChat/optchat-chief/inspector/**", "tests/fixtures/classic-to-next/**",
   ".xcode-version", "scripts/select-ci-xcode.sh", "scripts/ci/xcode-pins.txt", ".github/actions/cache-restore/**",
   ".github/workflows/cmux-next.yml", "scripts/cmux-next/lib/**", "scripts/cmux-next/fast-tier*",
-  "scripts/cmux-next/quarantine.json", "scripts/cmux-next/bundle-ghostty-resources.sh",
+  "scripts/ci/fleet-test-products.py", "scripts/cmux-next/quarantine.json", "scripts/cmux-next/bundle-ghostty-resources.sh",
   "scripts/cmux-next/cef-manifest.json", "scripts/cmux-next/check-release-compile.sh",
   "scripts/cmux-next/ci-target-graph.py", "scripts/cmux-next/clear-stale-scheme-build-state.sh",
   "scripts/cmux-next/compile-string-catalogs.sh", "scripts/cmux-next/main-thread-heavy-suites.py",
