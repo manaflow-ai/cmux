@@ -115,7 +115,8 @@ function SwitchRow({
       >
         <span className="studio-manager-text">
           <span className="studio-card-name">
-            {prefix ? `${prefix} ${item.name}` : item.name} <SourcePill item={item} />
+            {prefix && <span className="studio-prefix">{prefix} </span>}
+            {item.name} <SourcePill item={item} />
           </span>
           <span className="studio-card-line">{line ?? item.line}</span>
         </span>
@@ -367,9 +368,8 @@ function TilesLayout({ studio }: { studio: Studio }) {
                 <SwitchTrack on={on} />
               </span>
               <span className="studio-card-line">
-                {[item.source.kind === "pr" && !item.source.merged && "Unmerged", lost && "Overridden"]
-                  .filter(Boolean)
-                  .join(" · ") || "\u00a0"}
+                {sourceLabel(item.source)}
+                {lost ? " · overridden" : ""}
               </span>
             </button>
           );
@@ -495,6 +495,8 @@ export function CustomizeStudio({
               type="button"
               className="studio-button studio-button-primary"
               data-action="try-leo"
+              /* Already Leo's setup: nothing to try. The button stays, so the header does not move. */
+              disabled={sameSet(studio.on, SETUPS.find((setup) => setup.id === "leo")!.on)}
               onClick={() => studio.tryOn(SETUPS.find((setup) => setup.id === "leo")!)}
             >
               Try Leo's setup

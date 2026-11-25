@@ -62,6 +62,14 @@
   font: inherit;
   cursor: pointer;
 }
+.studio-button:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+.studio-prefix {
+  color: var(--cmux-text-secondary);
+  font-weight: 400;
+}
 .studio-button-primary {
   background: var(--ds-color-accent);
   border-color: transparent;
@@ -640,8 +648,18 @@ li[data-peeked] > .studio-row {
   cursor: pointer;
   transition: border-color var(--cmux-motion-quick) var(--cmux-ease-out);
 }
+/* On is the switch's job; the tile only leans toward the accent, so eight tiles on are not eight
+   loud rings. */
 .studio-tile[aria-checked="true"] {
-  border-color: var(--ds-color-accent);
+  border-color: color-mix(in oklab, var(--ds-color-accent) 45%, var(--ds-surface-card-line));
+}
+.studio-tile:hover {
+  background: var(--ds-surface-hover);
+}
+.studio-tile:focus-visible,
+.studio-setup-row:focus-visible {
+  outline: 2px solid var(--ds-color-accent);
+  outline-offset: 1px;
 }
 .studio-tile-foot {
   display: flex;
@@ -659,14 +677,21 @@ li[data-peeked] > .studio-row {
 .studio-setup-row .studio-card-line {
   white-space: normal;
 }
+/* A wide pane: the live window and setups on the left, the tiles beside them, so the window does
+   not grow to fill the width and leave the tiles small under it. */
 @container studio (width >= 1200px) {
-  .studio-tile-grid {
-    grid-template-columns: repeat(8, minmax(0, 1fr));
+  .studio-tiles {
+    display: grid;
+    grid-template-columns: minmax(0, 0.8fr) minmax(0, 1fr);
+    align-items: start;
+  }
+  .studio-tiles-top {
+    grid-template-columns: minmax(0, 1fr);
   }
 }
 /* Where a tile is too narrow for its name on one line, every name gets two lines' room, so the
    tiles in a row still line up and nothing is cut. */
-@container studio (width >= 1200px) or (width < 760px) {
+@container studio (width >= 1200px) or ((width >= 600px) and (width < 760px)) {
   .studio-tile-name {
     display: flex;
     align-items: center;

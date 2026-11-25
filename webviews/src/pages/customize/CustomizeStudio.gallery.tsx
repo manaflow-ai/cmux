@@ -35,9 +35,9 @@ async function load() {
 const LEO: Effect[] = ["glass", "motion", "ember", "compact", "round", "blocks", "yours", "standup"];
 const LAYOUTS: Record<StudioLayout, string> = {
   store: "Store: setups shelf, customization cards, detail with before/after",
-  manager: "Manager (recommended): one switch per row, setup picker, live window beside",
+  manager: "Manager: one switch per row, setup picker, live window beside",
   setups: "Setups: whose setup, what it changes from yours, live result",
-  tiles: "Tiles: the live window first, each customization a picture tile that is its own switch",
+  tiles: "Tiles (recommended): the live window first, each customization a picture tile that is its own switch",
 };
 
 const variants: Record<string, { note: string; props: Props }> = {};
