@@ -29,6 +29,15 @@
         ],
         "why": "run-all.sh runs every scripts/measure/tests/*.test.sh and *.test.py by a loop variable; no-unattended-prompts reads every tracked file under scripts/ and .github/",
         "traced": true
+      },
+      "tt-pr-red-checks-comment": {
+        "inputs": [
+          "tests/test_pr_red_checks_comment.py",
+          "tests/fleet_test_host.py",
+          "tests/git_fixture_env.py"
+        ],
+        "why": "its tests build their own git repositories in a temp dir; the code that lists every tracked file runs on that fixture, never on this checkout (traced)",
+        "traced": true
       }
     }
   }
