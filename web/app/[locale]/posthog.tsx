@@ -5,6 +5,7 @@ import type { CaptureResult } from "posthog-js";
 import { usePathname, useSearchParams } from "next/navigation";
 import { useLayoutEffect, useRef, Suspense } from "react";
 import { markAnalyticsCaptureBuffered, posthog } from "../lib/posthog-client";
+import { AnalyticsConsentBanner, useAnalyticsConsent } from "./components/analytics-consent-banner";
 import {
   STACK_AUTH_CHANGED_EVENT,
   STACK_IDENTITY_STORAGE_KEY,
@@ -18,9 +19,11 @@ function PageviewTracker() {
   const searchParams = useSearchParams();
   const lastCapturedUrl = useRef<string | null>(null);
   const pendingCaptures = useRef<CaptureResult[]>([]);
+  // Off by default: nothing is identified or captured until the visitor accepts.
+  const enabled = useAnalyticsConsent() === "granted";
 
   useLayoutEffect(() => {
-    if (!pathname || !posthog) return;
+    if (!enabled || !pathname || !posthog) return;
 
     let activeController: AbortController | null = null;
     let generation = 0;
@@ -214,7 +217,7 @@ function PageviewTracker() {
       window.removeEventListener(STACK_AUTH_CHANGED_EVENT, revalidateStackAuthIdentity);
       document.removeEventListener("visibilitychange", revalidateVisibleIdentity);
     };
-  }, [pathname, searchParams]);
+  }, [enabled, pathname, searchParams]);
 
   return null;
 }
@@ -226,6 +229,7 @@ export function PostHogProvider({ children }: { children: React.ReactNode }) {
         <PageviewTracker />
       </Suspense>
       {children}
+      <AnalyticsConsentBanner />
     </PHProvider>
   );
 }
