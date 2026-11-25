@@ -15,9 +15,45 @@ import Testing
             #expect(Metrics.sidebarRowHeight == 28)
             #expect(Typography.tabTitle.pointSize == 14)
             #expect(Metrics.tabIconSize == 16.5)
-            #expect(Metrics.tabStripHeight == 36)
+            // Its 30 pt tabs with its 5 pt strip padding above and below (`defaultStripPadding`).
+            #expect(Metrics.tabStripHeight == 40)
             #expect(Metrics.space1 == 2)
         }
+    }
+
+    /// Lucas 2026-11-17: "the default omnibar should be the same as compact omnibar, we should match them exactly".
+    /// Every `omnibar*` size of Default is Compact's, and its toolbar glyphs resolve alike. Only the bar's height, its
+    /// corner, the URL text, the search glyph and the star differ (`defaultsOmnibarIsChromes`).
+    @Test func defaultsOmnibarIsCompacts() {
+        let cozy = DensityPreset.cozy.tokens, compact = DensityPreset.compact.tokens
+        let keys = compact.tokens.keys.filter { $0.hasPrefix("omnibar") && !["omnibarHeight", "omnibarCornerRadius", "omnibarFontSize", "omnibarIconSize", "omnibarStarGlyphSize"].contains($0) }
+            + ["toolbarGlyphSize"]
+        #expect(keys.count > 10)
+        for key in keys { #expect(cozy.tokens[key] == compact.tokens[key], "omnibar token \(key)") }
+        #expect(cozy.toolbarGlyphSize == compact.toolbarGlyphSize)
+    }
+
+    /// Lucas 2026-11-17: "for chrome the omnibar should be 34px tall (chrome = default, but still same font size)".
+    /// Default's bar is Chrome's 34 pt with Helium's roundness (8 on 28: 9.5 pt), and the toolbar buttons are as tall.
+    /// Lucas 2026-11-17: "for default our font size has to be 1px taller in height": the URL's capitals are 11 pt, a
+    /// point over Compact's 10 (`HeliumToolbarSizeTests.theURLsCapitalsFillWholeRowsWithSmoothing`).
+    @Test func defaultsOmnibarIsChromes() {
+        let tokens = DensityPreset.cozy.tokens
+        #expect(tokens.tokens["omnibarHeight"] == 34)
+        #expect(tokens.tokens["omnibarCornerRadius"] == 9.5)
+        #expect(tokens.toolbarButtonSize == 34)
+        #expect(tokens.tokens["omnibarFontSize"] == (11 - 0.31) / 0.70459)
+        // Its search glyph is a little taller than Compact's too (`OmnibarCapitalsCenterTests.defaultsSearchGlyphIsALittleTaller`).
+        #expect((tokens.tokens["omnibarIconSize"] ?? 0) > (DensityPreset.compact.tokens.tokens["omnibarIconSize"] ?? 0))
+    }
+
+    /// Lucas 2026-11-17: Helium's location bar is 28 pt tall and ours was 26. Compact's bar is Helium's 28 pt with its
+    /// 8 pt corners, and the toolbar buttons beside it are as tall.
+    @Test func compactsOmnibarIsHeliums() {
+        let tokens = DensityPreset.compact.tokens
+        #expect(tokens.tokens["omnibarHeight"] == 28)
+        #expect(tokens.tokens["omnibarCornerRadius"] == 8)
+        #expect(tokens.toolbarButtonSize == 28)
     }
 
     @Test func theInitialDensityIsCompact() {
@@ -30,21 +66,38 @@ import Testing
         let tokens = preset.tokens
         let t = preset.scaleFactor
         func half(_ value: Double) -> Double { (value * 2).rounded() / 2 }
-        #expect(Set(tokens.tokens.keys) == Set(reference.tokens.keys))
+        // Default alone sets its toolbar buttons' and star plate's sides (Compact's padding on its 34 pt bar); Default and the
+        // densities above it Chrome's omnibar row gap (`chromeToolbarGap`); Compact alone its gap from the tabs to the omnibar
+        // (`tabToOmnibarGap`, its strip padding and 1 pt).
+        let defaultOnly: Set = ["omnibarButtonSize", "omnibarStarPlateSize", "omnibarRowGap", "tabToOmnibarGap"]
+        #expect(Set(tokens.tokens.keys).subtracting(defaultOnly) == Set(reference.tokens.keys).subtracting(defaultOnly))
         let rows: [DensityPreset: Double] = [.ultraCompact: 24, .compact: 28, .cozy: 30, .comfortable: 32, .spacious: 36]
         let row = try #require(rows[preset])
         #expect(tokens.tokens["browserRowHeight"] == row)
         #expect(try #require(tokens.tokens["sidebarRowHeight"]) + half(2 * t) == row)
-        #expect(tokens.tokens["tabStripHeight"] == row + 2 * half(3 * t))
+        // The strip padding is 3 pt times t below Default; Default's 5 (`defaultStripPadding`, Lucas 2026-11-20) times t from it up,
+        // and Spacious's half point more (`spaciousGapNudge`) for its half-point bar.
+        let nudge = preset == .spacious ? DensityPreset.spaciousGapNudge : 0
+        let gap = t >= 1 ? half(DensityPreset.defaultStripPadding * t) + nudge : half(3 * t)
+        #expect(tokens.tokens["omnibarRowGap"] == (t >= 1 ? half(DensityPreset.chromeToolbarGap * t) + nudge : nil))
+        #expect(tokens.tokens["browserRowGap"] == gap)
+        #expect(tokens.tokens["tabStripHeight"] == row + 2 * gap)
         #expect(tokens.spacing == t)
         #expect(tokens.fontSize == 14 * t)
         let ratios = ["sidebarLineBoxBaseline", "omnibarLineBoxBaseline", "densityScale", "composerZoom"]
         let fonts = ["tabTitleSize", "sidebarTitleSize", "omnibarFontSize"]
-        let exceptions = ratios + ["sidebarRowHeight", "browserRowHeight", "tabStripHeight"]
-        for (key, base) in reference.tokens where !exceptions.contains(key) {
+        let exceptions = ratios + ["sidebarRowHeight", "browserRowHeight", "browserRowGap", "tabStripHeight"]
+        // Default's omnibar is Compact's (`defaultsOmnibarIsCompacts`); everything else is Default's reference times t.
+        let omnibarT = preset.omnibarScaleFactor
+        func factor(_ key: String) -> Double { DensityPreset.isOmnibarToken(key) ? omnibarT : t }
+        // Default's bar is Chrome's 34 pt, its corner Helium's ratio on it (`defaultsOmnibarIsChromes`).
+        let chromeBar: [String: Double] = preset == .cozy
+            ? ["omnibarHeight": 34, "omnibarCornerRadius": 9.5, "omnibarFontSize": (11 - 0.31) / 0.70459,
+               "omnibarIconSize": DensityPreset.cozy.tokens.tokens["omnibarIconSize"] ?? 0,
+               "omnibarStarGlyphSize": DensityPreset.cozy.tokens.tokens["omnibarStarGlyphSize"] ?? 0] : [:]
+        for (key, unscaled) in DensityPreset.referenceTokens.tokens where !exceptions.contains(key) {
             let value = try #require(tokens.tokens[key])
-            let unscaled = try #require(DensityPreset.referenceTokens.tokens[key])
-            let expected = fonts.contains(key) ? base * t : half(unscaled * t)
+            let expected = chromeBar[key] ?? (fonts.contains(key) ? unscaled * factor(key) : half(unscaled * factor(key)))
             #expect(value == expected, "\(preset): \(key)")
             if !fonts.contains(key) { #expect(value * 2 == (value * 2).rounded()) }
         }
@@ -68,12 +121,13 @@ import Testing
             #expect(Metrics.tabIconSize == CGFloat(half(16.5 * t)))
             let omnibarHeight = try #require(tokens.tokens["omnibarHeight"])
             let omnibarFont = try #require(tokens.tokens["omnibarFontSize"])
-            #expect(omnibarHeight == half(29 * t))
-            #expect(abs(omnibarFont / ((10 / 0.9 - 0.14) / 0.70459) - t) < 0.0001) // Helium's 10 px capitals at Compact
+            #expect(omnibarHeight == (chromeBar["omnibarHeight"] ?? half(28 / 0.9 * omnibarT)))
+            // Helium's 10 px capitals at Compact; 11 at Default.
+            #expect(abs(omnibarFont / (chromeBar["omnibarFontSize"].map { $0 / omnibarT } ?? (10 - 0.31) / 0.70459 / 0.9) - omnibarT) < 0.0001)
             for key in ["tabIconTitleGap", "sidebarIconGap", "omnibarTextGap"] {
                 let value = try #require(tokens.tokens[key])
-                let base = try #require(reference.tokens[key])
-                #expect(value == half(base * t), "\(preset): \(key)")
+                let base = try #require(DensityPreset.referenceTokens.tokens[key])
+                #expect(value == half(base * factor(key)), "\(preset): \(key)")
             }
         }
     }

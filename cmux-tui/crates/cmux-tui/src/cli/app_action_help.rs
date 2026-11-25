@@ -9,10 +9,8 @@
 use std::collections::BTreeMap;
 use std::sync::OnceLock;
 
+use cmux_tui_core::packed_catalogs::ACTION_SURFACES;
 use serde_json::Value;
-
-pub(super) const ACTIONS_JSON: &str =
-    include_str!("../../../../../plans/cmux-next/action-surfaces.json");
 
 /// Scopes whose help lists their app verbs another way.
 const OWN_HELP: &[&str] = &["cloud"];
@@ -25,7 +23,7 @@ const VERB_COLUMN: usize = 30;
 fn offered() -> &'static BTreeMap<String, Vec<(String, String)>> {
     static OFFERED: OnceLock<BTreeMap<String, Vec<(String, String)>>> = OnceLock::new();
     OFFERED.get_or_init(|| {
-        let doc: Value = serde_json::from_str(ACTIONS_JSON).unwrap_or(Value::Null);
+        let doc: Value = serde_json::from_str(&ACTION_SURFACES.inflate()).unwrap_or(Value::Null);
         let mut scopes: BTreeMap<String, Vec<(String, String)>> = BTreeMap::new();
         for action in doc.get("actions").and_then(Value::as_array).into_iter().flatten() {
             if action.get("cli").and_then(Value::as_str) != Some("offered") {
@@ -91,6 +89,58 @@ pub(super) fn section(scope: &str) -> Option<String> {
     Some(text)
 }
 
+/// `cmux <scope> <verb> --help` for an app-offered verb (`cmux remote disconnect --help`): its
+/// usage from the catalog's arguments, its title, and where every argument is described, in
+/// cloud_help.rs's per-verb shape. Before, such a verb printed its whole scope's help. `None`
+/// for a verb the catalog does not offer, and for `cloud` (cloud_help.rs has its own).
+pub(crate) fn verb_help(scope: &str, verb: &str) -> Option<String> {
+    if OWN_HELP.contains(&scope) {
+        return None;
+    }
+    let name = format!("{scope} {verb}");
+    let doc: Value = serde_json::from_str(&ACTION_SURFACES.inflate()).ok()?;
+    let action = doc.get("actions")?.as_array()?.iter().find(|action| {
+        action.get("cli").and_then(Value::as_str) == Some("offered")
+            && action.get("cli_name").and_then(Value::as_str) == Some(name.as_str())
+    })?;
+    let mut usage = format!("cmux {name}");
+    for arg in action.get("args").and_then(Value::as_array).into_iter().flatten() {
+        let Some(arg_name) = arg.get("name").and_then(Value::as_str) else { continue };
+        let value = match arg.get("kind").and_then(Value::as_str).unwrap_or("string") {
+            "bool" => None,
+            "enum" => Some(
+                arg.get("values")
+                    .and_then(Value::as_array)
+                    .into_iter()
+                    .flatten()
+                    .filter_map(Value::as_str)
+                    .collect::<Vec<_>>()
+                    .join("|"),
+            ),
+            "target" => Some(format!(
+                "<{}>",
+                arg.get("target_kind").and_then(Value::as_str).unwrap_or("target")
+            )),
+            _ => Some("<value>".to_owned()),
+        };
+        let flag = match value {
+            Some(value) => format!("--{arg_name} {value}"),
+            None => format!("--{arg_name}"),
+        };
+        if arg.get("required").and_then(Value::as_bool) == Some(true) {
+            usage.push_str(&format!(" {flag}"));
+        } else {
+            usage.push_str(&format!(" [{flag}]"));
+        }
+    }
+    let title = action.get("title").and_then(Value::as_str).unwrap_or_default();
+    let title = title.trim_end_matches(['…', '.']);
+    let about = if title.is_empty() { String::new() } else { format!("{title}.\n\n") };
+    Some(format!(
+        "usage: {usage}\n\n{about}The cmux app runs this. Every argument: `cmux action describe \"{name}\" --json` (with the app running)\n"
+    ))
+}
+
 /// `text` with the APP ACTIONS section of `scope` after it, when it has one.
 pub(crate) fn append(scope: &str, text: &str) -> Option<String> {
     let section = section(scope)?;
@@ -106,38 +156,5 @@ pub(super) fn scope_only_usage(scope: &str) -> Option<String> {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn a_scope_lists_its_offered_verbs_one_line_each_with_the_title() {
-        let text = section("tab").expect("tab has app verbs");
-        let row = text.lines().find(|line| line.trim_start().starts_with("new-mac-screen "));
-        let row = row.expect("new-mac-screen is listed");
-        assert!(row.ends_with("Screen Sharing"), "{row}");
-        assert!(text.lines().any(|line| line.trim_start().starts_with("new-browser ")));
-        assert!(text.lines().any(|line| line.trim_start().starts_with("stop-mac-screen-viewing ")));
-        assert_eq!(section("cloud"), None, "cloud keeps its own help");
-        assert_eq!(section("no-such-scope"), None);
-    }
-
-    #[test]
-    fn titles_start_in_one_column_per_scope() {
-        for scope in scopes().filter(|scope| has_section(scope)) {
-            let text = section(scope).expect("section");
-            let rows = text.lines().skip(3).collect::<Vec<_>>();
-            assert_eq!(rows.len(), verbs(scope).count(), "{scope}: one line per verb");
-            // Rows follow the sorted verbs; a verb may be several words (`chat channel create`).
-            let columns = rows
-                .iter()
-                .zip(offered()[scope].iter())
-                .filter_map(|(line, (verb, title))| {
-                    let rest = line.strip_prefix("  ")?.strip_prefix(verb.as_str())?;
-                    (verb.len() <= VERB_COLUMN && !title.is_empty())
-                        .then(|| 2 + verb.len() + rest.len() - rest.trim_start().len())
-                })
-                .collect::<std::collections::BTreeSet<_>>();
-            assert!(columns.len() <= 1, "{scope}: titles start at columns {columns:?}");
-        }
-    }
-}
+#[path = "app_action_help_tests.rs"]
+mod tests;

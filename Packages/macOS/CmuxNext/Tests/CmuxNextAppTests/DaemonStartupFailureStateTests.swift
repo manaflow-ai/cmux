@@ -19,7 +19,23 @@ struct DaemonStartupFailureStateTests {
         service.noteStartupFailure(.timedOut("server ensure"))
         #expect(service.store.connectionState == .connecting, "a first attempt that failed while the daemon starts read failed")
         #expect(service.startup == .connecting)
-        #expect(service.notConnectedReason == RefusalStrings.describe(DaemonError.timedOut("server ensure")), "the attempt's cause still answers")
+        #expect(service.notConnectedReason == RefusalStrings.daemonConnecting, "a timed-out attempt reads the service still starting")
+    }
+
+    /// A daemon error a person reads never names the command, its code, the socket or cmux-tui.
+    @Test func aDaemonErrorReadsPlainWords() {
+        let refusal = DaemonError.command(cmd: "workspace.place", message: "That workspace is no longer open.", code: "not_found")
+        #expect(RefusalStrings.describe(refusal) == "That workspace is no longer open.")
+        #expect(RefusalStrings.describe(DaemonError.timedOut("workspace.place (no reply within 2.0 seconds)")) == RefusalStrings.daemonTimedOut)
+        #expect(RefusalStrings.describe(DaemonError.connectionClosed(reason: "eof")) == RefusalStrings.daemonConnecting)
+        for error in [DaemonError.notConnected, .daemonShutdown, .connectFailed(path: "/tmp/cmux.sock", errno: 2),
+                      .socketPathTooLong("/tmp/x"), .malformedResponse("bad"), .wrongApp("other"),
+                      .binaryNotFound(searched: ["/a"]), .launchFailed("exit 3"), .invalidSessionName("x"), refusal] {
+            let shown = RefusalStrings.describe(error)
+            for word in ["cmux-tui", "socket", "workspace.place", "[not_found]", "daemon"] {
+                #expect(!shown.contains(word), "\(error) reads \(shown)")
+            }
+        }
     }
 
     /// Cloud's `link_ended_detail` read only "connection ended" and dropped the failure that ended
@@ -84,42 +100,37 @@ struct DaemonStartupFailureStateTests {
         #expect(!store.dropGrace.isActive, "only a connection that was up starts the drop grace")
     }
 
-    /// Leo, 2026-11-14: "i also want all our connectivity stuff to shut the f*** up". This Mac's header drew a
-    /// spinner from the first frame of every daemon restart, handoff and launch connect (with more than one
-    /// machine listed). It now waits out the same 10 s grace as one list's "Connecting…" label: a connect that
-    /// heals within it draws nothing, one that lasts draws the spinner, and a connected Mac never waits.
-    @Test func thisMacsHeaderDrawsNoSpinnerForAConnectUnderTheGrace() async {
-        let grace = SidebarPlaceholderGrace(wait: .seconds(10), clock: NowClock())
+    /// Leo, 2026-11-24: "all the connecting... indicators and the graying out of workspaces, nah let's not do that.
+    /// let's just keep optimistically connecting and reinforcing the connection and sync-ups can be satisfying
+    /// instead of making the user think they're constsntly suspended in a state of connection limbo". This Mac's
+    /// header drew a spinner once a daemon restart, handoff or launch connect lasted 10 s. It now never does: the
+    /// connect is held for good, past any wait, and a connected Mac never waits.
+    @Test func thisMacsHeaderNeverDrawsAConnectSpinner() async {
+        let grace = SidebarPlaceholderGrace(wait: .milliseconds(1), clock: NowClock())
+        var ended = false
+        grace.onEnd = { ended = true }
         let local = SidebarSection(kind: .machine(SidebarMachine(id: .local, name: "Mac", kind: .local, status: .connecting)), nodes: [])
-        await withCheckedContinuation { (ended: CheckedContinuation<Void, Never>) in
-            grace.onEnd = { ended.resume() }
-            let held = grace.holdingConnectingLabels([local])
-            let machine = try? #require(held.first?.machine)
+        for _ in 0..<3 {
+            let machine = grace.holdingConnectingLabels([local]).first?.machine
             #expect(machine?.holdsStatusLabel == true)
-            #expect(machine.map { SectionHeaderRowView.tone(SectionHeaderRowView.drawn($0), hostGroup: false) } == .some(nil), "no spinner within the grace")
+            #expect(machine.map { SectionHeaderRowView.tone(SectionHeaderRowView.drawn($0), hostGroup: false) } == .some(nil), "no spinner, at any age")
+            await Task.yield()
         }
-        grace.onEnd = nil
-        let lasting = try? #require(grace.holdingConnectingLabels([local]).first?.machine)
-        #expect(lasting.map { SectionHeaderRowView.tone(SectionHeaderRowView.drawn($0), hostGroup: false) } == .working, "a lasting connect draws the spinner")
+        #expect(!ended, "a connect starts no wait that could end in a spinner")
         let connected = SidebarMachine(id: .local, name: "Mac", kind: .local, status: .connected)
         #expect(SectionHeaderRowView.tone(connected, hostGroup: false) == nil)
     }
 
-    /// One list's "Connecting…" label waits out the grace; a connected machine is never held.
-    @Test func theConnectingLabelWaitsOutTheGrace() async {
-        let grace = SidebarPlaceholderGrace(wait: .seconds(10), clock: NowClock())
+    /// One list's "Connecting…" label is never drawn; a connected machine is never held.
+    @Test func theConnectingLabelIsHeldForGood() async {
+        let grace = SidebarPlaceholderGrace(wait: .milliseconds(1), clock: NowClock())
         let connecting = SidebarSection(kind: .machine(SidebarMachine(id: MachineID("vm-a"), name: "A", kind: .cloud, status: .connecting)), nodes: [])
         let connected = SidebarSection(kind: .machine(SidebarMachine(id: MachineID("vm-b"), name: "B", kind: .cloud, status: .connected)), nodes: [])
         let local = SidebarSection(kind: .machine(SidebarMachine(id: .local, name: "Mac", kind: .local, status: .connecting)), nodes: [])
-        // Two waits run (A and This Mac): the continuation resumes when both ended, once.
-        var ends = 0
-        await withCheckedContinuation { (ended: CheckedContinuation<Void, Never>) in
-            grace.onEnd = { ends += 1; if ends == 2 { ended.resume() } }
-            let held = grace.holdingConnectingLabels([connecting, connected, local])
-            #expect(held.map { $0.machine?.holdsStatusLabel } == [true, false, true])
+        for _ in 0..<3 {
+            #expect(grace.holdingConnectingLabels([connecting, connected, local]).map { $0.machine?.holdsStatusLabel } == [true, false, true])
+            await Task.yield()
         }
-        grace.onEnd = nil
-        #expect(grace.holdingConnectingLabels([connecting]).first?.machine?.holdsStatusLabel == false, "a lasting connect still says so")
     }
 
     /// Leo, 2026-11-14: "i also want all our connectivity stuff to shut the fuck up". An ssh machine whose
@@ -145,8 +156,13 @@ struct DaemonStartupFailureStateTests {
             #expect(SectionHeaderRowView.statusText(SectionHeaderRowView.drawn(machine).status, hostGroup: false) != nil,
                     "a person must act: said at once (\(machine.status))")
         }
-        // Past the grace, a drop that lasts is said, once, in place.
-        let late = ssh("late", .reconnecting), lasting = SidebarPlaceholderGrace(wait: .seconds(10), clock: NowClock())
+        // A redial is never said, at any age.
+        for _ in 0..<3 {
+            #expect(grace.holdingConnectingLabels([ssh("m0", .reconnecting)]).first?.machine?.holdsStatusLabel == true)
+            await Task.yield()
+        }
+        // Past the grace, a link settled out of reach is said, once, in place.
+        let late = ssh("late", .unreachable), lasting = SidebarPlaceholderGrace(wait: .seconds(10), clock: NowClock())
         await withCheckedContinuation { (ended: CheckedContinuation<Void, Never>) in
             lasting.onEnd = { ended.resume() }
             #expect(lasting.holdingConnectingLabels([late]).first?.machine?.holdsStatusLabel == true)
@@ -154,7 +170,7 @@ struct DaemonStartupFailureStateTests {
         lasting.onEnd = nil
         let said = lasting.holdingConnectingLabels([late]).first?.machine ?? SidebarMachine(id: MachineID("none"), name: "", kind: .ssh)
         #expect(!said.holdsStatusLabel)
-        #expect(SectionHeaderRowView.statusText(SectionHeaderRowView.drawn(said).status, hostGroup: false) == SectionHeaderRowView.statusWords(.reconnecting))
+        #expect(SectionHeaderRowView.statusText(SectionHeaderRowView.drawn(said).status, hostGroup: false) == SectionHeaderRowView.statusWords(.unreachable))
     }
 }
 

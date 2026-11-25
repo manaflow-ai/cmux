@@ -60,3 +60,16 @@ test("a page the prompt names is the header's preview, but only the agent's own 
   const served = [shell("npm run dev &", "  Local:   http://localhost:5173/")];
   expect(turnServedUrl(served)).toBe("http://localhost:5173/");
 });
+
+test("the latest page wins: a later call's over an earlier one's and the answer's, the agent's over the prompt's", () => {
+  const asked = { ...user, text: "like http://localhost:3000/" } as AcpmuxRow;
+  const answer = { id: "a1", kind: "assistant", text: "see http://localhost:4000/" } as AcpmuxRow;
+  const first = shell("bun run dev", "Local: http://localhost:5173/");
+  const second = shell("bun run docs", "Local: http://localhost:6006/ and http://localhost:6007/");
+  expect(turnPreviewUrl(asked, [answer])).toBe("http://localhost:4000/");
+  expect(turnPreviewUrl(asked, [first, answer])).toBe("http://localhost:4000/");
+  expect(turnPreviewUrl(asked, [answer, first, second])).toBe("http://localhost:6007/");
+  // Read again, the same objects give the same page (each text is read once).
+  expect(turnPreviewUrl(asked, [answer, first, second])).toBe("http://localhost:6007/");
+  expect(turnPreviewUrl(asked, [second, first])).toBe("http://localhost:5173/");
+});

@@ -14,9 +14,17 @@ export const chromiumGlassUnderlay = defineExperiment({
     "In a see-through Chromium page, the theme surface a menu, a hover card, the composer or Session Info lays under its tint. Look at the transcript text under the glass: crisp text through it is the defect; more surface hides it but shows less of the window glass.",
   arms: {
     none: { label: "None", description: "The tint alone, as before: the text under the glass reads crisp through it." },
-    light: { label: "Light", description: "The surface at 50% under the tint." },
-    medium: { label: "Medium", description: "The surface at 70% under the tint: the text under it is a faint trace." },
-    heavy: { label: "Heavy", description: "The surface at 85% under the tint: close to a solid card." },
+    light: { label: "Light", description: "The surface at 25% under the tint." },
+    medium: {
+      label: "Medium",
+      description:
+        "The design scale's underlay, 40% under the tint (57% in dark): a menu covers 88% of the text under it in both, a faint trace (design/glass-system.md).",
+    },
+    heavy: {
+      label: "Heavy",
+      description:
+        "The surface at 70% under the tint, as before the one glass system: a menu covers 93%, close to a solid card.",
+    },
   },
   defaultArm: "medium",
 });

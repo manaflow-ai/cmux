@@ -77,11 +77,11 @@ import Testing
         #expect(badge.superview == nil)
     }
 
-    /// App health's line moves nothing in the footer row when it comes and goes (Leo, 2026-11-11: "slow
-    /// indicator on the bottom left is uselsss and layout shifts the space. it's bad"): the spaces strip, its
-    /// dots and "+", the update button and Search keep their frames, and the line floats above the row at the
-    /// avatar's leading edge. As a badge it sits on the avatar's corner, and moves nothing either.
-    @Test func theHealthLineMovesNothingInTheFooterRow() async throws {
+    /// The experiments mark (`cmux customize use pr:N`) shows nothing and changes nothing while no PR's pages
+    /// are on (Leo, 2026-11-14: "it's obviously not going to show anything and not affect anything when
+    /// there's nothing to toggle on and off"); shown, it floats above the row at the avatar's leading edge,
+    /// and the row never moves.
+    @Test func theExperimentsMarkShowsNothingWhenOffAndMovesNothingWhenOn() async throws {
         let h = await make(width: 240)
         defer { h.window.close() }
         h.sidebar.spacesPosition = .bottom
@@ -94,31 +94,24 @@ import Testing
         let row = { [h.frame(of: bar), h.frame(of: h.sidebar.updateAvailableButton), h.frame(of: h.sidebar.searchButton)] + bar.slotRects() }
         let atRest = row()
         let avatar = try #require(h.sidebar.footerBand.bandFirstRow?.frame)
-        for long in [false, true] {
-            let line = NSTextField(labelWithString: long ? String(repeating: "Session service isn’t responding ", count: 4) : "Agent chat isn’t responding")
-            h.sidebar.healthIndicator = line
-            h.settle()
-            #expect(row() == atRest, "the row holds still with the line (long: \(long))")
-            let frame = h.frame(of: line)
-            #expect(frame.width > 0 && abs(frame.minX - avatar.minX) < 0.5, "at the avatar's leading edge: \(frame)")
-            #expect(frame.maxY <= avatar.minY, "above the row: \(frame) over \(avatar)")
-            #expect(frame.maxX <= h.sidebar.bounds.width, "inside the sidebar")
-            h.sidebar.healthIndicator = nil
-            h.settle()
-            #expect(row() == atRest, "and still once it leaves")
-        }
-        let badge = Badge(frame: NSRect(x: 0, y: 0, width: 10, height: 10))
-        h.sidebar.healthIndicator = badge
+        // The mark as the footer sees it: hidden while no PR's pages are on (CustomizeExperimentsTests covers
+        // the real view's hiding), a chip-sized view once one is.
+        let mark = NSTextField(labelWithString: "Experiment on · #43543   Off")
+        mark.isHidden = true
+        h.sidebar.experimentsMark = mark
         h.settle()
-        #expect(row() == atRest, "the badge moves nothing either")
-        #expect(h.frame(of: badge).intersects(avatar), "on the avatar's corner: \(h.frame(of: badge)) \(avatar)")
-        h.sidebar.healthIndicator = nil
-    }
-
-    /// App health's `dot` treatment, as the footer sees it.
-    final class Badge: NSView, AvatarBadgePlacing {
-        var sitsOnAvatar: Bool { true }
-        override var fittingSize: NSSize { NSSize(width: 10, height: 10) }
+        #expect(row() == atRest, "nothing on: the row is as it was")
+        mark.isHidden = false
+        h.settle()
+        #expect(!mark.isHidden)
+        #expect(row() == atRest, "the row holds still with the mark")
+        let alone = h.frame(of: mark)
+        #expect(alone.width > 0 && abs(alone.minX - avatar.minX) < 0.5, "at the avatar's leading edge: \(alone)")
+        #expect(alone.maxY <= avatar.minY, "above the row: \(alone) over \(avatar)")
+        mark.isHidden = true
+        h.settle()
+        #expect(row() == atRest, "turned off: the row is as it was")
+        h.sidebar.experimentsMark = nil
     }
 
     /// Signed in, the avatar alone shows at rest; hovering it says the email (Leo 2026-10-21).

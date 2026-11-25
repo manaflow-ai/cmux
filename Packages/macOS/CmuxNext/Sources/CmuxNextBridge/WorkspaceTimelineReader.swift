@@ -22,7 +22,7 @@ public struct WorkspaceTimelineReader {
             let ref = tab.agentSession
             var timeline = ref.map(turns.timeline(for:)) ?? AgentTimeline()
             if let terminal = agents.timelines[tab.surface], ref == nil || timeline.events.isEmpty { timeline = terminal }
-            let fallbackAgent = ref?.harness ?? agents.bySurface[tab.surface]?.agent
+            let fallbackAgent = ref?.harness ?? agents.status(for: tab)?.agent
             merged += timeline.events.map { Self.entry($0, agent: $0.agent ?? fallbackAgent) }
         }
         merged.sort { $0.date > $1.date }

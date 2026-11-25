@@ -15,6 +15,7 @@ import type {
   ModelsState,
   ListRow,
   ManagedInfo,
+  RowNoteData,
   SnapshotResult,
 } from "./ops";
 import { revisionNumber } from "./ops";
@@ -39,6 +40,8 @@ export type ScopeData = {
   rows: ReadonlyMap<string, ListRow>;
   managed: ReadonlyMap<string, ManagedInfo>;
   diagnostics: ReadonlyMap<string, string[]>;
+  /** Row notes by schema row (`RowNoteData`). */
+  notes: ReadonlyMap<string, RowNoteData[]>;
   /** Every problem of the read, in file order (Advanced lists them). */
   problems: ReadonlyArray<{ path: string; message: string }>;
   domains: Domains;
@@ -77,6 +80,7 @@ export function scopeData({ rows, snapshot }: ScopeRead): ScopeData {
     rows: new Map(rows.map((row) => [row.key, row])),
     managed: new Map(Object.entries(snapshot.managed ?? {})),
     diagnostics: diagnosticsByKey(snapshot.diagnostics ?? []),
+    notes: notesByKey(snapshot.notes ?? []),
     problems: (snapshot.diagnostics ?? []).map((diagnostic) => ({
       path: Array.isArray(diagnostic.path) ? diagnostic.path.join(".") : diagnostic.path,
       message: diagnostic.message,
@@ -97,6 +101,7 @@ export function shareScope(previous: ScopeData | undefined, next: ScopeData): Sc
     rows: shareMap(previous.rows, next.rows),
     managed: shareMap(previous.managed, next.managed),
     diagnostics: shareMap(previous.diagnostics, next.diagnostics),
+    notes: shareMap(previous.notes, next.notes),
     problems: same(previous.problems, next.problems) ? previous.problems : next.problems,
     domains: same(previous.domains, next.domains) ? previous.domains : next.domains,
   };
@@ -149,20 +154,36 @@ function publishedDomains(snapshot: SnapshotResult): Domains {
   return {
     themes: domains.themes ?? [],
     font_families: domains.font_families ?? [],
+    ui_font_families: domains.ui_font_families ?? [],
     sounds: domains.sounds ?? [],
     recent_fonts: domains.recent_fonts ?? [],
   };
 }
 
-/** Diagnostics keyed by schema row: the row whose key equals the path or is its prefix. */
+/** The schema row a dotted path belongs to: the row whose key equals the path or is its prefix. */
+function rowKeyOf(path: string): string {
+  let key = path;
+  while (key && !rowsByKey.has(key)) key = key.includes(".") ? key.slice(0, key.lastIndexOf(".")) : "";
+  return key;
+}
+
+/** Diagnostics keyed by schema row. */
 function diagnosticsByKey(diagnostics: Diagnostic[]): Map<string, string[]> {
   const out = new Map<string, string[]>();
   for (const diagnostic of diagnostics) {
-    const path = Array.isArray(diagnostic.path) ? diagnostic.path.join(".") : diagnostic.path;
-    let key = path;
-    while (key && !rowsByKey.has(key)) key = key.includes(".") ? key.slice(0, key.lastIndexOf(".")) : "";
+    const key = rowKeyOf(Array.isArray(diagnostic.path) ? diagnostic.path.join(".") : diagnostic.path);
     if (!key) continue;
     out.set(key, [...(out.get(key) ?? []), diagnostic.message]);
+  }
+  return out;
+}
+
+/** Row notes keyed by schema row. */
+function notesByKey(notes: RowNoteData[]): Map<string, RowNoteData[]> {
+  const out = new Map<string, RowNoteData[]>();
+  for (const note of notes) {
+    const key = rowKeyOf(note.path);
+    if (key) out.set(key, [...(out.get(key) ?? []), note]);
   }
   return out;
 }

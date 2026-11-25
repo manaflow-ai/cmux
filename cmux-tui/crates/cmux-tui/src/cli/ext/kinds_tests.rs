@@ -19,13 +19,27 @@ use super::{Request, exit, parse, scaffold};
 const BUDGET: Duration = Duration::from_secs(1);
 
 /// The kinds that make a folder; `view` when the kind draws one.
-const KINDS: [(&str, bool); 5] = [
+const KINDS: [(&str, bool); 6] = [
     ("sidebar", true),
     ("session-info", true),
     ("pane", true),
     ("newtab", true),
+    ("widget", true),
     ("command", false),
 ];
+
+/// Words each view kind's template shows in its first scene and has in `src/main.ts`: the test
+/// sees them, saves the source with them changed, and sees the change (the command kind draws
+/// nothing; its source is saved with its greeting changed).
+fn marker(kind: &str) -> &'static str {
+    match kind {
+        "sidebar" => "Review pull requests",
+        "session-info" => "Branch",
+        "pane" => "Hi pane",
+        "newtab" => "New agent chat",
+        _ => "Hello",
+    }
+}
 
 /// One kind's run: save to reloaded, and that reload's build and copy-to-frame times.
 struct Measured {
@@ -63,8 +77,9 @@ fn new_edit_reload(root: &Path, kind: &str, view: bool, bun: &Path) -> Result<Me
     if first.phase != Phase::Done {
         return Err(format!("the new folder does not load: {:?}", first.errors));
     }
-    if view && !shown(&first).contains("Hello") {
-        return Err(format!("the new view shows no Hello: {}", shown(&first)));
+    let mark = marker(kind);
+    if view && !shown(&first).contains(mark) {
+        return Err(format!("the new view shows no {mark}: {}", shown(&first)));
     }
     let print = session.built_print.unwrap_or_else(|| dev::fingerprint(&dir));
 
@@ -72,7 +87,7 @@ fn new_edit_reload(root: &Path, kind: &str, view: bool, bun: &Path) -> Result<Me
     let source = dir.join("src/main.ts");
     let text = std::fs::read_to_string(&source).map_err(|e| e.to_string())?;
     let saved = Instant::now();
-    std::fs::write(&source, text.replace("Hello", "Edited")).map_err(|e| e.to_string())?;
+    std::fs::write(&source, text.replace(mark, "Edited")).map_err(|e| e.to_string())?;
 
     // Reload: as `run_watch` does, a wake, the debounce, a changed fingerprint.
     let outcome = loop {
@@ -225,6 +240,10 @@ fn a_command_extension_needs_a_name_cmux_does_not_use() {
     let root = tempfile::tempdir().unwrap();
     let error = scaffold::scaffold(&root.path().join("apps"), "apps", "command").unwrap_err();
     assert!(error.contains("is a cmux command"), "{error}");
+    // Not on the reserved list, but the first word of built-in `cmux density …`,
+    // which always wins over an app's `cmux density hello`.
+    let error = scaffold::scaffold(&root.path().join("density"), "density", "command").unwrap_err();
+    assert!(error.contains("is a cmux command"), "{error}");
     assert!(scaffold::scaffold(&root.path().join("apps"), "apps", "sidebar").is_ok());
     for bad in ["ab-", "a--b"] {
         assert!(scaffold::scaffold(&root.path().join(bad), bad, "command").is_err(), "{bad}");
@@ -266,4 +285,166 @@ fn every_kind_ships_the_packers_build_of_its_source() {
         }
     }
     assert!(stale.is_empty(), "stale first builds: {stale:?} (the builds are printed above)");
+}
+
+/// The scene each view kind's template draws, from its shipped `dist/main.js` in the real QuickJS
+/// host, with the same context and answers as the gallery's `apps.ext-new-templates` entry. A
+/// call to `workspace.list` gets three workspaces; every other call `null`.
+fn template_scene(kind: &str) -> Result<Value, String> {
+    use cmux_app_host::{AppInfo, AppVm, FromHost, InitParams, Limits};
+    let (export, context) = match kind {
+        "sidebar" => ("renderSection", json!({})),
+        "session-info" => (
+            "renderSessionInfo",
+            json!({"session_id": "session_1", "cwd": "/Users/you/src/atlas",
+                   "branch": "fix/chat-drafts", "harness": "claude"}),
+        ),
+        "pane" => ("renderPane", json!({})),
+        "newtab" => ("renderNewTab", json!({"cwd": "/Users/you/src/atlas"})),
+        _ => return Err(format!("{kind} draws no view")),
+    };
+    let root = tempfile::tempdir().map_err(|e| e.to_string())?;
+    let dir = root.path().join("my-view");
+    scaffold::scaffold(&dir, "my-view", kind)?;
+    let main = std::fs::read_to_string(dir.join("dist/main.js")).map_err(|e| e.to_string())?;
+    let mut vm = AppVm::new(Limits::default())?;
+    vm.init(InitParams {
+        app: AppInfo { id: "local/my-view".into(), version: "0.1.0".into() },
+        settings: json!({}),
+        api_version: cmux_app_manifest::capabilities::Capabilities::get().api_version.clone(),
+        ops: None,
+        known_ops: None,
+        locale: None,
+        strings: Value::Null,
+        main,
+        main_name: Some("dist/main.js".into()),
+    })
+    .map_err(|e| format!("init: {e:?}"))?;
+    if let Some(refused) = vm.mount("m", export, &context).map_err(|e| format!("{e:?}"))? {
+        return Err(refused);
+    }
+    let workspaces = json!([
+        {"id": "workspace_1", "session_id": "session_1", "name": "atlas", "index": 0, "focused": true},
+        {"id": "workspace_2", "session_id": "session_1", "name": "docs site", "index": 1, "focused": false},
+        {"id": "workspace_3", "session_id": "session_1", "name": "release 2.4", "index": 2, "focused": false},
+    ]);
+    let mut ops = Vec::new();
+    for _ in 0..32 {
+        let outbox = vm.take_outbox();
+        if outbox.is_empty() {
+            break;
+        }
+        for message in outbox {
+            match message {
+                FromHost::Scene { ops: batch, .. } => {
+                    ops.extend(batch.as_array().cloned().unwrap_or_default());
+                }
+                FromHost::Call { cb, name, .. } => {
+                    let value =
+                        if name == "workspace.list" { workspaces.clone() } else { Value::Null };
+                    vm.resolve(cb, true, &json!({ "value": value }))
+                        .map_err(|e| format!("{e:?}"))?;
+                }
+                // The daemon's signals cache serves `workspaces()`; this host has none, so the
+                // watch falls back to a plain `workspace.list` call, answered above.
+                FromHost::Watch { watch, .. } => {
+                    vm.watch_state(watch, &json!({ "fallback": true }))
+                        .map_err(|e| format!("{e:?}"))?;
+                }
+                FromHost::Fatal { .. } => return Err(format!("{message:?}")),
+                _ => {}
+            }
+        }
+    }
+    Ok(Value::Array(ops))
+}
+
+/// One node of a scene `scene_tree` builds: its type, props and child ids.
+#[derive(Default)]
+struct TreeNode {
+    kind: String,
+    props: serde_json::Map<String, Value>,
+    children: Vec<String>,
+}
+
+/// The tree a list of scene ops leaves, from its root: `{type, props, children}`, ids dropped,
+/// so two hosts that batch the same scene differently compare equal.
+fn scene_tree(ops: &Value) -> Value {
+    let mut nodes: std::collections::HashMap<String, TreeNode> = Default::default();
+    let mut root = None;
+    for op in ops.as_array().into_iter().flatten() {
+        let id = op["id"].as_str().unwrap_or_default().to_string();
+        match op["op"].as_str() {
+            Some("create") => {
+                let node = TreeNode {
+                    kind: op["type"].as_str().unwrap_or_default().into(),
+                    props: op["props"].as_object().cloned().unwrap_or_default(),
+                    children: vec![],
+                };
+                nodes.insert(id, node);
+            }
+            Some("update") => {
+                if let Some(node) = nodes.get_mut(&id) {
+                    for (key, value) in op["props"].as_object().into_iter().flatten() {
+                        if value.is_null() {
+                            node.props.remove(key);
+                        } else {
+                            node.props.insert(key.clone(), value.clone());
+                        }
+                    }
+                }
+            }
+            Some("children") => {
+                if let Some(node) = nodes.get_mut(&id) {
+                    node.children = op["children"]
+                        .as_array()
+                        .into_iter()
+                        .flatten()
+                        .filter_map(|c| c.as_str().map(String::from))
+                        .collect();
+                }
+            }
+            Some("remove") => {
+                nodes.remove(&id);
+            }
+            Some("root") => root = Some(id),
+            _ => {}
+        }
+    }
+    fn walk(id: &str, nodes: &std::collections::HashMap<String, TreeNode>) -> Value {
+        let Some(node) = nodes.get(id) else { return Value::Null };
+        let children: Vec<Value> = node.children.iter().map(|c| walk(c, nodes)).collect();
+        json!({"type": node.kind, "props": node.props, "children": children})
+    }
+    root.map(|id| walk(&id, &nodes)).unwrap_or(Value::Null)
+}
+
+/// The view kinds the gallery's `apps.ext-new-templates` entry draws. A widget is not one of them:
+/// it draws the clock (`ctx.now()`), so no fixed scene can match it.
+const GALLERY_KINDS: [&str; 4] = ["sidebar", "session-info", "pane", "newtab"];
+
+/// The gallery's `apps.ext-new-templates` entry draws each of `GALLERY_KINDS`' templates from
+/// `webviews/src/apps/scene/extTemplateScenes.json` (`KIND-shipped`): this keeps that fixture the
+/// scene the template really draws. On a difference it prints the template's ops to put there.
+#[test]
+fn every_view_kind_draws_the_scene_its_gallery_entry_shows() {
+    let fixture = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../../../webviews/src/apps/scene/extTemplateScenes.json");
+    let Ok(text) = std::fs::read_to_string(&fixture) else {
+        // A sparse checkout (`wt new --files`) may have no webviews/; CI always has it.
+        assert!(std::env::var_os("CI").is_none(), "no {} on CI", fixture.display());
+        eprintln!("SKIPPED: no {} in this checkout", fixture.display());
+        return;
+    };
+    let gallery: Value = serde_json::from_str(&text).expect("the gallery fixture is JSON");
+    let mut stale = Vec::new();
+    for kind in GALLERY_KINDS {
+        let ops = template_scene(kind).unwrap_or_else(|problem| panic!("{kind}: {problem}"));
+        let key = format!("{kind}-shipped");
+        if scene_tree(&ops) != scene_tree(&gallery[&key]) {
+            eprintln!("=== BEGIN {key} ===\n{ops}\n=== END {key} ===");
+            stale.push(key);
+        }
+    }
+    assert!(stale.is_empty(), "the gallery shows other scenes than the templates draw: {stale:?}");
 }

@@ -55,11 +55,25 @@ struct AgentCLIHybridFrame: Sendable, Equatable {
         self.cursorVisible = cursorVisible
     }
 
+    /// Whether this frame, applied on its base, moves no cell and no row: what it changes is at
+    /// most the cursor (an equal refresh).
+    var changesNoCell: Bool {
+        guard base != nil, let delta else { return false }
+        return delta.shift == 0 && delta.spans.isEmpty
+    }
+
     /// The bytes that draw this frame on a terminal showing frame ``base`` (a blank one for a
     /// keyframe); nil when `data` is not a delta.
+    ///
+    /// No synchronized update (DEC mode 2026) around them, unlike cmux-tui's `frame_bytes`.
+    /// Each `?2026h` woke Ghostty's IO thread and re-armed its 1 s reset timer, for every
+    /// frame. A frame's bytes reach Ghostty in one `process_output`, parsed under the terminal
+    /// lock, unless the screen's output queue (`TerminalOutputQueue`) splits them: only when
+    /// more than one batch is waiting (256 KiB, or 16 KiB while the screen is dragged). Then
+    /// one display frame can show part of the frame.
     var terminalBytes: Data? {
         guard let delta else { return nil }
-        var out = "\u{1b}[?2026h\u{1b}[?25l\u{1b}[0m"
+        var out = "\u{1b}[?25l\u{1b}[0m"
         if base == nil { out += "\u{1b}[H\u{1b}[2J" }
         if delta.shift > 0 {
             // Line feeds on the last row: the rows that leave the top reach the scrollback.
@@ -120,7 +134,6 @@ struct AgentCLIHybridFrame: Sendable, Equatable {
         }
         out += "\u{1b}[0m\u{1b}[\(cursorY + 1);\(cursorX + 1)H"
         if cursorVisible { out += "\u{1b}[?25h" }
-        out += "\u{1b}[?2026l"
         return Data(out.utf8)
     }
 

@@ -26,8 +26,8 @@ import Testing
         let frame = try #require(AgentCLIHybridFrame(event(frame: 1, base: nil, data: keyframeData)))
         let bytes = try #require(frame.terminalBytes)
         #expect(String(decoding: bytes, as: UTF8.self)
-            == "\u{1b}[?2026h\u{1b}[?25l\u{1b}[0m\u{1b}[H\u{1b}[2J\u{1b}[1;3H\u{1b}[0;1;38;5;174mhi\u{1b}[0m"
-            + "\u{1b}[2;1H\u{1b}[3X\u{1b}[0m\u{1b}[4;2H\u{1b}[?25h\u{1b}[?2026l")
+            == "\u{1b}[?25l\u{1b}[0m\u{1b}[H\u{1b}[2J\u{1b}[1;3H\u{1b}[0;1;38;5;174mhi\u{1b}[0m"
+            + "\u{1b}[2;1H\u{1b}[3X\u{1b}[0m\u{1b}[4;2H\u{1b}[?25h")
     }
 
     @Test func aScrollUpIsLineFeedsOnTheLastRow() throws {
@@ -37,6 +37,17 @@ import Testing
         #expect(text.contains("\u{1b}[4;1H\n\n"))
         #expect(!text.contains("\u{1b}[2J"))
         #expect(!text.contains("\u{1b}[?25h"), "a hidden cursor stays hidden")
+    }
+
+    /// One frame is one `process_output`, parsed under the terminal lock: a synchronized
+    /// update (DEC 2026) around it only woke Ghostty's IO thread and re-armed its 1 s reset
+    /// timer, once per frame.
+    @Test func aFramesBytesStartNoSynchronizedUpdate() throws {
+        for (frame, base) in [(1, nil), (2, 1)] as [(Int, Int?)] {
+            let parsed = try #require(AgentCLIHybridFrame(event(frame: frame, base: base, data: keyframeData)))
+            let text = String(decoding: try #require(parsed.terminalBytes), as: UTF8.self)
+            #expect(!text.contains("\u{1b}[?2026"), "frame \(frame)")
+        }
     }
 
     @Test func wideGlyphsAndColorsDecode() throws {
@@ -65,8 +76,8 @@ import Testing
         let keyBytes = try #require(AgentCLIHybridFrame(event(frame: 1, base: nil, data: keyframeData))?.terminalBytes)
         #expect(first == [.columns(20), .rows(4), .historyRowsOmitted(0), .alternateScreen(false),
                           .output(keyBytes), .hybridFrame(stream: "s1", frame: 1, resumed: false)])
-        // A delta on the same grid: only its bytes.
-        let next = parser.parse(line(event(frame: 2, base: 1, data: Data([0, 0, 0, 0]))))
+        // A delta on the same grid: only its bytes (here the cursor moved).
+        let next = parser.parse(line(event(frame: 2, base: 1, data: Data([0, 0, 0, 0]), cursor: (2, 3, true))))
         #expect(next.count == 2)
         #expect(next.last == .hybridFrame(stream: "s1", frame: 2, resumed: false))
         // A later keyframe at the same grid (the program switched screens) clears and draws
@@ -142,6 +153,22 @@ import Testing
         #expect(decoder.decode(Data(lean)) == nil, "a lean frame number past 64 bits")
     }
 
+    /// An equal refresh (no cell, no row, the same cursor) on the screen the attach drew sends no
+    /// bytes, so the terminal view is not woken, and keeps the frame mark a resume applies on.
+    @Test func anEqualRefreshDrawsNoBytesButKeepsTheFrameMark() {
+        var parser = DaemonTerminalEventParser(surface: 7)
+        _ = parser.parse(line(event(frame: 1, base: nil, data: keyframeData)))
+        let equal = parser.parse(line(event(frame: 2, base: 1, data: Data([0, 0, 0, 0]))))
+        let outputs = equal.filter { if case .output = $0 { true } else { false } }.count
+        print("SILENT_DELTA terminal_equal before=1 after=\(outputs)")
+        #expect(outputs == 0)
+        #expect(equal == [.hybridFrame(stream: "s1", frame: 2, resumed: false)])
+        // The next frame applies on frame 2, and a moved cursor draws again.
+        let moved = parser.parse(line(event(frame: 3, base: 2, data: Data([0, 0, 0, 0]), cursor: (2, 3, true))))
+        #expect(moved.count == 2)
+        #expect(moved.last == .hybridFrame(stream: "s1", frame: 3, resumed: false))
+    }
+
     @Test func aResumedAttachsFirstFrameKeepsTheScreen() {
         var parser = DaemonTerminalEventParser(surface: 7, hybridResume: (stream: "s1", frame: 5))
         let events = parser.parse(line(event(frame: 9, base: 5, data: Data([0, 0, 0, 0]))))
@@ -154,6 +181,10 @@ import Testing
         #expect(DaemonTerminalSession.capabilities(agentCLIHybrid: true).contains("agent-cli-hybrid-v1"))
         #expect(DaemonTerminalSession.capabilities(agentCLIHybrid: true).contains("agent-cli-hybrid-v2"))
         #expect(!DaemonTerminalSession.capabilities(agentCLIHybrid: false).contains("agent-cli-hybrid-v2"))
+        for capability in ["terminal-shell-lines-v1", "attach-output-coalesce-v1"] {
+            #expect(DaemonTerminalSession.capabilities(agentCLIHybrid: true).contains(capability))
+            #expect(!DaemonTerminalSession.capabilities(agentCLIHybrid: false).contains(capability))
+        }
         let defaults = try #require(UserDefaults(suiteName: "AgentCLIHybridFrameTests-\(UUID().uuidString)"))
         #expect(!DaemonTerminalSession.agentCLIHybridEnabled(defaults), "off by default")
         defaults.set(true, forKey: DaemonTerminalSession.agentCLIHybridDefaultsKey)
@@ -255,7 +286,7 @@ import Testing
                                         delta: .init(shift: 0, spans: [.set(row: 0, column: 0, cells: cells)]),
                                         cursorX: 0, cursorY: 0, cursorVisible: false)
         let text = String(decoding: try #require(frame.terminalBytes), as: UTF8.self)
-        #expect(text == "\u{1b}[?2026h\u{1b}[?25l\u{1b}[0m\u{1b}[H\u{1b}[2J\u{1b}[1;1H\u{1b}[1;2H\u{1b}[0;4;38;2;1;2;3;101m "
-            + "\u{1b}[1;1H\u{1F680}\u{1b}[1;3Ha\u{E9}\u{1b}[1;5Hb\u{1b}[0m\u{1b}[1;1H\u{1b}[?2026l")
+        #expect(text == "\u{1b}[?25l\u{1b}[0m\u{1b}[H\u{1b}[2J\u{1b}[1;1H\u{1b}[1;2H\u{1b}[0;4;38;2;1;2;3;101m "
+            + "\u{1b}[1;1H\u{1F680}\u{1b}[1;3Ha\u{E9}\u{1b}[1;5Hb\u{1b}[0m\u{1b}[1;1H")
     }
 }

@@ -55,7 +55,10 @@ fn a_page_hang_round_trips_through_the_c_abi() {
     assert_eq!(
         m.call("tick", json!({"nowMs": 10000})),
         json!({
-            "actions": [{"id": id, "kind": "page", "action": "reloadPage", "attempt": 1, "token": 1}],
+            "actions": [{
+                "id": id, "kind": "page", "action": "reloadPage", "attempt": 1, "token": 1,
+                "label": "Agent chat", "cause": "Not answering for 10 s."
+            }],
             "nextTickMs": 40000
         })
     );

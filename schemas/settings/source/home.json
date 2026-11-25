@@ -280,6 +280,31 @@
             "photos"
           ],
           "swift_owner": "HomeKeepLocationSetting"
+        },
+        {
+          "key": "home.clipboardHistory",
+          "title": {
+            "key": "settings.home.clipboardHistory",
+            "text": "Clipboard History in the + Menu"
+          },
+          "help": {
+            "key": "settings.home.clipboardHistory.help",
+            "text": "The Chief's + menu lists text and images you copied recently, so you can add one with a click. The list stays in memory on this Mac and skips passwords. When off, cmux doesn't read your clipboard for it."
+          },
+          "kind": "toggle",
+          "default": true,
+          "keywords": [
+            "clipboard",
+            "pasteboard",
+            "copy",
+            "paste",
+            "history",
+            "privacy",
+            "attachments",
+            "chief",
+            "plus"
+          ],
+          "swift_owner": "HomeClipboardHistorySetting"
         }
       ]
     },
@@ -500,8 +525,38 @@
         "key": "settings.group.chiefDock",
         "text": "Chief Dock"
       },
-      "note": "The Chief panel (user 2026-11-06): the edge the Chief docks at when the person docks it, and whether a link clicked in the Chief opens its workspace with the Chief floating over it.",
+      "note": "The Chief panel (user 2026-11-06): whether every window keeps it as a side panel, the edge the Chief docks at when the person docks it, and whether a link clicked in the Chief opens its workspace with the Chief floating over it.",
       "rows": [
+        {
+          "key": "home.chiefDock.sidePanel",
+          "note": "On: every window keeps the Chief docked as a side panel at the Dock Edge beside the workspace it shows (never over Home), and the sidebar's Chief row opens it there. Off by default: the Chief floats only on Cmd-I (David Beyer's feedback, 2026-11-20).",
+          "title": {
+            "key": "settings.home.chiefDockSidePanel",
+            "text": "Chief in Side Panel"
+          },
+          "help": {
+            "key": "settings.home.chiefDockSidePanel.help",
+            "text": "Keeps the Chief docked beside every workspace. Cmd-I hides or shows it."
+          },
+          "kind": "toggle",
+          "default": false,
+          "keywords": [
+            "chief",
+            "dock",
+            "side",
+            "panel",
+            "sidebar",
+            "pane",
+            "window",
+            "docked",
+            "always",
+            "home"
+          ],
+          "swift_owner": {
+            "type": "ChiefDockSetting",
+            "prefixed": true
+          }
+        },
         {
           "key": "home.chiefDock.edge",
           "note": "Left: most people keep the Chief on the left.",
@@ -644,37 +699,8 @@
           }
         },
         {
-          "key": "home.chiefPanel.seesScreen",
-          "note": "On: the eye in the panel shows it, and a click turns it off (user 2026-11-07, default picked by the Chief).",
-          "title": {
-            "key": "settings.home.chiefPanelSeesScreen",
-            "text": "Chief Sees Your Screen When It Opens"
-          },
-          "help": {
-            "key": "settings.home.chiefPanelSeesScreen.help",
-            "text": "The floating Chief takes one look at your screen when it opens. The eye turns it off."
-          },
-          "kind": "toggle",
-          "default": true,
-          "keywords": [
-            "chief",
-            "screen",
-            "see",
-            "context",
-            "screenshot",
-            "eye",
-            "floating",
-            "privacy",
-            "home"
-          ],
-          "swift_owner": {
-            "type": "ChiefDockSetting",
-            "prefixed": true
-          }
-        },
-        {
           "key": "home.chiefDock.openBeside",
-          "note": "On: a link clicked in the Chief opens its workspace with the Chief floating over it.",
+          "note": "On: a link clicked in the Chief opens its workspace with the Chief floating over it. Off by default (cmux#45889): a link opens only its target.",
           "title": {
             "key": "settings.home.chiefDockOpenBeside",
             "text": "Show Chief When Opening Workspaces"
@@ -684,7 +710,7 @@
             "text": "Links in the Chief open their workspace with the Chief over it. Esc hides it."
           },
           "kind": "toggle",
-          "default": true,
+          "default": false,
           "keywords": [
             "chief",
             "dock",

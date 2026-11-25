@@ -15,6 +15,7 @@ const sealedBox = (n = 200) => "x".repeat(n)
 
 const reg = (over: Partial<PushRegistration> = {}): PushRegistration => ({
   deviceId: PHONE,
+  space: "",
   ownerUserId: "o",
   token: "aa",
   environment: "production",
@@ -98,11 +99,11 @@ describe("reply mailbox (HTTP)", () => {
     const phone = await register(t, "phone", "personal-mia")
     const id = crypto.randomUUID()
     const r = await post(t, mac, { id, from: phone, sealed: sealedBox() })
-    expect(r).toMatchObject({ status: 200, json: { queued: true, delivered: false } })
+    expect(r).toMatchObject({ status: 200, json: { queued: true, delivered: false, seq: 1, expiresAt: expect.any(Number) } })
     // The same id again is the same item (a retried request), not a second one.
     expect((await post(t, mac, { id, from: phone, sealed: sealedBox() })).json).toMatchObject({ queued: true })
     expect((await post(t, mac, { id, from: phone, sealed: sealedBox(201) })).status).toBe(409)
-    expect((await call("GET", `/v1/devices/${mac}/mailbox/${id}`, t)).json).toEqual({ state: "queued" })
+    expect((await call("GET", `/v1/devices/${mac}/mailbox/${id}`, t)).json).toEqual({ state: "queued", seq: 1, expiresAt: expect.any(Number) })
     expect((await call("GET", `/v1/devices/${mac}/mailbox/${crypto.randomUUID()}`, t)).status).toBe(404)
   })
 
@@ -144,7 +145,7 @@ describe("reply mailbox (HTTP)", () => {
     await s.until((x) => x.frames.some((f) => f.type === "mailbox"))
     expect(s.frames[0].type).toBe("hello")
     const first = s.frames.find((f) => f.type === "mailbox")
-    expect(first.items).toEqual([{ id: early, from: phone, sealed: sealedBox(), at: expect.any(Number) }])
+    expect(first.items).toEqual([{ id: early, from: phone, sealed: sealedBox(), at: expect.any(Number), seq: 1 }])
     const live = crypto.randomUUID()
     expect((await post(t, mac, { id: live, from: phone, sealed: sealedBox() })).json).toMatchObject({ delivered: true })
     await s.until((x) => x.frames.filter((f) => f.type === "mailbox").length === 2)
@@ -152,8 +153,8 @@ describe("reply mailbox (HTTP)", () => {
     s.send({ type: "mailbox_ack", results: [{ id: early, applied: true, sig: SIG }, { id: live, applied: false, reason: "not_pending", sig: "not hex" }] })
     const state = async (id: string) => (await call("GET", `/v1/devices/${mac}/mailbox/${id}`, t)).json
     for (let i = 0; i < 40 && (await state(live)).state === "queued"; i++) await new Promise((r) => setTimeout(r, 25))
-    expect(await state(early)).toEqual({ state: "applied", sig: SIG })
-    expect(await state(live)).toEqual({ state: "rejected", reason: "not_pending" })
+    expect(await state(early)).toEqual({ state: "applied", sig: SIG, seq: 1, expiresAt: expect.any(Number) })
+    expect(await state(live)).toEqual({ state: "rejected", reason: "not_pending", seq: 2, expiresAt: expect.any(Number) })
     // A settled item is not delivered again on the next connection.
     s.ws.close()
     const again = await connect(t, "personal-quin", mac)
@@ -177,7 +178,7 @@ describe("reply mailbox (HTTP)", () => {
     other.send({ type: "mailbox_ack", results: [{ id, applied: true }] })
     other.send({ type: "mailbox_ack", results: "bad" })
     await other.until((x) => x.frames.some((f) => f.type === "error"))
-    expect((await call("GET", `/v1/devices/${mac}/mailbox/${id}`, t)).json).toEqual({ state: "queued" })
+    expect((await call("GET", `/v1/devices/${mac}/mailbox/${id}`, t)).json).toMatchObject({ state: "queued" })
     p.ws.close()
     other.ws.close()
   })
@@ -192,11 +193,134 @@ describe("reply mailbox (HTTP)", () => {
     const id = crypto.randomUUID()
     expect(await hub.mailboxPost("sol", { id, mac, from: phone, sealed: sealedBox() }, 1)).toMatchObject({ queued: true })
     await new Promise((r) => setTimeout(r, 10))
-    expect((await call("GET", `/v1/devices/${mac}/mailbox/${id}`, t)).json).toEqual({ state: "expired" })
+    expect((await call("GET", `/v1/devices/${mac}/mailbox/${id}`, t)).json).toMatchObject({ state: "expired" })
     const s = await connect(t, "personal-sol", mac)
     await s.until((x) => x.frames.some((f) => f.type === "hello"))
     await new Promise((r) => setTimeout(r, 100))
     expect(s.frames.some((f) => f.type === "mailbox")).toBe(false)
+    s.ws.close()
+  })
+})
+
+// PROTOCOL.md "Store and forward" (API 0.18.0): seq per (Mac, phone), long holds, paged delivery.
+describe("store and forward", () => {
+  const hubOf = (user: string) => {
+    const ns = (env as unknown as { TEAM_HUB: DurableObjectNamespace<TeamHub> }).TEAM_HUB
+    return ns.get(ns.idFromName(`user:${user}`))
+  }
+  const wait = (ms: number) => new Promise((r) => setTimeout(r, ms))
+
+  it("numbers each (Mac, phone) pair's items 1, 2, 3, never reuses one, and answers a retry its first seq", async () => {
+    const t = await token("sf-seq")
+    const mac = await register(t, "mac", "personal-sf-seq")
+    const phone = await register(t, "phone", "personal-sf-seq")
+    const phone2 = await register(t, "phone", "personal-sf-seq")
+    const a = crypto.randomUUID()
+    expect((await post(t, mac, { id: a, from: phone, sealed: sealedBox() })).json).toMatchObject({ seq: 1 })
+    expect((await post(t, mac, { id: crypto.randomUUID(), from: phone, sealed: sealedBox() })).json).toMatchObject({ seq: 2 })
+    expect((await post(t, mac, { id: crypto.randomUUID(), from: phone2, sealed: sealedBox() })).json).toMatchObject({ seq: 1 })
+    expect((await post(t, mac, { id: a, from: phone, sealed: sealedBox() })).json).toMatchObject({ queued: true, delivered: false, seq: 1 })
+    // Settled and gone: the pair's next item still takes the next number.
+    const s = await connect(t, "personal-sf-seq", mac)
+    const first = await s.until((x) => x.frames.some((f) => f.type === "mailbox"))
+    void first
+    const items = s.frames.find((f) => f.type === "mailbox").items as Array<{ id: string; seq: number }>
+    s.send({ type: "mailbox_ack", results: items.map((i) => ({ id: i.id, applied: true, sig: SIG })) })
+    await wait(50)
+    expect((await post(t, mac, { id: crypto.randomUUID(), from: phone, sealed: sealedBox() })).json).toMatchObject({ seq: 3 })
+    s.ws.close()
+  })
+
+  it("takes a hold of 1 to 86400 s and refuses anything else", async () => {
+    const t = await token("sf-hold")
+    const mac = await register(t, "mac", "personal-sf-hold")
+    const phone = await register(t, "phone", "personal-sf-hold")
+    const before = Date.now()
+    const r = await post(t, mac, { id: crypto.randomUUID(), from: phone, sealed: sealedBox(), hold: 86_400 })
+    expect(r.status).toBe(200)
+    expect(r.json.expiresAt).toBeGreaterThanOrEqual(before + 86_400_000)
+    for (const hold of [0, -1, 86_401, 1.5, "600", null])
+      expect((await post(t, mac, { id: crypto.randomUUID(), from: phone, sealed: sealedBox(), hold })).status).toBe(400)
+    // No hold: 10 minutes, as an older phone gets.
+    const plain = await post(t, mac, { id: crypto.randomUUID(), from: phone, sealed: sealedBox() })
+    expect(plain.json.expiresAt - Date.now()).toBeLessThanOrEqual(600_000)
+  })
+
+  it("bounds long holds per (Mac, phone) by count and bytes, apart from the 32 short ones per Mac", async () => {
+    const t = await token("sf-bound")
+    const mac = await register(t, "mac", "personal-sf-bound")
+    const phone = await register(t, "phone", "personal-sf-bound")
+    const phone2 = await register(t, "phone", "personal-sf-bound")
+    for (let i = 0; i < 32; i++) expect((await post(t, mac, { id: crypto.randomUUID(), from: phone, sealed: sealedBox() })).status).toBe(200)
+    expect((await post(t, mac, { id: crypto.randomUUID(), from: phone, sealed: sealedBox() })).status).toBe(429)
+    // Long holds still fit: they count per pair.
+    const hub = hubOf("sf-bound")
+    for (let i = 0; i < 64; i++) expect(await hub.mailboxPost("sf-bound", { id: crypto.randomUUID(), mac, from: phone, sealed: sealedBox() }, 3_600_000)).toMatchObject({ queued: true })
+    expect(await hub.mailboxPost("sf-bound", { id: crypto.randomUUID(), mac, from: phone, sealed: sealedBox() }, 3_600_000)).toEqual({ error: "full" })
+    // Another phone has its own bound; 32 boxes of 16384 characters fill its 524288.
+    for (let i = 0; i < 32; i++)
+      expect(await hub.mailboxPost("sf-bound", { id: crypto.randomUUID(), mac, from: phone2, sealed: "A".repeat(16_384) }, 3_600_000)).toMatchObject({ queued: true })
+    expect(await hub.mailboxPost("sf-bound", { id: crypto.randomUUID(), mac, from: phone2, sealed: "A" }, 3_600_000)).toEqual({ error: "full" })
+  }, 30_000)
+
+  it("holds an item for its own hold and reports expired once it passed", async () => {
+    const t = await token("sf-exp")
+    const mac = await register(t, "mac", "personal-sf-exp")
+    const phone = await register(t, "phone", "personal-sf-exp")
+    const hub = hubOf("sf-exp")
+    const id = crypto.randomUUID()
+    expect(await hub.mailboxPost("sf-exp", { id, mac, from: phone, sealed: sealedBox() }, 1_000)).toMatchObject({ seq: 1 })
+    expect((await call("GET", `/v1/devices/${mac}/mailbox/${id}`, t)).json).toMatchObject({ state: "queued", seq: 1 })
+    await wait(1_050)
+    expect((await call("GET", `/v1/devices/${mac}/mailbox/${id}`, t)).json).toMatchObject({ state: "expired", seq: 1 })
+  })
+
+  it("delivers in pages of 32 ordered by phone then seq, the next page after each ack, and unacked items again on the next socket", async () => {
+    const t = await token("sf-page")
+    const mac = await register(t, "mac", "personal-sf-page")
+    const phone = await register(t, "phone", "personal-sf-page")
+    const hub = hubOf("sf-page")
+    const ids: string[] = []
+    for (let i = 0; i < 64; i++) {
+      const id = crypto.randomUUID()
+      ids.push(id)
+      await hub.mailboxPost("sf-page", { id, mac, from: phone, sealed: sealedBox() }, 3_600_000)
+    }
+    const s = await connect(t, "personal-sf-page", mac)
+    await s.until((x) => x.frames.some((f) => f.type === "mailbox"))
+    await wait(50)
+    const pages = () => s.frames.filter((f) => f.type === "mailbox").map((f) => f.items as Array<{ id: string; seq: number }>)
+    expect(pages().length).toBe(1)
+    expect(pages()[0]!.map((i) => i.seq)).toEqual(Array.from({ length: 32 }, (_, i) => i + 1))
+    // A live post while 32 wait for their ack is not sent yet.
+    expect((await post(t, mac, { id: crypto.randomUUID(), from: phone, sealed: sealedBox() })).json).toMatchObject({ delivered: false, seq: 65 })
+    // Ack half the page: half a page more goes.
+    s.send({ type: "mailbox_ack", results: pages()[0]!.slice(0, 16).map((i) => ({ id: i.id, applied: true, sig: SIG })) })
+    await s.until((x) => x.frames.filter((f) => f.type === "mailbox").length === 2)
+    expect(pages()[1]!.map((i) => i.seq)).toEqual(Array.from({ length: 16 }, (_, i) => i + 33))
+    s.ws.close()
+    // The next socket gets everything still queued again, from the lowest seq.
+    const again = await connect(t, "personal-sf-page", mac)
+    await again.until((x) => x.frames.some((f) => f.type === "mailbox"))
+    const next = again.frames.find((f) => f.type === "mailbox").items as Array<{ seq: number }>
+    expect(next.map((i) => i.seq)).toEqual(Array.from({ length: 32 }, (_, i) => i + 17))
+    again.ws.close()
+  }, 30_000)
+
+  it("keeps the older Mac's contract: every item still carries id, from, sealed and at", async () => {
+    const t = await token("sf-old")
+    const mac = await register(t, "mac", "personal-sf-old")
+    const phone = await register(t, "phone", "personal-sf-old")
+    const id = crypto.randomUUID()
+    await post(t, mac, { id, from: phone, sealed: sealedBox() })
+    const s = await connect(t, "personal-sf-old", mac)
+    await s.until((x) => x.frames.some((f) => f.type === "mailbox"))
+    const item = s.frames.find((f) => f.type === "mailbox").items[0]
+    expect(item).toMatchObject({ id, from: phone, sealed: sealedBox(), at: expect.any(Number) })
+    // An older Mac acks without knowing seq; the hub settles by id as before.
+    s.send({ type: "mailbox_ack", results: [{ id, applied: true, sig: SIG }] })
+    for (let i = 0; i < 40 && (await call("GET", `/v1/devices/${mac}/mailbox/${id}`, t)).json.state === "queued"; i++) await wait(25)
+    expect((await call("GET", `/v1/devices/${mac}/mailbox/${id}`, t)).json).toMatchObject({ state: "applied", sig: SIG })
     s.ws.close()
   })
 })

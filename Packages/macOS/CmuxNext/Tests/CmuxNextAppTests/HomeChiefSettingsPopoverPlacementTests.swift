@@ -7,7 +7,8 @@ import Testing
 /// pill's leading edge and ran over the transcript beside it. It opens centered under the pill,
 /// as an `NSPopover` does.
 @MainActor @Suite(.serialized, .closesItsWindows) struct HomeChiefSettingsPopoverPlacementTests {
-    @Test func theCardOpensCenteredUnderThePill() throws {
+    @Test(.enabled(if: NSScreen.main != nil, "a popup opens only on a screen: run on a GUI host"))
+    func theCardOpensCenteredUnderThePill() throws {
         let window = NSWindow(contentRect: NSRect(x: 200, y: 200, width: 900, height: 700), styleMask: [.titled],
                               backing: .buffered, defer: false)
         window.isReleasedWhenClosed = false

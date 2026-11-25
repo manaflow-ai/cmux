@@ -561,6 +561,46 @@ pub(crate) fn rank_empty(
     sections
 }
 
+/// Every row `keeps` keeps, for a filter with no words (`in:tabs`): in section order, each
+/// section's most used rows first, then provider order; at most `limit` rows. Rows the user hid
+/// stay out, as on the empty query.
+pub(crate) fn rank_kept(
+    request: &RankRequest,
+    entries: &[Entry],
+    store: Option<&Frecency>,
+    keeps: impl Fn(&Entry) -> bool,
+    limit: usize,
+) -> Vec<RankedSection> {
+    let hidden: HashSet<&str> = store
+        .and_then(|store| store.hidden.as_ref())
+        .map(|hidden| hidden.iter().map(String::as_str).collect())
+        .unwrap_or_default();
+    let now = request.now.unwrap_or(0.0);
+    let mut kept: Vec<(usize, f64)> = entries
+        .iter()
+        .enumerate()
+        .filter(|(_, entry)| {
+            keeps(entry) && !entry.frecency_key.as_deref().is_some_and(|key| hidden.contains(key))
+        })
+        .map(|(index, entry)| (index, frecency_score(store, entry.frecency_key.as_deref(), now)))
+        .collect();
+    kept.sort_by(|a, b| b.1.total_cmp(&a.1).then(a.0.cmp(&b.0)));
+    let (mut order, mut rows_by_section) = group(kept.into_iter().map(|(index, _)| {
+        let entry = &entries[index];
+        (entry.typing_section_index.or(entry.section_index).unwrap_or(0), row(index))
+    }));
+    section_order(&mut order, request.section_orders.as_deref().unwrap_or_default());
+    let mut left = limit;
+    for section in &order {
+        if let Some(rows) = rows_by_section.get_mut(section) {
+            rows.truncate(left);
+            left -= rows.len();
+        }
+    }
+    order.retain(|section| rows_by_section.get(section).is_some_and(|rows| !rows.is_empty()));
+    sections_of(order, rows_by_section)
+}
+
 struct Scored {
     index: usize,
     score: i64,

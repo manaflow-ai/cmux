@@ -48,7 +48,10 @@ final class PromptBarView: NSView {
 
         let content = OverlayBackingView()
         content.addSubview(stack)
-        let glass = Glass.makeOverlayPanel(content: content, cornerRadius: BrowserMetrics.promptCornerRadius)
+        // promptCornerRadius is Metrics.buttonContainer(padding: overlayPadding).outerRadius in BrowserMetrics.swift,
+        // which the pre-push gate's changed-files tree leaves out.
+        let glass = Glass.makeOverlayPanel(content: content, cornerRadius: BrowserMetrics.promptCornerRadius, tone: .neutralGlass(.transient)) // concentric-allow: derived from buttonContainer in BrowserMetrics
+
         addSubview(glass)
         self.glass = glass
         NSLayoutConstraint.activate([
@@ -136,10 +139,14 @@ final class PromptBarView: NSView {
             case .microphone: Strings.permissionMicrophone(prompt.origin)
             case .cameraAndMicrophone: Strings.permissionCameraAndMicrophone(prompt.origin)
             case .automaticDownloads: Strings.permissionAutomaticDownloads(prompt.origin)
+            case .screenShare: Strings.permissionScreenShare(prompt.origin)
             case .location: Strings.permissionLocation(prompt.origin)
             case .notifications: Strings.permissionNotifications(prompt.origin)
             }
-            if [.automaticDownloads, .location, .notifications].contains(kind) {
+            if kind == .screenShare {
+                addButton(Strings.screenShareDontAllow, prominent: false, response: .deny)
+                addButton(Strings.screenShareAllow, prominent: true, response: .allowOnce)
+            } else if [.automaticDownloads, .location, .notifications].contains(kind) {
                 // Chrome's question: Block or Allow, remembered for the site.
                 addButton(PageInfoStrings.block, prominent: false, response: .deny)
                 addButton(PageInfoStrings.allow, prominent: true, response: .allow)

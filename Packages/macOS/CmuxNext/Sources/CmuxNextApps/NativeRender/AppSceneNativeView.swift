@@ -19,15 +19,24 @@ final class AppSceneNativeView: NSView {
     let bundleDirectory: URL?
     /// Runs after a redraw that may have changed ``preferredHeight(width:)``.
     var onContentSizeChange: (() -> Void)?
+    /// The root takes the view's whole bounds (a widget tile), not its own height.
+    var fillsBounds = false {
+        didSet { if fillsBounds != oldValue { needsLayout = true } }
+    }
     private var views: [String: AppSceneNodeNSView] = [:]
     private var rootView: AppSceneNodeNSView?
     /// The failed or disconnected mount's row (plain words, Copy Error, Details).
     private let failure: AppFailureNSView
     /// Under a kept view whose app's last save did not load.
     private let reloadMarker = AppSceneReloadMarkerView()
+    /// The clock this scene's host-ticking Texts (`date`) tick on: one deadline per second for the mount.
+    let clock = AppSceneClock()
     private var drawnRevision = -1
     private var drawnStatus: AppSceneModel.Status?
     private var drawnReloadFailure: String?
+    /// Whether this scene has drawn its first frame: a node the first scene draws does not play its
+    /// `transition` in (ABI.md Props, as the web renderer); one a later render adds does.
+    private var drewScene = false
 
     /// - Parameter copyText: What the failure row's Copy Error does with the raw reason (the general
     ///   pasteboard); tests pass a recorder.
@@ -91,10 +100,14 @@ final class AppSceneNativeView: NSView {
         drawnStatus = model.status
         drawnReloadFailure = model.reloadFailure
         let before = rootView.map { $0.height(width: bounds.width) }
+        // A host sized to the scene's width (a titlebar status item) hears a width change too.
+        let widthBefore = rootView?.naturalWidth
         reconcile()
         needsLayout = true
         invalidateIntrinsicContentSize()
-        if before != rootView.map({ $0.height(width: bounds.width) }) || !failure.isHidden || markerChanged { onContentSizeChange?() }
+        if before != rootView.map({ $0.height(width: bounds.width) }) || widthBefore != rootView?.naturalWidth || !failure.isHidden || markerChanged {
+            onContentSizeChange?()
+        }
     }
 
     private func reconcile() {
@@ -122,6 +135,7 @@ final class AppSceneNativeView: NSView {
             if let next { addSubview(next) }
             rootView = next
         }
+        if rootView != nil { drewScene = true }
     }
 
     /// Draws the failure row in place of the scene.
@@ -131,6 +145,8 @@ final class AppSceneNativeView: NSView {
         rootView?.removeFromSuperview()
         rootView = nil
         views.removeAll()
+        // The scene that comes back draws fresh: its first frame does not animate in.
+        drewScene = false
     }
 
     /// The view of node `id`, reused when the node keeps its type, configured with its current value,
@@ -146,6 +162,7 @@ final class AppSceneNativeView: NSView {
             view.model = model
             view.bundleDirectory = bundleDirectory
             view.configure(node)
+            if !drewScene { view.enterPending = false }
             views[id] = view
         }
         if Self.isContainer(node.type) {
@@ -178,9 +195,11 @@ final class AppSceneNativeView: NSView {
         case .slider: AppSceneSliderNSView(id: id, node: node)
         case .textField: AppSceneTextFieldNSView(id: id, node: node)
         case .progressView: AppSceneProgressNSView(id: id, node: node)
-        case .circle, .capsule, .rectangle, .roundedRectangle: AppSceneShapeNSView(id: id, node: node)
+        case .circle, .capsule, .rectangle, .roundedRectangle, .line: AppSceneShapeNSView(id: id, node: node)
         case .zStack: AppSceneZStackNSView(id: id, node: node)
-        case .vStack, .lazyVStack, .group, .forEach, .reorderable, .hStack: AppSceneStackNSView(id: id, node: node)
+        case .particles: AppSceneParticlesNSView(id: id, node: node)
+        case .reorderable: AppSceneReorderableNSView(id: id, node: node)
+        case .vStack, .lazyVStack, .group, .forEach, .hStack: AppSceneStackNSView(id: id, node: node)
         }
     }
 
@@ -198,6 +217,14 @@ final class AppSceneNativeView: NSView {
         return ceil(rootView?.height(width: width) ?? 0) + marker
     }
 
+    /// The scene's natural width (a status item's row), nil before a scene draws, while it shows a
+    /// failure, or when it fills whatever width it gets.
+    var preferredWidth: CGFloat? {
+        redrawIfNeeded()
+        guard failure.isHidden else { return nil }
+        return rootView?.naturalWidth.map { ceil($0) }
+    }
+
     override var intrinsicContentSize: NSSize {
         NSSize(width: NSView.noIntrinsicMetric, height: preferredHeight(width: bounds.width))
     }
@@ -209,8 +236,12 @@ final class AppSceneNativeView: NSView {
             failure.frame = CGRect(x: 0, y: 0, width: bounds.width, height: ceil(failure.height(width: bounds.width)))
         }
         guard let rootView else { return }
-        let width = min(rootView.naturalWidth ?? bounds.width, bounds.width)
-        rootView.frame = CGRect(x: 0, y: 0, width: width, height: rootView.height(width: width))
+        if fillsBounds {
+            rootView.frame = bounds
+        } else {
+            let width = min(rootView.naturalWidth ?? bounds.width, bounds.width)
+            rootView.frame = CGRect(x: 0, y: 0, width: width, height: rootView.height(width: width))
+        }
         if !reloadMarker.isHidden {
             reloadMarker.frame = CGRect(x: 0, y: rootView.frame.maxY, width: bounds.width, height: reloadMarker.height)
         }

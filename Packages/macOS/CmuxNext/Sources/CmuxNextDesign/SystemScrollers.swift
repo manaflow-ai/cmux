@@ -184,17 +184,17 @@ struct ScrollerPartNames {
     static func name(for subrole: NSAccessibility.Subrole, vertical: Bool) -> String? {
         switch subrole {
         case .incrementPage:
-            vertical ? String(localized: "scroller.part.pageDown", defaultValue: "Page Down", bundle: .module)
-                : String(localized: "scroller.part.pageRight", defaultValue: "Page Right", bundle: .module)
+            vertical ? String(localized: "scroller.part.pageDown", defaultValue: "Page Down", bundle: .localizedModule)
+                : String(localized: "scroller.part.pageRight", defaultValue: "Page Right", bundle: .localizedModule)
         case .decrementPage:
-            vertical ? String(localized: "scroller.part.pageUp", defaultValue: "Page Up", bundle: .module)
-                : String(localized: "scroller.part.pageLeft", defaultValue: "Page Left", bundle: .module)
+            vertical ? String(localized: "scroller.part.pageUp", defaultValue: "Page Up", bundle: .localizedModule)
+                : String(localized: "scroller.part.pageLeft", defaultValue: "Page Left", bundle: .localizedModule)
         case .incrementArrow:
-            vertical ? String(localized: "scroller.part.scrollDown", defaultValue: "Scroll Down", bundle: .module)
-                : String(localized: "scroller.part.scrollRight", defaultValue: "Scroll Right", bundle: .module)
+            vertical ? String(localized: "scroller.part.scrollDown", defaultValue: "Scroll Down", bundle: .localizedModule)
+                : String(localized: "scroller.part.scrollRight", defaultValue: "Scroll Right", bundle: .localizedModule)
         case .decrementArrow:
-            vertical ? String(localized: "scroller.part.scrollUp", defaultValue: "Scroll Up", bundle: .module)
-                : String(localized: "scroller.part.scrollLeft", defaultValue: "Scroll Left", bundle: .module)
+            vertical ? String(localized: "scroller.part.scrollUp", defaultValue: "Scroll Up", bundle: .localizedModule)
+                : String(localized: "scroller.part.scrollLeft", defaultValue: "Scroll Left", bundle: .localizedModule)
         default: nil
         }
     }

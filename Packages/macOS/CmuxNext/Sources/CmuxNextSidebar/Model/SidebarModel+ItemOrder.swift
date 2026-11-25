@@ -132,6 +132,7 @@ nonisolated struct SidebarItemOrderInputs: Equatable, Sendable {
     var grouping: SidebarGrouping
     var collapsedLayoutSections: Set<LayoutSectionID>
     var rowLimit: Int
+    var settlesFinished: Bool
     var openDoneFolds: Set<SidebarDoneFoldID>
     var openShowMore: Set<SidebarDoneFoldID>
     var treeShape: SidebarSessionTreeState?
@@ -147,6 +148,7 @@ nonisolated struct SidebarItemOrderInputs: Equatable, Sendable {
         grouping = model.grouping
         collapsedLayoutSections = model.collapsedLayoutSections
         rowLimit = SidebarTunables.rowLimit
+        settlesFinished = model.settlesFinished
         (openDoneFolds, openShowMore) = (model.openDoneFolds, model.openShowMore)
         treeShape = SidebarSessionTree.shared.drawn?.shape
     }

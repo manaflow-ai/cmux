@@ -42,7 +42,6 @@ const REFERENCE_TOKENS: Record<string, number> = {
   tabTitleSize: 14,
   sidebarTitleSize: 14,
   chatEditorMin: 35,
-  sidebarRowInset: 6,
   sidebarContentInset: 7,
   sidebarLineBoxBaseline: 1,
   sidebarIconColumn: 16.5,
@@ -53,12 +52,12 @@ const REFERENCE_TOKENS: Record<string, number> = {
   tabMaxWidth: 201,
   rowCornerRadius: 9,
   tabCornerRadius: 9,
-  omnibarCornerRadius: 8,
+  omnibarCornerRadius: 8 / 0.9,
   omnibarPopupCornerRadius: 12,
   omnibarPopupRowCornerRadius: 8,
   toolbarGlyphSize: 14 / 0.9 / 0.617,
-  omnibarHeight: 29,
-  omnibarFontSize: (10 / 0.9 - 0.14) / 0.70459,
+  omnibarHeight: 28 / 0.9,
+  omnibarFontSize: (10 - 0.31) / 0.70459 / 0.9,
   omnibarLineBoxBaseline: 1,
   omnibarButtonSpacing: 3,
   omnibarEdgeInset: 2,
@@ -67,6 +66,9 @@ const REFERENCE_TOKENS: Record<string, number> = {
   omnibarTrailingIconSize: 18,
   omnibarIconViewSize: 25,
   omnibarIconSize: 12 / 0.9 / 0.697,
+  // Swift `DensityPreset.referenceTokens`: Compact's puzzle draws 16 pt of ink, its star 12 pt.
+  omnibarExtensionsGlyphSize: 27 / 0.9,
+  omnibarMoreGlyphSize: 20 / 0.9,
   omnibarIconLeading: 2,
   omnibarTextGap: 5,
   omnibarPopupTopOutset: 3,
@@ -74,6 +76,24 @@ const REFERENCE_TOKENS: Record<string, number> = {
   omnibarPopupRowGap: 2,
   omnibarPopupBottomPadding: 4,
 };
+
+const CHROME_OMNIBAR_HEIGHT = 34;
+const CHROME_TOOLBAR_GAP = 6;
+const DEFAULT_STRIP_PADDING = 5;
+const DEFAULT_OMNIBAR_CAP_HEIGHT = 11;
+const DEFAULT_STAR_PLATE_SIZE = 28;
+/** Swift `DensityPreset.starGlyphSides`: the half-point star sides that draw whole rows at 2x. */
+const STAR_GLYPH_SIDES: Record<string, number> = {
+  ultraCompact: 21,
+  compact: 23.5,
+  cozy: 28,
+  comfortable: 29.5,
+  spacious: 32,
+};
+
+/** Swift `DensityPreset.isOmnibarToken`: every `omnibar*` size and the toolbar glyphs beside the bar. */
+const omnibarTokens = (tokens: Record<string, number>) =>
+  Object.fromEntries(Object.entries(tokens).filter(([key]) => key.startsWith("omnibar") || key === "toolbarGlyphSize"));
 
 /** A built-in as Swift `DensityPreset.tokens` makes it: Default's level, spacing and body text times one factor,
  *  and the owner's row height exact (Lucas 2026-11-16: 24, 28, 30, 32 and 36 pt rows). */
@@ -90,6 +110,33 @@ function preset(id: string, name: string, nameKey: string, factor: number, row: 
   tokens.sidebarRowHeight = row - half(2 * factor);
   tokens.browserRowHeight = row;
   tokens.tabStripHeight = row + 2 * half(3 * factor);
+  // Default and the densities above it take Default's Chrome spacing times their factor (Swift `DensityPreset`): the strip
+  // padding (Default's 5 pt) and the omnibar row's gap (Chrome's 6 pt). Ultra-compact and Compact keep 3 pt times theirs.
+  if (factor >= 1) {
+    // Spacious's half-point bar takes half-point gaps (Swift `DensityPreset.spaciousGapNudge`).
+    const nudge = id === "spacious" ? 0.5 : 0;
+    tokens.browserRowGap = half(DEFAULT_STRIP_PADDING * factor) + nudge;
+    tokens.tabStripHeight = row + 2 * tokens.browserRowGap;
+    tokens.omnibarRowGap = half(CHROME_TOOLBAR_GAP * factor) + nudge;
+  }
+  // Compact's tabs sit a point further from the omnibar than their strip padding (Swift `DensityPreset`, `tabToOmnibarGap`).
+  if (id === "compact") tokens.tabToOmnibarGap = half(3 * factor) + 1;
+  // Default's omnibar is Compact's (Swift `DensityPreset.omnibarScaleFactor`), on Chrome's 34 pt bar
+  // (Swift `DensityPreset.chromeOmnibarHeight`) rounded at Helium's 8 on 28.
+  if (id === "cozy") {
+    Object.assign(tokens, omnibarTokens(preset("compact", "", "", 0.9, 28).tokens!));
+    // Its toolbar buttons and star plate keep Compact's padding (Swift `DensityPreset`): Compact's 28 pt buttons, a 28 pt plate.
+    tokens.omnibarButtonSize = tokens.omnibarHeight!;
+    tokens.omnibarStarPlateSize = DEFAULT_STAR_PLATE_SIZE;
+    tokens.omnibarHeight = CHROME_OMNIBAR_HEIGHT;
+    tokens.omnibarCornerRadius = half((CHROME_OMNIBAR_HEIGHT * 8) / 28);
+    // Its URL capitals are 11 pt, a point over Compact's (Swift `DensityPreset.defaultOmnibarCapHeight`).
+    tokens.omnibarFontSize = (DEFAULT_OMNIBAR_CAP_HEIGHT - 0.31) / 0.70459;
+    // Its search glyph is a little taller than Compact's: Compact's box plus a point (Swift `DensityPreset`).
+    tokens.omnibarIconSize = tokens.omnibarIconSize! + 1;
+  }
+  // Each built-in's bookmark star side (Swift `DensityPreset.starGlyphSides`).
+  if (STAR_GLYPH_SIDES[id] !== undefined) tokens.omnibarStarGlyphSize = STAR_GLYPH_SIDES[id]!;
   return {
     id,
     name,

@@ -1,31 +1,19 @@
 //! What Sign in with ChatGPT keeps on disk, under `<acpmux home>/chatgpt/` (owner-only files,
 //! each written atomically: a temporary file in the same folder, then a rename):
 //!
-//! - `host.json`: this installation's agent host id (`urn:uuid:<v4>`, never user-identifying)
-//!   and the client id OpenAI issued at the first registration (never `dynamic_agent_client`).
 //! - `<route id>.json`: one signed-in ChatGPT account, keyed by (client id, `sub`): its tokens,
-//!   their expiry and granted scopes. A token never leaves these files except through
+//!   their expiry and granted scopes. A record of another client (the token-sharing protocol's
+//!   `oaiapp_...` registrations before cmux#45774) reads as signed out: sign in again. A token never leaves these files except through
 //!   `_acpmux/connections/chatgpt.token`.
 
 use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
 
-use super::DYNAMIC_CLIENT_ID;
-
-const HOST_FILE: &str = "host.json";
+use super::CODEX_CLIENT_ID;
 
 pub(crate) fn dir(home: &Path) -> PathBuf {
     home.join("chatgpt")
-}
-
-/// The installation's registration.
-#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
-pub(crate) struct Host {
-    pub host_id: String,
-    /// The issued `oaiapp_...` client id; None until the first sign-in registers.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub client_id: Option<String>,
 }
 
 /// One signed-in account. Not `Debug`: its tokens must never reach a log line.
@@ -63,8 +51,9 @@ impl std::fmt::Debug for Record {
 }
 
 impl Record {
+    /// Signed in with Codex's client and still holding a refresh token.
     pub fn signed_in(&self) -> bool {
-        !self.refresh_token.is_empty()
+        self.client_id == CODEX_CLIENT_ID && !self.refresh_token.is_empty()
     }
 
     /// Signed out in place: the tokens go, the identity stays (a later sign-in of the same
@@ -79,16 +68,11 @@ impl Record {
 
 /// Writes `bytes` to `path` owner-only and atomically.
 pub(crate) fn write_atomic(path: &Path, bytes: &[u8]) -> std::io::Result<()> {
-    use std::io::Write as _;
     let parent = path.parent().ok_or_else(|| std::io::Error::other("no parent folder"))?;
     crate::home_fs::private_dir(parent)?;
-    let mut tmp = tempfile::NamedTempFile::new_in(parent)?;
-    // NamedTempFile is created 0600 on Unix; the explicit call also covers Windows' access list.
-    crate::router_socket::owner_only(tmp.path());
-    tmp.write_all(bytes)?;
-    tmp.as_file().sync_all()?;
-    tmp.persist(path).map_err(|e| e.error)?;
-    Ok(())
+    // 0600 from creation (an owner-only access list on Windows), synced, under one copy name per
+    // process (`home_fs::write_durable`), not a random one per write.
+    crate::home_fs::write_durable(path, bytes)
 }
 
 fn read_json<T: for<'de> Deserialize<'de>>(path: &Path) -> std::io::Result<Option<T>> {
@@ -99,36 +83,6 @@ fn read_json<T: for<'de> Deserialize<'de>>(path: &Path) -> std::io::Result<Optio
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(None),
         Err(e) => Err(e),
     }
-}
-
-/// The host record, created with a fresh host id when there is none.
-pub(crate) fn host(home: &Path) -> std::io::Result<Host> {
-    let path = dir(home).join(HOST_FILE);
-    if let Some(host) = read_json::<Host>(&path)?
-        && host.host_id.starts_with("urn:uuid:")
-    {
-        return Ok(host);
-    }
-    let mut bytes = [0u8; 16];
-    getrandom::fill(&mut bytes).map_err(|e| std::io::Error::other(e.to_string()))?;
-    let id = uuid::Builder::from_random_bytes(bytes).into_uuid();
-    let host = Host { host_id: format!("urn:uuid:{id}"), client_id: None };
-    write_atomic(&path, &serde_json::to_vec_pretty(&host).unwrap_or_default())?;
-    Ok(host)
-}
-
-/// Records the issued client id. Refuses the placeholder: it is never stored.
-pub(crate) fn set_client_id(home: &Path, client_id: &str) -> std::io::Result<Host> {
-    if client_id == DYNAMIC_CLIENT_ID || client_id.is_empty() {
-        return Err(std::io::Error::other("not an issued client id"));
-    }
-    let mut host = host(home)?;
-    host.client_id = Some(client_id.to_owned());
-    write_atomic(
-        &dir(home).join(HOST_FILE),
-        &serde_json::to_vec_pretty(&host).unwrap_or_default(),
-    )?;
-    Ok(host)
 }
 
 fn record_path(home: &Path, id: &str) -> PathBuf {

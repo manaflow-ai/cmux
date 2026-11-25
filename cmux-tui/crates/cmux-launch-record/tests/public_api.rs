@@ -58,13 +58,15 @@ fn a_record_reads_from_its_path_front_first_with_v2_fields_and_v1_defaults() {
         windows: vec![window("front", 100.0), back],
         sidebar_rows: vec![],
         session_socket_path: String::new(),
+        session_registry_id: String::new(),
     };
     write_atomic(&path, &data).unwrap();
 
     let record: Option<LaunchRecord> = LaunchRecord::read(&path);
     let record = record.unwrap();
     assert_eq!(record.version(), FORMAT_VERSION);
-    assert_eq!(FORMAT_VERSION, 2);
+    assert_eq!(FORMAT_VERSION, 3);
+    assert_eq!(record.session_registry_id(), "");
     let windows: Vec<WindowView<'_>> = record.windows().collect();
     assert_eq!(windows.len(), 2);
     let screen = Frame { x: 0.0, y: 0.0, width: 1512.0, height: 982.0 };

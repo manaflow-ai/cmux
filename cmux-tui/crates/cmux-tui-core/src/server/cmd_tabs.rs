@@ -13,17 +13,16 @@ use super::close_tabs_command;
 use super::column_anchor;
 use super::conversation_tabs_wire;
 use super::frontend_browser_history;
-use super::get_surface;
 use super::optional_surface_size;
 use super::pane_tab_group_json;
 use super::resolve_tab_refs;
 use super::split_tab;
-use super::surface_has_view_placement;
 use super::tab_column;
 use super::tab_create_wire;
 use super::tab_drag_outcome_json;
 use super::tab_group_outcome_json;
 use super::validate_client_transaction;
+use super::{get_surface, get_surface_without_start};
 use crate::Actor;
 use crate::Mux;
 use crate::PaneId;
@@ -450,6 +449,10 @@ pub(super) fn set_tab_pinned(
     }))
 }
 
+fn surface_has_view_placement(mux: &Mux, id: SurfaceId) -> bool {
+    mux.with_state(|state| state.pane_of(id).is_some())
+}
+
 pub(super) fn close_surface(
     mux: &Arc<Mux>,
     actor: Actor,
@@ -457,7 +460,8 @@ pub(super) fn close_surface(
 ) -> anyhow::Result<Value> {
     // A kept-layout tab (`end-terminals-keep-layout-v1`) has no
     // runtime surface after a restart but is still a placed tab.
-    if get_surface(mux, surface).is_err() && !surface_has_view_placement(mux, surface) {
+    if get_surface_without_start(mux, surface).is_err() && !surface_has_view_placement(mux, surface)
+    {
         anyhow::bail!("unknown surface {surface}");
     }
     if !mux.close_surface_as(&actor, surface)? {

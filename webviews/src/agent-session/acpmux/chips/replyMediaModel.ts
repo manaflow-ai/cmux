@@ -70,3 +70,44 @@ const GRANTED_MEDIA = /^(cmux-agent:\/\/pane\/__media\/|cmux-page:\/\/cmux\.agen
 
 /// The host's copy of each web link already fetched, so a remount plays it without Load again.
 export const webGranted = new Map<string, string>();
+
+/// How long a player may wait for data with nothing to show before it counts as failed: the native
+/// player's spinner never turns forever over a file that never streams (a granted URL whose ranges
+/// never come, a codec it reads the header of and then stalls on; Leo, 2026-11-22: two tiles that
+/// only spun under "WHAT THE FUCK IS THIS SITUATION MAN WITH THESE ATTACHMENTS!?").
+export const PLAYBACK_STALL_MS = 15_000;
+
+/// Watches `video`, asked to play, for a wait that never ends: from now, and from every `waiting` or
+/// `stalled` after, it must reach data it can play (`canplay`, `playing`) within `ms`, or `onStall`
+/// runs once. A pause (the person's) or the player leaving stops the clock; a play starts it again.
+/// O(1) per media event; one timer at most. Returns the stop.
+export function watchPlaybackStall(video: HTMLMediaElement, onStall: () => void, ms = PLAYBACK_STALL_MS): () => void {
+  const view = video.ownerDocument.defaultView;
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  let stalled = false;
+  const clear = () => {
+    if (timer !== undefined) clearTimeout(timer);
+    timer = undefined;
+  };
+  const arm = () => {
+    clear();
+    if (stalled || video.paused) return;
+    // timeout: one bounded wait for data; cleared by data, a pause or the player leaving.
+    timer = (view ?? globalThis).setTimeout(() => {
+      timer = undefined;
+      if (stalled || video.paused || video.readyState >= 3) return;
+      stalled = true;
+      onStall();
+    }, ms);
+  };
+  const waits = ["waiting", "stalled", "play"] as const;
+  const goes = ["canplay", "canplaythrough", "playing", "pause", "ended"] as const;
+  for (const name of waits) video.addEventListener(name, arm);
+  for (const name of goes) video.addEventListener(name, clear);
+  if (!video.paused && video.readyState < 3) arm();
+  return () => {
+    clear();
+    for (const name of waits) video.removeEventListener(name, arm);
+    for (const name of goes) video.removeEventListener(name, clear);
+  };
+}

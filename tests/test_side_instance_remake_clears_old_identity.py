@@ -123,6 +123,27 @@ class SideInstanceRemakeTests(unittest.TestCase):
         self.assertEqual([p for p in state if not p.exists()], [])
         self.assertIn(f"bundle={first['bundle']}", (self.tmp / "side/pr-1/.side-instance").read_text())
 
+    def test_a_copy_shows_the_sim_icon_and_keep_icon_keeps_the_original(self):
+        """Leo, 2026-11-22: "for our 'fake shell offline simulator of the app' type things, maybe we ought to give them
+        different icons?" A copy's Dock icon was the NIGHTLY's (CFBundleIconName in Assets.car)."""
+        nightly = self.app("nightly", "com.cmuxterm.app.nightly", "cmux-next")
+        info = nightly / "Contents/Info.plist"
+        data = plistlib.load(open(info, "rb"))
+        data.update(CFBundleIconName="AppIcon-Nightly", CFBundleIconFile="AppIcon-Nightly")
+        plistlib.dump(data, open(info, "wb"))
+        app = Path(self.make(nightly)["app"])
+        plist = plistlib.load(open(app / "Contents/Info.plist", "rb"))
+        self.assertEqual(plist["CFBundleIconFile"], "AppIcon-Side")
+        self.assertNotIn("CFBundleIconName", plist)
+        icns = app / "Contents/Resources/AppIcon-Side.icns"
+        self.assertEqual(icns.read_bytes()[:4], b"icns")
+        self.assertEqual(icns.read_bytes(), (SCRIPT.parent / "side-icon/AppIcon-Side.icns").read_bytes())
+        subprocess.run(["bash", str(SCRIPT), "make", "pr-1", "--from", str(nightly), "--keep-icon"], env=self.env,
+                       check=True, capture_output=True, text=True)
+        plist = plistlib.load(open(app / "Contents/Info.plist", "rb"))
+        self.assertEqual((plist["CFBundleIconName"], plist["CFBundleIconFile"]), ("AppIcon-Nightly", "AppIcon-Nightly"))
+        self.assertFalse(icns.exists())
+
     def test_live_code_points_the_copy_at_its_own_live_folder(self):
         nightly = self.app("nightly", "com.cmuxterm.app.nightly", "cmux-next")
         subprocess.run(["bash", str(SCRIPT), "make", "pr-1", "--from", str(nightly), "--live-code"], env=self.env,

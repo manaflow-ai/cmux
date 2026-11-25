@@ -16,9 +16,15 @@ public nonisolated struct LaunchRecordEncoding {
             input.display_id = window.displayID
             input.background_rgba = window.backgroundRGBA; input.bar_rgba = window.barRGBA
             input.image_pixel_width = window.imagePixelSize.width; input.image_pixel_height = window.imagePixelSize.height
-            input.window_id = arena.put(window.id); input.image_path = arena.put(window.imagePath)
+            input.window_id = arena.put(window.id); input.image_key = arena.put(window.imageKey)
             input.visible_workspace_id = arena.put(window.workspaceID)
             input.visible_tab_ids = arena.put(window.tabIDs); input.visible_tab_count = tabCount
+            input.backing_scale = window.backingScale
+            input.screen_frame_x = window.screenFrame.origin.x; input.screen_frame_y = window.screenFrame.origin.y
+            input.screen_frame_width = window.screenFrame.width; input.screen_frame_height = window.screenFrame.height
+            input.appearance = window.appearance
+            input.appearance_follows_system = window.appearanceFollowsSystem ? 1 : 0
+            input.fullscreen = window.fullscreen ? 1 : 0
             return input
         }
         let sidebars = value.sidebarRows.map { row in

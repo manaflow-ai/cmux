@@ -4,7 +4,7 @@
 // on the row and again in its ⋯ menu), or a timing such as "13ms" on a row that is not running.
 //
 // Warn-only: it prints its findings and exits 0. `--strict` exits 1 on any finding, for a lane that
-// wants it as a check of its own. It is not wired into CI (CLAUDE.md: no new CI gates).
+// wants it as a check of its own. It is not wired into CI (built under the 2026-10-23 no-new-CI rule, since lifted).
 //
 // Usage: bun scripts/gallery/transcript-clutter.ts [--all] [--entry ID ...] [--json] [--strict]
 //   default  the transcript's own entries (DEFAULT_ENTRIES), every variant of each

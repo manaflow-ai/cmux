@@ -212,7 +212,12 @@ impl Hub {
         if map.has_peer(&peer.name) {
             return;
         }
-        for mut summary in saved.sessions {
+        // Its closed rows past the bound stay out (`peer_closed_bound.rs`).
+        let past = super::peer_closed_bound::summaries_past_bound(&saved.sessions);
+        for (n, mut summary) in saved.sessions.into_iter().enumerate() {
+            if past.contains(&n) {
+                continue;
+            }
             let Some(receipt) = super::peers::session_receipt(&summary) else { continue };
             mark_stale(&mut summary, saved.last_seen);
             // An older build saved rows with a peer's own display line.
@@ -248,9 +253,20 @@ impl Hub {
     /// attachments before it went: what a server test sends to while the peer is unreachable.
     #[cfg(any(test, feature = "test-support"))]
     pub(crate) fn seed_down_peer(&self, name: &str, rows: Vec<Value>) -> Arc<crate::peer::Peer> {
+        self.seed_down_peer_at(name, "ws://127.0.0.1:9", rows)
+    }
+
+    /// [`Self::seed_down_peer`] at `url` (an `ssh://` one for the ssh carrier's tests).
+    #[cfg(any(test, feature = "test-support"))]
+    pub(crate) fn seed_down_peer_at(
+        &self,
+        name: &str,
+        url: &str,
+        rows: Vec<Value>,
+    ) -> Arc<crate::peer::Peer> {
         use crate::peer::PeerNotice;
         let (tx, _rx) = tokio::sync::mpsc::channel(8);
-        let peer = crate::peer::Peer::new(name, "ws://127.0.0.1:9", None, None, tx);
+        let peer = crate::peer::Peer::new(name, url, None, None, tx);
         peer.seed_send_attach(true);
         self.peers.lock().unwrap().insert(name.to_owned(), peer.clone());
         self.apply_peer_notice(name, peer.generation, PeerNotice::sessions_from_values(rows));

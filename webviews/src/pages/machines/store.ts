@@ -2,6 +2,7 @@
 // `changes` stream carries (the host sends none while the section is hidden). React reads it through
 // `useSyncExternalStore`; a read older than a newer snapshot is dropped.
 import type { PageClient } from "../shared/pageClient";
+import { keptSnapshot } from "./model";
 import { MachinesOps, type JoinedDialAnswer, type JoinedDialPhase, type MachinesSnapshot } from "./types";
 
 export interface MachinesState {
@@ -25,9 +26,10 @@ export interface MachinesState {
  * says "No answer from…" with Retry. Not now ends the wait at once: nothing asks again until Retry. */
 export const DIAL_RECHECK_MS: readonly number[] = [2000, 3000, 5000, 8000, 13000, 20000, 30000, 30000, 30000, 30000];
 
-/** The `unavailable` reasons that mean the other Mac's cmux predates the consent (#43384: an older
- * Mac answers a session hello `service.unknown`; one with no session gate `service.off`). */
-const UPDATE_REASONS = new Set(["service.unknown", "service.off"]);
+/** The `unavailable` reasons that mean the other machine's cmux predates the consent (#43384: an older
+ * Mac answers a session hello `service.unknown`; one with no session gate `service.off`; a Linux box
+ * whose acpmux still asks for a consent it has no card for, `service.outdated`). */
+const UPDATE_REASONS = new Set(["service.unknown", "service.off", "service.outdated"]);
 
 /** Runs `run` once after `ms`; the answer cancels it. A test hands its own to run the asks itself. */
 export type DialSchedule = (run: () => void, ms: number) => () => void;
@@ -102,8 +104,11 @@ export class MachinesStore {
 
   /** Shows `snapshot` (the host's newest). A removed row it no longer lists as joined is done: gone,
    * or (a joined machine this app also runs) back as a plain machine row with the same id. */
-  land(snapshot: MachinesSnapshot): void {
+  land(sample: MachinesSnapshot): void {
     this.version += 1;
+    // The host sends every row on each change: an unchanged row keeps its object, so
+    // the memoized rows draw only the machine that changed.
+    const snapshot = keptSnapshot(this.state.snapshot, sample);
     const joined = new Set(snapshot.rows.filter((row) => row.joined).map((row) => row.id));
     const removed = new Set([...this.state.removed].filter((id) => joined.has(id)));
     this.set({ ...this.state, snapshot, removed });

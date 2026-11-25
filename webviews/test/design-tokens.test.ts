@@ -9,6 +9,9 @@ import {
   tokenOnlyFindings,
   tokenOnlyKind,
   tsTokenCopies,
+  scriptMotionFindings,
+  motionLiteralsInText,
+  motionScaleMatchers,
 } from "../scripts/check-design-tokens";
 import { designTokenValue, designTokens, tokenFor } from "../scripts/design-token-values";
 
@@ -83,12 +86,17 @@ describe("design token ratchet", () => {
     ["font-weight", "bold", "font-weight"],
     ["font-weight", "600", undefined],
     ["font-weight", "var(--weight-strong)", undefined],
-    ["transition", "opacity 120ms", "duration"],
+    ["transition", "opacity 120ms", "duration"], // motion-allow: scanner fixture, a raw literal
     ["transition", "opacity var(--cmux-motion-micro) var(--cmux-ease-out)", undefined],
     ["transition", "opacity var(--cmux-motion-micro) ease-out", "easing"],
     ["animation-duration", "0s", undefined],
     ["animation-timing-function", "cubic-bezier(0.2, 0.8, 0.2, 1)", "easing"],
     ["transition", "transform var(--cmux-motion-standard) linear", undefined],
+    ["transition", "all var(--cmux-motion-micro) var(--cmux-ease-out)", "transition-all"],
+    ["transition", "opacity var(--cmux-motion-micro), all var(--cmux-motion-micro)", "transition-all"],
+    ["transition-property", "all", "transition-all"],
+    ["transition-property", "opacity, transform", undefined],
+    ["transition", "background-color var(--cmux-motion-micro) var(--cmux-ease-out)", undefined],
   ] as const)("token literal %s: %s", (property, value, kind) => {
     expect(tokenLiteralKind(property, value)).toBe(kind);
   });
@@ -117,6 +125,51 @@ describe("design token ratchet", () => {
     ]);
   });
 
+  // cmux#39380 moved the settle 265 -> 180 ms by hand in 14 files: a script reads the generated scale.
+  test("a script that hand-types a motion-scale step or curve is a motion-literal", () => {
+    const source = [
+      "const FOLD_MS = 180;", // motion-allow: fixture
+      "el.animate(k, { duration: 120 });", // motion-allow: fixture
+      'const css = "opacity 0.08s cubic-bezier(0.16, 1, 0.3, 1)";', // motion-allow: fixture
+      "expect(fold.durationMs).toBe(240);", // motion-allow: fixture
+      'const ok = "var(--cmux-motion-settle, 180ms)"; const wait = 180; const n = 90;', // motion-allow: fixture
+      "// motion-allow: a debounce",
+      "const DEBOUNCE_MS = 120;",
+    ].join("\n");
+    expect(scriptMotionFindings("a.ts", source).map((f) => [f.line, f.property, f.value])).toEqual([
+      [1, "number", "180"],
+      [2, "number", "120"],
+      [3, "string", "0.08s"], // motion-allow: fixture
+      [3, "string", "cubic-bezier(0.16, 1, 0.3, 1)"], // motion-allow: fixture
+      [4, "number", "240"],
+    ]);
+  });
+
+  // cmux#44271 review: the detector hard-coded 80/120/180/240 and the two curves, so a scale change in
+  // motion-scale.json left it flagging retired values and missing new ones. It reads the JSON now.
+  test("the motion-literal values follow motion-scale.json, not a copy in the detector", () => {
+    const moved = motionScaleMatchers({
+      steps: [{ ms: 90 }, { ms: 140 }],
+      easeOut: [0.2, 0, 0.4, 1],
+      settle: { ms: 200, bezier: [0.1, 0.9, 0.2, 1] },
+      send: { ms: 0, ease: [0.1, 0.9, 0.2, 1] },
+    });
+    const text = [
+      "90ms 0.14s 200 ms",
+      "180ms 0ms", // motion-allow: a retired step, which the moved scale no longer flags
+      "cubic-bezier(0.2, 0, 0.4, 1) cubic-bezier(0.1,0.9,0.2,1)",
+      "cubic-bezier(0, 0, 0.58, 1)", // motion-allow: the retired ease-out, no longer flagged
+    ].join(" ");
+    expect([...moved.ms].sort((a, b) => a - b)).toEqual([90, 140, 200]);
+    expect(motionLiteralsInText(text, moved)).toEqual([
+      "90ms",
+      "0.14s",
+      "200 ms",
+      "cubic-bezier(0.2, 0, 0.4, 1)",
+      "cubic-bezier(0.1,0.9,0.2,1)",
+    ]);
+  });
+
   test("a new token literal fails, an allowlisted one passes, and a fixed one must shrink the baseline", () => {
     const id = "x.css\tcolor\tcolor\t#fff";
     expect(ratchetErrors(new Map([[id, 1]]), new Map())[0]).toContain("new design token violation");
@@ -131,9 +184,9 @@ describe("token-only surfaces", () => {
   test.each([
     ["--cv-since-tint", "var(--cmux-status-unread, #3982f5)", "a colour literal"],
     ["color", "rgba(0, 0, 0, 0.4)", "a colour literal"],
-    ["transition", "opacity 120ms ease-out", "a duration literal"],
-    ["transition", "opacity var(--agent-motion-in, 120ms) var(--agent-ease-out)", "a duration literal"],
-    ["transition", "opacity var(--agent-motion-in) cubic-bezier(0, 0, 0.58, 1)", "an easing literal"],
+    ["transition", "opacity 120ms ease-out", "a duration literal"], // motion-allow: scanner fixture, a raw literal
+    ["transition", "opacity var(--agent-motion-in, 120ms) var(--agent-ease-out)", "a duration literal"], // motion-allow: scanner fixture, a raw literal
+    ["transition", "opacity var(--agent-motion-in) cubic-bezier(0, 0, 0.58, 1)", "an easing literal"], // motion-allow: scanner fixture, a raw literal
     ["border-radius", "6px", "a radius that is not a token"],
   ] as const)("refuses %s: %s", (property, value, why) => {
     expect(tokenOnlyKind(property, value)).toBe(why);

@@ -248,6 +248,17 @@ public struct AcpmuxSession: Hashable, Sendable {
     /// `watching`: a View Only chat of a conversation another app (a terminal) runs.
     public var watching = false
 
+    /// The name a person gave the chat, or nil when it is an id the system made: the Chief's own
+    /// sessions (optchat-chief names them `optchat-<home>-<n>`, `optchat-sub-<home>-a<n>`,
+    /// `optchat-compact-…`; the Mac reads its roles from them, `ChiefSessionRole`). Never shown.
+    public var shownName: String? {
+        let name = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        return name.isEmpty || name.hasPrefix("optchat-") ? nil : name
+    }
+
+    /// What a list calls the chat: its name, else the agent ("Claude", "Codex").
+    public var displayName: String { shownName ?? DaemonTree.agentName(harness) }
+
     init?(_ value: JSONValue) {
         guard let id = value["sessionId"]?.stringValue else { return nil }
         self.id = id

@@ -1,4 +1,5 @@
 public import AppKit
+import CmuxNextCompat
 import CmuxNextSettings
 
 /// A prewarmed New Tab page opens an existing chat (a sidebar click, Open in Tab, a subagent's
@@ -21,9 +22,11 @@ extension AgentPaneView {
     /// the reader left the chat is kept per tab, ``AgentPaneScrollAnchors``), and `revealTurn` is a turn
     /// its open asks to show (a subagent's pane: `subagent:<id>`). `moved` runs each time the held page
     /// changes place (out of the window now, back once it drew), so a Chromium page's window follows.
+    /// `place`: where a released page of the chat left it (``AgentPaneWakeState/place``), over the tab's kept one.
     /// False when the page is no untouched, connected New Tab page (``AgentPaneModel/adoptSpareSession(_:)``).
     @discardableResult
-    public func adoptSession(_ session: String, tab: String? = nil, revealTurn: String? = nil, moved: (@MainActor () -> Void)? = nil) -> Bool {
+    public func adoptSession(_ session: String, tab: String? = nil, revealTurn: String? = nil, place: AgentPaneScrollAnchor?? = nil,
+                             moved: (@MainActor () -> Void)? = nil) -> Bool {
         guard model.adoptSpareSession(session) else { return false }
         holdPageAway(moved: moved)
         // A New Tab page drew without it (AgentTabStore.makeView); the chat's pane keeps it until it drew.
@@ -40,9 +43,33 @@ extension AgentPaneView {
         // reader left the chat: the page awaited `chat.scrollAnchor.get` (the same 250 ms race)
         // before its switch on every sidebar open.
         let json = Self.adoptEventDetail(session: session, revealTurn: revealTurn, tail: AgentPaneTailCache.shared.tail(for: session),
-                                         place: Self.adoptedPlace(session: session, tab: tab))
+                                         place: place ?? Self.adoptedPlace(session: session, tab: tab))
         evaluateScript("window.dispatchEvent(new CustomEvent('acpmux-session-adopt', {detail: \(json)}))")
         return true
+    }
+
+    /// Adopts the chat another device binds to tab `tab` while this page has none (a phone's first
+    /// send starts it there: `bind-conversation-tab-session` from no session), in place, as a
+    /// sidebar open adopts a New Tab page; `adopted` gets it. `bound` reads the tab's session (nil:
+    /// none yet, or the tree does not list the tab yet). The wait ends once the tab or this page has
+    /// a chat, or the page is gone. A page with a draft is not adopted
+    /// (``adoptSession(_:tab:revealTurn:moved:)``): its own send then says the tab has another chat.
+    public func adoptWhenBound(_ bound: @escaping @MainActor @Sendable () -> String?, tab: String,
+                               adopted: @escaping @MainActor (String) -> Void) {
+        guard model.sessionId == nil else { return }
+        // "": this page has its own chat, or is gone; nothing to adopt.
+        let read: @MainActor @Sendable () -> String? = { [weak self] in
+            guard let self, model.sessionId == nil else { return "" }
+            return bound()
+        }
+        // task-owner: one wait per page with no chat; ends once its tab or the page has one, or the page is gone
+        Task { [weak self] in
+            for await value in ObservationStream(read) where value != nil {
+                guard let self, let session = value, !session.isEmpty else { return }
+                if adoptSession(session, tab: tab) { adopted(session) }
+                return
+            }
+        }
     }
 
     /// Where the reader left chat `session` in tab `tab`, for its adopt event: `.some(nil)` when the
@@ -81,7 +108,7 @@ extension AgentPaneView {
 
     /// Lays the page outside the window now, before the pane shows this view, and back in place in
     /// the turn it reports the chat drawn (or the loading state's give-up marks it painted).
-    private func holdPageAway(moved: (@MainActor () -> Void)?) {
+    func holdPageAway(moved: (@MainActor () -> Void)?) {
         holdsPageAway = true
         pageContent.frame = Self.awayFrame(of: topBar.pageFrame(in: bounds))
         moved?()

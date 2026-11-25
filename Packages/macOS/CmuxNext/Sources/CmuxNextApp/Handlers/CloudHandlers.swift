@@ -25,12 +25,14 @@ enum CloudHandlers {
         bindNetworkActions(into: registry, context: context, reason: signedInReason)
         bindDomainActions(into: registry, context: context, reason: signedInReason)
         bindListActions(into: registry, context: context)
+        bindComputerControl(into: registry, context: context)
         CloudStartSession.bind(into: registry, context: context, reason: signedInReason)
         context.services.cloudTeam.bind(into: registry, reason: signedInReason)
         bindCreation(into: registry, context: context, reason: { cloud.unavailableReason })
         bindAccount(into: registry, context: context, reason: reason)
         bindMove(into: registry, context: context)
         bindSignInRecovery(into: registry, cloud: cloud)
+        PaletteVerbActions(host: context.services).bindSecretRemove(into: registry) // before the unavailable sweep below
         CloudMachineStage.gatePowerActions(into: registry, context: context)
         // Open Desktop on a machine without a desktop: out of its menu, its run refused with why.
         ActionTargetVisibility.gate("cloudOpenDesktop", in: registry) { invocation in
@@ -43,16 +45,15 @@ enum CloudHandlers {
     /// Binds `id` with an availability reason and a throwing body.
     static func bind(_ id: ActionID, _ registry: ActionRegistry, reason: @escaping @MainActor () -> String?,
                      _ body: @escaping @MainActor (ActionInvocation) throws -> Void) {
-        let bound = registry.bind(id, unavailable: reason, invoke: { [weak registry] invocation in
+        registry.bind(id, unavailable: reason, invoke: { [weak registry] invocation in
             do { try body(invocation) } catch { registry?.refuse(RefusalStrings.describe(error)) }
         })
-        assert(bound, "\(id) is not in the action catalog")
     }
 
     static func bindMachineCreation(into registry: ActionRegistry, context: AppActionContext, reason: @escaping @MainActor () -> String?) {
         let cloud = context.services.cloud
         let signedOutCreation = cloud.signedOutCreation
-        let bound = registry.bindEffect("newCloudMachine", requires: nil, unavailable: reason) { invocation in
+        registry.bindEffect("newCloudMachine", requires: nil, unavailable: reason) { invocation in
             let request = try CloudHandlers.newMachineRequest(invocation)
             let actionOrigin = CloudHandlers.origin(of: invocation)
             let window = invocation.allowsViewChange ? context.services.windows.active?.state : nil
@@ -103,7 +104,6 @@ enum CloudHandlers {
                 return nil
             }, cancelAuthorization: { signedOutCreation.cancel(expected: expected) }, start: start)
         }
-        assert(bound, "newCloudMachine is not in the action catalog")
     }
 
     // MARK: Resolution
@@ -141,7 +141,7 @@ enum CloudHandlers {
 
     /// Whether a machine change goes: a person's own run yes; an agent's or a script's once the person allows it (CloudChangeRequest, naming the machine and what was asked; `shown` gets its dialog's id).
     static func allows(_ id: ActionID, _ invocation: ActionInvocation, _ registry: ActionRegistry, _ context: AppActionContext, shown: (@MainActor (Int) -> Void)? = nil) -> @MainActor () async -> Bool {
-        CloudChangeRequest(machine: (try? machine(invocation, context))?.machine.title, asked: invocation.arguments.compactMapValues { $0.stringValue ?? $0.intValue.map(String.init) }).asking(registry.descriptor(for: id)?.title ?? id.rawValue, person: origin(of: invocation) == .user, in: { context.services.windows.active?.window }, shown: shown)
+        CloudChangeRequest(machine: (try? machine(invocation, context))?.machine.title, arguments: invocation.arguments).asking(registry.descriptor(for: id)?.title ?? id.rawValue, person: origin(of: invocation) == .user, in: { context.services.windows.active?.window }, shown: shown)
     }
 
     /// The origin of a connect an invocation starts: `user` only for the
@@ -230,12 +230,13 @@ enum CloudHandlers {
     }
 
     /// The machine's first workspace that no other machine also lists (``CloudMachineWorkspace``), created (with a terminal) when it has none.
-    private static func firstWorkspaceResult(on session: CloudMachineSession, _ context: AppActionContext,
+    /// `skipping`: workspaces never to pick (a Cloud chat's own workspace, which a Mac tab shows in place and no window lists).
+    private static func firstWorkspaceResult(on session: CloudMachineSession, _ context: AppActionContext, skipping: Set<String> = [],
                                              beforeCreate: () throws -> Void = {}) async throws -> (id: String, created: Bool) {
         let daemon = session.daemon, machines = context.services.machines
         guard daemon.connection != nil else { throw ActionFailure(message: CloudStrings.notConnected) }
         return try await CloudMachineWorkspace.first(in: daemon.store, notConnected: ActionFailure(message: CloudStrings.notConnected),
-                                                     listedElsewhere: { id in machines.daemons.contains { $0 !== daemon && $0.store.workspace(id: id) != nil } },
+                                                     listedElsewhere: { id in skipping.contains(id) || machines.daemons.contains { $0 !== daemon && $0.store.workspace(id: id) != nil } },
                                                      beforeCreate: beforeCreate) { await context.services.windows.createWorkspace(on: daemon) }
     }
 
@@ -249,11 +250,17 @@ enum CloudHandlers {
     /// one, or one that serves none) fails here with the Cloud error, never a blank tab; the carrier refuses a teammate.
     /// `viewer` is only ever `rd`.
     @MainActor static func openDesktop(_ session: CloudMachineSession, _ context: AppActionContext, viewer: String? = nil) throws {
-        let services = context.services, title = session.machine.title
-        guard viewer == nil || viewer == "rd", session.machine.opensCarrierDesktop,
+        guard viewer == nil || viewer == "rd" else { throw ActionFailure(message: CloudStrings.desktopUnavailable(session.machine.title)) }
+        openDesktopPane(try desktopRecord(session), name: CloudStrings.desktopWorkspaceName(session.machine, chats: session.daemon.store.workspaces.compactMap(\.title)), context.services)
+    }
+
+    /// The remote view record of the machine's desktop over its carrier (`cmux-rd`), watching; a machine that serves no
+    /// carrier desktop throws the Cloud error. Open Desktop and a Cloud chat's Browser (``CloudFrontedChats/openTool(_:chat:cwd:services:)``) open it.
+    @MainActor static func desktopRecord(_ session: CloudMachineSession) throws -> RemoteViewTabRecord {
+        guard session.machine.opensCarrierDesktop,
               let record = RemoteViewTabRecord(host: session.machineID.lowercased(), target: .virtual, mode: .view, cloudDesktop: true, cloudRd: true)
-        else { throw ActionFailure(message: CloudStrings.desktopUnavailable(title)) }
-        openDesktopPane(record, name: CloudStrings.desktopWorkspaceName(title), services)
+        else { throw ActionFailure(message: CloudStrings.desktopUnavailable(session.machine.title)) }
+        return record
     }
 
     /// A remote view pane tab for `record` in a new workspace on this Mac's daemon.
@@ -273,9 +280,9 @@ enum CloudHandlers {
     /// Keep the durable workspace key on the spawn request so terminals stay
     /// attached to the machine after daemon handle ids are recycled.
     /// `proceed` runs right before each workspace this creates: its throw creates nothing.
-    @MainActor static func terminalAnchor(on session: CloudMachineSession, _ context: AppActionContext,
+    @MainActor static func terminalAnchor(on session: CloudMachineSession, _ context: AppActionContext, skipping: Set<String> = [],
                                           proceed: () throws -> Void = {}) async throws -> (id: String, key: WorkspaceKey, pane: PaneModel) {
-        let result = try await firstWorkspaceResult(on: session, context, beforeCreate: proceed)
+        let result = try await firstWorkspaceResult(on: session, context, skipping: skipping, beforeCreate: proceed)
         let id = result.id
         if let anchor = anchor(id: id, on: session) { return anchor }
         if let anchor = await mirroredAnchor(id: id, on: session) { return anchor }

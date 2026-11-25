@@ -120,10 +120,6 @@ impl Mux {
                     );
                     (index, state.workspaces[index].clone())
                 } else {
-                    anyhow::ensure!(
-                        state.workspaces.len() < WORKSPACE_REGISTRY_LIMIT,
-                        "workspace limit reached"
-                    );
                     (
                         new_workspace_position(
                             state,
@@ -181,7 +177,7 @@ impl Mux {
                     deltas.push(delete_delta(deltas.len(), "pane", source_pane_id.as_str()));
                     if source_screen_remains {
                         if source_layout.active_pane == source_pane {
-                            let next = source_layout.root.first_visible_pane();
+                            let next = source_layout.focus_after_leave();
                             source_layout.set_active_pane(next);
                         }
                         if source_layout.zoomed_pane == Some(source_pane) {

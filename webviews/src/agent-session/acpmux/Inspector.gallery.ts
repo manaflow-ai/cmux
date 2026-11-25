@@ -30,5 +30,14 @@ export default agentPaneEntry({
         await ctx.waitFor(() => ctx.document.querySelector(".acpmux-inspector"));
       },
     },
+    "perf-tab": {
+      snapshot,
+      play: async (ctx) => {
+        await ctx.click({ role: "button", name: "Chat actions" });
+        await ctx.click({ role: "menuitem", name: "ACP inspector" });
+        await ctx.click({ role: "button", name: "Perf" });
+        await ctx.waitFor(() => ctx.document.querySelector(".acpmux-inspector-perf-empty"));
+      },
+    },
   },
 });

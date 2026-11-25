@@ -13,13 +13,15 @@ This pins the fat legs' wiring:
   every thin disk (fat and thin objects never mix) and from the other targets;
 - no sticky disk step admits both LTO modes;
 - the rust-cache restore is skipped when the disk is mounted (restore refuses an existing target);
-- both build steps call the warm script's restore before the build and record on exit, with the
-  disk the mount uses;
+- both build steps call the warm script's restore before the build, with the disk the mount
+  uses, and never record: "Record the warm target" prunes and records after "Stage binary" (the
+  prune run on the build step's exit removed target/<triple> before staging, 2026-11-18);
+- the warm bound is not below one leg's measured use and fits the sticky disk;
 - the macOS-on-Linux leg passes a toolchain stamp, and the script empties a disk whose stamp
   differs (link inputs Cargo does not track: clang, lld, zig, the SDK label, the stubs);
 - the shipped builds print cargo --timings (compile vs link per unit).
 
-lane = "manual" (no new CI tests, Lawrence 2026-10-23). Run: python3 tests/test_ci_cmux_tui_fat_warm_target.py
+lane = "manual" (no new CI tests, Lawrence 2026-10-23, lifted 2026-11-18). Run: python3 tests/test_ci_cmux_tui_fat_warm_target.py
 """
 
 from __future__ import annotations
@@ -136,13 +138,13 @@ class FatWarmWiring(unittest.TestCase):
     def _assert_wraps(self, build: dict, target: str, before: str) -> str:
         run = str(build["run"])
         disk = str(fat_mount_for(target)["with"]["path"])
-        self.assertIn("machine-channel-warm-target.sh", run)
-        restore = re.search(r"warm restore\b", run)
-        record = re.search(r"trap '[^']*warm record\b", run)
-        self.assertTrue(restore and record, f"{build['name']}: restore, then record on EXIT")
+        restore = re.search(r"machine-channel-warm-target\.sh restore\b", run)
+        self.assertTrue(restore, f"{build['name']}: restores the warm target")
         self.assertLess(restore.start(), run.index(before), f"{build['name']}: restore before the build")
-        self.assertLess(record.start(), run.index(before), f"{build['name']}: the trap is set before the build")
         self.assertIn(disk, run, f"{build['name']}: uses the fat disk {disk}")
+        # record prunes top-level entries of an over-bound disk: run on the build step's exit it
+        # removed target/<triple> before "Stage binary" read it (runs 44240874997, 44243309941).
+        self.assertNotRegex(run, r"\brecord\b", f"{build['name']}: never records (prunes) itself")
         return run
 
     def test_linux_build_wraps_fat_builds_too(self) -> None:
@@ -167,6 +169,43 @@ class FatWarmWiring(unittest.TestCase):
         self.assertIn("steps.darwin-cross.outputs.key", stamp)
         self.assertIn("scripts/ci/macos-stubs/**", stamp)
         self.assertIn("scripts/ci/macos-cross.sh", stamp)
+
+    def test_record_prunes_only_after_stage_binary(self) -> None:
+        names = [s.get("name") for s in steps()]
+        record = step("Record the warm target")
+        run = str(record["run"])
+        self.assertIn("machine-channel-warm-target.sh record", run)
+        self.assertGreater(names.index("Record the warm target"), names.index("Stage binary"),
+                           "the prune runs after every binary is staged")
+        others = [s for s in steps() if s.get("name") != "Record the warm target"]
+        for s in others:
+            self.assertNotRegex(str(s.get("run", "")), r"machine-channel-warm-target\.sh\"? record|warm record\b",
+                                f"{s.get('name')}: only 'Record the warm target' records")
+        cond = str(record.get("if", ""))
+        self.assertIn("always()", cond, "a failed build or stage still records")
+        self.assertIn("runner.os == 'Linux'", cond)
+        # The disks and toolchain stamp the build steps restored with.
+        for target in SHIPPED:
+            self.assertIn(str(fat_mount_for(target)["with"]["path"]), run)
+        self.assertIn("/home/runner/machine-channel-warm", run)
+        built = step("Build the macOS binaries on Linux (no Apple SDK)")
+        self.assertEqual(str(record["env"]["DARWIN_TOOLCHAIN"]), str(built["env"]["MACHINE_CHANNEL_WARM_TOOLCHAIN"]))
+        self.assertIn('MACHINE_CHANNEL_WARM_TOOLCHAIN="$DARWIN_TOOLCHAIN"', run)
+
+    def test_bound_is_above_measured_use_and_fits_the_disk(self) -> None:
+        # The largest leg held 44469088256 bytes after its build (thin aarch64, run 44240874997,
+        # 2026-11-18); the 40 GiB bound below that pruned the leg's own triple. The sticky disk
+        # is 590 GB (scripts/blacksmith-testbox-target-prune.sh); record caps the bound at 80%
+        # of the real disk (df) as well.
+        measured = 44469088256
+        text = WARM.read_text(encoding="utf-8")
+        m = re.search(r'max_bytes="\$\{MACHINE_CHANNEL_WARM_MAX_BYTES:-\$\(\((\d+) \* 1024 \* 1024 \* 1024\)\)\}"', text)
+        self.assertTrue(m, "the default bound is N GiB")
+        bound = int(m.group(1)) * 1024**3
+        self.assertGreaterEqual(bound, 2 * measured, "at least twice the largest leg's measured use")
+        self.assertLessEqual(bound, 590 * 10**9 * 8 // 10, "within 80% of the sticky disk")
+        self.assertRegex(text, r"df -B1 --output=size")
+        self.assertIn('"$target" "$bound"', text, "the prune gets the disk-capped bound")
 
     def test_macos_cross_all_prints_cargo_timings(self) -> None:
         text = MACOS_CROSS.read_text(encoding="utf-8")
@@ -257,6 +296,63 @@ class ToolchainStamp(unittest.TestCase):
         out = self.warm("restore", None)
         self.assertIn("warm target: hit", out)
         self.assertTrue(obj.exists())
+
+    def test_record_over_the_bound_keeps_the_triple_the_job_built(self) -> None:
+        # The steps after the build read target/<triple>/release, so record's prune must not
+        # remove it, also when it is the oldest entry of a disk that is over the bound.
+        self.warm("restore", None)
+        target = self.repo / "cmux-tui" / "target"
+        built = target / "aarch64-apple-darwin" / "release" / "cmux-tui"
+        host = target / "release" / "build" / "host.bin"
+        for path in (built, host):
+            path.parent.mkdir(parents=True)
+            path.write_bytes(b"\0" * 300_000)
+        os.utime(target / "aarch64-apple-darwin", (1, 1))
+        self.env["MACHINE_CHANNEL_WARM_MAX_BYTES"] = "450000"
+        out = self.warm("record", None)
+        self.assertIn("warm target: prune bound 450000 bytes", out)
+        self.assertTrue(built.exists(), out)
+        self.assertFalse(host.exists(), out)
+
+    def test_record_bounds_the_disk_when_the_triple_alone_is_over(self) -> None:
+        # record runs after "Stage binary", so once the other entries are gone it may remove
+        # the triple too: the disk stays bounded, and this job no longer reads it.
+        self.warm("restore", None)
+        built = self.repo / "cmux-tui" / "target" / "aarch64-apple-darwin" / "release" / "cmux-tui"
+        built.parent.mkdir(parents=True)
+        built.write_bytes(b"\0" * 300_000)
+        self.env["MACHINE_CHANNEL_WARM_MAX_BYTES"] = "100000"
+        out = self.warm("record", None)
+        self.assertFalse((self.disk / "target" / "aarch64-apple-darwin").exists(), out)
+        self.assertTrue((self.disk / "target" / ".machine-channel-warm-source").exists(), out)
+
+    def recorded_disk(self) -> tuple[Path, Path]:
+        """A disk as a build left it: the triple's dir (the oldest entry) and a newer one."""
+        target = self.disk / "target"
+        triple = target / "aarch64-apple-darwin" / "release" / "cmux-tui"
+        host = target / "release" / "build" / "host.bin"
+        for path in (triple, host):
+            path.parent.mkdir(parents=True)
+            path.write_bytes(b"\0" * 300_000)
+        os.utime(target / "aarch64-apple-darwin", (1, 1))
+        return triple, host
+
+    def test_restore_never_prunes_even_over_the_bound(self) -> None:
+        # Only record (after "Stage binary") prunes. A prune before the build removed warm
+        # output the build would have used; record bounds the disk after staging instead.
+        triple, host = self.recorded_disk()
+        self.env["MACHINE_CHANNEL_WARM_MAX_BYTES"] = "450000"
+        out = self.warm("restore", None)
+        self.assertNotIn("prune:", out)
+        self.assertTrue(triple.exists(), out)
+        self.assertTrue(host.exists(), out)
+
+    def test_restore_below_the_bound_removes_nothing(self) -> None:
+        triple, host = self.recorded_disk()
+        self.env["MACHINE_CHANNEL_WARM_MAX_BYTES"] = "10000000"
+        out = self.warm("restore", None)
+        self.assertTrue(triple.exists(), out)
+        self.assertTrue(host.exists(), out)
 
 
 if __name__ == "__main__":

@@ -105,14 +105,14 @@ type Control = {
   leavesOnRowStep: boolean;
 };
 
-// User-message actions, the running subagent Stop and the edited files card's "View changes" (it
-// swaps with the card's counts at once, Lucas 2026-11-14: "no transition for changing the +31 -0 to
-// View changes") are intentional immediate reveals.
+// User-message actions and the running subagent Stop are intentional immediate reveals. (The edited
+// files card's counts no longer swap to a hover-revealed "View changes": its header opens the diff
+// inline, Leo 2026-11-22.)
 // The Stop control is kept
 // transparent at rest so a tray does not repeat a lit Stop on every line; subagent-stop-hover.test.tsx
 // pins that contract. It is the settled exception in the chat-transcript action rules, not a blink
 // in the fade-enabled message and tool controls covered here.
-const IMMEDIATE_REVEALS = new Set(["cv-subagent__stop", "cv-user__actions", "acpmux-edited-summary-link"]);
+const IMMEDIATE_REVEALS = new Set(["cv-subagent__stop", "cv-user__actions"]);
 
 /// A list row's own hover parts: shown at once, gone on the quick step (conversation.css HOVER
 /// FOLLOWS THE POINTER), never on the message dwell.
@@ -229,7 +229,7 @@ describe("transcript hover-revealed controls fade", () => {
     ]);
     // A fade of its own duration is not the shared fade.
     expect(
-      fixture(".row-tools { opacity: 0; transition: opacity 120ms ease-out } .row:hover .row-tools { opacity: 1 }"),
+      fixture(".row-tools { opacity: 0; transition: opacity 120ms ease-out } .row:hover .row-tools { opacity: 1 }"), // motion-allow: scanner fixture, a raw literal
     ).toHaveLength(1);
     // visibility swaps blink too.
     expect(fixture(".row-tools { visibility: hidden }\n.row:hover .row-tools { visibility: visible }")).toHaveLength(1);

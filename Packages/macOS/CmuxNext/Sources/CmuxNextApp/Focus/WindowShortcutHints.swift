@@ -92,8 +92,8 @@ final class WindowShortcutHints {
             guard let digit = order.number(for: item, navigation), let text = label("selectWorkspaceByNumber", digit: digit) else { continue }
             hints.append(.init(text: text, rect: root.convert(rect, from: sidebar), target: Self.target(item), trailingInset: container.isRailShown ? 2 : 0))
         }
-        for (index, rect) in sidebar.shortcutHintSpaceFrames.enumerated() where index < 9 {
-            if let text = label("space.selectByNumber", digit: index + 1) {
+        for (digit, rect) in sidebar.shortcutHintSpaceFrames {
+            if let text = label("space.selectByNumber", digit: digit) {
                 hints.append(.init(text: text, rect: root.convert(rect, from: sidebar)))
             }
         }
@@ -115,7 +115,7 @@ final class WindowShortcutHints {
         if let content = controller.content,
            let focused = content.panes.values.first(where: { $0.paneKey == controller.focus.state.pane }),
            let screen = content.layoutModel.screen(containing: focused.layoutPaneID) {
-            let plan = PaneNavigationHintPlan(order: screen.layout.visualPanes, focused: focused.layoutPaneID) { move in
+            let plan = PaneNavigationHintPlan(order: screen.visualPanes, focused: focused.layoutPaneID) { move in
                 let direction: LayoutDirection? = switch move {
                 case .left: .left
                 case .right: .right

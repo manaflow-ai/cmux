@@ -527,16 +527,113 @@ fn a_full_screen_shell_attaches_with_its_bytes() {
     disconnect_client(&mux, viewer.client, false);
 }
 
-/// Any other program, and a shell's viewer that did not declare the lines, keep the bytes.
+/// Every terminal is calculated, not only a shell's (Leo, 2026-11-17: "Surely we can just
+/// calculate a f***ing terminal and resize whatever needs exceptions when it comes Fall back if
+/// need be"): a program that is neither a shell nor an agent CLI reaches a lines viewer as lean
+/// frames, and only its full-screen part falls back to PTY bytes.
 #[test]
-fn other_programs_and_viewers_without_the_lines_keep_the_byte_stream() {
+fn any_program_reaches_a_lines_viewer_as_frames_and_falls_back_only_when_full_screen() {
+    // `exec sleep 600`: neither a shell nor an agent CLI.
+    let (mux, surface) = terminal("hybrid-any-program", None);
+    surface.inject_output_for_test(b"build: 1/3\r\nbuild: 2/3\r\n");
+    let viewer = declaring(&mux, SHELL_LINES);
+    viewer.attach(&mux, &surface, json!({}));
+    let mut skipped = Vec::new();
+    let first = viewer.next("agent-cli-lean", &mut skipped);
+    assert!(!skipped.iter().any(|event| event == "vt-state"), "no vt-state: {skipped:?}");
+    let mut phone = LinesPhone { decoder: LeanDecoder::new(), phone: None };
+    phone.apply(&first);
+    assert_eq!(phone.text(), screen_text(&surface));
+
+    surface.inject_output_for_test(b"build: 3/3\r\ndone\r\n");
+    let lines = drain_until_same(&viewer, &mut phone, &surface);
+    assert!(lines.iter().all(|event| event == "agent-cli-lean"), "lines as frames: {lines:?}");
+
+    surface.inject_output_for_test(b"\x1b[?1049h\x1b[H\x1b[2Jtop");
+    let full = drain_until_same(&viewer, &mut phone, &surface);
+    assert_eq!(full.last().map(String::as_str), Some("output"), "{full:?}");
+    surface.inject_output_for_test(b"\x1b[?1049l");
+    drain_until_same(&viewer, &mut phone, &surface);
+    surface.inject_output_for_test(b"after\r\n");
+    let back = drain_until_same(&viewer, &mut phone, &surface);
+    assert!(back.iter().all(|event| event == "agent-cli-lean"), "frames again: {back:?}");
+    disconnect_client(&mux, viewer.client, false);
+}
+
+/// `terminal-full-screen-frames-v1`: a full-screen program (a pager that asked for the mouse
+/// and repaints its whole screen for each change) reaches the viewer as lean frames too; only
+/// its modes go as bytes, and a repaint that moves the page one line costs a few cells, not the
+/// screen. When it ends the frames go on.
+#[test]
+fn a_full_screen_program_reaches_a_full_screen_frames_viewer_as_frames() {
+    let (mux, surface) = shell_terminal("hybrid-full-screen-frames");
+    surface.inject_output_for_test(b"$ pager\r\n");
+    let viewer = declaring(&mux, &[SHELL_LINES, &["terminal-full-screen-frames-v1"][..]].concat());
+    viewer.attach(&mux, &surface, json!({}));
+    let mut phone = LinesPhone { decoder: LeanDecoder::new(), phone: None };
+    drain_until_same(&viewer, &mut phone, &surface);
+    let page = |top: usize| {
+        let mut out = String::from("\x1b[H");
+        for line in top..top + 8 {
+            out.push_str(&format!("{line:07} the quick brown fox, pager line\x1b[K\r\n"));
+        }
+        out.push_str(&format!("\x1b[7m PAGER {top} \x1b[0m\x1b[K"));
+        out.into_bytes()
+    };
+    // Events until the phone shows the screen: their names and the bytes of their payloads.
+    let until_same = |phone: &mut LinesPhone| {
+        let (mut names, mut bytes, mut skipped) = (Vec::new(), Vec::new(), Vec::new());
+        let deadline = Instant::now() + Duration::from_secs(5);
+        while phone.text() != screen_text(&surface) {
+            assert!(Instant::now() < deadline, "the phone never matched: {names:?}");
+            let event = next_drawn(&viewer, &mut skipped);
+            let payload = event["f"].as_str().or(event["data"].as_str()).unwrap_or("");
+            bytes.push(base64::engine::general_purpose::STANDARD.decode(payload).unwrap());
+            names.push(event["event"].as_str().unwrap_or("").to_owned());
+            phone.apply(&event);
+        }
+        (names, bytes)
+    };
+    surface.inject_output_for_test(
+        &[&b"\x1b[?1049h\x1b[?1000h\x1b[?1006h"[..], &page(0)[..]].concat(),
+    );
+    let (names, bytes) = until_same(&mut phone);
+    assert_eq!(names.last().map(String::as_str), Some("agent-cli-lean"), "{names:?}");
+    for (name, data) in names.iter().zip(&bytes) {
+        if name == "output" {
+            assert!(!data.windows(5).any(|w| w == b"quick"), "only modes as bytes: {data:?}");
+        }
+    }
+    let shown = phone.phone.as_ref().unwrap();
+    assert_eq!(shown.term.active_screen(), ghostty_vt::Screen::Alternate);
+    assert!(shown.term.mode(1000, false) && shown.term.mode(1006, false), "the mouse modes");
+
+    // A wheel step: the pager repaints its whole screen one line down.
+    let repaint = page(1);
+    surface.inject_output_for_test(&repaint);
+    let (names, bytes) = until_same(&mut phone);
+    assert!(names.iter().all(|name| name == "agent-cli-lean"), "frames: {names:?}");
+    let sent: usize = bytes.iter().map(Vec::len).sum();
+    assert!(sent * 2 < repaint.len(), "{sent} bytes for a {}-byte repaint", repaint.len());
+
+    // It ends: the primary screen, and frames go on.
+    surface.inject_output_for_test(b"\x1b[?1006l\x1b[?1000l\x1b[?1049l$ ");
+    until_same(&mut phone);
+    let shown = phone.phone.as_ref().unwrap();
+    assert_eq!(shown.term.active_screen(), ghostty_vt::Screen::Primary);
+    surface.inject_output_for_test(b"echo back\r\nback\r\n$ ");
+    let (names, _) = until_same(&mut phone);
+    assert!(names.iter().all(|name| name == "agent-cli-lean"), "frames again: {names:?}");
+    disconnect_client(&mux, viewer.client, false);
+}
+
+/// A viewer that did not declare the lines keeps the bytes, for a shell and for any program.
+#[test]
+fn viewers_without_the_lines_keep_the_byte_stream() {
     let (mux, sleep) = terminal("hybrid-shell-other", None);
     let (shell_mux, shell) = shell_terminal("hybrid-shell-no-lines");
-    for (mux, surface, capabilities) in [
-        (&mux, &sleep, SHELL_LINES),
-        (&shell_mux, &shell, &["agent-cli-hybrid-v1", "agent-cli-hybrid-v2"][..]),
-    ] {
-        let viewer = declaring(mux, capabilities);
+    for (mux, surface) in [(&mux, &sleep), (&shell_mux, &shell)] {
+        let viewer = declaring(mux, &["agent-cli-hybrid-v1", "agent-cli-hybrid-v2"]);
         viewer.attach(mux, surface, json!({}));
         let mut skipped = Vec::new();
         viewer.next("vt-state", &mut skipped);
@@ -598,3 +695,9 @@ fn a_lines_viewer_gets_the_input_modes_frames_do_not_carry() {
 
 #[path = "phone_link_bench_tests.rs"]
 mod phone_link_bench;
+
+#[path = "full_screen_frames_parity_tests.rs"]
+mod full_screen_frames_parity;
+
+#[path = "output_to_paint_tests.rs"]
+mod output_to_paint;

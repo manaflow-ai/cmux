@@ -38,7 +38,7 @@ enum CloudGitHubHandlers {
             }
             CloudHandlers.runTracked("set up GitHub on Cloud machine", context) {
                 let identity = try CloudGitHubSetup.validated(await CloudGitHubSetup.localIdentity())
-                let checked = await cloud.gitHubApp(), connect = checked == .notConnected // the team's App first: Connect GitHub, never the machine's own sign-in
+                let checked = await cloud.gitHubApp(), connect = [.notConnected, .needsReauth, .linking, .error].contains(checked) // the team's App first: Connect GitHub, never the machine's own sign-in
                 let go = await withCheckedContinuation { (done: CheckedContinuation<Bool, Never>) in
                     CloudPresenter.confirm(CloudStrings.gitHubConfirmTitle(session.machine.title), connect ? CloudStrings.gitHubConnectBody : confirmBody(identity, app: checked),
                                            button: connect ? CloudStrings.gitHubConnect : CloudStrings.gitHubSetUp, identifier: "cmux.dialog.cloud.setupGitHub",
@@ -50,7 +50,7 @@ enum CloudGitHubHandlers {
                     switch AgentPaneGitHubConnect(await context.services.accounts.github.connectResult()) {
                     case .opened: return // the installation page is open in the browser; Set Up again once it is done
                     case .alreadyConnected: app = .ready // connected meanwhile: set up through the App now
-                    case .failed(let message): return CloudPresenter.show(CloudStrings.gitHubSetupTitle, message, failed: true, in: CloudHandlers.window(context))
+                    case let refused: return CloudPresenter.show(CloudStrings.gitHubSetupTitle, refused.message, failed: true, in: CloudHandlers.window(context))
                     }
                 }
                 let outcome = try await setUp(identity, app)
@@ -69,7 +69,7 @@ enum CloudGitHubHandlers {
     static func confirmBody(_ identity: CloudGitHubSetup.GitIdentity, app: CloudGitHubApp) -> String {
         let check: String = switch app {
         case .ready: "ready"
-        case .notConnected: "notConnected"
+        case .notConnected, .needsReauth, .linking, .error: "notConnected" // each is Connect GitHub (the rules know one)
         case .notConfigured: "notConfigured"
         case .unknown: "unknown"
         }
