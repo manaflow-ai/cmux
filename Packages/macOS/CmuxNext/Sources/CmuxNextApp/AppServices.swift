@@ -401,8 +401,8 @@ final class AppServices {
     /// The app's one kernel memory pressure source, shared by every owner that reacts to pressure.
     let memoryPressure = MemoryPressureEvents(source: KernelMemoryPressureSource())
     /// Sentry's bounded memory-pressure and high-footprint reporter.
-    private(set) var memoryPressureReporter: MemoryPressureReporter?
-    private var memoryPressureReportingObservation: MainActorHandlerRegistration<MemoryPressureLevel>?
+    var memoryPressureReporter: MemoryPressureReporter?  // set after the first frame (AppServices+AfterFirstFrame)
+    var memoryPressureReportingObservation: MainActorHandlerRegistration<MemoryPressureLevel>?
     /// One prewarmed new tab page per window (instant open).
     private(set) lazy var newTabSpares = NewTabSparePool(services: self, memoryPressure: memoryPressure)
     /// The New Tab bar's palette actions, read as background work after the page shows (``NewTabPage/fillPaletteActions(_:)``).
