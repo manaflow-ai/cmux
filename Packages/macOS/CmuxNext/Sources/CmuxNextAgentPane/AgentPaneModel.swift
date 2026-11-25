@@ -66,6 +66,7 @@ public final class AgentPaneModel {
     /// harness on the tab (cx-w4bbw). Only for the session the pane shows.
     @ObservationIgnored public var onSessionHarness: ((_ session: String) -> Void)?
     @ObservationIgnored public var onUnsentDraft: ((String) -> Void)? // a new chat's typed text, until it has a session
+    @ObservationIgnored public var onCloudStartQueue: ((String) -> Void)? // what Return sent while a Cloud start was out
     @ObservationIgnored public var onNewChatLeftover: ((String) -> Void)? // what a new chat leaves when its tab opens another chat
     @ObservationIgnored public var onNewChatLeftoverTaken: ((String) -> Void)? // a New Tab page showed that text as its draft
     /// What a new chat of this page's window left (``AgentUnsentDrafts/leftover(inWindow:)``), for a
@@ -640,6 +641,7 @@ public final class AgentPaneModel {
             missingChatLog.record(session: session, reason: reason, tabSession: sessionId, remote: remoteChat)
             return AgentPaneReply.success()
         case .unsentDraft(let text): if sessionId == nil { onUnsentDraft?(text) }; return AgentPaneReply.success()
+        case .cloudStartQueue(let text): if sessionId == nil { onCloudStartQueue?(text) }; return AgentPaneReply.success()
         case .newChatLeftover(let text): if sessionId == nil { onNewChatLeftover?(text) }; return AgentPaneReply.success()
         case .newChatLeftoverTaken(let text): onNewChatLeftoverTaken?(text); return AgentPaneReply.success()
         case .checkpointAvailability(let available):
@@ -1058,6 +1060,10 @@ public final class AgentPaneModel {
         newTab = nil
         (remoteChat, neverPooled, miniUnreachable) = (true, true, true)
         handshakeCwd = nil
+        // The start's hold (``AgentPaneHandOff``) kept this pane from starting a chat here too; from here the
+        // page's own `session/new` starts that very Cloud chat on its new host, so the hold ends, or the start
+        // is refused ("Couldn't start Claude Code: The app refused this request", cmux#55519).
+        transport.replacements.endSandbox()
     }
 
     /// The page's chat became session `id` (it started, or the quick panel moved it); no longer a new tab page.
