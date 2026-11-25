@@ -197,11 +197,13 @@ keyed! {
     /// `_acpmux/app_reply`.
     AppReplyParams: ["sessionId", "to", "replyTo", "threadId", "text", "replyId"];
     /// `_acpmux/archive`.
-    ArchiveParams: ["sessionId", "archived"];
+    ArchiveParams: ["sessionId", "archived", "opId"];
     /// `_acpmux/attachment`.
     AttachmentParams: ["sessionId", "id"];
     /// `_acpmux/turn_shots`.
     TurnShotsParams: ["sessionId", "turnId"];
+    /// `_acpmux/customize_run`.
+    CustomizeRunParams: ["run"];
     /// `_acpmux/bookmark_get`.
     BookmarkGetParams: ["sessionId"];
     /// `_acpmux/bookmark_set`.

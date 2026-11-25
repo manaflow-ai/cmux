@@ -5151,6 +5151,48 @@ feat-cmux-next still run every entry.
 
 The switch: `vars.CI_FAST_TIER_PR_SCOPE` set to `0` runs every entry on the pull request again (both jobs).
 
+## note-scheme-fleet
+
+Above the `cmux-scheme-compile-fleet` job, the `CMUX_SCHEME_FLEET_JOB` env, and the "Take the app the build fleet
+built" and "Compare the fleet app with this compile" steps of `cmux-scheme-compile` in `.github/workflows/cmux-next.yml`.
+
+Leo, 2026-11-25: "can't we nearly 100x reduce the amount we need to wait on mac fleet?" and "i need us to be defo
+making sure it runs on our scheduler ... having our mac fleet be able to like... exist as fallbacks if we fucked up
+logic ... is still fine. but if like... it works ... and is at least as fast if not faster, then we ought to just go
+ahead."
+
+The Debug scheme compile was the largest Mac job: 7 days to 2026-11-25, 1,138 runs, 48.2 Mac job-h/day, queue p50
+43.7 min and p95 246.6 min, compile p50 17.7 min. The build fleet's `cmux` app recipe builds the same Debug cmux DEV
+app; the controller starts it when it sees `cmux app scheme compile (build fleet)` queued and serves the verdict at
+compile-checks phase `scheme-debug` with the job id of the app zip.
+
+- `cmux-scheme-compile-fleet` (owned pool runner, no Mac) waits for that verdict. It never fails: anything but `pass`
+  with a job id leaves `CMUX_SCHEME_FLEET_JOB` empty.
+- `cmux-scheme-compile` with a job id fetches the verified zip (`scripts/cmux-next/fleet-scheme-app.sh`), runs the
+  app-personality check on it and skips the toolchain, web-bundle and xcodebuild steps; the crash gate (Mac-native)
+  and the dogfood artifact read the fleet app unchanged. A fetch or personality failure logs a `fleet fallback`
+  warning and the Mac compiles as before, as does an empty job id.
+- Parity: heads whose sha ends in `0` (1 in 16; `vars.CI_SCHEME_FLEET_PARITY=always` for every head) still compile on
+  the Mac and compare file lists, Info.plist and Mach-O link lists (`scripts/ci/app_bundle_parity.py`); a difference
+  is a `fleet parity` warning with the table in the step summary.
+- Off switch: `vars.CI_SCHEME_COMPILE_FLEET=0` skips the fleet job; the Mac compiles every head. DEV Release
+  (`dev_daily`) compiles are unchanged.
+
+## note-canary-linux-read
+
+Above `swift-canary-fleet: if`, `runs-on` and its push read in `.github/workflows/cmux-next.yml`.
+
+Leo, 2026-11-25: "i need us to be defo making sure it runs on our scheduler, which has far more capabilities
+than github actions. github actions is just there at the start and end or whatever maybe i guess, but we own the
+in-between. all of it". On a feat-cmux-next push the controller's tip check already compiles the app at the
+pushed head (SwiftPM Release -Onone; the record scripts/ci/fleet_compile_result.py reads). The job used to
+take an idle gateway Mac runner, read that record for up to 15 min, and compile the head a second time through
+`cmux-ci compile-check --app` when there was none (2.6 gateway job-hours on 2026-11-24). It now runs on
+cmux-linux for every routed push, with or without an idle gateway, and only reads the record (up to 40 min,
+600 s with no record at all). pass and superseded (note-551) let the Mac canary report from a small runner; a
+fail runs the Mac canary, which prints the errors; no verdict prints `::warning title=mac fallback::` and runs
+the Mac canary, the job's only fallback. macos-placement still judges the gateway for it (GATEWAY_JOBS), which
+now only keeps the canary out of the cascade's runner count.
 ## note-cloud-journey-pr-wall
 
 Above `seed`, the R2 restore steps and the workflow `env` in `.github/workflows/cloud-journey-pr.yml`, and

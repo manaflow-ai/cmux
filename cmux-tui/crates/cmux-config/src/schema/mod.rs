@@ -153,6 +153,10 @@ pub enum Validation {
 pub enum DomainKind {
     Theme,
     FontFamily,
+    /// `appearance.appFont`: any installed font family, proportional ones too
+    /// (the terminal rows' `font_family` domain is the fixed-pitch families);
+    /// the app does not publish this list, so the owner checks the shape only.
+    UiFontFamily,
     Sound,
     /// `appearance.background`: a listed choice or `system:<absolute path>`
     /// (Swift `BackdropSelectionSetting.accepts`; each Mac has its own
@@ -522,6 +526,7 @@ fn row(raw: Value, text: RowText) -> Result<Row, String> {
         "portable" => Validation::Portable,
         "domain:theme" => Validation::Domain(DomainKind::Theme),
         "domain:font_family" => Validation::Domain(DomainKind::FontFamily),
+        "domain:ui_font_family" => Validation::Domain(DomainKind::UiFontFamily),
         "domain:sound" => Validation::Domain(DomainKind::Sound),
         "domain:backdrop_selection" => Validation::Domain(DomainKind::BackdropSelection),
         "domain:backdrop_picture" => Validation::Domain(DomainKind::BackdropPicture),
