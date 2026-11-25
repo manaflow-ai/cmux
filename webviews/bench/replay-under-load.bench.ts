@@ -25,7 +25,13 @@
 //   renderer_main_busy_pct  the renderer main thread's task time over the window's wall time (CDP TaskDuration), %
 //   long_tasks              tasks of 50 ms or more in the window, and longest_task_ms
 //   records                 the records sent in the window
-//   bun bench/replay-under-load.bench.ts [--log FILE] [--rate 40] [--seconds 60] [--warm 5] [--out FILE]
+// With --rows (off by default: it turns the page's acpmuxPerf counters on, which costs main-thread time, so its
+// busy and frame numbers are not the sensor's), a `rows` block: per display frame, the transcript rows React drew
+// (perf.ts `row:`/`content:`/`mount:` counts, read each frame through window.cmuxAcpmuxDebug.renders()) against
+// the rows inside the scroller's viewport plus ROWS_MARGIN_PX (an IntersectionObserver), and the rows drawn while
+// outside it by row kind and trigger (mount, content: its row data changed, frame: only its frame's props did).
+// Leo: "Why should non visible thing even affect the renderer thread anyways?"
+//   bun bench/replay-under-load.bench.ts [--log FILE] [--rate 40] [--seconds 60] [--warm 5] [--out FILE] [--rows]
 // Exit 0 with a reading (even a null frame p95, which says why), 1 when the page never attached or the run failed.
 /// <reference types="bun" />
 import fs from "node:fs";
@@ -48,6 +54,9 @@ const RATE = Number(flag("--rate") ?? 40);
 const SECONDS = Number(flag("--seconds") ?? 60);
 const WARM = Number(flag("--warm") ?? 5);
 const OUT = flag("--out");
+const ROWS = argv.includes("--rows");
+/// Rows this far above or below the scroller's viewport still count as visible (an overscan's worth).
+const ROWS_MARGIN_PX = 200;
 /// Fewer gaps than this in the window is no frame p95 (the goal's sensor holds the same floor, perf_sensor.py).
 const MIN_FRAMES = 60;
 /// frameTally.ts BUCKET_MS and BUCKETS: bucket i holds gaps in [i * 0.1, (i + 1) * 0.1) ms; BUCKETS holds 100 ms+.
@@ -76,6 +85,85 @@ export function quantile(counts: Map<number, number>, p: number): number | null 
 }
 
 /** Adds one `_acpmux/perf {op:"tally"}` request's gaps into counts (pure on its input; ignores anything else). */
+type RowFrameSample = { touched: number; visible: number; offscreen: number };
+export type RowsReading = {
+  margin_px: number;
+  frames: number;
+  frames_touching: number;
+  rows_touched_p50: number | null;
+  rows_touched_p95: number | null;
+  rows_visible_p50: number | null;
+  rows_visible_p95: number | null;
+  rows_mounted_p95: number | null;
+  /// Over the frames that drew any row: per-frame touched/visible.
+  touched_over_visible_p50: number | null;
+  touched_over_visible_p95: number | null;
+  rows_touched_total: number;
+  rows_touched_offscreen_total: number;
+  /// "kind:trigger" -> offscreen row draws, most first.
+  offscreen_by_kind_trigger: Record<string, number>;
+  /// The window's other render counters (perf.ts `renders` past the rows), most first.
+  other_renders_top: Record<string, number>;
+  reason: string | null;
+};
+
+/** Nearest-rank p-th quantile (0..1) of plain numbers (pure); null when empty. */
+export function plainQuantile(values: number[], p: number): number | null {
+  if (values.length === 0) return null;
+  const sorted = [...values].sort((a, b) => a - b);
+  return sorted[Math.max(0, Math.ceil(p * sorted.length) - 1)]!;
+}
+
+/** The --rows block from the page's per-frame samples (pure). */
+export function rowsReading(
+  samples: (RowFrameSample & { mounted: number })[],
+  offscreen: Record<string, number>,
+  other: Record<string, number>,
+  reason: string | null,
+): RowsReading {
+  const touching = samples.filter((s) => s.touched > 0);
+  const ratios = touching.filter((s) => s.visible > 0).map((s) => s.touched / s.visible);
+  const round = (n: number | null) => (n === null ? null : Math.round(n * 100) / 100);
+  const top = (m: Record<string, number>, n: number) =>
+    Object.fromEntries(
+      Object.entries(m)
+        .sort((a, b) => b[1] - a[1])
+        .slice(0, n),
+    );
+  return {
+    margin_px: ROWS_MARGIN_PX,
+    frames: samples.length,
+    frames_touching: touching.length,
+    rows_touched_p50: plainQuantile(
+      touching.map((s) => s.touched),
+      0.5,
+    ),
+    rows_touched_p95: plainQuantile(
+      touching.map((s) => s.touched),
+      0.95,
+    ),
+    rows_visible_p50: plainQuantile(
+      samples.map((s) => s.visible),
+      0.5,
+    ),
+    rows_visible_p95: plainQuantile(
+      samples.map((s) => s.visible),
+      0.95,
+    ),
+    rows_mounted_p95: plainQuantile(
+      samples.map((s) => s.mounted),
+      0.95,
+    ),
+    touched_over_visible_p50: round(plainQuantile(ratios, 0.5)),
+    touched_over_visible_p95: round(plainQuantile(ratios, 0.95)),
+    rows_touched_total: samples.reduce((sum, s) => sum + s.touched, 0),
+    rows_touched_offscreen_total: samples.reduce((sum, s) => sum + s.offscreen, 0),
+    offscreen_by_kind_trigger: top(offscreen, 12),
+    other_renders_top: top(other, 12),
+    reason,
+  };
+}
+
 export function addTally(counts: Map<number, number>, params: unknown): number {
   const p = params as { op?: unknown; bucketMs?: unknown; gaps?: unknown } | null;
   if (!p || p.op !== "tally" || p.bucketMs !== BUCKET_MS || !Array.isArray(p.gaps)) return 0;
@@ -110,6 +198,7 @@ type Reading = {
   renderer_main_busy_pct: number | null;
   long_tasks: number;
   longest_task_ms: number;
+  rows?: RowsReading;
   chromium: string;
   at: string;
 };
@@ -202,6 +291,94 @@ async function run(): Promise<Reading> {
         for (const entry of list.getEntries()) w.__long.push({ at: entry.startTime, ms: entry.duration });
       }).observe({ type: "longtask", buffered: true });
     });
+    if (ROWS)
+      await page.addInitScript((margin: number) => {
+        type Probe = {
+          on: boolean;
+          samples: { touched: number; visible: number; offscreen: number; mounted: number }[];
+          offscreen: Record<string, number>;
+          other: Record<string, number>;
+          reason: string | null;
+        };
+        const w = window as unknown as {
+          __rows: Probe;
+          cmuxAcpmuxDebug?: { renders(): Record<string, number> };
+        };
+        const probe: Probe = { on: false, samples: [], offscreen: {}, other: {}, reason: null };
+        w.__rows = probe;
+        const visible = new Set<string>();
+        let io: IntersectionObserver | undefined;
+        let root: Element | null = null;
+        const watch = (node: Node) => {
+          if (!(node instanceof Element) || !io) return;
+          if (node.matches(".acpmux-row")) io.observe(node);
+          for (const row of node.querySelectorAll(".acpmux-row")) io.observe(row);
+        };
+        new MutationObserver((list) => {
+          const scroller = document.querySelector(".acpmux-scroll");
+          if (scroller && scroller !== root) {
+            root = scroller;
+            io?.disconnect();
+            visible.clear();
+            io = new IntersectionObserver(
+              (entries) => {
+                for (const entry of entries) {
+                  const id = (entry.target as HTMLElement).dataset.rowId;
+                  if (!id) continue;
+                  if (entry.isIntersecting) visible.add(id);
+                  else visible.delete(id);
+                }
+              },
+              { root: scroller, rootMargin: `${margin}px 0px` },
+            );
+            watch(scroller);
+            return;
+          }
+          for (const record of list) for (const node of record.addedNodes) watch(node);
+        }).observe(document, { childList: true, subtree: true });
+        const kindOf = (id: string) => {
+          const node = document.querySelector(`.acpmux-row[data-row-id="${CSS.escape(id)}"]`);
+          const kind = node
+            ? [...node.classList].find((c) => c.startsWith("acpmux-") && !c.startsWith("acpmux-row"))
+            : undefined;
+          return kind ? kind.slice("acpmux-".length) : node ? "row" : "unmounted";
+        };
+        const frame = () => {
+          requestAnimationFrame(frame);
+          if (!probe.on) return;
+          const debug = w.cmuxAcpmuxDebug;
+          if (!debug?.renders) {
+            probe.reason = "the page has no cmuxAcpmuxDebug.renders()";
+            return;
+          }
+          const counts = debug.renders();
+          const touched = new Map<string, Set<string>>();
+          for (const [key, n] of Object.entries(counts)) {
+            const at = key.indexOf(":");
+            const what = at > 0 ? key.slice(0, at) : "";
+            if (what === "row" || what === "content" || what === "mount" || what === "frame") {
+              const id = key.slice(at + 1);
+              if (!touched.has(id)) touched.set(id, new Set());
+              touched.get(id)!.add(what);
+            } else if (!key.startsWith("remount:")) probe.other[key] = (probe.other[key] ?? 0) + n;
+          }
+          let offscreen = 0;
+          for (const [id, whats] of touched) {
+            if (visible.has(id)) continue;
+            offscreen += 1;
+            const trigger = whats.has("mount") ? "mount" : whats.has("content") ? "content" : "frame";
+            const key = `${kindOf(id)}:${trigger}`;
+            probe.offscreen[key] = (probe.offscreen[key] ?? 0) + 1;
+          }
+          probe.samples.push({
+            touched: touched.size,
+            visible: visible.size,
+            offscreen,
+            mounted: document.querySelectorAll(".acpmux-row").length,
+          });
+        };
+        requestAnimationFrame(frame);
+      }, ROWS_MARGIN_PX);
     const cdp = await page.context().newCDPSession(page);
     await cdp.send("Performance.enable");
     const url =
@@ -239,6 +416,15 @@ async function run(): Promise<Reading> {
     await page.waitForTimeout(WARM * 1000);
     if (served >= log.events.length) throw new Error(`${log.name}: the log ran out in the warm-up; lower --rate`);
     measuring = true;
+    if (ROWS)
+      await page.evaluate(() => {
+        const w = window as unknown as {
+          __rows: { on: boolean };
+          cmuxAcpmuxDebug?: { renders(): Record<string, number> };
+        };
+        w.cmuxAcpmuxDebug?.renders(); // from zero, and measurement on
+        w.__rows.on = true;
+      });
     const pageStart = await page.evaluate(() => performance.now());
     const taskBefore = await taskSeconds(cdp);
     const wallBefore = performance.now();
@@ -246,6 +432,18 @@ async function run(): Promise<Reading> {
     const taskAfter = await taskSeconds(cdp);
     const wallMs = performance.now() - wallBefore;
     const pageEnd = await page.evaluate(() => performance.now());
+    const rowsProbe = ROWS
+      ? ((await page.evaluate(() => {
+          const probe = (window as unknown as { __rows: { on: boolean } }).__rows;
+          probe.on = false;
+          return probe;
+        })) as {
+          samples: (RowFrameSample & { mounted: number })[];
+          offscreen: Record<string, number>;
+          other: Record<string, number>;
+          reason: string | null;
+        })
+      : undefined;
     clearInterval(timer);
     // The tally's last flush (at most FLUSH_MS after the window's last frames) still counts.
     await page.waitForTimeout(FLUSH_WAIT_MS);
@@ -280,6 +478,9 @@ async function run(): Promise<Reading> {
       renderer_main_busy_pct: wallMs > 0 ? Math.round(((taskAfter - taskBefore) * 1000 * 1000) / wallMs) / 10 : null,
       long_tasks: long.length,
       longest_task_ms: Math.round(Math.max(0, ...long.map((t) => t.ms))),
+      ...(rowsProbe
+        ? { rows: rowsReading(rowsProbe.samples, rowsProbe.offscreen, rowsProbe.other, rowsProbe.reason) }
+        : {}),
       chromium: browser.version(),
       at: new Date().toISOString().replace(/\.\d+Z$/, "Z"),
     };
@@ -304,6 +505,12 @@ if (import.meta.main) {
       `replay-under-load: frame p95 ${reading.frame_p95_ms ?? "null"} ms over ${reading.frames} frames, renderer main ` +
         `${reading.renderer_main_busy_pct ?? "null"}% busy, ${reading.records} records in ${reading.seconds} s`,
     );
+    if (reading.rows)
+      console.log(
+        `replay-under-load: rows touched p95 ${reading.rows.rows_touched_p95} vs visible p95 ` +
+          `${reading.rows.rows_visible_p95} (touched/visible p95 ${reading.rows.touched_over_visible_p95}), ` +
+          `${reading.rows.rows_touched_offscreen_total} of ${reading.rows.rows_touched_total} row draws offscreen`,
+      );
   } catch (error) {
     console.error(`replay-under-load: FAILED: ${error instanceof Error ? error.message : String(error)}`);
     process.exitCode = 1;
