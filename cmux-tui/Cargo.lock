@@ -3223,6 +3223,7 @@ dependencies = [
  "cmux-lifeline",
  "cmux-link",
  "cmux-migrate",
+ "cmux-palette-ranker",
  "cmux-panic-log",
  "cmux-process",
  "cmux-projection",
@@ -3251,6 +3252,7 @@ dependencies = [
  "cmux-tui-machine-agent-protocol",
  "cmux-tui-machine-protocol",
  "cmux-tui-platform",
+ "cmux-tui-test-modules",
  "cmux-unix-socket",
  "cmux-usage-patterns",
  "cmux-vm",
@@ -3526,6 +3528,10 @@ dependencies = [
 
 [[package]]
 name = "cmux-tui-source-watch"
+version = "0.0.0"
+
+[[package]]
+name = "cmux-tui-test-modules"
 version = "0.0.0"
 
 [[package]]
