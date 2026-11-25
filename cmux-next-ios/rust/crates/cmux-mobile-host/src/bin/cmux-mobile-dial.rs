@@ -21,6 +21,17 @@
 //! over UDP, only TURN over TLS on 443 (path `turn-tls`). `--no-turn` drops
 //! the TURN servers `/v1/ice` returned (with `--relay-only` or
 //! `--block-udp` the dial then fails: there is no backend relay any more).
+//!
+//! `--hold-seconds H` (measurement only, cmuxterm-hq wg-iroh-bench.sh)
+//! replaces the pings and the echo run: it holds the link H seconds and
+//! sends an 8-byte echo every `--probe-ms` (200) on one echo channel,
+//! printing one JSON event per line: `link-ready` (since_spawn_ms,
+//! epoch_ms, connect_ms, path), `probe` (seq, sent_epoch_ms, epoch_ms,
+//! rtt_ms), `path` on a route change, `net-change`, and `hold-done`.
+//! `--watch-net` polls the local addresses and, when they change, tells
+//! the link as the app does on an `NWPathMonitor` update: every WireGuard
+//! session roams (`dial::wireguard::network_changed`) and a new signaling
+//! socket opens and takes the sessions over (`dial::wireguard::rehome`).
 
 use std::time::{Duration, Instant};
 
@@ -47,7 +58,12 @@ struct Args {
     stock_ice_waits: bool,
     local: bool,
     local_addrs: Vec<std::net::SocketAddr>,
+    hold_seconds: f64,
+    probe_ms: u64,
+    watch_net: bool,
 }
+
+static PROCESS_START: std::sync::OnceLock<Instant> = std::sync::OnceLock::new();
 
 fn parse() -> Result<Args> {
     let mut args = std::env::args().skip(1);
@@ -59,6 +75,7 @@ fn parse() -> Result<Args> {
     let mut no_input_lane = false;
     let mut local = false;
     let mut local_addrs = Vec::new();
+    let (mut hold_seconds, mut probe_ms, mut watch_net) = (0.0, 200, false);
     while let Some(arg) = args.next() {
         let mut value = || args.next().with_context(|| format!("{arg} needs a value"));
         match arg.as_str() {
@@ -81,6 +98,9 @@ fn parse() -> Result<Args> {
             "--daemon" => daemon = true,
             "--stock-ice-waits" => stock_ice_waits = true,
             "--local" => local = true,
+            "--hold-seconds" => hold_seconds = value()?.parse()?,
+            "--probe-ms" => probe_ms = value()?.parse()?,
+            "--watch-net" => watch_net = true,
             "--local-addr" => {
                 local = true;
                 local_addrs.push(value()?.parse().context("--local-addr is HOST:PORT")?);
@@ -124,6 +144,9 @@ fn parse() -> Result<Args> {
         stock_ice_waits,
         local,
         local_addrs,
+        hold_seconds,
+        probe_ms: probe_ms.max(10),
+        watch_net,
     })
 }
 
@@ -167,7 +190,8 @@ async fn run(args: &Args, kind: TransportKind) -> Result<serde_json::Value> {
     let signaling = SignalingClient::connect(&args.base_url, &args.token, &args.team, &device).await?;
     let signaled = started.elapsed();
     timeline.mark("signaling_open");
-    let measured = measure(args, kind, signaling, ice_servers, timeline, started, signaled).await?;
+    let measured =
+        measure(args, kind, signaling, ice_servers, timeline, started, signaled, Some(&device)).await?;
     let mut result = measured;
     result["ice_fetch_ms"] = json!(millis(ice_fetch));
     result["ice_turn_urls"] = json!(turn_urls);
@@ -192,13 +216,15 @@ async fn run_local(args: &Args, kind: TransportKind) -> Result<serde_json::Value
     let signaling = cmux_mobile_link::local::connect_hub(&addresses, &device).await?;
     let signaled = started.elapsed();
     timeline.mark("signaling_open");
-    let mut result = measure(args, kind, signaling, Vec::new(), timeline, started, signaled).await?;
+    let mut result = measure(args, kind, signaling, Vec::new(), timeline, started, signaled, None).await?;
     result["local"] = json!(true);
     result["discover_ms"] = json!(millis(discover));
     result["hub_addresses"] = json!(addresses.iter().map(ToString::to_string).collect::<Vec<_>>());
     Ok(result)
 }
 
+// `device`: the signaling device id `--watch-net` reopens its socket as (none for `--local`).
+#[allow(clippy::too_many_arguments)]
 async fn measure(
     args: &Args,
     kind: TransportKind,
@@ -207,6 +233,7 @@ async fn measure(
     timeline: cmux_mobile_link::Timeline,
     started: Instant,
     signaled: Duration,
+    device: Option<&str>,
 ) -> Result<serde_json::Value> {
     let options = DialOptions {
         ice_servers,
@@ -221,6 +248,9 @@ async fn measure(
     let connected =
         cmux_mobile_link::dial::connect(&signaling, &args.mac, kind, &options, LinkConfig::default()).await?;
     let connect = started.elapsed();
+    if args.hold_seconds > 0.0 {
+        return hold(args, kind, &connected, signaling, connect, device).await;
+    }
     let link = &connected.link;
     // The app's first request: a `daemon` channel and its first answer.
     let first_daemon = if args.daemon {
@@ -317,8 +347,162 @@ async fn measure(
     }))
 }
 
+fn epoch_ms() -> f64 {
+    let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap_or_default();
+    (now.as_secs_f64() * 10_000_000.0).round() / 10_000.0
+}
+
+fn event(value: serde_json::Value) {
+    use std::io::Write;
+    let mut out = std::io::stdout().lock();
+    let _ = writeln!(out, "{value}");
+    let _ = out.flush();
+}
+
+/// The machine's non-loopback addresses (`--watch-net`).
+fn local_ips() -> std::collections::BTreeSet<std::net::IpAddr> {
+    let mut ips = std::collections::BTreeSet::new();
+    // SAFETY: getifaddrs fills a list freed below; each entry is read only while it lives.
+    unsafe {
+        let mut list: *mut libc::ifaddrs = std::ptr::null_mut();
+        if libc::getifaddrs(&mut list) != 0 {
+            return ips;
+        }
+        let mut cur = list;
+        while !cur.is_null() {
+            let addr = (*cur).ifa_addr;
+            if !addr.is_null() {
+                match i32::from((*addr).sa_family) {
+                    libc::AF_INET => {
+                        let sin = &*(addr as *const libc::sockaddr_in);
+                        ips.insert(std::net::Ipv4Addr::from(u32::from_be(sin.sin_addr.s_addr)).into());
+                    }
+                    libc::AF_INET6 => {
+                        let sin6 = &*(addr as *const libc::sockaddr_in6);
+                        ips.insert(std::net::Ipv6Addr::from(sin6.sin6_addr.s6_addr).into());
+                    }
+                    _ => {}
+                }
+            }
+            cur = (*cur).ifa_next;
+        }
+        libc::freeifaddrs(list);
+    }
+    ips.retain(|ip| !ip.is_loopback());
+    ips
+}
+
+/// At most this many echoes unanswered: a stalled link does not queue
+/// thousands behind it (the gap shows as missing seqs), as rpc_probe.py.
+const MAX_INFLIGHT: usize = 64;
+
+/// `--hold-seconds`: hold the link and probe it with small echoes.
+async fn hold(
+    args: &Args,
+    kind: TransportKind,
+    connected: &cmux_mobile_link::dial::Connected,
+    signaling: SignalingClient,
+    connect: Duration,
+    device: Option<&str>,
+) -> Result<serde_json::Value> {
+    use std::sync::{Arc, Mutex};
+    let link = &connected.link;
+    let echo = link.open("echo", json!({})).await?;
+    let (sender, mut receiver) = echo.split();
+    let sent: Arc<Mutex<std::collections::VecDeque<(u64, f64)>>> = Arc::default();
+    let answered = Arc::new(std::sync::atomic::AtomicU64::new(0));
+    let since_spawn = PROCESS_START.get().map(|t| t.elapsed()).unwrap_or_default();
+    let path_now = || format!("{:?}", *connected.path.borrow()).to_lowercase();
+    event(json!({"event": "link-ready", "since_spawn_ms": millis(since_spawn), "epoch_ms": epoch_ms(),
+        "connect_ms": millis(connect), "path": path_now(), "transport": format!("{kind:?}").to_lowercase()}));
+    let reader = {
+        let (sent, answered) = (Arc::clone(&sent), Arc::clone(&answered));
+        tokio::spawn(async move {
+            let mut pending = Vec::new();
+            while let Some(ChannelEvent::Data(bytes)) = receiver.recv().await {
+                let t = epoch_ms();
+                pending.extend_from_slice(&bytes);
+                while pending.len() >= 8 {
+                    pending.drain(..8);
+                    let Some((seq, t0)) = sent.lock().unwrap().pop_front() else { continue };
+                    answered.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                    event(json!({"event": "probe", "seq": seq, "sent_epoch_ms": t0, "epoch_ms": t,
+                        "rtt_ms": ((t - t0) * 10.0).round() / 10.0, "ok": true}));
+                }
+            }
+        })
+    };
+    let mut path_rx = connected.path.clone();
+    let paths = tokio::spawn(async move {
+        while path_rx.changed().await.is_ok() {
+            let path = format!("{:?}", *path_rx.borrow_and_update()).to_lowercase();
+            event(json!({"event": "path", "path": path, "epoch_ms": epoch_ms()}));
+        }
+    });
+    // The app's network-change entry (cmux-mobile-link-ffi `network_changed`): roam every
+    // WireGuard session and move them onto a fresh signaling socket.
+    let watcher = (args.watch_net).then(|| {
+        let (base_url, token, team) = (args.base_url.clone(), args.token.clone(), args.team.clone());
+        let device = device.map(str::to_owned);
+        tokio::spawn(async move {
+            let mut last = local_ips();
+            let mut sockets = Vec::new();
+            loop {
+                tokio::time::sleep(Duration::from_millis(20)).await;
+                let now = local_ips();
+                if now == last {
+                    continue;
+                }
+                last = now;
+                event(json!({"event": "net-change", "epoch_ms": epoch_ms(),
+                    "addrs": last.iter().map(ToString::to_string).collect::<Vec<_>>()}));
+                let roam = tokio::spawn(cmux_mobile_link::dial::wireguard::network_changed());
+                if let Some(device) = &device
+                    && let Ok(client) = SignalingClient::connect(&base_url, &token, &team, device).await
+                {
+                    let moved = cmux_mobile_link::dial::wireguard::rehome(&client);
+                    event(json!({"event": "signaling-reopened", "moved": moved, "epoch_ms": epoch_ms()}));
+                    sockets.push(client);
+                }
+                let _ = roam.await;
+            }
+        })
+    });
+    let deadline = Instant::now() + Duration::from_secs_f64(args.hold_seconds);
+    let every = Duration::from_millis(args.probe_ms);
+    let mut next = tokio::time::Instant::now();
+    let mut seq = 0u64;
+    while Instant::now() < deadline {
+        let inflight = sent.lock().unwrap().len();
+        if inflight < MAX_INFLIGHT {
+            sent.lock().unwrap().push_back((seq, epoch_ms()));
+            if sender.send(Bytes::copy_from_slice(&seq.to_be_bytes())).await.is_err() {
+                break;
+            }
+            seq += 1;
+        }
+        next += every;
+        tokio::time::sleep_until(next).await;
+    }
+    // Let answers in flight land (a probe's round trip at most), then stop.
+    tokio::time::sleep(Duration::from_millis(500)).await;
+    reader.abort();
+    paths.abort();
+    if let Some(watcher) = watcher {
+        watcher.abort();
+    }
+    let answered = answered.load(std::sync::atomic::Ordering::Relaxed);
+    event(json!({"event": "hold-done", "answered": answered, "sent": seq, "epoch_ms": epoch_ms()}));
+    sender.close("done", "").await;
+    link.close("done");
+    signaling.close();
+    Ok(json!({"event": "result", "transport": format!("{kind:?}").to_lowercase(), "path": path_now(),
+        "connect_ms": millis(connect), "answered": answered, "sent": seq}))
+}
+
 #[tokio::main]
 async fn main() -> Result<()> {
+    PROCESS_START.get_or_init(Instant::now);
     tracing_subscriber::fmt()
         .with_env_filter(
             tracing_subscriber::EnvFilter::try_from_env("CMUX_MOBILE_LOG")
