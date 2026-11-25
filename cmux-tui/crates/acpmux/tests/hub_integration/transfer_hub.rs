@@ -94,6 +94,7 @@ fn hook(ledger: &Path, ops: &[&str]) -> MeshControlHook {
         max_policy: None,
         same_user: true,
         ops: ops.iter().map(|o| (*o).to_owned()).collect(),
+        max_policy: None,
     };
     MeshControlHook::new(vec![entry], Some(ledger.join("mesh-controls.json")))
         .with_own_user(Arc::new(|| Some("user-1".to_owned())))

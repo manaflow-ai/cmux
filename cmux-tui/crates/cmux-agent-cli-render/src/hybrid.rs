@@ -144,12 +144,12 @@ impl Overlay {
                     && cells.first().is_some_and(|first| first.style != cell.style)
                 {
                     let glyph: Vec<Cell> = cells.pop().into_iter().collect();
-                    // The open span ends here either way. Held only the glyph, it is now empty
-                    // and goes nowhere: a set of no cells is a frame the phone refuses.
-                    let only_glyph = cells.is_empty();
-                    let earlier = open.take();
-                    if !only_glyph {
-                        spans.extend(earlier);
+                    // The span the glyph leaves goes out if anything is left in it, else it
+                    // goes: a set of no cells is not a span (the phone refuses the frame).
+                    if cells.is_empty() {
+                        open = None;
+                    } else {
+                        spans.extend(open.take());
                     }
                     spans.push(Span::Set { row: row_no, col, cells: vec![cell.clone()] });
                     // The glyph's span ends here: it starts left of this cell, so the next cell
