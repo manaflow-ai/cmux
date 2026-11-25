@@ -1154,6 +1154,7 @@ impl Hub {
                         // A notice's turn answers the messages it carried (`inbox.rs`).
                         hub.recovered_notice_done(&s, &prompt_id, &result);
                         outcome.send_replace(Some(result));
+                        super::turns::release_acceptance(&s, &prompt_id, &outcome);
                         super::prompt_ledger::prune(
                             &mut s.prompts.lock().unwrap_or_else(|e| e.into_inner()),
                         );
