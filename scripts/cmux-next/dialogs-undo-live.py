@@ -22,6 +22,7 @@ Usage: dialogs-undo-live.py TAG APP OUT_DIR
 import json, os, pwd, signal, socket, subprocess, sys, tempfile, time
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from safe_log import safe_print  # noqa: E402  (a line before a kill never skips the kill)
+from state_wait import wait_stable  # noqa: E402
 
 TAG, APP, OUT = sys.argv[1], sys.argv[2], sys.argv[3]
 BINARY = os.path.join(APP, "Contents/MacOS/cmux DEV")
@@ -95,9 +96,10 @@ def surface_count():
     return json.dumps(reply).count('"surface')
 
 
-def no_dialog_after(seconds=1.5):
-    """A question is decided in a task after the run: give it time to show."""
-    time.sleep(seconds)  # test harness: the confirmation presenter is async
+def no_dialog_after(toast_id, seconds=10):
+    """A question is decided in a task after the run (the confirmation presenter is async): wait until either a
+    dialog shows or the run's own toast does (it ran without asking); true when no dialog showed."""
+    wait(lambda: dialogs() or any(t["id"] == toast_id for t in toasts()), seconds)
     return not dialogs()
 
 
@@ -144,7 +146,7 @@ try:
     if machine:
         reply = rpc("debug.toast", {"perform": "remote.forget", "target_kind": "machine", "target_id": machine})
         check("forget-ran", reply.get("performed"), reply)
-        check("forget-no-dialog", no_dialog_after(), dialogs())
+        check("forget-no-dialog", no_dialog_after("remote-forgot"), dialogs())
         check("forget-toast", wait(lambda: any(t["id"] == "remote-forgot" for t in toasts()), 5), toasts())
         check("forget-hides-machine", wait(lambda: machine not in machines(), 5), machines())
         reply = rpc("debug.toast", {"undo": True})
@@ -166,7 +168,7 @@ try:
             reply = rpc("debug.toast", {"perform": "workspaceGroup.closeWorkspaces", "target_kind": "workspace-group",
                                         "target_id": grouped["group"]})
             check("group-close-ran", reply.get("performed"), reply)
-            check("group-close-no-dialog", no_dialog_after(), dialogs())
+            check("group-close-no-dialog", no_dialog_after("workspace-group-closed"), dialogs())
             check("group-close-toast", wait(lambda: any(t["id"] == "workspace-group-closed" for t in toasts()), 10), toasts())
             check("group-close-closes", wait(lambda: not any(r.get("title") == "dlg-g" for r in rows()), 10),
                   [r.get("title") for r in rows()])
@@ -180,11 +182,13 @@ try:
     # tab group -----------------------------------------------------------------
     reply = rpc("debug.toast", {"perform": "tabGroup.create", "arguments": {"name": "DlgTabs"}})
     check("tabgroup-setup", reply.get("performed"), reply)
-    time.sleep(1)  # test harness: the group reaches the store
+    # The group reaches the store: the surfaces the count reads hold still.
+    wait_stable(lambda: rpc("debug.surfaces"), "the surfaces after the tab group", timeout=10, interval=0.2,
+                raise_on_timeout=False)
     tabs_before = surface_count()
     reply = rpc("debug.toast", {"perform": "tabGroup.close"})
     check("tabgroup-close-ran", reply.get("performed"), reply)
-    check("tabgroup-close-no-dialog", no_dialog_after(), dialogs())
+    check("tabgroup-close-no-dialog", no_dialog_after("tab-closed"), dialogs())
     check("tabgroup-close-closes", wait(lambda: surface_count() < tabs_before, 10), (tabs_before, surface_count()))
     check("tabgroup-close-toast", wait(lambda: any(t["id"] == "tab-closed" for t in toasts()), 10), toasts())
     reply = rpc("debug.toast", {"undo": True})
@@ -210,7 +214,9 @@ try:
     while app.poll() is None and time.time() < deadline:
         time.sleep(0.25)
     check("quit-app-exits", app.poll() is not None, app.poll())
-    time.sleep(5)  # test harness: past the quit, before the survival read
+    # sleep-ok: a survival window: the program must still be alive 5 s after the app exited (a kill from the
+    # quit's teardown would land in it), and staying alive has no event.
+    time.sleep(5)
     check("quit-program-survives", loop_pid and alive(loop_pid), loop_pid)
     terminals = cli("terminal", "list", "--json")
     check("quit-terminal-in-daemon", terminal and str(terminal) in terminals, terminals[:300])
@@ -230,9 +236,12 @@ finally:
                    "ACPMUX_SOCKET": os.path.join(ACPMUX_HOME, "acpmux.sock")}, capture_output=True, timeout=30)
     subprocess.run([CLI, "server", "stop", "--session", SESSION, "--end-terminals"],
                    env={k: v for k, v in os.environ.items() if not k.startswith("CMUX_")}, capture_output=True, timeout=30)
-    time.sleep(3)  # test harness: let daemons exit before the leftover check
-    ps = subprocess.run(["ps", "-axo", "pid=,ppid=,command="], capture_output=True, text=True).stdout
-    left = [line for line in ps.splitlines() if (APP + "/") in line and "dialogs-undo-live" not in line]
+    # The daemons exit: wait until no process of this bundle is left (up to 15 s), then report what is.
+    def leftovers():
+        ps = subprocess.run(["ps", "-axo", "pid=,ppid=,command="], capture_output=True, text=True).stdout
+        return [line for line in ps.splitlines() if (APP + "/") in line and "dialogs-undo-live" not in line]
+    wait(lambda: not leftovers(), 15)
+    left = leftovers()
     safe_print("leftovers of this bundle: %d" % len(left), flush=True)
     for line in left:
         safe_print("  " + line[:200], flush=True)

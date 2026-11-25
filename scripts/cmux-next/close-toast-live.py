@@ -86,7 +86,8 @@ def surface_count():
 
 def no_dialog_after(seconds=1.5):
     """A question is decided in a task after the run: give it time to show."""
-    time.sleep(seconds)  # test harness: the confirmation presenter is async
+    # sleep-ok: an observation window; the check is that no question shows within it (an absence has no event)
+    time.sleep(seconds)
     return not dialogs()
 
 
@@ -149,7 +150,8 @@ def close_tab(tab_id=None):
 
 
 def no_toast_for(seconds=3):
-    time.sleep(seconds)  # test harness: the toast shows once the daemon records the close
+    # sleep-ok: an observation window; the check is that no toast shows within it (an absence has no event)
+    time.sleep(seconds)
     return not tab_closed_toasts()
 
 
@@ -166,7 +168,9 @@ try:
     # Settings closes with no toast.
     reply = rpc("debug.toast", {"perform": "openSettings"})
     check("settings-open", reply.get("performed"), reply)
-    time.sleep(2)  # test harness: the Settings tab opens and takes focus
+    # The Settings tab opens and takes focus: closeTab with no target closes the focused tab.
+    settings_focused = wait(lambda: ((rpc("context.keys") or {}).get("keys") or {}).get("surfaceKind") == "settings", 10, 0.1)
+    check("settings-focused", settings_focused, (rpc("context.keys") or {}).get("keys"))
     reply = close_tab()
     check("settings-close-ran", reply.get("performed"), reply)
     check("settings-close-no-toast", no_toast_for(), toasts())
@@ -181,7 +185,9 @@ try:
         # Shown in the window, as a person's close is: a hidden workspace's tab closes without the strip.
         shown = rpc("action.run", {"action": "tab.focus", "target": "tab:%s" % first.get("tab_id"), "focus": True, "wait": True})
         print("reveal %s:" % name, json.dumps(shown)[:200], flush=True)
-        time.sleep(1)  # test harness: the pane controller is made
+        # The pane controller is made: the window's pane chrome names the pane.
+        if pane and not wait(lambda: pane in json.dumps(rpc("debug.pane_chrome")), 10, 0.1):
+            print("reveal %s: pane %s never showed in debug.pane_chrome" % (name, pane), flush=True)
         return pane, value
 
     def pane_tabs(pane):
@@ -197,7 +203,8 @@ try:
     pane, value = second_tab("ct-idle")
     check("idle-setup", value.get("tab_id"), value)
     if value.get("tab_id"):
-        time.sleep(1)  # test harness: the shell starts
+        # The shell starts: the daemon names a foreground program for the terminal.
+        wait(lambda: foreground(value["terminal_id"]), 10, 0.1)
         before = pane_tabs(pane)
         # Idle means the shell owns the terminal: its startup (prompt hooks) may still run a program.
         idle = wait(lambda: foreground(value["terminal_id"]) in SHELLS, 15)
@@ -214,7 +221,8 @@ try:
     check("busy-setup", value.get("tab_id"), value)
     if value.get("tab_id"):
         cli("terminal", value["terminal_id"], "write", "--text", "sleep 1000\n")
-        time.sleep(2)  # test harness: sleep becomes the foreground program
+        busy = wait(lambda: foreground(value["terminal_id"]) == "sleep", 15, 0.1)
+        check("busy-sleep-foreground", busy, foreground(value["terminal_id"]))
         before = pane_tabs(pane)
         reply = close_tab(value["tab_id"])
         check("busy-close-ran", reply.get("performed"), reply)
@@ -263,7 +271,9 @@ try:
         panes = sorted(known)
         in_ws = lambda: sum(1 for r in tab_rows() if r.get("pane_id") in known)
         check("others-setup", len(panes) == 4, panes)
-        time.sleep(2)  # test harness: the shells start and the pane controllers are made
+        # The shells start and the pane controllers are made: each pane lists its tab and runs a program.
+        wait(lambda: in_ws() >= 4 and all(foreground(r.get("terminal_id") or "") for r in tab_rows()
+                                          if r.get("pane_id") in known and r.get("terminal_id")), 15, 0.1)
         # Shown in the window, as a person's right-click is: a hidden pane has no strip to close from.
         rpc("action.run", {"action": "tab.focus", "target": "tab:%s" % first.get("tab_id"), "focus": True, "wait": True})
         shown_panes = lambda: all(p in json.dumps(rpc("debug.pane_chrome")) for p in panes)
@@ -287,7 +297,8 @@ try:
         safe_print("group:", made[:300], flush=True)
         group = (json.loads(made).get("value") or {}).get("id") if made.startswith("{") else None
         check("group-created", group, made)
-        time.sleep(2)  # test harness: sleep becomes the foreground program
+        group_busy = wait(lambda: foreground(value["terminal_id"]) == "sleep", 15, 0.1)
+        check("group-sleep-foreground", group_busy, foreground(value["terminal_id"]))
         before = pane_tabs(pane)
         reply = rpc("debug.toast", {"perform": "tabGroup.close", "target_kind": "tab-group", "target_id": group or ""})
         check("group-close-ran", reply.get("performed"), reply)
@@ -308,9 +319,13 @@ finally:
                    "ACPMUX_SOCKET": os.path.join(ACPMUX_HOME, "acpmux.sock")}, capture_output=True, timeout=30)
     subprocess.run([CLI, "server", "stop", "--session", SESSION, "--end-terminals"],
                    env={k: v for k, v in os.environ.items() if not k.startswith("CMUX_")}, capture_output=True, timeout=30)
-    time.sleep(3)  # test harness: let daemons exit before the leftover check
-    ps = subprocess.run(["ps", "-axo", "pid=,ppid=,command="], capture_output=True, text=True).stdout
-    left = [line for line in ps.splitlines() if (APP + "/") in line and "close-toast-live" not in line]
+
+    def leftovers():
+        ps = subprocess.run(["ps", "-axo", "pid=,ppid=,command="], capture_output=True, text=True).stdout
+        return [line for line in ps.splitlines() if (APP + "/") in line and "close-toast-live" not in line]
+    # The daemons exit: none of this bundle's processes left, or the count after 15 s.
+    wait(lambda: not leftovers(), 15, 0.2)
+    left = leftovers()
     safe_print("leftovers of this bundle: %d" % len(left), flush=True)
 failed = [name for name, ok in results if not ok]
 print("RESULT pass=%d fail=%d %s" % (len(results) - len(failed), len(failed), " ".join(failed)), flush=True)

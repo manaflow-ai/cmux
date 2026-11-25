@@ -10,17 +10,18 @@ import { JSDOM } from "jsdom";
 import {
   HOST_GLASS_DEADLINE_MS,
   HOST_GLASS_DRAWN_ATTRIBUTE,
-  HOST_GLASS_ENGINES_ATTRIBUTE,
   HOST_GLASS_HOLD_FRAMES,
   HOST_GLASS_MAX,
-  HOST_GLASS_OWN_ATTRIBUTE,
-  HOST_GLASS_ROLE_ATTRIBUTE,
   HOST_GLASS_ROOT_ATTRIBUTE,
   hostGlassApplies,
-  hostGlassPageZoom,
-  hostGlassSurface,
   reportHostGlass,
   type HostGlassSurface,
+  HOST_GLASS_ENGINES_ATTRIBUTE,
+  HOST_GLASS_ROLE_ATTRIBUTE,
+  hostGlassSurface,
+  hostGlassPageZoom,
+  HOST_GLASS_OWN_ATTRIBUTE,
+  stackedHostGlass,
 } from "../src/ui/glass/hostGlass";
 import { INTERFACE_SCALE_EVENT } from "../src/ui/interfaceScale";
 
@@ -43,18 +44,29 @@ function page({ seeThrough = true, chromium = true } = {}): Document {
   // JSDOM lays nothing out: a marked surface sits at 40,60, 200 x 120.
   const base = window.Element.prototype.getBoundingClientRect;
   window.Element.prototype.getBoundingClientRect = function (this: Element) {
-    if (this.hasAttribute("data-host-glass"))
-      return { left: 40, top: 60, right: 240, bottom: 180, width: 200, height: 120, x: 40, y: 60 } as DOMRect;
+    if (this.hasAttribute("data-host-glass")) {
+      // A test's own box ("left,top,right,bottom"), else the first surface's.
+      const box = (this.getAttribute("data-test-box") ?? "40,60,240,180").split(",").map(Number);
+      const [left = 0, top = 0, right = 0, bottom = 0] = box;
+      return { left, top, right, bottom, width: right - left, height: bottom - top, x: left, y: top } as DOMRect;
+    }
     return base.call(this);
   };
   return doc;
 }
+
+/** Puts a marked surface at its own box (CSS px). */
+const place = (element: Element, left: number, top: number, right: number, bottom: number) =>
+  element.setAttribute("data-test-box", [left, top, right, bottom].join(","));
 
 function surface(doc: Document, level = "popover"): HTMLElement {
   const element = doc.createElement("aside");
   element.className = "ui-glass";
   element.setAttribute("data-host-glass", level);
   element.style.borderTopLeftRadius = "12px";
+  // Each further surface sits clear of the ones before it: surfaces that overlap are their own tests.
+  const before = doc.querySelectorAll("[data-host-glass]").length;
+  if (before > 0) place(element, 40, 60 + before * 200, 240, 180 + before * 200);
   doc.getElementById("root")!.append(element);
   return element;
 }
@@ -162,6 +174,30 @@ test("a surface that fell back while host glass did not apply goes back to the A
   expect(element.getAttribute(HOST_GLASS_DRAWN_ATTRIBUTE)).toBe("1");
 });
 
+test("Liquid Glass off withdraws the App's glass at once, and on again brings it back", async () => {
+  const doc = page();
+  doc.documentElement.setAttribute("data-glass", "plain");
+  const reports: HostGlassSurface[][] = [];
+  stop = reportHostGlass(doc, (surfaces) => (reports.push(surfaces), Promise.resolve()));
+  const element = surface(doc);
+  await frames();
+  await settled();
+  expect(element.getAttribute(HOST_GLASS_DRAWN_ATTRIBUTE)).toBe("1");
+  // appearance.liquidGlass off: the host sends data-glass="off"; nothing is reported, the page's own
+  // (solid) surface shows.
+  doc.documentElement.setAttribute("data-glass", "off");
+  await frames();
+  await settled();
+  expect(reports.at(-1)).toEqual([]);
+  expect(element.getAttribute(HOST_GLASS_DRAWN_ATTRIBUTE)).toBe("0");
+  expect(doc.documentElement.hasAttribute(HOST_GLASS_ROOT_ATTRIBUTE)).toBe(false);
+  doc.documentElement.setAttribute("data-glass", "plain");
+  await frames();
+  await settled();
+  expect(reports.at(-1)).toHaveLength(1);
+  expect(element.getAttribute(HOST_GLASS_DRAWN_ATTRIBUTE)).toBe("1");
+});
+
 test("an App that refuses the report leaves every surface on the page's glass and is not asked again", async () => {
   const doc = page();
   let calls = 0;
@@ -209,6 +245,12 @@ test("only a see-through Chromium page gets the App's glass", () => {
   const reduced = page();
   reduced.documentElement.setAttribute("data-reduce-transparency", "");
   expect(hostGlassApplies(reduced)).toBe(false);
+  // Liquid Glass off (appearance.liquidGlass, data-glass="off"): no glass, the App's included.
+  const off = page();
+  off.documentElement.setAttribute("data-glass", "off");
+  expect(hostGlassApplies(off)).toBe(false);
+  off.documentElement.setAttribute("data-glass", "plain");
+  expect(hostGlassApplies(off)).toBe(true);
   // The live background's canvas covers what is under the page, as the lens's does.
   const live = page();
   live.documentElement.setAttribute("data-live-background", "");
@@ -822,4 +864,158 @@ test("a cover surface with nothing under it to blur is never reported: one glass
   expect(menu.hasAttribute("data-glass-over")).toBe(false);
   expect(reports.every((report) => report.length === 0)).toBe(true);
   expect(menu.hasAttribute(HOST_GLASS_OWN_ATTRIBUTE)).toBe(true);
+});
+
+// TOOLTIP REFRESH (experiments.hoverLook; Leo, ask-1ca2396492: "the double glassed thing on certain menus"):
+// a restyled tooltip paints its own glass, so the App never draws under it, not at mount and not on any
+// later frame, and turning the look on while a tooltip is open takes the App's glass away from it.
+test("a restyled tooltip is never reported, and turning the look on withdraws an open one", async () => {
+  const doc = page();
+  const reports: HostGlassSurface[][] = [];
+  stop = reportHostGlass(doc, (surfaces) => {
+    reports.push(surfaces);
+    return Promise.resolve();
+  });
+  const tip = surface(doc);
+  tip.classList.add("ui-tooltip");
+  await frames();
+  expect(reports.at(-1)?.map((s) => s.id)).toEqual(["g1"]);
+  doc.documentElement.setAttribute("data-hover-look", "crisp");
+  await frames();
+  expect(reports.at(-1)).toEqual([]);
+  expect(tip.getAttribute(HOST_GLASS_DRAWN_ATTRIBUTE)).toBe("0");
+  const late = surface(doc);
+  late.classList.add("ui-tooltip");
+  await frames();
+  expect(reports.at(-1)).toEqual([]);
+  expect(late.getAttribute(HOST_GLASS_DRAWN_ATTRIBUTE)).toBe("0");
+});
+
+// Leo, 2026-11-22 (ask-a7634d63c7): "our shitty multi layer glass + web view. we need to properly do
+// that once and for all." The App draws one native glass per reported box, all under the page, so two
+// reported boxes that overlap were two native glasses on top of each other: a hover card, a menu or a
+// tooltip over Session Info, a tooltip over a menu. The detector, for every surface at once: no two
+// boxes of one report overlap; the lower surface keeps the App's glass and the one over it keeps the
+// page's own, from its first frame.
+const overlapping = (report: HostGlassSurface[]) =>
+  report.flatMap((a, i) =>
+    report
+      .slice(i + 1)
+      .filter(
+        (b) =>
+          Math.min(a.right, b.right) - Math.max(a.left, b.left) > 1 &&
+          Math.min(a.bottom, b.bottom) - Math.max(a.top, b.top) > 1,
+      )
+      .map((b) => [a.id, b.id]),
+  );
+
+test("no report ever has two overlapping boxes: a surface over another's App glass keeps the page's", async () => {
+  const doc = page();
+  const reports: HostGlassSurface[][] = [];
+  stop = reportHostGlass(doc, (surfaces) => (reports.push(surfaces), Promise.resolve()));
+  const info = surface(doc);
+  place(info, 300, 20, 600, 400);
+  await frames();
+  await settled();
+  expect(reports.at(-1)?.map((entry) => entry.id)).toEqual(["g1"]);
+  // A hover card opens over Session Info: on the page's own glass in its first frames, never reported.
+  const card = surface(doc);
+  place(card, 250, 100, 450, 220);
+  await frames(2);
+  expect(card.hasAttribute(HOST_GLASS_OWN_ATTRIBUTE)).toBe(true);
+  expect(reports.at(-1)?.map((entry) => entry.id)).toEqual(["g1"]);
+  // And a tooltip over that card: the card has no App glass, Session Info under it does.
+  const tip = surface(doc, "chip");
+  place(tip, 320, 150, 400, 170);
+  await frames();
+  await settled();
+  await frames();
+  expect(reports.flatMap(overlapping)).toEqual([]);
+  expect(reports.at(-1)?.map((entry) => entry.id)).toEqual(["g1"]);
+  expect(info.hasAttribute(HOST_GLASS_OWN_ATTRIBUTE)).toBe(false);
+  expect(card.hasAttribute(HOST_GLASS_OWN_ATTRIBUTE)).toBe(true);
+  expect(tip.hasAttribute(HOST_GLASS_OWN_ATTRIBUTE)).toBe(true);
+  expect(card.getAttribute(HOST_GLASS_DRAWN_ATTRIBUTE)).toBe("1");
+  // Session Info goes: the card takes the App's glass, holding the page's until the App answers.
+  info.remove();
+  await frames();
+  await settled();
+  expect(reports.flatMap(overlapping)).toEqual([]);
+  expect(reports.at(-1)?.map((entry) => entry.id)).toEqual(["g2"]);
+  expect(card.hasAttribute(HOST_GLASS_OWN_ATTRIBUTE)).toBe(false);
+  expect(tip.hasAttribute(HOST_GLASS_OWN_ATTRIBUTE)).toBe(true);
+});
+
+test("surfaces that only meet along an edge each keep the App's glass (a submenu beside its menu)", async () => {
+  const doc = page();
+  const reports: HostGlassSurface[][] = [];
+  stop = reportHostGlass(doc, (surfaces) => (reports.push(surfaces), Promise.resolve()));
+  const menu = surface(doc, "menu");
+  place(menu, 40, 60, 240, 180);
+  const submenu = surface(doc, "menu");
+  place(submenu, 239.5, 80, 420, 200);
+  await frames();
+  await settled();
+  expect(reports.at(-1)?.map((entry) => entry.id)).toEqual(["g1", "g2"]);
+  expect(submenu.hasAttribute(HOST_GLASS_OWN_ATTRIBUTE)).toBe(false);
+});
+
+test("a drawn surface that moves over another leaves the App's glass, and the lower one never changes", async () => {
+  const doc = page();
+  const reports: HostGlassSurface[][] = [];
+  stop = reportHostGlass(doc, (surfaces) => (reports.push(surfaces), Promise.resolve()));
+  const lower = surface(doc);
+  const moving = surface(doc);
+  await frames();
+  await settled();
+  expect(reports.at(-1)).toHaveLength(2);
+  place(moving, 100, 100, 300, 220);
+  dom!.window.dispatchEvent(new dom!.window.Event("resize"));
+  await frames();
+  await settled();
+  expect(reports.at(-1)?.map((entry) => entry.id)).toEqual(["g1"]);
+  expect(moving.hasAttribute(HOST_GLASS_OWN_ATTRIBUTE)).toBe(true);
+  expect(lower.hasAttribute(HOST_GLASS_OWN_ATTRIBUTE)).toBe(false);
+  expect(reports.flatMap(overlapping)).toEqual([]);
+});
+
+test("paint order: a holder is under what it holds, the hit test names the upper one, else the later one", () => {
+  const doc = page();
+  const box = { left: 0, top: 0, right: 100, bottom: 100 };
+  const holder = surface(doc);
+  const inner = doc.createElement("div");
+  inner.setAttribute("data-host-glass", "menu");
+  holder.append(inner);
+  expect([
+    ...stackedHostGlass([
+      { element: inner, box },
+      { element: holder, box },
+    ]),
+  ]).toEqual([inner]);
+  const early = surface(doc);
+  const late = surface(doc);
+  expect([
+    ...stackedHostGlass([
+      { element: late, box },
+      { element: early, box },
+    ]),
+  ]).toEqual([late]);
+  // The earlier one is drawn over the later one (a z-index): the page's hit test says so.
+  (doc as unknown as { elementsFromPoint: unknown }).elementsFromPoint = () => [early, late];
+  expect([
+    ...stackedHostGlass([
+      { element: late, box },
+      { element: early, box },
+    ]),
+  ]).toEqual([early]);
+  // A surface over one that itself keeps the page's glass takes the App's.
+  (doc as unknown as { elementsFromPoint: unknown }).elementsFromPoint = undefined;
+  const top = surface(doc);
+  const stacked = stackedHostGlass(
+    [early, late, top].map((element, i) => ({
+      element,
+      box: { left: 0, top: i * 60, right: 100, bottom: i * 60 + 100 },
+    })),
+  );
+  expect([...stacked]).toEqual([late]);
 });

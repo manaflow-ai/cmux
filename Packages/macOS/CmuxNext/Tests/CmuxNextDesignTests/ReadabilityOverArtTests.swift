@@ -39,17 +39,24 @@ import CmuxNextDesignTokens
         #expect(tints == [Self.tokens.wallpaperTintOpacity])
     }
 
-    /// Frosted over a picture blurs the picture by the material's radius; other materials leave it sharp.
-    @Test func frostedBlursThePicture() {
+    /// Frosted over a picture blurs the picture by the material's radius; other materials leave it
+    /// sharp. The picture shows a blurred copy, never a filter on its aspect-filled layer (a filter
+    /// there drew it in the bottom-left, `FrostedArtFillTests`).
+    @Test func frostedBlursThePicture() async {
         let view = WindowMaterialView(frame: NSRect(x: 0, y: 0, width: 400, height: 300),
                                       images: BackdropImageStore(maxPixelSize: 64), videos: BackdropVideoPlayers())
         let work = BackdropSelection.art(.vanGoghStarryNight)
         view.apply(WindowBackdrop(Self.tokens(blur: 20), selection: work), tint: .black)
-        let blur = (view.artView.layer?.filters as? [CIFilter])?.first { $0.name == "CIGaussianBlur" }
-        #expect((blur?.value(forKey: kCIInputRadiusKey) as? NSNumber)?.doubleValue == 20)
-        // The video over the art blurs the same way.
+        await view.artLoad?.value
+        await view.artBlurJob?.value
+        #expect(view.artBlurRadius == 20)
+        #expect((view.artView.layer?.filters ?? []).isEmpty, "a filter on the art layer draws it in a corner")
+        #expect(view.artImage != nil)
+        #expect(CFGetTypeID(view.artView.layer?.contents as CFTypeRef?) == CGImage.typeID, "the art shows no blurred copy")
+        // The video over the art blurs with a filter (its layer fills its view on its own).
         #expect((view.videoView.layer?.filters as? [CIFilter])?.contains { $0.name == "CIGaussianBlur" } == true)
         view.apply(WindowBackdrop(Self.tokens(blur: 0), selection: work), tint: .black)
         #expect((view.artView.layer?.filters ?? []).isEmpty)
+        #expect(view.artView.layer?.contents as? NSImage === view.artImage, "the sharp picture is not back")
     }
 }

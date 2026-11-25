@@ -40,7 +40,7 @@ PIPELINE_ROOTS = (
 PIPELINE_JOBS = PIPELINE_ROOTS + (
     "build-nightly-ghostty-cli-helper", "prepare-nightly-variant-primary", "prepare-nightly-variant",
     "pick-nightly-sign-runner", "build-sign-notarize-nightly", "verify-signed-nightly",
-    "verify-final-dmg-nightly", "await-nightly-tree-marker", "dispatch-nightly-next-sign",
+    "verify-final-dmg-nightly", "await-nightly-tree-marker",
     "recover-nightly-next-notarization", "verify-recovered-nightly-next", "publish-nightly",
 )
 # Artifact names that carry the app itself between jobs or runs.
@@ -75,7 +75,7 @@ class NightlyNextOneJobTests(unittest.TestCase):
         self.assertEqual(step["env"].get("NIGHTLY_NEXT_ONE_JOB"), "${{ vars.NIGHTLY_NEXT_ONE_JOB || '' }}")
         script = step["with"]["script"]
         # Only the variable's exact value `on`, only on nightly-next's push or the loop's retry, only a build
-        # that publishes; the old pipeline is off exactly when this is on.
+        # that publishes.
         match = re.search(r"const oneJob = (.+?);\n", script)
         self.assertIsNotNone(match, "decide does not compute oneJob")
         expr = match.group(1)
@@ -84,8 +84,8 @@ class NightlyNextOneJobTests(unittest.TestCase):
                      "context.eventName === 'push' || Boolean(process.env.LOOP_RETRY)"):
             self.assertIn(term, expr)
         self.assertIn("core.setOutput('one_job', oneJob ? 'true' : 'false')", script)
-        pipeline = re.search(r"const pipeline = (.+?);\n", script).group(1)
-        self.assertIn("!oneJob", pipeline)
+        # The pipelined build-then-sign hand-off is gone (plans/nightly-one-job.md): nothing else reads oneJob.
+        self.assertNotIn("const pipeline", script)
 
     def test_it_runs_on_the_one_job_label(self) -> None:
         runs_on = one_line(self.job.get("runs-on"))
@@ -329,6 +329,11 @@ class NightlyNextOneJobTests(unittest.TestCase):
         self.assertEqual(steps[probe]["env"]["KEY"], key)
         self.assertEqual(steps[mark]["env"]["KEY"], key)
         split = workflow()["jobs"]["build-nightly-ghostty-cli-helper"]["steps"]
+        for install_steps in (steps, split):
+            install = next(s for s in install_steps if s.get("name") == "Install Zig")["run"]
+            cache = 'export ZIG_TARBALL_CACHE_DIR="${XDG_CACHE_HOME:-$HOME/.cache}/cmux/zig-tarballs"'
+            self.assertLess(install.index(cache), install.index("./scripts/install-zig-ci.sh"))
+        self.assertGreater(int(self.job["env"]["ZIG_DOWNLOAD_BUDGET_SECONDS"]), 480)
         split_restore = next(s for s in split if s.get("name") == "Cache Zig packages")
         self.assertEqual(split_restore["with"], steps[restore]["with"])
         self.assertEqual(one_line(split_restore["if"]), "inputs.nightly_next_unsigned_run == ''")

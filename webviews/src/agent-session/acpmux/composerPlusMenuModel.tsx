@@ -16,6 +16,19 @@ export function composerActionIcon(entry: ComposerPlusEntry, planning: boolean):
   return <Icon name={entry.icon} size={18} />;
 }
 
+/** The verb Return carries out on a + menu row, shown beside the Return keycap on the highlighted row. */
+export type ComposerPlusReturnVerb = "attach" | "insert" | "open" | "switch" | "search" | "run";
+
+export function composerPlusReturnVerb(entry: ComposerPlusEntry): ComposerPlusReturnVerb {
+  if (entry.section === "attach") return "attach";
+  // Goal and a recent command write the command over the draft; @ starts a mention in it.
+  if (entry.action.kind === "slash" || entry.id === "add.mention") return "insert";
+  if (entry.id.startsWith("add.mode.")) return "switch";
+  if (entry.id === "add.commands" || entry.section === "sessions" || entry.section === "tabs") return "open";
+  if (entry.section === "files") return "search";
+  return "run";
+}
+
 export type ComposerPlusCommandsArm = keyof typeof composerPlusCommands.arms;
 
 /** The commands group as the arm draws it: recents then the row (shipped), the row first, or the row alone. */

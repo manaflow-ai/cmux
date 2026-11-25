@@ -47,4 +47,49 @@ public nonisolated final class AcpmuxLocalDaemons: Sendable {
     func endStop(_ pid: Int32) {
         _ = stopping.withLock { $0.remove(pid) }
     }
+
+    /// Homes (standardized paths) whose daemon a person's restart stopped, and when.
+    private let personStops = Mutex<[String: ContinuousClock.Instant]>([:])
+
+    /// How long after a person's restart stopped the daemon a reconnect that finds none takes it
+    /// as restarting: the start that follows (the page's next `ready` handshake, or the restart's
+    /// own lookup) normally ends well inside it, and one that never came is said after it.
+    static let personRestartWindow: Duration = .seconds(20)
+
+    /// Notes that a person's Restart agent service, Restart acpmux or outdated-daemon restart is
+    /// stopping the daemon of `home` (cmux#48605: other chats' reconnects stay quiet meanwhile
+    /// instead of saying it stopped).
+    func noteStoppedByPerson(home: URL, at now: ContinuousClock.Instant = .now) {
+        let path = home.standardizedFileURL.path
+        personStops.withLock { $0[path] = now }
+    }
+
+    /// The panes that listen for this app's acpmux answering (``answers()``), by listener.
+    private let answerListeners = Mutex<[UUID: AsyncStream<Void>.Continuation]>([:])
+
+    /// One event each time a lookup of this app's acpmux answers (``noteAnswered()``), newest only:
+    /// a stopped pane asks again on it, never on a tick (hostRetry.ts `HOST_WAKE_EVENTS`).
+    func answers() -> AsyncStream<Void> {
+        let (stream, continuation) = AsyncStream<Void>.makeStream(bufferingPolicy: .bufferingNewest(1))
+        let id = UUID()
+        answerListeners.withLock { $0[id] = continuation }
+        continuation.onTermination = { [weak self] _ in _ = self?.answerListeners.withLock { $0.removeValue(forKey: id) } }
+        return stream
+    }
+
+    /// A lookup of this app's acpmux answered: tells every listener (``answers()``).
+    func noteAnswered() {
+        for continuation in answerListeners.withLock({ Array($0.values) }) { continuation.yield() }
+    }
+
+    /// Whether a person's restart stopped the daemon of `home` within ``personRestartWindow``.
+    func stoppedByPerson(home: URL, at now: ContinuousClock.Instant = .now) -> Bool {
+        let path = home.standardizedFileURL.path
+        return personStops.withLock { stops in
+            guard let at = stops[path] else { return false }
+            if now - at < Self.personRestartWindow { return true }
+            stops[path] = nil
+            return false
+        }
+    }
 }

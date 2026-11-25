@@ -57,3 +57,89 @@ export function rememberedStartedProject(): string | undefined {
     return undefined;
   }
 }
+
+/// The started projects a New Tab page may start on, newest first: this run's copy, then the app's
+/// (`startedProject` in the page's context, kept across launches). Both, not the first alone: a run's
+/// copy the host no longer lists (a removed worktree) gives way to the app's, never to a blank folder
+/// chip (cmux#51272). Each trimmed of a trailing `/`, once.
+export function startedProjectChoices(fromApp: string | undefined): string[] {
+  const choices = [rememberedStartedProject(), fromApp]
+    .filter((folder): folder is string => isStartableProject(folder) && !isTemporaryFolder(folder))
+    .map((folder) => folder.replace(/(.)\/+$/, "$1"));
+  return [...new Set(choices)];
+}
+
+// The folder the person last started a Cloud chat in (a folder of this Mac, which the start copies onto the
+// machine, or a GitHub repository, `github:owner/name`): a page with Cloud picked starts there. Cloud's own,
+// apart from This Mac's started project, so each mode comes back to its own last pick; with none yet, Cloud
+// starts in This Mac's (cmux#53226: Cmd+N from a Cloud workspace named a repository the person never picked, a
+// local folder's GitHub origin, or No folder). The app keeps it across launches (`newTab.remember`
+// `cloudStarted`, the New Tab context's `cloudStartedProject`), as `started`: a page's own storage ends with
+// the launch, so a relaunch fell back to This Mac's folder.
+const CLOUD_KEY = "cmux.acpmux.newTab.cloudPick.v1";
+
+export function isCloudPick(folder: string | undefined): folder is string {
+  return /^github:[^/\s]+\/[^/\s]+$/.test(folder ?? "") || (isStartableProject(folder) && !isTemporaryFolder(folder));
+}
+
+/// The app's copy as the last New Tab context named it, for a composer with no context of its own.
+let appCloudPick: string | undefined;
+
+/// The person started a Cloud chat in `folder` (a New Tab page or a chat composer).
+export function rememberCloudPick(
+  folder: string | undefined,
+  post?: (method: string, params: Record<string, unknown>) => Promise<unknown>,
+): void {
+  if (!isCloudPick(folder)) return;
+  const picked = folder.replace(/(.)\/+$/, "$1");
+  try {
+    storage()?.setItem(CLOUD_KEY, picked);
+  } catch {
+    // A full or blocked store: the app's copy still names it on the next page.
+  }
+  appCloudPick = picked;
+  void post?.("newTab.remember", { cloudStarted: picked }).catch(() => undefined);
+}
+
+/// The Cloud picks a page may start on, newest first: this run's copy, then the app's (`cloudStartedProject` in
+/// the page's context, kept across launches; with none given, the last one a context named). Both, not the first
+/// alone: a run's copy the host no longer lists gives way to the app's.
+export function cloudPickChoices(fromApp?: string): string[] {
+  if (isCloudPick(fromApp)) appCloudPick = fromApp;
+  let run: string | undefined;
+  try {
+    run = storage()?.getItem(CLOUD_KEY) ?? undefined;
+    // The app's copy seeds this run's, which every page of the run shares: a chat restored after a relaunch (no
+    // New Tab context of its own) reads it once any page (the prewarmed spare) had the context.
+    if (!isCloudPick(run) && isCloudPick(fromApp)) storage()?.setItem(CLOUD_KEY, fromApp);
+  } catch {
+    run = undefined;
+  }
+  return [...new Set([run, appCloudPick].filter((folder): folder is string => isCloudPick(folder)))];
+}
+
+let appCloudPickAsked = false;
+
+/// A chat page has no New Tab context, and its storage is not a New Tab page's: it asks the app for Cloud's last pick
+/// once (`newTab.cloudPick`), so its composer's Cloud starts there too. A pick this page made or was given wins.
+export function askAppCloudPick(
+  post: (method: string, params: Record<string, unknown>) => Promise<unknown>,
+  answered?: () => void,
+): void {
+  if (appCloudPickAsked) return;
+  appCloudPickAsked = true;
+  void post("newTab.cloudPick", {})
+    .then((reply) => {
+      const picked = (reply as { cloudStarted?: unknown } | undefined)?.cloudStarted;
+      if (typeof picked !== "string" || appCloudPick !== undefined || !isCloudPick(picked)) return;
+      cloudPickChoices(picked);
+      answered?.();
+    })
+    .catch(() => undefined);
+}
+
+/// Forget the app's copy this module holds (tests: a new launch).
+export function forgetAppCloudPickForTests(): void {
+  appCloudPick = undefined;
+  appCloudPickAsked = false;
+}
