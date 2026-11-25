@@ -110,6 +110,7 @@ pub mod disk_usage;
 pub(crate) mod disk_writer;
 pub mod folder_instructions;
 pub mod fork_place;
+pub mod fork_risky;
 #[cfg(all(test, unix))]
 mod fork_tests;
 pub mod forum;
