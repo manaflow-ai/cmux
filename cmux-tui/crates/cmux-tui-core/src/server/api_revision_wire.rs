@@ -14,6 +14,11 @@
 //! by `id`), `event:<name>`. Rules live in `cmux-tui/spec/api-compat.json`;
 //! `api-compat-check` makes every breaking schema change ship one.
 //!
+//! A client may pin a dated version instead (`set-client-info
+//! {api_version: "2026-11-24"}`): it resolves to the newest
+//! revision dated on or before it, and the reply names the version served.
+//! The promise that goes with it: `cmux-tui/spec/api-versioning.md`.
+//!
 //! Not covered yet: resource API v2 lines (`cmux.protocol/2`), terminal
 //! byte streams and `session.events` stream items.
 
@@ -59,6 +64,11 @@ pub(super) fn compat() -> &'static Compat {
 /// The `identify` fields.
 pub(super) fn identify_fields() -> (u32, u32) {
     (API_COMPAT.current(), API_COMPAT.schema().base)
+}
+
+/// The dated `identify` fields: the newest and the oldest version served.
+pub(super) fn identify_versions() -> (Option<&'static str>, Option<&'static str>) {
+    (API_COMPAT.schema().current_version(), API_COMPAT.schema().oldest_version())
 }
 
 /// The refusal a too-old client reads: why, its release, and the exact

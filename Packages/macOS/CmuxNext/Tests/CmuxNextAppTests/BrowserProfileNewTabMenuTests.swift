@@ -124,9 +124,9 @@ struct BrowserProfileNewTabMenuTests {
         }
     }
 
-    /// Right-click a browser tab's profile badge (its omnibar) on Home, where the focus is in Home's
-    /// chat dock: New Tab with Browser Profile opens its tab in the pane of the right-clicked tab, not
-    /// in the focused dock (`AppServices.profileBadgeMenu`). The dock opens nothing in itself: a new tab
+    /// Press a browser tab's profile button (its toolbar) on Home, where the focus is in Home's
+    /// chat dock: New Tab with Browser Profile opens its tab in the pane of that tab, not
+    /// in the focused dock (`BrowserToolbarHandlers.profileMenu`). The dock opens nothing in itself: a new tab
     /// aimed at it goes to a new column beside it (`PaneBrowserTabOpener`, HomeDockOpens), so the
     /// right-clicked tab is in the column right of the dock. (Manage Extensions shares the pane lookup;
     /// it needs Chromium.)
@@ -169,8 +169,9 @@ struct BrowserProfileNewTabMenuTests {
             PaneHandlers.focus(dock.layoutPaneID, in: content)
             try await PasswordManagerRouteTests.until({ window.focusedPane === dock }, report: { "the dock did not take the focus back" })
             let before = Set(services.daemon.store.workspaces.flatMap(\.screens).flatMap(\.panes).flatMap(\.tabs).map(\.id))
-            let menu = try #require(services.cache.profileBadgeMenu?(tab.id), "the badge has no menu")
-            let row = try #require(Self.rows(menu).first { ActionRegistry.menuRun(of: $0)?.id == ActionID(rawValue: action) }, "the badge menu has no \(action) row")
+            // The tab was made without activating it, so it has no page yet: the menu needs only the tab.
+            let menu = BrowserToolbarHandlers.profileMenu(forTab: tab.id, services: services)
+            let row = try #require(Self.rows(menu).first { ActionRegistry.menuRun(of: $0)?.id == ActionID(rawValue: action) }, "the profile menu has no \(action) row")
             let run = try #require(ActionRegistry.menuRun(of: row))
             let refusal = services.registry.capturingRefusal {
                 _ = services.registry.perform(run.id, invocation: ActionInvocation(target: run.target, arguments: run.arguments))

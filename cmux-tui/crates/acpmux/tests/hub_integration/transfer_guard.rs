@@ -454,15 +454,15 @@ async fn a_guarded_chat_takes_its_family_from_here_and_a_web_one_must_ask() {
     assert!(s.is_ok(), "a chat's speed and effort options were refused: {s:?}");
 
     // Under the Web a chat with no recorded mode is refused when its family has asking modes
-    // (dispatch would let it through on its policy alone), and taken when its family has none.
+    // (dispatch would let it through on its policy alone). One whose family has none is refused
+    // at receive: its agent could not start here for a moved chat, so the chat stays put.
     let m = meta(root.path(), json!({}));
     let rid = receive(&mut dst, guard("web", &[root.path()]), &m, &[]).await.unwrap();
     let r = finish(&mut dst, &rid, json!({})).await;
     assert!(r.as_ref().is_err_and(|e| e.contains("transfer.mode")), "{r:?}");
     let m = meta(root.path(), json!({"harness": "plain"}));
-    let rid = receive(&mut dst, guard("web", &[root.path()]), &m, &[]).await.unwrap();
-    let s = finish(&mut dst, &rid, json!({})).await.unwrap();
-    assert_eq!(s["family"], "plain", "{s}");
+    let r = receive(&mut dst, guard("web", &[root.path()]), &m, &[]).await;
+    assert!(r.as_ref().is_err_and(|e| e.contains("transfer.harness")), "{r:?}");
 
     // A family the Web never drives is refused for a web guard at once.
     let m = meta(root.path(), json!({"harness": "fcodex"}));
@@ -619,7 +619,7 @@ async fn a_guarded_finish_restores_only_the_chats_own_agent_file_without_its_mod
 }
 
 #[tokio::test]
-async fn a_chat_with_no_asking_mode_moves_under_peer_control_but_not_under_web() {
+async fn a_chat_with_no_asking_mode_moves_under_neither_peer_nor_web_control() {
     let root = Scratch::home("codex");
     let (_a, mut src) = daemon(config("ask", json!({})), None).await;
     let (_b, mut dst) = daemon(config("ask", json!({})), None).await;
@@ -637,25 +637,20 @@ async fn a_chat_with_no_asking_mode_moves_under_peer_control_but_not_under_web()
         json!({"sessionId": id, "transferId": begin["transferId"], "epoch": begin["epoch"]});
     src.request("_acpmux/transfer_abort", abort).await.unwrap();
 
-    // Toward the person's own machine (peer) it moves as it is, and its queue runs as peer.
-    let moved = move_chat(&mut src, &mut dst, &id, Some(guard("peer", &[root.path()])), json!({}))
-        .await
-        .unwrap();
-    assert_eq!(moved["policy"], "approve-all", "{moved}");
-    assert_eq!(moved["family"], "codex", "{moved}");
-    for q in records(&mut dst, &id, "queued").await {
-        assert_eq!(q["control"], "peer", "{q}");
-        assert_ne!(q["trustGate"], true, "{q}");
-    }
-    // Its agent may not start under peer control (its family has no asking mode, 307889914b9):
-    // each held prompt ends refused and names why, never left waiting with no word.
-    for prompt_id in ["p-a", "p-b"] {
-        let refused =
-            wait_record(&mut dst, &id, "prompt_refused", |m| m["promptId"] == prompt_id).await;
-        assert_eq!(refused["data"]["reason"], "remote.mode_not_asking", "{refused}");
-        assert!(refused["error"].as_str().is_some_and(|e| e.contains("asking mode")), "{refused}");
-    }
-    assert!(!texts(&mut dst, &id, "user_message").await.contains(&"a".to_owned()));
+    // Toward the person's own machine (peer) it is refused too, before a page is sent: its agent
+    // may not start here for a moved chat (its family has no asking mode, 307889914b9). Taking
+    // it would strand it where each prompt sent to it ends refused; refused, it stays on the
+    // source and its queue runs there.
+    let begin = src.request("_acpmux/transfer_begin", json!({"sessionId": id})).await.unwrap();
+    let params = json!({"manifest": begin, "guard": guard("peer", &[root.path()])});
+    let r = dst.request("_acpmux/transfer_receive", params).await;
+    let e = r.as_ref().expect_err("a chat whose agent cannot start here is refused");
+    assert!(e.contains("transfer.harness") && e.contains("webAskingModes"), "{e}");
+    let abort =
+        json!({"sessionId": id, "transferId": begin["transferId"], "epoch": begin["epoch"]});
+    src.request("_acpmux/transfer_abort", abort).await.unwrap();
+    assert!(dst.request(method::MUX_INFO, json!({"sessionId": id})).await.is_err());
+    src.request(method::MUX_INFO, json!({"sessionId": id})).await.unwrap();
 
     // The same kind of chat in a family the Web drives is refused for its mode and policy.
     let modes = json!({"currentModeId": "strict", "availableModes": []});
