@@ -90,6 +90,8 @@ export interface CloudSendDeps {
   cloudSignInWait: RefObject<CloudSignInWait | undefined>;
   cloudSignInSend: RefObject<() => Promise<CloudStartAnswer> | undefined>;
   cloudTypedDuringStart: RefObject<CloudStartDraft | undefined>;
+  /// What Return queued during a start, by its key (App `queueCloudStartSend`).
+  cloudStartQueued: RefObject<{ key: string; texts: string[] } | undefined>;
   lastCloudAttempt: RefObject<{ key: string; request: CloudStart } | undefined>;
   cloudStartHeld: RefObject<{ key: string; prompt: CloudStartDraft } | undefined>;
   newTabCloudSent: RefObject<boolean>;
@@ -260,6 +262,7 @@ export function beginCloudSendWith(
     cloudSignInSend,
     composerHandle,
     cloudTypedDuringStart,
+    cloudStartQueued,
     beginCloudSend,
     lastCloudAttempt,
     cloudStartPending,
@@ -389,9 +392,18 @@ export function beginCloudSendWith(
     // The prompt the composer's Send took out (`cloudStartHeld`), for a start that ended here.
     const held = cloudStartHeld.current?.key === key ? cloudStartHeld.current.prompt : undefined;
     if (held) cloudStartHeld.current = undefined;
+    // What Return queued during this start: the started chat took it with its first prompt.
+    const queued = cloudStartQueued.current?.key === key ? cloudStartQueued.current.texts : undefined;
+    if (queued) cloudStartQueued.current = undefined;
     if (!answer.ok || cloudRunsHere(answer)) {
-      // Not opened on its machine: what was typed meanwhile is still in this composer, after the
-      // prompt that comes back in front of it.
+      // Not opened on its machine: the host lets go of the queued messages, and they come back in
+      // this composer, in front of what was typed since and after the prompt.
+      if (queued) {
+        void callNative("chat.cloudStartQueue", { text: "" }).catch(() => undefined);
+        restoreComposerDraft(composerHandle, heldBack, queued.join("\n\n"), []);
+      }
+      // What was typed meanwhile is still in this composer, after the prompt that comes back in
+      // front of it.
       const back = pageDraft ?? held;
       if (back) {
         const typed = composerHandle.current?.draft();

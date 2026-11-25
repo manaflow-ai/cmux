@@ -8,6 +8,7 @@ import { useT } from "../i18n";
 import { placeActions, type PlaceClaims } from "../place/usePlace";
 import { CloudTriToggle } from "./CloudTriToggle";
 import { placementLine } from "./placementLine";
+import { blockedAction } from "./blockedAction";
 
 /// The three-state control in the composer's strip; nothing while the app reports no place.
 export function HybridChip({
@@ -32,6 +33,9 @@ export function HybridChip({
       named
       where={placementLine(place, t)}
       onChange={actions.setMode}
+      blocked={place.blocked}
+      onBlockedClick={blockedAction}
+      holders={place.holders}
     />
   );
 }
