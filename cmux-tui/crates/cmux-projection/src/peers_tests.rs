@@ -180,7 +180,77 @@ fn a_busy_source_falls_through_but_is_never_dropped() {
     let (rest, filled) = chain.fill(&oids, &|_, _| Ok(()));
     assert_eq!(rest, oids);
     assert_eq!(filled.dropped, 0);
-    assert_eq!(fake.asked.lock().unwrap().len(), oids.len());
+    // Busy is passed over for a moment, not asked again for every blob.
+    let asked = fake.asked.lock().unwrap().len();
+    assert!((1..oids.len()).contains(&asked), "{asked}");
+}
+
+/// Seeds that answer busy to a batch (`busy*`), and ones that stream the blobs they hold.
+struct Batching(Arc<Fake>);
+
+impl Get for Batching {
+    fn get(&self, url: &str, token: Option<&str>, deadline: Duration) -> Answer {
+        self.0.get(url, token, deadline)
+    }
+
+    fn batch(
+        &self,
+        base: &str,
+        ids: &[String],
+        _first_byte: Duration,
+        each: &mut dyn FnMut(&str, Vec<u8>) -> bool,
+    ) -> BatchAnswer {
+        self.0.asked.lock().unwrap().push(format!("batch {base}"));
+        if base.starts_with("http://busy") {
+            return BatchAnswer::Busy;
+        }
+        for id in ids {
+            if let Some(bytes) = self.0.answers.get(&format!("{base}/objects/{id}"))
+                && !each(id, bytes.clone())
+            {
+                break;
+            }
+        }
+        BatchAnswer::Streamed
+    }
+}
+
+#[test]
+fn two_busy_seeds_are_passed_over_for_a_third_that_serves_a_batch() {
+    let fake = Arc::new(Fake::new(&[(&format!("http://p3/objects/{HELLO}"), b"hello\n")]));
+    let peers = ["http://busy1", "http://busy2", "http://p3", "http://p4"]
+        .map(|base| remote("peer", base))
+        .to_vec();
+    let chain = Chain::new(peers, Box::new(Batching(fake.clone())));
+    let (rest, filled) = chain.fill(&[HELLO.to_owned()], &|_, _| Ok(()));
+    assert!(rest.is_empty());
+    assert_eq!(filled, Filled { peer: 1, ..Filled::default() });
+    let asked = fake.asked.lock().unwrap().clone();
+    assert_eq!(asked, ["batch http://busy1", "batch http://busy2", "batch http://p3"]);
+}
+
+#[test]
+fn two_busy_seeds_are_passed_over_for_a_third_that_serves_a_blob() {
+    let fake = Arc::new(Fake::new(&[(&format!("http://p3/objects/{HELLO}"), b"hello\n")]));
+    let peers =
+        ["http://busy1", "http://busy2", "http://p3"].map(|base| remote("peer", base)).to_vec();
+    let chain = Chain::new(peers, Box::new(fake.clone()));
+    let (rest, filled) = chain.fill(&[HELLO.to_owned()], &|_, _| Ok(()));
+    assert!(rest.is_empty());
+    assert_eq!(filled.peer, 1);
+    let failures = chain.counters();
+    assert_eq!(chain.blob(HELLO, &failures), Some(b"hello\n".to_vec()));
+    assert!(failures.iter().all(|failed| failed.load(Ordering::Relaxed) == 0));
+}
+
+#[test]
+fn busy_seeds_cost_a_bounded_number_of_requests() {
+    let fake = Arc::new(Fake::new(&[]));
+    let peers = (0..20).map(|at| remote("peer", &format!("http://busy{at}"))).collect();
+    let chain = Chain::new(peers, Box::new(Batching(fake.clone())));
+    let (rest, _) = chain.fill(&[HELLO.to_owned()], &|_, _| Ok(()));
+    assert_eq!(rest, vec![HELLO.to_owned()]);
+    assert_eq!(fake.asked.lock().unwrap().len(), PEERS_TRIED);
 }
 
 #[test]

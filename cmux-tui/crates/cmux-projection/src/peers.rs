@@ -282,6 +282,14 @@ impl Remote {
 const PARALLEL: usize = 8;
 /// Peers asked for one blob before the controller SSD.
 const PEERS_PER_BLOB: usize = 2;
+/// Peers looked at to find [`PEERS_PER_BLOB`] that answer: a seed that is busy (or down) is passed
+/// over for the next nearest, but only this many are tried, so a fleet of busy seeds costs a few
+/// requests, not one per seed.
+const PEERS_TRIED: usize = 6;
+/// How long a peer that answered busy is passed over before it is asked again. Busy is not a
+/// failure (a seed yields to a build on purpose), but asking it again for every blob wastes a
+/// request each.
+const BUSY_BACKOFF: Duration = Duration::from_secs(2);
 /// How long a peer may take to start answering a batch before the next source is asked.
 const BATCH_FIRST_BYTE: Duration = Duration::from_millis(250);
 /// Failures in a row (unreachable, timed out, busy, error status, wrong bytes) after which a
@@ -295,6 +303,8 @@ pub struct Chain {
     get: Box<dyn Get>,
     /// The object stores ([`crate::s3`]) among `remotes`, found by their `base`.
     stores: Vec<crate::s3::Store>,
+    /// When each remote last answered busy, by index in `remotes`.
+    busy: Mutex<HashMap<usize, Instant>>,
 }
 
 /// What [`Chain::fill`] did, for the mount's timing line.
@@ -319,7 +329,7 @@ pub fn enabled(flag: Option<&str>) -> bool {
 impl Chain {
     #[must_use]
     pub fn new(remotes: Vec<Remote>, get: Box<dyn Get>) -> Self {
-        Self { remotes, get, stores: Vec::new() }
+        Self { remotes, get, stores: Vec::new(), busy: Mutex::new(HashMap::new()) }
     }
 
     /// The chain with `stores` asked after its other sources, in order.
@@ -366,15 +376,30 @@ impl Chain {
         Some(Self::new(remotes, Box::new(get)).with_stores(stores))
     }
 
-    /// The peers asked, as indexes: the nearest [`PEERS_PER_BLOB`] in index order (the
-    /// controller's index lists the same zone first, then the same region, then the rest).
+    /// Notes that remote `at` answered busy, so it is passed over for [`BUSY_BACKOFF`].
+    fn mark_busy(&self, at: usize) {
+        self.busy.lock().unwrap_or_else(PoisonError::into_inner).insert(at, Instant::now());
+    }
+
+    /// Whether remote `at` answered busy within [`BUSY_BACKOFF`].
+    fn is_busy(&self, at: usize) -> bool {
+        self.busy
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .get(&at)
+            .is_some_and(|since| since.elapsed() < BUSY_BACKOFF)
+    }
+
+    /// The peers that may be asked, as indexes: the nearest [`PEERS_TRIED`] in index order (the
+    /// controller's index lists the same zone first, then the same region, then the rest). Of
+    /// these only [`PEERS_PER_BLOB`] that answer are used: a busy one is passed over.
     fn nearest_peers(&self) -> Vec<usize> {
         self.remotes
             .iter()
             .enumerate()
             .filter(|(_, remote)| remote.tier == "peer")
             .map(|(at, _)| at)
-            .take(PEERS_PER_BLOB)
+            .take(PEERS_TRIED)
             .collect()
     }
 
@@ -404,9 +429,13 @@ impl Chain {
         rejected: &AtomicUsize,
     ) -> Vec<usize> {
         let mut per_blob = Vec::new();
+        let mut served = 0;
         let at_of: HashMap<&str, usize> =
             oids.iter().enumerate().map(|(at, oid)| (oid.as_str(), at)).collect();
         for peer in self.nearest_peers() {
+            if served >= PEERS_PER_BLOB {
+                break;
+            }
             let (Some(remote), Some(failed)) = (self.remotes.get(peer), failures.get(peer)) else {
                 continue;
             };
@@ -443,8 +472,19 @@ impl Chain {
                 continue;
             }
             match answer {
-                BatchAnswer::Streamed | BatchAnswer::Busy => failed.store(0, Ordering::Relaxed),
-                BatchAnswer::Unsupported => per_blob.push(peer),
+                BatchAnswer::Streamed => {
+                    failed.store(0, Ordering::Relaxed);
+                    served += 1;
+                }
+                // At its limit: not a failure, but it did not serve; the next nearest is asked.
+                BatchAnswer::Busy => {
+                    failed.store(0, Ordering::Relaxed);
+                    self.mark_busy(peer);
+                }
+                BatchAnswer::Unsupported => {
+                    per_blob.push(peer);
+                    served += 1;
+                }
                 BatchAnswer::Failed => {
                     failed.fetch_add(1, Ordering::Relaxed);
                 }
@@ -462,11 +502,16 @@ impl Chain {
         failures: &[AtomicUsize],
         rejected: &AtomicUsize,
     ) -> Option<(&'static str, Vec<u8>)> {
+        let mut peers_answered = 0;
         for &at in order {
             let (Some(failed), Some(remote)) = (failures.get(at), self.remotes.get(at)) else {
                 continue;
             };
             if failed.load(Ordering::Relaxed) >= DEAD_AFTER {
+                continue;
+            }
+            let peer = remote.tier == "peer";
+            if peer && (peers_answered >= PEERS_PER_BLOB || self.is_busy(at)) {
                 continue;
             }
             let url = format!("{}/objects/{oid}", remote.base.trim_end_matches('/'));
@@ -495,7 +540,15 @@ impl Chain {
                     rejected.fetch_add(1, Ordering::Relaxed);
                     failed.fetch_add(1, Ordering::Relaxed);
                 }
-                Answer::Absent | Answer::Busy => failed.store(0, Ordering::Relaxed),
+                Answer::Absent => {
+                    failed.store(0, Ordering::Relaxed);
+                    peers_answered += usize::from(peer);
+                }
+                // At its limit: not a failure and not an answer; the next nearest is asked.
+                Answer::Busy => {
+                    failed.store(0, Ordering::Relaxed);
+                    self.mark_busy(at);
+                }
                 Answer::Failed => {
                     failed.fetch_add(1, Ordering::Relaxed);
                 }
