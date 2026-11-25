@@ -224,6 +224,18 @@ impl Surface {
         Ok(f(&mut pty.term.lock().unwrap()))
     }
 
+    /// [`Self::try_with_terminal`] for a reader that only looks: a parked
+    /// mirror stays parked (`TerminalMirror::with_terminal_kept_parked`).
+    pub(crate) fn try_with_terminal_kept_parked<R>(
+        &self,
+        f: impl FnOnce(&mut Terminal) -> R,
+    ) -> anyhow::Result<R> {
+        let Some(pty) = self.as_pty() else {
+            anyhow::bail!("browser surface does not have a VT terminal");
+        };
+        Ok(pty.term.with_terminal_kept_parked(f))
+    }
+
     /// Abort an unreplayable parser sequence and run a capture while the
     /// terminal/output fence is held. The synthetic CAN bytes are published to
     /// byte attachments before the fence is released, so their parsers stay

@@ -69,6 +69,20 @@ fn output_after_a_rebuild_lands_where_it_would_have() {
 }
 
 #[test]
+fn a_look_at_a_parked_mirror_leaves_it_parked() {
+    let (mirror, title_changed) = mirror_with(SCREEN);
+    let read = |term: &mut Terminal| (term.plain_text().unwrap(), term.scrollback_rows());
+    let live = mirror.with_terminal_kept_parked(read);
+    title_changed.store(false, Ordering::Relaxed);
+    assert!(park(&mirror, &title_changed));
+    assert_eq!(mirror.with_terminal_kept_parked(read), live);
+    assert!(mirror.is_parked(), "the look read a scratch rebuild");
+    assert!(!title_changed.load(Ordering::Relaxed), "the scratch rebuild is no title change");
+    let (text, history, ..) = state(&mirror);
+    assert_eq!((text, history), live, "the mirror still rebuilds from the kept replay");
+}
+
+#[test]
 fn try_lock_rebuilds_too() {
     let (mirror, title_changed) = mirror_with(SCREEN);
     let before = state(&mirror);
@@ -88,8 +102,8 @@ fn a_parked_mirror_holds_no_scrollback() {
     let rows = mirror.lock().unwrap().scrollback_rows();
     assert!(rows > 1000);
     assert!(park(&mirror, &title_changed));
-    // Read the placeholder without rebuilding it.
-    assert_eq!(mirror.term.lock().unwrap().scrollback_rows(), 0);
+    // Read the slot without rebuilding it: no terminal at all.
+    assert!(mirror.term.lock().unwrap().is_none());
     assert_eq!(mirror.lock().unwrap().scrollback_rows(), rows);
 }
 
@@ -125,8 +139,8 @@ fn an_ended_terminal_parks_its_mirror_until_a_lock() {
     assert!(surface.park_exited_mirror());
     assert!(surface.mirror_parked());
     assert!(pty.render.lock().unwrap().latest.is_none(), "its last frame went with it");
-    // Read the placeholder without rebuilding it: one cell.
-    assert_eq!(pty.term.term.lock().unwrap().cols(), 1);
+    // Read the slot without rebuilding it: no terminal, so no page pool.
+    assert!(pty.term.term.lock().unwrap().is_none());
     assert!(!surface.park_exited_mirror(), "a parked mirror does not park again");
     assert_eq!(before, state(&pty.term));
     assert!(!surface.mirror_parked());
@@ -142,4 +156,14 @@ fn a_running_terminal_does_not_park_as_ended() {
     pty.dead.store(false, Ordering::Release);
     assert!(!surface.park_exited_mirror());
     assert!(!surface.mirror_parked());
+}
+
+/// A snapshot bigger than the screen it stands for is not worth parking.
+#[test]
+fn a_replay_parks_only_when_it_is_the_smaller_copy() {
+    let replay = |len: usize| VtReplay { bytes: vec![b'x'; len], ..VtReplay::default() };
+    assert!(super::replay_pays(&replay(100), Some(10)), "a small replay beats the page floor");
+    assert!(super::replay_pays(&replay(100_000), Some(1_000_000)));
+    assert!(!super::replay_pays(&replay(1_000_000), Some(100_000)));
+    assert!(!super::replay_pays(&replay(1_000_000), None));
 }
