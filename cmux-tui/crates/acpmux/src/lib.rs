@@ -59,6 +59,7 @@ mod claude_cloud_auth;
 pub mod claude_inbox_relay;
 pub mod claude_peers;
 pub mod claude_stdio;
+pub mod claude_token;
 pub mod cli;
 pub mod cli_caller;
 pub mod client;
