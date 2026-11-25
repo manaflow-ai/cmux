@@ -1098,10 +1098,7 @@ mod tests {
         let old: Vec<OldCapability> = serde_json::from_value(new.clone()).unwrap();
         assert_eq!(
             old,
-            vec![
-                OldCapability::WorkspaceFilesV1,
-                OldCapability::Unknown("paused-reads-v1".into())
-            ]
+            vec![OldCapability::WorkspaceFilesV1, OldCapability::Unknown("paused-reads-v1".into())]
         );
         // A new peer reading an old peer's list sees no paused reads and wakes the machine.
         let from_old: Vec<RemoteCapability> =
