@@ -2,7 +2,7 @@
 """Which release ring each cmux NEXT appcast item is on (its sparkle:channel).
 
 One cmux NEXT feed serves every ring. The app accepts its own ring's tag and
-every slower ring's (Packages/macOS/CmuxUpdater/Sources/CmuxUpdater/UpdateRing.swift):
+every slower ring's (Packages/macOS/CmuxUpdater/Sources/CmuxUpdaterCore/UpdateRing.swift):
 Dev accepts `cmux-next-dev` and `cmux-next`, Nightly only `cmux-next`, and a
 build from before rings allows only `cmux-next`. Sparkle never offers an item
 whose channel the updater does not allow, so an item tagged `cmux-next-dev` is
