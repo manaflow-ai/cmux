@@ -58,11 +58,6 @@
         "workflow": "cmux-next tab switch (advisory)",
         "after_merge": "push to feat-cmux-next, same paths",
         "why": "advisory timing on display Macs; merge_hold already skips it by its (advisory) name, listed so the tier is the whole answer (cmuxterm-hq docs/rfd/0045-landing-tail.md)"
-      },
-      "gallery-advisory.yml": {
-        "workflow": "gallery visual evidence (advisory)",
-        "after_merge": "push to feat-cmux-next, same paths",
-        "why": "advisory renders; merge_hold already skips it by its (advisory) name, listed so the tier is the whole answer (cmuxterm-hq docs/rfd/0045-landing-tail.md)"
       }
     }
   },
@@ -90,6 +85,10 @@
     "cloud-surge-proof.yml": {
       "kind": "publish",
       "why": "a proof run of Cloud Surge on live development machines, not of the change"
+    },
+    "cloud-journey-teammate.yml": {
+      "kind": "publish",
+      "why": "push-only teammate cloud journey publication/probe; no pull-request verdict"
     },
     "cloud-vm-image-graduate.yml": {
       "kind": "publish",
@@ -202,10 +201,6 @@
     "fresh-chief-eval.yml": {
       "kind": "publish",
       "why": "a scheduled eval of the live Chief, a score and not a verdict on a change"
-    },
-    "gallery-advisory.yml": {
-      "kind": "check",
-      "why": "advisory gallery pictures, off pull requests since #48517 (2026-11-21); gates nothing, listed in merge_tier.post_merge too"
     },
     "gateway-e2e.yml": {
       "kind": "publish",
