@@ -2328,13 +2328,14 @@ hostd keeps phones' push keys in `<state>/push-keys.json` and spent reply
 ids and nonces in `<state>/mailbox-spent.json` (both mode 0600; public keys
 and ids only).
 
-## Relay snapshot seal (`cmux-relay-snapshot-v1`; RFD 0142 R2, crate only so far)
+## Relay snapshot seal (`cmux-relay-snapshot-v1`; RFD 0142 R2, relay serve behind `LINK_RELAY_CACHE`)
 
 The envelope a relay's Durable Object will store so a cold-opening phone gets first content from the edge
 while its live link dials. The relay holds ciphertext only. The one implementation is the Rust crate
 `cmux-tui/crates/cmux-relay-snapshot` (Mac, relay tooling and the phone's FFI all use it; Swift is a shim).
-No wire message carries it yet: the host publish path and the Durable Object store and serve are the next PR,
-and the phone's open the one after, each versioned and updated both sides at once.
+The Durable Object store and serve are in the backend (`relay-cache.ts`, `/v1/relay-cache/...` below), off
+unless the Worker's `LINK_RELAY_CACHE=on`; the host publish path and the phone's open are the next PRs, each
+versioned and updated both sides at once.
 
 - Seal: the ECIES of "Sealed pushes" (P-256 ECDH, HKDF-SHA256 salted with `E_pub || R_pub`, AES-256-GCM) with
   HKDF info and AAD `cmux-relay-snapshot-v1 \0 sourceKeyId \0 viewerKeyId \0 stream` (key ids are lowercase hex
@@ -2346,12 +2347,12 @@ and the phone's open the one after, each versioned and updated both sides at onc
   stream; the viewer keeps the highest position it accepted and refuses an older one (`stale`), so a replay or
   a rolled-back source never replaces newer state. Equal is a harmless replay.
 
-### Relay delta catch-up (RFD 0142 R9, crate only so far)
+### Relay delta catch-up (RFD 0142 R9, relay serve behind `LINK_RELAY_CACHE`)
 
 A viewer that resumes after sleep asks the relay for the deltas it missed, so it catches up from the edge
-without waking the Mac. `cmux-relay-snapshot::delta` is the one implementation (Rust). No wire message
-carries it yet and nothing calls it, so it is off until the Durable Object store and serve land with R2's
-next PR behind the `relay.deltaCatchup` flag (default off).
+without waking the Mac. `cmux-relay-snapshot::delta` is the one implementation (Rust); the relay's
+`relay-cache.ts` mirrors its rules over Durable Object storage (Worker and Durable Object code is TypeScript,
+and the relay only reads clear headers, so it needs no crypto). Off unless `LINK_RELAY_CACHE=on`.
 
 - Each delta is a `cmux-relay-snapshot-v1` envelope on the stream `<stream>/delta`, so a snapshot never opens
   as a delta and a delta never opens as a snapshot. Deltas count `seq` up by one within an epoch.
@@ -2364,6 +2365,27 @@ next PR behind the `relay.deltaCatchup` flag (default off).
 - The viewer applies a delta only if it is exactly the next position after its floor and it opens; it stops
   at the first that is not. With no floor it takes the snapshot first.
 - The relay sees the envelopes' sizes and positions and which position a viewer resumes after; nothing else.
+
+### Relay cache routes (`/v1/relay-cache/<sourceDeviceId>/...`, off unless `LINK_RELAY_CACHE=on`)
+
+One LinkRelay Durable Object per source device (`relayCacheRoomName(owner, space, source)`), not per link
+session, so a cold open reads it before any session exists and with the Mac asleep. Every call carries the
+caller's `?deviceId=`; both devices must be the caller's own, and the source a Mac or VM. Off, or with
+`LINK_RELAY_MODE=off`, every route answers 503 (`relay_cache_off`, `relay_off`) and clients keep the live link.
+
+- `PUT .../snapshot?deviceId=<source>&viewer=<id>&stream=<s>` (body: one envelope, at most 256 KiB plus
+  framing): the source only. `{ok, outcome: stored|stale}`; 400 `malformed`, 413 `too_large`, 507 `full`
+  (32 viewer-stream slots per source). Snapshots expire 24 hours after they were put.
+- `GET .../snapshot?deviceId=<viewer>&stream=<s>`: the viewer's own newest envelope, or 404.
+- `POST .../delta?deviceId=<source>&viewer=<id>&stream=<s>/delta` (body: one envelope): the source only.
+  `{ok, outcome: added|restarted|duplicate, evicted}`; 409 `wrong_source` for another source key.
+- `POST .../catch-up?deviceId=<viewer>` with `{surfaces: [{surface, after: {epoch, seq}}], budgetBytes}` (at
+  most 64 surfaces; budget default 64 KiB, at most 256 KiB) answers
+  `{fromRelay: true, surfaces: [{surface, sealed: [base64url envelope], head: {epoch, seq}}], cut: [surface]}`.
+  A gap or a surface the relay holds nothing for is in `cut`; the budget cuts whole surfaces in the order asked.
+  Positions are JSON numbers, or decimal strings past 2^53.
+- `POST .../ack?deviceId=<viewer>&stream=<s>` with `{through: {epoch, seq}}` drains the viewer's held deltas
+  through that position: `{drained}`.
 
 ## Terminal sizing policy (`host-size-policy-v1`; added 2026-10-23)
 
