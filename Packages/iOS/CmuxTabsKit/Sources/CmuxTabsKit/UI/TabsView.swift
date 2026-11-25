@@ -1032,9 +1032,10 @@ struct TabsScreen<Source: TabsDataSource>: View {
 
     private func swipeChanged(_ dx: CGFloat) {
         if !chrome.swiping { chrome.swiping = true }
-        // No tab before the first: a drag right there does not move the page.
-        let atFirst = (activeIndex ?? 0) == 0
-        chrome.swipeOffset = dx > 0 && atFirst ? 0 : dx
+        // No tab before the first or after the last: a drag there does not move the page.
+        let index = activeIndex ?? 0
+        let atFirst = index == 0, atLast = index >= tabs.count - 1
+        chrome.swipeOffset = (dx > 0 && atFirst) || (dx < 0 && atLast) ? 0 : dx
     }
 
     private func swipeEnded(_ dx: CGFloat, _ predicted: CGFloat) {
@@ -1043,9 +1044,9 @@ struct TabsScreen<Source: TabsDataSource>: View {
         let commit = abs(predicted) > size.width * 0.35 || abs(dx) > size.width * 0.5
         var target: CGFloat = 0
         var destination: String?? = nil  // .some(nil) = a new tab
-        if commit, dx < 0 {
+        if commit, dx < 0, index + 1 < tabs.count {
             target = -pitch
-            destination = index + 1 < tabs.count ? .some(tabs[index + 1].id) : .some(nil)
+            destination = .some(tabs[index + 1].id)
         } else if commit, dx > 0, index > 0 {
             target = pitch
             destination = .some(tabs[index - 1].id)

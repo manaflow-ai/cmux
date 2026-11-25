@@ -101,7 +101,7 @@ struct PagedTabStrip: View {
                 if dragBase == nil { dragBase = base }
                 if !moving { withAnimation(.easeOut(duration: 0.12)) { moving = true } }
                 moveToken += 1
-                x = StripPaging.clamp(base - v.translation.width, low: 0, high: p.offset(p.count - 1))
+                x = StripPaging.clamp(base - v.translation.width, low: 0, high: p.offset(lastDragPage))
                 onMove(p.position(offset: x))
             }
             .onEnded { v in
@@ -110,7 +110,7 @@ struct PagedTabStrip: View {
                 dragBase = nil
                 dragEnded = Date()
                 let start = Int(p.position(offset: base).rounded())
-                let page = p.target(start: start, projected: base - v.predictedEndTranslation.width, velocity: -v.velocity.width)
+                let page = min(lastDragPage, p.target(start: start, projected: base - v.predictedEndTranslation.width, velocity: -v.velocity.width))
                 trace = "release from \(start) at \(Int(x)) v \(Int(-v.velocity.width)) -> \(page)"
                 go(to: page)
             }
@@ -128,6 +128,14 @@ struct PagedTabStrip: View {
             withAnimation(.easeOut(duration: 0.25)) { moving = false }
         }
         onRelease(index)
+    }
+
+    /// The last page a drag reaches: the last tab. The New Tab chip after it shows, and a tap
+    /// on it makes a tab, but a swipe never pages onto a tab that does not exist.
+    private var lastDragPage: Int {
+        let last = entries.count - 1
+        if last > 0, case .newTab = entries[last] { return last - 1 }
+        return max(0, last)
     }
 
     private var chipMaxWidth: CGFloat {
