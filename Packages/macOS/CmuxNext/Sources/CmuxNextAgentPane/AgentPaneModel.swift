@@ -78,6 +78,9 @@ public final class AgentPaneModel {
     @ObservationIgnored public var onFramePacing: (([Double]) -> [String: Any])?
     /// Applies the page's adaptive rendering decision.
     @ObservationIgnored public var onRenderRate: ((Bool) -> Void)?
+    /// Every `pane.painted` report, the first one too, after ``markPainted()``: a page that loaded again
+    /// (a reload, a crash retry) reports its first frame here (``AgentPaneDocumentCover``).
+    @ObservationIgnored var onPaintReport: (() -> Void)?
     /// The new tab page this pane shows until it has a session (cleared then), nil for a plain chat.
     public private(set) var newTab: AgentPaneNewTab? { didSet { if (oldValue == nil) != (newTab == nil) { onNewTabChange?() } } }
     @ObservationIgnored var onNewTabChange: (() -> Void)? // it became or left a New Tab page (the view's bar on top)
@@ -169,6 +172,9 @@ public final class AgentPaneModel {
         cloudReserveOut?.dropped = true
         AgentPaneCloudReservationRequest.log.notice("cloud reserve: the Send went without it (the page stopped waiting); it is released as it answers")
     }
+    /// The person pressed Send with Cloud picked: the page reserved that Send's gesture, before its speculative lease settles and
+    /// ``onCloudStartChat`` runs (up to `RESERVATION_SEND_WAIT_MS`). Its tab reads as a Cloud chat from now (cmux#51000).
+    @ObservationIgnored public var onCloudSendGesture: (@MainActor () -> Void)?
     /// A new chat's first send with Cloud picked (``AgentPaneCloudStart``); nil: no Cloud chats here.
     @ObservationIgnored public var onCloudStartChat: (@MainActor (AgentPaneCloudStart) async -> [String: Any])?
     /// Signs into the app's Cloud account for inline first-send recovery; nil when Cloud is unavailable.
@@ -453,6 +459,8 @@ public final class AgentPaneModel {
     }
     /// The page's host is another machine's (cx-k21v): it never becomes this Mac's prewarmed spare.
     @ObservationIgnored public var neverPooled = false
+    /// Its page was closed (``AgentPaneView/close()``): it is no longer a live page (``AgentPageLiveness``).
+    @ObservationIgnored public internal(set) var pageClosed = false
     /// What a new chat inherits from the tab it was opened from.
     @ObservationIgnored let seed: AgentPaneSeedSource?
 
@@ -653,6 +661,7 @@ public final class AgentPaneModel {
                 pageReportedPaint = true
             }
             markPainted()
+            onPaintReport?()
             let reloadWaiters = reloadPaintWaiters
             for waiter in reloadWaiters { waiter(fromKeptTail || settled) }
             // The chat on screen is the live one: acpmux's settled view, or the page's attach to the chat

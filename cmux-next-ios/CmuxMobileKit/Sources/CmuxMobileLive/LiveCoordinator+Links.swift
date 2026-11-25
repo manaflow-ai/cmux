@@ -642,12 +642,14 @@ extension LiveCoordinator {
               let owner = session(macID: macID), let link = owner.servedLink else { return }
         var pan = pan
         if case .connected(_, _, let rtt) = owner.link.phase { pan.rttMs = rtt.map(Int.init) }
-        guard let line = pan.line() else { return }
+        guard pan.line() != nil else { return }
         guard let channel = try? await LinkDeadline.run(
             timeout: .seconds(10),
             operation: { try await link.openChannel(service: "phone-frames", args: [:]) },
             onDiscard: { await $0.close(code: "eof", reason: "phone-frames expired") }
         ) else { return }
+        // Encoded once the channel is open: each painted frame's age is taken as it is sent.
+        guard let line = pan.line() else { await channel.close(code: "eof", reason: ""); return }
         _ = try? await LinkDeadline.run(
             timeout: .seconds(10),
             operation: { try await channel.send(line) },
@@ -1101,20 +1103,14 @@ extension LiveCoordinator {
     /// A Mac's terminal tabs say it is offline once its link has been down
     /// for a bounded time, or at once when presence says so (T-LIFE-13:
     /// offline label ≤ 5 s), never "Reattaching…" for 20 minutes (D4).
-    private func updateTerminalsOffline(_ session: MacSession) {
+    func updateTerminalsOffline(_ session: MacSession) {
         let phase = session.link.phase
-        let now = instants.now()
-        if phase.isConnected || phase == .idle {
-            session.linkDownSince = nil
-        } else if session.linkDownSince == nil {
-            session.linkDownSince = now
-        }
-        let down = session.linkDownSince.map { now - $0 } ?? .zero
+        let down = session.outage.follow(phase, at: instants.now())
         updateMacStalled(session, down: down)
         // A closed (idle) link cannot reattach: its terminals say so until it opens again.
         // Not while the team is still starting (a cold launch before its first list):
         // nothing has dialed yet, so nothing has failed.
-        let offline = (phase == .idle && registeredTeamID != nil) || phase.showsTerminalsOffline(notConnectedFor: down)
+        let offline = LinkOutageClock.terminalsOffline(phase, down: down, teamStarted: registeredTeamID != nil)
         session.terminalsOffline = offline
         session.terminals.removeAll { $0.session == nil }
         for terminal in session.terminals { terminal.session?.setMacOffline(offline) }
@@ -1130,6 +1126,24 @@ extension LiveCoordinator {
             self.updateTerminalsOffline(session)
         }
     }
+
+    /// The app is in front again with `session`'s link down: its outage counts from `now`
+    /// (``LinkOutageClock/foregrounded(at:)``), and what the old count put up while the app was
+    /// away comes down: terminals offline (Send refused, "Mac offline"), the stall's "Not
+    /// responding", the banner. Each shows again only once the outage, from now, lasts its bound.
+    func outageRestarted(_ session: MacSession, at now: ContinuousClock.Instant) {
+        session.outage.foregrounded(at: now)
+        let macID = session.macID
+        if store.macConnection[macID] == .failed(Self.stalledLine) {
+            store.macConnection[macID] = .connecting
+            if store.macFailure[macID] == .hostUnreachable { store.macFailure[macID] = nil }
+        }
+        if session === focused { bannerHold.show(nil) }
+        phaseChanged(session)
+    }
+
+    /// The stall's line (``updateMacStalled(_:down:)``).
+    static let stalledLine = "Not responding"
 
     /// How long a redial may run before the Mac's view says it isn't responding: the shared quiet
     /// bound, twice that for a first dial (a slow connect is not a dead Mac).
@@ -1148,7 +1162,7 @@ extension LiveCoordinator {
               store.macRecovery[macID]?.isRunning != true else { return }
         let bound = attempt <= 1 ? Self.macStallAfter * 2 : Self.macStallAfter
         guard down < bound else {
-            if store.macConnection[macID] == .connecting { store.macConnection[macID] = .failed("Not responding") }
+            if store.macConnection[macID] == .connecting { store.macConnection[macID] = .failed(Self.stalledLine) }
             if store.macFailure[macID] == nil { store.macFailure[macID] = .hostUnreachable }
             return
         }
@@ -1171,7 +1185,7 @@ extension LiveCoordinator {
             guard let target = session.link.target else { continue }
             let phase = session.link.phase
             let quietOver = session.linkDownSince.map { now - $0 >= QuietStatusGate.threshold } ?? false
-            var line = phase.statusLine(macName: target.name, media: session.link.media)
+            var line = phase.statusLine(macName: target.name, media: session.link.media, block: session.link.networkBlock)
             if phase != .signedOut, !quietOver { line = nil }
             // Keep the section header actionable and calm. Raw acpmux/daemon
             // failures belong in diagnostics, never in the normal status line.
@@ -1207,7 +1221,8 @@ extension LiveCoordinator {
             if store.macLinkDiagnostics.removeValue(forKey: session.macID) != nil { return }
             return
         }
-        var parts = [session.link.phase.diagnosticLine(macName: session.name, media: session.link.media)]
+        var parts = [session.link.phase.diagnosticLine(macName: session.name, media: session.link.media,
+                                                       block: session.link.networkBlock)]
         if let error = session.chatsError { parts.append("Chats: \(error)") }
         if let error = session.daemonError ?? session.workspaces.lastError { parts.append("Workspaces: \(error)") }
         let detail = parts.compactMap { $0 }.joined(separator: "\n")

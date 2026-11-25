@@ -28,11 +28,18 @@ pub const MAX_TERMINALS: usize = 64;
 
 const FORMAT: &str = "cmux-cursors/1";
 
+/// The capability a Mac lists when its `list-workspaces` answers `since` with the changed
+/// entries only. A Mac without it refuses `since` on the phone lane, so it is never sent there.
+pub const WORKSPACE_LIST_DELTA_CAPABILITY: &str = "workspace-list-delta-v1";
+
 /// The list cursors of one Mac.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct ListCursor {
     /// The workspace tree revision last applied (`list-workspaces {known}`).
     pub tree_revision: Option<String>,
+    /// The workspace delta cursor last applied (`list-workspaces {since: {epoch, seq}}`).
+    pub tree_epoch: Option<String>,
+    pub tree_seq: Option<u64>,
     /// The chat list's row log position and epoch (`_acpmux/watch {afterSeq, listEpoch}`).
     pub list_seq: Option<u64>,
     pub list_epoch: Option<String>,
@@ -61,6 +68,9 @@ pub struct Cursors {
     pub list: ListCursor,
     pub chats: BTreeMap<String, ChatCursor>,
     pub terminals: BTreeMap<String, TerminalCursor>,
+    /// The Mac listed [`WORKSPACE_LIST_DELTA_CAPABILITY`] on this link. Not kept across a
+    /// relaunch: until the Mac says so again, the plan asks by `known`, which every Mac answers.
+    pub workspace_delta: bool,
 }
 
 /// Why the app runs a catch-up.
@@ -77,17 +87,36 @@ pub enum Wake {
 /// One request of a wake, carrying its cursor and the bytes it may answer with.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Request {
-    Workspaces { known: Option<String> },
-    ChatList { after_seq: Option<u64>, list_epoch: Option<String> },
-    Chat { session: String, after_seq: u64, max_bytes: u64 },
-    Terminal { surface: String, offset: u64, generation: String, max_bytes: u64 },
+    /// `since` is set only when the Mac listed [`WORKSPACE_LIST_DELTA_CAPABILITY`]; an empty
+    /// epoch at seq 0 asks for the whole tree and a first cursor.
+    Workspaces {
+        known: Option<String>,
+        since: Option<(String, u64)>,
+    },
+    ChatList {
+        after_seq: Option<u64>,
+        list_epoch: Option<String>,
+    },
+    Chat {
+        session: String,
+        after_seq: u64,
+        max_bytes: u64,
+    },
+    Terminal {
+        surface: String,
+        offset: u64,
+        generation: String,
+        max_bytes: u64,
+    },
 }
 
 /// An answer, reduced to the cursor it carries.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Reply {
+    /// `delta`: the `epoch`/`seq` a delta-capable Mac answered with.
     Workspaces {
         revision: String,
+        delta: Option<(String, u64)>,
     },
     ChatList {
         through_seq: u64,
@@ -113,7 +142,15 @@ pub enum Reply {
 /// `budget`; the plan stops when it is spent.
 pub fn plan(cursors: &Cursors, wake: &Wake, budget: u64) -> Vec<Request> {
     let mut requests = vec![
-        Request::Workspaces { known: cursors.list.tree_revision.clone() },
+        Request::Workspaces {
+            known: cursors.list.tree_revision.clone(),
+            since: cursors.workspace_delta.then(|| {
+                match (&cursors.list.tree_epoch, cursors.list.tree_seq) {
+                    (Some(epoch), Some(seq)) => (epoch.clone(), seq),
+                    _ => (String::new(), 0),
+                }
+            }),
+        },
         Request::ChatList {
             after_seq: cursors.list.list_seq,
             list_epoch: cursors.list.list_epoch.clone(),
@@ -162,10 +199,25 @@ pub fn plan(cursors: &Cursors, wake: &Wake, budget: u64) -> Vec<Request> {
 }
 
 impl Cursors {
+    /// Records the capabilities the Mac listed on this link (its `identify` reply).
+    pub fn set_capabilities<'a>(&mut self, capabilities: impl IntoIterator<Item = &'a str>) {
+        self.workspace_delta =
+            capabilities.into_iter().any(|name| name == WORKSPACE_LIST_DELTA_CAPABILITY);
+    }
+
     /// Moves a cursor past what `reply` held, never back: an older or repeated answer is a no-op.
     pub fn apply(&mut self, reply: Reply, now: u64) {
         match reply {
-            Reply::Workspaces { revision } => self.list.tree_revision = Some(revision),
+            Reply::Workspaces { revision, delta } => {
+                self.list.tree_revision = Some(revision);
+                if let Some((epoch, seq)) = delta {
+                    let same_epoch = self.list.tree_epoch.as_deref() == Some(epoch.as_str());
+                    if !same_epoch || self.list.tree_seq.is_none_or(|known| seq > known) {
+                        self.list.tree_seq = Some(seq);
+                    }
+                    self.list.tree_epoch = Some(epoch);
+                }
+            }
             Reply::ChatList { through_seq, list_epoch } => {
                 let same_epoch = self.list.list_epoch.as_deref() == Some(list_epoch.as_str());
                 if !same_epoch || self.list.list_seq.is_none_or(|seq| through_seq > seq) {
@@ -237,6 +289,9 @@ impl Cursors {
             opt(self.list.list_seq.map(|seq| seq.to_string())),
             opt(self.list.list_epoch.as_deref().map(escape)),
         ));
+        if let (Some(epoch), Some(seq)) = (&self.list.tree_epoch, self.list.tree_seq) {
+            out.push_str(&format!("tree\t{}\t{seq}\n", escape(epoch)));
+        }
         for (id, cursor) in &self.chats {
             out.push_str(&format!(
                 "chat\t{}\t{}\t{}\n",
@@ -276,11 +331,14 @@ impl Cursors {
             let opt = |field: &str| (field != "-").then(|| unescape(field)).flatten();
             match fields.as_slice() {
                 ["list", revision, seq, epoch] => {
-                    cursors.list = ListCursor {
-                        tree_revision: opt(revision),
-                        list_seq: if *seq == "-" { None } else { Some(seq.parse().ok()?) },
-                        list_epoch: opt(epoch),
-                    };
+                    cursors.list.tree_revision = opt(revision);
+                    cursors.list.list_seq =
+                        if *seq == "-" { None } else { Some(seq.parse().ok()?) };
+                    cursors.list.list_epoch = opt(epoch);
+                }
+                ["tree", epoch, seq] => {
+                    cursors.list.tree_epoch = Some(unescape(epoch)?);
+                    cursors.list.tree_seq = Some(seq.parse().ok()?);
                 }
                 ["chat", id, seq, opened] => {
                     cursors.chats.insert(
@@ -494,6 +552,8 @@ mod tests {
             tree_revision: Some("rev\t1%".into()),
             list_seq: Some(12),
             list_epoch: Some("-".into()),
+            tree_epoch: Some("ep\t-".into()),
+            tree_seq: Some(9),
         };
         cursors.chats.insert("we\nird".into(), ChatCursor { last_seq: 3, opened_at: 4 });
         assert_eq!(Cursors::decode(&cursors.encode()), cursors);
@@ -515,5 +575,70 @@ mod tests {
         assert!(!cursors.chats.contains_key("chat-0"));
         assert!(cursors.chats.contains_key(&format!("chat-{}", MAX_CHATS + 49)));
         assert!(cursors.encode().len() < 64 * 1024);
+    }
+
+    fn workspaces(requests: &[Request]) -> (Option<String>, Option<(String, u64)>) {
+        let Request::Workspaces { known, since } = &requests[0] else { panic!("{requests:?}") };
+        (known.clone(), since.clone())
+    }
+
+    #[test]
+    fn since_goes_only_to_a_mac_that_lists_the_workspace_delta_capability() {
+        // An old Mac's phone lane refuses `since`, an unreviewed field: it is asked by `known`.
+        let mut cursors = cursors();
+        cursors.list.tree_revision = Some("r1".into());
+        cursors.list.tree_epoch = Some("e1".into());
+        cursors.list.tree_seq = Some(7);
+        cursors.set_capabilities(["terminal-resume-bounded-v1"]);
+        assert_eq!(
+            workspaces(&plan(&cursors, &Wake::Refresh, WAKE_BUDGET_BYTES)),
+            (Some("r1".into()), None)
+        );
+
+        // A new Mac gets the cursor it gave last.
+        cursors.set_capabilities(["terminal-resume-bounded-v1", WORKSPACE_LIST_DELTA_CAPABILITY]);
+        assert_eq!(
+            workspaces(&plan(&cursors, &Wake::Refresh, WAKE_BUDGET_BYTES)),
+            (Some("r1".into()), Some(("e1".into(), 7)))
+        );
+
+        // A relaunch forgets the capability until the Mac lists it again.
+        let relaunched = Cursors::decode(&cursors.encode());
+        assert!(!relaunched.workspace_delta);
+        assert_eq!(workspaces(&plan(&relaunched, &Wake::Refresh, WAKE_BUDGET_BYTES)).1, None);
+    }
+
+    #[test]
+    fn a_new_mac_with_no_delta_cursor_is_asked_from_the_empty_cursor_for_the_whole_tree() {
+        let mut cursors = Cursors::default();
+        cursors.set_capabilities([WORKSPACE_LIST_DELTA_CAPABILITY]);
+        assert_eq!(
+            workspaces(&plan(&cursors, &Wake::Refresh, WAKE_BUDGET_BYTES)),
+            (None, Some((String::new(), 0)))
+        );
+    }
+
+    #[test]
+    fn the_delta_cursor_never_moves_back_and_a_new_epoch_resets_it() {
+        let mut cursors = Cursors::default();
+        let reply = |seq, epoch: &str| Reply::Workspaces {
+            revision: format!("r{seq}"),
+            delta: Some((epoch.to_string(), seq)),
+        };
+        cursors.apply(reply(5, "a"), 0);
+        cursors.apply(reply(3, "a"), 0);
+        assert_eq!(
+            (cursors.list.tree_epoch.as_deref(), cursors.list.tree_seq),
+            (Some("a"), Some(5))
+        );
+        cursors.apply(reply(1, "b"), 0);
+        assert_eq!(
+            (cursors.list.tree_epoch.as_deref(), cursors.list.tree_seq),
+            (Some("b"), Some(1))
+        );
+        // An old Mac's answer has no delta cursor and leaves it as it was.
+        cursors.apply(Reply::Workspaces { revision: "r9".into(), delta: None }, 0);
+        assert_eq!(cursors.list.tree_revision.as_deref(), Some("r9"));
+        assert_eq!(cursors.list.tree_seq, Some(1));
     }
 }

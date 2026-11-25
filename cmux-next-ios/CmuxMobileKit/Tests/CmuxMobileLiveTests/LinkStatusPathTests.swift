@@ -20,9 +20,14 @@ import Testing
         #expect(machine.phase.diagnosticLine(macName: "Studio") == "Connected · WireGuard direct")
         _ = machine.handle(.linkUpdated(generation: machine.generation, path: .turn, rttMillis: 40))
         #expect(machine.phase.diagnosticLine(macName: "Studio") == "Connected · WireGuard relay (TURN) · 40 ms")
-        // UDP blocked: TURN reached over TLS. (There is no WebSocket relay any more.)
+        // UDP blocked: TURN reached over TLS.
         _ = machine.handle(.linkUpdated(generation: machine.generation, path: .turnTLS, rttMillis: nil))
         #expect(machine.phase.diagnosticLine(macName: "Studio") == "Connected · WireGuard relay (TURN over TLS) · 40 ms")
+        // Neither UDP nor the TURN host: cmux's WebSocket relay (PROTOCOL.md "WebSocket relay").
+        _ = machine.handle(.linkUpdated(generation: machine.generation, path: .httpsRelay, rttMillis: nil))
+        #expect(machine.phase.diagnosticLine(macName: "Studio") == "Connected · WireGuard relay (cmux, HTTPS) · 40 ms")
+        // The header says nothing for a connected link, on cmux's relay as on any path (#53778).
+        #expect(machine.phase.statusLine(macName: "Studio") == nil)
         _ = machine.handle(.linkUpdated(generation: machine.generation, path: .noPath, rttMillis: nil))
         #expect(machine.phase.diagnosticLine(macName: "Studio") == "Connected · WireGuard no path · 40 ms")
     }
