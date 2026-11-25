@@ -83,6 +83,17 @@ fn runs_above_background() {
     assert!(own > BACKGROUND_PRI, "the test process itself runs at background class (pri {own})");
 }
 
+/// `ps -o nice=` of `pid`: the process value changed by the agent-tier clamp.
+fn nice(pid: i32) -> i32 {
+    let out = std::process::Command::new("/bin/ps")
+        .args(["-o", "nice=", "-p", &pid.to_string()])
+        .output()
+        .unwrap();
+    String::from_utf8_lossy(&out.stdout).trim().parse().unwrap_or_else(|_| {
+        panic!("ps -o nice= -p {pid}: {:?}", String::from_utf8_lossy(&out.stdout))
+    })
+}
+
 /// `ps -o ppid=` of `pid`.
 fn parent(pid: i32) -> i32 {
     let out = std::process::Command::new("/bin/ps")
@@ -401,6 +412,9 @@ struct RealDaemon {
     child: Option<std::process::Child>,
     /// The class the daemon's env names; None leaves it to what the harness defaults to.
     class: Option<&'static str>,
+    /// The product's own `ACPMUX_QOS` (unset: agent hosts at the utility disk tier) instead of
+    /// this process's `background`.
+    product_qos: bool,
 }
 
 impl RealDaemon {
@@ -410,6 +424,15 @@ impl RealDaemon {
     }
 
     fn start_with(tag: &str, harness: &Value, class: Option<&'static str>) -> Self {
+        Self::start_full(tag, harness, class, false)
+    }
+
+    fn start_full(
+        tag: &str,
+        harness: &Value,
+        class: Option<&'static str>,
+        product_qos: bool,
+    ) -> Self {
         runs_above_background();
         let root = scratch(tag);
         for sub in ["home", "amx", "work"] {
@@ -421,7 +444,7 @@ impl RealDaemon {
             "permissionPolicy": "approve-all",
         });
         std::fs::write(root.join("amx").join("config.json"), config.to_string()).unwrap();
-        let mut daemon = Self { root, child: None, class };
+        let mut daemon = Self { root, child: None, class, product_qos };
         let mut child = daemon
             .cmd()
             .args(["daemon", "run", "--ready-fd", "1", "--log", "warn"])
@@ -463,6 +486,9 @@ impl RealDaemon {
             Some(class) => cmd.env(acpmux::cpu_class::ENV, class),
             None => cmd.env_remove(acpmux::cpu_class::ENV),
         };
+        if self.product_qos {
+            cmd.env_remove(acpmux::qos::ENV);
+        }
         cmd
     }
 }
@@ -570,8 +596,8 @@ fn cpu_class_a_hosted_harness_and_its_tools_keep_the_default_disk_tier() {
     assert_ne!(disk, IOPOL_UTILITY, "the harness kept its agent host's utility disk tier");
     assert!(running > BACKGROUND_PRI, "the calm dynamic harness ran at background class");
     assert!(tool_pri > BACKGROUND_PRI, "the calm dynamic tool ran at background class");
-    assert_eq!(harness_nice, own.max(0), "the harness was reniced");
-    assert_eq!(tool_nice, own.max(0), "its tool was reniced");
+    assert_eq!(harness_nice, acpmux::qos::AGENT_NICE, "the harness was reniced from {own}");
+    assert_eq!(tool_nice, acpmux::qos::AGENT_NICE, "its tool was reniced from {own}");
     let _ = std::fs::remove_dir_all(&dir);
 }
 
