@@ -226,6 +226,10 @@ jobs:
         if: ${{ matrix.group == 'ci' }}
         run: python3 tests/test_cloud_journey_prod_own_login.py
 
+      - name: Validate each Cloud journey cron starts only its own rows
+        if: ${{ matrix.group == 'ci' }}
+        run: python3 tests/test_cloud_journey_prod_schedule_rows.py
+
       - name: Validate fast checks name the commit they test
         if: ${{ matrix.group == 'ci' }}
         run: python3 tests/test_ci_fast_checks_receipt.py
