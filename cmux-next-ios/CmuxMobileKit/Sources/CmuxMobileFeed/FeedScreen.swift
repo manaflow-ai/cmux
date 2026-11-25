@@ -234,7 +234,7 @@ public struct FeedScreen<SidebarItem: ToolbarContent>: View {
         .scrollIndicators(.hidden)
         .trailingOverflowFade(width: 32)
         .padding(.vertical, 2)
-        .sensoryFeedback(.selection, trigger: store.filter)
+        .cmuxMobileSensoryFeedback(.selection, trigger: store.filter)
     }
 
     private func refreshErrorRow(_ message: String) -> some View {

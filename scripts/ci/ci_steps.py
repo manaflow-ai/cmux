@@ -102,6 +102,9 @@ class Step:
     blocks: bool = True
     klass: str = "pr"
     inputs: tuple[str, ...] = ()
+    # Globs a path of `inputs` may still match and route nothing (notes beside the code a step builds); a later
+    # `!glob` takes a path back, as in a workflow's `paths` (the last glob that matches decides).
+    ignore: tuple[str, ...] = ()
     labels: tuple[str, ...] = ()
     timeout: int = 600
     title: str = ""
@@ -174,6 +177,7 @@ def parse(doc: dict) -> Table:
             blocks=raw.get("blocks", True),
             klass=raw.get("class", "pr"),
             inputs=tuple(raw.get("inputs", ())),
+            ignore=tuple(raw.get("ignore", ())),
             labels=tuple(raw.get("labels", ())),
             timeout=raw.get("timeout", 600),
             title=raw.get("title", ""),
@@ -202,6 +206,9 @@ def parse(doc: dict) -> Table:
             raise TableError(f"step {name}: `timeout` is a positive number of seconds")
         if not all(isinstance(g, str) and g and not g.startswith(("/", "!")) for g in step.inputs):
             raise TableError(f"step {name}: `inputs` are repo-relative path globs")
+        if not all(isinstance(g, str) and g.lstrip("!") and not g.lstrip("!").startswith("/") for g in step.ignore) or (
+                step.ignore and (not step.inputs or step.ignore[0].startswith("!"))):
+            raise TableError(f"step {name}: `ignore` holds repo-relative path globs, beside `inputs`")
         steps[name] = step
     return Table(jobs=dict(jobs), steps=steps, setup=dict(setup), tools=dict(tools))
 
@@ -215,7 +222,12 @@ def routed(step: Step, paths: list[str] | None) -> bool:
     if not step.inputs or paths is None or any(p in PIPELINE_PATHS for p in paths):
         return True
     patterns = [glob_pattern(g) for g in step.inputs]
-    return any(p.match(path) for path in paths for p in patterns)
+    ignored = [(g.startswith("!"), glob_pattern(g.lstrip("!"))) for g in reversed(step.ignore)]
+
+    def kept(path: str) -> bool:
+        return next((back for back, i in ignored if i.match(path)), True)
+
+    return any(p.match(path) and kept(path) for path in paths for p in patterns)
 
 
 def route(table: Table, paths: list[str] | None, label: str | None = None) -> dict[str, list[str]]:
