@@ -997,11 +997,11 @@ export const SubagentTray = memo(function SubagentTray({
               agentStep(stepArm, loneEnd.agent, loneEnd.latest, loneEnd.status, "acpmux-running-tray__latest")
             : loneEnd?.latest &&
               loneEnd.latest !== loneEnd.title && (
-            <Tick
-              className={`acpmux-running-tray__latest${loneEnd.latestCode ? " is-code" : ""}`}
-              text={loneEnd.latest}
-              slide
-            />
+                <Tick
+                  className={`acpmux-running-tray__latest${loneEnd.latestCode ? " is-code" : ""}`}
+                  text={loneEnd.latest}
+                  slide
+                />
               )}
           {/* A pointed-at mark's latest step, after its name, as a lone item's header shows its own. */}
           {peekHead?.latest && peekHead.latest !== peekHead.title && (
