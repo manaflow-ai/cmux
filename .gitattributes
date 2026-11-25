@@ -245,3 +245,8 @@ webviews/scripts/design-tokens-baseline.jsonl merge=cmux-baseline-v1
 # SHA-256 in pinned-licenses/MANIFEST.json. Never rewrite their bytes.
 cmux-tui/build-support/notices/ghostty/pinned-licenses/** -text -whitespace
 cmux-tui/build-support/notices/texts/** -text -whitespace
+# Swift logic classification table: lanes insert rows next to each other all
+# day, so line merges conflicted on almost every base merge. Rows are
+# independent, and swift-logic-lines.py takes the larger share for a duplicate
+# key, so a union merge never lowers the count.
+plans/cmux-next/swift-logic-classes.tsv merge=union
