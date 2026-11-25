@@ -496,9 +496,7 @@ def workflow_problem(workflow: dict) -> str | None:
 DESCRIPTION_READS = ("pull_request.body", "pull_request.title", "changes.body", "changes.title")
 
 # Workflows that run on every title or body edit although their own text never reads it, and why.
-READS_DESCRIPTION = {
-    "risk-tier.yml": "scripts/ci/risk_tier.py reads the body's author footer and `Takes back #N` lines over the API",
-}
+READS_DESCRIPTION: dict[str, str] = {}
 
 
 # Workflows whose edit skip lands in a pull request of its own, and why. An entry whose workflow
