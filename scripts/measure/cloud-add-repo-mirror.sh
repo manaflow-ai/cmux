@@ -14,9 +14,10 @@
 # folders' own objects plus what the mirror gained) and rx_mb (the machine's received bytes over
 # the row, Linux only; noisy on a shared machine).
 #
-# Usage: scripts/measure/cloud-add-repo-mirror.sh [URL] [RUNS] [CROWD]
+# Usage: scripts/measure/cloud-add-repo-mirror.sh [URL] [RUNS] [CROWD] [MODES]
 #   URL    default https://github.com/manaflow-ai/cmux.git
 #   RUNS   default 3; CROWD default 8 (1: no crowd rows).
+#   MODES  e.g. cold-x8,warm-x8: only those rows (warm needs its cold before it).
 # On the fleet: cmux-ci test -- scripts/measure/cloud-add-repo-mirror.sh
 set -euo pipefail
 cd "$(dirname "$0")/../../cmux-tui"
@@ -24,6 +25,7 @@ export CMUX_SEED_MEASURE_URL=${1:-https://github.com/manaflow-ai/cmux.git}
 export CMUX_SEED_MEASURE_RUNS=${2:-3}
 export CMUX_SEED_MEASURE_CROWD=${3:-8}
 export GIT_TERMINAL_PROMPT=0
+export CMUX_SEED_MEASURE_MODES=${4:-${CMUX_SEED_MEASURE_MODES:-}}
 cargo test -q -p cmux-tui-core --lib git_seed::tests::mirror::measure_add_repository_cold_and_warm \
   -- --ignored --nocapture --test-threads 1 2>&1 |
   while IFS= read -r line; do printf '%(%H:%M:%S)T %s\n' -1 "$line"; done

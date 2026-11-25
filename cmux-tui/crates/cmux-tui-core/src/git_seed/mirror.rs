@@ -133,7 +133,17 @@ impl Seed {
             Some(commit) => seed.fill_mirror(mirror, &commit).map_err(|_| "fill"),
             None => Ok(()),
         };
-        let (mirror, warm) = match self.warm_mirror(&root, &url, true, &mut fill) {
+        // Ready without the lock: the commit asked for resolves in the mirror, its files are
+        // there, and the mirror's default branch (and the branch or tag asked for) is the
+        // remote's own now.
+        let mut ready = |seed: &mut Self, mirror: &Path| match seed.local_target(mirror) {
+            Some(Some(commit)) => seed.filled(mirror, &commit),
+            Some(None) => true,
+            None => false,
+        };
+        let asks = self.fresh_asks();
+        let warmed = self.warm_mirror(&root, &url, Some(&asks), &mut ready, &mut fill);
+        let (mirror, warm) = match warmed {
             Ok(warmed) => warmed,
             Err(None) => return Borrow::Unproven,
             Err(Some(stage)) => return Borrow::Failed(stage),
@@ -149,19 +159,42 @@ impl Seed {
     /// lock; the lock is let go on return (the mirror only gains objects: it never prunes).
     /// `origin`: `url` is the seed's remote, not a submodule's. `Err(None)`: this caller's own
     /// reach failed (access not proven); `Err(Some(stage))`: something else did.
+    ///
+    /// A warm mirror that is already `ready` is borrowed without the lock: this caller's own
+    /// `ls-remote` (its access, now) is the only network step, and the mirror only gains
+    /// objects, so adds of one remote read it at once instead of taking turns (8 warm adds of
+    /// cmux used to queue for minutes behind each other's fetches). `fresh`: the refs
+    /// `ls-remote` asks for (the seed's remote) whose ids the mirror must hold already;
+    /// `None` for a submodule, pinned by its gitlink.
     fn warm_mirror(
         &mut self,
         root: &Path,
         url: &str,
-        origin: bool,
+        fresh: Option<&[String]>,
+        ready: &mut dyn FnMut(&mut Self, &Path) -> bool,
         fill: &mut dyn FnMut(&mut Self, &Path) -> Result<(), &'static str>,
     ) -> Result<(PathBuf, bool), Option<&'static str>> {
+        let origin = fresh.is_some();
         let key = key(url);
+        let mirror = root.join(format!("{key}.git"));
+        if mirror.join("HEAD").is_file()
+            && self.mirror_of(&mirror, url).is_ok()
+            && ready(self, &mirror)
+        {
+            let asks = fresh.map_or_else(|| vec!["HEAD".to_owned()], <[String]>::to_vec);
+            let mut args = vec!["ls-remote", "--quiet", "origin"];
+            args.extend(asks.iter().map(String::as_str));
+            // This caller's own reach failing is the locked path's failure too: access not
+            // proven, nothing borrowed.
+            let listed = self.net_listed(origin, &mirror, &args).ok_or(None)?;
+            if !origin || self.mirror_holds(&mirror, &listed, &asks) {
+                return Ok((mirror, true));
+            }
+        }
         // Before the wait: a fetch another add makes after this moment brings what this add
         // would have fetched itself.
         let asked = std::time::SystemTime::now();
         let _lock = lock(&root.join(format!("{key}.lock"))).ok_or(Some("lock"))?;
-        let mirror = root.join(format!("{key}.git"));
         let warm = mirror.join("HEAD").is_file();
         // The proof of access is this caller's own reach of the remote, now: a fetch into the
         // mirror, or, when an add it waited for fetched since it asked, `ls-remote` (one round
@@ -223,6 +256,51 @@ impl Seed {
     ) -> Result<(), Option<&'static str>> {
         self.mirror_of(mirror, url)?;
         self.net_for(origin, mirror, &["ls-remote", "--quiet", "origin", "HEAD"], &mut || {})
+    }
+
+    /// `ls-remote`'s answer with this caller's own paths (the seed's remote: `origin`, the path
+    /// that reached it is kept as [`Self::net_origin`] keeps it).
+    fn net_listed(&mut self, origin: bool, mirror: &Path, args: &[&str]) -> Option<String> {
+        for credential in self.credentials.clone() {
+            if let Ok(out) = self.git.run(Some(mirror), &credential, args, &mut |_| {}) {
+                self.chosen = credential;
+                if origin {
+                    self.reached = Some(self.chosen.clone());
+                }
+                return Some(String::from_utf8_lossy(&out).into_owned());
+            }
+        }
+        None
+    }
+
+    /// Whether every ref of `asks` the remote listed has the same id in the mirror.
+    fn mirror_holds(&self, mirror: &Path, listed: &str, asks: &[String]) -> bool {
+        listed.lines().filter_map(|line| line.split_once('\t')).all(|(id, name)| {
+            !asks.iter().any(|ask| ask == name)
+                || self
+                    .git
+                    .quiet(Some(mirror), &self.chosen, &["rev-parse", "-q", "--verify", name])
+                    .is_ok_and(|out| String::from_utf8_lossy(&out).trim() == id)
+        })
+    }
+
+    /// The refs whose ids decide whether the mirror is current for this add: the remote's
+    /// default branch, and the branch or tag asked for by name.
+    fn fresh_asks(&self) -> Vec<String> {
+        let mut asks = vec!["HEAD".to_owned()];
+        if let Some(want) = self.want().filter(|want| want != "HEAD" && !is_hex_id(want)) {
+            asks.push(format!("refs/heads/{want}"));
+            asks.push(format!("refs/tags/{want}"));
+        }
+        asks
+    }
+
+    /// Whether every file of `commit` is in the mirror already.
+    fn filled(&self, mirror: &Path, commit: &str) -> bool {
+        let args = ["rev-list", "--objects", "--missing=print", "--no-walk", commit];
+        self.git
+            .quiet(Some(mirror), &self.chosen, &args)
+            .is_ok_and(|out| !String::from_utf8_lossy(&out).lines().any(|l| l.starts_with('?')))
     }
 
     /// The mirror made aside with this caller's paths and renamed in: an add that sees the
@@ -295,7 +373,10 @@ impl Seed {
                 let commit = seed.commit_in(mirror, &commit).ok_or("commit")?;
                 seed.fill_mirror(mirror, &commit).map_err(|_| "fill")
             };
-            let stage = match self.warm_mirror(&root, &url, false, &mut fill) {
+            let mut ready = |seed: &mut Self, mirror: &Path| {
+                seed.commit_of(mirror, &commit).is_some_and(|id| seed.filled(mirror, &id))
+            };
+            let stage = match self.warm_mirror(&root, &url, None, &mut ready, &mut fill) {
                 Ok((mirror, _)) => {
                     let reference = mirror.display().to_string();
                     let folder = self.folder.clone();
@@ -366,49 +447,60 @@ impl Seed {
 
     /// `id` as a commit of the mirror, fetched by id when the mirror lacks it.
     fn commit_in(&mut self, mirror: &Path, id: &str) -> Option<String> {
-        let commit_of = |seed: &Self| {
-            let name = format!("{id}^{{commit}}");
-            seed.git
-                .quiet(Some(mirror), &seed.chosen, &["rev-parse", "-q", "--verify", &name])
-                .ok()
-                .map(|out| String::from_utf8_lossy(&out).trim().to_owned())
-                .filter(|id| !id.is_empty())
-        };
-        if let Some(commit) = commit_of(self) {
+        if let Some(commit) = self.commit_of(mirror, id) {
             return Some(commit);
         }
-        let hex = id.len() >= 40 && id.bytes().all(|byte| byte.is_ascii_hexdigit());
-        if !hex {
+        if !is_hex_id(id) {
             return None;
         }
         let args = ["fetch", "--progress", "--no-tags", "--filter=blob:none", "origin", id];
         self.net(Some(mirror), &args, &mut || {}).ok()?;
-        commit_of(self)
+        self.commit_of(mirror, id)
+    }
+
+    /// `name` as a commit of the mirror, with no fetch.
+    fn commit_of(&self, mirror: &Path, name: &str) -> Option<String> {
+        let name = format!("{name}^{{commit}}");
+        self.git
+            .quiet(Some(mirror), &self.chosen, &["rev-parse", "-q", "--verify", &name])
+            .ok()
+            .map(|out| String::from_utf8_lossy(&out).trim().to_owned())
+            .filter(|id| !id.is_empty())
+    }
+
+    /// What the clone checks out: the branch, tag or commit asked for, `HEAD` (the remote's
+    /// default branch) or a seed's base; `None` when a head-first seed fills its own way.
+    fn want(&self) -> Option<String> {
+        match &self.params.clone_only {
+            Some(Some(git_ref)) => Some(git_ref.clone()),
+            Some(None) => Some("HEAD".to_owned()),
+            None if self.params.head_first.is_some() || self.params.base.is_empty() => None,
+            None => Some(self.params.base.clone()),
+        }
+    }
+
+    /// [`Self::mirror_target`] with no fetch: `None` when the mirror lacks the commit,
+    /// `Some(None)` when there is nothing to fill.
+    fn local_target(&self, mirror: &Path) -> Option<Option<String>> {
+        let Some(want) = self.want() else { return Some(None) };
+        if want != "HEAD" {
+            for name in [format!("refs/heads/{want}"), format!("refs/tags/{want}")] {
+                if let Some(commit) = self.commit_of(mirror, &name) {
+                    return Some(Some(commit));
+                }
+            }
+        }
+        self.commit_of(mirror, &want).map(Some)
     }
 
     /// The commit whose files the clone will check out, in the mirror: the branch, tag or
     /// commit asked for (fetched into the mirror when it is a commit the mirror lacks), the
     /// remote's default branch, or a seed's base. A head-first seed fills its own way.
     fn mirror_target(&mut self, mirror: &Path) -> Option<String> {
-        let want = match &self.params.clone_only {
-            Some(Some(git_ref)) => git_ref.clone(),
-            Some(None) => "HEAD".to_owned(),
-            None if self.params.head_first.is_some() || self.params.base.is_empty() => {
-                return None;
-            }
-            None => self.params.base.clone(),
-        };
-        let commit_of = |seed: &Self, name: &str| {
-            let name = format!("{name}^{{commit}}");
-            seed.git
-                .quiet(Some(mirror), &seed.chosen, &["rev-parse", "-q", "--verify", &name])
-                .ok()
-                .map(|out| String::from_utf8_lossy(&out).trim().to_owned())
-                .filter(|id| !id.is_empty())
-        };
+        let want = self.want()?;
         for name in [format!("refs/heads/{want}"), format!("refs/tags/{want}")] {
             if want != "HEAD"
-                && let Some(commit) = commit_of(self, &name)
+                && let Some(commit) = self.commit_of(mirror, &name)
             {
                 return Some(commit);
             }
@@ -537,8 +629,14 @@ impl Seed {
     }
 }
 
+/// Whether `id` is a whole object id (a commit asked for by id, fetched by id when missing).
+fn is_hex_id(id: &str) -> bool {
+    id.len() >= 40 && id.bytes().all(|byte| byte.is_ascii_hexdigit())
+}
+
 /// The mirror's lock for this add, waited for at most [`LOCK_WAIT`]: adds of one remote take
-/// turns making, fetching into and filling it; an add that waited for a fetch skips its own. An advisory lock
+/// turns making, fetching into and filling it (an add whose mirror is ready already takes no
+/// lock); an add that waited for a fetch skips its own. An advisory lock
 /// on its own open file, so threads of this daemon take turns too.
 fn lock(path: &Path) -> Option<FileLock> {
     let file =

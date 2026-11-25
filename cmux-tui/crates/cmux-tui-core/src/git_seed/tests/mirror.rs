@@ -285,6 +285,59 @@ fn an_add_that_waited_for_a_fetch_reaches_the_remote_and_skips_its_own() {
     assert!(!folder.exists(), "nothing of the mirror reached the folder");
 }
 
+/// A warm add whose commit and files the mirror holds already borrows it without the lock, so
+/// a crowd of warm adds reads the mirror at once instead of taking turns. (8 warm adds of cmux
+/// used to queue for minutes behind each other's turns.) Each still reaches the remote with
+/// its own paths: an add the remote refuses never borrows, lock or no lock. A mirror behind
+/// the remote still waits for the lock and fetches.
+#[test]
+fn a_ready_mirror_is_borrowed_while_another_add_holds_the_lock() {
+    use cmux_file_lock::{FileLock, Kind};
+    let world = World::new("mirror-lockfree");
+    let status = seed(&world, &clone_params(&world.home.join("first"), None));
+    assert_eq!(status["state"], "done", "{status}");
+    let mirror = mirror_of(&world);
+    let file = std::fs::OpenOptions::new()
+        .read(true)
+        .write(true)
+        .open(mirror.with_extension("lock"))
+        .unwrap();
+    let held = FileLock::take_within(
+        file,
+        Kind::Exclusive,
+        Duration::from_secs(5),
+        Duration::from_millis(10),
+    )
+    .unwrap();
+
+    // 8 at once, the lock held all along (the lock's own wait is 30 min; `wait` gives 120 s).
+    let service = std::sync::Arc::new(world.service());
+    let folders: Vec<PathBuf> = (0..8).map(|n| world.home.join(&format!("crowd/{n}/n"))).collect();
+    let jobs: Vec<String> = folders
+        .iter()
+        .map(|folder| start(&service, &clone_params(folder, None)).unwrap())
+        .collect();
+    for (job, folder) in jobs.iter().zip(&folders) {
+        let status = wait(&service, job);
+        assert_eq!(status["state"], "done", "{status}");
+        assert_eq!(status["mirror"], "hit", "{status}");
+        assert_eq!(status["head"], world.base.as_str(), "{status}");
+        assert_eq!(git(folder, &["status", "--porcelain"]), "");
+        assert_eq!(std::fs::read_to_string(folder.join("b")).unwrap(), "b\n");
+        assert_eq!(own_objects(folder), 0, "everything borrowed");
+        git(folder, &["fsck", "--no-progress", "--connectivity-only"]);
+    }
+
+    let refused = service_at(&world, &world.home.join("no-access.git"));
+    let folder = world.home.join("refused");
+    let job = start(&refused, &clone_params(&folder, None)).unwrap();
+    let status = wait(&refused, &job);
+    assert_eq!(status["state"], "failed", "{status}");
+    assert!(notes(&status).contains(&"seed.mirror.fallback".to_owned()), "{status}");
+    assert!(!folder.exists(), "nothing of the mirror reached the folder");
+    drop(held);
+}
+
 /// A submodule comes from its own warm mirror, as the remote does: the second add's
 /// submodule borrows the mirror (alternates) and downloads none of its objects again. (A warm
 /// add of a repository with large submodules used to clone each one whole from GitHub.)
@@ -430,9 +483,10 @@ fn measure_add_repository_cold_and_warm() {
             .iter()
             .map(|f| tree_bytes(&f.join(".git/objects")) + tree_bytes(&f.join(".git/modules")))
             .sum();
-        for folder in &folders {
-            git(folder, &["fsck", "--no-progress", "--connectivity-only"]);
-        }
+        // One folder's fsck per row: every folder of a warm row borrows the same mirror, and
+        // a connectivity walk of cmux's whole history is minutes each (8 of them ran a crowd
+        // row past the fleet job's hour). The tests check every folder.
+        git(&folders[0], &["fsck", "--no-progress", "--connectivity-only"]);
         (seconds, own + mirror_after.saturating_sub(mirror_before), rx, states.join(","))
     };
     let begin = |name: &str, run: usize| println!("START mode={name} run={run}");
@@ -445,20 +499,31 @@ fn measure_add_repository_cold_and_warm() {
             bytes as f64 / 1e6
         );
     };
-    println!("URL {url} runs={runs} crowd={crowd}");
-    for run in 1..=runs {
-        begin("off", run);
-        row("off", run, add(&None, 1));
+    // `CMUX_SEED_MEASURE_MODES=cold-x8,warm-x8`: only these rows (a warm row needs its cold
+    // row before it, which makes the mirror), so a crowd fits one fleet job.
+    let modes = std::env::var("CMUX_SEED_MEASURE_MODES").ok().filter(|modes| !modes.is_empty());
+    let wanted = |name: &str| {
+        modes.as_deref().is_none_or(|modes| modes.split(',').any(|m| m.trim() == name))
+    };
+    println!("URL {url} runs={runs} crowd={crowd} modes={}", modes.as_deref().unwrap_or("all"));
+    for run in (1..=runs).filter(|_| ["off", "cold", "warm"].iter().any(|m| wanted(m))) {
+        if wanted("off") {
+            begin("off", run);
+            row("off", run, add(&None, 1));
+        }
         let mirrors = Some(home.join(&format!("mirrors-{run}")));
-        begin("cold", run);
-        row("cold", run, add(&mirrors, 1));
-        begin("warm", run);
-        row("warm", run, add(&mirrors, 1));
+        for name in ["cold", "warm"].into_iter().filter(|name| wanted(name)) {
+            begin(name, run);
+            row(name, run, add(&mirrors, 1));
+        }
     }
     if crowd > 1 {
         let mirrors = Some(home.join("mirrors-crowd"));
         for (name, mirrors) in [("off", None), ("cold", mirrors.clone()), ("warm", mirrors)] {
             let name = format!("{name}-x{crowd}");
+            if !wanted(&name) {
+                continue;
+            }
             begin(&name, 1);
             row(&name, 1, add(&mirrors, crowd));
         }
