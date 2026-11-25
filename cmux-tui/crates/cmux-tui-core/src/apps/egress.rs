@@ -137,7 +137,7 @@ impl Fetcher for HttpFetcher {
             .build()
             .map_err(|e| failed(&e))?;
         runtime.block_on(async move {
-            let client = reqwest::Client::builder()
+            let client = cmux_egress::client_builder("cmux_tui_core::apps::egress")
                 .redirect(reqwest::redirect::Policy::none())
                 .timeout(TIMEOUT)
                 .build()

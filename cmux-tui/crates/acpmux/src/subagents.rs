@@ -112,6 +112,11 @@ pub struct SubagentTree {
     /// Moves on each state change `listed` takes: the order the ended ones list in, latest first.
     #[serde(default)]
     listed_seq: u64,
+    /// The stamp of the logged update a fold of the chat's log reads now (`set_log_clock`), so
+    /// `listed` takes the log's times, not the fold's: an adoption resumed from its checkpoint
+    /// lists what a whole read does. None for a live update (`set_clock`).
+    #[serde(skip)]
+    logged_at: Option<u64>,
 }
 
 #[derive(Debug, Default, Clone, serde::Serialize, serde::Deserialize)]
@@ -195,6 +200,11 @@ impl SubagentTree {
         self.names.values().any(|name| name == to)
             || self.parents.contains_key(to)
             || self.previews.values().any(|p| p.agent_id.as_deref() == Some(to))
+    }
+
+    /// Whether `session_id` is one this session knows: one of its subagents, or a root thread.
+    pub fn knows(&self, session_id: &str) -> bool {
+        self.parents.contains_key(session_id) || self.is_root(session_id)
     }
 
     /// Whether `session_id` is one of this session's subagents.
