@@ -191,7 +191,8 @@ pub(crate) fn upload(
 
     let digest = object_digest(&parts);
     store.complete(&id, key, &parts, &digest)?;
-    let bytes_sent = todo.iter().map(|&index| parts[index as usize].size).sum();
+    let bytes_sent =
+        todo.iter().filter_map(|&index| parts.get(index as usize)).map(|part| part.size).sum();
     Ok(Outcome { parts: count, resumed, sent: sent.load(Ordering::SeqCst), bytes_sent, digest })
 }
 
