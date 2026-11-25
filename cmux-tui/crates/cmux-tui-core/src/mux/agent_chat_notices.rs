@@ -1230,8 +1230,9 @@ struct Chat {
     last_seq: u64,
     /// The asks of its current wait, by group (asks grouped on one card) or permission id.
     asks: HashSet<String>,
-    /// A lost transition already posted its one notice. A later failed summary can describe
-    /// the same dead turn, so it must not post a second notice.
+    /// A lost transition already posted its one notice. Keep it pending through intermediate
+    /// summaries until the same dead turn is classified, so that classification cannot post a
+    /// second notice.
     notified_lost: bool,
     /// The list position this row came with ([`ListCursor`]): a push of a lower one is older
     /// than it. 0 when acpmux names none.
@@ -1378,8 +1379,7 @@ impl Chat {
         };
         // Work it started past its turn ended in this change.
         let below_ended = before.is_some_and(|chat| chat.works_below) && !self.works_below;
-        let lost_was_notified =
-            before.is_some_and(|chat| chat.indicator == "lost" && chat.notified_lost);
+        let lost_was_notified = before.is_some_and(|chat| chat.notified_lost);
         let failed_turn_was_notified = self.last_turn.as_ref().is_some_and(|(turn, _)| {
             before.is_some_and(|chat| chat.notified_turn.as_ref() == Some(turn))
         });
@@ -1440,7 +1440,17 @@ impl Chat {
         }
         if self.indicator == "lost" && was != "lost" {
             self.notified_lost = true;
-        } else if self.indicator != "lost" {
+        } else if self.indicator == "working" && was != "working" {
+            // A new turn starts after the dead turn's pending classification.
+            self.notified_lost = false;
+        } else if lost_was_notified
+            && self
+                .last_turn
+                .as_ref()
+                .is_some_and(|(_, status)| matches!(status.as_str(), "completed" | "failed"))
+        {
+            // The dead turn has now been classified, so a later lost transition belongs to a
+            // new turn and must be allowed to post again.
             self.notified_lost = false;
         }
         if self.indicator == "lost"

@@ -744,6 +744,27 @@ fn a_lost_notice_suppresses_the_later_failed_summary() {
 }
 
 #[test]
+fn a_lost_notice_survives_an_intermediate_summary_until_failed() {
+    let lost = summary("lost", 10, false, None, false);
+    let intermediate = summary("idle", 11, false, None, false);
+    let failed = summary("done", 12, false, Some(("t1", "failed")), false);
+    let notices = posted(&[lost, intermediate, failed]);
+    assert_eq!(notices.len(), 1);
+    assert_eq!(notices[0].key, "lost-10");
+}
+
+#[test]
+fn a_new_lost_transition_after_a_new_turn_still_notifies() {
+    let first_lost = summary("lost", 10, false, None, false);
+    let new_turn = summary("working", 11, false, None, false);
+    let second_lost = summary("lost", 12, false, None, false);
+    let notices = posted(&[first_lost, new_turn, second_lost]);
+    assert_eq!(notices.len(), 2);
+    assert_eq!(notices[0].key, "lost-10");
+    assert_eq!(notices[1].key, "lost-12");
+}
+
+#[test]
 fn a_later_lost_transition_is_not_suppressed_by_an_older_failed_turn() {
     let mut before = Chat::of(&summary("done", 10, false, Some(("t1", "failed")), false))
         .expect("a failed chat");
