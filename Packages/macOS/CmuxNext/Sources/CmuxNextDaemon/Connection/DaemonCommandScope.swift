@@ -47,28 +47,29 @@ public final class DaemonCommandScope: Sendable {
     }
 
     public let idempotencyKey: String?
-    private struct State {
-        /// The rest is Rust's (cmux-daemon-conn-core src/scope.rs).
-        let handle: OpaquePointer?
-        var idleWaiters: [CheckedContinuation<Void, Never>] = []
+    /// The Rust scope (cmux-daemon-conn-core src/scope.rs); its calls are thread-safe.
+    private struct Handle: @unchecked Sendable {
+        let raw: OpaquePointer
     }
 
-    private let state: Mutex<State>
+    private let handle: Handle?
+    /// Held across a Rust call only where the idle check and the waiters must agree.
+    private let idleWaiters = Mutex<[CheckedContinuation<Void, Never>]>([])
     private let createdAt = ContinuousClock.now
 
     public init(idempotencyKey: String? = nil) {
         let key = idempotencyKey.flatMap { $0.isEmpty ? nil : $0 }
         self.idempotencyKey = key
-        state = Mutex(State(handle: Array((key ?? "").utf8).withUnsafeBufferPointer { cmux_daemon_scope_new($0.baseAddress, $0.count) }))
+        handle = Array((key ?? "").utf8).withUnsafeBufferPointer { cmux_daemon_scope_new($0.baseAddress, $0.count) }
+            .map(Handle.init(raw:))
     }
 
     deinit {
-        if let handle = state.load().handle { cmux_daemon_scope_free(handle) }
+        if let handle { cmux_daemon_scope_free(handle.raw) }
     }
 
     private func call(_ op: String, _ request: [String: Any] = [:]) -> [String: Any] {
-        let data = encoded(request)
-        return decoded(state.withLock { Self.call(op, data, on: $0.handle) })
+        Self.decoded(Self.call(op, encoded(request), on: handle))
     }
 
     /// `at_ms` stamps the stage log.
@@ -79,12 +80,12 @@ public final class DaemonCommandScope: Sendable {
         return (try? JSONSerialization.data(withJSONObject: request)) ?? Data()
     }
 
-    private func decoded(_ reply: Data?) -> [String: Any] {
+    private static func decoded(_ reply: Data?) -> [String: Any] {
         reply.flatMap { (try? JSONSerialization.jsonObject(with: $0)) as? [String: Any] } ?? [:]
     }
 
-    private static func call(_ op: String, _ data: Data, on handle: OpaquePointer?) -> Data? {
-        guard let handle else { return nil }
+    private static func call(_ op: String, _ data: Data, on handle: Handle?) -> Data? {
+        guard let handle = handle?.raw else { return nil }
         var out = CmuxDaemonConnBytes(ptr: nil, len: 0)
         let code: Int32 = data.withUnsafeBytes { raw in
             op.withCString { name in
@@ -152,10 +153,11 @@ public final class DaemonCommandScope: Sendable {
             ]
         }
         let data = encoded(request)
-        let waiters = state.withLock { state -> [CheckedContinuation<Void, Never>] in
-            guard decoded(Self.call("end", data, on: state.handle))["became_idle"] as? Bool == true else { return [] }
-            defer { state.idleWaiters.removeAll() }
-            return state.idleWaiters
+        let handle = handle
+        let waiters = idleWaiters.withLock { waiters -> [CheckedContinuation<Void, Never>] in
+            guard Self.decoded(Self.call("end", data, on: handle))["became_idle"] as? Bool == true else { return [] }
+            defer { waiters.removeAll() }
+            return waiters
         }
         for waiter in waiters { waiter.resume() }
     }
@@ -180,9 +182,10 @@ public final class DaemonCommandScope: Sendable {
     public func waitUntilIdle() async {
         await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
             let data = encoded([:])
-            let idle = state.withLock { state -> Bool in
-                if decoded(Self.call("state", data, on: state.handle))["idle"] as? Bool ?? true { return true }
-                state.idleWaiters.append(continuation)
+            let handle = handle
+            let idle = idleWaiters.withLock { waiters -> Bool in
+                if Self.decoded(Self.call("state", data, on: handle))["idle"] as? Bool ?? true { return true }
+                waiters.append(continuation)
                 return false
             }
             if idle { continuation.resume() }
