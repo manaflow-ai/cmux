@@ -20,7 +20,7 @@ extension SidebarItemRowView {
         let shown = showsHoverActions
         // Last, shown or not: no two icons share a box (Leo 2026-11-22: "fucking overlapping icons"), whatever the
         // alphas below say.
-        defer { clearMarksMeetingIcons(keep: [hoverMore, hoverUnpin], marks: [rowBadge, badge, activity, taskCount], fades: false) }
+        defer { clearMarksMeetingIcons(keep: [hoverMore, hoverUnpin], marks: [rowBadge, badge, activity], fades: false) }
         if shown, hoverMore == nil, onMore != nil {
             let button = OverflowButton.rowControl(label: Strings.workspaceMenu)
             button.onPress = { [weak self] in self?.onMore?() }
@@ -31,14 +31,13 @@ extension SidebarItemRowView {
         // The more button whose menu is open stays lit after the pointer leaves for the menu (Leo 2026-10-26).
         hoverMore?.showsMenu = shown && showsMenu
         // The hovered controls replace every trailing mark, in every case (Leo 2026-11-22: "in all cases, the
-        // hovered buttons should just replace the other ones"): the dot, the spinner, the status mark and the
-        // task count all hide while the controls show, and none of them moves (no layout shift).
+        // hovered buttons should just replace the other ones"): the dot, the spinner and the status mark
+        // all hide while the controls show, and none of them moves (no layout shift).
         if !isEditing {
             rowBadge.alphaValue = shown ? 0 : 1
             badge.alphaValue = shown ? 0 : 1
         }
         activity.alphaValue = shown ? 0 : 1
-        taskCount.alphaValue = shown ? 0 : 1
         // Unpin shows beside the more button, read only while the controls show (a tile at rest asks nothing).
         let unpins = shown && hoverMore != nil && onUnpin != nil && isPinned?() == true
         if unpins, hoverUnpin == nil {
