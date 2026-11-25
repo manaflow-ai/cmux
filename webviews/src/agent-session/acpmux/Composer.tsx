@@ -892,10 +892,10 @@ function ComposerFrame({
   const promptRef = useRef(promptText);
   /// Each write from here (not the field's own typing) renders the frame once, so the caret it
   /// asked for (`pendingCaret`) is applied after the field takes the text.
-  const [, setWrites] = useState(0);
   const writeText = (value: string, at: number) => {
+    if (field.current && field.current.value() !== value) field.current.reset(value);
     promptRef.current.set(value, at);
-    setWrites((count) => count + 1);
+    promptRef.current.draw();
   };
   /// Runs a text change's draft writes (the text effects of before) once per change, after the
   /// handler that made it, as React's flush of the change ran them.
@@ -1905,7 +1905,7 @@ function ComposerFrame({
     // the same text (Backspace and the letter again, or the prompt cleared and typed again), so the @
     // and emoji lists come back as the / list does.
     promptRef.current.set(value, at, true);
-    if (!typed) setWrites((count) => count + 1);
+    if (!typed) promptRef.current.draw();
     // Emptied (a command run, a prompt sent, the text deleted): this pane no longer types, and the
     // next draft picks its own skills.
     if (!value.trim()) pickedSkills.current.clear();
@@ -3478,7 +3478,6 @@ function ComposerFrame({
       )}
       <ComposerBox
         handle={box}
-        prompt={promptText}
         onPersonEdit={() => {
           typedAt.current = performance.now();
         }}
@@ -3489,8 +3488,9 @@ function ComposerFrame({
           className: shell
             ? "acpmux-composer-prompt is-hidden"
             : `acpmux-composer-prompt${dictating ? " is-dictating" : ""}${agentSuggested && suggestionLook === "italic" ? " is-suggestion-italic" : ""}${cloudStarting && startLook === "dimmed" ? " is-cloud-starting" : ""}`,
-          // ComposerBox reads the text itself (`prompt`), so a key renders the box, not this frame.
-          value: "",
+          // The editor updates its own content for each key. This value is the frame's last drawn
+          // snapshot, so the box only renders when the prompt's visible facts change.
+          value: facts.text,
           selectionKey: sessionId,
           placeholder: dictating ? t("dictation.listening") : (startingPlaceholder ?? suggested ?? placeholderText),
           placeholderKey:

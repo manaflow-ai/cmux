@@ -1433,6 +1433,11 @@ python3 -I scripts/ci/mac_tiers.py has fast_tier > "$CI_TOOLS/fast-tiers.txt" ||
 selected=()
 # A pure app FFI re-pin runs only the handler coverage suite (cmux_next_route.py pure_ffi_repin).
 if grep -qx 'ffi_repin=true' "$CI_TOOLS/fast-tiers.txt"; then selected=(--only "app handler coverage"); fi
+# Otherwise only the suites (and the package builds) the change reaches run; the post-merge batch runs every suite
+# (cmux-next-fast-tier-batch.yml). `vars.CI_FAST_TIER_PR_SCOPE` set to `0` runs them all here again.
+if [ ${#selected[@]} -eq 0 ] && [ "${CI_FAST_TIER_PR_SCOPE:-1}" != 0 ] && [ -n "${CI_PATHS_FILE:-}" ]; then
+  selected=(--changed-files "$CI_PATHS_FILE")
+fi
 python3 -I scripts/cmux-next/fast-tier.py --root "${CMUX_MAC_ROOT:-$PWD}" --kind swift ${selected[@]+"${selected[@]}"} \
   --receipt "${RUNNER_TEMP:-$CI_TOOLS}/cmux-next-fast-tier.json"
 '''
