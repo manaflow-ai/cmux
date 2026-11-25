@@ -161,21 +161,7 @@
     },
     "tooling-tests": {
       "workflow": "cmux-next-tooling-tests-batch.yml",
-      "paths": [
-        "tests/**",
-        "scripts/**",
-        "Packages/**",
-        "webviews/**",
-        "web/**",
-        "cmux-tui/**",
-        "backend/**",
-        "Resources/**",
-        "schemas/**",
-        "docs/**",
-        "plans/**",
-        "cmux-next-ios/**",
-        ".github/**"
-      ],
+      "paths": [],
       "jobs": {"tooling-tests": "tooling-tests"}
     },
     "tip-test-compile": {
