@@ -5154,7 +5154,11 @@ extension TerminalViewController: @MainActor UIGestureRecognizerDelegate {
             let drawnRows = appliedHostRows ?? model.session.remoteRows ?? tuiGridHold.rows(page: tuiRows)
             let placement = TerminalGridSizing(cellHeight: cell.height)
                 .keyboardPlacement(gridRows: drawnRows, visibleHeight: tuiClip.bounds.height,
-                                   cursorRow: surface.cursorViewportRow.map { $0 - tuiRowShift })
+                                   cursorRow: surface.cursorViewportRow.map { $0 - tuiRowShift },
+                                   // The host is the area's rows tall (`tuiHeight`), bottom on the
+                                   // stack: a shorter grid at its top went off screen with the
+                                   // keyboard up, the rows under it blank in view.
+                                   areaRows: tuiGridHold.rows(page: tuiRows))
             if placement.lift != tuiKeyboardLift {
                 tuiKeyboardLift = placement.lift
                 tuiClip.bounds.origin.y = -placement.lift

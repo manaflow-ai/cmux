@@ -1,0 +1,138 @@
+{
+  "sourceLanguage" : "en",
+  "strings" : {
+    "teamAudit.off" : {
+      "comment" : "Agent pane: Team spend, the audit is not turned on for this account's server yet",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "The team spend audit isn't on for your team yet."
+          }
+        },
+        "ar" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "لم يتم تشغيل تدقيق إنفاق الفريق لفريقك بعد."
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Revizija potrošnje tima još nije uključena za vaš tim."
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Teamets forbrugsrevision er ikke slået til for dit team endnu."
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Die Verbrauchsprüfung ist für Ihr Team noch nicht aktiviert."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "La auditoría de gasto del equipo aún no está activada para tu equipo."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "L'audit des dépenses n'est pas encore activé pour votre équipe."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "La verifica della spesa del team non è ancora attiva per il tuo team."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "チームの支出監査は、まだあなたのチームでは有効になっていません。"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ការត្រួតពិនិត្យការចំណាយរបស់ក្រុមមិនទាន់បើកសម្រាប់ក្រុមរបស់អ្នកនៅឡើយទេ។"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "팀 지출 감사가 아직 팀에 켜져 있지 않습니다."
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Forbruksrevisjonen er ikke slått på for teamet ditt ennå."
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Audyt wydatków zespołu nie jest jeszcze włączony dla Twojego zespołu."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "A auditoria de gastos ainda não está ativada para sua equipe."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Аудит расходов команды для вашей команды пока не включён."
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "การตรวจสอบค่าใช้จ่ายของทีมยังไม่ได้เปิดสำหรับทีมของคุณ"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ekip harcama denetimi ekibiniz için henüz açık değil."
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Аудит витрат команди для вашої команди ще не ввімкнено."
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Tính năng kiểm tra chi tiêu nhóm chưa bật cho nhóm của bạn."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "团队支出审计尚未为你的团队开启。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "團隊支出稽核尚未為你的團隊開啟。"
+          }
+        }
+      }
+    }
+  },
+  "version" : "1.0"
+}
