@@ -443,6 +443,10 @@ impl Hub {
         if owned {
             return;
         }
+        // An agent to-do list changes nothing here (`todo_tools.rs`).
+        if crate::todo_tools::drops(&session.id, update) {
+            return;
+        }
         let kind = update.get("sessionUpdate").and_then(Value::as_str).unwrap_or("");
         self.note_activity(session, update);
         // Work the model streams live says the pool answers again (`capacity_gate.rs`). Not a
@@ -461,16 +465,6 @@ impl Hub {
         let mut retitled = false;
         let background = kind == "agent_message_chunk" && self.background_message(session, update);
         let mut m = session.meta.lock().unwrap_or_else(|e| e.into_inner());
-        // The harness's plan is the chat's task list from now on (`task_list.rs`); history a load
-        // replays says nothing newer than what the meta kept.
-        let task_list_write = (kind == "plan" && !replayed)
-            .then(|| crate::task_list::plan_items(update))
-            .flatten()
-            .and_then(|items| {
-                crate::task_list::after_plan(m.task_list.as_ref(), items, now_ms(), m.turn_count)
-            })
-            .map(|list| m.task_list = list)
-            .is_some();
         match kind {
             "agent_message_chunk" => {
                 // History a load replays is logged (`.replay`) but is not the chat's newest
@@ -524,29 +518,6 @@ impl Hub {
                 self.note_peer_message_hold(session, update);
             }
             "available_commands_update" => m.available_commands = Some(update.clone().into()),
-            "plan"
-                if m.family.as_deref().is_some_and(crate::goal::GoalProvider::is_claude_family) =>
-            {
-                // A TodoWrite plan is supporting detail for an armed /loop. It
-                // must not replace or clear that loop's persistent goal.
-                let loop_goal = m.goal.as_ref().is_some_and(|goal| {
-                    goal.extra.get("kind").and_then(Value::as_str) == Some("loop")
-                });
-                // A TodoWrite plan is checklist detail for the armed /loop. Keep the
-                // loop's objective and lifecycle, but replace its visible steps as Claude
-                // advances or clears the plan.
-                if loop_goal
-                    && update.get("entries").and_then(Value::as_array).is_some()
-                    && let Some(goal) = m.goal.as_mut()
-                {
-                    goal.steps = crate::goal::GoalState::from_plan_update(update)
-                        .and_then(|plan| plan.steps);
-                    goal_write = true;
-                }
-                // An ordinary TodoWrite plan (no armed /loop) is not published as the chat's
-                // goal: the current web client would render it with Codex's Pause/Clear
-                // controls, which cannot drive Claude's checklist (review on #34457).
-            }
             "current_mode_update" => {
                 // A mode the harness moves to by itself is not cmux's: a full-access mark goes, so
                 // moving back to it later is not cmux's either (`trust_wait.rs`
@@ -640,9 +611,6 @@ impl Hub {
         }
         let limits = limits_changed.then(|| m.usage_limits.clone().unwrap_or(Value::Null));
         drop(m);
-        if task_list_write {
-            self.task_list_changed(session);
-        }
         // Goal state must survive a daemon restart even when the turn has not settled yet. So
         // must a title the harness gave: the chat shows it now, and before it waited for the
         // turn's end or the stop's flush, so a hard exit in between took it back.
