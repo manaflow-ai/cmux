@@ -1160,6 +1160,10 @@ impl Underlay for UltraUnderlay {
         UltraCounters::add(&self.counters.data_bytes, datagram.len() as u64);
     }
 
+    fn hold_routine_probes(&mut self, floor: Option<Instant>) {
+        self.inner.hold_routine_probes(floor);
+    }
+
     fn poll_probes(&mut self, now: Instant) -> DueProbes {
         self.inner.poll_probes(now)
     }
