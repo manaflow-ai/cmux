@@ -74,8 +74,10 @@ function editorProblem(row: SchemaRow, control: Element): string | null {
       // Per-level sound maps are set from the sidebar menus, the palette and the CLI; never a row.
       return "a sound_rules row on the page";
     case "json":
-      // The sidebar row layouts are page_hidden until the row-layout editor gives them a control.
-      return "a json row on the page";
+      // The sidebar row layouts share the Row Layout editor; any other nested value is JSON text.
+      if (row.key.startsWith("sidebar.workspaceRow.lines"))
+        return has("[data-row-layout-editor]") ? null : "no row layout editor";
+      return has("textarea.json-field") ? null : "no JSON field";
   }
 }
 

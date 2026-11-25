@@ -1,7 +1,7 @@
 // The image worker: an attached image's preview and thumbnail (imageWork.ts), off the page's main
 // thread. Built as image-worker.js beside the bundled page (scripts/cmux-next/build-agent-pane-web.sh);
 // imagePool.ts starts it. Each message is one job, answered with its id.
-import { prepareImage, thumbnailOf } from "./imageWork";
+import { fileThumbnail, prepareImage, thumbnailOf } from "./imageWork";
 import type { ImageJob, ImageJobResult } from "./imagePool";
 
 const scope = self as unknown as {
@@ -15,7 +15,12 @@ scope.onmessage = ({ data: job }) => {
     scope.postMessage({ id: job.id, value: undefined, unsupported: true });
     return;
   }
-  const work = job.kind === "prepare" ? prepareImage(job.file) : thumbnailOf(job.image);
+  const work =
+    job.kind === "fileThumb"
+      ? fileThumbnail(job.file)
+      : job.kind === "prepare"
+        ? prepareImage(job.file)
+        : thumbnailOf(job.image);
   void work.then(
     (value) => scope.postMessage({ id: job.id, value }),
     () => scope.postMessage({ id: job.id, value: undefined }),

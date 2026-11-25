@@ -27,6 +27,8 @@ use std::time::{Duration, Instant};
 use sha1::{Digest as _, Sha1};
 
 use crate::manifest::{Item, Kind, Manifest};
+#[cfg(any(target_os = "linux", test))]
+use crate::sparse::Sparse;
 use crate::{Fetch, FetchError};
 
 /// What one manifest entry's bytes are.
@@ -639,6 +641,59 @@ impl Worktree {
         Ok(Self { admin })
     }
 
+    /// Whether the worktree at `admin` already has `sparse` as its patterns (no `--sparse` and no
+    /// `info/sparse-checkout` count as the same), so an index written for other patterns is
+    /// written again.
+    #[must_use]
+    #[cfg(any(target_os = "linux", test))]
+    pub fn sparse_matches(admin: &Path, sparse: Option<&Sparse>) -> bool {
+        let held = std::fs::read_to_string(admin.join("info").join("sparse-checkout")).ok();
+        held.as_deref() == sparse.map(Sparse::text)
+    }
+
+    /// Records `sparse` as this worktree's sparse patterns the way `git sparse-checkout set
+    /// --no-cone` does: the patterns in `info/sparse-checkout`, `core.sparseCheckout=true` and
+    /// `core.sparseCheckoutCone=false` in the worktree's own config. None turns sparse off again.
+    #[cfg(any(target_os = "linux", test))]
+    pub fn set_sparse(&self, git_dir: &Path, sparse: Option<&Sparse>) -> anyhow::Result<()> {
+        let file = self.admin.join("info").join("sparse-checkout");
+        let config = self.admin.join("config.worktree");
+        let Some(sparse) = sparse else {
+            if file.exists() {
+                std::fs::remove_file(&file)?;
+            }
+            for key in ["core.sparseCheckout", "core.sparseCheckoutCone"] {
+                let mut unset = Command::new("git");
+                unset.arg("config").arg("--file").arg(&config).args(["--unset", key]);
+                // Exit 5 (no such key) is the state wanted.
+                let _ = output(unset);
+            }
+            return Ok(());
+        };
+        let mut command = git(git_dir);
+        command.args(["config", "--bool", "extensions.worktreeConfig"]);
+        anyhow::ensure!(
+            output(command).is_ok_and(|out| out.starts_with(b"true")),
+            "--sparse needs the worktree's own config: run `git --git-dir {} config \
+             extensions.worktreeConfig true` first",
+            git_dir.display()
+        );
+        std::fs::create_dir_all(self.admin.join("info"))?;
+        write_if_changed(&file, sparse.text().as_bytes())?;
+        for (key, value) in [("core.sparseCheckout", "true"), ("core.sparseCheckoutCone", "false")]
+        {
+            let mut read = Command::new("git");
+            read.arg("config").arg("--file").arg(&config).args(["--get", key]);
+            if output(read).is_ok_and(|out| out.strip_suffix(b"\n") == Some(value.as_bytes())) {
+                continue;
+            }
+            let mut set = Command::new("git");
+            set.arg("config").arg("--file").arg(&config).args([key, value]);
+            output(set)?;
+        }
+        Ok(())
+    }
+
     /// The `.git` file's text for this worktree.
     #[must_use]
     pub fn gitfile(admin: &Path) -> String {
@@ -684,7 +739,22 @@ struct CatFile {
 
 impl CatFile {
     fn spawn(git_dir: &Path) -> anyhow::Result<Self> {
-        let mut child = git(git_dir)
+        Self::spawn_from(git(git_dir))
+    }
+
+    /// A reader that answers only from the objects `git_dir` holds: a blob it lacks is never
+    /// fetched from its promisor remote. `GIT_NO_LAZY_FETCH` turns lazy fetches off (git 2.44 and
+    /// later); `GIT_ALLOW_PROTOCOL=none` makes one fail at once without the network on an older
+    /// git. Either way git ends the process on the first blob it lacks, so the caller spawns a
+    /// fresh one ([`ObjectReader`]).
+    fn spawn_local(git_dir: &Path) -> anyhow::Result<Self> {
+        let mut command = git(git_dir);
+        command.env("GIT_NO_LAZY_FETCH", "1").env("GIT_ALLOW_PROTOCOL", "none");
+        Self::spawn_from(command)
+    }
+
+    fn spawn_from(mut command: Command) -> anyhow::Result<Self> {
+        let mut child = command
             .args(["cat-file", "--batch"])
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
@@ -714,17 +784,33 @@ impl CatFile {
     }
 }
 
-/// Reads blobs of a git object store by id, for a seed ([`crate::peers::serve`]).
-pub struct ObjectReader(CatFile);
+/// Reads blobs of a git object store by id, for a seed ([`crate::peers::serve`]), from what the
+/// store holds and nothing else. A seed's mirror is a partial clone, so a plain `cat-file` fetched
+/// every blob it lacked from GitHub, one round trip per blob, inside the batch stream: a checkout
+/// that asked the seed for 54 blobs it lacked waited about 560 ms each (30 s), when the next
+/// source could have answered them in one request.
+pub struct ObjectReader {
+    git_dir: PathBuf,
+    cat: Option<CatFile>,
+}
 
 impl ObjectReader {
     pub fn spawn(git_dir: &Path) -> anyhow::Result<Self> {
-        Ok(Self(CatFile::spawn(git_dir)?))
+        Ok(Self { git_dir: git_dir.to_owned(), cat: Some(CatFile::spawn_local(git_dir)?) })
     }
 
-    /// The blob's bytes, or `None` when the store has no blob by that id.
+    /// The blob's bytes, or `None` when the store has no blob by that id. A miss may have ended
+    /// the `cat-file` (see [`CatFile::spawn_local`]), so the next read starts a fresh one.
     pub fn blob(&mut self, oid: &str) -> Option<Vec<u8>> {
-        self.0.blob(oid).ok()
+        let cat = match &mut self.cat {
+            Some(cat) => cat,
+            None => self.cat.insert(CatFile::spawn_local(&self.git_dir).ok()?),
+        };
+        let bytes = cat.blob(oid).ok();
+        if bytes.is_none() {
+            self.cat = None;
+        }
+        bytes
     }
 }
 

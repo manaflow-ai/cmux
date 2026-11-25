@@ -1,6 +1,7 @@
 #if os(iOS) && DEBUG
 import Foundation
 import Observation
+import OSLog
 import QuartzCore
 import SwiftUI
 import UIKit
@@ -11,8 +12,14 @@ import UIKit
 /// Each return to the foreground starts a cycle at `willEnterForeground`
 /// (`CACurrentMediaTime`, monotonic); the marks are ms since then, each taken once
 /// per cycle:
+/// - `main_free`: the main queue's first turn after the foreground handlers ran
+///   (what every `willEnterForeground` observer cost before anything else runs)
+/// - `surface_shown`: a terminal surface cleared its occlusion and asked Ghostty
+///   for a frame of its current content
 /// - `active`: `didBecomeActive`
 /// - `frame`: the first frame presented after the return (any content)
+/// - `terminal_contents`: Ghostty set its layer's contents (the drawn frame, before
+///   the Core Animation commit that shows it)
 /// - `terminal_frame`: a terminal presented a frame while attached to its session
 /// - `terminal_detached`: a terminal presented a frame while not attached (a
 ///   reconnecting or held state after the return)
@@ -21,6 +28,10 @@ import UIKit
 /// `away_ms` is the time in the background before the cycle. The board is one JSON
 /// object in a nearly transparent label, `debug.resume-marks`. Cost: off, nothing;
 /// on, three notification observers and a one-shot display link per return.
+///
+/// Each cycle is also an `OSSignposter` interval (`dev.cmux.mobile`, `resume`) from
+/// `willEnterForeground` to `terminal_frame` (or `terminal_detached`), with every mark
+/// an event inside it, so Instruments shows the stages on a device trace.
 @MainActor
 @Observable
 public final class ResumeMarks {
@@ -38,6 +49,8 @@ public final class ResumeMarks {
     @ObservationIgnored private var awayMs: Double?
     @ObservationIgnored private var stamps: [String: Double] = [:]
     @ObservationIgnored private var observers: [NSObjectProtocol] = []
+    @ObservationIgnored private var interval: OSSignpostIntervalState?
+    private static let signposter = OSSignposter(subsystem: "dev.cmux.mobile", category: "resume")
 
     private init() {
         let center = NotificationCenter.default
@@ -58,14 +71,24 @@ public final class ResumeMarks {
         foreground = now
         awayMs = background.map { (now - $0) * 1000 }
         stamps = [:]
+        if let interval { Self.signposter.endInterval("resume", interval, "superseded") }
+        interval = Self.signposter.beginInterval("resume", id: Self.signposter.makeSignpostID(), "cycle \(self.cycle)")
         publish()
         ResumeFrame.after { ResumeMarks.shared?.note("frame") }
+        // Queued behind every other willEnterForeground observer and the work they queued first.
+        DispatchQueue.main.async { MainActor.assumeIsolated { ResumeMarks.shared?.note("main_free") } }
     }
 
     /// Takes `name` now, once per cycle (nothing before the first return).
     public func note(_ name: String) {
         guard let foreground, stamps[name] == nil else { return }
-        stamps[name] = (CACurrentMediaTime() - foreground) * 1000
+        let ms = (CACurrentMediaTime() - foreground) * 1000
+        stamps[name] = ms
+        Self.signposter.emitEvent("mark", "\(name, privacy: .public) \(ms, format: .fixed(precision: 1), privacy: .public)")
+        if name == "terminal_frame" || name == "terminal_detached", let interval {
+            Self.signposter.endInterval("resume", interval, "\(name, privacy: .public)")
+            self.interval = nil
+        }
         publish()
     }
 

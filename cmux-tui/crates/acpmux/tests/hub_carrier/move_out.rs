@@ -1,10 +1,10 @@
 //! A driver reaches the holder through mesh control; the target gets every page over the relay.
 use super::*;
 use acpmux::mesh::{
-    Ack, ControlHook, Heartbeat, HeartbeatReply, HubError, InMessage, MeshHub, OutMessage, Receipt,
+    Ack, Heartbeat, HeartbeatReply, HubError, InMessage, MeshHub, OutMessage, Receipt,
 };
 use acpmux::mesh_http::MeshControlFrom;
-use acpmux::server::mesh_relay::MeshControlHook;
+use acpmux::server::mesh_relay::{ControlHook, MeshControlHook};
 use acpmux::transfer_service::{CarrierDial, ConfiguredTransferGate};
 use futures::future::BoxFuture;
 use std::path::Path;
@@ -121,6 +121,7 @@ impl Tickets for MachineTickets {
             expires_at: 0,
             peer_key: None,
             peers: self.peers.keys().cloned().collect(),
+            relays: Vec::new(),
         })
     }
 
@@ -133,6 +134,7 @@ impl Tickets for MachineTickets {
             expires_at: 0,
             peer_key: Some(peer.to_owned()),
             peers: Vec::new(),
+            relays: Vec::new(),
         })
     }
 }
@@ -183,6 +185,7 @@ fn machines(relay: &str, root: &Path, state: &Path) -> Vec<Machine> {
         let hook = MeshControlHook::new(
             vec![MeshControlFrom {
                 daemon_id: String::new(),
+                max_policy: None,
                 same_user: true,
                 ops: vec!["move".into()],
             }],

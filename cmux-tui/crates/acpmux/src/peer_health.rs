@@ -71,8 +71,9 @@ impl Peer {
 }
 
 /// The fields a peer row carries; the rest (name, build, uptime) the row
-/// already has or nobody reads.
-fn trim(v: Value) -> Value {
+/// already has or nobody reads. A reading through the mesh hub is cut the same way, on the
+/// machine that answers it (`server/mesh_read.rs` `host_health`).
+pub(crate) fn trim(v: Value) -> Value {
     let mut out = serde_json::Map::new();
     for key in [
         "os",

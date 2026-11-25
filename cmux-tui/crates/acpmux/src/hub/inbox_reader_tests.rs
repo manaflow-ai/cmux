@@ -198,6 +198,52 @@ async fn a_slow_reader_holds_no_notice() {
     assert_eq!(carried(&session), Some(vec!["s-a".into()]), "it went at once");
 }
 
+/// Duress: a burst of reads far past [`SLOTS`] queues for a slot and every one ends with its
+/// summary. The slot wait has no deadline (it once dropped 95 of 2786 reads on a busy VM).
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_burst_past_the_slots_loses_no_read() {
+    const BURST: usize = 24;
+    let (hub, session) = hub_with_chat("reader-burst");
+    running(&session);
+    set_test_summarizer(
+        &session.id,
+        Arc::new(|prompt: String| {
+            std::thread::sleep(Duration::from_millis(150));
+            let n = prompt.split("burst-").nth(1).and_then(|t| t.split_whitespace().next());
+            Ok(format!("1|read {}", n.unwrap_or("?")))
+        }),
+    );
+    let now = due_result_at();
+    let items: Vec<Item> = (0..BURST)
+        .map(|n| {
+            item(
+                &format!("b-{n}"),
+                &format!("t{n}"),
+                PromptClass::Fyi,
+                now,
+                &long(&format!("burst-{n}")),
+            )
+        })
+        .collect();
+    for i in &items {
+        hub.inbox_reader_prefetch(&session, &i.prompt_id, "lane-a", i.class, false, &i.text);
+    }
+    let refs: Vec<&Item> = items.iter().collect();
+    let started = Instant::now();
+    loop {
+        let (s, jobs) = lookup(&session.id, &refs);
+        assert!(jobs.is_empty(), "the prefetch started every read");
+        if s.len() == BURST {
+            for n in 0..BURST {
+                assert_eq!(s[&format!("b-{n}")].line, format!("read {n}"));
+            }
+            break;
+        }
+        assert!(started.elapsed() < Duration::from_secs(20), "{} of {BURST} reads ended", s.len());
+        tokio::time::sleep(Duration::from_millis(20)).await;
+    }
+}
+
 /// A notice that carries a block, a question or a FIRE never waits for the reader.
 #[tokio::test]
 async fn a_blocker_never_waits_for_the_reader() {
