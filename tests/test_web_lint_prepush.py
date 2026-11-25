@@ -179,6 +179,7 @@ class WebLintPrePushTests(unittest.TestCase):
             "scripts/web-lint.sh",
             "scripts/merge-xcstrings.py",
             "scripts/merge-pbxproj.py",
+            "scripts/merge-cargo-lock.py",
             "scripts/merge-baseline.py",
             "scripts/merge-daemon-capabilities.py",
             "scripts/merge-insertions.py",
