@@ -1254,6 +1254,7 @@ impl LinkRig {
             chief_socket: None,
             browser: cmux_mobile_host::browser::BrowserConfig::new(None, 1),
             surface: cmux_mobile_host::surface::SurfaceConfig::new(None, 1),
+            viewport_sync: None,
         });
         let registry = Arc::new(cmux_mobile_link::ResumeRegistry::default());
         let mac_config = link_config(reliable, Some(registry));
@@ -1286,6 +1287,7 @@ impl LinkRig {
                                 session_exposure: None,
                                 route: None,
                                 path: None,
+                                viewport: None,
                             },
                             Arc::new(LinkAuth::default()),
                             incoming,
