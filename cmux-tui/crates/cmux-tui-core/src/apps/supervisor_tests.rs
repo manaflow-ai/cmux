@@ -1480,6 +1480,8 @@ mod status_items;
 mod subscriptions;
 #[path = "supervisor_toolbar_tests.rs"]
 mod toolbar;
+#[path = "supervisor_view_state_tests.rs"]
+mod view_state;
 #[path = "supervisor_widget_tests.rs"]
 mod widget_tiles;
 
