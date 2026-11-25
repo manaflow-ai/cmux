@@ -961,11 +961,11 @@ impl Held {
             self.ended(1);
             return;
         }
-        self.pool
-            .lock()
-            .unwrap_or_else(PoisonError::into_inner)
-            .free
-            .push(Pooled { cat, used: Instant::now(), generation });
+        self.pool.lock().unwrap_or_else(PoisonError::into_inner).free.push(Pooled {
+            cat,
+            used: Instant::now(),
+            generation,
+        });
         self.freed.notify_one();
     }
 
