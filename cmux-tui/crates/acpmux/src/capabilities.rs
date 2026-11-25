@@ -231,6 +231,13 @@ pub const CAPABILITIES: &[Capability] = &[
     Capability { id: INFO_ROWS, wire: &[method::MUX_INFO, method::MUX_STATUS] },
     // `_acpmux/markRead`: mark a chat read without showing it (cmux's `chat.mark_read`).
     Capability { id: "mark-read-v1", wire: &[method::MUX_MARK_READ] },
+    // `_acpmux/archive` and `_acpmux/rename` take an optional `opId` and run once per id
+    // (`hub/op_once.rs`): a resend after a lost reply answers the first result. An older
+    // daemon ignores `opId` and runs each resend, as before.
+    Capability {
+        id: crate::hub::op_once::CAPABILITY,
+        wire: &[method::MUX_ARCHIVE, method::MUX_RENAME],
+    },
     // The session list as a row log (`hub/row_log.rs`): `session_changed` and a watch's list
     // carry `listSeq`/`listEpoch`, and `_acpmux/watch {afterSeq, listEpoch}` answers the rows
     // changed since, not the list. Older daemons ignore `afterSeq` and send the list.
@@ -354,6 +361,8 @@ pub const CAPABILITIES: &[Capability] = &[
     // Who has a shared chat open and who types in it (`hub/presence.rs`); the attach reply's
     // `presence` comes with it.
     Capability { id: CHAT_PRESENCE, wire: &[method::MUX_TYPING, method::MUX_PRESENCE] },
+    // Who is on this machine now, people across devices and agents in a turn (`hub/here.rs`).
+    Capability { id: "here-v1", wire: &[method::MUX_HERE_BEAT, method::MUX_HERE] },
     // Edit or remove a queued prompt, and send a steer now (`hub/queue_edit.rs`).
     Capability { id: "queue-edit-v1", wire: &[method::MUX_QUEUE_EDIT, method::MUX_QUEUE_REMOVE] },
     // A person's prompt waits for the owner, who approves or declines it (`hub/queue_approve.rs`).
