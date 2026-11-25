@@ -1,4 +1,4 @@
-import CmuxNextCloud
+public import CmuxNextCloud
 import CmuxNextRemote
 import Foundation
 

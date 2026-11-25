@@ -89,8 +89,9 @@ pub(crate) fn acp_value(meta: &SessionMeta) -> Option<Value> {
 /// the person's own name for it (a Mac path), each at most 4096 bytes. Anything else: none.
 pub(crate) fn added(params: &Value, dirs: &[PathBuf]) -> Option<Value> {
     let added = params.get("added")?;
-    let short =
-        |v: &Value| v.as_str().filter(|s| s.len() <= 4096 && !s.chars().any(char::is_control));
+    fn short(v: &Value) -> Option<&str> {
+        v.as_str().filter(|s| s.len() <= 4096 && !s.chars().any(char::is_control))
+    }
     let path = short(added.get("path")?)?;
     let canonical = std::fs::canonicalize(path).unwrap_or_else(|_| PathBuf::from(path));
     let path = dirs.iter().find(|d| **d == canonical || d.as_path() == Path::new(path))?;
