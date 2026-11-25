@@ -127,6 +127,7 @@ extension WorkspaceRowView {
         default: break
         }
         if let text = Strings.activity(content.activity) { parts.append(text) }
+        if ws.isPinnedInGroup { parts.append(Strings.pinned) }
         if ws.muted { parts.append(Strings.notificationsMuted) }
         // The computer: a one-list row on another computer says it with its status when it cannot connect
         // (`SidebarLayout.machineLabel`, "gpu-box · Failed to start"), whether or not the row draws a mark
