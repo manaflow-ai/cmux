@@ -1356,25 +1356,54 @@ exit "$status"
 # superset of what scripts/ci/cmux_next_route.py routes to the tier (it reads the SwiftPM target graph), and each
 # step's first line asks scripts/ci/mac_tiers.py, which runs that router over $CI_PATHS_FILE, so a path the globs
 # over-route skips in a second.
-[step.mac-swift-canary]
-job = "mac"
-timeout = 1200
-title = "Swift canary"
-about = "a debug build of each CmuxNext target the change reaches (cmux_next_route.py swift_canary_targets)"
+[step.swift-canary]
+# Was the `mac` job's mac-swift-canary: a Mac compiled each CmuxNext target the change reaches in Debug. The build
+# fleet's pool already compiles and links the whole app (every production target the canary could name) in Debug at
+# every same-repository pull request head (scripts/ci/fleet_compile_result.py --phase app-debug, the record
+# cmux-next.yml's app-compile-fleet reads), so this step reads that one compile instead of compiling again on a Mac.
+# `alone`: it runs after the job's other steps, by when the fleet's compile (submitted at the push) has an answer.
+# A fork's head is not compiled by the fleet; its Mac Release compile (cmux-next.yml release-compile) compiles it.
+#
+# Leo, 2026-11-25: "stop waiting on ci to get these fucking things in" and "we need to not only build, but use".
+job = "linux"
+timeout = 2400
+alone = true
+title = "Swift canary (build fleet)"
+about = "the build fleet's Debug compile of the app at the pull request's head, every target the change reaches (fleet_compile_result.py --phase app-debug)"
 inputs = ["Packages/macOS/CmuxNext/Sources/**.swift"]
 run = '''
 python3 -I scripts/ci/mac_tiers.py has swift_canary > "$CI_TOOLS/canary-tiers.txt" || exit 0
-targets="$(sed -n 's/^swift_canary_targets=//p' "$CI_TOOLS/canary-tiers.txt")"
-read -r -a targets <<< "$targets"
-if ((${#targets[@]} == 0)); then
-  echo "the Swift canary is routed with no target" >&2
-  exit 1
+event="${GITHUB_EVENT_PATH:-}"
+read -r head pr fork < <(python3 -I - "$event" <<'PY'
+import json, sys
+try:
+    e = json.load(open(sys.argv[1]))
+except (OSError, ValueError, IndexError):
+    e = {}
+pr = e.get("pull_request") or {}
+head = (pr.get("head") or {})
+repo = (head.get("repo") or {}).get("full_name") or ""
+base = (e.get("repository") or {}).get("full_name") or ""
+print(head.get("sha") or "-", pr.get("number") or "-", "1" if repo and base and repo != base else "0")
+PY
+)
+if [ "$head" = "-" ]; then
+  head="$(git rev-parse -q --verify 'HEAD^2' 2>/dev/null || git rev-parse HEAD)"
 fi
-cd "${CMUX_MAC_ROOT:-$PWD}/Packages/macOS/CmuxNext"
-for target in "${targets[@]}"; do
-  echo "Canary target: $target"
-  swift build --configuration debug --target "$target"
-done
+if [ "$fork" = "1" ]; then
+  echo "a fork's head: the build fleet compiles only same-repository heads; the Mac Release compile compiles this one"
+  exit 0
+fi
+repo="${GITHUB_REPOSITORY:-manaflow-ai/cmux}"
+args=(--sha "$head" --repo "$repo" --phase app-debug --wait 1800 --no-record 600)
+[ "$pr" = "-" ] || args+=(--pr "$pr")
+word="$(python3 -I scripts/ci/fleet_compile_result.py "${args[@]}")" || word=none
+case "$word" in
+  pass) echo "the build fleet compiled and linked the app at $head (Debug): every target the change reaches compiles" ;;
+  fail) echo "::error title=Swift canary::the app does not compile at $head (the build fleet's Debug compile; its log is linked from the cmux-next app compile (build fleet) check)"
+        exit 1 ;;
+  *) echo "::warning title=Swift canary::no build fleet verdict for $head yet ($word); the Release compile at land compiles it" ;;
+esac
 '''
 
 [step.mac-fast-tier]
