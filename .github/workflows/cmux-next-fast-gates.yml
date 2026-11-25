@@ -666,7 +666,7 @@ jobs:
     name: report the lane receipt audit
     needs: [resolve, receipt, post]
     if: ${{ always() && !cancelled() && needs.receipt.outputs.audit == 'true' && startsWith(needs.receipt.outputs.producer, 'lane:') && (needs.post.outputs.state == 'success' || needs.post.outputs.state == 'failure') }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'cmux-linux' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && (vars.CI_FORK_LINUX_RUNNER || 'ubuntu-24.04') || 'cmux-linux' }}
     timeout-minutes: 3
     continue-on-error: true
     permissions:
