@@ -21,7 +21,6 @@ mod follow_camera;
 mod link_side;
 mod mac_screen;
 mod pair_requests;
-mod read_store;
 mod share_approval;
 mod tabs;
 mod terminal_chat;
@@ -37,7 +36,6 @@ pub use composer_outbox::{
 pub use follow_camera::{FollowCamera, FollowCameraMode, FollowRect};
 pub use link_side::{LinkOpenSide, link_open_side};
 pub use mac_screen::{MacScreenAnswer, MacScreenDisplay, MacScreenIceServer, MacScreenObserver, MacScreenRd};
-pub use read_store::{PhoneReadKey, PhoneReadStore, PhoneReadStoreError};
 pub use share_approval::{ShareApprovalDraft, ShareAsk, share_approval_draft, share_approval_signed};
 pub use tabs::{TabsEvent, TabsMirror, TabsRow, TabsViewport};
 pub use terminal_chat::{

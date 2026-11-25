@@ -22,7 +22,6 @@ required-features = ["bindgen"]
 bindgen = ["uniffi/cli"]
 
 [dependencies]
-cmux-mobile-core.workspace = true
 # The terminal composer's keyed Send (src/composer_outbox.rs).
 cmux-composer-send.workspace = true
 cmux-follow-cam.workspace = true
