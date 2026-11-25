@@ -1,5 +1,6 @@
 import Foundation
-@testable import CmuxAuthRuntime
+import CmuxAuthRuntime
+@testable import CmuxPushRegistration
 
 actor CancellationIgnoringPushTokenProvider: TokenProviding {
     private let snapshotValue = AuthenticatedSessionSnapshot(
