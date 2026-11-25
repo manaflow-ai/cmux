@@ -284,6 +284,12 @@ jobs:
         if: ${{ !cancelled() && matrix.group == 'ci' }}
         run: python3 tests/test_outbound_hosts.py
 
+      # Every connectivity host NEXT's code names (ICE servers, relays, signaling, backend, update hosts) is in
+      # config/network/allowlist.json, the list firewall admins allow; docs/network-requirements.md is rendered from it.
+      - name: Validate NEXT's connectivity hosts are in the network allowlist
+        if: ${{ !cancelled() && matrix.group == 'ci' }}
+        run: python3 tests/test_network_allowlist.py
+
       # Every outbound HTTP client or socket NEXT makes goes through the egress gate, which refuses unlisted hosts
       # at run time; tests/egress_ungated.json lists the sites not moved yet and may only shrink.
       - name: Validate NEXT's outbound sites go through the egress gate
@@ -503,6 +509,25 @@ jobs:
             ./scripts/ci/lint-ios-conventions-diff.sh "$BASE_SHA"
           else
             echo "No base revision for this event; conventions diff skipped."
+          fi
+
+      # Leo, 2026-11-24: "wer need to chase all these placeholders doen and prevent them".
+      # Fails a change that adds a spinner, skeleton or "Loading…" line to the iPhone app;
+      # only added lines count (cmux-next-ios/design/placeholder-inventory.md lists the rest).
+      - name: Validate no new iOS loading placeholders
+        if: ${{ !cancelled() && matrix.group == 'preflight' }}
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.merge_group.base_sha }}
+        run: |
+          set -euo pipefail
+          python3 tests/test_ci_ios_loading_placeholders.py
+          if [ -n "${BASE_SHA:-}" ]; then
+            if ! git cat-file -e "$BASE_SHA^{commit}" 2>/dev/null; then
+              git fetch --no-tags --depth=1 origin "$BASE_SHA"
+            fi
+            python3 scripts/ci/check-ios-loading-placeholders.py "$BASE_SHA"
+          else
+            echo "No base revision for this event; placeholder check skipped."
           fi
 
       - name: Validate reload shared DerivedData default

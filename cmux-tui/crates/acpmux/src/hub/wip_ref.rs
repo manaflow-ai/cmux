@@ -120,7 +120,7 @@ impl super::Hub {
         }
         let cwd = session.meta.lock().unwrap_or_else(|e| e.into_inner()).cwd.clone();
         let id = session.id.clone();
-        self.scope.spawn_until_cancelled("wip-ref", save(PathBuf::from(cwd), id));
+        self.scope.spawn_until_cancelled("wip-ref", save(cwd, id));
     }
 }
 
@@ -129,7 +129,7 @@ impl Session {
     pub(super) async fn save_wip(&self) {
         if enabled() {
             let cwd = self.meta.lock().unwrap_or_else(|e| e.into_inner()).cwd.clone();
-            save(PathBuf::from(cwd), self.id.clone()).await;
+            save(cwd, self.id.clone()).await;
         }
     }
 }

@@ -1,3 +1,4 @@
+import CmuxEgress
 import CMUXMobileCore
 public import Foundation
 
@@ -339,7 +340,7 @@ public actor IrxControlPlaneClient {
         if let namespace = configuration.clientNamespace {
             request.setValue(namespace, forHTTPHeaderField: "X-Cmux-App-Namespace")
         }
-        let task = URLSession.shared.webSocketTask(with: request)
+        let task = CmuxEgress.websocket(CmuxEgress.shared(site: "CmuxIrxTransport.IrxControlPlaneClient"), with: request, site: "CmuxIrxTransport.IrxControlPlaneClient")
         socket = task
         lastAckedRev = nil
         lastActivityAt = nil
