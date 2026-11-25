@@ -38,6 +38,17 @@ INDIRECT_ROUTE_INPUTS = {
 # the conservative fallback even though workflow-guard-tests also reads it.
 GHOSTTYKIT_PROVENANCE = frozenset({"ghostty"})
 
+# What ghosttykit-release-check verifies: the GhosttyKit release published for the pinned ghostty SHA, through these
+# scripts, as ci.yml's job defines it. A pull request that changes none of them has the pin its base push already
+# verified (a push runs every route), and every Mac job downloads and checks the same archive itself, so the check
+# would repeat a verdict the base holds. Over 2026-11-22T22..11-23T22Z it ran on 3,135 pull request runs, about
+# 10,250 runner-minutes, nearly all of them on pins nobody had changed (cmuxterm-hq goals/ci-min-per-pr-140.md).
+GHOSTTYKIT_RELEASE_INPUTS = frozenset({
+    "ghostty", ".gitmodules", ".github/workflows/ci.yml",
+    "scripts/download-prebuilt-ghosttykit.sh", "scripts/validate-xcframework-archive.py",
+    "scripts/ghosttykit-checksums.txt", "tests/test_ci_ghosttykit_release_check.sh",
+})
+
 
 def route_inputs() -> dict[str, frozenset[str]] | None:
     """Map each guard route to the paths that route's job observes.
@@ -73,14 +84,24 @@ def classify(paths: list[str], *, event: str, macos: str) -> dict[str, bool]:
     all_guards = dict.fromkeys(ROUTES, True)
     if event != "pull_request" or macos not in {"true", "false"} or not paths:
         return all_guards
+    if any(not path or path.startswith("/") or ".." in path.split("/") for path in paths):
+        return all_guards
+    routes = classify_guards(paths)
+    if routes is None:
+        routes = dict(all_guards)
+    # A pull request runs the release check only when it changes what the check reads (GHOSTTYKIT_RELEASE_INPUTS).
+    routes["ghosttykit_release"] = any(path in GHOSTTYKIT_RELEASE_INPUTS for path in paths)
+    return routes
+
+
+def classify_guards(paths: list[str]) -> dict[str, bool] | None:
+    """The guard routes of a pull request's valid, non-empty path list (the caller checked both); None when a path
+    or an unreadable ci-guards.yml fails open to every route."""
     inputs = route_inputs()
     if inputs is None:
-        return all_guards
-    routes = dict.fromkeys(ROUTES, False)
-    routes["ghosttykit_release"] = macos == "true"
+        return None
+    routes = dict.fromkeys(GUARD_ROUTES, False)
     for path in paths:
-        if not path or path.startswith("/") or ".." in path.split("/"):
-            return all_guards
         if plain_documentation(path):
             continue
         # The mixed suite includes source, resource, and packaging contracts.
@@ -103,7 +124,7 @@ def classify(paths: list[str], *, event: str, macos: str) -> dict[str, bool]:
         else:
             # Workflows, scripts, tests, new top-level areas, and the router
             # itself retain all coverage. New guard inputs cannot silently skip.
-            return all_guards
+            return None
     return routes
 
 
@@ -216,8 +237,8 @@ def classify_feat(paths: list[str]) -> tuple[str, ...]:
         if plain_documentation(path):
             continue
         owners = groups_for_path(path)
-        routes = classify([path], event="pull_request", macos="false")
-        fails_open = routes == dict.fromkeys(ROUTES, True)
+        routes = classify_guards([path])
+        fails_open = routes is None
         if owners is None or fails_open:
             if not path.startswith(FEAT_PRODUCT_AREAS):
                 return FEAT_ROUTED
