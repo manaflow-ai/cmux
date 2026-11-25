@@ -35,6 +35,37 @@ public final class AppKeyBindings {
     /// order; a key that is not one chord or a `when` that does not parse is skipped.
     public static func bindings(_ apps: [AppRecord]) -> [KeyBinding] {
         apps.filter(\.isVisible).flatMap { app in
+            commandBindings(app) + app.keybindings.compactMap(contributed)
+        }
+    }
+
+    /// A `contributes.keybindings` entry (keybindings.json form, up to four strokes); nil when a
+    /// stroke, the `when` or an argument does not convert.
+    static func contributed(_ binding: AppRecord.Keybinding) -> KeyBinding? {
+        var keys: [Shortcut] = []
+        for text in binding.keys {
+            guard let stroke = ShortcutBindingFormat.parseStroke(text) else { return nil }
+            keys.append(SettingsApplier.shortcut(for: stroke))
+        }
+        guard !keys.isEmpty else { return nil }
+        var when: WhenClause?
+        if let text = binding.when {
+            guard let clause = try? WhenClause.parse(text) else { return nil }
+            when = clause
+        }
+        var arguments: [String: ActionValue] = [:]
+        for (name, value) in binding.args {
+            switch value {
+            case .string(let text): arguments[name] = .string(text)
+            case .bool(let flag): arguments[name] = .bool(flag)
+            case .number(let number) where number.rounded() == number: arguments[name] = .int(Int(number))
+            default: return nil
+            }
+        }
+        return KeyBinding(keys: keys, command: ActionID(rawValue: binding.command), arguments: arguments, when: when, source: .app)
+    }
+
+    private static func commandBindings(_ app: AppRecord) -> [KeyBinding] {
             app.commands.flatMap { command in
                 command.keys.compactMap { key -> KeyBinding? in
                     guard let stroke = ShortcutBindingFormat.parseStroke(key.key) else { return nil }
@@ -47,7 +78,6 @@ public final class AppKeyBindings {
                                       arguments: ["app": .string(app.id), "command": .string(command.op)], when: when, source: .app)
                 }
             }
-        }
     }
 }
 
