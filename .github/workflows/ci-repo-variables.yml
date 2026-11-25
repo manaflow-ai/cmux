@@ -53,7 +53,7 @@ jobs:
     name: Check repository variables
     if: ${{ github.repository == 'manaflow-ai/cmux' }}
     # The linux pool, not LINUX_RUNNER: this job checks LINUX_RUNNER, so it must not wait on it.
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'cmux-linux' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_OVERFLOW_LINUX || 'cmux-linux' }}
     timeout-minutes: 5
     permissions:
       contents: read
@@ -95,6 +95,8 @@ jobs:
             CI_LINUX_GATE_OWNED_RUNNER=${{ vars.CI_LINUX_GATE_OWNED_RUNNER }}
             CI_LINUX_HOSTED_RUNNER=${{ vars.CI_LINUX_HOSTED_RUNNER }}
             CI_NIGHTLY_TRUSTED_RUNNER=${{ vars.CI_NIGHTLY_TRUSTED_RUNNER }}
+            CI_OVERFLOW_LINUX=${{ vars.CI_OVERFLOW_LINUX }}
+            CI_OVERFLOW_MAC=${{ vars.CI_OVERFLOW_MAC }}
             CI_NIGHTLY_NEXT_BUILD_RUNNER=${{ vars.CI_NIGHTLY_NEXT_BUILD_RUNNER }}
             CI_NIGHTLY_NEXT_TRUSTED_POOL=${{ vars.CI_NIGHTLY_NEXT_TRUSTED_POOL }}
             CI_NIGHTLY_NEXT_TRUSTED_RUNNER=${{ vars.CI_NIGHTLY_NEXT_TRUSTED_RUNNER }}
@@ -189,6 +191,7 @@ jobs:
             CI_NIGHTLY_SIGN_RUNNER=${{ vars.CI_NIGHTLY_SIGN_RUNNER }}
             CI_NIGHTLY_TRUSTED_RUNNER=${{ vars.CI_NIGHTLY_TRUSTED_RUNNER }}
             CI_OVERFLOW_LINUX=${{ vars.CI_OVERFLOW_LINUX }}
+            CI_OVERFLOW_MAC=${{ vars.CI_OVERFLOW_MAC }}
             CI_PAID_MACOS_OVERFLOW=${{ vars.CI_PAID_MACOS_OVERFLOW }}
             CI_PERF_CRON_GATEWAY=${{ vars.CI_PERF_CRON_GATEWAY }}
             CI_PIN_DAEMON_POOL=${{ vars.CI_PIN_DAEMON_POOL }}

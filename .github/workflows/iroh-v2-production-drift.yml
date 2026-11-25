@@ -31,7 +31,7 @@ env:
 jobs:
   drift:
     # Fork pull requests cannot use the private Blacksmith pool.
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'cmux-linux' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_OVERFLOW_LINUX || 'cmux-linux' }}
     timeout-minutes: 25
     permissions:
       contents: read
