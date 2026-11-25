@@ -1,3 +1,4 @@
+public import CmuxNextActions
 public import CmuxNextAgentActivity
 import CmuxNextHomeEngine
 import Foundation
@@ -40,6 +41,14 @@ extension AgentLaneStore {
         case .asGiven: return session
         case .ambiguous: throw AgentSessionOpenRefusal.ambiguousLocal(session)
         }
+    }
+
+    /// Reads the arguments of a tab-open action and resolves its chat before the app changes focus.
+    public func tabSession(for invocation: ActionInvocation, localHost: String?, sessionRequired: @autoclosure () -> String) throws(AgentSessionOpenRefusal) -> (session: String, host: String?) {
+        let session = (invocation["session"]?.stringValue ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !session.isEmpty else { throw AgentSessionOpenRefusal(description: sessionRequired()) }
+        let host = invocation["host"]?.stringValue.flatMap { $0.isEmpty ? nil : $0 }
+        return try tabSession(session, host: host, localHost: localHost)
     }
 
     /// The session and host `agent.openSessionTab` binds its tab to: this Mac's chat by acpmux's id

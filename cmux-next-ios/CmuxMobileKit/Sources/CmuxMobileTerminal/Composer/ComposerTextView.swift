@@ -52,11 +52,9 @@ struct ComposerTextView: UIViewRepresentable {
         view.backgroundColor = .clear
         view.textColor = .label
         view.tintColor = .label
-        // The view runs the field's full height (`textVerticalInset`): one
-        // line is 40 pt, as tall as the paperclip and voice circles beside
-        // it (classic), and a scrolled draft is cut at the field's edge.
-        let inset = TerminalDockMetrics.textVerticalInset
-        view.textContainerInset = UIEdgeInsets(top: inset, left: 0, bottom: inset, right: 0)
+        // No inset, as the agent chat's field: the card (`ComposerCard`)
+        // places the text, one line centered on the row of 36 pt circles.
+        view.textContainerInset = .zero
         view.textContainer.lineFragmentPadding = 0
         view.keyboardAppearance = .dark
         Self.applyAutocorrect(autocorrect, to: view)
@@ -80,6 +78,10 @@ struct ComposerTextView: UIViewRepresentable {
     }
 
     func updateUIView(_ view: ComposerUITextView, context: Context) {
+        ComposerKeyStamp.viewUpdate(view) { update(view, context: context) }
+    }
+
+    private func update(_ view: ComposerUITextView, context: Context) {
         context.coordinator.parent = self
         if context.coordinator.lastTypeSize != dynamicTypeSize {
             context.coordinator.lastTypeSize = dynamicTypeSize
@@ -88,7 +90,7 @@ struct ComposerTextView: UIViewRepresentable {
             view.invalidateIntrinsicContentSize()
             view.setNeedsLayout()
         }
-        if view.text != text { view.text = text }
+        if view.differs(from: text) { view.takeDraft(text) }
         view.placeholder = placeholder
         view.onPasteAttachments = onPasteAttachments == nil ? nil : { [weak coordinator = context.coordinator] in
             coordinator?.parent.onPasteAttachments?()
@@ -146,7 +148,8 @@ struct ComposerTextView: UIViewRepresentable {
         }
 
         func textViewDidChange(_ textView: UITextView) {
-            parent.text = textView.text
+            // A native copy, so a long draft compares as a buffer downstream (`draftText()`).
+            parent.text = (textView as? ComposerReturnTextView)?.draftText() ?? textView.text
             (textView as? ComposerUITextView)?.updatePlaceholder()
             // The height is settled once per edit, and SwiftUI asked again only when it changed.
             (textView as? ComposerReturnTextView)?.settleAfterEdit()

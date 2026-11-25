@@ -346,6 +346,20 @@ pub enum PeerCmd {
         #[arg(long)]
         probe: bool,
     },
+    /// A unix socket here that reaches OWNER's lane-gh broker over the held carrier link (RFD
+    /// 0127 cut 2) instead of an `ssh -R` forward: one carrier stream per connection, so
+    /// `LANE_GH_SOCKET=PATH lane-gh ...` uses it. OWNER serves it once its owner sets
+    /// `acpmux config --set lane_gh_broker=PATH`. Runs until stopped.
+    BrokerForward {
+        /// The machines whose broker to reach (names in the hub's address book), in order of
+        /// preference: each connection goes to the first whose broker answered its last
+        /// progress check, and fails over before any of its bytes are sent.
+        #[arg(value_name = "OWNER", required = true, num_args = 1..)]
+        owners: Vec<String>,
+        /// Where to listen (a stale socket there is replaced; a served one is left alone).
+        #[arg(long, value_name = "PATH")]
+        socket: std::path::PathBuf,
+    },
     /// This machine's ssh public key: the one line a new machine lists in its
     /// ~/.ssh/authorized_keys, and the command that adds it there. --create makes an
     /// ed25519 key when this machine has none (never over an existing key).

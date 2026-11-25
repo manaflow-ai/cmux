@@ -84,6 +84,8 @@ public final class AgentPaneView: NSView {
     var runsOnOtherInstall = false
     /// "Remote approvals are off" (cx-0q7o), and the restart the chat's machine offers.
     var remoteApprovalsNotice: AgentPaneNotice?
+    /// "The Cloud chat ended" on a Mac tab whose Cloud chat went (``showCloudChatEnded(machine:promptBack:)``, cmux#55066).
+    var cloudChatEndedNotice: AgentPaneNotice?
     var remoteApprovals: AgentPaneRemoteApprovals?
     /// Why the notice says a peer of this Mac's daemon did not count this Mac's allow (peer-route
     /// approvals); nil for no notice or another one.
@@ -125,6 +127,8 @@ public final class AgentPaneView: NSView {
     private var uiScaleObservation: Task<Void, Never>?
     /// Hands the old host's document `app.language` on every change (``observeLanguage()``).
     var languageObservation: Task<Void, Never>?
+    /// Tells the page each time this app's acpmux answers a lookup (``observeAcpmuxAnswers()``).
+    var acpmuxAnswerObservation: Task<Void, Never>?
     /// The indicator while Computer use can act as me is on; it has no pill until the grant is on (``showActAsMe(_:)``).
     let actAsMePill = AgentPaneActAsMePill()
     public var zoom: Double = 1 {
@@ -332,6 +336,7 @@ public final class AgentPaneView: NSView {
         model.onTabRowToolInvoked = { [weak self] id, menuItemID in
             self?.invokeTabRowTool(id, menuItemID: menuItemID)
         }
+        model.onCustomizationsMenuRequested = { [weak self] point in self?.popCustomizationsMenu(at: point) ?? false }
         model.onTabRowToolMenuRequested = { [weak self] id, menuItemID in
             self?.onNativeToolMenuRequested?(id, menuItemID)
         }
@@ -340,6 +345,7 @@ public final class AgentPaneView: NSView {
         }
         inputReadiness.attach(webView)
         flickerLog?.watchWindows()
+        if let ended = model.seed?.cloudChatEnded { showCloudChatEnded(machine: ended.machine, promptBack: ended.promptBack) }
         if let page {
             attachPage(page)
         } else {
@@ -372,6 +378,7 @@ public final class AgentPaneView: NSView {
             return await AgentPaneFilePicker(openPanel: openPanel).pickAttachments(window: window)
         }
         model.onFramePacing = { [weak self] _ in self?.framePacingSettings() ?? [:] }
+        model.paneShown = { [weak self] in self.map { $0.window != nil && !$0.isHidden } ?? false }
         model.onTabKeyChange = { [weak self] in self?.announceTab() }
         model.onPaintReport = { [weak self] in self?.documentCoverPaintReported() }
         model.onRenderRate = { [weak self] full in
@@ -411,6 +418,7 @@ public final class AgentPaneView: NSView {
         observeUIScale()
         observeIconFamily()
         observeLanguage()
+        observeAcpmuxAnswers()
         sessionStatusObservation = AgentPaneSessionStatus.follow(self)
         model.onCloudTeamChange = { [weak self] in self?.evaluateScript(AgentPaneCloudMachines.teamChangeScript) }
         installSessionInfo()
@@ -488,6 +496,7 @@ public final class AgentPaneView: NSView {
         MainActor.assumeIsolated {
             uiScaleObservation?.cancel()
             languageObservation?.cancel()
+            acpmuxAnswerObservation?.cancel()
             gitHubChangeObservation?.cancel()
             actAsMePill.stop()
             sessionStatusObservation?.cancel()
@@ -592,6 +601,8 @@ public final class AgentPaneView: NSView {
         iconFamilyObservation = nil
         languageObservation?.cancel()
         languageObservation = nil
+        acpmuxAnswerObservation?.cancel()
+        acpmuxAnswerObservation = nil
         sessionStatusObservation?.cancel()
         model.sessionInfo.hostObservation?.cancel()
         model.sessionInfo.hostObservation = nil
@@ -614,6 +625,7 @@ public final class AgentPaneView: NSView {
         model.transport.onRemoteApprovalsOff = nil
         model.transport.onPeerApprovalsOff = nil
         model.onTabRowToolMenuRequested = nil
+        model.onCustomizationsMenuRequested = nil
         onNativeToolMenuRequested = nil
         model.transport.onQuestionStateChanged = nil
         model.onQuestionKeySessionChange = nil
