@@ -9,7 +9,7 @@ use std::hash::Hash;
 use std::io;
 use std::net::SocketAddr;
 
-use crate::{LastGood, RacePolicy, Won, race};
+use crate::{LastGood, Losers, RacePolicy, Won, race_keeping_losers};
 
 /// `addresses` IPv6 first, the two families alternating, the order within a family kept
 /// (RFC 8305). Dials race over this, not the resolver's order: musl sorts every A record first
@@ -50,14 +50,37 @@ where
     F: FnMut(A) -> Fut,
     Fut: Future<Output = io::Result<T>>,
 {
+    race_remembered_keeping_losers(memory, key, candidates, policy, connect)
+        .await
+        .map(|(winner, won, _)| (winner, won))
+}
+
+/// [`race_remembered`], with the attempts still in flight handed back as [`Losers`]
+/// ([`crate::race_keeping_losers`]): the feed for a [`crate::Standby`] pool.
+///
+/// # Errors
+/// The race's error: the last attempt's.
+pub async fn race_remembered_keeping_losers<K, A, T, F, Fut>(
+    memory: &LastGood<K, A>,
+    key: K,
+    candidates: &[A],
+    policy: RacePolicy,
+    connect: F,
+) -> io::Result<(A, Won<T>, Losers<A, Fut>)>
+where
+    K: Eq + Hash,
+    A: Clone + PartialEq,
+    F: FnMut(A) -> Fut,
+    Fut: Future<Output = io::Result<T>>,
+{
     let (ordered, lead) = memory.order(&key, candidates);
-    match race(&ordered, policy.with_lead(lead), connect).await {
-        Ok(won) => {
+    match race_keeping_losers(&ordered, policy.with_lead(lead), connect).await {
+        Ok((won, losers)) => {
             let Some(winner) = ordered.get(won.target_index).cloned() else {
                 return Err(io::Error::other("race won on a target it was not given"));
             };
             memory.record(key, winner.clone(), won.connect);
-            Ok((winner, won))
+            Ok((winner, won, losers))
         }
         Err(error) => {
             memory.forget(&key);
