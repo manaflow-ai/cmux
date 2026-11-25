@@ -1553,6 +1553,13 @@
     },
     {
       "agent": "privacy",
+      "why": "Whether this Mac sends crash reports and anonymous analytics: the person's choice only.",
+      "keys": [
+        "app.sendAnonymousTelemetry"
+      ]
+    },
+    {
+      "agent": "privacy",
       "why": "Whether this computer counts how the person uses cmux: the person's choice only.",
       "keys": [
         "diagnostics.usagePatterns"
