@@ -165,6 +165,7 @@ serde = { version = "1", features = ["derive", "rc"] }
 # raw_value: an OpenCode config keeps its keys as written (src/opencode_ask.rs).
 serde_json = { version = "1", features = ["raw_value"] }
 jsonschema.workspace = true
+sha1.workspace = true
 sha2.workspace = true
 # Diffs of a proposed carried-memory change (src/agent_home.rs).
 diffy.workspace = true

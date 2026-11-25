@@ -350,6 +350,7 @@ struct ReplayConversationScreen: View {
             switch player.state {
             case .loading:
                 CmuxSpinner(label: Text("Loading this chat's history…")).frame(maxWidth: .infinity, maxHeight: .infinity)
+                    .placeholderBound("chat.history.loading", .milliseconds(2000))
             case .failed(let message):
                 ContentUnavailableView {
                     Label("Couldn't load this chat's history.", systemImage: "exclamationmark.triangle")

@@ -1060,6 +1060,12 @@ pub(super) async fn handle_request(
     if m == method::MUX_V2 {
         return Err(RpcError::method_not_found(method::MUX_V2));
     }
+    // The person is here (the app's pane or a proven person on this machine, never a script, an
+    // agent or a remote client): a spare that idled out while they were away starts again now,
+    // before their next new chat (`hub/pool/spare.rs`).
+    if person_asks(conn) && !conn.origin.web_class() && !conn.agent_side() {
+        hub.spare_on_person_request();
+    }
     if matches!(
         m,
         method::TRIGGER_CHAT_ENSURE | method::TRIGGER_CHAT_SEND | method::TRIGGER_CHAT_STATUS

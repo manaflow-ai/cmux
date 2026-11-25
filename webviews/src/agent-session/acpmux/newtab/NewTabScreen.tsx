@@ -837,11 +837,14 @@ export function NewTabScreen(props: Props) {
       ? project
       : (props.startCwd ?? (props.startPending && !folderless && !homeOrAbove(props.cwd) ? props.cwd : undefined));
   const cloudMode = props.runMode?.mode === "cloud";
-  const cloudFolder = cloudRepositoryPick(
-    localAskFolder,
-    (localGitHubPick?.cwd === localAskFolder ? localGitHubPick?.name : undefined) ??
-      props.projects?.find((candidate) => candidate.cwd === localAskFolder)?.repo?.github,
-  );
+  // A folder of this Mac the person picked here goes to Cloud as itself (copied, granted on the pick) when it is
+  // no clone of a GitHub repository; never the tab's inherited folder (cmux#53226).
+  const cloudFolder =
+    cloudRepositoryPick(
+      localAskFolder,
+      (localGitHubPick?.cwd === localAskFolder ? localGitHubPick?.name : undefined) ??
+        props.projects?.find((candidate) => candidate.cwd === localAskFolder)?.repo?.github,
+    ) ?? (picked && project !== undefined && localAskFolder === project ? project : undefined);
   const askFolder = cloudMode ? cloudFolder : githubFolderRepo(localAskFolder) ? undefined : localAskFolder;
   // A GitHub repository picked with This Mac picked, not checked out yet: the chip names it, Return checks it out.
   const pendingGitHubFolder = !cloudMode && githubFolderRepo(localAskFolder) ? localAskFolder : undefined;
@@ -2121,7 +2124,8 @@ export function NewTabScreen(props: Props) {
     setPicked(true);
     setNone(cwd === undefined);
     setProject(cwd);
-    if (cwd && !cloudMode && !githubFolderRepo(cwd)) props.onProjectPicked?.(cwd);
+    // With Cloud picked too: the host grants it on this click, so the Cloud start can copy it (cmux#53226).
+    if (cwd && !githubFolderRepo(cwd)) props.onProjectPicked?.(cwd);
     if (!cwd) setCloudFolderWaiting(false);
     field.current?.focus();
     // The folder menu hands focus back to its button as it closes: the field takes it after that,

@@ -136,6 +136,7 @@ struct ToolOutputView: View {
                         .font(.footnote)
                         .foregroundStyle(.tertiary)
                         .padding(.leading, 26)
+                        .placeholderBound("chat.tool.fullOutput.loading", .milliseconds(2000))
                 }
             }
         }
