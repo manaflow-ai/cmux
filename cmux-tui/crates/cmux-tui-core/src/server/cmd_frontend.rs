@@ -76,6 +76,10 @@ pub(super) fn put_frontend_projection(
         expected_projection_revision,
         &projection,
     )?;
+    // The launch snapshot carries every native projection (all but `resource-api`).
+    if frontend != "resource-api" {
+        mux.launch_snapshot_projection_writer(client);
+    }
     let mut value = serde_json::to_value(commit.projection)?;
     value.insert("replayed", json!(commit.replayed));
     Ok(value)

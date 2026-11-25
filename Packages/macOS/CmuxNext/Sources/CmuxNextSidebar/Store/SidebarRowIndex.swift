@@ -171,6 +171,12 @@ extension SidebarListView {
                 }
             }
             if cardChanged, shownCard == ws.id { hoverCards.contentChanged(WorkspaceHoverCardController.targetID(ws.id)) }
+            // An agent-started session that began or stopped waiting on the person shows or hides again
+            // (`SidebarSessionTreeState.hidesStarted`): the list lays out, whether it draws the row now or not.
+            if SidebarSessionTree.shared.drawn(keeping: model.selection)?.patchChangesHidden(from: previous, to: ws) == true {
+                heightChanged = true
+                continue
+            }
             guard let row = displayed.row(for: .workspace(ws.id)), let section = sections[row.section] else {
                 // A session a folded parent hides: the parent's roll-up counts its state, so the list lays out
                 // again when that state moves, not on each step or title it reports.
