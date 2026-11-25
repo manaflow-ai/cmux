@@ -644,9 +644,11 @@ impl Peer {
         let req = self.ws_request(&self.url, self.token.as_deref(), peer_token)?;
         let heard = Heard::default();
         // Over TLS the upgrade is written inside the stream this would wrap: no early frame.
-        let early = (dialer == For::Link && self.url.starts_with("ws://") && !self.early_refused.load(Ordering::SeqCst))
-            .then(|| self.early_initialize())
-            .flatten();
+        let early = (dialer == For::Link
+            && self.url.starts_with("ws://")
+            && !self.early_refused.load(Ordering::SeqCst))
+        .then(|| self.early_initialize())
+        .flatten();
         let early_id = early.as_ref().map(|(id, _)| *id);
         let token_said_no = AtomicBool::new(false);
         // `connect_async`'s steps, with the TCP stream's reads counted (`Heard`).
