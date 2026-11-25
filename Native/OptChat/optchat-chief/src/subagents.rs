@@ -1843,14 +1843,14 @@ impl Spawner {
         default_harness: String,
         plan: SpawnPlan,
         began: Instant,
+        view: Option<String>,
     ) -> Result<String, String> {
-        // View settling and session creation stay off the tool request thread.
-        // The plan is already registered, so the Chief can see each id while
-        // this worker prepares and starts it.
-        if self.turn_view().is_none() {
-            self.settle_view()?;
-        }
-        let view = self.chat.render_compact_view().text;
+        // The sync path settles the view before it registers ids, as before;
+        // the background worker settles it here, off the tool request thread.
+        let view = match view {
+            Some(view) => view,
+            None => self.spawn_view()?,
+        };
         let cloud = plan.peer.as_deref().map(|p| self.placement(p));
         let mut run = self.engine_settings(plan.engine.as_ref());
         // `spawn(model)`: over the engine's (a cloud peer keeps its own).
@@ -2227,6 +2227,17 @@ impl Spawner {
         ))
     }
 
+    /// Section 9: the view at spawn time, as the compaction view: the
+    /// same tree merged coarser, 16-32 KB instead of the turn's 64-128 KB
+    /// (acp-chief-issues.md #12). In a turn, at once; outside a turn, after
+    /// settle (settle_view).
+    fn spawn_view(&self) -> Result<String, String> {
+        if self.turn_view().is_none() {
+            self.settle_view()?;
+        }
+        Ok(self.chat.render_compact_view().text)
+    }
+
     fn fail_starting(&self, plan: &SpawnPlan, error: String) {
         for id in &plan.ids {
             let _ = self.to_brain(Input::SubagentFailed {
@@ -2387,9 +2398,15 @@ impl Orchestrator for Spawner {
             ));
         }
         let began = Instant::now();
-        // Register ids before doing view settling or any session work. The
-        // worker below reports each eventual start or failure through the
-        // existing SubagentStarted/SubagentFailed events.
+        // Off (the default): the view settles before the ids register, and
+        // the spawn answers with the start lines, as before. On: the ids
+        // register first and the worker below settles the view and reports
+        // each start or failure through SubagentStarted/SubagentFailed.
+        let view = if self.background_start {
+            None
+        } else {
+            Some(self.spawn_view()?)
+        };
         let (reply, answer) = channel();
         self.to_brain(Input::SpawnRegister {
             tasks: tasks.clone(),
@@ -2407,19 +2424,18 @@ impl Orchestrator for Spawner {
             .recv()
             .map_err(|_| "the Chief host is stopping".to_owned())??;
         if !self.background_start {
-            return self
-                .finish_spawn(
-                    tasks,
-                    cwd,
-                    effort,
-                    harness,
-                    model,
-                    routed_note,
-                    default_harness,
-                    plan.clone(),
-                    began,
-                )
-                .inspect_err(|error| self.fail_starting(&plan, error.clone()));
+            return self.finish_spawn(
+                tasks,
+                cwd,
+                effort,
+                harness,
+                model,
+                routed_note,
+                default_harness,
+                plan,
+                began,
+                view,
+            );
         }
         let status = starting_status(&plan);
         let worker = self.clone();
@@ -2438,6 +2454,7 @@ impl Orchestrator for Spawner {
                     default_harness,
                     plan,
                     began,
+                    None,
                 );
                 match result {
                     Ok(note) => {
