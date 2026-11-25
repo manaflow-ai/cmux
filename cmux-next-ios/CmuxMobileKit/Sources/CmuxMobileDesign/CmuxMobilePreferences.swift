@@ -26,6 +26,10 @@ public enum CmuxMobilePreferences {
         /// toggle js just so a** rn it needs more baking tiem"): on, a Claude Code or Codex tab's
         /// page menu offers Show Chat / Show Terminal where both faces work.
         public static let terminalChatToggle = "cmuxMobile.settings.terminalChatToggle"
+        /// Settings → Terminal → Plain Scroll in Full-Screen Apps (off by default; Leo, 2026-11-24: "we can
+        /// just treat the scroll like any pedestrian scroll"): on, a drag toward older rows in a full-screen
+        /// app scrolls the rows the phone kept (`TerminalTUIReader`), not the app's wheel.
+        public static let terminalPlainScroll = "cmuxMobile.settings.terminalPlainScroll"
         /// Settings → Terminal → Zoom Full-Screen Apps (off by default; Leo, 2026-11-17: "Surely we
         /// can just calculate a f***ing terminal and resize whatever needs exceptions when it comes /
         /// Fall back if need be"): on, a full-screen app shows at the Mac's grid, zoomed, and only
@@ -44,6 +48,12 @@ public enum CmuxMobilePreferences {
         /// Codex or opencode terminal comes as the cells that changed, not its PTY bytes.
         /// Read at each terminal attach (`DaemonTerminalSession.agentCLIHybridDefaultsKey`).
         public static let agentCLIHybrid = "cmuxMobile.settings.agentCLIHybrid"
+        /// Settings → Transport → Quiet Cloud Connections (off by default; Leo, 2026-11-24: "don't
+        /// unilaterally MERGE ui stuff yet ... having people be able to easily toggle" it): on, a Cloud
+        /// list or machine that answers within ``QuietStatusGate/threshold`` never shows its wait, and
+        /// a short outage behind cached Cloud rows shows no alert (Leo, 2026-11-14: "i also want all our
+        /// connectivity stuff to shut the fuck up and load faster/percievably load faster").
+        public static let quietCloudConnect = "cmuxMobile.settings.quietCloudConnect"
         public static let dismissKeyboardAfterSend = "cmuxMobile.settings.dismissKeyboardAfterSend"
         /// Settings → Composer → Swipe Down to Collapse (off by default; `ComposerReturnTextView`).
         public static let swipeDownCollapsesComposer = "cmuxMobile.settings.swipeDownCollapsesComposer"
@@ -71,6 +81,9 @@ public enum CmuxMobilePreferences {
     /// prose (Leo, 2026-11-24: "an autocorect toggle in the terminal composer").
     public static let defaultTerminalComposerAutocorrect = false
     public static let defaultTerminalChatToggle = false
+    /// Off until Leo picks it up (UI merges default-off).
+    public static let defaultTerminalPlainScroll = false
+    public static let defaultQuietCloudConnect = false
     public static let defaultTerminalZoomFullScreenApps = false
     public static let defaultTerminalHistoryFind = false
     public static let defaultDismissKeyboardAfterSend = true
@@ -111,6 +124,21 @@ public enum CmuxMobilePreferences {
         // `bool(forKey:)` also reads a launch argument's "NO"/"YES" string.
         defaults.object(forKey: Key.terminalChatToggle) == nil
             ? defaultTerminalChatToggle : defaults.bool(forKey: Key.terminalChatToggle)
+    }
+
+    /// Whether a full-screen app's drag toward older rows scrolls the rows the phone kept (off by default).
+    public static func terminalPlainScroll(_ defaults: UserDefaults = .standard) -> Bool {
+        // `bool(forKey:)` also reads a launch argument's "NO"/"YES" string.
+        defaults.object(forKey: Key.terminalPlainScroll) == nil
+            ? defaultTerminalPlainScroll : defaults.bool(forKey: Key.terminalPlainScroll)
+    }
+
+    /// Whether Cloud waits and short Cloud outages stay quiet until they last (on), or show at once
+    /// (off, the default). Read each time a Cloud wait starts or a Cloud refresh fails.
+    public static func quietCloudConnect(_ defaults: UserDefaults = .standard) -> Bool {
+        // `bool(forKey:)` also reads a launch argument's "NO"/"YES" string.
+        defaults.object(forKey: Key.quietCloudConnect) == nil
+            ? defaultQuietCloudConnect : defaults.bool(forKey: Key.quietCloudConnect)
     }
 
     /// Whether a full-screen app shows at the Mac's grid, zoomed, and fits the phone only once

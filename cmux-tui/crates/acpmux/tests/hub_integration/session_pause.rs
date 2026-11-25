@@ -115,7 +115,9 @@ async fn a_busy_session_is_not_paused() {
     r.c.wait_for(method::MUX_PROMPT_ACCEPTED, |p| p["promptId"] == "p-turn").await;
     let refused = r.c.request(method::MUX_PAUSE, json!({"sessionId": id})).await.unwrap_err();
     assert!(refused.contains("not idle") && refused.contains("not paused"), "{refused}");
-    assert_eq!(r.status(&id), "running");
+    // `prompt_accepted` can come before the turn's own `running` (a loaded runner): the turn
+    // still gets there, the refused pause having changed nothing.
+    r.until("the turn never ran after a refused pause", || r.status(&id) == "running").await;
     assert!(alive(r.pids("harness")[0]), "a refused pause ended the harness");
     let open = gate.clone();
     tokio::task::spawn_blocking(move || std::fs::write(open, b"open")).await.unwrap().unwrap();

@@ -124,6 +124,13 @@ public final class TerminalProjectingSession: TerminalSession {
     public var connectionState: TerminalConnectionState { inner.connectionState }
     public var clearsHistory: Bool { inner.clearsHistory }
     public var underlyingSession: AnyObject { inner.underlyingSession }
+    public var tuiTranscriptRowsAbove: Int { Int(projection.transcriptRowsAbove()) }
+
+    public func tuiTranscript() -> TerminalTUITranscript? {
+        projection.transcriptPaint().map {
+            TerminalTUITranscript(bytes: $0.bytes, rows: Int($0.rows), screenTop: Int($0.screenTop))
+        }
+    }
 
     /// The primary screen is the phone's own grid; the alternate screen the
     /// Mac's. While a full-screen app's claim is out (``claimHold``), the grid
