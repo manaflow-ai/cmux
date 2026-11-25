@@ -186,7 +186,7 @@ fn job_of(argv: &[&str], cwd: Option<&str>) -> Option<Job> {
         "x.py" | "x" if x_py_builds(args) => Some(Job::Project(Project::Rustc)),
         p if p.starts_with("python")
             && args.first().is_some_and(|s| file_name(s) == "x.py")
-            && x_py_builds(&args[1..]) =>
+            && x_py_builds(args.get(1..).unwrap_or_default()) =>
         {
             Some(Job::Project(Project::Rustc))
         }
