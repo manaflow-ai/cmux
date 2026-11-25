@@ -90,6 +90,12 @@ pub(crate) fn run(args: &[OsString]) -> i32 {
             command.env_remove(key);
         }
     });
+    // The knobs an agent chat's Claude starts with, and the in-place 529 wait a terminal needs
+    // for want of acpmux's continuation (`acpmux::harness_limits::terminal_claude_env`). The
+    // person's own env wins.
+    for (key, value) in terminal_env(args) {
+        command.env(key, value);
+    }
     let mut launch_args = args.to_vec();
     if std::env::var_os(HOOKS_DISABLED_ENV).is_some_and(|value| value == "1") {
         drop_cmux_plugin(&mut command);
@@ -120,6 +126,14 @@ pub(crate) fn run(args: &[OsString]) -> i32 {
     let _error = command.args(&launch_args).exec();
     eprintln!("{}", messages.agent_start_failed);
     126
+}
+
+/// The environment this launch adds for Claude (`acpmux::harness_limits::terminal_claude_env`),
+/// read from this process's env and folder.
+fn terminal_env(args: &[OsString]) -> Vec<(&'static str, &'static str)> {
+    let args: Vec<String> = args.iter().map(|a| a.to_string_lossy().into_owned()).collect();
+    let cwd = std::env::current_dir().unwrap_or_default();
+    acpmux::harness_limits::terminal_claude_env(&args, &cwd, |name| std::env::var(name).ok())
 }
 
 /// Removes cmux-tui's Claude Code plugin from the `CLAUDE_CODE_PLUGIN_DIRS`

@@ -8,7 +8,7 @@
 # MODE: fmt (cargo fmt --check), clippy (-D warnings), test [FILTER] (cargo nextest, a
 # failed test reruns once alone: see workspace_tests), or all [FILTER];
 # test FILTER SCOPE: SCOPE names where the filter's tests are, so cargo builds only those test
-# binaries: crate names with commas (cmux-tui-core,cmux-git) or one CRATE:TARGET (see crate_scope);
+# binaries: crate names with commas (cmux-tui-core,cmux-git) or one CRATE:TARGET (CRATE:lib for unit tests; see crate_scope);
 # panic: the "Rust panic ratchet" step of cmux-tui.yml's Linux lint job, the same two commands
 # (cargo clippy --lib --bins with rust_panic_ratchet.py --flags, then rust_panic_ratchet.py
 # --clippy-json; plans/cmux-next/rust-panic-free.md), so a merge batch or train can judge its tree
@@ -43,8 +43,9 @@
 # channel: the feat-cmux-next channel candidate, built and tested by our scheduler with no Actions
 # job (civ2-channel-roll; Leo, 2026-11-23: "but why is it a job. we own/should own the in-between.
 # like ci v2. we own the end to end."). The cmux_next_ daemon tests (the targets of
-# cmux-tui-artifacts.yml "cargo test cmux_next_"), then acpmux for x86_64-unknown-linux-musl as the
-# machine channel builds it (acpmux-standalone with the shipping features, thin profile), and
+# cmux-tui-artifacts.yml "cargo test cmux_next_") and, beside them, acpmux for x86_64-unknown-linux-musl
+# as the machine channel builds it (acpmux-standalone with the shipping features, thin profile: LTO
+# off, 16 codegen units), with incremental off so sccache serves unchanged workspace crates, and
 # .build/artifacts/channel/{acpmux-x86_64-unknown-linux-musl,candidate.json} (commit, tree key,
 # sha256, test summary). The hq controller's channel roll (build-fleet/cmd/controller/channel_roll.go)
 # runs it at each feat-cmux-next tip on our own Linux workers; its pass is the channel marker lane
@@ -148,7 +149,9 @@ if [[ -n "$shard" ]]; then
 fi
 # test FILTER SCOPE (a third argument) names where the filter's tests are: crate names with commas
 # (-p for each), or one CRATE:TARGET for one integration test target (cmux-tui:startup_timings is
-# cmux-tui/crates/cmux-tui/tests/startup_timings.rs: -p cmux-tui --test startup_timings). cargo
+# cmux-tui/crates/cmux-tui/tests/startup_timings.rs: -p cmux-tui --test startup_timings; CRATE:lib is
+# the library's unit tests, -p CRATE --lib, so a unit test of a big crate like acpmux skips its ~40
+# test binaries, whose cold build overran a 143 GiB pool slot, 2026-11-25). cargo
 # then builds the test binaries of that scope only; a filtered run of the whole workspace builds
 # every test binary of every crate to run a few tests. A filter that matches no test of the scope
 # is red (--no-tests=fail). No third argument: the whole workspace, as before. (2026-11-16)
@@ -165,7 +168,12 @@ if [[ -n "$crate_scope" ]]; then
   fi
   scope_name='[A-Za-z0-9][A-Za-z0-9_-]{0,63}'
   if [[ "$crate_scope" =~ ^($scope_name):($scope_name)$ ]]; then
-    test_scope=(-p "${BASH_REMATCH[1]}" --test "${BASH_REMATCH[2]}")
+    if [[ "${BASH_REMATCH[2]}" == lib ]]; then
+      # CRATE:lib is the crate's library unit tests (cargo --lib); cargo has no test target named lib.
+      test_scope=(-p "${BASH_REMATCH[1]}" --lib)
+    else
+      test_scope=(-p "${BASH_REMATCH[1]}" --test "${BASH_REMATCH[2]}")
+    fi
   elif [[ "$crate_scope" =~ ^$scope_name(,$scope_name){0,7}$ ]]; then
     test_scope=()
     IFS=, read -r -a scope_crates <<<"$crate_scope"
@@ -970,7 +978,7 @@ channel_build_acpmux() {
   features="$(../scripts/ci/acpmux-build-features.sh crates/acpmux-standalone/Cargo.toml "$channel_triple")"
   CMUX_TUI_BUILD_COMMIT="$(git -C "$root" rev-parse HEAD)" \
     CMUX_TUI_GHOSTTY_COMMIT="$(git -C "$root/ghostty-next" rev-parse HEAD 2>/dev/null || echo unknown)" \
-    CARGO_PROFILE_RELEASE_LTO=off \
+    CARGO_PROFILE_RELEASE_LTO=off CARGO_PROFILE_RELEASE_CODEGEN_UNITS=16 \
     "${cargo_build[@]}" --release --locked --target "$channel_triple" \
       --config profile.release.package.acpmux.codegen-units=16 \
       -p acpmux-standalone --bin acpmux-standalone ${features:+"$features"} || return 1
@@ -1003,9 +1011,34 @@ if [[ "$mode" == channel ]]; then
   rm -rf "$channel_out"
   mkdir -p "$channel_out"
   warm_target_guard
+  # The roll lands on a fresh pool worker, so the slot's target is cold (step 8a2104ca at
+  # 3edfb62c4, 2026-11-25: 2.2 GiB kept, 1201 s: daemon tests 784 s, of which the test build
+  # 11m21s, then the musl build 348 s, run one after the other at a mean 4.8 of 32 cores).
+  # Two changes, neither touching what the binary does:
+  #  - No incremental compile here. sccache cannot cache an incremental unit ("429 not
+  #    cacheable (incremental workspace crates...)"), so every workspace crate compiled from
+  #    nothing on each roll; without it the crates this commit did not change come from the
+  #    shared cache like the registry crates do.
+  #  - The musl release build runs beside the daemon tests: different profile and target
+  #    directories (cargo locks each apart), and the box was mostly idle. The candidate is
+  #    still written only when both passed.
+  export CARGO_INCREMENTAL=0
   step go ensure_go
+  channel_build_t0=$SECONDS
+  channel_build_log="$channel_out/acpmux-build.txt"
+  channel_build_acpmux >"$channel_build_log" 2>&1 &
+  channel_build_pid=$!
   step "channel daemon tests" channel_daemon_tests
-  [[ "$first_rc" -ne 0 ]] || step "channel acpmux $channel_triple" channel_build_acpmux
+  channel_build_rc=0
+  wait "$channel_build_pid" || channel_build_rc=$?
+  echo "=== step channel acpmux $channel_triple: channel_build_acpmux (beside the daemon tests)"
+  cat "$channel_build_log"
+  if [[ "$channel_build_rc" -eq 0 ]]; then
+    step_rows+=("channel acpmux $channel_triple"$'\t'"pass"$'\t'"$((SECONDS - channel_build_t0))")
+  else
+    step_rows+=("channel acpmux $channel_triple"$'\t'"FAIL (exit $channel_build_rc)"$'\t'"$((SECONDS - channel_build_t0))")
+    [[ "$first_rc" -ne 0 ]] || first_rc=$channel_build_rc
+  fi
   [[ "$first_rc" -ne 0 ]] || step "channel candidate" channel_candidate
   finish
 fi

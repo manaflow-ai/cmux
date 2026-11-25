@@ -1,6 +1,7 @@
 //! What every seed must hold (HQ#6740). Each invariant reads what the run left: the app's view
 //! (what it sent, what it was told), the daemon's log on the simulated disk, and what the agent
-//! was given. An invariant is one entry of [`INVARIANTS`]; new ones plug in there.
+//! was given. An invariant is one entry of [`INVARIANTS`]; new ones plug in there, each with a
+//! broken run it must catch in `sim.rs`'s `MUTATIONS` (a check never shown to fail proves nothing).
 //!
 //! Not checked yet, with the hook each needs:
 //!

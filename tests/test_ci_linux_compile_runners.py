@@ -122,7 +122,6 @@ EXPECTED: tuple[tuple[str, str, str, str], ...] = (
     ("cmux-tui-spec.yml", "api-compat", "runs-on", SMALL),
     ("cmux-next-shim-cpp.yml", "shim-downloads-cpp", "runs-on", SMALL),
     ("remote-daemon.yml", "remote-daemon-tests", "runs-on", SMALL),
-    ("sdk-bootstrap-crates.yml", "build", "runs-on", SMALL),
     ("sdk-publish-go.yml", "validate-go-module", "runs-on", SMALL),
     ("sdk-publish-go.yml", "verify-versioned-go-module", "runs-on", SMALL),
 )
@@ -235,7 +234,6 @@ OWNER_ONLY = {
     ("sdk-publish-python.yml", "bindings-e2e-python"),
     ("cmux-next-web-bundle-publish.yml", "build"),
     ("presence.yml", "test"),
-    ("sdk-bootstrap-crates.yml", "build"),
     ("sdk-publish-go.yml", "validate-go-module"),
     ("sdk-publish-go.yml", "verify-versioned-go-module"),
 }
