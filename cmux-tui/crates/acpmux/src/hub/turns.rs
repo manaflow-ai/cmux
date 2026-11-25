@@ -1327,6 +1327,13 @@ impl Hub {
         } else {
             self.forum_context(session, pushed.clone(), &mut blocks).await
         };
+        // The files the prompt names, read into this message, last, after the cached prefix
+        // (`prefetch.rs`). Not into a resumed turn, a remote device's or a slash command.
+        if !resumed && control != Control::Web && super::forum::slash_command(&blocks).is_none() {
+            self.prefetch_into(session, &text, &turn_id, &mut blocks).await;
+        } else {
+            *session.prefetch.lock().unwrap_or_else(|e| e.into_inner()) = None;
+        }
         // A turn rule that matches this prompt, and the end rule the last turn left (`turn_rules.rs`).
         if !resumed && let Some(said) = self.turn_rules_start(session, &text) {
             blocks.push(
@@ -1432,10 +1439,8 @@ impl Hub {
             && control != Control::Web
             && blocks.iter().any(|b| b.pointer("/_meta/acpmux/contextSource").is_some());
         let person = super::prompt_sender::person_turn(&run, provenance.as_ref());
-        // Only a person's own turn makes a recap worth asking for (`away_recap.rs`), or a
-        // summary worth a model call (`rolling_summary.rs`).
+        // Only a person's own turn makes a recap worth asking for (`away_recap.rs`).
         self.recap_turn_started(session, person);
-        self.summary_turn_started(session, person);
         let params = if resumed {
             // The turn the process resumed by itself: adopted, nothing written (`carry.rs`).
             json!({"sessionId": agent_sid, "prompt": [], "_meta": {"carried": true}})
@@ -1817,14 +1822,14 @@ impl Hub {
         let in_place = next.map(|n| n.next.clone());
         // Taken under the shutdown's lock: its sweep finds the turn running or here, never in
         // between (`shutdown.rs` `settle_ends`).
-        // Its start, for its cost (`turn_cost.rs`), from the turn taken: reading the live-turn
-        // lock before `take_turn` would order it ahead of the retry lock, against Stop's order
+        // Its start comes from the turn taken here, not a read of the live-turn lock before
+        // `take_turn`: that read took `turn` ahead of `auto_resume`, against Stop's order
         // (`auto_resume/turn_completion_tests.rs`).
         let (detached, started_at) = {
             let _ends = self.settled_by_shutdown.lock().unwrap_or_else(|e| e.into_inner());
             let taken = self.take_turn(session, turn_id, in_place);
+            let started_at = taken.as_ref().map(|t| t.started_at);
             let took = taken.as_ref().is_some_and(|t| t.turn_id == turn_id);
-            let started_at = taken.as_ref().filter(|_| took).map(|t| t.started_at);
             if took {
                 *session.ending.lock().unwrap_or_else(|e| e.into_inner()) = taken;
             }
@@ -2075,8 +2080,6 @@ impl Hub {
             // Whether it taught something, taken however it ended: a turn's signals never carry
             // into the next one.
             let taught = crate::memory_inbox::take(&session.id);
-            // Its recap and question: the chat's rolling summary (`rolling_summary.rs`).
-            let wrap_up_recap = crate::wrap_up_suggestion::take_recap(&session.id);
             let wrap_up_answer = crate::wrap_up_suggestion::take(&session.id);
             match &result {
                 Ok(v) => {
@@ -2122,7 +2125,6 @@ impl Hub {
                         }
                     }
                     self.write_turn_result(session, msg, git);
-                    self.summary_turn_ended(session, status == "completed", wrap_up_recap);
                     if status == "completed"
                         && let Some(answer) = wrap_up_answer
                     {
@@ -2158,7 +2160,6 @@ impl Hub {
                     if !detached {
                         self.pause_queue(session, turn_id);
                     }
-                    self.summary_turn_ended(session, false, None);
                     let mut msg = json!({"status": "failed", "error": e.message, "code": e.code, "turnSeq": turn_seq, "turnId": turn_id, "promptId": prompt_id, "turnCount": turn, "trigger": trigger});
                     if let Some(o) = msg.as_object_mut() {
                         let agent_error =

@@ -292,6 +292,9 @@ final class PaneController: SurfacePresenter, PresentablePane {
         let isNewTabPage = titles.isNewTabPage(tab)
         var item = TabItemMapping.shared.item(tab, fallbackTitle: titles.untitled(tab, fallback: fallback), isNewTabPage: isNewTabPage, restarting: daemon.restartsKeptTab(tab),
                                               harnessIcons: daemon.isLocal ? services.harnessIconLookup : .none)
+        if daemon.isLocal, tab.kind == .pty, tab.remote == nil {
+            item.terminalHistoryKey = TerminalHistorySource.chatKey(tab.agent)
+        }
         // Reading the app's provider here (the apps mirror) re-runs the snapshot, and so the
         // content, when the app becomes available after the tree arrived.
         // An app or page tab names and badges itself like the page it shows.
@@ -486,6 +489,7 @@ final class PaneController: SurfacePresenter, PresentablePane {
         if view.stripView.window != nil { BenchSpans.measure("switch.strip") { view.stripView.syncFromModel() } } // strip + content: one transaction (L4)
         DebugTabSwitch.mark(self, "stripSync")
         BenchSpans.measure("switch.view") { _ = view.show(content?.view) }
+        showTerminalHistoryLink(in: content)
         dropGuestTerminal(keeping: key) // after its view left the pane
         syncGuestTerminal()
         if shownBefore != key { stoppedDrawing(shownBefore) }

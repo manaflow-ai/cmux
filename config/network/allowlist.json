@@ -1,0 +1,862 @@
+{
+ "about": "Every host, port and protocol a cmux NEXT client (the Mac app, its daemon, the iPhone app) reaches for relay and connectivity, for firewalls that allow only listed hosts. The one source: docs/network-requirements.md is rendered from it and tests/test_network_allowlist.py checks it against the code (python3 tests/test_network_allowlist.py --write rewrites the doc). Ultra-connectivity ledger row 80, RFD 0142 item O7.",
+ "ip_ranges": {
+  "cloudflare": {
+   "source": [
+    "https://www.cloudflare.com/ips-v4",
+    "https://www.cloudflare.com/ips-v6"
+   ],
+   "fetched": "2026-11-24",
+   "ipv4": [
+    "173.245.48.0/20",
+    "103.21.244.0/22",
+    "103.22.200.0/22",
+    "103.31.4.0/22",
+    "141.101.64.0/18",
+    "108.162.192.0/18",
+    "190.93.240.0/20",
+    "188.114.96.0/20",
+    "197.234.240.0/22",
+    "198.41.128.0/17",
+    "162.158.0.0/15",
+    "104.16.0.0/13",
+    "104.24.0.0/14",
+    "172.64.0.0/13",
+    "131.0.72.0/22"
+   ],
+   "ipv6": [
+    "2400:cb00::/32",
+    "2606:4700::/32",
+    "2803:f800::/32",
+    "2405:b500::/32",
+    "2405:8100::/32",
+    "2a06:98c0::/29",
+    "2c0f:f248::/32"
+   ],
+   "note": "Cloudflare's published ranges. Every host with ips \"cloudflare\" answered inside them on the fetch date (Workers custom domains, workers.dev, R2 custom domains, Cloudflare Realtime TURN and STUN). Cloudflare changes them rarely and says so on that page."
+  }
+ },
+ "own_pops": {
+  "status": "not bought",
+  "slot": "RFD 0166 step 3 boxes, filled when bought",
+  "hosts": [],
+  "ipv4": [],
+  "ipv6": []
+ },
+ "peer_to_peer": "A direct path between your own devices (iroh, WebRTC) goes to the other device's address on a UDP port chosen at run time, so no host or port can be listed for it. Where outbound UDP is blocked, the same session goes through a relay above (tcp/443) instead: slower, never broken.",
+ "hosts": [
+  {
+   "host": "usc1.relay.cmux.dev",
+   "category": "relay",
+   "builds": [
+    "release",
+    "dev"
+   ],
+   "named_in": "catalog",
+   "ports": [
+    {
+     "port": "tcp/443",
+     "use": "HTTPS relay (WebSocket over TLS): carries the session when no direct path works"
+    },
+    {
+     "port": "udp/7842",
+     "use": "QUIC address discovery (iroh-relay DEFAULT_RELAY_QUIC_PORT); optional, the relay works without it"
+    }
+   ],
+   "ips": "dns",
+   "purpose": "cmux managed iroh relay, US Central: Mac and iPhone sessions when no direct path works",
+   "observed": {
+    "date": "2026-11-24",
+    "addresses": [
+     "34.69.75.178"
+    ],
+    "note": "what DNS answered; not a reserved address, allow the host name"
+   }
+  },
+  {
+   "host": "usw1.relay.cmux.dev",
+   "category": "relay",
+   "builds": [
+    "release",
+    "dev"
+   ],
+   "named_in": "catalog",
+   "ports": [
+    {
+     "port": "tcp/443",
+     "use": "HTTPS relay (WebSocket over TLS): carries the session when no direct path works"
+    },
+    {
+     "port": "udp/7842",
+     "use": "QUIC address discovery (iroh-relay DEFAULT_RELAY_QUIC_PORT); optional, the relay works without it"
+    }
+   ],
+   "ips": "dns",
+   "purpose": "cmux managed iroh relay, US West: Mac and iPhone sessions when no direct path works",
+   "observed": {
+    "date": "2026-11-24",
+    "addresses": [
+     "35.247.2.121"
+    ],
+    "note": "what DNS answered; not a reserved address, allow the host name"
+   }
+  },
+  {
+   "host": "use4.relay.cmux.dev",
+   "category": "relay",
+   "builds": [
+    "release",
+    "dev"
+   ],
+   "named_in": "catalog",
+   "ports": [
+    {
+     "port": "tcp/443",
+     "use": "HTTPS relay (WebSocket over TLS): carries the session when no direct path works"
+    },
+    {
+     "port": "udp/7842",
+     "use": "QUIC address discovery (iroh-relay DEFAULT_RELAY_QUIC_PORT); optional, the relay works without it"
+    }
+   ],
+   "ips": "dns",
+   "purpose": "cmux managed iroh relay, US East: Mac and iPhone sessions when no direct path works",
+   "observed": {
+    "date": "2026-11-24",
+    "addresses": [
+     "35.243.40.255"
+    ],
+    "note": "what DNS answered; not a reserved address, allow the host name"
+   }
+  },
+  {
+   "host": "euw4.relay.cmux.dev",
+   "category": "relay",
+   "builds": [
+    "release",
+    "dev"
+   ],
+   "named_in": "catalog",
+   "ports": [
+    {
+     "port": "tcp/443",
+     "use": "HTTPS relay (WebSocket over TLS): carries the session when no direct path works"
+    },
+    {
+     "port": "udp/7842",
+     "use": "QUIC address discovery (iroh-relay DEFAULT_RELAY_QUIC_PORT); optional, the relay works without it"
+    }
+   ],
+   "ips": "dns",
+   "purpose": "cmux managed iroh relay, Europe West: Mac and iPhone sessions when no direct path works",
+   "observed": {
+    "date": "2026-11-24",
+    "addresses": [
+     "34.12.9.64"
+    ],
+    "note": "what DNS answered; not a reserved address, allow the host name"
+   }
+  },
+  {
+   "host": "apne1.relay.cmux.dev",
+   "category": "relay",
+   "builds": [
+    "release",
+    "dev"
+   ],
+   "named_in": "catalog",
+   "ports": [
+    {
+     "port": "tcp/443",
+     "use": "HTTPS relay (WebSocket over TLS): carries the session when no direct path works"
+    },
+    {
+     "port": "udp/7842",
+     "use": "QUIC address discovery (iroh-relay DEFAULT_RELAY_QUIC_PORT); optional, the relay works without it"
+    }
+   ],
+   "ips": "dns",
+   "purpose": "cmux managed iroh relay, Asia Pacific Northeast: Mac and iPhone sessions when no direct path works",
+   "observed": {
+    "date": "2026-11-24",
+    "addresses": [
+     "35.221.102.234"
+    ],
+    "note": "what DNS answered; not a reserved address, allow the host name"
+   }
+  },
+  {
+   "host": "apse1.relay.cmux.dev",
+   "category": "relay",
+   "builds": [
+    "release",
+    "dev"
+   ],
+   "named_in": "catalog",
+   "ports": [
+    {
+     "port": "tcp/443",
+     "use": "HTTPS relay (WebSocket over TLS): carries the session when no direct path works"
+    },
+    {
+     "port": "udp/7842",
+     "use": "QUIC address discovery (iroh-relay DEFAULT_RELAY_QUIC_PORT); optional, the relay works without it"
+    }
+   ],
+   "ips": "dns",
+   "purpose": "cmux managed iroh relay, Asia Pacific Southeast: Mac and iPhone sessions when no direct path works",
+   "observed": {
+    "date": "2026-11-24",
+    "addresses": [
+     "34.21.149.250"
+    ],
+    "note": "what DNS answered; not a reserved address, allow the host name"
+   }
+  },
+  {
+   "host": "ape1.relay.cmux.dev",
+   "category": "relay",
+   "builds": [
+    "release",
+    "dev"
+   ],
+   "named_in": "catalog",
+   "ports": [
+    {
+     "port": "tcp/443",
+     "use": "HTTPS relay (WebSocket over TLS): carries the session when no direct path works"
+    },
+    {
+     "port": "udp/7842",
+     "use": "QUIC address discovery (iroh-relay DEFAULT_RELAY_QUIC_PORT); optional, the relay works without it"
+    }
+   ],
+   "ips": "dns",
+   "purpose": "cmux managed iroh relay, Asia Pacific East: Mac and iPhone sessions when no direct path works",
+   "observed": {
+    "date": "2026-11-24",
+    "addresses": [
+     "34.80.126.70"
+    ],
+    "note": "what DNS answered; not a reserved address, allow the host name"
+   }
+  },
+  {
+   "host": "turn.cloudflare.com",
+   "category": "turn",
+   "builds": [
+    "release",
+    "dev"
+   ],
+   "named_in": "server-answer",
+   "ports": [
+    {
+     "port": "udp/3478",
+     "use": "TURN over UDP"
+    },
+    {
+     "port": "tcp/3478",
+     "use": "TURN over TCP"
+    },
+    {
+     "port": "tcp/80",
+     "use": "TURN over TCP"
+    },
+    {
+     "port": "tcp/5349",
+     "use": "TURN over TLS"
+    },
+    {
+     "port": "tcp/443",
+     "use": "TURN over TLS: the one that passes a firewall allowing only HTTPS"
+    }
+   ],
+   "ips": "cloudflare",
+   "purpose": "Cloudflare Realtime TURN: the phone link and screen sharing relay when no direct path works; named in the ICE answer from mobile-api.cmux.dev /v1/ice, not in client code"
+  },
+  {
+   "host": "stun.cloudflare.com",
+   "category": "stun",
+   "builds": [
+    "release",
+    "dev"
+   ],
+   "named_in": "code",
+   "ports": [
+    {
+     "port": "udp/3478",
+     "use": "STUN: learns the device's public address"
+    }
+   ],
+   "ips": "cloudflare",
+   "purpose": "STUN for the phone link and remote desktop; always in the /v1/ice answer"
+  },
+  {
+   "host": "stun.l.google.com",
+   "category": "stun",
+   "builds": [
+    "release",
+    "dev"
+   ],
+   "named_in": "code",
+   "ports": [
+    {
+     "port": "udp/19302",
+     "use": "STUN: second fallback for remote desktop"
+    }
+   ],
+   "ips": "dns",
+   "purpose": "fallback STUN for the remote-desktop link when the ticket names none",
+   "observed": {
+    "date": "2026-11-24",
+    "addresses": [
+     "74.125.250.129",
+     "2001:4860:4864:5:8000::1"
+    ],
+    "note": "what DNS answered; not a reserved address, allow the host name"
+   }
+  },
+  {
+   "host": "mobile-api.cmux.dev",
+   "category": "signaling",
+   "builds": [
+    "release",
+    "dev"
+   ],
+   "named_in": "code",
+   "ports": [
+    {
+     "port": "tcp/443",
+     "use": "HTTPS and WSS (TLS)"
+    }
+   ],
+   "ips": "cloudflare",
+   "purpose": "iPhone pairing API and signaling WebSocket; hands out the ICE (STUN and TURN) list"
+  },
+  {
+   "host": "cmux-device-hub.debussy.workers.dev",
+   "category": "signaling",
+   "builds": [
+    "release",
+    "dev"
+   ],
+   "named_in": "code",
+   "ports": [
+    {
+     "port": "tcp/443",
+     "use": "HTTPS and WSS (TLS)"
+    }
+   ],
+   "ips": "cloudflare",
+   "purpose": "device hub: pairing and screen sharing between your devices"
+  },
+  {
+   "host": "cmux-vnc-signal.debussy.workers.dev",
+   "category": "signaling",
+   "builds": [
+    "release",
+    "dev"
+   ],
+   "named_in": "code",
+   "ports": [
+    {
+     "port": "tcp/443",
+     "use": "HTTPS and WSS (TLS)"
+    }
+   ],
+   "ips": "cloudflare",
+   "purpose": "screen sharing signaling between your devices"
+  },
+  {
+   "host": "presence.cmux.dev",
+   "category": "updates",
+   "builds": [
+    "release",
+    "dev"
+   ],
+   "named_in": "code",
+   "ports": [
+    {
+     "port": "tcp/443",
+     "use": "HTTPS and WSS (TLS)"
+    }
+   ],
+   "ips": "cloudflare",
+   "purpose": "update channel push: tells the app a new build is out"
+  },
+  {
+   "host": "files.cmux.com",
+   "category": "updates",
+   "builds": [
+    "release",
+    "dev"
+   ],
+   "named_in": "code",
+   "ports": [
+    {
+     "port": "tcp/443",
+     "use": "HTTPS and WSS (TLS)"
+    }
+   ],
+   "ips": "cloudflare",
+   "purpose": "update and download host (Cloudflare R2 custom domain): appcasts, app archives, web UI updates, cmux-tui for remote machines, art"
+  },
+  {
+   "host": "files-next.cmux.com",
+   "category": "updates",
+   "builds": [
+    "release",
+    "dev"
+   ],
+   "named_in": "code",
+   "ports": [
+    {
+     "port": "tcp/443",
+     "use": "HTTPS and WSS (TLS)"
+    }
+   ],
+   "ips": "cloudflare",
+   "purpose": "nightly NEXT update host (Cloudflare R2 bucket cmux-nightly-next): appcast and release notes"
+  },
+  {
+   "host": "cloud-api.cmux.dev",
+   "category": "backend",
+   "builds": [
+    "release",
+    "dev"
+   ],
+   "named_in": "code",
+   "ports": [
+    {
+     "port": "tcp/443",
+     "use": "HTTPS and WSS (TLS)"
+    }
+   ],
+   "ips": "cloudflare",
+   "purpose": "cmux Cloud API: machines, accounts, sign-in"
+  },
+  {
+   "host": "vm.cmux.dev",
+   "category": "backend",
+   "builds": [
+    "release",
+    "dev"
+   ],
+   "named_in": "code",
+   "ports": [
+    {
+     "port": "tcp/443",
+     "use": "HTTPS and WSS (TLS)"
+    }
+   ],
+   "ips": "cloudflare",
+   "purpose": "cmux Cloud machine API"
+  },
+  {
+   "host": "share.cmux.dev",
+   "category": "backend",
+   "builds": [
+    "release",
+    "dev"
+   ],
+   "named_in": "code",
+   "ports": [
+    {
+     "port": "tcp/443",
+     "use": "HTTPS and WSS (TLS)"
+    }
+   ],
+   "ips": "cloudflare",
+   "purpose": "shared workspace links"
+  },
+  {
+   "host": "cmux-platform-production.debussy.workers.dev",
+   "category": "backend",
+   "builds": [
+    "release",
+    "dev"
+   ],
+   "named_in": "code",
+   "ports": [
+    {
+     "port": "tcp/443",
+     "use": "HTTPS and WSS (TLS)"
+    }
+   ],
+   "ips": "cloudflare",
+   "purpose": "cmux Cloud platform API"
+  },
+  {
+   "host": "cmux.dev",
+   "category": "backend",
+   "builds": [
+    "release",
+    "dev"
+   ],
+   "named_in": "code",
+   "ports": [
+    {
+     "port": "tcp/443",
+     "use": "HTTPS and WSS (TLS)"
+    }
+   ],
+   "ips": "dns",
+   "purpose": "cmux Cloud host name; machine and preview URLs under it",
+   "observed": {
+    "date": "2026-11-24",
+    "addresses": [
+     "216.150.1.1"
+    ],
+    "note": "what DNS answered; not a reserved address, allow the host name"
+   }
+  },
+  {
+   "host": "cmux.com",
+   "category": "backend",
+   "builds": [
+    "release",
+    "dev"
+   ],
+   "named_in": "code",
+   "ports": [
+    {
+     "port": "tcp/443",
+     "use": "HTTPS and WSS (TLS)"
+    }
+   ],
+   "ips": "dns",
+   "purpose": "cmux website and API: sign-in callback, downloads fallback, connectivity reports",
+   "observed": {
+    "date": "2026-11-24",
+    "addresses": [
+     "216.150.1.1"
+    ],
+    "note": "what DNS answered; not a reserved address, allow the host name"
+   }
+  },
+  {
+   "host": "www.cmux.com",
+   "category": "backend",
+   "builds": [
+    "release",
+    "dev"
+   ],
+   "named_in": "code",
+   "ports": [
+    {
+     "port": "tcp/443",
+     "use": "HTTPS and WSS (TLS)"
+    }
+   ],
+   "ips": "dns",
+   "purpose": "the same site as cmux.com: deep links and sign-in",
+   "observed": {
+    "date": "2026-11-24",
+    "addresses": [
+     "216.150.1.193",
+     "216.150.16.193"
+    ],
+    "note": "what DNS answered; not a reserved address, allow the host name"
+   }
+  },
+  {
+   "host": "api.stack-auth.com",
+   "category": "auth",
+   "builds": [
+    "release",
+    "dev"
+   ],
+   "named_in": "code",
+   "ports": [
+    {
+     "port": "tcp/443",
+     "use": "HTTPS and WSS (TLS)"
+    }
+   ],
+   "ips": "dns",
+   "purpose": "sign-in tokens; every signaling and relay call carries one",
+   "observed": {
+    "date": "2026-11-24",
+    "addresses": [
+     "34.107.252.126"
+    ],
+    "note": "what DNS answered; not a reserved address, allow the host name"
+   }
+  },
+  {
+   "host": "chatmux.dev",
+   "category": "backend",
+   "builds": [
+    "release",
+    "dev"
+   ],
+   "named_in": "code",
+   "ports": [
+    {
+     "port": "tcp/443",
+     "use": "HTTPS and WSS (TLS)"
+    }
+   ],
+   "ips": "cloudflare",
+   "purpose": "chat relay API for chatmux sessions"
+  },
+  {
+   "host": "api.chatmux.dev",
+   "category": "backend",
+   "builds": [
+    "release",
+    "dev"
+   ],
+   "named_in": "code",
+   "ports": [
+    {
+     "port": "tcp/443",
+     "use": "HTTPS and WSS (TLS)"
+    }
+   ],
+   "ips": "cloudflare",
+   "purpose": "chat relay API for chatmux sessions"
+  },
+  {
+   "host": "preview.chatmux.dev",
+   "category": "backend",
+   "builds": [
+    "release",
+    "dev"
+   ],
+   "named_in": "code",
+   "ports": [
+    {
+     "port": "tcp/443",
+     "use": "HTTPS and WSS (TLS)"
+    }
+   ],
+   "ips": "dns",
+   "purpose": "preview pages of a chatmux session (no DNS answer on 2026-11-24)"
+  },
+  {
+   "host": "cloud-api-staging.cmux.dev",
+   "category": "backend",
+   "builds": [
+    "dev"
+   ],
+   "named_in": "code",
+   "ports": [
+    {
+     "port": "tcp/443",
+     "use": "HTTPS and WSS (TLS)"
+    }
+   ],
+   "ips": "cloudflare",
+   "purpose": "cmux Cloud API on staging"
+  },
+  {
+   "host": "vm-staging.cmux.dev",
+   "category": "backend",
+   "builds": [
+    "dev"
+   ],
+   "named_in": "code",
+   "ports": [
+    {
+     "port": "tcp/443",
+     "use": "HTTPS and WSS (TLS)"
+    }
+   ],
+   "ips": "cloudflare",
+   "purpose": "cmux Cloud machine API on staging"
+  },
+  {
+   "host": "share-dev.cmux.dev",
+   "category": "backend",
+   "builds": [
+    "dev"
+   ],
+   "named_in": "code",
+   "ports": [
+    {
+     "port": "tcp/443",
+     "use": "HTTPS and WSS (TLS)"
+    }
+   ],
+   "ips": "cloudflare",
+   "purpose": "shared workspace links in development builds"
+  },
+  {
+   "host": "share-staging.cmux.dev",
+   "category": "backend",
+   "builds": [
+    "dev"
+   ],
+   "named_in": "code",
+   "ports": [
+    {
+     "port": "tcp/443",
+     "use": "HTTPS and WSS (TLS)"
+    }
+   ],
+   "ips": "cloudflare",
+   "purpose": "shared workspace links on staging"
+  },
+  {
+   "host": "api-staging.chatmux.dev",
+   "category": "backend",
+   "builds": [
+    "dev"
+   ],
+   "named_in": "code",
+   "ports": [
+    {
+     "port": "tcp/443",
+     "use": "HTTPS and WSS (TLS)"
+    }
+   ],
+   "ips": "cloudflare",
+   "purpose": "chat relay API on staging"
+  },
+  {
+   "host": "cmux-api-development.debussy.workers.dev",
+   "category": "backend",
+   "builds": [
+    "dev"
+   ],
+   "named_in": "code",
+   "ports": [
+    {
+     "port": "tcp/443",
+     "use": "HTTPS and WSS (TLS)"
+    }
+   ],
+   "ips": "cloudflare",
+   "purpose": "cmux API in development builds"
+  },
+  {
+   "host": "cmux-api-staging.debussy.workers.dev",
+   "category": "backend",
+   "builds": [
+    "dev"
+   ],
+   "named_in": "code",
+   "ports": [
+    {
+     "port": "tcp/443",
+     "use": "HTTPS and WSS (TLS)"
+    }
+   ],
+   "ips": "cloudflare",
+   "purpose": "cmux API on staging"
+  },
+  {
+   "host": "cmux-api-preview-*.debussy.workers.dev",
+   "category": "backend",
+   "builds": [
+    "dev"
+   ],
+   "named_in": "code",
+   "ports": [
+    {
+     "port": "tcp/443",
+     "use": "HTTPS and WSS (TLS)"
+    }
+   ],
+   "ips": "cloudflare",
+   "purpose": "cmux API of one pull request's preview"
+  },
+  {
+   "host": "cmux-platform-development.debussy.workers.dev",
+   "category": "backend",
+   "builds": [
+    "dev"
+   ],
+   "named_in": "code",
+   "ports": [
+    {
+     "port": "tcp/443",
+     "use": "HTTPS and WSS (TLS)"
+    }
+   ],
+   "ips": "cloudflare",
+   "purpose": "cmux Cloud platform API in development builds"
+  },
+  {
+   "host": "cmux-platform-staging.debussy.workers.dev",
+   "category": "backend",
+   "builds": [
+    "dev"
+   ],
+   "named_in": "code",
+   "ports": [
+    {
+     "port": "tcp/443",
+     "use": "HTTPS and WSS (TLS)"
+    }
+   ],
+   "ips": "cloudflare",
+   "purpose": "cmux Cloud platform API on staging"
+  },
+  {
+   "host": "cmux-device-hub-dev.debussy.workers.dev",
+   "category": "signaling",
+   "builds": [
+    "dev"
+   ],
+   "named_in": "code",
+   "ports": [
+    {
+     "port": "tcp/443",
+     "use": "HTTPS and WSS (TLS)"
+    }
+   ],
+   "ips": "cloudflare",
+   "purpose": "device hub in development builds"
+  },
+  {
+   "host": "cmux-mobile-api-dev.debussy.workers.dev",
+   "category": "signaling",
+   "builds": [
+    "dev"
+   ],
+   "named_in": "code",
+   "ports": [
+    {
+     "port": "tcp/443",
+     "use": "HTTPS and WSS (TLS)"
+    }
+   ],
+   "ips": "cloudflare",
+   "purpose": "iPhone pairing API and signaling in development builds"
+  },
+  {
+   "host": "*.*.wdev.cmux.dev",
+   "category": "backend",
+   "builds": [
+    "dev"
+   ],
+   "named_in": "code",
+   "ports": [
+    {
+     "port": "tcp/443",
+     "use": "HTTPS and WSS (TLS)"
+    }
+   ],
+   "ips": "dns",
+   "purpose": "a cmux developer's preview stack, only when the iPhone app's backend override names one"
+  },
+  {
+   "host": "api.*.wdev.cmux.dev",
+   "category": "backend",
+   "builds": [
+    "dev"
+   ],
+   "named_in": "code",
+   "ports": [
+    {
+     "port": "tcp/443",
+     "use": "HTTPS and WSS (TLS)"
+    }
+   ],
+   "ips": "dns",
+   "purpose": "the API of a cmux developer's preview stack, only when the iPhone app's backend override names one"
+  }
+ ]
+}
