@@ -55,8 +55,8 @@ public nonisolated struct LaunchTimesRecorder: Sendable {
             do {
                 let line = try recorder.priorChat.writing(prewarmed: { recorder.prewarmed(recorder.build) }) { prewarmed, written in
                     try recorder.file.append(LaunchTimesRecord(marks: marks, startedAt: Self.processStart, version: recorder.version,
-                                                               build: recorder.build, commit: recorder.commit, prewarmed: prewarmed.preWarmed, prewarmReason: prewarmed.reason,
-                                                               workspaces: workspaces),
+                                                               build: recorder.build, commit: recorder.commit, prewarmed: prewarmed.preWarmed, workspaces: workspaces,
+                                                               prewarmReason: prewarmed.reason),
                                              rewritingLast: written)
                 }
                 log.notice("launch-times \(line, privacy: .public)")
