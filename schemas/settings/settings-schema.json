@@ -635,7 +635,8 @@
           "text" : "Sidebar"
         },
         "trail" : [
-          "spaces"
+          "spaces",
+          "archivedWorkspaces"
         ]
       },
       {
