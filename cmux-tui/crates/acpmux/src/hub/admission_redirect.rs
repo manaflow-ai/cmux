@@ -295,6 +295,7 @@ mod tests {
             peers,
             redirect,
             auto: false,
+            waiting: None,
         }
     }
 

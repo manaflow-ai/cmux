@@ -83,6 +83,7 @@ pub const ACPMUX_REQUEST_META: &[&str] = &[
     "approverDecisions",
     "argv",
     "author",
+    "autoPlace",
     "beforePromptId",
     "callerKind",
     "callerProtocol",

@@ -57,6 +57,10 @@ pub struct Client {
     notifications: Mutex<Option<mpsc::Receiver<Message>>>,
     notif_tx: Arc<Mutex<mpsc::Sender<Message>>>,
     closed: Arc<std::sync::atomic::AtomicBool>,
+    /// Print `_acpmux/admission_waiting` to stderr as it arrives
+    /// ([`Client::print_admission_waiting`]), rather than queue it behind a create that may
+    /// wait minutes for a new machine.
+    print_admission_waiting: Arc<std::sync::atomic::AtomicBool>,
 }
 
 impl Client {
@@ -117,11 +121,13 @@ impl Client {
         let (notif_tx, notif_rx) = mpsc::channel::<Message>(4096);
         let notif_tx = Arc::new(Mutex::new(notif_tx));
         let closed = Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let print_admission_waiting = Arc::new(std::sync::atomic::AtomicBool::new(false));
         let pending = Arc::new(PendingReplies::default());
         {
             let pending = pending.clone();
             let notif_tx = notif_tx.clone();
             let closed = closed.clone();
+            let print_admission_waiting = print_admission_waiting.clone();
             tokio::spawn(async move {
                 tokio::pin!(lines);
                 while let Some(line) = lines.next().await {
@@ -134,6 +140,14 @@ impl Client {
                                     Some(e) => Err(e),
                                     None => Ok(result.unwrap_or(Value::Null)),
                                 });
+                            }
+                        }
+                        Message::Notification { method: ref name, ref params }
+                            if name == method::MUX_ADMISSION_WAITING
+                                && print_admission_waiting.load(Ordering::Relaxed) =>
+                        {
+                            if let Some(text) = admission_waiting_text(params.as_ref()) {
+                                eprintln!("{text}");
                             }
                         }
                         other => {
@@ -172,7 +186,14 @@ impl Client {
             notifications: Mutex::new(Some(notif_rx)),
             notif_tx,
             closed,
+            print_admission_waiting,
         })
+    }
+
+    /// Say on stderr, when it begins, that an Auto create waits for a machine being added
+    /// (`_acpmux/admission_waiting`, `hub/admission.rs`): `acpmux new --host auto`.
+    pub fn print_admission_waiting(&self) {
+        self.print_admission_waiting.store(true, Ordering::Relaxed);
     }
 
     async fn initialize(self: Arc<Self>, include_caller: bool) -> Result<Arc<Self>> {
@@ -695,6 +716,17 @@ mod lineage_tests {
     }
 
     #[test]
+    fn an_admission_waiting_note_prints_its_warning() {
+        let note = json!({"warning": "a machine is being added", "scalingUp": true});
+        assert_eq!(
+            admission_waiting_text(Some(&note)).as_deref(),
+            Some("acpmux: a machine is being added")
+        );
+        assert_eq!(admission_waiting_text(Some(&json!({}))), None);
+        assert_eq!(admission_waiting_text(None), None);
+    }
+
+    #[test]
     fn a_parentless_session_new_asks_for_no_parent() {
         let sent = parentless(json!({"cwd": "/tmp", "_meta": {"acpmux": {"ephemeral": true}}}));
         assert_eq!(sent["_meta"]["acpmux"]["parent"], Value::Null);
@@ -718,4 +750,10 @@ mod lineage_tests {
             json!({"sessionId": "c", "peer": "box", "_meta": {"acpmux": {"parent": null}}});
         assert!(reply_lacks_lineage(&on_a_peer));
     }
+}
+
+/// The stderr line of an `_acpmux/admission_waiting` note: its warning.
+fn admission_waiting_text(params: Option<&Value>) -> Option<String> {
+    let warning = params?.get("warning")?.as_str()?;
+    Some(format!("acpmux: {warning}"))
 }

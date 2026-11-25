@@ -19,7 +19,9 @@ nonisolated extension AcpmuxPaneMethods {
         // the chat sees beside its own (the composer's Add folder…, cmux#32811); AcpmuxPathPolicy checks
         // each as it checks `cwd`. `restricted`: a read-only chat in a folder the person declined
         // (Read-only here); acpmux keeps its policy and the folder's config off (hub/restricted.rs).
-        "session/new": (["cwd", "mcpServers", "additionalDirectories", "_meta"], ["harness", "adopt", "peer", "noProject", "model", "restricted"]),
+        // `autoPlace`: the person picked Auto, so with no room anywhere acpmux may wait for a machine
+        // being added (hub/admission.rs); an explicit This Mac or machine never sends it.
+        "session/new": (["cwd", "mcpServers", "additionalDirectories", "_meta"], ["harness", "adopt", "peer", "noProject", "model", "restricted", "autoPlace"]),
         "chat.fix_from_link": (["url", "cwd", "harness", "model", "_meta"], []),
         "chat.fix_from_link.prepare": (["url", "cwd", "harness", "model"], []),
         // `context`: a chat's workspace context on its first prompt (cx-ihyx2); acpmux sends it to the

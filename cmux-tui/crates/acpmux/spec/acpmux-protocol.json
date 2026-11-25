@@ -2845,6 +2845,11 @@
       "params": true
     },
     {
+      "kind": "notification",
+      "name": "_acpmux/admission_waiting",
+      "params": true
+    },
+    {
       "kind": "client_local",
       "name": "_acpmux/disconnected",
       "params": true
@@ -2907,6 +2912,7 @@
         "approverDecisions": true,
         "argv": true,
         "author": true,
+        "autoPlace": true,
         "beforePromptId": true,
         "callerKind": true,
         "callerProtocol": true,

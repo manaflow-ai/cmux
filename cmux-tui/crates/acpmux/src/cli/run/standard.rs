@@ -480,6 +480,10 @@ pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> R
             // refused the create before making anything (`refused_before_create`).
             let mut reconnects = 0;
             let (v, reused, lost_race) = loop {
+                // An Auto start may wait for a machine being added: say so when it begins.
+                if placed {
+                    client.print_admission_waiting();
+                }
                 match find_or_create(
                     &client,
                     deadline,

@@ -454,6 +454,10 @@ impl Hub {
             let (trigger, result) = self.scale_up_wait(over, registry.as_ref());
             scaling_up = trigger.scaling();
             if scaling_up && let Some(result) = result {
+                // Tell the caller now that a machine is being added and its start waits for it.
+                if let Some(waiting) = &ask.waiting {
+                    waiting(waiting_note(over, &ask));
+                }
                 let joined = wait_for_scale_up(
                     result,
                     peer_states,
@@ -617,6 +621,24 @@ impl Hub {
     }
 }
 
+/// `_acpmux/admission_waiting`'s params: the over-cap warning with `scalingUp`, and how long the
+/// start waits at most for the new machine before it starts here.
+fn waiting_note(over: &OverCap, ask: &Ask<'_>) -> Value {
+    let host = if ask.local { super::start_gate::host_label() } else { "this machine" };
+    let secs = super::admission_scale_up::AUTO_WAIT_BOUND.as_secs();
+    let warning = format!(
+        "{host} has {} live sessions, at its cap of {}, and no connected host has room, so a machine is being added to the fleet. This start waits for it (up to {secs} s), then starts there, or here if it does not join.",
+        over.live, over.max
+    );
+    json!({
+        "warning": warning,
+        "live": over.live,
+        "maxLanes": over.max,
+        "scalingUp": true,
+        "waitSecs": secs,
+    })
+}
+
 fn should_wait_for_scale_up(auto: bool, no_peer_room: bool) -> bool {
     auto && no_peer_room
 }
@@ -695,11 +717,47 @@ pub(crate) struct Ask<'a> {
     pub redirect: bool,
     /// The caller chose Auto as the machine/place. Explicit machine choices never wait.
     pub auto: bool,
+    /// Tells the caller, once, that its Auto start waits for a machine being added
+    /// (`_acpmux/admission_waiting`); None where nobody listens.
+    pub waiting: Option<Waiting<'a>>,
 }
+
+/// [`Ask::waiting`]: sends `_acpmux/admission_waiting`'s params to the creating connection.
+pub(crate) type Waiting<'a> = Box<dyn Fn(Value) + Send + Sync + 'a>;
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The note an Auto start's caller hears when its wait begins says a machine is being added
+    /// and how long the start waits; a Web caller's names no host.
+    #[test]
+    fn the_waiting_note_says_a_machine_is_being_added() {
+        let over = OverCap { live: 9, max: 8, machine: "m".into(), source: "/r.json".into() };
+        let ask = Ask {
+            force: false,
+            can_force: false,
+            person: true,
+            name: None,
+            who: "test",
+            local: false,
+            peers: true,
+            redirect: true,
+            auto: true,
+            waiting: None,
+        };
+        let note = waiting_note(&over, &ask);
+        assert_eq!(note["scalingUp"], json!(true));
+        assert_eq!(note["live"], json!(9));
+        assert_eq!(note["maxLanes"], json!(8));
+        assert_eq!(
+            note["waitSecs"],
+            json!(super::super::admission_scale_up::AUTO_WAIT_BOUND.as_secs())
+        );
+        let text = note["warning"].as_str().unwrap();
+        assert!(text.starts_with("this machine has 9 live sessions"), "{text}");
+        assert!(text.contains("a machine is being added"), "{text}");
+    }
 
     #[test]
     fn a_session_whose_agent_host_runs_is_live_whatever_its_status() {

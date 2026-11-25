@@ -1045,6 +1045,10 @@ pub mod method {
     pub const MUX_MACHINE_JOIN_SSH: &str = "_acpmux/machine_join_ssh";
     /// One step of a [`MUX_MACHINE_JOIN_SSH`]: `{joinId, host, step, state, detail, seconds}`.
     pub const MUX_MACHINE_JOIN_PROGRESS: &str = "_acpmux/machine_join_progress";
+    /// An Auto `session/new` found no room on any machine and waits while the fleet adds one
+    /// (`hub/admission.rs`): `{warning, live, maxLanes, scalingUp: true, waitSecs}`, to the
+    /// creating connection only, once, when the wait begins. Its reply follows on its own.
+    pub const MUX_ADMISSION_WAITING: &str = "_acpmux/admission_waiting";
     /// The machines this computer reaches and has not added (its tailnet, `~/.ssh/config`): `{}`
     /// -> `{candidates: [{name, address, os, found, online, mine}], tailnet?}`. Local socket and
     /// the person only.

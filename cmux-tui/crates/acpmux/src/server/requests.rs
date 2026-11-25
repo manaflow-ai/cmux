@@ -109,7 +109,11 @@ fn attach_shows(conn: &Conn, params: &Value) -> bool {
 /// A create's admission ask (`hub/admission.rs`): `_meta.acpmux.forceAdmit`
 /// (`acpmux new --force-admit`), and whether the person asks here (proven, or
 /// this host's app pane; a peer's `via: app` is its client's word, not proof).
-pub(super) fn ask<'a>(conn: &Conn, params: &Value, who: &'a str) -> crate::hub::admission::Ask<'a> {
+pub(super) fn ask<'a>(
+    conn: &'a Conn,
+    params: &Value,
+    who: &'a str,
+) -> crate::hub::admission::Ask<'a> {
     let can_force = can_force(conn.origin);
     let force = can_force && force_asked(params);
     let person = person_asks(conn);
@@ -121,14 +125,14 @@ pub(super) fn ask<'a>(conn: &Conn, params: &Value, who: &'a str) -> crate::hub::
     let peers = conn.origin != Origin::Peer;
     // Only `session/new` follows a placed create (`hub/admission_redirect.rs`).
     let redirect = crate::hub::admission_redirect::movable(params);
-    let auto = mux_meta(params)
-        .and_then(|meta| meta.get(crate::hub::admission::AUTO_PLACE_FIELD))
-        .and_then(Value::as_bool)
-        == Some(true)
-        // The app's Auto place stays on this daemon when no peer was selected.
-        // A named machine is forwarded with `peer` and is admitted there.
-        || (conn.origin == Origin::LocalApp
-            && mux_meta(params).and_then(|meta| meta.get("peer")).is_none());
+    let auto = auto_place_asked(conn.origin, params);
+    // The caller hears the wait when it begins (`_acpmux/admission_waiting`), not only in the
+    // reply up to `AUTO_WAIT_BOUND` later.
+    let waiting: Option<crate::hub::admission::Waiting<'a>> = auto.then(|| {
+        Box::new(move |note: Value| {
+            conn.send(&Message::notification(method::MUX_ADMISSION_WAITING, note));
+        }) as crate::hub::admission::Waiting<'a>
+    });
     crate::hub::admission::Ask {
         force,
         can_force,
@@ -139,7 +143,21 @@ pub(super) fn ask<'a>(conn: &Conn, params: &Value, who: &'a str) -> crate::hub::
         name,
         redirect,
         auto,
+        waiting,
     }
+}
+
+/// Whether a create may wait for the fleet to add a machine: only a start whose place choice was
+/// Auto (`_meta.acpmux.autoPlace: true`, sent by `acpmux new --host auto` or a placed `new`, and by
+/// the app's Auto start). An explicit choice (a named machine, this Mac, Cloud) never sends it and
+/// is admitted as before. A peer daemon's connection never waits: the daemon that forwarded or
+/// redirected the create already did.
+pub(super) fn auto_place_asked(origin: Origin, params: &Value) -> bool {
+    origin != Origin::Peer
+        && mux_meta(params)
+            .and_then(|meta| meta.get(crate::hub::admission::AUTO_PLACE_FIELD))
+            .and_then(Value::as_bool)
+            == Some(true)
 }
 
 /// A peer request's `reply` with what its `wait` saw (`Hub::wait_for_peer`) as `wait`; none
@@ -4348,6 +4366,23 @@ mod admission_force_tests {
         assert!(can_force(Origin::LocalApp), "the app");
         assert!(!can_force(Origin::Web), "a Web client");
         assert!(!can_force(Origin::Peer), "a peer");
+    }
+
+    /// Only an Auto start waits for a machine being added: an explicit choice from the app (this
+    /// Mac, which carries no `peer` either) is admitted as before the wait existed.
+    #[test]
+    fn only_an_auto_marked_start_may_wait_for_a_new_machine() {
+        let this_mac = json!({"cwd": "/tmp", "_meta": {"acpmux": {"harness": "claude"}}});
+        assert!(!auto_place_asked(Origin::LocalApp, &this_mac), "this Mac, from the app");
+        assert!(!auto_place_asked(Origin::LocalApp, &json!({"cwd": "/tmp"})), "no _meta");
+        let named = json!({"_meta": {"acpmux": {"peer": "box"}}});
+        assert!(!auto_place_asked(Origin::LocalApp, &named), "a named machine");
+        let off = json!({"_meta": {"acpmux": {"autoPlace": false}}});
+        assert!(!auto_place_asked(Origin::LocalApp, &off));
+        let auto = json!({"cwd": "/tmp", "_meta": {"acpmux": {"autoPlace": true}}});
+        assert!(auto_place_asked(Origin::LocalApp, &auto), "the app's Auto start");
+        assert!(auto_place_asked(Origin::Local, &auto), "acpmux new --host auto");
+        assert!(!auto_place_asked(Origin::Peer, &auto), "a forwarded create waited already");
     }
 
     #[test]
