@@ -443,8 +443,18 @@ impl Hub {
         if owned {
             return;
         }
+        // An agent to-do list changes nothing here (`todo_tools.rs`).
+        if crate::todo_tools::drops(&session.id, update) {
+            return;
+        }
         let kind = update.get("sessionUpdate").and_then(Value::as_str).unwrap_or("");
         self.note_activity(session, update);
+        // Work the model streams live says the pool answers again (`capacity_gate.rs`). Not a
+        // message chunk: a harness words its 529 as one ("API Error: 529 ..."); a turn of
+        // text alone tells the gate when it ends well (`turns.rs`).
+        if !replayed && matches!(kind, "agent_thought_chunk" | "tool_call" | "plan") {
+            self.capacity_gate_answered(session);
+        }
         // A mode or option change goes through the one setter below.
         let mut mode_write = None;
         let mut reported_tools = None;
@@ -455,16 +465,6 @@ impl Hub {
         let mut retitled = false;
         let background = kind == "agent_message_chunk" && self.background_message(session, update);
         let mut m = session.meta.lock().unwrap_or_else(|e| e.into_inner());
-        // The harness's plan is the chat's task list from now on (`task_list.rs`); history a load
-        // replays says nothing newer than what the meta kept.
-        let task_list_write = (kind == "plan" && !replayed)
-            .then(|| crate::task_list::plan_items(update))
-            .flatten()
-            .and_then(|items| {
-                crate::task_list::after_plan(m.task_list.as_ref(), items, now_ms(), m.turn_count)
-            })
-            .map(|list| m.task_list = list)
-            .is_some();
         match kind {
             "agent_message_chunk" => {
                 // History a load replays is logged (`.replay`) but is not the chat's newest
@@ -518,29 +518,6 @@ impl Hub {
                 self.note_peer_message_hold(session, update);
             }
             "available_commands_update" => m.available_commands = Some(update.clone().into()),
-            "plan"
-                if m.family.as_deref().is_some_and(crate::goal::GoalProvider::is_claude_family) =>
-            {
-                // A TodoWrite plan is supporting detail for an armed /loop. It
-                // must not replace or clear that loop's persistent goal.
-                let loop_goal = m.goal.as_ref().is_some_and(|goal| {
-                    goal.extra.get("kind").and_then(Value::as_str) == Some("loop")
-                });
-                // A TodoWrite plan is checklist detail for the armed /loop. Keep the
-                // loop's objective and lifecycle, but replace its visible steps as Claude
-                // advances or clears the plan.
-                if loop_goal
-                    && update.get("entries").and_then(Value::as_array).is_some()
-                    && let Some(goal) = m.goal.as_mut()
-                {
-                    goal.steps = crate::goal::GoalState::from_plan_update(update)
-                        .and_then(|plan| plan.steps);
-                    goal_write = true;
-                }
-                // An ordinary TodoWrite plan (no armed /loop) is not published as the chat's
-                // goal: the current web client would render it with Codex's Pause/Clear
-                // controls, which cannot drive Claude's checklist (review on #34457).
-            }
             "current_mode_update" => {
                 // A mode the harness moves to by itself is not cmux's: a full-access mark goes, so
                 // moving back to it later is not cmux's either (`trust_wait.rs`
@@ -564,6 +541,10 @@ impl Hub {
                 if let Some(goal) = update.pointer("/_meta/goal") {
                     m.goal = crate::goal::GoalState::from_value(goal, m.family.as_deref());
                     goal_write = true;
+                    // The agent's own word on its loops (`agent_timer.rs`); a replay is history.
+                    if !replayed {
+                        super::agent_timer::note_agent_goal(session, goal);
+                    }
                 }
                 // A harness title made from the first input stops before a client context
                 // (prompt_context.rs), so a Cmd-I chat titles from the person's words.
@@ -630,9 +611,6 @@ impl Hub {
         }
         let limits = limits_changed.then(|| m.usage_limits.clone().unwrap_or(Value::Null));
         drop(m);
-        if task_list_write {
-            self.task_list_changed(session);
-        }
         // Goal state must survive a daemon restart even when the turn has not settled yet. So
         // must a title the harness gave: the chat shows it now, and before it waited for the
         // turn's end or the stop's flush, so a hard exit in between took it back.
@@ -1344,7 +1322,12 @@ impl Hub {
                     agent_host_incarnation: agent_host_incarnation.map(str::to_owned),
                 },
             );
-            self.append(session,"mux","permission_request",json!({"permissionId":permission_id,"decisionNonce":decision_nonce,"personInstance":self.person.instance(),"request":request,"groupId":grouping.as_ref().map(|(id,_)|id),"turnId":turn_id,"agentRequestId":agent_request_id,"remoteFloor":floored}));
+            let mut asked = json!({"permissionId":permission_id,"decisionNonce":decision_nonce,"personInstance":self.person.instance(),"request":request,"groupId":grouping.as_ref().map(|(id,_)|id),"turnId":turn_id,"agentRequestId":agent_request_id,"remoteFloor":floored});
+            // A risky step on a Cloud machine offers "Fork first" (`fork_risky.rs`).
+            if let Some(offer) = crate::fork_risky::offer_here(&request, &permission_id) {
+                asked.set("forkOffer", offer);
+            }
+            self.append(session, "mux", "permission_request", asked);
             self.background_attention(session);
             self.set_waiting(session, super::WaitReason::of_request(&request));
             (rx, prev, grouping, permission_id)
@@ -2259,5 +2242,39 @@ async fn next_inbound(
             }
             () = recheck => {}
         }
+    }
+}
+
+impl Hub {
+    /// "Fork first" on a risky step's prompt (`fork_risky.rs`): the copy the app made of this
+    /// machine under the prompt's offer (`carried`, `{machine, fork, forkMs}`) is checked against
+    /// the offer and logged as `fork_checkpoint`, before the answer lets the step run. The prompt
+    /// must still wait, still carry an offer, and be answered with an allow.
+    pub(crate) fn fork_checkpoint(
+        &self,
+        session: &Session,
+        permission_id: &str,
+        option: Option<&str>,
+        carried: &Value,
+    ) -> Result<Value, RpcError> {
+        let request = {
+            let state = session.permissions.lock().unwrap_or_else(|e| e.into_inner());
+            state.pending.get(permission_id).map(|p| p.request.clone())
+        }
+        .ok_or_else(|| RpcError::invalid_params("that request no longer waits"))?;
+        let options = request["options"].as_array().map_or(&[][..], Vec::as_slice);
+        if !option.and_then(|o| option_kind(options, o)).is_some_and(|k| k.starts_with("allow")) {
+            return Err(RpcError::invalid_params("forkCheckpoint goes with an allow"));
+        }
+        let offer = crate::fork_risky::offer_here(&request, permission_id).ok_or_else(|| {
+            RpcError::invalid_params(
+                "no fork offer for this request (cloud.autoCloud off, not a Cloud machine, or not a risky step)",
+            )
+        })?;
+        let record = crate::fork_risky::checkpoint(&offer, permission_id, carried)
+            .map_err(RpcError::invalid_params)?;
+        tracing::info!(session = %session.id, fork = %record["fork"], ms = %record["forkMs"], "forked before a risky step");
+        self.append(session, "mux", "fork_checkpoint", record.clone());
+        Ok(record)
     }
 }

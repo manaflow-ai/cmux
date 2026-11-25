@@ -141,8 +141,9 @@ import Testing
         #expect(candidate.id == "openBrowser")
     }
 
-    /// A WebKit page reports no unhandled keys, so cmux keeps running Find first there.
-    @Test func webKitPageKeepsCmuxFind() throws {
+    /// A page that reports no unhandled keys (the omnibar, or a Chromium page whose window is not
+    /// key) would never hand the key back, so cmux keeps running Find first there.
+    @Test func pageWithoutUnhandledReportsKeepsCmuxFind() throws {
         guard case .run(let candidate) = try Self.decision(Self.pageOwnedKeys[0], facts: KeyRouter.Facts()) else {
             Issue.record("Cmd-F did not run cmux Find in a page that reports no unhandled keys")
             return
@@ -198,5 +199,42 @@ import Testing
         #expect(router.runUnhandledPageKey(next, from: tab))
         #expect(!router.runUnhandledPageKey(handled, from: tab), "a stale report ran Find")
         #expect(ran.ids == ["findNext"])
+    }
+
+    /// A WebKit page left Cmd-F unhandled: WebKit hands the same key-down back to
+    /// `NSApp.sendEvent` (`WebViewImpl::doneWithKeyEvent`), which is its report. The held Find
+    /// runs then, once; a page that handled the key (Google Sheets' own search) sends nothing back.
+    @Test func webKitResentKeyRunsTheHeldActionOnce() throws {
+        let ran = Ran()
+        let registry = Self.registry(recording: ran)
+        let router = KeyRouter(registry: registry) // the router holds its registry unowned
+        defer { withExtendedLifetime(registry) {} }
+        let key = try Self.event(Self.pageOwnedKeys[0])
+        guard case .offerToPage(let candidate) = router.decide(key, focus: Self.pageFocus, keyWindow: .content, facts: Self.chromium) else {
+            Issue.record("Cmd-F was not offered to the page")
+            return
+        }
+        // As `dispatch` does: the key is decided, then held for the page's answer.
+        router.decided.add(key)
+        router.offerToPage(key, candidate: candidate, context: router.keyContext(for: Self.pageFocus, facts: Self.chromium),
+                           window: "win", tab: ObjectIdentifier(Self.tab))
+        #expect(ran.ids.isEmpty, "Find ran before the page answered")
+        #expect(router.interceptKeyDown(key, in: nil), "the resent key went on to AppKit instead of running its held action")
+        #expect(ran.ids == [candidate.id])
+        #expect(!router.interceptKeyDown(key, in: nil), "a second resend ran Find again")
+        #expect(ran.ids == [candidate.id])
+    }
+
+    /// A decided key that was never offered to a page (a view re-sending a chord cmux already ran)
+    /// still goes on to AppKit and runs nothing a second time.
+    @Test func resentKeyWithNothingHeldRunsNothing() throws {
+        let ran = Ran()
+        let registry = Self.registry(recording: ran)
+        let router = KeyRouter(registry: registry) // the router holds its registry unowned
+        defer { withExtendedLifetime(registry) {} }
+        let key = try Self.event(Self.pageOwnedKeys[0])
+        router.decided.add(key)
+        #expect(!router.interceptKeyDown(key, in: nil))
+        #expect(ran.ids.isEmpty)
     }
 }

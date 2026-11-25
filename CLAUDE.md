@@ -72,7 +72,8 @@ Swift build handed to a person. Table: [cmux-hot-loop, Signed in](skills/cmux-ho
   Lawrence's rule relayed by Leo, 2026-11-10): new logic is Rust; Swift and React only where that file says.
   The `language-boundaries` check enforces it.
 - **macOS and iOS parity.** Every new cmux-next macOS feature also works in the iPhone app (`cmux-next-ios/`),
-  with a row in [cmux-next-ios/verify/parity-mac.md](cmux-next-ios/verify/parity-mac.md); the exceptions
+  with a row as its own file in [cmux-next-ios/verify/parity-mac/](cmux-next-ios/verify/parity-mac/README.md)
+  (the old table, [parity-mac.md](cmux-next-ios/verify/parity-mac.md), is frozen: two PRs never edit one line); the exceptions
   (Mac-only chrome, what [cmux-next-ios/SECURITY.md](cmux-next-ios/SECURITY.md) forbids a phone) are recorded
   there. A phone path that needs new trust policy goes to Leo as one decision first, with a recommendation.
 - **Dev builds are separate.** A tagged dev build (Mac and iPhone) never sees or changes another build's

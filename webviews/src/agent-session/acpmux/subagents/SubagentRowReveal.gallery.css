@@ -1,0 +1,54 @@
+/* The stopped subagent line's losing arms (SubagentRowReveal.gallery.tsx); the pick is subagents.css
+   `.cv-subagent-done__controls` with ui/motion/motion.css `.ui-reveal-text`. */
+
+/* before: as the base drew it, the hidden Retry and ⋯ kept a column of their own at rest, so the
+   words cut early to leave room for a button that was not there. */
+[data-reveal-design="before"] .cv-subagent-done__controls {
+  position: static;
+  inset: auto;
+}
+[data-reveal-design="before"] .cv-subagent-done__trail {
+  position: static;
+}
+[data-reveal-design="before"] .cv-tool.cv-subagent-done-row[data-look="grid"] {
+  grid-template-columns:
+    minmax(0, 1fr) minmax(64px, max-content) minmax(var(--cv-failed-time-width, 7ch), max-content)
+    var(--cv-glyph-slot, 16px);
+}
+[data-reveal-design="before"] .cv-subagent-done-row[data-look="grid"] > .cv-subagent-done__trail {
+  grid-column: 2 / 4;
+}
+[data-reveal-design="before"] .ui-reveal-text {
+  -webkit-mask-image: none;
+  mask-image: none;
+}
+[data-reveal-design="before"] .ui-reveal-text > :last-child {
+  text-overflow: ellipsis;
+}
+
+/* hard-cut: the controls lie over the words on a plate of the row's own colour, the words cut with
+   an ellipsis at rest and hard under the plate on hover, with no fade. */
+[data-reveal-design="hard-cut"] .ui-reveal-text {
+  -webkit-mask-image: none;
+  mask-image: none;
+}
+[data-reveal-design="hard-cut"] .ui-reveal-text > :last-child {
+  text-overflow: ellipsis;
+}
+[data-reveal-design="hard-cut"] .cv-subagent-done__controls {
+  padding-inline-start: var(--ds-space-2);
+  background: var(--cv-surface, var(--agent-bg, Canvas));
+}
+
+/* over-time: the controls take the time's place on hover (as Session Info's task Stop does); the
+   words never give way, but the time is gone while the pointer is on the row. */
+[data-reveal-design="over-time"] .cv-subagent-done__controls {
+  inset-inline-end: 0;
+  background: var(--cv-surface, var(--agent-bg, Canvas));
+}
+[data-reveal-design="over-time"] .ui-reveal-host:is(:hover, :focus-within) .ui-reveal-text {
+  --ui-reveal-cover: 0px;
+}
+[data-reveal-design="over-time"] .ui-reveal-host:is(:hover, :focus-within) .cv-subagent-done__time {
+  visibility: hidden;
+}

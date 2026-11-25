@@ -113,10 +113,10 @@ EXEMPT = {
     ("cmux-next.yml", "app-compile-fleet"):
         "reads the build fleet's posted compile result (fleet_compile_result.py); "
         "the compile runs on a fleet worker, not on this runner",
-    ("cmux-next.yml", "fast-tier-fleet"):
-        "build-fleet gateway: checks nothing out and only runs cmux-ci "
-        "run (package-test-lane.sh suites); the suites build on a fleet "
-        "worker, never with this runner's Xcode",
+    ("cmux-next.yml", "fast-tier-fleet-mac"):
+        "mac fallback build-fleet gateway: checks nothing out and only runs "
+        "cmux-ci run (package-test-lane.sh suites); the suites build on a "
+        "fleet worker, never with this runner's Xcode",
     ("cmux-next.yml", "release-compile-fast"):
         "build-fleet gateway: checks nothing out and only runs cmux-ci "
         "compile-check --release; the compile runs on a fleet worker, never "
@@ -269,6 +269,8 @@ def check_workflow(name: str, text: str) -> list[str]:
             if BELOW_FLOOR in body and (name, job_id, step_name) not in BELOW_FLOOR_STEPS:
                 errors.append(f"{label} sets {BELOW_FLOOR}; only the SDK 15 helper may")
             scanned = re.sub(r".*select-ci-xcode\.sh.*", "", body)
+            # A whole-line YAML comment (`# Why: 2026-11-24-swift-test-1.md`, a note pointer) runs nothing.
+            scanned = re.sub(r"(?m)^\s*#.*$", "", scanned)
             uses_toolchain = TOOLCHAIN.search(job_id_token.sub("", scanned) if job_id_token else scanned)
             if uses_toolchain and first_select is not None and index < first_select:
                 errors.append(f"{label} uses the toolchain ({uses_toolchain.group(0)}) before {SELECTOR} runs")

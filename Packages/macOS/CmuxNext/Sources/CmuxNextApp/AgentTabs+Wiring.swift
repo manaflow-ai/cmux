@@ -129,9 +129,19 @@ extension AgentTabStore {
             return await services.imessage.respond(action, view: view)
         }
         // Where the chat runs and its move's progress, for the header's `place` (``CloudPlaceFlows``).
-        tabs.placeState = { [weak services] record in
-            guard let services, let record, let session = record.session else { return nil }
-            return services.cloud.place.placeJSON(session: session, onCloud: record.host.hasPrefix(MachineRegistry.registryHostPrefix), cloudName: record.hostName)
+        // The session as every other reader takes it (the record's, else the one its page bound), and only for a chat
+        // the place actions move: the same rule as ``AppServices/placeChats()``, so an SSH chat or a chat started in Cloud
+        // gets no control that would answer success and move nothing.
+        tabs.placeState = { [weak services, weak tabs] tab in
+            guard let services, let tabs, let found = tabs.record(for: tab), let session = found.record.session ?? tabs.sessions[tab],
+                  let daemon = services.machines.daemons.first(where: { $0.store === found.store }),
+                  services.placeEligible(found.record, session: session, on: daemon) else { return nil }
+            // Rust's blocked, slots-full and Keep Running state (``CloudPlaceFlows/controlFacts(signedIn:restoring:planId:chats:)``), off
+            // unless the person turns it on (`defaults write … cmux.hybrid.blockedStates -bool YES`). Unset, `place` is what it was.
+            let planId = services.cloud.isSignedIn ? tabs.cloudMachines.planReads.kept(account: services.cloud.account)?.id : nil
+            let control = UserDefaults.standard.bool(forKey: "cmux.hybrid.blockedStates") ? services.cloud.place.controlFacts(signedIn: services.cloud.isSignedIn, restoring: services.cloud.auth.isRestoring, planId: planId) { services.placeChats() } : nil
+            return services.cloud.place.placeJSON(session: session, onCloud: found.record.host.hasPrefix(MachineRegistry.registryHostPrefix), cloudName: found.record.hostName,
+                                                  control: control, starts: services.cloud.tuiState)
         }
         tabs.evacuateState = { [weak services] in services?.cloud.placeDriver?.evacuateJSON() }
         // Move to…: every Cloud machine of the account but the one the chat runs on, and this Mac for a
@@ -443,7 +453,7 @@ extension AgentTabStore {
             let reconnect = tabs.machineLink.reconnecting(machine: daemon.machineID)
             var host = AgentTabRemoteHost(surface: tab.surface.rawValue, session: session, machine: machine, hostID: record.host, endpoint: endpoint, reconnect: reconnect, servesTrust: daemon.supports(DaemonCapability.agentSessionTrust.rawValue),
                                            servesKeyedReason: daemon.supports(DaemonCapability.agentSessionStartKeyedReason.rawValue))
-            host.linksHost = AgentTabStore.registryHost(of: daemon)
+            host.linksHost = AgentTabStore.registryHost(of: daemon); host.chatNoted = AgentTabRemoteHost.notesChats(of: machineID) // names from this daemon only (cmux#55668)
             host.servesSide = daemon.supports(DaemonCapability.agentSessionSide.rawValue)
             host.servesMachineLogin = daemon.supports(DaemonCapability.agentSessionLoginMachine.rawValue)
             host.cloudMachineID = services.machines.session(daemon.machineID)?.machineID
