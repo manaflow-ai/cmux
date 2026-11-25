@@ -277,7 +277,7 @@ fn a_prompt_sent_while_the_link_is_up_waits_from_its_tap_until_a_write_fails_and
     assert_eq!(outbox.expire(t0 + ms(10_000)).len(), 1);
 
     // ... but once a write fails, from the failure, never the tap (#52384).
-    let mut outbox = outbox();
+    let mut outbox = self::outbox();
     outbox.push("a", "a", vec![], false, t0, t0 + ms(3_000));
     outbox.next_request(t0 + ms(3_000)).unwrap();
     outbox.write_failed("a", t0 + ms(3_000));
