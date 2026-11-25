@@ -659,6 +659,7 @@ fn beat_index(steps: Vec<Option<u16>>) -> (String, Arc<Mutex<usize>>) {
 }
 
 fn beat_client() -> reqwest::blocking::Client {
+    let _ = rustls::crypto::ring::default_provider().install_default();
     reqwest::blocking::Client::builder().pool_max_idle_per_host(0).build().unwrap()
 }
 
