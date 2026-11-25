@@ -9,7 +9,13 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { JSDOM } from "jsdom";
 import { teardownDom } from "../../../test/support/domTeardown";
 import { CloudStartView } from "./CloudStartView";
-import { cloudStartEnded, cloudStartSignedIn, type CloudStartProgress } from "./cloudStartProgress";
+import {
+  cloudStartBegun,
+  cloudStartEnded,
+  cloudStartSignedIn,
+  heldCloudSetup,
+  type CloudStartProgress,
+} from "./cloudStartProgress";
 import { cloudPickExtras, makeCloudSignInRetry, startCloudChat, type CloudStartAnswer } from "./cloudRun";
 import {
   cloudSetupAction,
@@ -126,7 +132,10 @@ test("the picker resumes the failed send on its selected machine", async () => {
       resumed = setup(action);
     }),
   ).toBe(true);
-  expect(connectHeldCloudSend("claude", need, true, setup)).toBe(true);
+  const waiting = cloudStartBegun("held-send", "held prompt", undefined, undefined, true, true, need);
+  expect(waiting.state).toBe("starting");
+  expect(connectHeldCloudSend("claude", heldCloudSetup(waiting), waiting.signingIn === true, setup)).toBe(true);
+  expect(heldCloudSetup(cloudStartSignedIn(waiting, "held-send"))).toBeUndefined();
   expect(attempts).toEqual([
     {
       method: "cloud.setUp",

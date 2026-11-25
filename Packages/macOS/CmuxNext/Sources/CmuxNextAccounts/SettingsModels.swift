@@ -51,7 +51,6 @@ public final class SettingsModels {
     var claudeLogins: [ClaudeLoginTarget: ClaudeLoginState] = [:]
     @ObservationIgnored var claudeLoginTasks: [ClaudeLoginTarget: Task<Void, Never>] = [:]
     @ObservationIgnored var claudeLoginTimers: [ClaudeLoginTarget: DemandTimer] = [:]
-    @ObservationIgnored var claudeLoginReplacements: [ClaudeLoginTarget: String] = [:]
     @ObservationIgnored var onCloudClaudeSignIn: (@MainActor (String) -> Void)?
     @ObservationIgnored var presentClaudeCallback: CloudClaudeMachine.CallbackOpener?
     @ObservationIgnored var claudeLoginAttempts: [ClaudeLoginTarget: ClaudeLoginAttempt] = [:]
@@ -417,7 +416,7 @@ public final class SettingsModels {
             case "cancelClaudeLogin":
                 await cancelClaudeLogin(target)
             default:
-                await signOutClaude(target)
+                try await signOutClaude(target, machine: params["machine"]?.stringValue)
             }
         case "addKey":
             let provider = params["provider"]?.stringValue ?? ""

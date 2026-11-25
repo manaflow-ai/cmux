@@ -109,19 +109,19 @@ export function ModelConnectionRow({
   const reauthProvider =
     connection.id === "claude-cloud-login"
       ? "claude"
-      : cloudSubscription
-        ? connection.kind === "claude-token"
-          ? "claude"
-          : connection.kind === "kimi-plan"
-            ? "kimi-code"
+      : connection.kind === "kimi-plan"
+        ? "kimi-code"
+        : cloudSubscription
+          ? connection.kind === "claude-token"
+            ? "claude"
             : connection.kind.slice(0, -"-plan".length)
-        : builtin
-          ? connection.kind
-          : connection.kind === "subscription"
-            ? connection.families[0] === "claude"
-              ? "claude-login"
-              : "codex-login"
-            : undefined;
+          : builtin
+            ? connection.kind
+            : connection.kind === "subscription"
+              ? connection.families[0] === "claude"
+                ? "claude-login"
+                : "codex-login"
+              : undefined;
   const reauthTarget = !builtin || connection.id === "claude-cloud-login" ? connection.id : undefined;
   // Legacy Cloud token rows offer migration to the machine login.
   const legacyClaude = cloud && connection.kind === "claude-token";

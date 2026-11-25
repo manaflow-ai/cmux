@@ -85,6 +85,8 @@ import Testing
     @Test func theFirstSettingsAccountsReadLoadsSignInRows() async {
         let h = await make(preloaded: false)
         #expect(h.harnesses.signInAccountsState == .null)
+        await h.harnesses.loadSignInAccounts(ready: { nil })
+        #expect(h.harnesses.signInAccountsState == .null)
         await h.harnesses.loadSignInAccounts()
         #expect(h.harnesses.signInAccountsState.arrayValue?.contains { $0["id"]?.stringValue == "claude-2" } == true)
     }

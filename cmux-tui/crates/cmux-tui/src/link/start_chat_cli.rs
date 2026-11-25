@@ -336,6 +336,9 @@ struct PlanRequest {
     ensure_project: Option<bool>,
     #[serde(default)]
     reservation_key: Option<String>,
+    /// The listed machine where Settings sign-in completed for this send.
+    #[serde(default)]
+    machine: Option<String>,
     #[serde(default)]
     platform: Option<String>,
     /// The size a new machine needs for the chat's folder (`preflight`'s `needed_size`: `md`, `lg`, `xl`); none or
@@ -419,9 +422,16 @@ fn plan_with_calls(
     if request.reservation_key.as_deref().is_some_and(|key| !valid_key(key)) {
         return refused("bad_request", "the reservation key is not a UUID");
     }
+    let selected = request.machine.as_ref();
+    if selected.is_some_and(|id| !request.loaded || !request.machines.iter().any(|vm| &vm.id == id))
+    {
+        return refused("not_found", "the selected machine is no longer listed");
+    }
     let mut keys = Keys::of(&request.key);
     let send = Send::new(&request.key, &request.account);
-    match Ledger::update(ledger, |pins| pins.pending_create(&send)) {
+    match Ledger::update(ledger, |pins| {
+        selected.is_none().then(|| pins.pending_create(&send)).flatten()
+    }) {
         Ok(Some(pending)) => {
             if let Some(key) = &pending.create_key {
                 keys.create = key.clone();
@@ -437,8 +447,11 @@ fn plan_with_calls(
         Err(error) => return refused("ledger_failed", format!("{error:#}")),
     }
     let planned = Ledger::update(ledger, |pins| {
-        let destination =
-            pick::destination(&send, pins, &request.machines, &request.stored, request.loaded);
+        let destination = if let Some(id) = selected {
+            Destination::Machine(id.clone())
+        } else {
+            pick::destination(&send, pins, &request.machines, &request.stored, request.loaded)
+        };
         if let Destination::Machine(id) = &destination {
             pins.record(id, &send);
             // A retry of an older send keeps its machine, never the workspace's newer one,

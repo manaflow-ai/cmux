@@ -328,7 +328,6 @@ function ProviderConnectForm({
         models={models}
         signIn={signIn}
         region={target ? undefined : region}
-        servesCloud={cloud}
         busy={busy}
         run={run}
         onClose={onClose}

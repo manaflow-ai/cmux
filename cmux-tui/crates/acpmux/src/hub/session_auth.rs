@@ -410,6 +410,9 @@ impl Hub {
             return Ok(());
         }
         for session in self.sessions() {
+            if self.has_delivered_credential(&session) {
+                continue;
+            }
             let Ok((profile, current_route)) = self.login_profile(&session, family).await else {
                 continue;
             };

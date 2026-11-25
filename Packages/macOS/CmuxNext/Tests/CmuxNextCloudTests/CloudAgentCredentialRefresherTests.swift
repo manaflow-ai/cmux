@@ -287,6 +287,25 @@ struct CloudAgentCredentialRefresherTests {
         #expect(credentials.keySync == nil)
     }
 
+    @Test func machineSignInAndRecoveryStayOnTheChatMachine() async throws {
+        let setup = CloudSetup(read: { .init(personal: [.init(id: "saved-claude", families: ["claude"])], organization: []) })
+        var opened: String?
+        setup.openConnectionSettings = { family, machine, _ in
+            #expect(family == "claude")
+            opened = machine
+        }
+        let credentials = CloudAgentCredentials(read: { _ in
+            Issue.record("a machine-login chat tried to read a Mac token")
+            return Data()
+        })
+        credentials.setup = setup
+        credentials.use(connection: nil, chat: "draft", machine: "vm_b", useMachineLogin: true)
+        credentials.move(chat: "draft", to: "chat", machine: "vm_b")
+        #expect(try await credentials.launchCredential(chat: "chat", machine: "vm_b", harness: "claude") == nil)
+        credentials.openModelConnectionSettings(machine: "vm_b", harness: "claude-work")
+        #expect(opened == "vm_b")
+    }
+
     /// The Cloud start hands its choice to the launch: a `.connection` names its id, every other choice
     /// none, and a tab that got another key than the start planned keeps the choice.
     @Test func theStartsChoiceReachesTheLaunchUnderTheTabsKey() {

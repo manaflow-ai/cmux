@@ -284,6 +284,11 @@ export function cloudStartPlanHeld(key: string, task: string, cwd: string | unde
   return { ...cloudStartBegun(key, task, cwd), state: "failed", code: "cloud_plan_required", refusedHere: true };
 }
 
+/// A setup remains the held send's while the panel is waiting on Settings.
+export function heldCloudSetup(start: CloudStartProgress | undefined): CloudSetupNeed | undefined {
+  return start?.state === "failed" || start?.signingIn ? start.cloudSetup : undefined;
+}
+
 /// Start `key`'s sign-in came back signed in and the start goes on: the card leaves its waiting for
 /// sign-in state for the normal start. Another start, or one not waiting on a sign-in, is unchanged.
 export function cloudStartSignedIn(

@@ -311,7 +311,7 @@ struct Facts {
 /// machine's agent). CLI logins and added local accounts serve local chats only.
 pub(super) fn serves_cloud(kind: &str, provider: &str) -> bool {
     match kind {
-        "chatgpt-plan" | "claude-token" | "grok-plan" | "copilot-plan" | "kimi-plan" => true,
+        "chatgpt-plan" | "claude-token" => true,
         "api-key" => matches!(
             provider,
             "anthropic" | "openai" | "openrouter" | "google" | "vertex-express" | "xai"
@@ -369,13 +369,7 @@ fn connection(route: &Route, facts: Facts, b: &Bindings) -> Connection {
         can_replace_key: standard_endpoint.then_some(true),
         endpoint: None,
         expires_at: route.file.claude_token_expires_at,
-        endpoint_credentials: (openrouter
-            || native.is_some()
-            || matches!(
-                route.file.kind,
-                RouteKind::GrokPlan | RouteKind::CopilotPlan | RouteKind::KimiPlan
-            ))
-        .then_some(true),
+        endpoint_credentials: (openrouter || native.is_some()).then_some(true),
         cloud_families: native
             .map(|provider| vec![provider.name().into()])
             .or_else(|| openrouter.then(|| vec!["claude".into(), "openrouter".into()])),
@@ -897,11 +891,6 @@ pub(super) fn credential_plan(
         ("api-key", "google") => "GEMINI_API_KEY",
         ("api-key", "vertex-express") => "GOOGLE_API_KEY",
         ("api-key", "xai") => "XAI_API_KEY",
-        ("grok-plan" | "copilot-plan", provider) => {
-            let provider = crate::subscriptions::Provider::parse(provider)
-                .ok_or_else(|| RpcError::invalid_params("invalid subscription provider"))?;
-            return Ok((family, found.kind, provider.credential(), None));
-        }
         ("chatgpt-plan", _) => {
             return Ok((family, "chatgpt-plan", "CMUX_CHATGPT_ACCESS_TOKEN", None));
         }
@@ -1550,40 +1539,6 @@ pub(super) async fn handle(
         }
         method::MUX_CONNECTIONS_CREDENTIAL => {
             let id = need("id")?;
-            let (d, i) = (dir.clone(), id.clone());
-            let kimi_route = blocking(move || {
-                routes::find(d.as_deref(), &i)
-                    .ok()
-                    .filter(|route| route.file.kind == RouteKind::KimiPlan)
-            })
-            .await?;
-            if let Some(route) = kimi_route {
-                if route.file.disabled || route.file.cloud_enabled == Some(false) {
-                    return Err(not_cloud(&id));
-                }
-                let models = [crate::subscriptions::KIMI_MODEL.to_owned()];
-                let picked = text("model").filter(|model| *model != "default");
-                let (token, expiry, region) = hub
-                    .subscriptions
-                    .grant(
-                        crate::subscriptions::Provider::Kimi,
-                        &home,
-                        &id,
-                        chatgpt::CREDENTIAL_MARGIN_SECS,
-                    )
-                    .await
-                    .map_err(|code| {
-                        if matches!(code, "reauth_required" | "signed_out") {
-                            announce_later(hub);
-                        }
-                        subscription_failure(code)
-                    })?;
-                let region = region.ok_or_else(|| subscription_failure("reauth_required"))?;
-                let endpoint = LaunchEndpoint::checked(Kind::OpenAi, region.base_url(), &models)
-                    .ok_or_else(|| not_cloud(&id))?;
-                let model = endpoint_launch_model(&endpoint, picked)?;
-                return launch_endpoint_reply(&endpoint, &model, &token, Some(expiry));
-            }
             if text("model") == Some("openrouter/default") {
                 let (folder, route_id) = (dir.clone(), id.clone());
                 let (base, kind, value) = blocking(move || {
@@ -1647,35 +1602,6 @@ pub(super) async fn handle(
                 blocking(move || credential_plan(d.as_deref(), &h, &i)).await??
             };
             let (value, expires_at) = match reference {
-                None if matches!(kind, "grok-plan" | "copilot-plan") => {
-                    let provider = RouteKind::parse(kind)
-                        .and_then(crate::subscriptions::Provider::for_kind)
-                        .ok_or_else(|| RpcError::invalid_params("invalid subscription provider"))?;
-                    let (token, expiry) = hub
-                        .subscriptions
-                        .token(provider, &home, &id, chatgpt::CREDENTIAL_MARGIN_SECS)
-                        .await
-                        .map_err(|code| {
-                            if matches!(code, "reauth_required" | "signed_out") {
-                                announce_later(hub);
-                            }
-                            subscription_failure(code)
-                        })?;
-                    if provider == crate::subscriptions::Provider::Copilot
-                        && let Err(code @ ("reauth_required" | "no_copilot_access")) =
-                            crate::subscriptions::copilot_endpoint(&token).await
-                    {
-                        #[cfg(unix)]
-                        if code == "reauth_required" {
-                            crate::subscriptions::Provider::forget_lapsed_copilot(home, id, token)
-                                .await
-                                .map_err(subscription_failure)?;
-                            announce_later(hub);
-                        }
-                        return Err(subscription_failure(code));
-                    }
-                    (token, (expiry > 0).then_some(expiry))
-                }
                 None => {
                     let (token, expires_at) = hub
                         .chatgpt
@@ -1692,8 +1618,10 @@ pub(super) async fn handle(
                 // The keychain may ask: off the runtime's threads.
                 Some(reference) => (blocking(move || resolve(&id, &reference)).await??, None),
             };
+            let wire = json!({"env": {var: value}});
+            AgentCredential::parse(&wire)?;
             Ok(
-                json!({"family": family, "kind": kind, "env": {var: value}, "expires_at": expires_at}),
+                json!({"family": family, "kind": kind, "env": wire["env"], "expires_at": expires_at}),
             )
         }
         method::MUX_CONNECTIONS_CHATGPT_IMPORT => {
@@ -2226,6 +2154,28 @@ mod tests {
         let s = state(Some(&d.routes), &d.home, &ProfileSources::none());
         assert_eq!(find(&s, "codex-login")["serves_cloud"], false);
         assert_eq!(find(&s, "claude-login")["serves_cloud"], false);
+    }
+
+    #[test]
+    fn saved_local_plans_never_offer_a_cloud_credential() {
+        let d = dirs();
+        let dir = Some(d.routes.as_path());
+        for (kind, family) in
+            [("grok-plan", "grok"), ("copilot-plan", "github-copilot"), ("kimi-plan", "opencode")]
+        {
+            let file = serde_json::from_value(json!({
+                "kind": kind, "families": [family], "cloud_enabled": true,
+            }))
+            .unwrap();
+            routes::add(dir, kind, &file, false).unwrap();
+            let settings = state(dir, &d.home, &ProfileSources::none());
+            let row = find(&settings, kind);
+            assert_eq!(row["kind"], kind);
+            assert_eq!(row["serves_cloud"], false);
+            assert_eq!(row["can_serve_cloud"], false);
+            let error = credential_plan(dir, &d.home, kind).unwrap_err();
+            assert_eq!(error.data.unwrap()["reason"], "connections.not_cloud");
+        }
     }
 
     #[test]

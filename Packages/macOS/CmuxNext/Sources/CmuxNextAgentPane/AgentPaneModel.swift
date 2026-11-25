@@ -175,7 +175,7 @@ public final class AgentPaneModel {
     @ObservationIgnored public var onCloudSignIn: (@MainActor () async -> Bool)?
     /// The Set up Cloud card's way in, then the wait for a connection serving the family (``CloudSetup/setUp(_:family:)``);
     /// false when the wait ended without one. nil when Cloud is unavailable.
-    @ObservationIgnored public var onCloudSetUp: (@MainActor (CloudSetup.Action, String, String?) async -> Bool)?
+    @ObservationIgnored public var onCloudSetUp: (@MainActor (CloudSetup.Action, String, String?) async -> CloudSetup.SetupCompletion?)?
     /// Per family a Cloud chat runs, readiness and the reason when disconnected (``CloudSetup/served()``); nil when Cloud is unavailable.
     @ObservationIgnored public var onCloudServed: (@MainActor (String?) async -> CloudSetup.Readiness)?
     /// Opens Settings > Cloud > Cloud models for the picker's Connect (``CloudSetup/connect(family:)``); nil when Cloud is unavailable.
@@ -194,10 +194,10 @@ public final class AgentPaneModel {
     /// This pane's browser sign-in while a `cloud.signIn` waits on it; an expired `cloud.signInCancel` cancels it.
     @ObservationIgnored var cloudSignInBrowser: Task<Bool, Never>?
     /// This pane's Set up Cloud wait while a `cloud.setUp` waits on it; `cloud.signInCancel` cancels it.
-    @ObservationIgnored var cloudSetUpWait: Task<Bool, Never>?
+    @ObservationIgnored var cloudSetUpWait: Task<CloudSetup.SetupCompletion?, Never>?
     /// The click a `cloud.signIn` kept once it signed in, for the page's one send again of that start
     /// (``AgentPaneModel/takeCloudSignInGrant(_:)``); `cloud.signInCancel` drops it.
-    @ObservationIgnored var cloudSignInGrant: (key: String, generation: Int, until: ContinuousClock.Instant)?
+    @ObservationIgnored var cloudSignInGrant: (key: String, generation: Int, until: ContinuousClock.Instant, completion: CloudSetup.SetupCompletion)?
     /// Reads this Mac's local repository catalog through its cmux daemon frame connection.
     @ObservationIgnored public var onCloudRepositoryLocal: (@MainActor () async throws -> Data)?
     /// For a Cloud chat, forwards machine actions through its tab host even while the page's

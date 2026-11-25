@@ -11,18 +11,17 @@ import { t } from "../strings";
 export type SetupSelection = {
   id: string;
   target?: string;
+  machine?: string;
   edit?: boolean;
   onKeyReplaced?(): void;
 };
 
 export function isCloudSubscription({ kind }: ModelConnection) {
-  return (
-    kind === "claude-token" ||
-    kind === "chatgpt-plan" ||
-    kind === "grok-plan" ||
-    kind === "copilot-plan" ||
-    kind === "kimi-plan"
-  );
+  return kind === "claude-token" || kind === "chatgpt-plan";
+}
+
+export function isLocalOnlyPlan({ kind }: ModelConnection) {
+  return kind === "grok-plan" || kind === "copilot-plan" || kind === "kimi-plan";
 }
 
 export function providerFamily(provider: CatalogProvider | undefined) {
@@ -75,7 +74,12 @@ export type Run = (gesture: ModelsRun) => Promise<boolean>;
 
 /** A card's gestures to the host: `run` sends one and resolves whether the host took it; `busy` while
  * one is out, `error` the last refusal's text (shown under the card). */
-export function useModelsRun(): { busy: boolean; error: string | null; run: Run; clearError(): void } {
+export function useModelsRun(): {
+  busy: boolean;
+  error: string | null;
+  run: Run;
+  clearError(): void;
+} {
   const store = useStore();
   const inFlight = useRef(0);
   const latest = useRef(0);

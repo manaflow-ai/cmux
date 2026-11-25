@@ -254,20 +254,48 @@ import Testing
         #expect(!models.state.compactText.contains("cloud-id"))
     }
 
+    @Test func cloudClaudeSignOutKeepsTheRowsMachineWhenItsLinkDrops() async throws {
+        let models = make(daemon: Daemon())
+        var requests: [String] = []
+        let first = SettingsModels.CloudClaudeMachine(id: "vm_a", request: { op, _ in
+            requests.append("vm_a:(op)")
+            return Data(#"{"signedIn":true}"#.utf8)
+        }, openCallback: { _, _, _ in false })
+        let other = SettingsModels.CloudClaudeMachine(id: "vm_b", request: { op, _ in
+            requests.append("vm_b:(op)")
+            return Data(#"{"signedIn":true}"#.utf8)
+        }, openCallback: { _, _, _ in false })
+        var dropped = false
+        models.cloudClaudeLogin = { id in .ready(id == first.id && !dropped ? first : other) }
+        await models.checkClaudeLogin(.cloud, machine: first.id)
+        dropped = true
+        await #expect(throws: PageError.self) {
+            try await models.run(["action": "signOutClaude", "cloud": true, "machine": "vm_a"], context: click)
+        }
+        #expect(requests == ["vm_a:status"])
+        dropped = false
+        _ = try await models.run(["action": "signOutClaude", "cloud": true, "machine": "vm_a"], context: click)
+        #expect(requests == ["vm_a:status", "vm_a:logout"])
+    }
+
     @Test func cloudClaudeReauthenticationTargetsTheConnectedMachineAndKeepsOtherTokens() async throws {
         let daemon = Daemon()
         daemon.committedClaudeToken.withLock { $0 = true }
         let models = make(daemon: daemon)
         let machine = SettingsModels.CloudClaudeMachine(id: "vm_b", request: { op, fields in
             daemon.calls.withLock { $0.append(Call(method: op, params: fields)) }
+            if op == "start" {
+                return Data(#"{"loginId":"reauth","callbackPort":1234,"autoUrl":"https://claude.ai/oauth/authorize?redirect_uri=http%3A%2F%2Flocalhost%3A1234%2Fcallback"}"#.utf8)
+            }
             return Data(#"{"signedIn":true}"#.utf8)
-        }, openCallback: { _, _, _ in false })
+        }, openCallback: { _, _, _ in true })
         models.cloudClaudeLogin = { _ in .ready(machine) }
         models.prepareCloudClaudeLogin = { preferred in preferred == machine.id ? machine : nil }
         await models.checkClaudeLogin(.cloud, machine: machine.id)
         _ = try await models.run(["action": "connectClaude", "cloud": true, "replace": "claude-cloud-login"], context: click)
         await models.claudeLoginTasks[.cloud]?.value
-        #expect(daemon.calls.withLock { $0 }.contains(Call(method: "start", params: ["agent": "claude"])))
+        #expect(daemon.calls.withLock { $0 }.contains(Call(method: "start", params: ["agent": "claude", "reauthenticate": "true"])))
+        #expect(daemon.calls.withLock { $0 }.contains(Call(method: "finish", params: ["loginId": "reauth"])))
         #expect(models.state["cloudClaudeLogin"]?["completion"]?.stringValue != nil)
         #expect(daemon.committedClaudeToken.withLock { $0 })
     }
@@ -299,7 +327,7 @@ import Testing
         await models.claudeLoginTasks[.cloud]?.value
         #expect(daemon.calls.withLock { $0 }.contains(Call(method: "finish", params: ["loginId": "manual-id", "code": "fixture"])))
         #expect(models.state["cloudClaudeLogin"]?["phase"]?.stringValue == (signedIn ? "connected" : "failed"))
-        #expect(daemon.committedClaudeToken.withLock { $0 } == !signedIn)
+        #expect(daemon.committedClaudeToken.withLock { $0 }, "saved-token chats can still restore their route")
     }
 
     @Test func cloudClaudeMachinePickPrefersReadyThenPausedOrOfflineThenCreate() {

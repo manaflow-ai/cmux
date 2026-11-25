@@ -113,7 +113,6 @@ pub(super) fn identify_capabilities(mux: &Mux) -> Vec<&'static str> {
         // A Codex credential's provider reaches app-server (acpmux agent_credentials.rs, cmux#45774).
         capabilities.push(AGENT_SESSION_START_CODEX_CREDENTIALS_CAPABILITY);
         capabilities.push(AGENT_SESSION_START_ENDPOINT_CREDENTIALS_CAPABILITY);
-        capabilities.push(AGENT_SESSION_START_SUBSCRIPTION_CREDENTIALS_CAPABILITY);
         capabilities.extend_from_slice(mux.endpoint_start_harnesses());
         // The owner's coming start warmed ahead (agent_session_prewarm.rs, cmux#45953).
         capabilities.push(AGENT_SESSION_PREWARM_CAPABILITY);

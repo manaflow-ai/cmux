@@ -1,4 +1,4 @@
-import CmuxNextAgentPane
+package import CmuxNextAgentPane
 public import CmuxNextOnboarding
 import CmuxNextPages
 public import CmuxNextSettings

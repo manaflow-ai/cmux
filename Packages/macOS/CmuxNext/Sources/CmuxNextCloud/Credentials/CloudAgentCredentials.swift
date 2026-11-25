@@ -94,7 +94,7 @@ public final class CloudAgentCredentials {
     private var tracked: [ChatKey: UUID] = [:]
 
     private struct Selection {
-        let connection: String
+        let connection: String?
         let harness: String?
     }
 
@@ -209,8 +209,8 @@ public final class CloudAgentCredentials {
 
     /// The Cloud start's choice for the chat tab `chat` on `machine`: its agent launches on connection
     /// `id` (nil: the machine's own route). Read once, at the chat's start on that machine.
-    public func use(connection id: String?, chat: String, machine: String, harness: String? = nil) {
-        chosen[ChatKey(machine: machine, chat: chat)] = id.map { Selection(connection: $0, harness: harness) }
+    public func use(connection id: String?, chat: String, machine: String, harness: String? = nil, useMachineLogin: Bool = false) {
+        chosen[ChatKey(machine: machine, chat: chat)] = id != nil || useMachineLogin ? Selection(connection: id, harness: harness) : nil
     }
 
     /// The chat's tab got the key `key` on `machine` (not the one its start planned): its choice follows.
@@ -229,13 +229,20 @@ public final class CloudAgentCredentials {
     /// opened in a machine's workspace). Nil: such a chat starts on the machine's own route.
     public var setup: CloudSetup?
 
+    /// Opens the recovery form for the machine where this chat's connection failed.
+    public func openModelConnectionSettings(machine: String, harness: String?) {
+        let harness = harness ?? "codex"
+        setup?.connect(family: CloudSetup.family(of: harness) ?? harness, machine: machine)
+    }
+
     /// The credential the chat's start sends, read now. A chosen connection that cannot be read throws:
     /// the start says so instead of using another route. With no choice, the connection Cloud first use
     /// picks for `harness` (``setup``); nil when none serves it or it cannot be read (the machine's own route).
     public func launchCredential(chat: String, machine: String, harness: String? = nil, model: String? = nil) async throws -> CloudAgentCredential? {
         if let selection = chosen[ChatKey(machine: machine, chat: chat)],
            selection.harness == nil || selection.harness == harness {
-            return try await credential(forConnection: selection.connection, model: model, harness: harness)
+            guard let connection = selection.connection else { return nil }
+            return try await credential(forConnection: connection, model: model, harness: harness)
         }
         guard let picked = await setup?.choose(harness: harness, model: model, account: nil).connectionID else { return nil }
         let connection = await setup?.launchConnection(picked)

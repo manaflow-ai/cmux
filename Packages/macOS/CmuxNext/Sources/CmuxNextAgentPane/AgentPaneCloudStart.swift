@@ -34,6 +34,9 @@ public nonisolated struct AgentPaneCloudStart: Sendable, Equatable {
     public var account: String?
     /// The selected Cloud environment id; nil lets workspace ensure resolve personal Default.
     public var environment: String?
+    /// The machine pinned by this send's native setup retry grant.
+    public internal(set) var machine: String?
+    public internal(set) var usesMachineLogin = false
     /// The warm machine reserved by this compose; Send binds it using ``key``.
     public var reservationKey: String?
     /// The size a new machine needs for the chat's folder or repository (``sized(_:local:)``); nil: the chat size.
@@ -217,7 +220,7 @@ struct AgentPaneHandOff {
         guard let run = model.onSandboxRun else { return AgentPaneModel.unsupported("sandbox.run") }
         // Read as the send is issued, before `held` waits on the send line: the tab may close by then (#31109).
         let incognito = model.sendIsIncognito?() ?? true
-        return await held("sandbox.run") { replacements in
+        return await held("sandbox.run") { replacements, _ in
             await model.sandboxRuns.run(task: task, key: key) {
                 defer { replacements.endSandbox() }
                 return await run(task, agent, key, incognito)
@@ -300,7 +303,10 @@ struct AgentPaneHandOff {
         if let chat = start.replacesChat, chat == model.sessionId { model.cloudStartReplaces = chat }
         let picksFolder = await AgentPaneCloudStart.picksFolder(start, transport: model.transport) // else a Send needs no gesture
         return await held("cloud.startChat", replacing: start.replacesChat, gestureTicket: start.gestureTicket, gestureParams: ["key": start.key],
-                          signInGrant: grantKey, needsGesture: picksFolder) { [start] replacements in
+                          signInGrant: grantKey, needsGesture: picksFolder) { [start] replacements, completion in
+            var start = start
+            start.machine = completion?.machine
+            start.usesMachineLogin = completion?.usesMachineLogin == true
             let reply = await run(start)
             // A chat that started on the machine keeps the hold: this pane never starts one too,
             // also when the App could not close it. Its reservation is spent with it.
@@ -317,7 +323,7 @@ struct AgentPaneHandOff {
     /// `needsGesture` false: a gesture is spent if there is one, but none refuses nothing, except for a seeded prompt (``AgentPaneUserGestures/automationSeedWaits``).
     private func held(_ method: String, replacing chat: String? = nil, gestureTicket: String? = nil, gestureParams: [String: Any]? = nil,
                       signInGrant: String? = nil, needsGesture: Bool = true,
-                      _ body: @MainActor (AcpmuxPaneReplacements) async -> [String: Any]) async -> [String: Any] {
+                      _ body: @MainActor (AcpmuxPaneReplacements, CloudSetup.SetupCompletion?) async -> [String: Any]) async -> [String: Any] {
         guard model.sessionId == nil || (chat != nil && model.sessionId == chat) else { return AgentPaneModel.unsupported(method) }
         let notNow = AgentPaneReply.failure(code: "unavailable_now", message: "unavailable_now")
         let transport = model.transport
@@ -328,13 +334,15 @@ struct AgentPaneHandOff {
         let replacements = transport.replacements
         guard replacements.beginSandbox(replacingOpened: chat != nil) else { return notNow }
         let authorized: Bool
+        var completion: CloudSetup.SetupCompletion?
         let free = !needsGesture && !transport.gestures.automationSeedWaits
         if let signInGrant {
             // No await from here to `body`'s `run`: the check and the start are one turn.
-            guard model.takeCloudSignInGrant(signInGrant) else {
+            guard let grant = model.takeCloudSignInGrant(signInGrant) else {
                 replacements.endSandbox()
                 return AgentPaneReply.failure(code: "cloud_sign_in_cancelled", message: "cloud_sign_in_cancelled")
             }
+            completion = grant
             authorized = true
         } else if let gestureTicket, let connection = transport.connection, let gestureParams {
             authorized = transport.gestures.redeem(gestureTicket, connection: connection, method: method, params: gestureParams) || free
@@ -346,7 +354,7 @@ struct AgentPaneHandOff {
             replacements.endSandbox()
             return AgentPaneModel.transportFailure(.gestureRequired)
         }
-        return await body(replacements)
+        return await body(replacements, completion)
     }
 }
 
@@ -449,12 +457,13 @@ extension AgentPaneModel {
         cloudSetUpWait?.cancel() // one wait per pane: a newer click replaces it
         let wait = Task { await onCloudSetUp(way, family, machine) } // the model's own actor: it only awaits the App's wait
         cloudSetUpWait = wait
-        let ready = await wait.value
-        if cloudSetUpWait == wait { cloudSetUpWait = nil }
-        guard ready, cloudSignInGeneration == generation else {
+        let completion = await wait.value
+        let current = cloudSetUpWait == wait
+        if current { cloudSetUpWait = nil }
+        guard let completion, current, cloudSignInGeneration == generation else {
             return AgentPaneReply.failure(code: "cloud_sign_in_cancelled", message: "cloud_sign_in_cancelled")
         }
-        keepCloudSignInGrant(key, generation: generation)
+        keepCloudSignInGrant(key, generation: generation, completion: completion)
         return AgentPaneReply.success(["ready": true])
     }
 
@@ -532,15 +541,15 @@ extension AgentPaneModel {
 
     /// Keeps the click of a `cloud.signIn` that signed in, for one send again of the start `key`
     /// while ``cloudSignInGeneration`` is still `generation`.
-    func keepCloudSignInGrant(_ key: String, generation: Int) {
-        cloudSignInGrant = (key, generation, ContinuousClock.now.advanced(by: Self.cloudSignInGrantLifetime))
+    func keepCloudSignInGrant(_ key: String, generation: Int, completion: CloudSetup.SetupCompletion = .init()) {
+        cloudSignInGrant = (key, generation, ContinuousClock.now.advanced(by: Self.cloudSignInGrantLifetime), completion)
     }
 
-    /// Takes the kept click for the start `key`: true once, only while no `cloud.signInCancel` came
-    /// since its sign-in and within its lifetime. Any try spends it.
-    func takeCloudSignInGrant(_ key: String) -> Bool {
-        guard let grant = cloudSignInGrant else { return false }
+    /// Takes the kept click for the start `key` within its lifetime. Any try spends it.
+    func takeCloudSignInGrant(_ key: String) -> CloudSetup.SetupCompletion? {
+        guard let grant = cloudSignInGrant else { return nil }
         cloudSignInGrant = nil
-        return grant.key == key && grant.generation == cloudSignInGeneration && ContinuousClock.now < grant.until
+        guard grant.key == key, grant.generation == cloudSignInGeneration, ContinuousClock.now < grant.until else { return nil }
+        return grant.completion
     }
 }

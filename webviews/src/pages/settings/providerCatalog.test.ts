@@ -51,8 +51,9 @@ test("search finds providers by name, group and host", () => {
 test("subscription families resolve to their Cloud provider", () => {
   expect(cloudProviderForFamily("codex")).toBe("chatgpt");
   expect(cloudProviderForFamily("claude")).toBe("claude");
-  expect(cloudProviderForFamily("grok")).toBe("grok");
-  expect(cloudProviderForFamily("github-copilot")).toBe("copilot");
+  expect(cloudProviderForFamily("grok")).toBe("xai");
+  expect(cloudProviderForFamily("github-copilot")).toBeUndefined();
+  expect(cloudProviderForFamily("kimi-code")).toBeUndefined();
   expect(cloudProviderForFamily("cursor")).toBeUndefined();
   expect(cloudProviderForFamily("cursor-agent")).toBeUndefined();
 });
@@ -66,21 +67,14 @@ test("Cloud accepts endpoint setup before a machine reports its runners", () => 
   expect(canAddProvider(bedrock, false)).toBe(true);
 });
 
-test("Connect offers the same subscriptions and coding plans in both settings sections", () => {
-  for (const cloud of [false, true]) {
-    const offered = providerCatalog.filter((provider) => canAddProvider(provider, cloud));
-    expect(offered.filter(({ group }) => group === "subscriptions").map(({ id }) => id)).toEqual([
-      "chatgpt",
-      "claude",
-      "grok",
-      "copilot",
-    ]);
-    expect(
-      offered
-        .filter(({ group }) => group === "codingPlans")
-        .map(({ id }) => id)
-        .sort(),
-    ).toEqual(["glm-coding-plan", "kimi-code", "minimax-coding-plan", "morph", "ollama-cloud", "opencode-go"]);
+test("Cloud Connect offers only plans that can launch on its machines", () => {
+  const offers = (id: string, cloud: boolean) => canAddProvider(providerById(id)!, cloud);
+  for (const id of ["grok", "copilot", "kimi-code"]) {
+    expect(offers(id, false)).toBe(true);
+    expect(offers(id, true)).toBe(false);
+  }
+  for (const id of ["chatgpt", "claude", "xai", "moonshot", "opencode-go"]) {
+    expect(offers(id, true)).toBe(true);
   }
 });
 

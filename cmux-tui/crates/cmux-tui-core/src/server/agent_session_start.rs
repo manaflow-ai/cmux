@@ -135,7 +135,7 @@ pub const AGENT_SESSION_START_CODEX_CREDENTIALS_CAPABILITY: &str =
 pub const AGENT_SESSION_START_ENDPOINT_CREDENTIALS_CAPABILITY: &str =
     "agent-session-start-endpoint-credentials-v1";
 
-/// The owner link carries SuperGrok and GitHub Copilot credentials.
+/// The subscription credential capability used by earlier clients.
 pub const AGENT_SESSION_START_SUBSCRIPTION_CREDENTIALS_CAPABILITY: &str =
     "agent-session-start-subscription-credentials-v1";
 
@@ -144,11 +144,10 @@ pub(in crate::server) const CREDENTIAL_REATTACH_CAPABILITY: &str =
 
 /// The names a credential may set (acpmux `agent_credentials::NAMES`).
 const CREDENTIAL_NAMES: &[&str] = &[
+    "CLAUDE_CODE_OAUTH_TOKEN",
     "ANTHROPIC_API_KEY",
     "OPENAI_API_KEY",
     "CMUX_CHATGPT_ACCESS_TOKEN",
-    "CMUX_GROK_PLAN_ACCESS_TOKEN",
-    "CMUX_COPILOT_GITHUB_TOKEN",
 ];
 const MAX_CREDENTIAL_BYTES: usize = 16 * 1024;
 
@@ -181,6 +180,7 @@ impl StartCredentials {
     pub(super) fn valid(&self) -> bool {
         self.connection.as_deref().is_none_or(|id| {
             (1..=64).contains(&id.len())
+                && !id.starts_with('-')
                 && id.bytes().all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'-')
                 && !self.env.values().any(|value| {
                     id == value.as_str() || (value.len() >= 6 && id.contains(value.as_str()))

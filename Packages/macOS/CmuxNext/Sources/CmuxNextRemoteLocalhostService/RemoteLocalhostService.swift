@@ -239,11 +239,14 @@ public final class RemoteLocalhostService {
     }
 
     /// Invalidate the callback before closing its live tab, including one still being adopted.
-    package func endSignInApproval(owner: String) -> [String] {
-        let pending = expectedPages.filter { Self.isApproval($0.value.binding, ownedBy: owner) }
+    package func endSignInApproval(owner: String, machine: String? = nil) -> [String] {
+        let matches = { (binding: SignInBinding) in
+            (machine == nil || machine == binding.machine) && Self.isApproval(binding, ownedBy: owner)
+        }
+        let pending = expectedPages.filter { matches($0.value.binding) }
         for key in pending.keys { expectedPages[key] = nil }
         for page in pending.values { page.close?() }
-        let keys = boundTabs.compactMap { Self.isApproval($0.value, ownedBy: owner) ? $0.key : nil }
+        let keys = boundTabs.compactMap { matches($0.value) ? $0.key : nil }
         for key in keys {
             if let binding = boundTabs[key] { boundTabs[key] = SignInBinding(machine: binding.machine, callback: .restored) }
         }

@@ -6,7 +6,7 @@ package import Foundation
 @MainActor
 package protocol ChatMachineSignInHost: AnyObject {
     func signInDaemon(for chat: String) -> DaemonService?
-    func signInLifetime(for chat: String) -> @MainActor () -> Bool
+    func signInLifetime(for chat: String, onMachine machine: String) -> @MainActor () -> Bool
     func signInProfile() -> (wire: String?, engine: BrowserProfileID)
     func placeSignInTab(_ make: @escaping @MainActor (_ adopt: @MainActor (any BrowserTab, String?) -> Bool) -> Bool) -> Bool
     func openSignInPage(_ url: URL, adopting page: any BrowserTab, profile: String?,
@@ -40,13 +40,14 @@ package final class ChatMachineSignInTab {
     package func opener(for url: URL, callbackPort: @autoclosure () -> UInt16?, agentTab chat: String,
                         from host: any ChatMachineSignInHost) -> (@MainActor () -> Bool)? {
         guard let daemon = host.signInDaemon(for: chat), let port = callbackPort(), isAvailable(on: daemon) else { return nil }
+        let current = host.signInLifetime(for: chat, onMachine: daemon.machineID)
         return { [weak self, weak host] in
-            guard self != nil, host != nil else { return false }
+            guard self != nil, host != nil, current() else { return false }
             // task-owner: one page made and one tab asked for; ends once the tab is asked for.
             Task { [weak self, weak host] in
                 guard let self, let host else { return }
                 _ = await open(url, daemon: daemon, from: host, callbackPort: port, owner: Self.chatOwner(chat),
-                               checking: host.signInLifetime(for: chat))
+                               checking: current)
             }
             return true
         }
@@ -107,11 +108,13 @@ package final class ChatMachineSignInTab {
                           checking: current, onOpened: { onOpened(owner, $0) })
     }
 
-    package func closeChatApproval(_ chat: String) { closeApproval(owner: Self.chatOwner(chat)) }
+    package func closeChatApproval(_ chat: String, onMachine machine: String) {
+        closeApproval(owner: Self.chatOwner(chat), machine: machine)
+    }
 
     private static func chatOwner(_ chat: String) -> String { "chat:" + chat }
 
-    private func closeApproval(owner: String) {
-        for key in localhost.endSignInApproval(owner: owner) { closeTab(key) }
+    private func closeApproval(owner: String, machine: String? = nil) {
+        for key in localhost.endSignInApproval(owner: owner, machine: machine) { closeTab(key) }
     }
 }

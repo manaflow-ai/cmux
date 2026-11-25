@@ -13,6 +13,8 @@ public nonisolated struct AgentPaneCloudStarted: Sendable, Equatable {
 
     public init(start: AgentPaneCloudStart, chat: String?, workspace: String?, account: [String?], machineID: String) {
         (self.start, self.chat, self.workspace, self.account, self.machineID) = (start, chat, workspace, account, machineID)
+        self.start.machine = nil
+        self.start.usesMachineLogin = false
     }
 }
 

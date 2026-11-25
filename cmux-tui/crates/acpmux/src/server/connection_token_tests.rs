@@ -116,6 +116,35 @@ async fn only_the_person_reads_a_connection_token() {
 }
 
 #[tokio::test]
+async fn a_cloud_key_is_checked_before_the_broker_relies_on_the_guest_to_accept_it() {
+    let home = tempfile::tempdir().unwrap();
+    let path = home.path().join("google-key");
+    let invalid = "fixture!key";
+    std::fs::write(&path, invalid).unwrap();
+    crate::router_socket::owner_only(&path);
+    let mut config = Config::default();
+    config.path = Some(home.path().join("config.json"));
+    config.profile_sources = crate::config::ProfileSources::none();
+    config.profile_sources.cmux_json = Some(home.path().join("cmux.json"));
+    let (routes, _) = crate::routes::places(&config);
+    let (id, _) = super::connections::add_key(
+        routes.as_deref(),
+        home.path(),
+        "google",
+        &format!("file:{}", path.display()),
+        None,
+        &config.profile_sources,
+        None,
+    )
+    .unwrap();
+    let hub = hub_with_config(config);
+    let mut rpc = Rpc::connect(&hub, &Who::Person).await;
+    let read = rpc.call(method::MUX_CONNECTIONS_CREDENTIAL, json!({"id": id})).await;
+    assert_eq!(read["error"]["data"]["reason"], "credentials.invalid");
+    assert!(!read.to_string().contains(invalid));
+}
+
+#[tokio::test]
 async fn claude_token_add_registers_a_reference_whose_value_only_the_person_reads() {
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path().join("setup-token");

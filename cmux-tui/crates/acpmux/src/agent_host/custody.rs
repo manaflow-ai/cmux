@@ -364,8 +364,11 @@ impl RingPipe {
         set_nonblocking(pipe.as_raw_fd())?;
         let end = ring.end()?;
         let pipe = tokio::io::unix::AsyncFd::with_interest(pipe, tokio::io::Interest::READABLE)?;
+        // Linux's private memfd retains the exact stream across a host crash. Redact
+        // its entries at the host's journal and tap boundary. Other platforms redact
+        // before writing to the unlinked, disk-backed ring.
         let redaction = key
-            .filter(|key| !key.is_empty())
+            .filter(|key| !cfg!(target_os = "linux") && !key.is_empty())
             .map(|key| RingRedaction { key: key.as_bytes().to_vec(), tail: Vec::new() });
         Ok(Self { pipe, ring, read_off: from.min(end), end, eof: false, redaction })
     }
@@ -652,6 +655,36 @@ pub(crate) fn inherited(
 #[cfg(test)]
 mod ring_redaction_tests {
     use super::*;
+
+    #[cfg(target_os = "linux")]
+    #[tokio::test]
+    async fn a_replacement_linux_reader_recovers_a_partial_frame_with_a_split_grant() {
+        use tokio::io::AsyncReadExt as _;
+
+        let dir = tempfile::tempdir().unwrap();
+        let ring = std::sync::Arc::new(Ring::create(dir.path()).unwrap());
+        let mut fds = [-1; 2];
+        // SAFETY: pipe fills both owned descriptors on success.
+        assert_eq!(unsafe { libc::pipe(fds.as_mut_ptr()) }, 0);
+        let reader = unsafe { OwnedFd::from_raw_fd(fds[0]) };
+        let mut writer = std::fs::File::from(unsafe { OwnedFd::from_raw_fd(fds[1]) });
+        let key = Some("fixture-grant");
+        let mut original =
+            RingPipe::new(dup(reader.as_raw_fd()).unwrap(), ring.clone(), 0, key).unwrap();
+        let prefix = b"{\"text\":\"fixture-";
+        writer.write_all(prefix).unwrap();
+        let mut partial = vec![0; prefix.len()];
+        original.read_exact(&mut partial).await.unwrap();
+        assert_eq!(partial.as_slice(), prefix);
+        drop(original);
+
+        writer.write_all(b"grant\"}\n").unwrap();
+        drop(writer);
+        let mut replacement = RingPipe::new(reader, ring, 0, key).unwrap();
+        let mut replay = Vec::new();
+        replacement.read_to_end(&mut replay).await.unwrap();
+        assert_eq!(replay.as_slice(), b"{\"text\":\"fixture-grant\"}\n");
+    }
 
     #[test]
     fn local_grants_split_across_reads_never_reach_the_ring() {

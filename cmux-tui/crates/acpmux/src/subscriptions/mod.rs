@@ -89,14 +89,6 @@ impl Provider {
         }
     }
 
-    pub fn credential(self) -> &'static str {
-        match self {
-            Self::Grok => crate::agent_credentials::GROK_PLAN_TOKEN,
-            Self::Copilot => crate::agent_credentials::COPILOT_TOKEN,
-            Self::Kimi => crate::byo_endpoint::OPENAI_KEY_ENV,
-        }
-    }
-
     fn store(self, home: &Path) -> crate::subscription_store::Store<'_> {
         crate::subscription_store::Store::new(home, self.name())
     }
@@ -596,31 +588,6 @@ pub(crate) async fn standalone_copilot_env(
         home.to_string_lossy().into_owned(),
     );
     Ok(())
-}
-
-/// Resolves the Copilot plan's API for a local or Cloud launch, using the selected GitHub token.
-/// Tests never reach GitHub from a launch: they answer through [`set_test_copilot_endpoint`].
-#[cfg(test)]
-static TEST_COPILOT_ENDPOINT: std::sync::Mutex<Option<Result<Option<String>, Failure>>> =
-    std::sync::Mutex::new(None);
-
-#[cfg(test)]
-pub(crate) fn set_test_copilot_endpoint(answer: Option<Result<Option<String>, Failure>>) {
-    *TEST_COPILOT_ENDPOINT.lock().unwrap_or_else(|e| e.into_inner()) = answer;
-}
-
-#[cfg(test)]
-pub(crate) async fn copilot_endpoint(_token: &str) -> Result<Option<String>, Failure> {
-    TEST_COPILOT_ENDPOINT.lock().unwrap_or_else(|e| e.into_inner()).clone().unwrap_or(Ok(None))
-}
-
-#[cfg(not(test))]
-pub(crate) async fn copilot_endpoint(token: &str) -> Result<Option<String>, Failure> {
-    static OAUTH: std::sync::OnceLock<oauth::OAuth> = std::sync::OnceLock::new();
-    OAUTH
-        .get_or_init(|| oauth::OAuth::new(oauth::Endpoints::default()))
-        .copilot_endpoint(token)
-        .await
 }
 
 fn check_route(provider: Provider, dir: Option<&Path>, id: &str) -> Result<routes::Route, Failure> {

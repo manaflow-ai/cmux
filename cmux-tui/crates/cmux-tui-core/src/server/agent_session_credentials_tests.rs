@@ -163,17 +163,24 @@ fn the_owners_start_relays_a_claude_setup_token_to_acpmux() {
 }
 
 #[test]
-fn a_legacy_claude_token_cannot_be_delivered_to_a_new_chat() {
+fn an_upgraded_guest_still_relays_legacy_claude_oauth_to_acpmux() {
     let mut chat = connect("cred-legacy-claude", AgentStartHost::OwnerCloud, false);
     let legacy = json!({"env": {"CLAUDE_CODE_OAUTH_TOKEN": "fixture"}});
-    assert_code(&chat.start(legacy, json!("owner")), "agent_session.bad_request");
-    assert!(chat.sent("session/new").is_empty());
+    let started = chat.start(legacy.clone(), json!("owner"));
+    assert_eq!(started["ok"], true, "{started}");
+    assert!(!started.to_string().contains("fixture"));
+    let sent = chat.sent("session/new");
+    assert_eq!(sent.len(), 1);
+    assert_eq!(sent[0]["params"]["_meta"]["acpmux"]["credentials"], legacy);
 }
 
 #[test]
 fn a_malformed_credential_is_a_bad_request() {
     for credentials in [
         json!({"env": {"PATH": "/evil"}}),
+        json!({"env": {"CMUX_GROK_PLAN_ACCESS_TOKEN": "fixture"}}),
+        json!({"env": {"CMUX_COPILOT_GITHUB_TOKEN": "fixture"}}),
+        json!({"env": {"ANTHROPIC_API_KEY": TOKEN}, "connection": "-not-a-route"}),
         json!({"env": {"ANTHROPIC_AUTH_TOKEN": "endpoint-only"}}),
         json!({"env": {"CMUX_BYO_API_KEY": "fixture"}}),
         json!({"env": {"CMUX_BYO_API_KEY": "fixture"}, "endpoint": {

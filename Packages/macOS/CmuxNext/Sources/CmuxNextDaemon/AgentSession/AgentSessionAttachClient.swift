@@ -296,8 +296,8 @@ public actor AgentSessionAttachClient {
             guard !Self.needsEndpointCapability(launchEndpoint, credentials) || (served.endpointCredentials && served.credentials && served.vmKind) else {
                 throw AgentSessionAttachError(code: Self.endpointCredentialsUnsupported, message: "the daemon does not take endpoint credentials")
             }
-            guard credentialConnection == nil || served.credentialReattach && served.credentials && served.vmKind else {
-                throw AgentSessionAttachError(code: Self.endpointCredentialsUnsupported, message: "the daemon does not restore model credentials")
+            guard credentialConnection == nil || served.credentials && served.vmKind else {
+                throw AgentSessionAttachError(code: Self.endpointCredentialsUnsupported, message: "the daemon does not take model credentials")
             }
             guard credentials == nil || harness != "codex" || served.codexCredentials else {
                 throw AgentSessionAttachError(code: Self.codexCredentialsUnsupported, message: "the machine's cmux would drop the Codex credential")
@@ -309,7 +309,7 @@ public actor AgentSessionAttachClient {
                                       startMode: startMode, servesStartMode: served.startMode,
                                       servesCredentials: served.credentials, credentials: credentials,
                                       servesEndpointCredentials: served.endpointCredentials, launchEndpoint: launchEndpoint,
-                                      credentialConnection: credentialConnection)
+                                      credentialConnection: served.credentialReattach ? credentialConnection : nil)
         guard !transport.isClosed else {
             throw AgentSessionAttachError(code: "agent_session.closed", message: "the connection ended before the start was sent")
         }
@@ -409,7 +409,13 @@ public actor AgentSessionAttachClient {
         // (`agent-session-start-credentials-v1`); anything else starts on the machine's own route.
         if callerOwnsVM, servesCredentials, let credentials, !credentials.isEmpty,
            !needsEndpointCapability(launchEndpoint, credentials) || servesEndpointCredentials {
-            var payload: [String: any Sendable] = ["env": credentials]
+            var env = credentials
+            // Guests before endpoint credentials take the same saved Claude token under its original name.
+            if !servesEndpointCredentials, launchEndpoint == nil, credentials.count == 1,
+               let token = credentials["ANTHROPIC_AUTH_TOKEN"], token.hasPrefix("sk-ant-oat") {
+                env = ["CLAUDE_CODE_OAUTH_TOKEN": token]
+            }
+            var payload: [String: any Sendable] = ["env": env]
             if let launchEndpoint { payload["endpoint"] = launchEndpoint.wire }
             if let credentialConnection { payload["connection"] = credentialConnection }
             params["credentials"] = payload
@@ -852,6 +858,7 @@ public actor AgentSessionAttachClient {
         for key in ["agent", "loginId", "code"] {
             if let value = fields[key] { params[key == "loginId" ? "login_id" : key] = value }
         }
+        if op == "start", fields["reauthenticate"] == "true" { params["reauthenticate"] = true }
         return try await call("agent-session-login-settings", params,
                               timeout: Self.loginTimeout(op) ?? requestTimeout, on: transport)
     }

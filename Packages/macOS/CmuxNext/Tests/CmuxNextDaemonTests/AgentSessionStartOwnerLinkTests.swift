@@ -21,13 +21,16 @@ import Testing
 
     /// The client's refusal code, if any, and the `agent-session-start` frame the daemon got.
     private func start(serving extra: [String], ownerLink: AgentSessionAttachClient.OwnerLink?, harness: String? = nil,
-                       credentials: [String: String]? = nil) async throws
+                       credentials: [String: String]? = nil, credentialConnection: String? = nil) async throws
         -> (refusal: String?, frame: [String: Any]?) {
         let daemon = try PresenceDaemon(capabilities: ["agent-session-attach-v1", "agent-session-start-v1"] + extra)
         defer { daemon.stop() }
         let client = AgentSessionAttachClient(surface: 7) { DaemonEndpoint(socketPath: daemon.path) }
         var refusal: String?
-        do { _ = try await client.start(cwd: "/w", harness: harness, ownerLink: ownerLink, credentials: credentials) } catch let error as AgentSessionAttachError {
+        do {
+            _ = try await client.start(cwd: "/w", harness: harness, ownerLink: ownerLink, credentials: credentials,
+                                       credentialConnection: credentialConnection)
+        } catch let error as AgentSessionAttachError {
             refusal = error.code
         }
         await client.close()
@@ -85,6 +88,47 @@ import Testing
         #expect(plain.frame != nil)
         #expect(AgentSessionAttachClient.credentialsCapability(harness: "codex") == AgentSessionAttachClient.startCodexCredentialsCapability)
         #expect(AgentSessionAttachClient.credentialsCapability(harness: "claude") == AgentSessionAttachClient.startCredentialsCapability)
+    }
+
+    @Test func aSavedClaudeTokenStartsOnGuestsBeforeCredentialReattach() async throws {
+        let vmKind = DaemonCapability.agentSessionStartVMKind.rawValue
+        let credentials = [vmKind, AgentSessionAttachClient.startCredentialsCapability]
+        let legacyName = ["CLAUDE_CODE_OAUTH_TOKEN": "sk-ant-oat01-fixture"]
+        let token = ["ANTHROPIC_AUTH_TOKEN": "sk-ant-oat01-fixture"]
+        let route = "claude-token-2"
+        let older = try await start(serving: credentials, ownerLink: link(3, 3), harness: "claude",
+                                    credentials: token, credentialConnection: route)
+        let current = try await start(serving: credentials + [AgentSessionAttachClient.startEndpointCredentialsCapability,
+                                      "agent-session-credential-reattach-v1"], ownerLink: link(3, 3), harness: "claude",
+                                      credentials: token, credentialConnection: route)
+        let oldWire = try #require(older.frame?["credentials"] as? [String: Any])
+        let newWire = try #require(current.frame?["credentials"] as? [String: Any])
+        #expect(oldWire["env"] as? [String: String] == legacyName)
+        #expect(oldWire["connection"] == nil)
+        #expect(newWire["env"] as? [String: String] == token)
+        #expect(newWire["connection"] as? String == route)
+
+        let unsupported = try await start(serving: [vmKind], ownerLink: link(3, 3), harness: "claude",
+                                          credentials: token, credentialConnection: route)
+        #expect(unsupported.frame == nil)
+    }
+
+    @Test(arguments: [false, true])
+    func claudePrewarmUsesTheSameCredentialNameAsStart(supportsEndpointCredentials: Bool) async throws {
+        var capabilities = ["agent-session-attach-v1", "agent-session-start-v1",
+                            DaemonCapability.agentSessionStartVMKind.rawValue, AgentSessionAttachClient.startCredentialsCapability]
+        if supportsEndpointCredentials { capabilities.append(AgentSessionAttachClient.startEndpointCredentialsCapability) }
+        let daemon = try PresenceDaemon(capabilities: capabilities)
+        defer { daemon.stop() }
+        let client = AgentSessionAttachClient(surface: 7) { DaemonEndpoint(socketPath: daemon.path) }
+        let token = "sk-ant-oat01-fixture"
+        _ = try await client.prewarm(cwd: "/w", harness: "claude", ownerLink: link(3, 3),
+                                     credentials: ["ANTHROPIC_AUTH_TOKEN": token])
+        await client.close()
+        let frame = try #require(daemon.frames.first { $0["cmd"] as? String == "agent-session-prewarm" })
+        let wire = try #require(frame["credentials"] as? [String: Any])
+        let name = supportsEndpointCredentials ? "ANTHROPIC_AUTH_TOKEN" : "CLAUDE_CODE_OAUTH_TOKEN"
+        #expect(wire["env"] as? [String: String] == [name: token])
     }
 
     /// A new Cloud machine's first start (or a down machine that reconnects on use): its link was

@@ -145,6 +145,7 @@ function endpoint(
     "id" | "name" | "baseUrl" | "keyUrl" | "docsUrl" | "dialog" | "regions" | "accountRegion"
   > & {
     group?: ProviderGroup;
+    cloud?: boolean;
     mark: ProviderDetails["mark"];
     aliases?: readonly string[];
     urlHint?: string;
@@ -152,7 +153,7 @@ function endpoint(
     defaultModels?: readonly string[];
   },
 ): OpenAIEndpoint {
-  const { group = "keys", ...provider } = details;
+  const { group = "keys", cloud, ...provider } = details;
   const connect = provider.dialog;
   const fields =
     connect.fields.includes("deployments") || connect.fields.includes("models")
@@ -164,7 +165,7 @@ function endpoint(
     group,
     kind: "openai-endpoint",
     families: ["opencode"],
-    cloud: group !== "local" || provider.id === "endpoint",
+    cloud: cloud ?? (group !== "local" || provider.id === "endpoint"),
     keyRequired: group !== "local",
   };
 }
@@ -216,7 +217,7 @@ export const providerCatalog: readonly CatalogProvider[] = [
     docsUrl: "https://grok.com/plans",
     mark: { agent: "grok" },
     families: ["grok"],
-    cloud: true,
+    cloud: false,
   },
   {
     id: "copilot",
@@ -231,7 +232,7 @@ export const providerCatalog: readonly CatalogProvider[] = [
     docsUrl: "https://github.com/settings/copilot",
     mark: { agent: "copilot" },
     families: ["opencode"],
-    cloud: true,
+    cloud: false,
   },
   {
     id: "claude-login",
@@ -302,6 +303,7 @@ export const providerCatalog: readonly CatalogProvider[] = [
   }),
   endpoint({
     id: "kimi-code",
+    cloud: false,
     dialog: dialog("kimi-code", "Kimi Code", "device", ["region", "key"]),
     accountRegion: true,
     regions: [
@@ -747,10 +749,9 @@ export function providerForFamily(family: string): CatalogProvider | undefined {
 
 export function cloudProviderForFamily(family: string): string | undefined {
   if (family === "codex") return "chatgpt";
-  if (family === "github-copilot") return "copilot";
-  if (["grok-cli", "grok-build"].includes(family)) return "xai";
+  if (["grok", "grok-cli", "grok-build"].includes(family)) return "xai";
   const provider = providerForFamily(family);
-  return provider?.id;
+  return provider?.cloud ? provider.id : undefined;
 }
 
 /// Search-only names: a big lab's company name finds its products and a product finds its lab ("openai" finds

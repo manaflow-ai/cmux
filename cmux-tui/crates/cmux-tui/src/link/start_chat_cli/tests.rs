@@ -54,6 +54,25 @@ fn a_lost_create_answer_keeps_its_name_team_and_pending_create_before_a_workspac
 }
 
 #[test]
+fn a_settings_retry_pins_the_signed_in_machine_from_the_current_list() {
+    let scratch = scratch();
+    let path = ledger_in(scratch.path());
+    let key = key();
+    assert_eq!(pin(&path, &key, ACCOUNT, "vm-a", None)["ok"], true);
+    let mut request = json!({
+        "key": key, "account": ACCOUNT, "machine": "vm-b", "loaded": true,
+        "machines": [{"id": "vm-a"}, {"id": "vm-b"}]
+    });
+    let retry = plan(&path, &request.to_string());
+    assert_eq!(retry["machine"], "vm-b");
+    assert!(retry["ensured"].is_null(), "an existing VM must not be deleted on failure");
+    request["machines"] = json!([{"id": "vm-a"}]);
+    let missing = plan(&path, &request.to_string());
+    assert_eq!(missing["ok"], false);
+    assert_eq!(missing["error_code"], "not_found");
+}
+
+#[test]
 fn a_definitive_create_refusal_rotates_only_that_attempt_and_allows_a_fresh_pick() {
     let scratch = scratch();
     let path = ledger_in(scratch.path());

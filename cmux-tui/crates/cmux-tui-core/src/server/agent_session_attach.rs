@@ -52,7 +52,6 @@ pub use agent_session_start::{
     AGENT_SESSION_START_KEYED_REASON_CAPABILITY, AGENT_SESSION_START_MODE_CAPABILITY,
     AGENT_SESSION_START_MODEL_CAPABILITY, AGENT_SESSION_START_NO_CWD_CAPABILITY,
     AGENT_SESSION_START_OWNER_CLOUD_CAPABILITY, AGENT_SESSION_START_PERMISSION_MODE_CAPABILITY,
-    AGENT_SESSION_START_SUBSCRIPTION_CREDENTIALS_CAPABILITY,
     AGENT_SESSION_START_VM_KIND_CAPABILITY, AcpmuxStarter, AgentStartHost, AgentStartHostSource,
 };
 pub use agent_session_trust::{
@@ -645,6 +644,8 @@ struct LoginParams {
     code: Option<String>,
     #[serde(default)]
     key: Option<String>,
+    #[serde(default)]
+    reauthenticate: bool,
     /// The Cloud API's `vmKind` for the caller, as `agent-session-start` takes it: read only for a
     /// tab with no session (`agent-session-login-machine-v1`), whose sign-in is gated as a start.
     #[serde(default, deserialize_with = "crate::server::command_args::present_nullable")]
@@ -1203,11 +1204,12 @@ fn run_machine_login(
     from_settings: bool,
     writer: &MessageWriter,
 ) -> bool {
+    let reauthenticate = params.reauthenticate;
     let Some((method, mut body, timeout)) = login_request(None, params) else {
         return refuse(writer, id, Refusal::BadRequest);
     };
     if from_settings && method == "_acpmux/agent_login/start" {
-        body["reuseExisting"] = json!(true);
+        body["reuseExisting"] = json!(!reauthenticate);
     }
     let worker_mux = mux.clone();
     let worker_writer = writer.clone();

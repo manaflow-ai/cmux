@@ -81,8 +81,6 @@ pub const NAMES: &[&str] = &[
     GEMINI_KEY,
     VERTEX_EXPRESS_KEY,
     GROK_KEY,
-    GROK_PLAN_TOKEN,
-    COPILOT_TOKEN,
 ];
 
 /// The name of a route's local-only key to redact. These keys are never recovered as Cloud grants.

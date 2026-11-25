@@ -77,7 +77,6 @@ extension SettingsModels {
         guard cloudClaudeStateAccount != account else { return }
         claudeLoginTasks[.cloud]?.cancel()
         claudeLoginTimers.removeValue(forKey: .cloud)?.cancel()
-        claudeLoginReplacements[.cloud] = nil
         if let attempt = claudeLoginAttempts.removeValue(forKey: .cloud) {
             dismissSignInPage?("claude:\(attempt.id)")
         }
@@ -109,8 +108,8 @@ extension SettingsModels {
 
     private func claudeMachine(_ target: ClaudeLoginTarget, preferred: String? = nil) throws -> CloudClaudeMachine? {
         guard target == .cloud else { return nil }
-        guard case .ready(let machine) = cloudClaudeLogin?(preferred ?? currentCloudClaudeState?.machine),
-              preferred == nil || machine.id == preferred else {
+        let id = preferred ?? currentCloudClaudeState?.machine
+        guard case .ready(let machine) = cloudClaudeLogin?(id), id == nil || machine.id == id else {
             throw PageError.unavailable("Claude Code is unavailable on this Cloud machine")
         }
         return machine
@@ -168,14 +167,17 @@ extension SettingsModels {
                     guard preferred == nil || preferred == machine.id else { throw SettingsCloudClaudeLogin.startFailure }
                     setClaudeLogin(target, machine, "approving")
                 }
-                let started = try await claudeCall(.claudeLoginStart, "start", ["agent": "claude"], machine: machine)
+                var fields = ["agent": "claude"]
+                if replacing == "claude-cloud-login" { fields["reauthenticate"] = "true" }
+                let started = try await claudeCall(.claudeLoginStart, "start", fields, machine: machine)
                 try checkClaudeAccount(target, account)
                 if started["signedIn"]?.boolValue == true {
+                    if replacing == "claude-cloud-login" { throw PageError(code: "cmux.models.unsupported", message: "Cloud machine does not support reauthentication") }
                     guard claudeLogins[target]?.phase != "cancelling" else {
                         return setClaudeLogin(target, machine, "idle")
                     }
                     setClaudeLogin(target, machine, "approving", apiKey: started["apiKey"]?.boolValue)
-                    return try await completeClaudeLogin(target, machine, replacing: replacing)
+                    return try await completeClaudeLogin(target, machine)
                 }
                 if claudeLogins[target]?.phase != "cancelling" {
                     setClaudeLogin(target, machine, "approving", apiKey: started["apiKey"]?.boolValue)
@@ -196,7 +198,7 @@ extension SettingsModels {
                     let opened = await openCallback?(automatic, browserOwner, current) == true
                     try checkClaudeAccount(target, account)
                     guard claudeLoginAttempts[target]?.id == id, claudeLogins[target]?.phase == "approving" else { return }
-                    if opened { return try await finishClaudeAttempt(target, code: nil, replacing: replacing) }
+                    if opened { return try await finishClaudeAttempt(target, code: nil) }
                 }
                 guard let manual = started["url"]?.stringValue.flatMap(URL.init(string:)),
                       AgentPaneSignInPage().allowed(manual, forClaude: true),
@@ -206,7 +208,6 @@ extension SettingsModels {
                 try await openSignIn(manual, owner: browserOwner)
                 try checkClaudeAccount(target, account)
                 guard claudeLoginAttempts[target]?.id == id, claudeLogins[target]?.phase == "approving" else { return }
-                claudeLoginReplacements[target] = replacing
                 setClaudeLogin(target, machine, "code")
                 let remaining = started["expiresAtMs"]?.intValue.map { Double($0) / 1000 - Date.now.timeIntervalSince1970 }
                 let timer = DemandTimer(owner: "settings.models.claudeLogin")
@@ -216,7 +217,6 @@ extension SettingsModels {
                           target == .mac || cloudClaudeAccount?() == account else { return }
                     dismissSignInPage?(browserOwner)
                     claudeLoginAttempts[target] = nil
-                    claudeLoginReplacements[target] = nil
                     claudeLoginTimers[target] = nil
                     setClaudeLogin(target, machine, "failed", error: "expired")
                 }
@@ -243,7 +243,7 @@ extension SettingsModels {
             guard let self else { return }
             defer { claudeLoginTasks[target] = nil }
             do {
-                try await finishClaudeAttempt(target, code: code, replacing: claudeLoginReplacements.removeValue(forKey: target))
+                try await finishClaudeAttempt(target, code: code)
             } catch {
                 guard target == .mac || cloudClaudeAccount?() == account else { return }
                 let cancelling = claudeLogins[target]?.phase == "cancelling"
@@ -262,10 +262,11 @@ extension SettingsModels {
         if claudeLoginAttempts[target] != nil { await settleClaudeCancellation(target) }
     }
 
-    func signOutClaude(_ target: ClaudeLoginTarget) async {
+    func signOutClaude(_ target: ClaudeLoginTarget, machine requested: String?) async throws {
         guard claudeLoginTasks[target] == nil, claudeLoginAttempts[target] == nil else { return }
-        let machine = try? claudeMachine(target)
-        guard target == .mac || machine != nil else { return }
+        let id = requested ?? currentCloudClaudeState?.machine
+        if target == .cloud, id == nil { throw PageError.invalidParams("Cloud Claude sign-out needs a machine") }
+        let machine = try claudeMachine(target, preferred: id)
         let account = cloudClaudeAccount?()
         do {
             _ = try await claudeCall(.claudeLoginLogout, "logout", ["agent": "claude"], machine: machine)
@@ -278,7 +279,7 @@ extension SettingsModels {
         }
     }
 
-    private func finishClaudeAttempt(_ target: ClaudeLoginTarget, code: String?, replacing: String?) async throws {
+    private func finishClaudeAttempt(_ target: ClaudeLoginTarget, code: String?) async throws {
         guard let attempt = claudeLoginAttempts[target] else { return }
         let account = cloudClaudeAccount?()
         var fields = ["loginId": attempt.id]
@@ -289,15 +290,11 @@ extension SettingsModels {
         guard reply["signedIn"]?.boolValue == true else { throw PageError.unavailable("Claude Code did not sign in") }
         claudeLoginAttempts[target] = nil
         dismissSignInPage?("claude:\(attempt.id)")
-        try await completeClaudeLogin(target, attempt.machine, replacing: replacing)
+        try await completeClaudeLogin(target, attempt.machine)
     }
 
-    private func completeClaudeLogin(_ target: ClaudeLoginTarget, _ machine: CloudClaudeMachine?, replacing: String?) async throws {
+    private func completeClaudeLogin(_ target: ClaudeLoginTarget, _ machine: CloudClaudeMachine?) async throws {
         let account = cloudClaudeStateAccount
-        try checkClaudeAccount(target, account)
-        if target == .cloud, machine != nil, let replacing {
-            try await retireLegacyClaudeToken(replacing) { try checkClaudeAccount(target, account) }
-        }
         try checkClaudeAccount(target, account)
         await refresh()
         try checkClaudeAccount(target, account)
@@ -311,18 +308,6 @@ extension SettingsModels {
         guard cloudClaudeAccount?() == account else { throw CancellationError() }
     }
 
-    private func retireLegacyClaudeToken(_ id: String, checking check: () throws -> Void) async throws {
-        guard connections.contains(where: { $0["id"]?.stringValue == id && $0["kind"]?.stringValue == "claude-token" }) else { return }
-        try check()
-        do {
-            try await mutate(.connectionsRemove, ["id": id])
-        } catch {
-            try check()
-            await refresh()
-            if !available || connections.contains(where: { $0["id"]?.stringValue == id }) { throw error }
-        }
-    }
-
     private func settleClaudeCancellation(_ target: ClaudeLoginTarget) async {
         let account = cloudClaudeStateAccount
         if let attempt = claudeLoginAttempts.removeValue(forKey: target) {
@@ -331,7 +316,6 @@ extension SettingsModels {
         }
         guard target == .mac || cloudClaudeAccount?() == account else { return }
         claudeLoginTimers.removeValue(forKey: target)?.cancel()
-        claudeLoginReplacements[target] = nil
         claudeLogins[target]?.phase = "idle"
     }
 

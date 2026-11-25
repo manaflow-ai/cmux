@@ -63,7 +63,7 @@ package struct SettingsCloudClaudeLogin {
 
     private func state(preferred: String?) -> SettingsModels.CloudClaudeLogin {
         guard let account = host.account(), host.hasLoadedMachines(),
-              case .ready(let id) = choice(preferred: preferred), let session = host.machine(id) else {
+              case .ready(let id) = choice(preferred: preferred, requirePreferred: preferred != nil), let session = host.machine(id) else {
             return .connectable
         }
         return .ready(machine(session, account: account))

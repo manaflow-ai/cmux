@@ -1761,6 +1761,12 @@ fn settings_claude_login_routes_only_to_owner_cloud() {
             json!({"agent":"claude","reuseExisting":true}),
         ),
         (
+            json!({"cmd":"agent-session-login-settings","surface":0,"op":"start",
+                "agent":"claude","vm_kind":"owner","reauthenticate":true}),
+            "_acpmux/agent_login/start",
+            json!({"agent":"claude","reuseExisting":false}),
+        ),
+        (
             json!({"cmd":"agent-session-login-settings","surface":0,"op":"finish",
                 "login_id":"login_1","vm_kind":"owner"}),
             "_acpmux/agent_login/finish",

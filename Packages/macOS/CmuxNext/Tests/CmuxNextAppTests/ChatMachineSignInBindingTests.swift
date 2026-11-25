@@ -1,3 +1,5 @@
+import AppKit
+import CmuxNextBridge
 import CmuxNextBrowser
 import CmuxNextBrowserTabs
 import CmuxNextDaemon
@@ -65,6 +67,60 @@ struct ChatMachineSignInBindingTests {
         let relaunched = RemoteLocalhostService(machines: machines, environment: [:], defaults: defaults)
         #expect(relaunched.boundMachine(ofTab: tab.id) == "vm-1")
         #expect(relaunched.storePlan(for: tab, url: callback) == .blank)
+    }
+
+    @Test func aChatApprovalExpiresWhenItsOwnTabCloses() throws {
+        _ = NSApplication.shared
+        let services = AppServices(environment: AppEnvironment.current([:]))
+        let first = CloudTestLink.session(id: "vm-a", name: "A")
+        let second = CloudTestLink.session(id: "vm-b", name: "B")
+        services.machines.add(first)
+        services.machines.add(second)
+        let pane = PaneSnapshot(id: 1, tabs: [TabSnapshot(surface: 1, tabResourceID: "tab_forked", kind: .conversation)])
+        let screen = ScreenSnapshot(id: 1, layout: .leaf(1), panes: [pane])
+        let tree = DaemonTree(workspaces: [WorkspaceSnapshot(id: 1, key: nil, name: "Chat", screens: [screen])])
+        first.daemon.store.apply(snapshot: tree)
+        second.daemon.store.apply(snapshot: tree)
+        let model = try #require(first.daemon.store.workspaces.first?.screens.first?.panes.first)
+        let record = try JSONDecoder().decode(WindowRecord.self, from: Data(#"{"id":"w1","workspace_key":"w1"}"#.utf8))
+        let controller = PaneController(pane: model, daemon: first.daemon, layoutPaneID: LayoutPaneID(model.id), services: services,
+                                        state: WindowState(record: record))
+        defer { controller.teardown() }
+
+        let current = controller.signInLifetime(for: "tab_forked", onMachine: first.machineID)
+        #expect(current())
+        first.daemon.store.apply(snapshot: DaemonTree(workspaces: []))
+        #expect(services.locateTab("tab_forked", onMachine: second.machineID) != nil)
+        #expect(!current())
+    }
+
+    @Test func completingChatSignInKeepsTheSameTabIDsApprovalOnAnotherMachine() throws {
+        let service = RemoteLocalhostService(machines: MachineRegistry(local: DaemonService()), environment: [:], defaults: Self.defaults())
+        let first = NSObject()
+        let second = NSObject()
+        let pending = NSObject()
+        var closed: [String] = []
+        var pendingClosed = false
+        let coordinator = ChatMachineSignInTab(localhost: service, chromiumAvailable: { true }, approvalProfile: { nil },
+                                              makePage: { _ in throw CancellationError() }, requestClose: { _ in },
+                                              closeTab: { closed.append($0) })
+        let owner = "chat:tab_forked"
+        service.expectCallbackPage(first, machine: "vm-a", port: 8100, owner: owner, current: { true })
+        service.adoptPage(first, key: "approval-a")
+        service.expectCallbackPage(second, machine: "vm-b", port: 8100, owner: owner, current: { true })
+        service.adoptPage(second, key: "approval-b")
+        service.expectCallbackPage(pending, machine: "vm-b", port: 8100, owner: owner, current: { true },
+                                   closePending: { pendingClosed = true })
+
+        coordinator.closeChatApproval("tab_forked", onMachine: "vm-a")
+        let callback = try #require(URL(string: "http://localhost:8100/callback"))
+        #expect(closed == ["approval-a"])
+        #expect(!service.allowsSignInCallback(callback, in: "approval-a"))
+        #expect(service.allowsSignInCallback(callback, in: "approval-b"))
+        #expect(!pendingClosed)
+        coordinator.closeChatApproval("tab_forked", onMachine: "vm-b")
+        #expect(closed == ["approval-a", "approval-b"])
+        #expect(pendingClosed)
     }
 
     @Test func localApprovalAndCallbackUseTheSamePrivateContextAndExpireTogether() async throws {

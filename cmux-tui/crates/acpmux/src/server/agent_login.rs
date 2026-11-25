@@ -220,38 +220,30 @@ async fn signed_in(
     };
     let session = hub.resolve(key)?;
     if agent == Agent::Claude {
-        hub.retire_claude_credential(&session).await;
+        hub.retire_unnamed_claude_credential(&session).await;
     }
     let ids = std::collections::BTreeSet::from([session.id.clone()]);
     let done = hub.restart_harnesses(None, Some(&ids)).await;
     Ok(done.now > 0)
 }
 
-/// Restart only the plain Claude account being changed. Explicit provider routes keep their own credentials.
+/// Restart only chats that use the Claude account being changed.
 async fn restart_claude_account(hub: &Arc<Hub>, store: &Path) -> Result<bool, RpcError> {
     hub.login_changed("claude", store, None).await?;
     let mut ids = std::collections::BTreeSet::new();
     for session in hub.sessions() {
-        if let Ok((profile, route)) = hub.login_profile(&session, "claude").await
-            && (route.is_none() || is_legacy_claude_route(hub, route.as_deref()).await)
+        if !hub.has_delivered_credential(&session)
+            && let Ok((profile, None)) = hub.login_profile(&session, "claude").await
         {
             let config = hub.config.read().await;
             if cli_for(&config, Agent::Claude, Some(profile))
                 .is_some_and(|cli| cli.store(Agent::Claude) == store)
             {
-                hub.retire_claude_credential(&session).await;
                 ids.insert(session.id.clone());
             }
         }
     }
     Ok(hub.restart_harnesses(None, Some(&ids)).await.now > 0)
-}
-
-async fn is_legacy_claude_route(hub: &Hub, route: Option<&str>) -> bool {
-    let Some(route) = route else { return false };
-    let (dir, _) = crate::routes::places(&*hub.config.read().await);
-    crate::routes::find(dir.as_deref(), route)
-        .is_ok_and(|route| route.file.kind == crate::routes::RouteKind::ClaudeToken)
 }
 
 /// The chat's agent uses cmux's gateway here (module docs): the image's own check first, then
@@ -417,5 +409,51 @@ pub(super) async fn handle(
             Ok(json!({"saved": true, "restarted": restarted}))
         }
         other => Err(RpcError::method_not_found(other)),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::agent_credentials::{AgentCredential, CLAUDE_OAUTH};
+    use crate::hub::NewRequest;
+
+    #[tokio::test]
+    async fn machine_claude_login_changes_keep_chat_tokens_and_connection_ids_together() {
+        let home = tempfile::tempdir().unwrap();
+        let mut config: Config = serde_json::from_value(json!({
+            "store": {"mode": "memory"},
+            "harnesses": {"claude": {"argv": ["/bin/false"], "kind": "claude-stdio",
+                "env": {"CLAUDE_CONFIG_DIR": home.path()}}},
+            "defaultHarness": "claude"
+        }))
+        .unwrap();
+        config.profile_sources = crate::config::ProfileSources::none();
+        let store = crate::store::open(&config.store, home.path()).unwrap();
+        let hub = Hub::new(config, store);
+        let cli_home = cli(&hub, Agent::Claude, &json!({})).await.unwrap().0.store(Agent::Claude);
+
+        for connection in [None, Some("saved-claude")] {
+            let mut wire = json!({"env": {CLAUDE_OAUTH: "sk-ant-oat01-fixture"}});
+            if let Some(id) = connection {
+                wire["connection"] = json!(id);
+            }
+            let session = hub
+                .new_session(NewRequest {
+                    cwd: Some(home.path().to_owned()),
+                    credential: Some(AgentCredential::parse(&wire).unwrap()),
+                    ..NewRequest::default()
+                })
+                .await
+                .unwrap();
+            restart_claude_account(&hub, &cli_home).await.unwrap();
+            let status = hub.credential_status(&session.id).await.unwrap();
+            assert_eq!(status["connection"], json!(connection));
+            assert_eq!(status["held"], true);
+            hub.retire_unnamed_claude_credential(&session).await;
+            let status = hub.credential_status(&session.id).await.unwrap();
+            assert_eq!(status["connection"], json!(connection));
+            assert_eq!(status["held"], connection.is_some());
+        }
     }
 }

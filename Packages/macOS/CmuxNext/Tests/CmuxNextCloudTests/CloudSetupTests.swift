@@ -52,13 +52,13 @@ struct CloudSetupTests {
             #expect(machine == "vm_b")
             rule?.claudeSignInCompleted(machine: "vm_a")
         }
-        #expect(await rule.setUp(.setUpClaude, family: "claude", machine: "vm_b"))
+        #expect(await rule.setUp(.setUpClaude, family: "claude", machine: "vm_b") == CloudSetup.SetupCompletion(machine: "vm_b"))
         #expect(connections.reads == 1)
 
         rule.run = { [weak rule] _, _, machine in
             if let machine { rule?.claudeSignInCompleted(machine: machine) }
         }
-        #expect(await rule.setUp(.setUpClaude, family: "claude", machine: "vm_b"))
+        #expect(await rule.setUp(.setUpClaude, family: "claude", machine: "vm_b") == CloudSetup.SetupCompletion(machine: "vm_b", usesMachineLogin: true))
         #expect(connections.reads == 1)
         rule.run = nil
     }
@@ -84,19 +84,22 @@ struct CloudSetupTests {
         #expect(missing.unavailableEndpointHarnesses == ["claude-local", "deepseek"])
     }
 
-    @Test func aSubscriptionRunnerStaysPendingUntilTheMachineAcceptsItsCredential() async {
+    @Test func staleCloudPlanRowsCannotDisplaceARunnableKeyOrOfferTheirRunners() async {
         let rule = setup(Connections(.init(personal: [
-            .init(id: "copilot", families: ["github-copilot"], endpointCredentials: true, launchHarness: "opencode", subscriptionCredentials: true),
-            .init(id: "openrouter", families: ["openrouter"], endpointCredentials: true, launchHarness: "opencode"),
+            .init(id: "grok-plan", families: ["grok"], endpointCredentials: true, launchHarness: "grok", subscriptionCredentials: true, kind: "grok-plan"),
+            .init(id: "copilot-plan", families: ["github-copilot"], endpointCredentials: true, launchHarness: "opencode", subscriptionCredentials: true, kind: "copilot-plan"),
+            .init(id: "kimi-plan", families: ["opencode"], endpointCredentials: true, launchHarness: "opencode", kind: "kimi-plan"),
+            .init(id: "xai-key", families: ["grok"], endpointCredentials: true, launchHarness: "grok", kind: "api-key"),
         ], organization: [])))
-        rule.machineHarnesses = { _ in ["opencode"] }
-        let pending = await rule.served(machine: "cloud")
-        #expect(pending.pendingHarnesses == ["github-copilot"])
-        #expect(pending.servedHarnesses == ["openrouter"])
-        rule.machineSubscriptionHarnesses = { _ in ["opencode"] }
-        let ready = await rule.served(machine: "cloud")
-        #expect(ready.pendingHarnesses.isEmpty)
-        #expect(ready.servedHarnesses == ["github-copilot", "openrouter"])
+        rule.machineHarnesses = { _ in ["opencode", "grok"] }
+        rule.machineSubscriptionHarnesses = { _ in ["opencode", "grok"] }
+        let readiness = await rule.served(machine: "cloud")
+        #expect(readiness.pendingHarnesses.isEmpty)
+        #expect(readiness.servedHarnesses == ["grok", "xai-key"])
+        #expect(await rule.choose(harness: "grok", model: nil, account: "grok-plan") == .connection(id: "xai-key", family: "grok"))
+        #expect(await rule.choose(harness: "github-copilot", model: nil, account: "copilot-plan") == .fallback)
+        #expect(await rule.choose(harness: "opencode", model: nil, account: "kimi-plan") == .fallback)
+        #expect(await rule.launchConnection("kimi-plan") == nil)
     }
 
     @Test func aPersonalConnectionServingTheFamilyStarts() async {
@@ -326,6 +329,19 @@ struct CloudSetupTests {
 
     /// The card's button runs its way in, and the wait ends once a connection serving the family
     /// appears (a ``CloudSetup/connectionsChanged()`` after Settings added it), with no retyping.
+    @Test func machineSignInOnAnotherAccountCannotReleaseTheOldSend() async {
+        var account = ["team-a"]
+        let connections = Connections(.init(personal: [.init(id: "cloud-token", families: ["claude"])], organization: []))
+        let rule = setup(connections)
+        rule.accountScope = { account }
+        rule.run = { [weak rule] _, _, _ in
+            account = ["team-b"]
+            rule?.claudeSignInCompleted(machine: "vm_b")
+        }
+        #expect(await rule.setUp(.setUpClaude, family: "claude") == nil)
+        #expect(connections.reads == 1, "another account's sign-in did not satisfy the wait")
+    }
+
     @Test func aConnectionThatAppearsStartsTheChat() async {
         let connections = Connections(.init(personal: [], organization: []))
         let rule = setup(connections)
@@ -337,7 +353,7 @@ struct CloudSetupTests {
         #expect(connections.opened == ["codex"])
         connections.snapshot.personal = [.init(id: "chatgpt-plan:1", families: ["codex"])]
         rule.connectionsChanged()
-        #expect(await ready.value)
+        #expect(await ready.value == CloudSetup.SetupCompletion())
     }
 
     /// The page withdrew (it left Cloud, or Not now): the wait ends with no connection.

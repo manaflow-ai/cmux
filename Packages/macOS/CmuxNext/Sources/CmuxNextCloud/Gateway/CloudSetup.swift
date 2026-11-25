@@ -146,7 +146,8 @@ public final class CloudSetup {
 
     public nonisolated static let setupFamilies = families + nativeHarnesses.keys.sorted()
 
-    private nonisolated static let nativeHarnesses = ["gemini": "gemini", "grok": "grok", "github-copilot": "opencode", "openrouter": "opencode"]
+    private nonisolated static let nativeHarnesses = ["gemini": "gemini", "grok": "grok", "openrouter": "opencode"]
+    private nonisolated static let localOnlyPlanKinds: Set<String> = ["grok-plan", "copilot-plan", "kimi-plan"]
 
     /// The gateway family of the picker's Claude or Codex profile.
     public nonisolated static func family(of harness: String?) -> String? {
@@ -199,6 +200,7 @@ public final class CloudSetup {
     public var run: (@MainActor (Action, String, String?) async -> Void)?
     /// Validates an explicit destination against the current Cloud account.
     public var ownsMachine: (@MainActor (String) -> Bool)?
+    public var accountScope: (@MainActor () -> [String?])?
     /// Reads confirmed endpoint harnesses on a machine named by the picker.
     public var machineHarnesses: (@MainActor (String) -> Set<String>?)?
     /// Reads confirmed runners that accept subscription credentials.
@@ -231,10 +233,25 @@ public final class CloudSetup {
         }
     }
 
+    public struct SetupCompletion: Sendable, Equatable {
+        public let machine: String?
+        public let usesMachineLogin: Bool
+
+        public init(machine: String? = nil, usesMachineLogin: Bool = false) {
+            self.machine = machine
+            self.usesMachineLogin = usesMachineLogin
+        }
+    }
+
     private final class ClaudeSetupWait {
         let machine: String?
-        var connected = false
-        init(machine: String?) { self.machine = machine }
+        let account: [String?]?
+        var signedInMachine: String?
+
+        init(machine: String?, account: [String?]?) {
+            self.machine = machine
+            self.account = account
+        }
     }
 
     private var claudeSetups: [UUID: ClaudeSetupWait] = [:]
@@ -267,7 +284,7 @@ public final class CloudSetup {
     /// Whether the chosen connection needs the endpoint credential capability.
     public func launchConnection(_ connection: String?) async -> Connection? {
         guard let connection, let read else { return nil }
-        let snapshot = await read()
+        let snapshot = routed(await read())
         return snapshot.personal?.first(where: { $0.id == connection })
     }
 
@@ -312,6 +329,7 @@ public final class CloudSetup {
     /// `snapshot` without the organization families a start found unrouted.
     private func routed(_ snapshot: Snapshot) -> Snapshot {
         var snapshot = snapshot
+        snapshot.personal?.removeAll { $0.kind.map { Self.localOnlyPlanKinds.contains($0) } == true }
         snapshot.organization?.subtract(unroutedOrganization)
         return snapshot
     }
@@ -415,8 +433,10 @@ public final class CloudSetup {
 
     /// A machine login completed while Settings was open for a held Cloud send.
     public func claudeSignInCompleted(machine: String) {
-        for wait in claudeSetups.values where wait.machine == nil || wait.machine == machine {
-            wait.connected = true
+        let account = accountScope?()
+        for wait in claudeSetups.values
+        where wait.account == account && wait.signedInMachine == nil && (wait.machine == nil || wait.machine == machine) {
+            wait.signedInMachine = machine
         }
         connectionsChanged()
     }
@@ -429,7 +449,7 @@ public final class CloudSetup {
 
     private func waitUntilServed(family: String, claude: ClaudeSetupWait?) async -> Bool {
         guard let read, !Task.isCancelled else { return false }
-        if claude?.connected == true { return true }
+        if claude?.signedInMachine != nil { return true }
         let seen = changes
         if await routed(read()).serves(family) != false { return true }
         if await gatewayServes(family) { return true }
@@ -450,14 +470,17 @@ public final class CloudSetup {
     }
 
     /// Runs the card's `action`, then waits for a connection serving `family` (``waitUntilServed(family:)``).
-    public func setUp(_ action: Action, family: String, machine: String? = nil) async -> Bool {
+    public func setUp(_ action: Action, family: String, machine: String? = nil) async -> SetupCompletion? {
         let id = UUID()
-        let claude = family == "claude" ? ClaudeSetupWait(machine: machine) : nil
+        let account = accountScope?()
+        let claude = family == "claude" ? ClaudeSetupWait(machine: machine, account: account) : nil
         claudeSetups[id] = claude
         defer { claudeSetups[id] = nil }
         if let run { await run(action, family, machine) }
         else { openConnectionSettings?(family, machine, true) }
         connectionsChanged()
-        return await waitUntilServed(family: family, claude: claude)
+        guard await waitUntilServed(family: family, claude: claude), !Task.isCancelled, account == accountScope?() else { return nil }
+        let signedIn = claude?.signedInMachine
+        return SetupCompletion(machine: signedIn ?? machine, usesMachineLogin: signedIn != nil)
     }
 }

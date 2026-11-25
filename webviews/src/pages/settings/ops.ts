@@ -827,7 +827,8 @@ export type ModelsRun =
   | { action: "openChatGPTDevice" }
   | { action: "closeKeyPage"; url: string }
   | { action: "checkClaudeLogin"; cloud: boolean; machine?: string }
-  | { action: "cancelClaudeLogin" | "signOutClaude"; cloud: boolean }
+  | { action: "cancelClaudeLogin"; cloud: boolean }
+  | { action: "signOutClaude"; cloud: boolean; machine?: string }
   | { action: "connectClaude"; cloud?: boolean; replace?: string; machine?: string }
   | { action: "finishClaudeLogin"; cloud: boolean; code: string }
   | { action: "cancelChatGPTDevice" }

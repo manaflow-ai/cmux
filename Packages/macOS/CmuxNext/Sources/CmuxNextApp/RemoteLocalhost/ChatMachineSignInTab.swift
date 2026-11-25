@@ -8,8 +8,8 @@ extension PaneController: ChatMachineSignInHost {
         services.locateTab(chat, onMachine: daemon.machineID).flatMap { try? services.machines.agentDaemon(forTab: $0.0) }
     }
 
-    func signInLifetime(for chat: String) -> @MainActor () -> Bool {
-        { [weak services] in services?.locateTab(chat) != nil }
+    func signInLifetime(for chat: String, onMachine machine: String) -> @MainActor () -> Bool {
+        { [weak services] in services?.locateTab(chat, onMachine: machine) != nil }
     }
 
     func signInProfile() -> (wire: String?, engine: BrowserProfileID) {

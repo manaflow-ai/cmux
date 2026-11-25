@@ -50,6 +50,7 @@ test.each([
   ["claude", "claude"],
   ["codex", "chatgpt"],
   ["gemini", "google"],
+  ["grok", "xai"],
   ["grok-build", "xai"],
 ])("picker Connect for %s opens and focuses %s in Cloud models", async (family, provider) => {
   await render(mockModels.empty, `/settings/models?provider=${family}&open=from-picker`);
@@ -114,6 +115,27 @@ test("Try again refreshes the same model read and opens the requested form", asy
   expect(card(rendered).querySelector('[role="alert"]')).toBeNull();
   expect(panel()?.dataset.modelsDialog).toBe("openai");
   expect(ops(rendered.provider, "cmux.settings.models.state")).toHaveLength(2);
+});
+
+test("a targeted Claude visit hides another machine's row and signs out its own row", async () => {
+  const models: ModelsState = {
+    ...mockModels.empty,
+    cloudClaudeLogin: { phase: "connected", signedIn: true, error: null, machine: "vm_a", machineName: "A" },
+  };
+  const rendered = await render(models, "/settings/models?provider=claude&machine=vm_b");
+  expect(ids(rendered)).not.toContain("claude-cloud-login");
+  await act(async () =>
+    rendered.provider.setModels({
+      ...models,
+      cloudClaudeLogin: { phase: "connected", signedIn: true, error: null, machine: "vm_b", machineName: "B" },
+    }),
+  );
+  const row = card(rendered).querySelector('[data-connection="claude-cloud-login"]')!;
+  await click(row.querySelector('[data-menu="connection-claude-cloud-login"]')!);
+  await click(document.querySelector('[data-value="signOutClaude"]')!);
+  expect(rendered.provider.modelRuns.filter((run) => run.action === "signOutClaude")).toEqual([
+    { action: "signOutClaude", cloud: true, machine: "vm_b" },
+  ]);
 });
 
 test("Claude and Codex picker links open their Cloud forms and a new open value reopens the form", async () => {
@@ -189,7 +211,10 @@ test("Connect on the held-send card opens the Cloud models form and waits for th
     );
     await click(chat.querySelector('[data-action="setUpClaude"]')!);
     expect(calls).toEqual([
-      { method: "cloud.setUp", params: { key: "held-send", action: "setUpClaude", family: "claude" } },
+      {
+        method: "cloud.setUp",
+        params: { key: "held-send", action: "setUpClaude", family: "claude" },
+      },
     ]);
     expect(rendered.history.location.pathname).toBe("/settings/cloud");
     expect(panel()?.dataset.modelsDialog).toBe("claude");
@@ -296,7 +321,9 @@ test("Settings search opens the Cloud models card", async () => {
 
 test("Return takes the exact Cloud models title ahead of the local Models result", async () => {
   const rendered = await render(mockModels.empty, "/settings/models?q=cloud%20models");
-  await fire(rendered.container.querySelector("[data-settings-search]")!, "keydown", { key: "Enter" });
+  await fire(rendered.container.querySelector("[data-settings-search]")!, "keydown", {
+    key: "Enter",
+  });
   expect(rendered.history.location.pathname).toBe("/settings/cloud");
   expect(rendered.history.location.search).toContain("card.cloudModels");
 });
@@ -353,68 +380,72 @@ test("a saved endpoint stays visible while the Cloud harness is unconfirmed", as
 
 test("Cloud models shows an offline machine after its readiness deadline and clears the status on reconnect", async () => {
   const models = structuredClone(mockModels.empty);
-  models.cloudSubscriptionRunnersPending = true;
+  models.cloudEndpointRunnersPending = true;
+  models.cloudHarnesses = [];
   models.personal.connections.push({
-    id: "copilot-plan",
-    label: "GitHub Copilot",
-    provider: "copilot",
-    kind: "copilot-plan",
-    families: ["github-copilot"],
+    id: "xai-key",
+    label: "xAI API key",
+    provider: "xai",
+    kind: "api-key",
+    families: ["grok"],
     enabled: true,
     signedIn: true,
     servesCloud: true,
     defaultFor: [],
     email: null,
     plan: null,
-    launchHarness: "opencode",
+    launchHarness: "grok",
   });
   const rendered = await render(models);
-  const row = card(rendered).querySelector('[data-connection="copilot-plan"]')!;
+  const row = card(rendered).querySelector('[data-connection="xai-key"]')!;
   expect(row.textContent).toContain("Updating Cloud machine");
   await act(async () =>
-    rendered.provider.setModels({ ...models, cloudSubscriptionRunnersPending: false, cloudRunnersOffline: true }),
+    rendered.provider.setModels({
+      ...models,
+      cloudEndpointRunnersPending: false,
+      cloudRunnersOffline: true,
+    }),
   );
   expect(row.textContent).toContain("Cloud machine offline");
   expect(row.textContent).not.toContain("Updating Cloud machine");
   await act(async () =>
     rendered.provider.setModels({
       ...models,
-      cloudSubscriptionRunnersPending: false,
-      cloudSubscriptionHarnesses: ["opencode"],
+      cloudEndpointRunnersPending: false,
+      cloudHarnesses: ["grok"],
     }),
   );
   expect(row.textContent).not.toContain("Cloud machine offline");
 });
 
-test("Cloud models waits for subscription capability even when OpenCode is installed", async () => {
+test("local-only plans stay in Models when a stale list advertises them for Cloud", async () => {
   const models = structuredClone(mockModels.empty);
-  models.cloudSubscriptionRunnersPending = true;
-  models.personal.connections.push({
-    id: "copilot-plan",
-    label: "GitHub Copilot",
-    provider: "copilot",
-    kind: "copilot-plan",
-    families: ["github-copilot"],
-    enabled: true,
-    signedIn: true,
-    servesCloud: true,
-    defaultFor: [],
-    email: null,
-    plan: null,
-    launchHarness: "opencode",
-  });
+  for (const [kind, provider, family, label] of [
+    ["grok-plan", "grok", "grok", "SuperGrok"],
+    ["copilot-plan", "copilot", "github-copilot", "GitHub Copilot"],
+    ["kimi-plan", "kimi-code", "opencode", "Kimi Code"],
+  ] as const) {
+    models.personal.connections.push({
+      id: kind,
+      kind,
+      provider,
+      label,
+      families: [family],
+      enabled: true,
+      signedIn: true,
+      servesCloud: true,
+      canServeCloud: true,
+      defaultFor: [],
+      email: null,
+      plan: null,
+    });
+  }
   const rendered = await render(models);
-  const row = card(rendered).querySelector('[data-connection="copilot-plan"]');
-  expect(row?.textContent).toContain("Updating Cloud machine");
-  await act(async () =>
-    rendered.provider.setModels({
-      ...rendered.provider.models!,
-      cloudSubscriptionHarnesses: ["opencode"],
-      cloudSubscriptionRunnersPending: false,
-    }),
-  );
-  expect(card(rendered).querySelector('[data-connection="copilot-plan"]')).toBe(row);
-  expect(row?.textContent).not.toContain("Updating Cloud machine");
+  expect(ids(rendered)).toEqual([]);
+  await act(async () => rendered.history.push("/settings/models"));
+  for (const kind of ["grok-plan", "copilot-plan", "kimi-plan"]) {
+    expect(rendered.container.querySelector(`[data-card="models"] [data-connection="${kind}"]`)).not.toBeNull();
+  }
 });
 
 test.each(["models", "claude", "chatgpt", "api key"])("search offers Models first for %s", async (query) => {

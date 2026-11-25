@@ -74,10 +74,39 @@ struct AgentPaneCloudSetUpTests {
         #expect(starts.map(\.task) == ["kept prompt"])
     }
 
+    @Test func automaticClaudeSetupRetriesOnItsSignedInMachine() async throws {
+        let model = AgentPaneModel(host: NoHost(), sessionId: nil)
+        var retried: AgentPaneCloudStart?
+        model.onCloudStartChat = { retried = $0; return AgentPaneReply.success() }
+        let setup = CloudSetup(read: { .init(personal: [], organization: []) })
+        setup.canSignInToClaudeOnMachine = { $0 == "vm_b" }
+        setup.run = { [weak setup] _, _, machine in
+            #expect(machine == nil)
+            setup?.claudeSignInCompleted(machine: "vm_b")
+        }
+        model.useCloudSetup(setup)
+        let key = UUID().uuidString
+        let original = AgentPaneCloudStart(task: "held prompt", cwd: nil, key: key)
+        let choice = CloudSetup.Choice.setup(family: "claude", model: nil)
+        let refusal = try #require(await original.connectionSetupReply(for: choice, setup: setup))
+        #expect(Self.code(refusal) == "cloud_setup_required")
+        model.transport.gestures.record()
+        let ready = await model.respond(to: AgentPaneRequest(body: ["method": "cloud.setUp", "params": ["key": key, "action": "setUpClaude", "family": "claude"]]))
+        #expect(ready["ok"] as? Bool == true)
+        let again = AgentPaneRequest(body: ["method": "cloud.startChat", "params": ["task": "held prompt", "key": key, "home": true, "signedIn": true]])
+        #expect(await model.respond(to: again)["ok"] as? Bool == true)
+        let start = try #require(retried)
+        #expect(start.machine == "vm_b" && start.usesMachineLogin)
+        #expect(await start.connectionSetupReply(for: choice, setup: setup) == nil)
+        let opened = AgentPaneCloudStarted(start: start, chat: nil, workspace: nil, account: [], machineID: "vm_b")
+        #expect(opened.start.machine == nil && !opened.start.usesMachineLogin, "the later Repick must use its own machine")
+        #expect(opened.start.key == key)
+    }
+
     @Test func aSetUpThatEndsWithNoConnectionKeepsNoClick() async {
         let model = AgentPaneModel(host: NoHost(), sessionId: nil)
         model.onCloudStartChat = { _ in AgentPaneReply.success() }
-        model.onCloudSetUp = { _, _, _ in false }
+        model.onCloudSetUp = { _, _, _ in nil }
         let key = UUID().uuidString
         model.transport.gestures.record()
         let reply = await model.respond(to: AgentPaneRequest(body: ["method": "cloud.setUp", "params": ["key": key, "action": "openSettings", "family": "claude"]]))
@@ -127,7 +156,7 @@ struct AgentPaneCloudSetUpTests {
         model.keepCloudSignInGrant(key, generation: model.cloudSignInGeneration)
         model.transport.gestures.record()
         _ = await model.respond(to: connect)
-        #expect(model.takeCloudSignInGrant(key))
+        #expect(model.takeCloudSignInGrant(key) != nil)
     }
 
     @Test func pickerConnectAcceptsCatalogFamiliesTheGatewayDoesNotRun() async {
@@ -169,7 +198,7 @@ struct AgentPaneCloudSetUpTests {
         #expect(await model.respond(to: retry("vm_b"))["ok"] as? Bool == true)
         #expect(opened.map { $0.1 } == ["vm_b", "vm_b"])
         #expect(opened.map { $0.2 } == [false, true])
-        #expect(model.takeCloudSignInGrant(key))
+        #expect(model.takeCloudSignInGrant(key) != nil)
     }
 
     @Test func cloudRenewalUsesTheCurrentTabAndRequiresAnOwnerClick() async {

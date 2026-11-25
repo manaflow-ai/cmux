@@ -53,9 +53,18 @@ impl Hub {
             && session.credential.lock().unwrap_or_else(|e| e.into_inner()).is_some()
     }
 
-    /// Move an existing Cloud chat off a delivered Claude token after its own account is ready.
-    pub(crate) async fn retire_claude_credential(&self, session: &Session) {
+    /// Named connections remain assigned even while their token awaits redelivery.
+    pub(crate) fn has_delivered_credential(&self, session: &Session) -> bool {
+        session.meta().credential_connection.is_some()
+            || session.credential.lock().unwrap_or_else(|e| e.into_inner()).is_some()
+    }
+
+    /// A chat-scoped sign-in can move off a temporary unnamed Claude token.
+    pub(crate) async fn retire_unnamed_claude_credential(&self, session: &Session) {
         let _spawn = session.spawn_lock.lock().await;
+        if session.meta().credential_connection.is_some() {
+            return;
+        }
         let mut held = session.credential.lock().unwrap_or_else(|e| e.into_inner());
         if held.as_ref().is_some_and(AgentCredential::uses_claude_subscription_token) {
             *held = None;

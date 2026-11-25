@@ -60,12 +60,10 @@ struct CloudStartChat {
             let folder = start.home || start.repository != nil ? nil : (start.cwd ?? tab.cwd).flatMap(CloudMoveFolder.init(chat:)).flatMap { $0.isTooBroad ? nil : $0 }
             let preflight = folder.flatMap { folder in services.cloud.move.cli.map { CloudStartPreflight(root: folder.root, cli: CloudMoveCLI(binary: $0, timeout: services.cloud.move.timeout)) } }
             defer { preflight?.cancel() } // unused when the start ends before it, or takes another folder
-            // A connection travels with the launch. Without one, check the machine's own sign-in
-            // before offering setup.
-            let choice = await services.cloud.setup.choose(harness: start.harness, model: start.model, account: start.account)
+            let choice: CloudSetup.Choice = if start.usesMachineLogin { .fallback } else { await services.cloud.setup.choose(harness: start.harness, model: start.model, account: start.account) }
             if let refusal = await start.connectionSetupReply(for: choice, setup: services.cloud.setup) { return refusal }
             let account = services.cloud.account
-            var origin = Origin(tab: tab, chat: start.repository == nil ? start.cwd ?? tab.cwd : nil, workspace: services.workspaceID(ofTab: tab.id), account: account, connection: choice.connectionID) { [services] in
+            let origin = Origin(tab: tab, chat: start.repository == nil ? start.cwd ?? tab.cwd : nil, workspace: services.workspaceID(ofTab: tab.id), account: account, connection: choice.connectionID, preflight: preflight) { [services] in
                 // This Mac's tab, which never started a chat: the chat is the machine's now.
                 do {
                     try await services.daemon.connection?.closeTabs([tab.surface], endTerminals: false, reason: .sessionEnd)
@@ -73,7 +71,6 @@ struct CloudStartChat {
                     services.cloud.logger.error("cloud start chat: closing this Mac's tab failed: \(String(describing: error), privacy: .public)")
                 }
             }
-            origin.preflight = preflight
             let machine = try await run(start, from: origin, report: report)
             return AgentPaneReply.success(["machine": machine])
         } catch is CloudMoveFolder.Gone { // the card's own words, with no Retry: picking another folder is the way on
@@ -259,7 +256,7 @@ struct CloudStartChat {
         let (seed, handOff) = AgentPaneSeedSource.handingOffDraft(machineStart.seed(cwd: cwd)) { [services] in services.agentTabs.unsentDrafts.draft(forTab: services.agentTabs.resolve(origin.tab.id), machine: services.agentTabs.daemonListing(origin.tab)?.machineID) }
         defer { handOff(false) }
         // The chat's agent launch reads this choice (AgentTabs+RemoteStart): set before the tab exists, under the tab's key.
-        services.cloud.agentCredentials.use(connection: origin.connection, chat: tabKey, machine: machine.machineID, harness: machineStart.harness)
+        services.cloud.agentCredentials.use(connection: origin.connection, chat: tabKey, machine: machine.machineID, harness: machineStart.harness, useMachineLogin: start.usesMachineLogin)
         let inPlace = Self.frontsInPlace(origin.tab, workspace: CloudMachineWorkspace.chatKey(tabKey: tabKey).rawValue, services: services); let open = { (workspace: WorkspaceHandle) in try await services.agentTabs.openFirstPage(workspace: workspace, cwd: cwd, on: daemon, source: seed, mutationID: tabKey) }
         // The chat's own workspace, the chat its only tab: never the machine's first workspace and its starter terminal. The link can be down or drop under this (CloudMachineWorkspace.chatRelinked): it opens once more on the new link, under the same key.
         let (anchor, tab, opened) = try await CloudMachineWorkspace.chatRelinked(in: daemon.store, held: machine.linkHeld) {
@@ -386,6 +383,7 @@ extension CloudStartChat {
             continuation.onTermination = { _ in socket.cancel() }
             return changes
         }
+        services.cloud.setup.accountScope = { [weak services] in services?.cloud.account ?? [] }
         services.cloud.setup.canSignInToClaudeOnMachine = { [weak services] id in
             guard let services else { return false }
             guard let id else { return services.accounts.agentKeys.isPersonal }

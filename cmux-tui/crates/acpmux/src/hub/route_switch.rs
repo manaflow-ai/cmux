@@ -203,23 +203,17 @@ impl Hub {
 
     /// A local Kimi agent holds its launch grant until the next restart.
     pub(super) async fn refresh_local_kimi_between_turns(&self, session: &Arc<Session>) {
-        let expiry = {
+        let expiry = session
+            .child
+            .lock()
+            .await
+            .as_ref()
+            .and_then(|child| child.host_record())
+            .and_then(|record| record.local_kimi_expiry);
+        let expiry = expiry.or_else(|| {
             let launch = session.launch_env.lock().unwrap_or_else(|e| e.into_inner());
-            launch.as_ref().map(|env| {
-                env.get(crate::subscriptions::LOCAL_KIMI_EXPIRY)
-                    .and_then(|value| value.parse::<i64>().ok())
-            })
-        };
-        let expiry = match expiry {
-            Some(expiry) => expiry,
-            None => session
-                .child
-                .lock()
-                .await
-                .as_ref()
-                .and_then(|child| child.host_record())
-                .and_then(|record| record.local_kimi_expiry),
-        };
+            launch.as_ref()?.get(crate::subscriptions::LOCAL_KIMI_EXPIRY)?.parse::<i64>().ok()
+        });
         if expiry.is_some_and(|expiry| {
             expiry.saturating_sub(crate::subscriptions::now()) <= crate::subscriptions::LOCAL_MARGIN
         }) {

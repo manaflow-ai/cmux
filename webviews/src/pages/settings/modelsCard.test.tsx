@@ -866,6 +866,7 @@ test("Cloud Claude Reauthenticate can start a new approval", async () => {
     action: "connectClaude",
     cloud: true,
     replace: "claude-cloud-login",
+    machine: "vm_b",
   });
 });
 
