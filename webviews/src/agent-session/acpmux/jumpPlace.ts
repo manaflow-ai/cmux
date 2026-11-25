@@ -1,7 +1,7 @@
 // Where the jump stack stands (jumpPlace.experiment.ts, jumpPlace.css): the arm, turned to the side
 // the tucked hat's handle leaves free, so the stack and the handle never share a column.
 import type { TrayHandleSide } from "./chatDisplay";
-import type { HatPillPlace } from "./hatPillPlace.experiment";
+import { hatPillInMiddle, type HatPillPlace } from "./hatPillPlace.experiment";
 import type { JumpLatestPlace } from "./jumpPlace.experiment";
 
 export type JumpSide = "start" | "end";
@@ -19,12 +19,14 @@ export function jumpSide(place: JumpLatestPlace, handle: TrayHandleSide): JumpSi
 }
 
 /// Where the tucked hat's pill stands along the composer's top edge (the open hat's tuck control
-/// does not follow it: it stays on the hat's middle unless the person put the handle aside, App.tsx): the person's `agentPane.display.trayHandle`, except that the middle handle
+/// does not follow it: it stays on the hat's middle unless the person put the handle aside,
+/// App.tsx): the person's `agentPane.display.trayHandle`, except that the middle handle
 /// moves aside while the jump stack holds the center line (Leo, 2026-11-22: "the composer hat hidden
 /// bit was the one to move to the right. or left."), to the side the `hat-pill-place` arm names. The
 /// side is fixed per chat view, never per frame, so neither control moves while a reply streams or
-/// the disc fades in and out.
+/// the disc fades in and out. Leo, 2026-11-24: "you guys need to move it back to the middle": the
+/// `middle-*` arms (the default) keep the middle handle in the middle, the disc over it.
 export function hatSide(jump: JumpLatestPlace, handle: TrayHandleSide, pill: HatPillPlace): TrayHandleSide {
-  if (handle !== "middle" || jump !== "center" || pill === "middle") return handle;
+  if (handle !== "middle" || jump !== "center" || hatPillInMiddle(pill)) return handle;
   return pill === "start" ? "left" : "right";
 }
