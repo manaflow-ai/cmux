@@ -533,7 +533,8 @@
         "experiments.menuRowStates",
         "experiments.toastsV2",
         "experiments.expandedEditsEstimate",
-        "experiments.terminalHistoryFind"
+        "experiments.terminalHistoryFind",
+        "experiments.terminalHistory"
       ]
     },
     {
@@ -1554,6 +1555,13 @@
     },
     {
       "agent": "privacy",
+      "why": "Whether this Mac sends crash reports and anonymous analytics: the person's choice only.",
+      "keys": [
+        "app.sendAnonymousTelemetry"
+      ]
+    },
+    {
+      "agent": "privacy",
       "why": "Whether this computer counts how the person uses cmux: the person's choice only.",
       "keys": [
         "diagnostics.usagePatterns"
@@ -1962,6 +1970,20 @@
       "why": "Saved prompts are the person's own words, sent to agents as prompts; an agent does not write them.",
       "keys": [
         "agentPane.savedPrompts"
+      ]
+    },
+    {
+      "agent": "settable",
+      "why": "Tailnet join preferences are user-controlled and exposed through Settings, CLI and MCP. Authentication keys are entered only for a join action and are never stored here.",
+      "keys": [
+        "tailnet.join.enabled",
+        "tailnet.join.loginServer",
+        "tailnet.join.hostname",
+        "tailnet.join.tags",
+        "tailnet.join.ssh",
+        "tailnet.join.ephemeral",
+        "tailnet.join.servePorts",
+        "tailnet.join.autoJoinNewVMs"
       ]
     }
   ]

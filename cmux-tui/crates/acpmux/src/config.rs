@@ -1364,32 +1364,6 @@ impl TitlesConfig {
     }
 }
 
-/// `summaries` in the config: each chat's rolling summary and next action
-/// (`hub/rolling_summary.rs`).
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Default)]
-#[serde(rename_all = "camelCase")]
-pub struct SummariesConfig {
-    /// `generate`: ask the summary model after a person's turn that ended on no `wrap_up`.
-    /// Default on. Off, a turn's own `wrap_up` still summarizes it (it costs nothing).
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub generate: Option<bool>,
-    /// `command`: an argv that reads the request on stdin and prints the summary. Env
-    /// `ACPMUX_SUMMARY_COMMAND` (one program) wins. Unset: one completion on the chat's own
-    /// harness (`_acpmux/complete`), on `model`.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub command: Option<Vec<String>>,
-    /// `model`: the completion's model. Unset: `titles.model`, else the harness's small model
-    /// (`haiku` on Claude).
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub model: Option<String>,
-}
-
-impl SummariesConfig {
-    pub fn is_default(&self) -> bool {
-        self == &Self::default()
-    }
-}
-
 /// Opt-in synchronization of local agent memories and artifacts with cmux-platform.
 /// The feature is disabled unless `enabled` is explicitly set to true.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -1717,6 +1691,10 @@ pub struct Config {
         deserialize_with = "crate::hub::auto_resume::delays_from_config"
     )]
     pub auto_resume_delays_ms: Option<Vec<u64>>,
+    /// `autoResumeDiskFreeBytes`: how much free space a chat a full disk cut waits for before
+    /// it goes on (`hub/auto_resume/disk_wait.rs`). Default 16 MiB.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub auto_resume_disk_free_bytes: Option<u64>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub websocket: Option<WebSocketConfig>,
     #[serde(default)]
@@ -1743,9 +1721,6 @@ pub struct Config {
     /// `titles`: short titles for chats their harness never titles (`hub/titles.rs`).
     #[serde(default, skip_serializing_if = "TitlesConfig::is_default")]
     pub titles: TitlesConfig,
-    /// `summaries`: each chat's rolling summary and next action (`hub/rolling_summary.rs`).
-    #[serde(default, skip_serializing_if = "SummariesConfig::is_default")]
-    pub summaries: SummariesConfig,
     /// `usageWarnings`: when a session's usage gets a visible warning (`hub/usage_warnings.rs`).
     #[serde(default, skip_serializing_if = "UsageWarningsConfig::is_default")]
     pub usage_warnings: UsageWarningsConfig,
