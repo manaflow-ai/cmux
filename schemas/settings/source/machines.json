@@ -1198,7 +1198,7 @@
         {
           "key": "transport.tailnetCarrier",
           "name": "tailnetCarrier",
-          "note": "Read by direct route races. When direct-only, a cached Tailscale LocalAPI view may add a peer's direct tailnet address as a candidate. DERP and peer-relay paths are excluded until their cost is measured. Direct Only is the default; a race reads the cached view from memory, so a missing or stopped tailscaled adds no candidate and no wait. Off makes no Tailscale call.",
+          "note": "Read by direct route races. When direct-only, a cached Tailscale LocalAPI view may add a peer's direct tailnet address as a candidate. DERP and peer-relay paths are excluded until their cost is measured. Off is the default.",
           "title": {
             "key": "settings.transport.tailnetCarrier",
             "text": "Tailscale Carrier"
@@ -1238,7 +1238,7 @@
               "note": "Accept the carrier policy value. Relayed paths remain excluded until their cost is measured."
             }
           ],
-          "default": "direct-only",
+          "default": "off",
           "keywords": [
             "tailscale",
             "tailnet",

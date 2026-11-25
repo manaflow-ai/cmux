@@ -1,9 +1,8 @@
 //! The tailnet path of acpmux peer links (`peer_tailnet.rs`), for a person who runs Tailscale
-//! and keeps it running. RFD 0164 "Tailnet carrier", slice T6. On by default as `direct-only`;
-//! never required: with no tailscale it offers no path and waits on nothing.
+//! and turns it on. RFD 0164 "Tailnet carrier", slice T6. Opt-in, default off.
 //!
-//! - **Setting.** `CMUX_TAILNET_CARRIER` = `off` (also empty) | `direct-only` (default; also
-//!   unset or unknown) | `on`: the daemon-side form of the setting `transport.tailnetCarrier`.
+//! - **Setting.** `CMUX_TAILNET_CARRIER` = `off` (default; also unset or unknown) |
+//!   `direct-only` | `on`: the daemon-side form of the setting `transport.tailnetCarrier`.
 //!   `off` makes no tailscale call at all, in either direction.
 //! - **Learning the address.** Locally and read-only: the peer record's host (the ssh
 //!   destination's host or the URL's host) is matched against this machine's tailscaled status
@@ -59,9 +58,9 @@ const GATE_WAIT: Duration = Duration::from_secs(3);
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum Mode {
     /// No tailscale call, no tailnet path, no tailnet listener.
-    Off,
-    /// Only a path tailscale reports as direct (the default).
     #[default]
+    Off,
+    /// Only a path tailscale reports as direct.
     DirectOnly,
     /// Every tailnet path: a non-direct one is relayed-class.
     On,
@@ -77,8 +76,7 @@ impl Mode {
         }
     }
 
-    /// The setting from the environment; direct-only when unset or not understood,
-    /// `CMUX_TAILNET_CARRIER=off` turns it off.
+    /// The setting from the environment; off when unset or not understood.
     pub fn from_env() -> Self {
         std::env::var(ENV).ok().and_then(|text| Self::parse(&text)).unwrap_or_default()
     }

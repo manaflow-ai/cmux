@@ -27,32 +27,28 @@ pub enum PeerPath {
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum TailnetCarrierMode {
     /// Preserve the existing candidate list.
-    Off,
-    /// Add only candidates currently classified as direct (the default).
     #[default]
+    Off,
+    /// Add only candidates currently classified as direct.
     DirectOnly,
     /// Reserved for a future policy that may include relayed candidates.
     On,
 }
 
 impl TailnetCarrierMode {
-    /// Parse the setting value. Only `off` turns it off; an unknown value is
-    /// the default, which never prefers a DERP or relayed path.
+    /// Parse the setting value. Unknown values remain safely disabled.
     pub fn parse(value: &str) -> Self {
         match value.trim().to_ascii_lowercase().as_str() {
             "direct-only" | "direct_only" => Self::DirectOnly,
             "on" => Self::On,
-            "off" => Self::Off,
-            _ => Self::default(),
+            _ => Self::Off,
         }
     }
 
     /// Read the test override. The settings file remains the source of the
     /// user-facing default, while this variable makes race tests hermetic.
     pub fn from_env() -> Self {
-        std::env::var("CMUX_TAILNET_CARRIER")
-            .ok()
-            .map_or_else(Self::default, |value| Self::parse(&value))
+        std::env::var("CMUX_TAILNET_CARRIER").ok().map_or(Self::Off, |value| Self::parse(&value))
     }
 }
 
