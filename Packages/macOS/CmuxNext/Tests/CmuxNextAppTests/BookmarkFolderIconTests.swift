@@ -20,7 +20,7 @@ struct BookmarkFolderIconTests {
     /// A `list-bookmarks` folder row, with `icon` when given.
     static func record(icon: String?) throws -> BookmarkRecord {
         let field = icon.map { #","icon":"\#($0)""# } ?? ""
-        let json = #"{"id":"bm_folder","browser_profile_id":"default","parent":"bar","kind":"folder","index":0,"title":"Work","created_ms":1\#(field)}"#
+        let json = #"{"id":"bm_00000000000000000000000000000f01","browser_profile_id":"default","parent":"bar","kind":"folder","index":0,"title":"Work","created_ms":1\#(field)}"#
         return try JSONDecoder().decode(BookmarkRecord.self, from: Data(json.utf8))
     }
 
@@ -53,7 +53,7 @@ struct BookmarkFolderIconTests {
     /// `update-bookmark` sends `icon` only when it changes: a string sets it, null removes it.
     @Test func updateBookmarkSendsTheIconOnlyWhenItChanges() throws {
         func sent(_ icon: FieldUpdate<String>) throws -> [String: Any] {
-            let data = try JSONEncoder().encode(UpdateBookmarkRequest(bookmark: "bm_folder", icon: icon, mutation: nil))
+            let data = try JSONEncoder().encode(UpdateBookmarkRequest(bookmark: "bm_00000000000000000000000000000f01", icon: icon, mutation: nil))
             return try #require(JSONSerialization.jsonObject(with: data) as? [String: Any])
         }
         #expect(try sent(.set("🚀"))["icon"] as? String == "🚀")
@@ -65,15 +65,15 @@ struct BookmarkFolderIconTests {
     /// URL bookmark refuses one (a removal too).
     @Test func onlyAFolderTakesAnIcon() throws {
         var tree = BookmarkTree()
-        try tree.apply(.create(.folder("Work", in: BookmarkRoot.bar.rawValue, id: "bm_folder"), index: nil))
+        try tree.apply(.create(.folder("Work", in: BookmarkRoot.bar.rawValue, id: "bm_00000000000000000000000000000f01"), index: nil))
         let url = try #require(URL(string: "https://example.com"))
-        try tree.apply(.create(.bookmark("Example", url: url, in: "bm_folder", id: "bm_url"), index: nil))
-        try tree.apply(.update(id: "bm_folder", icon: .set("🚀")))
-        #expect(tree.node("bm_folder")?.icon == "🚀")
-        #expect(throws: BookmarkError.self) { try tree.apply(.update(id: "bm_url", icon: .set("🚀"))) }
-        #expect(throws: BookmarkError.self) { try tree.apply(.update(id: "bm_url", icon: .clear)) }
-        try tree.apply(.update(id: "bm_folder", icon: .clear))
-        #expect(tree.node("bm_folder")?.icon == nil)
+        try tree.apply(.create(.bookmark("Example", url: url, in: "bm_00000000000000000000000000000f01", id: "bm_00000000000000000000000000000a01"), index: nil))
+        try tree.apply(.update(id: "bm_00000000000000000000000000000f01", icon: .set("🚀")))
+        #expect(tree.node("bm_00000000000000000000000000000f01")?.icon == "🚀")
+        #expect(throws: BookmarkError.self) { try tree.apply(.update(id: "bm_00000000000000000000000000000a01", icon: .set("🚀"))) }
+        #expect(throws: BookmarkError.self) { try tree.apply(.update(id: "bm_00000000000000000000000000000a01", icon: .clear)) }
+        try tree.apply(.update(id: "bm_00000000000000000000000000000f01", icon: .clear))
+        #expect(tree.node("bm_00000000000000000000000000000f01")?.icon == nil)
     }
 
     // MARK: Drawing
@@ -103,19 +103,19 @@ struct BookmarkFolderIconTests {
     @Test func theManagerPageGetsAFoldersIconFromItsHost() async throws {
         let services = Self.services()
         var tree = BookmarkTree()
-        try tree.apply(.create(.folder("Work", in: BookmarkRoot.bar.rawValue, id: "bm_emoji"), index: nil))
-        try tree.apply(.create(.folder("Plain", in: BookmarkRoot.bar.rawValue, id: "bm_plain"), index: nil))
-        try tree.apply(.update(id: "bm_emoji", icon: .set("🚀")))
+        try tree.apply(.create(.folder("Work", in: BookmarkRoot.bar.rawValue, id: "bm_00000000000000000000000000000e01"), index: nil))
+        try tree.apply(.create(.folder("Plain", in: BookmarkRoot.bar.rawValue, id: "bm_00000000000000000000000000000b01"), index: nil))
+        try tree.apply(.update(id: "bm_00000000000000000000000000000e01", icon: .set("🚀")))
         services.bookmarks.trees["default"] = tree
         let host = BookmarkPageHostProvider(host: services, tabKey: "bookmark-page-host-test")
         let context = PageCallContext(page: PageDescriptor.bookmarks.id)
         let state = try await host.call("cmux.bookmarkPage.state", params: .object([:]), context: context)
         #expect(state["browser_profile_id"]?.stringValue == "default")
-        let ids: [CmuxNextSettings.JSONValue] = [.string("bm_emoji"), .string("bm_plain"), .string("bm_gone")]
+        let ids: [CmuxNextSettings.JSONValue] = [.string("bm_00000000000000000000000000000e01"), .string("bm_00000000000000000000000000000b01"), .string("bm_gone")]
         let reply = try await host.call("cmux.bookmarkPage.icons", params: .object(["ids": .array(ids)]), context: context)
         let icons = reply["icons"]?.objectValue ?? [:]
-        #expect(icons["bm_emoji"]?.stringValue?.hasPrefix("data:image/png;base64,") == true)
-        #expect(icons["bm_plain"] == nil && icons["bm_gone"] == nil)
+        #expect(icons["bm_00000000000000000000000000000e01"]?.stringValue?.hasPrefix("data:image/png;base64,") == true)
+        #expect(icons["bm_00000000000000000000000000000b01"] == nil && icons["bm_gone"] == nil)
         #expect(reply["masks"]?.arrayValue == [], "an emoji draws in its own colors, not as a mask")
     }
 
@@ -140,15 +140,15 @@ struct BookmarkFolderIconTests {
         }
         let services = Self.services()
         var tree = BookmarkTree()
-        try tree.apply(.create(.folder("Work", in: BookmarkRoot.bar.rawValue, id: "bm_folder"), index: nil))
+        try tree.apply(.create(.folder("Work", in: BookmarkRoot.bar.rawValue, id: "bm_00000000000000000000000000000f01"), index: nil))
         let url = try #require(URL(string: "https://example.com/work"))
-        try tree.apply(.create(.bookmark("Work docs", url: url, in: "bm_folder", id: "bm_url"), index: nil))
+        try tree.apply(.create(.bookmark("Work docs", url: url, in: "bm_00000000000000000000000000000f01", id: "bm_00000000000000000000000000000a01"), index: nil))
         services.bookmarks.trees["default"] = tree
         let resolver = BookmarkResolver(services: services)
         let named = try BookmarkIconHandlers.folder(ActionInvocation(arguments: ["bookmark": .string("work")]), resolver)
-        #expect(named.id == "bm_folder")
+        #expect(named.id == "bm_00000000000000000000000000000f01")
         #expect(throws: (any Error).self) {
-            try BookmarkIconHandlers.folder(ActionInvocation(arguments: ["bookmark": .string("bm_url")]), resolver)
+            try BookmarkIconHandlers.folder(ActionInvocation(arguments: ["bookmark": .string("bm_00000000000000000000000000000a01")]), resolver)
         }
     }
 

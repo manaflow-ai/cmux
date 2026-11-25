@@ -83,7 +83,7 @@ import PackageDescription
 //     Agents step's sign-in source)
 //   CmuxNextAgentIntegrations -> Daemon, Pages, Settings (Settings > Agents > Agent integrations: relays the bundled
 //     CLI's `agent hook status|install|uninstall`; the App supplies the CLI's location)
-//   CmuxNextBookmarks -> Design, Icons (bookmark tree per browser profile, Netscape HTML, ranking, file store,
+//   CmuxNextBookmarks -> Design, Icons, WindowRules (bookmark tree per browser profile, Netscape HTML, ranking, file store,
 //     cmux://bookmarks page, bookmarks bar, edit bubble; no daemon; the App supplies the store)
 //   CmuxNextResources -> Wakeups, Design (hover-card CPU/memory: aggregation, on-demand sampler, lines;
 //     no daemon; the App supplies the samples). Tabs and Sidebar show it.
@@ -1278,6 +1278,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
                 "CmuxNextIcons",
                 "CmuxNextPages",
                 "CmuxNextSettings",
+                "CmuxNextWindowRules",
             ],
             resources: [
                 .process("Resources"),
