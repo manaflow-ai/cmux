@@ -426,7 +426,7 @@ class WorkloadProfileTests(unittest.TestCase):
             mock.patch.object(profile.subprocess, "run", return_value=clean_diff),
         ):
             with self.assertRaisesRegex(
-                profile.ProfileError, "non-ignored source changes"
+                profile.ProfileError, r"non-ignored source changes: \?\? stray-source\.swift"
             ):
                 profile.source_identity(None, None)
 

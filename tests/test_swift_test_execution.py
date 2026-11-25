@@ -109,6 +109,17 @@ class SwiftTestExecutionTests(unittest.TestCase):
             r"^SecondTests\.Suite/",
         ])
 
+    def test_discovery_ignores_swift_runtime_diagnostics(self) -> None:
+        warning = "swift runtime: backtrace-on-crash is not supported for privileged executables."
+        result = self.run_guard(
+            f"{warning}\n{warning}{warning}\nFirstTests.Suite/testOne()\n{warning}\n",
+            "--list-filters",
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(result.stdout.splitlines(), [r"^FirstTests\.Suite/"])
+        only_warning = self.run_guard(f"{warning}\n", "--list-filters")
+        self.assertNotEqual(only_warning.returncode, 0)
+
     def test_discovery_fails_closed_on_unrecognized_or_empty_output(self) -> None:
         for output in ("", "FirstTests.Suite/testOne()\nunrecognized new test record\n"):
             with self.subTest(output=output):

@@ -25,6 +25,11 @@ export const cloudSecurityDocsLocales = [
   "ja",
 ] as const satisfies readonly Locale[];
 
+// The engineering write-up on the main thread is authored in English only.
+export const mainThreadDocsLocales = [
+  "en",
+] as const satisfies readonly Locale[];
+
 // Routes in this registry intentionally expose only their authored locales.
 export const fallbackContentLocales = [
   "en",

@@ -945,7 +945,7 @@ class WorkflowShapeTests(unittest.TestCase):
         # It mints GLAEDA_ROUTE_APP_KEY and CMUX_BOT_APP_KEY, so it runs on an ephemeral label the expression
         # names (tests/test_ci_fork_runner_routing.py). It runs off every pool it judges or moves: GitHub-hosted
         # Ubuntu, or the fleet's one-job label when CI_QUEUE_JANITOR_ON_FLEET=1 (2026-11-20: a sweep waited 77 min).
-        self.assertIn("runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_QUEUE_JANITOR_ON_FLEET == '1' && 'cmux-fleet-linux-x64' || 'ubuntu-24.04' }}", text)
+        self.assertIn("runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_QUEUE_JANITOR_ON_FLEET == '1' && 'cmux-fleet-linux-x64' || 'cmux-gcp-repair-jit-x64' }}", text)
         self.assertNotIn("blacksmith", yaml.safe_load(text)["jobs"]["sweep"]["runs-on"])
         self.assertIn("concurrency:\n  group: ${{ (github.event_name == 'workflow_run'", text)
         self.assertIn("vars.CI_JANITOR_QUEUE_THRESHOLD", text)
@@ -1044,20 +1044,21 @@ class SweepRunnerTests(unittest.TestCase):
 
         return str(value(tree))
 
-    def test_the_sweep_runs_on_hosted_ubuntu_off_the_pools_it_judges(self):
-        self.assertEqual(self.runner({}), "ubuntu-24.04")
+    def test_the_sweep_runs_on_the_repair_jit_label_off_the_pools_it_judges(self):
+        # Not GitHub-hosted: on 2026-11-20 the hosted pool served none of our jobs for 15 hours.
+        self.assertEqual(self.runner({}), "cmux-gcp-repair-jit-x64")
         # The variables that moved it before move it no more.
         for stale in ({"LINUX_RUNNER": "blacksmith-32vcpu-ubuntu-2404"}, {"CI_REPAIR_SKIP_FLEET": "0"},
                       {"CI_REPAIR_SKIP_FLEET": "1"},
                       {"RUNNER_POOLS": json.dumps({"linux": "blacksmith-16vcpu-ubuntu-2404"})}):
             with self.subTest(variables=stale):
-                self.assertEqual(self.runner(stale), "ubuntu-24.04")
+                self.assertEqual(self.runner(stale), "cmux-gcp-repair-jit-x64")
 
     def test_the_fleet_variable_moves_the_sweep_to_the_fleet_label(self):
         self.assertEqual(self.runner({"CI_QUEUE_JANITOR_ON_FLEET": "1"}), "cmux-fleet-linux-x64")
         for other in ("", "0", "true", "blacksmith-4vcpu-ubuntu-2404"):
             with self.subTest(value=other):
-                self.assertEqual(self.runner({"CI_QUEUE_JANITOR_ON_FLEET": other}), "ubuntu-24.04")
+                self.assertEqual(self.runner({"CI_QUEUE_JANITOR_ON_FLEET": other}), "cmux-gcp-repair-jit-x64")
 
 
 class OrphanDetectionTests(unittest.TestCase):
@@ -2599,6 +2600,43 @@ class ReadTokenSplitTests(unittest.TestCase):
             github.request("POST", "/repos/manaflow-ai/cmux/actions/runs/1/cancel")
         self.assertEqual(sent, ["Bearer reader", "Bearer reader", "Bearer bot"])
         self.assertIn("READ_TOKEN_FLOOR", github.rate_limited)
+
+    def test_at_the_floor_a_capped_cancel_still_reads_its_run_and_cancels(self):
+        """2026-11-24 19:05Z, sweep 45464022363: the listing left glaeda-route at READ_TOKEN_FLOOR, then each planned
+        cancel's guard read (the run, read again before its POST) was refused at that floor, so 22 merged or closed
+        pull requests' runs and 6 h 51 min lost-assignment runs stayed queued sweep after sweep. The guard reads now
+        go on cmux-bot's token, as the cancel does, and the listing still stops at the floor."""
+        github = janitor.GitHub("bot", "manaflow-ai/cmux", fallback_token="workflow")
+        github.use_read_token("reader")
+        github.read_token_floor = 3000
+        github.rate_limits["core (read token)"] = {"remaining": 2900}
+        run = make_run(status="queued")
+        ghost = make_run(status="queued", age=60 * 48)
+        state = {run["id"]: dict(run), ghost["id"]: dict(ghost)}
+        sent = []
+
+        def urlopen(request, timeout=30):
+            token, method, url = request.get_header("Authorization"), request.get_method(), request.full_url
+            sent.append((method, token, url.rsplit("/actions/", 1)[-1]))
+            run_id = int(url.split("/runs/")[1].split("/")[0])
+            if method == "POST":
+                state[run_id]["status"] = "completed"
+                return self.Response(b"{}", self.budget("7000"))
+            return self.Response(json.dumps(state[run_id]).encode(), self.budget("7000"))
+
+        candidate = janitor.Candidate(run, "stale-pr", "PR is merged", janitor.macos_usage(mac_jobs(queued=1)))
+        with mock.patch.object(janitor.urllib.request, "urlopen", urlopen):
+            results, failures = janitor.cancel_plan(github, [candidate])
+            orphan_results, orphan_failures = janitor.cancel_orphans(
+                github, orphan_plan(find([ghost], {})), sleep=lambda _: None)
+            # Past the cancels the floor holds again: the listing's reads are not sent.
+            with self.assertRaises(janitor.RateLimited):
+                github.jobs(1)
+        self.assertEqual((results[run["id"]], failures), ("cancelled", 0))
+        self.assertEqual((orphan_results[ghost["id"]], orphan_failures), ("cancelled", 0))
+        self.assertEqual({token for _, token, _ in sent}, {"Bearer bot"})
+        self.assertEqual(len(sent), 5)
+        self.assertFalse(github.cancel_phase)
 
     def test_no_floor_or_a_reset_window_reads_as_before(self):
         github = janitor.GitHub("bot", "manaflow-ai/cmux", fallback_token="workflow")
@@ -6000,7 +6038,15 @@ def daemon_job(*, started, conclusion="success", status="completed"):
 
 
 class OrphanedDispatchRerunTests(unittest.TestCase):
-    """An orphaned dispatch on a long-lived branch comes back (orphan_reruns()): base's daemon-tests verdict."""
+    """An orphaned dispatch on a long-lived branch comes back (orphan_reruns()): base's daemon-tests verdict.
+
+    These pin the off switch, CMUX_NEXT_BASE_TIER_KEEP_QUEUED=0: by default a base tier run waiting for a Mac
+    runner is kept, never cancelled (BaseTierWaitingTests)."""
+
+    def setUp(self):
+        patcher = mock.patch.dict(os.environ, {"CMUX_NEXT_BASE_TIER_KEEP_QUEUED": "0"})
+        patcher.start()
+        self.addCleanup(patcher.stop)
 
     def test_scope_is_a_long_lived_branch_dispatch_below_the_attempt_bound(self):
         def scoped(run, job_name="cmux-next daemon tests"):
@@ -6298,6 +6344,69 @@ def finished_jobs(age):
              "labels": [HOSTED], "created_at": iso(age), "runner_name": None},
             {"status": "completed", "conclusion": "skipped", "name": "changes",
              "labels": [LINUX], "created_at": iso(age), "runner_name": None}]
+
+
+class BaseTierWaitingTests(unittest.TestCase):
+    """2026-11-22: base tier run 45066513743's `cmux-next generated files` job waited 2h23m with no runner while 6
+    newer jobs on its label got one; the orphan pass cancelled it at 22:57:18Z (sweep 45079169808) and no later
+    sweep re-ran it. By default the orphan pass now keeps a base tier run whose only waiting jobs wait for a Mac,
+    and reports it; CMUX_NEXT_BASE_TIER_KEEP_QUEUED=0 cancels it again."""
+
+    def setUp(self):
+        patcher = mock.patch.dict(os.environ, {}, clear=False)
+        patcher.start()
+        self.addCleanup(patcher.stop)
+        os.environ.pop("CMUX_NEXT_BASE_TIER_KEEP_QUEUED", None)
+
+    def starved(self, run=None, jobs=None):
+        run = run or base_tier_dispatch()
+        jobs = jobs if jobs is not None else real_41190186270_jobs()
+        orphans = find([run], {run["id"]: jobs, 1: served_mac26()[1]})
+        self.assertEqual(len(orphans), 1)
+        return orphans
+
+    def test_a_base_tier_run_waiting_for_a_mac_is_kept_and_reported(self):
+        orphans = self.starved()
+        self.assertTrue(orphans[0].mac_wait_only)
+        decisions = orphan_plan(orphans)
+        self.assertEqual([d.action for d in decisions], ["skip"])
+        self.assertIn("starved base tier run waiting for a Mac runner", decisions[0].note)
+        self.assertEqual(janitor.orphan_reruns(decisions, {}, {}, now=NOW), [])
+        summary = janitor.render_orphan_summary(decisions, dry_run=False, now=NOW,
+                                                min_age=dt.timedelta(minutes=120), results={})
+        self.assertIn("keep (starved base tier run waiting for a Mac runner", summary)
+        self.assertIn(str(orphans[0].run.get("html_url") or orphans[0].run["id"]), summary)
+
+    def test_zero_cancels_it_again(self):
+        os.environ["CMUX_NEXT_BASE_TIER_KEEP_QUEUED"] = "0"
+        self.assertEqual([d.action for d in orphan_plan(self.starved())], ["cancel"])
+
+    def test_the_switch_is_on_unless_zero(self):
+        for value, expected in ((None, True), ("", True), ("1", True), (" 0 ", False), ("0", False)):
+            env = {} if value is None else {"CMUX_NEXT_BASE_TIER_KEEP_QUEUED": value}
+            self.assertEqual(janitor.keep_waiting_base_tier(env), expected, value)
+
+    def test_other_dispatches_are_still_cancelled(self):
+        for run in (base_tier_dispatch(kind="cmux-next tip daemon suite"),
+                    dict(base_tier_dispatch(), head_branch="main"),
+                    dict(base_tier_dispatch(), path=".github/workflows/cmux-tui.yml")):
+            self.assertEqual([d.action for d in orphan_plan(self.starved(run))], ["cancel"], run)
+        orphan = self.starved(dict(base_tier_dispatch(), event="push"))[0]
+        self.assertTrue(orphan.mac_wait_only)
+        self.assertFalse(janitor.waiting_base_tier(orphan))
+
+    def test_a_base_tier_run_with_a_waiting_linux_job_is_still_cancelled(self):
+        jobs = real_41190186270_jobs()
+        jobs.append({"id": next(_ids), "name": "cmux-next checks", "labels": [LINUX], "created_at": iso(134.7),
+                     "started_at": iso(134.7), "status": "queued", "conclusion": None, "runner_id": None,
+                     "runner_name": None})
+        orphans = self.starved(jobs=jobs)
+        self.assertFalse(orphans[0].mac_wait_only)
+        self.assertEqual([d.action for d in orphan_plan(orphans)], ["cancel"])
+
+    def test_the_sweep_passes_the_repository_variable(self):
+        text = (ROOT / ".github/workflows/ci-queue-janitor.yml").read_text()
+        self.assertIn("CMUX_NEXT_BASE_TIER_KEEP_QUEUED: ${{ vars.CMUX_NEXT_BASE_TIER_KEEP_QUEUED }}", text)
 
 
 class ConcurrencyHolderTests(unittest.TestCase):
