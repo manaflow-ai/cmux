@@ -91,6 +91,7 @@ png.workspace = true
 # cmux-conversation, no new crate.
 pulldown-cmark = { version = "0.13", default-features = false }
 cmux-tui-core.workspace = true
+cmux-palette-ranker.workspace = true
 cmux-daemon-launch-core = { path = "../cmux-daemon-launch-core" }
 # The tab a pane shows after a close (close_focus::tab), the app's and the daemon's rule.
 cmux-focus-core.workspace = true
