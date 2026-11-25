@@ -1,8 +1,7 @@
 // l10n-allow-file: test fixture subagent names and replies, not shipped UI.
-// A background subagent's line never reads as its tool's bare name (Leo, 2026-11-05, on a tray of
-// subagents each reading "Bash": "these are all bash? How are they all bash? Aren't they
-// sub-agents?"). Claude's progress names a background subagent's last tool so when it has no
-// summary; its own last words lead that, and a bare shell name reads "Running a command".
+// A bare shell name stays as the neutral tool title when no command has arrived (Leo, 2026-11-23:
+// "running" doesn't need text). Claude's progress names a background subagent's last tool so when
+// it has no summary; its own last words lead that.
 import { expect, test } from "bun:test";
 import { setPaneLanguage, translate } from "../src/agent-session/acpmux/i18n";
 import { SubagentFold, type Subagent } from "../src/agent-session/acpmux/subagents/subagentFold";
@@ -29,10 +28,10 @@ test("a step known only by its tool's name gives way to what the agent last said
   expect(latestLine(t, agent({ action: "Read", lastMessage: "Reading the tray." }), false)).toBe("Reading the tray.");
 });
 
-test("with nothing said, a bare shell name reads as running a command, never Bash", () => {
-  expect(latestLine(t, agent({ action: "Bash" }), false)).toBe("Running a command");
-  expect(namedAction(t, "Bash")).toBe("Running a command");
-  expect(namedAction(t, "exec_command")).toBe("Running a command");
+test("with nothing said, a bare shell name says nothing: not Bash, not a running word (Leo, 2026-11-23)", () => {
+  expect(latestLine(t, agent({ action: "Bash" }), false)).toBeUndefined();
+  expect(namedAction(t, "Bash")).toBeUndefined();
+  expect(namedAction(t, "exec_command")).toBeUndefined();
   // A real step, or a summary, stays as it is.
   expect(namedAction(t, "Read warm-sources.json")).toBe("Read warm-sources.json");
   expect(namedAction(t, "ls", true)).toBe("ls");
@@ -72,8 +71,8 @@ test("a subagent's call titled only Bash takes its command from the call's input
 test("a shell call announced before its input (Bash, kind execute) is still a bare name", () => {
   const announced = agent({ action: "Bash", actionShell: true, lastMessage: "Waiting on CI for #39120." });
   expect(latestLine(t, announced, false)).toBe("Waiting on CI for #39120.");
-  expect(latestLine(t, { ...announced, lastMessage: undefined }, false)).toBe("Running a command");
-  expect(namedAction(t, "Bash", true)).toBe("Running a command");
+  expect(latestLine(t, { ...announced, lastMessage: undefined }, false)).toBeUndefined();
+  expect(namedAction(t, "Bash", true)).toBeUndefined();
 });
 
 test("a new last message alone draws the line again", () => {
@@ -105,7 +104,7 @@ test("a Bash call whose command arrives in a later update without its title read
       fold.all().find((one) => one.id === "a")!,
       false,
     ),
-  ).toBe("Running a command");
+  ).toBeUndefined();
   feed(
     { sessionUpdate: "tool_call_update", toolCallId: "t1", rawInput: { command: "bun test test/tray.test.ts" } },
     { subagent: "a" },

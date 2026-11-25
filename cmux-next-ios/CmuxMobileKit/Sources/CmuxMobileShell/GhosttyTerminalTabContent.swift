@@ -774,11 +774,21 @@ final class GhosttyTerminalTabContent: TerminalTabContent {
             actions.append(TerminalTabAction(title: "Fit to Phone", systemImage: fits ? "checkmark" : "iphone") { [weak self] in
                 self?.setFitToPhone(!fits, program: program, tab: tab, in: workspace)
             })
+            // The projection's exception undone by hand: typing into a TUI fitted it to the
+            // phone on its own (`TerminalProjectingSession`); this gives the Mac its size back
+            // and forgets the program.
+            if model.session.fitsToPhone == true {
+                actions.append(TerminalTabAction(title: "Keep the Mac's Size", systemImage: "macbook") {
+                    model.session.toggleFitToPhone()
+                })
+            }
         }
         return actions + [
             TerminalTabAction(title: "Files and Links", systemImage: "folder") { model.showFilesAndLinks() },
             TerminalTabAction(title: "Paste", systemImage: "doc.on.clipboard") { model.paste() },
             TerminalTabAction(title: "Find…", systemImage: "magnifyingglass") { model.showFind() },
+            // Wide output on its own page (Leo, 2026-11-23): Wide on, the key row and composer away.
+            TerminalTabAction(title: "Wide View", systemImage: "arrow.left.and.right.square") { model.openWideView() },
             // The Mac's Clear Screen and Scrollback: the Mac clears the terminal, scrollback
             // included, on the Mac and every phone (`clear-history`), not a Ctrl-L to the shell.
             TerminalTabAction(title: "Clear", systemImage: "clear", isEnabled: model.canClearScreenAndScrollback) {

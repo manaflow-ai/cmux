@@ -531,7 +531,9 @@
         "experiments.agentBadgesBeam",
         "experiments.menuStyleV2",
         "experiments.menuRowStates",
-        "experiments.toastsV2"
+        "experiments.toastsV2",
+        "experiments.terminalHistoryFind",
+        "experiments.terminalHistory"
       ]
     },
     {
@@ -1552,6 +1554,13 @@
     },
     {
       "agent": "privacy",
+      "why": "Whether this Mac sends crash reports and anonymous analytics: the person's choice only.",
+      "keys": [
+        "app.sendAnonymousTelemetry"
+      ]
+    },
+    {
+      "agent": "privacy",
       "why": "Whether this computer counts how the person uses cmux: the person's choice only.",
       "keys": [
         "diagnostics.usagePatterns"
@@ -1638,6 +1647,13 @@
       "keys": [
         "sessions.keepAwake",
         "sessions.keepAwakeForCommands"
+      ]
+    },
+    {
+      "agent": "userOnly",
+      "why": "Whether a locked Mac stays up on battery for agents is the person's call too.",
+      "keys": [
+        "sessions.keepAwakeWhenLocked"
       ]
     },
     {

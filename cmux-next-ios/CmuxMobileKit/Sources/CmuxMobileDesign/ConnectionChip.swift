@@ -48,6 +48,15 @@ public struct ConnectionChip: View {
             }
         }
 
+        /// Connecting, Reconnecting or Updating: the link is still being brought up. A chip of these
+        /// kinds draws nothing (optimistic reconnect; ``ConnectionChip/body``).
+        public var isStillTrying: Bool {
+            switch self {
+            case .connecting, .reconnecting, .updating: true
+            case .offline, .macOffline, .cantReach: false
+            }
+        }
+
         /// An SF Symbol; nil shows a spinner (still trying).
         public var symbol: String? {
             switch self {
@@ -86,7 +95,11 @@ public struct ConnectionChip: View {
     }
 
     public var body: some View {
-        let shown = quiet.isShown || Self.alreadyDownFor(downSince, now: Date()) >= quiet.delay
+        // Still trying (Connecting, Reconnecting, Updating) never shows: the app keeps connecting in the
+        // background and the content stays as it was (Leo, 2026-11-24: "all the connecting... indicators
+        // ... nah ... let's just keep optimistically connecting"). Only a state the person can act on shows.
+        let shown = !content.kind.isStillTrying
+            && (quiet.isShown || Self.alreadyDownFor(downSince, now: Date()) >= quiet.delay)
         chip
             .opacity(shown ? 1 : 0)
             .allowsHitTesting(shown)
@@ -168,7 +181,8 @@ public extension ConnectionChip {
         }
 
         public var body: some View {
-            let shown = quiet.isShown || ConnectionChip.alreadyDownFor(downSince, now: Date()) >= quiet.delay
+            let shown = !content.kind.isStillTrying
+                && (quiet.isShown || ConnectionChip.alreadyDownFor(downSince, now: Date()) >= quiet.delay)
             symbol
                 .opacity(shown ? 1 : 0)
                 .accessibilityHidden(!shown)

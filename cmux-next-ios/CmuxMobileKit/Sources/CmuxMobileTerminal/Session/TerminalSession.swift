@@ -267,8 +267,24 @@ public protocol TerminalSession: AnyObject {
     /// A projection keeps those lines when it re-wraps at a new width.
     /// Called as the page scrolls; others ignore it.
     func noteReaderRowsFromEnd(_ rows: Int)
+    /// A vertical pan over a full-screen app (the alternate screen), `rows`
+    /// positive toward older content: the rows of wheel that still go to the
+    /// app. A session that holds the rows the app scrolled off paints a pan
+    /// within them itself (`cmux-terminal-projection` decides) and returns
+    /// 0; others send all of it, as before.
+    func panHeldRows(_ rows: Double) -> Double
+    /// A key or a tap: a session showing held rows shows the app's live
+    /// screen again. Others ignore it.
+    func returnToLiveScreen()
     /// The session itself, under any session wrapping it (the projection).
     var underlyingSession: AnyObject { get }
+    /// Fit to Phone for the program in the foreground, the projection's one
+    /// exception (``TerminalProjectingSession``): whether the phone claims its
+    /// grid for it now; nil for a session that does not project.
+    var fitsToPhone: Bool? { get }
+    /// The title menu's Fit to Phone: fits the foreground program now (and
+    /// remembers it), or gives the Mac its grid back (and forgets it).
+    func toggleFitToPhone()
     /// One pan of the screen ended: its frame intervals, for a session with a Mac to log
     /// there (`phone-frames`). Others ignore it.
     func reportScrollFrames(_ pan: TerminalPanFrames)
@@ -324,8 +340,16 @@ extension TerminalSession {
 
     public func noteReaderRowsFromEnd(_ rows: Int) {}
 
+    public func panHeldRows(_ rows: Double) -> Double { rows }
+
+    public func returnToLiveScreen() {}
+
     public var underlyingSession: AnyObject { self }
     public func reportScrollFrames(_ pan: TerminalPanFrames) {}
+
+    public var fitsToPhone: Bool? { nil }
+
+    public func toggleFitToPhone() {}
 
     public func reportPaint(_ samples: [TerminalPaintTally.Sample]) {}
 

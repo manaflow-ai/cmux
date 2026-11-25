@@ -211,6 +211,10 @@ pub const CAPABILITIES: &[Capability] = &[
     // `_acpmux/sessions {pendingOnly: true}`: only the chats with a pending ask, without the
     // list's pace (the app's dialog list). Older daemons would answer the whole list.
     Capability { id: "session-list-pending-v1", wire: &[method::MUX_SESSIONS] },
+    // `_acpmux/sessions {topLevelOnly: true}`: no side chat and no session another chat's agent
+    // started, filtered before the page is cut (the phone's chat lists). Older daemons ignore it
+    // and list every chat.
+    Capability { id: "session-list-top-level-v1", wire: &[method::MUX_SESSIONS] },
     // `_acpmux/usage`: every listed chat's `usageStats` and nothing else, `unchanged` while the
     // digest the client holds is current (Session Info's Usage). Older daemons: the client reads
     // the list's pages with `usage: true`.
@@ -290,6 +294,22 @@ pub const CAPABILITIES: &[Capability] = &[
     // (`server/sign_in_follow.rs`). A literal id, which the app's reference check reads.
     Capability { id: "machine-signed-in-v1", wire: &[method::MUX_MACHINE_SIGNED_IN] },
     Capability { id: SESSION_MESSAGES, wire: &[method::MUX_MESSAGE] },
+    // Agent byte channels (`server/channels.rs`): a peer daemon opens one only on a peer that
+    // lists this id, so an older peer is never sent a `connect` it would drop.
+    Capability {
+        id: crate::server::channels::CAPABILITY,
+        wire: &[
+            method::MUX_CHANNEL_LISTEN,
+            method::MUX_CHANNEL_UNLISTEN,
+            method::MUX_CHANNEL_OPEN,
+            method::MUX_CHANNEL_SEND,
+            method::MUX_CHANNEL_CLOSE,
+            method::MUX_CHANNEL_CONNECT,
+            method::MUX_CHANNEL_OPENED,
+            method::MUX_CHANNEL_DATA,
+            method::MUX_CHANNEL_CLOSED,
+        ],
+    },
     Capability { id: SETTLED_ATTACH, wire: &[method::MUX_ATTACH] },
     Capability { id: HOLD_ATTACH, wire: &[method::MUX_ATTACH] },
     Capability {
@@ -578,10 +598,19 @@ pub fn ids() -> Vec<&'static str> {
     ids_for_connection(true)
 }
 
-/// `initialize` lists only the surfaces available over its transport.
+/// `initialize` lists only the surfaces available over its transport. Debug builds only:
+/// `ACPMUX_TEST_HIDE_CAPABILITIES=ID,ID` leaves those ids out, so a test daemon lists what a
+/// daemon one version older lists (`tests/transfer_cli/session_move_history.rs`). Release builds
+/// have no seam.
 pub(crate) fn ids_for_connection(local_stream: bool) -> Vec<&'static str> {
+    #[cfg(debug_assertions)]
+    let hidden = std::env::var("ACPMUX_TEST_HIDE_CAPABILITIES").unwrap_or_default();
+    #[cfg(not(debug_assertions))]
+    let hidden = String::new();
+    let hidden: Vec<&str> = hidden.split(',').map(str::trim).filter(|s| !s.is_empty()).collect();
     CAPABILITIES
         .iter()
+        .filter(|capability| !hidden.contains(&capability.id))
         .filter(|capability| match capability.id {
             MACHINE_ROUTES => cfg!(feature = "hub-carrier"),
             REMOTE_PIPE => local_stream && cfg!(feature = "hub-carrier"),
