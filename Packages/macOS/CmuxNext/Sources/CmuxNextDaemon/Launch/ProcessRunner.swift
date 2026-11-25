@@ -16,9 +16,9 @@ public struct ProcessResult: Sendable {
 /// descriptor (an agent started from a shell rc file) cannot hold an EOF wait
 /// open forever.
 ///
-/// `progressIdle`: the child also fails when its stdout stays silent that
-/// long. A child that reports progress on stdout (`server ensure --restore-progress`
-/// while the owner restores) is bounded by its own progress, not by a fixed
+/// `progressIdle`: the child also fails when both its stdout and its stderr stay silent that
+/// long. A child that reports progress on either stream (`server ensure --restore-progress`
+/// on stdout, the cloud move CLI on stderr) is bounded by its own progress, not by a fixed
 /// timeout shorter than the work. `timeout` stays the hard cap when supplied; nil selects an
 /// idle-only deadline when `progressIdle` is set. With neither, wait for the child's exit or
 /// caller cancellation, including while a live child is starved of CPU.
@@ -37,7 +37,7 @@ public struct ProcessRunner {
         // Each stderr line as the child writes it (a CLI's progress lines), on a queue of its own;
         // the last one once the child exits. Nil reads stderr only after exit, as before.
         stderrLine: (@Sendable (String) -> Void)? = nil,
-        // Each stdout write while `progressIdle` watches it (a progress event), on the watch's queue.
+        // Each stdout or stderr write while `progressIdle` watches them (a progress event), on the watch's queue.
         progressed: (@Sendable () -> Void)? = nil,
         // Each stdout line the same way (`server ensure --restore-progress`'s progress lines). The
         // reply is still in the result's `stdout`; the progress count above is unchanged.
@@ -75,9 +75,11 @@ public struct ProcessRunner {
         defer { try? input?.fileHandleForReading.close() }
         process.standardOutput = stdoutFile.handle
         process.standardError = stderrFile.handle
-        // Each stdout write is a progress event (a vnode event on the temp
+        // Each stdout or stderr write is a progress event (a vnode event on the temp
         // file; the child's writes land on the same file).
-        let progress = progressIdle.map { _ in StdoutProgress(watching: stdoutFile.handle.fileDescriptor, onWrite: progressed) }
+        let progress = progressIdle.map { _ in
+            StdoutProgress(watching: [stdoutFile.handle.fileDescriptor, stderrFile.handle.fileDescriptor], onWrite: progressed)
+        }
         defer { progress?.cancel() }
         // Stops at the child's exit (`finish`, below) or when this throws (`cancel`).
         let lines = stderrLine.map { StderrLines(watching: stderrFile.handle.fileDescriptor, onLine: $0) }
@@ -189,6 +191,7 @@ final class ProcessBox: @unchecked Sendable {
     func launch() throws -> Bool {
         try cancelled.withLock { cancelled in
             if cancelled { return false }
+            OpenDescriptors.noteBudgetSoon()  // every child launch: a leak shows in the log as it passes the bound
             try process.run()
             return true
         }
@@ -214,29 +217,31 @@ final class ProcessBox: @unchecked Sendable {
     }
 }
 
-/// Counts writes to a child's stdout file (`ProcessRunner.run(progressIdle:)`).
+/// Counts writes to a child's stdout and stderr files (`ProcessRunner.run(progressIdle:)`).
 /// The watch has its own duplicate of the descriptor, closed by the cancel
 /// handler, so the caller may close its file at any time.
 final class StdoutProgress: Sendable {
     private let writes = Mutex<Int>(0)
-    private let source = Mutex<(any DispatchSourceFileSystemObject)?>(nil)
+    private let sources = Mutex<[any DispatchSourceFileSystemObject]>([])
     private let queue = DispatchQueue(label: "com.cmuxterm.next.process-progress")
 
-    init(watching fd: Int32, onWrite: (@Sendable () -> Void)? = nil) {
-        let watched = fcntl(fd, F_DUPFD_CLOEXEC, 0)
-        guard watched >= 0 else { return }
-        let watch = DispatchSource.makeFileSystemObjectSource(fileDescriptor: watched, eventMask: [.write, .extend],
-                                                              queue: queue)
-        watch.setEventHandler { [weak self] in
-            self?.writes.withLock { $0 += 1 }
-            onWrite?()
+    init(watching fds: [Int32], onWrite: (@Sendable () -> Void)? = nil) {
+        for fd in fds {
+            let watched = fcntl(fd, F_DUPFD_CLOEXEC, 0)
+            guard watched >= 0 else { continue }
+            let watch = DispatchSource.makeFileSystemObjectSource(fileDescriptor: watched, eventMask: [.write, .extend],
+                                                                  queue: queue)
+            watch.setEventHandler { [weak self] in
+                self?.writes.withLock { $0 += 1 }
+                onWrite?()
+            }
+            watch.setCancelHandler { close(watched) }
+            watch.activate()
+            sources.withLock { $0.append(watch) }
         }
-        watch.setCancelHandler { close(watched) }
-        watch.activate()
-        source.withLock { $0 = watch }
     }
 
     var count: Int { writes.withLock { $0 } }
 
-    func cancel() { source.withLock { $0?.cancel() } }
+    func cancel() { sources.withLock { $0.forEach { $0.cancel() } } }
 }

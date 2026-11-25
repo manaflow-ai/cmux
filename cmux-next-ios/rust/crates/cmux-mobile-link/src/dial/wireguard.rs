@@ -45,7 +45,8 @@ use super::{
 use crate::api::stun_servers;
 use crate::class_queue::{SendClass, send_class};
 use crate::signaling::{
-    RELAY_FIRST, RELAY_NOW, RELAY_READY, SessionEvent, SignalEnvelope, SignalPayload, SignalingClient, WG_VERSION,
+    RELAY_FIRST, RELAY_NOW, RELAY_READY, SessionEvent, SignalEnvelope, SignalPayload, SignalingClient,
+    WG_REACH_VERSION, WG_VERSION,
 };
 use crate::timing::Timeline;
 
@@ -54,10 +55,14 @@ pub use super::turn::missing_turn;
 #[path = "wireguard_roam.rs"]
 mod roam;
 use roam::{Control, Session};
+#[path = "wireguard_multipath.rs"]
+pub mod multipath;
 #[path = "wireguard_paths.rs"]
 mod paths;
+pub use multipath::{InterfaceKind, NetInterface, set_cellular_assist, set_interfaces};
 pub use paths::{app_backgrounded, set_app_backgrounded};
-pub use roam::{network_changed, rehome, resume_session, roam_timeline, route_destinations};
+use roam::apply_multipath_to_live_sessions;
+pub use roam::{network_changed, portmap_use, rehome, resume_session, roam_timeline, route_destinations};
 #[doc(hidden)]
 pub use roam::{
     relay_held, roam_session, session_endpoints, simulate_blackout, simulate_network_loss,
@@ -71,17 +76,35 @@ pub const LINK_PORT: u16 = 7420;
 /// 7421 and the media lane's 7422. 7424 is taken by the terminal viewport
 /// diffs (lane ios-terminal-projection-parity, settled 2026-11-22).
 pub const LIVENESS_PORT: u16 = 7423;
-/// Liveness datagrams queued to the tunnel before new ones drop.
-const LIVENESS_QUEUE: usize = 64;
+/// Liveness and class datagrams queued to the tunnel before new ones drop:
+/// a 3.5 KB screen state is three datagrams, sent twice.
+const LIVENESS_QUEUE: usize = 512;
+
+/// Whether this side lists [`crate::classes::CLASSES_LANE`]: on unless
+/// `CMUX_LINK_CLASSES=off` (benches measure the stream-only baseline with it).
+fn classes_offered() -> bool {
+    std::env::var("CMUX_LINK_CLASSES").map_or(true, |value| value != "off")
+}
+
+/// Whether this side lists [`crate::classes::SCREEN_LANE`] beside `classes`:
+/// on unless `CMUX_LINK_SCREEN=off` (benches measure the plain class path).
+fn screen_offered() -> bool {
+    classes_offered() && std::env::var("CMUX_LINK_SCREEN").map_or(true, |value| value != "off")
+}
 
 /// Bind the liveness port and carry its datagrams to and from the link:
 /// to `peer_ip` only, in the tunnel's interactive class (ahead of the
 /// link's TCP), and only datagrams from `peer_ip` back. `None` when the
-/// port cannot be bound: the link's pings stay in its stream.
+/// port cannot be bound: the link's pings stay in its stream. With
+/// `classes` (both sides listed [`crate::classes::CLASSES_LANE`]) the port
+/// carries class datagrams too, queued in the interactive class like any
+/// datagram (Ultra Mode's repair applies to them; pings skip it).
 async fn open_liveness(
     net: &WgNet,
     peer_ip: Ipv4Addr,
     peer_listening: bool,
+    classes: bool,
+    screen: bool,
 ) -> Option<crate::link::LivenessDatagrams> {
     let mut socket = match net.bind_datagram(LIVENESS_PORT).await {
         Ok(socket) => socket,
@@ -99,10 +122,22 @@ async fn open_liveness(
                 datagram = out.recv() => {
                     // The link closed.
                     let Some(datagram) = datagram else { return };
-                    let answer = crate::link::is_liveness_answer(&datagram);
-                    if let Err(cmux_wg::WgError::Shutdown) =
+                    let class = match datagram.first() {
+                        Some(&crate::classes::DATAGRAM_CLASS) => Some(cmux_wg::Priority::Interactive),
+                        // Screen updates and their acknowledgements go ahead of
+                        // every other datagram, the keys' class included.
+                        Some(&crate::classes::DATAGRAM_SCREEN | &crate::classes::DATAGRAM_SCREEN_ACK) => {
+                            Some(cmux_wg::Priority::Screen)
+                        }
+                        _ => None,
+                    };
+                    let sent = if let Some(class) = class {
+                        socket.send_to(&datagram, peer, class).await
+                    } else {
+                        let answer = crate::link::is_liveness_answer(&datagram);
                         socket.send_liveness(&datagram, peer, answer).await
-                    {
+                    };
+                    if let Err(cmux_wg::WgError::Shutdown) = sent {
                         return;
                     }
                 }
@@ -117,7 +152,7 @@ async fn open_liveness(
             }
         }
     });
-    Some(crate::link::LivenessDatagrams { outgoing, incoming, peer_listening })
+    Some(crate::link::LivenessDatagrams { outgoing, incoming, peer_listening, classes, screen })
 }
 
 /// How long the input lane's second connection may take before input stays
@@ -155,7 +190,7 @@ pub fn set_answer_after_gather(on: bool) {
 /// side with no plain UDP (whose only endpoint is its TURN address), gets
 /// the answer after the gather, as before.
 fn answer_trickles(options: &DialOptions, peer_version: u32) -> bool {
-    peer_version >= WG_VERSION && !no_plain_udp(options) && !ANSWER_AFTER_GATHER.load(Ordering::Relaxed)
+    peer_version >= WG_REACH_VERSION && !no_plain_udp(options) && !ANSWER_AFTER_GATHER.load(Ordering::Relaxed)
 }
 /// Once one STUN server answered, how much longer the others get. Cloudflare
 /// lists STUN on 3478 and on 53, and cellular networks often take port 53 for
@@ -269,12 +304,23 @@ impl StunClock {
 /// ready whatever UDP does), else only once UDP looks blocked. It tells the
 /// clock when it took a TCP or TLS carrier.
 async fn turn_beside(options: &DialOptions, eager: bool, side: TurnSide) -> Option<TurnCarrier> {
+    turn_beside_keeping(options, eager, side, None).await
+}
+
+/// [`turn_beside`], keeping in `late` (when given) each attempt that ran
+/// past its bound, so a grant landing after the wait can still be taken.
+async fn turn_beside_keeping(
+    options: &DialOptions,
+    eager: bool,
+    side: TurnSide,
+    late: Option<&super::turn::LateTurn>,
+) -> Option<TurnCarrier> {
     let TurnSide { mut udp_silent, stream_ready } = side;
     if !eager && udp_silent.wait_for(|silent| *silent).await.map(|_| ()).is_err() {
         // The STUN wait ended without UDP looking blocked.
         return None;
     }
-    let turn = TurnCarrier::allocate_with(options, Some(udp_silent), eager).await;
+    let turn = TurnCarrier::allocate_with(options, Some(udp_silent), eager, late).await;
     if turn.as_ref().is_some_and(|turn| turn.transport.is_stream()) {
         let _ = stream_ready.send(true);
     }
@@ -695,7 +741,7 @@ fn send_class_of(datagram: &[u8], priority: cmux_wg::Priority) -> SendClass {
     match send_class(datagram) {
         SendClass::Control if !cmux_wg::is_ultra_parity(datagram) => SendClass::Control,
         _ => match priority {
-            cmux_wg::Priority::Interactive => SendClass::Input,
+            cmux_wg::Priority::Interactive | cmux_wg::Priority::Screen => SendClass::Input,
             cmux_wg::Priority::Bulk => SendClass::Bulk,
             cmux_wg::Priority::Media => SendClass::Media,
         },
@@ -878,9 +924,8 @@ struct HandshakeRepeat {
 /// The roaming side of the tunnel (`roam.rs`) changes the carriers through
 /// [`Control`] messages, which the underlay applies before its next send or
 /// receive.
-
 struct HybridUnderlay {
-    socket: UdpSocket,
+    socket: multipath::TunnelSocket,
     options: DialOptions,
     /// The peer's endpoints as it last announced them.
     peer_endpoints: Vec<String>,
@@ -1002,6 +1047,9 @@ struct HybridUnderlay {
     /// held until their delivery time, and the timer for the first.
     delayed: std::collections::VecDeque<(Instant, Vec<u8>, Origin)>,
     delay_timer: Option<std::pin::Pin<Box<tokio::time::Sleep>>>,
+    /// The second interface: the phone's socket on cell, or the Mac's view
+    /// of the phone's metered addresses (`wireguard_multipath.rs`).
+    assist: multipath::Assist,
 }
 
 /// Peer-reflexive addresses kept as paths at once (newest win).
@@ -1010,6 +1058,21 @@ const UDP_PATH: PathId = PathId(0);
 const TURN_PATH: PathId = PathId(2);
 /// Datagrams that came through cmux's relay.
 const RELAY_PATH: PathId = PathId(3);
+// Each receive origin is its own path: `pop_delayed` and `authenticated`
+// tell them apart by id.
+const _: () = {
+    let ids = [UDP_PATH.0, TURN_PATH.0, RELAY_PATH.0, multipath::SECONDARY_PATH.0];
+    let mut i = 0;
+    while i < ids.len() {
+        let mut j = i + 1;
+        while j < ids.len() {
+            assert!(ids[i] != ids[j], "two receive origins share a path id");
+            j += 1;
+        }
+        assert!(ids[i] < 16, "receive origins stay below the selector's ids");
+        i += 1;
+    }
+};
 
 /// What a side's underlay starts with.
 struct UnderlaySpec<'a> {
@@ -1033,7 +1096,7 @@ fn addresses(texts: &[String]) -> HashSet<SocketAddr> {
 impl HybridUnderlay {
     fn new(spec: UnderlaySpec<'_>, options: &DialOptions) -> Self {
         let mut underlay = Self {
-            socket: spec.socket,
+            socket: multipath::TunnelSocket::new(spec.socket),
             options: options.clone(),
             peer_endpoints: Vec::new(),
             candidates: Vec::new(),
@@ -1047,7 +1110,7 @@ impl HybridUnderlay {
                 peer_relayed: addresses(spec.peer_relayed),
                 peer_relayed_tls: addresses(spec.peer_relayed_tls),
             },
-            peer_reaches: spec.peer_version >= WG_VERSION,
+            peer_reaches: spec.peer_version >= WG_REACH_VERSION,
             direct: None,
             last_direct: None,
             last_udp: None,
@@ -1090,6 +1153,7 @@ impl HybridUnderlay {
             answering: false,
             delayed: std::collections::VecDeque::new(),
             delay_timer: None,
+            assist: multipath::Assist::default(),
         };
         underlay.set_peer_endpoints(spec.peer_endpoints.to_vec());
         underlay.sync_paths();
@@ -1106,11 +1170,28 @@ impl HybridUnderlay {
     fn retarget_turn(&mut self) {
         self.turn_targets =
             if self.turn.is_some() { turn_targets(&self.peer_endpoints, &self.options) } else { Vec::new() };
+        // The peer's relayed addresses go first: they are the ones its
+        // answer to us comes from, and the first to need a permission.
+        let relayed = &self.labels.peer_relayed;
+        self.turn_targets.sort_by_key(|addr| !relayed.contains(addr));
+        if let Some(turn) = &self.turn {
+            turn.permit(&self.turn_targets);
+        }
     }
 
     /// Apply the roaming side's changes, then bring the selector's paths in
     /// line with the routes they leave.
     fn apply(&mut self, control: Control) {
+        let control = match control {
+            Control::Rebind { socket, stun, reflexive, timeline } if self.rebind_after_promotion() => {
+                // The promoted socket is on the new network already.
+                drop(socket);
+                self.reassert(stun, reflexive, timeline);
+                self.sync_paths();
+                return;
+            }
+            control => control,
+        };
         match &control {
             Control::Rebind { .. } => {
                 // New mappings: what the old socket learned is stale.
@@ -1119,6 +1200,7 @@ impl HybridUnderlay {
                 self.paths.on_network_change();
             }
             Control::Turn(_) | Control::Blackhole => self.paths.forget_carrier(Carrier::Turn),
+            Control::Promote => self.paths.forget_carrier(Carrier::Turn),
             Control::Relay { .. } => self.paths.forget_carrier(Carrier::Relay),
             _ => {}
         }
@@ -1167,6 +1249,7 @@ impl HybridUnderlay {
             || self.refused.contains(&addr)
             || self.candidates.contains(&addr)
             || self.learned.contains(&addr)
+            || self.is_metered(addr)
         {
             return;
         }
@@ -1192,7 +1275,7 @@ impl HybridUnderlay {
                 {
                     self.candidates.push(route.addr);
                 }
-                self.socket = socket;
+                self.socket = multipath::TunnelSocket::new(socket);
                 self.blackhole = false;
                 // The old allocation belongs to the old network's 5-tuple; a
                 // `reach` still in flight that names it is stale.
@@ -1289,6 +1372,7 @@ impl HybridUnderlay {
                     if !relayed.is_empty() {
                         self.labels.peer_relayed = addresses(&relayed);
                         self.labels.peer_relayed_tls = addresses(&relayed_tls);
+                        self.retarget_turn();
                     }
                     self.publish_path();
                 }
@@ -1305,6 +1389,14 @@ impl HybridUnderlay {
                 self.turn_targets.clear();
             }
             Control::Dark(dark) => self.dark = dark,
+            Control::Secondary(socket) => self.attach_secondary(socket),
+            Control::Promote => {
+                self.promote();
+                // The allocation rode the old network; the roam takes a new one.
+                self.retire_turn();
+                self.turn_targets.clear();
+            }
+            Control::PeerMetered(addresses) => self.set_peer_metered(&addresses),
             Control::KillTurn => {
                 if let Some(turn) = &self.turn {
                     turn.kill();
@@ -1820,6 +1912,32 @@ impl HybridUnderlay {
         self.peer.send_if_modified(|current| std::mem::replace(current, peer) != peer);
     }
 
+    /// A roam onto the network the session already moved to
+    /// ([`Self::promote`]): only the reflexive address and the TURN
+    /// allocation are new.
+    fn reassert(
+        &mut self,
+        stun: Vec<SocketAddr>,
+        reflexive: mpsc::UnboundedSender<SocketAddr>,
+        timeline: Timeline,
+    ) {
+        timeline.mark("roam_reasserted");
+        self.retire_turn();
+        self.turn_targets.clear();
+        self.stun.clear();
+        for server in stun {
+            let mut transaction = [0u8; 12];
+            getrandom::fill(&mut transaction).expect("operating system randomness");
+            let request = cmux_transport::stun::binding_request(transaction);
+            if self.socket.try_send_to(&request, server).is_ok() {
+                self.stun.push((transaction, server));
+            }
+        }
+        self.reflexive = Some(reflexive);
+        self.roam = Some(timeline);
+        self.publish_path();
+    }
+
     fn demote(&mut self, why: &str) {
         if self.confirmed {
             tracing::debug!(why, "WireGuard route no longer confirmed; sending on every route again");
@@ -1873,6 +1991,7 @@ impl HybridUnderlay {
         buffer[..len].copy_from_slice(&datagram[..len]);
         match origin.path {
             TURN_PATH => self.last_turn_source = origin.addr,
+            multipath::SECONDARY_PATH => {}
             RELAY_PATH => {}
             _ => self.last_udp_source = origin.addr,
         }
@@ -2002,69 +2121,10 @@ impl HybridUnderlay {
     }
 }
 
-impl Underlay for HybridUnderlay {
-    fn send(&mut self, datagram: &[u8]) {
-        self.drain_control();
-        let class = send_class(datagram);
-        self.record(datagram, class);
-        self.transmit(datagram, class);
-        self.note_initiation(datagram, class);
-    }
-
-    fn send_classified(&mut self, datagram: &[u8], priority: cmux_wg::Priority) {
-        self.drain_control();
-        let class = send_class_of(datagram, priority);
-        self.record(datagram, class);
-        self.transmit(datagram, class);
-        self.note_initiation(datagram, class);
-    }
-
-    /// A liveness ping or pong: on the routes data takes, but not kept for
-    /// a replay (the link resends its pings), and a pong starts no
-    /// silence watch.
-    fn send_liveness(&mut self, datagram: &[u8], answer: bool) {
-        self.drain_control();
-        self.answering = answer;
-        self.transmit(datagram, SendClass::Input);
-        self.answering = false;
-    }
-
-    /// A probe on one of the selector's paths goes on its route only. A
-    /// probe's answer (`path` is where the probe arrived) goes back on the
-    /// reverse of the route it came on, and nowhere else: an answered probe
-    /// proves both directions of one route, so a route that works only one
-    /// way (macOS Local Network privacy, a firewall) never becomes alive.
-    fn send_on(&mut self, path: PathId, datagram: &[u8]) {
-        self.drain_control();
-        let class = send_class(datagram);
-        if let Some(route) = self.paths.route_of(path) {
-            let _ = self.send_route(route, datagram, class);
-            return;
-        }
-        let reverse = match path {
-            UDP_PATH => self.last_udp_source.map(|addr| Route { carrier: Carrier::Udp, addr }),
-            TURN_PATH => self.last_turn_source.map(|addr| Route { carrier: Carrier::Turn, addr }),
-            RELAY_PATH => Some(Route { carrier: Carrier::Relay, addr: RELAY_PEER }),
-            _ => None,
-        };
-        match reverse {
-            Some(route) if route.carrier != Carrier::Udp || !no_plain_udp(&self.options) => {
-                let _ = self.send_route(route, datagram, class);
-            }
-            _ => self.transmit(datagram, class),
-        }
-    }
-
-    fn poll_probes(&mut self, now: Instant) -> DueProbes {
-        self.drain_control();
-        self.paths.poll(now)
-    }
-
-    fn on_pong(&mut self, path: PathId, id: u64, now: Instant) {
-        self.paths.on_pong(path, id, now);
-    }
-
-    fn poll_recv(&mut self, cx: &mut Context<'_>, buffer: &mut [u8]) -> Poll<io::Result<Received>> {
+impl HybridUnderlay {
+    /// The next datagram from any socket or relay ([`Underlay::poll_recv`]
+    /// notes it for the second interface's copy rule first).
+    fn poll_recv_any(&mut self, cx: &mut Context<'_>, buffer: &mut [u8]) -> Poll<io::Result<Received>> {
         if !self.recv_waker.as_ref().is_some_and(|waker| waker.will_wake(cx.waker())) {
             self.recv_waker = Some(cx.waker().clone());
         }
@@ -2074,6 +2134,12 @@ impl Underlay for HybridUnderlay {
         self.poll_handshake_repeat(cx);
         if let Some(received) = self.pop_delayed(buffer) {
             return Poll::Ready(Ok(received));
+        }
+        if self.assist.primary_streak >= multipath::PRIMARY_BURST {
+            self.assist.primary_streak = 0;
+            if let Some(received) = self.poll_secondary(cx, buffer) {
+                return Poll::Ready(Ok(received));
+            }
         }
         loop {
             let mut read = ReadBuf::new(buffer);
@@ -2089,11 +2155,13 @@ impl Underlay for HybridUnderlay {
                     {
                         continue;
                     }
+                    self.note_arrival(source, &buffer[..len]);
                     let origin = Origin { path: UDP_PATH, addr: Some(source) };
                     if self.impaired(&buffer[..len], origin) {
                         continue;
                     }
                     self.last_udp_source = Some(source);
+                    self.assist.primary_streak += 1;
                     return Poll::Ready(Ok(Received { len, origin }));
                 }
                 // ICMP unreachable and friends: keep going on TURN.
@@ -2106,8 +2174,16 @@ impl Underlay for HybridUnderlay {
                     }
                     continue;
                 }
-                Poll::Pending => break,
+                Poll::Pending => {
+                    self.assist.primary_streak = 0;
+                    break;
+                }
             }
+        }
+        // A dark network is the primary one: the second socket's interface
+        // stays up (Wi-Fi died, cell lives).
+        if let Some(received) = self.poll_secondary(cx, buffer) {
+            return Poll::Ready(Ok(received));
         }
         while let Some(turn) = &mut self.turn
             && let Poll::Ready(Some((datagram, from))) = turn.inbound.poll_recv(cx)
@@ -2124,8 +2200,7 @@ impl Underlay for HybridUnderlay {
             self.last_turn_source = Some(from);
             return Poll::Ready(Ok(Received { len, origin }));
         }
-        loop {
-            let Some(relay) = &mut self.relay else { break };
+        while let Some(relay) = &mut self.relay {
             match relay.inbound.poll_recv(cx) {
                 Poll::Ready(Some(datagram)) => {
                     if self.dark {
@@ -2160,9 +2235,92 @@ impl Underlay for HybridUnderlay {
         }
         Poll::Pending
     }
+}
+
+impl Underlay for HybridUnderlay {
+    fn send(&mut self, datagram: &[u8]) {
+        self.drain_control();
+        let class = send_class(datagram);
+        self.record(datagram, class);
+        self.transmit(datagram, class);
+        self.assist_send(datagram, class);
+        self.note_initiation(datagram, class);
+    }
+
+    fn send_classified(&mut self, datagram: &[u8], priority: cmux_wg::Priority) {
+        self.drain_control();
+        let class = send_class_of(datagram, priority);
+        self.record(datagram, class);
+        self.transmit(datagram, class);
+        self.assist_send(datagram, class);
+        self.note_initiation(datagram, class);
+    }
+
+    /// A liveness ping or pong: on the routes data takes, but not kept for
+    /// a replay (the link resends its pings), and a pong starts no
+    /// silence watch.
+    fn send_liveness(&mut self, datagram: &[u8], answer: bool) {
+        self.drain_control();
+        self.answering = answer;
+        self.transmit(datagram, SendClass::Input);
+        self.assist_send(datagram, SendClass::Input);
+        self.answering = false;
+    }
+
+    /// A probe on one of the selector's paths goes on its route only. A
+    /// probe's answer (`path` is where the probe arrived) goes back on the
+    /// reverse of the route it came on, and nowhere else: an answered probe
+    /// proves both directions of one route, so a route that works only one
+    /// way (macOS Local Network privacy, a firewall) never becomes alive.
+    fn send_on(&mut self, path: PathId, datagram: &[u8]) {
+        self.drain_control();
+        let class = send_class(datagram);
+        if path == multipath::SECONDARY_PATH && self.send_secondary(datagram) {
+            return;
+        }
+        if let Some(route) = self.paths.route_of(path) {
+            let _ = self.send_route(route, datagram, class);
+            return;
+        }
+        let reverse = match path {
+            UDP_PATH => self.last_udp_source.map(|addr| Route { carrier: Carrier::Udp, addr }),
+            TURN_PATH => self.last_turn_source.map(|addr| Route { carrier: Carrier::Turn, addr }),
+            RELAY_PATH => Some(Route { carrier: Carrier::Relay, addr: RELAY_PEER }),
+            _ => None,
+        };
+        match reverse {
+            Some(route) if route.carrier != Carrier::Udp || !no_plain_udp(&self.options) => {
+                let _ = self.send_route(route, datagram, class);
+            }
+            _ => self.transmit(datagram, class),
+        }
+    }
+
+    fn poll_probes(&mut self, now: Instant) -> DueProbes {
+        self.drain_control();
+        self.paths.poll(now)
+    }
+
+    fn on_pong(&mut self, path: PathId, id: u64, now: Instant) {
+        self.paths.on_pong(path, id, now);
+    }
+
+    fn poll_recv(&mut self, cx: &mut Context<'_>, buffer: &mut [u8]) -> Poll<io::Result<Received>> {
+        let polled = self.poll_recv_any(cx, buffer);
+        if let Poll::Ready(Ok(received)) = &polled
+            && let Some(datagram) = buffer.get(..received.len)
+        {
+            self.note_handed(datagram, received.origin);
+        }
+        polled
+    }
 
     fn authenticated(&mut self, origin: Origin) {
         let now = Instant::now();
+        if self.assist_heard(origin, now) {
+            self.handshake_repeat = None;
+            return;
+        }
         let carrier = match origin.path {
             UDP_PATH => Carrier::Udp,
             TURN_PATH => Carrier::Turn,
@@ -2454,6 +2612,7 @@ fn start_tunnel(
         keeps_turn: spec.keeps_turn,
         turn_dead,
         route_to,
+        peer_version: spec.peer_version,
         relay: spec.relay,
         relay_shared,
     });
@@ -2530,6 +2689,12 @@ pub(super) fn dial_wireguard<'a>(
                         let mut lanes =
                             super::offered_lanes(options, options.video_lane, options.webrtc_media);
                         lanes.push(crate::link::LIVENESS_LANE.to_owned());
+                        if classes_offered() {
+                            lanes.push(crate::classes::CLASSES_LANE.to_owned());
+                            if screen_offered() {
+                                lanes.push(crate::classes::SCREEN_LANE.to_owned());
+                            }
+                        }
                         lanes
                     },
                     relayed,
@@ -2546,6 +2711,8 @@ pub(super) fn dial_wireguard<'a>(
         let liveness_agreed;
         // This side's relay ticket comes stamped on the Mac's answer (`relayTicket`).
         let relay_ticket;
+        let classes_agreed;
+        let screen_agreed;
         let (peer_key, peer_endpoints, peer_ip, peer_relayed, peer_relayed_tls, peer_version, peer_relay) = loop {
             match events.next().await? {
                 SessionEvent::Signal(envelope) => match envelope.payload {
@@ -2565,6 +2732,10 @@ pub(super) fn dial_wireguard<'a>(
                             .map_err(|_| DialError::Unexpected("wg-resp overlayIP is not IPv4".into()))?;
                         agreed = super::input_lane_agreed(options, &lanes);
                         liveness_agreed = lanes.iter().any(|lane| lane == crate::link::LIVENESS_LANE);
+                        classes_agreed = classes_offered()
+                            && lanes.iter().any(|lane| lane == crate::classes::CLASSES_LANE);
+                        screen_agreed =
+                            screen_offered() && lanes.iter().any(|lane| lane == crate::classes::SCREEN_LANE);
                         video_agreed = options.video_lane && super::video_lane_listed(&lanes);
                         webrtc_media_agreed =
                             video_agreed && options.webrtc_media && super::webrtc_media_listed(&lanes);
@@ -2590,6 +2761,7 @@ pub(super) fn dial_wireguard<'a>(
             // The relay was this side's only way, and the Mac has none.
             return Err(options.diagnosis.blocked());
         }
+        let tunnel_keys = super::TunnelKeys { dialer: b64(&public_key), answerer: b64(&peer_key) };
         let spec = TunnelSpec {
             session_id,
             peer_device: mac,
@@ -2610,10 +2782,28 @@ pub(super) fn dial_wireguard<'a>(
             relay,
         };
         let tunnel = start_tunnel(signaling, spec, options)?;
+        options.timeline.mark("tunnel_started");
         tunnel.session.follow(events.session);
         let guard = Guard { session: Arc::clone(&tunnel.session) };
         let net = tunnel.session.net()?;
+        {
+            let net = Arc::clone(&net);
+            let timeline = options.timeline.clone();
+            tokio::spawn(async move {
+                for _ in 0..6000 {
+                    match net.time_since_last_handshake().await {
+                        Ok(Some(_)) => {
+                            timeline.mark("wg_handshake_done");
+                            return;
+                        }
+                        Ok(None) => tokio::time::sleep(std::time::Duration::from_millis(5)).await,
+                        Err(_) => return,
+                    }
+                }
+            });
+        }
         tunnel.session.start_control(&net).await;
+        options.timeline.mark("wg_control");
         if turn_missed {
             tunnel.session.retry_missing_turn();
         }
@@ -2644,9 +2834,15 @@ pub(super) fn dial_wireguard<'a>(
             None
         };
         // The Mac listed the lane once its port was bound: it listens.
-        let liveness = if liveness_agreed { open_liveness(&net, peer_ip, true).await } else { None };
+        let liveness = if liveness_agreed {
+            open_liveness(&net, peer_ip, true, classes_agreed, classes_agreed && screen_agreed).await
+        } else {
+            None
+        };
+        options.timeline.mark("wg_liveness");
         let link_addr = SocketAddr::new(IpAddr::V4(peer_ip), LINK_PORT);
         let stream = net.connect(link_addr).await.map_err(transport_error)?;
+        options.timeline.mark("tunnel_tcp_connected");
         // The input lane: a second TCP stream to the same port, opened
         // after the main one so the Mac tells them apart by order. Its
         // own socket buffers keep keystrokes out of the main stream's
@@ -2667,6 +2863,7 @@ pub(super) fn dial_wireguard<'a>(
         // A media session needs the tunnel's lane as its floor.
         let webrtc_media = webrtc_media_agreed && media.is_some();
         Ok(Dialed {
+            tunnel_keys: Some(tunnel_keys),
             stream: Box::new(stream),
             hold: Some(hold_hook(&tunnel.session)),
             path: tunnel.path,
@@ -2759,6 +2956,7 @@ impl Dialer for WireGuardDialer {
             let (own_relayed, own_relayed_tls) = relayed_of(turn.as_ref());
             endpoints.extend(own_relayed.iter().cloned());
             let (private_key, own_public) = keypair();
+            let tunnel_keys = super::TunnelKeys { dialer: b64(&peer_key), answerer: b64(&own_public) };
             let spec = TunnelSpec {
                 session_id: &first.session_id,
                 peer_device: &first.from,
@@ -2789,8 +2987,13 @@ impl Dialer for WireGuardDialer {
             let mut listener = net.listen(LINK_PORT).await.map_err(transport_error)?;
             // Listed back only once bound. The phone binds its end after this
             // answer, so this side's pings switch over on its first datagram.
+            let classes_wanted =
+                classes_offered() && lanes.iter().any(|lane| lane == crate::classes::CLASSES_LANE);
+            let screen_wanted = classes_wanted
+                && screen_offered()
+                && lanes.iter().any(|lane| lane == crate::classes::SCREEN_LANE);
             let liveness = if lanes.iter().any(|lane| lane == crate::link::LIVENESS_LANE) {
-                open_liveness(&net, peer_ip, false).await
+                open_liveness(&net, peer_ip, false, classes_wanted, screen_wanted).await
             } else {
                 None
             };
@@ -2835,6 +3038,12 @@ impl Dialer for WireGuardDialer {
                                 super::offered_lanes(options, media.is_some(), webrtc_media_wanted);
                             if liveness.is_some() {
                                 lanes.push(crate::link::LIVENESS_LANE.to_owned());
+                                if classes_wanted {
+                                    lanes.push(crate::classes::CLASSES_LANE.to_owned());
+                                    if screen_wanted {
+                                        lanes.push(crate::classes::SCREEN_LANE.to_owned());
+                                    }
+                                }
                             }
                             lanes
                         },
@@ -2849,6 +3058,9 @@ impl Dialer for WireGuardDialer {
             if trickle {
                 tunnel.session.gather_after_answer(port, options.timeline.clone());
             }
+            // The router's mapping of this socket's port (a Mac with a mapper),
+            // offered when it comes; the link never waits for it.
+            tunnel.session.map_port(port);
             let stream =
                 listener.accept().await.ok_or_else(|| DialError::Transport("tunnel closed".into()))?;
             // The phone's second connection is the input lane.
@@ -2865,6 +3077,7 @@ impl Dialer for WireGuardDialer {
             });
             let webrtc_media = webrtc_media_wanted && media.is_some();
             Ok(Dialed {
+                tunnel_keys: Some(tunnel_keys),
                 stream: Box::new(stream),
                 hold: Some(hold_hook(&tunnel.session)),
                 path: tunnel.path,
@@ -2885,6 +3098,16 @@ impl Dialer for WireGuardDialer {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Version 3 (cell beside Wi-Fi) against a version-2 peer: the peer
+    /// keeps the trickled answer and `reach` it had.
+    #[test]
+    fn a_version_2_peer_keeps_reach_and_trickle_beside_version_3() {
+        const { assert!(WG_VERSION > WG_REACH_VERSION) };
+        assert!(answer_trickles(&DialOptions::default(), 2));
+        assert!(answer_trickles(&DialOptions::default(), WG_VERSION));
+        assert!(!answer_trickles(&DialOptions::default(), 0));
+    }
 
     /// Ultra Mode is Auto by default, metered by the cellular flag.
     #[test]
@@ -2945,6 +3168,7 @@ mod tests {
             datagram
         };
         assert_eq!(send_class_of(&data(1312), Priority::Interactive), SendClass::Input);
+        assert_eq!(send_class_of(&data(1312), Priority::Screen), SendClass::Input);
         assert_eq!(send_class_of(&data(1312), Priority::Media), SendClass::Media);
         assert_eq!(send_class_of(&data(1312), Priority::Bulk), SendClass::Bulk);
         assert_eq!(send_class_of(&data(96), Priority::Bulk), SendClass::Bulk);

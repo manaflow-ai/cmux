@@ -600,12 +600,22 @@ fn udp_to_the_peer_lost(_: &std::net::SocketAddr) -> bool {
 /// answers holds the phone's gather (and so `wg-init`) about 2 s before the
 /// relay plays any part, which is the gather's cost, not the relay's.
 async fn dial_with_direct_and_turn_failing(relay_first: bool) -> (Duration, Duration, Duration) {
-    let mac_options = DialOptions { drop_udp_to: Some(udp_to_the_peer_lost), relay_first, ..options() };
+    dial_with_direct_and_turn_failing_by(relay_first, relay_first).await
+}
+
+/// The same, with each side's build chosen: `phone_first` and `mac_first` say whether it
+/// offers `relay: "first"` (a build with relay first) or `ready` (one before it).
+async fn dial_with_direct_and_turn_failing_by(
+    phone_first: bool,
+    mac_first: bool,
+) -> (Duration, Duration, Duration) {
+    let mac_options =
+        DialOptions { drop_udp_to: Some(udp_to_the_peer_lost), relay_first: mac_first, ..options() };
     let rig = rig(FakeOptions::default(), mac_options, true).await;
     let phone = DialOptions {
         drop_udp_to: Some(udp_to_the_peer_lost),
         relay: relay(&rig.server, &rig.phone_id),
-        relay_first,
+        relay_first: phone_first,
         ..options()
     };
     let started = std::time::Instant::now();
@@ -648,6 +658,19 @@ async fn with_direct_udp_and_turn_failing_the_relay_carries_the_dial_from_its_st
 async fn an_older_peer_keeps_the_three_second_relay_rule() {
     let (up, phone_joined, mac_joined) = dial_with_direct_and_turn_failing(false).await;
     eprintln!("older rule: link up {up:?}, phone joined at {phone_joined:?}, Mac at {mac_joined:?}");
+    assert!(phone_joined >= Duration::from_secs(3), "the phone joined at {phone_joined:?}");
+    assert!(mac_joined >= Duration::from_secs(3), "the Mac joined at {mac_joined:?}");
+}
+
+/// An older phone (it offers `relay: "ready"`) against a Mac with relay first: the
+/// Mac reads `ready` and keeps the older rule, so neither side joins before 3 s, and
+/// the link still comes up on the relay.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn an_older_phone_against_a_new_mac_keeps_the_three_second_relay_rule() {
+    let (up, phone_joined, mac_joined) = dial_with_direct_and_turn_failing_by(false, true).await;
+    eprintln!(
+        "older phone, new Mac: link up {up:?}, phone joined at {phone_joined:?}, Mac at {mac_joined:?}"
+    );
     assert!(phone_joined >= Duration::from_secs(3), "the phone joined at {phone_joined:?}");
     assert!(mac_joined >= Duration::from_secs(3), "the Mac joined at {mac_joined:?}");
 }

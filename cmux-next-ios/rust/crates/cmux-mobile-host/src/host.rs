@@ -278,6 +278,9 @@ async fn run_with_changes(config: HostConfig, mut changes: tokio::sync::watch::R
         None
     };
     let mailbox = mailbox_for(&services, config.session_exposure.clone());
+    // Phones beside this Mac link through its local hub with no Worker and
+    // no internet (local_link.rs); it outlives every Worker reconnect.
+    let _local_link = crate::local_link::start(&config, &services, &mailbox).await;
     // This Mac reaching the person's other machines through the same warm
     // socket (`link_socket.rs`); only with the app, which holds the identity key.
     let (signaling_now, signaling_watch) = tokio::sync::watch::channel(None::<SignalingClient>);
@@ -306,6 +309,11 @@ async fn run_with_changes(config: HostConfig, mut changes: tokio::sync::watch::R
     let _traffic = AbortTask(tokio::spawn(crate::traffic::run_sampler()));
     // Phones keep their WireGuard sessions when the Mac changes networks.
     let _network_watch = AbortTask(tokio::spawn(crate::netwatch::run()));
+    // NAT port mapping (portmap.rs): sessions answered from now on ask the
+    // home router for a public port, in the background; off with
+    // CMUX_MOBILE_PORTMAP=0. A network change roams each session, which maps
+    // its new socket and deletes the old mapping.
+    crate::portmap::install();
     // Live tunnels can roam even while signaling is unreachable. Rehome resends
     // their latest endpoint announcements once the replacement socket connects.
     let _endpoint_refresh = AbortTask(tokio::spawn(crate::netwatch::refresh_endpoints(changes.clone())));
@@ -496,6 +504,8 @@ fn mailbox_for(
         trust: pairing.trust.clone(),
         identity: pairing.identity.clone(),
         spent: Arc::clone(&pairing.spent_replies),
+        cursor: Arc::clone(&pairing.mailbox_cursor),
+        order: Default::default(),
         key_wait: crate::pairing::TRUST_WAIT,
         applier: Arc::new(crate::mailbox_apply::LiveApplier {
             acpmux: services.acpmux.clone(),
@@ -748,7 +758,7 @@ async fn answer_session(
             );
         },
     ));
-    let auth = Arc::new(crate::pairing::LinkAuth::default());
+    let auth = Arc::new(crate::pairing::LinkAuth::with_tunnel_keys(connected.tunnel_keys.clone()));
     // The phone may open a WebRTC media session for this link's video.
     let _hybrid = match (&peer.video, connected.webrtc_media) {
         (Some(video), true) => Some(crate::media_session::register(
