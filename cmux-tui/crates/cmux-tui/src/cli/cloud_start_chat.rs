@@ -218,7 +218,17 @@ pub(super) fn start(global: &GlobalArgs, request: &Request) -> i32 {
     // A folder's size never stops a start: one past what a copy sends whole goes as a first pass
     // (`size_cap`; Leo, 2026-11-15: "why are you guys still blocking on these?").
     let mut runner = SelfRunner::new(global);
-    let outcome = run(&mut runner, request);
+    // No app named and a cmux credential in the environment: the cmux API answers the app's
+    // verbs (direct.rs), so a machine with no signed-in app starts the same chat.
+    let outcome = match direct::Route::choose(global, |key| std::env::var(key).ok()) {
+        direct::Route::App => run(&mut runner, request),
+        direct::Route::Direct => match direct::Api::from_env(|key| std::env::var(key).ok()) {
+            Ok(mut api) => {
+                run(&mut direct::DirectRunner { inner: &mut runner, cloud: &mut api }, request)
+            }
+            Err(error) => Outcome::Failed { error, exit: 2 },
+        },
+    };
     if let Outcome::Done(answer) = &outcome {
         super::start_stages::print_table(request.timings, answer);
     }
@@ -3489,6 +3499,7 @@ fn report(outcome: &Outcome, output: OutputMode) -> i32 {
 
 mod cap;
 mod clone_wait;
+mod direct;
 mod fault;
 mod folder;
 mod fresh;

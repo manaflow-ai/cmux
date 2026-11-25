@@ -426,8 +426,14 @@
    under it and one quiet button. */
 .acpmux-unavailable{gap:10px}
 /* Loading has no transcript under the dock. Keep the existing dock height/shrink rules, but let
-   its actual height reserve the stage's room (including a growing draft in a short pane). */
-.acpmux-main[data-dock="float"]:has(>.acpmux-stage>.acpmux-unavailable[data-unavailable="connecting"])>.acpmux-dock{position:relative;flex:none;max-height:calc(100% - 44px - var(--acpmux-transcript-min,96px))}
+   its actual height reserve the stage's room (including a growing draft in a short pane). The dock keeps
+   the floating stack's own max-height (bottomStack.css, the quiet row's `data-foot` one too) and the stage
+   gives up its floor, so the composer is the same size and in the same place loading as open: a second
+   max-height here clamped a tall draft 32 px shorter (and 32 px lower) while the chat connected, and the
+   stage's floor pushed the dock past the pane's bottom in a short pane (Leo, 2026-11-24: "we need to have
+   more things decoupled from posisble shifts"; test/agent-pane-composer-anchored-above.test.ts). */
+.acpmux-main[data-dock="float"]:has(>.acpmux-stage>.acpmux-unavailable[data-unavailable="connecting"])>.acpmux-dock{position:relative;flex:none}
+.acpmux-main[data-dock="float"]:has(>.acpmux-stage>.acpmux-unavailable[data-unavailable="connecting"])>.acpmux-stage{min-height:0}
 /* Its notices (noticeSlotModel.ts DOCK_NOTICE) take none of that height: in flow they shrank the stage, so
    the spinner and its words moved up as one came (a reload's connect, PaneBoundary's Try again) and down as
    it went. They lie over the stage's empty foot instead, just above the stack (Leo, 2026-11-22: "that
