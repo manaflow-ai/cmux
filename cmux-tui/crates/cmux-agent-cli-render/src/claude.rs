@@ -230,15 +230,20 @@ fn fullscreen_grid(
     for (slot, line) in grid.cells.iter_mut().zip(top.into_iter().skip(skip)) {
         *slot = line.into_row(width);
     }
+    // A box taller than the screen keeps its bottom rows (the newest draft rows and the footer).
     let first = usize::from(rows).saturating_sub(bottom.len());
-    for (slot, line) in grid.cells.iter_mut().skip(first).zip(bottom) {
+    let cut = bottom.len().saturating_sub(usize::from(rows));
+    for (slot, line) in grid.cells.iter_mut().skip(first).zip(bottom.into_iter().skip(cut)) {
         *slot = line.into_row(width);
     }
     for row in &mut grid.cells {
+        // The message gutter's dot only: a `●` the text itself holds stays.
+        if let Some(gutter) = row.first_mut()
+            && gutter.text == "●"
+        {
+            gutter.text = "⏺".to_owned();
+        }
         for cell in row.iter_mut() {
-            if cell.text == "●" {
-                cell.text = "⏺".to_owned();
-            }
             // Text on a diff line's ground is the syntax theme's near-white, not plain white.
             let on_diff =
                 matches!(cell.style.bg, crate::Color::Palette(DEL_BG | ADD_BG | ADD_WORD_BG));
@@ -296,7 +301,12 @@ fn fullscreen_box(chrome: &Chrome, running: bool, fresh: bool, width: usize) -> 
     let mut rule = Line::new();
     rule.push(&"─".repeat(width), Style::fg(RULE));
     out.push(rule.clone());
-    let draft = wrap(&chrome.draft, width.saturating_sub(4));
+    // `wrap("")` is one empty row: an empty draft shows the placeholder instead.
+    let draft = if chrome.draft.is_empty() {
+        Vec::new()
+    } else {
+        wrap(&chrome.draft, width.saturating_sub(4))
+    };
     for (i, row) in draft.iter().enumerate() {
         let mut d = Line::new();
         d.push(if i == 0 { "❯\u{a0}" } else { "  " }, Style::PLAIN);
