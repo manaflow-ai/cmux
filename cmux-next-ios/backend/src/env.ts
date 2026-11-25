@@ -16,6 +16,10 @@ export interface Env {
   readonly LINK_RELAY: DurableObjectNamespace<LinkRelay>
   /** `off` refuses every relay join with 503 `relay_off` (the kill switch; PROTOCOL.md "WebSocket relay"). */
   readonly LINK_RELAY_MODE?: string
+  /** What one user may relay per minute across all sessions, MiB (default 480: src/relay-access.ts). */
+  readonly LINK_RELAY_USER_MIB_PER_MIN?: string
+  /** Test only (ENVIRONMENT=test): `1` makes the hub's relay budget call throw (an overloaded hub). */
+  readonly LINK_RELAY_TEST_BUDGET_ERROR?: string
   /** The three-way hub (RFD 0142 R6): "off" refuses every hub join with 503 hub_off; clients keep their per-source path. */
   readonly HUB_RELAY: DurableObjectNamespace<HubRelay>
   readonly HUB_RELAY_MODE?: string
@@ -26,6 +30,9 @@ export interface Env {
   readonly STACK_SECRET_SERVER_KEY?: string
   readonly TURN_KEY_ID?: string
   readonly TURN_KEY_API_TOKEN?: string
+  /** Our own TURN relay (deploy/turn): comma list of turn:/turns: URLs and its shared secret. When both are set, Cloudflare TURN is not used. */
+  readonly TURN_SELF_URLS?: string
+  readonly TURN_SELF_SECRET?: string
   readonly ICE_TTL_SECONDS?: string
   /** APNs (src/push.ts): all three or none. */
   readonly APNS_KEY_P8?: string

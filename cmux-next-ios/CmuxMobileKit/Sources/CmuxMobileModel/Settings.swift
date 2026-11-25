@@ -169,11 +169,26 @@ public final class SettingsStore {
     public var keyClicks: Bool { didSet { save(keyClicks, "keyClicks") } }
     /// Read by the terminal composer (`CmuxMobilePreferences.terminalJumpToBottom`).
     public var terminalJumpToBottom: Bool { didSet { save(terminalJumpToBottom, "terminalJumpToBottom") } }
+    /// Read by the terminal composer, which also toggles it from its + menu
+    /// (`CmuxMobilePreferences.terminalComposerAutocorrect`).
+    public var terminalComposerAutocorrect: Bool {
+        didSet { save(terminalComposerAutocorrect, "terminalComposerAutocorrect") }
+    }
     /// Settings → Terminal → Terminal and Chat Toggle (off by default). Read by the workspace tabs
     /// (`CmuxMobilePreferences.terminalChatToggle`) through the same key.
     public var terminalChatToggle: Bool { didSet { save(terminalChatToggle, "terminalChatToggle") } }
+    /// Settings → Terminal → Zoom Full-Screen Apps (off by default). Read by the terminal
+    /// (`CmuxMobilePreferences.terminalZoomFullScreenApps`) when a page opens.
+    public var terminalZoomFullScreenApps: Bool {
+        didSet { save(terminalZoomFullScreenApps, "terminalZoomFullScreenApps") }
+    }
     /// Read by the terminal (`CmuxMobilePreferences.predictiveEcho`) through the same key.
     public var predictiveEcho: Bool { didSet { save(predictiveEcho, "predictiveEcho") } }
+    /// Settings → Terminal → Predictive Echo in Full-Screen Apps (off by default). Read by the
+    /// terminal (`CmuxMobilePreferences.predictiveEchoFullScreen`) through the same key.
+    public var predictiveEchoFullScreen: Bool {
+        didSet { save(predictiveEchoFullScreen, "predictiveEchoFullScreen") }
+    }
     /// Read by the terminal (`CmuxMobilePreferences.terminalFitToPhone`) when a page opens.
     public var terminalFitToPhone: Bool { didSet { save(terminalFitToPhone, "terminalFitToPhone") } }
     /// Read at each WireGuard dial (`FFIMacLinkDialer`) through the same key. Auto by default:
@@ -231,9 +246,14 @@ public final class SettingsStore {
         // (CmuxMobilePreferences.terminalJumpToBottom reads the key the same way).
         terminalJumpToBottom = defaults.object(forKey: "cmuxMobile.settings.terminalJumpToBottom") == nil
             ? true : defaults.bool(forKey: "cmuxMobile.settings.terminalJumpToBottom")
+        terminalComposerAutocorrect = defaults.object(forKey: "cmuxMobile.settings.terminalComposerAutocorrect") == nil
+            ? false : defaults.bool(forKey: "cmuxMobile.settings.terminalComposerAutocorrect")
         terminalChatToggle = defaults.object(forKey: "cmuxMobile.settings.terminalChatToggle") == nil
             ? false : defaults.bool(forKey: "cmuxMobile.settings.terminalChatToggle")
+        terminalZoomFullScreenApps = bool("terminalZoomFullScreenApps", false)
         predictiveEcho = bool("predictiveEcho", true)
+        predictiveEchoFullScreen = defaults.object(forKey: "cmuxMobile.settings.predictiveEchoFullScreen") == nil
+            ? false : defaults.bool(forKey: "cmuxMobile.settings.predictiveEchoFullScreen")
         terminalFitToPhone = bool("terminalFitToPhone", false)
         // The earlier "Ultra mode on cellular" switch: on reads as Always.
         let ultra = string("ultra").flatMap(UltraConnection.init(rawValue:))
