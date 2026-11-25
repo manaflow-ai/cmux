@@ -314,6 +314,23 @@ fn the_device_list_answers_here() {
 }
 
 #[test]
+fn the_device_list_groups_by_machine_id_first() {
+    let (code, listed) = call(
+        c"cloud_identity_device_list",
+        &json!({"this": {"id": "nightly", "machineId": "m1"},
+                "devices": [{"id": "dev", "name": "Renamed", "platform": "macos", "machineId": "m1"},
+                            {"id": "mini", "name": "Desk Mac", "platform": "macos", "machineId": "m2"},
+                            {"id": "old", "name": "Laptop", "platform": "macos", "machineId": null}]}),
+    );
+    assert_eq!(code, OK);
+    assert_eq!(
+        listed,
+        json!({"thisDevice": ["nightly", "dev"],
+               "others": [{"id": "mini", "ids": ["mini"]}, {"id": "old", "ids": ["old"]}]})
+    );
+}
+
+#[test]
 fn the_device_discovery_answers_here() {
     let (code, finding) = call(
         c"cloud_identity_device_discovery",
