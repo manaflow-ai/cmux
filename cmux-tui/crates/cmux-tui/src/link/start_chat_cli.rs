@@ -300,12 +300,14 @@ pub(super) fn valid_workspace(workspace: &str) -> bool {
 
 /// What `plan` reads: the send, the account it began in, the Mac workspace it
 /// came from, and the Cloud machines the App's list for that account named.
-/// (The App also sends who is signed in, `user`; no plan reads it now that a
-/// new send never reuses a listed machine.)
+/// A new send reuses the person's own machine (`pick::reuse`), so `user` names who is signed in.
 #[derive(serde::Deserialize)]
 struct PlanRequest {
     key: String,
     account: String,
+    /// Who is signed in (the server's user id): only a machine they made is reused.
+    #[serde(default)]
+    user: Option<String>,
     /// The Mac workspace of the tab that sent; None for a send from no workspace.
     #[serde(default)]
     workspace: Option<String>,
@@ -437,8 +439,30 @@ fn plan_with_calls(
         Err(error) => return refused("ledger_failed", format!("{error:#}")),
     }
     let planned = Ledger::update(ledger, |pins| {
-        let destination =
+        let mut destination =
             pick::destination(&send, pins, &request.machines, &request.stored, request.loaded);
+        // A new send reuses the person's own machine, unless it asks for what that machine may not
+        // be: a Cloud image of its own (`environment`: a machine boots in its image only when made),
+        // a size above the chat size, or a disk grown for the folder. Those make a new machine.
+        let reusable = request.environment.is_none()
+            && !larger_than_chat(request.size.as_deref())
+            && preflight::grown_disk_gib(
+                request.size.as_deref(),
+                request.bytes,
+                request.plan_max.as_deref(),
+            )
+            .is_none();
+        if destination == Destination::New && reusable {
+            if let Some(id) = pick::reuse(
+                pins,
+                &request.machines,
+                &request.account,
+                workspace,
+                request.user.as_deref(),
+            ) {
+                destination = Destination::Machine(id);
+            }
+        }
         if let Destination::Machine(id) = &destination {
             pins.record(id, &send);
             // A retry of an older send keeps its machine, never the workspace's newer one,
@@ -493,9 +517,9 @@ fn plan_with_calls(
             let ask = Ensure {
                 // The send's own create key, never the Mac workspace's id: the platform binds
                 // one machine per workspace it is named, so a second chat from the same Mac
-                // workspace would get the first chat's machine back. Every new Cloud start is a
-                // workspace, and a machine, of its own; a retry of this send names the same key
-                // and so reaches the machine its first try made.
+                // workspace would get the first chat's machine back. A send gets here only when the
+                // person has no machine to reuse (`pick::reuse`); a retry of this send names the
+                // same key and so reaches the machine its first try made.
                 workspace: keys.create.clone(),
                 create_key: keys.create,
                 repo: repo.clone(),
@@ -1224,7 +1248,7 @@ fn push(
 ) -> Result<Value, Value> {
     projected_or(
         || project_first(socket, local, remote, chat),
-        || super::seed_cli::push(socket, local, remote, Some(subpath)),
+        || super::seed_cli::push_folder(socket, local, remote, Some(subpath)),
     )
 }
 
@@ -1288,7 +1312,7 @@ fn push_seed_only(
 ) -> Result<Value, Value> {
     projected_or(
         || project_first(socket, local, remote, chat),
-        || super::seed_cli::push_seed_only(socket, local, remote, Some(subpath)),
+        || super::seed_cli::push_folder_seed_only(socket, local, remote, Some(subpath)),
     )
 }
 

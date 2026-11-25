@@ -58,7 +58,7 @@
 }
 
 /* The drop-up: the location menus' rows. */
-.acpmux-cloud-env-row { display: flex; align-items: center; gap: 8px; min-width: 0; width: 100%; }
+.acpmux-cloud-env-row { display: flex; align-items: center; gap: var(--cmux-menu-icon-gap); min-width: 0; width: 100%; white-space: nowrap; }
 .acpmux-cloud-env-gear {
   margin-inline-start: auto;
   opacity: 0;

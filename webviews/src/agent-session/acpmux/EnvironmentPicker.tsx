@@ -137,6 +137,7 @@ export function EnvironmentPicker({
   unavailableExpanded = false,
   card,
   otherDevices = false,
+  cloudDevices = false,
 }: {
   label: string;
   /// The name automation opens it by (`openPicker`).
@@ -203,6 +204,10 @@ export function EnvironmentPicker({
   /// opens the person's own machines (no Cloud ones) in place, then Add Machine… (Austin,
   /// 2026-11-12). Needs `onConnect`; a started chat's list is its move instead.
   otherDevices?: boolean;
+  /// Other devices also lists the person's Cloud machines, so the Where control alone picks a
+  /// specific machine (the user, 2026-11-24: three pickers, "folder, (local, cloud or autocloud or
+  /// machine), environment"); no machine chip of its own.
+  cloudDevices?: boolean;
 }) {
   // A picked saved environment is the current row: every machine row is then a change. One that is
   // only a folder on this computer leaves This Mac the current row.
@@ -333,11 +338,10 @@ export function EnvironmentPicker({
         ? orderEnvironments(environments).filter(
             (environment) =>
               sections.get(environment.id) !== "local" &&
-              environment.kind !== "cloud" &&
-              !isCloudMachineRow(environment),
+              (cloudDevices || (environment.kind !== "cloud" && !isCloudMachineRow(environment))),
           )
         : [],
-    [offersDevices, environments, sections],
+    [offersDevices, cloudDevices, environments, sections],
   );
   // What its row counts: the ones a chat can start on now.
   const devicesReady = devices.filter(environmentReady).length;
@@ -599,7 +603,8 @@ export function EnvironmentPicker({
   // environment). The cloud toggle: This Mac and Cloud.
   // A Cloud machine picked is Cloud's; any other machine (or a saved environment) is Other devices'.
   const checkedKind = ordered.find((environment) => environment.id === checkedRow)?.kind;
-  const cloudChecked = clouded || (listRows === "where" && checkedKind === "cloud");
+  // With Cloud machines under Other devices, a specific one picked checks that row, not Cloud.
+  const cloudChecked = clouded || (listRows === "where" && checkedKind === "cloud" && !cloudDevices);
   // A saved environment on this Mac is This Mac's row in the Where list.
   const savedLocal =
     listRows === "where" &&

@@ -144,6 +144,7 @@ pub(crate) mod sidebar_doc_sync;
 pub(crate) mod sidebar_doc_workspace_move;
 #[cfg(test)]
 mod sidebar_doc_workspace_move_tests;
+pub(crate) mod tab_attention_expiry;
 #[cfg(test)]
 mod tab_attention_tests;
 #[cfg(test)]

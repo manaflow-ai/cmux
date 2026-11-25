@@ -132,21 +132,16 @@ struct CloudSeedRefusalTests {
         #expect(!reason.contains("cloud-chats-4"), "\(reason)")
     }
 
-    /// Only a repository the machine can't read without the cmux GitHub App says to connect GitHub, and only it carries
-    /// `seed.needs_github` to the page's start card (its Connect GitHub button); a folder that is not git, a submodule's
-    /// local work, commits that are not on GitHub or an unknown reason say only to choose a smaller folder.
-    @Test func onlyARefusalGitHubCanFixSuggestsConnectingIt() throws {
+    /// A new Cloud chat's local folder never asks for GitHub (cmux#51731): not even a repository the machine can't read
+    /// without the cmux GitHub App. A folder too big to copy says only to choose a smaller folder, and no refusal carries
+    /// `seed.needs_github` to the page's start card (its Connect GitHub button). Only a picked GitHub repository needs GitHub.
+    @Test func aLocalFoldersRefusalNeverSuggestsConnectingGitHub() throws {
         func refusal(_ fallback: String?) throws -> CloudSeedRefusal {
             try #require(CloudSeedRefusal(CloudMoveCLI.Answer(ok: false, errorCode: "seed_refused", error: "why", fallbackCode: fallback,
                                                               copyBytes: 23_200_000_000), machine: "cloud-chats"))
         }
-        let needsApp = try refusal("seed.needs_github")
-        #expect(needsApp.gitHubHelps)
-        #expect(needsApp.pageCode == "seed.needs_github")
-        #expect(needsApp.tooLarge.contains("GitHub") && needsApp.tooLarge.contains("cloud-chats"))
-        for fallback in ["not_git", "submodule_local_work", "no_base", "not_github", "no_remote", "unmerged", "seed.clone_failed", nil] {
+        for fallback in ["seed.needs_github", "not_git", "submodule_local_work", "no_base", "not_github", "no_remote", "unmerged", "seed.clone_failed", nil] {
             let other = try refusal(fallback)
-            #expect(!other.gitHubHelps, "\(fallback ?? "nil")")
             #expect(other.pageCode == nil, "\(fallback ?? "nil")")
             #expect(!other.tooLarge.contains("GitHub") && other.tooLarge.contains("cloud-chats"), "\(fallback ?? "nil")")
         }

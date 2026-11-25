@@ -10,9 +10,9 @@
 //     signed out, offline) still shows the chip on Auto, quietly, and starts chats as before;
 //   - its drop-up opens up (never over the composer; the geometry is the gallery's,
 //     cloud-environment-chip-geometry.test.ts) and lists Auto, the project's recent environments,
-//     New environment…, Edit <current>…, then New Cloud machine…;
+//     New environment…, Edit environment…, then Open Cloud terminal;
 //   - Auto is the default and sends no environment; a pick is what the Cloud send names;
-//   - New Cloud machine… runs New Cloud Machine with the picked environment; New environment…
+//   - Open Cloud terminal runs New Cloud Machine with the picked environment; New environment…
 //     makes one named after the folder and picks it.
 import { afterAll, afterEach, beforeAll, beforeEach, expect, test } from "bun:test";
 import { JSDOM } from "jsdom";
@@ -283,14 +283,15 @@ for (const [name, answer] of [
       await mount({ mode: "cloud", chat: "new-1" });
       expect(slot()?.dataset.shown).toBe("true");
       expect(chipButton()?.getAttribute("aria-label")).toBe(`${t("composer.envCloudLabel")}: ${t("composer.envAuto")}`);
-      // The drop-up: Auto, New, Edit Auto's, New Cloud machine, with Auto checked.
+      // The drop-up: Auto, New, Edit (never "Edit Auto…"), Open Cloud terminal, with Auto checked.
       await openChip();
       expect(rowLabels()).toEqual([
         t("composer.envAuto"),
         t("composer.envNew"),
-        t("composer.envEdit", { name: t("composer.envAuto") }),
-        t("composer.envNewMachine"),
+        t("composer.envEditCurrent"),
+        t("composer.envOpenTerminal"),
       ]);
+      expect(rowLabels()).not.toContain(t("composer.envEdit", { name: t("composer.envAuto") }));
       expect(row(t("composer.envAuto"))?.getAttribute("aria-checked")).toBe("true");
       expect(native.filter(([method]) => method === "cloud.environment.list").length).toBeGreaterThan(0);
       // Nothing about the failure shows: no alert or error row in the strip or the drop-up.
@@ -340,7 +341,7 @@ test("the flag on: the chip shows only while Cloud is the pick, as the same elem
   expect(slot()?.dataset.shown).toBe("false");
 });
 
-test("the drop-up opens up and lists Auto, the recent environments, New, Edit, then New Cloud machine", async () => {
+test("the drop-up opens up and lists Auto, the recent environments, New, Edit, then Open Cloud terminal", async () => {
   await mount({ flag: true, mode: "cloud" });
   await openChip();
   expect(menu()).toBeTruthy();
@@ -352,8 +353,8 @@ test("the drop-up opens up and lists Auto, the recent environments, New, Edit, t
     "atlas-web",
     "GPU training",
     t("composer.envNew"),
-    t("composer.envEdit", { name: "Default" }),
-    t("composer.envNewMachine"),
+    t("composer.envEditCurrent"),
+    t("composer.envOpenTerminal"),
   ]);
   // Auto is checked: it is the default.
   expect(row(t("composer.envAuto"))?.getAttribute("aria-checked")).toBe("true");
@@ -368,7 +369,7 @@ test("Auto is the default and sends no environment; a pick is what the send name
   expect(chipButton()?.getAttribute("aria-label")).toBe(`${t("composer.envCloudLabel")}: GPU training`);
   await openChip();
   expect(rowLabels().slice(0, 2)).toEqual([t("composer.envAuto"), "GPU training"]);
-  expect(rowLabels()).toContain(t("composer.envEdit", { name: "GPU training" }));
+  expect(rowLabels()).toContain(t("composer.envEditCurrent"));
 });
 
 test("cloud.startChat's payload: Auto and the flag off send today's; a pick goes with one send only", async () => {
@@ -454,17 +455,17 @@ test("the GUI hooks: the chip and every drop-up row carry a stable test id", asy
   ]);
 });
 
-test("New Cloud machine… runs New Cloud Machine with the picked environment, and with none on Auto", async () => {
+test("Open Cloud terminal runs New Cloud Machine with the picked environment, and with none on Auto", async () => {
   await mount({ flag: true, mode: "cloud" });
   await openChip();
-  await act(async () => row(t("composer.envNewMachine"))!.click());
+  await act(async () => row(t("composer.envOpenTerminal"))!.click());
   expect(native.filter(([method]) => method === "action.run")).toEqual([["action.run", { id: "newCloudMachine" }]]);
   native = [];
   await openChip();
   await act(async () => row("atlas-web")!.click());
   await flush();
   await openChip();
-  await act(async () => row(t("composer.envNewMachine"))!.click());
+  await act(async () => row(t("composer.envOpenTerminal"))!.click());
   expect(native.filter(([method]) => method === "action.run")).toEqual([
     ["action.run", { id: "newCloudMachine", environment: "env_web" }],
   ]);
@@ -485,7 +486,7 @@ test("New environment… makes one named after the folder, then picks it; Edit o
   expect(chipButton()?.getAttribute("aria-label")).toBe(`${t("composer.envCloudLabel")}: cmux`);
   editor.closeCloudEnvironmentRequest(request!.request);
   await openChip();
-  await act(async () => row(t("composer.envEdit", { name: "cmux" }))!.click());
+  await act(async () => row(t("composer.envEditCurrent"))!.click());
   expect(editor.cloudEnvironmentRequest()?.environmentId).toBe("env_new");
 });
 
@@ -548,6 +549,37 @@ test("the recent list: remembered per folder, most recent first, only environmen
   expect(choice.autoEnvironment(environments as never)).toEqual({ id: "env_default", name: "Default" });
 });
 
+// The user, 2026-11-23, on the drop-up: "this ui sucks". Its rows drew long wrapped sentences (hidden
+// hints the agent pane has no sr-only style for), so they grew tall, their icons and the check
+// floated mid-row and the top row was cut off. Every row is one short label, as the model picker's.
+test("each row is one short label: no hint text, tooltip or second line, and one icon", async () => {
+  await mount({ flag: true, mode: "cloud" });
+  expect(slot()?.querySelector<HTMLElement>(".acpmux-cloud-env")?.title).toBe(
+    `${t("composer.envCloudLabel")}: ${t("composer.envAuto")}. ${t("composer.envChipHint")}`,
+  );
+  await openChip();
+  expect(t("composer.envEditCurrent")).toBe("Edit environment…");
+  expect(t("composer.envOpenTerminal")).toBe("Open Cloud terminal");
+  const rows = [...menu()!.querySelectorAll<HTMLElement>(".acpmux-cloud-env-row")];
+  expect(rows.length).toBeGreaterThan(4);
+  for (const rowNode of rows) {
+    const label = rowNode.querySelector(".acpmux-menu-label")?.textContent ?? "";
+    // The row's whole text is its label: nothing hidden or extra beside it.
+    expect(rowNode.textContent).toBe(label);
+    expect(label.length).toBeLessThanOrEqual(24);
+    expect(rowNode.title).toBe("");
+    expect(rowNode.closest("[title]:not(.acpmux-cloud-env)")).toBeNull();
+    expect(rowNode.querySelector(".ui-sr-only, .acpmux-cloud-env-hint")).toBeNull();
+    expect(rowNode.querySelectorAll("svg").length).toBe(1);
+  }
+  // Auto picked, then an environment: Edit keeps its one label (never "Edit Auto…").
+  expect(rowLabels()).not.toContain(t("composer.envEdit", { name: t("composer.envAuto") }));
+  await act(async () => row("GPU training")!.click());
+  await flush();
+  await openChip();
+  expect(rowLabels()).toContain(t("composer.envEditCurrent"));
+});
+
 // Leo, 2026-11-22 (ask c-922dfe5e36): "we need to be able to make sure arbitrary paying
 // users/teammates can properly use it with the way that we properly use it". A teammate's Auto runs
 // in the team's Default, as the platform boots a team chat with no environment.
@@ -586,7 +618,7 @@ test("Edit on Auto opens the team's Default in a team's context, and the persona
     await mount({ flag: true, mode: "cloud" });
     await flush();
     await openChip();
-    await act(async () => row(t("composer.envEdit", { name: "Default" }))!.click());
+    await act(async () => row(t("composer.envEditCurrent"))!.click());
     const request = editor.cloudEnvironmentRequest();
     expect(request?.environmentId).toBe(expected);
     expect(request?.section).toBe("script");

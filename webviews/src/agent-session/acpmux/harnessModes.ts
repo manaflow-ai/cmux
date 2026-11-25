@@ -190,8 +190,27 @@ export function cloudStartAgent(
 ): { family: string | undefined; harness: string | undefined; named: boolean } {
   const id = (family ?? harness ?? "").toLowerCase();
   // No harness yet (none installed, or still listing): the send names none, so the machine's default.
-  if (id && id !== UNII && (harness ?? "").toLowerCase() !== UNII) return { family, harness, named: true };
-  return { family: CLOUD_DEFAULT_AGENT, harness: CLOUD_DEFAULT_AGENT, named: false };
+  if (!id || id === UNII || (harness ?? "").toLowerCase() === UNII)
+    return { family: CLOUD_DEFAULT_AGENT, harness: CLOUD_DEFAULT_AGENT, named: false };
+  // A profile of this Mac's that routes Claude Code or Codex its own way (claude-sr2, claude-cr,
+  // codex-acp: a harness file in ~/.config/cmux/harnesses or a discovered launcher) exists only here.
+  // A Cloud machine carries the agents themselves (web/services/vms/images/agents.ts), so it runs
+  // the base agent: naming the profile was refused as `agent_session.harness_missing` (cmux#51731).
+  const base = cloudMachineAgent(harness) ?? cloudMachineAgent(family);
+  if (base) return { family: base, harness: base, named: true };
+  return { family, harness, named: true };
+}
+
+/** The agents every Cloud machine carries (web/services/vms/images/agents.ts GUEST_AGENTS). */
+const CLOUD_MACHINE_AGENTS = new Set(["claude", "codex", "opencode", "pi"]);
+
+/** The Cloud machine's agent for a harness id: itself when the machine carries it, the base agent for
+ * a Claude Code or Codex profile (`claude-sr2` → `claude`), none for anything else. */
+function cloudMachineAgent(value: string | undefined): string | undefined {
+  const id = (value ?? "").toLowerCase();
+  if (CLOUD_MACHINE_AGENTS.has(id)) return id;
+  for (const base of ["claude", "codex"]) if (id.startsWith(`${base}-`) || id.startsWith(`${base}_`)) return base;
+  return undefined;
 }
 
 /** The family's own menu whatever the harness reported (none yet: a New Tab before its chat

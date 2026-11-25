@@ -3,14 +3,12 @@ import { useLocationShortcut } from "./composerControls";
 import type { CloudEnvironment } from "../../pages/cloud/environmentModel";
 import { Menu, MenuButton, MenuItem, MenuPopup, MenuRadioGroup, MenuRadioItem, MenuSeparator } from "../../ui/Menu";
 import { ChevronIcon } from "./ComposerPickers";
-import { ServerIcon } from "./EnvironmentPicker";
 import { translate as t } from "./i18n";
 import { useLocationOpener, useLocationPopover } from "./locationPopover";
 import { postNative } from "./native";
 import { openCloudEnvironment } from "./cloudEnvironment";
 import {
   AUTO_ENVIRONMENT,
-  autoEditEnvironment,
   autoEnvironment,
   cloudStartEnvironment,
   recentEnvironments,
@@ -20,6 +18,7 @@ import {
   type CloudEnvironmentControl,
   type CloudEnvironmentPick,
   type CloudEnvironmentRow,
+  autoEditEnvironment,
 } from "./cloudEnvironmentChoice";
 import "./cloudEnvironmentChip.css";
 
@@ -183,14 +182,16 @@ export function CloudEnvironmentChip({
     else if (row.kind === "newMachine")
       control.onNewMachine(control.current === AUTO_ENVIRONMENT ? undefined : control.current);
   };
+  // One line per row, as the model picker's: a short label in the icon column's grid, no second
+  // line, tooltip or hidden hint (the agent pane has no sr-only style, so a hint drew as text).
   const actionRow = (row: CloudEnvironmentRow, index: number) => {
     if (row.kind === "separator") return <MenuSeparator key={`separator-${index}`} />;
     const text =
       row.kind === "new"
         ? t("composer.envNew")
         : row.kind === "edit"
-          ? t("composer.envEdit", { name: row.name })
-          : t("composer.envNewMachine");
+          ? t("composer.envEditCurrent")
+          : t("composer.envOpenTerminal");
     return (
       <MenuItem key={row.kind} className="acpmux-menu-item" data-value={row.kind} onSelect={() => action(row)}>
         <span
@@ -198,7 +199,7 @@ export function CloudEnvironmentChip({
           data-action={row.kind}
           data-testid={ACTION_TEST_IDS[row.kind]}
         >
-          {row.kind === "new" ? <PlusIcon /> : row.kind === "edit" ? <GearIcon /> : <ServerIcon />}
+          {row.kind === "new" ? <PlusIcon /> : row.kind === "edit" ? <GearIcon /> : <TerminalIcon />}
           <span className="acpmux-menu-text acpmux-location-name">
             <span className="acpmux-menu-label">{text}</span>
           </span>
@@ -218,7 +219,7 @@ export function CloudEnvironmentChip({
           data-environment-name={rowName}
           data-testid={row.kind === "auto" ? "cloud-environment-auto" : "cloud-environment-option"}
         >
-          {row.kind === "auto" ? <SparkIcon /> : <BoxIcon />}
+          <BoxIcon />
           <span className="acpmux-menu-text acpmux-location-name">
             <span className="acpmux-menu-label">{rowName}</span>
           </span>
@@ -242,13 +243,13 @@ export function CloudEnvironmentChip({
     );
   };
   return (
-    // tooltip-allow: a narrow strip shows the chip's value alone; the tooltip names it
+    // tooltip-allow: a narrow strip shows the chip's value alone; the tooltip names it and says what it is
     <span
       ref={box}
       className="acpmux-location-picker acpmux-cloud-env"
       data-kind="cloud-environment"
       data-testid="cloud-environment-chip"
-      title={`${name}: ${value}`}
+      title={`${name}: ${value}. ${t("composer.envChipHint")}`}
       data-tooltip-shortcut={shortcut}
     >
       <Menu
@@ -327,11 +328,12 @@ function BoxIcon() {
   );
 }
 
-/// Auto: a spark (made for the chat, with no questions).
-function SparkIcon() {
+/// Open Cloud terminal: a prompt.
+function TerminalIcon() {
   return (
     <Icon>
-      <path d="M8 2v3M8 11v3M2 8h3M11 8h3M3.75 3.75l2 2M10.25 10.25l2 2M12.25 3.75l-2 2M5.75 10.25l-2 2" />
+      <path d="M2.75 3.25h10.5v9.5H2.75Z" />
+      <path d="m5 6.5 1.75 1.5L5 9.5M8.25 9.75h2.75" />
     </Icon>
   );
 }

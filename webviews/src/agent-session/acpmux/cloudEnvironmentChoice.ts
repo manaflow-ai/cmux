@@ -49,7 +49,7 @@ export type CloudEnvironmentControl = {
   onNew(): void;
   /// Edit the environment: its id, or none for Auto's (the Default, derived from the repository).
   onEdit(id: string | undefined): void;
-  /// New Cloud machine…: a machine from the picked environment (none for Auto), with a terminal on it.
+  /// Open Cloud terminal: a machine from the picked environment (none for Auto), with a terminal on it.
   onNewMachine(environment: string | undefined): void;
   /// The drop-up opened: read the account's environments again.
   onOpen?(): void;

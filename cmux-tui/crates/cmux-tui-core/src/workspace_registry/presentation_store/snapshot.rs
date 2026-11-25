@@ -101,8 +101,10 @@ impl WorkspaceRegistry {
         let saved_screen_groups =
             super::super::screen_store::read_saved_screen_groups(&self.connection.get())?;
         let kept_tabs = crate::state::kept_tab_store::read_kept_tabs(&self.connection.get())?;
-        let tab_attention =
-            crate::state::tab_state_store::read_tab_attention(&self.connection.get())?;
+        let tab_attention = crate::state::tab_state_store::read_tab_attention(
+            &self.connection.get(),
+            crate::mux::now_ms(),
+        )?;
         let conversation_tabs = read_conversation_tabs(&self.connection.get())?;
         let remote_terminals = read_remote_terminals(&self.connection.get())?;
         let home_workspace =
