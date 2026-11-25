@@ -1,4 +1,5 @@
-@testable import CmuxNextCloud
+@testable import CmuxNextApp
+import CmuxNextCloud
 import Foundation
 import Testing
 
@@ -15,14 +16,12 @@ import Testing
 
     private func call(_ seen: Seen, credential: @escaping FeedOwnerCall.Credential = { "install-token" },
                       team: String? = nil, answer: String) -> FeedOwnerCall {
-        var owner = FeedOwnerCall(baseURL: URL(string: "https://owner.standin.invalid") ?? URL(fileURLWithPath: "/"),
-                                  credential: credential, teamID: { team }, buildSpace: .nightly, machineIO: nil,
-                                  clientVersion: "1.2.3")
-        owner.daemonCall = { input, _ in
+        FeedOwnerCall(baseURL: URL(string: "https://owner.standin.invalid") ?? URL(fileURLWithPath: "/"),
+                      credential: credential, team: team, configuration: .unavailable, machineIO: nil,
+                      clientVersion: "1.2.3") { input, _ in
             seen.add((try JSONSerialization.jsonObject(with: input) as? [String: Any]) ?? [:])
             return Data((answer + "\n").utf8)
         }
-        return owner
     }
 
     @Test func anOpIsTheDaemonsOwnerOpWithItsBodyAsSent() async throws {

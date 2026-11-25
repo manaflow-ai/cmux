@@ -268,7 +268,7 @@ extension CloudDaemon {
     /// `cloud.<call>` with `args`: answers its body as JSON, or throws its failure as a ``CloudAPIError``.
     /// No bundled cmux is `transport` ("cmux is not available"); there is no HTTP fallback. `timeout` bounds the
     /// child (a child past it is killed: `timedOut`, since the call may have run).
-    func daemon(_ call: String, _ args: [String: any Sendable], timeout: Duration) async throws -> Data {
+    public func daemon(_ call: String, _ args: [String: any Sendable], timeout: Duration) async throws -> Data {
         let run: @Sendable (Data, Duration) async throws -> Data
         if let daemonCall {
             run = daemonCall

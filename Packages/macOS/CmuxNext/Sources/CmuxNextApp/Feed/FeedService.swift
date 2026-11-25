@@ -141,8 +141,8 @@ final class FeedService {
         guard auth.isSignedIn else { throw FeedServiceError.signedOut }
         guard let route = FeedOwnerCall.Route(path: path) else { throw FeedServiceError.badReply }
         let auth = auth
-        let owner = FeedOwnerCall(baseURL: apiBaseURL, credential: { try await auth.tokens().access }, teamID: { team },
-                                  buildSpace: auth.configuration.buildSpace, machineIO: auth.machineIO)
+        let owner = FeedOwnerCall(baseURL: apiBaseURL, credential: { try await auth.tokens().access }, team: team,
+                                  configuration: auth.configuration, machineIO: auth.machineIO)
         return try FeedOwnerCall.read(try await owner.send(route, body))
     }
 }
