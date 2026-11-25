@@ -3777,6 +3777,21 @@ public protocol LinkHandleProtocol: AnyObject, Sendable {
      */
     func warmMedia() 
     
+    /**
+     * Open the Mac's file at `path` into `dest` on the phone, over `bundle` when the Mac has it:
+     * chunks the phone already holds (it sent the file, or opened it before) do not cross again.
+     * Falls back to `file` on an older Mac.
+     */
+    func openFileBundle(path: String, dest: String, storeDir: String) async throws  -> FileTransfer
+    
+    /**
+     * Send the phone's file at `path` to the Mac as attachment `name` (into `cwd`'s attachments
+     * folder when given, as `upload`), over `bundle` when the Mac has it: a file the Mac already
+     * holds costs one round trip and its manifest. `store_dir` is this Mac's folder in the app's
+     * Caches. Falls back to `upload` on an older Mac.
+     */
+    func uploadFileBundle(path: String, name: String, cwd: String, storeDir: String) async throws  -> FileTransfer
+    
 }
 /**
  * A connected link to one Mac.
@@ -4279,6 +4294,51 @@ open func warmMedia()  {try! rustCall() {
             self.uniffiCloneHandle(),$0
     )
 }
+}
+    
+    /**
+     * Open the Mac's file at `path` into `dest` on the phone, over `bundle` when the Mac has it:
+     * chunks the phone already holds (it sent the file, or opened it before) do not cross again.
+     * Falls back to `file` on an older Mac.
+     */
+open func openFileBundle(path: String, dest: String, storeDir: String)async throws  -> FileTransfer  {
+    return
+        try  await uniffiRustCallAsync(
+            rustFutureFunc: {
+                uniffi_cmux_mobile_link_ffi_fn_method_linkhandle_open_file_bundle(
+                    self.uniffiCloneHandle(),
+                    FfiConverterString.lower(path),FfiConverterString.lower(dest),FfiConverterString.lower(storeDir)
+                )
+            },
+            pollFunc: ffi_cmux_mobile_link_ffi_rust_future_poll_rust_buffer,
+            completeFunc: ffi_cmux_mobile_link_ffi_rust_future_complete_rust_buffer,
+            freeFunc: ffi_cmux_mobile_link_ffi_rust_future_free_rust_buffer,
+            liftFunc: FfiConverterTypeFileTransfer_lift,
+            errorHandler: FfiConverterTypeCmuxMobileError_lift
+        )
+}
+    
+    /**
+     * Send the phone's file at `path` to the Mac as attachment `name` (into `cwd`'s attachments
+     * folder when given, as `upload`), over `bundle` when the Mac has it: a file the Mac already
+     * holds costs one round trip and its manifest. `store_dir` is this Mac's folder in the app's
+     * Caches. Falls back to `upload` on an older Mac.
+     */
+open func uploadFileBundle(path: String, name: String, cwd: String, storeDir: String)async throws  -> FileTransfer  {
+    return
+        try  await uniffiRustCallAsync(
+            rustFutureFunc: {
+                uniffi_cmux_mobile_link_ffi_fn_method_linkhandle_upload_file_bundle(
+                    self.uniffiCloneHandle(),
+                    FfiConverterString.lower(path),FfiConverterString.lower(name),FfiConverterString.lower(cwd),FfiConverterString.lower(storeDir)
+                )
+            },
+            pollFunc: ffi_cmux_mobile_link_ffi_rust_future_poll_rust_buffer,
+            completeFunc: ffi_cmux_mobile_link_ffi_rust_future_complete_rust_buffer,
+            freeFunc: ffi_cmux_mobile_link_ffi_rust_future_free_rust_buffer,
+            liftFunc: FfiConverterTypeFileTransfer_lift,
+            errorHandler: FfiConverterTypeCmuxMobileError_lift
+        )
 }
     
 
@@ -9548,6 +9608,105 @@ public func FfiConverterTypeConnectOptions_lift(_ buf: RustBuffer) throws -> Con
 #endif
 public func FfiConverterTypeConnectOptions_lower(_ value: ConnectOptions) -> RustBuffer {
     return FfiConverterTypeConnectOptions.lower(value)
+}
+
+
+/**
+ * One file moved: where it landed and what crossed the link.
+ */
+public struct FileTransfer: Equatable, Hashable {
+    /**
+     * The upload: the file's path on the Mac (the `upload` reply's). The open: `dest`.
+     */
+    public var path: String
+    /**
+     * The file's size.
+     */
+    public var size: UInt64
+    /**
+     * Whether it went over `bundle` (false: the old `upload` / `file`).
+     */
+    public var bundle: Bool
+    /**
+     * Channel payload bytes the phone sent.
+     */
+    public var sentBytes: UInt64
+    /**
+     * Channel payload bytes the phone received.
+     */
+    public var receivedBytes: UInt64
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(
+        /**
+         * The upload: the file's path on the Mac (the `upload` reply's). The open: `dest`.
+         */path: String, 
+        /**
+         * The file's size.
+         */size: UInt64, 
+        /**
+         * Whether it went over `bundle` (false: the old `upload` / `file`).
+         */bundle: Bool, 
+        /**
+         * Channel payload bytes the phone sent.
+         */sentBytes: UInt64, 
+        /**
+         * Channel payload bytes the phone received.
+         */receivedBytes: UInt64) {
+        self.path = path
+        self.size = size
+        self.bundle = bundle
+        self.sentBytes = sentBytes
+        self.receivedBytes = receivedBytes
+    }
+
+    
+
+    
+}
+
+#if compiler(>=6)
+extension FileTransfer: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeFileTransfer: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> FileTransfer {
+        return
+            try FileTransfer(
+                path: FfiConverterString.read(from: &buf), 
+                size: FfiConverterUInt64.read(from: &buf), 
+                bundle: FfiConverterBool.read(from: &buf), 
+                sentBytes: FfiConverterUInt64.read(from: &buf), 
+                receivedBytes: FfiConverterUInt64.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: FileTransfer, into buf: inout [UInt8]) {
+        FfiConverterString.write(value.path, into: &buf)
+        FfiConverterUInt64.write(value.size, into: &buf)
+        FfiConverterBool.write(value.bundle, into: &buf)
+        FfiConverterUInt64.write(value.sentBytes, into: &buf)
+        FfiConverterUInt64.write(value.receivedBytes, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeFileTransfer_lift(_ buf: RustBuffer) throws -> FileTransfer {
+    return try FfiConverterTypeFileTransfer.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeFileTransfer_lower(_ value: FileTransfer) -> RustBuffer {
+    return FfiConverterTypeFileTransfer.lower(value)
 }
 
 
@@ -18465,6 +18624,12 @@ private let initializationResult: InitializationResult = {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_cmux_mobile_link_ffi_checksum_method_linkhandle_warm_media() != 33318) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_cmux_mobile_link_ffi_checksum_method_linkhandle_open_file_bundle() != 4368) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_cmux_mobile_link_ffi_checksum_method_linkhandle_upload_file_bundle() != 2441) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_cmux_mobile_link_ffi_checksum_method_linkobserver_on_event() != 31759) {
