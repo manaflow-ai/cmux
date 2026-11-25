@@ -87,18 +87,18 @@ fn spec(name: &str, labels: &[(&str, &str)]) -> CreateMachineSpec {
 
 #[tokio::test]
 async fn create_spreads_pods_over_hosts_and_fills_the_pool() {
-    let (p, _, _) = pool(&[("gcp-agent-lane-1", 2), ("fs-agent-lane-3", 1)]);
+    let (p, _, _) = pool(&[("pool-host-a", 2), ("pool-host-b", 1)]);
     let a = p.create(spec("lane-a", &[])).await.unwrap();
     let b = p.create(spec("lane-b", &[])).await.unwrap();
     let c = p.create(spec("lane-c", &[])).await.unwrap();
-    assert_eq!(p.host_of(&a).unwrap(), "gcp-agent-lane-1");
-    assert_eq!(p.host_of(&b).unwrap(), "fs-agent-lane-3");
-    assert_eq!(p.host_of(&c).unwrap(), "gcp-agent-lane-1");
+    assert_eq!(p.host_of(&a).unwrap(), "pool-host-a");
+    assert_eq!(p.host_of(&b).unwrap(), "pool-host-b");
+    assert_eq!(p.host_of(&c).unwrap(), "pool-host-a");
     let err = p.create(spec("lane-d", &[])).await.unwrap_err();
     assert_eq!(err, MachineProviderError::Backend("pool team-pool is full".into()));
     p.delete(&b).await.unwrap();
     let d = p.create(spec("lane-d", &[])).await.unwrap();
-    assert_eq!(p.host_of(&d).unwrap(), "fs-agent-lane-3");
+    assert_eq!(p.host_of(&d).unwrap(), "pool-host-b");
 }
 
 #[tokio::test]
@@ -253,6 +253,6 @@ fn exec_runs_in_the_pod_slice_inside_bwrap() {
 
 #[test]
 fn sanitize_makes_unit_safe_names() {
-    assert_eq!(sanitize("fs-agent-lane-10/Fleet Pool!"), "fs-agent-lane-10-fleet-pool");
+    assert_eq!(sanitize("pool-host-a/Fleet Pool!"), "pool-host-a-fleet-pool");
     assert_eq!(sanitize("!!!"), "pod");
 }
