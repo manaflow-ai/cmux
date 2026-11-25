@@ -31,6 +31,9 @@
 //! `first_key_ms` is the echo of each burst's first key;
 //! `--foreground-probe on` starts the phone's link with its foreground
 //! probe on, as the app does with a terminal on screen.
+//! `--prewake-lead-ms L` calls `Link::prewake` L ms before each burst's
+//! first key, as the app does when the keyboard takes focus or a finger
+//! touches down (RFD 0142 T2).
 //! Prints one JSON line: echo percentiles and the keys whose echo took more
 //! than the profile's RTT plus 50 ms.
 
@@ -41,8 +44,9 @@ use std::time::Duration;
 use bytes::Bytes;
 use cmux_mobile_link::dial::{self, SessionEvents};
 use cmux_mobile_link::testing::{
-    FakeOptions, FakeSignaling, LinkProfile, RadioModel, TestTurn, radio_wakes, set_link_profile,
-    set_radio_model, set_turn_answer_delay, shape_downlink, shape_uplink, shaped_counts,
+    FakeOptions, FakeSignaling, LinkProfile, PeriodicLoss, RadioModel, TestTurn, radio_wakes,
+    set_link_profile, set_periodic_loss, set_radio_model, set_turn_answer_delay, shape_downlink,
+    shape_uplink, shaped_counts,
 };
 use cmux_mobile_link::{ChannelEvent, DialOptions, Lane, LinkConfig, SignalingClient, TransportKind};
 use tokio::time::{Instant, sleep_until};
@@ -60,6 +64,10 @@ struct Args {
     burst_every_s: Option<f64>,
     burst_keys: u64,
     foreground_probe: bool,
+    idle_air_gap_ms: Option<u64>,
+    air_floor_ms: Option<u64>,
+    prewake_lead_ms: Option<u64>,
+    periodic_loss: Option<PeriodicLoss>,
 }
 
 fn args() -> Args {
@@ -76,6 +84,10 @@ fn args() -> Args {
         burst_every_s: None,
         burst_keys: 5,
         foreground_probe: false,
+        idle_air_gap_ms: None,
+        air_floor_ms: None,
+        prewake_lead_ms: None,
+        periodic_loss: None,
     };
     let mut iter = std::env::args().skip(1);
     while let Some(flag) = iter.next() {
@@ -93,6 +105,12 @@ fn args() -> Args {
             "--burst-every-s" => parsed.burst_every_s = value.parse().ok(),
             "--burst-keys" => parsed.burst_keys = value.parse().unwrap_or(5),
             "--foreground-probe" => parsed.foreground_probe = value == "on",
+            "--idle-air-gap-ms" => parsed.idle_air_gap_ms = value.parse().ok(),
+            "--air-floor-ms" => parsed.air_floor_ms = value.parse().ok(),
+            "--prewake-lead-ms" => parsed.prewake_lead_ms = value.parse().ok(),
+            // PERIOD_MS:BURST_MS:PERCENT, e.g. 15000:300:40 for a Starlink-like
+            // reconfiguration every 15 s (RFD 0142 O5).
+            "--periodic-loss" => parsed.periodic_loss = PeriodicLoss::parse(&value),
             other => eprintln!("ignoring unknown flag {other}"),
         }
     }
@@ -144,6 +162,7 @@ async fn main() {
             ..RadioModel::lte()
         }));
     }
+    set_periodic_loss(args.periodic_loss);
     // The TURN server is a round trip away, as a real one is: its answers to
     // the client's Allocate, Refresh, CreatePermission and ChannelBind wait
     // that long (the profile's RTT unless --turn-answer-ms says otherwise).
@@ -207,6 +226,13 @@ async fn main() {
         });
     }
     options.impair_inbound = Some(shape_downlink);
+    // `--air-floor-ms 0` turns the phone's floor off.
+    if let Some(ms) = args.idle_air_gap_ms {
+        options.idle_air_gap = (ms > 0).then(|| Duration::from_millis(ms));
+    }
+    if let Some(ms) = args.air_floor_ms {
+        options.air_floor = (ms > 0).then(|| Duration::from_millis(ms));
+    }
     let phone_config = LinkConfig { foreground_probe: args.foreground_probe, ..LinkConfig::default() };
     let phone_id = uuid::Uuid::new_v4().to_string();
     let phone =
@@ -241,6 +267,9 @@ async fn main() {
     let mut firsts = std::collections::HashSet::new();
     let mut burst_at = next;
     let mut in_burst = 0u64;
+    // When the next pre-wake is due, and how many were sent.
+    let mut prewake_at: Option<Instant> = None;
+    let mut prewakes = 0u64;
     // A fixed rate, never catching up: a stalled send shows as a gap in
     // sent_ms, not as a burst.
     while next < end {
@@ -258,11 +287,18 @@ async fn main() {
                 in_burst = 0;
                 burst_at += Duration::from_secs_f64(every);
                 next = next.max(burst_at);
+                prewake_at = args.prewake_lead_ms.map(|lead| burst_at - Duration::from_millis(lead));
             }
         }
         let now = Instant::now();
         while next < now {
             next += interval;
+        }
+        if let Some(at) = prewake_at.take()
+            && at > now
+        {
+            sleep_until(at).await;
+            prewakes += u64::from(link.prewake());
         }
         sleep_until(next).await;
     }
@@ -306,7 +342,7 @@ async fn main() {
          \"dial_ms\":{dialed_ms:.0},\"typing_from_ms\":{:.0},\"keys_on_input_lane\":{on_input_stream},\
          \"keys_sent\":{seq},\"echoed\":{},\"echo_ms\":{{\"p50\":{:.1},\"p95\":{:.1},\"p99\":{:.1},\"max\":{:.1}}},\
          \"turn_answer_ms\":{turn_answer_ms},\"threshold_ms\":{},\"over_threshold\":{},\"datagrams\":[{delivered},{dropped}],\
-         \"final_path\":\"{path:?}\",\"radio\":{},\"radio_tail_ms\":{},\"foreground_probe\":{},\"radio_wakes\":{wakes},\"first_key_ms\":{first_key},\"spikes\":[{}]}}",
+         \"final_path\":\"{path:?}\",\"radio\":{},\"radio_tail_ms\":{},\"foreground_probe\":{},\"idle_air_gap_ms\":{},\"air_floor_ms\":{},\"periodic_loss\":{},\"prewake_lead_ms\":{},\"prewakes\":{prewakes},\"radio_wakes\":{wakes},\"first_key_ms\":{first_key},\"spikes\":[{}]}}",
         args.profile,
         args.row,
         args.seconds,
@@ -322,6 +358,15 @@ async fn main() {
         args.radio,
         args.radio_tail_ms,
         args.foreground_probe,
+        args.idle_air_gap_ms.map_or("null".to_string(), |ms| ms.to_string()),
+        args.air_floor_ms.map_or("null".to_string(), |ms| ms.to_string()),
+        args.periodic_loss.map_or("null".to_string(), |loss| format!(
+            "\"{}:{}:{}\"",
+            loss.period.as_millis(),
+            loss.burst.as_millis(),
+            loss.loss_percent
+        )),
+        args.prewake_lead_ms.map_or("null".to_string(), |ms| ms.to_string()),
         spikes.join(","),
     );
     std::process::exit(0);

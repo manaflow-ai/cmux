@@ -132,7 +132,11 @@ fn migrate_legacy_harness_state(
 impl Hub {
     /// `session/new` or `session/load` params for acpmux session `id`'s ACP
     /// harness: its folder and cmux's MCP servers (agent_tools.rs), none for
-    /// a remote origin or an isolated profile.
+    /// a remote origin or an isolated profile. `init` is this child's own `initialize` answer:
+    /// whether it takes HTTP servers (the daemon's gateway, `mcp_gateway.rs`) comes from it,
+    /// never from `meta`, a copy taken before the answer was recorded (a fresh chat's has no
+    /// capabilities, so a Codex chat got five stdio `acpmux *-mcp` processes, bench 2026-11-25).
+    #[allow(clippy::too_many_arguments)]
     pub(super) fn acp_params(
         &self,
         id: &str,
@@ -141,6 +145,7 @@ impl Hub {
         session_id: Option<&str>,
         child: &crate::agent::ChildAgent,
         answer: &crate::agent_tools::CodexAnswer,
+        init: &Value,
     ) -> Value {
         let all =
             crate::agent_tools::lists_all_tools(&meta.harness, profile, &profile.env, &meta.cwd);
@@ -155,7 +160,7 @@ impl Hub {
                 answer: Some(answer),
             },
         );
-        let http = crate::agent_tools::takes_http(meta.agent_capabilities.as_ref());
+        let http = crate::agent_tools::takes_http(init.get("agentCapabilities"));
         let servers = crate::agent_tools::acp_servers_for(
             meta.remote_origin,
             &profile.env,

@@ -253,6 +253,7 @@
               "appearance.customDensities",
               "appearance.metrics.chromeFontSize",
               "appearance.fontSmoothing",
+              "appearance.appFont",
               "appearance.metrics.sidebarRowHeight",
               "appearance.borders",
               "appearance.liquidGlass",
@@ -1736,6 +1737,7 @@
               "notifications.sounds.events.bell",
               "notifications.sounds.events.message",
               "notifications.sounds.volume",
+              "notifications.sounds.maxSeconds",
               "notifications.sounds.when",
               "notifications.sounds.cooldownSeconds"
             ],
@@ -2413,8 +2415,10 @@
           {
             "key" : "settings.group.experiments",
             "rows" : [
+              "experiments.appFontChrome",
               "experiments.glassToolbarGroups",
               "experiments.composerV2",
+              "experiments.composerHatGroups",
               "experiments.agentBadges",
               "experiments.agentBadgesBeam",
               "experiments.toastsV2",
@@ -39517,6 +39521,145 @@
         "text" : "Text Smoothing"
       },
       "validation" : "portable"
+    },
+    {
+      "accepts" : [
+
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : null,
+      "default_label" : {
+        "key" : "settings.appearance.appFont.system",
+        "text" : "System"
+      },
+      "group" : {
+        "key" : "settings.group.densityMotion",
+        "text" : "Density and Motion"
+      },
+      "help" : {
+        "key" : "settings.appearance.appFont.help",
+        "text" : "The font of cmux's interface: chat, Settings and every page. Terminals keep their own."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "appearance.appFont",
+      "keywords" : [
+        "font",
+        "app font",
+        "interface font",
+        "ui font",
+        "typeface",
+        "family",
+        "whole app",
+        "text"
+      ],
+      "kind" : "font_family",
+      "page_hidden" : false,
+      "path" : [
+        "appearance",
+        "appFont"
+      ],
+      "placeholder" : null,
+      "refuses" : [
+        1,
+        true,
+        null
+      ],
+      "section" : "appearance",
+      "summary" : null,
+      "surfaces" : {
+        "cli" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "mcp" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "palette" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : "options",
+          "offered" : true,
+          "operations" : [
+
+          ],
+          "reason" : null,
+          "row" : "setting:appearance.appFont"
+        },
+        "socket" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+            "settings.unset"
+          ],
+          "app_operations" : [
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        }
+      },
+      "title" : {
+        "key" : "settings.appearance.appFont",
+        "text" : "App Font"
+      },
+      "validation" : "domain:ui_font_family"
     },
     {
       "accepts" : [
@@ -91918,7 +92061,8 @@
       "default" : [
         "media",
         "zoom",
-        "downloads"
+        "downloads",
+        "profile"
       ],
       "default_label" : null,
       "group" : {
@@ -92348,15 +92492,7 @@
         "cmux-next"
       ],
       "default" : {
-        "amazon.com/gp/video" : "webkit",
-        "disneyplus.com" : "webkit",
-        "hulu.com" : "webkit",
-        "max.com" : "webkit",
-        "music.apple.com" : "webkit",
-        "netflix.com" : "webkit",
-        "primevideo.com" : "webkit",
-        "spotify.com" : "webkit",
-        "tv.apple.com" : "webkit"
+
       },
       "default_label" : null,
       "group" : {
@@ -109884,6 +110020,149 @@
     },
     {
       "accepts" : [
+        0,
+        30,
+        15
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : 0,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.sounds",
+        "text" : "Sounds"
+      },
+      "help" : {
+        "key" : "settings.notifications.sounds.maxSeconds.help",
+        "text" : "Sounds cmux plays itself stop after this long. 0 plays the whole sound."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "notifications.sounds.maxSeconds",
+      "keywords" : [
+        "sound",
+        "length",
+        "duration",
+        "seconds",
+        "stop"
+      ],
+      "kind" : "number",
+      "page_hidden" : false,
+      "path" : [
+        "notifications",
+        "sounds",
+        "maxSeconds"
+      ],
+      "placeholder" : null,
+      "range" : {
+        "max" : 30,
+        "min" : 0,
+        "placeholder" : 0,
+        "step" : 0.5,
+        "unit" : "seconds"
+      },
+      "refuses" : [
+        -30,
+        60,
+        "1"
+      ],
+      "section" : "notifications",
+      "summary" : null,
+      "surfaces" : {
+        "cli" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "mcp" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "palette" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : "options",
+          "offered" : true,
+          "operations" : [
+
+          ],
+          "reason" : null,
+          "row" : "setting:notifications.sounds.maxSeconds"
+        },
+        "socket" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+            "settings.unset"
+          ],
+          "app_operations" : [
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        }
+      },
+      "title" : {
+        "key" : "settings.notifications.sounds.maxSeconds",
+        "text" : "Sound Duration"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
         "unlessViewed",
         "whenInactive",
         "always"
@@ -112354,6 +112633,143 @@
         "text" : "Experiments"
       },
       "help" : {
+        "key" : "settings.experiments.appFontChrome.help",
+        "text" : "The sidebar, tabs and titlebar draw in the App Font too. Some text changes after cmux restarts."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "experiments.appFontChrome",
+      "keywords" : [
+        "experiments",
+        "experimental",
+        "prototype",
+        "font",
+        "app font",
+        "sidebar",
+        "tabs",
+        "chrome"
+      ],
+      "kind" : "toggle",
+      "page_hidden" : false,
+      "path" : [
+        "experiments",
+        "appFontChrome"
+      ],
+      "placeholder" : null,
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "advanced",
+      "summary" : null,
+      "surfaces" : {
+        "cli" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "mcp" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "palette" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : "toggle",
+          "offered" : true,
+          "operations" : [
+            "palette.toggleSetting"
+          ],
+          "reason" : null,
+          "row" : "setting:experiments.appFontChrome"
+        },
+        "socket" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+            "settings.unset"
+          ],
+          "app_operations" : [
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        }
+      },
+      "title" : {
+        "key" : "settings.experiments.appFontChrome",
+        "text" : "App Font in Native Chrome"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        true,
+        false
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : false,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.experiments",
+        "text" : "Experiments"
+      },
+      "help" : {
         "key" : "settings.experiments.glassToolbarGroups.help",
         "text" : "The chat header's buttons become round glass buttons, with related actions sharing one glass capsule, a search chip and shortcut keycaps."
       },
@@ -112472,6 +112888,145 @@
       "title" : {
         "key" : "settings.experiments.glassToolbarGroups",
         "text" : "Glass Toolbar Groups"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        true,
+        false
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : true,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.experiments",
+        "text" : "Experiments"
+      },
+      "help" : {
+        "key" : "settings.experiments.composerHatGroups.help",
+        "text" : "Show subagents and background tasks as two groups, with the hat aligned to the composer's plus glyph."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "experiments.composerHatGroups",
+      "keywords" : [
+        "labs",
+        "experiments",
+        "experimental",
+        "prototype",
+        "composer",
+        "hat",
+        "subagents",
+        "background",
+        "groups",
+        "glyph"
+      ],
+      "kind" : "toggle",
+      "page_hidden" : false,
+      "path" : [
+        "experiments",
+        "composerHatGroups"
+      ],
+      "placeholder" : null,
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "advanced",
+      "summary" : null,
+      "surfaces" : {
+        "cli" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "mcp" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "palette" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : "toggle",
+          "offered" : true,
+          "operations" : [
+            "palette.toggleSetting"
+          ],
+          "reason" : null,
+          "row" : "setting:experiments.composerHatGroups"
+        },
+        "socket" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+            "settings.unset"
+          ],
+          "app_operations" : [
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        }
+      },
+      "title" : {
+        "key" : "settings.experiments.composerHatGroups",
+        "text" : "Composer Hat: Two Groups"
       },
       "validation" : "portable"
     },

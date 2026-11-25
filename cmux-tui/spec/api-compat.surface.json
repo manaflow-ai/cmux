@@ -8898,6 +8898,10 @@
         "ty": "json",
         "required": true,
         "nullable": true
+      },
+      "/op_id": {
+        "ty": "string",
+        "nullable": true
       }
     },
     "request:conversation-link-resolve": {

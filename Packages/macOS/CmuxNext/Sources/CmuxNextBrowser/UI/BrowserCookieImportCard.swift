@@ -8,10 +8,10 @@ import CmuxNextPages
 /// browser's icon, one line, Don't Show Again and Import as the toast's text
 /// answers and its close button as Not Now (Leo 2026-11-08: "i dont like
 /// this. 1. looks bad. 2. not glass. 3. talks about too much irrelevant
-/// shit"). This view is the host only: the window's glass of the toast surface
-/// (``SurfaceRole/toast``, the material the window's toasts draw on this same
-/// overlay host), the popups' shadow, the card's size from the page's reports,
-/// and the answers back to the chrome. It never takes focus (its window is
+/// shit"). This view is the host only: the window toasts' own glass, made
+/// where they make theirs (``Glass/makeSurface(toastOf:cornerRadius:reduceTransparency:)``,
+/// on this same overlay host), the popups' shadow, the card's size from the
+/// page's reports, and the answers back to the chrome. It never takes focus (its window is
 /// never key; the page takes the first click) and every answer closes it.
 /// Under Reduce Transparency it is opaque (`OverlaySurfaceView`).
 final class BrowserCookieImportCard: NSView {
@@ -48,20 +48,28 @@ final class BrowserCookieImportCard: NSView {
     /// Counts the states pushed; a report names the one it measured, so an older one is dropped.
     private var revision = 0
 
-    /// - Parameter makeContent: Makes the card's React page; tests pass their own.
-    init(offer: BrowserCookieImportOffer,
+    /// - Parameters:
+    ///   - toastCenter: Whose toasts' glass the card draws on (the app's; tests pass their own).
+    ///   - reduceTransparency: Glass or the opaque surface (tests pass their own).
+    ///   - makeContent: Makes the card's React page; tests pass their own.
+    init(offer: BrowserCookieImportOffer, toastCenter: CmuxToastCenter = .shared, reduceTransparency: ReduceTransparency = .shared,
          makeContent: @MainActor () -> (any BrowserChromeWebContent)? = { BrowserChromeWebHost(.cookieImport) }) {
         self.offer = offer
         super.init(frame: .zero)
         translatesAutoresizingMaskIntoConstraints = false
         let body = NSView()
-        let glass = Glass.makeOverlayPanel(content: body, cornerRadius: Self.cornerRadius, tone: .neutralGlass(.transient))
+        // The window toasts' own glass, made where they make theirs: it drew the floating panels' clear
+        // Liquid Glass with no rim, a second glass beside the toasts' veil-tinted one (Leo 2026-11-24: "oh
+        // yeah the import from chrome popup/toast is there too...with yet another kind of \"glass\"").
         // It floats on the overlay host, a clear window over the page's own window: its Liquid Glass bends
         // that page, as the dialog card's does (Lawrence 2026-11-09: "i need to be able to see liquid glass
         // effect"). The blur (macOS 14 and 15) samples the page behind the window; Reduce Transparency
         // keeps the opaque surface.
-        glass.samplesBehindWindow = true
-        glass.translatesAutoresizingMaskIntoConstraints = false
+        let glass = Glass.makeSurface(toastOf: toastCenter, cornerRadius: Self.cornerRadius, reduceTransparency: reduceTransparency)
+        body.translatesAutoresizingMaskIntoConstraints = true
+        body.autoresizingMask = [.width, .height]
+        body.frame = glass.contentView.bounds
+        glass.contentView.addSubview(body)
         addSubview(glass)
         castShadow()
         self.glass = glass
