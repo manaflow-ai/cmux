@@ -1,6 +1,7 @@
 import type { Env } from "../env.ts"
 import { verifyGitHub, verifyLinear, verifySlack, type Provider, type Verified } from "./providers.ts"
 import { readRawBody } from "./verify.ts"
+import { installApprovalOf, requesterIndexKey } from "../integrations/github-install-requests.ts"
 
 /**
  * Provider webhooks: `POST /v1/hooks/{github,slack,linear}`. Verify first
@@ -41,6 +42,21 @@ export const handleProviderHook = async (request: Request, env: Env, provider: P
     } catch (error) {
       failed++
       console.error("provider hook ingest failed", { provider, delivery: d.delivery_id, team, connection, error: error instanceof Error ? error.message : String(error) })
+    }
+  }
+  // An owner approved a member's install request: tell the person who asked (integrations/github-install-requests.ts).
+  // This installation has no connection yet, so the fan-out above reached no one for it.
+  const approval = provider === "github" ? installApprovalOf(d) : null
+  if (approval) {
+    const index = env.ACCOUNT_INDEX_DO.get(env.ACCOUNT_INDEX_DO.idFromName(requesterIndexKey(approval.requester_id)))
+    for (const { team, connection } of await index.list()) {
+      try {
+        await env.CONNECTION_DO.get(env.CONNECTION_DO.idFromName(team)).githubInstallApproved(team, approval)
+        await index.remove(team, connection)
+      } catch (error) {
+        failed++
+        console.error("install approval notice failed", { delivery: d.delivery_id, team, error: error instanceof Error ? error.message : String(error) })
+      }
     }
   }
   // A non-2xx makes the provider redeliver; ingest is idempotent by delivery id (GitHub: its GUID), so teams that already took it are unaffected.

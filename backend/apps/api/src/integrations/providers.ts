@@ -12,6 +12,7 @@ import type { Env } from "../env.ts"
 import { effectCall, failed, form, json, MAX_LINKED_REPOS, ProviderError, rateLimitMessage, rateLimitWait, type Credential, type Http, type ProviderImpl } from "./provider-core.ts"
 import { grantOf } from "./github-user-tokens.ts"
 import { verifyActionsOidc } from "./github-actions-connect.ts"
+import { GithubInstallRequested, type InstallRequester } from "./github-install-requests.ts"
 
 import { gmail } from "./gmail.ts"
 import { googleCalendar } from "./google-calendar.ts"
@@ -158,6 +159,25 @@ const commentToken = async (env: Env, http: Http, installation: number, repo: st
   return mint
 }
 
+/** The GitHub user an install request's code names (one exchange, one GET /user), or undefined when either fails. */
+const requesterOf = async (env: Env, http: Http, code: string): Promise<InstallRequester | undefined> => {
+  try {
+    const tok = await http(new Request("https://github.com/login/oauth/access_token", {
+      method: "POST",
+      headers: { accept: "application/json", "content-type": "application/x-www-form-urlencoded" },
+      body: form({ client_id: env.GITHUB_APP_CLIENT_ID!, client_secret: env.GITHUB_APP_CLIENT_SECRET!, code })
+    }))
+    const t = await json(tok)
+    if (!tok.ok || typeof t.access_token !== "string") return undefined
+    const me = await http(new Request(`${GH_API}/user`, { headers: ghHeaders(t.access_token) }))
+    const u = me.ok ? await json(me) : {}
+    const id = u.id
+    return typeof id === "number" && Number.isSafeInteger(id) && id > 0 ? { github_id: id, login: typeof u.login === "string" ? u.login.slice(0, 100) : "" } : undefined
+  } catch {
+    return undefined
+  }
+}
+
 /** A GitHub App installation's `permissions` as a connection's scopes_granted (`contents:write`, sorted), at link time and on webhooks. */
 export const githubScopesOf = (permissions: Readonly<Record<string, unknown>>): Array<string> =>
   Object.entries(permissions).filter((e): e is [string, string] => typeof e[1] === "string").map(([k, v]) => `${k}:${v}`).sort()
@@ -173,9 +193,9 @@ export const github: ProviderImpl = {
     const installation = Number(p.installation_id)
     // An organization member's install is a request until an owner approves it: GitHub comes back with
     // `setup_action=request` and no installation yet. Nothing to link; say what happens next.
-    if (p.setup_action === "request" && !Number.isSafeInteger(installation)) {
-      throw new ProviderError("integration.state_invalid", "GitHub sent your request to install the cmux GitHub App to the organization's owners. When an owner approves it, choose Connect GitHub in cmux again")
-    }
+    // The code (user authorization during installation) proves who asked, so the owner's approval can be told to
+    // them (github-install-requests.ts); without one, or when GitHub refuses it, the refusal says the same.
+    if (p.setup_action === "request" && !Number.isSafeInteger(installation)) throw new GithubInstallRequested(p.code ? await requesterOf(env, http, p.code) : undefined)
     if (!p.code || !Number.isSafeInteger(installation)) {
       throw new ProviderError("integration.state_invalid", "GitHub returned no installation_id or code (enable 'Request user authorization during installation')")
     }

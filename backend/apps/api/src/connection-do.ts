@@ -18,6 +18,7 @@ import { onDisconnect, onGmailPush, runWatchWork, startWatchSafely, stopWatchWit
 import { createRevocationTable, drainRevocations, nextRevocationAt, takeCredentialForRevocation } from "./integrations/revocations.ts"
 import * as ghTokens from "./integrations/github-tokens.ts"
 import * as ghUser from "./integrations/github-user-tokens.ts"
+import * as ghRequests from "./integrations/github-install-requests.ts"
 import { createConfigurePageTable, githubConnectTarget, installationConfigureUrl, type GithubConnectTarget } from "./integrations/github-connect.ts"
 import { addListener, createListenerTable, githubChangeOf, GithubPushCoalescer, listeners, removeListener, type IntegrationChangedFrame } from "./integrations/github-push.ts"
 import { github, githubScopesOf, ProviderError, providerForOp, providers, scopesToRequest, type Credential, type Http } from "./integrations/providers.ts"
@@ -73,6 +74,7 @@ export class ConnectionDO extends OwnerDO<ConnectionsState> {
     createApprovalTable(sql)
     ghTokens.createGithubTokenTable(sql)
     ghUser.createGithubUserTokenTable(sql)
+    ghRequests.createInstallRequestTable(sql)
     createListenerTable(sql)
     createConfigurePageTable(sql)
     createGitHubDeliveryTable(sql)
@@ -470,6 +472,10 @@ export class ConnectionDO extends OwnerDO<ConnectionsState> {
       connection: c.id,
       state: String(params.state),
       scopes_requested: scopesToRequest(this.env, impl, c.scopes_requested)
+    }).catch(async (e) => {
+      // An organization install request: remember who asked, so the owner's approval reaches them.
+      if (e instanceof ghRequests.GithubInstallRequested && e.requester) await this.recordInstallRequest(e.requester, principal.user!, c.id)
+      throw e
     })
     if (c.account && c.account.key !== approved.account.key) throw new ProviderError("integration.state_invalid", "re-authorization must use the same provider account")
     // A disconnect may have committed while we waited on the provider.
@@ -749,6 +755,33 @@ export class ConnectionDO extends OwnerDO<ConnectionsState> {
         return
       }
     }
+  }
+
+  /** Records an install request and indexes its GitHub requester to this team (github-install-requests.ts). */
+  private async recordInstallRequest(requester: ghRequests.InstallRequester, user: string, connection: string): Promise<void> {
+    ghRequests.recordInstallRequest(this.ctx.storage.sql, requester, user, connection, Date.now())
+    await this.index(ghRequests.requesterIndexKey(requester.github_id)).add(this.boundEntity()!, connection)
+      .catch((e) => console.error(JSON.stringify({ msg: "install request index failed", connection, error: e instanceof Error ? e.name : "unknown" })))
+  }
+
+  /**
+   * RPC from the GitHub webhook route: an owner approved an install `approval.requester_id` asked for. Each cmux user
+   * here who asked as that GitHub user gets a feed notice and an `integration.changed` on their watching sockets
+   * (github-install-requests.ts). A failed post keeps the request so GitHub's redelivery tries again.
+   */
+  async githubInstallApproved(entity: string, approval: ghRequests.InstallApproval): Promise<{ notified: number }> {
+    if (!this.boundTo(entity)) return { notified: 0 }
+    const sql = this.ctx.storage.sql
+    const users = ghRequests.pendingInstallRequests(sql, approval.requester_id, Date.now())
+    for (const user of users) {
+      const feed = this.env.FEED_DO.get(this.env.FEED_DO.idFromName(user))
+      // Keyed by the delivery: GitHub's redelivery after a partial failure posts nothing twice.
+      const r = await feed.integrationNotice(user, entity, ghRequests.approvalNotice(approval), `github-install-approved:${approval.delivery_id}:${entity}`)
+      if (!r.ok) throw new Error(r.message)
+      await feed.integrationChanged(user, ghRequests.approvalFrame(approval)).catch(() => undefined)
+    }
+    ghRequests.forgetInstallRequests(sql, approval.requester_id)
+    return { notified: users.length }
   }
 
   /** GitHub changes for watching feed sockets (integrations/github-push.ts): coalesced per listener. */
