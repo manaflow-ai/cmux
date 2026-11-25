@@ -5,6 +5,7 @@
 import { expect, test } from "bun:test";
 import type { ComposerAttachment } from "./attachments";
 import { sentPromptShape } from "./direct/queue";
+import { editHeld, heldQueueRows, whereHeldGoes, type TrustHeldPrompt } from "./trustHeld";
 
 const image = (id: string): ComposerAttachment => ({
   id,
@@ -43,4 +44,36 @@ test("two images and words go as one prompt, not one prompt per piece", () => {
 test("an image alone is still a prompt with its image block", () => {
   const shape = sentPromptShape("", [image("only")], {});
   expect(shape.blocks.filter((block) => block.type === "image")).toHaveLength(1);
+});
+
+const held = (id: string, text: string, ...attachments: ComposerAttachment[]): TrustHeldPrompt => ({
+  id,
+  chat: "chat-1",
+  cwd: "/repo",
+  text,
+  attachments,
+  ticket: Promise.resolve(undefined),
+});
+
+test("a held message with an image is one queue row that shows its image", () => {
+  const rows = heldQueueRows([held("p1", "move this back\uFFFCshot", image("shot"))], "chat-1", "/repo");
+  expect(rows).toHaveLength(1);
+  expect(rows[0]!.images?.map((shown) => shown.id)).toEqual(["shot"]);
+});
+
+test("editing a held message's words keeps its image on the same prompt", () => {
+  const edited = editHeld([held("p1", "old", image("shot"))], "p1", { op: "update", text: "new" });
+  expect(edited).toHaveLength(1);
+  expect(edited[0]!.text).toBe("new");
+  expect(edited[0]!.attachments.map((chip) => chip.id)).toEqual(["shot"]);
+});
+
+test("held prompts given back keep each one's words and images together, in order", () => {
+  const first = held("p1", "first", image("a"));
+  const second = held("p2", "second", image("b"));
+  const where = whereHeldGoes([first, second], "chat-1", true);
+  expect(where.composer.map((entry) => [entry.text, entry.attachments.map((chip) => chip.id)])).toEqual([
+    ["first", ["a"]],
+    ["second", ["b"]],
+  ]);
 });

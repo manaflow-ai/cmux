@@ -6449,14 +6449,19 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
               Math.min(until, Date.now() + DRAFT_SETTLE_MS / 2),
             );
         const draft = (read ? read.draft : local) ?? "";
-        writePersistedDraft(chat, (behind ? [draft, ...text] : [...text, draft]).filter(Boolean).join("\n\n"));
         const chips = keptChips(list.flatMap((entry) => entry.attachments));
-        if (!chips.length) return;
-        // A closing page writes the shown chat's at once: it may be gone before a read answers.
-        const kept = shownChips && chat === snapshot.sessionId ? shownChips : await keptAttachments.read(chat);
-        await keptAttachments
-          .write(chat, [...chips, ...kept.filter((chip) => !chips.some((back) => back.id === chip.id))])
-          .catch(() => undefined);
+        // The images first, then the words that name them: a prompt's text and its attachments are
+        // two stores here, and the text must never be in the draft while its images are not kept
+        // (the chat would send the words alone, and its images later on their own; Leo, 2026-11-25:
+        // "wait that message got split up and queued").
+        if (chips.length) {
+          // A closing page writes the shown chat's at once: it may be gone before a read answers.
+          const kept = shownChips && chat === snapshot.sessionId ? shownChips : await keptAttachments.read(chat);
+          await keptAttachments
+            .write(chat, [...chips, ...kept.filter((chip) => !chips.some((back) => back.id === chip.id))])
+            .catch(() => undefined);
+        }
+        writePersistedDraft(chat, (behind ? [draft, ...text] : [...text, draft]).filter(Boolean).join("\n\n"));
       }),
     );
     // The text reaches acpmux and the host before this answers: a closing page's bridge goes once
