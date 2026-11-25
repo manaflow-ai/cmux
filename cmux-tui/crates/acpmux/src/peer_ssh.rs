@@ -43,6 +43,25 @@ pub(super) fn reason(bytes: &[u8]) -> Option<&'static str> {
     .find_map(|(needle, label)| text.contains(needle).then_some(label))
 }
 
+/// The route kind of an ssh failure class (`reason`'s label): a refused login or host key is
+/// `auth`; None for a class that says nothing about the route (a reset, a close).
+pub(super) fn dial_fail(reason: Option<&str>) -> Option<crate::protocol::peer_state::DialFail> {
+    use crate::protocol::peer_state::DialFail;
+    let reason = reason?;
+    if login_refused(Some(reason)) {
+        return Some(DialFail::Auth);
+    }
+    match reason {
+        BANNER_TIMEOUT | "SSH connection timed out" => Some(DialFail::Timeout),
+        "SSH connection refused" => Some(DialFail::Refused),
+        NO_ROUTE
+        | "Could not resolve hostname (DNS lookup failed)"
+        | "SSH connection failed (no route to host)"
+        | "SSH connection failed (network is unreachable)" => Some(DialFail::Unreachable),
+        _ => None,
+    }
+}
+
 /// Whether `reason` is the remote refusing this computer's login: a key or password it does not
 /// take, or a host key that does not match. Another attempt soon fails the same way, and each one
 /// counts against the remote's limit on failed logins (a ban tool blocks an address after a few).
@@ -104,6 +123,39 @@ impl Drop for Capture {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// ssh's failure class names the route's kind; a class that says nothing about it (a
+    /// reset, a close) names none.
+    #[test]
+    fn an_ssh_failure_class_names_the_routes_kind() {
+        use crate::protocol::peer_state::DialFail;
+        let kind = |stderr: &[u8]| dial_fail(reason(stderr));
+        assert_eq!(kind(b"leo@box: Permission denied (publickey)."), Some(DialFail::Auth));
+        assert_eq!(kind(b"Host key verification failed."), Some(DialFail::Auth));
+        assert_eq!(kind(b"Connection timed out during banner exchange"), Some(DialFail::Timeout));
+        assert_eq!(
+            kind(b"ssh: connect to host box port 22: Operation timed out"),
+            Some(DialFail::Timeout)
+        );
+        assert_eq!(
+            kind(b"ssh: connect to host box port 22: Connection refused"),
+            Some(DialFail::Refused)
+        );
+        assert_eq!(
+            kind(b"ssh: Could not resolve hostname box: nodename"),
+            Some(DialFail::Unreachable)
+        );
+        assert_eq!(
+            kind(b"connect to host box port 22: No route to host"),
+            Some(DialFail::Unreachable)
+        );
+        assert_eq!(
+            kind(b"proxy dialer did not pass back a connection"),
+            Some(DialFail::Unreachable)
+        );
+        assert_eq!(kind(b"Connection reset by peer"), None);
+        assert_eq!(dial_fail(None), None);
+    }
 
     #[test]
     fn only_known_failure_classes_leave_the_stderr_capture() {

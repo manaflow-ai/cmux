@@ -285,6 +285,9 @@ public nonisolated enum AgentPaneRequest: Equatable, Sendable {
     case copyText(String)
     /// `pane.tabRowTools.set {tools}`: declarative native controls for the shared tab row.
     case tabRowToolsSet([PaneTabRowTool])
+    /// `customizations.menu {point}`: the chat's Customize button under the composer
+    /// (experiments.composerCustomizer) pops the app's Customizations menu at `point`, CSS px.
+    case customizationsMenu(x: Double, y: Double)
     /// `pane.tabRowTools.openMenu {id, menuItemId?}`: opens a native page menu for palette expansion.
     case tabRowToolsOpenMenu(id: String, menuItemID: String?)
     /// `/btw <question>` asks acpmux for one bounded inline side answer.
