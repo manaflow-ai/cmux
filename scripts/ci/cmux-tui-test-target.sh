@@ -87,7 +87,7 @@ restore() {
   fi
   local started=$SECONDS status=0
   # r2-cache.sh treats every error as a miss; the bound is ours, and a cut unpack leaves nothing behind.
-  timeout 420 bash "$repo/scripts/ci/r2-cache.sh" restore "$target" "$key" "$prefix" || status=$?
+  bash "$repo/scripts/ci/timeout.sh" 420 bash "$repo/scripts/ci/r2-cache.sh" restore "$target" "$key" "$prefix" || status=$?
   if ((status != 0)); then
     say "restore ended with status $status after $((SECONDS - started)) s; removing what it unpacked, cold build"
     rm -rf -- "$target"
@@ -129,7 +129,7 @@ save() {
     python3 -I "$repo/scripts/blacksmith-testbox-source-mtimes.py" record "$repo" "$manifest"
   fi
   say "saving $(du -sxh "$target" | cut -f1) as $key"
-  timeout 900 bash "$repo/scripts/ci/r2-cache.sh" save "$target" "$key" || say "save ended with status $?; nothing more to do"
+  bash "$repo/scripts/ci/timeout.sh" 900 bash "$repo/scripts/ci/r2-cache.sh" save "$target" "$key" || say "save ended with status $?; nothing more to do"
 }
 
 "$command"
