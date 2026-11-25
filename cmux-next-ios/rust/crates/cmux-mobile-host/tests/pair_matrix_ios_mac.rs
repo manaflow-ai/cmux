@@ -668,6 +668,7 @@ impl Rig {
             chief_socket: None,
             browser: cmux_mobile_host::browser::BrowserConfig::new(None, 1),
             surface: cmux_mobile_host::surface::SurfaceConfig::new(None, 1),
+            viewport_sync: None,
         });
         let signaling = FakeSignaling::start(FakeOptions::default()).await;
         let mac_id = uuid::Uuid::new_v4().to_string();
@@ -702,6 +703,7 @@ impl Rig {
                                 session_exposure: None,
                                 route: None,
                                 path: Some(connected.path.clone()),
+                                viewport: None,
                             },
                             Arc::new(LinkAuth::default()),
                             incoming,
