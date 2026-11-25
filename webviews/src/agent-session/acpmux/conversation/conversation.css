@@ -8123,12 +8123,14 @@ a.cv-sha:focus-visible {
 }
 /* The step at work draws the shared Spinner inside the mark (PlanList.tsx), so the mark has no ring of
    its own while the turn runs. */
-.cv-plan:not([data-ended], [data-earlier]) .cv-plan__item[data-status="in_progress"] .cv-plan__mark {
+.cv-plan:not([data-ended], [data-earlier], [data-still]) .cv-plan__item[data-status="in_progress"] .cv-plan__mark {
   border-width: 0;
 }
-/* Left in progress when its turn ended: a plain ring, not a spinner frozen mid-turn. */
+/* Left in progress when its turn ended, or kept between turns (the hat's `still` list): a plain
+   ring, not a spinner frozen mid-turn, and never a blank mark (cmux#51039). */
 .cv-plan[data-ended] .cv-plan__item[data-status="in_progress"] .cv-plan__mark,
-.cv-plan[data-earlier] .cv-plan__item[data-status="in_progress"] .cv-plan__mark {
+.cv-plan[data-earlier] .cv-plan__item[data-status="in_progress"] .cv-plan__mark,
+.cv-plan[data-still] .cv-plan__item[data-status="in_progress"] .cv-plan__mark {
   border-color: var(--cv-text-muted);
 }
 
