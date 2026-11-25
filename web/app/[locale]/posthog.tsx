@@ -5,7 +5,7 @@ import type { CaptureResult } from "posthog-js";
 import { usePathname, useSearchParams } from "next/navigation";
 import { useLayoutEffect, useRef, Suspense } from "react";
 import { markAnalyticsCaptureBuffered, posthog } from "../lib/posthog-client";
-import { AnalyticsConsentBanner, useAnalyticsConsent } from "./components/analytics-consent-banner";
+import { useAnalyticsConsent } from "./components/analytics-consent-banner";
 import {
   STACK_AUTH_CHANGED_EVENT,
   STACK_IDENTITY_STORAGE_KEY,
@@ -229,7 +229,6 @@ export function PostHogProvider({ children }: { children: React.ReactNode }) {
         <PageviewTracker />
       </Suspense>
       {children}
-      <AnalyticsConsentBanner />
     </PHProvider>
   );
 }
