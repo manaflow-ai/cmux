@@ -178,6 +178,23 @@ test("chat simulator: the sanitizer keeps the shape and drops every word", () =>
   expect(scrubText("## Fix it\n- one")).toMatch(/^## \S+ \S+\n- \S+$/);
 });
 
+for (const terminal of ["turn_end", "turn_result"]) {
+  test(`an assistant row folded at ${terminal} counts as a turn-end fold`, () => {
+    const scenario = longRun(2);
+    if (terminal === "turn_result") {
+      const endSeqs = new Set(scenario.events.filter((event) => event.kind === "turn_end").map((event) => event.seq));
+      scenario.events = scenario.events.filter((event) => !endSeqs.has(event.seq));
+      scenario.steps = scenario.steps.filter((step) => step.type !== "event" || !endSeqs.has(step.seq));
+    }
+    const result = runSimulation(scenario);
+    const folds = result.traces.filter((step) => step.label === terminal).flatMap((step) => step.folds);
+    expect(
+      folds.some((fold) => fold.kind === "assistant" && fold.verdict === "turn-end" && fold.beforeTurnEndMs === 0),
+    ).toBe(true);
+    expect(broken(result, "b-")).toEqual([]);
+  });
+}
+
 test("a prepended date line preserves the reader's place while an opened fold still moves rows below it", () => {
   const scenario = longRun(4);
   const before = scenario.steps.length;
