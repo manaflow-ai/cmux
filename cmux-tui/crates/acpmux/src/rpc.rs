@@ -712,6 +712,9 @@ pub mod method {
     pub const MUX_HISTORY: &str = "_acpmux/history";
     /// One session's messages holding every word of a query, newest first (`session_search.rs`).
     pub const MUX_SESSION_SEARCH: &str = "_acpmux/session_search";
+    /// Read-only pages and find for a terminal pane's exact provider session.
+    pub const MUX_CHAT_TRANSCRIPT_PAGE: &str = "_acpmux/chat_transcript_page";
+    pub const MUX_CHAT_TRANSCRIPT_FIND: &str = "_acpmux/chat_transcript_find";
     /// Personal stats over every session log (`stats.rs`); the local unix
     /// socket only (the app reaches it there), never a WebSocket origin.
     pub const MUX_STATS: &str = "_acpmux/stats";
