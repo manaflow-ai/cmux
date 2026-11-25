@@ -301,7 +301,7 @@ struct ChatNativeWidgets {
                 drawn.hits.append(.init(frame: CGRect(x: 0, y: y, width: width, height: 44), hit: .toggle("diff-\(call.id)"), label: more.string))
                 y += 44 + 2
             }
-            drawn.boxes.append(.init(frame: CGRect(x: 0, y: top, width: width, height: y - top), fill: .cmuxMobileCodeBackground, radius: 20, bordered: true))
+            drawn.boxes.append(.init(frame: CGRect(x: 0, y: top, width: width, height: y - top), fill: CmuxMobileContentSurface.fill(.card), radius: 20, bordered: true))
         }
         return Layout(content: .drawn(drawn), height: y)
     }
@@ -362,7 +362,7 @@ struct ChatNativeWidgets {
                                     label: "\(file.fileName), \(file.additions) additions, \(file.deletions) deletions", file: fileIndex))
             y += 44
         }
-        drawn.boxes.insert(.init(frame: CGRect(x: 0, y: 0, width: width, height: y), fill: .cmuxMobileCard, radius: 20), at: 0)
+        drawn.boxes.insert(.init(frame: CGRect(x: 0, y: 0, width: width, height: y), fill: CmuxMobileContentSurface.fill(.card), radius: 20, bordered: true), at: 0)
         return Layout(content: .drawn(drawn), height: y)
     }
 

@@ -136,7 +136,7 @@ public struct ConnectionBanner: View {
         .fixedSize()
         .padding(.horizontal, 14)
         .frame(minHeight: 36)
-        .glassEffect(.regular, in: .rect(cornerRadius: 18, style: .continuous))
+        .cmuxMobileFloatingGlass(in: .rect(cornerRadius: 18, style: .continuous))
     }
 
     private var wrapped: some View {
@@ -165,7 +165,7 @@ public struct ConnectionBanner: View {
         .padding(.horizontal, 16)
         .padding(.vertical, 8)
         .frame(minHeight: 36)
-        .glassEffect(.regular, in: .rect(cornerRadius: theme.metrics.cardRadius, style: .continuous))
+        .cmuxMobileFloatingGlass(in: .rect(cornerRadius: theme.metrics.cardRadius, style: .continuous))
     }
 
     @ViewBuilder private var leading: some View {
