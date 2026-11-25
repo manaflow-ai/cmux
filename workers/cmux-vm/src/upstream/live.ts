@@ -28,7 +28,8 @@ import {
   type UpstreamClientService,
 } from "./client.ts";
 import { execResultStream } from "./exec-stream.ts";
-import { timedUpstream } from "./timing.ts";
+import { awaitBackground, BACKGROUND_AFTER_HEADER, BACKGROUND_AFTER_SECS, DEFAULT_BACKGROUND_POLL_MS } from "./live-background.ts";
+import { timedUpstream, timedUpstreamBody } from "./timing.ts";
 
 const DirListing = Schema.Struct({
   entries: Schema.Array(Schema.Struct({ name: Schema.String, kind: Schema.String })),
@@ -69,6 +70,8 @@ export interface UpstreamConfig {
   readonly environment: Environment;
   readonly fetch?: (request: Request) => Promise<Response>;
   readonly timeoutMs?: number;
+  /** How often a background request's stored result is polled (live-background.ts); tests set 1. */
+  readonly backgroundPollMs?: number;
 }
 
 const MAX_RESPONSE_BYTES = 1024 * 1024;
@@ -159,6 +162,8 @@ export function makeUpstreamClient(config: UpstreamConfig): UpstreamClientServic
       },
       catch: () => new UpstreamError({ operation, status: response.status }),
     }).pipe(
+      // `send` timed the call to its answer headers; the body comes after, still the provider's time.
+      timedUpstreamBody,
       Effect.flatMap(Schema.decodeUnknown(schema)),
       Effect.mapError((error) => (error instanceof UpstreamError ? error : new UpstreamError({ operation, status: response.status }))),
       Effect.tapError(() =>
@@ -266,23 +271,35 @@ export function makeUpstreamClient(config: UpstreamConfig): UpstreamClientServic
       Effect.flatMap(idOf(owns), (id) => deleteById("deleteSnapshot", `/v5/snapshots/${encodeURIComponent(id)}`)),
 
     exec: (_vm, { owns }, spec) =>
-      Effect.flatMap(idOf(owns), (id) => send("execVm", vmPath(id, "/exec-await"), {
-        method: "POST",
-        json: {
-          command: spec.command,
-          ...(spec.env === undefined ? {} : { env: spec.env }),
-          ...(spec.stdinBase64 === undefined ? {} : { stdin: spec.stdinBase64 }),
-          ...(spec.timeoutMs === undefined ? {} : { timeoutMs: spec.timeoutMs }),
-          ...(spec.linuxUser === undefined ? {} : { linuxUser: spec.linuxUser }),
-        },
-        timeoutMs: (spec.timeoutMs ?? DEFAULT_EXEC_TIMEOUT_MS) + 30_000,
-      }).pipe(
-        Effect.flatMap((response) =>
-          response.body === null
-            ? Effect.fail(new UpstreamError({ operation: "execVm", status: response.status }))
-            : Effect.succeed(response.body.pipeThrough(execResultStream())),
-        ),
-      )),
+      Effect.flatMap(idOf(owns), (id) => {
+        const budgetMs = (spec.timeoutMs ?? DEFAULT_EXEC_TIMEOUT_MS) + 30_000;
+        const deadlineAt = Date.now() + budgetMs;
+        return send("execVm", vmPath(id, "/exec-await"), {
+          method: "POST",
+          json: {
+            command: spec.command,
+            ...(spec.env === undefined ? {} : { env: spec.env }),
+            ...(spec.stdinBase64 === undefined ? {} : { stdin: spec.stdinBase64 }),
+            ...(spec.timeoutMs === undefined ? {} : { timeoutMs: spec.timeoutMs }),
+            ...(spec.linuxUser === undefined ? {} : { linuxUser: spec.linuxUser }),
+          },
+          // Held open past about 120 s, the provider's edge cuts the call (524) while the command runs on: past
+          // BACKGROUND_AFTER_SECS the provider answers 202 instead, and the stored result is polled (live-background.ts).
+          headers: { [BACKGROUND_AFTER_HEADER]: String(BACKGROUND_AFTER_SECS) },
+          timeoutMs: budgetMs,
+        }).pipe(
+          Effect.flatMap((response) =>
+            response.status === 202
+              ? awaitBackground(send, "execVm", response, base.origin, deadlineAt, config.backgroundPollMs ?? DEFAULT_BACKGROUND_POLL_MS)
+              : Effect.succeed(response),
+          ),
+          Effect.flatMap((response) =>
+            response.body === null
+              ? Effect.fail(new UpstreamError({ operation: "execVm", status: response.status }))
+              : Effect.succeed(response.body.pipeThrough(execResultStream())),
+          ),
+        );
+      }),
 
     readFile: (_vm, { owns }, path, range) =>
       Effect.flatMap(idOf(owns), (id) => send("readFile", vmPath(id, "/fs/read"), {

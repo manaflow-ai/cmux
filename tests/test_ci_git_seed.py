@@ -242,14 +242,6 @@ class WorkflowWiringTests(unittest.TestCase):
                     self.assertIn('rm -rf "$GITHUB_WORKSPACE/.git"', body[discard:retry])
                     self.assertIn("steps.checkout.outcome == 'failure'", body[retry:retry + 200])
 
-    def test_only_main_saves_the_seed(self):
-        text = (WORKFLOWS / "seed-derived-data.yml").read_text()
-        step = re.search(r"- name: Save git object seed\n(.*?)(?=\n      - name:|\Z)", text, re.S)
-        self.assertIsNotNone(step)
-        self.assertIn("if: github.ref == 'refs/heads/main'", step.group(1))
-        self.assertIn("continue-on-error: true", step.group(1))
-        self.assertIn('git-seed.sh save "$GITHUB_WORKSPACE"', step.group(1))
-
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)

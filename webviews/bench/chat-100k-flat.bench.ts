@@ -26,7 +26,8 @@
 // (heapRetainers.ts: the dominator tree, and self size by class over the empty launch).
 // CASES=long runs only empty x1, long x1, empty xN and long xN.
 // HIDDEN=0 keeps every chat shown; HIDDEN_FOCUS=1 lets the hidden chats keep their composer's focus (the fake hide
-// before cmux#45531).
+// before cmux#45531). HEAP_SNAPSHOT=DIR writes each launch's V8 heap snapshots (the shown page, and in an xN launch a
+// hidden one) for DevTools. CASES=long runs only empty x1, long x1, empty xN and long xN.
 // TRACE=DIR (with WAKES=1 for the rAF sites) writes browser-wide Chrome traces of each xN launch's idle windows, of a
 // later idle window, and of one with every page's focus blurred, and prints what each renderer thread ran (idleTrace.ts):
 // the frames' owner and the thread pool's work (in long x20, V8's memory-reducer GC marking the bigger heap).
@@ -64,6 +65,7 @@ import { idleTrace, startIdleTrace } from "./idleTrace";
 import { describePaintWindow, paintWindow, runningAnimations } from "./paintWindow";
 import { sourceMapper } from "./sourceMapper";
 import { perfRow } from "./perfRow";
+import { cpuTicks, pssMB, renderers, TICK_HZ } from "./procStats";
 import { settledAt } from "./stability";
 
 const ROWS = Number(process.argv[2] ?? 100_000);
@@ -134,7 +136,6 @@ if (process.platform !== "linux") {
   process.exit(2);
 }
 const webviews = path.resolve(import.meta.dir, "..");
-const TICK_HZ = 100; // USER_HZ, the unit of /proc/PID/stat utime and stime on Linux.
 
 type Rec = { sessionId: string; seq: number; at: number; dir: string; kind: string; msg: Record<string, unknown> };
 type Template = { events: Rec[]; session: Record<string, unknown>; turns: number };
@@ -148,54 +149,11 @@ const sessionId = (index: number) =>
 const rekey = <T>(value: T, id: string): T =>
   id === PAPERCUT_CHAT ? value : JSON.parse(JSON.stringify(value).replaceAll(PAPERCUT_CHAT, id));
 
-/// The renderer processes under `root` (a Chromium launch), by their command line.
-function renderers(root: number): number[] {
-  const children = new Map<number, number[]>();
-  for (const entry of fs.readdirSync("/proc")) {
-    if (!/^\d+$/.test(entry)) continue;
-    try {
-      const stat = fs.readFileSync(`/proc/${entry}/stat`, "utf8");
-      const parent = Number(stat.slice(stat.lastIndexOf(")") + 2).split(" ")[1]);
-      children.set(parent, [...(children.get(parent) ?? []), Number(entry)]);
-    } catch {
-      // Gone between the listing and the read.
-    }
-  }
-  const out: number[] = [];
-  const walk = (pid: number) => {
-    for (const child of children.get(pid) ?? []) {
-      try {
-        if (fs.readFileSync(`/proc/${child}/cmdline`, "utf8").includes("--type=renderer")) out.push(child);
-      } catch {
-        // Gone.
-      }
-      walk(child);
-    }
-  };
-  walk(root);
-  return out;
-}
-/// utime + stime of `pids` in clock ticks (a process gone since the listing counts nothing).
-function cpuTicks(pids: number[]): number {
-  let ticks = 0;
-  for (const pid of pids) {
-    try {
-      const stat = fs.readFileSync(`/proc/${pid}/stat`, "utf8");
-      const fields = stat.slice(stat.lastIndexOf(")") + 2).split(" ");
-      ticks += Number(fields[11]) + Number(fields[12]);
-    } catch {
-      // Gone.
-    }
-  }
-  return ticks;
-}
 const median = (values: number[]) => {
   const sorted = [...values].sort((a, b) => a - b);
   const mid = Math.floor(sorted.length / 2);
   return sorted.length % 2 ? sorted[mid]! : (sorted[mid - 1]! + sorted[mid]!) / 2;
 };
-const pssMB = (pid: number) =>
-  Number(/^Pss:\s+(\d+) kB/m.exec(fs.readFileSync(`/proc/${pid}/smaps_rollup`, "utf8"))?.[1] ?? 0) / 1024;
 
 type CpuProfile = {
   nodes: { id: number; callFrame: { functionName: string; url: string; lineNumber: number; columnNumber: number } }[];
@@ -333,7 +291,9 @@ try {
       const extra = streamed.get(id);
       return extra?.length ? [...chat.events, ...extra] : chat.events;
     };
-    const lastSeqOf = (id: string) => recordsOf(id).at(-1)?.seq ?? 0;
+    // Read from the newest record, never from a copy of the chat: emit calls it once a record, and a copy a call made
+    // growing a chat by n records cost O(n^2) (200k records a grown chat, about 2 min of the bench's own CPU each).
+    const lastSeqOf = (id: string) => (streamed.get(id)?.at(-1) ?? chat.events.at(-1))?.seq ?? 0;
     const summaryOf = (id: string) => {
       const session = sessions.find((s) => s.sessionId === id) ?? sessions[0]!;
       return { ...session, lastSeq: lastSeqOf(id) };
@@ -468,7 +428,7 @@ try {
     try {
       const origin = `http://127.0.0.1:${statics.port}`;
       const urlFor = (index: number) =>
-        `${origin}/#endpoint=${encodeURIComponent(`ws://127.0.0.1:${daemon.port}/`)}&token=t&session=${sessionId(index)}`;
+        `${origin}/#endpoint=${encodeURIComponent(`ws://127.0.0.1:${daemon.port}/`)}&token=t&scheme=cmux&session=${sessionId(index)}`;
       const firstText = `Answer ${chat.turns}:`;
       const pages: { page: Page; cdp: CDPSession }[] = [];
       for (let index = 0; index < count; index++) {

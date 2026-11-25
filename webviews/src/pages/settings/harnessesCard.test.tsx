@@ -14,7 +14,7 @@ const ids = (element: HTMLElement) =>
   [...element.querySelectorAll<HTMLElement>("[data-harness]")].map((row) => row.dataset.harness);
 
 test("owner job receipts stay pending until a terminal exit; a lost reply blocks another update, an unknown exit does not", async () => {
-  const page = await renderPage({ path: "/settings/agents" });
+  const page = await renderPage({ path: "/settings/agents", mock: { values: { "labs.previewFeatures": true } } });
   await settle();
   const base = page.provider.harnesses;
   const show = async (state: string, extra = {}) => {
@@ -80,7 +80,7 @@ test("owner job receipts stay pending until a terminal exit; a lost reply blocks
 });
 
 test("a recovered unstarted intent resumes only by an explicit click with its retained key", async () => {
-  const page = await renderPage({ path: "/settings/agents" });
+  const page = await renderPage({ path: "/settings/agents", mock: { values: { "labs.previewFeatures": true } } });
   await settle();
   const base = page.provider.harnesses;
   const show = async (canResume: boolean, state = "unknown") => {
@@ -163,7 +163,7 @@ test("an intent nothing runs for can be dismissed by an explicit click with its 
 });
 
 test("a channel the update owner cannot run (a Homebrew cask) offers no Update or Update All", async () => {
-  const page = await renderPage({ path: "/settings/agents" });
+  const page = await renderPage({ path: "/settings/agents", mock: { values: { "labs.previewFeatures": true } } });
   await settle();
   const cask = {
     id: "claude",
@@ -188,7 +188,7 @@ test("a channel the update owner cannot run (a Homebrew cask) offers no Update o
   expect(manualCard.querySelector('[data-harness-action="updateCard"]')).toBeNull();
   expect(manualCard.querySelector("[data-harness-update-command]")!.textContent).toBe(cask.update.command);
   // Its auto-update choice stays: acpmux runs that itself.
-  expect(element.querySelector('[data-harness="claude"] input[data-harness-auto]')).not.toBeNull();
+  expect(element.querySelector('[data-harness="claude"] [role="switch"][data-harness-auto]')).not.toBeNull();
   page.unmount();
 });
 
@@ -247,8 +247,18 @@ test("a change from the host shows without a reload; no daemon says why", async 
   page.unmount();
 });
 
-test("an outdated harness shows both versions and an Update; one that needs sudo shows its command; Agents gets a badge", async () => {
+test("the update card experiment stays quiet until Preview Features is enabled", async () => {
   const page = await renderPage({ path: "/settings/agents" });
+  await settle();
+  expect(card(page.container)!.querySelector("[data-harness-update-cards]")).toBeNull();
+  await act(async () => page.store.set("labs.previewFeatures", true));
+  await settle();
+  expect(card(page.container)!.querySelector("[data-harness-update-cards]")).not.toBeNull();
+  page.unmount();
+});
+
+test("an outdated harness shows both versions and an Update; one that needs sudo shows its command; Agents gets a badge", async () => {
+  const page = await renderPage({ path: "/settings/agents", mock: { values: { "labs.previewFeatures": true } } });
   await settle();
   const element = card(page.container)!;
   const codex = element.querySelector<HTMLElement>('[data-harness="codex"]')!;
@@ -329,8 +339,9 @@ test("Update Automatically turns auto-update on for one harness; a failed auto-u
   const element = card(page.container)!;
   // Only a harness whose update needs no sudo offers it.
   expect(element.querySelector('[data-harness="claude"] [data-harness-auto]')).toBeNull();
-  const box = element.querySelector<HTMLInputElement>('[data-harness="codex"] input[data-harness-auto]')!;
-  expect(box.checked).toBe(false);
+  // A switch, not a checkbox (Leo: "a toggle is nicer than a checkbox").
+  const box = element.querySelector<HTMLElement>('[data-harness="codex"] [role="switch"][data-harness-auto]')!;
+  expect(box.getAttribute("aria-checked")).toBe("false");
   await act(async () => box.click());
   await settle();
   expect(page.provider.harnessRuns.at(-1)).toEqual({ action: "autoUpdate", id: "codex", on: true });
@@ -358,7 +369,7 @@ test("Update Automatically turns auto-update on for one harness; a failed auto-u
   );
   await settle();
   const row = card(page.container)!.querySelector<HTMLElement>('[data-harness="codex"]')!;
-  expect(row.querySelector<HTMLInputElement>("input[data-harness-auto]")!.checked).toBe(true);
+  expect(row.querySelector('[role="switch"][data-harness-auto]')!.getAttribute("aria-checked")).toBe("true");
   expect(row.querySelector("[data-harness-auto-failed]")!.textContent).toContain("npm ERR! network timeout");
   page.unmount();
 });
@@ -386,7 +397,7 @@ test("an expired sign-in badges Agents and says so on its row, like a signed-out
 // same ~/.local/bin/claude as `claude`, so Settings drew two update cards for one binary, one of them
 // titled "Update Cmux". The harness list keeps both profiles; the update cards are one per binary.
 test("two profiles that run one binary get one update card, named for that binary", async () => {
-  const page = await renderPage({ path: "/settings/agents" });
+  const page = await renderPage({ path: "/settings/agents", mock: { values: { "labs.previewFeatures": true } } });
   await settle();
   const claude = (id: string) => ({
     id,

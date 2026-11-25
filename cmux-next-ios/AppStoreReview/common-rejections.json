@@ -1,0 +1,402 @@
+{
+  "about": "The common App Store rejections that public repos catalogue, mapped onto the NEXT iOS app (cmux-next-ios; the submission is cmux INTERNAL, dev.cmux.app.internal). Each entry says what the app does today and which deterministic detector of the review gate (.github/workflows/ios-review-gate.yml) catches it: lint:<rule> is a finding of cmux-next-ios/scripts/app_review_gate.py, store-rule:<rule> one of scripts/cmux-next/check-app-store-rules.py, uitest:<func> a UI test, workflow:<name> a step of an ios-*.yml workflow. app_review_gate.py lint fails when an entry names a detector that does not exist, has an unknown status, or is a follow-up that does not say what is left. Our own rejections live in rejection-history.json; this file is everyone else's. new_detector marks the checks added with this file (Leo, 2026-11-22: \"THERE ARE ENTIRE REPOS THAT WE CAN MAP FUCKING COMMON REJECTIONS AND APPLY SHIT TO OUR IOS APP\").",
+  "statuses": {
+    "gated": "a deterministic detector catches it before submission",
+    "not-applicable": "the app does not do the thing the rejection is about; the reason says why",
+    "follow-up": "a real gap a script cannot close today; follow_up says what is left",
+    "not-deterministic": "only a person or a model can judge it; the reason says how it is covered"
+  },
+  "sources": {
+    "mjmirza/app-store-compliance": "https://github.com/mjmirza/app-store-compliance (data/rejection-patterns.json, 124 patterns)",
+    "jaywcjlove/app-rejection-fixes": "https://github.com/jaywcjlove/app-rejection-fixes",
+    "truongduy2611/app-store-preflight-skills": "https://github.com/truongduy2611/app-store-preflight-skills",
+    "ilan-uzan/app-store-preflight": "https://github.com/ilan-uzan/app-store-preflight",
+    "imodoiepale/app-store-rejection-audit": "https://github.com/imodoiepale/app-store-rejection-audit",
+    "AryanAliPro/never-reject": "https://github.com/AryanAliPro/never-reject",
+    "andrewmcwattersandco/app-store-rejections": "https://github.com/andrewmcwattersandco/app-store-rejections",
+    "onmyway133/blog#1069": "https://github.com/onmyway133/blog/issues/1069"
+  },
+  "rejections": [
+    {
+      "id": "demo-account",
+      "guideline": "2.1",
+      "title": "Reviewer cannot sign in: no demo account or sign-in steps in the review notes",
+      "sources": ["https://github.com/mjmirza/app-store-compliance", "https://github.com/truongduy2611/app-store-preflight-skills", "https://github.com/jaywcjlove/app-rejection-fixes"],
+      "app_status": "review-notes-asc-internal.txt gives a demo account ({{DEMO_ACCOUNT_EMAIL}}, filled at upload) and a path that needs no Mac.",
+      "status": "gated",
+      "new_detector": true,
+      "detectors": ["lint:review-notes.sign-in", "uitest:testSignedInReviewerReachesHomeWithoutAMac", "uitest:testOnboardingHasAWayForwardWithoutAMac"]
+    },
+    {
+      "id": "crash-or-dead-control",
+      "guideline": "2.1",
+      "title": "App completeness: crashes, dead buttons, broken flows",
+      "sources": ["https://github.com/jaywcjlove/app-rejection-fixes", "https://github.com/imodoiepale/app-store-rejection-audit", "https://github.com/andrewmcwattersandco/app-store-rejections"],
+      "app_status": "The gate's device suite taps every control on onboarding, Home and Settings and sends a Chief message.",
+      "status": "gated",
+      "detectors": ["uitest:testOnboardingHasNoDeadControls", "uitest:testHomeHasNoDeadControls", "uitest:testSettingsHaveNoDeadControls", "uitest:testChiefOpensAndAMessageSendsWithAReply"]
+    },
+    {
+      "id": "placeholder-content",
+      "guideline": "2.1",
+      "title": "Placeholder text, lorem ipsum or 'coming soon' in the app or listing",
+      "sources": ["https://github.com/mjmirza/app-store-compliance", "https://github.com/truongduy2611/app-store-preflight-skills"],
+      "app_status": "None today.",
+      "status": "gated",
+      "detectors": ["lint:metadata.placeholder", "lint:copy.placeholder"]
+    },
+    {
+      "id": "raw-error-text",
+      "guideline": "2.1",
+      "title": "Developer-facing error text shown to the reviewer",
+      "sources": ["https://github.com/imodoiepale/app-store-rejection-audit"],
+      "app_status": "Three String(describing:) error sites remain (warnings, not blockers).",
+      "status": "gated",
+      "detectors": ["lint:ux.raw-error"]
+    },
+    {
+      "id": "export-compliance",
+      "guideline": "2.1",
+      "title": "Export compliance (encryption) not declared",
+      "sources": ["https://github.com/mjmirza/app-store-compliance"],
+      "app_status": "ITSAppUsesNonExemptEncryption is false in project.yml.",
+      "status": "gated",
+      "detectors": ["lint:export.encryption"]
+    },
+    {
+      "id": "listing-accuracy-other-platforms",
+      "guideline": "2.3.10",
+      "title": "Listing mentions other platforms (Android, Google Play)",
+      "sources": ["https://github.com/mjmirza/app-store-compliance", "https://github.com/truongduy2611/app-store-preflight-skills"],
+      "app_status": "No mention.",
+      "status": "gated",
+      "detectors": ["lint:metadata.other-platform"]
+    },
+    {
+      "id": "metadata-length",
+      "guideline": "2.3.7",
+      "title": "Name, subtitle or keywords over the length limits, or stuffed",
+      "sources": ["https://github.com/truongduy2611/app-store-preflight-skills"],
+      "app_status": "Within limits.",
+      "status": "gated",
+      "detectors": ["lint:metadata.length"]
+    },
+    {
+      "id": "keyword-trademarks",
+      "guideline": "2.3.7",
+      "title": "Keywords name competitors or other companies' trademarks",
+      "sources": ["https://github.com/truongduy2611/app-store-preflight-skills", "https://github.com/mjmirza/app-store-compliance"],
+      "app_status": "Keywords are generic (coding agent, AI agent, developer, ...); none names a company.",
+      "status": "gated",
+      "new_detector": true,
+      "detectors": ["lint:metadata.keyword-trademark"]
+    },
+    {
+      "id": "screenshots",
+      "guideline": "2.3.3",
+      "title": "Screenshots missing, wrong device size, or not showing the app in use",
+      "sources": ["https://github.com/jaywcjlove/app-rejection-fixes", "https://github.com/mjmirza/app-store-compliance"],
+      "app_status": "No iPhone screenshots in the repo yet (known blocker, #40927).",
+      "status": "gated",
+      "detectors": ["lint:metadata.screenshots"]
+    },
+    {
+      "id": "listing-sells-what-the-build-lacks",
+      "guideline": "2.3.1",
+      "title": "Listing describes features (purchases) the submitted build does not have",
+      "sources": ["https://github.com/truongduy2611/app-store-preflight-skills", "https://github.com/mjmirza/app-store-compliance"],
+      "app_status": "The shared en-US description says the plans are bought in the app, but cmux INTERNAL (appsWithoutSubscriptions) sells nothing. The gate now warns; per-lane metadata is the fix.",
+      "status": "follow-up",
+      "new_detector": true,
+      "detectors": ["lint:metadata.iap-claim"],
+      "follow_up": "Give the internal-submission lane its own description (no purchase claim) or drop the sentence; then make metadata.iap-claim a blocker."
+    },
+    {
+      "id": "support-url",
+      "guideline": "1.5",
+      "title": "Support URL missing, dead, or without a way to contact the developer",
+      "sources": ["https://github.com/jaywcjlove/app-rejection-fixes", "https://github.com/truongduy2611/app-store-preflight-skills"],
+      "app_status": "https://cmux.com support page; rejected once (rejection-history.json).",
+      "status": "gated",
+      "detectors": ["lint:metadata.support-url", "lint:url.status", "lint:url.support-contact"]
+    },
+    {
+      "id": "privacy-policy-url",
+      "guideline": "5.1.1(i)",
+      "title": "Privacy policy missing from the listing",
+      "sources": ["https://github.com/truongduy2611/app-store-preflight-skills", "https://github.com/mjmirza/app-store-compliance"],
+      "app_status": "privacyPolicyUrl is https://cmux.com/privacy-policy in every locale.",
+      "status": "gated",
+      "detectors": ["lint:metadata.privacy-url", "lint:url.status"]
+    },
+    {
+      "id": "privacy-policy-in-app",
+      "guideline": "5.1.1(i)",
+      "title": "Privacy policy not reachable inside the app",
+      "sources": ["https://github.com/truongduy2611/app-store-preflight-skills", "https://github.com/AryanAliPro/never-reject"],
+      "app_status": "Settings and Welcome link the privacy policy.",
+      "status": "gated",
+      "new_detector": true,
+      "detectors": ["lint:privacy.policy-in-app", "uitest:testLegalLinksOpenTheirLivePages"]
+    },
+    {
+      "id": "account-deletion",
+      "guideline": "5.1.1(v)",
+      "title": "Account creation without in-app account deletion",
+      "sources": ["https://github.com/mjmirza/app-store-compliance", "https://github.com/jaywcjlove/app-rejection-fixes", "https://github.com/onmyway133/blog/issues/1069"],
+      "app_status": "Settings has Delete Account.",
+      "status": "gated",
+      "detectors": ["lint:account.deletion"]
+    },
+    {
+      "id": "sign-in-with-apple",
+      "guideline": "4.8",
+      "title": "Third-party sign-in without Sign in with Apple (or an equivalent)",
+      "sources": ["https://github.com/truongduy2611/app-store-preflight-skills", "https://github.com/mjmirza/app-store-compliance"],
+      "app_status": "Sign in with Apple ships beside Google and GitHub.",
+      "status": "gated",
+      "detectors": ["lint:signin.apple", "lint:signin.apple-shipping", "lint:signin.apple-entitlement", "lint:binary.apple-sign-in"]
+    },
+    {
+      "id": "purpose-strings",
+      "guideline": "5.1.1",
+      "title": "Missing or vague permission purpose strings (ITMS-90683)",
+      "sources": ["https://github.com/mjmirza/app-store-compliance", "https://github.com/AryanAliPro/never-reject", "https://github.com/onmyway133/blog/issues/1069"],
+      "app_status": "Every API the app uses has a specific purpose string.",
+      "status": "gated",
+      "detectors": ["lint:privacy.purpose-string", "lint:privacy.purpose-string-vague", "store-rule:usage-device-name"]
+    },
+    {
+      "id": "permission-denied-path",
+      "guideline": "5.1.1(iv)",
+      "title": "App breaks or nags when a permission is denied",
+      "sources": ["https://github.com/mjmirza/app-store-compliance"],
+      "app_status": "A denied camera explains itself and offers Settings.",
+      "status": "gated",
+      "detectors": ["uitest:testScanWithCameraDeniedExplainsInsteadOfDoingNothing"]
+    },
+    {
+      "id": "pre-permission-allow-button",
+      "guideline": "5.1.1(iv)",
+      "title": "A custom pre-permission screen whose button says 'Allow' or blocks progress",
+      "sources": ["https://github.com/mjmirza/app-store-compliance"],
+      "app_status": "The app has legitimate Allow buttons (agent permission requests), so a text match would cry wolf; permission prompts come from system APIs at the point of use.",
+      "status": "not-deterministic",
+      "reason": "Judged by the gate's model review of screens, not by a text rule."
+    },
+    {
+      "id": "privacy-manifest-missing",
+      "guideline": "5.1.2",
+      "title": "Privacy manifest missing or not declaring a required-reason API (ITMS-91053)",
+      "sources": ["https://github.com/mjmirza/app-store-compliance", "https://github.com/AryanAliPro/never-reject", "https://github.com/truongduy2611/app-store-preflight-skills"],
+      "app_status": "The app and both notification extensions ship manifests; the app's covers every package it links.",
+      "status": "gated",
+      "detectors": ["lint:privacy.manifest", "lint:privacy.required-reason", "lint:privacy.manifest-reason"]
+    },
+    {
+      "id": "privacy-manifest-invalid-reason",
+      "guideline": "5.1.2",
+      "title": "Privacy manifest lists a reason code Apple does not accept for the category, or an SDK-only code (ITMS-91056)",
+      "sources": ["https://github.com/AryanAliPro/never-reject", "https://github.com/mjmirza/app-store-compliance"],
+      "app_status": "All codes are valid.",
+      "status": "gated",
+      "new_detector": true,
+      "detectors": ["lint:privacy.manifest-reason-code"]
+    },
+    {
+      "id": "privacy-manifest-app-group-defaults",
+      "guideline": "5.1.2",
+      "title": "App Group UserDefaults declared with CA92.1 only (needs 1C8F.1)",
+      "sources": ["https://github.com/AryanAliPro/never-reject"],
+      "app_status": "Was wrong: the app writes and the notification content extension reads push preferences in the App Group defaults with only CA92.1 declared. Fixed in this PR (1C8F.1 added to both manifests).",
+      "status": "gated",
+      "new_detector": true,
+      "detectors": ["lint:privacy.reason-app-group"]
+    },
+    {
+      "id": "privacy-manifest-collected-data",
+      "guideline": "5.1.2",
+      "title": "Collected data types or purposes that are not Apple's identifiers; tracking without domains or ATT",
+      "sources": ["https://github.com/mjmirza/app-store-compliance", "https://github.com/AryanAliPro/never-reject"],
+      "app_status": "Six types, all App Functionality, no tracking.",
+      "status": "gated",
+      "new_detector": true,
+      "detectors": ["lint:privacy.collected-data", "lint:privacy.tracking"]
+    },
+    {
+      "id": "third-party-sdk-manifest",
+      "guideline": "5.1.2",
+      "title": "Third-party SDK on Apple's list shipped without its own privacy manifest (ITMS-91061)",
+      "sources": ["https://github.com/mjmirza/app-store-compliance", "https://github.com/AryanAliPro/never-reject"],
+      "app_status": "The app links no SDK on Apple's list (no Firebase, Sentry, Alamofire, ...); WebRTC and Stack Auth are vendored and covered by the app's manifest.",
+      "status": "not-applicable",
+      "reason": "asc validate in the gate's submission job reports ITMS-91061 if one is ever added."
+    },
+    {
+      "id": "third-party-ai-consent",
+      "guideline": "5.1.2(i)",
+      "title": "Personal data sent to a third-party AI without disclosure and consent",
+      "sources": ["https://github.com/truongduy2611/app-store-preflight-skills", "https://github.com/mjmirza/app-store-compliance"],
+      "app_status": "Chats, voice calls and attachments go to the user's coding agents and model providers (Claude, Codex, OpenAI realtime). The privacy policy covers it; the app shows no consent screen naming the provider before the first send.",
+      "status": "follow-up",
+      "follow_up": "Add a one-time consent sheet that names the AI providers and what is sent, before the first Chief message or voice call; then add a UI test that it appears and that declining sends nothing."
+    },
+    {
+      "id": "nutrition-label-accuracy",
+      "guideline": "5.1.2",
+      "title": "App Privacy (nutrition label) does not match what the app collects",
+      "sources": ["https://github.com/mjmirza/app-store-compliance", "https://github.com/truongduy2611/app-store-preflight-skills"],
+      "app_status": "The manifest declares email, name, user ID, device ID, photos or videos and other user content. Connectivity incident reports send device model and OS diagnostics, and voice calls send audio.",
+      "status": "follow-up",
+      "follow_up": "Check that the App Store Connect label and the manifest declare diagnostics (CmuxConnectivityTelemetry) and audio data; a label lives in App Store Connect, so the gate cannot read it today."
+    },
+    {
+      "id": "unused-entitlements",
+      "guideline": "2.5.1",
+      "title": "Entitlements or capabilities the app does not use (HealthKit, iCloud, Apple Pay, ...)",
+      "sources": ["https://github.com/truongduy2611/app-store-preflight-skills", "https://github.com/jaywcjlove/app-rejection-fixes", "https://github.com/mjmirza/app-store-compliance"],
+      "app_status": "Every shipping entitlement is used (push, time-sensitive, Sign in with Apple, App Group, associated domains, keychain).",
+      "status": "gated",
+      "new_detector": true,
+      "detectors": ["lint:entitlement.unused", "lint:entitlement.debug", "lint:entitlement.aps"]
+    },
+    {
+      "id": "unused-background-modes",
+      "guideline": "2.5.4",
+      "title": "Background modes declared but not used for their purpose",
+      "sources": ["https://github.com/mjmirza/app-store-compliance", "https://github.com/onmyway133/blog/issues/1069"],
+      "app_status": "Only audio, used by voice calls (AVAudioSession .playAndRecord).",
+      "status": "gated",
+      "new_detector": true,
+      "detectors": ["lint:background.unused-mode", "store-rule:background-mode"]
+    },
+    {
+      "id": "uiwebview",
+      "guideline": "2.5.1",
+      "title": "Deprecated UIWebView in the binary (ITMS-90809)",
+      "sources": ["https://github.com/mjmirza/app-store-compliance", "https://github.com/onmyway133/blog/issues/1069"],
+      "app_status": "WKWebView only.",
+      "status": "gated",
+      "new_detector": true,
+      "detectors": ["lint:api.uiwebview"]
+    },
+    {
+      "id": "private-api",
+      "guideline": "2.5.1",
+      "title": "Private frameworks or symbols",
+      "sources": ["https://github.com/jaywcjlove/app-rejection-fixes", "https://github.com/mjmirza/app-store-compliance"],
+      "app_status": "None.",
+      "status": "gated",
+      "detectors": ["lint:api.private-framework", "lint:api.private-symbol"]
+    },
+    {
+      "id": "ats",
+      "guideline": "2.5.1",
+      "title": "App Transport Security disabled or weakened without a reason",
+      "sources": ["https://github.com/mjmirza/app-store-compliance", "https://github.com/AryanAliPro/never-reject"],
+      "app_status": "Only NSAllowsLocalNetworking (the user's own Mac on the LAN), which needs no justification.",
+      "status": "gated",
+      "new_detector": true,
+      "detectors": ["lint:ats.arbitrary-loads", "lint:ats.exception"]
+    },
+    {
+      "id": "downloaded-code",
+      "guideline": "2.5.2",
+      "title": "Downloading or executing code that changes the app",
+      "sources": ["https://github.com/jaywcjlove/app-rejection-fixes", "https://github.com/andrewmcwattersandco/app-store-rejections"],
+      "app_status": "Commands run on the user's Mac; rejected once (rejection-history.json).",
+      "status": "gated",
+      "detectors": ["lint:exec.dynamic-code"]
+    },
+    {
+      "id": "vpn-api",
+      "guideline": "5.4",
+      "title": "VPN APIs without an organization account and a VPN app",
+      "sources": ["https://github.com/andrewmcwattersandco/app-store-rejections"],
+      "app_status": "The VPN extension is kept out of the App Store build; rejected once (rejection-history.json).",
+      "status": "gated",
+      "detectors": ["lint:api.vpn", "lint:entitlement.vpn", "lint:binary.vpn-extension", "lint:api.vpn-source"]
+    },
+    {
+      "id": "external-purchase",
+      "guideline": "3.1.1",
+      "title": "Digital goods sold outside In-App Purchase (Stripe links, 'buy on the web')",
+      "sources": ["https://github.com/jaywcjlove/app-rejection-fixes", "https://github.com/mjmirza/app-store-compliance", "https://github.com/onmyway133/blog/issues/1069"],
+      "app_status": "No checkout links; cmux INTERNAL shows the plan read-only.",
+      "status": "gated",
+      "detectors": ["lint:iap.external-purchase", "lint:iap.external-purchase-binary"]
+    },
+    {
+      "id": "subscription-disclosure",
+      "guideline": "3.1.2",
+      "title": "Subscriptions without restore, price and term disclosure, manage link, terms and privacy links",
+      "sources": ["https://github.com/truongduy2611/app-store-preflight-skills", "https://github.com/mjmirza/app-store-compliance"],
+      "app_status": "Applies to the App Store build; cmux INTERNAL sells nothing and says so in the review notes.",
+      "status": "gated",
+      "detectors": ["lint:iap.restore", "lint:iap.disclosure", "lint:iap.manage", "lint:metadata.subscription-terms", "lint:iap.review-notes"]
+    },
+    {
+      "id": "processing-plist",
+      "guideline": "2.1 (ITMS)",
+      "title": "Upload rejected at processing: unknown background mode, iPad orientations, catalog",
+      "sources": ["https://github.com/onmyway133/blog/issues/1069", "https://github.com/mjmirza/app-store-compliance"],
+      "app_status": "Passes check-app-store-rules.py.",
+      "status": "gated",
+      "detectors": ["store-rule:background-mode", "store-rule:info-plist", "store-rule:catalog"]
+    },
+    {
+      "id": "ipv6",
+      "guideline": "2.5.5",
+      "title": "App fails on Apple's IPv6-only review network",
+      "sources": ["https://github.com/mjmirza/app-store-compliance"],
+      "app_status": "Networking uses hostnames through URLSession and Network.framework; LAN pairing may dial IPv4 literals the user's Mac reports.",
+      "status": "not-deterministic",
+      "reason": "Needs a NAT64 run; a source grep for IPv4 literals would flag the legitimate LAN addresses."
+    },
+    {
+      "id": "minimum-functionality",
+      "guideline": "4.2",
+      "title": "Minimum functionality: a thin wrapper or an app useless without other hardware",
+      "sources": ["https://github.com/truongduy2611/app-store-preflight-skills", "https://github.com/jaywcjlove/app-rejection-fixes"],
+      "app_status": "Cloud Chief works without a Mac; rejected once for needing a Mac (rejection-history.json).",
+      "status": "gated",
+      "detectors": ["uitest:testSignedInReviewerReachesHomeWithoutAMac", "uitest:testOnboardingHasAWayForwardWithoutAMac"]
+    },
+    {
+      "id": "hidden-features",
+      "guideline": "2.3.1",
+      "title": "Hidden, dormant or undocumented features (feature flags, debug menus)",
+      "sources": ["https://github.com/truongduy2611/app-store-preflight-skills"],
+      "app_status": "Debug-only entitlements and settings are excluded from the TestFlight configuration.",
+      "status": "gated",
+      "detectors": ["lint:entitlement.debug", "lint:appstore.config-missing"]
+    },
+    {
+      "id": "future-functionality",
+      "guideline": "2.3",
+      "title": "Listing or app promises features that are not there yet",
+      "sources": ["https://github.com/mjmirza/app-store-compliance"],
+      "app_status": "Caught as 'coming soon' text in the listing and the app's strings.",
+      "status": "gated",
+      "detectors": ["lint:metadata.placeholder", "lint:copy.placeholder"]
+    },
+    {
+      "id": "user-generated-content",
+      "guideline": "1.2",
+      "title": "User-generated content without reporting, blocking and moderation",
+      "sources": ["https://github.com/jaywcjlove/app-rejection-fixes", "https://github.com/mjmirza/app-store-compliance"],
+      "app_status": "No public content: users see only their own and their team's agent sessions.",
+      "status": "not-applicable",
+      "reason": "No feed, profile or chat between strangers."
+    },
+    {
+      "id": "china-storefront",
+      "guideline": "5 (local law)",
+      "title": "Generative AI app offered in China without the local licence",
+      "sources": ["https://github.com/truongduy2611/app-store-preflight-skills"],
+      "app_status": "Availability is set in App Store Connect, not in the repo.",
+      "status": "not-deterministic",
+      "reason": "Storefront availability is chosen at submission; the release checklist must leave China unticked."
+    }
+  ]
+}

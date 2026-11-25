@@ -8,6 +8,8 @@ import MessagesLabSidebar
 /// setting. This keeps their pins equal to `Motion.reduceMotionOverride` (cx-sya4n), so a
 /// Reduce Motion pin stills them as it stills every cmux loop, and pins them on while calm
 /// mode (`ui.calm`) is on, which `Motion.reduceMotion` counts and the system setting does not.
+/// It also hands them the app's one themed tooltip (`themedToolTip`; Lawrence 2026-11-20: one tooltip
+/// everywhere), so their controls never draw AppKit's stock bubble.
 /// Installed by the views that host them, before their first frame.
 @MainActor
 final class HomeReduceMotion {
@@ -22,6 +24,10 @@ final class HomeReduceMotion {
         CmuxSidebarView.movementGate = { Motion.sidebar.animatesMovement }
         // The message box's dictation waveform follows the input level only while Home's loops run.
         MessagesLabHomeView.voiceMotionGate = { Motion.home.animatesLoops }
+        // Home's controls show the app's one themed tooltip.
+        MessagesLabHomeView.host.showToolTip = { view, text in view.themedToolTip = text }
+        MessagesLabHomeView.host.showToolTipRegions = { view, regions in view.setThemedToolTipRegions(regions) }
+        CmuxSidebarView.host.showToolTip = { view, text in view.themedToolTip = text }
         motion = Motion.changes.subscribe { change in
             switch change {
             case .reduceMotion: HomeReduceMotion.mirror()

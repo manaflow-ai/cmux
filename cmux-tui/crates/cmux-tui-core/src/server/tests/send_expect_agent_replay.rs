@@ -28,6 +28,7 @@ fn reply(surface: SurfaceId) -> Command {
         expect_agent: Some(cmd_terminal_io::ExpectAgent { session: Some("replay-session".into()) }),
         submit: false,
         flow: None,
+        key: None,
     })
 }
 

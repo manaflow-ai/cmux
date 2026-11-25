@@ -4,11 +4,11 @@ import Foundation
 /// (Resources/Localizable.xcstrings, `approver.*`).
 nonisolated enum PairInviteStrings {
     private static func t(_ key: StaticString, _ value: String.LocalizationValue) -> String {
-        String(localized: key, defaultValue: value, table: "PairInvite", bundle: .module)
+        String(localized: key, defaultValue: value, table: "PairInvite", bundle: .localizedModule)
     }
 
     private static func approver(_ key: StaticString, _ value: String.LocalizationValue) -> String {
-        String(localized: key, defaultValue: value, bundle: .module)
+        String(localized: key, defaultValue: value, bundle: .localizedModule)
     }
 
     static var title: String { t("pairInvite.title", "Pair Another Machine") }

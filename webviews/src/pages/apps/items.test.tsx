@@ -1,11 +1,10 @@
 // The App Store's item primitives (items.tsx): one card in three styles, one row, one action, the
-// state badge, the category bar and the detail sections draw every listing the same way.
+// state badge, the category bar and the listing page's sections draw every listing the same way.
 import { expect, test } from "bun:test";
 import { renderToStaticMarkup } from "react-dom/server";
 import type { Strings } from "../shared/i18n";
 import generated from "./generated/strings.json";
 import {
-  AddsList,
   CategoryBar,
   DetailSection,
   ItemAction,
@@ -13,6 +12,7 @@ import {
   ItemRow,
   ItemSettings,
   ScreenshotStrip,
+  ShowsUpIn,
   StateBadge,
 } from "./items";
 import { itemState, parseCardStyle, parseRoute, type CardStyle } from "./model";
@@ -86,17 +86,24 @@ test("the action is Install, Remove, or Hide/Show for an app that ships with cmu
   expect(action({ installed: true, hide_only: true })).not.toContain(en["store.action.remove"]!);
 });
 
-test("the standard card keeps its classes, badges, Preview and the action", () => {
+test("the standard card keeps its classes, its category, state and the action; the card itself opens the page", () => {
   const html = card("standard", { installed: true, enabled: false });
   expect(html).toContain('class="apps-card"');
   expect(html).toContain('data-card-style="standard"');
   expect(html).toContain('data-item-state="off"');
   expect(html).toContain("apps-card-footer");
-  expect(html).toContain(en["store.tier.verified"]!);
+  expect(html).toContain(en["store.category.productivity"]!);
   expect(html).toContain(en["store.badge.disabled"]!);
-  expect(html).toContain(en["store.detail.preview"]!);
+  expect(html).not.toContain(en["store.detail.preview"]!);
   expect(html).toContain(en["store.action.remove"]!);
   expect(html).not.toContain("one-line");
+});
+
+test("a card's one line is the tagline when the app has one, else its description", () => {
+  expect(card("standard")).toContain("Keeps the Mac awake while an agent works.");
+  const tagged = card("standard", { tagline: "Your Mac stays awake while agents work" });
+  expect(tagged).toContain("Your Mac stays awake while agents work");
+  expect(tagged).not.toContain("Keeps the Mac awake while an agent works.");
 });
 
 test("the compact card is one line of description and the action, with no footer", () => {
@@ -167,24 +174,38 @@ test("a detail section is a titled section", () => {
   expect(html).toBe('<section class="apps-section"><h2>Versions</h2><p>1.0.0</p></section>');
 });
 
-test("What it adds lists each contribution with its kind, and is absent when there are none", () => {
-  expect(renderToStaticMarkup(<AddsList contributes={[]} strings={strings} />)).toBe("");
-  expect(renderToStaticMarkup(<AddsList strings={strings} />)).toBe("");
+test("Shows up in names each place in plain words with what the app puts there, and is absent when there are none", () => {
+  expect(renderToStaticMarkup(<ShowsUpIn contributes={[]} strings={strings} />)).toBe("");
+  expect(renderToStaticMarkup(<ShowsUpIn strings={strings} />)).toBe("");
   const html = renderToStaticMarkup(
-    <AddsList
+    <ShowsUpIn
       contributes={[
         { kind: "section", title: "Pull Requests" },
+        { kind: "statusItem", title: "Health" },
+        { kind: "pane", title: "Dashboard" },
+        { kind: "newTab", title: "Needs you" },
+        { kind: "command", title: "Open Pull Request" },
         { kind: "panel", title: "Inbox" },
       ]}
       strings={strings}
     />,
   );
-  expect(html).toContain(`<h2>${en["store.detail.adds"]}</h2>`);
+  expect(html).toContain(`<h2>${en["store.detail.showsUpIn"]}</h2>`);
+  for (const key of [
+    "store.contribution.section",
+    "store.contribution.statusItem",
+    "store.contribution.pane",
+    "store.contribution.newTab",
+    "store.contribution.command",
+  ])
+    expect(html).toContain(`<dt>${en[key]}</dt>`);
   expect(html).toContain("Pull Requests");
-  expect(html).toContain(en["store.contribution.section"]!);
-  expect(html).toContain(">panel<");
+  // A kind the page does not know shows its title only, never the internal kind name.
+  expect(html).toContain("Inbox");
+  expect(html).not.toContain(">panel<");
+  // Two commands share one Command palette row; a repeated title still shows twice.
   const twice = renderToStaticMarkup(
-    <AddsList
+    <ShowsUpIn
       contributes={[
         { kind: "command", title: "Stay Awake" },
         { kind: "command", title: "Stay Awake" },
@@ -193,8 +214,9 @@ test("What it adds lists each contribution with its kind, and is absent when the
     />,
   );
   expect(twice.match(/Stay Awake/g)?.length).toBe(2);
+  expect(twice.match(/<dt>/g)?.length).toBe(1);
   const inherited = renderToStaticMarkup(
-    <AddsList
+    <ShowsUpIn
       contributes={[
         { kind: "__proto__", title: "Odd" },
         { kind: "constructor", title: "Odder" },
@@ -202,8 +224,9 @@ test("What it adds lists each contribution with its kind, and is absent when the
       strings={strings}
     />,
   );
-  expect(inherited).toContain(">__proto__<");
-  expect(inherited).toContain(">constructor<");
+  expect(inherited).toContain("Odd");
+  expect(inherited).not.toContain(">__proto__<");
+  expect(inherited).not.toContain(">constructor<");
 });
 
 test("settings show only once installed, with Enabled as the app's switch", () => {

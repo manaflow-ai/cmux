@@ -3,7 +3,8 @@
    control: the same glass (.acpmux-jump-latest) and look, size, rim, hover, focus and fade, with the
    arrow turned up. It stands one control and one gap above Jump to latest's place, whether that
    place shows the disc or the Needs you pill (both --ds-control-primary tall), so the pair reads as
-   one column on the composer's center line and neither ever moves for the other.
+   one column wherever jumpPlace.css stands it (the composer's center line by default) and neither
+   ever moves for the other.
    Token only (scripts/check-design-tokens.ts TOKEN_ONLY_FILES). */
 .acpmux-jump-latest.acpmux-jump-up {
   bottom: calc(
@@ -29,7 +30,8 @@
    scroll-to-bottom circle, the messaging apps' small chevron button) draw a quiet frosted control: the
    page frosts under it, it never bends. Every arm keeps the glass (never opaque; Plain glass only, so
    Lens and Spectrum keep the lens's clearer tint), the 32 px height (so Jump up stands one control and
-   one gap over the Needs you pill as over the disc), the center line, the fade and the hover wash.
+   one gap over the Needs you pill as over the disc), its place (jumpPlace.css), the fade and the hover
+   wash.
    - frosted (ships): the disc at the composer's glass level, the popover level (glass.css GLASS
      LEVELS: in-page glass that is not a popup).
    - labeled: the same glass as a rounded rectangle with the arrow and its words, the Needs you pill's
@@ -44,8 +46,41 @@
     [data-look="labeled"],
     [data-look="stacked"]
   ) {
-  --glass-tint: color-mix(in srgb, var(--glass-surface) var(--ds-glass-popover-tint), transparent);
-  --glass-backdrop: var(--ds-glass-popover-blur);
+  --glass-tint: var(--acpmux-stack-tint, color-mix(in srgb, var(--glass-surface) var(--ds-glass-popover-tint), transparent));
+  --glass-backdrop: var(--acpmux-stack-backdrop, var(--ds-glass-popover-blur));
+}
+/* THE COMPOSER'S CONTROL (Leo, 2026-11-23, of the disc in his build: "this you guys didnt move back to
+   the center yet nor style properly"). The bare dark disc read as a thing of its own beside the
+   composer. Every look but the lens is now the composer's own control in the composer's own material:
+   the composer's control box (--grid-composer-control, Send's and the mic's 28 px) and glyph
+   (--acpmux-composer-glyph, 16 px), the bottom stack's fill (--acpmux-stack-tint, the input card's
+   surface at the popover level; the solid composer surface under Reduce Transparency through
+   --glass-opaque), the pane's one edge (--acpmux-composer-edge, the card's hairline ring), and the
+   card's rim light and quieter depth (--glass-material-rim, --glass-material-depth-composer). The
+   lens keeps its 32 px fisheye disc (JumpButtons.tsx JUMP_LATEST_SIZE). Jump up wears the same, so
+   the pair stays one control; its place over the 32 px slot (the Needs you pill's) is unchanged. */
+.acpmux-jump-latest:is([data-look="frosted"], [data-look="single"], [data-look="labeled"], [data-look="stacked"]) {
+  width: var(--grid-composer-control);
+  height: var(--grid-composer-control);
+  /* glass-opaque-allow: the Reduce Transparency fill only, the composer's solid surface */
+  --glass-opaque: var(--acpmux-composer-solid, var(--glass-surface));
+  --glass-edge: var(--acpmux-composer-edge, color-mix(in srgb, var(--agent-text) 22%, transparent));
+  --glass-elevation: var(--glass-material-depth-composer);
+}
+:root[data-borders="none"] .acpmux-jump-latest:is([data-look="frosted"], [data-look="single"], [data-look="labeled"], [data-look="stacked"]) {
+  --glass-edge: transparent;
+}
+@media not (prefers-reduced-transparency: reduce) {
+  :root:not([data-reduce-transparency], [data-glass="off"]):not([data-cmux-see-through]:is([data-glass="lens"], [data-glass="spectrum"]))
+    .acpmux-jump-latest:is([data-look="frosted"], [data-look="single"], [data-look="labeled"], [data-look="stacked"]) {
+    --glass-rim-shadow: var(--glass-material-rim), inset 0 0 0 var(--cmux-hairline, 0.5px) var(--glass-edge);
+  }
+}
+.acpmux-jump-latest:is([data-look="frosted"], [data-look="single"], [data-look="labeled"], [data-look="stacked"])
+  .acpmux-jump-latest__arrow
+  > svg {
+  width: var(--acpmux-composer-glyph, var(--ds-icon-16));
+  height: var(--acpmux-composer-glyph, var(--ds-icon-16));
 }
 .acpmux-jump-latest[data-look="labeled"] {
   display: inline-flex;

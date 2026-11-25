@@ -45,6 +45,11 @@ public final class ChiefSources {
     public internal(set) var cloudState: CloudState = .off
     /// The account's active Cloud Chiefs (`chief.list`), in the service's order.
     public private(set) var cloudChiefs: [CloudChief] = []
+    /// Each team host's name by its id (`team.hosts.list`), read while a Cloud Chief is placed on a
+    /// paired server, so Home tags that Chief with the server's name as the Mac does (its paired
+    /// servers come from the same list); empty until read.
+    public private(set) var serverNames: [String: String] = [:]
+    private var serverNamesRead: Task<Void, Never>?
     /// A create or turn-on request is running.
     public private(set) var isChanging = false
     /// Why the last create or turn-on failed (the service's answer); nil after a success.
@@ -230,6 +235,9 @@ public final class ChiefSources {
         cloudConversations = [:]
         cloudState = .off
         cloudChiefs = []
+        serverNamesRead?.cancel()
+        serverNamesRead = nil
+        serverNames = [:]
         changeError = nil
         brainsAvailable = false
         turningOnChief = nil
@@ -316,6 +324,27 @@ public final class ChiefSources {
         }
     }
 
+    /// Reads ``serverNames`` once a listed Chief is placed on a host it has no name for.
+    private func readServerNames(_ http: ChiefCloudHTTP) {
+        let hosts = Set(cloudChiefs.compactMap { $0.brainPlace?.host })
+        guard serverNamesRead == nil, !hosts.isSubset(of: Set(serverNames.keys)) else { return }
+        serverNamesRead = Task { [weak self] in
+            let value = try? await Self.read(http, "team.hosts.list", [:])
+            guard let self, !Task.isCancelled else { return }
+            self.serverNamesRead = nil
+            if let names = value.map(Self.hostNames) { self.serverNames = names }
+        }
+    }
+
+    /// `team.hosts.list`'s hosts, name by id (a host with no name is left out).
+    nonisolated static func hostNames(_ value: [String: Any]) -> [String: String] {
+        var names: [String: String] = [:]
+        for host in value["hosts"] as? [[String: Any]] ?? [] {
+            if let id = host["id"] as? String, let name = host["name"] as? String, !name.isEmpty { names[id] = name }
+        }
+        return names
+    }
+
     private func apply(_ found: Lookup, userID: String, http: ChiefCloudHTTP) {
         // A Turn On's follow-up read (or any newer one) answered: the card shows what it found.
         turningOnChief = nil
@@ -330,6 +359,7 @@ public final class ChiefSources {
             return
         }
         if let chiefs = found.chiefs { cloudChiefs = chiefs }
+        readServerNames(http)
         if let available = found.brainsAvailable { brainsAvailable = available }
         defer { syncCloudChiefs(userID: userID, http: http) }
         switch found {
@@ -530,6 +560,21 @@ public final class ChiefSources {
         let identity = chief.identity(userID: "user_demo")
         cloudChiefs = [chief]
         cloudState = .ready(chief)
+        cloud.use(ChiefMockBackend(identity: identity), identity: identity)
+    }
+
+    /// Demo only (`chief-list` scenes): the account's Cloud Chiefs `chiefs`, `open` the one this phone has open,
+    /// over the mock Chief, so Home lists every one of them as the Mac's list does.
+    public func showDemoCloudChiefs(_ chiefs: [(name: String, isDefault: Bool, server: String?)], open: Int) {
+        let records = chiefs.enumerated().map { index, chief in
+            CloudChief(id: "agent_demo_cloud_\(index)", displayName: chief.name, isDefault: chief.isDefault,
+                       mainConversation: "conv_demo_cloud_\(index)", rev: 1,
+                       brainPlace: chief.server.map { CloudChief.BrainPlace(host: $0, install: "demo") })
+        }
+        guard records.indices.contains(open) else { return }
+        let identity = records[open].identity(userID: "user_demo")
+        cloudChiefs = records
+        cloudState = .ready(records[open])
         cloud.use(ChiefMockBackend(identity: identity), identity: identity)
     }
     #endif

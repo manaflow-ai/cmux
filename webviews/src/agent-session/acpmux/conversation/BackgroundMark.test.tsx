@@ -103,6 +103,25 @@ for (const [name, Row] of [
   ["CommandRow", CommandRow],
   ["ToolRow", ToolRow],
 ] as const) {
+  for (const [title, command, description] of [
+    ["Bash", "timeout 30 acpmux session inbox session-id", "Read the three non-notice inbox threads"],
+    ["exec_command", "git status --short", "Check the worktree before merging"],
+  ] as const) {
+    for (const status of ["in_progress", "completed"]) {
+      test(`${name}: opening a ${status} ${title} row reveals its full command`, async () => {
+        const item = call();
+        item.tool = { ...item.tool!, title, command, status, description };
+        const container = await render(<Row item={item} />);
+        const label = container.querySelector('button[aria-expanded="false"]')!;
+        expect(label.textContent).toContain(description);
+        expect(container.textContent).not.toContain(command);
+        await click(label);
+        expect(label.getAttribute("aria-expanded")).toBe("true");
+        expect(container.querySelector(".cv-shell__command")?.textContent).toBe(`$ ${command}`);
+      });
+    }
+  }
+
   test(`${name}: running in the background shimmers its words, with no mark at the edge and no hover time`, async () => {
     const container = await render(<Row item={call({ state: "running" })} />);
     const mark = container.querySelector(".cv-command__bg-state")!;
@@ -125,7 +144,7 @@ for (const [name, Row] of [
     expect(container.querySelector(".cv-command__time")).toBeNull();
   });
 
-  test(`${name}: failed says so to screen readers only; stopped draws no mark`, async () => {
+  test(`${name}: a failed call has an accessible mark and a stopped call names its state inline`, async () => {
     const failed = await render(<Row item={call({ state: "failed", endedAt: STARTED + 1_000 })} />);
     // Clipped away on screen (conversation.css `.cv-tool .cv-command__failed`), read aloud.
     expect(failed.querySelector(".cv-command__failed")!.textContent).toBe(translate("tools.failed"));
@@ -136,7 +155,7 @@ for (const [name, Row] of [
     );
     expect(stopped.querySelector(".cv-command__stopped")).toBeNull();
     expect(stopped.querySelector('[title="Stopped by the agent"]')).toBeNull();
-    expect(stopped.textContent).not.toContain(translate("bgTask.state.stopped"));
+    expect(stopped.textContent).toContain(` · ${translate("bgTask.state.stopped")}`);
   });
 }
 
@@ -145,36 +164,46 @@ test("a command that never went to the background draws as before", async () => 
   expect(container.querySelector(".cv-tool__meta")).toBeNull();
 });
 
-test("a background task's end without its call keeps the raw command visible", async () => {
-  const command =
-    'export PATH="/Applications/cmux NIGHTLY.app/Contents/Resources/bin:$PATH"; B=~/Projects/leo-workspace; cmux browser open https://example.com';
+test("an unrecognized background command is shown as code when no description was supplied", async () => {
+  const command = "./opaque-tool --quiet";
   const container = await render(<BackgroundTaskNote task={{ toolCallId: "bg9", command, state: "completed" }} />);
   const note = container.querySelector(".cv-bgtask")!;
-  expect(note.textContent).toContain(command);
-  expect(note.textContent).toContain(translate("bgTask.completedLead"));
-  // No tooltip: the whole command is one click away, in the opened note.
-  expect(note.getAttribute("title")).toBeNull();
+  expect(note.querySelector("code")?.textContent).toBe(command);
+  expect(note.textContent).toBe(`${command} · ${translate("bgTask.state.completed")}`);
 });
 
-// Leo, 2026-11-05, on a note reading "Background command completed hold": "what are you even holding
-// for?". An agent's Monitor named "hold" reads as the tray reads it, what it does, then its name.
-test("a background task an agent named reads as what it does, then its name", async () => {
+test("an explicit description stays prose and wins over a recognized background command", async () => {
+  const command = "sleep 840; echo t";
   const container = await render(
-    <BackgroundTaskNote
-      task={{ toolCallId: "bg-hold", command: "sleep 840; echo t", description: "hold", state: "completed" }}
-    />,
+    <BackgroundTaskNote task={{ toolCallId: "bg9", command, description: "Wait for the build", state: "completed" }} />,
   );
-  const named = container.querySelector<HTMLElement>(".cv-bgtask__title")!;
-  expect(named.textContent).toBe("Waiting 14m · hold");
-  expect(named.title).toBe("sleep 840; echo t");
-  expect(container.querySelector(".cv-bgtask__command")).toBeNull();
+  const note = container.querySelector("button.cv-bgtask")!;
+  expect(note.querySelector("span.cv-bgtask__title")?.textContent).toBe("Wait for the build");
+  expect(note.textContent).toBe("Wait for the build · Finished");
+  expect(note.querySelector("code")).toBeNull();
+  await click(note);
+  expect(container.querySelector("code.cv-bgtask__raw-command")?.textContent).toBe(command);
+});
+
+test("a description-only completion stays prose throughout disclosure", async () => {
+  const task: AcpmuxBackgroundTask = {
+    toolCallId: "bg-description",
+    command: "",
+    description: "Create worktree for lane",
+    state: "completed",
+  };
+  const container = await render(<BackgroundTaskNote task={task} />);
+  const note = container.querySelector("button.cv-bgtask")!;
+  expect(note.textContent).toBe("Create worktree for lane · Finished");
+  await click(note);
+  expect(container.querySelector("code")).toBeNull();
 });
 
 test("a background task names and links its owner, and keeps its duration in the details", async () => {
   const opened: string[] = [];
   const task: AcpmuxBackgroundTask = {
     toolCallId: "bg-owner",
-    command: "sleep 299; echo t",
+    command: "sleep 299",
     ownerId: "chat/helper-1",
     ownerTitle: "Cut create overhead",
     startedAt: STARTED,
@@ -189,12 +218,14 @@ test("a background task names and links its owner, and keeps its duration in the
   const owner = container.querySelector<HTMLElement>('.cv-bgtask__owner[role="link"]')!;
   expect(owner.textContent).toBe("Cut create overhead");
   expect(owner.dataset.deeplink).toBe("#subagent:chat/helper-1");
-  expect(container.textContent).toContain("sleep 299; echo t");
+  expect(container.querySelector(".cv-bgtask__title")?.textContent).toContain("Waiting");
+  expect(container.textContent).not.toContain(task.command);
   await click(owner);
   expect(opened).toEqual(["chat/helper-1"]);
   expect(container.querySelector("button.cv-bgtask")?.getAttribute("aria-expanded")).toBe("false");
   await click(container.querySelector("button.cv-bgtask")!);
   expect(container.textContent).toContain("6s");
+  expect(container.textContent).toContain(task.command);
 });
 
 test("a background task without an owner title does not show the owner id", async () => {

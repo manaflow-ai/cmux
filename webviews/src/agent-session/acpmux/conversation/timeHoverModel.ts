@@ -1,6 +1,7 @@
 import { translate } from "../i18n";
 import { textLinks } from "../chips/paths";
 import { nextRelativeTime, nextReplyTime, relativeTime } from "./relativeTime";
+import { intl } from "../../../ui/intl";
 
 const DAY_MS = 86_400_000;
 const TOKEN_START = "\uE000";
@@ -461,9 +462,9 @@ function localTime(at: number, now: number, date: TimeHoverDate, locale?: string
     timeZoneName: "short",
   };
   try {
-    return new Intl.DateTimeFormat(locale, fields).format(at);
+    return intl.DateTimeFormat(locale, fields).format(at);
   } catch {
-    return new Intl.DateTimeFormat(undefined, fields).format(at);
+    return intl.DateTimeFormat(undefined, fields).format(at);
   }
 }
 
@@ -472,7 +473,8 @@ function shortRelative(ms: number, sign: 1 | -1, locale?: string): string {
   const [unit, size] = SHORT_UNITS.find(([, unitSize]) => ms >= unitSize) ?? SHORT_UNITS.at(-1)!;
   const count = Math.max(1, Math.round(ms / size));
   const format = (tag?: string) =>
-    new Intl.RelativeTimeFormat(tag, { numeric: "always", style: "short" })
+    intl
+      .RelativeTimeFormat(tag, { numeric: "always", style: "short" })
       .format(sign * count, unit)
       .replace(/\.(?=\s|$)/g, "");
   try {
@@ -486,8 +488,7 @@ function shortRelative(ms: number, sign: 1 | -1, locale?: string): string {
 function shortDuration(ms: number, locale?: string): string {
   const [unit, size] = SHORT_UNITS.find(([, unitSize]) => ms >= unitSize) ?? SHORT_UNITS.at(-1)!;
   const count = Math.max(1, Math.round(ms / size));
-  const format = (tag?: string) =>
-    new Intl.NumberFormat(tag, { style: "unit", unit, unitDisplay: "short" }).format(count);
+  const format = (tag?: string) => intl.NumberFormat(tag, { style: "unit", unit, unitDisplay: "short" }).format(count);
   try {
     return format(locale);
   } catch {

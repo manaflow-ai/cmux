@@ -1,4 +1,4 @@
-import { useState, type FormEvent } from "react";
+import { useEffect, useRef, useState, type FormEvent } from "react";
 import { t } from "../i18n";
 import type { ConnectionConfig } from "../hooks/useCmuxClient";
 import { initialConnectionConfig, rememberWebSocketUrl } from "../lib/connectionDefaults";
@@ -46,6 +46,14 @@ export function ConnectScreen({ connecting, error, pairing, onConnect }: Connect
     rememberWebSocketUrl(normalizedUrl, window.localStorage);
     onConnect({ url: normalizedUrl, token: initial.token || undefined });
   };
+  // A page the daemon served with its credential in the fragment (a one-tap
+  // link) connects once on load; without one it waits for pairing as before.
+  const autoConnected = useRef(false);
+  useEffect(() => {
+    if (autoConnected.current || !initial.servedByDaemon || !initial.token) return;
+    autoConnected.current = true;
+    onConnect({ url: initial.url, token: initial.token });
+  }, [initial, onConnect]);
 
   return (
     <main className="connect-shell">

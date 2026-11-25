@@ -33,7 +33,7 @@ impl Mux {
     /// daemon with `CMUX_TUI_PROJECTION_CROSSCHECK=1`); `None` in any other build. A compare
     /// that fails is a difference. One line on stderr for a difference.
     pub(crate) fn session_journal_crosscheck(&self) -> Option<JournalCheck> {
-        if !scoped_projection::crosscheck_enabled() {
+        if !crosscheck_enabled() {
             return None;
         }
         let check = self.session_journal_check().unwrap_or_else(|error| JournalCheck {
@@ -78,8 +78,15 @@ enum Stated {
     Unknown,
     /// The published value, in one of its 2 forms (see [`journal_states`]).
     Same,
-    /// Another value, or none.
-    Other(Option<Value>),
+    /// Another value (`true`), or none. The fold keeps digests, not the value it holds.
+    Other(bool),
+}
+
+impl Stated {
+    /// What the journal states, for a difference's line: `Other`'s.
+    fn other(stated: bool) -> &'static str {
+        if stated { "another value" } else { "no value" }
+    }
 }
 
 /// The journal states a value as its last restatement decorated it: with today's state rows (a
@@ -95,11 +102,11 @@ fn journal_states(
     let Some(stated) = registry.stated_topology_value(resource, id) else {
         return Stated::Unknown;
     };
-    let stated = stated.map(|value| stable_value(&json!({"resource":resource,"value":value})));
-    if stated.as_ref() == Some(decorated) || stated.as_ref() == Some(value) {
-        Stated::Same
-    } else {
-        Stated::Other(stated)
+    // `decorated` and `value` are stable values already: the fold compares its held value without
+    // the same fields.
+    match stated {
+        Some(held) if held.is_stable(decorated) || held.is_stable(value) => Stated::Same,
+        stated => Stated::Other(stated.is_some()),
     }
 }
 
@@ -146,8 +153,9 @@ fn journal_difference(
                     None
                 }
                 Stated::Other(stated) => Some(format!(
-                    "{resource} {id}: the journal states {stated:?}, the full projection \
-                     {decorated}"
+                    "{resource} {id}: the journal states {}, the full projection \
+                     {decorated}",
+                    Stated::other(stated)
                 )),
             }
         };
@@ -170,7 +178,28 @@ pub(super) fn projection_difference(
     let db = registry.connection.get();
     let transaction = db.unchecked_transaction()?;
     let scoped_rows = prune_unchanged_resource_changes(&transaction, &scoped.patch)?.changes;
-    let full_rows = prune_unchanged_resource_changes(&transaction, &full.patch)?.changes;
+    let mut full_rows = prune_unchanged_resource_changes(&transaction, &full.patch)?.changes;
+    // A scoped walk that knows the workspace list did not move states no workspace order
+    // (`order_unchanged`); the full one states it whenever a workspace upsert is kept. Both
+    // write the same rows when the full projection's order is the stored one.
+    let scoped_orders =
+        scoped_rows.iter().any(|change| matches!(change, ResourceChange::SetWorkspaceOrder { .. }));
+    if !scoped_orders {
+        let mut unchanged = Vec::new();
+        for (index, change) in full_rows.iter().enumerate() {
+            if matches!(change, ResourceChange::SetWorkspaceOrder { .. })
+                && crate::workspace_registry::resource_store::workspace_order_is_stored(
+                    &transaction,
+                    change,
+                )?
+            {
+                unchanged.push(index);
+            }
+        }
+        for index in unchanged.into_iter().rev() {
+            full_rows.remove(index);
+        }
+    }
     // The journal states values decorated with the state rows (pins, tab
     // groups, zoom: state/values.rs), so an omitted upsert is compared to
     // the full projection's value decorated the same way.
@@ -221,7 +250,8 @@ pub(super) fn projection_difference(
         if let Stated::Other(stated) = journal_states(registry, resource, id, value, decorated) {
             return Ok(Some(format!(
                 "the scoped projection omits a changed {resource} {id}: the journal states \
-                 {stated:?}, the full projection {decorated}"
+                 {}, the full projection {decorated}",
+                Stated::other(stated)
             )));
         }
     }
@@ -229,15 +259,12 @@ pub(super) fn projection_difference(
 }
 
 /// A published value without the fields that a live surface changes on its
-/// own threads (output revision, title, size, directory, status): two walks
-/// a moment apart may read different ones.
+/// own threads (`volatile_fields`): two walks a moment apart may read
+/// different ones. The fold compares its held values without the same fields.
 fn stable_value(change: &Value) -> Value {
     let mut value = change["value"].clone();
-    let volatile: &[&str] = match change["resource"].as_str() {
-        Some("terminal") => &["stream_revision", "title", "cols", "rows", "cwd", "extra"],
-        Some("browser") => &["title", "loading", "status", "error", "frames_stalled", "size"],
-        _ => &[],
-    };
+    let volatile =
+        crate::workspace_registry::volatile_fields(change["resource"].as_str().unwrap_or_default());
     if let Some(fields) = value.as_object_mut() {
         for field in volatile {
             fields.remove(*field);

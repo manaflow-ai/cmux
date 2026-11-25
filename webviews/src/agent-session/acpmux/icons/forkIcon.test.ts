@@ -24,6 +24,19 @@ describe("the fork glyph", () => {
     expect(FORK_ICON).toBe("agent.fork");
   });
 
+  // Leo 2026-11-22: "dont get cute about it; let's just do claude and codex's symbol for branching/forking
+  // chats". The split arrow: no git nodes, a stem running on up and right, a detached arm down and right.
+  test("is the split arrow, not a git mark", () => {
+    const pack = JSON.parse(read("webviews/src/agent-session/acpmux/icons/cmuxIcons.json")) as {
+      icons: Record<string, { line: { d: string; op: string }[]; solid: { d: string; op: string }[] }>;
+    };
+    const fork = pack.icons[FORK_ICON];
+    const arrow = "M3.5 12L11.5 12L20.5 3M15.5 3L20.5 3L20.5 8M14.5 15L20.5 21M20.5 16L20.5 21L15.5 21";
+    for (const layers of [fork.line, fork.solid]) {
+      expect(layers.map((layer) => [layer.op, layer.d])).toEqual([["stroke", arrow]]);
+    }
+  });
+
   test("the web surfaces name it through FORK_ICON, never a literal or another glyph", () => {
     const literal = sources(webSrc)
       .filter((path) => !path.endsWith("icons/forkIcon.ts") && read(relative(repoRoot, path)).includes('"agent.fork"'))

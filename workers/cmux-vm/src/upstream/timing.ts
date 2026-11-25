@@ -1,6 +1,6 @@
 /**
  * How long one request spent waiting on the provider: every upstream call the request made adds its ms (send to the
- * provider's answer headers) to the request's own tally, and the answer carries it as `server-timing: upstream;dur=MS;
+ * provider's answer headers, plus the body read when it comes after: timedUpstreamBody) to the request's own tally, and the answer carries it as `server-timing: upstream;dur=MS;
  * desc="N calls"`. A caller that times the whole request (cmux-platform's start trace) subtracts it to split the
  * provider's time from ours (cmuxterm-hq goals/cloud-resume-gap.md). Concurrent calls add up, so on a request that
  * fans out the sum can pass the wall time. Only numbers: no id, path or body.
@@ -25,6 +25,24 @@ export const noteUpstream = (ms: number): Effect.Effect<void> =>
       tally.calls += 1;
     }),
   );
+
+/**
+ * Adds `ms` spent reading an upstream answer's body after its headers (the same call, so no new call is counted) to the
+ * running request's tally, if there is one: a body the provider streams slowly is the provider's time, not ours.
+ */
+export const noteUpstreamBody = (ms: number): Effect.Effect<void> =>
+  Effect.flatMap(FiberRef.get(UpstreamTime), (tally) =>
+    Effect.sync(() => {
+      if (tally !== null) tally.ms += Math.max(0, ms);
+    }),
+  );
+
+/** `read`, the body read of an upstream answer `timedUpstream` already counted, its ms added to the same tally. */
+export const timedUpstreamBody = <A, E, R>(read: Effect.Effect<A, E, R>): Effect.Effect<A, E, R> =>
+  Effect.suspend(() => {
+    const start = Date.now();
+    return Effect.ensuring(read, Effect.suspend(() => noteUpstreamBody(Date.now() - start)));
+  });
 
 /** `effect`, one upstream call, counted in the request's tally however it ends (an answer, an error or a timeout). */
 export const timedUpstream = <A, E, R>(effect: Effect.Effect<A, E, R>): Effect.Effect<A, E, R> =>

@@ -25,7 +25,7 @@ cmux customize discard    # put your setup back
 | --- | --- |
 | Sidebar (bottom, cards look) | **Today**: a big clock, the weather icon and temperature, the city's high and low. **Agents**: Byte the cat, whose color and line follow your agents (a click opens the chat that waits), Working / Waiting / Done (finished today) counters and the latest chats. **Usage**: Claude and Codex, the weekly percent left counting up, a bar, the session left, pace and extra spend. **Pull requests**: your open PRs with a checks icon, +/− lines, passed/total checks and a review badge. |
 | Session Info (every chat) | **Agent**: this chat's state, harness, folder and age. **Usage** for this chat's provider only. **Branch**: the chat branch's PR with a checks bar (passed / running / failed). |
-| New Tab (`tabs.newTabApp`) | The same cards in three columns, plus a **World clock** (LA, New York, London, Tokyo, day or night) and six chats in Agents. |
+| New Tab (`tabs.newTabApp`) | The same cards two a row (Today and the World clock beside Agents, then Usage beside Pull requests; Pull requests take the whole row where Usage is left out), plus a **World clock** (LA, New York, London, Tokyo, day or night) and six chats in Agents. The page has no wrap, so two a row is what fits a pane from 600 pt up. |
 
 The code comes from the tested examples: Today and Usage from `customize-showcase/collection`,
 the mood from `extensions/agent-pet`, the day summary from `extensions/agent-standup`, the zones

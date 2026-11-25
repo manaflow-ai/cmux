@@ -29,11 +29,12 @@ synthetic exports in a scratch folder (no real passwords):
 
 Quits the app by PID and stops the tag's daemons at the end.
 """
-import argparse, glob, json, os, plistlib, subprocess, sys, tempfile, time, zipfile
+import argparse, glob, hashlib, json, os, plistlib, subprocess, sys, tempfile, time, zipfile
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from tag_teardown import TagTeardown  # noqa: E402
 from safe_log import safe_print  # noqa: E402  (a line before a kill never skips the kill)
+from state_wait import wait_stable  # noqa: E402
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--tag", required=True)
@@ -155,13 +156,34 @@ def dialog(identifier):
 
 def key(name, modifiers=None):
     reply = rpc("debug.key", {"key": name, "modifiers": modifiers or [], "target": "palette"})
-    time.sleep(0.15)  # the palette's search and listing land
+    settle_palette(f"the palette's listing after {name!r}")
     return reply
+
+
+def settle_palette(what, timeout=10):
+    """The palette's report once it stops changing (its search and listing landed), read with a no-op key
+    (forward delete at the end of the query), as picker-e2e.py does."""
+    return wait_stable(lambda: rpc("debug.key", {"key": "forwarddelete", "modifiers": [], "target": "palette"}) or {},
+                       what, timeout=timeout, interval=0.05, raise_on_timeout=False)
 
 
 def type_text(text):
     for char in text:
         key(char)
+
+
+def window_pixels(kind):
+    """A hash of a fresh snapshot of the `kind` window (scratch file), for a layout no socket state reports."""
+    path = os.path.join(SCRATCH, f"settle-{kind}.png")
+    if rpc("debug.window_snapshot", {"kind": kind, "path": path}).get("error"):
+        return None
+    with open(path, "rb") as handle:
+        return hashlib.sha1(handle.read()).hexdigest()
+
+
+def shown_tabs():
+    """Every tab a window's shown workspace selects in a pane (debug.focus)."""
+    return {p.get("selected") for w in rpc("debug.focus").get("windows") or [] for p in w.get("topology") or [] if p.get("selected")}
 
 
 def toasts():
@@ -222,7 +244,10 @@ def entries_and_steps():
               f"Arc's steps name its password page and no bookmarks export ({lines})")
     # The onboarding window's Import step: its button opens the same sheet.
     rpc("debug.onboarding", {"action": "open", "step": "importData"})
-    time.sleep(1.0)  # the window lays out (screenshot only)
+    # The window is on its Import step, then its picture holds still (screenshot only).
+    wait_for(lambda: rpc("debug.onboarding", {"action": "state"}).get("step") == "importData", "the onboarding Import step")
+    wait_stable(lambda: window_pixels("onboarding"), "the onboarding window", timeout=10, interval=0.1, reads=3,
+                raise_on_timeout=False)
     snapshot("onboarding-import-dark", "onboarding")
     rpc("debug.onboarding", {"action": "import_from_files"})
     check(wait_for(lambda: dialog("cmux.dialog.importFiles.browser"), "the browser sheet from onboarding") is not None,
@@ -237,7 +262,8 @@ def entries_and_steps():
     clicked = wait_for(lambda: (rpc("debug.page", {"page": "cmux.passwords", "action": "click", "selector": ".pw-import-files"}) or {})
                        .get("clicked") or None, "the Passwords page's import button", 30)
     check(clicked is not None, "the Passwords page shows Import from Another Browser…")
-    time.sleep(2)  # a refused run shows nothing; give a wrongly allowed one time to open its sheet
+    # sleep-ok: a refused run shows nothing to wait on; this is the window a wrongly allowed run gets to open its sheet.
+    time.sleep(2)
     check(dialog("cmux.dialog.importFiles.browser") is None, "a page-script click does not open the person-only import")
     rpc("debug.dialog", {"press": "cancel"})
 
@@ -255,7 +281,10 @@ def import_through(browser, filename):
     if not steps:
         return shown
     rpc("debug.dialog", {"press": "choose"})
-    time.sleep(0.8)  # the picker's first listing
+    # The picker is open and its first listing landed.
+    wait_for(lambda: rpc("debug.key", {"key": "forwarddelete", "modifiers": [], "target": "palette"}).get("palette_open"),
+             f"the file picker ({browser})")
+    settle_palette(f"the file picker's first listing ({browser})")
     type_text(EXPORTS + "/")
     report = key("return")
     print("note: picker folder", {k: report.get(k) for k in ("palette_page", "palette_selected")}, flush=True)
@@ -346,8 +375,13 @@ try:
     check(wait_for(lambda: next((t for t in toasts() if "history imported: 2" in t.lower()), None), "the Takeout history toast") is not None,
           f"the Takeout history is imported, two pages from four visits and no chrome:// page ({toasts()})")
 
-    rpc("action.run", {"action": "openBrowser.webkit", "args": {"url": "about:blank"}, "focus": True})
-    time.sleep(2)  # the tab's omnibar comes up
+    opened = rpc("action.run", {"action": "openBrowser.webkit", "args": {"url": "about:blank"}, "focus": True})
+    # The new tab is the one its pane shows (the omnibar below is polled on its own).
+    tab = next((c for c in opened.get("created") or [] if str(c).startswith("tab_")), None)
+    if tab:
+        wait_for(lambda: tab in shown_tabs(), "the new WebKit tab shown")
+    else:
+        safe_print(f"note: openBrowser.webkit made no tab id: {json.dumps(opened)[:300]}", flush=True)
     # A history suggestion row shows the page's title, which only the imported history holds;
     # the typed text alone is not one.
     rows = wait_for(lambda: omnibar_rows(f"safari-hist-{RUN}") if f"Safari history {RUN}" in omnibar_rows(f"safari-hist-{RUN}") else None,

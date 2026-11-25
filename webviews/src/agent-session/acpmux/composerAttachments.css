@@ -5,12 +5,23 @@
    side inset. The row is its own band above the prompt, so the caret never
    draws over a thumbnail. The remove button is a small × inside the thumbnail's corner, shown while
    the chip is hovered or focused. Theme tokens only. */
-.acpmux-composer-box {
+.acpmux-composer-box,
+.acpmux-newtab-box {
   --acpmux-attach-inset: 16px;
   --acpmux-attach-top: 8px;
   --acpmux-attach-gap: 6px;
   --acpmux-attach-height: 64px;
   --acpmux-attach-radius: max(4px, calc(var(--acpmux-composer-radius, 22px) - var(--acpmux-attach-inset)));
+}
+/* The strip's tile size (composer/attachStrip.experiment.ts, `data-attach-size` on the box): every
+   tile, the band the prompt gives up and the pending tile follow --acpmux-attach-height. */
+.acpmux-composer-box[data-attach-size="compact"] {
+  --acpmux-attach-height: 44px;
+  --acpmux-attach-top: 6px;
+}
+.acpmux-composer-box[data-attach-size="chips"] {
+  --acpmux-attach-height: 32px;
+  --acpmux-attach-top: 6px;
 }
 .acpmux-attachments {
   /* A column flex item: a 100% basis would be the box's height, and shrinking would clip the
@@ -84,6 +95,22 @@
    had, so it stood taller than the prompt it replaced. */
 .acpmux-attachments ~ .acpmux-composer-field-menu .acpmux-md-field {
   padding-top: var(--acpmux-attach-gap);
+  /* The strip lives inside the top of the card's inner area and shares the prompt's max height
+     (Leo 2026-11-23, ask-525a5e502a: attachments sit within the top part of the composer, the inner
+     area grows at the top, no shift). The prompt gives up the strip's band (its top inset and a
+     tile), so at the cap adding or removing attachments leaves the card, the transcript and the hat
+     where they were; a short draft grows by the band less the top inset the prompt drops. */
+  --acpmux-attach-band: calc(var(--acpmux-attach-top) + var(--acpmux-attach-height));
+}
+/* The New Tab card (NewTabPage.tsx) holds its strip the same way: inside its top, the strip's band
+   taken out of the prompt's max height (styles.css .acpmux-newtab-field), so a capped draft keeps the
+   card's height when attachments land (ask-525a5e502a). Its side inset is the row's 18 px text inset
+   (styles.css .acpmux-newtab-row). */
+.acpmux-newtab-box > .acpmux-attachments {
+  --acpmux-attach-inset: 18px;
+}
+.acpmux-newtab-box > .acpmux-attachments ~ .acpmux-newtab-row .acpmux-newtab-field.acpmux-md-field {
+  --acpmux-attach-band: calc(var(--acpmux-attach-top) + var(--acpmux-attach-height));
 }
 .acpmux-attachments ~ .acpmux-composer-field-menu .acpmux-md-placeholder {
   top: var(--acpmux-attach-gap);
@@ -97,7 +124,7 @@
   box-sizing: border-box;
   border-radius: var(--acpmux-attach-radius);
   background: var(--agent-control);
-  box-shadow: inset 0 0 0 var(--cmux-hairline, 0.5px) var(--agent-border-strong);
+  box-shadow: inset 0 0 0 var(--cmux-hairline, 0.5px) var(--acpmux-composer-edge);
 }
 /* Select All in the prompt selects the strip's attachments too (Leo, 2026-11-01): each wears the
    selection's tint, as the chips placed in the text do (markdownField.css). */
@@ -569,11 +596,19 @@
   grid-template-rows: 1fr auto;
   align-content: center;
   gap: 2px 6px;
-  padding: 7px 24px 7px 8px;
+  /* No room kept for the hover-only ×: it lies over the name's end (Leo, 2026-11-24: "if the buttons
+     show on hover, then we should show the whole line before ellipsis-ing. and when the area is
+     hovered over, there's that whatever some amount of good fading that makes it all feel like one
+     motion"; "you're early ellipsis-ing because of a button that doesnt even always show"). The name
+     is a .ui-reveal-text (ui/motion/motion.css) of a data-reveal-overlap host: it fades under the ×
+     while the × shows, and fades at its end instead of an ellipsis only where it is cut. */
+  --acpmux-document-meta-pad-block: 7px;
+  padding: var(--acpmux-document-meta-pad-block) 8px;
   color: var(--agent-text);
 }
 .acpmux-attachment-document-meta > svg { grid-row: 1 / span 2; align-self: center; }
 .acpmux-attachment-document-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.acpmux-attachment-document-name.ui-reveal-text { text-overflow: clip; }
 .acpmux-attachment-document-pages { color: var(--agent-muted); font-size: var(--text-caption); letter-spacing: var(--text-caption--letter-spacing); }
 .acpmux-attachment-document .acpmux-attachment-remove { top: 20px; }
 /* The chat composer's and the New Tab card's (.nt-box): without it the New Tab badge drew as a
@@ -602,6 +637,7 @@
 .acpmux-attachment-file .acpmux-attachment-remove {
   top: 8px;
 }
+[data-composer-buttons-visible] .acpmux-attachment-remove,
 .acpmux-attachment:hover .acpmux-attachment-remove,
 .acpmux-attachment:focus-within .acpmux-attachment-remove {
   opacity: 1;
@@ -1022,7 +1058,7 @@ button.acpmux-attachment-pasted-open:hover {
   height: 20px;
   border-radius: var(--ds-radius-md);
   background: var(--agent-control);
-  box-shadow: inset 0 0 0 var(--cmux-hairline, 0.5px) var(--agent-border-strong);
+  box-shadow: inset 0 0 0 var(--cmux-hairline, 0.5px) var(--acpmux-composer-edge);
 }
 .acpmux-paste-chip[data-chip-kind] .acpmux-paste-chip__panel:has(.acpmux-chip-collapse[data-place="corner"]) .acpmux-paste-view__text {
   padding-top: calc(var(--ds-space-3) + 12px);
@@ -1063,6 +1099,34 @@ button.acpmux-attachment-pasted-open:hover {
 }
 .acpmux-paste-chip[data-chip-kind="ui"] .acpmux-paste-chip__label > .acpmux-paste-chip__part[data-part="kind"] {
   color: var(--agent-muted);
+}
+
+/* A browser pick (composer/BrowserPickChip.tsx): its number in a round badge, the number its pin
+   shows on the page, then the person's comment as the title, the element and page under it. The
+   badge sits in the glyph slot, so a row of picks lines up like a numbered list. */
+.acpmux-browser-pick-number {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  box-sizing: border-box;
+  min-width: var(--ds-icon-16);
+  height: var(--ds-icon-16);
+  padding: 0 4px;
+  border-radius: 999px;
+  /* The accent role and the text the theme draws on it. */
+  background: var(--agent-accent);
+  color: var(--agent-on-accent, var(--agent-page-bg, #fff));
+  font-size: var(--text-caption);
+  font-weight: var(--weight-emphasis);
+  line-height: var(--ds-icon-16);
+  font-variant-numeric: tabular-nums;
+}
+.acpmux-paste-chip__title > .acpmux-paste-chip__part[data-part="comment"] {
+  overflow: hidden;
+  color: var(--agent-text);
+  font-weight: var(--weight-emphasis);
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 /* A pick in a sent message (conversation/SentUIPick.tsx): the composer's chip in the message's one
@@ -1132,7 +1196,13 @@ button.acpmux-attachment-pasted-open:hover {
   color: var(--agent-text);
   vertical-align: middle;
 }
-.acpmux-file-chip--removable { padding-right: 32px; }
+/* A removable chip keeps no room for its × (hover only): the × lies over the end of the chip's text
+   (.acpmux-file-chip__text, a .ui-reveal-text of a data-reveal-overlap host, ui/motion/motion.css),
+   which fades under it (Leo, 2026-11-24, as above). A failed chip's × is always shown, so its text
+   always gives way. */
+.acpmux-file-chip__text { display: flex; align-items: center; gap: var(--acpmux-file-chip-gap); flex: 0 1 auto; min-width: 0; }
+.acpmux-attachment-file .acpmux-file-chip__text { text-overflow: clip; }
+.acpmux-md-inline-chip > .acpmux-attachment-failed .ui-reveal-text { --ui-reveal-cover: var(--ui-reveal-controls-w, 0px); }
 .acpmux-file-chip > svg { flex: none; color: var(--agent-muted); }
 .acpmux-file-chip > .acpmux-file-chip__status {
   display: grid;
@@ -1195,6 +1265,11 @@ button.acpmux-attachment-pasted-open:hover {
 .acpmux-attachment:is(:hover, :focus-within) > .acpmux-source-badge {
   opacity: 0;
 }
+/* Leave the removal button its corner while keeping the attachment source visible. */
+[data-composer-buttons-visible] .acpmux-attachment:not(.acpmux-file-chip) > .acpmux-source-badge {
+  right: auto;
+  left: 4px;
+}
 .acpmux-attachment-document > .acpmux-source-badge { top: 20px; }
 /* A file chip's rides its file glyph's top-right corner, clear of the chip's ×. */
 .acpmux-file-chip > .acpmux-source-badge {
@@ -1232,9 +1307,9 @@ button.acpmux-attachment-pasted-open:hover {
    do we have a solid color thing anyway? Shouldn't it also be glass?"). No drop shadow: it sits in
    the composer's glass, not over the page. */
 :is(.acpmux-md-inline-chip, .acpmux-attachment).acpmux-paste-loading {
+  /* The element carries ui-glass (PASTE_LOADING_CLASS), which paints the frost; the chip's own
+     background and rim keep winning over the chip's class here. */
   background: var(--glass-tint);
-  -webkit-backdrop-filter: var(--glass-backdrop);
-  backdrop-filter: var(--glass-backdrop);
   box-shadow: var(--glass-rim-shadow);
   color: var(--agent-muted);
   opacity: 0.85;
