@@ -106,6 +106,7 @@ public nonisolated final class RemoteAcpmuxWire: AcpmuxPaneWire {
         /// Each prompt on its way to the daemon, by prompt id (``deliver(_:_:)``): a resend of the
         /// same id (the page's Retry) joins it instead of racing it.
         var deliveries: [String: Task<Data, any Error>] = [:]
+        var joinedDeliveries = 0
     }
 
     /// A new chat's first prompt out (`prompt`), its start answered (`start`) and its agent's first text
@@ -813,30 +814,38 @@ public nonisolated final class RemoteAcpmuxWire: AcpmuxPaneWire {
 
     /// How long a prompt the daemon did not take yet waits before it goes again (``deliver(_:_:)``).
     static let unansweredPromptRetry: Duration = .seconds(1)
+    /// How long ``deliver(_:_:)`` keeps sending a prompt the daemon did not take: past the page's own
+    /// delivery deadline (`failMs`, 60 s, direct/queue.ts), so the page fails the row with Retry first,
+    /// and a sender that keeps the prompt in its composer (a new chat's) gets it back then, never waits on.
+    static let unansweredPromptPatience: Duration = .seconds(90)
 
     /// `send` (the prompt `promptID` to the daemon) until the daemon answers it: its acceptance, or a
     /// refusal of the prompt itself. A prompt that got no answer yet goes again under the same id,
-    /// which that machine's acpmux runs at most once, for as long as the wire is open: a busy or
-    /// just-resumed Cloud machine takes longer than any fixed wait, as a local chat's acpmux does,
-    /// and its late acceptance must still land. Before, the first call's 10 s deadline answered
-    /// "Not sent: timed out: agent-session-prompt" while the daemon still waited for acpmux (30 s,
-    /// `PROMPT_ACCEPT_TIMEOUT`), the prompt then ran anyway, and its Retry was refused or hung
-    /// (cmux#55671). The page's own delivery deadline still says when it has been slow.
-    /// A second send of an id still on its way joins it.
+    /// which that machine's acpmux runs at most once, for ``unansweredPromptPatience`` while the wire is
+    /// open: a busy or just-resumed Cloud machine takes longer than any one call's wait, as a local
+    /// chat's acpmux does, and its late acceptance must still land. Before, the first call's 10 s
+    /// deadline answered "Not sent: timed out: agent-session-prompt" while the daemon still waited for
+    /// acpmux (30 s, `PROMPT_ACCEPT_TIMEOUT`), the prompt then ran anyway, and its Retry hung at
+    /// Sending (cmux#55671). A second send of an id still on its way joins it (``joinedDeliveries``).
     func deliver(_ promptID: String, _ send: @escaping @Sendable () async throws -> Data) async throws -> Data {
         let task = state.withLock { state -> Task<Data, any Error> in
-            if let running = state.deliveries[promptID] { return running }
+            if let running = state.deliveries[promptID] {
+                state.joinedDeliveries += 1
+                return running
+            }
             // task-owner: this prompt's delivery; every send of its id awaits it, the first to finish removes it
             let task = Task { [weak self] () async throws -> Data in
+                let until = ContinuousClock.now + Self.unansweredPromptPatience
                 var attempt = 0
                 while true {
                     attempt += 1
                     do {
                         return try await send()
                     } catch {
-                        guard let self, Self.unanswered(error), !self.state.withLock({ $0.closed }) else { throw error }
+                        guard let self, Self.unanswered(error), !Task.isCancelled, !self.state.withLock({ $0.closed }),
+                              ContinuousClock.now + Self.unansweredPromptRetry < until else { throw error }
                         Self.logger.info("prompt not answered yet; sending it again (try \(attempt, privacy: .public))")
-                        try await Task.sleep(for: Self.unansweredPromptRetry)
+                        do { try await Task.sleep(for: Self.unansweredPromptRetry) } catch { throw error }
                         guard !self.state.withLock({ $0.closed }) else { throw error }
                     }
                 }
@@ -847,6 +856,9 @@ public nonisolated final class RemoteAcpmuxWire: AcpmuxPaneWire {
         defer { state.withLock { if $0.deliveries[promptID] == task { $0.deliveries[promptID] = nil } } }
         return try await task.value
     }
+
+    /// How many sends joined a delivery already on its way (``deliver(_:_:)``), for tests.
+    var joinedDeliveries: Int { state.withLock { $0.joinedDeliveries } }
 
     /// Whether a prompt's failure means only that the daemon did not take it yet, so the same id may
     /// go again: the app's own deadline on the call, the daemon's wait for acpmux running out

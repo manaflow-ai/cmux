@@ -68,15 +68,20 @@ struct RemoteAcpmuxWirePromptDeliveryTests {
         let inbox = AgentPaneRelayedAllowTests.PageInbox()
         try await wire.open(onFrame: { inbox.deliver([$0]) }, onClose: { _, _ in })
         wire.send(Self.prompt(1, promptID: "p-same")) { _ in }
-        while await client.prompts.isEmpty { await Task.yield() }
+        while await client.prompts.isEmpty { try await Task.sleep(for: .milliseconds(5)) }
         wire.send(Self.prompt(2, promptID: "p-same")) { _ in }
-        for _ in 0..<50 { await Task.yield() }
+        while wire.joinedDeliveries == 0 { try await Task.sleep(for: .milliseconds(5)) }
         await client.release()
         let first = await inbox.frame(containing: "\"id\":1")
         let second = await inbox.frame(containing: "\"id\":2")
         #expect(!first.contains("\"error\"") && !second.contains("\"error\""))
         #expect(await client.prompts == ["p-same"])
         wire.cancel(code: 1000, reason: "test complete")
+    }
+
+    @Test func aPromptTheDaemonNeverTakesFailsOnceItsPatienceIsSpent() async throws {
+        #expect(RemoteAcpmuxWire.unansweredPromptPatience > .seconds(60), "past the page's failMs, so the page fails it first")
+        #expect(RemoteAcpmuxWire.unansweredPromptPatience < .seconds(5 * 60))
     }
 
     @Test func aRefusalOfThePromptItselfIsAnsweredAtOnce() async throws {
