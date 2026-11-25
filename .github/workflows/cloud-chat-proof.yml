@@ -109,6 +109,11 @@ on:
         required: false
         default: false
         type: boolean
+      matrix_only:
+        description: "With matrix: a comma list of its cells, or kinds (RFD 0007's ten folder kinds); empty runs every cell"
+        required: false
+        default: ""
+        type: string
       cleanup_machine:
         description: A leaked Cloud machine id (vm_<hex>) to inspect and kill from the published app, instead of a proof
         required: false
@@ -896,13 +901,14 @@ jobs:
         timeout-minutes: 90
         env:
           PROOF_AGENT: ${{ inputs.agent }}
+          MATRIX_ONLY: ${{ inputs.matrix_only }}
           # The agent test account's Claude login, cached for the run's own app only (--cache-claude-login).
           CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
         run: |
           set -euo pipefail
           out="$RUNNER_TEMP/cloud-chat-proof/matrix-staging"
           status=0
-          python3 -I scripts/cmux-next/cloud-chat-matrix.py --app "$CMUX_PROOF_APP" --tag "cwm-$GITHUB_RUN_ID-staging" \
+          python3 -I scripts/cmux-next/cloud-chat-matrix.py --app "$CMUX_PROOF_APP" --tag "cwm-$GITHUB_RUN_ID-staging" --only "$MATRIX_ONLY" \
             --agents "$PROOF_AGENT" --cloud-backend staging --expected-api-origin https://cloud-api-staging.cmux.dev \
             --credentials-file "$CMUX_PROOF_CREDENTIALS" --grant-claude-login --cache-claude-login --login pass --out "$out" || status=$?
           [ -s "$out/matrix.md" ] && cat "$out/matrix.md" >> "$GITHUB_STEP_SUMMARY"
@@ -1135,13 +1141,14 @@ jobs:
         timeout-minutes: 90
         env:
           PROOF_AGENT: ${{ inputs.agent }}
+          MATRIX_ONLY: ${{ inputs.matrix_only }}
           # The agent test account's Claude login, cached for the run's own app only (--cache-claude-login).
           CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
         run: |
           set -euo pipefail
           out="$RUNNER_TEMP/cloud-chat-proof/matrix-prod"
           status=0
-          python3 -I scripts/cmux-next/cloud-chat-matrix.py --app "$CMUX_PROOF_APP" --tag "cwm-$GITHUB_RUN_ID-prod" \
+          python3 -I scripts/cmux-next/cloud-chat-matrix.py --app "$CMUX_PROOF_APP" --tag "cwm-$GITHUB_RUN_ID-prod" --only "$MATRIX_ONLY" \
             --agents "$PROOF_AGENT" --cloud-backend prod --expected-api-origin https://cloud-api.cmux.dev \
             --credentials-file "$CMUX_PROOF_CREDENTIALS" --grant-claude-login --cache-claude-login --login pass --out "$out" || status=$?
           [ -s "$out/matrix.md" ] && cat "$out/matrix.md" >> "$GITHUB_STEP_SUMMARY"
