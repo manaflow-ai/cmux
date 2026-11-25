@@ -221,6 +221,12 @@
     },
     {
       "kind": "request",
+      "name": "_acpmux/tailnet/placement",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
       "name": "_acpmux/status",
       "params": {
         "$ref": "#/types/StatusParams"
@@ -361,6 +367,46 @@
     },
     {
       "kind": "request",
+      "name": "_acpmux/here/beat",
+      "params": {
+        "$ref": "#/types/HereBeatParams"
+      },
+      "result": {
+        "$ref": "#/types/HereBeatDone"
+      }
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/here",
+      "params": {
+        "$ref": "#/types/HereParams"
+      },
+      "result": {
+        "$ref": "#/types/HereResult"
+      }
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/sync/pull",
+      "params": {
+        "$ref": "#/types/SyncPullParams"
+      },
+      "result": {
+        "$ref": "#/types/SyncPullResult"
+      }
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/sync/push",
+      "params": {
+        "$ref": "#/types/SyncPushParams"
+      },
+      "result": {
+        "$ref": "#/types/SyncPushDone"
+      }
+    },
+    {
+      "kind": "request",
       "name": "_acpmux/markUnread",
       "params": {
         "$ref": "#/types/MarkUnreadParams"
@@ -402,6 +448,18 @@
     {
       "kind": "request",
       "name": "_acpmux/rename",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/succeed",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/role",
       "params": true,
       "result": true
     },
@@ -1229,6 +1287,22 @@
       "name": "_acpmux/turn_shots",
       "params": {
         "$ref": "#/types/TurnShotsParams"
+      },
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/turn_frames",
+      "params": {
+        "$ref": "#/types/TurnFramesParams"
+      },
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/customize_run",
+      "params": {
+        "$ref": "#/types/CustomizeRunParams"
       },
       "result": true
     },
@@ -2965,6 +3039,11 @@
       "params": true
     },
     {
+      "kind": "notification",
+      "name": "_acpmux/admission_waiting",
+      "params": true
+    },
+    {
       "kind": "client_local",
       "name": "_acpmux/disconnected",
       "params": true
@@ -3027,6 +3106,7 @@
         "approverDecisions": true,
         "argv": true,
         "author": true,
+        "autoPlace": true,
         "beforePromptId": true,
         "callerKind": true,
         "callerProtocol": true,
@@ -3369,6 +3449,7 @@
           "$ref": "#/types/RequestMeta"
         },
         "archived": true,
+        "opId": true,
         "sessionId": true
       },
       "type": "object"
@@ -3435,15 +3516,15 @@
             "null"
           ]
         },
-        "quietHidden": {
-          "description": "True: the client draws nothing of the chat while it is hidden (`visible: false`), so the\nagent's `session/update` stream is left out until `_acpmux/view` shows it, which then sends\none `_acpmux/lagged` naming the chat (`server/view.rs`); default false.",
+        "omitTimeBreakdown": {
+          "description": "True from a client that never draws the breakdown (the phone): the reply's `session`\nleaves `timeBreakdown` out whatever its version (`server/requests/time_breakdown_gate.rs`).",
           "type": [
             "boolean",
             "null"
           ]
         },
-        "omitTimeBreakdown": {
-          "description": "True from a client that never draws the breakdown (the phone): the reply's `session`\nleaves `timeBreakdown` out whatever its version (`server/requests/time_breakdown_gate.rs`).",
+        "quietHidden": {
+          "description": "True: the client draws nothing of the chat while it is hidden (`visible: false`), so the\nagent's `session/update` stream is left out until `_acpmux/view` shows it, which then sends\none `_acpmux/lagged` naming the chat (`server/view.rs`); default false.",
           "type": [
             "boolean",
             "null"
@@ -3892,6 +3973,16 @@
           "type": "string"
         }
       ]
+    },
+    "CustomizeRunParams": {
+      "additionalProperties": false,
+      "properties": {
+        "_meta": {
+          "$ref": "#/types/RequestMeta"
+        },
+        "run": true
+      },
+      "type": "object"
     },
     "DeliveryReceipt": {
       "properties": {
@@ -4477,6 +4568,219 @@
         "cwd": true
       },
       "type": "object"
+    },
+    "HereActivity": {
+      "description": "What the person on a device is doing, as its client sees it.",
+      "oneOf": [
+        {
+          "const": "present",
+          "description": "The app is in front; `idleMs` says how long since the last input.",
+          "type": "string"
+        },
+        {
+          "const": "working",
+          "description": "The person is typing or driving a terminal.",
+          "type": "string"
+        },
+        {
+          "const": "away",
+          "description": "The app is in the background, the screen locked or asleep.",
+          "type": "string"
+        }
+      ]
+    },
+    "HereBeatDone": {
+      "properties": {
+        "changed": {
+          "description": "Whether the beat changed what `_acpmux/here` answers.",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "changed"
+      ],
+      "type": "object"
+    },
+    "HereBeatParams": {
+      "additionalProperties": false,
+      "description": "`_acpmux/here/beat`: send about every 10 s while the app runs (a beat lives 30 s) and once\nwith `leave` when it quits. At most 64 devices are held; `seq` grows per device, so a beat\nthat arrives late or twice changes nothing.",
+      "properties": {
+        "_meta": {
+          "anyOf": [
+            {
+              "$ref": "#/types/AuthorMeta"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "The person, when a peer forwards for one of its own; none is this machine's owner."
+        },
+        "activity": {
+          "$ref": "#/types/HereActivity"
+        },
+        "device": {
+          "description": "The device's stable id, one line of at most 128 bytes.",
+          "type": "string"
+        },
+        "deviceKind": {
+          "$ref": "#/types/HereDeviceKind"
+        },
+        "idleMs": {
+          "default": 0,
+          "description": "Milliseconds since the person's last input on this device.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "leave": {
+          "description": "The device is going away: drop its beat now.",
+          "type": "boolean"
+        },
+        "scopes": {
+          "description": "The chats or workspaces the device shows; at most 16, each at most 256 bytes.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "seq": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "device",
+        "deviceKind",
+        "seq",
+        "activity"
+      ],
+      "type": "object"
+    },
+    "HereDevice": {
+      "properties": {
+        "ageMs": {
+          "description": "Milliseconds since its last beat, on this daemon's clock.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "device": {
+          "type": "string"
+        },
+        "deviceKind": {
+          "$ref": "#/types/HereDeviceKind"
+        },
+        "status": {
+          "$ref": "#/types/HereStatus"
+        },
+        "working": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "ageMs",
+        "device",
+        "deviceKind",
+        "status",
+        "working"
+      ],
+      "type": "object"
+    },
+    "HereDeviceKind": {
+      "description": "The kind of device a heartbeat comes from.",
+      "enum": [
+        "mac",
+        "vm",
+        "phone",
+        "web",
+        "other"
+      ],
+      "type": "string"
+    },
+    "HereKind": {
+      "enum": [
+        "person",
+        "agent"
+      ],
+      "type": "string"
+    },
+    "HereMember": {
+      "description": "One person or agent, across their devices.",
+      "properties": {
+        "devices": {
+          "items": {
+            "$ref": "#/types/HereDevice"
+          },
+          "type": "array"
+        },
+        "id": {
+          "description": "`owner` for this machine's person, an author id for another, the session id for an agent.",
+          "type": "string"
+        },
+        "kind": {
+          "$ref": "#/types/HereKind"
+        },
+        "name": {
+          "type": "string"
+        },
+        "status": {
+          "$ref": "#/types/HereStatus",
+          "description": "The best status across devices."
+        },
+        "working": {
+          "description": "Typing, driving a terminal, or (an agent) in a turn.",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "devices",
+        "id",
+        "kind",
+        "name",
+        "status",
+        "working"
+      ],
+      "type": "object"
+    },
+    "HereParams": {
+      "additionalProperties": false,
+      "description": "`_acpmux/here`.",
+      "properties": {
+        "scope": {
+          "description": "Only who shows this chat or workspace; agents match by session id.",
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "type": "object"
+    },
+    "HereResult": {
+      "properties": {
+        "here": {
+          "description": "Active first, then idle, then away; people before agents; then by name.",
+          "items": {
+            "$ref": "#/types/HereMember"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "here"
+      ],
+      "type": "object"
+    },
+    "HereStatus": {
+      "description": "Best first.",
+      "enum": [
+        "active",
+        "idle",
+        "away"
+      ],
+      "type": "string"
     },
     "InboxThreadParams": {
       "additionalProperties": false,
@@ -5531,7 +5835,7 @@
             }
           ],
           "default": null,
-          "description": "Why the route last went down (a failed dial, or a path that died while another\nanswered); null before any did, or when no failure so far had a type. Kept while the\nlink is up again, so a surface can say why it moved."
+          "description": "Why the route last went down (a failed dial, or a path that died while another\nanswered); null before any did, or when no failure so far had a type. Kept while the\nlink is up again, so a surface can say why it moved. A word this build does not know (a\nnewer daemon's) reads as null, so the rest of the note still lands."
         },
         "error": {
           "description": "Why the link is down, when it is.",
@@ -9006,6 +9310,69 @@
       },
       "type": "object"
     },
+    "SyncPullParams": {
+      "additionalProperties": false,
+      "description": "`_acpmux/sync/pull`: send the version vector you hold (an object of actor to sequence; none\nor `{}` for everything). The answer holds only the edits you lack, so a replica ten edits\nbehind gets about ten entries however many chats there are.",
+      "properties": {
+        "vv": true
+      },
+      "type": "object"
+    },
+    "SyncPullResult": {
+      "properties": {
+        "actor": {
+          "description": "This daemon's replica id: the actor its own edits carry.",
+          "type": "string"
+        },
+        "delta": {
+          "description": "The edits the caller lacks (`{since, covers, entries}`)."
+        },
+        "vv": {
+          "description": "What this daemon covers after them: send it back as `vv` next time."
+        }
+      },
+      "required": [
+        "actor",
+        "delta",
+        "vv"
+      ],
+      "type": "object"
+    },
+    "SyncPushDone": {
+      "properties": {
+        "changed": {
+          "description": "The keys whose value changed here.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "gap": {
+          "description": "This daemon did not cover the delta's `since`: entries merged, but pull to fill the rest.",
+          "type": "boolean"
+        },
+        "vv": {
+          "description": "What this daemon covers now: the pusher's edits it covers are acked."
+        }
+      },
+      "required": [
+        "changed",
+        "gap",
+        "vv"
+      ],
+      "type": "object"
+    },
+    "SyncPushParams": {
+      "additionalProperties": false,
+      "description": "`_acpmux/sync/push`: a delta from another replica (a phone, the Mac, a VM), merged here in any\norder, any number of times. A title or read mark that wins is applied to the chat as a rename\nor a mark would be.",
+      "properties": {
+        "delta": true
+      },
+      "required": [
+        "delta"
+      ],
+      "type": "object"
+    },
     "TaskItem": {
       "description": "One step of the list.",
       "properties": {
@@ -9290,6 +9657,20 @@
         "level": true,
         "peer": true,
         "sessionId": true
+      },
+      "type": "object"
+    },
+    "TurnFramesParams": {
+      "additionalProperties": false,
+      "properties": {
+        "_meta": {
+          "$ref": "#/types/RequestMeta"
+        },
+        "index": true,
+        "look": true,
+        "sessionId": true,
+        "sinceSeq": true,
+        "turnId": true
       },
       "type": "object"
     },
