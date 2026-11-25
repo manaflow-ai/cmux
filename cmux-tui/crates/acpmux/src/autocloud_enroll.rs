@@ -2,7 +2,7 @@
 //! machine"), the policy of whose work may run there and when, and the `autoCloud` block it
 //! reports in its own `_acpmux/host_health` for the placer ([`crate::place_mode`]) to weigh
 //! (Leo, 2026-11-25: "i mean remote as in like... would it make sense to enroll remote machines
-//! aka stuff like cmux16 capable into the autocloud, or just keep remote as it normally would
+//! aka stuff like [one of our Macs] capable into the autocloud, or just keep remote as it normally would
 //! be"; "and then we eventually serve it to customers. but we're acting as a customer right now
 //! is the point").
 //!
