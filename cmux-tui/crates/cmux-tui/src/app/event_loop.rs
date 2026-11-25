@@ -77,6 +77,8 @@ impl App {
     where
         B::Error: Send + Sync + 'static,
     {
+        // The first turn: the initial layout and draw.
+        crate::ui_watchdog::client_turn_begin();
         // Initial layout + draw.
         self.draw_terminal(terminal, RenderAction::Draw)?;
         self.emit_graphics()?;
@@ -128,10 +130,14 @@ impl App {
             // blocks until an event.
             let timeout = self.synchronized_output.cap_wait(timeout, now);
             let mut toast_expired_on_timeout = false;
+            // The UI watchdog's heartbeat (ui_watchdog): the turn ends at the wait and the next
+            // begins when it returns, so an idle wait is never a stall and costs no wakeup.
+            crate::ui_watchdog::client_turn_end();
             let received = match timeout {
                 Some(timeout) => rx.recv_timeout(timeout),
                 None => rx.recv().map_err(|_| crossbeam_channel::RecvTimeoutError::Disconnected),
             };
+            crate::ui_watchdog::client_turn_begin();
             let first = match received {
                 Ok(event) => Some(event),
                 Err(crossbeam_channel::RecvTimeoutError::Timeout) => {
