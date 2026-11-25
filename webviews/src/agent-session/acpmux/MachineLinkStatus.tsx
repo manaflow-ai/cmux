@@ -26,8 +26,9 @@ export function linkWords(link: PeerLink, t: Translate): string {
 
 /// The link of the machine a chat on another machine runs on, in the composer's quiet row (Leo,
 /// 2026-10-28: "you just get a little green dot ... as if you were working on your own computer,
-/// but now it's remote"). Connected, connecting and reconnecting keep the dot alone; a lasting
-/// offline failure names the machine with Reconnect. A chat on this Mac draws nothing (`link` null).
+/// but now it's remote"). Connected is the dot alone, and so is a link connecting or reconnecting on
+/// its own (Leo, 2026-11-24); down names the machine and its state in the danger ink with Reconnect,
+/// and a reason acpmux knows (a refused sign-in, an update, this Mac's network) is said. A chat on this Mac draws nothing (`link` null).
 ///
 /// One element from the first frame to the last, after the mode chip: the words grow from the
 /// dot and fade in, so the model chip and the ring (anchored at the row's end) never move, and
@@ -54,7 +55,12 @@ export function MachineLinkStatus({
   // or an update the machine needs (`stuck`) needs a person, so it is said at once.
   const waits = link !== null && link.link !== "connected" && !link.stuck;
   const due = useLinkDownSaid(waits, link?.since, quietMs);
-  const quiet = waits && (!due || link.link === "connecting");
+  // A link still dialing that needs no person is the plain dot however long it takes (Leo, 2026-11-24:
+  // "all the connecting... indicators and the graying out of workspaces, nah let's not do that. let's
+  // just keep optimistically connecting"): no spinner, no Connecting or Reconnecting. A link down
+  // (offline) still says so past the bound, with Reconnect; a refused sign-in or an update at once.
+  const onItsWay = link !== null && link.link === "connecting" && !link.why && !link.stuck;
+  const quiet = onItsWay || (waits && !due);
   // The last words said, kept while they fold away on a link that came back, so the fold-out shows
   // what was said rather than "Connected" (state derived during render, not in an effect).
   const words = link ? linkWords(link, t) : "";
