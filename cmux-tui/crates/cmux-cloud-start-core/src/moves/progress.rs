@@ -2,6 +2,11 @@
 //! is on, why it waits there, and about how long is left (Leo, 2026-11-09: "the ergonomic part is
 //! super big for us."). The app says which step runs, how long it has run and what the folder copy
 //! reported (`moves::seed`); here that becomes the toast's second line. Pure: no clock, no I/O.
+//!
+//! From the click on, the line names a step: Move to Cloud's first is the folder check before a
+//! machine is picked. A step past its usual time says how long it has run so far, and keeps
+//! counting (Leo, 2026-11-23: "you guys need to be absolutely exhaustively testing out what would
+//! a new user be seeing here?"; the new-user journey found no progress shown while a move runs).
 
 use crate::moves::seed;
 use serde::{Deserialize, Serialize};
@@ -17,10 +22,14 @@ pub enum Direction {
     BringBack,
 }
 
-/// A move's steps, in order. Both directions take the same four.
+/// A move's steps, in order. Move to Cloud takes five ([`Stage::Folder`] first), Bring Back Local
+/// the last four.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub enum Stage {
+    /// Move to Cloud's check of the chat's folder (its size and how it copies) before a machine is
+    /// picked or made.
+    Folder,
     /// Reaching the machine: connecting, resuming a paused one, or starting a new one.
     #[default]
     Machine,
@@ -32,7 +41,15 @@ pub enum Stage {
     Tab,
 }
 
-const STAGES: [Stage; 4] = [Stage::Machine, Stage::Copy, Stage::Agent, Stage::Tab];
+const STAGES: [Stage; 5] = [Stage::Folder, Stage::Machine, Stage::Copy, Stage::Agent, Stage::Tab];
+
+/// The steps a move in `direction` takes, in order: Bring Back Local has no folder check.
+fn stages(direction: Direction) -> &'static [Stage] {
+    match direction {
+        Direction::Move => &STAGES,
+        Direction::BringBack => &STAGES[1..],
+    }
+}
 
 /// The machine the move reaches, from its status as the Cloud API names it (`paused`), or `new`
 /// when there is none yet.
@@ -96,6 +113,7 @@ const MAX_SEARCH_SECONDS: u64 = 3_600;
 /// A copy's own progress replaces its guess as soon as it reports.
 pub fn typical_ms(facts: &Facts, stage: Stage) -> u64 {
     match stage {
+        Stage::Folder => 3_000,
         Stage::Machine => match facts.machine {
             Machine::Live => 5_000,
             Machine::Paused => 30_000,
@@ -140,8 +158,9 @@ fn copy_left_ms(copy: &seed::Progress, stage_ms: u64) -> Option<u64> {
 
 /// The toast's second line for `facts`.
 pub fn line(facts: &Facts) -> Line {
-    let step = STAGES.iter().position(|stage| *stage == facts.stage).unwrap_or_default();
-    let later: u64 = STAGES
+    let stages = stages(facts.direction);
+    let step = stages.iter().position(|stage| *stage == facts.stage).unwrap_or_default();
+    let later: u64 = stages
         .iter()
         .skip(step.saturating_add(1))
         .map(|stage| typical_ms(facts, *stage))
@@ -168,22 +187,26 @@ pub fn line(facts: &Facts) -> Line {
     };
     let eta_ms = current.map(|(current, _)| current.saturating_add(later));
     // A countdown wakes when its text changes (only while it still counts down: past its estimate a
-    // measured copy holds there) or it overruns; an overrun line never changes on its own.
+    // measured copy holds there) or it overruns; an overrun line wakes when its "so far" next
+    // reads differently.
     let next_ms = match (current, eta_ms) {
         (Some((left, overrun)), Some(eta)) => {
             let overrun = overrun.saturating_add(1);
             let change = next_change_ms(eta).filter(|next| *next <= left);
             Some(change.map_or(overrun, |next| next.min(overrun)))
         }
-        _ => None,
+        _ => Some(so_far_next_ms(facts.stage_ms)),
     };
     let what = doing(facts);
+    let so_far = so_far(facts.stage_ms);
     let when = match (eta_ms, measured) {
         (Some(eta), _) => left_text(eta),
-        (None, Some(None)) => "taking longer than its progress said".to_owned(),
-        (None, _) => format!("taking longer than usual (usually {})", about(typical)),
+        (None, Some(None)) => format!("taking longer than its progress said, {so_far} so far"),
+        (None, _) => {
+            format!("taking longer than usual, {so_far} so far (usually {})", about(typical))
+        }
     };
-    let steps = STAGES.len();
+    let steps = stages.len();
     let step = step.saturating_add(1);
     Line { text: format!("{step} of {steps} · {what} · {when}"), step, steps, eta_ms, next_ms }
 }
@@ -200,11 +223,34 @@ fn next_change_ms(eta: u64) -> Option<u64> {
         .map(|at| eta.saturating_sub(at))
 }
 
+/// How long a step has run, as a clock a person reads at a glance: whole seconds under 10 s, then
+/// 5 s steps under a minute, then whole minutes. Rounded down: never more than has passed.
+fn so_far(ms: u64) -> String {
+    let seconds = ms / 1_000;
+    match seconds {
+        0..=9 => format!("{seconds} s"),
+        10..=59 => format!("{} s", (seconds / 5).saturating_mul(5)),
+        _ => format!("{} min", seconds / 60),
+    }
+}
+
+/// How long from `ms` until [`so_far`] reads differently.
+fn so_far_next_ms(ms: u64) -> u64 {
+    let seconds = ms / 1_000;
+    let unit: u64 = match seconds {
+        0..=9 => 1_000,
+        10..=59 => 5_000,
+        _ => 60_000,
+    };
+    unit.saturating_sub(ms % unit)
+}
+
 /// The step, in the person's words.
 fn doing(facts: &Facts) -> String {
     let name = facts.name.as_deref().filter(|name| !name.is_empty());
     let back = facts.direction == Direction::BringBack;
     match facts.stage {
+        Stage::Folder => "Checking the folder".to_owned(),
         Stage::Machine => match (facts.machine, name) {
             (Machine::New, _) => "Starting a new Cloud machine".to_owned(),
             (Machine::Paused, Some(name)) => format!("Resuming {name}"),
@@ -292,16 +338,50 @@ mod tests {
         assert_eq!(
             texts,
             [
-                "1 of 4 · Connecting to dev · about 35 s left",
-                "2 of 4 · Copying the folder · about 30 s left",
-                "3 of 4 · Handing the agent to dev · about 15 s left",
-                "4 of 4 · Opening its tab · a few seconds left",
+                "1 of 5 · Checking the folder · about 40 s left",
+                "2 of 5 · Connecting to dev · about 35 s left",
+                "3 of 5 · Copying the folder · about 30 s left",
+                "4 of 5 · Handing the agent to dev · about 15 s left",
+                "5 of 5 · Opening its tab · a few seconds left",
             ]
         );
     }
 
     #[test]
+    fn a_move_names_a_step_from_the_click_and_bring_back_has_no_folder_check() {
+        let checking = line(&facts(Stage::Folder, 0));
+        assert_eq!((checking.step, checking.steps), (1, 5));
+        assert_eq!(checking.eta_ms, Some(36_000), "its own 3 s and the four steps after it");
+        let mut back = facts(Stage::Machine, 0);
+        back.direction = Direction::BringBack;
+        assert_eq!((line(&back).step, line(&back).steps), (1, 4));
+    }
+
+    #[test]
+    fn a_long_step_keeps_a_clock_of_how_long_it_has_run() {
+        // Past its usual 10 s it says so with the time so far, and wakes when that next reads
+        // differently: each second under 10 s, each 5 s under a minute, then each minute.
+        let at = |ms| line(&facts(Stage::Agent, ms));
+        assert_eq!(
+            at(10_001).text,
+            "4 of 5 · Handing the agent to dev · taking longer than usual, 10 s so far (usually about 10 s)"
+        );
+        assert_eq!(at(10_001).next_ms, Some(4_999));
+        assert!(at(24_000).text.contains(", 20 s so far"));
+        assert!(at(185_000).text.contains(", 3 min so far"));
+        assert_eq!(at(185_000).next_ms, Some(55_000));
+        let tab = line(&facts(Stage::Tab, 3_500));
+        assert!(tab.text.ends_with("taking longer than usual, 3 s so far (usually a few seconds)"));
+        assert_eq!(tab.next_ms, Some(500));
+        assert_eq!(
+            [0, 9_999, 10_000, 14_999, 59_999, 60_000, 3_599_999].map(so_far),
+            ["0 s", "9 s", "10 s", "10 s", "55 s", "1 min", "59 min"]
+        );
+    }
+
+    #[test]
     fn bring_back_says_where_it_goes() {
+        // Bring Back Local's four steps: no folder check.
         let mut back = facts(Stage::Copy, 0);
         back.direction = Direction::BringBack;
         back.copy = Some(copy(0, 1));
@@ -317,11 +397,11 @@ mod tests {
         let mut new = facts(Stage::Machine, 0);
         new.machine = Machine::New;
         let line_new = line(&new);
-        assert_eq!(line_new.text, "1 of 4 · Starting a new Cloud machine · about 1 min left");
+        assert_eq!(line_new.text, "2 of 5 · Starting a new Cloud machine · about 1 min left");
         assert_eq!(line_new.eta_ms, Some(88_000));
         let mut paused = facts(Stage::Machine, 10_000);
         paused.machine = Machine::Paused;
-        assert_eq!(line(&paused).text, "1 of 4 · Resuming dev · about 50 s left");
+        assert_eq!(line(&paused).text, "2 of 5 · Resuming dev · about 50 s left");
     }
 
     #[test]
@@ -342,9 +422,9 @@ mod tests {
         // "a few seconds left" changes only when the step runs past its usual 3 s.
         assert_eq!(line(&facts(Stage::Tab, 1_000)).next_ms, Some(2_001));
         assert!(line(&facts(Stage::Tab, 3_001)).text.contains("longer than usual"));
-        // An overrun line never changes on its own; a measured copy counts down too: 43 s left
-        // reads "about 45 s" until 40 s, 3 s from now.
-        assert_eq!(line(&facts(Stage::Agent, 30_000)).next_ms, None);
+        // An overrun line changes when its time so far does (30 s reads "30 s" until 35 s); a
+        // measured copy counts down too: 43 s left reads "about 45 s" until 40 s, 3 s from now.
+        assert_eq!(line(&facts(Stage::Agent, 30_000)).next_ms, Some(5_000));
         let mut copying = facts(Stage::Copy, 10_000);
         copying.copy = Some(copy(301, 1_204));
         assert_eq!(line(&copying).next_ms, Some(3_000));
@@ -356,9 +436,11 @@ mod tests {
 
     #[test]
     fn every_wake_lands_on_a_change() {
+        // Two hours in: the overrun clock wakes each minute for as long as the step runs.
+        const HORIZON_MS: u64 = 7_200_000;
         for stage in STAGES {
             let mut ms = 0;
-            while let Some(next) = line(&facts(stage, ms)).next_ms {
+            while let Some(next) = line(&facts(stage, ms)).next_ms.filter(|_| ms < HORIZON_MS) {
                 let before = line(&facts(stage, ms)).text;
                 assert_eq!(
                     line(&facts(stage, ms.saturating_add(next).saturating_sub(1))).text,
@@ -375,13 +457,13 @@ mod tests {
             line(&copying)
         };
         let mut ms = 10_000;
-        while let Some(next) = measured(ms).next_ms {
+        while let Some(next) = measured(ms).next_ms.filter(|_| ms < HORIZON_MS) {
             let before = measured(ms).text;
             assert_eq!(measured(ms.saturating_add(next).saturating_sub(1)).text, before);
             ms = ms.saturating_add(next);
             assert_ne!(measured(ms).text, before, "measured copy at {ms} ms");
         }
-        assert!(measured(ms).text.ends_with("taking longer than its progress said"));
+        assert!(measured(ms).text.contains("taking longer than its progress said, 120 min so far"));
     }
 
     #[test]
@@ -390,7 +472,7 @@ mod tests {
         assert_eq!(slow.eta_ms, None);
         assert_eq!(
             slow.text,
-            "3 of 4 · Handing the agent to dev · taking longer than usual (usually about 10 s)"
+            "4 of 5 · Handing the agent to dev · taking longer than usual, 30 s so far (usually about 10 s)"
         );
     }
 
@@ -402,14 +484,14 @@ mod tests {
         assert_eq!(copy_typical_ms(copying.copy.as_ref()), 8_816);
         assert_eq!(
             line(&copying).text,
-            "2 of 4 · Copying the folder (1,204 files) · about 25 s left"
+            "3 of 5 · Copying the folder (1,204 files) · about 25 s left"
         );
         // A quarter done in 10 s: 30 s more, plus 13 s after it.
         copying.stage_ms = 10_000;
         copying.copy = Some(copy(301, 1_204));
         let measured = line(&copying);
         assert_eq!(measured.eta_ms, Some(43_000));
-        assert_eq!(measured.text, "2 of 4 · Copying the folder (1,204 files) · about 45 s left");
+        assert_eq!(measured.text, "3 of 5 · Copying the folder (1,204 files) · about 45 s left");
         // A measured copy never reads "longer than usual", while its newest progress line is fresh.
         copying.stage_ms = 600_000;
         assert!(line(&copying).eta_ms.is_some());
@@ -429,14 +511,17 @@ mod tests {
         assert_eq!(line(&copying).next_ms, Some(1));
         copying.stage_ms = 15_102;
         let stale = line(&copying);
-        assert_eq!((stale.eta_ms, stale.next_ms), (None, None));
+        assert_eq!((stale.eta_ms, stale.next_ms), (None, Some(4_898)), "its clock's next change");
         assert_eq!(
             stale.text,
-            "2 of 4 · Copying the folder (100 files) · taking longer than its progress said"
+            "3 of 5 · Copying the folder (100 files) · taking longer than its progress said, 15 s so far"
         );
-        // Minutes later it still says so, never "about 15 s left".
+        // Minutes later it still says so, never "about 15 s left", with the time so far.
         copying.stage_ms = 300_000;
-        assert_eq!(line(&copying).text, stale.text);
+        assert_eq!(
+            line(&copying).text,
+            "3 of 5 · Copying the folder (100 files) · taking longer than its progress said, 5 min so far"
+        );
         // The next progress line measures again.
         copying.copy_ms = Some(300_000);
         assert!(line(&copying).eta_ms.is_some());
@@ -460,7 +545,7 @@ mod tests {
         });
         assert_eq!(line(&copying).eta_ms, Some(24_000), "done past total: the usual time");
         copying.copy = Some(copy(-1, -5));
-        assert_eq!(line(&copying).text, "2 of 4 · Copying the folder · about 25 s left");
+        assert_eq!(line(&copying).text, "3 of 5 · Copying the folder · about 25 s left");
     }
 
     #[test]
@@ -492,7 +577,7 @@ mod tests {
         let mut copying = facts(Stage::Copy, u64::MAX);
         copying.copy = Some(copy(1, i64::MAX));
         let read = line(&copying);
-        assert_eq!((read.step, read.eta_ms), (2, None), "a rate past u64 is no rate");
+        assert_eq!((read.step, read.eta_ms), (3, None), "a rate past u64 is no rate");
         assert!(read.text.contains("longer than usual"));
     }
 }

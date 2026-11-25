@@ -1,10 +1,10 @@
 import CmuxNextCompat
 public import Foundation
 
-/// The sounds a notification can play, by name: the person's own (`~/Library/Sounds`, where
-/// Import Sound… copies a file), the Mac's (`/Library/Sounds`) and the system's
-/// (`/System/Library/Sounds`). `NSSound(named:)` searches the same folders, so a name written to
-/// cmux.json plays wherever its file sits.
+/// The sounds a notification can play, by name: the person's own that cmux keeps (``userDirectory``,
+/// a `sounds` folder beside the settings file, where Custom Sound… and Import Sound… copy a file), then `~/Library/Sounds`, the Mac's
+/// (`/Library/Sounds`) and the system's (`/System/Library/Sounds`). `NSSound(named:)` searches the
+/// last three; the player loads the first by path (``customFiles()``).
 ///
 /// Every method reads the disk: call it off the main thread. Tests pass temporary folders:
 ///
@@ -19,13 +19,20 @@ public nonisolated struct NotificationSoundLibrary: Sendable {
     public let directories: [URL]
 
     /// - Parameters:
-    ///   - userDirectory: Where imports go (`~/Library/Sounds`); tests pass a temporary folder.
+    ///   - userDirectory: Where imports go (``defaultUserDirectory``); tests pass a temporary folder.
     ///   - otherDirectories: The other folders searched, in order.
-    public init(userDirectory: URL = FileManager.default.homeDirectoryForCurrentUser.appending(path: "Library/Sounds", directoryHint: .isDirectory),
-                otherDirectories: [URL] = [URL(fileURLWithPath: "/Library/Sounds", isDirectory: true),
+    public init(userDirectory: URL = Self.defaultUserDirectory,
+                otherDirectories: [URL] = [FileManager.default.homeDirectoryForCurrentUser.appending(path: "Library/Sounds", directoryHint: .isDirectory),
+                                           URL(fileURLWithPath: "/Library/Sounds", isDirectory: true),
                                            URL(fileURLWithPath: "/System/Library/Sounds", isDirectory: true)]) {
         self.userDirectory = userDirectory
         directories = [userDirectory] + otherDirectories
+    }
+
+    /// `sounds` beside the settings file (``BuildStatePaths/configDirectory``): Stable and Nightly share
+    /// `cmux-next.json`, so they share the files its sound names refer to; a DEV build keeps its own.
+    public static var defaultUserDirectory: URL {
+        BuildStatePaths.current.configDirectory.appending(path: "sounds", directoryHint: .isDirectory)
     }
 
     /// The audio file extensions `NSSound` plays.
@@ -41,6 +48,19 @@ public nonisolated struct NotificationSoundLibrary: Sendable {
             }
         }
         return seen.sorted { $0.localizedCaseInsensitiveCompare($1) == .orderedAscending }
+    }
+
+    /// The sounds in ``userDirectory`` by name, each to its file: `NSSound(named:)` does not search
+    /// it, so the player loads these by path.
+    public func customFiles() -> [String: URL] {
+        let files = (try? FileManager.checked.contentsOfDirectory(at: userDirectory, includingPropertiesForKeys: nil)) ?? []
+        var found: [String: URL] = [:]
+        for file in files.sorted(by: { $0.lastPathComponent < $1.lastPathComponent })
+            where Self.extensions.contains(file.pathExtension.lowercased()) {
+            let name = file.deletingPathExtension().lastPathComponent
+            if found[name] == nil { found[name] = file }
+        }
+        return found
     }
 
     /// A file the library refuses to import.
@@ -67,12 +87,15 @@ public nonisolated struct NotificationSoundLibrary: Sendable {
             try files.createDirectory(at: userDirectory, withIntermediateDirectories: true)
             for index in 1...999 {
                 let name = index == 1 ? base : "\(base) \(index)"
+                // "none" and "default" are settings values, never a file's name.
+                if Self.reservedNames.contains(name) { continue }
                 let target = userDirectory.appending(path: "\(name).\(ext)", directoryHint: .notDirectory)
                 if files.fileExists(atPath: target.path) {
                     if files.contentsEqual(atPath: target.path, andPath: file.path) { return name }
                     continue
                 }
-                if directories.dropFirst().contains(where: { Self.hasSound(named: name, in: $0) }) { continue }
+                // A name is one file: another extension kept here, or a sound another folder plays, takes it.
+                if directories.contains(where: { Self.hasSound(named: name, in: $0) }) { continue }
                 try files.copyItem(at: file, to: target)
                 return name
             }
@@ -81,6 +104,9 @@ public nonisolated struct NotificationSoundLibrary: Sendable {
         }
         throw ImportRefusal(message: NotificationSoundStrings.importFailed(file.lastPathComponent))
     }
+
+    /// Sound setting values that mean something other than a file.
+    private static let reservedNames: Set<String> = ["none", "default"]
 
     private static func hasSound(named name: String, in directory: URL) -> Bool {
         extensions.contains { FileManager.checked.fileExists(atPath: directory.appending(path: "\(name).\($0)").path) }
