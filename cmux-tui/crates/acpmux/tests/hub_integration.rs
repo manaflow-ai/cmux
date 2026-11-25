@@ -97,6 +97,8 @@ mod prompt_ledger;
 mod prompt_provenance;
 #[path = "hub_integration/prompt_provenance_app_pane.rs"]
 mod prompt_provenance_app_pane;
+#[path = "hub_integration/prompt_preparation_deadline.rs"]
+mod prompt_preparation_deadline;
 #[path = "hub_integration/prompt_supersede.rs"]
 mod prompt_supersede;
 #[path = "hub_integration/prompt_withdraw.rs"]
