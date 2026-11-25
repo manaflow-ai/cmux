@@ -175,7 +175,7 @@ impl ApiClient {
 
     /// `method` on `path` with the bearer token and, for a dev build, the
     /// build space header.
-    fn request(&self, method: reqwest::Method, path: &str) -> reqwest::RequestBuilder {
+    pub(crate) fn request(&self, method: reqwest::Method, path: &str) -> reqwest::RequestBuilder {
         let request = self.http.request(method, format!("{}{path}", self.base)).bearer_auth(&self.token);
         match &self.build_space {
             Some(space) => request.header(crate::build_space::HEADER, space.as_str()),
@@ -193,7 +193,7 @@ impl ApiClient {
             .expect("HTTP client builds")
     }
 
-    async fn check(response: reqwest::Response) -> Result<reqwest::Response, ApiError> {
+    pub(crate) async fn check(response: reqwest::Response) -> Result<reqwest::Response, ApiError> {
         let status = response.status();
         if status.is_success() {
             return Ok(response);
