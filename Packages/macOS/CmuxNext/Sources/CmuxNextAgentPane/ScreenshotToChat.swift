@@ -5,17 +5,14 @@ import os
 
 /// Capture Screenshot to Chat (`palette.captureScreenshotToChat`, Leo, 2026-11-08, ask-a862e90c70, on
 /// screenshots that could not reach a chat from another app): the system's region pick
-/// (`screencapture -i`, as + > Attach Screenshot… runs it), or a given region with no pick
-/// (`screencapture -R`; no caller reaches it yet: cmux#43102 review F1, cmux#13742), written as a PNG into a
-/// fresh folder under Chat Uploads (``ChatUploadFolders``, whose expiry covers it). The App then hands
-/// the file to its one route into a chat's composer (`ExternalOpenController.attachToChat`). The pick's
-/// UI and the Screen Recording permission are macOS's; Esc takes nothing and leaves no file.
+/// (`screencapture -i`, as + > Attach Screenshot… runs it), written as a PNG into a fresh folder under
+/// Chat Uploads (``ChatUploadFolders``, whose expiry covers it). The App then hands the file to its one
+/// route into a chat's composer (`ExternalOpenController.attachToChat`). The pick's UI and the Screen
+/// Recording permission are macOS's; Esc takes nothing and leaves no file.
 public nonisolated struct ScreenshotToChat: Sendable {
-    /// What to take: the system's region pick, or a region in global points from the top-left
-    /// (`screencapture -R`'s x, y, width and height).
+    /// The user-facing system region pick.
     public enum Pick: Equatable, Sendable {
         case picker
-        case region(x: Int, y: Int, width: Int, height: Int)
     }
 
     /// What one capture produced.
@@ -41,15 +38,6 @@ public nonisolated struct ScreenshotToChat: Sendable {
         self.executable = executable
     }
 
-    /// `screencapture`'s arguments for `pick`, writing `file`: -i the region pick, or -R the region;
-    /// -x no shutter sound, -t png.
-    static func arguments(for pick: Pick, to file: URL) -> [String] {
-        switch pick {
-        case .picker: ["-i", "-x", "-t", "png", file.path]
-        case .region(let x, let y, let width, let height): ["-x", "-R\(x),\(y),\(width),\(height)", "-t", "png", file.path]
-        }
-    }
-
     /// Takes `pick` into `Screenshot <when>.png` in a fresh upload folder, off the main actor. An Esc
     /// (no file, or an empty one) or a failure leaves no folder behind.
     @concurrent public func take(_ pick: Pick, taken: Date = Date()) async -> Outcome {
@@ -60,7 +48,7 @@ public nonisolated struct ScreenshotToChat: Sendable {
         } catch {
             return .failed("could not make \(folder.lastPathComponent): \(error)")
         }
-        let result = await AgentPaneCapture.capture(arguments: Self.arguments(for: pick, to: file), to: file, executable: executable)
+        let result = await AgentPaneCapture.capture(window: false, to: file, executable: executable)
         let bytes = (try? FileManager.checked.attributesOfItem(atPath: file.path)[.size] as? NSNumber)?.intValue ?? 0
         switch result {
         case .taken where bytes > 0:
