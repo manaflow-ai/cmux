@@ -1952,6 +1952,11 @@ export type ConnectionEntry = {
   ownerLabel: string | null;
   toolCount: number | null;
   toolsLabel: string | null;
+  /** The provider only signs in back to this Mac (Vercel): the CLI listens on 127.0.0.1 for the
+   * return while Connect waits (cmux-tui cli/mcp_loopback.rs). */
+  loopback: boolean;
+  /** Slack or Google before its client is registered: listed only with labs.connectionsUpcoming on. */
+  upcoming: boolean;
 };
 
 /** `cmux mcp-servers catalog --json`, or the CLI's refusal. `available: false` is a deployment
