@@ -21,7 +21,7 @@
 //! `cr use team claude` records it, when the image says the team has one
 //! (`Machine::gateway_access`), and answers `{gateway: true, restarted}`; else `no_gateway`.
 
-use super::{Conn, Origin};
+use super::{Conn, ConnAuth, Origin};
 use crate::agent_login::{self as login, Agent, Cli, LoginError, Machine, reason};
 use crate::config::{Config, HarnessKind, HarnessProfile};
 use crate::hub::{Control, Hub};
@@ -68,12 +68,13 @@ fn text<'a>(params: &'a Value, key: &str) -> Option<&'a str> {
     params.get(key).and_then(Value::as_str).filter(|v| !v.is_empty())
 }
 
-/// Whether `conn` may run a sign-in here (module docs).
-fn allowed(conn: &Conn, params: &Value) -> bool {
-    let control = super::remote_guard::control_of(conn.origin, conn.auth, params);
-    match conn.origin {
+/// Whether a connection of `origin` that presented `auth` may run a sign-in here (module docs).
+/// The one owner rule for every sign-in on this machine: `account_sign_in.rs` asks it too.
+pub(super) fn allowed(origin: Origin, auth: ConnAuth, params: &Value) -> bool {
+    let control = super::remote_guard::control_of(origin, auth, params);
+    match origin {
         Origin::Local | Origin::LocalApp => control == Control::Local,
-        Origin::Peer => crate::hub::vm_boundary::owner(conn.auth, control, params),
+        Origin::Peer => crate::hub::vm_boundary::owner(auth, control, params),
         Origin::Web => false,
     }
 }
@@ -251,7 +252,7 @@ pub(super) async fn handle(
     m: &str,
     params: &Value,
 ) -> Result<Value, RpcError> {
-    if !allowed(conn, params) {
+    if !allowed(conn.origin, conn.auth, params) {
         return Err(RpcError::new(
             -32000,
             "an agent sign-in runs only from this machine, its cmux app, or its owner's own machine",

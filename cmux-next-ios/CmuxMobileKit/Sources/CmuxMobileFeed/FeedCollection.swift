@@ -116,6 +116,11 @@ final class FeedCollectionView: UITableView {
 final class FeedListController: NSObject, UITableViewDelegate, FeedRowCellDelegate {
     enum Section: Hashable { case header, events }
     static let headerID = "feed.header"
+    /// The pinned group's label ("Needs you · 2"), the header section's second row while the
+    /// whole Feed has open asks: under the chips, above the first ask.
+    static let pinnedLabelID = "feed.needs-you-label"
+    /// The most rows that travel at once when asks leave or join the pinned group; more is a rebuild.
+    static let pinnedMoveLimit = 4
     /// How many rows before the end the next page of spilled events is read.
     static let loadOlderLead = 30
 
@@ -136,6 +141,8 @@ final class FeedListController: NSObject, UITableViewDelegate, FeedRowCellDelega
     private var shownSet: Set<String> = []
     /// Each shown row's height (its shown layout's), so a commit reads no layout it did not change.
     private var shownHeights: [String: CGFloat] = [:]
+    /// How many of the first shown rows are the pinned group (open asks, the whole Feed only).
+    private var shownPinned = 0
     /// The latest events from the store, applied once per run-loop turn.
     private var pending: [FeedItem]?
     /// The store's events as last given (before stacking): a fold line's tap stacks them again.
@@ -201,6 +208,7 @@ final class FeedListController: NSObject, UITableViewDelegate, FeedRowCellDelega
         view.sectionFooterHeight = 0
         view.delegate = self
         view.register(UITableViewCell.self, forCellReuseIdentifier: Self.headerID)
+        view.register(FeedPinnedLabelCell.self, forCellReuseIdentifier: Self.pinnedLabelID)
         view.register(FeedRowCell.self, forCellReuseIdentifier: FeedRowCell.reuseID)
         view.register(FeedFoldCell.self, forCellReuseIdentifier: FeedFoldCell.reuseID)
         let refresh = UIRefreshControl()
@@ -219,6 +227,13 @@ final class FeedListController: NSObject, UITableViewDelegate, FeedRowCellDelega
         dataSource = FeedTableDataSource(tableView: view) { [weak self] tableView, indexPath, id in
             MainActor.assumeIsolated { () -> UITableViewCell in
                 guard indexPath.section != 0 else {
+                    if id == Self.pinnedLabelID {
+                        let cell = tableView.dequeueReusableCell(withIdentifier: Self.pinnedLabelID, for: indexPath)
+                        if let self, let label = cell as? FeedPinnedLabelCell {
+                            label.show(count: self.shownPinned, font: FeedPinnedLabelCell.font(self.styles))
+                        }
+                        return cell
+                    }
                     let cell = tableView.dequeueReusableCell(withIdentifier: Self.headerID, for: indexPath)
                     cell.selectionStyle = .none
                     cell.backgroundColor = .clear
@@ -321,7 +336,7 @@ final class FeedListController: NSObject, UITableViewDelegate, FeedRowCellDelega
     private func toggleStack(fold id: String) {
         guard let head = FeedStacks.head(ofFold: id) else { return }
         setStack(head: head, expanded: !control.expandedStacks.contains(head))
-        UISelectionFeedbackGenerator().selectionChanged()
+        CmuxMobileTheme.standard.haptics.selectionChanged()
     }
 
     func setStack(head: String, expanded: Bool) {
@@ -354,7 +369,8 @@ final class FeedListController: NSObject, UITableViewDelegate, FeedRowCellDelega
     private func reconfigureHeader() {
         guard let dataSource, dataSource.snapshot().indexOfItem(Self.headerID) != nil else { return }
         var snapshot = dataSource.snapshot()
-        snapshot.reconfigureItems([Self.headerID])
+        // The pinned group's label follows the text size with the header.
+        snapshot.reconfigureItems(shownPinned > 0 ? [Self.headerID, Self.pinnedLabelID] : [Self.headerID])
         dataSource.apply(snapshot, animatingDifferences: false)
     }
 
@@ -491,11 +507,14 @@ final class FeedListController: NSObject, UITableViewDelegate, FeedRowCellDelega
         }
         let animated = animatesNextCommit && !UIAccessibility.isReduceMotionEnabled && !reconfigureAll
         animatesNextCommit = false
-        guard !plan.isEmpty || dataSource.snapshot().numberOfSections == 0 else { return }
+        // The pinned group (open asks first, the whole Feed only) and its label's count.
+        let pinned = FeedPinnedGroup.count(next, filter: store.filter)
+        let wasPinned = shownPinned
+        guard !plan.isEmpty || pinned != wasPinned || dataSource.snapshot().numberOfSections == 0 else { return }
         // A jump to the top in flight keeps no anchor: restoring one would set the offset and cut the
         // jump's animation short wherever it was (the pill then left the person mid-list).
         // A fold line's toggle keeps no anchor either: its rows come and go below it, under the table's animation.
-        let anchor = syncAtTop() || jumpingToTop || animated ? nil : visibleAnchor()
+        var anchor = syncAtTop() || jumpingToTop || animated ? nil : visibleAnchor()
         let previousOrder = shownOrder
         let previousSet = shownSet
         shownOrder = next.map(\.id)
@@ -512,18 +531,37 @@ final class FeedListController: NSObject, UITableViewDelegate, FeedRowCellDelega
             shownHeights[id] = height
         }
         var snapshot = dataSource.snapshot()
+        // An answered ask travels from the pinned group to its place in time (the table's row move).
+        var travelling: Set<String> = []
+        shownPinned = pinned
         if snapshot.numberOfSections == 0 {
             snapshot = NSDiffableDataSourceSnapshot<Section, String>()
             snapshot.appendSections([.header, .events])
-            snapshot.appendItems([Self.headerID], toSection: .header)
+            snapshot.appendItems(pinned > 0 ? [Self.headerID, Self.pinnedLabelID] : [Self.headerID], toSection: .header)
             snapshot.appendItems(shownOrder, toSection: .events)
-        } else if plan.orderChanged {
-            // Inserts and removals with the rest in order (a live event, a done swipe): edits, not a new
-            // snapshot of every row to diff. Anything else (a re-sort) rebuilds the section.
-            if !FeedListController.edit(&snapshot, from: previousOrder, to: shownOrder) {
-                snapshot.deleteSections([.events])
-                snapshot.appendSections([.events])
-                snapshot.appendItems(shownOrder, toSection: .events)
+        } else {
+            if plan.orderChanged {
+                // Inserts and removals with the rest in order (a live event, a done swipe): edits, not a new
+                // snapshot of every row to diff. An ask leaving or joining the pinned group: row moves.
+                // Anything else (a re-sort) rebuilds the section.
+                if !FeedListController.edit(&snapshot, from: previousOrder, to: shownOrder) {
+                    let movers = Set(previousOrder.prefix(wasPinned)).symmetricDifference(shownOrder.prefix(pinned))
+                    if let move = FeedMoveEdit(old: previousOrder, new: shownOrder, movers: movers, limit: Self.pinnedMoveLimit) {
+                        FeedListController.apply(move, to: &snapshot)
+                        travelling = movers
+                    } else {
+                        snapshot.deleteSections([.events])
+                        snapshot.appendSections([.events])
+                        snapshot.appendItems(shownOrder, toSection: .events)
+                    }
+                }
+            }
+            if pinned > 0, wasPinned == 0 {
+                snapshot.insertItems([Self.pinnedLabelID], afterItem: Self.headerID)
+            } else if pinned == 0, wasPinned > 0 {
+                snapshot.deleteItems([Self.pinnedLabelID])
+            } else if pinned != wasPinned {
+                snapshot.reconfigureItems([Self.pinnedLabelID])
             }
         }
         // Reconfigured rows are shown rows by construction (the plan lists only ids it had shown); a
@@ -531,7 +569,21 @@ final class FeedListController: NSObject, UITableViewDelegate, FeedRowCellDelega
         let reconfigure = plan.orderChanged ? plan.reconfigure.filter { shownSet.contains($0) && previousSet.contains($0) } : plan.reconfigure
         if !reconfigure.isEmpty { snapshot.reconfigureItems(reconfigure) }
         applyCount += 1
-        if animated {
+        if !travelling.isEmpty, !UIAccessibility.isReduceMotionEnabled, collectionView.window != nil {
+            // The rows show their new state where they are (an answered card, at once), then the
+            // table moves the answered ask to its place in time and closes the gap it left. The row
+            // kept in place is never one that travels: the reader stays with the asks still open.
+            if anchor.map({ travelling.contains($0.id) }) == true { anchor = visibleAnchor(excluding: travelling) }
+            if !reconfigure.isEmpty {
+                var inPlace = dataSource.snapshot()
+                inPlace.reconfigureItems(reconfigure)
+                UIView.performWithoutAnimation { dataSource.apply(inPlace, animatingDifferences: false) }
+            }
+            dataSource.apply(snapshot, animatingDifferences: true)
+            if heightChanged { collectionView.performBatchUpdates(nil) }
+            if let anchor { restore(anchor) }
+            continueJumpToTop()
+        } else if animated {
             // The stack's rows slide in under its fold line (or out), as the system inserts rows.
             dataSource.apply(snapshot, animatingDifferences: true)
         } else {
@@ -572,6 +624,27 @@ final class FeedListController: NSObject, UITableViewDelegate, FeedRowCellDelega
         for group in plan.groups { snapshot.insertItems(group.ids, beforeItem: group.before) }
         if !plan.tail.isEmpty { snapshot.appendItems(plan.tail, toSection: .events) }
         return true
+    }
+
+    /// Applies an ask's move out of (or into) the pinned group, with the inserts and removals beside it.
+    static func apply(_ move: FeedMoveEdit, to snapshot: inout NSDiffableDataSourceSnapshot<Section, String>) {
+        if !move.removed.isEmpty { snapshot.deleteItems(move.removed) }
+        for step in move.steps {
+            switch step {
+            case .move(let id, let before):
+                if let before {
+                    snapshot.moveItem(id, beforeItem: before)
+                } else if let last = snapshot.itemIdentifiers(inSection: .events).last, last != id {
+                    snapshot.moveItem(id, afterItem: last)
+                }
+            case .insert(let id, let before):
+                if let before {
+                    snapshot.insertItems([id], beforeItem: before)
+                } else {
+                    snapshot.appendItems([id], toSection: .events)
+                }
+            }
+        }
     }
 
     // MARK: Warm-up
@@ -823,7 +896,8 @@ final class FeedListController: NSObject, UITableViewDelegate, FeedRowCellDelega
     func scrollToTop(animated: Bool) {
         guard let collectionView else { return }
         let top = CGPoint(x: 0, y: -collectionView.adjustedContentInset.top)
-        jumpingToTop = animated && abs(collectionView.contentOffset.y - top.y) > 0.25
+        // Reduce Motion: the list is at its top at once.
+        jumpingToTop = animated && !UIAccessibility.isReduceMotionEnabled && abs(collectionView.contentOffset.y - top.y) > 0.25
         trace("jump from \(Int(collectionView.contentOffset.y)) to \(Int(top.y)) animated=\(jumpingToTop)")
         collectionView.setContentOffset(top, animated: jumpingToTop)
         if !jumpingToTop {
@@ -897,7 +971,9 @@ final class FeedListController: NSObject, UITableViewDelegate, FeedRowCellDelega
 
     /// Exact heights: the header's measured height, each row's from its layout.
     func tableView(_ tableView: UITableView, heightForRowAt indexPath: IndexPath) -> CGFloat {
-        guard indexPath.section != 0 else { return headerHeight }
+        guard indexPath.section != 0 else {
+            return indexPath.row == 0 ? headerHeight : FeedPinnedLabelCell.height(FeedPinnedLabelCell.font(styles))
+        }
         guard let id = dataSource?.itemIdentifier(for: indexPath) else { return 1 }
         return shownHeights[id] ?? 1
     }
@@ -1120,7 +1196,7 @@ final class FeedListController: NSObject, UITableViewDelegate, FeedRowCellDelega
         case .failed(let reason):
             mutateState(id) { $0.replyFailure = reason; $0.replying = false; $0.replyDraft = "" }
         }
-        UIImpactFeedbackGenerator(style: .light).impactOccurred()
+        CmuxMobileTheme.standard.haptics.impact(.light, intensity: 1)
     }
 
     /// The chat the reply went to: its refusal (the Mac's reason) shows under the reply.
@@ -1138,7 +1214,7 @@ final class FeedListController: NSObject, UITableViewDelegate, FeedRowCellDelega
     func rowCopy(_ id: String) {
         guard let item = items[id] else { return }
         UIPasteboard.general.string = item.markdown
-        if states[id]?.copied != true { UIImpactFeedbackGenerator(style: .light).impactOccurred(intensity: 0.7) }
+        if states[id]?.copied != true { CmuxMobileTheme.standard.haptics.impact(.light, intensity: 0.7) }
         mutateState(id, animated: false) { $0.copied = true }
         Task { @MainActor [weak self] in
             try? await Task.sleep(for: .seconds(1.5))
@@ -1149,7 +1225,7 @@ final class FeedListController: NSObject, UITableViewDelegate, FeedRowCellDelega
     func rowCopyCommand(_ id: String) {
         guard let item = items[id], case .permission(let request) = item.kind else { return }
         UIPasteboard.general.string = request.toolCall.command
-        UIImpactFeedbackGenerator(style: .light).impactOccurred(intensity: 0.7)
+        CmuxMobileTheme.standard.haptics.impact(.light, intensity: 0.7)
     }
 
     func rowShare(_ id: String, from source: UIView) {
@@ -1221,6 +1297,19 @@ final class FeedListController: NSObject, UITableViewDelegate, FeedRowCellDelega
         return UIMenu(title: item.createdAt.formatted(.dateTime.weekday(.wide).hour().minute()), options: .displayInline, children: children)
     }
 
+    func rowPeek(_ id: String) -> UIViewController? {
+        guard let item = items[id], let list = collectionView else { return nil }
+        let chat = context.chat(item)
+        let content = FeedPeek.content(opensTerminal: item.opensTerminal, hasLink: item.link != nil, loadedTurns: chat?.turns.count ?? 0)
+        let container = list.window?.bounds.size ?? list.bounds.size
+        return FeedPeekView.controller(item: item, chat: content == .chat ? chat : nil, container: container)
+    }
+
+    func rowPeekCommit(_ id: String) {
+        guard let item = items[id] else { return }
+        context.openFromPeek(item)
+    }
+
     // MARK: Demo driver
 
     #if DEBUG
@@ -1266,6 +1355,42 @@ final class FeedListController: NSObject, UITableViewDelegate, FeedRowCellDelega
         }
     }
     #endif
+}
+
+/// The pinned group's label under the chips: "Needs you · 2", in the chips' text style, on the
+/// rows' 16 pt leading edge. UIKit only, like the rows; its height is its font's line plus fixed
+/// padding, so nothing is measured.
+final class FeedPinnedLabelCell: UITableViewCell {
+    private let label = UILabel()
+
+    static func font(_ styles: NativeTextStyles) -> UIFont { styles.font(.subheadline, weight: .medium) }
+    static func height(_ font: UIFont) -> CGFloat { ceil(font.lineHeight) + 12 }
+
+    override init(style: UITableViewCell.CellStyle, reuseIdentifier: String?) {
+        super.init(style: style, reuseIdentifier: reuseIdentifier)
+        selectionStyle = .none
+        backgroundColor = .cmuxMobileBackground
+        label.textColor = .secondaryLabel
+        label.accessibilityTraits = .header
+        label.accessibilityIdentifier = "feed.needsYouLabel"
+        contentView.addSubview(label)
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) { fatalError("init(coder:) is not used") }
+
+    func show(count: Int, font: UIFont) {
+        label.font = font
+        label.text = FeedPinnedGroup.title(count)
+        setNeedsLayout()
+    }
+
+    override func layoutSubviews() {
+        super.layoutSubviews()
+        let bounds = contentView.bounds, line = ceil(label.font.lineHeight)
+        // 4 pt under the chips' 44 pt row, 8 pt above the first ask.
+        label.frame = CGRect(x: 16, y: 4, width: max(0, bounds.width - 32), height: line)
+    }
 }
 
 /// The Feed's diffable source. A diffable table source answers no to

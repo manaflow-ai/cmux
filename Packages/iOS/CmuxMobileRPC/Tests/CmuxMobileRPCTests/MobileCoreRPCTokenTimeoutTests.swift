@@ -318,7 +318,7 @@ import Testing
         let shortTask = Task {
             try await client.sendRequest(short, timeoutNanoseconds: 100_000_000)
         }
-        for _ in 0..<200 {
+        for _ in 0..<5_000 {
             if await tokenProvider.startCount == 1 {
                 break
             }

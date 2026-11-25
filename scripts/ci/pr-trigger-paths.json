@@ -38,8 +38,6 @@
     ".github/workflows/merge-freeze.yml": "`merge freeze` is a merge gate on feat-cmux-next: it reads open freeze issues for every pull request, whatever it changes",
     ".github/workflows/merge-receipt.yml": "closed only, into main: one receipt per merged pull request",
     ".github/workflows/pr-body-checks.yml": "reads the pull request body and labels, which no paths filter sees",
-    ".github/workflows/pr-router.yml": "the router itself: it reads every changed path of each feat-cmux-next head to decide which workflows start, so it starts on every head",
-    ".github/workflows/risk-tier.yml": "`risk evidence` is a merge gate on feat-cmux-next and reads the risk label and body",
-    ".github/workflows/thunderdome-label.yml": "labels pull requests from their title and body"
+    ".github/workflows/pr-router.yml": "the router itself: it reads every changed path of each feat-cmux-next head to decide which workflows start, so it starts on every head"
   }
 }

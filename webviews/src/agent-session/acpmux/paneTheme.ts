@@ -1,13 +1,13 @@
 import { SCROLLER_FADE_ATTRIBUTE } from "../../scrollers";
 import { guardedStylesheet } from "../../surfaces/stylesheetGuard";
 import { applyAgentTheme } from "../shared/theme";
-import { configureSubagentTray } from "./subagents/runningTray";
 import { configureSubagentTrayPlacement } from "./subagents/subagentTrayPlacement";
 import { configureSelectionReply } from "./conversation/selectionReplyModel";
 import { configureToolRunLook } from "./toolRunLook";
 import { configureSentLook } from "./conversation/sentMessageLineModel";
 import { configureInboxNoticeLook } from "./conversation/inboxNoticeLook";
 import { configureInboxThreadLook } from "./conversation/inboxThreadLook";
+import { configureNoticeRowLook } from "./conversation/noticeRowLook";
 import { configureReceivedLook } from "./conversation/receivedLook";
 import { configureMessageLineLook } from "./conversation/messageLineLook";
 import { configureNoticeBodyLook, configureNoticeLook } from "./conversation/noticeLook";
@@ -22,12 +22,12 @@ export function applyPaneTheme(theme: Record<string, unknown>): void {
   configureSentLook(theme.sentLook);
   configureInboxNoticeLook(theme.inboxNoticeLook);
   configureInboxThreadLook(theme.inboxThreadLook);
+  configureNoticeRowLook(theme.noticeRowLook);
   configureReceivedLook(theme.receivedLook);
   configureMessageLineLook(theme.messageLineLook);
   configureNoticeLook(theme.noticeLook);
   configureNoticeBodyLook(theme.noticeBodyLook);
   configureTurnActionsPlacement(theme.turnActionsPlacement);
-  configureSubagentTray(theme.subagentTray);
   configureSubagentTrayPlacement(theme.subagentTrayPlacement);
   configureSelectionReply(theme.selectionReply);
 }

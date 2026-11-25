@@ -32,6 +32,18 @@ const OPENERS: &[(&str, &str)] = &[
          beside `CMUX_TUI_SOCKET`), never the daemon's: the daemon's path only locates it",
     ),
     (
+        "hub/terminal_input.rs",
+        "writes a chat's input into the terminal its exec names (`CMUX_TUI_SOCKET`) over the \
+         session daemon's JSON-line protocol (#50782); an older daemon's refusal fails that one \
+         write with its error, as with no daemon",
+    ),
+    (
+        "hub/terminal_input.rs",
+        "types into the terminal a released chat runs in, through the session daemon whose socket \
+         that terminal's process environment names (read from the kernel), not this host's \
+         daemon; an older daemon's refusal fails the Stop or send, which the person sees",
+    ),
+    (
         "launch_credential.rs",
         "credential.mint in the cmux.protocol/2 envelope; an older daemon only means the \
          agent starts with no credential, as with no daemon",

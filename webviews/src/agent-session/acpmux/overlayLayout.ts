@@ -4,10 +4,11 @@
 //
 // Two kinds of zone:
 // - dynamic zones, where arrival and status come and go: what is new arrives at the top start of
-//   the transcript's column (the unread banner); where to go next waits at the bottom, over the
-//   composer (Jump up stacked on Jump to latest, or the Needs you pill): at the composer card's end
-//   edge by default, or a side or the center line by the jump-latest-place arm (jumpPlace.css), so
-//   the tucked hat's pill keeps the middle (Leo, 2026-11-21: "move these to the side");
+//   the transcript's column (the unread banner); where to go next waits at the bottom center, over
+//   the composer's center line (Jump up stacked on Jump to latest, or the Needs you pill), and the
+//   tucked hat's pill stands under it on the composer's top edge, the stack lifted clear of it
+//   (hatPillPlace.experiment.ts `middle`; Leo, 2026-11-24: "you guys need to move it back to the
+//   middle");
 // - stable zones, which never move for something arriving: the top end corner (a subagent view's
 //   close and Resume, small controls over the rows that take no row's room), and the end edge
 //   (Session Info), which pushes the column, never covers a dynamic zone.

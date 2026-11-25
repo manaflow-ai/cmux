@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Edit to repaint on a fleet Mac: builds a tagged cmux-next app (bench config: Release optimization with the
 # debug.* control commands kept) at this checkout, then runs scripts/cmux-next/edit-repaint.py against it:
-# a cmux-next.json theme edit, a cmux-next.json sidebar edit and a customize-folder extension save, each timed
+# a cmux-next.json theme edit, a cmux-next.json sidebar edit and a customize-folder extension save (its words, or with --cases=glass its card's glass level), each timed
 # from the file write to the first window snapshot that shows the change (method in that script's docstring).
 # Runs alone on the worker because it launches an app:
 #   cmux-ci run --class exclusive --label measure --script scripts/measure/edit-repaint.sh --ref <sha> [--arg=--rounds=10]

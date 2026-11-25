@@ -111,7 +111,7 @@ export default agentPaneEntry({
       snapshot: everyKind,
     },
     "two-kinds": {
-      note: "A subagent and a CI wait: `1 subagent running · 1 wait`, then the time.",
+      note: "A subagent and a CI wait: `1 subagent · 1 wait`, then the time.",
       play: folded,
       snapshot: twoKinds,
     },

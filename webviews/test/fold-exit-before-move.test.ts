@@ -36,9 +36,8 @@ const fades = (keyframes: Keyframe[]) => keyframes.at(-1)?.opacity === 0 && Numb
 
 /// A page whose rows are laid out by their inline top and height, recording every animation.
 function page() {
-  const dom = new JSDOM("<!doctype html><main></main>", {
-    pretendToBeVisual: true,
-  });
+  // These pin the fold's slide mechanics, the `fade` look's (the shipped look, `wipe`, slides nothing).
+  const dom = new JSDOM('<!doctype html><main data-turn-end-fold="fade"></main>', { pretendToBeVisual: true });
   const thread = dom.window.document.querySelector<HTMLElement>("main")!;
   // The thread stands in for the scroller here, so it needs a view of its own: `captureTurnEnd`
   // plays nothing whose rows all sit outside the scroller's box, and jsdom gives every box its

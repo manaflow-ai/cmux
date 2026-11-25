@@ -155,6 +155,111 @@ describe("events and menus", () => {
   })
 })
 
+// A bound TextField's text: the field reports what it shows with each edit, submit and cancel, and the
+// host sends the app's value back only when it differs from that (the To Do "New item" field kept
+// "Buy milk" after Return, and the next item was typed after it: "Buy milkBook flights").
+describe("TextField text", () => {
+  const todo = app(`
+    const [draft, setDraft] = signal("")
+    globalThis.added = []
+    return { render: () => TextField(draft, { onEdit: setDraft, onSubmit: (t) => { setDraft(""); if (t) added.push(t) }, onCancel: () => setDraft("") }) }`)
+  const textUpdates = (host: FakeHost, id: string, from: number) =>
+    host
+      .batches("m1")
+      .slice(from)
+      .flat()
+      .filter((op) => op.op === "update" && op.id === id && "text" in (op.props ?? {}))
+      .map((op) => op.props!.text)
+
+  test("an edit is not echoed back to the field that sent it", () => {
+    const host = new FakeHost(todo)
+    host.mount("m1", "render")
+    const field = host.findNode("m1", (n) => n.type === "TextField")!
+    const before = host.batches("m1").length
+    for (const text of ["B", "Bu", "Buy", "Buy milk"]) host.dispatch("m1", field, "edit", { text })
+    expect(textUpdates(host, field, before)).toEqual([])
+  })
+
+  test("submit clears the field after edits", () => {
+    const host = new FakeHost(todo)
+    host.mount("m1", "render")
+    const field = host.findNode("m1", (n) => n.type === "TextField")!
+    host.dispatch("m1", field, "edit", { text: "Buy milk" })
+    const before = host.batches("m1").length
+    host.dispatch("m1", field, "submit", { text: "Buy milk" })
+    expect(host.eval("added")).toEqual(["Buy milk"])
+    expect(textUpdates(host, field, before)).toEqual([""])
+  })
+
+  test("submit clears the field when no edit reached the app (the bound value never left \"\")", () => {
+    const host = new FakeHost(todo)
+    host.mount("m1", "render")
+    const field = host.findNode("m1", (n) => n.type === "TextField")!
+    const before = host.batches("m1").length
+    host.dispatch("m1", field, "submit", { text: "Buy milk" })
+    expect(host.eval("added")).toEqual(["Buy milk"])
+    expect(textUpdates(host, field, before)).toEqual([""])
+    host.dispatch("m1", field, "submit", { text: "Book flights" })
+    expect(host.eval("added")).toEqual(["Buy milk", "Book flights"])
+    expect(textUpdates(host, field, before)).toEqual(["", ""])
+  })
+
+  test("cancel with the field's text clears it", () => {
+    const host = new FakeHost(todo)
+    host.mount("m1", "render")
+    const field = host.findNode("m1", (n) => n.type === "TextField")!
+    const before = host.batches("m1").length
+    host.dispatch("m1", field, "cancel", { text: "half typed" })
+    expect(textUpdates(host, field, before)).toEqual([""])
+  })
+
+  test("a field bound to a computed is not sent a stale value on edit", () => {
+    const host = new FakeHost(
+      app(`
+      const [draft, setDraft] = signal("")
+      const shown = computed(() => draft())
+      return { render: () => TextField(shown, { onEdit: setDraft }) }`),
+    )
+    host.mount("m1", "render")
+    const field = host.findNode("m1", (n) => n.type === "TextField")!
+    const before = host.batches("m1").length
+    for (const text of ["a", "ab", "abc"]) host.dispatch("m1", field, "edit", { text })
+    expect(textUpdates(host, field, before)).toEqual([])
+  })
+
+  test("an async submit keeps the typed text until it settles, then the app's value shows", async () => {
+    const host = new FakeHost(
+      app(`
+      const [name, setName] = signal("old")
+      let finish
+      globalThis.finish = () => finish()
+      return { render: () => TextField(name, { onSubmit: () => new Promise((r) => { finish = () => { setName(""); r() } }) }) }`),
+    )
+    host.mount("m1", "render")
+    const field = host.findNode("m1", (n) => n.type === "TextField")!
+    const before = host.batches("m1").length
+    host.dispatch("m1", field, "submit", { text: "new" })
+    await host.settle()
+    expect(textUpdates(host, field, before)).toEqual([])
+    host.eval("finish()")
+    await host.settle()
+    expect(textUpdates(host, field, before)).toEqual([""])
+  })
+
+  test("an app that changes the typed text sends its value back", () => {
+    const host = new FakeHost(
+      app(`
+      const [draft, setDraft] = signal("")
+      return { render: () => TextField(draft, { onEdit: (t) => setDraft(t.toUpperCase()) }) }`),
+    )
+    host.mount("m1", "render")
+    const field = host.findNode("m1", (n) => n.type === "TextField")!
+    const before = host.batches("m1").length
+    host.dispatch("m1", field, "edit", { text: "ab" })
+    expect(textUpdates(host, field, before)).toEqual(["AB"])
+  })
+})
+
 describe("cmux global", () => {
   test("ops resolve with value and reject with CmuxError codes", async () => {
     const host = new FakeHost()

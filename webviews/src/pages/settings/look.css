@@ -53,13 +53,7 @@
   --ds-radius-xl: var(--page-size-14);
 }
 
-/* Titles as Codex and ChatGPT weigh them: the sidebar's "Settings" at the title size, under the
-   page's own title ("Notifications") at the heading size (the type scale's nearest steps). */
-:root[data-settings-look="refined"] .settings .sidebar-title {
-  font-size: var(--text-title);
-  line-height: var(--text-title--line-height);
-}
-
+/* The page's own title ("Notifications") at the heading size. */
 :root[data-settings-look="refined"] .settings .section-title {
   font-size: var(--text-heading);
   line-height: var(--text-heading--line-height);

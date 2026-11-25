@@ -84,12 +84,8 @@ import Testing
             case "_acpmux/sessions":
                 return [reply(#"""
                 {"sessions":[
-                  {"sessionId":"sess-a","title":"Fix the build","harness":"claude","cwd":"/Users/me/src/app","status":"running","updatedAt":1700000000000,"startedBy":null,"tags":{},"rollingSummary":{"text":"Parser fixed, CI running.","next":"Merge the PR","source":"model","turn":3,"at":1}},
-                  {"sessionId":"sess-b","title":null,"lastPrompt":"Why is CI red?","harness":"codex","cwd":"/Users/me/src/web","status":"idle","tags":{"archived":"1699"}},
-                  {"sessionId":"sess-p","title":"On the other Mac","harness":"claude","cwd":"/x","status":"idle","peer":"huge-blue","tags":{}},
-                  {"sessionId":"sess-s","title":"Side","harness":"claude","cwd":"/x","status":"idle","tags":{"side":"sess-a"}},
-                  {"sessionId":"sess-c","title":"Child","harness":"claude","cwd":"/x","status":"idle","spawnedBy":"sess-a","tags":{}},
-                  {"sessionId":"sess-t","title":"Sub-session","harness":"codex","cwd":"/x","status":"idle","startedBy":"sess-gone","depth":1,"tags":{}}
+                  {"sessionId":"sess-a","title":"Fix the build","harness":"claude","cwd":"/Users/me/src/app","status":"running","updatedAt":1700000000000,"startedBy":null,"tags":{}},
+                  {"sessionId":"sess-b","title":null,"lastPrompt":"Why is CI red?","harness":"codex","cwd":"/Users/me/src/web","status":"idle","tags":{"archived":"1699"}}
                 ],"nextCursor":"k1.2"}
                 """#.replacingOccurrences(of: "\n", with: ""))]
             case "_acpmux/archive":
@@ -133,13 +129,14 @@ import Testing
         #expect(page.chats[0].displayTitle == "Fix the build")
         #expect(page.chats[0].archived == false)
         #expect(page.chats[1].archived == true)
-        // The Mac's rolling summary and next action reach the row; a chat with none has no line.
-        #expect(page.chats[0].summaryLine == "Parser fixed, CI running. → Merge the PR")
-        #expect(page.chats[1].summaryLine == nil)
         // No title: the first prompt names it, as acpmux's lists do.
         #expect(page.chats[1].displayTitle == "Why is CI red?")
         let request = try #require(seen.acpmuxCalls.last { $0.0 == "_acpmux/sessions" })
         #expect((request.1["limit"] as? NSNumber)?.intValue == LiveWorkspaceCreationBackend.chatPageSize)
+        // acpmux, not the phone, drops a peer's chats (`localOnly`): the page is this Mac's own.
+        #expect(request.1["localOnly"] as? Bool == true)
+        // acpmux, not the phone, leaves out side chats and subagent sessions (`topLevelOnly`).
+        #expect(request.1["topLevelOnly"] as? Bool == true)
         #expect(request.1["cursor"] == nil)
         _ = try await backend.agentChats(on: "m", cursor: "k1.2")
         #expect(seen.acpmuxCalls.last { $0.0 == "_acpmux/sessions" }?.1["cursor"] as? String == "k1.2")
