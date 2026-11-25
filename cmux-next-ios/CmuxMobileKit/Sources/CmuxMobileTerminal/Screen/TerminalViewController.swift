@@ -1,6 +1,7 @@
 #if os(iOS)
 import CmuxMobileArtifacts
 import CmuxMobileDesign
+import CmuxMobileLinkFFI
 import CmuxMobileSupport
 import GhosttyNextKit
 import Observation
@@ -404,6 +405,11 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
 
     /// The launch marks' first typed key and its echo on screen (`LaunchMarks`).
     private var firstEcho = TerminalFirstEcho()
+    /// Every typed key's tap to the frame showing the Mac's echo of it, into the
+    /// Rust key-to-paint histogram (`key_paint`, release builds too): one key in
+    /// flight at a time, given up after 2 s (a key that echoes nothing).
+    private var keyPaint = TerminalFirstEcho()
+    private var keyPaintStart: CFTimeInterval = 0
     #if DEBUG
     /// Every typed key's echo (`InputLatencyTrace`, `terminal_key_echo`): one key
     /// in flight at a time, given up after 2 s (a key that echoes nothing).
@@ -923,6 +929,11 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
                 if model.connectionState.isAttached, !inputRefused, !LaunchMarks.shared.has("terminal_key_sent"),
                    firstEcho.sent(data) {
                     LaunchMarks.shared.mark("terminal_key_sent")
+                }
+                if model.connectionState.isAttached, !inputRefused {
+                    let now = CACurrentMediaTime()
+                    if keyPaint.step != .idle, now - keyPaintStart > 2 { keyPaint = TerminalFirstEcho() }
+                    if keyPaint.sent(data) { keyPaintStart = now }
                 }
                 #if DEBUG
                 if model.connectionState.isAttached, !inputRefused { ResumeMarks.shared?.note("terminal_key_sent") }
@@ -2145,6 +2156,7 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
                               queueEmpty: output.isEmpty)
                 model.scanOutput(data)
                 firstEcho.fed(data)
+                keyPaint.fed(data)
                 #if DEBUG
                 echoMeter.fed(data)
                 devProbe?.fed(data)
@@ -2636,6 +2648,7 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
             applyTUIPlacement()
         }
         firstEcho.processed()
+        keyPaint.processed()
         #if DEBUG
         echoMeter.processed()
         devProbe?.processed()
@@ -3283,6 +3296,10 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
     private func surfacePresented() {
         if firstEcho.presented() { LaunchMarks.shared.mark("terminal_echo_presented") }
         paintPresented()
+        if keyPaint.presented() {
+            recordKeyPaint(paintMs: UInt32(clamping: Int(((CACurrentMediaTime() - keyPaintStart) * 1000).rounded())))
+            keyPaint = TerminalFirstEcho()
+        }
         #if DEBUG
         if echoMeter.presented() {
             InputLatencyTrace.shared?.sample("terminal_key_echo", since: echoStart)
@@ -5167,9 +5184,19 @@ extension TerminalViewController: @MainActor UIGestureRecognizerDelegate {
             // clipped; the app's first rows stay pinned at the top (the top
             // exception) and the body moves down only as far as the cursor's row
             // needs. Set in the layout pass, so inside the keyboard's own animation.
+            // The rows the app draws (the Mac's grid as fed, else the claimed
+            // area's), as `drawnRowsBottom` counts them. Not `surface.grid.rows`:
+            // the surface is the mirror's (screen plus margins, 153 rows on a
+            // 6.3" phone), so the lift pushed the grid ~1700 pt off screen
+            // with the keyboard down (#53958).
+            let drawnRows = appliedHostRows ?? model.session.remoteRows ?? tuiGridHold.rows(page: tuiRows)
             let placement = TerminalGridSizing(cellHeight: cell.height)
-                .keyboardPlacement(gridRows: surface.grid.rows, visibleHeight: tuiClip.bounds.height,
-                                   cursorRow: surface.cursorViewportRow.map { $0 - tuiRowShift })
+                .keyboardPlacement(gridRows: drawnRows, visibleHeight: tuiClip.bounds.height,
+                                   cursorRow: surface.cursorViewportRow.map { $0 - tuiRowShift },
+                                   // The host is the area's rows tall (`tuiHeight`), bottom on the
+                                   // stack: a shorter grid at its top went off screen with the
+                                   // keyboard up, the rows under it blank in view.
+                                   areaRows: tuiGridHold.rows(page: tuiRows))
             if placement.lift != tuiKeyboardLift {
                 tuiKeyboardLift = placement.lift
                 tuiClip.bounds.origin.y = -placement.lift

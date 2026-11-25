@@ -44,6 +44,11 @@ public enum DeveloperOptions {
     /// and the clock error (`-cmuxMobile.dev.paintLatencyOverlay YES`). The same string as
     /// `TerminalPaintOverlay.key`; read when a terminal opens.
     public static let paintLatencyOverlayKey = "cmuxMobile.dev.paintLatencyOverlay"
+    /// `UserDefaults` key: wake on intent (hidden, default off). The app becoming active with a
+    /// Cloud machine's chat in front forwards `unlock`, so a paused machine starts waking before
+    /// the first key; the rules are Rust's (cmux-mobile-link-ffi `cloud_wake.rs`). No Settings row:
+    /// set it with `-cmuxMobile.dev.wakeOnIntent YES`.
+    public static let wakeOnIntentKey = "cmuxMobile.dev.wakeOnIntent"
     /// `UserDefaults` key: the terminal demo's phases (`-CmuxMobileTerminalDemoPhases`).
     public static let terminalDemoPhasesKey = "CmuxMobileTerminalDemoPhases"
 
@@ -53,7 +58,7 @@ public enum DeveloperOptions {
     public static let storedKeys = [
         mockDataKey, launchDemoKey, relayOnlyKey, blockUDPKey, forceRelayKey, proxyOnlyKey, dropWireGuardKey,
         browserVideoOnChannelKey, terminalDemoPhasesKey,
-        slowApprovalKey, retiredSlowFaceIDKey, paintLatencyOverlayKey, CloudBackendOverride.storedKey,
+        slowApprovalKey, retiredSlowFaceIDKey, paintLatencyOverlayKey, wakeOnIntentKey, CloudBackendOverride.storedKey,
     ]
 
     /// Removes every stored developer setting (Production launch).
@@ -135,6 +140,15 @@ public enum DeveloperOptions {
     public static var browserVideoOnChannel: Bool {
         #if DEBUG
         UserDefaults.standard.bool(forKey: browserVideoOnChannelKey)
+        #else
+        false
+        #endif
+    }
+
+    /// Whether wake on intent is on (the rules' `enabled` fact). Always off in Release builds.
+    public static var wakeOnIntent: Bool {
+        #if DEBUG
+        UserDefaults.standard.bool(forKey: wakeOnIntentKey)
         #else
         false
         #endif
