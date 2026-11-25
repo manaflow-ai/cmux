@@ -166,6 +166,9 @@ REGENERATE: dict[str, Regen] = {
         (PY, "scripts/cmux-next/art/generate_backdrop_art.py")),
     "Packages/macOS/CmuxNext/Sources/CmuxNextDesign/BackdropArt+Entries.swift": here(
         (PY, "scripts/cmux-next/art/generate_backdrop_art.py")),
+    # A host cargo build of cmux-mobile-link-ffi (rustup reads cmux-next-ios/rust/rust-toolchain.toml).
+    "cmux-next-ios/CmuxMobileKit/Sources/CmuxMobileLinkFFI/CmuxMobileLinkFFI.swift": here(
+        ("bash", "scripts/ios-ffi-bindings.sh")),
     "Resources/markdown-viewer/ondine.min.js": line("a vendored upstream release (vendor-ondine.mjs)"),
     "THIRD_PARTY_LICENSES.md": line("written by the release build's license collector"),
     "cmux-tui/build-support/notices/REVIEW.md": line("written by pin-cmux-tui.sh when the cmux-tui pin moves"),

@@ -91,6 +91,8 @@ pub(crate) mod pr;
 pub(crate) use pr::pr_state;
 #[path = "acpmux_mcp_control.rs"]
 mod control;
+#[path = "acpmux_mcp_look.rs"]
+mod look;
 #[path = "acpmux_mcp_machine.rs"]
 mod machine;
 #[path = "acpmux_mcp_race.rs"]
@@ -118,6 +120,7 @@ pub(crate) fn tools() -> Value {
         list.push(pr::wait_tool());
         list.push(wrap_up::tool());
         list.push(who_else::tool());
+        list.push(look::tool());
         list.extend(goal::tools());
         list.extend(watch::tools());
         list.extend(race::tools());
@@ -177,7 +180,7 @@ fn base_tools() -> Value {
         },
         {
             "name": "ls",
-            "description": "List the agent sessions on this machine and its peers, one line each: name, state and title, newest first. Closed sessions are left out unless status is closed, and the list stops at limit and says how many more match. Use it to find the session to message.",
+            "description": "List the agent sessions on this machine and its peers, one line each: name, state and title, newest first. Closed sessions only with status closed; stops at limit and says how many more match.",
             "inputSchema": {
                 "type": "object",
                 "properties": {
@@ -211,7 +214,7 @@ fn base_tools() -> Value {
         },
         {
             "name": "machine_info",
-            "description": "Report what this machine can do from acpmux's current state: machine and workspace identity, repository, running background work, ports and previews, browser/display support, the environment's verify command, and secret names with status. Secret values are never returned; unavailable capabilities include the next action to take.",
+            "description": "What this machine can do: identity, repository, background work, ports and previews, browser/display support, the verify command, and secret names with status (never values). Missing capabilities name the next step.",
             "inputSchema": {
                 "type": "object",
                 "properties": {}
@@ -219,7 +222,7 @@ fn base_tools() -> Value {
         },
         {
             "name": "team_send",
-            "description": "Send an information message to a teammate's agent or a team role. Addresses are team-scoped (for example @lawrence/coordinator or @team/reviewer). The receipt includes the hub's resolution and whether the message may start work; a normal message never starts work automatically.",
+            "description": "Send an information message to a teammate's agent or a team role. Addresses are team-scoped (for example @lawrence/coordinator or @team/reviewer). The receipt says how the hub resolved it; a normal message never starts work.",
             "inputSchema": {
                 "type": "object",
                 "properties": {
@@ -253,7 +256,7 @@ fn base_tools() -> Value {
         },
         {
             "name": "search",
-            "description": "Find a session's messages (prompts, replies, tool titles) holding every word of a query, newest first, from the acpmux engine's index of its log: use it instead of grepping a transcript. For every authorized session on this host and its peers, use the `cmux agent search` front door. This MCP tool searches your own session unless name says another; role assistant finds what you yourself wrote earlier.",
+            "description": "Find a session's messages (prompts, replies, tool titles) holding every word of a query, newest first, from acpmux's index: use it instead of grepping a transcript. Searches your own session unless name says another (across sessions: `cmux agent search`); role assistant finds what you wrote earlier.",
             "inputSchema": {
                 "type": "object",
                 "properties": {
@@ -420,6 +423,9 @@ fn served_with(
                 }
                 if name == who_else::NAME {
                     return who_else::call(&daemon, &session, &args).await;
+                }
+                if name == look::NAME {
+                    return look::call(&daemon, &session).await;
                 }
                 if goal::TOOLS.contains(&name) {
                     return goal::call(&daemon, &session, name, &args).await;
