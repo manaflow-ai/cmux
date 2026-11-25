@@ -29,6 +29,7 @@ mod composer_draft;
 #[cfg(all(test, unix))]
 mod composer_draft_tests;
 mod events;
+mod live_line;
 mod reconnect_wait;
 mod run;
 mod scheduler;
