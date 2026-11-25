@@ -1121,7 +1121,7 @@ public final class AcpmuxSessionSource: AgentSessionSource {
     /// The composer's attachments changed: files a prompt would upload start uploading now, into the
     /// same folder Send uploads to; files taken off stop (``AttachmentPrestager``).
     public func prestageAttachments(_ attachments: [AgentAttachment]) {
-        composerAttachments = attachments
+        composerAttachments = attachments.filter(AttachmentPrestager.uploadsAtSend)
         let cwd = baseDirectory
         let macName = summary.macName
         var upload: AttachmentPrestager.Upload?
