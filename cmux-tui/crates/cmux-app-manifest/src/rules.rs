@@ -85,6 +85,9 @@ pub(crate) fn check(m: &Value) -> Vec<Issue> {
             if name == "cmux.widget/1" {
                 widget_rules(&at, imp, &mut out);
             }
+            if name == crate::theme_pack::INTERFACE {
+                crate::theme_pack::check(&at, imp, &mut out);
+            }
             for (list, key) in [
                 ("commands", "name"),
                 ("items", "id"),

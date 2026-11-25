@@ -5,7 +5,7 @@
 //! before it runs an app, and the store registry before it records a version.
 //! Structure comes from the JSON Schema (`cmux-app-host/schema/v2`); the
 //! semantic rules a schema cannot express (publisher ownership, native code
-//! tiers, interface names and options, scope classes, package paths, the
+//! tiers, interface names and options, a theme pack's contrast floor, scope classes, package paths, the
 //! catalog fragment, CLI names, MCP tool names and `contributes.wallpapers`,
 //! checked with cmux-wallpaper) live in [`rules`],
 //! [`catalog`], [`cli`] and [`package`].
@@ -38,6 +38,7 @@ mod package;
 mod presentation;
 mod rules;
 mod scopes;
+mod theme_pack;
 mod toolbar;
 mod web_pane;
 pub mod whats_new;
@@ -55,6 +56,7 @@ pub use issue::{Issue, Severity};
 pub use menus::MENU_TARGETS;
 pub use package::{PackageReport, validate_package, validate_package_file};
 pub use scopes::{SCOPE_CLASSES, ScopeClass, ScopeInfo};
+pub use theme_pack::{ContrastFinding, ThemeContrast, theme_contrast, token_key};
 pub use toolbar::{OVERRIDABLE_TOOLBAR_ITEMS, SIDEBAR_TOGGLE_ITEM, TOOLBAR_VISIBLE_APP_ITEMS};
 pub use web_pane::{
     APP_PAGE_SCHEME, PageFileRefusal, STRICT_PAGE_CSP, WebPage, app_page_host, effective_csp,

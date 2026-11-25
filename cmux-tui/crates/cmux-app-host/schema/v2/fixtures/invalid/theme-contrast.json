@@ -1,0 +1,15 @@
+{
+  "manifestVersion": 2,
+  "id": "local/unreadable",
+  "name": "Unreadable",
+  "version": "1.0.0",
+  "description": "Text on a black window, a white sidebar and a gray pane: no lightness of it reads on all three.",
+  "engines": { "cmux": "^2.0" },
+  "implements": {
+    "cmux.theme/1": {
+      "options": {
+        "tokens": { "window": "#000000", "sidebar": "#ffffff", "content": "#777777", "text": "#777777" }
+      }
+    }
+  }
+}
