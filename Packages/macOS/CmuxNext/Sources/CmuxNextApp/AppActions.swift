@@ -53,6 +53,7 @@ enum AppActions {
         SidebarActionSet(host: services, autoArchive: services.autoArchive, settings: { [weak services] in services?.settings }, sidebar: { [weak services] in services?.windows.active?.sidebar.container.sidebarView }, themeColors: { [weak services] in services?.themes.catalog.colors ?? [:] }, playgroundSections: { [HomeFilterPlaygroundSection().section()] }).bind(into: registry)
         NotificationSoundActions(host: services, gate: services.notifications.soundGate).bind(into: registry)
         RoomHandlers.bind(into: registry, context: context)
+        PaletteVerbActions(host: services).bind(into: registry)
         RoomMenuHandlers.bind(into: registry, context: context)
         ThemeHandlers.bind(into: registry, context: context)
         RemoteLocalhostHandlers.bind(into: registry, context: context)
@@ -94,6 +95,7 @@ enum AppActions {
         DevToolsHandlers.bind(into: registry, context: context)
         HintHandlers.bind(into: registry, context: context)
         MusicHandlers.bind(into: registry, context: context)
+        context.services.keyRouter.keyModes.bind(into: registry)
         VoiceRoomHandlers.bind(into: registry, context: context)
         NowPlayingCardHandlers.bind(into: registry, context: context)
         PictureInPictureHandlers.bind(into: registry, context: context)
@@ -101,7 +103,6 @@ enum AppActions {
         ChiefUsagePageTab.bind(into: registry, context: context)
         ChiefViewsPageTab.bind(into: registry, context: context)
         PhoneHandlers.bind(into: registry, context: context)
-        MobilePairingPageService.bind(into: registry, context: context)
         BrowserHitHandlers.bind(into: registry, context: context)
         DiffHandlers.bind(into: registry, context: context)
         FilePageHandlers.bind(into: registry, context: context)
@@ -110,12 +111,14 @@ enum AppActions {
         PageInfoHandlers.bind(into: registry, context: context)
         CertificateWarningHandlers.bind(into: registry, context: context)
         ExtensionHandlers.bind(into: registry, context: context)
+        BrowserToolbarHandlers.bindMenuRows(into: registry, context: context)
         BrowserProfileHandlers.bind(into: registry, context: context)
         OpenInHandlers.bind(into: registry, context: context)
         NotificationHandlers.bind(into: registry, context: context)
         bindAttentionPalette(into: registry, context: context)
         AgentHandlers.bind(into: registry, context: context)
         AgentChatMenuHandlers.bind(into: registry, context: context)
+        AgentChatMenuHandlers.bindEditors(into: registry, context: context)
         AgentConfigurationHandlers.bind(into: registry, context: context)
         AgentChatKeyHandlers.bind(into: registry, context: context)
         CloudHandlers.bind(into: registry, context: context)
@@ -128,7 +131,6 @@ enum AppActions {
         RemoteGroupHandlers.bind(into: registry, context: context)
         SidebarScreenIntentActions.bindViewScreen(into: registry) { [weak services] in services?.windows.active.map { window in (sections: window.sidebar.model.sections, handle: { @MainActor intent in window.sidebar.handle(intent) }) } }
         ChiefMoveHandlers.bind(into: registry, context: context)
-        ChiefMemoryImportHandlers.bind(into: registry, context: context)
         RemoteBrowserPages.bind(into: registry, context: context)
         ResourceHandlers.bind(into: registry, context: context)
         LinkHandlers.bind(into: registry, context: context)
@@ -198,6 +200,8 @@ enum AppActions {
             do {
                 let scripted = registry.isCapturingRefusal
                 let origin = try QuitOrigin(for: invocation, scripted: scripted)
+                // Cmd-Q's first press only warns (`app.warnBeforeQuitShortcut`); the menu, Dock and scripts quit.
+                if !scripted, origin == .interactive, services.quit.holdsShortcutQuit(invocation) { return }
                 // A scripted quit saves unsaved documents first and refuses,
                 // naming them, when a save fails (R96 quit hook).
                 guard scripted, !services.quit.unsaved.unsaved().isEmpty else { return services.quit.requestQuit(origin) }

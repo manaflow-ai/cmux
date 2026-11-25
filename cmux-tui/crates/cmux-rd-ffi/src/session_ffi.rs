@@ -3,11 +3,13 @@
 //! I/O, no threads, panics caught, a panic poisons only that handle, and
 //! pointers handed out stay valid until the next call on the same session.
 
+use std::fs::File;
 use std::panic::{AssertUnwindSafe, catch_unwind};
 
 use cmux_rd_core::reassembly::CompleteFrame;
 
 use crate::receiver::{Carrier, Message};
+use crate::record::Recorder;
 use crate::session::{MAX_STREAMS, Session, SessionError};
 use crate::{
     CMUX_RD_CARRIER_DATAGRAM, CMUX_RD_CARRIER_STREAM, CMUX_RD_ERR_NULL, CMUX_RD_ERR_PANIC,
@@ -22,7 +24,9 @@ pub const CMUX_RD_SESSION_MAX_STREAMS: usize = MAX_STREAMS;
 /// The opaque session handle (`CmuxRdSession`).
 #[derive(Debug)]
 pub struct CmuxRdSession {
-    inner: Session,
+    pub(crate) inner: Session,
+    /// The recording of stream 0 (`cmux_rd_session_record_start`), if any.
+    pub(crate) recorder: Option<Recorder<File>>,
     current_frame: Option<CompleteFrame>,
     current_message: Option<Message>,
     stashed_feedback: Option<Vec<u8>>,
@@ -42,7 +46,10 @@ fn session_code(error: &SessionError) -> i32 {
 /// `ptr` is NULL or came from [`cmux_rd_session_new`] and has not been freed, so a
 /// non-NULL `ptr` is aligned and points to a live session. Nothing else reads or
 /// writes that session until this returns: `f` gets it as `&mut`.
-unsafe fn with_session(ptr: *mut CmuxRdSession, f: impl FnOnce(&mut CmuxRdSession) -> i32) -> i32 {
+pub(crate) unsafe fn with_session(
+    ptr: *mut CmuxRdSession,
+    f: impl FnOnce(&mut CmuxRdSession) -> i32,
+) -> i32 {
     // SAFETY: NULL or live, aligned and unaliased, by this function's contract.
     let Some(handle) = (unsafe { ptr.as_mut() }) else { return CMUX_RD_ERR_NULL };
     if handle.poisoned {
@@ -86,6 +93,7 @@ pub extern "C" fn cmux_rd_session_new(
     catch_unwind(|| {
         Box::into_raw(Box::new(CmuxRdSession {
             inner: Session::new(carrier, deadline_us, nack_after_us),
+            recorder: None,
             current_frame: None,
             current_message: None,
             stashed_feedback: None,
@@ -224,6 +232,11 @@ pub unsafe extern "C" fn cmux_rd_session_pop_frame(
             return 0;
         };
         let frame = h.current_frame.insert(frame);
+        if stream == 0
+            && let Some(recorder) = h.recorder.as_mut()
+        {
+            recorder.push(frame.body.t_capture_us, &frame.body.access_unit);
+        }
         let value = CmuxRdFrame {
             t_capture_us: frame.body.t_capture_us,
             data: frame.body.access_unit.as_ptr(),
@@ -381,6 +394,7 @@ pub unsafe extern "C" fn cmux_rd_session_stats(
                 frames_lost: s.frames_lost,
                 acked_frame: s.acked_frame,
                 need_recovery: s.need_recovery,
+                frames_skipped: s.frames_skipped,
             };
             // SAFETY: checked non-NULL; writable by contract.
             unsafe { out.write(value) };
@@ -388,6 +402,21 @@ pub unsafe extern "C" fn cmux_rd_session_stats(
         }
         Err(e) => session_code(&e),
     };
+    // SAFETY: `session` is NULL or valid by this function's contract, and the
+    // header lets one thread at a time call a session, so no other access overlaps.
+    // The C type is `*const`, but the pointer came from `_new` as `*mut`.
+    unsafe { with_session(session.cast_mut(), run) }
+}
+
+/// 1 when the host went silent for [`crate::STALL_AFTER_US`] as of the last
+/// tick while it sends heartbeats (the network dropped and the picture is
+/// frozen), 0 otherwise; the next bytes received clear it.
+///
+/// # Safety
+/// `session` is NULL or valid.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn cmux_rd_session_stalled(session: *const CmuxRdSession) -> i32 {
+    let run = |h: &mut CmuxRdSession| i32::from(h.inner.is_stalled());
     // SAFETY: `session` is NULL or valid by this function's contract, and the
     // header lets one thread at a time call a session, so no other access overlaps.
     // The C type is `*const`, but the pointer came from `_new` as `*mut`.
@@ -405,6 +434,71 @@ pub unsafe extern "C" fn cmux_rd_session_enable_clock(session: *mut CmuxRdSessio
     let run = |h: &mut CmuxRdSession| {
         h.inner.enable_clock();
         CMUX_RD_OK
+    };
+    // SAFETY: `session` is NULL or valid by this function's contract, and the
+    // header lets one thread at a time call a session, so no other access overlaps.
+    unsafe { with_session(session, run) }
+}
+
+/// Frame `frame` of `stream` finished decoding at `decoded_at_us` (the clock
+/// passed to `push_*`) after `decode_us`: the feedback median (as
+/// [`cmux_rd_session_note_decode`]) and the stage ledger.
+///
+/// # Safety
+/// `session` is valid.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn cmux_rd_session_note_frame_decoded(
+    session: *mut CmuxRdSession,
+    stream: u16,
+    frame: u32,
+    decode_us: u32,
+    decoded_at_us: u64,
+) -> i32 {
+    let run =
+        |h: &mut CmuxRdSession| unit(h.inner.note_decoded(stream, frame, decode_us, decoded_at_us));
+    // SAFETY: `session` is NULL or valid by this function's contract, and the
+    // header lets one thread at a time call a session, so no other access overlaps.
+    unsafe { with_session(session, run) }
+}
+
+/// Frame `frame` of `stream` reached the glass at `presented_at_us` (the clock
+/// passed to `push_*`; the drawable's presented time).
+///
+/// # Safety
+/// `session` is valid.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn cmux_rd_session_note_frame_presented(
+    session: *mut CmuxRdSession,
+    stream: u16,
+    frame: u32,
+    presented_at_us: u64,
+) -> i32 {
+    let run = |h: &mut CmuxRdSession| unit(h.inner.note_presented(stream, frame, presented_at_us));
+    // SAFETY: `session` is NULL or valid by this function's contract, and the
+    // header lets one thread at a time call a session, so no other access overlaps.
+    unsafe { with_session(session, run) }
+}
+
+/// Writes the stage ledger so far as one UTF-8 JSON object
+/// (`cmux.rd-stage-ledger/1`). `CMUX_RD_ERR_BUFFER` when `cap` is too small;
+/// `*out_len` then holds the size needed.
+///
+/// # Safety
+/// `session` is valid; `out` is writable for `cap` bytes; `out_len` is writable.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn cmux_rd_session_stage_ledger(
+    session: *mut CmuxRdSession,
+    out: *mut u8,
+    cap: usize,
+    out_len: *mut usize,
+) -> i32 {
+    if out_len.is_null() {
+        return CMUX_RD_ERR_NULL;
+    }
+    let run = |h: &mut CmuxRdSession| {
+        let json = h.inner.stage_ledger_json();
+        // SAFETY: guaranteed by the caller.
+        unsafe { copy_out(json.as_bytes(), out, cap, out_len) }
     };
     // SAFETY: `session` is NULL or valid by this function's contract, and the
     // header lets one thread at a time call a session, so no other access overlaps.

@@ -2,6 +2,35 @@
 // The diff viewer page (cmux-page://cmux.diff/) on fixed patches: the real page entry (main.tsx)
 // over an in-page cmuxPage host that serves the patch (src/gallery/frame/pages.ts).
 import { diffPageEntry } from "../../gallery/format";
+import { pageDensities, pageDensityPlay } from "../../gallery/pageDensityFixtures";
+import type { PlayContext } from "../../gallery/play";
+
+/** Plain English is a row of the "..." menu (toolbar-model.ts): open the menu, choose it once it can run. */
+async function turnOnPlainEnglish(ctx: PlayContext): Promise<void> {
+  await ctx.waitFor(() => ctx.document.querySelector("#options-button"), { capMs: 10_000 });
+  await ctx.click({ selector: "#options-button" });
+  await ctx.waitFor(() => ctx.document.querySelector('[data-option="plain-english"]:not([aria-disabled="true"])'), {
+    capMs: 10_000,
+  });
+  await ctx.click({ selector: '[data-option="plain-english"]' });
+}
+
+/** Marks the first three files viewed from their headers' Viewed buttons (hq #19495). */
+async function markThreeViewed(ctx: PlayContext): Promise<void> {
+  // Every file first (thirty files add 59 lines), so the count's total is the whole diff's.
+  await ctx.waitFor(() => ctx.document.querySelector(".source-pill-additions")?.textContent === "+59", {
+    capMs: 10_000,
+  });
+  await ctx.waitFor(() => ctx.document.querySelectorAll(".file-review-viewed").length >= 3, { capMs: 10_000 });
+  for (let index = 0; index < 3; index += 1) {
+    const unviewed = ctx.document.querySelector<HTMLElement>('.file-review-viewed[aria-pressed="false"]');
+    unviewed?.click();
+    await ctx.waitFor(
+      () => ctx.document.querySelectorAll('.file-review-viewed[aria-pressed="true"]').length >= index + 1,
+      { capMs: 5_000 },
+    );
+  }
+}
 
 const before = `export function request(url: string) {
   return fetch(url).then((response) => response.json());
@@ -260,6 +289,19 @@ export default diffPageEntry({
         { path: "src/net/retry.ts", after: retry },
       ],
     },
+    "density-compact": {
+      note: "The same change at Compact: the toolbar, the file bars and the files list draw at the density's size, the code at its own (diff-viewer/density.ts).",
+      files: [
+        { path: "src/net/client.ts", before, after },
+        { path: "src/net/retry.ts", after: retry },
+      ],
+      play: async (ctx) => {
+        // As the host's scale script does: the density on the root, then the change event.
+        await pageDensityPlay(pageDensities.find((density) => density.name === "compact")!.scale)(ctx);
+        ctx.document.defaultView?.dispatchEvent(new Event("cmux-ui-scale-change"));
+        await ctx.waitFor(() => ctx.document.querySelector(".file-header"), { capMs: 10_000 });
+      },
+    },
     unified: {
       note: "The same change, unified layout.",
       layout: "unified",
@@ -275,6 +317,40 @@ export default diffPageEntry({
     "many-files": {
       note: "Thirty files in six folders (the file tree).",
       files: many,
+    },
+    "viewed-progress-menu": {
+      note: 'Three of thirty files viewed: the "..." menu\'s Hide viewed files row says "3 of 30 viewed" (shipped).',
+      files: many,
+      play: async (ctx) => {
+        await markThreeViewed(ctx);
+        await ctx.click({ selector: "#options-button" });
+        await ctx.waitFor(
+          () => ctx.document.querySelector("#hide-viewed-toggle .menu-detail")?.textContent?.includes("30"),
+          { capMs: 10_000 },
+        );
+      },
+    },
+    "viewed-progress-tooltip": {
+      note: 'Three of thirty files viewed: the source pill\'s tooltip reads "Branch: +59 -29 · 3 of 30 files viewed" (shipped).',
+      files: many,
+      play: async (ctx) => {
+        await markThreeViewed(ctx);
+        await ctx.hover({ selector: "#source-menu .source-pill-stats" });
+        await ctx.waitFor(() => ctx.document.querySelector(".ui-title-tooltip")?.textContent?.includes("30"), {
+          capMs: 10_000,
+        });
+      },
+    },
+    "viewed-progress-suffix": {
+      note: 'The pill-suffix arm (not shipped): the source pill shows "· 3/30" after its counts.',
+      files: many,
+      experiments: { "diff-viewed-progress": "suffix" },
+      play: async (ctx) => {
+        await markThreeViewed(ctx);
+        await ctx.waitFor(() => ctx.document.querySelector(".source-pill-progress")?.textContent?.includes("/30"), {
+          capMs: 10_000,
+        });
+      },
     },
     "word-diff": {
       note: "Edits inside lines, unified: the changed words are marked (on by default).",
@@ -306,6 +382,29 @@ export default diffPageEntry({
         await ctx.waitFor(() => ctx.document.querySelector("#comments-send"), { capMs: 10_000 });
       },
     },
+    "review-from-link": {
+      note: "A review worktree (cmux git review start <url>): the agent's drafts, Post to GitHub, and the pull request's line with Send to agent.",
+      files: [
+        { path: "src/net/client.ts", before, after },
+        { path: "src/net/retry.ts", after: retry },
+      ],
+      commentsSend: true,
+      commentsReview: {
+        url: "https://github.com/acme/net/pull/482",
+        repo: "acme/net",
+        number: 482,
+        title: "Retry uploads with backoff",
+        head: "4f1c2e9",
+        base: "9a0b3d1",
+      },
+      comments: [
+        reviewComment("r1", "src/net/client.ts", 3, "Three attempts is low for uploads; take it from config."),
+        reviewComment("r2", "src/net/retry.ts", 5, "Back off between attempts instead of retrying at once."),
+      ],
+      play: async (ctx) => {
+        await ctx.waitFor(() => ctx.document.querySelector("#comments-post"), { capMs: 10_000 });
+      },
+    },
     "plain-english": {
       note: "Plain English on: each hunk is one sentence an agent wrote, its code folded beneath. Sentences arrive in place while the first changed line holds the row, so nothing moves.",
       height: 640,
@@ -325,10 +424,7 @@ export default diffPageEntry({
         },
       },
       play: async (ctx) => {
-        await ctx.waitFor(() => ctx.document.querySelector('#plain-english-toggle:not([aria-disabled="true"])'), {
-          capMs: 10_000,
-        });
-        await ctx.click({ selector: "#plain-english-toggle" });
+        await turnOnPlainEnglish(ctx);
         await ctx.waitFor(() => ctx.document.querySelectorAll('.plain-english-row[data-state="ready"]').length >= 3, {
           capMs: 10_000,
         });
@@ -349,10 +445,7 @@ export default diffPageEntry({
         },
       },
       play: async (ctx) => {
-        await ctx.waitFor(() => ctx.document.querySelector('#plain-english-toggle:not([aria-disabled="true"])'), {
-          capMs: 10_000,
-        });
-        await ctx.click({ selector: "#plain-english-toggle" });
+        await turnOnPlainEnglish(ctx);
         await ctx.waitFor(() => ctx.document.querySelector('.plain-english-row[data-state="ready"]'), {
           capMs: 10_000,
         });
@@ -368,24 +461,23 @@ export default diffPageEntry({
         sentences: { "export const added": "Doubles the value and adds a new string export." },
       },
       play: async (ctx) => {
-        await ctx.waitFor(() => ctx.document.querySelector('#plain-english-toggle:not([aria-disabled="true"])'), {
-          capMs: 10_000,
-        });
-        await ctx.click({ selector: "#plain-english-toggle" });
+        await turnOnPlainEnglish(ctx);
         await ctx.waitFor(() => ctx.document.querySelector('.plain-english-row[data-state="ready"]'), {
           capMs: 10_000,
         });
       },
     },
     "plain-english-unavailable": {
-      note: "No agent here can write summaries: the book button is off, and its tooltip says why.",
+      note: "No agent here can write summaries: the menu's Plain English row is off, and its tooltip says why.",
       files: [{ path: "src/net/client.ts", before, after }],
       summaries: { refused: "complete.not_installed" },
       play: async (ctx) => {
-        await ctx.waitFor(() => ctx.document.querySelector('#plain-english-toggle[aria-disabled="true"]'), {
+        await ctx.waitFor(() => ctx.document.querySelector("#options-button"), { capMs: 10_000 });
+        await ctx.click({ selector: "#options-button" });
+        await ctx.waitFor(() => ctx.document.querySelector('[data-option="plain-english"][aria-disabled="true"]'), {
           capMs: 10_000,
         });
-        await ctx.hover({ selector: "#plain-english-toggle" });
+        await ctx.hover({ selector: '[data-option="plain-english"]' });
       },
     },
     "review-brief": {

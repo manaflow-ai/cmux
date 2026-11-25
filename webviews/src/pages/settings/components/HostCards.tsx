@@ -9,50 +9,52 @@ import { settingsFileName } from "../format";
 import { rowsByKey } from "../schema";
 import { Icon } from "../icons";
 import { locale, t } from "../strings";
+import { CENTERED_FILL, PLACEMENT_KEY, placementKey, placementsValue, readPlacements } from "../backgroundPlacement";
+import { useWindowColorScheme } from "../colorScheme";
 import { ActionRow } from "./ActionRow";
 import { ArtBrowser } from "./ArtBrowser";
 import { BackdropLink, formatBytes } from "./BackdropLink";
+import { BackgroundPlacementPreview } from "./BackgroundPlacementPreview";
 import { BackdropScopePicker, FOLLOW_ID, useWorkspaceBackground, WorkspaceOpacity } from "./BackdropScope";
 import { SettingRow } from "./SettingRow";
 import { WallpaperSwitch } from "./WallpaperSwitch";
+import { RecentBackgrounds } from "./RecentBackgrounds";
+import { RECENTS_KEY, recentTiles, recentWrites } from "../recentBackgrounds";
 import {
   DARK_KEY,
+  FOLLOW_APPEARANCE,
   DYNAMIC_KEY,
   LIGHT_KEY,
   LOCATION_KEY,
   modeOf,
-  rememberedFolder,
   SCHEDULE_KEY,
   WALLPAPER_KEYS,
   type WallpaperValues,
+  isFixed,
+  isShuffle,
+  memoryValue,
+  MEMORY_KEY,
+  readMemory,
+  rememberBackground,
 } from "../wallpaperSwitch";
 import { focusRingShown } from "../../../ui/focusModality";
+import {
+  BACKDROP_ROWS,
+  BACKGROUND_KEY,
+  BACKGROUND_OPACITY_KEY,
+  MATERIAL_KEY,
+  ROTATION_KEY,
+  useBackdropsShown,
+} from "../cardRows";
 
-export const BACKGROUND_KEY = "appearance.background";
-export const BACKGROUND_OPACITY_KEY = "appearance.backgroundOpacity";
+export { BACKDROP_ROWS, BACKGROUND_KEY, BACKGROUND_OPACITY_KEY, MATERIAL_KEY, ROTATION_KEY, useBackdropsShown };
+
 /** Shuffle Paintings (cx-t2x.5): the art set, turning as often as appearance.backgroundRotation says. */
 const DAILY_ID = "daily";
 /** The person's desktop picture (BackdropSelection.desktopID), first in the picker. */
 const DESKTOP_ID = "desktop";
 /** The person's own images (BackdropUserImages.collection): removable, and shown in Finder. */
 const YOURS = "yours";
-/** The rows the picker draws, left out of their group while it shows. */
-/** `appearance.backgroundBlur`: the window's Material, drawn in the card beside Opacity. */
-export const MATERIAL_KEY = "appearance.backgroundBlur";
-/** `appearance.backgroundRotation`: how often a shuffle turns, shown in the card while one is chosen. */
-export const ROTATION_KEY = "appearance.backgroundRotation";
-export const BACKDROP_ROWS: ReadonlySet<string> = new Set([
-  BACKGROUND_KEY,
-  BACKGROUND_OPACITY_KEY,
-  MATERIAL_KEY,
-  ROTATION_KEY,
-  // Switch Automatically's keys: its editors draw them.
-  LIGHT_KEY,
-  DARK_KEY,
-  SCHEDULE_KEY,
-  DYNAMIC_KEY,
-  LOCATION_KEY,
-]);
 /** `folder:<absolute path>`: the pictures in that folder, shuffled. */
 const FOLDER_PREFIX = "folder:";
 const folderName = (id: string) => id.slice(FOLDER_PREFIX.length).split("/").filter(Boolean).at(-1) ?? id;
@@ -66,11 +68,6 @@ function BackdropThumb({ src }: { src: string }) {
   const [failed, setFailed] = useState<string | null>(null);
   if (failed === src) return <span className="backdrop-thumb backdrop-none" data-thumb-missing="" />;
   return <img className="backdrop-thumb" alt="" src={src} onError={() => setFailed(src)} />;
-}
-
-/** Whether the picker draws (the host lists the art); its rows show in their group otherwise. */
-export function useBackdropsShown(): boolean {
-  return (useSettingsState().host?.backdrops ?? []).length > 0;
 }
 
 /**
@@ -164,14 +161,34 @@ export function Backdrops({ focus = null, workspace = null }: { focus?: string |
       window.removeEventListener("focus", read);
     };
   }, [store]);
-  if (backdrops.length === 0) return null;
+  // What each background mode last showed (appearance.backgroundMemory, in the settings file): when
+  // the background leaves a mode's value (a shuffle for another kind, a picture for a mode, or a
+  // folder at all), from this page or anywhere else while it is open, the value it left is kept, so
+  // switching modes never loses Rotate's folder or Off's picture, in a new Settings page or after a
+  // restart too. Picture to picture writes nothing, nor does only opening the page.
+  const scheme = useWindowColorScheme();
   const background = rows.get(BACKGROUND_KEY);
   const appCurrent = ((background?.value ?? background?.default) as string | undefined) ?? "none";
+  const memory = readMemory(rows.get(MEMORY_KEY)?.value);
+  const seen = useRef<string | null>(null);
+  useEffect(() => {
+    if (!state.readable) return;
+    const left = seen.current;
+    seen.current = appCurrent;
+    if (left === null || left === appCurrent) return;
+    const kind = (id: string) => (isShuffle(id) ? "shuffle" : isFixed(id) ? "picture" : "mode");
+    if (kind(left) === kind(appCurrent) && !left.startsWith(FOLDER_PREFIX)) return;
+    const next = rememberBackground(memory, left);
+    if (next) void store.set(MEMORY_KEY, memoryValue(next));
+    // oxlint-disable-next-line react-hooks/exhaustive-deps -- runs on a background change; memory is read as it is then
+  }, [appCurrent, state.readable]);
+  if (backdrops.length === 0) return null;
   const current = own ? (own.value ?? FOLLOW_ID) : appCurrent;
   // A workspace's tint is over its picture: with its own No wallpaper there is nothing for Opacity
   // over Art to change. A workspace that follows may still show a picture the page does not see
   // (a window's own, `appearance.set scope=window`), so it keeps the slider.
   const ownPicture = own !== null && own.value !== "none";
+  const placementRow = rows.get(PLACEMENT_KEY)?.value;
   const opacity = rowsByKey.get(BACKGROUND_OPACITY_KEY);
   const material = rowsByKey.get(MATERIAL_KEY);
   const rotation = rowsByKey.get(ROTATION_KEY);
@@ -179,7 +196,7 @@ export function Backdrops({ focus = null, workspace = null }: { focus?: string |
   const yours = usage?.folder ? FOLDER_PREFIX + usage.folder : null;
   // A folder shuffled that is not Your Images: its own tile, chosen, by the folder's name. While
   // another mode is on, the last folder shuffled keeps its tile, so one click brings it back.
-  const shownFolder = current.startsWith(FOLDER_PREFIX) ? current : rememberedFolder();
+  const shownFolder = current.startsWith(FOLDER_PREFIX) ? current : memory.folder;
   const otherFolder = !own && shownFolder !== null && shownFolder !== yours ? shownFolder : null;
   const shuffles = current === DAILY_ID || current.startsWith(FOLDER_PREFIX);
   // Switch Automatically reads the app's keys; a workspace's own background is one picture.
@@ -193,7 +210,16 @@ export function Backdrops({ focus = null, workspace = null }: { focus?: string |
     dark: (read(DARK_KEY) as string | null) ?? null,
     schedule: (read(SCHEDULE_KEY) as Record<string, string> | null) ?? null,
     dynamic: (read(DYNAMIC_KEY) as string | null) ?? "appearance",
+    memory,
   };
+  // The picture the window shows, so its place: Light & Dark previews and places the side drawn now
+  // (the window's light or dark), keyed as the app keys it (placementKey: a dynamic wallpaper's file).
+  // None: no picture, the desktop's own (not previewed here), a shuffle or a mode.
+  const shownPicture =
+    !own && current === FOLLOW_APPEARANCE
+      ? ((read(scheme === "dark" ? DARK_KEY : LIGHT_KEY) as string | null) ?? "none")
+      : current;
+  const placementID = isFixed(shownPicture) && shownPicture !== DESKTOP_ID ? placementKey(shownPicture) : null;
   // A slot holds one picture that stays: the shuffles and macOS wallpapers still downloading are not one.
   const pictures = [
     { id: "none", title: t("settingsWindow.backdropPicker.none") },
@@ -212,6 +238,15 @@ export function Backdrops({ focus = null, workspace = null }: { focus?: string |
       }
     } else {
       await store.set(BACKGROUND_KEY, id);
+    }
+    endPreview();
+  };
+  const chooseRecent = async (id: string) => {
+    cancelDwell();
+    // In order, stopping at a refusal: the background first, then sun mode off with it.
+    for (const [key, value] of recentWrites(id, switchValues.dynamic)) {
+      const result = await (value === null ? store.reset(key) : store.set(key, value));
+      if (!result.ok) break;
     }
     endPreview();
   };
@@ -307,6 +342,19 @@ export function Backdrops({ focus = null, workspace = null }: { focus?: string |
       <span id={`${describe}-pending`} hidden>
         {t("settingsWindow.backdropPicker.downloadInSystemSettings")}
       </span>
+      {/* The backgrounds shown before, one click each (the app's, so All Workspaces only). */}
+      {!own && (
+        <RecentBackgrounds
+          tiles={recentTiles(rows.get(RECENTS_KEY)?.value, appCurrent, backdrops, {
+            shuffle: t("settingsWindow.backdropPicker.shufflePaintings"),
+            none: t("settingsWindow.backdropPicker.none"),
+            appearance: t("settingsWindow.wallpaperSwitch.appearance"),
+            schedule: t("settingsWindow.wallpaperSwitch.schedule"),
+          })}
+          disabled={!state.readable}
+          onChoose={chooseRecent}
+        />
+      )}
       {/* The happy path first: one background for every window, or one that turns on its own. */}
       <div className="backdrop-grid">
         {/* The person's own desktop picture and screen saver first: the quickest way to a background. */}
@@ -394,6 +442,19 @@ export function Backdrops({ focus = null, workspace = null }: { focus?: string |
           onChange={(choice) => {
             endPreview();
             setOwnScope(choice);
+          }}
+        />
+      )}
+      {/* Where the one picture shown lies (appearance.backgroundPlacement): for All Workspaces' own
+        picture; a shuffle, a mode or a workspace's own background has none to place here. */}
+      {!own && placementID !== null && (
+        <BackgroundPlacementPreview
+          src={`backdrop/${encodeURIComponent(encodeURIComponent(shownPicture))}`}
+          value={readPlacements(placementRow)[placementID] ?? CENTERED_FILL}
+          disabled={!state.readable}
+          onPlace={(next) => {
+            const value = placementsValue(placementRow, placementID, next);
+            void (value === null ? store.reset(PLACEMENT_KEY) : store.set(PLACEMENT_KEY, value));
           }}
         />
       )}

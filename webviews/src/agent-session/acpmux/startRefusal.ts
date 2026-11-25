@@ -34,6 +34,8 @@ export function startRefusalAction(code: string | undefined): StartRefusalAction
       return "newCloudMachine";
     // No folder there, the machine lists no work folder (an older cmux-tui): pick one.
     case "app.folder_needed":
+    // The folder is gone (a reboot wiped it, it was removed): pick another; Retry re-resolves.
+    case "transport.path_invalid":
       return "chooseFolder";
     // The agent is not signed in there: its own sign-in, then Retry.
     case SIGN_IN_REQUIRED:
@@ -56,14 +58,16 @@ export function startRefusalRoute(
   return remoteChat ? "machineFolderMenu" : "folderPanel";
 }
 
-/// How Sign in signs the refused agent in: a chat on another machine with the machine's own sign-in
-/// card (CloudSignIn.tsx over cloudAgentLogin.ts, the agent's login run there), a chat on this Mac
-/// with the agent's login command in a terminal tab (as HarnessHealthNotice does). A chat elsewhere
-/// whose machine has no sign-in for it never runs a login on this Mac: undefined, and the card says
-/// where to sign in instead.
+/// How Sign in signs the refused agent in: with the machine's own sign-in card (CloudSignIn.tsx over
+/// cloudAgentLogin.ts, the agent's login run there), on another machine and, where this Mac's daemon
+/// runs it (`localAgentLogin`; logins done right, Leo 2026-11-22: "this is simply logins, done
+/// righr."), on this Mac too. A chat on this Mac without the card keeps the agent's login command in
+/// a terminal tab (as HarnessHealthNotice does). A chat elsewhere whose machine has no sign-in for it
+/// never runs a login on this Mac: undefined, and the card says where to sign in instead.
 export type SignInRoute = "card" | "terminal";
 
 export function signInRoute(chat: { elsewhere: boolean; card: boolean; login: boolean }): SignInRoute | undefined {
-  if (chat.elsewhere) return chat.card ? "card" : undefined;
+  if (chat.card) return "card";
+  if (chat.elsewhere) return undefined;
   return chat.login ? "terminal" : undefined;
 }

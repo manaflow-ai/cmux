@@ -24,6 +24,7 @@ public nonisolated struct AgentPaneReplySetting: Sendable, Hashable {
         case click, never, always
     }
 
+    public var openCitationsInEditor = openCitationsInEditorDefault
     public var outsideRoots: OutsideRoots
     public var remoteImages: RemoteImages
 
@@ -56,6 +57,10 @@ public nonisolated struct AgentPaneReplySetting: Sendable, Hashable {
             if let child, child.objectValue == nil {
                 diagnostics.append(SettingsDiagnostic(kind: .invalidValue, path: "agentPane.\(key)", message: "expected an object"))
             }
+        }
+        if let value = root.value(at: openCitationsInEditorPath) {
+            if let enabled = value.boolValue { setting.openCitationsInEditor = enabled }
+            else { diagnostics.append(SettingsDiagnostic(kind: .invalidValue, path: openCitationsInEditorPath.joined(separator: "."), message: "expected a boolean")) }
         }
         if let value = choice(outsideRootsPath, OutsideRoots.self) { setting.outsideRoots = value }
         if let value = choice(remoteImagesPath, RemoteImages.self) { setting.remoteImages = value }

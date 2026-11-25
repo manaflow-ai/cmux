@@ -273,7 +273,7 @@ struct TaskComposerScreen: View {
                 .frame(width: 44, height: 44)
                 .contentShape(.rect)
         }
-        .buttonStyle(.cmuxPressFill)
+        .buttonStyle(.cmuxPressGlass)
         .disabled(sent != nil)
         .accessibilityLabel("Task Options")
         .accessibilityValue([mac.map { sameNames.displayName($0) }, folder.map(NewWorkspaceButton.folderName)]
@@ -362,6 +362,7 @@ struct TaskComposerScreen: View {
     @ViewBuilder private var agentsMenu: some View {
         switch phase {
         case .loading:
+            // placeholder-ok: this Mac has never supplied an agent catalog to this phone.
             Button("Loading agents…") {}
                 .disabled(true)
                 .accessibilityIdentifier("taskComposer.agents.loading")
@@ -516,7 +517,7 @@ struct TaskComposerScreen: View {
                 .fixedSize()
                 .contentShape(.rect)
         }
-        .buttonStyle(.cmuxPressFill)
+        .buttonStyle(.cmuxPressGlass)
         .disabled(!enabled)
         .accessibilityLabel(count > 1 ? "Start \(count)" : "Start")
         .accessibilityValue("in \(draft.launch.title)")
@@ -577,7 +578,13 @@ struct TaskComposerScreen: View {
             phase = .failed(TaskStartBlocker.noMac.message)
             return
         }
-        phase = .loading
+        let cache = AgentCatalogCache.shared
+        let cached = cache.load(macID: mac.id)
+        if let cached {
+            phase = .loaded(cached)
+        } else {
+            phase = .loading
+        }
         do {
             let catalog = try await creator.agentCatalog(on: mac.id)
             // A Mac switched meanwhile: its own load answers.
@@ -585,8 +592,13 @@ struct TaskComposerScreen: View {
             // Picks the Mac no longer offers (or a phone can't start) are dropped.
             creator.taskDraft.picks = creator.taskDraft.picks.filter { catalog.harness($0.harness)?.canStart == true }
             phase = .loaded(catalog)
+            cache.save(catalog, for: mac.id)
         } catch {
             guard !Task.isCancelled else { return }
+            if let cached {
+                phase = .loaded(cached)
+                return
+            }
             phase = .failed((error as? LocalizedError)?.errorDescription ?? String(describing: error))
         }
     }

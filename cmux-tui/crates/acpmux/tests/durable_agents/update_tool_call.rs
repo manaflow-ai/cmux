@@ -3,6 +3,10 @@
 //! the daemon an update stops; the next daemon adopts it, the tool call finishes and its turn
 //! completes, and the prompt queued behind it runs once, though its client sends it again on
 //! reconnect.
+//!
+//! Like `queued_prompts_survive_an_update_restart`, this checks that a queued prompt survives
+//! an update and runs once when resent. It adds an update during a running tool call, verifies
+//! that the adopted turn continues without auto-resume, and checks that the tool finishes once.
 
 use super::*;
 
@@ -52,6 +56,10 @@ async fn a_tool_call_cut_by_an_update_continues_and_its_queued_prompt_runs_once(
         .expect("the resent prompt was answered in time")
         .unwrap();
     assert!(answered.get("error").is_none(), "the resent prompt failed: {answered:#}");
+    assert_eq!(
+        answered["result"]["stopReason"], "end_turn",
+        "the resent prompt did not complete: {answered:#}"
+    );
 
     let events = daemon.events(&session);
     let count = |pred: &dyn Fn(&Value) -> bool| events.iter().filter(|e| pred(e)).count();

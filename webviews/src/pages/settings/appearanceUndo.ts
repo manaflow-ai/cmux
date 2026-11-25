@@ -1,9 +1,9 @@
 // What Settings > Appearance's undo stack records: which keys a change touches, their states read
 // from the page's settings, and the label the Undo and Redo buttons name.
 import type { KeyState, TargetState, ThemeState } from "./appearanceHistory";
-import { categoryRows } from "./categories";
+import { categoryById, categoryRows } from "./categories";
 import { displayNumber, unitLabel } from "./format";
-import { rowsByKey } from "./schema";
+import { rowsByKey, type LocalizedText } from "./schema";
 import type { SettingsState } from "./store";
 import { t, text } from "./strings";
 
@@ -39,11 +39,16 @@ const MOVED_LOOK_KEYS: readonly string[] = [
  * set still applies, so Reset to Defaults resets it too, the only way Settings can put it back. */
 const RETIRED_APPEARANCE_KEYS: readonly string[] = ["appearance.glassTransparency", "appearance.backdropArt"];
 
+/** Appearance keys that are no look of their own: what each background mode last showed and the
+ * backgrounds shown before, kept so switching can go back. Undo, Restore How It Was and Reset to Defaults leave it alone, and a
+ * write to it is no step of the stack. */
+const UNTRACKED_KEYS: ReadonlySet<string> = new Set(["appearance.backgroundMemory", "appearance.backgroundRecents"]);
+
 let tracked: ReadonlySet<string> | null = null;
 function trackedKeys(): ReadonlySet<string> {
   tracked ??= new Set([
     ...APPEARANCE_CATEGORIES.flatMap((id) => categoryRows(id))
-      .filter((row) => !row.page_hidden)
+      .filter((row) => !row.page_hidden && !UNTRACKED_KEYS.has(row.key))
       .map((row) => row.key),
     ...MOVED_LOOK_KEYS,
     ...RETIRED_APPEARANCE_KEYS,
@@ -73,6 +78,23 @@ export function appearanceKeys(): string[] {
   return [...trackedKeys()];
 }
 
+/** One card of an appearance page that Reset <card> resets alone: a group of the schema's page
+ * layout, by its title, with the keys of it the undo stack records. */
+export type AppearanceArea = { key: string; title: LocalizedText; keys: string[] };
+
+/** The cards an appearance page offers a reset for, in page order: its own groups (Appearance
+ * draws the theme, background, density and library cards since Personalization folded into it).
+ * A card with no recorded key is left out: nothing of it is undoable here. */
+export function appearanceAreas(categoryId: string): AppearanceArea[] {
+  const groups = categoryById(categoryId).groups;
+  return groups.flatMap((group) => {
+    // What each background mode last showed (appearance.backgroundMemory) is no look: a card
+    // reset leaves it, as Undo and Reset to Defaults do.
+    const keys = group.rows.map((row) => row.key).filter(tracksAppearance);
+    return keys.length === 0 ? [] : [{ key: group.key, title: group.title, keys }];
+  });
+}
+
 /** The keys' states as the page has them now. */
 export function captureKeys(state: SettingsState, keys: readonly string[]): KeyState[] {
   return keys.flatMap((key) => {
@@ -96,6 +118,15 @@ export function captureAppearance(state: SettingsState): TargetState[] {
 /** What a target's state shows, in the page's language ("Shuffle Paintings", "45 %", "Default"). */
 export function stateText(state: SettingsState, target: TargetState): string {
   if (target.kind === "theme") return target.spec ?? t("settingsPage.history.ghosttyTheme");
+  if (target.kind === "workspace") {
+    if (target.field === "opacity")
+      return target.value === null
+        ? t("settingsWindow.backdropPicker.workspaceOpacityFollowsAll")
+        : valueTitle(state, "appearance.backgroundOpacity", target.value);
+    return target.value === null
+      ? t("settingsWindow.backdropPicker.followAll")
+      : valueTitle(state, "appearance.background", target.value);
+  }
   const row = rowsByKey.get(target.key);
   if (!row) return String(target.value ?? "");
   const value = target.customized ? target.value : null;
@@ -126,9 +157,14 @@ function valueTitle(state: SettingsState, key: string, value: unknown): string {
   return JSON.stringify(value);
 }
 
-/** The title of a target: its row's title, or Theme for a theme level. */
+/** The title of a target: its row's title, Theme for a theme level, This Workspace (<name>) for a
+ * workspace's own background and Opacity over Art for its tint. */
 export function targetTitle(target: TargetState): string {
   if (target.kind === "theme") return t("settingsPage.history.theme");
+  if (target.kind === "workspace")
+    return target.field === "value"
+      ? t("settingsWindow.backdropPicker.thisWorkspace", target.title)
+      : t("settingsWindow.backdropPicker.workspaceOpacity");
   const row = rowsByKey.get(target.key);
   return row ? text(row.title) : target.key;
 }

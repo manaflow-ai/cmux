@@ -21,10 +21,10 @@ import { Icon } from "../icons";
 import { managedOf, valueOf } from "../store";
 import { t } from "../strings";
 import { CONFIG_ROW as CONFIG, pickerRows, rowGroupStart, rowTheme, toggledFavorites } from "../themePickerModel";
+import { FAVORITE_THEMES_KEY } from "../cardRows";
 /** How long the pointer rests on a row before that row previews. */
 export const DWELL_MS = 450;
-/** appearance.favoriteThemes: the starred themes, shared by every theme picker on the page. */
-export const FAVORITE_THEMES_KEY = "appearance.favoriteThemes";
+export { FAVORITE_THEMES_KEY };
 
 /** The starred themes and the toggle every ThemePicker caller passes it; no toggle (no stars) while
  * the key is managed or the owner is away. An empty list resets the key. */

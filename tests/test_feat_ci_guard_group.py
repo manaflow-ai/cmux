@@ -8,6 +8,7 @@ for the branch: test_preflight_trust.py errored in all five tests there unseen (
 """
 import os
 from pathlib import Path
+import re
 import sys
 import shutil
 import subprocess
@@ -18,7 +19,6 @@ import yaml
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "tests"))
-from blacksmith_linux_sizes import entry  # noqa: E402
 # tests/git_fixture_env.py, loaded by path: `python3 -I` puts no script folder on sys.path.
 import importlib.util as _git_fixture_importlib  # noqa: E402
 from os import path as _git_fixture_path  # noqa: E402
@@ -29,7 +29,10 @@ _git_fixture_spec.loader.exec_module(git_fixture_env)
 import workflow_jobs  # noqa: E402
 sys.path.insert(0, str(ROOT / "scripts" / "ci"))
 import docs_only_paths  # noqa: E402
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from real_git import real_git, run_bounded  # noqa: E402
 WORKFLOWS = ROOT / ".github/workflows"
+LAND_TIER = "(github.event_name != 'pull_request' || contains(github.event.pull_request.labels.*.name, 'full-ci') || (github.event.pull_request.draft == true && (vars.CI_DRAFT_CHEAP_TIER || '1') == '0') || (github.event.pull_request.draft != true && (contains(github.event.pull_request.labels.*.name, 'ready-to-land') || github.event.pull_request.base.ref != 'feat-cmux-next' || github.event.pull_request.head.repo.full_name != github.repository || (vars.CI_LAND_TIER || '1') == '0')))"
 
 
 def triggers(workflow: dict) -> dict:
@@ -49,7 +52,14 @@ def covers_feat(trigger) -> bool:
 
 def runs_ci_group(job: dict) -> bool:
     """The job runs guards-local.sh's default set (the `ci` group) and nothing keeps it off feat-cmux-next."""
-    condition = str(job.get("if", ""))
+    # The pull_request_skip guard's base clause runs the job on other bases; it never keeps it off feat-cmux-next.
+    condition = str(job.get("if", "")).replace("!startsWith(github.event.pull_request.base.ref, 'feat-cmux-next') ||", "")
+    # The land tier (tests/test_head_tier.py) runs it at the head handed to land, and the label guard
+    # (tests/test_ci_label_events_skip_full_ci.py) skips only other labels' events: neither keeps it off feat-cmux-next.
+    condition = condition.replace(LAND_TIER, "")
+    condition = re.sub(r"!\(github\.event_name == 'pull_request' && github\.event\.pull_request\.base\.ref == "
+                       r"'feat-cmux-next' && \(github\.event\.action == 'labeled'.*?github\.event\.label\.name\)\)", "",
+                       condition)
     if "feat-cmux-next" in condition and "!=" in condition:
         return False
     for step in job.get("steps") or []:
@@ -144,9 +154,9 @@ class APushRunsEveryRoutedGroup(unittest.TestCase):
             env = {**os.environ, "GIT_CONFIG_GLOBAL": os.devnull, "GIT_CONFIG_NOSYSTEM": "1"}
 
             def git(*args: str) -> str:
-                return subprocess.run(["git", "-c", "user.name=t", "-c", "user.email=t@example.com",
-                                       "-c", "commit.gpgsign=false", *args], cwd=repo, env=env, check=True,
-                                      capture_output=True, text=True).stdout.strip()
+                return run_bounded(["git", "-c", "user.name=t", "-c", "user.email=t@example.com",
+                                    "-c", "commit.gpgsign=false", *args], cwd=repo, env=env, check=True,
+                                   capture_output=True, text=True, timeout=60).stdout.strip()
 
             git("init", "--quiet")
             (repo / "a.txt").write_text("a\n", encoding="utf-8")
@@ -162,13 +172,13 @@ class APushRunsEveryRoutedGroup(unittest.TestCase):
             git("add", "-A")
             git("commit", "--quiet", "-m", "head")
             # The push path fetches the previous tip; this repository already has it.
-            real_git = shutil.which("git")
+            # The git binary, never a wrapper on PATH that would exec this fake again (tests/real_git.py).
             (bin_dir / "git").write_text(
-                f'#!/bin/sh\n[ "$1" = fetch ] && exit 0\nexec "{real_git}" "$@"\n', encoding="utf-8")
+                f'#!/bin/sh\n[ "$1" = fetch ] && exit 0\nexec "{real_git()}" "$@"\n', encoding="utf-8")
             (bin_dir / "git").chmod(0o755)
             output = runner_temp / "github_output"
-            subprocess.run(["bash", "-eo", "pipefail", "-c", step["run"]], cwd=repo, check=True,
-                           capture_output=True, text=True,
+            run_bounded(["bash", "-eo", "pipefail", "-c", step["run"]], cwd=repo, check=True,
+                        capture_output=True, text=True, timeout=120,
                            env={**env, "PATH": f"{bin_dir}:{env['PATH']}", "EVENT_NAME": event,
                                 "BEFORE": before if event == "push" else "", "RUNNER_TEMP": str(runner_temp),
                                 "GITHUB_OUTPUT": str(output)})
@@ -262,20 +272,22 @@ class TheGuardGroupRunsOnItsMeasuredSize(unittest.TestCase):
         workflow = yaml.safe_load((WORKFLOWS / "cmux-next-guards.yml").read_text(encoding="utf-8"))
         return workflow["jobs"]["ci-guard-group"]
 
-    def test_the_job_runs_on_its_measured_size_and_follows_the_outage_switch(self):
-        # Linux only: fleet Linux, then Blacksmith at its measured size. On a mini 24 of its steps red (no
-        # python3.9 or node, temp-cwd scripts), so portable-placement never places it.
-        measured = entry("cmux-next-guards.yml", "ci-guard-group")
-        pool_route = (f"vars.CI_CLOUD_OVERFLOW_SAVED && fromJSON(vars.RUNNER_POOLS).linux_{measured['failover']}"
-                      f" || fromJSON(vars.RUNNER_POOLS).linux_{measured['size']}")
-        self.assertNotIn("needs", self.job())
-        self.assertEqual(self.job()["if"], "${{ !cancelled() }}")
+    def test_the_job_runs_on_the_persistent_linux_pool(self):
+        # Linux only, never a mini (24 of its steps went red there: no python3.9 or node, temp-cwd scripts). Linux CI
+        # is one persistent pool (hq decisions/junctions.md 2026-11-20): cmux-linux past the fork branches.
+        # The window gate (base-coalesce.yml) and the 2-vCPU path route (fast_check_route.py): a pull request that
+        # touches nothing a guard group reads skips it; an empty route (a push, a router failure) runs it.
+        self.assertEqual(self.job()["needs"], ["coalesce", "fast-check-route"])
+        self.assertTrue(self.job()["if"].startswith(  # then the land tier (tests/test_head_tier.py)
+                        "${{ ((github.event.action != 'ready_for_review') && (!cancelled() && needs.coalesce.outputs.run != 'false' && "
+                        "needs.fast-check-route.outputs.ci_guard_group != 'false' && "
+                        "(github.event_name != 'pull_request' || !startsWith(github.event.pull_request.base.ref, 'feat-cmux-next') || contains(github.event.pull_request.labels.*.name, 'full-ci')))) && "),
+                        self.job()["if"])
         self.assertEqual(
             workflow_jobs.single_runs_on(self.job()),
             "${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request'"
-            " && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404'"
-            " || !startsWith(vars.LINUX_RUNNER, 'blacksmith-') && vars.LINUX_RUNNER"
-            " || " + pool_route + " }}",
+            " && github.event.pull_request.head.repo.full_name != github.repository && (vars.CI_FORK_LINUX_RUNNER || 'ubuntu-24.04')"
+            " || 'cmux-linux' }}",
         )
 
     def test_each_guard_pass_uses_a_worker_per_core(self):

@@ -4,8 +4,9 @@
 //! - Every step is checked before any runs (its action, its `require`, its
 //!   `target`, its wait), and the waits together fit [`BATCH_TIME_MAX`].
 //! - An acting step runs as its own call would (policy, guards, the caret and
-//!   web gates in the desktop, never the person's focus), then settles on its
-//!   own (adaptive) and gets its own outcome (`confirmed`, `no_effect`,
+//!   web gates in the desktop, never the person's focus), then captures the
+//!   window at once (no wait; a step with `require` confirmed or not_no_effect,
+//!   or `settle: "adaptive"`, settles first, as those outcomes need) and gets its own outcome (`confirmed`, `no_effect`,
 //!   `uncertain`) from its own read-back, its own pixels and elements and
 //!   what changed outside the window during it. A later step can never
 //!   confirm an earlier one: it has not run when the earlier one is decided.
@@ -509,10 +510,11 @@ impl Engine {
                 break;
             }
             let ran = match plan {
-                Plan::Act { tool, args: step, target, .. } => self.batch_act(
+                Plan::Act { tool, args: step, target, require } => self.batch_act(
                     ctx,
                     tool,
                     step,
+                    *require,
                     target.as_ref(),
                     &window_id,
                     &mut prev,
@@ -574,7 +576,12 @@ impl Engine {
         if let Some(app) = &acted_on
             && args.get("observe").and_then(Value::as_bool) != Some(false)
         {
-            let mode = self.settle_mode(args);
+            // No second settle after the last step's own: this state is
+            // captured at once (the Anthropic reference mode keeps its delay).
+            let mode = match self.settle_mode(args) {
+                SettleMode::Anthropic => SettleMode::Anthropic,
+                _ => SettleMode::Openai,
+            };
             self.attach_state(ctx, &window_id, app, &mut out, mode, false, None);
         }
         Ok((out, acted_on))
@@ -588,6 +595,7 @@ impl Engine {
         ctx: &CallContext,
         tool: &tools::Tool,
         step: &Value,
+        require: Require,
         target: Option<&Match>,
         window_id: &str,
         prev: &mut Option<outline::Outline>,
@@ -627,13 +635,22 @@ impl Engine {
             // Its pixels compare with the previous step's capture (or the
             // agent's screenshot before the batch).
             let had_pixels = pixel.step.is_some();
+            // Only a step whose outcome needs a real settle waits for one: a
+            // required confirmed or not_no_effect (read back and compared after
+            // the settle); else the mode asked for (the step's or the call's
+            // `settle`, or the setting), so `anthropic` keeps its delay.
+            let mode = if require != Require::NoError {
+                SettleMode::Adaptive
+            } else {
+                self.settle_mode(&step)
+            };
             pixel.before_settle(self);
             let settled = self.attach_state(
                 ctx,
                 window_id,
                 app,
                 &mut done,
-                SettleMode::Adaptive,
+                mode,
                 name == "type_text",
                 watch.as_deref(),
             );
@@ -838,7 +855,12 @@ impl Engine {
     /// Waits up to `slice` for the app to signal a change past `seen`; after
     /// one, lets the burst end (at most [`BURST_MAX`]). Without a watch that
     /// can block, the rest of `slice` passes. True when a signal woke it.
-    fn wait_change(&self, watch: Option<&dyn Watch>, seen: u32, slice: Duration) -> bool {
+    pub(super) fn wait_change(
+        &self,
+        watch: Option<&dyn Watch>,
+        seen: u32,
+        slice: Duration,
+    ) -> bool {
         let t0 = (self.clock)();
         let woke = watch.is_some_and(|w| w.wait_for_signal(seen, slice));
         if let (true, Some(w)) = (woke, watch) {
