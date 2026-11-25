@@ -1,6 +1,5 @@
 import CmuxEgress
 import Foundation
-import Network
 
 /// A byte stream to an RFB server. `NetworkRFBTransport` is TCP; an app can
 /// supply another carrier (a tunnel, a test pipe).
@@ -15,6 +14,9 @@ public protocol RFBTransport: AnyObject, Sendable {
     /// Closes the stream; pending reads throw.
     func close()
 }
+
+#if canImport(Network)
+import Network
 
 /// TCP through Network.framework, Nagle off (input events go out at once).
 public final class NetworkRFBTransport: RFBTransport {
@@ -96,6 +98,17 @@ public final class NetworkRFBTransport: RFBTransport {
         connection.cancel()
     }
 }
+
+#else
+/// Linux builds keep the transport API available while callers provide a test or tunnel transport.
+public final class NetworkRFBTransport: RFBTransport {
+    public init(host: String, port: UInt16) {}
+    public func open() async throws { throw RFBError.transport("Network.framework is unavailable") }
+    public func receive() async throws -> [UInt8] { throw RFBError.connectionClosed }
+    public func send(_ bytes: [UInt8]) async throws { throw RFBError.transport("Network.framework is unavailable") }
+    public func close() {}
+}
+#endif
 
 /// Whether the transport was closed, and the open waiting for the
 /// connection: resumed exactly once, by the connection state or by a close.

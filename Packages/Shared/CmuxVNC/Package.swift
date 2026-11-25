@@ -24,10 +24,11 @@ let package = Package(
         .package(path: "../CmuxEgress"),
     ],
     targets: [
-        .target(name: "CmuxVNC", dependencies: [.product(name: "CmuxEgress", package: "CmuxEgress")], swiftSettings: swiftSettings, linkerSettings: [.linkedLibrary("z")]),
+        .systemLibrary(name: "zlib", path: "Sources/zlib"),
+        .target(name: "CmuxVNC", dependencies: [.product(name: "CmuxEgress", package: "CmuxEgress"), "zlib"], swiftSettings: swiftSettings, linkerSettings: [.linkedLibrary("z")]),
         .target(name: "CmuxVNCDemoServer", dependencies: ["CmuxVNC"], swiftSettings: swiftSettings,
                 linkerSettings: [.linkedLibrary("z")]),
-        .testTarget(name: "CmuxVNCTests", dependencies: ["CmuxVNC", "CmuxVNCDemoServer"], swiftSettings: swiftSettings),
+        .testTarget(name: "CmuxVNCTests", dependencies: ["CmuxVNC", "CmuxVNCDemoServer", "zlib"], swiftSettings: swiftSettings),
     ]
 )
 

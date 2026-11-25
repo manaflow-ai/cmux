@@ -1,3 +1,4 @@
+#if canImport(CoreGraphics) && canImport(CoreText) && canImport(Network)
 import CoreGraphics
 import Foundation
 import ImageIO
@@ -104,3 +105,5 @@ struct LiveLatencyProbe {
     }
 }
 
+
+#endif
