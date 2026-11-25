@@ -1397,6 +1397,11 @@ fn a_pushed_turn_failed_on_an_account_limit_says_what_happened_and_the_way_on() 
         // A rate limit is not the account's allowance: its words pass through as they were.
         ("You've hit your rate limit, slow down.", "", "You've hit your rate limit, slow down."),
         ("You've hit your daily rate limit.", "", "You've hit your daily rate limit."),
+        (
+            "You've hit your weekly, limit: resets 7am",
+            "usage.limit",
+            "Codex's account hit its weekly usage limit; it resets 7am.",
+        ),
     ] {
         let mut fake = Fake::new(vec![
             signed_in(),

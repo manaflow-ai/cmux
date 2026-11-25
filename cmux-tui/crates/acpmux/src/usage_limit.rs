@@ -100,7 +100,8 @@ fn hit_your_limit(lower: &str) -> Option<Option<String>> {
         let rest = &lower[at + "hit your ".len()..];
         // At most three words before "limit": "hit your weekly opus limit".
         let words: Vec<&str> = rest.split_whitespace().take(4).collect();
-        let Some(limit) = words.iter().position(|w| w.trim_end_matches(['.', ',', '!']) == "limit")
+        let Some(limit) =
+            words.iter().position(|w| w.trim_end_matches(['.', ',', '!', ':']) == "limit")
         else {
             continue;
         };

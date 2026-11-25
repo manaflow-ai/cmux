@@ -6335,7 +6335,8 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     if (!wakeShownChat || !hold.wakingAny() || hold.rowsIn(wakeShownChat).some((row) => row.waking)) return;
     void giveBackTrustHeld.current(hold.takeWaking());
   }, [wakeShownChat]);
-  const cloudWakeFailed = cloudRecovery.error !== undefined || cloudRecovery.state === "deleted" || cloudChatSettled;
+  const cloudWakeFailed =
+    cloudRecovery.error !== undefined || cloudRecovery.state === "deleted" || cloudRecovery.chatGone;
   // A typing wake that failed stops; it is not tried again on the next key, and a send still wakes.
   useEffect(() => {
     if (cloudWakeFailed) setCloudTypeWaking(false);

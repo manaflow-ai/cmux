@@ -76,12 +76,18 @@ export function useCloudChatRecovery({
   const [slow, setSlow] = useState(false);
   const resumeAttempt = useRef(0);
   const resumeInFlight = useRef(false);
+  // The chat itself answered for good, as the page last drew it: read by the resume after its own
+  // recheck, never as an effect dependency (a change alone must not restart the reads).
+  const settledNow = useRef(settled);
+  // A resume that ended because its chat is gone for good (deleted, not found): held prompts go back.
+  const [chatGone, setChatGone] = useState(false);
   const identity = cloud ? JSON.stringify(cloud) : undefined;
   useEffect(() => {
     resumeAttempt.current += 1;
     resumeInFlight.current = false;
     setResuming(false);
     setError(false);
+    setChatGone(false);
     return () => {
       resumeAttempt.current += 1;
     };
@@ -97,6 +103,9 @@ export function useCloudChatRecovery({
   useEffect(() => {
     if (!resuming) resumeInFlight.current = false;
   }, [resuming]);
+  useEffect(() => {
+    settledNow.current = settled;
+  }, [settled]);
   useEffect(() => {
     setSlow(false);
     if (!resuming) return;
@@ -115,10 +124,12 @@ export function useCloudChatRecovery({
       setResuming(false);
       if (failed) setError(true);
     };
-    if (resuming && settled) {
-      finishResume();
-      return;
-    }
+    // A woken machine's peer can read connected a moment before its chats are listed again, and the
+    // page then draws "deleted" for a chat that reopens a second later. The page's answer is sampled
+    // as each read starts, a second after the recheck before it, so what that recheck found is drawn;
+    // only two samples in a row that find the chat gone end the resume (cmux#55066).
+    let recheckedOnce = false;
+    let goneReads = 0;
     // A failed or superseded inventory read says nothing about the accepted wake.
     // Keep the paused card while the machine reconnects.
     const retry = () => {
@@ -130,6 +141,14 @@ export function useCloudChatRecovery({
     // never answers no longer stops the reads for good. The card reads again only while resuming.
     const read = async () => {
       if (disposed || !identity || !active) return;
+      if (resuming && recheckedOnce) {
+        goneReads = settledNow.current ? goneReads + 1 : 0;
+        if (goneReads >= 2) {
+          finishResume();
+          setChatGone(true);
+          return;
+        }
+      }
       const deadline = performance.now() + readMs;
       try {
         const replyResult = await beforeDeadline(
@@ -152,6 +171,7 @@ export function useCloudChatRecovery({
             retry();
             return;
           }
+          recheckedOnce = true;
         }
         if (disposed) return;
         if (next === "deleted") {
@@ -174,7 +194,7 @@ export function useCloudChatRecovery({
       left.abort();
       if (timer !== undefined) clearTimeout(timer);
     };
-  }, [identity, session, active, resuming, settled, recheck, readRevision, readMs]);
+  }, [identity, session, active, resuming, recheck, readRevision, readMs]);
 
   const resume = () => {
     // Past the slow bound a click wakes the machine again; the reads already running go on.
@@ -182,6 +202,7 @@ export function useCloudChatRecovery({
     if (!cloud || (resuming && !again) || (resumeInFlight.current && !again)) return;
     resumeInFlight.current = true;
     setError(false);
+    setChatGone(false);
     setResumeRound((round) => round + 1);
     // Send the native call synchronously from the click: it consumes this gesture. The existing
     // attach path resumes this machine for either Cloud backend without opening another workspace.
@@ -205,5 +226,7 @@ export function useCloudChatRecovery({
     /// The resume has run past RESUME_SLOW_MS: the card says so and Resume machine works again.
     slow: resuming && slow,
     error: error ? t("unavailable.resumeFailed") : undefined,
+    /// The resume ended because the chat itself is gone for good: what it held for the chat goes back.
+    chatGone,
   };
 }
