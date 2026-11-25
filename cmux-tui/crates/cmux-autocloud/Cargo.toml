@@ -7,9 +7,13 @@ license.workspace = true
 publish.workspace = true
 description = "cmux stripped to the essentials: one binary that signs in, starts an AutoCloud chat, shows readiness and streams the agent in a terminal (RFD 0139)"
 
+[lib]
+name = "cmux_autocloud"
+path = "src/lib.rs"
+
 [[bin]]
 name = "cmux-autocloud"
-path = "src/main.rs"
+path = "src/bin/cmux-autocloud.rs"
 
 [lints]
 workspace = true

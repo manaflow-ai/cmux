@@ -27,6 +27,9 @@ cmux-build-space.workspace = true
 cmux-egress.workspace = true
 cmux-rd-core.workspace = true
 cmux-rd-proto.workspace = true
+# The phone's viewport sync receiver (src/viewport.rs) renders its screens as VT bytes.
+cmux-terminal-projection.workspace = true
+cmux-remote-protocol.workspace = true
 cmux-transport.workspace = true
 cmux-wg.workspace = true
 flate2.workspace = true
@@ -62,7 +65,7 @@ zeroize.workspace = true
 [dev-dependencies]
 # The seeded-secret tests (tests/seeded_secret.rs) send through the capture server.
 cmux-egress = { workspace = true, features = ["capture"] }
+cmux-fault.workspace = true
 cmux-mobile-link = { path = ".", features = ["testing"] }
 tokio = { workspace = true, features = ["test-util"] }
 tracing-subscriber.workspace = true
-cmux-fault.workspace = true

@@ -539,6 +539,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "cmux-auto-session"
+version = "0.1.0"
+dependencies = [
+ "hex",
+ "serde",
+ "serde_json",
+ "sha2",
+]
+
+[[package]]
 name = "cmux-braid-carrier"
 version = "0.1.0"
 
@@ -571,6 +581,7 @@ dependencies = [
 name = "cmux-composer-send"
 version = "0.1.0"
 dependencies = [
+ "base64 0.22.1",
  "serde_json",
 ]
 
@@ -590,7 +601,7 @@ dependencies = [
  "http-body-util",
  "hyper",
  "hyper-util",
- "rcgen 0.14.8",
+ "rcgen 0.14.10",
  "reqwest",
  "rustls",
  "tokio",
@@ -630,11 +641,21 @@ name = "cmux-message-preview"
 version = "0.1.0"
 
 [[package]]
+name = "cmux-mobile-auto"
+version = "0.1.0"
+dependencies = [
+ "cmux-auto-session",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "cmux-mobile-core"
 version = "0.1.0"
 dependencies = [
  "cmux-cloud-wire",
  "cmux-terminal-sizing",
+ "serde_json",
 ]
 
 [[package]]
@@ -656,7 +677,9 @@ dependencies = [
  "cmux-rd-engine",
  "cmux-rd-proto",
  "cmux-tab-snapshots",
+ "cmux-terminal-projection",
  "cmux-transport",
+ "cmux-wg",
  "flate2",
  "futures-util",
  "hkdf",
@@ -702,6 +725,8 @@ dependencies = [
  "cmux-mobile-link",
  "cmux-rd-core",
  "cmux-rd-proto",
+ "cmux-remote-protocol",
+ "cmux-terminal-projection",
  "cmux-transport",
  "cmux-wg",
  "flate2",
@@ -735,9 +760,12 @@ dependencies = [
 name = "cmux-mobile-link-ffi"
 version = "0.1.0"
 dependencies = [
+ "async-trait",
  "base64 0.22.1",
+ "cmux-auto-session",
  "cmux-composer-send",
  "cmux-follow-cam",
+ "cmux-mobile-auto",
  "cmux-mobile-core",
  "cmux-mobile-host",
  "cmux-mobile-last-place",
@@ -754,6 +782,7 @@ dependencies = [
  "cmux-window-rules",
  "libc",
  "ring",
+ "serde",
  "serde_json",
  "sha2",
  "tempfile",
@@ -830,6 +859,16 @@ version = "0.1.0"
 dependencies = [
  "serde",
  "serde_json",
+]
+
+[[package]]
+name = "cmux-remote-protocol"
+version = "0.1.0"
+dependencies = [
+ "base64 0.22.1",
+ "serde",
+ "serde_json",
+ "uuid",
 ]
 
 [[package]]
@@ -927,9 +966,9 @@ dependencies = [
 
 [[package]]
 name = "combine"
-version = "4.6.8"
+version = "4.6.9"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "cfc320937d09e6de266b31b9afb480f197d7a861be86be7cb2ea7e5d1bfffc5e"
+checksum = "4356eba6976435498d05a311ee9fc486da3bc81c200d3f0d7dd9703b41913f92"
 dependencies = [
  "bytes",
  "memchr",
@@ -2215,6 +2254,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "pem"
+version = "4.0.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "d354a98a3d1251555de99e8fdd8afda05573c31b82f59063a7b0a29b5527f120"
+dependencies = [
+ "base64 0.23.1",
+ "serde_core",
+]
+
+[[package]]
 name = "pem-rfc7468"
 version = "0.7.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2422,7 +2471,7 @@ version = "0.13.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "75e669e5202259b5314d1ea5397316ad400819437857b90861765f24c4cf80a2"
 dependencies = [
- "pem",
+ "pem 3.0.6",
  "ring",
  "rustls-pki-types",
  "time",
@@ -2432,11 +2481,11 @@ dependencies = [
 
 [[package]]
 name = "rcgen"
-version = "0.14.8"
+version = "0.14.10"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "57f6d249aad744e274e682777a50283a225a32705394ee6d5fcc01efa25e4055"
+checksum = "8774e05a7d0de114588e6a28fe7e71694b82614ed569d86d8b389dfbc98b8ad8"
 dependencies = [
- "pem",
+ "pem 4.0.0",
  "ring",
  "rustls-pki-types",
  "time",
@@ -3762,9 +3811,9 @@ dependencies = [
 
 [[package]]
 name = "walkdir"
-version = "2.5.0"
+version = "2.5.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "29790946404f91d9c5d06f9874efddea1dc06c5efe94541a7d6863108e3a5e4b"
+checksum = "b42e295b7452c4604982280d8586001fcad9b8b201cac67bca9771e7a7475403"
 dependencies = [
  "same-file",
  "winapi-util",
@@ -3862,9 +3911,9 @@ dependencies = [
 
 [[package]]
 name = "webpki-root-certs"
-version = "1.0.10"
+version = "1.0.12"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "58ec80e73fd8baf57bf0d9615554c75348bda990d6d5bbeab964dd068319fecb"
+checksum = "293198dcebfb821155b5092ab94b5a82ff180eddd7241df3bd6e66a4ffd1a585"
 dependencies = [
  "rustls-pki-types",
 ]
