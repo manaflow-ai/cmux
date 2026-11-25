@@ -797,6 +797,21 @@ def settle(args, top):
         time.sleep(0.25)  # the poll interval of the process trees
 
 
+def dhat_mark(day):
+    """--dhat-mark-days: a dhat-heap cmux-tui (CMUX_TUI_DHAT_OUT, CMUX_TUI_DHAT_MARKS; heap_profile.rs) ends its
+    heap window here: it writes the window to <out>.<n> and removes the mark once written."""
+    out = os.environ.get("CMUX_TUI_DHAT_OUT")
+    if not out:
+        log("dhat mark: CMUX_TUI_DHAT_OUT is not set; no window ended")
+        return
+    mark = os.path.splitext(out)[0] + ".mark"
+    open(mark, "w").close()
+    deadline = time.monotonic() + 900
+    while os.path.exists(mark) and time.monotonic() < deadline:
+        time.sleep(1)  # the poll of the daemon's window write (bench only, bounded)
+    log(f"dhat mark: day {day} window {'written' if not os.path.exists(mark) else 'NOT written in 900 s'}")
+
+
 def run_count(args, count):
     run = Run(args, count)
     result = {"count": count, "samples": []}
@@ -818,6 +833,8 @@ def run_count(args, count):
         day0["day"] = 0
         result["samples"].append(day0)
         log(f"N={count} opened in {result['open_seconds']} s {json.dumps(result['mix'])}: {json.dumps(day0['total'])}")
+        if 0 in args.dhat_mark_days:
+            dhat_mark(0)
         for number in range(1, args.days + 1):
             t0 = time.monotonic()
             turns = run.day(number)
@@ -827,6 +844,8 @@ def run_count(args, count):
             s.update(day=number, turns=turns, seconds=spent)
             result["samples"].append(s)
             log(f"N={count} day {number} ({spent} s, {turns} turns): {json.dumps(s['total'])}")
+            if number in args.dhat_mark_days:
+                dhat_mark(number)
         if args.open_probe > 0:
             result["open_ms"] = run.open_probe(args.open_probe)
     finally:
@@ -948,8 +967,11 @@ def main():
     p.add_argument("--park-idle", action="store_true",
                    help="park every tab of the run's workspaces after the open and each day (park-tabs), as the app's "
                         "freeing tier does to hibernated workspaces when workspaces.freeing is on (off by default)")
+    p.add_argument("--dhat-mark-days", default="",
+                   help="days after whose sample a dhat-heap cmux-tui ends a heap window (comma list; heap_profile.rs)")
     p.add_argument("--out")
     args = p.parse_args()
+    args.dhat_mark_days = sorted({int(d) for d in args.dhat_mark_days.split(",") if d})
     global ARGS
     ARGS = args
     for path in (args.acpmux, args.tui):

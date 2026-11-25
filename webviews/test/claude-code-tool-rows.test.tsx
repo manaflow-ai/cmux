@@ -114,7 +114,7 @@ test("the live line's action is in full ink and the rest of its words muted", ()
     '<span class="cv-shimmer__base"><span class="cv-worked__lead">Using repo</span>: repo grep</span>',
   );
   expect(liveLine({ doing: "git status", doingShell: true })).toContain(
-    '<span class="cv-shimmer__base"><span class="cv-worked__lead">Running</span> git status</span>',
+    '<span class="cv-shimmer__base"><span class="cv-worked__lead">git</span> status</span>',
   );
   expect(liveLine({ sendTo: "coord", doing: "acpmux send coord hi", doingShell: true })).toContain(
     '<span class="cv-shimmer__base"><span class="cv-worked__lead">Sending</span> message to coord</span>',
