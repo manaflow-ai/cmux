@@ -186,9 +186,6 @@ pub fn prepare(projected: &Path, local: &Path, url: &str) -> anyhow::Result<Stri
     }
     let mut init = Command::new("git");
     init.args(["init", "--bare", "--quiet"]);
-    if base.len() == 64 {
-        init.arg("--object-format=sha256");
-    }
     init.arg(local);
     output(init)?;
     for (key, value) in [

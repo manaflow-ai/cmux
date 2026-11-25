@@ -565,7 +565,7 @@ fn serve_command(args: &[String]) -> anyhow::Result<Value> {
     let _ = SERVED_FOLDER.set(folder.to_string_lossy().into_owned());
     let started = Instant::now();
     let carry = projection_carry(&folder);
-    let listed = list(&folder, carry.as_ref())?;
+    let listed = list_with_carry(&folder, carry.as_ref())?;
     let listed_ms = elapsed_ms(started);
     // Every attached folder is projected, a small one too (`--any-size` stays for old callers).
     let _ = any_size;
@@ -955,7 +955,11 @@ fn ask(
 /// The folder as the copy lists it ([`local::listed`], no cap), with every file's size and
 /// modification time, as a manifest; and every tracked file the copy's rules keep here, listed by
 /// its stat alone ([`super::project_kept`]), whose bytes are never served.
-fn list(folder: &Path, carry: Option<&CarryFiles>) -> anyhow::Result<Listed> {
+fn list(folder: &Path) -> anyhow::Result<Listed> {
+    list_with_carry(folder, None)
+}
+
+fn list_with_carry(folder: &Path, carry: Option<&CarryFiles>) -> anyhow::Result<Listed> {
     let (set, _) = local::listed(folder, Rules::Copy, None)?;
     let home = super::project_kept::tracked_kept(folder, &set);
     let root_mtime = std::fs::metadata(folder).map(|meta| mtime_ns(&meta)).unwrap_or(0);
