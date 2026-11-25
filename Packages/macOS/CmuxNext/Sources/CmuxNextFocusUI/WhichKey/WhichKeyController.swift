@@ -20,6 +20,14 @@ public final class WhichKeyController {
         overlay.present(prefix: keys.flatMap(\.keycaps), rows: rows, on: window)
     }
 
+    /// Lists `rows` under `title` (a user key mode's name) at the bottom of `window`.
+    public func show(title: String, rows: [WhichKeyRow], in window: NSWindow) {
+        isShown = true
+        let overlay = overlay ?? WhichKeyOverlay()
+        self.overlay = overlay
+        overlay.present(prefix: [title], rows: rows, on: window)
+    }
+
     public func hide() {
         guard isShown else { return }
         isShown = false

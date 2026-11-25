@@ -1,4 +1,4 @@
-use super::{MAX_EVENT_PAGES, Transcript, load};
+use super::{MAX_EVENT_PAGES, Transcript, load, sender_name_of};
 use serde_json::{Value, json};
 
 fn update(seq: u64, update: Value) -> Value {
@@ -237,6 +237,24 @@ fn a_read_masks_a_secret_split_across_chunks_and_holds_back_a_half_written_one()
     assert_eq!(page["items"][0]["text"], "use [AWS access key] now", "{page}");
     assert_eq!(page["items"][0]["from_name"], "bot [AWS access key]", "{page}");
     assert_eq!(page["items"][1]["text"], "set [AWS access key] done", "{page}");
+}
+
+/// manaflow-ai/cmux#51004: a Chief turn's send names the Chief (its `mux.label`), never its
+/// session name (`optchat-<home>-<n>`); any other chat names itself; a name is one line of at
+/// most 64 characters, and a chat with no shown name names none.
+#[test]
+fn a_chat_send_names_the_chief_or_the_sending_chat() {
+    let chief = json!({"name": "optchat-b902d10e-10474",
+                       "tags": {"mux.label": "Chief", "cmux.chief.participant": "agent_mux"}});
+    assert_eq!(sender_name_of(&chief).as_deref(), Some("Chief"));
+    let lane = json!({"name": "45953: Cloud first-token speed", "tags": {}});
+    assert_eq!(sender_name_of(&lane).as_deref(), Some("45953: Cloud first-token speed"));
+    let messy = json!({"name": "x", "tags": {"mux.label": "  Night\nshift\u{200B}  Chief "}});
+    assert_eq!(sender_name_of(&messy).as_deref(), Some("Night shift Chief"));
+    let long = json!({"name": "n".repeat(100)});
+    assert_eq!(sender_name_of(&long).map(|name| name.chars().count()), Some(64));
+    assert_eq!(sender_name_of(&json!({"name": "  ", "tags": {"mux.label": ""}})), None);
+    assert_eq!(sender_name_of(&json!({})), None);
 }
 
 /// `cmux chat --wait`'s reads after its wait (the wait, the turn's start, the turn) reach acpmux

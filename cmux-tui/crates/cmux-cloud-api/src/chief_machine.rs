@@ -9,15 +9,19 @@
 //!    Chief (`cloud.plan.get`'s `chief_size`, [`chief_size_for`]: the included 2 vCPU / 4 GiB /
 //!    32 GiB unless the plan names a bigger one; a plan read that fails is the included size) under the idempotency key `chief-machine-<key>-create` (a same-key retry never makes
 //!    a second machine), started again when it is paused, then waited on until it runs with a host;
-//! 2. no idle pause: `cloud.machine.idle_policy.set {idle_seconds: 0}` (no early pause; the
-//!    platform's 24 h backstop pauses a machine only after a day with no activity reports, and a
-//!    Chief host that answers its conversation reports activity) and `cloud.machine.keep` (never
-//!    deleted by the plan's retention);
+//! 2. it pauses when idle (cmuxterm-hq RFD 0037, wake on message): `cloud.machine.idle_policy.set
+//!    {idle_seconds: CHIEF_IDLE_SECONDS}`, so after the Chief acts the machine pauses on the Cloud's
+//!    short idle window, and the next message resumes it (cmux-api `mux-machine-wake.ts`). With
+//!    `keep_awake: true` it never pauses early instead (`idle_seconds: 0`; the platform's 24 h
+//!    backstop pauses it only after a day with no activity reports). And `cloud.machine.keep`
+//!    (never deleted by the plan's retention). Both are set last, once the host runs (step 4), so
+//!    a start that fails before then leaves no kept machine that never pauses;
 //! 3. the pairing, with no session token ever on the machine: the machine's own
 //!    `optchat-chief cloud pair` (in the background, as the work user) prints a code; this call
 //!    approves it as the signed-in person (`server.pair.approve`, the same op the app's Add
 //!    Server sends) and creates the new Chief placed on that install (`chief.create` with
-//!    `brain_place {host, install}`, not the default, so the person's other Chiefs stay where
+//!    `brain_place {host, install, machine, team}`, the machine and team so cmux-api can resume a
+//!    paused machine when a message comes, not the default, so the person's other Chiefs stay where
 //!    they are). The pairing then finds the placed Chief and writes it to the install file.
 //!    Approving a code read from the machine this call made is the person's own approval: the
 //!    code comes over the person's own exec route, from a machine of theirs;
@@ -25,6 +29,13 @@
 //!    started. On an image without it yet, the same unit is written over exec (the host binary
 //!    must be on the machine: `optchat-chief` on PATH or in `~/.local/bin`);
 //! 5. the answer: `{machine, machine_name, host, install, chief, conversation, host_unit, stage}`.
+//!
+//! With the owner's Claude credential after the request's first newline (the `cmux cloud api`
+//! tail, [`chief_turn`]), step 4 first writes it to the machine as `/run/cmux-chief/turn.env`
+//! (root's, 0600, tmpfs), which the unit reads beside `/etc/cmux/chief.env`, so the Chief answers
+//! its turns with it ([`write_turn_credential`]). A host that already runs is restarted only when
+//! that file changed; the answer then also says `turn_credential: "changed" | "same"`. With no
+//! credential nothing is written and the start is as it was.
 //!
 //! `until: "machine"` stops after step 2 (`stage: "machine"`), so a caller can put a host binary
 //! on a machine whose image has none before the rest runs (the staging check does).
@@ -38,6 +49,11 @@ use std::time::Duration;
 
 use serde_json::{Map, Value, json};
 
+use base64::Engine as _;
+use base64::engine::general_purpose::STANDARD as BASE64;
+use zeroize::Zeroizing;
+
+use super::chief_turn::{self, TurnCredential};
 use super::http::{Body, Http, path_text, worker_error};
 use super::{Auth, Failure, Request, optional_text, text};
 
@@ -79,6 +95,22 @@ impl ChiefSize {
             _ => None,
         }
     }
+    /// A size the person names: `included` or a bigger Chief ([`Self::add_on`]'s spellings).
+    pub fn named(name: &str) -> Option<Self> {
+        match name {
+            "included" => Some(Self::Included),
+            other => Self::add_on(other),
+        }
+    }
+    /// The size's name, as [`Self::named`] reads it.
+    pub const fn name(self) -> &'static str {
+        match self {
+            Self::Included => "included",
+            Self::M => "M",
+            Self::L => "L",
+            Self::Xl => "XL",
+        }
+    }
 }
 
 /// The size the person's plan gives a new Chief, from the Chief size the plan names: the
@@ -98,7 +130,7 @@ pub fn plan_chief_size(plan: &Value) -> ChiefSize {
 
 /// The person's Chief size, from `cloud.plan.get`. A read that fails, or a plan that names no
 /// size, is the included size: the plan read never stops a Chief from starting.
-async fn plan_size<C: Cloud>(cloud: &C) -> ChiefSize {
+pub(crate) async fn plan_size<C: Cloud>(cloud: &C) -> ChiefSize {
     match cloud.read("cloud.plan.get", json!({})).await {
         Ok(plan) => plan_chief_size(&plan),
         Err(_) => ChiefSize::Included,
@@ -123,6 +155,11 @@ const MACHINE_WAIT: Duration = Duration::from_secs(420);
 const PAIR_WAIT: Duration = Duration::from_secs(120);
 const POLL: Duration = Duration::from_secs(3);
 const EXEC_MS: u64 = 25_000;
+/// A Chief machine's idle policy unless `keep_awake`: about three minutes after its last activity
+/// (RFD 0037: the Chief stays awake about 3 minutes after it acts, then pauses). Where the machine's
+/// daemon reports turns, the Cloud's own short window (`CLOUD_IDLE_PAUSE_SECONDS`, or the machine's
+/// reported `idle_window_seconds`) decides instead; any value above 0 lets the machine pause.
+pub const CHIEF_IDLE_SECONDS: i64 = 180;
 
 /// The Cloud calls the start makes; [`Session`] is the person's, tests have their own.
 pub trait Cloud {
@@ -141,6 +178,15 @@ pub trait Cloud {
         machine: &str,
         command: &str,
     ) -> impl Future<Output = Result<(i64, String, String), Failure>>;
+    /// Writes `data` to `path` on the machine with `mode`, the bytes in the write's body (never in
+    /// a command's text).
+    fn write(
+        &self,
+        machine: &str,
+        path: &str,
+        data: &[u8],
+        mode: u32,
+    ) -> impl Future<Output = Result<(), Failure>>;
     /// Waits between two reads.
     fn pause(&self, duration: Duration) -> impl Future<Output = ()>;
 }
@@ -154,10 +200,15 @@ pub struct Start {
     pub team: Option<String>,
     pub api: String,
     pub until_machine: bool,
+    /// `keep_awake: true`: the machine never pauses early (`idle_seconds: 0`). Default off.
+    pub keep_awake: bool,
+    /// The owner's Claude credential for the Chief's turns, from the request's tail; none leaves
+    /// the start as it was.
+    pub turn: Option<TurnCredential>,
 }
 
 /// The call's args: `key` (1 to 48 of `a-z0-9-`), optional `name` (the Chief's), `machine_name`
-/// (default `chief-<key>`) and `until` (`"machine"`).
+/// (default `chief-<key>`), `until` (`"machine"`) and `keep_awake` (default false).
 pub fn parse(request: &Request) -> Result<Start, Failure> {
     let args = &request.args;
     let key = text(args, "key")?.to_owned();
@@ -187,6 +238,11 @@ pub fn parse(request: &Request) -> Result<Start, Failure> {
             return Err(Failure::Transport(format!("until {other:?}: only \"machine\"")));
         }
     };
+    let keep_awake = match args.get("keep_awake") {
+        None | Some(Value::Null) => false,
+        Some(Value::Bool(b)) => *b,
+        Some(_) => return Err(Failure::Transport("keep_awake: true or false".into())),
+    };
     Ok(Start {
         key,
         chief_name,
@@ -194,6 +250,8 @@ pub fn parse(request: &Request) -> Result<Start, Failure> {
         team: request.team.clone().filter(|t| !t.is_empty()),
         api: request.api.trim_end_matches('/').to_owned(),
         until_machine,
+        keep_awake,
+        turn: None,
     })
 }
 
@@ -252,10 +310,10 @@ pub struct Probe {
 pub fn probe_command() -> String {
     let script = format!(
         r#"import json, os, re, shutil, subprocess
-d = {dir:?}
+d = {STATE_DIR:?}
 out = {{}}
 try:
-    f = json.load(open({file:?}))
+    f = json.load(open({INSTALL_FILE:?}))
     for k in ("install", "host", "chief", "conversation"):
         if isinstance(f.get(k), str) and f[k]:
             out[k] = f[k]
@@ -280,12 +338,9 @@ except Exception:
 b = shutil.which("optchat-chief") or (os.path.expanduser("~/.local/bin/optchat-chief") if os.access(os.path.expanduser("~/.local/bin/optchat-chief"), os.X_OK) else None)
 if b:
     out["binary"] = b
-out["unit"] = os.path.exists("/etc/systemd/system/{unit}")
-out["active"] = subprocess.run(["systemctl", "is-active", "--quiet", "{unit}"]).returncode == 0
+out["unit"] = os.path.exists("/etc/systemd/system/{HOST_UNIT}")
+out["active"] = subprocess.run(["systemctl", "is-active", "--quiet", "{HOST_UNIT}"]).returncode == 0
 print(json.dumps(out))"#,
-        dir = STATE_DIR,
-        file = INSTALL_FILE,
-        unit = HOST_UNIT,
     );
     as_user(&format!("python3 -I -c {}", shq(&script)))
 }
@@ -313,24 +368,25 @@ pub fn fallback_unit(binary: &str) -> String {
          Description=cmux Cloud Chief host (optchat-chief host --conversation-source cloud)\n\
          After=network-online.target cmux-host.service\n\
          Wants=network-online.target\n\
-         ConditionPathExists={file}\n\
+         ConditionPathExists={INSTALL_FILE}\n\
          StartLimitIntervalSec=0\n\n\
          [Service]\n\
          Type=simple\n\
          User=cmux\n\
          Group=cmux\n\
          Environment=HOME=/home/cmux\n\
-         Environment=OPTCHAT_CLOUD_INSTALL={file}\n\
+         Environment=OPTCHAT_CLOUD_INSTALL={INSTALL_FILE}\n\
          Environment=ACPMUX_BIN={ACPMUX_BIN}\n\
          Environment=ACPMUX_HOME={ACPMUX_HOME}\n\
          EnvironmentFile=-/etc/cmux/chief.env\n\
-         ExecStart=/bin/sh -c 'exec {binary} host --conversation-source cloud --cloud-install {file} --daemon-socket \"$(head -n 1 /etc/cmux/daemon-socket)\"'\n\
+         EnvironmentFile=-{TURN_ENV_FILE}\n\
+         ExecStart=/bin/sh -c 'exec {binary} host --conversation-source cloud --cloud-install {INSTALL_FILE} --daemon-socket \"$(head -n 1 /etc/cmux/daemon-socket)\"'\n\
          Restart=always\n\
          RestartSec=5\n\
          RestartPreventExitStatus=2\n\n\
          [Install]\n\
          WantedBy=multi-user.target\n",
-        file = INSTALL_FILE,
+        TURN_ENV_FILE = chief_turn::TURN_ENV_FILE,
     )
 }
 
@@ -364,6 +420,34 @@ async fn exec_ok<C: Cloud>(cloud: &C, machine: &str, command: &str) -> Result<St
         return Err(refused("chief.machine_exec", format!("exit {code}: {}", tail.trim())));
     }
     Ok(stdout)
+}
+
+/// Puts the owner's turn credential on the machine as [`chief_turn::TURN_ENV_FILE`]: the bytes go
+/// in the write's body to [`chief_turn::TURN_ENV_STAGE`] (0600), then a root command with no
+/// secret in its text moves them into place, root's and 0600 in a 0700 `/run/cmux-chief` it makes
+/// ([`chief_turn::install_script`]). True when the file is new or changed, false when it was
+/// already there as is. Neither the command, its output nor an error carries the value.
+pub async fn write_turn_credential<C: Cloud>(
+    cloud: &C,
+    machine: &str,
+    credential: &TurnCredential,
+) -> Result<bool, Failure> {
+    let file = credential.env_file();
+    cloud.write(machine, chief_turn::TURN_ENV_STAGE, file.as_bytes(), 0o600).await?;
+    let out = exec_ok(cloud, machine, &as_root(&chief_turn::install_script())).await?;
+    match out.lines().rev().map(str::trim).find(|l| !l.is_empty()) {
+        Some("changed") => Ok(true),
+        Some("same") => Ok(false),
+        _ => Err(refused(
+            "chief.turn_credential",
+            "the machine did not say whether the Chief's turn credential changed",
+        )),
+    }
+}
+
+/// Restarts the Chief host as root, so it reads a changed turn credential.
+fn restart_command() -> String {
+    as_root(&format!("systemctl restart {HOST_UNIT}"))
 }
 
 async fn probe<C: Cloud>(cloud: &C, machine: &str) -> Result<Probe, Failure> {
@@ -465,6 +549,7 @@ async fn placed_chief<C: Cloud>(
     start: &Start,
     host: &str,
     install: &str,
+    machine: &str,
 ) -> Result<Value, Failure> {
     let list = cloud.read("chief.list", json!({})).await?;
     let found = list.get("chiefs").and_then(Value::as_array).and_then(|all| {
@@ -476,10 +561,11 @@ async fn placed_chief<C: Cloud>(
     if let Some(chief) = found {
         return Ok(chief);
     }
+    let team = team(cloud, start).await?;
     let params = json!({
         "display_name": start.chief_name,
         "is_default": false,
-        "brain_place": { "host": host, "install": install },
+        "brain_place": { "host": host, "install": install, "machine": machine, "team": team },
     });
     let chief =
         cloud.op("chief.create", params, &format!("chief-machine-{}-chief", start.key)).await?;
@@ -493,18 +579,16 @@ async fn placed_chief<C: Cloud>(
     Ok(chief)
 }
 
-/// The whole start; see the module docs.
-pub async fn run<C: Cloud>(cloud: &C, start: &Start) -> Result<Value, Failure> {
-    let size = plan_size(cloud).await;
-    let row = machine(cloud, start, size).await?;
-    let id = id_of(&row, "/id").unwrap_or_default();
+/// Step 2's idle policy and keep, once the host runs (each found done or done now).
+async fn settle<C: Cloud>(cloud: &C, start: &Start, row: &Value, id: &str) -> Result<(), Failure> {
     let idle = row.pointer("/idle_policy/idle_seconds").and_then(Value::as_i64);
-    if idle != Some(0) {
+    let want = if start.keep_awake { 0 } else { CHIEF_IDLE_SECONDS };
+    if idle != Some(want) {
         cloud
             .op(
                 "cloud.machine.idle_policy.set",
-                json!({ "machine": id, "idle_seconds": 0 }),
-                &format!("chief-machine-{}-idle", start.key),
+                json!({ "machine": id, "idle_seconds": want }),
+                &format!("chief-machine-{}-idle-{want}", start.key),
             )
             .await?;
     }
@@ -517,6 +601,14 @@ pub async fn run<C: Cloud>(cloud: &C, start: &Start) -> Result<Value, Failure> {
             )
             .await?;
     }
+    Ok(())
+}
+
+/// The whole start; see the module docs.
+pub async fn run<C: Cloud>(cloud: &C, start: &Start) -> Result<Value, Failure> {
+    let size = plan_size(cloud).await;
+    let row = machine(cloud, start, size).await?;
+    let id = id_of(&row, "/id").unwrap_or_default();
     if start.until_machine {
         return Ok(
             json!({ "machine": id, "machine_name": start.machine_name, "stage": "machine" }),
@@ -535,7 +627,7 @@ pub async fn run<C: Cloud>(cloud: &C, start: &Start) -> Result<Value, Failure> {
     while probe.chief.is_none() || probe.conversation.is_none() {
         match (&probe.install, &probe.host) {
             (Some(install), Some(host)) if placed.is_none() => {
-                placed = Some(placed_chief(cloud, start, host, install).await?);
+                placed = Some(placed_chief(cloud, start, host, install, &id).await?);
             }
             (Some(_), _) => {}
             (None, _) => {
@@ -565,15 +657,29 @@ pub async fn run<C: Cloud>(cloud: &C, start: &Start) -> Result<Value, Failure> {
         probe = self::probe(cloud, &id).await?;
     }
 
+    // The turn credential first, so the host's first start reads it.
+    let turn = match &start.turn {
+        Some(credential) => Some(write_turn_credential(cloud, &id, credential).await?),
+        None => None,
+    };
     let host_unit = if probe.active {
+        // A running host is restarted only for a credential that changed: an unchanged file never
+        // ends a conversation it is in.
+        if turn == Some(true) {
+            exec_ok(cloud, &id, &restart_command()).await?;
+        }
         if probe.unit { "image" } else { "installed" }
     } else {
         let (command, how) = host_command(&probe)?;
         exec_ok(cloud, &id, &command).await?;
         how
     };
+    // Only a machine whose host runs is kept and given its idle policy: a start that failed
+    // above (no host, pairing refused, timed out) leaves a plain machine the plan's retention
+    // removes, not a kept one that never pauses.
+    settle(cloud, start, &row, &id).await?;
     let chief = probe.chief.clone().unwrap_or_default();
-    Ok(json!({
+    let mut answer = json!({
         "machine": id,
         "machine_name": start.machine_name,
         "host": probe.host,
@@ -582,7 +688,11 @@ pub async fn run<C: Cloud>(cloud: &C, start: &Start) -> Result<Value, Failure> {
         "conversation": probe.conversation,
         "host_unit": host_unit,
         "stage": "done",
-    }))
+    });
+    if let Some(changed) = turn {
+        answer["turn_credential"] = json!(if changed { "changed" } else { "same" });
+    }
+    Ok(answer)
 }
 
 /// The person's session: the request's API and credential.
@@ -650,6 +760,25 @@ impl Cloud for Session<'_> {
         Ok((code.unwrap_or(-1), read("stdout"), read("stderr")))
     }
 
+    async fn write(
+        &self,
+        machine: &str,
+        path: &str,
+        data: &[u8],
+        mode: u32,
+    ) -> Result<(), Failure> {
+        let encoded = Zeroizing::new(BASE64.encode(data));
+        let mut args = Map::new();
+        args.insert("op".into(), json!("write"));
+        args.insert("machine".into(), json!(machine));
+        args.insert("path".into(), json!(path));
+        args.insert("data_base64".into(), json!(encoded.as_str()));
+        args.insert("mode".into(), json!(mode));
+        let request =
+            Request { call: "machine.io".into(), auth: Auth::Worker, args, ..self.request.clone() };
+        super::machine::worker(&request).await.map(|_| ())
+    }
+
     async fn pause(&self, duration: Duration) {
         tokio::time::sleep(duration).await;
     }
@@ -664,8 +793,8 @@ fn body_summary(body: Option<&Value>) -> String {
     }
 }
 
-/// `machine.chief_start` for [`crate::perform`].
-pub(crate) async fn perform(request: &Request, http: &Http) -> Result<Value, Failure> {
+/// `machine.chief_start` for [`crate::perform`]; `tail` is the owner's turn credential, if any.
+pub(crate) async fn perform(request: &Request, http: &Http, tail: &[u8]) -> Result<Value, Failure> {
     if request.auth == Auth::Stack {
         return Err(Failure::http(
             501,
@@ -673,7 +802,8 @@ pub(crate) async fn perform(request: &Request, http: &Http) -> Result<Value, Fai
             Some("machine.chief_start is not available on this Cloud".into()),
         ));
     }
-    let start = parse(request)?;
+    let mut start = parse(request)?;
+    start.turn = TurnCredential::from_tail(tail)?;
     run(&Session { request, http }, &start).await
 }
 

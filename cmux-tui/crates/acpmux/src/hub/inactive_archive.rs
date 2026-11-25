@@ -142,7 +142,7 @@ impl Hub {
 
     /// Whether anything runs or waits in `session`, as the idle reaper reads it
     /// (`idle.rs` `idle_eligible`), whatever its status.
-    fn archive_held(&self, session: &Session) -> bool {
+    pub(super) fn archive_held(&self, session: &Session) -> bool {
         session.turn().is_some()
             || session.harness_turn.load(Ordering::SeqCst)
             || session.asks_in_flight.load(Ordering::SeqCst) > 0
@@ -185,12 +185,25 @@ impl Hub {
     }
 
     /// The daemon's one inactive-archive worker (module docs): a pass [`FIRST_PASS_AFTER`] from
-    /// now, then every [`PASS_EVERY`], while the setting is on.
+    /// when the setting is first seen on, then every [`PASS_EVERY`], while it is on. While it is
+    /// off (the default) no timer: the setting is read again when the settings file changes, so
+    /// an idle daemon does not wake for it (it woke 60 s after start and every 10 minutes,
+    /// `tests/daemon_idle.rs`).
     pub(crate) fn inactive_archive_worker(self: &Arc<Self>) {
         let weak = Arc::downgrade(self);
+        let mut settings = self.settings_changes.subscribe();
         self.scope.spawn_until_cancelled("inactive-archive", async move {
             let mut wait = FIRST_PASS_AFTER;
             loop {
+                // Marked seen before the read: a change after it ends the wait below at once.
+                settings.borrow_and_update();
+                let on = tokio::task::spawn_blocking(|| archive_after_now().is_some());
+                if !on.await.unwrap_or(false) {
+                    if settings.changed().await.is_err() {
+                        return;
+                    }
+                    continue;
+                }
                 tokio::time::sleep(wait).await;
                 wait = PASS_EVERY;
                 let Some(hub) = weak.upgrade() else { return };

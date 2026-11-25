@@ -126,8 +126,39 @@ function parseEffective(text: string): Map<string, string[]> {
 
 const LOOPBACK_LISTEN = /^(127\.0\.0\.1|\[::1\]):\d+$/;
 
+/**
+ * The platform's ssh-endpoint drop-in (cmux-platform src/server/cloud/SshEndpoint.ts SSH_PATHS.dropin). A carrier
+ * prepare there adds `ListenAddress <the machine's team private address>` at runtime, so the ssh backup carrier's
+ * hub can dial port 22 over the team mesh with its short-lived forced-command key. The baked image never has it.
+ */
+export const PLATFORM_SSHD_DROP_IN = "/etc/ssh/sshd_config.d/10-cmux-ssh-endpoint.conf";
+
+const IPV4_LITERAL = /^(?:(?:25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)\.){3}(?:25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)$/;
+
+/**
+ * What a listen check accepts besides loopback. The bake and the smoke pass nothing (loopback only). A check of a
+ * running machine passes the machine's team private address (row.network.ipv4): then `<privateAddress>:22`, the one
+ * listen the platform's carrier prepare adds, is accepted too, and loopback port 22 must still be there.
+ */
+export interface SshdListenOptions {
+  readonly privateAddress?: string;
+}
+
+/** One listen address against the policy: loopback, or exactly the runtime private address on port 22. */
+function listenAllowed(address: string, options: SshdListenOptions): boolean {
+  return LOOPBACK_LISTEN.test(address) || (options.privateAddress !== undefined && address === `${options.privateAddress}:22`);
+}
+
+function checkedOptions(options: SshdListenOptions): SshdListenOptions {
+  if (options.privateAddress !== undefined && !IPV4_LITERAL.test(options.privateAddress)) {
+    throw new Error(`sshd: private address ${JSON.stringify(options.privateAddress)} is not an IPv4 literal`);
+  }
+  return options;
+}
+
 /** Problems in `sshd -T` output against the policy; empty means compliant. */
-export function sshdPolicyProblems(effective: string, workUser: string): string[] {
+export function sshdPolicyProblems(effective: string, workUser: string, options: SshdListenOptions = {}): string[] {
+  checkedOptions(options);
   const values = parseEffective(effective);
   const problems: string[] = [];
   for (const [key, want] of requiredValues(workUser)) {
@@ -139,18 +170,29 @@ export function sshdPolicyProblems(effective: string, workUser: string): string[
   if (values.has("allowusers")) problems.push(`allowusers is ${values.get("allowusers")?.join(" ")}, want none (AllowGroups ${SSH_LOGIN_GROUP} decides)`);
   const listen = values.get("listenaddress") ?? [];
   if (listen.length === 0) problems.push("listenaddress is missing");
-  for (const address of listen) if (!LOOPBACK_LISTEN.test(address)) problems.push(`listenaddress ${address} is not loopback`);
+  for (const address of listen) {
+    if (!listenAllowed(address, options)) problems.push(`listenaddress ${address} is not loopback${options.privateAddress === undefined ? "" : ` or ${options.privateAddress}:22`}`);
+  }
+  if (options.privateAddress !== undefined && listen.length > 0 && !listen.some((address) => LOOPBACK_LISTEN.test(address))) {
+    problems.push("listenaddress has no loopback address (the link ssh service needs it)");
+  }
   return problems;
 }
 
-/** Problems in `ss -Hltn` output: port 22 must listen, and only on loopback (socket activation included). */
-export function sshdListenProblems(ss: string): string[] {
+/**
+ * Problems in `ss -Hltn` output: port 22 must listen, and only on loopback (socket activation included); with
+ * `privateAddress`, also on that address (the platform's carrier prepare), loopback port 22 still required.
+ */
+export function sshdListenProblems(ss: string, options: SshdListenOptions = {}): string[] {
+  checkedOptions(options);
   const port22 = ss
     .split("\n")
     .map((line) => line.trim().split(/\s+/)[3])
     .filter((local): local is string => typeof local === "string" && local.endsWith(":22"));
   if (port22.length === 0) return ["nothing listens on port 22"];
-  return port22.filter((local) => !LOOPBACK_LISTEN.test(local)).map((local) => `port 22 listens on ${local}`);
+  const problems = port22.filter((local) => !listenAllowed(local, options)).map((local) => `port 22 listens on ${local}`);
+  if (options.privateAddress !== undefined && !port22.some((local) => LOOPBACK_LISTEN.test(local))) problems.push("port 22 does not listen on loopback");
+  return problems;
 }
 
 /**

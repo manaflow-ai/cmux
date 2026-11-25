@@ -2,6 +2,7 @@ import AppKit
 @testable import CmuxNextActions
 @testable import CmuxNextApp
 @testable import CmuxNextBrowser
+import CmuxNextBrowserCore
 import CmuxNextBrowserImport
 import CmuxNextDesign
 import CmuxNextFocus
@@ -15,7 +16,7 @@ import Testing
 /// if user has never dismissed it yet"). A card at the bottom of the person's browser tab offers to
 /// import cookies from their most used other browser. It shows at most once per launch, only on a
 /// page that asks to sign in, until the person imports cookies or clicks Don't Show Again; Not Now
-/// keeps it away for a week, across relaunches. Don't Show
+/// keeps it away for 30 days, across relaunches. Don't Show
 /// Again writes `browser.import.cookieBanner: false` to cmux.json, so the dismissal lasts across
 /// launches and Settings shows it; turning the setting on (Settings, `cmux settings`, or Show Import
 /// Cookies Banner in the palette, CLI and MCP) brings it back. The card never imports by itself.
@@ -114,7 +115,7 @@ import Testing
         let text = card.shownText
         #expect(text.first?.localizedCaseInsensitiveContains("sign-ins") == true, "the title offers sign-ins: \(text)")
         #expect(text.first?.contains("Google Chrome") == true, "and names the browser: \(text)")
-        #expect(text.contains(BrowserImportOfferStrings.dontShowAgain), "Don't Show Again is one of the answers: \(text)")
+        #expect(text.contains(BrowserImportOfferStrings.never(browser: "Chrome")), "Never for Chrome is one of the answers: \(text)")
         #expect(text.contains(BrowserImportOfferStrings.importData))
         #expect(text.contains(BrowserImportOfferStrings.notNow))
     }
@@ -161,6 +162,128 @@ import Testing
         #expect(!card.isHiddenOrHasHiddenAncestor)
     }
 
+    /// The card's page measured itself (it fades in then): the person can see it.
+    static func measure(_ card: BrowserCookieImportCard) {
+        card.received("size", ["height": 60, "revision": card.pushedState["revision"] as? Int ?? 0])
+    }
+
+    /// Leo 2026-11-22: "the whole import sign in to google chrome fires too often" ... "or maybe it just
+    /// "appears" to close when you unfocus and then the thing reappears when you refocus. idk. it just needs a
+    /// better lifecycle". Once the person saw the card on its tab, the tab losing the keyboard closes it: refocus
+    /// does not bring it back, and nor does another tab of the pane showing and this one coming back.
+    @Test func aSeenCardClosesOnBlurAndNeverComesBackOnRefocus() throws {
+        let page = Page()
+        defer { page.tearDown() }
+        let entry = BrowserEntry(tab: page.tab)
+        page.chrome.bind(page.tab, state: entry.state)
+        let offer = BrowserImportOfferService(services: nil, defaults: Self.freshDefaults(), locate: { [] })
+        entry.followKeyboard(focusedTab: "browser-1", key: "browser-1", window: page.window)
+        offer.show(on: page.chrome, browsers: [InstalledImportBrowser(browser: .chrome, icon: NSImage())])
+        let card = try #require(page.chrome.currentCookieImportCard)
+        Self.measure(card)
+        #expect(page.chrome.showsCookieImportOffer && card.wasSeen, "shown on its focused tab: seen")
+
+        entry.followKeyboard(focusedTab: nil, key: "browser-1", window: page.window)  // a terminal has the keyboard
+        #expect(page.chrome.currentCookieImportCard == nil, "seen, then the tab lost the keyboard: it closed")
+        entry.followKeyboard(focusedTab: "browser-1", key: "browser-1", window: page.window)
+        #expect(!page.chrome.showsCookieImportOffer, "refocus does not bring it back")
+        #expect(page.chrome.currentCookieImportCard == nil)
+    }
+
+    /// The card shows by itself at most once on a browser profile, answered or not: never on a later launch,
+    /// another tab of the profile, or a refocus. Show Import Cookies Banner asks again.
+    @Test func theCardOffersItselfOncePerProfileAcrossRelaunches() throws {
+        let page = Page()
+        defer { page.tearDown() }
+        let defaults = Self.freshDefaults()
+        let profile = BrowserProfileRecord.wireID(for: page.tab.profileID)
+        let here = BrowserImportOfferPage(isPersonal: true, showsOtherNotice: false, profile: profile)
+        let other = BrowserImportOfferPage(isPersonal: true, showsOtherNotice: false, profile: "another-profile")
+        let offer = BrowserImportOfferService(services: nil, defaults: defaults, locate: { [] })
+        #expect(offer.state.offers(here))
+        offer.show(on: page.chrome, browsers: [InstalledImportBrowser(browser: .chrome, icon: NSImage())])
+        #expect(!offer.state.offers(here), "shown on this profile: never again by itself")
+        #expect(offer.state.offers(other), "another profile may still be offered it once")
+        let nextLaunch = BrowserImportOfferService(services: nil, defaults: defaults, locate: { [] })
+        #expect(!nextLaunch.state.offers(here), "a relaunch keeps it: the card does not come back unanswered")
+    }
+
+    /// Leo 2026-11-22: "the import from chrome apperaing on every single focus and never expiring is still not
+    /// merged". Whatever happened to the card (only seen, Not now, Never for Chrome, or cookies imported), the
+    /// tab losing and getting back the keyboard never brings it back, and the profile is never offered it
+    /// again by itself, also after a relaunch (within Not now's 30 days for Not now).
+    @Test(arguments: ["seen", "notNow", "never", "imported"])
+    func theCardNeverComesBackOnFocusOnceSeenOrAnswered(_ outcome: String) throws {
+        let page = Page()
+        defer { page.tearDown() }
+        let defaults = Self.freshDefaults()
+        let entry = BrowserEntry(tab: page.tab)
+        page.chrome.bind(page.tab, state: entry.state)
+        let offer = BrowserImportOfferService(services: nil, defaults: defaults, locate: { [] })
+        let here = BrowserImportOfferPage(isPersonal: true, showsOtherNotice: false, profile: BrowserProfileRecord.wireID(for: page.tab.profileID))
+        entry.followKeyboard(focusedTab: "browser-1", key: "browser-1", window: page.window)
+        #expect(offer.state.offers(here))
+        offer.show(on: page.chrome, browsers: [InstalledImportBrowser(browser: .chrome, icon: NSImage())])
+        let card = try #require(page.chrome.currentCookieImportCard)
+        Self.measure(card)
+        #expect(page.chrome.showsCookieImportOffer)
+        switch outcome {
+        case "notNow", "never": card.received("command", ["type": outcome])
+        case "imported": offer.importFinished(ImportCounts(cookies: 5))
+        default: break
+        }
+        if outcome != "seen" { #expect(page.chrome.currentCookieImportCard == nil, "\(outcome): the card closed") }
+        for _ in 0..<3 {
+            entry.followKeyboard(focusedTab: nil, key: "browser-1", window: page.window)
+            entry.followKeyboard(focusedTab: "browser-1", key: "browser-1", window: page.window)
+            #expect(!page.chrome.showsCookieImportOffer, "\(outcome): refocus does not bring it back")
+            #expect(page.chrome.currentCookieImportCard == nil)
+        }
+        #expect(!offer.state.offers(here), "\(outcome): not offered again this launch")
+        let nextLaunch = BrowserImportOfferService(services: nil, defaults: defaults, locate: { [] })
+        #expect(!nextLaunch.state.offers(here), "\(outcome): nor after a relaunch")
+        if outcome == "notNow" {
+            #expect(nextLaunch.state.waitsAfterNotNow(now: Date().addingTimeInterval(29 * 24 * 3600)), "Not now holds 30 days")
+        }
+        if outcome == "imported" {
+            var fresh = nextLaunch.state
+            fresh.askAgain()
+            #expect(!fresh.offers(here), "after an import, nothing asks again")
+        }
+    }
+
+    /// Show Import Cookies Banner asks again, also on a profile the card already showed on.
+    @Test func showImportCookiesBannerAsksAgainOnAShownProfile() {
+        let defaults = Self.freshDefaults()
+        let page = BrowserImportOfferPage(isPersonal: true, showsOtherNotice: false, profile: "default")
+        var state = BrowserImportOfferState()
+        state.recordShown(on: "default")
+        state.save(to: defaults)
+        let offer = BrowserImportOfferService(services: nil, defaults: defaults, locate: { [] })
+        #expect(!offer.state.offers(page))
+        offer.showNow()
+        #expect(offer.state.offers(page), "asked for: showing before no longer holds it back")
+    }
+
+    /// Leo 2026-11-22, on a try copy's "Data Access Blocked" notice: a `cmux app try` copy is a new app to
+    /// macOS, with its own defaults, so it would ask on every copy. It never offers the card by itself.
+    @Test func aTryCopyNeverOffersTheCardByItself() {
+        let tryCopy = "com.cmuxterm.app.nightly.side-try-feat-agent-send-pop-f03f49-f7de48"
+        #expect(!BrowserImportOfferState.launchOffers(noActivate: false, bundleID: tryCopy, forced: false))
+        #expect(BrowserImportOfferState.launchOffers(noActivate: false, bundleID: "com.cmuxterm.app.nightly", forced: false))
+        #expect(!BrowserImportOfferState.launchOffers(noActivate: true, bundleID: "com.cmuxterm.app.nightly", forced: false))
+        #expect(BrowserImportOfferState.launchOffers(noActivate: false, bundleID: tryCopy, forced: true), "forced: tests and demos")
+    }
+
+    /// A record from before profiles were kept still reads, with no profile shown on.
+    @Test func aRecordWithoutShownProfilesStillReads() {
+        let defaults = Self.freshDefaults()
+        defaults.set(Data(#"{"imported":false}"#.utf8), forKey: BrowserImportOfferState.defaultsKey)
+        let state = BrowserImportOfferState.load(from: defaults)
+        #expect(state.shownOn == nil)
+        #expect(state.offers(BrowserImportOfferPage(isPersonal: true, showsOtherNotice: false, profile: "default")))
+    }
+
     /// Only a browser tab's own targets count as the browser tab having the keyboard.
     @Test(arguments: [
         (FocusState.Resolved.browserPage(pane: "p", tab: "t"), "t" as String?),
@@ -194,13 +317,14 @@ import Testing
         #expect(!nextLaunch.state.offers(Self.personalPage), "Not Now is kept: the next launch does not ask again")
     }
 
-    /// A Not Now lasts a week, then a sign-in page may offer the card once more.
-    @Test func notNowLastsAWeek() {
+    /// A Not Now lasts 30 days, then a sign-in page may offer the card once more.
+    @Test func notNowLastsThirtyDays() {
         let clicked = Date(timeIntervalSince1970: 1_800_000_000)
         var state = BrowserImportOfferState()
         state.recordNotNow(at: clicked)
-        #expect(!state.offers(Self.personalPage, now: clicked.addingTimeInterval(6 * 24 * 3600)), "six days later: still away")
-        #expect(state.offers(Self.personalPage, now: clicked.addingTimeInterval(7 * 24 * 3600 + 1)), "a week later: offered again")
+        #expect(!state.offers(Self.personalPage, now: clicked.addingTimeInterval(8 * 24 * 3600)), "a week and a day later: still away")
+        #expect(!state.offers(Self.personalPage, now: clicked.addingTimeInterval(29 * 24 * 3600)), "29 days later: still away")
+        #expect(state.offers(Self.personalPage, now: clicked.addingTimeInterval(30 * 24 * 3600 + 1)), "30 days later: offered again")
     }
 
     /// A record saved before Not Now was kept (only `imported`) still reads, with no Not Now in it.
@@ -278,7 +402,7 @@ import Testing
         #expect(!(await p.waitForCard(within: .seconds(2))), "a newsletter field is not a sign-in page")
     }
 
-    @Test func dontShowAgainTurnsTheSettingOffInCmuxJSON() async throws {
+    @Test func permanentDismissalTurnsTheSettingOffInCmuxJSON() async throws {
         let h = try await make()
         defer { h.tearDown() }
         h.services.onboarding.browserImportOffer.answer(.never)

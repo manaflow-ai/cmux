@@ -108,6 +108,9 @@ impl Brain {
                         self.last_agent_send = Some(now_ms());
                     }
                     if let Some(cmux_conversation::Change::Message { message }) = change {
+                        if self.state.conversation.as_deref() == Some(conversation.as_str()) {
+                            self.guard_row(&message);
+                        }
                         self.home_approval_posted(&conversation, &key, &op, &message);
                         self.note_posted(&conversation, &key, &message);
                         self.sent(&key, &message.id);

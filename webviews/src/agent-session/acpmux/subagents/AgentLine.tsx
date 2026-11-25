@@ -56,6 +56,7 @@ export function AgentLine({
   icon = "agent.session",
   mark,
   tone,
+  plainMark = false,
   iconSize = ROW_ICON,
   depth = 0,
   current = false,
@@ -74,6 +75,7 @@ export function AgentLine({
   quiet = false,
   progressAt = "below",
   latest,
+  step,
   latestAt = "below",
   latestCode = false,
   via,
@@ -101,6 +103,8 @@ export function AgentLine({
   /// Its stable color (agentTones.ts `agentTone`), for the icon when no harness mark replaces it, so
   /// lines without a mark still tell apart (Leo, 2026-10-29: "you can just randomize the colors").
   tone?: number;
+  /// The provider's mark alone, no session badge over it (the composer hat's lines; Leo 2026-11-23 on the hat's rows, a colored badge on every Claude mark: "weird and bad and unncessary").
+  plainMark?: boolean;
   iconSize?: number;
   /// How far it sits under the agent that spawned it.
   depth?: number;
@@ -141,6 +145,9 @@ export function AgentLine({
   /// line so a change never moves the line (`below`), or dim after the title (`inline`). Leo,
   /// 2026-11-03: "Tray only, richer" (trayLatest.experiment.ts).
   latest?: string;
+  /// In place of `latest`, what the composer hat says it does now (HatStepSlot.tsx): a slot of fixed
+  /// width that changes at most once per dwell (hatStep.experiment.ts).
+  step?: ReactNode;
   latestAt?: "below" | "inline";
   /// The activity is a shell command; keep its raw text in the tray's monospace face.
   latestCode?: boolean;
@@ -196,7 +203,7 @@ export function AgentLine({
       >
         {working && !timed ? (
           <Spinner size={iconSize} loading />
-        ) : tone !== undefined ? (
+        ) : tone !== undefined && !plainMark ? (
           // An agent or a chat: its sender icon, its family's mark with its badge in its tone.
           <SenderIcon harness={mark} tone={tone} size={iconSize} fallback={icon} />
         ) : brand ? (
@@ -218,10 +225,11 @@ export function AgentLine({
         {/* What it does now hands over as a status line does: the old step slides up and out as the
             new one slides in (Leo, 2026-11-07: "the thinking transitions to the tool call ... That
             animation, I like that"). */}
-        {latest && latest !== name && latestAt === "inline" && (
+        {step ? <span className="acpmux-agent-line__latest-inline acpmux-agent-line__step">{step}</span> : null}
+        {step === undefined && latest && latest !== name && latestAt === "inline" && (
           <Tick className={`acpmux-agent-line__latest-inline${latestCode ? " is-code" : ""}`} text={latest} slide />
         )}
-        {latest && latest !== name && latestAt === "below" && (
+        {step === undefined && latest && latest !== name && latestAt === "below" && (
           <span className={`acpmux-agent-line__latest${latestCode ? " is-code" : ""}`}>{latest}</span>
         )}
         {via && <span className="acpmux-agent-line__via">via {via}</span>}

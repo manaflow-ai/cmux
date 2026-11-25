@@ -103,6 +103,7 @@ public nonisolated final class BackdropShaderRenderer: Sendable {
         uniforms.resolution = SIMD2(Float(width), Float(height))
         // The pointer rests left of center, a little high: the still shows what it does.
         uniforms.mouse = SIMD2(Float(width) * 0.38, Float(height) * 0.58)
+        uniforms.pointer = uniforms.mouse
         uniforms.time = shader.startTime
         uniforms.energy = 0.35
         uniforms.dark = dark ? 1 : 0
