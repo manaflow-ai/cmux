@@ -1,21 +1,21 @@
-import CmuxNextCloud
-import Foundation
+package import CmuxNextCloud
+package import Foundation
 
 /// The feed's own calls on the cmux API Worker (`POST /v1/ops` and `/v1/read`): the daemon's `cloud.owner.op`
 /// (cmux-cloud-api `owner.rs`), as the person's session (`FeedService.call`) or this Mac's install token
 /// (`FeedInstallPrincipal.call`). The request, its headers and its deadline are Rust's; this only forwards the
 /// body and reads the reply.
-struct FeedOwnerCall: Sendable {
-    typealias Credential = @Sendable () async throws -> String
-    typealias Run = @Sendable (_ input: Data, _ timeout: Duration) async throws -> Data
+package nonisolated struct FeedOwnerCall: Sendable {
+    package typealias Credential = @Sendable () async throws -> String
+    package typealias Run = @Sendable (_ input: Data, _ timeout: Duration) async throws -> Data
 
     /// The route: `ops` (`POST /v1/ops`) or `read` (`POST /v1/read`).
-    enum Route: String, Sendable {
+    package nonisolated enum Route: String, Sendable {
         case ops
         case read
 
         /// `v1/ops` or `v1/read`, the paths the feed's callers name.
-        init?(path: String) {
+        package init?(path: String) {
             switch path.trimmingCharacters(in: CharacterSet(charactersIn: "/")) {
             case "v1/ops": self = .ops
             case "v1/read": self = .read
@@ -25,11 +25,11 @@ struct FeedOwnerCall: Sendable {
     }
 
     /// The Worker's reply: its HTTP status and its body as JSON text (nil when it was not a JSON object).
-    struct Reply: Sendable {
-        var status: Int
-        var bodyJSON: Data?
+    package nonisolated struct Reply: Sendable {
+        package var status: Int
+        package var bodyJSON: Data?
 
-        var body: [String: Any]? {
+        package var body: [String: Any]? {
             bodyJSON.flatMap { (try? JSONSerialization.jsonObject(with: $0)) as? [String: Any] }
         }
     }
@@ -40,7 +40,7 @@ struct FeedOwnerCall: Sendable {
 
     /// `credential` is the bearer (the Stack session or an install token); `team` the `x-cmux-team` (nil: none);
     /// `clientVersion` goes as `x-cmux-client-version` (the app's version, no secret). `run`: a test's child.
-    init(baseURL: URL, credential: @escaping Credential, team: String? = nil, configuration: CloudConfiguration,
+    package init(baseURL: URL, credential: @escaping Credential, team: String? = nil, configuration: CloudConfiguration,
          machineIO: CloudMachineIO?, clientVersion: String? = nil, run: Run? = nil) {
         daemon = .owner(baseURL: baseURL, credential: credential, teamID: { team }, machineIO: machineIO, run: run)
         self.configuration = configuration
@@ -53,7 +53,7 @@ struct FeedOwnerCall: Sendable {
     /// Sends `body` (`{op, params, ...}`) to `route`: the reply's status and body for every HTTP status. A
     /// credential that cannot be read is ``FeedServiceError/signedOut``; a request that never got an answer
     /// throws its ``CloudAPIError``.
-    func send(_ route: Route, _ body: [String: Any]) async throws -> Reply {
+    package func send(_ route: Route, _ body: [String: Any]) async throws -> Reply {
         try configuration.buildSpace.check()
         // The body goes as the JSON text the app serialized, so every number and flag reaches the Worker as written.
         let text = String(decoding: try JSONSerialization.data(withJSONObject: body), as: UTF8.self)
@@ -73,7 +73,7 @@ struct FeedOwnerCall: Sendable {
 
     /// ``send(_:_:)``'s reply as the feed reads it: the body, or ``FeedServiceError/owner(code:message:)`` for
     /// the Worker's `{error: {code, message}}`, or ``FeedServiceError/badReply`` when it is not a JSON object.
-    static func read(_ reply: Reply) throws -> [String: Any] {
+    package static func read(_ reply: Reply) throws -> [String: Any] {
         guard let body = reply.body else { throw FeedServiceError.badReply }
         if let error = body["error"] as? [String: Any] {
             throw FeedServiceError.owner(code: error["code"] as? String ?? "error", message: error["message"] as? String ?? "")

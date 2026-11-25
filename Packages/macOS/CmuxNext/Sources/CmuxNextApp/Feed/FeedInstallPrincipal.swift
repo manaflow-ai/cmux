@@ -1,4 +1,5 @@
 import CmuxNextCloud
+import CmuxNextFeedClient
 import Foundation
 import Observation
 
