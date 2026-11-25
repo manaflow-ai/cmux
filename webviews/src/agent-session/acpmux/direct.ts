@@ -7197,6 +7197,22 @@ export class AcpmuxDirectClient {
     this.waitingPermissions = new Map(asks.slice(1).map((item) => [item.permissionId, item]));
   }
 
+  /// The listeners `watchSessionCommands` holds, by session.
+  private readonly sessionCommandWatchers = new Map<string, Set<() => void>>();
+
+  /// Calls `listener` each time acpmux says `sessionId` published a new command list (its
+  /// `session_changed` of kind `commands`): a deferred chat this page never attaches, whose list the
+  /// New Tab's `/` menu reads (newtab/useSessionCommands.ts). Returns the unsubscribe.
+  watchSessionCommands(sessionId: string, listener: () => void): () => void {
+    let listeners = this.sessionCommandWatchers.get(sessionId);
+    if (!listeners) this.sessionCommandWatchers.set(sessionId, (listeners = new Set()));
+    listeners.add(listener);
+    return () => {
+      listeners.delete(listener);
+      if (listeners.size === 0) this.sessionCommandWatchers.delete(sessionId);
+    };
+  }
+
   /// Read commands for a deferred chat without selecting or attaching it.
   async sessionCommands(sessionId: string): Promise<SlashCommand[]> {
     // `_acpmux/events` scans oldest-first unless `beforeSeq` is present. Use the protocol's
@@ -7254,6 +7270,9 @@ export class AcpmuxDirectClient {
   private sessionChanged(params: SessionChanged): void {
     // Only a purge carries the id alone; every other change carries the whole summary.
     const session = params?.session as SessionSummary | undefined;
+    // A new command list of a chat a `/` menu waits on, whether or not the page is shown.
+    if (params?.kind === "commands" && session?.sessionId)
+      for (const listener of this.sessionCommandWatchers.get(session.sessionId) ?? []) listener();
     // A hidden page does not need another chat's summary until it is shown. Avoid replacing the
     // entry, rebuilding its list projections and scheduling a renderer task for every busy chat;
     // refreshSessions() catches the list up once on return. The selected chat still updates so a
