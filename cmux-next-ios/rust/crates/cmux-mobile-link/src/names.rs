@@ -80,6 +80,7 @@ host_services! {
     (Localhost, "localhost"),
     (PhoneFrames, "phone-frames"),
     (Tabs, "tabs"),
+    (Lan, "lan"),
 }
 
 /// One capability name and its one-line meaning.

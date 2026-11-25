@@ -498,6 +498,11 @@ pub struct RelayProvider {
     /// `control_timeout`, for the daemon to join its circuit once the relay
     /// allocated it ([`RelayProvider::with_peer_join_wait`]).
     peer_join_wait: Option<Duration>,
+    /// When set, a lane allocated before any other lane of its group waits
+    /// no later than this: the first lane is the one a relay parks for a
+    /// daemon that has not registered, and a caller may give up on that park
+    /// sooner than on its whole deadline.
+    first_allocation_deadline: Option<Instant>,
 }
 
 impl RelayProvider {
@@ -522,6 +527,7 @@ impl RelayProvider {
             tls: RelayTls::default(),
             allocation_deadline: None,
             peer_join_wait: None,
+            first_allocation_deadline: None,
         })
     }
 
@@ -545,6 +551,17 @@ impl RelayProvider {
     /// circuit's socket keeps its own bound.
     pub fn with_peer_join_wait(mut self, wait: Duration) -> Self {
         self.peer_join_wait = Some(wait);
+        self
+    }
+
+    /// Wait for a group's first allocation no later than `deadline` (nor
+    /// later than the allocation deadline). Only the lanes opened before one
+    /// of the group's lanes is allocated wait for it: a relay parks a Connect
+    /// only while the machine's daemon has not registered, so once one lane
+    /// is allocated the later ones wait the allocation deadline in full,
+    /// however long the first one took.
+    pub fn with_first_allocation_deadline(mut self, deadline: Instant) -> Self {
+        self.first_allocation_deadline = Some(deadline);
         self
     }
 
@@ -602,6 +619,8 @@ impl TransportProvider for RelayProvider {
             tls: self.tls.clone(),
             allocation_deadline: self.allocation_deadline,
             peer_join_wait: self.peer_join_wait,
+            first_allocation_deadline: self.first_allocation_deadline,
+            allocated: AtomicBool::new(false),
             control: Mutex::new(Some(control)),
             closed: AtomicBool::new(false),
         }))
@@ -619,6 +638,10 @@ struct RelayLinkGroup {
     tls: RelayTls,
     allocation_deadline: Option<Instant>,
     peer_join_wait: Option<Duration>,
+    first_allocation_deadline: Option<Instant>,
+    /// Whether one of this group's lanes has been allocated: from then on no
+    /// lane waits the first allocation's deadline.
+    allocated: AtomicBool,
     // An allocation temporarily takes ownership of the control socket. If the
     // allocation future is cancelled, the socket is dropped while this slot
     // remains empty, so a later attempt cannot consume a stale response.
@@ -1090,9 +1113,6 @@ impl LinkGroup for RelayLinkGroup {
             return Err(ProviderError::Transport("relay connection group is closed".into()));
         }
         let lane = LaneToken(random_capability()?);
-        // The allocation deadline is the first connect's; a resume (a later
-        // generation) waits `control_timeout` as any reconnect does.
-        let wait_until = self.allocation_deadline.filter(|_| request.generation == 0);
         let join_wait = self
             .peer_join_wait
             .filter(|_| request.generation == 0)
@@ -1103,6 +1123,9 @@ impl LinkGroup for RelayLinkGroup {
             if self.closed.load(Ordering::Acquire) {
                 return Err(ProviderError::Transport("relay connection group is closed".into()));
             }
+            // Read under the control lock, which serializes allocations: a
+            // lane queued behind the first one sees whether it was allocated.
+            let wait_until = self.wait_until(request.generation);
             let mut control = match stored_control.take() {
                 Some(control) => control,
                 None => {
@@ -1121,10 +1144,12 @@ impl LinkGroup for RelayLinkGroup {
             .await
             {
                 Ok(Allocation::Inline(_circuit)) => {
+                    self.allocated.store(true, Ordering::Release);
                     return Ok(self.inline_link(control));
                 }
                 Ok(Allocation::Circuit(circuit, ticket)) => {
                     *stored_control = Some(control);
+                    self.allocated.store(true, Ordering::Release);
                     (circuit, ticket)
                 }
                 Err(AllocationError::Terminal(error)) => {
@@ -1160,10 +1185,12 @@ impl LinkGroup for RelayLinkGroup {
                     .await
                     {
                         Ok(Allocation::Inline(_circuit)) => {
+                            self.allocated.store(true, Ordering::Release);
                             return Ok(self.inline_link(replacement));
                         }
                         Ok(Allocation::Circuit(circuit, ticket)) => {
                             *stored_control = Some(replacement);
+                            self.allocated.store(true, Ordering::Release);
                             (circuit, ticket)
                         }
                         Err(AllocationError::Terminal(error)) => {
@@ -1201,6 +1228,24 @@ impl LinkGroup for RelayLinkGroup {
                 .map_err(|_| ProviderError::Transport("relay WebSocket close failed".into()))?;
         }
         Ok(())
+    }
+}
+
+impl RelayLinkGroup {
+    /// When a lane's allocation stops waiting. The allocation deadline is the
+    /// first connect's; a resume (a later generation) waits `control_timeout`
+    /// as any reconnect does. Until one lane is allocated, a lane also waits no
+    /// later than the first allocation's deadline.
+    fn wait_until(&self, generation: u64) -> Option<Instant> {
+        if generation != 0 {
+            return None;
+        }
+        let first =
+            self.first_allocation_deadline.filter(|_| !self.allocated.load(Ordering::Acquire));
+        match (self.allocation_deadline, first) {
+            (Some(deadline), Some(first)) => Some(deadline.min(first)),
+            (deadline, first) => deadline.or(first),
+        }
     }
 }
 
