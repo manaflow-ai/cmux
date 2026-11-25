@@ -19,10 +19,11 @@ itself (no-activate, scratch config) and kills only that app.
 
 Usage: home-dogfood.py --tag <tag> [--out DIR] [--size 818x1060] [--app PATH]
 """
-import argparse, glob, json, os, signal, socket, subprocess, sys, tempfile, time
+import argparse, glob, hashlib, json, os, signal, socket, subprocess, sys, tempfile, time
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import home_classic  # noqa: E402
 from safe_log import safe_print  # noqa: E402  (a line in a cleanup path never skips the kill)
+from state_wait import wait_stable, wait_until  # noqa: E402
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--tag", required=True)
@@ -95,6 +96,43 @@ def drive(action, **params):
     return reply
 
 
+def read(action):
+    """A drive read (texts, rows, typing, geometry) without the drive log line."""
+    reply = rpc("debug.home.drive", {"action": action})
+    return reply if isinstance(reply, dict) else {}
+
+
+def texts():
+    return read("texts").get("texts") or []
+
+
+def pixels():
+    """A hash of a fresh window snapshot, for changes no socket state reports (video, tapback, theme)."""
+    path = os.path.join(SCRATCH, "settle.png")
+    if (rpc("debug.window_snapshot", {"path": path}) or {}).get("error"):
+        return None
+    with open(path, "rb") as handle:
+        return hashlib.sha1(handle.read()).hexdigest()
+
+
+# The shots are best effort: a wait that times out says what never happened and the shot is taken anyway.
+def until(predicate, what, timeout=15):
+    value = wait_until(predicate, what, timeout=timeout, interval=0.1, raise_on_timeout=False)
+    if not value:
+        safe_print(f"wait: {what} did not happen in {timeout} s; shooting anyway", flush=True)
+    return value
+
+
+def settle(get, what, timeout=10, reads=4):
+    return wait_stable(get, what, timeout=timeout, interval=0.1, reads=reads, raise_on_timeout=False)
+
+
+def changed_then_settled(before, get, what, timeout=15):
+    """Wait until `get()` moved off `before`, then until it holds still."""
+    until(lambda: get() != before, what, timeout)
+    return settle(get, what)
+
+
 def theme(name):
     with open(CONFIG, "w") as f:
         json.dump({"appearance": {"theme": name}} if name else {}, f)
@@ -117,60 +155,80 @@ try:
         sys.exit("the tagged app did not come up")
     if not home_classic.require(rpc):  # classic Home: these checks drive the native transcript
         sys.exit(2)
-    time.sleep(2)
+    settle(lambda: rpc("debug.home"), "the Chief tab")
     shot("01-home-chief-tab")
     safe_print("fixture:", rpc("debug.home_native_fixture.open", {"attachments": True, "new": True}), flush=True)
-    time.sleep(6)
+    # The fixture's transcript is shown and its attachments laid out (rows hold still).
+    until(texts, "the fixture's transcript", 30)
+    settle(lambda: read("rows"), "the fixture's rows", timeout=20)
     shot("02-conversation-photo-video-file")
     # The fixture's video is on screen now: it plays in its bubble.
+    still = pixels()
     drive("video")
-    time.sleep(1.5)
+    # Playing: the window's pixels change (the video's frames advance).
+    until(lambda: pixels() != still, "the video to play")
     shot("03-video-playing")
     drive("video")
-    time.sleep(0.5)
+    # Paused: two snapshots in a row are the same frame.
+    settle(pixels, "the paused video", reads=2)
     shot("04-video-paused")
     drive("focus")
     drive("type", text="How are you doing?")
-    time.sleep(0.8)
+    settle(lambda: read("geometry"), "the field with the typed text")
     shot("05-typed")
     record("rec-send-receive", 7)
-    time.sleep(0.4)
+    time.sleep(0.4)  # sleep-ok: still frames in the recording before the send
     drive("send")
-    time.sleep(0.9)
+    # Sent: my message is in the transcript and its row's morph has ended (rows hold still).
+    until(lambda: any("How are you doing?" in t for t in texts()), "my message in the transcript")
+    settle(lambda: read("rows"), "the sent message's row")
+    sent = texts()
     shot("06-sent")
-    time.sleep(1.0)
+    until(lambda: read("typing").get("ok"), "the Chief's typing bubble")
     shot("07-typing")
-    time.sleep(4.5)
+    # Received: the typing bubble is gone and the Chief's answer is in the transcript.
+    until(lambda: not read("typing").get("ok") and texts() != sent, "the Chief's answer", 30)
+    settle(lambda: read("rows"), "the answer's row")
     shot("08-received")
+    before = pixels()
     drive("tapback")
-    time.sleep(1.5)
+    changed_then_settled(before, pixels, "the tapback on screen")
     shot("09-tapback")
+    before = read("geometry")
     safe_print("attach:", rpc("debug.home.attach", {"paths": [opts.photo], "via": "drop"}), flush=True)
-    time.sleep(3)
+    # The chip grows the field: the geometry changes, then holds.
+    changed_then_settled(before, lambda: read("geometry"), "the photo chip in the field")
     drive("focus")
     drive("type", text="A photo")
-    time.sleep(0.8)
+    settle(lambda: read("geometry"), "the field with the chip and text")
     shot("10-photo-chip")
+    count = len(texts())
     drive("send")
-    time.sleep(3)
+    until(lambda: len(texts()) > count, "the photo message in the transcript")
+    settle(lambda: read("rows"), "the photo message's row", timeout=15)
     shot("11-photo-sent")
+    before = read("geometry")
     drive("scroll", dy=-500)
-    time.sleep(1.2)
+    changed_then_settled(before, lambda: read("geometry"), "the transcript to scroll up")
     shot("12-scrolled-up")
     drive("focus")
     drive("type", text="Sent while scrolled up")
     record("rec-scrolled-up-send", 3)
-    time.sleep(0.3)
+    time.sleep(0.3)  # sleep-ok: still frames in the recording before the send
     drive("send")
-    time.sleep(0.25)
+    time.sleep(0.25)  # sleep-ok: the shot is a sample 0.25 s into the send's animation (mid-move, on purpose)
     shot("13-scrolled-up-send-mid")
-    time.sleep(2.5)
+    until(lambda: any("Sent while scrolled up" in t for t in texts()), "the scrolled-up send in the transcript")
+    settle(lambda: (read("rows"), read("geometry")), "the transcript after the scrolled-up send")
     shot("14-scrolled-up-send-done")
+    # The config watcher applies the theme: the window's pixels change, then hold.
+    before = pixels()
     theme("Catppuccin Latte")
-    time.sleep(4)
+    changed_then_settled(before, pixels, "the light theme", timeout=20)
     shot("15-light-theme")
+    before = pixels()
     theme("Catppuccin Mocha")
-    time.sleep(4)
+    changed_then_settled(before, pixels, "the dark theme", timeout=20)
     shot("16-dark-theme")
     safe_print("done", flush=True)
 finally:

@@ -231,13 +231,15 @@ import Testing
             "dfl.theme": 75, "dfl.settings": 125, "daemon.binary_resolved": 150, "dfl.daemon_cloud_updater": 325,
             "dfl.first_window_hooks": 335, "dfl.home_history": 345, "daemon_snapshot_loaded": 365,
             "connecting_view_shown": 366, "connecting_view_left": 367, "workspace_content_shown": 368,
-            "sidebar_rows_shown": 369, "first_window_flushed": 370, "agent_pane.launch_image_shown": 371,
+            "sidebar_rows_shown": 369, "first_window_flushed": 370, "pages.deferred_until_frame": 370.5, "agent_pane.launch_image_shown": 371,
             "first_terminal_surface_created": 380, "first_terminal_content": 450, "first_terminal_content_applied": 451,
             "first_terminal_frame": 452, "chromium_page.make_start": 410, "chromium_page.browser_created": 420,
-            "home.page_host_made": 430, "agent_pane.view_created": 600, "agent_pane.transport_open": 650,
+            "home.page_host_made": 430, "pages.created": 460, "agent_pane.view_created": 600, "agent_pane.transport_open": 650,
             "terminal_input_accepted": 640, "terminal_echo": 645,
             "window.make_start": 341, "window.init_done": 343, "window.ordered_front": 346, "window.restore_wait_start": 361,
             "window.restore_wait_end": 362.25, "frame.commit_start": 363, "first_key_down": 630,
+            "premain.first_initializer": 31, "main.setup_done": 41.5, "daemon.spawned": 290, "daemon.reused": 299,
+            "first_page.navigation_start": 905, "first_page.dom_content_loaded": 940, "first_page.first_contentful_paint": 962,
         ]
         let record = Self.record(marks: Self.merged(phases))
         var expected = phases.mapValues { ($0 * 10).rounded() / 10 }

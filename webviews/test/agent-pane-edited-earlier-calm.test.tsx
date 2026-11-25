@@ -1,9 +1,10 @@
 // l10n-allow-file: test fixture paths and file text, not shipped UI.
-// Only the chat's latest edited-files card shows its buttons at rest. Before: every card of every
+// Every edited-files card shows its Undo and its one chevron at rest. Long ago: every card of every
 // past turn drew Undo, View changes and Second opinion, so a long chat read as a column of buttons
-// (Leo, 2026-11-11: "holy fuck it's so shitty to look at the transcript right now"). Now an earlier
-// card's buttons show on its hover or keyboard focus, as an earlier reply's footer does. Second
-// opinion is available elsewhere, not on this card; an Undo under way keeps its buttons shown.
+// (Leo, 2026-11-11: "holy fuck it's so shitty to look at the transcript right now"). Now a card has
+// one way to a change, inline (Leo, 2026-11-22: "it should be able to just open inline inside the
+// fucking existing agent chat situation."): no View changes button, nothing shown only on hover;
+// the opened diff's Open in Changes icon opens the changes pane. Second opinion lives elsewhere.
 import { afterAll, afterEach, beforeAll, expect, setDefaultTimeout, test } from "bun:test";
 import { settleReact } from "./support/domTeardown";
 import fs from "node:fs";
@@ -21,6 +22,7 @@ const keys = [
   "HTMLElement",
   "Element",
   "Node",
+  "customElements",
   "MutationObserver",
   "ResizeObserver",
   "requestAnimationFrame",
@@ -29,6 +31,7 @@ const keys = [
   "IS_REACT_ACT_ENVIRONMENT",
 ] as const;
 const saved = keys.map((key) => [key, key in scope, scope[key]] as const);
+const added: string[] = [];
 let root: Root | undefined;
 let host: HTMLElement;
 let window: JSDOM["window"];
@@ -56,6 +59,8 @@ beforeAll(() => {
     HTMLElement: window.HTMLElement,
     Element: window.Element,
     Node: window.Node,
+    // The inline diff loads Pierre's diff element, which registers itself on customElements.
+    customElements: window.customElements,
     MutationObserver: window.MutationObserver,
     ResizeObserver: class {
       observe() {}
@@ -67,16 +72,27 @@ beforeAll(() => {
     getComputedStyle: window.getComputedStyle.bind(window),
     IS_REACT_ACT_ENVIRONMENT: true,
   });
+  // Pierre's registered elements (the inline diff) read their own DOM constructors at import time.
+  for (const key of Object.getOwnPropertyNames(window))
+    if (/^(HTML|SVG|CSS|Shadow|Document)/.test(key) && !(key in scope)) {
+      added.push(key);
+      scope[key] = (window as unknown as Record<string, unknown>)[key];
+    }
   host = window.document.getElementById("root")!;
 });
 
-afterEach(() => {
+afterEach(async () => {
   act(() => root?.unmount());
   root = undefined;
+  // An opened inline diff is a transcript disclosure, kept by row id and path across renders.
+  const { resetTranscriptDisclosure } =
+    await import("../src/agent-session/acpmux/conversation/transcriptDisclosureModel");
+  resetTranscriptDisclosure();
 });
 
 afterAll(async () => {
   await settleReact();
+  for (const key of added) delete scope[key];
   for (const [key, had, value] of saved) {
     if (had) scope[key] = value;
     else delete scope[key];
@@ -110,7 +126,7 @@ const editRow = (id: string, file: string): AcpmuxRow => ({
 const EARLIER = editRow("edit-earlier", "/repo/src/a.ts");
 const LATEST = editRow("edit-latest", "/repo/src/b.ts");
 
-async function renderCards(onOpenDiff: (rowId: string) => void = () => undefined) {
+async function renderCards(onOpenDiff: (rowId: string, path?: string, opener?: HTMLElement) => void = () => undefined) {
   const { createRoot } = await import("react-dom/client");
   const { EditedFilesCard } = await import("../src/agent-session/acpmux/conversation/EditedFilesCard");
   const { SessionEditsContext } = await import("../src/agent-session/acpmux/turnChanges/sessionRows");
@@ -133,38 +149,48 @@ const shown = (card: HTMLElement, selector: string) => {
   return window.getComputedStyle(button!).opacity !== "0";
 };
 
-test("every card shows its Undo and View changes at rest, as the Codex app does (Lucas, 2026-11-14)", async () => {
+// One way to see a change, and it opens inside the card (Leo, 2026-11-22: "there's anther issue of you
+// being able to click on it to view changes and also click on a view changes button. decide." then
+// "it should be able to just open inline inside the fucking existing agent chat situation."): no View
+// changes button, no counts that turn into a link on hover; the header (or its chevron) opens the
+// diff inline, and the opened diff's Open in Changes icon is the way to the changes pane.
+test("every card shows its Undo and its one chevron at rest, as the Codex app does (Lucas, 2026-11-14)", async () => {
   const { earlier, latest } = await renderCards();
   expect(earlier.hasAttribute("data-earlier")).toBe(true);
   expect(latest.hasAttribute("data-earlier")).toBe(false);
   for (const card of [earlier, latest]) {
-    expect(shown(card, ".acpmux-review-changes")).toBe(true);
+    expect(shown(card, ".acpmux-edited-chevron")).toBe(true);
     expect(shown(card, ".acpmux-edited-undo")).toBe(true);
+    expect(card.querySelector(".acpmux-review-changes")).toBeNull();
+    expect(card.querySelector(".acpmux-edited-summary, .acpmux-edited-summary-link")).toBeNull();
   }
 });
 
-test("an earlier card's View changes takes keyboard focus and stays shown", async () => {
+test("an earlier card's chevron takes keyboard focus and stays shown", async () => {
   const { earlier } = await renderCards();
-  const review = earlier.querySelector<HTMLElement>(".acpmux-review-changes")!;
-  await act(async () => review.focus());
-  expect(review.ownerDocument.activeElement).toBe(review);
-  expect(shown(earlier, ".acpmux-review-changes")).toBe(true);
+  const chevron = earlier.querySelector<HTMLElement>(".acpmux-edited-chevron")!;
+  await act(async () => chevron.focus());
+  expect(chevron.ownerDocument.activeElement).toBe(chevron);
+  expect(shown(earlier, ".acpmux-edited-chevron")).toBe(true);
   expect(shown(earlier, ".acpmux-edited-undo")).toBe(true);
 });
 
-test("cards retain Undo and View changes without offering Second opinion", async () => {
+test("cards keep only Undo in their actions, with no View changes or Second opinion", async () => {
   const opened: string[] = [];
   const { earlier, latest } = await renderCards((rowId) => opened.push(rowId));
   for (const card of [earlier, latest]) {
     expect(card.querySelector(".acpmux-second-opinion")).toBeNull();
     const actions = card.querySelector(".acpmux-edited-actions")!;
-    expect([...actions.querySelectorAll("button")].map((button) => button.textContent)).toEqual([
+    const buttons = [...actions.querySelectorAll("button")];
+    expect(buttons.map((button) => button.getAttribute("aria-label"))).toEqual(["Undo"]);
+    expect(buttons.map((button) => button.querySelector(".cv-fit-label")?.textContent)).toEqual(["Undo"]);
+    // Every button the card shows at rest: Undo and the one chevron, never a second way to the diff.
+    expect([...card.querySelectorAll("button")].map((button) => button.getAttribute("aria-label"))).toEqual([
       "Undo",
       "View changes",
     ]);
   }
-  await act(async () => latest.querySelector<HTMLElement>(".acpmux-review-changes")!.click());
-  expect(opened).toEqual(["edit-latest"]);
+  expect(opened).toEqual([]);
 });
 
 test("a lone card with no session rows is the latest", async () => {
@@ -174,28 +200,34 @@ test("a lone card with no session rows is the latest", async () => {
   await act(async () => root!.render(<EditedFilesCard row={EARLIER} onOpenDiff={() => undefined} />));
   const card = host.querySelector<HTMLElement>(".acpmux-edited")!;
   expect(card.hasAttribute("data-earlier")).toBe(false);
-  expect(shown(card, ".acpmux-review-changes")).toBe(true);
+  expect(shown(card, ".acpmux-edited-chevron")).toBe(true);
 });
 
-test("the aggregate is keyboard reachable and opens that card without toggling its inline diff", async () => {
-  const opened: string[] = [];
-  const { latest } = await renderCards((rowId) => opened.push(rowId));
-  const summary = latest.querySelector<HTMLButtonElement>(".acpmux-edited-summary")!;
-  const counts = summary.querySelector<HTMLElement>(".acpmux-edited-summary-counts")!;
-  const link = summary.querySelector<HTMLElement>(".acpmux-edited-summary-link")!;
-  expect(summary.getAttribute("aria-label")).toBe("View changes +1 -1");
-  expect(counts.textContent).toBe("+1-1");
-  await act(async () => summary.focus());
-  expect(window.document.activeElement).toBe(summary);
-  expect(link.textContent).toBe("View changes");
-  await act(async () => summary.click());
-  expect(opened).toEqual(["edit-latest"]);
-  expect(latest.querySelector(".acpmux-edited-diff")).toBeNull();
-  await act(async () => summary.blur());
-  expect(window.document.activeElement).not.toBe(summary);
+test("the one-file card's chevron is keyboard reachable and opens its diff inline; Open in Changes opens the pane", async () => {
+  const opened: { rowId: string; path?: string; opener?: HTMLElement }[] = [];
+  const { latest } = await renderCards((rowId, path, opener) => opened.push({ rowId, path, opener }));
+  // The counts are plain counts: no button, no hover-revealed link.
+  expect(latest.querySelector(".acpmux-edited-sub .acpmux-diff-counts")?.textContent).toBe("+1-1");
+  expect(latest.querySelector(".acpmux-edited-sub button")).toBeNull();
+  const chevron = latest.querySelector<HTMLButtonElement>("button.acpmux-edited-chevron")!;
+  expect(chevron.getAttribute("aria-label")).toBe("View changes");
+  expect(chevron.getAttribute("aria-expanded")).toBe("false");
+  await act(async () => chevron.focus());
+  expect(window.document.activeElement).toBe(chevron);
+  await act(async () => chevron.click());
+  // Inline, not the changes pane.
+  expect(opened).toEqual([]);
+  expect(chevron.getAttribute("aria-expanded")).toBe("true");
+  expect(latest.querySelector(".acpmux-edited-stack .cv-edit-diff")).not.toBeNull();
+  const open = latest.querySelector<HTMLButtonElement>(".acpmux-edited-stack button.acpmux-edited-open")!;
+  expect(open.getAttribute("aria-label")).toBe("Open in Changes");
+  await act(async () => open.click());
+  expect(opened).toEqual([{ rowId: "edit-latest", path: "/repo/src/b.ts", opener: open }]);
+  await act(async () => chevron.click());
+  expect(chevron.getAttribute("aria-expanded")).toBe("false");
 });
 
-test("file rows retain shared parent paths and exact diff targets without inventing Undo support", async () => {
+test("the opened card names each file from the repository and opens exact diff targets, without inventing Undo support", async () => {
   const { createRoot } = await import("react-dom/client");
   const { EditedFilesCard } = await import("../src/agent-session/acpmux/conversation/EditedFilesCard");
   const first = editRow("relative-first", "src/net/retry.ts");
@@ -206,17 +238,18 @@ test("file rows retain shared parent paths and exact diff targets without invent
   await act(async () =>
     root!.render(<EditedFilesCard row={row} onOpenDiff={(id, path) => opened.push({ id, path })} />),
   );
-  const fileRows = [...host.querySelectorAll<HTMLButtonElement>(".acpmux-edited-file")];
-  expect(fileRows.map((file) => file.querySelector(".acpmux-edited-dir")?.textContent)).toEqual([
-    "src/net/",
-    "src/net/",
-  ]);
-  expect(fileRows.map((file) => file.querySelector(".acpmux-edited-base")?.textContent)).toEqual([
-    "retry.ts",
-    "client.ts",
-  ]);
   expect(host.querySelector(".acpmux-edited-undo")).toBeNull();
-  await act(async () => fileRows[1]!.click());
+  // One click opens every file's diff inline, not the changes pane.
+  await act(async () => host.querySelector<HTMLElement>(".acpmux-edited-head")!.click());
+  expect(opened).toEqual([]);
+  const sections = [...host.querySelectorAll<HTMLElement>(".acpmux-edited-section")];
+  expect(sections.map((section) => section.querySelector(".cv-edit-diff__name")?.textContent)).toEqual([
+    "src/net/retry.ts",
+    "src/net/client.ts",
+  ]);
+  expect(sections.every((section) => section.querySelector(".cv-edit-diff") !== null)).toBe(true);
+  // The jump out of inline: a file's Open in Changes opens the pane at that file.
+  await act(async () => sections[1]!.querySelector<HTMLButtonElement>(".acpmux-edited-open")!.click());
   expect(opened).toEqual([{ id: row.id, path: "src/net/client.ts" }]);
 });
 
@@ -235,22 +268,22 @@ test("a file outside the checkpoint reads from the chat's folder, not from the d
       </SessionCwdContext.Provider>,
     ),
   );
-  const file = host.querySelector<HTMLElement>(".acpmux-edited-file")!;
-  expect(file.querySelector(".acpmux-edited-dir-head")?.textContent).toBe("app/");
-  expect(file.querySelector(".acpmux-edited-dir")?.textContent).toBe("app/webviews/test/");
-  expect(file.querySelector(".acpmux-edited-base")?.textContent).toBe("scratch.test.ts");
+  await act(async () => host.querySelector<HTMLElement>(".acpmux-edited-head")!.click());
+  const name = host.querySelector<HTMLElement>(".acpmux-edited-section .cv-edit-diff__name")!;
+  // Never /Users/… with its middle cut: the path from the chat's folder, whole.
+  expect(name.textContent).toBe("app/webviews/test/scratch.test.ts");
   // The diff still opens at the full path.
-  expect(file.querySelector(".acpmux-edited-path")?.getAttribute("data-path")).toBe(
-    "/Users/me/code/app/webviews/test/scratch.test.ts",
-  );
+  expect(name.getAttribute("data-path")).toBe("/Users/me/code/app/webviews/test/scratch.test.ts");
 });
 
-test("without a diff opener, the aggregate remains static counts", async () => {
+test("without a diff opener, the diff still opens inline, with no Open in Changes", async () => {
   const { createRoot } = await import("react-dom/client");
   const { EditedFilesCard } = await import("../src/agent-session/acpmux/conversation/EditedFilesCard");
   root = createRoot(host);
   await act(async () => root!.render(<EditedFilesCard row={LATEST} />));
-  expect(host.querySelector(".acpmux-edited-summary")).toBeNull();
   expect(host.querySelector(".acpmux-review-changes")).toBeNull();
+  await act(async () => host.querySelector<HTMLElement>(".acpmux-edited-head")!.click());
+  expect(host.querySelector(".acpmux-edited-stack .cv-edit-diff")).not.toBeNull();
+  expect(host.querySelector(".acpmux-edited-open")).toBeNull();
   expect(host.querySelector(".acpmux-edited-sub .acpmux-diff-counts")?.textContent).toBe("+1-1");
 });

@@ -48,6 +48,7 @@ import Testing
     /// The pane the moved tab goes to: it takes the tab's view from the source pane (`TabContentCache.present`).
     private final class TakingPane: SurfacePresenter {
         func surfaceWasDisplaced(_ key: String) {}
+        func surfaceIsFree(_ key: String) {}
     }
 
     /// A pane in a window showing the History page (tab 1), with a never-shown browser (tab 2) and terminal (tab 3).

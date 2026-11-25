@@ -1,0 +1,8 @@
+cmux-agent-host {{ .Chart.Version }} in namespace {{ .Release.Namespace }}.
+
+Agent slots run as {{ if .Values.slot.runtimeClassName }}pods with RuntimeClass "{{ .Values.slot.runtimeClassName }}" (a VM per slot){{ else }}plain pods (no VM boundary; acpmux keeps its per-session sandbox){{ end }}.
+
+The host agent redeems the join token once and writes the host credential to Secret
+{{ include "cmux-agent-host.hostCredentialSecret" . }}. Watch it join:
+
+  kubectl -n {{ .Release.Namespace }} logs deploy/{{ include "cmux-agent-host.fullname" . }} -f

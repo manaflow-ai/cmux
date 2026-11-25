@@ -133,6 +133,16 @@ export async function newWorktree(
   };
 }
 
+/// Clone a credential-free HTTPS remote via the local page host.
+export async function cloneRepository(callNative: Native, url: string): Promise<string> {
+  const reply = (await callNative("repo.clone", { url, idempotency_key: crypto.randomUUID() })) as
+    | { cwd?: unknown }
+    | undefined;
+  const cwd = reply?.cwd;
+  if (typeof cwd !== "string" || !cwd.startsWith("/")) throw new Error(translate("source.url.failed"));
+  return cwd;
+}
+
 /// A new chat in `folder`, a worktree New Worktree made, for a chat that started while it was being
 /// made (that chat keeps its own folder). A Cloud or SSH chat's worktree is that machine's folder:
 /// the new chat starts there too (`chat.newHere`), never on this Mac in a same-named path.
