@@ -357,8 +357,14 @@ impl Hub {
         if !busy {
             self.confirm_claude_stored(&session).await;
         }
-        // A recap the person will want is asked before the process goes (`away_recap.rs`).
-        if busy || !self.idle_eligible(&session) || self.recap_before_sleep(&session) {
+        // A recap the person will want is asked before the process goes (`away_recap.rs`), and
+        // an armed cache compaction runs now, into this live harness, while its cache is warm:
+        // one into the respawned harness rewrites the whole context (`cache_compact.rs`).
+        if busy
+            || !self.idle_eligible(&session)
+            || self.recap_before_sleep(&session)
+            || self.cache_compact_before_reap(&session)
+        {
             self.touch(&session);
             return;
         }
