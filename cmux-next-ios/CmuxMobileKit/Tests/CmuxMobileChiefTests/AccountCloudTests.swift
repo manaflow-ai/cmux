@@ -156,9 +156,19 @@ import Testing
         #expect(!model.canAct)
     }
 
-    @Test func anErroredGitHubConnectionCanConnectAgain() {
+    @Test func anErroredGitHubConnectionSaysSoAndCanConnectAgain() {
         let value = Data(#"{"connections":[{"provider":"github","status":"error"}],"providers":[{"provider":"github","configured":true}]}"#.utf8)
-        #expect(GitHubConnect.state(value) == .notConnected)
+        #expect(GitHubConnect.state(value) == .error)
+    }
+
+    @Test func aSuspendedOrUninstalledGitHubConnectionNeedsReconnecting() {
+        let value = Data(#"{"connections":[{"provider":"github","status":"needs_reauth"}],"providers":[{"provider":"github","configured":true}]}"#.utf8)
+        #expect(GitHubConnect.state(value) == .needsReauth)
+        // An active connection beside it still reads connected, and a pending link reads pending.
+        let both = Data(#"{"connections":[{"provider":"github","status":"needs_reauth"},{"provider":"github","status":"active","account_login":"acme"}],"providers":[{"provider":"github","configured":true}]}"#.utf8)
+        #expect(GitHubConnect.state(both) == .connected(["acme"]))
+        let linking = Data(#"{"connections":[{"provider":"github","status":"needs_reauth"},{"provider":"github","status":"pending"}],"providers":[{"provider":"github","configured":true}]}"#.utf8)
+        #expect(GitHubConnect.state(linking) == .pending)
     }
 
     @Test func signedOutSaysSo() async {
@@ -198,7 +208,36 @@ import Testing
         #expect(Service.params("integration.connect")?["provider"] as? String == "github")
         #expect(model.state == .pending)
         #expect(GitHubConnect.installationURL("https://evil.example/apps/x/installations/new") == nil)
-        #expect(GitHubConnect.installationURL("https://github.com/login/oauth/authorize") == nil)
+        #expect(GitHubConnect.installationURL("https://github.com/login/oauth/access_token") == nil)
+    }
+
+    /// The three pages integration.connect answers open; nothing else does (the Mac's check).
+    @Test func connectGitHubOpensTheThreeConnectPagesOnly() {
+        for good in ["https://github.com/apps/cmux/installations/new?state=s",
+                     "https://github.com/apps/cmux/installations/new/permissions?target_id=4242&state=s",
+                     "https://github.com/login/oauth/authorize?client_id=Iv1.abc&state=s"] {
+            #expect(GitHubConnect.installationURL(good)?.absoluteString == good)
+        }
+        for bad in ["http://github.com/login/oauth/authorize", "https://github.com.evil.test/login/oauth/authorize",
+                    "https://user@github.com/login/oauth/authorize", "https://github.com:8443/login/oauth/authorize",
+                    "https://github.com/apps/cmux/installations/new/permissions/more", "https://github.com/settings/installations/42"] {
+            #expect(GitHubConnect.installationURL(bad) == nil, "\(bad)")
+        }
+    }
+
+    /// A chat's Connect names its repository and link; an answer of `connected: true` opens nothing.
+    @Test func connectGitHubForARepositoryAsksTheAPIAndConnectedOpensNothing() async {
+        Service.reset(["integration.list": (200, #"{"value":{"connections":[{"provider":"github","status":"active","account_login":"octo"}],"providers":[{"provider":"github","configured":true}]}}"#),
+                       "integration.connect": (200, #"{"value":{"connected":true,"connection":{"id":"conn_1"}}}"#)])
+        let account = Self.account()
+        var opened: [URL] = []
+        let model = GitHubConnect(account: { account }, open: { opened.append($0) })
+        await model.connect(repo: "acme/web", returnTo: "cmux://session/ses-01")
+        #expect(opened.isEmpty)
+        #expect(model.failure == nil)
+        #expect(Service.params("integration.connect")?["repo"] as? String == "acme/web")
+        #expect(Service.params("integration.connect")?["return_to"] as? String == "cmux://session/ses-01")
+        #expect(model.state == .connected(["octo"]))
     }
 
     @Test func connectGitHubDoesNothingWhenConnected() async {

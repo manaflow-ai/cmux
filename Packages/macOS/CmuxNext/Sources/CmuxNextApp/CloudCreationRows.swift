@@ -92,7 +92,7 @@ enum CloudCreationRows {
         case .updating, .retrying, .offline, .cannotUpdate: return line
         case .failed where event.build.map { build in DaemonBuildCommit(compatibility?.buildCommit)?.sameCommit(build) == true } == true:
             return detail
-        case .updated, .failed: return [detail, line].compactMap { $0 }.filter { !$0.isEmpty }.joined(separator: "\n")
+        case .updated, .kept, .failed: return [detail, line].compactMap { $0 }.filter { !$0.isEmpty }.joined(separator: "\n")
         case .cleared: return detail
         }
     }

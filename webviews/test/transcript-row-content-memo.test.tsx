@@ -5,7 +5,7 @@
 // line under a running turn keeps one version while the send in flight changes recipient
 // (turns.ts `sendingTo`), and a stale "Sending to ..." is worse than a redraw.
 import { afterAll, beforeAll, expect, test } from "bun:test";
-import { act } from "react";
+import { act, memo } from "react";
 import { createRoot } from "react-dom/client";
 import { JSDOM } from "jsdom";
 import type { AcpmuxRow } from "../src/agent-session/acpmux/model";
@@ -13,14 +13,25 @@ import { ACTIVITY_LINE } from "../src/agent-session/acpmux/conversation/turns";
 import type { RowProps } from "../src/agent-session/acpmux/rows/rowProps";
 import { RowContent } from "../src/agent-session/acpmux/VirtualTranscript";
 import { sameRowFrame } from "../src/agent-session/acpmux/virtualTranscriptModel";
+import { MessageRow } from "../src/agent-session/acpmux/rows/MessageRow";
 import { teardownDom } from "./support/domTeardown";
 
 const scope = globalThis as Record<string, unknown>;
-const keys = ["window", "document", "navigator", "Node", "HTMLElement", "Element", "IS_REACT_ACT_ENVIRONMENT"];
+const keys = [
+  "window",
+  "document",
+  "navigator",
+  "Node",
+  "HTMLElement",
+  "Element",
+  "IS_REACT_ACT_ENVIRONMENT",
+  "requestAnimationFrame",
+  "cancelAnimationFrame",
+];
 const saved = keys.map((key) => [key, key in scope, scope[key]] as const);
 let dom: JSDOM;
 beforeAll(() => {
-  dom = new JSDOM("<!doctype html><main id=root></main>", { url: "http://localhost/" });
+  dom = new JSDOM("<!doctype html><main id=root></main>", { url: "http://localhost/", pretendToBeVisual: true });
   Object.assign(scope, {
     window: dom.window,
     document: dom.window.document,
@@ -29,6 +40,8 @@ beforeAll(() => {
     HTMLElement: dom.window.HTMLElement,
     Element: dom.window.Element,
     IS_REACT_ACT_ENVIRONMENT: true,
+    requestAnimationFrame: dom.window.requestAnimationFrame.bind(dom.window),
+    cancelAnimationFrame: dom.window.cancelAnimationFrame.bind(dom.window),
   });
 });
 afterAll(async () => {
@@ -68,4 +81,31 @@ test("an activity line whose recipient changes under the same version draws the 
 test("the activity line's frame redraws when its recipient changes under the same version", () => {
   expect(sameRowFrame({ row: line("tests") }, { row: line("reviewer") })).toBe(false);
   expect(sameRowFrame({ row: line("tests") }, { row: line("tests") })).toBe(true);
+});
+
+test("a recreated reply passes both memo boundaries even when its row id and version repeat", async () => {
+  const root = createRoot(document.getElementById("root")!);
+  const props = { Component: MessageRow, onToggleActivity: () => {}, expanded: false };
+  // The real frame comparator and content/message renderers: the inner reveal key cannot reset
+  // its retained body if either memo boundary mistakes another message for the previous one.
+  const Frame = memo(({ row }: { row: AcpmuxRow }) => <RowContent {...props} row={row} />, sameRowFrame);
+  const old: AcpmuxRow = {
+    id: "assistant-1",
+    version: 1,
+    at: 1_000,
+    kind: "assistant",
+    text: "The previous session had a much longer answer that must not survive recreation.",
+  };
+  const next = { ...old, at: 2_000, text: "The new answer." };
+  try {
+    await act(async () => root.render(<Frame row={old} />));
+    expect(document.querySelector(".cv-md")?.textContent).toBe(old.text);
+    await act(async () => root.render(<Frame row={next} />));
+    expect(document.querySelector(".cv-md")?.textContent).toBe(next.text);
+    expect(document.querySelectorAll(".cv-fresh")).toHaveLength(0);
+    // A cloned, unchanged snapshot still reuses its row frame.
+    expect(sameRowFrame({ row: next }, { row: { ...next } })).toBe(true);
+  } finally {
+    await act(async () => root.unmount());
+  }
 });

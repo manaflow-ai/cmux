@@ -13,9 +13,15 @@ import os
 import re
 import stat
 import subprocess
+import sys
 import tempfile
 import unittest
 from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import workflow_jobs  # noqa: E402
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts" / "ci"))
+import gh_expressions  # noqa: E402  (finds each ${{ }}: a regex cuts at a }} in a string)
 
 ROOT = Path(__file__).resolve().parents[1]
 SCRIPT = ROOT / "scripts" / "ci" / "gh_budget_wait.sh"
@@ -47,6 +53,8 @@ if [ "$1 $2" = "api rate_limit" ]; then
   if [ "${4:-}" = ".resources.core.remaining" ]; then echo "${CORE_LEFT:-5000}"; else echo 0; fi
   exit 0
 fi
+# A call on the spare token (GH_TOKEN equal to $SPARE) has its own limit: never refused.
+if [ -n "${SPARE:-}" ] && [ "${GH_TOKEN:-}" = "$SPARE" ]; then echo "spare call $*" >> "$state/log"; echo "ok $*"; exit 0; fi
 echo "call $*" >> "$state/log"
 left="$(cat "$state/refusals" 2>/dev/null || echo 0)"
 if [ "$left" -gt 0 ]; then
@@ -151,9 +159,89 @@ class WrapperTests(unittest.TestCase):
         self.assertEqual((h.state / "slept").read_text().split(), ["60", "120", "240", "300", "300"])
         self.assertEqual(h.waited(), 1020)
 
+    def test_a_refusal_moves_to_the_spare_token_at_once(self) -> None:
+        # Run 43797999732's image roll dispatch: "HTTP 403: API rate limit exceeded for installation" on
+        # github.token, whose budget every workflow shares; the cmux-bot App's token has its own.
+        h = self.harness(refusals=3, GH_BUDGET_WAIT_MAX_SECONDS="0", GH_TOKEN="workflow", SPARE="bot",
+                         GH_TOKEN_SPARE="bot")
+        result = h.gh("workflow", "run", "cloud-vm-image-roll.yml")
+        self.assertEqual(result.returncode, 0, result)
+        self.assertEqual(h.calls(), ["call workflow run cloud-vm-image-roll.yml",
+                                     "spare call workflow run cloud-vm-image-roll.yml"])
+        self.assertIn("the next try goes out on GH_TOKEN_SPARE now", result.stderr)
+        self.assertEqual(h.waited(), 0)
+
+    def test_a_refused_spare_moves_to_the_next_pool_before_any_wait(self) -> None:
+        # Run 45060092627 (2026-11-22 19:22Z): the hot verify dispatch's github.token hour read 0 left and the job
+        # failed. Each App installation has its own hour, so a refused pool hands the call to the next one.
+        h = self.harness(refusals=3, GH_BUDGET_WAIT_MAX_SECONDS="0", GH_TOKEN="workflow", SPARE="pool3",
+                         GH_TOKEN_SPARE="bot", GH_TOKEN_SPARES="pool3 pool4")
+        result = h.gh("workflow", "run", "cmux-next-hot-verify.yml")
+        self.assertEqual(result.returncode, 0, result)
+        self.assertEqual(h.calls(), ["call workflow run cmux-next-hot-verify.yml",
+                                     "call workflow run cmux-next-hot-verify.yml",
+                                     "spare call workflow run cmux-next-hot-verify.yml"])
+        self.assertIn("the next try goes out on GH_TOKEN_SPARES pool 2 now", result.stderr)
+        self.assertEqual(h.waited(), 0)
+
+    def test_every_pool_refused_waits_then_rotates_again(self) -> None:
+        h = self.harness(refusals=3, GH_BUDGET_WAIT_MAX_SECONDS="1", GH_TOKEN="workflow", GH_TOKEN_SPARE="bot",
+                         GH_TOKEN_SPARES="pool3")
+        result = h.gh("api", "x")
+        self.assertEqual(result.returncode, 0, result)
+        self.assertEqual(h.calls(), ["call api x", "call api x", "call api x", "rate_limit", "call api x"])
+        self.assertEqual(h.waited(), 1)
+
+    def test_the_hot_verify_dispatch_goes_out_with_a_spare_pool(self) -> None:
+        # The dispatch is the plan job's last step since #51558 (the hand-off job is gone).
+        text = (ROOT / ".github" / "workflows" / "cmux-next-hot-verify.yml").read_text()
+        hand_off = text[text.index("  plan:\n"):text.index("\n  target:\n")]
+        self.assertIn("bash scripts/ci/gh_budget_wait.sh --install", hand_off)
+        self.assertIn("GH_TOKEN_SPARE: ${{ steps.cmux-bot-token.outputs.token }}", hand_off)
+        self.assertIn("continue-on-error: true", hand_off)
+        wait = int(re.search(r"GH_BUDGET_WAIT_MAX_SECONDS: (\d+)", hand_off).group(1))
+        timeout = int(re.search(r"timeout-minutes: (\d+)", hand_off).group(1))
+        self.assertGreaterEqual(wait, 3600, "a reset can be an hour away")
+        self.assertGreater(timeout * 60, wait, "the job must outlive its longest wait")
+
+    def test_a_refused_spare_token_waits_as_before(self) -> None:
+        h = self.harness(refusals=2, GH_BUDGET_WAIT_MAX_SECONDS="1", GH_TOKEN="workflow", GH_TOKEN_SPARE="bot")
+        result = h.gh("api", "x")
+        self.assertEqual(result.returncode, 0, result)
+        self.assertEqual(h.calls(), ["call api x", "call api x", "rate_limit", "call api x"])
+        self.assertEqual(h.waited(), 1)
+
+    def test_no_spare_token_waits_as_before(self) -> None:
+        h = self.harness(refusals=1, GH_BUDGET_WAIT_MAX_SECONDS="1", GH_TOKEN="workflow", GH_TOKEN_SPARE="")
+        self.assertEqual(h.gh("api", "x").returncode, 0)
+        self.assertEqual(h.calls(), ["call api x", "rate_limit", "call api x"])
+
     def test_a_429_counts(self) -> None:
         h = self.harness(refusals=1, GH_BUDGET_WAIT_MAX_SECONDS="1", FAKE_ERROR="HTTP 429: Too Many Requests")
         self.assertEqual(h.gh("api", "x").returncode, 0)
+
+    def test_a_request_that_never_reached_github_is_tried_again(self) -> None:
+        # Run 44154643146: wake-nightly-next-tick's `gh workflow run` and retry-nightly-next's died on
+        # one "net/http: TLS handshake timeout", and nothing restarted the nightly loop. A request
+        # that failed before it was sent did nothing on GitHub's side, so a dispatch is safe to retry.
+        for error in ('Get "https://api.github.com/repos/o/r/actions/workflows/nightly.yml": '
+                      "net/http: TLS handshake timeout",
+                      'Post "https://api.github.com/graphql": dial tcp 140.82.112.6:443: i/o timeout',
+                      'Get "https://api.github.com/x": dial tcp: lookup api.github.com: no such host'):
+            with self.subTest(error=error):
+                h = self.harness(refusals=1, GH_BUDGET_WAIT_MAX_SECONDS="1", FAKE_ERROR=error)
+                result = h.gh("workflow", "run", "nightly-next-tick.yml")
+                self.assertEqual(result.returncode, 0, result)
+                self.assertEqual(h.calls(), ["call workflow run nightly-next-tick.yml"] * 2)
+                self.assertIn("did not reach GitHub", result.stderr)
+                self.assertEqual(h.waited(), 1)
+
+    def test_a_request_that_may_have_reached_github_is_not_tried_again(self) -> None:
+        # A reset or timeout after the request went out may have dispatched it already.
+        h = self.harness(refusals=1, GH_BUDGET_WAIT_MAX_SECONDS="1",
+                         FAKE_ERROR='Post "https://api.github.com/x": read tcp 10.0.0.2:5->1.2.3.4:443: read: connection reset by peer')
+        self.assertEqual(h.gh("workflow", "run", "x.yml").returncode, 1)
+        self.assertEqual(h.calls(), ["call workflow run x.yml"])
 
     def test_another_failure_is_not_retried(self) -> None:
         h = self.harness(FAKE_FAIL="HTTP 404: Not Found")
@@ -350,11 +438,19 @@ PUBLISH_PATH = (
     "find-nightly-next-recovery", "recover-nightly-next-notarization", "publish-nightly", "publish-nightly-next-github", "keep-published-dsyms",
     "generate-nightly-deltas", "republish-nightly-deltas", "published-in", "sign-release-notes",
     "publish-release-notes", "publish-nightly-reel", "build-nightly-app",
-    # The dispatches: run 42726398544's sign dispatch failed on "HTTP 403: API rate limit exceeded for
+    # The dispatches: run 42726398544's dispatch failed on "HTTP 403: API rate limit exceeded for
     # installation" and nothing published for two hours (2026-11-10). A refused dispatch did nothing on
     # GitHub's side, so waiting and trying it again never starts a second run.
-    "dispatch-nightly-next-sign", "dispatch-published-in", "retry-nightly-next",
+    "dispatch-published-in", "retry-nightly-next", "wake-nightly-next-tick",
 )
+# A dispatch that must never wait through a rate limit, so its job is not on the publish path: nightly-next-one's
+# tick ask right before notarization (docs/ci/nightly-workflow-notes.md#note-26). Waiting would hold the build; a
+# missed ask costs at most the tick's 5-minute cron, and wake-nightly-next-tick asks again at the job's end.
+DISPATCH_NEVER_WAITS = {
+    "nightly-next-one": "Ask main's nightly-next tick at notarization",
+    # The type-check hand-off (#49884) is best effort beside the nightly, never on its publish path.
+    "fixit-handoff": "Dispatch fixit-handoff on feat-cmux-next",
+}
 INSTALL = re.compile(r"bash (\.publish-tooling/)?scripts/ci/gh_budget_wait\.sh --install")
 # One-mini mode adds room for glaeda's capacity wait on the nightly mini (tests/test_nightly_mini_gate_timeouts.py);
 # these guards hold the limit with the mode off, the smaller one.
@@ -363,7 +459,8 @@ ONE_MINI_TIMEOUT = re.compile(r"\$\{\{ vars\.CI_NIGHTLY_MINI != '' && \d+ \|\| (
 
 # One-mini mode first, then the job's own limit: `${{ vars.CI_NIGHTLY_MINI != '' && <cond> && N || <mode off> }}`
 # (republish-nightly-deltas: the capacity wait on nightly-next only, then its by-track limit).
-ONE_MINI_THEN = re.compile(r"\$\{\{ vars\.CI_NIGHTLY_MINI != '' && [^|]+ && \d+ \|\| (.+) \}\}")
+# The contents of one whole expression (gh_expressions finds it).
+ONE_MINI_THEN = re.compile(r"vars\.CI_NIGHTLY_MINI != '' && [^|]+ && \d+ \|\| (.+)", re.DOTALL)
 
 
 def mode_off_timeout(value: object) -> str:
@@ -371,7 +468,8 @@ def mode_off_timeout(value: object) -> str:
     one_mini = ONE_MINI_TIMEOUT.fullmatch(str(value))
     if one_mini:
         return one_mini.group(1)
-    then = ONE_MINI_THEN.fullmatch(str(value))
+    whole = gh_expressions.STRIPPED.fullmatch(str(value))
+    then = ONE_MINI_THEN.fullmatch(whole.group(1)) if whole else None
     return f"${{{{ {then.group(1)} }}}}" if then else str(value)
 
 
@@ -398,6 +496,15 @@ SHARED_TOKEN_ONLY = {
     ("resolve-nightly-cmux-tui-client", "Build the tip while its tree publishes"),
     ("resolve-nightly-cmux-tui-client", "Resolve cmux-tui client commit"),
     ("resolve-nightly-cmux-tui-client", "Leave the build slot to a newer nightly-next push"),
+    # The tick wake after nightly-next-one, a workflow dispatch like retry-nightly-next's (which reads
+    # github.token from its job env). No App path fits it: the release App holds contents and workflows,
+    # not actions, so it cannot dispatch; its key stays off the nightly mini; and the same call inside
+    # nightly-next-one reaches the tick while that job still holds the slot, so the tick promotes nothing.
+    ("wake-nightly-next-tick", "Ask main's nightly-next tick"),
+    # The loop's retry of a commit whose nightly-next-one left the slot before nightly-next moved: a workflow
+    # dispatch like retry-nightly-next's, for the same reason (the release App cannot dispatch). Its nightly-next
+    # read is git ls-remote.
+    ("wake-nightly-next-tick", "Retry the commit that left the slot unless nightly-next moved"),
     ("prepare-nightly-variant-primary", "Reuse a successful primary preparation"),
     ("prepare-nightly-variant-primary", "Download signing inputs (parallel)"),
     ("prepare-nightly-variant-primary", "Verify shipped libintl has its source"),
@@ -479,7 +586,14 @@ class WorkflowTests(unittest.TestCase):
 
     def test_every_dispatch_is_on_the_publish_path(self) -> None:
         for name, job in self.jobs.items():
-            if any("gh workflow run" in str(s.get("run", "")) for s in job.get("steps", [])):
+            dispatches = [s for s in job.get("steps", []) if "gh workflow run" in str(s.get("run", ""))]
+            if name in DISPATCH_NEVER_WAITS:
+                for step in dispatches:
+                    self.assertEqual(step.get("name"), DISPATCH_NEVER_WAITS[name], name)
+                    self.assertEqual(str((step.get("env") or {}).get("GH_BUDGET_WAIT_MAX_SECONDS")), "0", name)
+                    self.assertIs(step.get("continue-on-error"), True, name)
+                continue
+            if dispatches:
                 self.assertIn(name, PUBLISH_PATH, name)
 
     def test_publish_path_timeouts_leave_room_for_the_wait(self) -> None:
@@ -500,13 +614,18 @@ class WorkflowTests(unittest.TestCase):
         job = self.jobs["attest-nightly-remote-daemon"]
         # The all-nightly reservation, then our nightly-only pool, never Blacksmith (nightlies run only on our runners; run 41717500642
         # attested on cmux7s-mac-mini-glaeda-nightly-only-3).
-        self.assertNotIn("macos", job["runs-on"])
-        self.assertIn("vars.CI_NIGHTLY_ONLY_RUNNER == 'glaeda-nightly-only-m4pro'", job["runs-on"])
-        self.assertTrue(job["runs-on"].endswith("|| vars.CI_NIGHTLY_ONLY_RUNNER || 'glaeda-nightly-only-m4pro' }}"))
-        self.assertNotIn("blacksmith", job["runs-on"])
-        self.assertNotIn("RUNNER_POOLS", job["runs-on"])
-        # decide for its pipeline output, and build-nightly-app, which retains the assets in a sign run.
-        self.assertEqual(job["needs"], ["decide", "build-nightly-app", "build-nightly-remote-daemon"])
+        cells = workflow_jobs.runs_on_cells(job)
+        self.assertIsNotNone(cells, "attest-nightly-remote-daemon: runs-on has a matrix value nothing resolves")
+        self.assertEqual(len(cells), 1, cells)
+        runs_on = cells[0]
+        self.assertNotIn("macos", runs_on)
+        self.assertIn("vars.CI_NIGHTLY_ONLY_RUNNER == 'glaeda-nightly-only-m4pro'", runs_on)
+        self.assertTrue(runs_on.endswith("|| vars.CI_NIGHTLY_ONLY_RUNNER || 'glaeda-nightly-only-m4pro' }}"))
+        self.assertNotIn("blacksmith", runs_on)
+        self.assertNotIn("RUNNER_POOLS", runs_on)
+        # decide for its pipeline output, and build-nightly-app, which retains the assets in a sign run;
+        # nightly-next-one builds the same assets in one-job mode.
+        self.assertEqual(job["needs"], ["decide", "build-nightly-app", "build-nightly-remote-daemon", "nightly-next-one"])
         self.assertGreaterEqual(int(mode_off_timeout(job["timeout-minutes"])), 65)
         # No consumer can put this advisory job back on the publication path,
         # directly or transitively. A budget wait must not delay the feed.

@@ -1,4 +1,5 @@
 import { ToolVisualRow } from "./ToolVisualPreview";
+import { useToolRowCount } from "./toolRowCount";
 import { WrittenArtifactButtons } from "./writtenArtifacts";
 // One tool call drawn on its own row: its glyph, its title, and, when it has any, its
 // output (under its input's labeled fields, ToolDetail.tsx), Shell block, diff, or the card of what a
@@ -17,9 +18,12 @@ import { toolKind } from "../toolNames";
 import { toolLabel } from "../toolPaths";
 import { ROW_WIDTH, shortCommand } from "./shortCommand";
 import { commandSaid } from "./commandActions";
+import { ReadLabel } from "./ReadLabel";
+import { readFullPath, readPath } from "./readPath";
 import { SessionCwdContext } from "../turnChanges/sessionRows";
 import { EditDiff } from "./EditDiff";
 import { ShellBlock } from "./ShellBlock";
+import { RunningTime } from "./RunningTime";
 import { BackgroundMark } from "./BackgroundMark";
 import { PreviewChip } from "./PreviewChip";
 import { RunElsewhereBelow, RunElsewhereChip } from "./RunElsewhere";
@@ -34,6 +38,7 @@ import { useRowDisclosure } from "./transcriptDisclosureModel";
 import { toolResult } from "./toolResult";
 import { ToolOutput } from "./ToolOutputBody";
 import { ToolDetail } from "./ToolDetail";
+import { ToolWidget } from "./ToolWidget";
 import { FileResultCard } from "./FileResultCard";
 import { fileCard } from "./fileResults";
 import { inputFields, opensToFields } from "./toolInputFields";
@@ -46,7 +51,7 @@ import { callOutput, rowFailed, toolFailure } from "./toolFailure";
 import { RepoRecoveryCard } from "./RepoRecoveryCard";
 import { InlineFailureCause, ToolFailureCause } from "./ToolFailureCause";
 import { failureWord, useInStep } from "./toolFailureCauseModel";
-import { Check, ChevronRight } from "./icons";
+import { ChevronRight } from "./icons";
 import { toolIcon } from "./toolRowModel";
 import { repoRecoveryFor } from "./repoRecoveryCardModel";
 
@@ -65,6 +70,7 @@ export const ToolRow = memo(function ToolRow({
   asRun?: boolean;
 }) {
   const t = useT();
+  useToolRowCount(item.tool?.id, item.tool?.kind);
   const step = useInStep();
   // Closed, or open in the Verbose transcript view.
   const [open, setOpen] = useRowDisclosure(item.tool?.id);
@@ -89,11 +95,12 @@ export const ToolRow = memo(function ToolRow({
   const label = toolLabel(
     tool,
     item.text,
-    // "Running …" until it is done, "Ran …" after; its ⌃B hint is the live line's (Thinking.tsx).
-    (command) => t(foreground ? "tools.runningCommand" : "tools.ranCommand", { command }),
+    // A live command is its own shimmered line, so it needs no "Running" word (Leo, 2026-11-23:
+    // "running" doesn't need text). Finished commands keep the reader's localized "Ran" lead.
+    (command) => (running ? command : t("tools.ranCommand", { command })),
     cwd,
-    t(foreground ? "tools.runningUnnamed" : "tools.ranUnnamed"),
-    !asRun,
+    running || asRun ? undefined : t("tools.ranUnnamed"),
+    !asRun && !running,
   );
   // Failed by its status or a nonzero exit; in the background, by its status (toolFailure.ts rowFailed).
   const recovery = useMemo(() => repoRecoveryFor(tool), [tool]);
@@ -104,9 +111,11 @@ export const ToolRow = memo(function ToolRow({
   const write = writeCall(tool);
   // A shell that went on in the background says how it stands there, and its time once it ended.
   const background = !failed && !foreground && tool.background;
-  // A finished call's check and run time, at the row's right edge and only on hover
-  // (conversation.css), as on a command row; its failure already says so in the label.
-  const duration = foreground ? undefined : toolDuration(t, tool);
+  // How long a finished call took, said in its opened Shell card (a running one's edge counts it,
+  // RunningTime.tsx); its row draws no time once it ends (2026-11-11 standup).
+  const took = running ? undefined : toolDuration(t, tool);
+  // How long a running call has run, at the row's edge, counting each second (RunningTime.tsx).
+  const runningTime = running && <RunningTime startedAt={tool.startedAt} background={!foreground} />;
   // Only a call with a command line is a shell; an MCP call can also say "execute".
   const shell = tool.kind === "execute" && Boolean(tool.command);
   // Find counts a shell's whole line: a shortened line is skipped.
@@ -154,7 +163,10 @@ export const ToolRow = memo(function ToolRow({
   const [clipped, setClipped] = useState(false);
   // A call that returned or wrote images opens to them (`ToolImages`), as the Codex app's does.
   const images = useMemo(() => toolImages(tool), [tool]);
-  const expandable = hasDetails || clipped || images.length > 0;
+  // A read of one file says its name alone, its full path on hover, and does not open (ReadLabel.tsx),
+  // whatever tool read it, as the Codex app's reads.
+  const read = write || asRun ? undefined : readPath(tool);
+  const expandable = !read && (hasDetails || clipped || images.length > 0);
   // Label-only rows disclose only actual overflow, not a guessed character count. While open,
   // retain the closed measurement so wrapping does not remove the reader's collapse control.
   useLayoutEffect(() => {
@@ -174,7 +186,13 @@ export const ToolRow = memo(function ToolRow({
     () => (fold.present && opensToFields(tool, failure) ? inputFields(tool.inputSummary) : undefined),
     [fold.present, tool, failure],
   );
-  const words = write ? <WriteLabel tool={tool} write={write} t={t} /> : <ToolLabel text={label} />;
+  const words = write ? (
+    <WriteLabel tool={tool} write={write} t={t} />
+  ) : read ? (
+    <ReadLabel path={read} full={readFullPath(read, tool, cwd)} t={t} />
+  ) : (
+    <ToolLabel text={label} />
+  );
   const content = (
     <>
       <span className="cv-tool__icon">{toolIcon(toolKind(tool))}</span>
@@ -184,8 +202,7 @@ export const ToolRow = memo(function ToolRow({
         {running && <RowShimmer>{words}</RowShimmer>}
         <InlineFailureCause failure={failure} />
       </span>
-      {/* The failure word is a tag after the words, outside their ellipsis, so a long label never
-          hides it (as CommandRow's "Failed"; conversation.css `.cv-tool > .cv-tool__failed`). */}
+      {/* The failure word, for screen readers only (conversation.css clips it away; Codex draws none). */}
       {failure && (
         <span className="cv-tool__failed" data-find-skip>
           {" "}
@@ -208,7 +225,7 @@ export const ToolRow = memo(function ToolRow({
           <ReactionMark reaction={tool.reaction} />
           {tool.approved && <ApprovedMark />}
           <BackgroundMark background={background} />
-          {duration && <span className="cv-command__time">{duration}</span>}
+          {runningTime}
         </span>
       ) : foreground && shell && !tool.approved ? (
         // A running shell's edge holds only the offer of another machine, from 20 s on (RunElsewhere.tsx).
@@ -221,26 +238,28 @@ export const ToolRow = memo(function ToolRow({
             running={running}
             background={inBackground(tool)}
           />
+          {runningTime}
         </span>
+      ) : foreground && !tool.approved ? (
+        // Any other running call's edge holds only its time, from a few seconds on (RunningTime.tsx).
+        <RunningTime startedAt={tool.startedAt} meta />
       ) : (
-        (!foreground || tool.approved) && (
-          <span className="cv-command__meta">
-            {shell && running && (
-              <RunElsewhereChip
-                toolCallId={tool.id}
-                kind={tool.kind}
-                command={tool.command}
-                startedAt={tool.startedAt}
-                running={running}
-                background={inBackground(tool)}
-              />
-            )}
-            <ReactionMark reaction={tool.reaction} />
-            {tool.approved && <ApprovedMark />}
-            {!foreground && !failed && <Check size={14} className="cv-command__ok" />}
-            {duration && <span className="cv-command__time">{duration}</span>}
-          </span>
-        )
+        <span className="cv-command__meta">
+          {shell && running && (
+            <RunElsewhereChip
+              toolCallId={tool.id}
+              kind={tool.kind}
+              command={tool.command}
+              startedAt={tool.startedAt}
+              running={running}
+              background={inBackground(tool)}
+            />
+          )}
+          <ReactionMark reaction={tool.reaction} />
+          {tool.approved && <ApprovedMark />}
+          {/* Codex marks no call as passed or failed, and shows no time once it ends (2026-11-11). */}
+          {runningTime}
+        </span>
       )}
     </>
   );
@@ -276,10 +295,13 @@ export const ToolRow = memo(function ToolRow({
       {recovery && <RepoRecoveryCard recovery={recovery} />}
       <ToolFailureCause failure={failure} />
       {shell && <RunElsewhereBelow toolCallId={tool.id} command={tool.command} />}
+      {/* An installed extension's card for this call (cmux.chat.widget/1), when the daemon routes one. */}
+      {!asRun && <ToolWidget tool={tool} />}
       {/* Its images show once the row opens, a small one at its edge until then (ToolVisualRow): a run
           of screenshots stays a list of lines (Lucas, 2026-11-11: "this really really big scroll
           because it has so many images"), as the Codex app's does. */}
-      {fold.present && (shell || files.length > 0 || body || fields || images.length > 0) && (
+      {/* A read never opens: no body, even with the fold held open (Verbose view, a Find reveal). */}
+      {!read && fold.present && (shell || files.length > 0 || body || fields || images.length > 0) && (
         <div {...fold.bodyProps}>
           {images.length > 0 && <ToolImages sources={images} />}
           {shell ? (
@@ -287,9 +309,11 @@ export const ToolRow = memo(function ToolRow({
               id={detailsId}
               command={tool.command}
               output={failure?.output?.replace(/\n$/, "") ?? body}
+              cut={tool.earlierOutput}
               exitCode={failure?.exitCode ?? tool.exitCode}
               reveal={reveal}
               live={running}
+              took={took}
             />
           ) : files.length > 0 ? (
             <div id={detailsId}>

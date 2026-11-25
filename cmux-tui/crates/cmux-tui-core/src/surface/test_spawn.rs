@@ -159,6 +159,7 @@ impl Surface {
             },
             terminal: Arc::new(PtyTerminalRuntime {
                 event_surface_id: id,
+                pid: terminal_runtime::terminal_seat(&mux, Some(id as u32), &terminal_public_id),
                 terminal_public_id: terminal_public_id.map(Arc::new),
                 journal_generation: Arc::from(format!("test-{id}")),
                 journal_capture_supported: true,
@@ -175,10 +176,11 @@ impl Surface {
                 reader_completion: Arc::new(ReaderCompletion::default()),
                 reaper_thread: Mutex::new(None),
                 reaper_completion: Arc::new(ReaderCompletion::default()),
-                term: RankedMutex::new(LockRank::Terminal, "pty.term", Box::new(term)),
+                term: TerminalMirror::new(Box::new(term)),
                 stream_progress: Box::new(TerminalStreamProgress::default()),
                 terminal_metadata: Mutex::new(Default::default()),
                 tail_pin: Default::default(),
+                port_mark: Default::default(),
                 command_tracker: Mutex::new(Default::default()),
                 mouse_encoders: RankedMutex::new(
                     LockRank::Leaf,
@@ -189,6 +191,7 @@ impl Surface {
                 input_route: arc_swap::ArcSwapOption::empty(),
                 #[cfg(any(unix, windows))]
                 input_port: Default::default(),
+                paste_pacer: Mutex::default(),
                 runtime: RankedMutex::new(
                     LockRank::Runtime,
                     "pty.runtime",
@@ -210,7 +213,6 @@ impl Surface {
                 pending_host_binding: Mutex::new(None),
                 #[cfg(any(unix, windows))]
                 host_exit_record_path: None,
-                pid: Some(id as u32),
                 command: opts.command.unwrap_or_else(|| vec![platform::default_shell()]),
                 cwd: opts.cwd,
                 exit: Mutex::new(None),
@@ -219,6 +221,8 @@ impl Surface {
                 dead: AtomicBool::new(false),
                 owner_detaching: AtomicBool::new(false),
                 recover_requested: AtomicBool::new(false),
+                #[cfg(unix)]
+                host_fence_wait: Default::default(),
                 host_connection_state: AtomicU8::new(TerminalHostConnectionState::Connected as u8),
                 host_fallback: std::sync::OnceLock::new(),
                 dirty: AtomicBool::new(false),

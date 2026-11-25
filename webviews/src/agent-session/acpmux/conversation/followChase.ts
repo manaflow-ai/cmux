@@ -31,7 +31,7 @@
 // thread is drawn (reader input: the reader's view moves only with their scroll). With Reduce Motion, the
 // host's motion switch off (`data-agent-motion`/`data-cmux-motion`) or a zero move token, `shift`
 // moves nothing and the view steps at once, as before.
-import { MOTION_MS } from "../../../motion/scale.generated";
+import { MOTION_MS, MOTION_SEND_CURVE, MOTION_SEND_MS } from "../../../motion/scale.generated";
 import { motionMode } from "../../../ui/motion/motionMode";
 import { currentChatMetrics } from "../chatDisplay";
 import { bezierAt, parseBezier } from "../../../ui/cubicBezier";
@@ -93,6 +93,17 @@ export function arrivalStepMs(px: number, scale = 1, floor = MOTION_MS.quick * s
   const frames = ((Math.PI / 2) * Math.abs(px)) / (ARRIVAL_FRAME_LINES * currentChatMetrics().lineHeight);
   return Math.max(floor, (frames * 1000) / 120);
 }
+/// A send's rise (Leo, 2026-11-11: "the animation is just way too f***ing slow ... when the rest of
+/// the transcript moves up and your message comes in ... It's not fast enough and it's not f***ing
+/// together enough"). The thread rises on the send motion itself (`--agent-motion-send`, 180 ms, on
+/// MOTION_SEND_CURVE), the clock the sent bubble opens and the thinking row fades in on
+/// (conversation.css SEND-ENTRANCE), so at every frame the rise has played the share of its move the
+/// bubble has of its entrance, and both rest in the same frame. The spring it rode before started
+/// at 2 px a frame and crept home: a 60 px send rested at 258 ms, 78 ms after its bubble, and trailed
+/// the bubble's clock by up to 27 px (44 px for a 180 px send). No frame moves more than a line (a
+/// long send's first frames trail the curve by that and catch it up as it slows), and a move that
+/// comes while it plays (the thinking row, the composer's room) joins the same step and keeps its end.
+const sendEase = (progress: number) => bezierAt(MOTION_SEND_CURVE, progress);
 /// The most a landing frame moves, that at once and the chase's step in it together, in lines:
 /// under the 0.85 of a line that 95 in 100 of the stream's frames keep to (send-stream-motion.test.ts).
 export const CHASE_LAND_LINES = 0.8;
@@ -119,6 +130,61 @@ const FRAMELESS_MS = 150;
 /// The fixed-duration arm's step: the standard step, eased out (MOTION_EASE_OUT's start slope).
 const CHUNK_S = MOTION_MS.standard / 1000;
 
+/// The `steady` arm (Leo, 2026-11-22: "it's just not great design to have the jolts ... it's not
+/// smooth"): the view drifts at the stream's own pace instead of chasing each chunk home. The rate the
+/// rows moved in (px/s, smoothed over STEADY_RATE_S) sets the speed, and a small reserve of the newest
+/// text, STEADY_RESERVE_S of that rate, waits drawn under the reply's foot (in the live line's room and
+/// under the glass composer) so the drift never runs dry between chunks: the next chunk lands in the
+/// reserve and the view keeps its speed, with no start and stop per chunk. Speed changes at no more
+/// than STEADY_ACCEL px/s², so a tool row arriving or a burst bends the drift instead of jolting it;
+/// past the trail bound the drift speeds up by the excess over STEADY_CATCH_S, at once. When the stream stops
+/// the reserve drains at no less than STEADY_MIN_SPEED and rests.
+export const STEADY_RATE_S = 0.4;
+export const STEADY_RESERVE_S = 0.1;
+export const STEADY_LAG_S = 0.25;
+export const STEADY_ACCEL = 4000;
+export const STEADY_MIN_SPEED = 60;
+export const STEADY_CATCH_S = 0.12;
+
+export type SteadyState = {
+  /// How far the thread is drawn from its layout (px; positive: drawn down).
+  x: number;
+  /// The drift's speed toward home (px/s, never negative).
+  speed: number;
+  /// The smoothed rate the rows moved in (px/s).
+  rate: number;
+};
+
+/// One display frame of the `steady` arm: `inflow` px moved into the trail since the last frame
+/// (what `shift` drew back), `dt` s since it, `trail` the trail bound (px), `cap` the most this frame
+/// may move (px: a line a 120 Hz slot, less what other motion moves the rows), `landing` the turn
+/// ended (the reserve drains over STEADY_LAG_S at most). Pure: the unit test drives it frame by frame.
+export function steadyStep(
+  state: SteadyState,
+  inflow: number,
+  dt: number,
+  { trail, cap, landing = false }: { trail: number; cap: number; landing?: boolean },
+): SteadyState {
+  const alpha = dt > 0 ? 1 - Math.exp(-dt / STEADY_RATE_S) : 0;
+  const rate = Math.max(0, state.rate + (inflow / Math.max(dt, 1e-3) - state.rate) * alpha);
+  const away = Math.abs(state.x);
+  if (away < REST_PX && state.speed < REST_SPEED * 4) return { x: 0, speed: 0, rate };
+  const reserve = landing ? 0 : rate * STEADY_RESERVE_S;
+  let want = Math.max(0, rate + (away - reserve) / STEADY_LAG_S);
+  if (away > trail) want += (away - trail) / STEADY_CATCH_S;
+  want = Math.max(want, STEADY_MIN_SPEED);
+  // Past the trail bound the speed rises to what catches up at once: held to STEADY_ACCEL there, a
+  // fast stream (a block a frame) filled the room under the composer and its overflow moved at once,
+  // 38 px in a 120 Hz frame (send-stream-motion.test.ts). The per-frame cap still bounds each move.
+  const accel = STEADY_ACCEL * dt;
+  const rise = away > trail ? Number.POSITIVE_INFINITY : accel;
+  const speed = Math.max(0, state.speed + Math.max(-accel, Math.min(rise, want - state.speed)));
+  const move = Math.min(away, speed * dt, Math.max(0, cap));
+  const left = away - move;
+  const x = left < 1e-6 ? 0 : Math.sign(state.x) * left;
+  return { x, speed: x === 0 ? 0 : speed, rate };
+}
+
 export type FollowChase = {
   readonly arm: FollowMotionArm;
   /// The rows the reader sees moved `moved` px on screen in this pass (negative: up). The thread is
@@ -126,8 +192,16 @@ export type FollowChase = {
   /// bottom stack: the room under the last row and a line, VirtualTranscript); the rest moves at
   /// once. `held` keeps to `below` in every arm (Jump to latest just landed). False when it moved at
   /// once (motion off, nothing to move). `arrived`: the move is a row that came, not the reply's own
-  /// growth, and holds back up to CHASE_ARRIVAL_HOLD_LINES.
-  shift(thread: HTMLElement | null, moved: number, below?: number, held?: boolean, arrived?: boolean): boolean;
+  /// growth, and holds back up to CHASE_ARRIVAL_HOLD_LINES. `sent`: the move is a send's own rows,
+  /// and the thread rises on the send motion (`sendEase`).
+  shift(
+    thread: HTMLElement | null,
+    moved: number,
+    below?: number,
+    held?: boolean,
+    arrived?: boolean,
+    sent?: boolean,
+  ): boolean;
   /// What may lie under the bottom stack is now `below` px: a chase drawn further down rests there.
   fit(below: number): void;
   /// How far the thread is drawn from its layout (px, positive: drawn down), 0 at rest.
@@ -161,7 +235,24 @@ export type FollowChase = {
   /// the same clock, and moves at most what is left of ARRIVAL_FRAME_LINES (`alongsideMove`). Kept
   /// until replaced; animations that ended move nothing.
   alongside(animations: ReadonlySet<Animation> | undefined): void;
+  /// `rested` runs each time the chase comes to rest from a move (home, or `stop`), never while it
+  /// is held: the transcript reads and places its mounted rows then (VirtualTranscript.tsx
+  /// `settleMotion`). It may run inside a commit, so it must not render there.
+  onRest(rested: (() => void) | undefined): void;
 };
+
+/// The send motion's length (ms, `--agent-motion-send`), at the host's `scale` when it sets none.
+/// The send motion's length (ms) the bubble's entrance plays on (`--agent-motion-send`).
+export function sendMotionMs(node: HTMLElement): number {
+  return sendMsOf(node, 1);
+}
+
+function sendMsOf(node: HTMLElement, scale: number): number {
+  const token = cssTimeMs(
+    node.ownerDocument.defaultView?.getComputedStyle(node).getPropertyValue("--agent-motion-send") ?? "",
+  );
+  return token ?? MOTION_SEND_MS * scale;
+}
 
 /// What `alongsideMove` reads of one animation once: how far its keyframes move a row's `translate`
 /// (px, the y span) and its easing.
@@ -225,7 +316,7 @@ export function alongsideMove(animations: Iterable<Animation> | undefined, dt: n
 /// off, Reduce Motion or a hidden page.
 function speedOf(node: HTMLElement): number {
   const doc = node.ownerDocument;
-  if (motionMode(doc) !== "full") return 0;
+  if (motionMode(doc, node) !== "full") return 0;
   const token = cssTimeMs(doc.defaultView?.getComputedStyle(node).getPropertyValue("--agent-motion-move") ?? "");
   return token === undefined ? 1 : token / MOTION_MS.standard;
 }
@@ -249,10 +340,20 @@ export function createFollowChase(arm: FollowMotionArm): FollowChase {
   let v = 0;
   /// The fixed-duration arm: the segment in flight (from, elapsed s, duration s).
   let chunk = { from: 0, at: 0, duration: CHUNK_S };
-  /// A row that arrived: the arrival step in flight (from px, elapsed s, duration s), on ARRIVAL_EASE
-  /// to 0 at its end. Anything else that moves the rows (the reply's growth, `land`, `hold`) hands
-  /// it back to the spring from where it is drawn and how fast it goes.
-  let arrival: { from: number; at: number; duration: number } | undefined;
+  /// A row that arrived: the arrival step in flight (from px, elapsed s, duration s), on its `ease`
+  /// (ARRIVAL_EASE, or a send's MOTION_SEND_CURVE) to 0 at its end. Anything else that moves the rows
+  /// (the reply's growth, `land`, `hold`) hands it back to the spring from where it is drawn and how
+  /// fast it goes; a send's step keeps every move that raises the rows while it plays.
+  let arrival:
+    | { from: number; at: number; duration: number; ease: (progress: number) => number; sent: boolean }
+    | undefined;
+  /// The `steady` arm: the drift's state, and what `shift` drew back since its last frame (px).
+  let steady: SteadyState = { x: 0, speed: 0, rate: 0 };
+  let inflow = 0;
+  /// What runs when the chase comes to rest (`onRest`), and whether it drew the thread off home
+  /// since it last rested.
+  let rested: (() => void) | undefined;
+  let drawnOff = false;
   let frame: number | undefined;
   /// When the pending `frame` was asked for (performance.now ms).
   let askedAt = 0;
@@ -310,12 +411,14 @@ export function createFollowChase(arm: FollowMotionArm): FollowChase {
     } else {
       thread.style.willChange = "translate";
       thread.style.translate = `0 ${x}px`;
+      drawnOff = true;
     }
     // The live line held at the bottom moves against the thread in the same frame (pinnedLiveLine.ts).
     drawPinned(thread, x);
   };
   const stop = () => {
     cancelRecheck();
+    const moving = drawnOff || frame !== undefined || x !== 0;
     if (frame !== undefined) thread?.ownerDocument.defaultView?.cancelAnimationFrame(frame);
     frame = undefined;
     last = undefined;
@@ -328,7 +431,11 @@ export function createFollowChase(arm: FollowMotionArm): FollowChase {
     spent = 0;
     stepped = 0;
     arrival = undefined;
+    steady = { x: 0, speed: 0, rate: 0 };
+    inflow = 0;
     draw();
+    drawnOff = false;
+    if (moving) rested?.();
   };
   const step = (now: number) => {
     frame = undefined;
@@ -364,9 +471,15 @@ export function createFollowChase(arm: FollowMotionArm): FollowChase {
       // The arrival step: its curve to its last frame, which draws the rows home (and stops).
       arrival.at += dt;
       const progress = Math.min(1, arrival.at / arrival.duration);
-      const nextX = arrival.from * (1 - arrivalEase(progress));
+      let nextX = progress >= 1 ? 0 : arrival.from * (1 - arrival.ease(progress));
+      // A send's step moves no frame more than a line (its curve's fast start moves a fifth of a long
+      // move in the first frame); the curve, slowing, takes back what a frame held over.
+      if (arrival.sent) {
+        const most = CHASE_MAX_FRAME_LINES * line * Math.max(1, Math.round(dt * 120));
+        if (Math.abs(nextX - x) > most) nextX = x + Math.sign(nextX - x) * most;
+      }
       v = (nextX - x) / Math.max(dt, 1e-3);
-      x = progress >= 1 ? 0 : nextX;
+      x = arrival.sent && Math.abs(nextX) < REST_PX ? 0 : nextX;
       spent = 0;
       if (x === 0) {
         stop();
@@ -420,6 +533,21 @@ export function createFollowChase(arm: FollowMotionArm): FollowChase {
       if (Math.sign(nextX) !== Math.sign(x) && x !== 0) nextX = nextV = 0;
       x = nextX;
       v = nextV;
+    } else if (arm === "steady") {
+      const slots = Math.max(1, Math.round(dt * 120));
+      const next = steadyStep({ ...steady, x }, inflow, dt, {
+        trail: chaseMaxTrail(),
+        cap: Math.min(CHASE_MAX_FRAME_LINES * line * slots - spent, leftBeside(dt, slots)),
+        landing,
+      });
+      inflow = 0;
+      steady = next;
+      v = -Math.sign(x) * next.speed;
+      x = next.x;
+      if (x === 0) {
+        stop();
+        return;
+      }
     } else if (arm === "chunk") {
       chunk.at += dt;
       const progress = Math.min(1, chunk.at / (chunk.duration * scale));
@@ -467,6 +595,8 @@ export function createFollowChase(arm: FollowMotionArm): FollowChase {
       due = undefined;
       stepped = 0;
       arrival = undefined;
+      steady = { ...steady, speed: 0 };
+      inflow = 0;
       if (x === 0) {
         stop();
         return;
@@ -480,6 +610,9 @@ export function createFollowChase(arm: FollowMotionArm): FollowChase {
     resume,
     alongside(animations) {
       along = animations;
+    },
+    onRest(next) {
+      rested = next;
     },
     carry(node, px) {
       if (!(Math.abs(px) >= 0.01)) return;
@@ -527,7 +660,7 @@ export function createFollowChase(arm: FollowMotionArm): FollowChase {
         else draw();
       }
     },
-    shift(node, moved, below = Number.POSITIVE_INFINITY, held = false, arrived = false) {
+    shift(node, moved, below = Number.POSITIVE_INFINITY, held = false, arrived = false, sent = false) {
       // A shell that opts out (`data-follow-glide="off"`, the gallery's and harnesses' before) steps.
       if (!node || !(Math.abs(moved) > 0.5) || arm === "instant" || node.closest(FOLLOW_GLIDE_OFF)) return false;
       const speed = speedOf(node);
@@ -561,12 +694,22 @@ export function createFollowChase(arm: FollowMotionArm): FollowChase {
       // the trail bound; the `spring` arm keeps a line to `below`, the rest of it moving at once.
       // Each move says which it is: a finite `below` after a send's rise keeps to it again (a rise
       // kept to the chase's rest let later streamed text pass under the composer past the bound).
-      rising = (arm === "blocks" && !held) || below === Number.POSITIVE_INFINITY;
+      // A move down while a rise still draws the rows down (the room a cleared composer card gives
+      // back a pass after a prompt's rows came) shortens that rise: kept to `below`, the rest of the
+      // rise moved at once and that room then drew the rows back down (the `spring`, `chunk` and
+      // `linear` arms' bounce as a prompt comes in, 149 px up in a frame and 10 to 32 px back).
+      rising =
+        ((arm === "blocks" || arm === "steady") && !held) ||
+        below === Number.POSITIVE_INFINITY ||
+        (rising && !held && moved > 0 && x > 0);
       // Within the bound before this move, a block that lands past it starts a stretch of its own
       // with all of BURST_S (the last stretch's deadline moved it up to a line a frame, its time
       // already spent).
       if (Math.abs(x) <= chaseMaxTrail()) due = undefined;
+      const drawnBefore = x;
       x = Math.max(-most, Math.min(most, rising ? most : Math.max(0, below), x - moved));
+      // The steady drift's rate reads what the stream moved the rows by (a send's rise is its own).
+      if (arm === "steady" && !sent) inflow += Math.abs(x - drawnBefore);
       // A reply's growth (`below` bounded: not a send's rise, not after Jump to latest) holds back
       // at most CHASE_HOLD_LINES; the frame it lands in moves the rest, up to CHASE_LAND_LINES less
       // what it already moved at once and the chase's last step, so the text above starts home as the block lands instead of the
@@ -596,10 +739,29 @@ export function createFollowChase(arm: FollowMotionArm): FollowChase {
       // A move during a step (the arrived row's measured height a pass later) keeps that step's end,
       // longer only as its frames need, so a second pass never starts the motion over.
       const left = arrival ? (arrival.duration - arrival.at) * 1000 : undefined;
+      // The steady arm times only a send's rise: an arrived row joins the drift.
+      const timed = !held && (arm === "blocks" || arm === "spring" || (arm === "steady" && sent)) && x !== 0;
+      // A send's rows, or any move that raises the rows while a send's step plays, rise on the send
+      // motion to that step's end (one motion with the bubble's entrance, `sendEase`).
+      const sending = sent || (arrival?.sent === true && moved < 0);
+      // Joining a send's step keeps its progress: the rows' offset is rescaled to the share of the
+      // curve still to play, so the rise goes on at the bubble's pace instead of the curve's fast start.
+      const joining = timed && sending && arrival?.sent === true && arrival.at > 0 ? arrival : undefined;
+      const rest = joining ? 1 - joining.ease(Math.min(1, joining.at / joining.duration)) : 0;
       arrival =
-        arrived && !held && (arm === "blocks" || arm === "spring") && x !== 0 && arrivalLook(node)
-          ? { from: x, at: 0, duration: arrivalStepMs(x, scale, left) / 1000 }
-          : undefined;
+        joining && rest > 1e-6
+          ? { ...joining, from: x / rest }
+          : timed && sending
+            ? {
+                from: x,
+                at: 0,
+                duration: Math.max(1000 / 120, arrival?.sent ? (left ?? 0) : sendMsOf(node, scale)) / 1000,
+                ease: sendEase,
+                sent: true,
+              }
+            : timed && arrived && arrivalLook(node)
+              ? { from: x, at: 0, duration: arrivalStepMs(x, scale, left) / 1000, ease: arrivalEase, sent: false }
+              : undefined;
       draw();
       cancelRecheck();
       if (frame === undefined) {

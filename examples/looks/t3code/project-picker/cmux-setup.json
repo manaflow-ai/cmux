@@ -1,0 +1,16 @@
+{
+  "cmuxSetup": 1,
+  "id": "manaflow-ai/t3code-project-picker",
+  "name": "Project picker",
+  "description": "Search available project folders and start a chat in the selected directory.",
+  "version": "1.0.0",
+  "license": "MIT",
+  "screenshots": [
+    "screenshots/project-picker.png"
+  ],
+  "cmuxProfile": 1,
+  "settings": {
+    "sidebar.showProjects": true,
+    "sidebar.showNewWorkspaceChooser": true
+  }
+}

@@ -28,13 +28,13 @@ fn call_json(operation: &CStr, request: &Value) -> (i32, Value) {
 }
 
 #[test]
-fn close_toast_asks_an_idle_terminal() {
+fn close_toast_skips_an_idle_terminal() {
     let (code, body) = call_json(
         c"window_close_toast",
         &json!({"tabs": [{"kind": "browser", "url": "about:blank"}, {"kind": "pty"}]}),
     );
     assert_eq!(code, OK);
-    assert_eq!(body, json!({"decision": "askTerminals", "terminals": [1]}));
+    assert_eq!(body, json!({"decision": "skip"}));
 }
 
 #[test]
@@ -121,6 +121,40 @@ fn tabs_small_rules_answer_over_the_channel() {
         body,
         json!({"chat": {"route": "adopt", "harness": "codex", "session": "s"}, "harness": "codex"})
     );
+    let (_, body) = call_json(
+        c"window_tabs_terminal_chat_toggle",
+        &json!({"chat": true, "agent": "claude", "session": "s", "running": true}),
+    );
+    assert_eq!(body, json!({"route": "toTerminal", "harness": "claude", "session": "s"}));
+    let (_, body) = call_json(
+        c"window_tabs_terminal_chat_toggle",
+        &json!({"chat": true, "agent": "claude", "session": "s"}),
+    );
+    assert_eq!(body, json!({"route": "resumeInTerminal", "harness": "claude", "session": "s"}));
+    // Where nothing can start a terminal, a chat no terminal runs offers no toggle.
+    let (_, body) = call_json(
+        c"window_tabs_terminal_chat_toggle",
+        &json!({"chat": true, "agent": "claude", "session": "s", "cannotStartTerminal": true}),
+    );
+    assert_eq!(body, json!({"route": "noTerminal"}));
+    let (_, body) = call_json(
+        c"window_tabs_terminal_chat_toggle",
+        &json!({"chat": true, "agent": "codex", "session": "s", "now": 1.0,
+                "handOff": {"deadline": 61.0, "tab": "t"}, "handOffOpen": true}),
+    );
+    assert_eq!(body, json!({"route": "handingOff", "tab": "t"}));
+    let (_, body) = call_json(
+        c"window_tabs_terminal_chat_toggle",
+        &json!({"chat": true, "agent": "codex", "session": "s", "busy": true}),
+    );
+    // Mid-turn the chat hands its session to a terminal too: the terminal waits for the turn.
+    assert_eq!(body, json!({"route": "resumeInTerminal", "harness": "codex", "session": "s"}));
+    let (_, body) = call_json(
+        c"window_tabs_terminal_chat_toggle",
+        &json!({"chat": true, "agent": "claude", "session": "s", "busy": true, "now": 999.0,
+                "handOff": {"deadline": 61.0, "tab": "t"}, "handOffOpen": true}),
+    );
+    assert_eq!(body, json!({"route": "handingOff", "tab": "t"}));
     let (_, body) = call_json(c"window_tabs_duplicate", &json!({"tabs": [{"localPage": true}]}));
     assert_eq!(body, json!({"actions": null}));
     let (_, body) = call_json(c"window_tabs_by_number", &json!({"number": 9, "count": 4}));
@@ -613,6 +647,41 @@ fn history_actions_and_layout_undo() {
 }
 
 #[test]
+fn screen_share_routes_only_the_explicit_machine_and_current_chat() {
+    let device = "550e8400-e29b-41d4-a716-446655440000";
+    let mut facts = json!({
+        "machineId": "studio", "kind": "remote", "authenticatedDeviceId": device,
+        "device": {"id": device, "platform": "macos", "online": true}
+    });
+    let (code, body) = call_json(c"window_remote_screen_share", &facts);
+    assert_eq!(code, 0);
+    assert_eq!(body, json!({"decision": "viewDevice", "deviceId": device}));
+    facts["authenticatedDeviceId"] = json!("removed");
+    let (_, body) = call_json(c"window_remote_screen_share", &facts);
+    assert_eq!(body, json!({"decision": "refuse", "reason": "noDevice"}));
+    facts["kind"] = json!("local");
+    facts["chat"] = json!({"expectedSessionId": "a", "sessionId": "a", "peer": "studio"});
+    let (_, body) = call_json(c"window_remote_screen_share", &facts);
+    assert_eq!(body, json!({"decision": "refuse", "reason": "unresolvedChatHost"}));
+    facts["chat"] = json!({"expectedSessionId": "a", "sessionId": "b"});
+    let (_, body) = call_json(c"window_remote_screen_share", &facts);
+    assert_eq!(body, json!({"decision": "refuse", "reason": "noMachine"}));
+    facts["chat"] = json!({"expectedSessionId": "a", "sessionId": "a", "hostKind": "local", "localSummaryCurrent": true});
+    let (_, body) = call_json(c"window_remote_screen_share", &facts);
+    assert_eq!(body, json!({"decision": "shareLocal"}));
+    facts["kind"] = json!("cloud");
+    facts["chat"] = Value::Null;
+    let (_, body) = call_json(c"window_remote_screen_share", &facts);
+    assert_eq!(body, json!({"decision": "cloudDesktop", "machineId": "studio"}));
+    facts["chat"] = json!({"expectedSessionId": "a", "sessionId": "a", "host": "registry:studio", "registryHost": "registry:studio"});
+    let (_, body) = call_json(c"window_remote_screen_share", &facts);
+    assert_eq!(body, json!({"decision": "cloudDesktop", "machineId": "studio"}));
+    facts["chat"]["host"] = json!("registry:another-machine");
+    let (_, body) = call_json(c"window_remote_screen_share", &facts);
+    assert_eq!(body, json!({"decision": "refuse", "reason": "unresolvedChatHost"}));
+}
+
+#[test]
 fn remote_machine_and_terminal_here() {
     let machines = json!([{"id": "m1", "names": ["Box"]}, {"id": "m2", "names": ["dev"]}]);
     let (_, body) =
@@ -716,4 +785,198 @@ fn remote_connect_step_opens_recovery_for_the_current_attempt_only() {
         &json!({"failureAttempt": 1, "currentAttempt": 2, "hasWindow": true}),
     );
     assert_eq!(body["recovery"], json!(false));
+}
+
+#[test]
+fn toggle_terminal_and_chat_places_answer_over_the_channel() {
+    let screen = "> fix the bug\n\n⏺ Done.\n\n> add a test\n\n⏺ Added.\n> ";
+    let prompts = json!(["fix the bug", "add a test"]);
+    let (_, body) = call_json(
+        c"window_tabs_terminal_place",
+        &json!({"prompts": prompts, "at": 1, "screen": screen, "columns": 80}),
+    );
+    assert_eq!(body, json!({"place": "row", "row": 4}));
+    let (_, body) =
+        call_json(c"window_tabs_terminal_place", &json!({"prompts": prompts, "screen": screen}));
+    assert_eq!(body, json!({"place": "latest"}));
+    let (_, body) = call_json(
+        c"window_tabs_chat_place",
+        &json!({"prompts": prompts, "screen": screen, "columns": 80, "top": 2}),
+    );
+    assert_eq!(body, json!({"place": "turn", "index": 0}));
+    let (_, body) = call_json(
+        c"window_tabs_chat_place",
+        &json!({"prompts": prompts, "screen": screen, "top": 2, "atBottom": true}),
+    );
+    assert_eq!(body, json!({"place": "latest"}));
+}
+
+#[test]
+fn toggle_terminal_and_chat_drafts_answer_over_the_channel() {
+    let typed: Vec<u8> = b"sent\rship it".to_vec();
+    let (code, body) = call_json(
+        c"window_tabs_draft_to_chat",
+        &json!({"typed": typed, "screen": "│ > ship it │\n", "composerEmpty": true}),
+    );
+    assert_eq!(code, OK);
+    assert_eq!(body, json!({"draft": "carry", "text": "ship it", "erase": 7}));
+    let (_, body) = call_json(
+        c"window_tabs_draft_to_chat",
+        &json!({"typed": typed, "screen": "│ > ship it │"}),
+    );
+    assert_eq!(body, json!({"draft": "none"}));
+    let (code, body) = call_json(
+        c"window_tabs_draft_to_terminal",
+        &json!({"chat": "add a test", "typed": [], "screen": "│ >  │"}),
+    );
+    assert_eq!(code, OK);
+    assert_eq!(body, json!({"draft": "paste", "text": "add a test"}));
+    let (_, body) = call_json(
+        c"window_tabs_draft_to_terminal",
+        &json!({"chat": "add a test", "typed": b"mine".to_vec(), "screen": "│ > mine │"}),
+    );
+    assert_eq!(body, json!({"draft": "none"}));
+}
+
+#[test]
+fn toggle_terminal_and_chat_approval_answers_over_the_channel() {
+    let screen = " Bash command\n   touch /tmp/x\n Do you want to proceed?\n ❯ 1. Yes\n   2. No (esc)\n\n Esc to cancel";
+    let (code, body) = call_json(c"window_tabs_terminal_approval", &json!({"screen": screen}));
+    assert_eq!(code, OK);
+    assert_eq!(body["approval"]["question"], "Do you want to proceed?");
+    let id = body["approval"]["id"].as_str().expect("an id").to_owned();
+    assert_eq!(id.len(), 16);
+    assert_eq!(body["approval"]["command"], "touch /tmp/x");
+    assert_eq!(
+        body["approval"]["options"],
+        json!([
+            {"key": 1, "label": "Yes", "hint": null, "kind": "allow_once", "selected": true},
+            {"key": 2, "label": "No", "hint": "esc", "kind": "reject_once", "selected": false},
+        ])
+    );
+    let (_, body) = call_json(c"window_tabs_terminal_approval", &json!({"screen": "❯ "}));
+    assert_eq!(body, json!({"approval": null}));
+    let answer = json!({"screen": screen, "key": 2, "label": "No", "id": id});
+    let (_, body) = call_json(c"window_tabs_terminal_approval_keys", &answer);
+    assert_eq!(body, json!({"keys": ["down", "enter"]}));
+    let stale = json!({"screen": "❯ ", "key": 2, "label": "No", "id": id});
+    let (_, body) = call_json(c"window_tabs_terminal_approval_keys", &stale);
+    assert_eq!(body, json!({"keys": null}));
+}
+
+#[test]
+fn restore_order_makes_the_front_window_now_and_the_others_later() {
+    let (code, body) = call_json(
+        c"window_restore_order",
+        &json!({"windows": [
+            {"id": "front", "open": true, "made": true},
+            {"id": "closed", "open": false, "made": false},
+            {"id": "second", "open": true, "made": false},
+            {"id": "third", "open": true, "made": false}
+        ], "adopted": "front"}),
+    );
+    assert_eq!(code, OK);
+    assert_eq!(body, json!({"front": "front", "later": ["second", "third"]}));
+}
+
+/// cmuxterm-hq#12660: the app's facts after the live tree applied, the snapshot's standing back.
+#[test]
+fn launch_snapshot_verdict_names_another_sessions_snapshot_stale() {
+    let other = json!({"snapshotSession": "4cd043ac", "liveSession": "9e1f", "shown": "home-a",
+                       "listed": ["home-a"], "live": []});
+    assert_eq!(
+        call_json(c"window_launch_snapshot_verdict", &other),
+        (OK, json!({"verdict": "otherSession"}))
+    );
+    let gone = json!({"snapshotSession": "s1", "liveSession": "s1", "shown": "w1", "listed": ["w1"], "live": []});
+    assert_eq!(
+        call_json(c"window_launch_snapshot_verdict", &gone).1,
+        json!({"verdict": "unknownWorkspaces"})
+    );
+    let own = json!({"snapshotSession": "s1", "liveSession": "s1", "shown": "w1", "listed": ["w1"], "live": ["w1"]});
+    assert_eq!(call_json(c"window_launch_snapshot_verdict", &own).1, json!({"verdict": "current"}));
+    assert_eq!(call(c"window_launch_snapshot_verdict", b"[").0, ERR_INVALID);
+}
+
+/// cmuxterm-hq#12660: the registry id this home recorded, read through the one Rust reader.
+#[test]
+fn launch_current_registry_reads_this_homes_file() {
+    let root = std::env::temp_dir().join(format!("ffi-launch-registry-{}", std::process::id()));
+    std::fs::create_dir_all(root.join("cmux-next")).expect("temporary folder");
+    std::fs::write(root.join("cmux-next/launch-snapshot-registry.cmux-app"), "9e1f\n")
+        .expect("write");
+    let request = json!({"appSupport": root.to_string_lossy(), "session": "cmux-app"});
+    assert_eq!(
+        call_json(c"window_launch_current_registry", &request),
+        (OK, json!({"registryId": "9e1f"}))
+    );
+    let other = json!({"appSupport": root.to_string_lossy(), "session": "cmux-app-other"});
+    assert_eq!(call_json(c"window_launch_current_registry", &other).1, json!({"registryId": null}));
+    assert_eq!(call(c"window_launch_current_registry", b"{}").0, ERR_INVALID);
+    let _ = std::fs::remove_dir_all(root);
+}
+
+/// Leo ask-b7aac8d3f9: a relaunch lands on the last workspace and tab, a first launch on Home.
+#[test]
+fn launch_landing_reopens_the_last_workspace_and_tab() {
+    let kept = json!({"last": {"kind": "workspace", "workspace": "w2", "pane": "p1", "tab": "t3"},
+                      "workspaceLive": true, "tab": "ended"});
+    assert_eq!(
+        call_json(c"window_launch_landing", &kept),
+        (OK, json!({"kind": "workspace", "workspace": "w2", "pane": "p1", "tab": "t3"}))
+    );
+    assert_eq!(
+        call_json(c"window_launch_landing", &json!({})).1,
+        json!({"kind": "home", "why": "firstLaunch"})
+    );
+    assert_eq!(
+        call_json(c"window_launch_landing", &json!({"last": {"kind": "home"}})).1,
+        json!({"kind": "home", "why": "lastWasHome"})
+    );
+    assert_eq!(call(c"window_launch_landing", b"[").0, ERR_INVALID);
+}
+
+/// Open in Editor: the table the app reads, and the pick with the person's `editor.default`.
+#[test]
+fn editors_table_and_pick_answer_the_app() {
+    let (code, body) = call_json(c"window_editors_table", &json!({}));
+    assert_eq!(code, OK);
+    let first = &body["editors"][0];
+    assert_eq!(first["id"], "vscode");
+    assert_eq!(first["bundleIds"][0], "com.microsoft.VSCode");
+    assert_eq!(first["remoteScheme"], "vscode");
+    assert_eq!(
+        call_json(
+            c"window_editors_pick",
+            &json!({"installed": ["zed", "vscode"], "configured": "zed"})
+        ),
+        (OK, json!({"default": "zed", "ordered": ["zed", "vscode"]}))
+    );
+    assert_eq!(
+        call_json(
+            c"window_editors_pick",
+            &json!({"installed": ["zed", "vscode"], "configured": null})
+        ),
+        (OK, json!({"default": "vscode", "ordered": ["vscode", "zed"]}))
+    );
+    assert_eq!(
+        call_json(c"window_editors_pick", &json!({"installed": [], "configured": "nova"})),
+        (OK, json!({"default": null, "ordered": []}))
+    );
+}
+
+/// Leo ask-b7aac8d3f9: a fresh launch lands on Home, a New Tab workspace when no saved window is open, and waits
+/// while Home is not ensured yet.
+#[test]
+fn launch_fresh_landing_answers_home_new_tab_or_wait() {
+    let empty = json!({"emptyTree": true, "homeEnsured": true});
+    assert_eq!(call_json(c"window_launch_fresh_landing", &empty), (OK, json!({"kind": "home"})));
+    let none_open = json!({"noSavedWindowOpen": true, "homeEnsured": true});
+    assert_eq!(call_json(c"window_launch_fresh_landing", &none_open).1, json!({"kind": "newTab"}));
+    let waiting = json!({"emptyTree": true, "homeNotEnsuredYet": true});
+    assert_eq!(
+        call_json(c"window_launch_fresh_landing", &waiting).1,
+        json!({"kind": "waitForHome"})
+    );
+    assert_eq!(call(c"window_launch_fresh_landing", b"[").0, ERR_INVALID);
 }

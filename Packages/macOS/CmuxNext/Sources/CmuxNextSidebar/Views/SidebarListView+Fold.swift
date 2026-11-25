@@ -12,7 +12,7 @@ extension SidebarListViewComponents {
     /// back to a full reload when a drag, a filter or another layout mode owns the rows.
     func foldGroup(_ id: GroupID) {
         guard let group = model.group(id), let section = model.groupSection(id),
-              drag == nil, settling == nil, landing == nil, external == nil, rowHold.isEmpty, !isShiftingViewport,
+              drag == nil, settling == nil, landing == nil, external == nil, !isShiftingViewport,
               !displayed.rows.isEmpty else {
             return reload(animated: true)
         }
@@ -137,6 +137,12 @@ extension SidebarListViewComponents {
             // The members' slot closes (or opens) on the rows' spring, its bottom edge with the rows below it.
             let members = (collapses ? leavingRows : appearing).map(\.0).filter { slot.contains($0.frame.origin) }
             clipFold(members, under: slot.minY, from: collapses ? slot.height : 0, to: collapses ? 0 : slot.height)
+            // Opening, the group's line starts whole at its end (its new members' frames): the same clip uncovers it with
+            // them, so no rail shows below a row not yet uncovered. Its top (a block's header) stays uncovered.
+            if !collapses, let line = groupLineViews.view(for: id) {
+                let top = min(line.frame.minY, slot.minY), above = slot.minY - top
+                clipFold([line], under: top, from: above, to: above + slot.height)
+            }
         }
         inlineRename.follow()
         groupEditor.follow(groups)
@@ -160,15 +166,21 @@ extension SidebarListViewComponents {
         var end = headerIndex + 1
         while end < new.rows.count, new.rows[end].group == id, !new.rows[end].key.isGroupHeader { end += 1 }
         let block = Array(new.rows[headerIndex..<end])
-        let own = styled(SidebarGroupLine.lines(block, colors: lineColors) { frame(for: $0) })
-        let start = styled(SidebarGroupLine.lines(block, colors: lineColors) { self.rowViews[$0.key]?.frame ?? self.frame(for: $0) })
+        let own = styled(SidebarGroupLine.lines(block, colors: lineColors, style: model.groupHeaderDetails.background) { frame(for: $0) })
+        let start = styled(SidebarGroupLine.lines(block, colors: lineColors, style: model.groupHeaderDetails.background) { self.rowViews[$0.key]?.drawnFrame ?? self.frame(for: $0) })
         let dy = new.totalHeight - old.totalHeight
         var lines = groupLineViews.lines.filter { $0.group != id }
         if dy != 0 {
-            for index in lines.indices where lines[index].frame.minY > header.y { lines[index].frame.origin.y += dy }
-            // An uncolored parent's block holds the folded group: its bottom moves with the fold.
+            for index in lines.indices where lines[index].frame.minY > header.y {
+                lines[index].frame.origin.y += dy
+                lines[index].rail?.origin.y += dy
+            }
+            // An uncolored parent's block holds the folded group: its bottom, and its rail's, moves with the fold.
             for index in lines.indices where lines[index].isBlock && lines[index].frame.minY <= header.y
-                && lines[index].frame.maxY > header.y { lines[index].frame.size.height += dy }
+                && lines[index].frame.maxY > header.y {
+                lines[index].frame.size.height += dy
+                lines[index].rail?.size.height += dy
+            }
         }
         // In list order, top to bottom, as a full rebuild lists them.
         lines.insert(contentsOf: own, at: lines.firstIndex { $0.frame.minY > header.y } ?? lines.count)

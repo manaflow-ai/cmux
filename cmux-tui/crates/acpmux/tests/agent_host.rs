@@ -8,6 +8,8 @@
 mod answer_after_reattach;
 #[path = "agent_host/carried_hold.rs"]
 mod carried_hold;
+#[path = "agent_host/claude_record.rs"]
+mod claude_record;
 #[path = "support/daemon_env.rs"]
 mod daemon_env;
 #[path = "agent_host/managed_suggestions.rs"]
@@ -65,6 +67,7 @@ fn spec(dir: &Path, session: &str) -> SpawnSpec {
         cwd_pin: None,
         orphan_exit: None,
         prompt_suggestions_managed: None,
+        holder: None,
     }
 }
 
@@ -337,6 +340,66 @@ async fn a_wrong_token_gets_no_hello() {
     let _ = std::fs::remove_dir_all(&dir);
 }
 
+/// A host with no agent holder answers a custody ask with no (`spec: None`), so the daemon
+/// reads an answer: before, it closed the connection unanswered, and every claude and codex
+/// start logged `agent holder: no custody of the harness: failed to fill whole buffer`
+/// (cmuxterm-hq docs/findings/2026-11-22-acpmux-holder-custody-noise.md). A forged token is
+/// told no as well, and the host serves on after both.
+#[tokio::test]
+async fn a_host_with_no_holder_answers_a_custody_ask_with_no() {
+    let dir = scratch("nohold");
+    let record = link::spawn(&launcher(), &spec(&dir, "s-nohold")).await.unwrap();
+    let lock = live_lock(&dir, &record);
+    assert_eq!(record.holder, Some(false), "a host asked for no holder says it keeps none");
+    assert!(!record.may_hold());
+    let ask = record.clone();
+    let answer =
+        tokio::task::spawn_blocking(move || agent_host::custody::take(&ask)).await.unwrap();
+    assert!(matches!(answer, Ok(None)), "an answer of no custody, not an end of file: {answer:?}");
+    let mut forged = record.clone();
+    forged.owner_token = "00".repeat(32);
+    let answer =
+        tokio::task::spawn_blocking(move || agent_host::custody::take(&forged)).await.unwrap();
+    assert!(matches!(answer, Ok(None)), "a forged token is told no: {answer:?}");
+    let (owner, _) = connected(&record, 0).await;
+    let mut logged = 0;
+    owner.terminate(Duration::from_millis(500)).await.unwrap();
+    read_until(&owner, &mut logged, |e| matches!(e, Entry::Exit { .. })).await;
+    wait_dead(lock).await;
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// Only a harness that speaks ACP itself keeps a holder: a bridged (Codex) or translated
+/// (Claude) spec gets none, its record says so, and its daemon does not ask for custody
+/// (`HostRecord::may_hold`, which `take_custody` reads). A host of an older build, which says
+/// nothing, is asked as before.
+#[test]
+fn custody_is_not_asked_of_a_bridged_or_translated_host() {
+    let dir = scratch("bridged");
+    let mut native = spec(&dir, "s-native");
+    native.holder = Some(agent_host::HolderSpec::default());
+    assert!(native.keeps_holder());
+    let mut bridged = native.clone();
+    bridged.codex_bridge = true;
+    assert!(!bridged.keeps_holder(), "a bridged harness gets no holder");
+
+    let base: HostRecord = serde_json::from_value(json!({
+        "record_version": 1, "session_id": "s", "incarnation": "i", "host_pid": 1,
+        "start_nonce": "00", "harness_pid": null, "owner_token": "t", "protocol_min": 1,
+        "protocol_max": 1, "host_build": "b", "socket": "/nonexistent.sock",
+    }))
+    .unwrap();
+    assert_eq!(base.holder, None);
+    assert!(base.may_hold(), "an older build's host is asked as before");
+    let bridged_record = HostRecord { holder: Some(bridged.keeps_holder()), ..base.clone() };
+    assert!(!bridged_record.may_hold(), "a bridged host is not asked");
+    let translated = HostRecord { claude_translator: true, ..base.clone() };
+    assert!(!translated.may_hold(), "a translated host is not asked, whatever its build");
+    let holding = HostRecord { holder: Some(true), ..base };
+    assert!(holding.may_hold());
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
 /// A harness whose child calls setsid keeps the output pipe open after the
 /// harness exits. The host still reports the exit after a bounded drain
 /// instead of waiting for that pipe forever (and living forever).
@@ -597,6 +660,9 @@ fn discovery_rejects_linked_records_and_socket_paths_outside_the_host_namespace(
         protocol_max: acpmux::agent_host::PROTOCOL_MAX,
         host_build: "test".into(),
         socket,
+        claude_translator: false,
+        host_level: 0,
+        holder: None,
     };
     let wrong = record("wrong-socket", outside_socket.clone());
     let wrong_path = hosts.join("wrong-socket.json");
@@ -673,9 +739,10 @@ async fn hosted_agent(
     agent
 }
 
-/// Review 87 of #23322: a fenced request whose connection another controller took is answered
-/// here with this side's own "agent process closed", which proves nothing about its line: it
-/// stays unsettled, also past any fixed wait, until its host's death is proven.
+/// Review 87 of #23322: a fenced request whose connection another controller took stays
+/// unsettled, also past any fixed wait, until its host's death is proven. The request itself is
+/// kept for a reattach while its host lives (a lost link of a live host no longer fails its open
+/// requests), and ends with this side's "agent process closed" once that death is proven.
 #[tokio::test]
 async fn a_fenced_request_cut_off_by_a_new_controller_settles_only_with_its_host() {
     let dir = scratch("fenced-taken");
@@ -692,14 +759,15 @@ async fn a_fenced_request_cut_off_by_a_new_controller_settles_only_with_its_host
     };
     tokio::time::sleep(Duration::from_millis(300)).await;
     let (_second, _) = connected(&record, 0).await;
-    let answered = tokio::time::timeout(Duration::from_secs(10), request).await;
-    assert!(answered.expect("the request ends").unwrap().is_err());
-    assert!(!fence.is_settled(), "a line its host still has counted written");
-    tokio::time::sleep(Duration::from_secs(7)).await;
+    let mut request = request;
+    let kept = tokio::time::timeout(Duration::from_secs(7), &mut request).await;
+    assert!(kept.is_err(), "a request of a living host ended: {kept:?}");
     assert!(!fence.is_settled(), "a line its living host still has settled");
     // SAFETY: the host this test spawned; its live lock is held, so the pid is its own.
     unsafe { libc::kill(record.host_pid as i32, libc::SIGKILL) };
     wait_dead(lock).await;
+    let answered = tokio::time::timeout(Duration::from_secs(10), request).await;
+    assert!(answered.expect("the request ends once its host is gone").unwrap().is_err());
     tokio::time::timeout(Duration::from_secs(10), fence.settled())
         .await
         .expect("the line settles once its host is gone");

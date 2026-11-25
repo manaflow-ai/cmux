@@ -16,7 +16,7 @@ final class PaletteClickView: NSView {
         guard fillsBackground else { return }
         performWithTheme {
             Palette.selectionFill.setFill()
-            let radius = bounds.height / 2
+            let radius = Metrics.buttonCornerRadius(fitting: bounds.size)
             NSBezierPath(roundedRect: bounds, xRadius: radius, yRadius: radius).fill()
         }
     }
@@ -75,7 +75,8 @@ final class PaletteFooterView: NSView {
         pageLabel.isHidden = !titles.isEmpty
         closeLabel.stringValue = closeTitle ?? ""
         closeButton.isHidden = closeTitle == nil
-        pageIcon.image = PaletteText.symbol(pageSymbol, size: Metrics.smallIconSize)
+        pageIcon.image = pageSymbol.isEmpty ? nil : PaletteText.symbol(pageSymbol, size: Metrics.smallIconSize)
+        pageIcon.isHidden = pageSymbol.isEmpty
         pageLabel.stringValue = pageTitle
         primaryLabel.stringValue = primaryTitle ?? ""
         primaryButton.isHidden = primaryTitle == nil
@@ -113,9 +114,10 @@ final class PaletteFooterView: NSView {
             right -= Metrics.space5
             right = layoutButton(closeButton, label: closeLabel, keys: closeKeys, right: right)
         }
-        let labelX = pageIcon.frame.maxX + Metrics.space3
+        let labelX = pageIcon.isHidden ? padding : pageIcon.frame.maxX + Metrics.space3
         let height = PaletteText.height(pageLabel)
-        pageLabel.frame = pixelAligned(NSRect(x: labelX, y: midY - height / 2, width: max(0, right - Metrics.space4 - labelX), height: height))
+        pageLabel.frame = pixelAligned(NSRect(x: labelX, y: PaletteText.capCenteredY(pageLabel, height: height, midY: midY),
+                                              width: max(0, right - Metrics.space4 - labelX), height: height))
         if !crumbs.isEmpty { layoutCrumbs(from: labelX, to: right - Metrics.space4) }
     }
 
@@ -145,20 +147,30 @@ final class PaletteFooterView: NSView {
             crumb.button.isHidden = index < first
             guard index >= first else { continue }
             let height = PaletteText.height(crumb.label)
-            crumb.button.frame = pixelAligned(NSRect(x: left, y: bounds.midY - height / 2, width: widths[index], height: height))
+            let y = PaletteText.capCenteredY(crumb.label, height: height, midY: bounds.midY)
+            crumb.button.frame = pixelAligned(NSRect(x: left, y: y, width: widths[index], height: height))
             crumb.label.frame = crumb.button.bounds
             left += widths[index]
         }
     }
 
+    /// A label and its keycaps, right-aligned at `right`: the label's capitals and the keycaps centered on the
+    /// footer's middle, so "Search", "Run Command ↩" and "Actions ⇥" share one center line at every text size
+    /// (#48512). The button is the union of the two, so neither draws outside it.
     private func layoutButton(_ button: NSView, label: NSTextField, keys: PaletteKeycapsView, right: CGFloat) -> CGFloat {
+        let midY = bounds.midY
         let labelSize = NSSize(width: PaletteText.fittingWidth(label), height: PaletteText.height(label))
         let keySize = keys.intrinsicContentSize
         let width = labelSize.width + Metrics.space3 + keySize.width
-        let height = max(labelSize.height, keySize.height)
-        button.frame = pixelAligned(NSRect(x: right - width, y: bounds.midY - height / 2, width: width, height: height))
-        label.frame = button.pixelAligned(NSRect(x: 0, y: (height - labelSize.height) / 2, width: labelSize.width, height: labelSize.height))
-        keys.frame = button.pixelAligned(NSRect(x: labelSize.width + Metrics.space3, y: (height - keySize.height) / 2,
+        let labelY = PaletteText.capCenteredY(label, height: labelSize.height, midY: midY)
+        let keysY = midY - keySize.height / 2
+        let minY = min(labelY, keysY)
+        let maxY = max(labelY + labelSize.height, keysY + keySize.height)
+        button.frame = backingAlignedRect(NSRect(x: right - width, y: minY, width: width, height: maxY - minY),
+                                          options: [.alignMinXNearest, .alignWidthNearest, .alignMinYOutward, .alignMaxYOutward])
+        let bottom = button.frame.minY
+        label.frame = button.pixelAligned(NSRect(x: 0, y: labelY - bottom, width: labelSize.width, height: labelSize.height))
+        keys.frame = button.pixelAligned(NSRect(x: labelSize.width + Metrics.space3, y: keysY - bottom,
                                                 width: keySize.width, height: keySize.height))
         return button.frame.minX
     }

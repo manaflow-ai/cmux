@@ -9,6 +9,9 @@ import tempfile
 import unittest
 
 import yaml
+import sys
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts" / "ci"))
+import gh_expressions  # noqa: E402  (finds each ${{ }}: a regex cuts at a }} in a string)
 
 ROOT = Path(__file__).resolve().parents[1]
 WORKFLOW = yaml.safe_load((ROOT / '.github/workflows/ci-macos.yml').read_text())
@@ -41,7 +44,7 @@ def expression(text, context):
 
 
 def render(value, context):
-    return re.sub(r'\$\{\{\s*(.*?)\s*\}\}', lambda m: str(expression(m[1], context)), str(value))
+    return gh_expressions.STRIPPED.sub(lambda m: str(expression(m[1], context)), str(value))
 
 
 class ReleaseHelperArchitectures(unittest.TestCase):
@@ -102,8 +105,8 @@ archs=""
 for arg in "$@"; do case "$arg" in ARCHS=*) archs="${arg#ARCHS=}" ;; esac; done
 [[ -n "$archs" ]] || exit 1
 app=build-universal/Build/Products/Release/cmux.app
-mkdir -p "$app/Contents/MacOS" "$app/Contents/Resources/bin" "$app/Contents/Library/cmux Computer Use.app/Contents/MacOS"
-for file in Contents/MacOS/cmux Contents/Resources/bin/cmux "Contents/Library/cmux Computer Use.app/Contents/MacOS/cmux-cua" Contents/Resources/bin/cmux-diff-sidecar; do
+mkdir -p "$app/Contents/MacOS" "$app/Contents/Resources/bin"
+for file in Contents/MacOS/cmux Contents/Resources/bin/cmux Contents/Resources/bin/cmux-diff-sidecar; do
   printf '%s\\n' "$archs" > "$app/$file"; chmod +x "$app/$file"
 done
 ''')

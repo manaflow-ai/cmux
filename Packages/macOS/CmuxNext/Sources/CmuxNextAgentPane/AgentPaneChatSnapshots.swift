@@ -1,3 +1,4 @@
+import struct CmuxNextControl.LaunchMarkSink
 import CmuxNextPages
 public import CmuxNextSettings
 public import Foundation
@@ -11,15 +12,14 @@ public import Foundation
 /// This is storage and serving only; the shape is the page's, kept opaque.
 ///
 /// Kept as the chat tails are, beside them (``AgentPaneTailCache``): a disk of its own,
-/// `agent-chat-snapshots` next to `agent-chat-tails`, at most ``chats`` files of ``bytes`` each,
+/// `agent-chat-snapshots` next to `agent-chat-tails`, files of at most ``bytes`` each within the
+/// disk's byte budget (``AgentPaneTailDisk/totalBytes``), so a small chat keeps its copy too,
 /// saved and read off the main thread, owned by the app's state files so a quit awaits the saves.
 /// Sign-out clears it with the tails; a chat the page forgets (purged, an attach that failed) is
 /// forgotten here too; an incognito chat's page is never kept (``AgentPageProvider``).
 /// The app has one, the chat tails' (``AgentPaneTailCache/snapshots``), whose lifecycle it shares.
 @MainActor
 public final class AgentPaneChatSnapshots {
-    /// Chats whose copy is kept, as many as their tails.
-    public nonisolated static let chats = AgentPaneTailCache.chats
     /// Most bytes one copy may take as UTF-8 JSON: four times the page's own 256 KiB bound
     /// (chatSnapshot/shared.ts), for the reason ``AgentPaneTailCache/bytes`` gives.
     public nonisolated static let bytes = 1024 * 1024
@@ -27,6 +27,23 @@ public final class AgentPaneChatSnapshots {
     nonisolated static let global = "__cmuxChatSnapshot"
     /// The page's global for the theme key it gets now (chatSnapshot/shared.ts `SNAPSHOT_THEME_GLOBAL`).
     nonisolated static let themeGlobal = "__cmuxChatSnapshotTheme"
+    /// The page's global for the pane theme values it gets now (chatSnapshot/shared.ts
+    /// `SNAPSHOT_AGENT_THEME_GLOBAL`): a copy drawn under another theme takes their `--agent-*` colors.
+    nonisolated static let agentThemeGlobal = "__cmuxChatSnapshotAgentTheme"
+    /// The page's global for the prompt its composer showed when the copy (or the miss) was written
+    /// (chatSnapshot/restoredDraft.ts `RESTORED_DRAFT`): the next document's composer holds it from
+    /// its first frame, whether or not a copy draws (Leo, 2026-11-22: "composer dips down then goes
+    /// back up").
+    nonisolated static let draftGlobal = "__cmuxRestoredDraft"
+    /// Most UTF-16 units of a prompt kept (chatSnapshot/restoredDraft.ts `SNAPSHOT_DRAFT_MAX_CHARS`);
+    /// a longer one is not kept, never cut.
+    nonisolated static let draftMaxUnits = 64 * 1024
+
+    /// The prompt `fields` carries, when it is one this keeps and serves.
+    nonisolated static func draft(_ fields: JSONValue?) -> String? {
+        guard let draft = fields?["draft"]?.stringValue, !draft.isEmpty, draft.utf16.count <= draftMaxUnits else { return nil }
+        return draft
+    }
     /// The dynamic prefix the document loads it from.
     nonisolated static let prefix = "__snapshot"
 
@@ -38,7 +55,7 @@ public final class AgentPaneChatSnapshots {
             guard let anchors = AgentPaneScrollAnchors.shared else { return nil }
             let disk = anchors.file.map { file in
                 anchors.files.tails(in: file.deletingLastPathComponent().appending(path: "agent-chat-snapshots")) {
-                    AgentPaneTailDisk(directory: $0, files: Self.chats, bytes: Self.bytes, qos: .userInitiated, accepts: { AgentPaneChatSnapshots.holds($0) })
+                    AgentPaneTailDisk(directory: $0, bytes: Self.bytes, qos: .userInitiated, accepts: { AgentPaneChatSnapshots.holds($0) })
                 }
             }
             configuredDisk = .some(disk)
@@ -125,7 +142,8 @@ public final class AgentPaneChatSnapshots {
         let kept: JSONValue? = if case .string? = body["html"] {
             .object(body)
         } else if case .string(let miss)? = body["miss"], !miss.isEmpty {
-            .object(["miss": .string(String(miss.prefix(200)))])
+            // The composer's prompt stays with the reason: the next document holds it with no copy too.
+            .object(["miss": .string(String(miss.prefix(200)))].merging(Self.draft(.object(body)).map { ["draft": .string($0)] } ?? [:]) { a, _ in a })
         } else {
             .none
         }
@@ -137,7 +155,8 @@ public final class AgentPaneChatSnapshots {
     /// `sessionId`'s copy, or to null when there is none (or no chat, or it may not be kept), then
     /// calls the page's boot, which draws it (chatSnapshot/boot.ts). `read` is that chat's copy
     /// already being read (``AgentPageResources``), so the answer waits on no second read.
-    func script(for sessionId: String?, allowed: Bool, themeKey: String? = nil, read: Task<JSONValue?, Never>? = nil) async -> Data {
+    func script(for sessionId: String?, allowed: Bool, themeKey: String? = nil, agentTheme: JSONValue? = nil,
+                read: Task<JSONValue?, Never>? = nil) async -> Data {
         var kept: JSONValue?
         if allowed, let sessionId, !sessionId.isEmpty {
             let cache = AgentPaneTailCache.shared
@@ -146,12 +165,13 @@ public final class AgentPaneChatSnapshots {
             // A sign-out while it read: what was read is no one's to serve.
             if generation != cache.generation || !cache.acceptsTails { kept = nil }
         }
-        return script(for: sessionId, allowed: allowed, themeKey: themeKey, kept: kept)
+        return script(for: sessionId, allowed: allowed, themeKey: themeKey, agentTheme: agentTheme, kept: kept)
     }
 
     /// ``script(for:allowed:themeKey:read:)`` once the chat's copy is read: `kept` is what the store
     /// holds for it, nil for none.
-    func script(for sessionId: String?, allowed: Bool, themeKey: String?, kept: JSONValue?) -> Data {
+    func script(for sessionId: String?, allowed: Bool, themeKey: String?, agentTheme: JSONValue? = nil,
+                kept: JSONValue?) -> Data {
         var text = "self.\(Self.global)="
         // Why there is none, for the page's own record (chatSnapshot/live.ts `chatSnapshotReport`).
         var why = "kept"
@@ -171,9 +191,25 @@ public final class AgentPaneChatSnapshots {
         // The theme the page gets now: a copy drawn under another one is not drawn.
         text += ";self.\(Self.themeGlobal)="
         JSONValue.string(themeKey ?? "").appendCompactText(to: &text)
+        // Its colors too: the pane's own theme reaches the page only with the handshake, so a copy
+        // drawn under another theme of the same appearance would draw the old one's until the swap.
+        text += ";self.\(Self.agentThemeGlobal)="
+        (agentTheme ?? .null).appendCompactText(to: &text)
         // The page's boot (chatSnapshot/shared.ts `SNAPSHOT_BOOT_GLOBAL`), absent until it ran: it
         // then reads the globals itself.
-        text += ";self.\(Self.global)Boot?.();"
+        // The restored tab's identity is available before its daemon handshake. This is only
+        // presentation context for its retained tail; it grants no transport or send authority.
+        text += ";self.__cmuxRestoredChat="
+        if allowed, let sessionId, !sessionId.isEmpty { JSONValue.string(sessionId).appendCompactText(to: &text) }
+        else { text += "null" }
+        // The prompt the chat's composer showed, set only when there is one (with or without a copy).
+        if allowed, sessionId?.isEmpty == false, let draft = Self.draft(kept) {
+            text += ";self.\(Self.draftGlobal)="
+            JSONValue.string(draft).appendCompactText(to: &text)
+        }
+        // A launch harness reads the launch marks: the page's settle watch (launchSettle.ts) runs only then.
+        if LaunchMarkSink.shared.isActive { text += ";self.__cmuxLaunchMeasured=true" }
+        text += ";self.dispatchEvent(new Event('cmux-restored-chat'));self.\(Self.global)Boot?.();"
         return Data(text.utf8)
     }
 }

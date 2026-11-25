@@ -9,6 +9,19 @@ const GROUP: &str = "NotificationActionCatalog";
 
 #[rustfmt::skip]
 pub static ACTIONS: &[Action] = &[
+    // Brings back every toast kind the person hid with a toast's Don't Show Again (Lawrence 2026-11-12); a
+    // button on Settings > Notifications.
+    Action {
+        id: "toasts.showHidden",
+        group: GROUP,
+        title: t("ActionCatalog", "action.toasts.showHidden", "Show Hidden Toasts Again"),
+        keywords: &["toast", "toasts", "notice", "hidden", "don't show again", "never show", "reset", "restore"],
+        category: "notifications",
+        symbol: "text.bubble",
+        surface_plan: SurfacePlan { cli: Some(Decision::Exempt("guiOnly")), context_menu_exemption: Some("noObject"), ..SurfacePlan::DEFAULT },
+        cli_name: "action toasts-show-hidden",
+        ..Action::DEFAULT
+    },
     // The Feed page's native UI ops (feed-page.md 2): the page passes an item id; the item itself is read
     // from the daemon's feed client, never taken from the caller. Open Feed Item without an item does nothing (the Inbox page is gone).
     Action {
@@ -250,6 +263,17 @@ pub static ACTIONS: &[Action] = &[
         surfaces: PALETTE | KEYBOARD,
         surface_plan: SurfacePlan { cli: Some(Decision::Offered), context_menu_exemption: Some("noObject"), mcp_exemption: Some("systemChange"), ..SurfacePlan::DEFAULT },
         cli_name: "notification toggle-banners",
+        ..Action::DEFAULT
+    },
+    Action {
+        id: "notifications.allowDesktop",
+        group: GROUP,
+        title: t("ActionCatalog", "action.notifications.allowDesktop", "Allow cmux Notifications"),
+        keywords: &["permission", "allow", "enable", "banner", "desktop", "system", "macos", "notifications", "setup"],
+        category: "notifications",
+        symbol: "bell.badge",
+        surface_plan: SurfacePlan { cli: Some(Decision::Exempt("ownerVerb")), context_menu_exemption: Some("noObject"), ..SurfacePlan::DEFAULT },
+        cli_name: "action notifications-allow-desktop",
         ..Action::DEFAULT
     },
     Action {

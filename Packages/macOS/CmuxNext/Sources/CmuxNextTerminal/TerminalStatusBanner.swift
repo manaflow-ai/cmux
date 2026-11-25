@@ -1,5 +1,6 @@
 public import AppKit
 import CmuxNextDesign
+import CmuxNextWakeups
 
 /// Small label over a terminal whose link is down: the last screen stays
 /// visible behind it. The theme's raised surface and secondary text, no
@@ -215,9 +216,12 @@ final class TerminalStatusBanner: NSView {
     }
 
     /// Whether `status` (with the daemon's `stall`) is an in-between state, shown as the mark: one that waits
-    /// out a reveal delay (``revealDelay(for:stall:)``) because it usually clears on its own.
+    /// out a reveal delay (``revealDelay(for:stall:)``) because it usually clears on its own. "Disconnected"
+    /// waits too, but says its words when it shows: the person acts on it.
     static func isInBetween(_ status: TerminalConnectionStatus, stall: TerminalShellStall?) -> Bool {
-        revealDelay(for: status, stall: stall) != nil
+        if shownStall(status, stall) == nil, case .disconnected(let cause, reconnecting: false) = status,
+           cause != .turnedOffByOrganization { return false }
+        return revealDelay(for: status, stall: stall) != nil
     }
 
     /// "Restoring…" shows only after `restoringRevealDelay`, so an attach
@@ -229,8 +233,21 @@ final class TerminalStatusBanner: NSView {
     /// of connect retries and 2 s of handshake, after up to 2 s waiting for
     /// the owner to say ready), and a dropped view re-attaches at once. Those
     /// clear within it and never show; one that lasts still shows, and the
-    /// lasting "Disconnected" and stopped states show at once.
-    static let reconnectingRevealDelay: CFTimeInterval = 5
+    /// stopped states show at once. The shared connection quiet time
+    /// (``QuietHold/connectionDelay``, 10 s), the bound the app waits out for
+    /// the same daemon everywhere else (its startup deadline, its drop
+    /// grace, the sidebar's "Connecting…" hold): a restart or a short drop
+    /// the person can do nothing about marks no pane (Leo, 2026-11-14: "i
+    /// also want all our connectivity stuff to shut the f*** up"). It was 5 s.
+    static let reconnectingRevealDelay: CFTimeInterval = QuietHold.connectionDelaySeconds
+    /// "Disconnected: …" over the last frame shows only after `disconnectedRevealDelay`, the same
+    /// shared quiet time: a daemon restart drops every pane's link, a hidden pane's drop or quiet
+    /// re-attaches that ran out still heal on a click, a key or the link back, so a drop that heals
+    /// within it never flashes the label on every pane. It was 1.5 s. A state the app knows is final
+    /// shows at once (``revealDelay(for:stall:)`` returns nil): the terminal exited (its shell, its host
+    /// lost, the session shut down), an administrator turned the link off, or the daemon gave up on the
+    /// shell (a lost link, another build).
+    static let disconnectedRevealDelay: CFTimeInterval = QuietHold.connectionDelaySeconds
     /// A new pane's "Starting…" mark shows only after `startingRevealDelay`: the daemon confirms a
     /// split or a tab well within it, so the usual one never shows a mark.
     static let startingRevealDelay: CFTimeInterval = 1
@@ -249,7 +266,8 @@ final class TerminalStatusBanner: NSView {
         case .starting: return startingRevealDelay
         case .disconnected(.turnedOffByOrganization, _): return nil
         case .disconnected(_, reconnecting: true): return reconnectingRevealDelay
-        case .connected, .disconnected, .exited: return nil
+        case .disconnected(_, reconnecting: false): return disconnectedRevealDelay
+        case .connected, .exited: return nil
         }
     }
 
@@ -314,6 +332,8 @@ final class TerminalStatusBanner: NSView {
                 return strings.text("terminal.link.lost.restartExhausted", defaultValue: "Terminal stopped: its host kept failing")
             case .restartFailed:
                 return strings.text("terminal.link.lost.restartFailed", defaultValue: "Terminal stopped: it could not restart")
+            case .restartFailedNoFreeTerminal:
+                return strings.text("terminal.link.lost.restartFailed.noPty", defaultValue: "Terminal stopped: out of terminals. Close some, then restart.")
             case nil:
                 return strings.text("terminal.link.exited", defaultValue: "Process exited")
             }

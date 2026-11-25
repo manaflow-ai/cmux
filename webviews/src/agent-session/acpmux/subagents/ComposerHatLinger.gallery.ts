@@ -32,10 +32,8 @@ const GRACE = 2_000;
 const stage = (name: string) => ({ selector: `[data-stage="${name}"]` });
 const head = (ctx: PlayContext) => ctx.document.querySelector<HTMLElement>(".acpmux-running-tray__head");
 const rows = (ctx: PlayContext) => [...ctx.document.querySelectorAll(".acpmux-running-tray__list > li")];
-/// The finished line, or, while work still runs, the "N finished" line it folds into (SubagentTray.tsx
-/// `EndedFold`).
 const doneLine = (ctx: PlayContext) =>
-  ctx.document.querySelector('.acpmux-agent-line[data-status="done"], .acpmux-running-tray [data-ended-fold]');
+  ctx.document.querySelector('.acpmux-agent-line[data-status="done"], [data-ended-fold]');
 /// Resolves after `ms`, as a wait the play measures.
 const after = (ctx: PlayContext, ms: number) => {
   const until = Date.now() + ms;

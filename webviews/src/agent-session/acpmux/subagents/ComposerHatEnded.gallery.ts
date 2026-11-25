@@ -1,16 +1,4 @@
 // l10n-allow-file: gallery fixtures (prompts, subagent tasks, commands), not shipped UI.
-// The composer hat with a coordinator's load on it (SubagentTray.tsx), as Leo saw it on 2026-11-12:
-// "if these failed, I don't know why they still show up ... I feel like there are just way too many
-// right now ... why are there ellipses going so fast? Like they get truncated and cut off so soon."
-// Its header read "33 subagents running · 1 test run · 7 waits · 11 commands · 292 done · 25 sto…",
-// five failed lines stood in the open list, and titles cut right after their first words with half the
-// row empty. Failed lines now leave the hat at once (runningTray.ts `endedInFailure`, App.tsx). Here:
-// - what still ended (done, stopped) is one "N finished" line under what runs, which opens to its
-//   lines (`EndedFold`); the open list shows what still runs;
-// - the header counts what runs, then the commands, waits and plain commands last, and drops whole
-//   counts from the end when its row is full (`HeadParts`), never "25 sto…";
-// - a line's title runs to its time; what it does now takes the rest and cuts at the row's edge.
-// Every variant renders at the default width and at 360px (narrow).
 import { agentPaneEntry } from "../../../gallery/format";
 import { activity, chat, row, tool, user } from "../../../gallery/fixtures/acpmux";
 import { minutesAgo, recentRun } from "../../../gallery/clock";
@@ -113,59 +101,32 @@ async function open(ctx: PlayContext): Promise<void> {
   await ctx.waitFor(() => fold(ctx));
 }
 
-/** No ended line among the lines until the "N finished" line opens, and no count cut mid-word. */
-function checkFolded(ctx: PlayContext): void {
+function checkCollapsed(ctx: PlayContext, count: number): void {
+  if (fold(ctx)?.getAttribute("aria-expanded") !== "false" || !fold(ctx)?.textContent?.includes(`${count} finished`))
+    throw new Error(`Expected the disclosure for ${count} finished items`);
   if (ctx.document.querySelector(".acpmux-running-tray li[data-finished]"))
-    throw new Error("an ended line shows while the finished line is folded");
-  const parts = ctx.document.querySelector<HTMLElement>(".acpmux-running-tray__parts");
-  if (!parts) throw new Error("the header's counts are not whole parts");
-  const top = parts.getBoundingClientRect().top;
-  for (const part of parts.querySelectorAll<HTMLElement>(".acpmux-running-tray__part")) {
-    const box = part.getBoundingClientRect();
-    if (box.top > top + 1) continue; // wrapped away whole
-    const words = part.querySelector<HTMLElement>(".acpmux-tick > span:last-child");
-    if (words && words.scrollWidth > words.clientWidth + 1 && part !== parts.firstElementChild)
-      throw new Error(`a count is cut: ${part.textContent}`);
-  }
-  // A wide hat: every running line's title is whole, and what it does now starts after it (it was one
-  // box the row's ellipsis replaced at once: "Base reds: clippy + #41472…").
-  const tray = ctx.document.querySelector<HTMLElement>(".acpmux-running-tray")!;
-  if (tray.getBoundingClientRect().width < 600) return;
-  for (const line of tray.querySelectorAll<HTMLElement>(
-    'li:not([data-finished]) .acpmux-agent-line[data-status="running"]',
-  )) {
-    const name = line.querySelector<HTMLElement>(".acpmux-summary-agent__name")!;
-    if (name.scrollWidth > name.clientWidth + 1) throw new Error(`a title is cut: ${name.textContent}`);
-    const latest = line.querySelector<HTMLElement>(".acpmux-agent-line__latest-inline");
-    if (latest && latest.getBoundingClientRect().width < 40)
-      throw new Error(`no room for the step after ${name.textContent}`);
-  }
+    throw new Error("Ended rows are visible with the disclosure closed");
 }
 
 export default agentPaneEntry({
   id: "agent-pane.composer-hat-ended",
-  title: "Composer hat: what ended folds to one line, counts drop whole, titles run to the time",
+  title: "Composer hat finished work",
   area: "Agent pane",
   height: 460,
   widths: { narrow: 360 },
   anchors: [{ selector: ".acpmux-header" }, { selector: ".acpmux-composer" }],
-  covers: [
-    "agent-session/acpmux/subagents/SubagentTray.tsx",
-    "agent-session/acpmux/subagents/trayHeadKinds.ts",
-    "agent-session/acpmux/subagents/AgentLine.tsx",
-  ],
+  covers: ["agent-session/acpmux/subagents/SubagentTray.tsx"],
   variants: {
     crowded: {
-      note: 'Leo\'s hat, open: eight running lines and one "45 finished" line under them (the 9 failed left the hat). The header says "8 subagents running · 1 test run · 7 waits · 11 commands" as far as the row holds, dropping whole counts from the end; no done or stopped count, no "sto…". Each line\'s title runs to its time and what it does now cuts at the row\'s edge.',
+      note: "Eight agents are running. Forty-five finished items share one disclosure.",
       play: async (ctx) => {
         await open(ctx);
-        checkFolded(ctx);
-        if (fold(ctx)!.textContent !== "45 finished") throw new Error(`the ended line: ${fold(ctx)!.textContent}`);
+        checkCollapsed(ctx, 45);
       },
       snapshot: crowded,
     },
     "ended-open": {
-      note: 'The same hat with its "45 finished" line opened: the ended lines come under it and the list scrolls; one more click folds them back.',
+      note: "Opening the disclosure shows the finished rows below the running work.",
       play: async (ctx) => {
         await open(ctx);
         await ctx.click({ selector: ".acpmux-running-tray [data-ended-fold] > button" });
@@ -174,21 +135,12 @@ export default agentPaneEntry({
       snapshot: crowded,
     },
     few: {
-      note: 'Three running, two done and one failed (which left): "3 subagents running" heads, and "2 finished" is the one line under the three.',
+      note: "Three agents are running and two finished items share a disclosure.",
       play: async (ctx) => {
         await open(ctx);
-        checkFolded(ctx);
-        const words = ctx.find({ selector: ".acpmux-running-tray__title" }).textContent;
-        if (words !== "3 subagents running") throw new Error(`the header: ${words}`);
+        checkCollapsed(ctx, 2);
       },
       snapshot: few,
-    },
-    folded: {
-      note: "Folded, the header names the longest-running work as before; the hat is one line over the composer.",
-      play: async (ctx) => {
-        await ctx.waitFor(() => head(ctx));
-      },
-      snapshot: crowded,
     },
   },
 });

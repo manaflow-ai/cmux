@@ -19,6 +19,7 @@ import path from "node:path";
 import { chromium, type Browser, type Page } from "playwright";
 import { requireBrowserLane } from "./support/requireBrowserLane";
 import { warmViteServer } from "./support/warmDevServer";
+import { SESSION_INFO_TOGGLE } from "../src/agent-session/acpmux/session-info/sessionInfoSelectors";
 
 await requireBrowserLane("agent-pane-background-tasks.test.ts", async () => {
   setDefaultTimeout(120_000);
@@ -108,16 +109,46 @@ await requireBrowserLane("agent-pane-background-tasks.test.ts", async () => {
     updatedAt: START,
   };
 
-  function answer(method: string): unknown {
+  // A long chat, as a real one is: many turns, each starting a background shell (a few still
+  // running), so the panel lists many tasks and the chat's hidden column holds many rows.
+  const LONG = "0190a000-0000-7000-8000-0000000000e2";
+  const TURNS = 160;
+  const longSteps: Step[] = [];
+  for (let turn = 0; turn < TURNS; turn++) {
+    const id = `long${turn}`;
+    const command = `npm run job -- ${turn}`;
+    longSteps.push(
+      ["mux", "user_message", { text: `Run job ${turn}` }],
+      ["mux", "turn_started", {}],
+      ...background(id, command),
+      ended(id, command, turn >= TURNS - 4 ? "running" : "completed", turn >= TURNS - 4 ? {} : { summary: "Done" }),
+      ["in", "agent_message_chunk", say(`Job ${turn} started.`)],
+      ["mux", "turn_result", { status: "completed" }],
+    );
+  }
+  const longEvents = longSteps.map(([dir, kind, msg], index) => ({
+    sessionId: LONG,
+    seq: index + 1,
+    at: START + index * 1000,
+    dir,
+    kind,
+    msg,
+  }));
+  const longSession = { ...session, sessionId: LONG, title: "Long chat", turnCount: TURNS };
+
+  function answer(method: string, params?: Record<string, any>): unknown {
+    const long = params?.sessionId === LONG;
     switch (method) {
       case "initialize":
         return { protocolVersion: 1, _meta: { acpmux: { origin: "local", extensions: [], operations: [] } } };
       case "_acpmux/watch":
-        return { sessions: [session] };
+        return { sessions: [session, longSession] };
       case "_acpmux/attach":
-        return { session, lastSeq: events.length, events };
+        return long
+          ? { session: longSession, lastSeq: longEvents.length, events: longEvents }
+          : { session, lastSeq: events.length, events };
       case "_acpmux/events":
-        return { events: [], hasMore: false, lastSeq: events.length };
+        return { events: [], hasMore: false, lastSeq: long ? longEvents.length : events.length };
       default:
         return null;
     }
@@ -142,7 +173,7 @@ await requireBrowserLane("agent-pane-background-tasks.test.ts", async () => {
         message(ws, raw) {
           const message = JSON.parse(String(raw)) as { id?: number; method: string; params?: Record<string, any> };
           if (message.id !== undefined)
-            ws.send(JSON.stringify({ jsonrpc: "2.0", id: message.id, result: answer(message.method) }));
+            ws.send(JSON.stringify({ jsonrpc: "2.0", id: message.id, result: answer(message.method, message.params) }));
         },
       },
     });
@@ -214,9 +245,8 @@ await requireBrowserLane("agent-pane-background-tasks.test.ts", async () => {
     await page.locator("button.cv-tool", { hasText: "Ran 2 commands" }).click();
     const row = (command: string) => page.locator(".cv-tool", { hasText: command }).first();
     await row("npm run dev").waitFor({ timeout: 5_000 });
-    const stopped = row("npm run dev").locator(".cv-command__stopped");
-    expect(await stopped.textContent()).toBe("Stopped");
-    expect(await stopped.getAttribute("title")).toBe("Stopped by the agent");
+    // How a background command ended draws no mark at its edge, as Codex (2026-11-11 standup).
+    expect(await row("npm run dev").locator(".cv-command__meta [data-state]").count()).toBe(0);
     expect(await row("cargo watch -x test").locator(".cv-command__bg-state").getAttribute("title")).toBe(
       "Running in background",
     );
@@ -263,6 +293,43 @@ await requireBrowserLane("agent-pane-background-tasks.test.ts", async () => {
       await page.close();
     }
   });
+
+  // Background tasks opened into a split (Leo, 2026-11-22: "it gave me the agent pane could not be
+  // drawn after i opedn up background tasks. i guess it sent you to that split."). The app opens the
+  // chat's Background tasks tab on the chat's session with the reveal `subagent:cmux:background-tasks`
+  // (backgroundPane.ts); that page hides the chat's column and the panel fills the tab. In a real
+  // layout engine: the hidden column measures nothing, which is where a measuring loop would show.
+  for (const [chat, session, ready, card] of [
+    ["a short chat", CHAT, "Dev server stopped.", "cargo watch -x test"],
+    ["a long chat", LONG, `Job ${TURNS - 1} started.`, `npm run job -- ${TURNS - 1}`],
+  ] as const)
+    test(`the Background tasks tab of ${chat} draws the panel, with no update loop and nothing caught`, async () => {
+      const page = await browser!.newPage({ viewport: { width: 520, height: 760 } });
+      const errors: string[] = [];
+      page.on("console", (message) => {
+        if (message.type() === "error") errors.push(message.text());
+      });
+      page.on("pageerror", (error) => errors.push(`${error.message}\n${error.stack ?? ""}`));
+      try {
+        await page.goto(url(session));
+        await page.getByText(ready).waitFor({ timeout: 30_000 });
+        await page.evaluate(() =>
+          (window as unknown as { cmuxAcpmuxBridge: { revealTurn(value: string): void } }).cmuxAcpmuxBridge.revealTurn(
+            "subagent:cmux:background-tasks",
+          ),
+        );
+        await page.locator(".acpmux-shell[data-background-pane] > .acpmux-bg").waitFor({ timeout: 10_000 });
+        // A loop that starts once the panel draws, or once its tasks' clocks tick, shows up in this time.
+        // fixed-wait: this asserts an absence (no update loop) across at least two 1 s task-clock ticks;
+        // no DOM state marks "no loop happened", so the window itself is the condition.
+        await page.waitForTimeout(2_500);
+        expect(errors.filter((error) => /Maximum update depth|Too many re-renders|#185|#301/.test(error))).toEqual([]);
+        expect(await page.locator(".acpmux-pane-failed").count()).toBe(0);
+        expect(await panelCard(page, card).count()).toBe(1);
+      } finally {
+        await page.close();
+      }
+    });
 
   /// A page whose native host records what the page asks of it (CmuxNextAgentPane's `agentSession`).
   const recordingPage = async () => {
@@ -363,7 +430,7 @@ await requireBrowserLane("agent-pane-background-tasks.test.ts", async () => {
           ).cmuxAcpmuxBridge.applyHeaderState({ inspector: true, version: 2 }),
         );
         // A new chat starts with Session Info closed (#37576): the person opens it.
-        const toggle = page.locator("button.acpmux-session-info-toggle");
+        const toggle = page.locator(SESSION_INFO_TOGGLE);
         await toggle.waitFor({ timeout: 5_000 });
         if ((await toggle.getAttribute("aria-pressed")) !== "true") await toggle.click();
         const section = page.locator('aside.acpmux-session-info section[data-section="tasks"]');

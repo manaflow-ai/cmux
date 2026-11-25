@@ -81,7 +81,10 @@ import type { OutputArtifact } from "./outputsSectionModel";
 import { ServersSection } from "./ServersSection";
 import { SubagentLimitStepper } from "./SubagentLimitStepper";
 import { SubagentCountsMeta, SubagentsSection } from "./SubagentsSection";
+import type { ResumeActions } from "../subagents/ResumeControl";
 import { AlsoHereSection } from "./AlsoHereSection";
+import { CarriedSection, carriedSummary } from "./CarriedSection";
+import { useCarried, type ReadCarried, type ResolveCarried } from "./carriedSectionModel";
 import { useAlsoHere } from "./alsoHereSectionModel";
 import { sessionStatus } from "./childSessionRowsModel";
 import { chatOutputs } from "./chatOutputs";
@@ -115,6 +118,7 @@ import {
   openOutputFile,
 } from "./sessionInfoModel";
 import { tooltipProps } from "../shortcuts";
+import { RESIZE_HANDLE_PROPS } from "../../../scrollers";
 
 type Summary = NonNullable<AcpmuxSnapshot["summary"]>;
 /// A chat with no folders beside its own (one shared empty list, so the section's props keep their identity).
@@ -262,6 +266,7 @@ export function SessionInfoPanel({
     >
       <div
         className="acpmux-session-info__resize"
+        {...RESIZE_HANDLE_PROPS}
         aria-hidden="true"
         onPointerDown={(event) => {
           if (event.button !== 0 || !frame.current) return;
@@ -352,6 +357,7 @@ export function SessionInfo({
   agents = [],
   waiting = new Set(),
   onOpenSubagent,
+  resumeSubagent,
   statuses = {},
   processes = [],
   listed = false,
@@ -376,8 +382,9 @@ export function SessionInfo({
   remoteControl,
   onSaveEnvironment,
   onReconnectMcp,
+  readCarried,
+  onResolveCarried,
   onCompact,
-  onViewPrompt,
   onOpenFolder,
   edits,
   onOpenChanges,
@@ -430,6 +437,8 @@ export function SessionInfo({
   agents?: readonly Subagent[];
   waiting?: ReadonlySet<string>;
   onOpenSubagent?: (id: string) => void;
+  /// Resume on a stopped subagent's line (subagents/ResumeControl.tsx).
+  resumeSubagent?: ResumeActions;
   /// What the App read of the pull requests, by URL.
   statuses?: Readonly<Record<string, SessionInfoPullRequestStatus>>;
   /// The chat's background processes, in the order they started.
@@ -469,10 +478,14 @@ export function SessionInfo({
   onSaveEnvironment?: () => Promise<unknown> | void;
   /// Reconnects one of the chat's failed MCP servers by name (`_acpmux/mcp/reconnect`).
   onReconnectMcp?: (server: string) => Promise<unknown>;
+  /// Carried memory (CarriedSection.tsx): reads `_acpmux/agent_home` while the section is open, and
+  /// sends `_acpmux/agent_home_resolve` on Accept or Drop. Unset (Quick Chat, a subagent's panel): no section.
+  readCarried?: ReadCarried;
+  onResolveCarried?: ResolveCarried;
   /// Sends the chat's agent its `/compact`: Context's Compact session (ContextSection), live while a
   /// turn runs (the /compact queues behind it), and Usage's next step for its context (UsageSection.tsx).
   onCompact?: () => void;
-  /// Context's View Prompt (useSessionInfo's).
+  /// Context's View Prompt (useSessionInfo's): no longer drawn (Lucas, 2026-11-23: "remove this button").
   onViewPrompt?: () => void;
   /// Every chat acpmux lists, this Mac's and its peers', for Usage (UsageSection.tsx); unset in a
   /// subagent's own panel.
@@ -687,33 +700,14 @@ export function SessionInfo({
       />
     </SessionInfoSection>
   );
-  // Context is one line, the window's share on a meter and its tokens used of its size; a click unfolds
-  // its breakdown from Messages down (Lucas, 2026-11-06: "clicking on context should no longer open the
-  // context modal. instead it will just expand"). The composer's context card's Details opens Session
+  // Context's head is its title alone; a click unfolds the share used with its tokens, the bar and the
+  // breakdown, as Claude Code desktop's card (Lucas, 2026-11-23: "move the tokens and percentage to the
+  // context bar"; 2026-11-06: "clicking on context should no longer open the context modal. instead it
+  // will just expand"). The composer's context card's Details opens Session
   // Info on it, unfolded and lit (App.tsx `onOpenContext`, as main has it).
-  const contextTokens = new Intl.NumberFormat(language, { notation: "compact", maximumFractionDigits: 1 });
   const context = known ? (
-    <SessionInfoSection
-      id="context"
-      title={t("rail.context")}
-      open={state.context}
-      onOpenChange={fold("context")}
-      meta={
-        <>
-          <span className="acpmux-session-info-meter" aria-hidden="true">
-            <span style={{ width: `${percent}%` }} />
-          </span>
-          {value(`${contextTokens.format(usage.used)} / ${contextTokens.format(usage.size)}`)}
-        </>
-      }
-    >
-      <ContextSection
-        usage={usage}
-        percent={percent}
-        breakdown={summary?.contextBreakdown}
-        rowsOnly
-        onViewPrompt={onViewPrompt}
-      />
+    <SessionInfoSection id="context" title={t("rail.context")} open={state.context} onOpenChange={fold("context")}>
+      <ContextSection usage={usage} percent={percent} breakdown={summary?.contextBreakdown} />
     </SessionInfoSection>
   ) : (
     progress.length > 0 && (
@@ -746,6 +740,32 @@ export function SessionInfo({
       )}
     >
       <ConnectorsSection servers={mcp} onReconnect={onReconnectMcp} imessage={imessage} />
+    </SessionInfoSection>
+  );
+  // Carried memory: only in the chat's own panel, read while it is open (and once for its header
+  // value as it is drawn, so the folded line says what waits).
+  const carriedRead = useCarried(readCarried, Boolean(readCarried), chatId ?? "");
+  const carriedHome = carriedRead.home;
+  const carriedValue = carriedSummary(t, carriedHome, carriedRead.failed);
+  const carriedOpens = Boolean(carriedHome?.configured || carriedRead.failed);
+  const carried = readCarried && (
+    <SessionInfoSection
+      id="carried"
+      title={t("rail.carried")}
+      open={carriedOpens && state.carried}
+      onOpenChange={carriedOpens ? fold("carried") : undefined}
+      meta={carriedValue ? value(carriedValue) : undefined}
+    >
+      <CarriedSection
+        home={carriedHome}
+        failed={carriedRead.failed}
+        onResolve={onResolveCarried}
+        onSettled={(resolution) => {
+          carriedRead.settle(resolution);
+          carriedRead.reload();
+        }}
+        locale={language}
+      />
     </SessionInfoSection>
   );
   const changes = pullRequests.length > 0 && (
@@ -856,6 +876,7 @@ export function SessionInfo({
           agents={listedAgents}
           waiting={waiting}
           onOpen={onOpenSubagent}
+          resume={resumeSubagent}
           sessions={sessions}
           onOpenSession={onOpenSession}
           harness={summary?.harness}
@@ -889,7 +910,8 @@ export function SessionInfo({
       title={t("summary.backgroundTasks")}
       open={state.tasks}
       onOpenChange={fold("tasks")}
-      meta={running > 0 ? value(t("rail.running", { count: running })) : undefined}
+      // The number of what runs, no word (Leo, 2026-11-23: ""running" doesn't need text"), as Also here's count.
+      meta={running > 0 ? value(String(running)) : undefined}
     >
       {workflows.length > 0 && (
         <WorkflowTasks
@@ -959,6 +981,7 @@ export function SessionInfo({
           context,
           usage: usageSection,
           connectors,
+          carried,
           changes,
           sources: sourcesSection,
           outputs: outputsSection,

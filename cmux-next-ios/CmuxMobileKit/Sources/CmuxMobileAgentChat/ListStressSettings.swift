@@ -7,12 +7,20 @@ import Foundation
 /// (`ListStressRig`); the mock agent reads the two chat settings here.
 /// - `CMUX_MOBILE_LIST_SCREEN`: the list to measure: `workspaces`, `tabs`, `chat`, `diff`,
 ///   `artifacts` (the chat's Files and Artifacts grid; each replayed turn names an image, a page and a PDF), `home`, or `feed`
-///   (seeded by `CMUX_MOBILE_FEED_STRESS`, as a reference for the rebuilt Feed).
+///   (seeded by `CMUX_MOBILE_FEED_STRESS`, as a reference for the rebuilt Feed), or `terminals`
+///   (`LIST_COUNT` terminal tabs opened, then hidden but warm behind the workspaces list; with
+///   `CMUX_MOBILE_LIST_TERMINAL_VISIBLE=1` the first one stays on screen instead).
 /// - `CMUX_MOBILE_LIST_COUNT=N`: rows to seed (workspaces, tabs) or replayed turns (chat, diff).
 /// - `CMUX_MOBILE_LIST_LIVE_HZ=HZ`: live changes per second while scrolling (workspace activity).
-/// - `CMUX_MOBILE_LIST_STREAM=1`: every prompt streams one long answer with no waits.
+/// - `CMUX_MOBILE_LIST_STREAM=1`: every prompt streams one long answer with no waits (`terminals`:
+///   every mock shell streams a row every 20 ms).
 /// - `CMUX_MOBILE_LIST_SEND=1` (chat): type and send a prompt through the composer after the chat
 ///   opens (the mock's own turn, or the long answer with `LIST_STREAM=1`), as a person does.
+/// - `CMUX_MOBILE_LIST_HOLD_TURN=1` (chat, with `LIST_SEND=1`): the sent prompt's turn stays running
+///   with no output until stopped, so its working row and elapsed time stay live (a running chat).
+///   Each redraw of a working row's elapsed time then logs `FRAMELOG list-stress label-tick`.
+/// - `CMUX_MOBILE_LIST_LEAVE_NEWEST=0` (chat): stay at the newest turn after the send (by default the
+///   rig scrolls to the top, as a reader who left it).
 /// - `CMUX_MOBILE_LIST_PASSES=N`: top to bottom and back N times at `CMUX_MOBILE_LIST_SPEED` pt/s
 ///   (default 2400), one frame-interval window per direction (needs `CMUX_MOBILE_FRAMELOG=1`).
 /// - `CMUX_MOBILE_LIST_PAN=1`: pan sideways instead (the diff's unwrapped code), one window per
@@ -21,8 +29,15 @@ import Foundation
 ///   (where the width allows it: an iPad). `CMUX_MOBILE_LIST_HOLD_X=PT` with `LIST_PASSES=0`: pans the
 ///   widest scroll view to PT and holds (screenshots of the pinned gutter).
 /// - `CMUX_MOBILE_LIST_EXIT_WHEN_DONE=1`: exit after the last pass (the rig waits for the exit).
+/// - `CMUX_MOBILE_LIST_REFRESH_SECONDS=S` (workspaces): the list gets a pull to refresh that takes S
+///   seconds (mock mode has no live refresh), for the pull-to-refresh rig (verify/pull-to-refresh.md).
+/// - `CMUX_MOBILE_LIST_PULL_TRACE=1` (with `LIST_PASSES=0`): log one `PULL` line per frame that changes:
+///   the list's offset and top inset, the refresh wheel's and the search field's frames in the window.
 /// - `CMUX_MOBILE_LIST_GIANT=1` (chat): every third replayed prompt is a pasted raw log (hundreds of
 ///   lines with emoji, CJK, tabs, ANSI escapes and unbroken tokens), the GUI stress loop's long rows.
+/// - `CMUX_MOBILE_LIST_EVENTS=PATH` (chat): the chat is a file of acpmux records instead of the mock agent, one heavy
+///   coordinator from coord-sim (`coord-sim surface --target ios`); `CMUX_MOBILE_LIST_EVENTS_HISTORY=N` says how many
+///   came before the chat opens (an attach page of them), the rest stream at their recorded pace (CoordSimReplaySource).
 public struct ListStressSettings: Equatable, Sendable {
     public static let shared = ListStressSettings()
 
@@ -31,6 +46,12 @@ public struct ListStressSettings: Equatable, Sendable {
     public var liveHz: Double?
     public var streams: Bool
     public var sends: Bool
+    /// `CMUX_MOBILE_LIST_HOLD_TURN=1`: a sent prompt's turn runs until stopped, with no output.
+    public var holdsTurn: Bool
+    /// `CMUX_MOBILE_LIST_LEAVE_NEWEST=0`: the chat stays at its newest turn after the send.
+    public var leavesNewest: Bool
+    /// `CMUX_MOBILE_LIST_TERMINAL_VISIBLE=1` (terminals): the first terminal stays on screen.
+    public var terminalVisible: Bool
     /// `CMUX_MOBILE_LIST_OPEN_DELAY=S`: seconds before a transcript opens (default 1), so `SAMPLE` catches the open.
     public var openDelay: Double
     public var passes: Int
@@ -50,8 +71,20 @@ public struct ListStressSettings: Equatable, Sendable {
     public var plainCards: Set<String>
     /// `CMUX_MOBILE_LIST_NO_CARD_PICTURES=1`: agent cards are never drawn into pictures.
     public var noCardPictures: Bool
+    /// `CMUX_MOBILE_LIST_MAC_CARDS=1` (tabs): the mock Mac pushes its `tabs` records once, as the feed
+    /// hands them to `MacTabCards` (favicon and thumbnail of each browser, screen of each terminal),
+    /// and they are kept on disk. A later launch without it is cold: it reads them from disk.
+    public var macCards: Bool
     /// `CMUX_MOBILE_LIST_GIANT=1`: giant pasted-log prompts (`MockStressContent.giantPrompt`).
     public var giant: Bool
+    /// `CMUX_MOBILE_LIST_REFRESH_SECONDS=S`: a mock pull to refresh lasting S seconds.
+    public var refreshSeconds: Double?
+    /// `CMUX_MOBILE_LIST_PULL_TRACE=1`: the per-frame pull-to-refresh trace.
+    public var pullTrace: Bool
+    /// `CMUX_MOBILE_LIST_EVENTS=PATH` (chat): the chat replays a file of acpmux records (coord-sim).
+    public var events: String?
+    /// `CMUX_MOBILE_LIST_EVENTS_HISTORY=N`: its first N records are the chat before it opens.
+    public var eventsHistory: Int
 
     public init(environment: [String: String] = ProcessInfo.processInfo.environment) {
         screen = environment["CMUX_MOBILE_LIST_SCREEN"]
@@ -59,6 +92,9 @@ public struct ListStressSettings: Equatable, Sendable {
         liveHz = environment["CMUX_MOBILE_LIST_LIVE_HZ"].flatMap(Double.init)
         streams = environment["CMUX_MOBILE_LIST_STREAM"] == "1"
         sends = environment["CMUX_MOBILE_LIST_SEND"] == "1"
+        holdsTurn = environment["CMUX_MOBILE_LIST_HOLD_TURN"] == "1"
+        leavesNewest = environment["CMUX_MOBILE_LIST_LEAVE_NEWEST"] != "0"
+        terminalVisible = environment["CMUX_MOBILE_LIST_TERMINAL_VISIBLE"] == "1"
         openDelay = environment["CMUX_MOBILE_LIST_OPEN_DELAY"].flatMap(Double.init) ?? 1
         passes = environment["CMUX_MOBILE_LIST_PASSES"].flatMap(Int.init) ?? 2
         speed = environment["CMUX_MOBILE_LIST_SPEED"].flatMap(Double.init) ?? 2400
@@ -72,8 +108,26 @@ public struct ListStressSettings: Equatable, Sendable {
         holdY = environment["CMUX_MOBILE_LIST_HOLD_Y"].flatMap(Double.init)
         plainCards = Set((environment["CMUX_MOBILE_LIST_PLAIN_CARDS"] ?? "").split(separator: ",").map(String.init))
         noCardPictures = environment["CMUX_MOBILE_LIST_NO_CARD_PICTURES"] == "1"
+        macCards = environment["CMUX_MOBILE_LIST_MAC_CARDS"] == "1"
         giant = environment["CMUX_MOBILE_LIST_GIANT"] == "1"
+        refreshSeconds = environment["CMUX_MOBILE_LIST_REFRESH_SECONDS"].flatMap(Double.init)
+        pullTrace = environment["CMUX_MOBILE_LIST_PULL_TRACE"] == "1"
+        events = environment["CMUX_MOBILE_LIST_EVENTS"].flatMap { $0.isEmpty ? nil : $0 }
+        eventsHistory = environment["CMUX_MOBILE_LIST_EVENTS_HISTORY"].flatMap(Int.init) ?? 0
     }
+
+    /// The id prefix of the workspaces the rig seeds (`ws-s0`, `ws-s1`, ...).
+    public static let seededWorkspacePrefix = "ws-s"
+
+    /// Whether row `id` may take the launch marks' `workspaces_list_frame`: with the workspaces
+    /// rig, only a row it seeded, not a mock row shown before the seeding replaced them.
+    public func countsListFrame(rowID id: String) -> Bool {
+        guard screen == "workspaces", count > 0 else { return true }
+        return id.hasPrefix(Self.seededWorkspacePrefix) && id.dropFirst(Self.seededWorkspacePrefix.count).first?.isNumber == true
+    }
+
+    /// Whether a working row logs each redraw of its elapsed time (the rig's running chat).
+    public var logsLabelTicks: Bool { screen != nil && holdsTurn }
 
     /// Turns the mock agent replays as history: the chat and diff screens' load.
     public var historyTurns: Int {

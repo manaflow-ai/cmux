@@ -25,7 +25,7 @@ extension TabStripView {
         guard let cell = cells[id], let rect = cell.closeButtonRect else { return false }
         let local = convert(point, to: tabsClip)
         let inCell = CGPoint(x: local.x - cell.frame.minX, y: local.y - cell.frame.minY)
-        return rect.insetBy(dx: -2, dy: -2).contains(inCell)
+        return cell.metrics.closeHitRect(rect).contains(inCell)
     }
 
     /// Whether `point` (strip coordinates) is on tab `id`'s speaker, with a
@@ -135,6 +135,8 @@ extension TabStripView {
         let point = convert(event.locationInWindow, from: nil)
         // A press before the strip's model sync (right after a close) catches up first.
         if model.orderedTabs.map(\.id) != lastModelOrder { sync(fromModel: true) }
+        // Titlebar space (the gaps between pills too, #48653): the window moved or ran its double-click action.
+        if pressIsTitlebar(at: point) { return }
         if isInNewTabMenuButton(point) {
             showNewTabMenu(anchor: newTabMenuButton)
             return
@@ -277,7 +279,7 @@ extension TabStripView {
     public override func menu(for event: NSEvent) -> NSMenu? {
         let menu = contextMenu(for: event)
         if let menu { menuTracking.begin(menu) }
-        return menu
+        return NSMenu.withoutSystemItems(menu)
     }
 
     private func contextMenu(for event: NSEvent) -> NSMenu? {

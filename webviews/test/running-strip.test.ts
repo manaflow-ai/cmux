@@ -17,7 +17,8 @@ import path from "node:path";
 import { chromium, type Browser, type Page } from "playwright";
 import { requireBrowserLane } from "./support/requireBrowserLane";
 import { warmViteServer } from "./support/warmDevServer";
-import { openRunningTray } from "./support/openRunningTray";
+import { openFinishedTrayRows, openRunningTray } from "./support/openRunningTray";
+import { RUNNING_TRAY_LINE } from "../src/agent-session/acpmux/subagents/subagentSelectors";
 
 await requireBrowserLane("running-strip.test.ts", async () => {
   setDefaultTimeout(120_000);
@@ -61,8 +62,9 @@ await requireBrowserLane("running-strip.test.ts", async () => {
     // the header, so what the tests read is the line at rest.
     await page.waitForSelector(".acpmux-running-tray");
     await openRunningTray(page);
+    await openFinishedTrayRows(page);
     await page.mouse.move(0, 0);
-    await page.waitForSelector(".acpmux-running-tray .acpmux-agent-line");
+    await page.waitForSelector(RUNNING_TRAY_LINE);
     // The header's hover wash fades out (summary.css's background transition): wait for the pointer
     // to have left it and finish that fade, so the line is read at rest.
     await page.waitForFunction(() => !document.querySelector(".acpmux-running-tray__head:hover"));
@@ -146,6 +148,7 @@ await requireBrowserLane("running-strip.test.ts", async () => {
         );
         await page.waitForSelector(".acpmux-running-tray__head");
         await openRunningTray(page);
+        await openFinishedTrayRows(page);
         expect(await page.$(".acpmux-running-tray__finished")).toBeNull();
         await page.waitForFunction(
           () => document.querySelectorAll(".acpmux-running-tray li[data-finished]").length === 116,
@@ -291,6 +294,7 @@ await requireBrowserLane("running-strip.test.ts", async () => {
     await page.evaluate((w) => (window as unknown as { __showRows: (w: number) => void }).__showRows(w), width);
     await page.waitForSelector(".acpmux-running-tray");
     await openRunningTray(page);
+    await openFinishedTrayRows(page);
     await page.mouse.move(0, 0);
     return page;
   }
@@ -307,27 +311,30 @@ await requireBrowserLane("running-strip.test.ts", async () => {
   test("a finished line's check sits in the Stop square's slot, after its time, never a Done on the left", async () => {
     const page = await rows();
     try {
-      const marks = await page.evaluate(() => {
-        const lines = [...document.querySelectorAll<HTMLElement>(".acpmux-running-tray .acpmux-agent-line")];
-        const done = lines.find((line) => line.dataset.status === "done")!;
-        const running = lines.find(
-          (line) => line.dataset.status === "running" && line.querySelector(".cv-subagent__stop"),
-        )!;
-        const check = done.querySelector<HTMLElement>("[data-done-check]");
-        const stop = running.querySelector<HTMLElement>(".cv-subagent__stop")!.getBoundingClientRect();
-        const time = done.querySelector<HTMLElement>(".acpmux-agent-line__time")!.getBoundingClientRect();
-        const box = check?.getBoundingClientRect();
-        const visibleWords = [...done.querySelectorAll<HTMLElement>(".acpmux-agent-line__meta *")]
-          .filter((node) => node.childElementCount === 0 && !node.closest(".acpmux-agent-line__sr"))
-          .map((node) => node.textContent?.trim())
-          .filter(Boolean);
-        return {
-          icon: Boolean(check?.querySelector('svg[data-icon="status.check"]')),
-          centreDelta: box ? Math.abs(box.left + box.width / 2 - (stop.left + stop.width / 2)) : Number.NaN,
-          afterTime: box ? box.left >= time.right : false,
-          visibleWords,
-        };
-      });
+      const marks = await page.evaluate(
+        ({ RUNNING_TRAY_LINE }) => {
+          const lines = [...document.querySelectorAll<HTMLElement>(RUNNING_TRAY_LINE)];
+          const done = lines.find((line) => line.dataset.status === "done")!;
+          const running = lines.find(
+            (line) => line.dataset.status === "running" && line.querySelector(".cv-subagent__stop"),
+          )!;
+          const check = done.querySelector<HTMLElement>("[data-done-check]");
+          const stop = running.querySelector<HTMLElement>(".cv-subagent__stop")!.getBoundingClientRect();
+          const time = done.querySelector<HTMLElement>(".acpmux-agent-line__time")!.getBoundingClientRect();
+          const box = check?.getBoundingClientRect();
+          const visibleWords = [...done.querySelectorAll<HTMLElement>(".acpmux-agent-line__meta *")]
+            .filter((node) => node.childElementCount === 0 && !node.closest(".acpmux-agent-line__sr"))
+            .map((node) => node.textContent?.trim())
+            .filter(Boolean);
+          return {
+            icon: Boolean(check?.querySelector('svg[data-icon="status.check"]')),
+            centreDelta: box ? Math.abs(box.left + box.width / 2 - (stop.left + stop.width / 2)) : Number.NaN,
+            afterTime: box ? box.left >= time.right : false,
+            visibleWords,
+          };
+        },
+        { RUNNING_TRAY_LINE },
+      );
       expect(marks.icon).toBe(true);
       expect(marks.centreDelta).toBeLessThan(1);
       expect(marks.afterTime).toBe(true);
@@ -340,35 +347,35 @@ await requireBrowserLane("running-strip.test.ts", async () => {
   test("a line's title runs up to its time, cut only where it truly overflows", async () => {
     const page = await rows();
     try {
-      const fit = await page.evaluate(() => {
-        const line = (name: string) =>
-          [...document.querySelectorAll<HTMLElement>(".acpmux-running-tray .acpmux-agent-line")].find(
-            (each) => each.querySelector(".acpmux-summary-agent__name")?.textContent === name,
-          )!;
-        const measure = (each: HTMLElement) => {
-          const text = each.querySelector<HTMLElement>(".acpmux-summary-text")!;
-          const name = each.querySelector<HTMLElement>(".acpmux-summary-agent__name")!;
-          const time = each.querySelector<HTMLElement>(".acpmux-agent-line__time")!;
-          // The title cuts in its own box now (subagents.css: it runs to the time, what it does now
-          // takes the rest), so the text's box itself never overflows.
-          return {
-            gap: time.getBoundingClientRect().left - text.getBoundingClientRect().right,
-            cut: text.scrollWidth > text.clientWidth || name.scrollWidth > name.clientWidth,
+      const fit = await page.evaluate(
+        ({ RUNNING_TRAY_LINE }) => {
+          const line = (name: string) =>
+            [...document.querySelectorAll<HTMLElement>(RUNNING_TRAY_LINE)].find(
+              (each) => each.querySelector(".acpmux-summary-agent__name")?.textContent === name,
+            )!;
+          const measure = (each: HTMLElement) => {
+            const text = each.querySelector<HTMLElement>(".acpmux-summary-text")!;
+            const time = each.querySelector<HTMLElement>(".acpmux-agent-line__time")!;
+            return {
+              gap: time.getBoundingClientRect().left - text.getBoundingClientRect().right,
+              cut: text.scrollWidth > text.clientWidth,
+            };
           };
-        };
-        const command = [...document.querySelectorAll<HTMLElement>(".acpmux-running-tray .acpmux-agent-line")].find(
-          (each) => each.querySelector(".acpmux-agent-line__latest-inline.is-code, .acpmux-agent-line__latest.is-code"),
-        )!;
-        return {
-          long: measure(
-            line(
-              "Audit every background task row in the composer hat for clipped titles and misaligned trailing columns",
+          const command = [...document.querySelectorAll<HTMLElement>(RUNNING_TRAY_LINE)].find((each) =>
+            each.querySelector(".acpmux-agent-line__latest-inline.is-code, .acpmux-agent-line__latest.is-code"),
+          )!;
+          return {
+            long: measure(
+              line(
+                "Audit every background task row in the composer hat for clipped titles and misaligned trailing columns",
+              ),
             ),
-          ),
-          command: measure(command),
-          latest: command.querySelector(".is-code")!.textContent,
-        };
-      });
+            command: measure(command),
+            latest: command.querySelector(".is-code")!.textContent,
+          };
+        },
+        { RUNNING_TRAY_LINE },
+      );
       // The title's box ends one column gap before the time, not a status column away.
       expect(fit.long.cut).toBe(true);
       expect(fit.long.gap).toBeLessThan(12);
@@ -386,29 +393,18 @@ await requireBrowserLane("running-strip.test.ts", async () => {
     "Audit every background task row in the composer hat for clipped titles and misaligned trailing columns",
     "Run the tray tests",
   ]) {
-    test(`a click on a line expands it in place, never navigating (${name.slice(0, 16)})`, async () => {
+    // #42247 (Codex parity) made a subagent's tray line open its chat on a click, with no detail
+    // under it (TrayLineDetail.tsx: "subagent rows open their chat directly"). A command's line and
+    // a subagent's command still expand in place (the tests below).
+    test(`a click on a subagent's line opens its chat and expands nothing (${name.slice(0, 16)})`, async () => {
       const page = await rows();
       try {
         const opened = () => page.evaluate(() => [...(window as unknown as { __opened: string[] }).__opened]);
         await lineOf(page, name).click();
         await settle(page);
-        expect(await opened()).toEqual([]);
-        expect(await lineOf(page, name).getAttribute("aria-expanded")).toBe("true");
-        const detail = page.locator(".acpmux-running-tray [data-line-detail]");
-        await detail.waitFor();
-        await page.waitForFunction(() => {
-          const node = document.querySelector<HTMLElement>(".acpmux-running-tray [data-line-detail]");
-          return !!node && node.getBoundingClientRect().height > 10 && node.style.overflow === "";
-        });
-        expect(await detail.textContent()).toContain(name);
-        // The way to the subagent is an explicit button in the detail.
-        await page.click(".acpmux-running-tray [data-line-detail] button");
         expect(await opened()).toEqual([`agent:${name === "Run the tray tests" ? "done" : "long"}`]);
-        // A second click folds it, on the same fold.
-        await lineOf(page, name).click();
-        await settle(page);
-        await page.waitForFunction(() => !document.querySelector(".acpmux-running-tray [data-line-detail]"));
-        expect(await lineOf(page, name).getAttribute("aria-expanded")).toBe("false");
+        expect(await lineOf(page, name).getAttribute("aria-expanded")).toBeNull();
+        expect(await page.locator(".acpmux-running-tray [data-line-detail]").count()).toBe(0);
       } finally {
         await page.close();
       }

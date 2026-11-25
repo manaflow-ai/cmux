@@ -5,8 +5,13 @@
 // of, so the reconnect resumes after them and a session acpmux recreated under the same id while
 // the page was away drops them instead of merging them into the new session's transcript. And a
 // reply acpmux split in two segments (a cut between them) keeps two rows under one messageId.
-import { expect, test } from "bun:test";
+import { beforeEach, expect, test } from "bun:test";
 import { AcpmuxDirectClient, type CarriedChat } from "../src/agent-session/acpmux/direct";
+import { resetKeptTailsForTests } from "../src/agent-session/acpmux/tailCache";
+
+// Every case opens the same chat id: a lost connection now keeps its tail in the page map
+// (direct.ts connectionEnded), so one case's rows would draw first in the next.
+beforeEach(() => resetKeptTailsForTests());
 
 const CHAT = "0190a000-0000-7000-8000-0000000000d7";
 const START = Date.UTC(2026, 10, 11, 23, 0, 0);

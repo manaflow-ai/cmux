@@ -23,6 +23,8 @@ use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
 
+#[path = "conversation_home_window.rs"]
+pub(crate) mod home_window;
 #[path = "conversation_import.rs"]
 mod import;
 #[path = "conversation_inbox.rs"]
@@ -32,6 +34,10 @@ pub(crate) use import::ImportedMessage;
 pub(crate) mod links;
 #[path = "conversation_runs.rs"]
 pub(crate) mod runs;
+#[path = "conversation_scheduled.rs"]
+pub(crate) mod scheduled;
+#[path = "conversation_spill.rs"]
+pub(crate) mod spill;
 #[path = "conversation_threads.rs"]
 pub(crate) mod threads;
 
@@ -126,6 +132,8 @@ pub(crate) struct ConversationStore {
     connection: Connection,
     /// Attachment bytes (`attachments/` beside the store) and uploads in flight.
     attachments: attachments::Attachments,
+    /// The Home list order last read for a window (`home_window`).
+    home_order_cache: home_window::HomeOrderCache,
 }
 
 impl std::fmt::Debug for ConversationStore {
@@ -160,6 +168,7 @@ impl ConversationStore {
         connection.busy_timeout(std::time::Duration::from_secs(5))?;
         connection.execute_batch(
             "PRAGMA journal_mode=WAL; PRAGMA synchronous=NORMAL; PRAGMA fullfsync=ON;
+             PRAGMA secure_delete=ON;
              CREATE TABLE IF NOT EXISTS meta (
                key TEXT PRIMARY KEY NOT NULL,
                value TEXT NOT NULL
@@ -243,6 +252,7 @@ impl ConversationStore {
         transaction.execute_batch(threads::SCHEMA)?;
         transaction.execute_batch(inbox::SCHEMA)?;
         transaction.execute_batch(runs::SCHEMA)?;
+        transaction.execute_batch(scheduled::SCHEMA)?;
         crate::conversation_search::drop_search_index(&transaction)?;
         transaction.execute(
             "INSERT INTO meta(key, value) VALUES('schema_version', ?1)
@@ -250,7 +260,7 @@ impl ConversationStore {
             params![SCHEMA_VERSION.to_string()],
         )?;
         transaction.commit()?;
-        Ok(Self { connection, attachments })
+        Ok(Self { connection, attachments, home_order_cache: Default::default() })
     }
 
     /// Mints the credential of `participant` (an agent, or a person other than
@@ -275,9 +285,19 @@ impl ConversationStore {
 
     /// Removes `participant`'s credential (`chief.profile.adopt`): no token
     /// issued for it before binds again; the next credential is minted anew.
+    /// `secure_delete` zeroes the row in the file and the WAL reset drops
+    /// its old page versions, so the digest is gone from disk too. This
+    /// connection is the store's only one, so nothing blocks the reset.
     pub(crate) fn revoke_agent_token(&mut self, participant: &str) -> anyhow::Result<()> {
-        self.connection
+        let removed = self
+            .connection
             .execute("DELETE FROM agent_token WHERE participant = ?1", params![participant])?;
+        if removed > 0 {
+            crate::workspace_registry::truncate_wal_after_delete(
+                &self.connection,
+                std::time::Duration::from_secs(5),
+            )?;
+        }
         Ok(())
     }
 
@@ -439,6 +459,9 @@ impl ConversationStore {
         actor: &str,
         op: &Op,
     ) -> anyhow::Result<OpOutcome> {
+        // A person's send past the text limit goes as a file (conversation_spill).
+        let spilled = self.spill_oversized_send(conversation, actor, op)?;
+        let op = spilled.as_ref().unwrap_or(op);
         let transaction =
             self.connection.transaction_with_behavior(TransactionBehavior::Immediate)?;
         let outcome = apply_op_in(&transaction, conversation, idempotency_key, actor, op)?;
@@ -838,6 +861,18 @@ pub enum ConversationEvent {
     /// echoed the capability in `set-client-info` (never the remote relay or
     /// `conversation.events`).
     Chief { chief: String, change: &'static str },
+    /// One of a participant's Send Later messages changed
+    /// (`conversation-scheduled-v1`): `scheduled` is the waiting or failed
+    /// message, or `removed` its id with `reason` `sent` (and the `seq` it
+    /// got) or `cancelled`. Not conversation state (no rev); `subscribe`
+    /// delivers it only to connections whose principal is `participant`
+    /// (never the remote relay or `conversation.events`).
+    Scheduled {
+        conversation: String,
+        participant: String,
+        scheduled: Option<Value>,
+        removed: Option<(String, &'static str, Option<u64>)>,
+    },
 }
 
 impl ConversationEvent {
@@ -892,6 +927,39 @@ impl ConversationEvent {
                 "chief": chief,
                 "change": change,
             }),
+            Self::Scheduled { conversation, participant, scheduled, removed } => {
+                let mut value = json!({
+                    "event": "conversation-scheduled-changed",
+                    "conversation": conversation,
+                    "participant": participant,
+                });
+                if let Some(scheduled) = scheduled {
+                    value["scheduled"] = scheduled.clone();
+                }
+                if let Some((id, reason, seq)) = removed {
+                    value["removed"] = json!({"id": id, "reason": reason, "seq": seq});
+                }
+                value
+            }
+        }
+    }
+
+    /// The `event` name of the line `subscribe` sends for it, read without building it: a
+    /// page relay's mailbox takes only the events its page hears
+    /// (server/cmd_subscribe.rs `subscribed_event_name`).
+    pub(crate) const fn wire_name(&self) -> &'static str {
+        match self {
+            Self::Changed { .. } => "conversation-changed",
+            Self::Typing { .. } => "conversation-typing",
+            // `subscribe` sends a draft as its own `conversation-draft` line
+            // (server/cmd_subscribe.rs), not as the stored item.
+            Self::Draft { .. } => "conversation-draft",
+            Self::Inbox { .. } => "conversation-inbox-changed",
+            Self::Run { .. } => "conversation-run-changed",
+            Self::Live { .. } => "conversation-live",
+            Self::Avatar { .. } => "participant-avatar-changed",
+            Self::Chief { .. } => "chief-changed",
+            Self::Scheduled { .. } => "conversation-scheduled-changed",
         }
     }
 
@@ -948,6 +1016,16 @@ pub(crate) struct ConversationHost {
     /// typing item can recover the state. Each typist keeps the connections
     /// that turned it on: it ends when the last of them closes (cmux#32727).
     pub(crate) typing: Mutex<TypingByConversation>,
+    /// `home-inbox` `since`: each caller's revisioned Home row changes, by
+    /// principal (memory only; a new daemon run starts new revisions).
+    pub(crate) home_changes:
+        Mutex<std::collections::HashMap<String, cmux_conversation::HomeChangeLog>>,
     /// Remote-relay peers, pairing records and revocation limits.
     pub(crate) remote: crate::remote_relay_state::RemoteRelayState,
+    /// Wakes the Send Later sender when the queue changes.
+    pub(crate) scheduled: Arc<scheduled::SenderWake>,
 }
+
+#[cfg(test)]
+#[path = "conversation_spill_tests.rs"]
+mod spill_tests;

@@ -8,6 +8,13 @@ import { afterAll, beforeAll, expect, setDefaultTimeout, test } from "bun:test";
 import { mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { chromium, type Browser } from "playwright";
+import {
+  TRANSCRIPT_LIVE_LINE_BOX,
+  TRANSCRIPT_LIVE_STEP_GAP,
+  TRANSCRIPT_LIVE_STEP_HEIGHT,
+  TRANSCRIPT_LINE_ROW,
+  TRANSCRIPT_LINE_WORDS,
+} from "../src/agent-session/acpmux/transcriptGrid";
 import { galleryFrame, warmGalleryFrame } from "./support/galleryFrame";
 import { pinLiveTurnRuns } from "./support/liveTurnRuns";
 import { requireBrowserLane } from "./support/requireBrowserLane";
@@ -100,6 +107,27 @@ await requireBrowserLane("transcript-cohesion.test.ts", async () => {
                 if (!previous) throw new Error("The live state has no preceding activity row");
                 return {
                   gap: live.getBoundingClientRect().top - previous.getBoundingClientRect().bottom,
+                  height: live.getBoundingClientRect().height,
+                  row: live.closest(".acpmux-row")!.getBoundingClientRect().height,
+                  // The boxes transcriptGrid.ts gives it, as drawn (transcriptLiveVars on the scroller, resolved in
+                  // place): its row is the live step's box, its words the live line's box at the top of that row
+                  // (#48701, TRANSCRIPT_LIVE_LINE_BOX).
+                  ...(() => {
+                    const resolve = (height: string) => {
+                      const probe = document.createElement("div");
+                      probe.style.cssText = `position:absolute;visibility:hidden;width:0;height:${height}`;
+                      live.parentElement!.append(probe);
+                      const value = probe.getBoundingClientRect().height;
+                      probe.remove();
+                      return value;
+                    };
+                    return {
+                      box: resolve("var(--cv-live-step-height)"),
+                      lineBox: resolve(
+                        "min(var(--cv-live-line-box, var(--cv-footer-row)), var(--cv-live-step-height))",
+                      ),
+                    };
+                  })(),
                   // Read a resolved token rather than parsing a calc() or var() expression.
                   scale: Number.parseFloat(
                     getComputedStyle(document.documentElement).getPropertyValue("--cmux-interface-scale"),
@@ -111,9 +139,18 @@ await requireBrowserLane("transcript-cohesion.test.ts", async () => {
               console.log(
                 `transcript-live-gap ${phase} ${variant} ${label} ${density} ${interfaceScale}: ${JSON.stringify(measured)}`,
               );
-              if (process.env.CMUX_COHESION_MEASURE_ONLY !== "1")
-                // The transcript's run gap, 12 at scale 1 (transcriptGrid.ts TRANSCRIPT_RUN_GAP; Lucas, 2026-11-11).
-                expect(measured.gap).toBeCloseTo(12 * interfaceScale, 1);
+              if (process.env.CMUX_COHESION_MEASURE_ONLY !== "1") {
+                // The live line's gap and box in a run come from one place (transcriptGrid.ts TRANSCRIPT_LIVE_STEP_BOX).
+                expect(measured.gap).toBeCloseTo(TRANSCRIPT_LIVE_STEP_GAP * interfaceScale, 1);
+                // Its row takes the step's box; its words the line's box at the top of it.
+                expect(measured.row).toBeCloseTo(measured.box, 1);
+                expect(measured.height).toBeCloseTo(measured.lineBox, 1);
+                // At Interface Size 1 the drawn boxes are the grid's numbers.
+                if (interfaceScale === 1) {
+                  expect(measured.box).toBeCloseTo(TRANSCRIPT_LIVE_STEP_HEIGHT, 1);
+                  expect(measured.lineBox).toBeCloseTo(TRANSCRIPT_LIVE_LINE_BOX, 1);
+                }
+              }
               expect(measured.wholeTurnFolds).toBe(0);
               if (process.env.FAST_CHECKS_OUT) {
                 await mkdir(process.env.FAST_CHECKS_OUT, { recursive: true });
@@ -229,13 +266,16 @@ await requireBrowserLane("transcript-cohesion.test.ts", async () => {
             console.log(`transcript-cohesion ${variant} ${label}: ${JSON.stringify(measured)}`);
             if (process.env.CMUX_COHESION_MEASURE_ONLY !== "1") {
               // Worked for's rule sits between its words and the next row, open or closed:
-              // 4 under its 22px line, 8 over the next row, and no stack gap after it (Codex parity,
+              // 4 under its one-line row (TRANSCRIPT_LINE_ROW: its 22 line of words and the row air), 8 over the next row, and no stack gap after it (Codex parity,
               // Lucas, 2026-11-07; conversation.css `.cv-worked.has-divider.is-toggle`, model.ts
               // WORKED_GAP_PT, transcriptGrid.ts MARK_WORKED).
-              expect(measured.headerHeight).toBeCloseTo(22 + 4, 1);
+              expect(measured.headerHeight).toBeCloseTo(TRANSCRIPT_LINE_ROW + 4, 1);
               if (variant === "codex-closed") {
                 expect(measured.replyGap).toBeCloseTo(8, 1);
-                expect(Math.abs(measured.replyCenterGap - 34.375)).toBeLessThan(1);
+                // Its words sit centred in the row, so half the row air falls under them.
+                expect(
+                  Math.abs(measured.replyCenterGap - (34.375 + (TRANSCRIPT_LINE_ROW - TRANSCRIPT_LINE_WORDS) / 2)),
+                ).toBeLessThan(1);
               } else expect(measured.nextGap).toBeCloseTo(8, 1);
             }
           }

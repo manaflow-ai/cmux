@@ -1,8 +1,17 @@
 // l10n-allow-file: test fixtures, not shipped UI.
 // A completed turn renders one footer, even when its interim dialogue is expanded.
-import { afterAll, expect, test } from "bun:test";
+import { afterAll, afterEach, expect, test } from "bun:test";
 import { JSDOM, VirtualConsole } from "jsdom";
 import { teardownDom } from "./support/domTeardown";
+
+/// These cases read a steered turn as one fold (turnFoldSteered `nested-open`); its in-order default,
+/// each message that came in mid-turn ending a fold, is turn-fold-in-order.test.ts's.
+const oneFoldPerTurn = () => {
+  globalThis.cmuxExperiments = { ...globalThis.cmuxExperiments, "turn-fold-steered": "nested-open" };
+};
+afterEach(() => {
+  if (globalThis.cmuxExperiments) delete (globalThis.cmuxExperiments as Record<string, string>)["turn-fold-steered"];
+});
 
 const dom = new JSDOM("<!doctype html><div id=root></div>", {
   url: "http://localhost/",
@@ -150,6 +159,7 @@ test("several assistant messages and tool calls render exactly one footer at the
 });
 
 test("a personal steer keeps reply A and final reply B expanded while the work around them folds", async () => {
+  oneFoldPerTurn();
   for (const steered of [false, true]) {
     const root = createRoot(dom.window.document.getElementById("root")!);
     const expanded = new Set<string>();

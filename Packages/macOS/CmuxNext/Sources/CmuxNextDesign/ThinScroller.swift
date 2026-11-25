@@ -10,11 +10,19 @@ public import CmuxNextDesignTokens
 /// as a macOS overlay scroller (Lawrence 2026-10-23, msg 11494: "auto-fades away, and grows bigger
 /// on near-hover so it's easier to grab"):
 ///
-/// - It shows while the user scrolls the view and fades out ``restDelay`` after the last step.
-/// - The pointer within ``nearDistance`` of the trailing edge shows it and widens it from
-///   ``knobThickness`` to ``expandedKnobThickness``; it stays wide while it is dragged. For a
-///   sideways scroller that edge is the bottom one.
-/// - It takes clicks only on the drawn knob, so a row's trailing button stays reachable.
+/// - It shows while the user scrolls the view and fades out ``restDelay`` after the last step. The
+///   pointer alone never shows it (Leo 2026-11-22: "hovering only doesnt show"); it only holds and
+///   widens a knob a scroll showed.
+/// - Its grab zone (``grabZone``: the scroller's own strip, ``width`` wide at the trailing edge, a
+///   sideways scroller's at the bottom edge) is one rect for the pointer and for a press: the
+///   pointer over it widens a shown knob from ``knobThickness`` to
+///   ``expandedKnobThickness``, and a press there grabs the knob or pages the track, pixel for
+///   pixel the same columns (Lawrence 2026-11-20, msg 42498: "it is possible for me to hover close,
+///   and for the width to change, but after i mousedown and drag, it fails to scroll"). Anywhere
+///   else, and while the knob would not widen, a press is the content's. A resize handle's band
+///   (``ResizeBands``) has priority over the zone: a press in it resizes, never grabs the knob.
+/// - A grabbed knob follows the pointer 1:1 until the release, also once the pointer leaves the
+///   bar; it stays wide while it is dragged.
 /// - Fades and the grow go through the ``MotionCategory/feedback`` gate: Reduce Motion, calm mode
 ///   and the animation switches apply (the grow snaps when movement does not animate).
 ///
@@ -32,10 +40,10 @@ public final class ThinScroller: NSScroller {
     public static let knobThickness: CGFloat = 3
     /// The drawn knob's width while the pointer is near or the knob is dragged, in points.
     public static let expandedKnobThickness: CGFloat = 7
-    /// The scroller's width: the wide knob plus 2 pt on each side.
-    public static let width: CGFloat = 11
-    /// How close to the scroll view's trailing edge the pointer reveals and widens the knob.
-    public static let nearDistance: CGFloat = 20
+    /// The scroller's width, which is its grab zone's (``grabZone``): the wide knob, 2 pt to the
+    /// edge and 5 pt of reach inward, about a macOS overlay scroller's. The web twin's lane is the
+    /// scrollbar WebKit draws (webviews/src/scrollers.ts `scrollbarLane`).
+    public static let width: CGFloat = 14
     /// How long the knob stays after the last scroll step (the web twin's `SCROLLING_HIDE_MS`).
     public static let restDelay: Duration = .milliseconds(800)
     /// The knob's opacity over the label color, at rest and wide.
@@ -46,13 +54,6 @@ public final class ThinScroller: NSScroller {
     public var autoHides: Bool {
         get { presence.autoHides }
         set { update { $0.autoHides = newValue } }
-    }
-
-    /// True: the pointer near the edge reveals a hidden knob. False (the terminal, whose last
-    /// column belongs to the terminal): the pointer only holds and widens a knob already shown.
-    public var revealsNearPointerAtRest: Bool {
-        get { presence.revealsNearPointerAtRest }
-        set { update { $0.revealsNearPointerAtRest = newValue } }
     }
 
     /// True shows the knob while the user scrolls the scroll view (AppKit's live scroll: wheel,
@@ -72,6 +73,9 @@ public final class ThinScroller: NSScroller {
     private(set) var restTask: Task<Void, Never>?
     private var proximity: ThinScrollerProximity?
     private var drawnExpanded = false
+    /// True: a press on the track jumps the knob to the pressed spot; false pages toward it. The
+    /// macOS setting "Click in the scroll bar to" (Option inverts it for one press, as AppKit's).
+    var jumpsToClickedSpot: () -> Bool = { UserDefaults.standard.bool(forKey: "AppleScrollerPagingBehavior") }
 
     override public convenience init(frame frameRect: NSRect) {
         self.init(frame: frameRect, clock: ContinuousClock())
@@ -96,6 +100,20 @@ public final class ThinScroller: NSScroller {
     public required init?(coder: NSCoder) { fatalError("init(coder:) is not supported") }
 
     override public class var isCompatibleWithOverlayScrollers: Bool { true }
+
+    /// AppKit's arrow and page parts, named (``ScrollerPartNames``).
+    /// True while the parts are being named: a part answers its attributes through this scroller's
+    /// children, so a read while naming returns them unnamed instead of naming again (which recursed).
+    private var namingParts = false
+
+    override public func accessibilityChildren() -> [Any]? {
+        let children = super.accessibilityChildren()
+        guard !namingParts else { return children }
+        namingParts = true
+        defer { namingParts = false }
+        ScrollerPartNames.name(children, vertical: bounds.height >= bounds.width)
+        return children
+    }
 
     override public class func scrollerWidth(for controlSize: NSControl.ControlSize, scrollerStyle: NSScroller.Style) -> CGFloat {
         width
@@ -129,7 +147,8 @@ public final class ThinScroller: NSScroller {
     /// The knob is drawn wide now.
     public var isKnobExpanded: Bool { isKnobShown && drawnExpanded }
 
-    private var overflows: Bool { isEnabled && knobProportion < 1 && !rect(for: .knob).isEmpty }
+    /// The content overflows: there is a knob to drag.
+    var overflows: Bool { isEnabled && knobProportion < 1 && !rect(for: .knob).isEmpty }
 
     override public var doubleValue: Double {
         didSet { placeKnob(animated: false) }
@@ -156,38 +175,56 @@ public final class ThinScroller: NSScroller {
         armRest()
     }
 
+    /// The one rect, in the scroll view's coordinates (the scroller's frame's space), where the
+    /// pointer widens the knob and a press grabs it: the scroller's own strip at the trailing edge
+    /// (a sideways scroller's: at the bottom edge). Half-open, as `CGRect.contains` is, so a pixel
+    /// column is in it or not, for both.
+    public var grabZone: CGRect { frame }
+
+    /// `point` (the scroll view's coordinates) is in ``grabZone`` and not inside a resize handle's
+    /// band (``ResizeBands``): the handle has priority over this scroller, so a press in its band
+    /// resizes, and the pointer there does not widen the knob.
+    func inGrabZone(_ point: CGPoint) -> Bool {
+        guard grabZone.contains(point) else { return false }
+        guard let superview, let window else { return true }
+        return !ResizeBands.claims(superview.convert(point, to: nil), in: window)
+    }
+
+    /// The knob is wide with the pointer in ``grabZone``: the content overflows and the pointer there
+    /// would hold it: the knob is already shown by a scroll (the pointer never reveals a hidden one).
+    var widensUnderPointer: Bool {
+        var near = presence
+        near.pointer(near: true)
+        return overflows && near.expanded
+    }
+
     /// The pointer moved over the scroll view to `point` (the scroll view's coordinates, the
-    /// scroller's frame's space), or left it (nil). Near the trailing edge (a sideways scroller's
-    /// bottom edge) reveals and widens the knob.
-    func pointerMoved(to point: CGPoint?) {
-        let near: Bool = {
-            guard let point else { return false }
-            guard isHorizontal else {
-                return point.x >= frame.maxX - Self.nearDistance && point.x <= frame.maxX + 1
-                    && point.y >= frame.minY && point.y <= frame.maxY
-            }
-            guard point.x >= frame.minX, point.x <= frame.maxX else { return false }
-            // The bar sits on the scroll view's bottom edge, which is maxY in a flipped scroll view.
-            return superview?.isFlipped == true
-                ? point.y <= frame.maxY + 1 && point.y >= frame.maxY - Self.nearDistance
-                : point.y >= frame.minY - 1 && point.y <= frame.minY + Self.nearDistance
-        }()
+    /// scroller's frame's space), or left it (nil). In ``grabZone`` it reveals and widens the knob.
+    ///
+    /// - Parameter point: The pointer in the scroll view's coordinates, or nil when it left the view.
+    ///   The scroller's own tracking area calls it; a host that builds the scroller under the
+    ///   pointer calls it once so the knob shows before the next move.
+    public func pointerMoved(to point: CGPoint?) {
+        let near = point.map { inGrabZone($0) } ?? false
         guard near != presence.pointerNear else { return }
         update { $0.pointer(near: near) }
     }
 
-    /// Clicks land on the scroller only on the drawn knob (its wide shape, 2 pt of slack around it).
+    /// A press lands on the scroller in ``grabZone`` while the knob widens there, the same test as
+    /// ``pointerMoved(to:)``'s: everywhere else, and at rest where the pointer does not reveal the
+    /// knob, it is the content's.
     override public func hitTest(_ point: NSPoint) -> NSView? {
-        guard restingKnobFrame != nil, let superview else { return nil }
-        let local = convert(point, from: superview)
-        let target = knobRect(for: rect(for: .knob), expanded: true).insetBy(dx: -2, dy: -2)
-        return target.contains(local) ? self : nil
+        !isHidden && inGrabZone(point) && widensUnderPointer ? self : nil
     }
 
     override public func mouseDown(with event: NSEvent) {
         update { $0.drag(true) }
-        super.mouseDown(with: event) // tracks the knob until the button comes up
+        let up = track(from: event) { [weak self] mask, deadline in
+            self?.window?.nextEvent(matching: mask, until: deadline, inMode: .eventTracking, dequeue: true)
+        }
         update { $0.drag(false) }
+        // Where the button came up decides whether the knob stays wide: the pointer may have left.
+        if let superview { pointerMoved(to: superview.convert((up ?? event).locationInWindow, from: nil)) }
         armRest()
     }
 

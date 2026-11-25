@@ -4,6 +4,7 @@ import CmuxMobileDiff
 import CmuxMobileMarkdown
 import CmuxSpinner
 import SwiftUI
+import UIKit
 
 /// Opens the diff viewer (`fileID` nil = the file list).
 public struct OpenDiffAction: Sendable {
@@ -43,7 +44,20 @@ struct ToolRowView: View {
             } label: {
                 header
             }
-            .buttonStyle(.plain)
+            .buttonStyle(.cmuxPressLine)
+            // Keep row actions on the tappable header. Expanded output owns text selection.
+            .contextMenu {
+                if openFile.isAvailable {
+                    ForEach(Array(call.locations.prefix(5).enumerated()), id: \.offset) { _, location in
+                        Button("Open \((location.path as NSString).lastPathComponent)", systemImage: "doc.text.magnifyingglass") {
+                            openFile(location.path, line: location.line)
+                        }
+                    }
+                }
+                if let path = call.locations.first?.path {
+                    Button("Copy Path", systemImage: "doc.on.doc") { UIPasteboard.general.string = path }
+                }
+            }
             // The 44 pt target overlaps the gaps between rows (a 32 pt row in the layout).
             .padding(.vertical, -6)
             if expanded {
@@ -53,19 +67,6 @@ struct ToolRowView: View {
             }
         }
         .accessibilityElement(children: .contain)
-        // The files the call read or wrote open in the preview (long press).
-        .contextMenu {
-            if openFile.isAvailable {
-                ForEach(Array(call.locations.prefix(5).enumerated()), id: \.offset) { _, location in
-                    Button("Open \((location.path as NSString).lastPathComponent)", systemImage: "doc.text.magnifyingglass") {
-                        openFile(location.path, line: location.line)
-                    }
-                }
-            }
-            if let path = call.locations.first?.path {
-                Button("Copy Path", systemImage: "doc.on.doc") { UIPasteboard.general.string = path }
-            }
-        }
     }
 
     private var header: some View {
@@ -111,11 +112,42 @@ struct ToolRowView: View {
     }
 }
 
-/// Expanded output: a code card; bash shows `$ command` first; capped at 12 lines.
+/// Expanded output: a code card; bash shows `$ command` first; capped at 12 lines. An output
+/// the Mac sent cut (a page's oversized one) shows its head and reads the rest as it opens.
 struct ToolOutputView: View {
     let call: ACPToolCall
+    @Environment(\.loadFullToolOutput) private var loadFull
+    /// The whole output's read failed (link down, an older source): a tap asks again.
+    @State private var loadFailed = false
 
     var body: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            card
+            if call.outputCut != nil {
+                if loadFailed {
+                    Button("Couldn't load the full output. Try Again") {
+                        loadFailed = false
+                        Task { loadFailed = !(await loadFull(call)) }
+                    }
+                    .font(.footnote)
+                    .padding(.leading, 26)
+                } else {
+                    Text("Loading the full output…")
+                        .font(.footnote)
+                        .foregroundStyle(.tertiary)
+                        .padding(.leading, 26)
+                        .placeholderBound("chat.tool.fullOutput.loading", .milliseconds(2000))
+                }
+            }
+        }
+        .task(id: call.outputCut) {
+            guard call.outputCut != nil else { return }
+            loadFailed = !(await loadFull(call))
+        }
+    }
+
+    @ViewBuilder
+    private var card: some View {
         let output = call.outputText
         if call.kind == .execute {
             let command = call.command.map { "$ \($0)\n" } ?? ""
@@ -176,7 +208,7 @@ struct ToolGroupView: View {
                 .frame(minHeight: 44)
                 .contentShape(.rect)
             }
-            .buttonStyle(.plain)
+            .buttonStyle(.cmuxPressLine)
             .padding(.vertical, -6)
             // The header's 44 pt target overlaps the first call's: the header
             // wins, so a tap on it always closes the group.
@@ -213,6 +245,7 @@ struct ToolGroupView: View {
 /// Collapsed "Thought" row; expands to the reasoning text in label2. While
 /// the agent thinks it shows the last three lines until the person closes it.
 struct ThoughtRow: View {
+    @Environment(\.dynamicTypeSize) private var typeSize
     let text: String
     let isLive: Bool
     /// The transcript's key for the person's choice (its rows are reused cells).
@@ -256,17 +289,18 @@ struct ThoughtRow: View {
                 .frame(minHeight: 44)
                 .contentShape(.rect)
             }
-            .buttonStyle(.plain)
+            .buttonStyle(.cmuxPressLine)
             .padding(.vertical, -6)
             if expanded {
                 // Opened by the person: all of it. Opened because it is live: its newest
                 // lines (a line limit alone keeps the first three, which stop changing).
-                Text(choice.chosen == true ? text : DisclosureChoice.liveTail(of: text))
-                    .font(.subheadline)
-                    .foregroundStyle(.secondary)
-                    .lineLimit(choice.chosen == true ? nil : 3)
-                    // Wrapped, the tail can be more than three lines: cut its start, never its newest words.
-                    .truncationMode(.head)
+                let font = NativeTextStyles(category: UIContentSizeCategory(typeSize)).font(.subheadline)
+                SelectableText(choice.chosen == true ? text : DisclosureChoice.liveTail(of: text),
+                               font: font, color: .secondaryLabel)
+                    .fixedSize(horizontal: false, vertical: true)
+                    // Clip the full label from the top so the overlay hits the same visible word.
+                    .frame(maxHeight: choice.chosen == true ? nil : ceil(font.lineHeight * 3), alignment: .bottom)
+                    .clipped()
                     .padding(.leading, 26)
                     .transition(.disclosureReveal)
             }
@@ -349,7 +383,14 @@ struct DiffSnippet: View {
                 .frame(height: 44)
                 .contentShape(.rect)
             }
-            .buttonStyle(.plain)
+            .buttonStyle(.cmuxPressFill)
+            .contextMenu {
+                Button("Open Diff", systemImage: "arrow.up.right.square") { open(file.id) }
+                if openFile.isAvailable, file.status != .deleted {
+                    Button("Open File", systemImage: "doc.text.magnifyingglass") { openFile(file.path) }
+                }
+                Button("Copy Path", systemImage: "doc.on.doc") { UIPasteboard.general.string = file.path }
+            }
             .accessibilityLabel(Text("Edited \(file.fileName), \(file.additions) additions, \(file.deletions) deletions. Open diff"))
             ScrollView(.horizontal) {
                 VStack(alignment: .leading, spacing: 0) {
@@ -357,7 +398,9 @@ struct DiffSnippet: View {
                         HStack(alignment: .firstTextBaseline, spacing: 0) {
                             Text(line.kind == .added ? "+" : (line.kind == .removed ? "−" : " "))
                                 .frame(width: 14, alignment: .leading)
-                            Text(line.text.isEmpty ? " " : line.text)
+                            SelectableText(line.text.isEmpty ? " " : line.text,
+                                           font: .monospacedSystemFont(ofSize: codeSize, weight: .regular),
+                                           color: UIColor(color(line)), lineSpacing: 4)
                         }
                         .foregroundStyle(color(line))
                     }
@@ -389,13 +432,6 @@ struct DiffSnippet: View {
         .background(Color.cmuxMobileCodeBackground, in: .rect(cornerRadius: 20, style: .continuous))
         .overlay {
             RoundedRectangle(cornerRadius: 20, style: .continuous).strokeBorder(Color(uiColor: .separator).opacity(0.5), lineWidth: 0.5)
-        }
-        .contextMenu {
-            Button("Open Diff", systemImage: "arrow.up.right.square") { open(file.id) }
-            if openFile.isAvailable, file.status != .deleted {
-                Button("Open File", systemImage: "doc.text.magnifyingglass") { openFile(file.path) }
-            }
-            Button("Copy Path", systemImage: "doc.on.doc") { UIPasteboard.general.string = file.path }
         }
     }
 
@@ -438,7 +474,7 @@ struct EditedFilesCard: View {
                 .frame(minHeight: 48)
                 .contentShape(.rect)
             }
-            .buttonStyle(.plain)
+            .buttonStyle(.cmuxPressFill)
             Divider().padding(.leading, 16)
             ForEach(changeSet.files) { file in
                 Button {
@@ -483,7 +519,7 @@ struct EditedFilesCard: View {
                     .frame(minHeight: 44)
                     .contentShape(.rect)
                 }
-                .buttonStyle(.plain)
+                .buttonStyle(.cmuxPressFill)
             }
         }
         .background(Color.cmuxMobileCard, in: .rect(cornerRadius: 20, style: .continuous))

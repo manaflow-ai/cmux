@@ -31,7 +31,10 @@ pub(super) struct FakeAcpmux {
     pub(super) socket: PathBuf,
     pub(super) frames: Receiver<Value>,
     connections: Receiver<UnixStream>,
+    attachment_ready: Receiver<()>,
     current: Option<UnixStream>,
+    /// Every connection taken so far ([`FakeAcpmux::streams`]).
+    all: Vec<UnixStream>,
     transfer_blocked: Arc<Mutex<HashSet<String>>>,
 }
 
@@ -53,6 +56,7 @@ impl FakeAcpmux {
         let listener = UnixListener::bind(&socket).unwrap();
         let (frame_tx, frames) = channel();
         let (connection_tx, connections) = channel();
+        let (attachment_ready_tx, attachment_ready) = channel();
         let transfer_blocked = Arc::new(Mutex::new(HashSet::new()));
         let shared_transfers = transfer_blocked.clone();
         std::thread::spawn(move || {
@@ -60,12 +64,24 @@ impl FakeAcpmux {
                 let Ok(stream) = stream else { return };
                 let _ = connection_tx.send(stream.try_clone().unwrap());
                 let frame_tx = frame_tx.clone();
+                let attachment_ready_tx = attachment_ready_tx.clone();
                 let fixture = fixture.clone();
                 let transfers = shared_transfers.clone();
-                std::thread::spawn(move || serve(stream, frame_tx, &fixture, &transfers));
+                std::thread::spawn(move || {
+                    serve(stream, frame_tx, &fixture, &transfers, &attachment_ready_tx)
+                });
             }
         });
-        Self { directory, socket, frames, connections, current: None, transfer_blocked }
+        Self {
+            directory,
+            socket,
+            frames,
+            connections,
+            attachment_ready,
+            current: None,
+            all: Vec::new(),
+            transfer_blocked,
+        }
     }
 
     /// Models an acpmux watcher abort, independently of any cmux transfer request.
@@ -109,6 +125,14 @@ impl FakeAcpmux {
         self.frames.recv_timeout(timeout).ok()
     }
 
+    /// A guest relay emits its snapshot before asking acpmux to mark its session visible. The
+    /// view response is the fake's true attach-ready signal, after which a pushed event cannot
+    /// race the relay's setup. Real acpmux subscribes before the attach answer and serializes
+    /// writes on its connection, so this barrier models readiness rather than adding a delay.
+    pub(super) fn wait_for_attachment(&self) {
+        self.attachment_ready.recv_timeout(WAIT).expect("a guest attachment to become ready");
+    }
+
     pub(super) fn no_frame(&self) {
         let deadline = Instant::now() + Duration::from_millis(200);
         while let Some(left) = deadline.checked_duration_since(Instant::now()) {
@@ -129,9 +153,32 @@ impl FakeAcpmux {
 
     fn connection(&mut self) -> &mut UnixStream {
         if self.current.is_none() {
-            self.current = Some(self.connections.recv_timeout(WAIT).expect("a connection"));
+            let stream = self.connections.recv_timeout(WAIT).expect("a connection");
+            self.all.push(stream.try_clone().unwrap());
+            self.current = Some(stream);
         }
         self.current.as_mut().unwrap()
+    }
+
+    /// A handle on every connection the daemon opened to this fake so far, for a writer that may
+    /// run on another thread. acpmux sends a session's records to each of its attachments, and
+    /// each guest relay of a share is one ([`FakeAcpmux::notify`] reaches only the first).
+    pub(super) fn streams(&mut self) -> Vec<UnixStream> {
+        while let Ok(stream) = self.connections.try_recv() {
+            if self.current.is_none() {
+                self.current = stream.try_clone().ok();
+            }
+            self.all.push(stream);
+        }
+        self.all.iter().filter_map(|stream| stream.try_clone().ok()).collect()
+    }
+
+    /// [`FakeAcpmux::notify`] on every connection so far (one the daemon closed is skipped).
+    pub(super) fn notify_all(&mut self, method: &str, params: Value) {
+        let line = format!("{}\n", json!({"jsonrpc":"2.0","method":method,"params":params}));
+        for mut stream in self.streams() {
+            let _ = stream.write_all(line.as_bytes());
+        }
     }
 
     pub(super) fn notify(&mut self, method: &str, params: Value) {
@@ -182,8 +229,16 @@ pub(super) struct Fixture {
     pub(super) prompt_gate: Option<Arc<Mutex<Receiver<()>>>>,
     /// When set, each prompt's acceptance comes this long after the prompt (a cold chat's).
     pub(super) accept_after: Option<Duration>,
+    /// When set, each prompt is refused with this error `data` and never accepted, as acpmux's
+    /// remote guard refuses one (`remote_guard::web_starts_asking`).
+    pub(super) prompt_refusal: Option<Value>,
     /// acpmux's Cloud mobile floor for a phone's start (agent_session_start_phone_tests.rs).
     pub(super) phone: Option<PhoneFloor>,
+    /// The attach page's session is a side chat of this chat (its `side` tag), as acpmux
+    /// summarizes one (agent_session_side_known.rs).
+    pub(super) side_of: Option<&'static str>,
+    /// acpmux refuses its `_acpmux/sessions` list.
+    pub(super) sessions_unreadable: bool,
     /// When set, `_acpmux/harnesses` answers this long after it is asked: a starting acpmux
     /// holds its catalog until its login shell read ends (`Hub::harnesses_reply`).
     pub(super) catalog_after: Option<Duration>,
@@ -200,6 +255,8 @@ pub(super) struct Fixture {
     /// Peer sessions each list answers beside this machine's ([`peer_rows`]); a served
     /// `localOnly` leaves them out.
     pub(super) peer_rows: usize,
+    /// The attach answers as a peer's chat, forwarded (`peer` on the page).
+    pub(super) attach_peer: bool,
     /// The rows and bytes of every session list the fake answered (`_acpmux/watch` and
     /// `_acpmux/sessions`): what a client read.
     pub(super) list_reads: Arc<Mutex<ListReads>>,
@@ -258,6 +315,7 @@ fn serve(
     frames: Sender<Value>,
     fixture: &Fixture,
     transfers: &Mutex<HashSet<String>>,
+    attachment_ready: &Sender<()>,
 ) {
     let mut writer = stream.try_clone().unwrap();
     // acpmux takes 2 `_acpmux/typing` a second per connection: the fake refuses the third.
@@ -268,6 +326,7 @@ fn serve(
         let _ = frames.send(frame.clone());
         let id = frame["id"].clone();
         let params = &frame["params"];
+        let view = frame["method"] == json!("_acpmux/view");
         let reply = match frame["method"].as_str().unwrap_or_default() {
             "initialize" => {
                 let mut capabilities = vec!["acpmux-v1"];
@@ -340,6 +399,7 @@ fn serve(
                 Some(json!({}))
             }
             "_acpmux/kill" => Some(json!({})),
+            "_acpmux/prewarm" => Some(json!({"accepted": true})),
             "_acpmux/web_modes" if fixture.start_folder_trusted.is_some() => Some(json!({
                 "families": {"claude": ["default"]}, "refusedFamilies": [],
                 "session": {"family": "claude", "mode": "default"},
@@ -367,13 +427,21 @@ fn serve(
                     json!({"sessionId": SESSION, "seq": 1, "dir": "mux", "kind": "user_message", "msg": {}}),
                 ];
                 events.extend(fixture.page.iter().cloned());
-                Some(json!({
-                    "session": {"sessionId": SESSION, "name": "sub", "status": "running",
-                                "pending": [{"permissionId": "perm_attach", "options": []}]},
+                let mut session = json!({"sessionId": SESSION, "name": "sub", "status": "running",
+                    "pending": [{"permissionId": "perm_attach", "options": []}]});
+                if let Some(chat) = fixture.side_of {
+                    session["tags"] = json!({"side": chat});
+                }
+                let mut page = json!({
+                    "session": session,
                     "events": events,
                     "hasMore": false,
                     "lastSeq": 1,
-                }))
+                });
+                if fixture.attach_peer {
+                    page["peer"] = json!("peer-mac");
+                }
+                Some(page)
             }
             // A watch with a page size turns the notices on; the attach reads this machine's own
             // list after it (`localOnly`). A whole watch (no limit) answers that list itself.
@@ -416,7 +484,21 @@ fn serve(
                     json!({"sessions": older, "nextCursor": "c1"})
                 })
             }
-            "_acpmux/sessions" => Some(machine_sessions()),
+            "_acpmux/sessions" => {
+                let mut list = machine_sessions();
+                // A side chat as acpmux lists it: its persisted `side` tag on the row.
+                if let Some(chat) = fixture.side_of
+                    && let Some(row) = list["sessions"]
+                        .as_array_mut()
+                        .and_then(|rows| rows.iter_mut().find(|row| row["sessionId"] == SESSION))
+                {
+                    row["tags"] = json!({"side": chat});
+                }
+                if fixture.sessions_unreadable {
+                    list = json!({FAKE_ERROR: "list.paced"});
+                }
+                Some(list)
+            }
             "_acpmux/info" => Some(json!({
                 "sessionId": params["sessionId"],
                 "transferBlocked": transfers.lock().unwrap().contains(
@@ -441,6 +523,8 @@ fn serve(
                 })
             }
             "_acpmux/permission_respond" | "_acpmux/view" => Some(json!({})),
+            // The owner's decision on a prompt held for them (agent-session-queue-*).
+            "_acpmux/queue_approve" | "_acpmux/queue_decline" => Some(json!({"ok": true})),
             // The media reader (agent_session_media_tests.rs): one video, [`FAKE_VIDEO`].
             "_acpmux/media_open" | "_acpmux/media_range" => Some(media_reply(&frame)),
             // A fork through turn 7 makes a copy acpmux then refuses to tag (side chat tests).
@@ -484,6 +568,10 @@ fn serve(
             "_acpmux/agent_login/finish" => Some(json!({"signedIn": true, "restarted": true})),
             "_acpmux/agent_login/api_key" => Some(json!({"saved": true, "restarted": true})),
             "_acpmux/agent_login/cancel" => Some(json!({})),
+            // The owner's refreshed credential (agent_session_credentials_tests.rs).
+            "agent/credentials.update" => {
+                Some(json!({"sessionId": params["sessionId"], "restart": "now"}))
+            }
             // The agent answers its whole option list, the value just set included.
             "session/set_config_option" => Some(json!({"configOptions": [{
                 "id": params["configId"], "currentValue": params["value"]}]})),
@@ -507,6 +595,10 @@ fn serve(
                 }
                 reply
             }
+            "session/prompt" if fixture.prompt_refusal.is_some() => Some(json!({
+                FAKE_ERROR: "a remote device cannot control this chat",
+                FAKE_ERROR_DATA: fixture.prompt_refusal.clone(),
+            })),
             "session/prompt" => {
                 if let Some(gate) = &fixture.prompt_gate {
                     let _ = gate.lock().unwrap_or_else(|e| e.into_inner()).recv_timeout(WAIT);
@@ -541,6 +633,9 @@ fn serve(
                 None => json!({"jsonrpc":"2.0","id":id,"result":result}),
             };
             writeln!(writer, "{frame}").unwrap();
+            if view {
+                let _ = attachment_ready.send(());
+            }
         }
     }
 }
@@ -585,6 +680,44 @@ fn transfer_reply(method: &str, params: &Value) -> Option<Value> {
             json!({"sessionId": "acp_moved", "cwd": params["cwd"]})
         }
         "_acpmux/transfer_finish" => json!({"sessionId": "acp_moved", "cwd": params["cwd"]}),
+        // A begin that carries a token is answered as an acpmux that keeps one: the frozen
+        // move's own token, `tok_frozen`.
+        "_acpmux/transfer_begin"
+            if params["sessionId"] == json!(MOVING_CHAT) && params.get("beginToken").is_some() =>
+        {
+            json!({
+                FAKE_ERROR: "transfer.moving: this chat is already being moved",
+                FAKE_ERROR_DATA: {"transferId": "xfer_frozen", "beginToken": "tok_frozen"},
+            })
+        }
+        // Tail first (`agent_transfer/history_later.rs`).
+        "_acpmux/transfer_prepare" => json!({
+            "schema": "acpmux.transfer.prefix.v1", "prepareId": "pre_1", "afterSeq": 7,
+            "token": "tok", "sessionId": params["sessionId"], "historyLater": true,
+            "files": [{"path": "events/0.ndjson", "size": 3}],
+        }),
+        "_acpmux/transfer_stage" => {
+            json!({"receiveId": "stg_1", "stageId": "stg_1",
+                   "sessionId": params["manifest"]["sessionId"]})
+        }
+        "_acpmux/transfer_stage_finish" => json!({"afterSeq": 7, "records": 2}),
+        "_acpmux/transfer_history_have" => json!({"have": 0}),
+        "_acpmux/transfer_history_export" => json!({
+            "schema": "acpmux.transfer.prefix.v1", "prepareId": "pre_h", "throughSeq": 7,
+            "sessionId": params["sessionId"],
+            "files": [{"path": "events/history.cspb", "size": 3}],
+        }),
+        "_acpmux/transfer_history" => {
+            json!({"sessionId": params["sessionId"], "throughSeq": 7, "records": 5})
+        }
+        "_acpmux/transfer_begin" if params["prepareId"] == json!("pre_1") => json!({
+            "schema": "acpmux.transfer.v1", "transferId": "xfer_1",
+            "sessionId": params["sessionId"], "prefix": {"afterSeq": params["afterSeq"]},
+            "files": [{"path": "events/1.ndjson", "size": 3},
+                      {"path": "manifest.json", "size": BUNDLE_MANIFEST.len()},
+                      {"path": "session.json", "size": BUNDLE_SESSION.len()}],
+            "session": {"sessionId": params["sessionId"], "harness": "claude"},
+        }),
         "_acpmux/transfer_begin" if params["sessionId"] == json!(MOVING_CHAT) => json!({
             FAKE_ERROR: "transfer.moving: this chat is already being moved",
             FAKE_ERROR_DATA: {"transferId": "xfer_frozen"},
@@ -968,7 +1101,6 @@ fn verbs_refuse_session_cwd_and_command_params() {
         json!({"command":"rm -rf /"}),
         json!({"initial_command":"x"}),
         json!({"mcpServers":[]}),
-        json!({"agent":"codex"}),
     ] {
         let mut frame = json!({"cmd":"agent-session-attach","surface":surface});
         for (key, value) in extra.as_object().unwrap() {
@@ -1030,6 +1162,45 @@ fn attach_takes_the_agent_panes_whole_kind_list() {
     assert_eq!(sent["params"]["kinds"], kinds);
 }
 
+/// hq#14027: the agent pane's page budget reaches acpmux as `maxBytes`, so a Cloud chat's open
+/// page is the 128 KiB a local one is, not acpmux's 1 MiB default. Zero is a bad request, a
+/// budget past this daemon's own page cap is held to it, and a page that names none still goes
+/// without one (acpmux's default).
+#[test]
+fn attach_and_events_pass_the_pages_byte_budget() {
+    let fake = FakeAcpmux::start("page-bytes");
+    let mux = mux_with(&fake, "asa-page-bytes");
+    let identity = run(&mux, json!({"cmd":"identify"}));
+    assert!(
+        identity["capabilities"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|value| value == agent_session_attach::AGENT_SESSION_PAGE_BYTES_CAPABILITY)
+    );
+    let surface = agent_tab(&mux, Some(SESSION));
+    let mut client = Client::connect(&mux, "page-bytes");
+    let refused = client.request(json!({"cmd":"agent-session-attach","surface":surface,
+                                        "max_bytes":0}));
+    assert_code(&refused, "agent_session.bad_request");
+    let reply = client.request(json!({"cmd":"agent-session-attach","surface":surface,
+                                      "limit":400,"max_bytes":131072}));
+    assert_eq!(reply["ok"], json!(true), "{reply}");
+    let sent = fake.frame();
+    assert_eq!(sent["method"], json!("_acpmux/attach"));
+    assert_eq!(sent["params"]["maxBytes"], json!(131072));
+    let reply = client.request(json!({"cmd":"agent-session-events","surface":surface,
+                                      "before_seq":9,"max_bytes":u64::MAX}));
+    assert_eq!(reply["ok"], json!(true), "{reply}");
+    let sent = fake.frame();
+    assert_eq!(sent["method"], json!("_acpmux/events"));
+    assert_eq!(sent["params"]["maxBytes"], json!(agent_session_attach::MAX_PAGE_BYTES as u64));
+    let reply = client.request(json!({"cmd":"agent-session-events","surface":surface,
+                                      "before_seq":9}));
+    assert_eq!(reply["ok"], json!(true), "{reply}");
+    assert!(fake.frame()["params"].get("maxBytes").is_none());
+}
+
 // MARK: Streaming
 
 #[test]
@@ -1073,6 +1244,62 @@ fn attach_replays_the_page_and_streams_live_records_of_that_session_only() {
     assert_eq!(changed["event"], json!("agent-session-changed"));
     assert_eq!(changed["change"]["session"]["status"], json!("idle"));
     assert!(client.event(Duration::from_millis(200)).is_none(), "nothing of other sessions");
+}
+
+#[test]
+fn an_unfiltered_stream_closes_on_a_sequence_gap_for_replay() {
+    let mut fake = FakeAcpmux::start("stream-gap");
+    let mux = mux_with(&fake, "asa-stream-gap");
+    let surface = agent_tab(&mux, Some(SESSION));
+    let mut client = Client::connect(&mux, "stream-gap");
+    let reply = client.request(json!({"cmd":"agent-session-attach","surface":surface,"limit":400}));
+    assert_eq!(reply["ok"], json!(true), "{reply}");
+    let _ = client.event(WAIT).expect("the early record");
+
+    // The native client must not accept seq 4 while seq 3 is absent. Closing
+    // makes its normal after-seq attach replay the missing record.
+    fake.notify("_acpmux/event", json!({"sessionId": SESSION, "seq": 4, "kind": "agent_message"}));
+    let closed = client.event(WAIT).expect("a close for the gap");
+    assert_eq!(closed["event"], json!("agent-session-closed"));
+    assert_eq!(closed["reason"], json!("gap"));
+}
+
+#[test]
+fn an_unfiltered_stream_passes_an_overlap_without_a_gap_close() {
+    let mut fake = FakeAcpmux::start("stream-overlap");
+    let mux = mux_with(&fake, "asa-stream-overlap");
+    let surface = agent_tab(&mux, Some(SESSION));
+    let mut client = Client::connect(&mux, "stream-overlap");
+    let reply = client.request(json!({"cmd":"agent-session-attach","surface":surface,"limit":400}));
+    assert_eq!(reply["ok"], json!(true), "{reply}");
+    let _ = client.event(WAIT).expect("the early record");
+
+    // A record the page already covers (written while the attach read it) is
+    // an overlap the client drops, not a gap; the next one still continues.
+    fake.notify("_acpmux/event", json!({"sessionId": SESSION, "seq": 1, "kind": "agent_message"}));
+    fake.notify("_acpmux/event", json!({"sessionId": SESSION, "seq": 3, "kind": "agent_message"}));
+    for seq in [1, 3] {
+        let event = client.event(WAIT).expect("a record, not a close");
+        assert_eq!(event["event"], json!("agent-session-record"), "{event}");
+        assert_eq!(event["record"]["seq"], json!(seq));
+    }
+}
+
+#[test]
+fn a_peer_chat_stream_passes_its_holes() {
+    let fixture = Fixture { attach_peer: true, ..Fixture::default() };
+    let mut fake = FakeAcpmux::start_with("stream-peer-holes", fixture);
+    let mux = mux_with(&fake, "asa-stream-peer-holes");
+    let surface = agent_tab(&mux, Some(SESSION));
+    let mut client = Client::connect(&mux, "stream-peer-holes");
+    let reply = client.request(json!({"cmd":"agent-session-attach","surface":surface,"limit":400}));
+    assert_eq!(reply["ok"], json!(true), "{reply}");
+    let _ = client.event(WAIT).expect("the early record");
+
+    // A peer's link is not sent every record (`MUX_UNSENT`): its seqs have holes.
+    fake.notify("_acpmux/event", json!({"sessionId": SESSION, "seq": 4, "kind": "agent_message"}));
+    let event = client.event(WAIT).expect("the record, not a close");
+    assert_eq!(event["event"], json!("agent-session-record"), "{event}");
 }
 
 #[test]
@@ -1180,7 +1407,6 @@ fn a_prompt_is_one_text_block_on_the_pinned_session() {
         json!({"prompt_id":"p 2","text":"x"}),
         json!({"prompt_id":"p2","text":"   "}),
         json!({"prompt_id":"p2","text":"x".repeat(agent_session_attach::MAX_PROMPT_BYTES + 1)}),
-        json!({"prompt_id":"p2","text":"x","prompt":[{"type":"resource_link","uri":"file:///etc"}]}),
     ] {
         let mut frame = json!({"cmd":"agent-session-prompt","surface":surface});
         for (key, value) in bad.as_object().unwrap() {
@@ -1209,6 +1435,36 @@ fn a_prompt_acpmux_accepts_after_a_cold_start_is_sent_not_timed_out() {
     let reply = client.answer_within(id, late + WAIT);
     assert_eq!(reply["ok"], json!(true), "{reply}");
     assert_eq!(reply["data"]["turn_id"], json!("turn_1"));
+}
+
+#[test]
+fn a_prompt_acpmux_refuses_is_refused_at_once_with_its_reason_not_timed_out() {
+    // HQ run 43626610988's phone-start row: acpmux answered the phone's `session/prompt` with an
+    // error and never accepted it, and the phone heard `agent_session.timeout` 30 s later.
+    let fixture = Fixture {
+        prompt_refusal: Some(json!({"reason": "remote.local_claude_session"})),
+        ..Fixture::default()
+    };
+    let fake = FakeAcpmux::start_with("prompt-refused", fixture);
+    let mux = mux_with(&fake, "asa-prompt-refused");
+    let surface = agent_tab(&mux, Some(SESSION));
+    let mut client = Client::connect(&mux, "prompt-refused");
+    assert_eq!(attach(&mut client, surface)["ok"], json!(true));
+    let _ = fake.frame();
+    let id = client.send(json!({"cmd":"agent-session-prompt","surface":surface,
+                                "prompt_id":"prompt-refused","text":"hello"}));
+    assert!(WAIT < agent_session_attach::PROMPT_ACCEPT_TIMEOUT);
+    let reply = client.answer_within(id, WAIT);
+    assert_code(&reply, "agent_session.refused");
+    assert_eq!(reply["data"]["reason"], json!("remote.local_claude_session"), "{reply}");
+    assert!(
+        reply["error"].as_str().is_some_and(|text| text.contains("remote.local_claude_session")),
+        "{reply}"
+    );
+    // The same prompt id may be sent again: the refused one holds no slot.
+    let again = client.send(json!({"cmd":"agent-session-prompt","surface":surface,
+                                   "prompt_id":"prompt-refused","text":"hello"}));
+    assert_code(&client.answer_within(again, WAIT), "agent_session.refused");
 }
 
 #[test]
@@ -1362,6 +1618,14 @@ fn login_steps_go_to_acpmux_on_the_pinned_session() {
             json!({"loginId": "login_2", "url": "https://accounts.x.ai/device",
                    "userCode": "WDJB-MJHT", "needsCode": false}),
         ),
+        // Every agent acpmux signs in passes, with no list of them here (OpenCode's key).
+        (
+            json!({"cmd":"agent-session-login","surface":surface,"op":"api_key",
+                   "agent":"opencode","key":"sk-test"}),
+            "_acpmux/agent_login/api_key",
+            json!({"agent": "opencode", "key": "sk-test", "sessionId": SESSION}),
+            json!({"saved": true, "restarted": true}),
+        ),
         (
             json!({"cmd":"agent-session-login","surface":surface,"op":"cancel",
                    "login_id":"login_1"}),
@@ -1379,7 +1643,8 @@ fn login_steps_go_to_acpmux_on_the_pinned_session() {
     }
     for bad in [
         json!({"cmd":"agent-session-login","surface":surface,"op":"start"}),
-        json!({"cmd":"agent-session-login","surface":surface,"op":"start","agent":"opencode"}),
+        json!({"cmd":"agent-session-login","surface":surface,"op":"start","agent":"../codex"}),
+        json!({"cmd":"agent-session-login","surface":surface,"op":"start","agent":"Claude"}),
         json!({"cmd":"agent-session-login","surface":surface,"op":"finish"}),
         json!({"cmd":"agent-session-login","surface":surface,"op":"api_key","agent":"claude"}),
         json!({"cmd":"agent-session-login","surface":surface,"op":"run","agent":"claude"}),
@@ -1389,6 +1654,143 @@ fn login_steps_go_to_acpmux_on_the_pinned_session() {
                "code":"x".repeat(5000)}),
     ] {
         assert_code(&client.request(bad), "agent_session.bad_request");
+    }
+    fake.no_frame();
+}
+
+/// An unbound agent tab of this store (a new chat whose start has not made a session, or whose
+/// start was refused).
+fn unbound_store_tab(mux: &Arc<Mux>, harness: &str) -> SurfaceId {
+    let (_, pane) = terminal_pane(mux);
+    let host = agent_session_attach::agent_session_start::store_host(mux);
+    run(
+        mux,
+        json!({"cmd":"new-conversation-tab","pane":pane,
+               "agent_session":{"host":host,"harness":harness}}),
+    )["surface"]
+        .as_u64()
+        .unwrap()
+}
+
+/// A new chat whose start was refused because its agent is not signed in (hq#11225) signs that
+/// agent in on this machine before it has a session (`agent-session-login-machine-v1`): each
+/// login step goes to this machine's acpmux with no `sessionId`, gated as a start is (the same
+/// host check and unbound tab of this store). A tab with a session still needs its attachment.
+#[test]
+fn a_new_chat_signs_its_agent_in_on_this_machine_without_a_session() {
+    let fake = FakeAcpmux::start("login-machine");
+    let mux = mux_with(&fake, "asa-login-machine");
+    mux.set_agent_start_host(Arc::new(|| AgentStartHost::Allowed));
+    let identity = run(&mux, json!({"cmd":"identify"}));
+    assert!(
+        identity["capabilities"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|value| value == agent_session_attach::AGENT_SESSION_LOGIN_MACHINE_CAPABILITY)
+    );
+    let surface = unbound_store_tab(&mux, "cursor");
+    let mut client = Client::connect(&mux, "login-machine");
+    for (frame, method, params, data) in [
+        (
+            json!({"cmd":"agent-session-login","surface":surface,"op":"start","agent":"cursor"}),
+            "_acpmux/agent_login/start",
+            json!({"agent": "cursor"}),
+            json!({"loginId": "login_1", "url": "https://claude.ai/oauth/authorize",
+                   "needsCode": true}),
+        ),
+        (
+            json!({"cmd":"agent-session-login","surface":surface,"op":"finish",
+                   "login_id":"login_1","code":"wrong"}),
+            "_acpmux/agent_login/finish",
+            json!({"loginId": "login_1", "code": "wrong"}),
+            json!({"refused": {"reason": "bad_code"}}),
+        ),
+        (
+            json!({"cmd":"agent-session-login","surface":surface,"op":"finish",
+                   "login_id":"login_1"}),
+            "_acpmux/agent_login/finish",
+            json!({"loginId": "login_1"}),
+            json!({"signedIn": true, "restarted": true}),
+        ),
+        (
+            json!({"cmd":"agent-session-login","surface":surface,"op":"api_key",
+                   "agent":"gemini","key":"AIzaTest"}),
+            "_acpmux/agent_login/api_key",
+            json!({"agent": "gemini", "key": "AIzaTest"}),
+            json!({"saved": true, "restarted": true}),
+        ),
+        (
+            json!({"cmd":"agent-session-login","surface":surface,"op":"cancel",
+                   "login_id":"login_1"}),
+            "_acpmux/agent_login/cancel",
+            json!({"loginId": "login_1"}),
+            json!({}),
+        ),
+    ] {
+        let reply = client.request(frame);
+        assert_eq!(reply["ok"], json!(true), "{reply}");
+        assert_eq!(reply["data"], data, "{reply}");
+        let sent = fake.frame();
+        assert_eq!(sent["method"], json!(method));
+        assert_eq!(sent["params"], params, "no session: the sign-in is this machine's own");
+    }
+    for bad in [
+        json!({"cmd":"agent-session-login","surface":surface,"op":"start","agent":"opencode"}),
+        json!({"cmd":"agent-session-login","surface":surface,"op":"start","agent":"cursor",
+               "sessionId":"acp_other"}),
+        json!({"cmd":"agent-session-login","surface":surface,"op":"run","agent":"cursor"}),
+    ] {
+        assert_code(&client.request(bad), "agent_session.bad_request");
+    }
+    // A tab with a session signs in through its attachment; a tab of another store never here.
+    let bound = agent_tab(&mux, Some(SESSION));
+    let foreign = agent_tab(&mux, None);
+    for surface in [bound, foreign] {
+        assert_code(
+            &client.request(json!({"cmd":"agent-session-login","surface":surface,"op":"start",
+                                   "agent":"cursor"})),
+            "agent_session.not_attached",
+        );
+    }
+    fake.no_frame();
+}
+
+/// On a Cloud VM a session-less sign-in runs only on the caller's `vm_kind: "owner"`, as a start
+/// does; a teammate's proxied link never signs this machine's agent in.
+#[test]
+fn a_new_chats_sign_in_is_gated_as_a_start_is() {
+    let fake = FakeAcpmux::start("login-machine-gate");
+    let mux = mux_with(&fake, "asa-login-machine-gate");
+    mux.set_agent_start_host(Arc::new(|| AgentStartHost::OwnerCloud));
+    let surface = unbound_store_tab(&mux, "grok");
+    let mut client = Client::connect(&mux, "login-machine-gate");
+    let start = json!({"cmd":"agent-session-login","surface":surface,"op":"start","agent":"grok"});
+    assert_code(&client.request(start.clone()), "agent_session.host_unverified");
+    let mut other = start.clone();
+    other["vm_kind"] = json!("member");
+    assert_code(&client.request(other), "agent_session.host_unverified");
+    fake.no_frame();
+    let mut owned = start.clone();
+    owned["vm_kind"] = json!("owner");
+    let reply = client.request(owned);
+    assert_eq!(reply["ok"], json!(true), "{reply}");
+    assert_eq!(reply["data"]["loginId"], json!("login_2"), "{reply}");
+    let sent = fake.frame();
+    assert_eq!(sent["method"], json!("_acpmux/agent_login/start"));
+    assert_eq!(sent["params"], json!({"agent": "grok"}));
+    // A teammate's link (`agent-session-proxy-bind`) is refused before acpmux, owner word or not.
+    let mut teammate = Client::connect(&mux, "login-machine-teammate");
+    let author = json!({"id":"tailnet:p@example.com", "login":"p@example.com", "node":"n"});
+    let bound = teammate.request(json!({"cmd":"agent-session-proxy-bind", "author":author}));
+    assert_eq!(bound["ok"], json!(true), "{bound}");
+    for host_session in [json!(""), json!(SESSION)] {
+        let mut frame = start.clone();
+        frame["vm_kind"] = json!("owner");
+        frame["_host_author"] = author.clone();
+        frame["_host_session"] = host_session;
+        let reply = teammate.request(frame);
+        assert_eq!(reply["ok"], json!(false), "{reply}");
     }
     fake.no_frame();
 }
@@ -1453,8 +1855,6 @@ fn a_side_question_goes_inline_to_the_pinned_session() {
         json!({"cmd":"agent-session-btw","surface":surface,"question":"  "}),
         json!({"cmd":"agent-session-btw","surface":surface,"question":"x".repeat(17 * 1024)}),
         json!({"cmd":"agent-session-btw","surface":surface,"question":"why?","sessionId":"acp_other"}),
-        json!({"cmd":"agent-session-btw","surface":surface,"question":"why?","model":"opus"}),
-        json!({"cmd":"agent-session-btw","surface":surface,"question":"why?","inline":false}),
         json!({"cmd":"agent-session-btw","surface":surface,"question":"why?",
                "_meta":{"acpmux":{"via":"app"}}}),
     ] {
@@ -1578,6 +1978,13 @@ fn typing_and_view_go_to_the_pinned_session_and_presence_streams_back() {
             json!({"cmd":"agent-session-view","surface":surface,"visible":false}),
             "_acpmux/view",
             json!({"sessionId": SESSION, "visible": false}),
+        ),
+        // The person away from the chat on screen (agent-session-attention-v1): acpmux keeps its
+        // turns unread, left off at the seq of their last input.
+        (
+            json!({"cmd":"agent-session-view","surface":surface,"visible":true,"attending":false,"seen_seq":41}),
+            "_acpmux/view",
+            json!({"sessionId": SESSION, "visible": true, "attending": false, "seenSeq": 41}),
         ),
     ] {
         let reply = client.request(frame);
@@ -1829,7 +2236,6 @@ fn every_verb_refuses_session_cwd_command_and_meta_params() {
         json!({"cwd":"/"}),
         json!({"command":"x"}),
         json!({"_meta":{"acpmux":{"steer":true}}}),
-        json!({"prompt":[{"type":"text","text":"x"}]}),
     ] {
         for mut frame in every_verb(surface).into_iter().skip(1).take(4) {
             frame.as_object_mut().unwrap().remove("id");

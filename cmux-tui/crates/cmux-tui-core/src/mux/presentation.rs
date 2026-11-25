@@ -18,7 +18,11 @@ use std::ops::Deref;
 
 mod decoration_walks;
 mod frontend_browser_history;
+#[cfg(test)]
+mod git_head_probe;
+mod git_heads;
 use decoration_walks::surface_directories_in_state;
+pub(super) use git_heads::GitHeadCache;
 
 /// Per-snapshot data the tree serializer adds to the live [`State`]:
 /// unread notification markers and the shared presentation metadata.
@@ -83,11 +87,6 @@ pub(crate) struct GitHead {
     detached: bool,
 }
 
-/// A cached HEAD lookup is reused for this long, which bounds both the
-/// filesystem work of a tree snapshot and the staleness of a branch switch
-/// made without changing directory.
-const GIT_HEAD_TTL: Duration = Duration::from_secs(2);
-const GIT_HEAD_CACHE_LIMIT: usize = 4096;
 const GIT_METADATA_MAX_BYTES: u64 = 4096;
 
 fn read_small_file(path: &Path) -> Option<String> {
@@ -113,6 +112,8 @@ fn read_git_head_file(git_dir: &Path) -> Option<GitHead> {
 /// Find the repository containing `directory` and read its HEAD without
 /// running git. A `.git` file (worktrees, submodules) names the git dir.
 pub(crate) fn read_git_head(directory: &Path) -> Option<GitHead> {
+    #[cfg(test)]
+    git_head_probe::on_read(directory);
     let mut current = Some(directory);
     while let Some(candidate) = current {
         let dot_git = candidate.join(".git");
@@ -236,7 +237,8 @@ impl Mux {
     }
 
     /// Notifications, presentation, and tab directories for serializing the
-    /// whole tree. Git HEAD lookups run after the state lock is released.
+    /// whole tree. Git HEADs come from the cache (git_heads.rs); a directory
+    /// with no cached value is read after the state lock is released.
     #[track_caller]
     pub fn tree_decorations(&self) -> TreeDecorations {
         let presentation = self.presentation_snapshot();
@@ -375,6 +377,24 @@ impl Mux {
         decorations
     }
 
+    /// [`Self::tree_decorations_placing`] for a delta that serializes the one tab `placing` (a
+    /// `pane-added` or `tab-added` entity holds that tab only): its marker, its directory and
+    /// its terminal's state, with no walk of the session's other surfaces.
+    #[track_caller]
+    pub(crate) fn tab_decorations_placing(&self, placing: &Surface) -> TreeDecorations {
+        let (mut decorations, mut directories) = {
+            let state = self.state.lock().unwrap_or_else(PoisonError::into_inner);
+            self.tab_tree_decorations_parts(&state, &[placing.id])
+        };
+        if let Some(directory) = placing.presented_directory()
+            && !directories.iter().any(|(surface, _)| *surface == placing.id)
+        {
+            directories.push((placing.id, directory));
+        }
+        decorations.directories = self.resolve_tab_directories(directories, true);
+        decorations
+    }
+
     /// The same as [`Self::tree_decorations`] for a caller that already
     /// holds the state lock. It never touches the filesystem, so git HEADs
     /// come from the cache only.
@@ -392,6 +412,23 @@ impl Mux {
             terminal_ends,
             terminal_loss_causes: self.terminal_loss_causes_snapshot(),
         }
+    }
+
+    /// [`Self::tree_decorations_in_state`] for a delta that serializes the one workspace at
+    /// `workspace_index` (a rename, a move): the decorations of its tabs only.
+    pub(crate) fn workspace_tree_decorations_in_state(
+        &self,
+        state: &State,
+        workspace_index: usize,
+    ) -> TreeDecorations {
+        let surfaces = state
+            .workspaces
+            .get(workspace_index)
+            .into_iter()
+            .flat_map(|workspace| &workspace.screens)
+            .flat_map(|screen| screen_tabs(state, screen))
+            .collect::<Vec<_>>();
+        self.tab_tree_decorations_in_state(state, &surfaces)
     }
 
     /// Each placed PTY tab's git branch, from the HEAD cache only (no
@@ -430,28 +467,10 @@ impl Mux {
                 },
             );
         }
+        if refresh {
+            self.start_git_head_refresh();
+        }
         result
-    }
-
-    fn git_head(&self, cwd: &str, now: Instant, refresh: bool) -> Option<GitHead> {
-        {
-            let cache = self.git_heads.lock().unwrap();
-            if let Some((checked, head)) = cache.get(cwd)
-                && (!refresh || now.saturating_duration_since(*checked) < GIT_HEAD_TTL)
-            {
-                return head.clone();
-            }
-        }
-        if !refresh {
-            return None;
-        }
-        let head = read_git_head(Path::new(cwd));
-        let mut cache = self.git_heads.lock().unwrap();
-        if cache.len() >= GIT_HEAD_CACHE_LIMIT {
-            cache.clear();
-        }
-        cache.insert(cwd.to_string(), (now, head.clone()));
-        head
     }
 
     /// Tell subscribers that one tab's metadata (pin, directory, git HEAD,

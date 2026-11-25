@@ -42,6 +42,21 @@ The bench's HEADLINE per command is the WORST arm (a missed run first, else the 
 printed as `HEADLINE instant-new-surfaces/<command> visible_ms = <arm> arm ...`; the warm arm alone never stands for
 the bench.
 
+The engine (bench_page_engine.py): each `new_tab` and `new_workspace` row has `page_engine`, the engine of the
+page that the key opened, read from the app after the timed press (`cef`, `webkit:<reason>`, `native` with
+`--native-new-tab`, `unknown: <why>` when the focused pane shows no page). A row of a command with a page time
+(`link_right`, `split_browser`, `browser_workspace`, the diff commands, `github_right` and the others) names the
+engine of the focused pane's browser tab itself, and that word is its `page_engine`: `cef`, `webkit`, or `none`
+when that pane shows no browser tab (a diff's page and the GitHub page always: they are a viewer's page view, in
+Chromium or in WebKit, and the row does not say which; also a browser in a pane with no focus).
+`--page-engine cef|webkit` takes a row of another engine as an error of the row: its times and its frames move to
+`other_engine` and the row counts as a missed run; a Cmd-T row whose engine was not read and a page row that says
+`none` are refused too. The default `any` judges no row: a measure of a diff's page or the GitHub page asks for it
+(with cmux-ci: `--arg=--page-engine=any`). Each launch prints the app's own word on Chromium (`CHROMIUM ...`), and the
+run's end prints the rows of each engine (`PAGE-ENGINE ...`); the JSON has both (`chromium`, `page_engines`).
+The read comes after the row's times. As each `debug.agent_pane` action, it stops WebKit from pausing that page's
+web view while another window covers it; a debug build's bench launch has done that for each page already.
+
 Usage: instant-new-surfaces-bench.py --tag TAG --app PATH [--runs 12] [--commands new_terminal]
        [--workspaces 10,100] [--arms warm,quick,cold] [--quick-runs 6] [--cold-launches 2] [--out DIR] [--json FILE]
 Fleet: cmux-ci run --class exclusive --measurement --label measure --script scripts/measure/instant-new-surfaces.sh
@@ -54,10 +69,60 @@ import argparse, glob, json, os, re, signal, socket, subprocess, sys, tempfile, 
 if "--bench=new-pane-start-state" in sys.argv:
     other = os.path.join(os.path.dirname(os.path.abspath(__file__)), "new-pane-start-state-bench.py")
     os.execv(sys.executable, [sys.executable, other, *[a for a in sys.argv[1:] if a != "--bench=new-pane-start-state"]])
+# `--bench=cmd-n-paint`: scripts/cmux-next/cmd-n-paint-e2e.py on the same tagged app (a display worker: `cmux-ci run
+# --display`), Cmd-N and Cmd-T judged from the window server's own frames, each opening's blank and intermediate frames
+# in its warm, quick and cold arms.
+if "--bench=cmd-n-paint" in sys.argv:
+    other = os.path.join(os.path.dirname(os.path.abspath(__file__)), "cmd-n-paint-e2e.py")
+    os.execv(sys.executable, [sys.executable, other, *[a for a in sys.argv[1:] if a != "--bench=cmd-n-paint"]])
+# `--bench=cmdn-typing`: scripts/cmux-next/cmdn-typing-bench.py on the same tagged app (a display worker), the keys typed
+# right after Cmd-N and how many the new New Tab field lost, from a terminal and from a page, now, late and cold.
+if "--bench=cmdn-typing" in sys.argv:
+    other = os.path.join(os.path.dirname(os.path.abspath(__file__)), "cmdn-typing-bench.py")
+    os.execv(sys.executable, [sys.executable, other, *[a for a in sys.argv[1:] if a != "--bench=cmdn-typing"]])
+
+# `--bench=new-tab-startup`: scripts/cmux-next/new-tab-startup-bench.py on the same tagged app, Cmd-T to the new tab
+# visible and to a key typed into its omnibar echoing, each of --runs rounds a sample (goal startup-every-path).
+if "--bench=new-tab-startup" in sys.argv:
+    other = os.path.join(os.path.dirname(os.path.abspath(__file__)), "new-tab-startup-bench.py")
+    os.execv(sys.executable, [sys.executable, other, *[a for a in sys.argv[1:] if a != "--bench=new-tab-startup"]])
+
+# `--bench=settings-open`: scripts/cmux-next/bench-settings-open.py on the same tagged app: Cmd-, to the painted Settings
+# page, the first open of each launch cold and the others warm. It takes the app (`--app`) and `--runs`, `--opens` and
+# `--settle`; the instant-create arguments (`--tag`, `--page-engine`) are not its own.
+if "--bench=settings-open" in sys.argv:
+    other = os.path.join(os.path.dirname(os.path.abspath(__file__)), "bench-settings-open.py")
+    kept, args = [], sys.argv[1:]
+    compare, out = None, tempfile.mkdtemp(prefix="settings-open-")
+    for index, arg in enumerate(args):
+        name, _, value = arg.partition("=")
+        if name in ("--app", "--runs", "--opens", "--settle", "--json"):
+            kept += [arg] if "=" in arg else [arg, args[index + 1]]
+        elif name == "--compare-at":
+            # A second arm in the same step: built here at that commit (scripts/measure/app-at-commit.sh, bench
+            # configuration) and launched interleaved with --app, so both arms share the host and its state.
+            compare = value
+        elif name == "--out":
+            out = value if "=" in arg else args[index + 1]
+    if compare:
+        if not re.fullmatch(r"[0-9a-f]{40}", compare):
+            raise SystemExit(f"--compare-at={compare}: want a 40-hex commit")
+        root = subprocess.run(["git", "rev-parse", "--show-toplevel"], capture_output=True, text=True, check=True).stdout.strip()
+        built = subprocess.run(["bash", "-c", '. scripts/measure/app-at-commit.sh && measure_app_at_commit "$@"', "build",
+                                compare, "instantnewb", os.path.join(out, "compare-at"), "--config", "bench"],
+                               cwd=root, stdout=subprocess.PIPE, text=True)
+        app = built.stdout.strip().splitlines()[-1] if built.stdout.strip() else ""
+        if built.returncode or not os.path.isdir(app):
+            raise SystemExit(f"--compare-at={compare}: the build printed no app (exit {built.returncode})")
+        print(f"settings-open: compare arm {compare}: {app}", flush=True)
+        kept += ["--app", app]
+    os.execv(sys.executable, [sys.executable, other, *kept])
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from bench_launch import BenchApp, bundle_id  # noqa: E402
+from bench_launch import BenchApp, bundle_id, close_all_workspaces, wait_for_count  # noqa: E402
+from state_wait import wait_stable  # noqa: E402
 import bench_arms  # noqa: E402
+import bench_page_engine  # noqa: E402
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--tag", required=True)
@@ -78,13 +143,25 @@ parser.add_argument("--hang-stacks", action="store_true",
                          "and each run's longest main-thread stall with its whole stack (64 frames) in the row and the log")
 parser.add_argument("--slow-wait", type=float, default=40, help="slow phase: seconds between marking WebKit slow and the first run")
 parser.add_argument("--native-new-tab", action="store_true", help="run with tabs.nativeNewTabPage on (Cmd-T opens the native New Tab page)")
+parser.add_argument("--page-engine", default="any", choices=bench_page_engine.WANTED,
+                    help="the engine that a New Tab page and a browser page must show in (bench_page_engine.py): a row of "
+                         "another engine, and a page row that names no engine (a diff's page, the GitHub page), is an "
+                         "error of the row, not a number; any (the default) judges no row")
 parser.add_argument("--arms", default=None,
                     help="the arms to time (bench_arms.py; default warm,quick,cold, or warm alone with --budget-frames: a "
                          "budget run judges the warm rows only, so its time and its pass or fail do not change)")
 parser.add_argument("--quick-runs", type=int, default=6, help="quick arm: pairs of presses per command")
 parser.add_argument("--cold-launches", type=int, default=2, help="cold arm: launches per command, each timing its first press")
 parser.add_argument("--link-url", default="", help="link_right's page (default: a local file page in the scratch folder)")
+parser.add_argument("--switch-keys", type=int, default=0,
+                    help="runs of the tab-switch key check before the bench: a click on a loaded Chromium tab and three keys in the same turn")
+parser.add_argument("--activate", action="store_true", help="launch without CMUX_NEXT_NO_ACTIVATE: the app takes the keyboard, as a person's does")
 parser.add_argument("--out", default="/tmp")
+parser.add_argument("--launch-pairs", type=int, default=0,
+                    help="instead of the arms: this many launches, each timing the session's first Cmd-T after "
+                         "--launch-settle seconds, a second Cmd-T one second after the first key, and a warm Cmd-T after a "
+                         "ready spare (`ready_ms`: the New Tab page painted and taking keys; `opening.spare`: a spare was adopted)")
+parser.add_argument("--launch-settle", type=float, default=5, help="--launch-pairs: seconds from a shown terminal to the first Cmd-T")
 parser.add_argument("--json")
 opts = parser.parse_args()
 TAG, APP = opts.tag, os.path.abspath(opts.app.rstrip("/"))
@@ -98,16 +175,23 @@ CONFIG = os.path.join(SCRATCH, "cmux.json")
 LINK_PAGE = os.path.join(SCRATCH, "link.html")
 open(LINK_PAGE, "w").write("<!doctype html><title>link</title><body style='background:#2a6'><h1>link page</h1></body>\n")
 LINK_URL = opts.link_url or "file://" + LINK_PAGE
+KEYS_PAGE = os.path.join(SCRATCH, "keys.html")
+open(KEYS_PAGE, "w").write("<!doctype html><title>keys</title><input id=i autofocus><script>window.at=[];"
+                           "i.addEventListener('input',()=>at.push(performance.timeOrigin+performance.now()));"
+                           "addEventListener('focus',()=>i.focus())</script>\n")
 GITHUB_URL = opts.link_url if opts.link_url.startswith("https://github.com/") else "https://github.com/manaflow-ai/cmux/pull/34637"
 DIFF_COMMANDS = {"diff_small": (1, 20), "diff_5k": (10, 500), "diff_200": (200, 10)}  # files, changed lines per file
-READY_COMMANDS = ("new_workspace", "new_tab")  # the app reports ready_ms (the New Tab page painted and taking keys) for these
+READY_COMMANDS = ("new_workspace", "new_tab")  # the app reports ready_ms (the New Tab page painted and taking keys) and shown_ms (its empty state on screen, its pixels or its picture, nothing kept over it) for these
 NEWTAB_URL_COMMANDS = ("newtab_url", "newtab_url_beside")  # Return / Option-Return on an address in a New Tab page
 PAGE_COMMANDS = ("link_right", "link_home", "split_browser", "github_right", *NEWTAB_URL_COMMANDS, *DIFF_COMMANDS)  # the app reports page_ms (the new pane's page painted) for these
+# What a command's row opens, for the engine rule (bench_page_engine.judge_created); a command not here opens no page.
+OPENS = {"new_tab": "tab", "new_workspace": "workspace", "browser_workspace": "page", **dict.fromkeys(PAGE_COMMANDS, "page")}
 open(CONFIG, "w").write(json.dumps({"tabs": {"nativeNewTabPage": True}} if opts.native_new_tab else {}) + "\n")
 CLI_ENV = {"HOME": os.environ["HOME"], "PATH": "/usr/bin:/bin", "TMPDIR": os.environ.get("TMPDIR", "/tmp"),
            "CMUX_SOCKET_PATH": SOCKET, "CMUX_QUIET": "1", "CMUX_TAG": TAG,
            "CMUX_BUNDLE_ID": BUNDLE_ID, "CMUX_BUNDLED_CLI_PATH": CLI}
 LAUNCHED, LOAD = [], []
+CHROMIUM = []  # the app's own word on Chromium at each launch (bench_page_engine.chromium_word)
 
 
 def diff_repository(name, files, lines):
@@ -201,7 +285,7 @@ def start_load():
     loop = f'while :; do "{CLI}" workspace list >/dev/null 2>&1; "{CLI}" tree >/dev/null 2>&1; done'
     for _ in range(opts.storm):
         LOAD.append(subprocess.Popen(["/bin/sh", "-c", loop], env=CLI_ENV, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL))
-    time.sleep(3)  # test harness: let the load ramp
+    time.sleep(3)  # sleep-ok: the load's warm-up window; the phase measures under load that has run a while, not just spawned
 
 
 def stop_load():
@@ -252,7 +336,8 @@ def new_tab_page(settle=True):
     rpc("debug.key", {"key": "t", "modifiers": ["command"], "window": window_key()})
     ok = wait(lambda: (focused() or {}).get("kind") not in (None, "terminal"), 10, step=0.05)
     if ok and settle:
-        time.sleep(1)  # test harness: the page's handshake and field, as before a person types
+        # sleep-ok: the person's pause between Cmd-T and typing the address, which the timed newtab_url press models
+        time.sleep(1)
     return ok
 
 
@@ -269,8 +354,87 @@ def ensure_terminal(settle=True):
     print("newTab:", json.dumps(reply)[:300], flush=True)
     ok = wait(lambda: (focused() or {}).get("kind") == "terminal", 30, step=0.25 if settle else 0.02)
     if settle:
-        time.sleep(1)  # test harness: shell prompt
+        shell_prompts("the new terminal's shell prompt")
     return ok
+
+
+def shell_prompts(what):
+    """Every terminal pane's shell drew its prompt: its mirror text (`debug.surfaces` text) is not empty and holds
+    still. Best effort, as the fixed wait it replaces: a note when it never does."""
+    def texts():
+        rows = [(p.get("text") or "").strip() for w in ((rpc("debug.surfaces", {"text": True}) or {}).get("windows") or [])
+                for p in w.get("panes", []) if p.get("kind") == "terminal"]
+        if not all(rows):
+            raise ValueError("a terminal has drawn nothing yet")
+        return rows
+    if wait_stable(texts, what, timeout=15, interval=0.1, reads=3, raise_on_timeout=False) is None:
+        print(f"note: no settled terminal text for {what} in 15 s", flush=True)
+
+
+def switch_keys(runs):
+    """The tab-switch key check (`debug.new_tab switch_and_type`), `runs` times: a loaded Chromium tab that is not shown
+    is clicked and "abc" typed in the same main-thread turn, straight through the app's key path (no wait for a key
+    hold). Per run: whether the page was ready for keys at the click, whether the window held each key, what the
+    page's field got, and the time from the click to the field's first character. Two cases, `runs` each: `plain` (the
+    tab was only hidden) and `driven` (a script ran in the hidden tab, as an agent's does: the app shows such a tab
+    in its agent render window until the click)."""
+    rows = []
+    if not ensure_terminal():
+        return [{"error": "no focused terminal"}]
+    terminal = [t["id"] for t in (rpc("debug.new_tab", {"action": "switch_and_type"}) or {}).get("tabs") or []]
+    opened = rpc("debug.new_tab", {"action": "bench_create", "command": "new_browser", "run": "openBrowser", "url": "file://" + KEYS_PAGE}, timeout=30) or {}
+    tabs = (rpc("debug.new_tab", {"action": "switch_and_type"}) or {}).get("tabs") or []
+    page = next((t["id"] for t in tabs if t.get("browser")), None)
+    print(f"switch-keys: page tab {page} (page_ms={opened.get('page_ms')} engine={opened.get('engine')}) terminal {terminal}", flush=True)
+    if not page or not terminal:
+        return [{"error": f"no page tab beside a terminal: {tabs}"}]
+    field = lambda: (rpc("browser.page.eval", {"tab": page, "script": "JSON.stringify({v: document.getElementById('i').value, at: window.at, f: document.hasFocus()})"}) or {})
+    read = lambda: (lambda value: value if isinstance(value, dict) else json.loads(value or "{}"))(field().get("value"))
+    wait(lambda: "v" in read(), 20)
+    # The page took its first focus (document.hasFocus) before the first switch away.
+    if not wait(lambda: read().get("f"), 10, step=0.05):
+        print("switch-keys: note: the page never reported focus in 10 s", flush=True)
+    clear = lambda: rpc("browser.page.eval", {"tab": page, "script": "document.getElementById('i').value=''; window.at=[]; 1"})
+    for index, case in [(i, c) for c in ("plain", "driven") for i in range(runs)]:
+        if case == "plain":
+            clear()  # while the page shows: nothing touches the hidden tab
+        rpc("debug.new_tab", {"action": "switch_and_type", "tab": terminal[0]})
+        time.sleep(1.0)  # test harness: the terminal has the keyboard, the page is hidden
+        if case == "driven":
+            clear()
+        last = ((rpc("debug.journal", {"last": 1}) or {}).get("stats") or {}).get("lastSeq") or 0
+        clicked = time.time() * 1000
+        sent = rpc("debug.new_tab", {"action": "switch_and_type", "tab": page, "text": "abc"}) or {}
+        got = wait(lambda: (lambda state: state if len(state.get("v") or "") >= 3 else None)(read()), 4, step=0.02) or read()
+        at = got.get("at") or []
+        after = rpc("debug.new_tab", {"action": "switch_and_type", "tab": page, "probe": True}) or {}
+        row = {"run": index, "case": case, "page_ready_at_click": sent.get("page_ready"), "held": sent.get("held"), "app_active": sent.get("app_active"),
+               "field": got.get("v"), "page_has_focus": got.get("f"), "first_key_ms": round(at[0] - clicked, 1) if at else None,
+               "ask_at_click": sent.get("focus_ask"), "ask_after": after.get("focus_ask"), "responder_at_click": sent.get("first_responder"),
+               "responder_after": after.get("first_responder"), "error": sent.get("error")}
+        if index < 2:  # the switch's journal: what the page and the focus did after the click
+            entries = [e for e in (rpc("debug.journal", {"last": 400}) or {}).get("entries") or [] if (e.get("seq") or 0) > last]
+            first = entries[0].get("uptimeNanos", 0) if entries else 0
+            row["journal"] = [f"{(e.get('uptimeNanos', 0) - first) / 1e6:.1f} {json.dumps(e.get('kind'))[:420]}" for e in entries][:120]
+            for line in row["journal"]:
+                print("   journal", line, flush=True)
+        print("switch-keys", json.dumps({k: v for k, v in row.items() if k != "journal"}), flush=True)
+        rows.append(row)
+    return rows
+
+
+def focus_waits():
+    """Every Chromium focus ask of this run that waited for its grant (`focus-wait` in the input journal, CEFTab):
+    the count beside all focus asks, and how long the waits were. A key typed during a wait is held."""
+    journal = rpc("debug.journal", {"last": 4096}) or {}
+    events = re.findall(r'"event":\s*"([^"]*)"', json.dumps(journal.get("entries")))
+    waits = [(int(m.group(1)), m.group(2) == "true") for m in (re.match(r"focus-wait ms=(-?\d+) loaded=(\w+)", e) for e in events) if m]
+    loaded = sorted(ms for ms, is_loaded in waits if is_loaded)
+    every = sorted(ms for ms, _ in waits)
+    stats = lambda values: {"n": len(values), "p50": pct(values, 0.5), "p95": pct(values, 0.95), "max": values[-1] if values else None,
+                            "over_16ms": sum(v > 16 for v in values), "over_100ms": sum(v > 100 for v in values)}
+    return {"focus_asks": sum(e.startswith("focus(true)") for e in events), "waited": stats(every), "waited_loaded_page": stats(loaded),
+            "journal": journal.get("stats")}
 
 
 def timed(command, phase, index, arm=None):
@@ -292,9 +456,16 @@ def timed(command, phase, index, arm=None):
     result.update({"phase": phase, "run": index, "command": command})
     if arm:
         result["arm"] = arm
+    # After the row's times: the engine of the page that the key opened. Cmd-T and Cmd-N: the focused pane's shown
+    # page, read here (20 s, as the timed call: a slow answer under load is not an engine that was not read). A
+    # page command: the row's own `engine`.
+    bench_page_engine.judge_created(
+        result, opts.page_engine, OPENS.get(command),
+        lambda: "native" if opts.native_new_tab else bench_page_engine.page_engine(rpc("debug.agent_pane", {"action": "engine"}, timeout=20)))
     marks = {s["name"]: round(s["at"], 1) for s in result.get("spans") or [] if s.get("ms", 0) == 0}
     print(f"{phase} {command} #{index}: key={result.get('key_ms')} visible={result.get('visible_ms')} "
-          f"frame={frame_of(result)} confirmed={result.get('confirmed_ms')} page={result.get('page_ms')} ready={result.get('ready_ms')} marks={marks} "
+          f"frame={frame_of(result)} confirmed={result.get('confirmed_ms')} page={result.get('page_ms')} ready={result.get('ready_ms')} shown={result.get('shown_ms')} shown_frame={frame_of(result, 'shown_ms')} "
+          f"engine={result.get('page_engine')} marks={marks} "
           f"err={result.get('error')}" + (f" github={result['github']}" if 'github' in result else "")
           + (f" diff={json.dumps(result.get('diff'))}" if command in DIFF_COMMANDS else ""), flush=True)
     return result
@@ -400,34 +571,58 @@ def longest_stall(hangs):
     return out
 
 
-def workspace_count():
+# The workspaces no close path closes (the app's home workspace), found by reset_workspaces: never the bench's own.
+KEPT_WORKSPACES = frozenset()
+
+
+def workspace_ids():
     snap = rpc("snapshot.get") or {}
     topology = (snap.get("topology") or snap) if isinstance(snap, dict) else {}
-    return len(topology.get("workspaces") or [])
+    return [w.get("id") for w in topology.get("workspaces") or [] if isinstance(w, dict)]
+
+
+def workspace_count():
+    """The workspaces of the measured topology: every listed one but those reset_workspaces could not close."""
+    return len([ws for ws in workspace_ids() if ws not in KEPT_WORKSPACES])
 
 
 def grow_workspaces(count):
     """At least `count` workspaces; optionally seed empty rows to avoid opening 1000 PTYs."""
     have = workspace_count()
+    failed = []
     for index in range(have, count):
         if opts.empty_workspaces:
-            run("workspace", "create", "--empty", "--name", f"bench-{index}", timeout=120)
+            done = run("workspace", "create", "--empty", "--name", f"bench-{index}", timeout=120)
+            if done.returncode != 0:
+                failed.append(f"bench-{index}: exit {done.returncode} {done.stderr.strip()[-200:]}")
         else:
-            rpc("action.run", {"action": "newTab", "args": {"name": f"bench-{index}"}, "wait": True})
-    now = workspace_count()
+            reply = rpc("action.run", {"action": "newTab", "args": {"name": f"bench-{index}"}, "wait": True})
+            if isinstance(reply, dict) and reply.get("error"):
+                failed.append(f"bench-{index}: {json.dumps(reply['error'])[:200]}")
+    # The creates return before the published topology lists them (bench_launch.wait_for_count).
+    now = wait_for_count(workspace_count, count)
     print(f"workspaces: {have} -> {now}", flush=True)
     if now < count:
-        sys.exit(f"could not reach {count} workspaces (have {now})")
+        sys.exit(f"could not reach {count} workspaces (have {now}; {len(failed)} creates failed: {failed[:3]})")
     return now
 
 
 def reset_workspaces():
     """Drop restored rows in this isolated bench profile before an exact topology run."""
+    global KEPT_WORKSPACES
     if workspace_count() == 0:
         return
-    done = run("workspace", "close-all-in-all-windows", "--confirm", timeout=120)
-    if done.returncode != 0 or not wait(lambda: workspace_count() == 0, 30):
-        sys.exit(f"could not clear restored workspaces: {done.stderr[-400:]}")
+    done = {}
+
+    def close_all():
+        done["run"] = run("workspace", "close-all-in-all-windows", "--confirm", timeout=120)
+        return done["run"].returncode
+
+    # The home workspace stays (home_not_closable); the topology counts without what close-all leaves.
+    KEPT_WORKSPACES, closed = close_all_workspaces(workspace_ids, close_all)
+    print(f"workspaces close-all could not close (not counted): {len(KEPT_WORKSPACES)}", flush=True)
+    if not closed:
+        sys.exit(f"could not clear restored workspaces: {done['run'].stderr[-400:]}")
 
 
 def frame_of(row, key="visible_ms"):
@@ -501,6 +696,65 @@ def cleanup():
         os.remove(SOCKET)
 
 
+def last_opening():
+    openings = (rpc("debug.new_tab", {"action": "state"}) or {}).get("openings") or []
+    return openings[-1] if openings else None
+
+
+def spare_ready():
+    return any(s.get("ready") for s in (rpc("debug.new_tab", {"action": "state"}) or {}).get("spares") or [])
+
+
+def launch_pairs(relaunch):
+    """`--launch-pairs`: per launch, the session's first Cmd-T after `--launch-settle` s, a second one a second after the
+    first key (the person opens two), then a warm one after a ready spare; each row has `ready_ms` and `opening`."""
+    rows = []
+    for index in range(opts.launch_pairs):
+        try:
+            relaunch()
+        except SystemExit as error:
+            rows.append({"run": index, "arm": "first", "error": f"launch: {error}"})
+            continue
+        if not ensure_terminal():
+            rows.append({"run": index, "arm": "first", "error": "no focused terminal"})
+            continue
+        rpc("debug.new_tab", {"action": "retarget"})  # no-activate windows never become key: as a key change does
+        time.sleep(opts.launch_settle)  # test harness: the person's first Cmd-T comes this long after the window shows
+        spares_before = (rpc("debug.new_tab", {"action": "state"}) or {}).get("spares") or []
+        pressed = time.monotonic()
+        for arm in ("first", "second"):
+            if arm == "second":
+                time.sleep(max(0.0, 1.0 - (time.monotonic() - pressed)))  # test harness: the second key a second after the first
+            row = timed("new_tab", "launch", index, arm=arm)
+            row["opening"] = last_opening()
+            if arm == "first":
+                row["spares_before"] = len(spares_before)
+            print(f"LAUNCHPAIR {arm} #{index}: ready_ms={row.get('ready_ms')} visible_ms={row.get('visible_ms')} "
+                  f"opening={row['opening']}" + (f" spares_before={len(spares_before)}" if arm == "first" else "")
+                  + f" page_engine={row.get('page_engine')}", flush=True)
+            rows.append(row)
+        wait(spare_ready, 20, step=0.25)
+        time.sleep(1)  # test harness: input quiet before the warm reference
+        row = timed("new_tab", "launch", index, arm="warm_ref")
+        row["opening"] = last_opening()
+        print(f"LAUNCHPAIR warm_ref #{index}: ready_ms={row.get('ready_ms')} visible_ms={row.get('visible_ms')} opening={row['opening']} "
+              f"page_engine={row.get('page_engine')}", flush=True)
+        rows.append(row)
+    out = {}
+    for arm in ("first", "second", "warm_ref"):
+        sel = [r for r in rows if r.get("arm") == arm]
+        ready_ms = [r.get("ready_ms") for r in sel]
+        out[arm] = {"n": len(sel), "ready_p50": pct(ready_ms, .5), "ready_max": pct(ready_ms, 1),
+                    "visible_p50": pct([r.get("visible_ms") for r in sel], .5),
+                    "ready_missed": sum(r is None for r in ready_ms),
+                    "spare_adopted": sum(bool((r.get("opening") or {}).get("spare")) for r in sel)}
+    print("LAUNCHPAIR-SUMMARY", json.dumps(out), flush=True)
+    print(bench_page_engine.counts_line("instant-new-surfaces", rows, opts.page_engine), flush=True)
+    return {"tag": TAG, "host": os.uname().nodename, "cpus": os.cpu_count(), "launch_settle_s": opts.launch_settle,
+            "launch_pairs": out, "chromium": CHROMIUM[0] if CHROMIUM else None, "page_engine_asked": opts.page_engine,
+            "page_engines": bench_page_engine.counts(rows), "runs": rows}
+
+
 def main():
     global app, SOCKET
     # No socket check here: BenchApp.launch() refuses a live same-tag app (any bundle path) and unlinks only a
@@ -509,6 +763,10 @@ def main():
            "PATH": "/usr/bin:/bin:/usr/sbin:/sbin", "CMUX_NEXT_NO_ACTIVATE": "1", "CMUX_NEXT_SOCKET_MODE": "automation",
            "CMUX_NEXT_TEST_WINDOW_SCREEN": "last", "CMUX_NEXT_CONFIG_FILE": CONFIG,
            "CMUX_NEXT_GHOSTTY_CONFIG": os.path.join(SCRATCH, "ghostty"), "CMUX_NEXT_TEST_WINDOW_FRAME": "40,40,1200,900"}
+    if opts.activate:
+        env["CMUX_NEXT_NO_ACTIVATE"] = None
+    if opts.switch_keys:
+        env["CMUX_NEXT_INPUT_JOURNAL"] = "1"  # focus_waits reads Chromium's focus waits from it
     if opts.hang_stacks:
         env.update({"CMUX_NEXT_HANG_THRESHOLD_MS": "8", "CMUX_NEXT_AGENT_PANE_MOCK": "1", "ACPMUX_AGENT_LAUNCH": "deny"})
     def launch():
@@ -521,6 +779,9 @@ def main():
             app = launcher.process
         SOCKET = launcher.socket
         CLI_ENV["CMUX_SOCKET_PATH"] = SOCKET
+        # The step's log and the report say what this app says of Chromium (a build with no engine shows WebKit pages).
+        CHROMIUM.append(bench_page_engine.chromium_word(rpc("debug.cef", timeout=10)))
+        print(bench_page_engine.chromium_line("instant-new-surfaces", CHROMIUM[-1]), flush=True)
 
     def relaunch():
         """The cold arm's launch: the running app quits (cleanup), then a new launch; returns its window."""
@@ -529,10 +790,16 @@ def main():
         launch()
         return window_key()
 
+    if opts.launch_pairs:
+        result = launch_pairs(relaunch)
+        if opts.json:
+            open(opts.json, "w").write(json.dumps(result, indent=1))
+        return True
     launch()
-    time.sleep(2)  # test harness: shell prompt
+    shell_prompts("the launched window's shell prompt")
     window = window_key()
     rows = []
+    switched = switch_keys(opts.switch_keys) if opts.switch_keys else []
     counts = [int(c) for c in opts.workspaces.split(",") if c] or [None]
     for count in counts:
         suffix = ""
@@ -564,14 +831,29 @@ def main():
                 launch()  # a failed last relaunch: the report below reads nothing from the app, cleanup needs none
             except SystemExit as error:
                 print(f"cold: no app after the cold arm ({error}); the report is written from the rows", flush=True)
-    result = {"tag": TAG, "host": os.uname().nodename, "cpus": os.cpu_count(), "summary": summary(rows), "runs": rows}
+    result = {"tag": TAG, "host": os.uname().nodename, "cpus": os.cpu_count(), "summary": summary(rows), "runs": rows,
+              "chromium": CHROMIUM[0] if CHROMIUM else None, "page_engine_asked": opts.page_engine,
+              "page_engines": bench_page_engine.counts(rows)}
+    if opts.switch_keys:
+        result["switch_keys"] = {"runs": switched}
+        for case in ("plain", "driven"):
+            sel = [r for r in switched if r.get("case") == case]
+            delays = sorted(r["first_key_ms"] for r in sel if r.get("first_key_ms") is not None)
+            result["switch_keys"][case] = {"n": len(sel), "reached_page": sum(r.get("field") == "abc" for r in sel),
+                                           "not_ready_at_click": sum(r.get("page_ready_at_click") is False for r in sel),
+                                           "held_first_key": sum(bool((r.get("held") or [False])[0]) for r in sel),
+                                           "first_key_ms_p50": pct(delays, 0.5), "first_key_ms_max": delays[-1] if delays else None}
+        result["focus_waits"] = focus_waits()
+        print("SWITCH-KEYS", json.dumps({k: v for k, v in result["switch_keys"].items() if k != "runs"}), flush=True)
+        print("FOCUS-WAITS", json.dumps(result["focus_waits"]), flush=True)
     print("\nSUMMARY", json.dumps(result["summary"], indent=1), flush=True)
+    print(bench_page_engine.counts_line("instant-new-surfaces", rows, opts.page_engine), flush=True)
     print("", flush=True)
     result["arms"] = {command: {metric: bench_arms.report(f"instant-new-surfaces/{command}", metric, "ms",
                                                           arm_samples(rows, command, metric),
                                                           out=lambda line: print(line, flush=True))
                                 for metric in ("visible_ms", "confirmed_ms", "key_ms") + (("page_ms",) if command in PAGE_COMMANDS else ())
-                                + (("ready_ms",) if command in READY_COMMANDS else ())}
+                                + (("ready_ms", "shown_ms") if command in READY_COMMANDS else ())}
                       for command in COMMANDS}
     result["headline"] = {command: {"metric": "visible_ms", "arm": arms["visible_ms"]["headline"]}
                           for command, arms in result["arms"].items()}

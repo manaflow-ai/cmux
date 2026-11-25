@@ -1,6 +1,8 @@
 // swift-tools-version: 6.0
 
 import PackageDescription
+import Foundation
+
 
 // Platform-neutral Home client core: the conversation model (same shapes as the
 // conversation owner's wire contract), the HomeSource protocol every backend
@@ -19,11 +21,16 @@ let package = Package(
     dependencies: [
         // Agent questions (plans/cmux-next/agent-questions.md): the `question` part's model.
         .package(path: "../CmuxAgentQuestion"),
+        // The cloud build space a dev build's requests carry (`CMUXBuildSpace`, `X-Cmux-Build-Space`).
+        .package(path: "../CMUXAuthCore"),
     ],
     targets: [
         .target(
             name: "CmuxHomeCore",
-            dependencies: [.product(name: "CmuxAgentQuestion", package: "CmuxAgentQuestion")],
+            dependencies: [
+                .product(name: "CmuxAgentQuestion", package: "CmuxAgentQuestion"),
+                .product(name: "CMUXAuthCore", package: "CMUXAuthCore"),
+            ],
             swiftSettings: [.swiftLanguageMode(.v6)]
         ),
         // One condition-polling wait for every suite (no per-suite yield loops).
@@ -34,8 +41,24 @@ let package = Package(
         ),
         .testTarget(
             name: "CmuxHomeCoreTests",
-            dependencies: ["CmuxHomeCore", "CmuxHomeCoreTestSupport", .product(name: "CmuxAgentQuestion", package: "CmuxAgentQuestion")],
+            dependencies: ["CmuxHomeCore", "CmuxHomeCoreTestSupport", .product(name: "CmuxAgentQuestion", package: "CmuxAgentQuestion"),
+                           .product(name: "CMUXAuthCore", package: "CMUXAuthCore")],
+            // MessagePreviewTests reads it by path, as the Rust port's tests do: not a bundle resource.
+            exclude: ["MessagePreviewCases.json"],
             swiftSettings: [.swiftLanguageMode(.v6)]
         ),
     ]
 )
+
+#if os(Linux)
+// CryptoKit is Apple-only: a build for Linux takes the same API from swift-crypto (`import Crypto`). Only
+// the Linux package jobs (swift-linux-packages.yml) set CMUX_SWIFTPM_TARGET_LINUX; a build for an Apple
+// platform on a Linux host (the fleet) keeps CryptoKit and resolves no remote package, so this package
+// has no Package.resolved (scripts/check-package-resolved-policy.py skips this block).
+if ProcessInfo.processInfo.environment["CMUX_SWIFTPM_TARGET_LINUX"] == "1" {
+    package.dependencies.append(.package(url: "https://github.com/apple/swift-crypto.git", exact: "3.15.1"))
+    for target in package.targets where target.name == "CmuxHomeCore" || target.name == "CmuxHomeCoreTests" {
+        target.dependencies.append(.product(name: "Crypto", package: "swift-crypto"))
+    }
+}
+#endif

@@ -28,10 +28,6 @@ extension SettingsSchema {
         "editor.": "another editor's settings, the built-in per-language values, a key it follows",
         // webviews' `resolveHarnessPlacement`: the Debug tunable `agent.harnessPlacement` fills it.
         "agentPane.display.harnessPlacement": "the Debug tunable agent.harnessPlacement",
-        // The login consents: a DEV or NIGHTLY start reads no answer as yes (``CloudCodexSignInConsentSetting``), so the
-        // person's no, the schema's default, is stored and kept, never removed as a copy of it (#41072 review).
-        "cloud.useMyClaudeLoginOnMyCloudMachines": "a DEV or NIGHTLY start, which reads no answer as yes",
-        "cloud.useMyCodexLoginOnMyCloudMachines": "a DEV or NIGHTLY start, which reads no answer as yes",
     ]
 
     /// Whether `unsetIsNotDefaultKeys` names `key`.
@@ -49,6 +45,7 @@ extension SettingsController {
         _ = try? await migrateLegacyQuitBehavior()
         _ = try? await migrateLegacyWorkspaceRowKeys() // `sidebar.showWorkspaceDirectory` / `showCounts` move to `sidebar.workspaceRow.*`
         _ = try? await migrateLegacyPaneToolbarButtons() // `tabs.hiddenButtons` becomes `tabs.toolbarButtons`
+        _ = try? await migrateComputerUseDeniedApps() // a copy of the earlier default deny list drops the terminals and cmux
         // Classic cmux keys next reads under another name (`ClassicSettingRename`).
         _ = try? await migrateClassicSettings()
         // Shortcuts and settings classic cmux's Settings kept in its preferences (`ClassicShortcutImport`, `ClassicPreferenceImport`).
@@ -135,9 +132,11 @@ extension SettingsController {
         var report = StoredDefaultsReport()
         for descriptor in SettingsSchema.all {
             guard let stored = root.value(at: descriptor.path) else { continue }
+            // Older files stored Automatic as an explicit, non-default group choice.
+            let pinnedGroup = descriptor.path == SidebarSectionsSetting.groupHeaderBackgroundPath && stored == .string("auto")
             let copiesDefault = isUnsetValue(stored, of: descriptor)
                 || (formerDefaults[descriptor.id]?.contains(stored) == true && !layerBelowFileSets(descriptor.id))
-            if copiesDefault, managedKeys[descriptor.id] == nil, !SettingsSchema.keptOnResetAll.contains(descriptor.path) {
+            if copiesDefault, !pinnedGroup, managedKeys[descriptor.id] == nil, !SettingsSchema.keptOnResetAll.contains(descriptor.path) {
                 report.dropped[descriptor.id] = stored
             } else {
                 report.kept[descriptor.id] = stored

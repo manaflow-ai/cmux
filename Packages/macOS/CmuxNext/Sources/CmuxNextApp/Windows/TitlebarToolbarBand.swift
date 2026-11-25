@@ -2,7 +2,6 @@ import AppKit
 import CmuxNextCompat
 import CmuxNextDesign
 import CmuxNextHistory
-import Observation
 
 /// The toolbar band in the window's top row, right of the traffic lights
 /// (R68/R69, spec titlebar-area.md): the sidebar toggle first (it lives in
@@ -44,6 +43,7 @@ final class TitlebarToolbarBand: NSView {
     /// Back and Forward through the location trail (R69).
     let backButton = TitlebarBandButton(symbol: "chevron.left")
     let forwardButton = TitlebarBandButton(symbol: "chevron.right")
+    var appButtons: () -> [TitlebarBandButton] = { [] } // the apps' items after Forward (`contributes.toolbarItems`, CmuxNextApps)
     /// Runs the toggle's action (the registry's `toggleSidebar`).
     var onToggleSidebar: (() -> Void)?
     /// Runs Back or Forward (`focusHistoryBack` / `focusHistoryForward`).
@@ -149,20 +149,12 @@ final class TitlebarToolbarBand: NSView {
         sidebarToggle.symbol = SidebarToggleIcon.slideSymbol(progress: glyphProgress)
     }
 
-    /// The band's full width: the toggle, Back and Forward one gap apart, each the +'s size (`TopRowSpacing`).
-    static var width: CGFloat { TopRowSpacing.bandWidth }
-
-    /// Each item is `presence` of its width, and the gaps close with it, so
-    /// the band reaches 0 width with no jump.
+    private let ink = GlyphInkMeasure()
+    /// The buttons' slots: one ink gap between this density's glyphs (`TopRowSpacing`); each item and gap is `presence` of it.
+    func slots() -> TopRowSpacing.Slots { ink.slots(for: [sidebarToggle, backButton, forwardButton] + appButtons(), gap: TopRowSpacing.glyphGap) }
     override func layout() {
         super.layout()
-        let side = TopRowSpacing.buttonSide
-        let width = side * presence
-        var x: CGFloat = 0
-        for (button, gap) in [(sidebarToggle, TopRowSpacing.toggleGap), (backButton, TopRowSpacing.groupGap), (forwardButton, 0)] {
-            button.frame = NSRect(x: x, y: (bounds.height - side) / 2, width: width, height: side)
-            x += (side + gap) * presence
-        }
+        for (button, frame) in zip([sidebarToggle, backButton, forwardButton] + appButtons(), slots().frames(presence: presence, height: bounds.height)) { button.frame = frame }
     }
 
     /// Names the toggle with its action title and bound key.

@@ -6,6 +6,8 @@ export type UpwardAnchorFrame = {
   requestedPixels: number;
   wheelPixels: number;
   scrollTop: number;
+  /** The room held above the loaded rows for older history (the spacer's `data-older-room`), px. */
+  room: number;
   anchorId: string | null;
   drift: number | null;
   wheelGeometryPixels: number;
@@ -26,10 +28,13 @@ export async function traceUpwardAnchors({
   steps,
   restFrames = 24,
   foldStream = false,
+  drag = false,
 }: {
   steps: number[];
   restFrames?: number;
   foldStream?: boolean;
+  /** A scrollbar drag: each step moves the offset with no wheel event, as dragging the thumb does. */
+  drag?: boolean;
 }) {
   const scroller = document.querySelector<HTMLElement>(".acpmux-scroll");
   if (!scroller) throw new Error("transcript scroller missing");
@@ -48,12 +53,13 @@ export async function traceUpwardAnchors({
     footerSlot: 7,
     worked: 9,
     card: 10,
+    liveStep: 12,
   } as const;
 
-  function gridPx(name: string): number {
+  function gridPx(name: string, within: HTMLElement = document.body): number {
     const probe = document.createElement("span");
     probe.style.cssText = `position:absolute;width:var(${name});height:0;visibility:hidden`;
-    document.body.append(probe);
+    within.append(probe);
     const value = Number.parseFloat(getComputedStyle(probe).width);
     probe.remove();
     return Number.isFinite(value) ? value : 0;
@@ -63,7 +69,17 @@ export async function traceUpwardAnchors({
     const kind = [...row.classList].find((name) => name.startsWith("acpmux-") && !name.startsWith("acpmux-row"));
     // A turn's "Worked for" line, as every family folds a turn under it now (Codex parity): the room
     // under its rule is its own, so no gap follows it (transcriptGrid.ts MARK_WORKED, #37727).
-    if (kind === "acpmux-worked") return transcriptMark.worked;
+    if (kind === "acpmux-worked" || (kind === "acpmux-working" && !row.classList.contains("acpmux-row--below")))
+      return transcriptMark.worked;
+    // The live line right under a step or status row (model.ts isLiveStep): its gap is the scroller's
+    // --cv-live-step-gap (transcriptGrid.ts MARK_LIVE_STEP, transcriptLiveVars).
+    if (kind === "acpmux-working" || kind === "acpmux-thinking" || kind === "acpmux-activityLine") {
+      if (row.classList.contains("acpmux-row--below") && row.classList.contains("acpmux-row--after-step"))
+        return transcriptMark.liveStep;
+      if (row.classList.contains("acpmux-row--after-step")) return transcriptMark.indicator;
+      if (row.classList.contains("acpmux-row--below")) return transcriptMark.footerSlot;
+      return kind === "acpmux-activityLine" ? transcriptMark.step : transcriptMark.indicator;
+    }
     // An edited-files card (VirtualTranscript rowKind "editedFiles"; transcriptGrid.ts MARK_CARD): the
     // run gap from the one-line rows and prose around it, a step row toward a footer or a prompt.
     if (kind === "acpmux-editedFiles") return transcriptMark.card;
@@ -90,8 +106,6 @@ export async function traceUpwardAnchors({
         ? transcriptMark.other
         : transcriptMark.prompt;
     if (kind === "acpmux-assistant") return transcriptMark.message;
-    if (kind === "acpmux-working" || kind === "acpmux-thinking" || kind === "acpmux-activityLine")
-      return row.classList.contains("acpmux-row--below") ? transcriptMark.footerSlot : transcriptMark.indicator;
     if (kind === "acpmux-turnSummary")
       return row.querySelector(".cv-turn-actions:not(.cv-turn-actions--empty)")
         ? transcriptMark.footerRow
@@ -102,10 +116,11 @@ export async function traceUpwardAnchors({
   function expectedGap(
     previous: number | null,
     next: number | null,
-    tokens: { footer: number; block: number; turn: number; run: number },
+    tokens: { footer: number; block: number; turn: number; run: number; liveStep: number },
   ): number {
     if (previous === null || next === null) return 0;
-    const { footer, block, turn, run } = tokens;
+    const { footer, block, turn, run, liveStep } = tokens;
+    if (next === transcriptMark.liveStep && previous !== transcriptMark.worked) return liveStep;
     // transcriptGrid.ts transcriptGap: none after "Worked for" inside its turn; elsewhere a step row.
     if (previous === transcriptMark.worked && next !== transcriptMark.prompt) return 0;
     if (previous === transcriptMark.worked) previous = transcriptMark.step;
@@ -127,11 +142,9 @@ export async function traceUpwardAnchors({
     if ((next === transcriptMark.indicator || next === transcriptMark.footerSlot) && previous === transcriptMark.prompt)
       return block;
     if (previous === transcriptMark.prompt || next === transcriptMark.prompt) return turn;
-    if (
-      previous === transcriptMark.step &&
-      (next === transcriptMark.step || next === transcriptMark.indicator || next === transcriptMark.footerSlot)
-    )
-      return 0;
+    if (previous === transcriptMark.step && next === transcriptMark.step) return 0;
+    if (previous === transcriptMark.step && (next === transcriptMark.indicator || next === transcriptMark.footerSlot))
+      return run;
     // A run of steps or a status line and the reply's prose by it (transcriptGrid.ts TRANSCRIPT_RUN_GAP,
     // design/transcript-spacing.md rule 4).
     if (
@@ -146,8 +159,9 @@ export async function traceUpwardAnchors({
     footer: gridPx("--grid-gap-footer"),
     block: gridPx("--grid-gap-block"),
     turn: gridPx("--grid-gap-turn"),
-    // transcriptGrid.TRANSCRIPT_RUN_GAP uses the inner token; other surfaces keep gap-run16.
-    run: gridPx("--grid-gap-inner"),
+    run: gridPx("--grid-gap-run"),
+    // Set on the scroller, not the root (transcriptGrid.ts transcriptLiveVars): resolve it there.
+    liveStep: gridPx("--cv-live-step-gap", scroller),
   };
   const read = () => {
     const view = scroller.getBoundingClientRect();
@@ -183,7 +197,7 @@ export async function traceUpwardAnchors({
       rowMarginTop: row?.style.marginTop,
       threadY: thread ? thread.getBoundingClientRect().top - view.top : undefined,
       threadTop: thread?.style.top,
-      origin: scroller.style.getPropertyValue("--acpmux-scroll-origin"),
+      origin: thread?.style.getPropertyValue("margin-top") ?? "",
     };
   };
   let previous = read();
@@ -292,6 +306,7 @@ export async function traceUpwardAnchors({
           wheelPixels: command.applied,
           wheelGeometryPixels: command.geometry,
           scrollTop: scroller.scrollTop,
+          room: Number(scroller.querySelector("[data-older-room]")?.getAttribute("data-older-room") ?? 0),
           anchorId: anchor?.id ?? null,
           drift,
           rowBoxGap: Math.max(0, ...positiveGaps.map((each) => each.gap)),
@@ -330,7 +345,12 @@ export async function traceUpwardAnchors({
         }
         let applied = 0;
         let geometry = 0;
-        if (asked !== 0) {
+        if (asked !== 0 && drag) {
+          const before = scroller.scrollTop;
+          scroller.scrollTop = before + asked;
+          applied = scroller.scrollTop - before;
+          geometry = applied;
+        } else if (asked !== 0) {
           // A precise pixel wheel goes through the real reader-intent/cancellation handlers. A
           // synthetic event has no native default, so apply exactly that default here, recording
           // the clamped distance separately from any later layout/anchor scroll write.

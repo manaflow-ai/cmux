@@ -32,6 +32,26 @@ host-signed allow lists are later work.
   the same Stack user in two projects is two hub users. `session` is a
   JWT (ES256, `iss: device-hub`, `sub: userId`, 1 h). Send it as
   `Authorization: Bearer <session>` on every call.
+- **Machine sign-in**: a machine the person joined to cmux (`acpmux host
+  join`) keeps a cmux-platform machine credential, not their Stack token. It
+  signs in with `POST /v1/auth/machine {credential, deviceId}` → `{session, ownerKind: "user", machineId, teamId,
+  userId, scope: "machine", expiresAt}`. The hub asks cmux-platform (the origin
+  `MACHINE_ORIGINS` names for a Stack project) `GET
+  /v1/machines/credentials/self` with the credential as bearer, and trusts
+  only that answer: the credential's person (`userId`, cmux-platform's
+  `user_` + 20 hex of sha256 of `stack:<projectId>:<sub>`) and expiry.
+  Nothing the machine says about itself names the account. The hub records
+  that id beside `"<projectId>:<sub>"` at each `/v1/auth/stack`, so a person
+  who never signed in to the hub has no account to join a machine to (403
+  `account_not_on_hub`). The `machine` session is the one device's
+  `deviceId` (every call signed by it), ends with the credential (at most
+  1 h), carries no Stack token (no cmux relay), and may register that device
+  and turn its sharing on or off, besides what a host session may (403
+  `machine_scope` otherwise). It may not anchor the device, so the machine
+  renews only by signing in again, and cmux-platform is asked every time: a
+  revoked or expired credential is refused at once, and the last session
+  issued for it ends within 1 h. Without `MACHINE_ORIGINS` the route is 503
+  `machine_auth_unavailable`.
 - **Device key**: each device has two P-256 keys in its Secure Enclave
   (CryptoKit `SecureEnclave.P256.Signing` and `.KeyAgreement`). Public keys are
   sent as base64 of the X9.63 uncompressed point (65 bytes).
@@ -59,12 +79,15 @@ host-signed allow lists are later work.
 ## Records (User DO SQLite)
 
 ```
-devices(id TEXT PK, name, platform 'macos'|'ios', signing_key, agreement_key,
+devices(id TEXT PK, name, platform 'macos'|'ios'|'linux'|'windows', signing_key, agreement_key,
         created_at, last_seen_at, removed_at NULL, mac_screen_shared INT 0/1,
-        name_pinned INT 0/1, owner_kind, owner_id)
+        name_pinned INT 0/1, owner_kind, owner_id,
+        mac_screen_chosen INT 0/1,              -- 1 once the switch was set on purpose
+        screen_share JSON NULL,                 -- the host's own cmux.screen-share.status/1
+        machine NULL)                           -- never listed
 permissions(host_id, viewer_id, scope 'none'|'ask'|'view'|'full', updated_at,
         owner_kind, owner_id,
-        PRIMARY KEY(host_id, viewer_id))         -- default when absent: 'ask'
+        PRIMARY KEY(host_id, viewer_id))         -- default when absent: 'full' (own devices)
 relays(id TEXT PK, owner_kind 'user'|'team', owner_id, name, urls JSON,
         auth_mode 'shared_secret'|'static', sealed JSON {deviceId: base64},
         enabled INT, priority INT, updated_at)   -- v1 writes owner_kind 'user'
@@ -103,23 +126,28 @@ end reason, the decision, or `old->new` for a permission change).
 |---|---|---|---|
 | `GET /v1/health` | | `{ok, service, protocol, time}` | No auth. |
 | `POST /v1/auth/stack` | `{token}` | `{session, userId, expiresAt}` | Verifies the Stack Auth token (JWKS). The session carries the Stack token sealed (AES-GCM, key derived from the session key) for the cmux relay check, and ends no later than that token (at most 1 h). A session from before this (no sealed token) still works but never gets the cmux relay; one whose token does not open is refused with 401 `unauthorized`. |
+| `POST /v1/auth/machine` | `{credential, deviceId}` | `{session, userId, scope, ownerKind, machineId, teamId, expiresAt}` | A joined machine's sign-in (Identity, Machine sign-in): cmux-platform names the person; the `machine` session sets up and serves only `deviceId`. 401 when cmux-platform does not accept the credential or it expired, 403 `machine_no_person` or `account_not_on_hub`, 503 `machine_auth_unavailable`. |
 | `GET /v1/me` | | `{userId, plan: 'free'\|'paid', device}` | `plan` is `paid` when cmux billing says the cmux relay is included (see Plans); `free` otherwise, including when the lookup fails. Needs a registered device. |
-| `POST /v1/devices` | `{id, name, platform, signingKey, agreementKey}` | `{device}` | Registers or updates this device. Signed by `signingKey`. The first registration sets `name`; once `PATCH` renamed the device, registration keeps that name. |
-| `GET /v1/devices` | | `{devices:[…]}` | Not removed devices, with `online` from open sockets. |
+| `POST /v1/devices` | `{id, name, platform, signingKey, agreementKey, machine?, shareByJoin?}` | `{device}` | Registers or updates this device. `shareByJoin: true` from a `machine` session (a machine the person joined, registering from its own sign-in) turns a Mac or Linux host's sharing on, unless the switch was ever set on purpose (`mac_screen_chosen`): joining is the consent, and a person's explicit off always wins, for every later join or update. From any other session it changes nothing. Signed by `signingKey`. The first registration sets `name`; once `PATCH` renamed the device, registration keeps that name. `machine` (64 lowercase hex digits, else 400) names the Mac the device runs on: the app sends the HMAC-SHA256 of `cmux.device-hub.machine\n` and the Mac's hardware UUID, keyed by 32 random bytes the first cmux app on the Mac writes to `~/Library/Application Support/cmux-device-hub/machine.key` (0600), so every build of the app and cmux Remote send the same value and no device elsewhere can compute it from the public hardware UUID. The first `machine` a device names stays; the hub never lists it. See "Permissions are per Mac". |
+| `GET /v1/devices` | | `{devices:[…]}` | Not removed devices, with `online` from open sockets and `screenShare` (the host's last report, or null). |
 | `PATCH /v1/devices/:id` | `{name}` | `{device}` | Any of the user's devices. |
 | `DELETE /v1/devices/:id` | | `{}` | Removes the device; ends its sessions; pushes revocations. Deletes every permission that names it, as host or as viewer, and pushes `permissions.changed` for each host that listed it. |
-| `PUT /v1/devices/:id/mac-screen` | `{shared}` | `{device}` | Only device `:id` itself may change its own sharing. |
+| `PUT /v1/devices/:id/mac-screen` | `{shared, agent?: {session, device?}}` | `{device}` | Only device `:id` itself may change its own sharing. Marks the switch as set on purpose, so a join never changes it again. `agent` names the owner's agent session that asked, under the account's `agentsMayShare`; the `shared`/`unshared` audit row's `detail` then reads `agent <session> on <device>`. |
+| `PUT /v1/devices/:id/screen-share` | `{state, missing, holder?, session, osVersion?, checkedAtMs, detail?}` | `{device}` | A Mac or Linux host's own screen sharing status, `cmux.screen-share.status/1` (acpmux `screen_share.rs`): `state` `granted`, `needs_grant` (with `missing`: `screen_recording`, `accessibility`), `not_installed`, `unsupported`; `session` `this_user`, `other_user`, `nobody`, `unknown`. Only device `:id` itself, from any of its sessions (host and machine included); other fields are dropped, a value outside the schema is 400. Pushes `devices.changed` when it changed. Each row reads its one line from it. |
 | `POST /v1/devices/:id/sign-out` | | `{}` | Only device `:id` itself (403 `not_host` otherwise). Ends its sessions at once with reason `signed_out`, closes its User DO socket (code 4003), lists it offline at once and pushes `devices.changed` to the other devices. The device stays registered. Call it before dropping the account session. |
-| `GET /v1/permissions?host=:id` | | `{permissions:[{viewerId, scope}]}` | One entry per other device; absent rows read `ask`. |
+| `GET /v1/permissions?host=:id` | | `{permissions:[{viewerId, scope}]}` | One entry per other device; absent rows read `full` (every device here is the same account's). |
 | `PUT /v1/permissions/:hostId/:viewerId` | `{scope}` | `{permission:{hostId, viewerId, scope, previous, updatedAt}}` | Only device `:hostId` itself (403 `not_host` otherwise). A viewer raises its access only by requesting a session; the host's `always` decision stores the permission. Lowering a scope revokes sessions that exceed it: `none` ends every open session of the pair, `view` ends `full` ones; `ask` and `full` end none. |
 | `POST /v1/sessions` | `{hostId, scope}` | `{session:{id, state, scope}}` | From the viewer. See flow. |
 | `POST /v1/sessions/:id/decision` | `{decision:'deny'\|'once'\|'always', scope}` | `{session}` | From the host device only. `scope` defaults to the requested one and may lower `full` to `view`, never raise it (400). `always` stores the permission. Requests expire after 5 min: the server ends them (`session.revoked`, reason `expired`) without waiting for a decision. If setting up the approved session fails, it ends with `approve_failed` and the call returns 500. |
 | `POST /v1/sessions/:id/end` | `{reason}` | `{}` | Either side; idempotent. Pushes `session.revoked`. Without `reason`: `host_stopped` from the host, `viewer_disconnected` from the viewer. |
+| `POST /v1/sessions/:id/reattach` | `{}` | `{session, ticket}` | Viewer only. Re-admits the original viewer/host pair while `approved`/`live`, with the stored scope capped by current permission; returns a 30 s viewer ticket and pushes matching 30 s tickets to both devices. It cannot revive an ended session or broaden access. |
 | `POST /v1/sessions/:id/ice` | | `{ice:[…]}` | Fresh cmux relay credentials while `approved`/`live` (checked against cmux billing on every call; else `[]`); otherwise 409 `session_not_active`. |
 | `GET /v1/relays` | | `{relays:[…]}` | Each relay carries `sealed: {<this device id>: blob}` or `{}`. |
 | `PUT /v1/relays/:id` | `{name, urls, authMode, sealed, enabled, priority}` | `{relay}` | `sealed`: `{deviceId: base64}` for every device. |
 | `DELETE /v1/relays/:id` | | `{}` | |
-| `GET /v1/audit?limit=&before=&device=` | | `{entries:[…]}` | The whole account's log, newest first. `limit` 1-200 (default 50); `before` = `ts` (ms), exclusive; `device` keeps entries whose `viewerId` or `hostId` is that device (sessions, permissions, sharing) plus every `device_added`/`device_removed` entry, so each device's History shows the account's devices coming and going (`deviceId` says which). |
+| `GET /v1/settings` | | `{settings:{agentsMayShare, updatedAt, updatedBy}}` | The account's settings, one value each per user (User DO `meta`). `agentsMayShare` ("My agents can turn screen sharing and control on my machines") is false until a person turns it on. A host session may read it. |
+| `PUT /v1/settings` | `{agentsMayShare}` | `{settings}` | A full session only (a host session gets 403 `host_scope`): the app writes it after the person's click in Settings or on its dialog. A change audits `agents_allowed` or `agents_disallowed` with `deviceId` and pushes `settings.changed` to every device. |
+| `GET /v1/audit?limit=&before=&device=` | | `{entries:[…]}` | The whole account's log, newest first. `limit` 1-200 (default 50); `before` = `ts` (ms), exclusive; `device` keeps entries whose `viewerId` or `hostId` is that device (sessions, permissions, sharing) plus every `device_added`/`device_removed`/`agents_allowed`/`agents_disallowed` entry, so each device's History shows the account's devices coming and going (`deviceId` says which). |
 
 Errors: `{error:{code, message}}` with HTTP 400/401/403/404/409/429.
 Codes: `bad_request`, `unauthorized` (missing/expired hub session),
@@ -151,8 +179,9 @@ others. Server → device messages:
 {type:'devices.changed'}                       // refetch GET /v1/devices
 {type:'permissions.changed', hostId}
 {type:'relays.changed'}
+{type:'settings.changed'}                      // refetch GET /v1/settings
 {type:'session.request', session:{id, viewerId, viewerName, viewerKeyFingerprint, scope}}   // to the host
-{type:'session.ticket', sessionId, ticket, signalURL, ice:[…], peer:{id, name, signingKey}, role, scope}
+{type:'session.ticket', sessionId, ticket, signalURL, ice:[…], peer:{id, name, signingKey}, role, scope, ownerKind:'user'}
 {type:'session.denied', sessionId}             // to the viewer
 {type:'session.revoked', sessionId, reason}    // to both; end at once
 {type:'session.ended', sessionId, reason}
@@ -167,13 +196,31 @@ device refetches state after it reconnects: its devices, relays, its own
 permission list, and every other device's permission list it shows (its access
 to each host), so a change made while it was away never leaves an old value.
 
+## Permissions are per Mac
+
+A Mac gets a new device id for each tagged build of the app (its own bundle id, so its own
+Keychain items) and whenever its identity renews (`device_removed`, `device_key_mismatch`). The
+host's answer is about the Mac, so permission(host, viewer) reads the newest permission row
+(`updated_at`, which a store keeps strictly increasing) between any live device of the host's
+Mac and any live device of the viewer's Mac: the devices with the same `machine` and platform.
+A device that named no `machine` is its own Mac. A store (an `always` decision or `PUT
+/v1/permissions`) writes the scope for every pair of live devices of the two Macs, so removing
+one device, which deletes every row that names it, never brings back an older answer held by a
+sibling. Lowering a permission ends the sessions above it between any devices of the two Macs,
+and `permissions.changed` goes out for every device of the host's Mac. A Mac whose every device
+that held the answer is gone is back to `ask`.
+
 ## Session flow
 
 1. Viewer `POST /v1/sessions {hostId, scope}`. Server checks: host not removed,
    host `mac_screen_shared`, permission(host, viewer):
    - `none` → 403 `permission_none`, with no prompt;
    - `view`/`full` (covering the scope) → approved at once;
-   - `ask` or absent, or a scope above the permission (`view` asking for
+   - absent → `full`: every device in a User DO is signed in to that one
+     account, so it is the person reaching their own machine, approved at
+     once with no prompt on the host (Leo, 2026-11-16). A stored scope always
+     wins over this default;
+   - `ask`, or a scope above the permission (`view` asking for
      `full`: the app's Ask for Access) → `pending`; push `session.request` to
      the host device, whose prompt names the requested scope. Its decision
      works as under `ask`: `once` grants the session only, `always` stores the
@@ -185,16 +232,28 @@ to each host), so a change made while it was away never leaves an old value.
 3. On approval the server creates the Session DO and pushes `session.ticket`
    to both devices. Ticket = compact JWS (ES256, server key) with payload
    `{sid, role:'viewer'|'host', dev, peer, peerKey, scope, iat, exp: iat+60, jti}`.
+   The push also says `ownerKind: 'user'`: both devices are this one account's,
+   as the hub authenticated them. A host serves such a session without its own
+   consent sheet; a ticket without it (an older hub), or a later team or shared
+   owner, still goes through the host's consent. Every Mac host (the app, cmux
+   Remote with the app quit, the acpmux share host) serves it with no local
+   consent read, and no consent change stops it. A Linux desktop enabled
+   `--view-only` serves its control ticket view only rather than ending it. A
+   host that refuses a ticket on its consent ends it `consent_required`.
    `signalURL` = `wss://<host>/v1/sessions/<sid>/ws` (`<host>` is the Worker's
    public origin: env `PUBLIC_BASE_URL`, else the request's). `ice` = cmux relay
    credentials if cmux billing includes the relay for the user right now
-   (Cloudflare TURN, minted per session, TTL 1 h), else `[]`; the app adds the
+   (TURN, minted per session, TTL 1 h: the hub gets them from cmux-platform's
+   one TURN minter, with its own mint as the fallback until that is removed;
+   workers/device-hub/DEPLOY.md), else `[]`; the app adds the
    user's own relays.
 4. Each device opens `signalURL?ticket=<jws>` with its device headers (no
    `Authorization`; the ticket admits it). The User DO passes both devices'
    signing keys to the Session DO when it creates it, so the Session DO
    verifies the JWS, `exp`, `sid`, `dev` = `X-Device-Id` = the role's device,
    the device signature, and burns `jti` (SQLite). At most one socket per role.
+   A reattach ticket additionally carries `reattach:true`, expires after 30 s,
+   and may replace an existing socket only for the same device.
    Failures, before the upgrade: 401 `ticket_invalid` (bad, expired or other
    session), 403 `ticket_invalid` (other device), 401 `bad_signature` /
    `stale_timestamp`, 401 `replay` (used `jti`), 409 `role_taken`, 404
@@ -206,6 +265,11 @@ to each host), so a change made while it was away never leaves an old value.
    device may send `{type:'path', path:'direct'|'relay'}` once the media path
    is known; it is not relayed and is stored as `sessions.path` (NULL until
    reported).
+   A host that serves only `cmux.rd/1` viewers (the Mac's background daemon,
+   a Linux desktop) answers a WebRTC offer with
+   `{type:'transport', transport:'cmux.rd/1'}` instead of `bye`, then waits
+   up to 15 s for an rd offer; a viewer that knows the frame reattaches and
+   offers rd/1, and an older one gets the old failed end after the wait.
    `fpSig` = base64 raw ECDSA over `"<sid>|<role>|<fingerprint>"`, where
    `fingerprint` is the value of the SDP's `a=fingerprint:` line (all of them,
    joined with `,`, in order) and `role` is the sender's. The receiver
@@ -225,6 +289,13 @@ to each host), so a change made while it was away never leaves an old value.
    authoritative end follows (a client often sends `bye` and then `/end`), its
    reason wins; otherwise the session ends with reason `bye` (audit `ended`
    with duration, push `session.ended` to both).
+   When a live stream loses its media path, the viewer closes its signaling
+   socket without `bye`, calls `POST /v1/sessions/:id/reattach` after the
+   1/2/4/8/16/30 s backoff, and uses the returned viewer ticket. The hub also
+   pushes the matching host ticket, so the Mac can serve the same session
+   again. This path checks the original viewer device, host device, saved
+   scope, current permission, sharing switch and host online state; its tickets
+   expire after 30 s.
 7. Revocation: removing a device, lowering a permission, turning sharing off,
    signing out, or ending from either side pushes `session.revoked` to both
    devices, closes the signaling sockets with code 4002 and audits `ended`
@@ -233,8 +304,9 @@ to each host), so a change made while it was away never leaves an old value.
    requests are ended the same way.
 8. Offline devices: when a device's last User DO socket closes, errors or
    goes silent (75 s with no frame) while it has open sessions, the server
-   waits 30 s from when it was last heard (so a silent device's sessions end
-   when it is found silent). If it has not reconnected by
+   waits 120 s from when it was last heard: a drop can start up to one ping
+   (30 s) after the last frame, and a screen share comes back by itself after
+   a 60 s drop with time to reconnect. If it has not reconnected by
    then, every session where it is viewer or host ends: audit `ended` with
    reason `peer_offline`, push `session.ended` (reason `peer_offline`) to both
    devices, and the Session DO closes its sockets. A socket replaced by a new
@@ -256,7 +328,7 @@ authoritative end does not replace its reason. The same string is pushed in `ses
 | `viewer_disconnected` | the viewer called `/end` without a reason | `session.revoked` |
 | any other string | the `reason` given to `/end` (≤100 chars) | `session.revoked` |
 | `expired` | a pending request was not decided within 5 min | `session.revoked` |
-| `peer_offline` | a device stayed disconnected for 30 s, or was silent for 75 s | `session.ended` |
+| `peer_offline` | a device went offline (socket closed, or silent for 75 s) and was not back 120 s after it was last heard | `session.ended` |
 | `bye` | a device sent `bye` and no authoritative reason followed within 3 s | `session.ended` |
 | `approve_failed` | the server could not set up the approved session | `session.revoked` |
 

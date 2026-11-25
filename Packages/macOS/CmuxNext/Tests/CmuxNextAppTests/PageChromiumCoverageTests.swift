@@ -24,10 +24,9 @@ import Testing
         (.editor, FilePageService.engineOptions), (.iconPicker, IconPickerService.engineOptions),
         (.groupEditor, GroupEditorService.engineOptions), (.passwords, .standard),
         (.chiefInspector, .standard), (.debugSettings, .standard), (.homeChannels, PageFactory.homeChannelsEngineOptions),
-        (.homeMessages, PageFactory.homeChannelsEngineOptions),
         (.changelog, .standard), (.coderouter, .standard), (.files, .standard), (.stats, .standard),
-        (.chiefUsage, .standard), (.mobilePairing, .standard), (.agentActivity, .standard), (.github, .standard), (.bookmarks, .standard), (.taskManager, .standard),
-        (.serverCards, WebCardPanel.engineOptions),
+        (.chiefUsage, .standard), (.agentActivity, .standard), (.github, .standard), (.bookmarks, .standard), (.taskManager, .standard),
+        (.serverCards, ServerPanelPopover.engineOptions),
     ]
 
     /// The pages that still show in WebKit, and why (webviews-chromium-AUDIT.md).
@@ -35,6 +34,8 @@ import Testing
         PageDescriptor.iconPicker.id: .transparentOverlay,
         PageDescriptor.serverCards.id: .transparentOverlay,
         PageDescriptor.groupEditor.id: .transparentOverlay,
+        // Settings opens from the page host pool's parked WebKit document, so it paints with its tab.
+        PageDescriptor.settings.id: .pooledInstantOpen,
     ]
 
     /// A bundle with a resource folder for every shipped page, and the table Chromium gets for it.
@@ -56,8 +57,8 @@ import Testing
         for (page, _) in Self.surfaces {
             let entry = try #require(entries[page.id], "Chromium does not serve \(page.id)")
             #expect(entry.csp == page.csp.header, "\(page.id) gets another CSP in Chromium")
-            // Chromium asks the page host for exactly the page's generated paths.
-            #expect(entry.dynamicPrefixes == page.dynamicPrefixes, "\(page.id) dynamic prefixes")
+            // Shared chunks also pass through the common adapter, including outside the live loop.
+            #expect(entry.dynamicPrefixes == page.dynamicPrefixes.union(["__shared"]), "\(page.id) dynamic prefixes")
         }
     }
 

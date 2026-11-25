@@ -248,6 +248,8 @@ class WriteFeedTests(FeedWriteCase):
 
         def runs(name):
             condition = next(s for s in job["steps"] if s.get("name") == name)["if"]
+            # Shared with nightly-next-one, whose steps also skip once its run left the push slot (LEFT_SLOT).
+            condition = condition.replace(" && !env.LEFT_SLOT", "")
             for key, value in values.items():
                 condition = condition.replace(key, repr(value))
             return eval(condition.replace("&&", "and"), {"__builtins__": {}}, {})

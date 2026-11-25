@@ -97,7 +97,24 @@ export async function mountSettingsPage(state: SettingsPageVariant, context: Sta
   if (state.accounts) mock.provider.accounts = structuredClone(state.accounts);
   if (state.environments) mock.provider.environments = structuredClone(state.environments);
   if (state.sharedLinks) mock.provider.shares = structuredClone(state.sharedLinks);
+  if (state.library) mock.provider.library = structuredClone(state.library);
+  if (state.libraryRefusal) mock.provider.libraryRefusal = state.libraryRefusal;
+  if (state.doctor) mock.provider.doctor = structuredClone(state.doctor);
+  if (state.doctorTreatment)
+    (await import("../../pages/settings/customizeDoctor")).setDoctorTreatment(state.doctorTreatment);
+  if (state.keys) mock.provider.keys = structuredClone(state.keys);
+  if (state.keys) mock.provider.keys = structuredClone(state.keys);
+  if (state.hub) mock.provider.hub = structuredClone(state.hub);
+  if (state.connections) mock.provider.connections = structuredClone(state.connections);
+  if (state.activeTeam && mock.provider.accounts.teams) {
+    const teams = mock.provider.accounts.teams;
+    mock.provider.accounts = {
+      ...mock.provider.accounts,
+      teams: { ...teams, options: teams.options.map((team) => ({ ...team, active: team.id === state.activeTeam })) },
+    };
+  }
   if (state.tailnet !== undefined) mock.provider.tailnet = structuredClone(state.tailnet);
+  if (state.models !== undefined) mock.provider.models = structuredClone(state.models);
   if (state.agents) mock.provider.agents.state = { ...mock.provider.agents.state, ...structuredClone(state.agents) };
   if (state.endpoint)
     mock.provider.agents.endpoint = { ...mock.provider.agents.endpoint, ...structuredClone(state.endpoint) };
@@ -106,6 +123,7 @@ export async function mountSettingsPage(state: SettingsPageVariant, context: Sta
   if (state.channels !== undefined) mock.provider.channels = structuredClone(state.channels);
   if (state.channelSwitch !== undefined) mock.provider.channelSwitch = structuredClone(state.channelSwitch);
   if (state.switchRefusal !== undefined) mock.provider.switchRefusal = state.switchRefusal;
+  if (state.signInHold) mock.provider.signInHold = new Promise<void>(() => {});
   if (state.integrations) mock.provider.integrations = structuredClone(state.integrations);
   window.addEventListener("pagehide", mock.close, { once: true });
   const client: SettingsClient = {

@@ -32,6 +32,8 @@ public nonisolated struct AgentPaneSeed: Sendable, Equatable {
     /// The permission mode a new Cloud chat starts in (the person's pick in the composer before its
     /// first send); nil: the machine's own start mode. Only the caller's own Cloud VM applies it.
     public var mode: String?
+    /// The effort a new chat starts on with ``model`` (a Cloud start's picker); nil keeps the default.
+    public var effort: String?
     /// The requested destination for a new chat. The native handler consumes this before the
     /// page opens; retaining it in the seed keeps a destination-bearing seed from being treated
     /// as a folder-only New Tab replacement.
@@ -51,6 +53,8 @@ public nonisolated struct AgentPaneSeed: Sendable, Equatable {
     /// `/cd --on cloud`; webviews commandPlace.ts), for the new page to find what it handed over.
     /// Handed out once, with ``picksCloud``.
     public var cloudStartHandoff: String?
+    /// The Auto Cloud start whose arrival line belongs to this seeded chat.
+    public var autoCloudStartKey: String?
     /// A Sandboxed send that already ended, shown by this new page as its own (a Run notification's
     /// click, ``AgentPaneSandboxRuns``).
     public var sandboxResult: SandboxResult?
@@ -157,7 +161,7 @@ public final class AgentPaneSeedSource {
         guard let value else { return true }
         return value.draft == nil && value.prompt == nil && (value.promptAttachments?.isEmpty ?? true)
             && value.adopt == nil && value.surface == nil
-            && value.harness == nil && value.model == nil && value.mode == nil && value.host == nil && value.folderNeeded == nil && value.pastChat == nil && !value.showsHarnesses
+            && value.harness == nil && value.model == nil && value.mode == nil && value.effort == nil && value.host == nil && value.folderNeeded == nil && value.pastChat == nil && !value.showsHarnesses
             && !value.picksCloud && value.cloudStartHandoff == nil
     }
 
@@ -217,6 +221,7 @@ public final class AgentPaneSeedSource {
         value?.showsHarnesses = false
         value?.picksCloud = false
         value?.cloudStartHandoff = nil
+        value?.autoCloudStartKey = nil
         // A missing folder is taken once; Choose Folder changes or clears it (cx-nn3e.1).
         if let needed = value?.folderNeeded {
             folderNeeded = needed

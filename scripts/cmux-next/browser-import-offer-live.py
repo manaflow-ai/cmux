@@ -20,11 +20,12 @@ and dark over a backdrop painting through the one agent capture helper (its
 daemon must run: scripts/agent-capture-helper.sh start). GUI host only.
 Quits the app by PID and stops the tag's daemons at the end.
 """
-import argparse, glob, json, os, plistlib, subprocess, sys, tempfile, time
+import argparse, glob, hashlib, json, os, plistlib, subprocess, sys, tempfile, time
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from tag_teardown import TagTeardown  # noqa: E402
 from safe_log import safe_print  # noqa: E402  (a line before a kill never skips the kill)
+from state_wait import StateWaitTimeout, wait_stable, wait_until  # noqa: E402
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--tag", required=True)
@@ -164,12 +165,43 @@ def prompt(action="state", **params):
     return rpc("debug.browser_import_offer", {"action": action, **params})
 
 
+def window_hash():
+    """A hash of the main window's pixels (debug.window_snapshot), or None where the build cannot snapshot."""
+    path = os.path.join(SCRATCH, "settle.png")
+    if os.path.exists(path):
+        os.remove(path)
+    rpc("debug.window_snapshot", {"path": path})
+    if not os.path.exists(path):
+        return None
+    with open(path, "rb") as f:
+        return hashlib.sha1(f.read()).hexdigest()
+
+
+def drawn_state():
+    """The app's windows (frames, visibility, alpha) and the main window's pixels: what a capture records."""
+    listed = rpc("debug.window_list").get("windows") or []
+    shapes = sorted(json.dumps({k: w.get(k) for k in ("id", "kind", "visible", "alpha", "frame")}, sort_keys=True)
+                    for w in listed if isinstance(w, dict))
+    return shapes, window_hash()
+
+
 def settle(seconds=1.0):
-    time.sleep(seconds)  # let the window redraw (and the glass settle) before a capture (screenshot only)
+    """Until the windows and the main window's pixels stop changing (redraw, glass); screenshot only, so a timeout
+    is logged. `seconds` was the old fixed wait; the deadline is well above it."""
+    limit = max(10.0, 5 * seconds)
+    try:
+        wait_stable(drawn_state, "the windows before a capture", timeout=limit, interval=0.1, reads=4)
+    except StateWaitTimeout as error:
+        safe_print(f"note: {error}", flush=True)
 
 
 def config(background=None):
+    before = window_hash()
     write(CONFIG, json.dumps({"appearance": {"background": background}} if background else {}) + "\n")
+    # The app reloaded cmux.json once the window's pixels changed (the background is drawn), then they settle.
+    if before is not None and not wait_until(lambda: window_hash() != before, f"the background {background} drawn",
+                                             timeout=10, interval=0.1, raise_on_timeout=False):
+        safe_print(f"note: the window did not redraw for background {background} within 10 s", flush=True)
     settle(2.0)
 
 
@@ -204,7 +236,7 @@ try:
     check(not state.get("dismissed") and not state.get("imported"), f"fresh state: {state}")
     rpc("debug.appearance", {"mode": "light"})
     # A browser workspace gives the window a pane with a tab, so openBrowser has a target.
-    print("newBrowserWorkspace:", json.dumps(rpc("action.run", {"action": "newBrowserWorkspace", "focus": True}))[:300], flush=True)
+    safe_print("newBrowserWorkspace:", json.dumps(rpc("action.run", {"action": "newBrowserWorkspace", "focus": True}))[:300], flush=True)
     settle(3.0)
     # A window toast (here the pin undo toast) at the bottom: the card still shows, lifted above it.
     rpc("action.run", {"action": "palette.toggleTabPin"})
@@ -214,11 +246,11 @@ try:
         toasts = rpc("debug.filepages").get("toasts")
         time.sleep(0.2)
     if not toasts:
-        print("SKIP toast lift: the pin made no toast", flush=True)
+        safe_print("SKIP toast lift: the pin made no toast", flush=True)
     # The person's path: a URL typed into the omnibar of their own tab. (A tab an agent opens
     # through openBrowser is agent-driven and never shows the card.)
     typed = rpc("debug.omnibar_type", {"text": "https://example.com/"})
-    print("omnibar_type:", json.dumps(typed)[:300], flush=True)
+    safe_print("omnibar_type:", json.dumps(typed)[:300], flush=True)
     if toasts:
         settle(1.5)
         capture("browser-card-over-toast")
@@ -255,7 +287,8 @@ try:
     state = prompt("answer", choice="not_now")
     check(state.get("dismissed") is False and state.get("shown_on") == [], f"Not Now closes it and is not a dismissal: {state}")
     rpc("debug.omnibar_type", {"text": "https://example.org/"})
-    settle(5.0)
+    # sleep-ok: the observation window in which a second card must not appear (a card that never comes has no event)
+    time.sleep(5.0)
     check(prompt().get("shown_on") == [], "once per launch: no second card")
 
     # Don't Show Again: browser.import.cookieBanner false in cmux.json, kept across launches.
@@ -269,16 +302,16 @@ try:
           f"Don't Show Again: dismissed in cmux.json: {open(CONFIG).read().strip()} {prompt()}")
     # Show Import Cookies Banner from the CLI turns it on again; it imports nothing.
     r = cli("browser", "show-cookie-banner")
-    print("cmux browser show-cookie-banner:", r.returncode, (r.stdout + r.stderr).strip()[:300], flush=True)
+    safe_print("cmux browser show-cookie-banner:", r.returncode, (r.stdout + r.stderr).strip()[:300], flush=True)
     if r.returncode != 0:
-        print("show-cookie-banner verb:", json.dumps(rpc("action.run", {"action": "browser.showCookieImportBanner"}))[:300], flush=True)
+        safe_print("show-cookie-banner verb:", json.dumps(rpc("action.run", {"action": "browser.showCookieImportBanner"}))[:300], flush=True)
     wait_for(lambda: prompt().get("dismissed") is False, "Show Import Cookies Banner turns it back on", 10)
     check(rpc("debug.onboarding", {"action": "state"}).get("step") != "importData", "showing the banner opens no import")
     prompt("reset")
     shown_tab = (wait_for(lambda: prompt("show").get("shown_on"), "the card again for Import", 10) or [None])[0]
     state = prompt("answer", choice="import")
     onboarding = rpc("debug.onboarding", {"action": "state"})
-    print("onboarding after Import:", json.dumps(onboarding)[:600], flush=True)
+    safe_print("onboarding after Import:", json.dumps(onboarding)[:600], flush=True)
     check(onboarding.get("step") == "importData", f"Import opens the import step: {onboarding.get('step')}")
     kinds = onboarding.get("import", {}).get("kinds") or onboarding.get("kinds")
     check(sorted(kinds or []) == ["cookies"], f"cookies checked: {kinds}")

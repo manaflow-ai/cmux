@@ -45,8 +45,12 @@ enum SidebarStyle {
     static var placeholderBarHeight: CGFloat { Metrics.space3 }
     /// Placeholder bar widths, as shares of the title width.
     static let placeholderFractions: [CGFloat] = [0.72, 0.5, 0.62]
-    /// Icon frame; the glyph inside is `kindGlyphSize`.
-    static var iconBox: CGFloat { leadingGlyphSide + Metrics.space2 }
+    /// Icon frame; the glyph inside is `kindGlyphSize`. A browser density's icon column (`sidebarIconColumn`, the tab's
+    /// icon box) when it sets one, so Home, pinned and workspace rows share the tab's icon box at every title size.
+    static var iconBox: CGFloat {
+        guard let side = Metrics.densityToken("sidebarIconColumn") else { return leadingGlyphSide + Metrics.space2 }
+        return side + (SidebarDensityTokens.isComfortable ? Metrics.space2 : 0) + SidebarDensityTokens.textSize.glyphStep
+    }
     /// A leading glyph drawn at a fixed side (a pin, a header's leading icon): the small icon size plus the
     /// `sidebar.textSize` step, so it grows with the text beside it. Trailing marks keep `Metrics.smallIconSize`.
     static var leadingGlyphSide: CGFloat { Metrics.smallIconSize + SidebarDensityTokens.textSize.glyphStep }
@@ -104,7 +108,7 @@ enum SidebarStyle {
     /// for these workspace icons". Compact keeps its old 16 pt glyph exactly.
     static var workspaceGlyphSide: CGFloat { iconColumnBox }
     /// How much a workspace icon's drawing grows with `workspaceGlyphSide`: 1 at compact.
-    static var workspaceGlyphScale: CGFloat { workspaceGlyphSide / iconBox }
+    static var workspaceGlyphScale: CGFloat { workspaceGlyphSide / (Metrics.densityToken("sidebarIconColumn") ?? iconBox) }
     /// A workspace icon's symbol point size: the title's, grown with its glyph square.
     static var workspaceSymbolPointSize: CGFloat { (titleFont.pointSize * workspaceGlyphScale).rounded() }
     /// A workspace icon's favicon side: the row glyph's, grown with its glyph square.
@@ -112,9 +116,18 @@ enum SidebarStyle {
     /// The one optical size of every row's leading glyph ink (``SidebarOpticalGlyph``): a favicon, an app icon, the GitHub
     /// mark, a symbol, Home's house and a pin all fill this square along their larger side, at every density (Lawrence
     /// 2026-11-09, 6:55 PM: "the cmux app icon looks smaller ... GitHub logo and the globe are different sizes"). It
-    /// fills the icon column exactly, so the gap from any glyph's ink to its title is the one column gap.
-    static var rowGlyphOpticalSide: CGFloat { workspaceFaviconSide }
-    static var rowGlyphOptics: SidebarOpticalGlyph { SidebarOpticalGlyph(target: rowGlyphOpticalSide) }
+    /// starts on the icon column's edge and fits in it (1 to 2 pt narrower); every leading glyph, a pinned
+    /// group's pin too, centers in this square, not in the column. Its default
+    /// (``SidebarRowTuning/glyphSize``) is a tab's icon box, `Metrics.iconSize`, grown with the sidebar's own density and
+    /// text size as ``workspaceFaviconSide`` grows from the sidebar's defaults (Lucas 2026-11-13).
+    static var rowGlyphOpticalSide: CGFloat { SidebarRowTuning.glyphSize.value }
+    /// The raster box grows with the sidebar settings; measured ink uses the shared optical size.
+    /// A tuned glyph size (`sidebarRows.glyphSize`) wins over the box: the glyphs fill the tuned side at every density.
+    static var rowGlyphOptics: SidebarOpticalGlyph {
+        let tabBox = SidebarRowTuning.glyphSize.tunable.override != nil ? nil
+            : Metrics.densityToken("sidebarIconColumn").map { _ in iconColumnBox }
+        return SidebarOpticalGlyph(target: rowGlyphOpticalSide, box: tabBox)
+    }
     /// Reserve the icon column only when a visible icon precedes the title.
     static func titleTextX(leading: CGFloat, iconSide: CGFloat, swatch: Bool = false) -> CGFloat {
         columns(rowWidth: 0, leadingOffset: leading - titleLeading).text(hasLeadingMark: iconSide > 0)
@@ -122,8 +135,9 @@ enum SidebarStyle {
     /// Workspace title geometry shared by realized rows and virtualized parents of tab rows. A left-rail row with no
     /// symbol, emoji or favicon takes no slot: its bar sits in the leading inset, so its title starts on the one left
     /// edge (Lawrence 2026-11-09, "red dot on left feels weird"; it kept the swatch's slot after #25705).
-    static func workspaceTitleX(icon: WorkspaceIcon?, treeDepth: Int) -> CGFloat {
-        columns(rowWidth: 0, depth: treeDepth).text(hasLeadingMark: icon != nil || textOnlyKeepsIconSlot)
+    /// `reservesIconSlot`: a leading status mark (`sidebar.workspaceRow.statusPlacement` `leading`) keeps the slot.
+    static func workspaceTitleX(icon: WorkspaceIcon?, treeDepth: Int, reservesIconSlot: Bool = false) -> CGFloat {
+        columns(rowWidth: 0, depth: treeDepth).text(hasLeadingMark: icon != nil || reservesIconSlot || textOnlyKeepsIconSlot)
             - WorkspaceRowView.labelInset
     }
     static func titleXAfterLeadingMark(_ x: CGFloat) -> CGFloat {
@@ -132,7 +146,8 @@ enum SidebarStyle {
     static func leadingTextX(leading: CGFloat) -> CGFloat { columns(rowWidth: 0, leadingOffset: leading - titleLeading).text }
     /// An item's glyph on its `iconBox` well (the list look), clear of the well's edge.
     static var wellGlyphSize: CGFloat { Swift.max(.iconFloor, iconBox - Metrics.space2) }
-    static var controlSize: CGFloat { Metrics.iconSize + Metrics.space2 }
+    /// The Default row's 20 pt square on its 30 pt fill, scaled with the row and sidebar text.
+    static var controlSize: CGFloat { Metrics.chromeRowHeight * 2 / 3 }
     /// The +'s side: the top row's one button size, the toolbar band's too (`TopRowSpacing`).
     static var toolbarButtonSize: CGFloat { TopRowSpacing.buttonSide }
     /// The width of the +'s menu segment (the workspace chooser chevron): a narrow indicator
@@ -165,7 +180,7 @@ enum SidebarStyle {
     /// "INCREASE THE SIZE OF THESE BLUE DOTS ON THE SIDEBAR"). Lawrence msg 19696 ("dots are different
     /// size now which is very bad"): the blue dot grew and the orange one did not, so every dot path reads
     /// this one token (`StatusIndicatorView.dotDiameter` for the indicator's dots); no view sizes its own.
-    static var statusDotSize: CGFloat { Metrics.space4 }
+    static var statusDotSize: CGFloat { SidebarRowTuning.statusDot.value }
     /// A window rail button's glyph box and glyph (the Codex rail's 15pt
     /// glyphs on 32pt tiles), and its tile's rounding.
     static var railIconBox: CGFloat { Metrics.iconSize + Metrics.space3 }
@@ -178,7 +193,7 @@ enum SidebarStyle {
     static var favoriteGlyphSize: CGFloat { railGlyphSize + SidebarRowTokens.current.extraHeight }
     /// As tall as the status glyph beside it (`Metrics.statusMarkSize`).
     static var badgeHeight: CGFloat { Metrics.statusMarkSize }
-    static var searchHeight: CGFloat { Metrics.sidebarRowHeight }
+    static var searchHeight: CGFloat { SidebarRowTokens.current.band.rowHeight }
     /// The profile control's circle at compact density (the icon box, 16 pt). The avatar lives in
     /// the row-height square, so its click target scales with the display density. #23757 grew it
     /// to the square but a hairline (22 pt); Lawrence 2026-10-21 reverted that: "bottom footer
@@ -204,7 +219,25 @@ enum SidebarStyle {
     /// (Lawrence 2026-10-14: "sidebar text should not be bold by default"),
     /// and every title in the primary text color ("All titles primary"):
     /// unread shows by the badge, selection by the fill.
-    static var titleFont: NSFont { sized(Typography.body, weight: .regular) }
+    static var titleFont: NSFont {
+        tuned(derivedTitleFont, size: SidebarRowTuning.titleSize.tunable.override, weight: SidebarRowTuning.titleWeight)
+    }
+    /// ``titleFont`` before the Sidebar Row Tuner (`sidebarRows.titleSize`'s default).
+    static var derivedTitleFont: NSFont { sized(rowTitleBase, weight: .regular) }
+    /// `base`, or the system face at a tuned size or weight when the tuner sets either.
+    private static func tuned(_ base: NSFont, size: CGFloat?, weight: Tunable<SidebarTunedWeight>) -> NSFont {
+        let tunedWeight = weight.override
+        guard size != nil || tunedWeight != nil else { return base }
+        return Typography.system(.default, size: size ?? base.pointSize, weight: (tunedWeight ?? .regular).font)
+    }
+    /// The theme's sidebar title ink at the tuner's title opacity (`sidebarRows.titleOpacity`). Call inside the
+    /// view's theme scope.
+    static var titleInk: NSColor {
+        let opacity = SidebarRowTuning.titleOpacity.value
+        return opacity >= 1 ? Palette.sidebarTitle : Palette.sidebarTitle.withAlphaComponent(Palette.sidebarTitle.alphaComponent * opacity)
+    }
+    /// How strong every leading glyph draws (`sidebarRows.glyphOpacity`): 1 unless tuned.
+    static var glyphOpacity: CGFloat { CGFloat(SidebarRowTuning.glyphOpacity.value) }
     /// Length of the fade that ends a clipped row title (no ellipsis): 24 pt at Compact. At
     /// 16 pt the fade ended at a word gap and read as a hard cut.
     static var titleFadeWidth: CGFloat { Metrics.space6 + Metrics.space4 }
@@ -239,13 +272,28 @@ enum SidebarStyle {
         Typography.system(.default, size: titleFont.pointSize, weight: TypeScale.regular)
     }
     /// The opt-in member count after a group's name (Lawrence 2026-10-20): a detail, not a title,
-    /// so smaller than `name`, at the regular weight, in ``groupHeaderCountInkAlpha`` of the ink.
+    /// so smaller than `name`, at the regular weight, in the tertiary ink (``TextInk``).
     static func groupHeaderCountFont(name: NSFont) -> NSFont {
         Typography.system(.default, size: max(TypeScale.caption, name.pointSize - 2), weight: TypeScale.regular)
     }
-    /// How much of the header's ink the member count takes: lighter than the name.
-    static let groupHeaderCountInkAlpha: CGFloat = 0.7
-    /// An archived row's ink, icon and group bar (plans/cmux-next/archiving-DESIGN.md): dimmed, still legible.
+    /// The sidebar's text inks on its own background (Leo 2026-10-27, "5 different font colors in sidebar (opacity?)"):
+    /// three steps and no per-label opacity. `title` is a row's name (workspace, item, folder group), `secondary` a
+    /// header or a control's words, `tertiary` every detail, count and archived name. Text on a group's colored fill
+    /// takes that fill's readable ink instead (`GroupHeaderRowView.paintBand`). Call inside the view's theme scope.
+    enum TextInk: CaseIterable {
+        case title, secondary, tertiary
+
+        var color: NSColor {
+            switch self {
+            case .title: SidebarStyle.titleInk
+            case .secondary: Palette.textSecondary
+            case .tertiary: Palette.textTertiary
+            }
+        }
+    }
+    /// A name's ink: an archived one drops to the tertiary step instead of a dimmed copy of its own ink.
+    static func nameInk(_ ink: TextInk, archived: Bool) -> NSColor { (archived ? TextInk.tertiary : ink).color }
+    /// An archived row's icon and group bar (its text takes ``TextInk/tertiary``) (plans/cmux-next/archiving-DESIGN.md): dimmed, still legible.
     static let archivedAlpha: CGFloat = 0.45
     /// The connected-shape prototype applies only to band headers; quiet looks keep their geometry.
     static var groupChromeShape: Bool { SidebarTunables.groupChromeShapeOn && SidebarGroupHeaderStyle.tunable.value == .band }
@@ -253,7 +301,16 @@ enum SidebarStyle {
     static var groupBarWidth: CGFloat { groupChromeShape ? Metrics.space2 : Metrics.space1 }
     static var groupBarX: CGFloat { (Metrics.sidebarRowHeight * 0.12).rounded() }
     /// One nesting step: a nested group's rows move in this far per level below the top.
-    static var groupGutter: CGFloat { groupBarX + 2 * Metrics.space1 }
+    static var groupGutter: CGFloat { Metrics.densityToken("sidebarGroupIndent") ?? groupBarX + 2 * Metrics.space1 }
+    /// One nesting step in the plain-folder look (`SidebarGroupBackgroundStyle.indentsMembers`): an iconless member's
+    /// title starts on its folder name's column, as in a file list (Chief 2026-11-21, "align members under the name").
+    /// The folder's name starts on the text column after its glyph (`SidebarColumns.text`); an iconless workspace title
+    /// starts on the row's lead (`workspaceTitleX` less `labelInset`, which the title's frame adds back), so the step
+    /// is the icon column and its gap.
+    static var folderMemberStep: CGFloat {
+        let columns = columns(rowWidth: 0)
+        return columns.text - columns.lead
+    }
     /// How far a row at group level `depth` (`SidebarRow.depth`) moves in from the list's inset.
     /// A top-level group's header and members line up with ungrouped rows: same leading x, same
     /// pill width (Leo 2026-10-21: "THE STUPID INDENT, IS THAT CHROME???? WHY IS THERE INDENT ON
@@ -276,6 +333,13 @@ enum SidebarStyle {
     /// every level and density (Lawrence 2026-10-23: "the bar, left side, should be aligned with the
     /// header part left side"), while the header's name keeps the rows' text column.
     static var groupRailReach: CGFloat { Metrics.space1 + groupBarWidth }
+    /// How far right of its header bar's left edge an `edge` rail sits: half the gap between the rail and its members,
+    /// so the rail is centred in its lane, with the same room on each side (Lawrence 2026-11-17: "have slight padding
+    /// on left as well"). The other half stays between the rail and its members' fills. Only under the band, whose
+    /// header is a pane with its own left edge; the quieter looks keep the rail on their leading dot.
+    static var groupRailInset: CGFloat {
+        SidebarGroupHeaderStyle.tunable.value == .band ? (groupRailReach - groupBarWidth) / 2 : 0
+    }
     /// The least room a group header's bar and rail keep from the list's left edge (Lawrence 2026-10-25: "groups
     /// headers and rails need more left padding"): they sat flush at 0 and 2 pt. The rows' inset less the rail and
     /// its gap (`groupRailReach`; 2 pt compact, 4 pt comfortable), so the padding never eats the rail's gap: at
@@ -299,7 +363,17 @@ enum SidebarStyle {
     /// heading (https://github.com/manaflow-ai/cmux/issues/39956), the rows' own size at the regular weight in the
     /// secondary ink, not a smaller semibold label. The Codex heading measures 13 px over 13 px rows, about 59% of
     /// the way from its ground to white, which `textSecondary` (62%) matches.
-    static var headerFont: NSFont { sized(Typography.body, weight: .regular) }
+    static var headerFont: NSFont {
+        tuned(derivedHeaderFont, size: SidebarRowTuning.headingSize.tunable.override ?? Metrics.densityToken("sidebarHeadingSize"),
+              weight: SidebarRowTuning.headingWeight)
+    }
+    /// ``headerFont`` before the Sidebar Row Tuner (`sidebarRows.headingSize`'s default).
+    static var derivedHeaderFont: NSFont { sized(rowTitleBase, weight: .regular) }
+    /// A row title's base font: the density's own `sidebarTitleSize` (its tab's title, Lucas 2026-11-14) where it sets one,
+    /// else the body text as before (Compact and Ultra-compact keep their grid's sizes).
+    private static var rowTitleBase: NSFont {
+        Metrics.densityToken("sidebarTitleSize") != nil ? Typography.sidebarTitle : Typography.body
+    }
     /// The count: tabular digits in the system face (a monospaced face read
     /// boxy and cramped, Leo 2026-10-13), at the shortcut size.
     static var badgeFont: NSFont { Typography.system(.monospacedDigit, size: Typography.shortcut.pointSize, weight: .medium) }

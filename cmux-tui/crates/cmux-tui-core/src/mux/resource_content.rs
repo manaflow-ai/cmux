@@ -18,8 +18,11 @@ use crate::workspace_registry::{
 };
 use crate::{ResourceSelectors, ResourceTarget, SurfaceId};
 use live_screen::registry_screen_from_live;
+pub(crate) use projection_crosscheck::JournalCheck;
 use published_screens::PublishedScreens;
+pub(crate) use scoped_projection::CHANGED_WORKSPACES_MAX;
 pub(crate) use scoped_projection::WorkspaceRows;
+pub(crate) use scoped_projection::crosscheck_enabled;
 #[cfg(all(test, unix))]
 pub(crate) use scoped_projection::without_crosscheck;
 pub(crate) use split_ids::collect_screen_split_ids;
@@ -57,13 +60,14 @@ impl Mux {
         });
         let mux = std::sync::Arc::clone(self);
         let (first_view, registered) = super::app_terminals::FirstView::pair();
+        let mut projected_surface = None;
         let commit = self.commit_resource_mutation_plan(
             mutation,
             "terminal.project",
             &fingerprint,
             None,
             expected_revision,
-            move |state, registry| {
+            |state, registry| {
                 let source = mux
                     .resolve_resource_path_in_state(
                         state,
@@ -120,6 +124,7 @@ impl Mux {
                     _ => TabPublicId::random()?,
                 };
                 let surface_id = mux.next_id();
+                projected_surface = Some(surface_id);
                 let content_id = ContentPublicId::Terminal(terminal_id.clone());
                 let projected = terminal.project_terminal(
                     surface_id,
@@ -291,6 +296,9 @@ impl Mux {
             },
         )?;
         self.finish_app_terminal_first_view(&registered)?;
+        if let Some(surface) = projected_surface {
+            self.refresh_terminal_size_policy(surface);
+        }
         self.emit_raw_tree_changed(&commit);
         Ok(commit)
     }
@@ -320,13 +328,14 @@ impl Mux {
             "destination": destination,
             "index": index,
         });
+        let mut moved_surface = None;
         let commit = self.commit_resource_mutation_plan(
             mutation,
             "terminal.move",
             &fingerprint,
             None,
             expected_revision,
-            move |state, registry| {
+            |state, registry| {
                 let source = self
                     .resolve_resource_path_in_state(
                         state,
@@ -345,6 +354,7 @@ impl Mux {
                     .map_err(anyhow::Error::new)?;
                 let surface =
                     source.tab.context("terminal selector did not resolve a live surface")?;
+                moved_surface = Some(surface);
                 let source_pane_slot =
                     source.pane.context("terminal selector did not resolve a source pane")?;
                 let target_pane_slot =
@@ -513,7 +523,10 @@ impl Mux {
                     .find(|screen| screen.public_id == target_screen_id)
                     .cloned()
                     .context("destination screen is absent from durable topology")?;
-                target_screen.active_pane = target_pane_id.clone();
+                crate::mux::resource_topology::floating_panes::focus_registry_pane(
+                    &mut target_screen,
+                    &target_pane_id,
+                );
                 // The topology after the move, for the screens it restates.
                 let mut after = topology.clone();
                 after.screens.retain(|screen| screen.public_id != target_screen.public_id);
@@ -661,8 +674,8 @@ impl Mux {
                             .expect("destination screen validated before commit");
                         state.active_workspace = workspace_index;
                         state.workspaces[workspace_index].active_screen = screen_index;
-                        state.workspaces[workspace_index].screens[screen_index].active_pane =
-                            session_path.2;
+                        state.workspaces[workspace_index].screens[screen_index]
+                            .set_active_pane(session_path.2);
                     },
                 )
                 .with_metrics(ResourceMutationMetrics {
@@ -675,6 +688,9 @@ impl Mux {
             },
         )?;
 
+        if let Some(surface) = moved_surface {
+            self.refresh_terminal_size_policy(surface);
+        }
         if !commit.replayed
             && let Some(tab_id) = commit.result["tab"].as_str()
             && let Ok(tab_id) = TabPublicId::parse(tab_id)
@@ -715,6 +731,11 @@ pub(crate) struct ResourceEffectProjection {
     /// `changes` restate every live resource (a full projection), so a
     /// commit may seed the registry's public topology fold from them.
     pub(crate) restates_all: bool,
+    /// The workspaces of which `changes` state each live value again (a scoped walk of a
+    /// workspace that the fold did not hold whole). The commit marks them whole
+    /// (`WorkspaceRegistry::mark_workspaces_whole`). Empty for a full projection: the fold
+    /// that folds it is complete.
+    pub(crate) restated: Vec<crate::resource::WorkspacePublicId>,
 }
 
 impl ResourceEffectProjection {

@@ -26,6 +26,7 @@ import argparse, glob, http.server, json, os, plistlib, subprocess, sys, tempfil
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from tag_teardown import TagTeardown  # noqa: E402
 from safe_log import safe_print  # noqa: E402  (a line before a kill never skips the kill)
+from state_wait import wait_stable  # noqa: E402
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--tag", required=True)
@@ -155,9 +156,17 @@ def dialog(identifier):
     return found[-1] if found else None
 
 
+def settle_palette(timeout=5):
+    """The palette's report once it stops changing, read with a no-op key (forward delete at the end of the query)."""
+    return wait_stable(lambda: rpc("debug.key", {"key": "forwarddelete", "modifiers": [], "target": "palette"}) or {},
+                       "the palette's listing", timeout=timeout, interval=0.05, raise_on_timeout=False)
+
+
 def key(name, modifiers=None, target="palette"):
     reply = rpc("debug.key", {"key": name, "modifiers": modifiers or [], "target": target})
-    time.sleep(0.15)  # the palette's search and listing land
+    if target == "palette" and reply.get("palette_open"):
+        # The palette's search and listing land: its report stops changing.
+        reply = {**reply, **(settle_palette() or {})}
     return reply
 
 
@@ -198,7 +207,7 @@ def import_through(browser, filename, attempts=2):
         rpc("debug.dialog", {"press": "choose"})
         # The picker is the palette; at first launch it can take seconds to open.
         wait_for(lambda: rpc("debug.focus").get("context", {}).get("palette_open"), "the file picker opens", 20)
-        time.sleep(0.8)  # the picker's first listing
+        settle_palette()  # the picker's first listing
         type_text(EXPORTS + "/")
         report = key("return")
         if "palette_page" not in report:
@@ -221,7 +230,12 @@ def to_workspace():
     """Leaves a top page (Home shows at first launch; a page has no tabs) for a workspace with a pane."""
     rpc("action.run", {"action": "workspace.selectFirst"})
     rpc("action.run", {"action": "newTab", "origin": "script", "focus": True})
-    time.sleep(1)  # the workspace's pane comes up
+    # The workspace's pane comes up: a focused pane is listed, and the panes stop changing.
+    def panes():
+        return [[(p.get("id"), bool(p.get("focused"))) for p in w.get("panes") or []]
+                for w in rpc("debug.surfaces").get("windows") or []]
+    wait_for(lambda: any(focused for w in panes() for _, focused in w), "the new workspace's focused pane", 20)
+    wait_stable(panes, "the new workspace's panes", timeout=10, interval=0.1, raise_on_timeout=False)
 
 
 def filled(tab):
@@ -260,9 +274,10 @@ try:
     check(report is not None, f"Chromium fills the saved sign-in in a person's tab ({reports.get('person')})")
 
     reply = rpc("action.run", {"action": "openBrowser.chromium", "args": {"url": f"{ORIGIN}/login?tab=agent"}, "focus": True})
-    print("note: agent open", reply, flush=True)
+    safe_print("note: agent open", reply, flush=True)
     wait_for(lambda: "agent" in reports, "the agent's tab reports", 30)
-    time.sleep(max(3, 2 * fill_time))  # twice as long as the person's tab took to fill
+    # sleep-ok: the observation window of a negative check (the agent's tab is never filled), twice the person's fill time.
+    time.sleep(max(3, 2 * fill_time))
     agent = reports.get("agent") or {}
     check("agent" in reports and not agent.get("passwordFilled") and not agent.get("usernameFilled"),
           f"an agent's Chromium tab is never filled ({agent})")
@@ -294,6 +309,8 @@ try:
     check(reply.get("performed") is True, f"a person opens the login page to sign in ({reply.get('performed')})")
     wait_for(lambda: "typed" in reports, "the sign-in page reports", 30)
     type_text(TYPED_USER, target="page")
+    # The keys landed in the page: its own report shows the typed username.
+    wait_for(lambda: (reports.get("typed") or {}).get("username") == TYPED_USER, "the typed username in the page", 20)
     key("tab", target="page")
     type_text(TYPED_PASSWORD, target="page")
     key("return", target="page")
@@ -302,7 +319,9 @@ try:
           f"the prompt bar asks to save the typed sign-in ({prompt})")
     reply = rpc("debug.browser.prompts", {"respond": "accept"})
     check(reply.get("responded") is True, f"a person presses Save ({reply.get('responded')})")
-    time.sleep(1)  # the store writes after the answer
+    # The answer is applied: the save prompt is gone. (The store's write itself has no signal; the import of the
+    # same sign-in below is what checks it.)
+    wait_for(lambda: save_prompt() is None, "the save prompt closes after Save", 20)
 
     # The earlier import's toast goes first, so the next one read is this import's.
     wait_for(lambda: not any("Imported:" in t or "Replaced:" in t for t in toasts()), "the earlier import toast goes", 40)

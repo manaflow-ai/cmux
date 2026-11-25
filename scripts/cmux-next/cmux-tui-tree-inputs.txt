@@ -11,6 +11,15 @@
 # binaries, so both the switch and the Linux recipe are key inputs: a switch
 # back to mac never reuses a Linux-built tree, nor the reverse.
 tree cmux-tui
+# The standalone daemon carries the production agent pane. A web-only change
+# must publish a new executable, including its imported schemas/model catalogs.
+tree webviews
+tree schemas
+tree web/data/model-catalog
+blob scripts/cmux-next/build-agent-pane-web.sh
+blob scripts/cmux-next/private-bun.sh
+blob scripts/check-webviews-bun-version.sh
+blob scripts/webviews_bun_version.py
 gitlink ghostty
 gitlink ghostty-next
 blob scripts/cmux-next/build-layout-reducer-ffi.sh
@@ -18,11 +27,29 @@ blob scripts/ci/acpmux-build-features.sh
 blob scripts/ci/tailnet-go.sh
 blob scripts/cmux-next/build-acpmux.sh
 blob scripts/ci/cargo-groups.sh
+blob scripts/ci/cmux-tui-mac-cargo-builds.sh
 blob scripts/ci/cmux-tui-darwin-builder
 blob scripts/ci/macos-cross.sh
 blob scripts/ci/macos_stubs.py
 blob scripts/ci/macho_weaken.py
 tree scripts/ci/macos-stubs
+# The release profile the binaries build with is set in the reusable build
+# workflow, not in cmux-tui/: lto, codegen-units, and CARGO_PROFILE_RELEASE_LTO
+# for the Cloud machine channel's legs. A profile-only change must build a new
+# tree, never reuse one built with the old profile (cmux#42622 had to touch
+# cargo-groups.sh to move the key; handbook reuse-key-leaves-out-an-input).
+blob .github/workflows/cmux-tui-build-package.yml
+# What each cmux-tui-artifacts.yml build call builds (lto, target_set,
+# artifact_prefix, the Windows legs) is read from this file, not written in
+# that workflow, which is not an input: a publishing-only edit there must not
+# build a new tree (tests/test_cmux_tui_release_profile.py BuildProfileSourceTest).
+blob scripts/cmux-next/cmux-tui-build-profiles.json
+# The Zig version the libghostty-vt build installs (read from ghostty-next's
+# build.zig.zon, a key input), the pinned Rust toolchain install, and the
+# staging of the agent screen detector into the tree.
+blob scripts/ghostty-zig-version.sh
+blob .github/actions/setup-cmux-tui-rust/action.yml
+blob scripts/ci/stage-agent-detector.sh
 # cmux-cloud, a tree companion (cmux-tui-cloud-server-*), builds from its own
 # crate outside cmux-tui/ (macos-cross.sh, cmux-tui-build-package.yml). Its
 # cmux-tui path dependencies are covered by `tree cmux-tui`.
@@ -34,6 +61,7 @@ tree workers/cmux-vm/cli
 # embeds a file this list does not cover and prints the line to add. A blob a
 # revision lacks is left out of its key.
 blob Packages/macOS/CmuxNext/Sources/CmuxNextBrowserImport/Resources/browser-sources.json
+blob Packages/macOS/CmuxNext/Sources/CmuxNextSettingsWindow/Localizable.xcstrings
 blob Packages/macOS/CmuxNext/Tests/CmuxNextSidebarTests/Fixtures/sidebar-layout-cases.json
 blob Resources/cmux-cli-path/fish/vendor_conf.d/cmux-cli-path.fish
 blob Resources/cmux-cli-path/zsh/.zshenv
@@ -45,10 +73,31 @@ blob docs/remote-agents-and-cloud.md
 blob mux/packages/brain/conformance/chief-cases.json
 blob plans/cmux-next/action-surfaces.json
 blob plans/cmux-next/daemon-capabilities.json
-# Not plans/cmux-next/spec-proposals/visuals/design-tokens.json: cmux-theme-tokens
-# embeds it and cmux-motion's build.rs reads it, but no published binary links
-# either crate (scripts/ci/check_cmux_tui_tree_inputs.py checks the closure).
+# cmux-theme-tokens embeds these; the daemon (theme.scheme ops) and the cmux
+# CLI (`cmux theme`) link it. cmux-motion's build.rs also reads design-tokens.json.
+blob plans/cmux-next/spec-proposals/visuals/design-tokens.json
+blob schemas/theme/theme-ink-vectors.json
+# cmux-theme-pack embeds the slot definitions (load.rs).
+blob schemas/theme/slots.json
+# cmux-config embeds the shipped theme files (theme_file::shipped): the daemon
+# and the cmux CLI read them.
+blob Resources/theme-files/charcoal.json
+blob Resources/theme-files/classic-desktop.json
+blob Resources/theme-files/claude-desktop.json
+blob Resources/theme-files/harbor.json
+blob Resources/theme-files/lily-pond.json
+blob Resources/theme-files/meadow.json
+blob Resources/theme-files/minimal-sessions.json
+blob Resources/theme-files/moss.json
+blob Resources/theme-files/phosphor.json
+blob Resources/theme-files/teal.json
+# cmux-config embeds the shipped sidebar looks (sidebar_look::shipped).
+blob Resources/sidebar-looks/claude.json
+blob Resources/sidebar-looks/codex.json
+blob Resources/sidebar-looks/studio.json
 blob schemas/chief-home/vectors.json
+blob schemas/defaults/cmux-next.json
+blob schemas/settings/source/general.json
 blob schemas/agent-url-policy/vectors.json
 blob schemas/chief-cmux-target/vectors.json
 blob schemas/agent-cursor-visibility/vectors.json
@@ -57,6 +106,8 @@ blob schemas/automation-lease/vectors.json
 blob schemas/deeplinks/agent-link.json
 blob schemas/chief-home/vectors.json
 blob schemas/ghostty-shell-features/vectors.json
+blob schemas/build-identity/vectors.json
+blob scripts/measure/screen-stream-eval/wifi-away-holds.json
 blob schemas/link-token/keyset-vectors.json
 blob schemas/link-token/native.json
 blob schemas/link-token/vectors.json
@@ -69,13 +120,25 @@ blob schemas/remote-tab/scroll-writer.json
 blob schemas/remote-tab/session.json
 blob schemas/terminal-sizing/fixtures.json
 blob schemas/settings/retired-keys.json
+blob schemas/settings/source/updates.json
 blob schemas/settings/source/agent-cache.json
 blob schemas/settings/source/agent-retry.json
+blob schemas/settings/source/mcp-servers.json
 blob schemas/settings/source/subsessions.json
 blob schemas/settings/source/trust.json
 blob schemas/settings/settings-schema.json
+blob schemas/transcript-look/transcript-look.json
+# cmux-action-catalog's customize_elements test embeds the settings export's keys.
+blob schemas/settings/settings-schema.json
 blob schemas/settings/source/subsessions.json
 blob scripts/cmux-next/cmux-tui.pin
+# `cmux server install` over ssh sends the installer cmux.com serves (cmux-tui's cli/server_remote.rs embeds it).
+blob web/public/tui/install-static.sh
+# acpmux's v2 gate registry tests read the nightly's gate script and its lines: a
+# marked row needs a line in them. A home test runs the script through its stand-in test.
+blob scripts/cmux-next/run-v2-gates.sh
+blob scripts/cmux-next/tests/run-v2-gates.test.sh
+tree scripts/cmux-next/v2-gates.d
 blob skills/cmux-acpmux/SKILL.md
 blob skills/cmux-browser/SKILL.md
 blob skills/cmux-browser/references/authentication.md
@@ -88,10 +151,22 @@ blob skills/cmux-browser/references/video-recording.md
 blob skills/cmux-browser/templates/authenticated-session.sh
 blob skills/cmux-browser/templates/capture-workflow.sh
 blob skills/cmux-browser/templates/form-automation.sh
-blob skills/cmux-cua/SKILL.md
+blob skills/cmux-computer-use/SKILL.md
 blob skills/cmux-live/SKILL.md
 blob skills/cmux-customization/SKILL.md
 blob skills/cmux-customization/references/examples.md
 blob skills/cmux-customization/references/local-app-views.md
 blob skills/cmux-customization/references/viewer-types.md
 blob skills/cmux/SKILL.md
+# cmux-customize-recipes embeds the recipes guide and the widget templates it installs.
+blob docs/cmux-next/customize-recipes.md
+blob skills/cmux-customization/templates/clock-weather/cmux-app.json
+blob skills/cmux-customization/templates/clock-weather/main.js
+blob skills/cmux-customization/templates/my-prs/cmux-app.json
+blob skills/cmux-customization/templates/my-prs/main.js
+blob schemas/build-identity/vectors.json
+blob webviews/src/agent-session/acpmux/rows/parity/seed-turn.changes.jsonl
+blob webviews/src/agent-session/acpmux/rows/parity/r1-reply-1.changes.jsonl
+blob webviews/src/agent-session/acpmux/rows/parity/r1-reply-2.changes.jsonl
+blob webviews/src/agent-session/acpmux/rows/parity/parity.changes.jsonl
+blob scripts/measure/screen-stream-eval/wifi-away-holds.json

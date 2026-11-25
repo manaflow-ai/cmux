@@ -37,6 +37,8 @@ import tarfile
 import tempfile
 import time
 from pathlib import Path
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from safe_log import safe_print  # noqa: E402  (a line in a cleanup path never skips the kill)
 
 DX_VERSION = "0.7.10"
 DX_URL = f"https://github.com/DioxusLabs/dioxus/releases/download/v{DX_VERSION}/dx-x86_64-unknown-linux-gnu.tar.gz"
@@ -141,14 +143,14 @@ def main() -> int:
     edit_path = repo / EDIT_FILE
     original = edit_path.read_text()
     if EDIT_ANCHOR not in original:
-        print(json.dumps({"passed": False, "error": f"{EDIT_FILE} no longer has the edit anchor"}))
+        safe_print(json.dumps({"passed": False, "error": f"{EDIT_FILE} no longer has the edit anchor"}))
         return 1
     dx = install_dx(args.cache)
     # A compile error shows here in minutes; under dx it would only wait.
     check = subprocess.run(["cargo", "check", "-p", "cmux-tui", "--features", "hotpatch"],
                            cwd=repo / "cmux-tui", capture_output=True, text=True)
     if check.returncode != 0:
-        print(json.dumps({"passed": False, "error": "cargo check --features hotpatch failed",
+        safe_print(json.dumps({"passed": False, "error": "cargo check --features hotpatch failed",
                           "stderr_tail": check.stderr[-4000:]}, indent=2))
         return 1
     work = Path(tempfile.mkdtemp(prefix="cmux-hotpatch-", dir="/tmp"))
@@ -225,7 +227,7 @@ def main() -> int:
         if out_dir and log_path.exists():
             subprocess.run(["cp", str(log_path), str(Path(out_dir) / "dx.log")], check=False)
         subprocess.run(["rm", "-rf", str(work)], check=False)
-    print(json.dumps(report, indent=2))
+    safe_print(json.dumps(report, indent=2))
     return 0 if report.get("passed") else 1
 
 

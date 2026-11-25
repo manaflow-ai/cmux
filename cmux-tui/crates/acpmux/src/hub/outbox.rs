@@ -10,7 +10,9 @@
 //! `held` (the runaway guard holds it until the person resumes the pair, `agent_pairs.rs`) or
 //! `failed` (the last error). The record is saved beside the sessions on every change, so a
 //! daemon restart goes on with what was not delivered yet; a store in memory keeps it in memory.
-//! Settled deliveries are kept for [`KEEP_SETTLED_MS`].
+//! Settled deliveries are kept for [`KEEP_SETTLED_MS`]; one a peer took and may have lost with
+//! its disk (`open_on_peer`) is not settled for that: it is kept while it is open, at most
+//! [`OPEN_ON_PEER_FOR_MS`], and then fails, saying why.
 //!
 //! On disk it is `outbox.json`, every delivery as of the last snapshot, and `outbox.journal`,
 //! one line for each delivery changed since, in order; a reader takes the snapshot and then the
@@ -38,7 +40,7 @@
 
 use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 use std::path::{Path, PathBuf};
-use std::sync::Mutex as StdMutex;
+use std::sync::{Arc, Mutex as StdMutex};
 
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
@@ -59,6 +61,20 @@ pub(crate) const RETRY_DELAYS_SECS: &[u64] = &[2, 5, 10, 30, 60, 120, 300, 600, 
 /// shouldn't time out just bc of load").
 pub(crate) const RETRY_FOR_MS: u64 = KEEP_SETTLED_MS;
 
+/// How long a delivery a peer took stays open for that peer's journal to show it
+/// (`Delivery::open_on_peer`), from when it was handed over: 30 days, past any machine that is
+/// off for a while. Past it the delivery fails, with [`OPEN_LAPSED`] as its error, so its sender
+/// sees that it may not have run; it is never dropped while open.
+pub const OPEN_ON_PEER_FOR_MS: u64 = 30 * KEEP_SETTLED_MS;
+
+/// The reason, and the first words of the error, of a delivery whose target session's folder is
+/// gone (`hub/worktree_care.rs` `folder_missing`): kept and sent again once it is back.
+pub const FOLDER_MISSING: &str = "session.folder_missing";
+
+/// The error of a delivery whose peer never showed it within [`OPEN_ON_PEER_FOR_MS`].
+pub const OPEN_LAPSED: &str = "the peer took this message, but its machine lost it with its disk \
+     and did not come back within 30 days to take it again; it may not have run";
+
 /// The journal is folded into a new snapshot once it holds this many bytes or twice as many as
 /// the snapshot, whichever is more.
 pub(crate) const COMPACT_FLOOR: u64 = 64 * 1024;
@@ -73,6 +89,20 @@ pub enum State {
     /// pair, never by a retry here.
     Held,
     Failed,
+}
+
+/// `_meta.acpmux.after` of a queued `session/prompt`: the delivery id this one waits behind. The
+/// outbox holds it until that delivery settles (`server/outbox.rs` `deliver`), so two messages a
+/// batch sends one session arrive in its order without the sender sending the second again.
+pub const AFTER_KEY: &str = "after";
+
+impl Delivery {
+    /// The delivery this one waits behind, while that one is in this outbox and not settled.
+    pub fn waits_behind(&self, outbox: &Outbox) -> Option<String> {
+        let after = self.request.pointer("/_meta/acpmux/after").and_then(Value::as_str)?;
+        (after != self.id && outbox.get(after).is_some_and(|d| !d.settled()))
+            .then(|| after.to_owned())
+    }
 }
 
 /// One message to deliver.
@@ -115,6 +145,34 @@ pub struct Delivery {
     /// well. Cleared when the hub refuses it outright (`server/outbox.rs` `relay_attempt`).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub relay_post: Option<crate::mesh::OutMessage>,
+    /// Delivered to a peer's session, and not yet seen in that peer's journal after a later
+    /// link: the machine may have lost it with its disk (a session moved to a fresh machine,
+    /// a VM back on an older snapshot). Every link of the peer that comes up gives back its
+    /// proof (`proof`) or, with none, delivers it again under its own prompt id
+    /// (`server/outbox.rs` `redeliver_open`, `open_delivery.rs`).
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub open_on_peer: bool,
+    /// How many times a link's redelivery sent this open delivery again (`server/outbox.rs`
+    /// `redeliver_one`), and when it last did: each resend waits twice as long as the one before
+    /// (`open_delivery::resend_due`), so a delivery open for its whole 30 days is sent again at
+    /// most `open_delivery::MAX_RESENDS` times however often its peer's link comes back. Before
+    /// them, a link that came back every few minutes under load sent the same prompt id again on
+    /// every one (2026-11-23, on a loaded host: one prompt sent 38 times, 102,825 sends in 3 h).
+    #[serde(default, skip_serializing_if = "is_zero_u32")]
+    pub resends: u32,
+    #[serde(default, skip_serializing_if = "is_zero")]
+    pub resent_at: u64,
+    /// The peer's session it was sent to, read when its attempt started (never after, so a link
+    /// replaced meanwhile changes nothing): every attempt names that generation
+    /// (`sessionCreatedAt`), and a session purged and made again under the same id refuses it as
+    /// stale. Only that session and generation's records prove it (`proof`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub pin: Option<Pin>,
+    /// The journal records of its prompt the owner's copy of the pinned session wrote to disk
+    /// (`open_delivery.rs`): held here, past every bound of the copies, until the machine is seen
+    /// holding them on a later link, so no eviction loses them.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub proof: Option<Proof>,
     #[serde(default)]
     pub error: Option<String>,
     /// The target's `_acpmux/prompt_accepted` (or its reply) once delivered.
@@ -124,9 +182,60 @@ pub struct Delivery {
     pub updated_at: u64,
 }
 
+/// A peer's session as an attempt found it when it started.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Pin {
+    pub peer: String,
+    /// The session's id on the peer.
+    pub session: String,
+    /// Its `createdAt`.
+    pub generation: u64,
+    /// The peer's instance and link epoch then.
+    pub link: (u64, u64),
+}
+
+/// What the owner's copy wrote of a delivery's prompt (`open_delivery.rs`).
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Proof {
+    /// Each journal record of the prompt's life the copy wrote (it waits, runs, ends, or is
+    /// taken off the queue), in seq order.
+    pub records: Vec<Value>,
+    /// The peer's link when the first of them was written: only a later link releases it.
+    pub link: (u64, u64),
+    /// The owner daemon's start that wrote it (`open_delivery::incarnation`): a link's numbers
+    /// start again at each start, so a proof of an earlier one is checked on the next link of
+    /// any number (review of #37284 at 4dcbe192, F6). Empty: from before this was kept.
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub incarnation: String,
+    /// The seq from which the owner's copy of its session last said it saw every record
+    /// (`peer_snapshot.rs` `Written`): one past its first record says a record of its prompt's
+    /// life was cut before a write told it, so the proof is not whole, whether or not that copy
+    /// is kept (review of #37284 at 918d2403, F1). 0: none said.
+    #[serde(default, skip_serializing_if = "is_zero")]
+    pub since: u64,
+}
+
+fn is_zero(n: &u64) -> bool {
+    *n == 0
+}
+
+fn is_zero_u32(n: &u32) -> bool {
+    *n == 0
+}
+
 impl Delivery {
+    /// Whether it is the record of a message this daemon posted to the mesh hub, a team one or
+    /// a direct `HOST/NAME` send (`record_mesh_origin`): bookkeeping, never a delivery.
     fn is_team_receipt(&self) -> bool {
-        self.id.starts_with("mesh:") && self.request.get("teamOrigin") == Some(&Value::Bool(true))
+        self.id.starts_with("mesh:")
+            && self.request.get("teamOrigin").is_some_and(Value::is_boolean)
+    }
+
+    /// Whether it is the record of a team message (`record_team_receipt`).
+    pub(crate) fn team_origin(&self) -> bool {
+        self.is_team_receipt() && self.request.get("teamOrigin") == Some(&Value::Bool(true))
     }
 
     pub fn prompt_id(&self) -> &str {
@@ -135,6 +244,19 @@ impl Delivery {
 
     pub fn projection_only(&self) -> bool {
         self.request.pointer("/_meta/acpmux/forwardProjection").is_some()
+    }
+
+    /// Open on its peer past [`OPEN_ON_PEER_FOR_MS`].
+    pub fn open_lapsed(&self, now: u64) -> bool {
+        self.open_on_peer && now >= self.created_at.saturating_add(OPEN_ON_PEER_FOR_MS)
+    }
+
+    /// Closes an open delivery that cannot be delivered again (it lapsed, or the peer refused it
+    /// for good): failed, with `error`, never a quiet drop.
+    pub fn fail_open(&mut self, error: String) {
+        self.open_on_peer = false;
+        self.state = State::Failed;
+        self.error = Some(error);
     }
 
     pub fn settled(&self) -> bool {
@@ -158,8 +280,22 @@ impl Delivery {
             "accepted": self.accepted,
             "createdAt": self.created_at,
             "updatedAt": self.updated_at,
-            // Why it failed, for a program: the target's machine has no such session.
-            "reason": self.no_session().then_some("no_session"),
+            // Why it failed or waits, for a program: the target's machine has no such session,
+            // or the session's folder is gone (`error` names the folder; still queued, it goes
+            // once the folder is back), or it took it and lost it, and did not come back for it.
+            "reason": if self.no_session() {
+                Some("no_session")
+            } else if self.state != State::Delivered
+                && self.error.as_deref().is_some_and(|e| e.starts_with(FOLDER_MISSING))
+            {
+                Some(FOLDER_MISSING)
+            } else {
+                (self.state == State::Failed && self.error.as_deref() == Some(OPEN_LAPSED))
+                    .then_some("open_lapsed")
+            },
+            // Taken by a peer whose journal has not shown it since: delivered again if its
+            // machine lost it (`server/outbox.rs` `redeliver_open`).
+            "openOnPeer": self.open_on_peer,
         })
     }
 
@@ -173,13 +309,85 @@ impl Delivery {
     }
 }
 
-/// The deliveries, saved at `path` when the store is on disk.
+/// The deliveries, saved at `path` when the store is on disk. Shared with the disk writer
+/// (`disk_writer.rs`), which makes the saves no caller waits on ([`Outbox::update`]).
 #[derive(Default)]
-pub struct Outbox {
-    deliveries: StdMutex<Book>,
+pub struct Outbox(Arc<OutboxState>);
+
+impl std::ops::Deref for Outbox {
+    type Target = OutboxState;
+    fn deref(&self) -> &OutboxState {
+        &self.0
+    }
+}
+
+impl Outbox {
+    /// Changes delivery `id` with `f`; the save goes to the disk writer, never waited on here.
+    /// A change whose save is lost (a failed write, a stop before the writer reached it) leaves
+    /// the file a state a restart goes on from safely (an attempt's count, an answer the next
+    /// attempt reads again); [`OutboxState::update_saved`] for one a caller lets something go
+    /// after. This ran on the request's own worker and waited out every `fsync` (hang-watch
+    /// hq#8669, `Outbox::save`): on a slow disk each update held a tokio worker for a sync and
+    /// queued behind every other save.
+    pub fn update(&self, id: &str, f: impl FnOnce(&mut Delivery)) {
+        let Some((change, ran)) = self.0.change(id, f) else { return };
+        self.0.changed.notify_waiters();
+        self.save_later(change);
+        if let Err(panic) = ran {
+            std::panic::resume_unwind(panic);
+        }
+    }
+
+    /// Asks the disk writer for a save that holds change `change`. Saves asked while one waits
+    /// share it: the save writes everything changed by the time it runs.
+    fn save_later(&self, change: u64) {
+        if self.0.path.lock().unwrap_or_else(|e| e.into_inner()).is_none() {
+            return;
+        }
+        self.0.save_wanted.fetch_max(change, std::sync::atomic::Ordering::Relaxed);
+        let state = Arc::downgrade(&self.0);
+        // Unique per outbox, never reused: a new outbox at a dropped one's address must not
+        // coalesce into that one's dead job still waiting.
+        static NEXT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+        let key = self.0.save_key.get_or_init(|| {
+            format!("outbox:{}", NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed))
+        });
+        crate::disk_writer::run_later(key, move || {
+            if let Some(state) = state.upgrade() {
+                let wanted = state.save_wanted.load(std::sync::atomic::Ordering::Relaxed);
+                state.save(wanted);
+                state.save_tried.fetch_max(wanted, std::sync::atomic::Ordering::Relaxed);
+            }
+        });
+    }
+}
+
+/// A save [`Outbox::update`] asked for that the writer has not made yet is made now: a hub that
+/// goes (a restart, a test's reopen) leaves nothing of its own on the writer's queue.
+impl Drop for Outbox {
+    fn drop(&mut self) {
+        // Only a save the writer has not tried: one that ran and failed is not made again here,
+        // as a change's failed save never was. One running now ends first (the disk lock).
+        let wanted = self.0.save_wanted.load(std::sync::atomic::Ordering::Relaxed);
+        if wanted > self.0.save_tried.load(std::sync::atomic::Ordering::Relaxed) {
+            self.0.save(wanted);
+        }
+    }
+}
+
+/// [`Outbox`]'s state.
+#[derive(Default)]
+pub struct OutboxState {
+    /// The newest change [`Outbox::update`] asked the disk writer to save.
+    save_wanted: std::sync::atomic::AtomicU64,
+    /// The newest change the disk writer's save tried to write.
+    save_tried: std::sync::atomic::AtomicU64,
+    /// This outbox's job key on the disk writer (`save_later`).
+    save_key: std::sync::OnceLock<String>,
+    deliveries: crate::worker_lock::Mutex<Book>,
     path: StdMutex<Option<PathBuf>>,
     /// What is on disk, held while a write runs.
-    disk: StdMutex<Disk>,
+    disk: crate::worker_lock::Mutex<Disk>,
     /// At most one bounded delivery/reconciliation task for each id in this launch.
     running: StdMutex<HashSet<String>>,
     /// Fired on every change: a `send_status` that waits wakes.
@@ -187,6 +395,23 @@ pub struct Outbox {
     /// Fired when a peer's link is ready again (`hub/peers.rs`): a message waiting out a retry
     /// delay tries again at once instead of minutes later.
     pub peer_ready: Notify,
+    /// How many times each peer's link was ready or listed ([`Self::note_peer_ready`]): a
+    /// delivery waiting on `peer_ready` ends its wait only when its own peer's count moved, so
+    /// another peer's link coming back does not wake it ([`Self::peer_ready_count`]).
+    ready_counts: StdMutex<HashMap<String, u64>>,
+    /// For each peer, the open delivery its last link's redelivery reached last
+    /// (`server/outbox.rs` `redeliver_open`): the next link goes on after it, so none waits
+    /// behind the others for good.
+    pub(crate) redelivered_to: StdMutex<HashMap<String, (u64, String)>>,
+    /// [`Self::unsettled`]'s last count: what `status` shows while a writer holds the book.
+    unsettled_seen: std::sync::atomic::AtomicUsize,
+    /// Tests only: the next write says it started, then stalls until told to go on, as a full
+    /// or hung disk does.
+    #[cfg(test)]
+    stall: StdMutex<Option<(std::sync::mpsc::Sender<()>, std::sync::mpsc::Receiver<()>)>>,
+    /// Injected once, at the journal write, before the usual rollback.
+    #[cfg(test)]
+    pub(crate) next_write_error: StdMutex<Option<std::io::Error>>,
 }
 
 /// The deliveries and the number of changes made to them.
@@ -223,7 +448,24 @@ struct Disk {
     snapshot_retry_at: u64,
 }
 
-impl Outbox {
+impl OutboxState {
+    /// Peer `peer`'s link is ready again or listed its sessions: its count moves, then every
+    /// waiting delivery looks (`server/outbox.rs` `deliver`), and only those to `peer` go.
+    pub fn note_peer_ready(&self, peer: &str) {
+        *self
+            .ready_counts
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .entry(peer.to_owned())
+            .or_default() += 1;
+        self.peer_ready.notify_waiters();
+    }
+
+    /// How many times `peer`'s link was ready or listed in this launch (0 for one never seen).
+    pub fn peer_ready_count(&self, peer: &str) -> u64 {
+        self.ready_counts.lock().unwrap_or_else(|e| e.into_inner()).get(peer).copied().unwrap_or(0)
+    }
+
     /// Reads the saved deliveries at `path` and saves there from now on. Returns the ones not
     /// settled, to deliver again. A file that cannot be read starts empty (and is replaced).
     pub fn open(&self, path: &Path) -> Vec<Delivery> {
@@ -244,7 +486,8 @@ impl Outbox {
         // Attachments come back from beside the file; ones no waiting delivery names go.
         let dir = attachments_dir(path);
         let mut named = std::collections::HashSet::new();
-        for d in book.deliveries.values_mut().filter(|d| !d.settled()) {
+        // An open delivery's too: a delivery again sends them (`open_on_peer`).
+        for d in book.deliveries.values_mut().filter(|d| !d.settled() || d.open_on_peer) {
             let kept = dir.join(format!("{}.json", d.id));
             if let Some(request) =
                 std::fs::read(&kept).ok().and_then(|b| serde_json::from_slice(&b).ok())
@@ -277,9 +520,13 @@ impl Outbox {
         if self.path.lock().unwrap_or_else(|e| e.into_inner()).is_none() {
             return;
         }
+        // A change whose write failed waits in memory for the next write: this is one, even when
+        // no journal was started yet. Read before the disk's lock: a write takes the book's under
+        // it.
+        let changes = self.book().changes;
         {
             let mut disk = self.disk.lock().unwrap_or_else(|e| e.into_inner());
-            if disk.journal == 0 && !disk.snapshot_next {
+            if disk.journal == 0 && !disk.snapshot_next && disk.saved >= changes {
                 return;
             }
             disk.snapshot_next = true;
@@ -296,7 +543,9 @@ impl Outbox {
     pub fn attachments_path(&self, d: &Delivery) -> Option<PathBuf> {
         let blocks = d.request.get("prompt").and_then(Value::as_array)?;
         let path = self.path.lock().unwrap_or_else(|e| e.into_inner()).clone()?;
-        crate::attach::any(blocks).then(|| attachments_dir(&path).join(format!("{}.json", d.id)))
+        // What a move needs of the prompt names what is kept (`open_delivery::part`).
+        crate::hub::open_delivery::kept_apart(blocks)
+            .then(|| attachments_dir(&path).join(format!("{}.json", d.id)))
     }
 
     /// Records a new delivery; the same prompt id to the same target again answers with the first
@@ -369,8 +618,25 @@ impl Outbox {
 
     /// How many deliveries are not settled yet (a projection intent waiting on its receiver's
     /// journal counts).
+    /// Never waits: `status` (every pane's connect, `ls`) reads it, and a writer can hold the
+    /// book for seconds on a loaded Mac (Leo's daemon, 2026-11-22). While the book is held this
+    /// answers the last count it made.
     pub fn unsettled(&self) -> usize {
-        self.book().deliveries.values().filter(|d| !d.settled()).count()
+        use std::sync::atomic::Ordering::Relaxed;
+        let Some(book) = self.deliveries.try_lock() else {
+            return self.unsettled_seen.load(Relaxed);
+        };
+        let count = book.deliveries.values().filter(|d| !d.settled()).count();
+        self.unsettled_seen.store(count, Relaxed);
+        count
+    }
+
+    /// Tests only: takes the book, runs `taken`, and holds it for `held`, as a slow writer does.
+    #[cfg(test)]
+    pub(crate) fn hold_book_for_then(&self, held: std::time::Duration, taken: impl FnOnce()) {
+        let _book = self.book();
+        taken();
+        std::thread::sleep(held);
     }
 
     /// Keep the original team destination independently of the hub's resolved receipt shape.
@@ -381,20 +647,38 @@ impl Outbox {
         address: &str,
         caller: Option<&str>,
     ) -> bool {
+        self.record_mesh_origin(id, address, caller, true)
+    }
+
+    /// Who posted hub message `id` from here, and to whom: a team address (`team`), or a
+    /// direct `HOST/NAME` send (`server/mesh_send.rs`), whose sender reads its status though the
+    /// hub stamps every receipt with its start-work decision. Kept as long as a team record.
+    pub(crate) fn record_mesh_origin(
+        &self,
+        id: &str,
+        address: &str,
+        caller: Option<&str>,
+        team: bool,
+    ) -> bool {
         let key = format!("mesh:{id}");
         let mut book = self.book();
         let now = crate::store::now_ms();
         book.deliveries.entry(key.clone()).or_insert_with(|| Delivery {
             id: key.clone(),
             target: address.to_owned(),
-            request: json!({"teamOrigin": true, "_meta": {"acpmux": {"promptId": key}}}),
+            request: json!({"teamOrigin": team, "_meta": {"acpmux": {"promptId": key}}}),
             caller: caller.map(str::to_owned),
             unproven_caller: None,
             not_terminal: false,
             state: State::Delivered,
             attempts: 0,
             never_sent: false,
+            resends: 0,
+            resent_at: 0,
             relay_post: None,
+            open_on_peer: false,
+            pin: None,
+            proof: None,
             error: None,
             accepted: None,
             created_at: now,
@@ -408,7 +692,8 @@ impl Outbox {
         in_memory || self.disk.lock().unwrap_or_else(|e| e.into_inner()).saved >= change
     }
 
-    pub(crate) fn team_receipt(&self, id: &str) -> Option<Delivery> {
+    /// The record of hub message `id` this daemon posted, team or direct.
+    pub(crate) fn mesh_origin(&self, id: &str) -> Option<Delivery> {
         self.book().deliveries.get(&format!("mesh:{id}")).filter(|d| d.is_team_receipt()).cloned()
     }
 
@@ -436,23 +721,85 @@ impl Outbox {
         (out, waiting)
     }
 
+    /// Deliveries a peer accepted and its journal was not seen to hold yet (`open_on_peer`), of
+    /// every peer, oldest first.
+    /// Deliveries pinned to peer `peer`'s session `session` of generation `generation` and not
+    /// failed: the ones its copy's records may prove (`open_delivery.rs`).
+    pub(crate) fn pinned_to(
+        &self,
+        (peer, session, generation): (&str, &str, u64),
+    ) -> Vec<Delivery> {
+        let pinned = |d: &&Delivery| {
+            d.state != State::Failed
+                && d.pin.as_ref().is_some_and(|p| {
+                    (p.peer.as_str(), p.session.as_str(), p.generation)
+                        == (peer, session, generation)
+                })
+        };
+        self.book().deliveries.values().filter(pinned).cloned().collect()
+    }
+
+    pub fn open_on_peers(&self) -> Vec<Delivery> {
+        let book = self.book();
+        let mut out: Vec<Delivery> =
+            book.deliveries.values().filter(|d| d.open_on_peer).cloned().collect();
+        out.sort_by(|a, b| a.created_at.cmp(&b.created_at).then_with(|| a.id.cmp(&b.id)));
+        out
+    }
+
     pub fn get(&self, id: &str) -> Option<Delivery> {
         // Receipt metadata is readable only through the team-authorized mesh status path.
         // In particular, disabling the relay must not expose it as an ordinary delivery.
         self.book().deliveries.get(id).filter(|d| !d.is_team_receipt()).cloned()
     }
 
-    /// Changes delivery `id` with `f` and saves.
-    pub fn update(&self, id: &str, f: impl FnOnce(&mut Delivery)) {
+    /// Changes delivery `id` with `f` and marks it for the next write: the change's number and
+    /// how `f` ended. None when no such delivery is here.
+    fn change(
+        &self,
+        id: &str,
+        f: impl FnOnce(&mut Delivery),
+    ) -> Option<(u64, std::thread::Result<()>)> {
         let mut book = self.book();
-        let Some(d) = book.deliveries.get_mut(id) else { return };
-        f(d);
+        let d = book.deliveries.get_mut(id)?;
+        // A closure that panics part way has still changed the delivery: that change is marked
+        // and saved like any other before the panic goes on, so memory never holds what no
+        // write will take (a restart went back to before it and sent it again).
+        let ran = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| f(d)));
         d.updated_at = crate::store::now_ms();
         book.dirty.insert(id.to_owned());
-        let change = book.changed();
-        drop(book);
-        self.save(change);
+        Some((book.changed(), ran))
+    }
+
+    /// [`Outbox::update`], answering whether the change is on disk, and waiting for that: a
+    /// caller that lets something go once it is (attachment bytes, an attempt that may reach a
+    /// peer) waits for that (review of #37284 at a088585e: a failed save was logged and the bytes
+    /// went anyway). False for a failed save; true when no such delivery is here.
+    pub fn update_saved(&self, id: &str, f: impl FnOnce(&mut Delivery)) -> bool {
+        let Some((change, ran)) = self.change(id, f) else { return true };
+        let saved = self.save_checked(change);
+        if let Err(e) = &saved {
+            tracing::warn!("outbox: could not save: {e:#}");
+        }
         self.changed.notify_waiters();
+        if let Err(panic) = ran {
+            std::panic::resume_unwind(panic);
+        }
+        saved.is_ok()
+    }
+
+    /// Whether every change so far is on disk: one whose write failed is written again now
+    /// (review of #37284 at a088585e, F3: a proof whose save failed was taken as kept, and the
+    /// copy that told it stopped counting its records). A failed write answers false.
+    pub(crate) fn saved_now(&self) -> bool {
+        let change = self.book().changes;
+        match self.save_checked(change) {
+            Ok(()) => true,
+            Err(e) => {
+                tracing::warn!("outbox: could not save: {e:#}");
+                false
+            }
+        }
     }
 
     /// Returns once a file that holds change `change` is on disk, or after logging a failed
@@ -513,15 +860,36 @@ impl Outbox {
             }
         };
         // The journal gets these lines before any snapshot: a snapshot that fails leaves them
-        // readable after the snapshot they follow.
-        let written = (|| -> anyhow::Result<()> {
+        // readable after the snapshot they follow. The write and its sync run off the runtime's
+        // workers (RFD 0124 R6): a stalled or full disk holds the callers that wait for this
+        // change's durability, never a worker that serves other requests.
+        let written = crate::qos::off_worker(|| -> anyhow::Result<()> {
+            #[cfg(test)]
+            if let Some((started, go_on)) =
+                self.stall.lock().unwrap_or_else(|e| e.into_inner()).take()
+            {
+                let _ = started.send(());
+                let _ = go_on.recv();
+            }
+            #[cfg(test)]
+            if let Some(error) =
+                self.next_write_error.lock().unwrap_or_else(|e| e.into_inner()).take()
+            {
+                return Err(error.into());
+            }
             let journal = journal_path(&path);
             if lines.iter().any(|b| *b != b'\n') {
                 if disk.journal_open {
                     use std::io::Write;
                     let appended = crate::store::open_private_append(&journal).and_then(|mut f| {
                         let start = f.metadata()?.len();
-                        let written = f.write_all(&lines).and_then(|()| f.sync_data());
+                        let written = f.write_all(&lines).and_then(|()| {
+                            #[cfg(test)]
+                            crate::config::startup_seams::sync(&journal);
+                            #[cfg(debug_assertions)]
+                            crate::store::disk_fault::sync();
+                            f.sync_data()
+                        });
                         if written.is_err() {
                             // A failed change is not kept (an add is taken out): its whole line
                             // must not stay to be read after a restart. An append-only handle
@@ -588,7 +956,7 @@ impl Outbox {
                 }
             }
             Ok(())
-        })();
+        });
         // Failed writes never advance saved. A retry of the same in-memory intent
         // must try the write again before it can report success.
         if let Err(e) = written {
@@ -608,7 +976,8 @@ impl Outbox {
 /// (`keep_attachments`), never in it.
 fn on_disk(d: &Delivery) -> std::borrow::Cow<'_, Delivery> {
     let blocks = d.request.get("prompt").and_then(Value::as_array);
-    if !blocks.is_some_and(|b| crate::attach::any(b)) {
+    // What a move needs of the prompt is kept beside it too (`open_delivery::part`).
+    if !blocks.is_some_and(|b| crate::hub::open_delivery::kept_apart(b)) {
         return std::borrow::Cow::Borrowed(d);
     }
     let mut d = d.clone();
@@ -722,11 +1091,20 @@ impl Book {
     /// Counts a change and drops what settled long ago; returns the change's number.
     fn changed(&mut self) -> u64 {
         let now = crate::store::now_ms();
+        for d in self.deliveries.values_mut().filter(|d| d.open_lapsed(now)) {
+            tracing::warn!(delivery = %d.id, target = %d.target, "an open delivery lapsed; failed");
+            d.fail_open(OPEN_LAPSED.to_owned());
+            crate::attach::strip(&mut d.request);
+            d.updated_at = now;
+            // The journal gets its failed state too, not only the next snapshot.
+            self.dirty.insert(d.id.clone());
+        }
         self.deliveries.retain(|_, d| {
             // Team bodies/receipts live at the hub for seven days; retain their origin
             // for that entire lifetime, including owner sends with no caller session.
             let keep = if d.is_team_receipt() { 7 * KEEP_SETTLED_MS } else { KEEP_SETTLED_MS };
-            !d.settled() || now.saturating_sub(d.updated_at) < keep
+            // Open on its peer is not settled for this: kept until it closes or lapses.
+            !d.settled() || d.open_on_peer || now.saturating_sub(d.updated_at) < keep
         });
         self.changes += 1;
         self.changes
@@ -832,6 +1210,10 @@ fn projected_message(d: &Delivery) -> Option<&Value> {
 }
 
 #[cfg(test)]
+#[path = "outbox_model_tests.rs"]
+mod model_tests;
+
+#[cfg(test)]
 mod tests {
     use super::*;
 
@@ -847,12 +1229,57 @@ mod tests {
             state: State::Queued,
             attempts: 0,
             never_sent: false,
+            resends: 0,
+            resent_at: 0,
             relay_post: None,
+            open_on_peer: false,
+            pin: None,
+            proof: None,
             error: None,
             accepted: None,
             created_at: now,
             updated_at: now,
         }
+    }
+
+    /// cmuxterm-hq#17418: a message queued behind another to the same session waits in the
+    /// outbox until that one settles (delivered or failed), never as an error to its sender; one
+    /// naming a delivery this outbox does not hold, or itself, goes at once.
+    #[test]
+    fn a_delivery_after_another_waits_until_that_one_settles() {
+        let outbox = Outbox::default();
+        outbox.add(delivery(1)).unwrap();
+        let mut second = delivery(2);
+        second.request["_meta"]["acpmux"][AFTER_KEY] = json!("d-1");
+        outbox.add(second).unwrap();
+        let second = outbox.get("d-2").unwrap();
+        assert_eq!(second.waits_behind(&outbox).as_deref(), Some("d-1"));
+        outbox.update("d-1", |d| d.state = State::Delivered);
+        assert_eq!(second.waits_behind(&outbox), None);
+        outbox.update("d-1", |d| d.state = State::Failed);
+        assert_eq!(second.waits_behind(&outbox), None);
+        let mut stray = delivery(3);
+        stray.request["_meta"]["acpmux"][AFTER_KEY] = json!("mesh:elsewhere");
+        assert_eq!(stray.waits_behind(&outbox), None);
+        stray.request["_meta"]["acpmux"][AFTER_KEY] = json!("d-3");
+        assert_eq!(stray.waits_behind(&outbox), None);
+    }
+
+    /// An open delivery past [`OPEN_ON_PEER_FOR_MS`] is not dropped: it fails, saying why, and
+    /// its sender's status names the reason.
+    #[test]
+    fn an_open_delivery_past_its_bound_fails_visibly() {
+        let outbox = Outbox::default();
+        let mut d = delivery(1);
+        (d.state, d.open_on_peer) = (State::Delivered, true);
+        d.created_at -= OPEN_ON_PEER_FOR_MS;
+        outbox.add(d).unwrap();
+        outbox.add(delivery(2)).unwrap();
+        outbox.update("d-2", |d| d.attempts += 1);
+        let lapsed = outbox.get("d-1").expect("an open delivery past its bound went unseen");
+        assert_eq!((lapsed.state, lapsed.open_on_peer), (State::Failed, false));
+        assert_eq!(lapsed.status()["reason"], "open_lapsed");
+        assert!(outbox.open_on_peers().is_empty());
     }
 
     #[test]
@@ -1044,11 +1471,53 @@ mod tests {
         for t in threads {
             t.join().unwrap();
         }
-        outbox.update("d-3", |d| d.state = State::Delivered);
+        let _ = outbox.update_saved("d-3", |d| d.state = State::Delivered);
         let restarted = Outbox::default();
         let pending = restarted.open(&path);
         assert_eq!(pending.len(), 63);
         assert_eq!(restarted.get("d-3").map(|d| d.state), Some(State::Delivered));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// RFD 0124 R6: a write stalled on the disk holds only the caller that waits for its own
+    /// durability. On a runtime with one worker, a read of the outbox still answers while it
+    /// stalls; before, the write and its sync ran on the worker and nothing else ran.
+    #[test]
+    fn a_stalled_write_never_holds_a_runtime_worker() {
+        let dir = std::env::temp_dir().join(format!("acpmux-outbox-{}", uuid::Uuid::now_v7()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("outbox.json");
+        let outbox = std::sync::Arc::new(Outbox::default());
+        assert!(outbox.open(&path).is_empty());
+        outbox.add(delivery(0)).unwrap();
+        let (started_tx, started) = std::sync::mpsc::channel();
+        let (go_on, go_on_rx) = std::sync::mpsc::channel();
+        *outbox.stall.lock().unwrap() = Some((started_tx, go_on_rx));
+        let runtime = tokio::runtime::Builder::new_multi_thread()
+            .worker_threads(1)
+            .enable_all()
+            .build()
+            .unwrap();
+        runtime.block_on(async {
+            let writer = {
+                let outbox = outbox.clone();
+                tokio::spawn(async move { outbox.update_saved("d-0", |d| d.attempts += 1) })
+            };
+            started.recv_timeout(std::time::Duration::from_secs(10)).expect("the write started");
+            let reader = {
+                let outbox = outbox.clone();
+                tokio::spawn(async move { outbox.get("d-0").map(|d| d.attempts) })
+            };
+            let read = tokio::time::timeout(std::time::Duration::from_secs(5), reader)
+                .await
+                .expect("a read answers while the write stalls")
+                .unwrap();
+            assert_eq!(read, Some(1), "the change is in memory before it is on disk");
+            assert!(!writer.is_finished(), "the writer waits for its own durability");
+            go_on.send(()).unwrap();
+            assert!(writer.await.unwrap(), "the write went on and was saved");
+        });
+        assert_eq!(read_saved(&path).deliveries.get("d-0").map(|d| d.attempts), Some(1));
         let _ = std::fs::remove_dir_all(&dir);
     }
 
@@ -1160,9 +1629,9 @@ mod tests {
                 // A send's life: queued, delivering, attempted again, delivered.
                 let id = format!("d-{}", kept + n);
                 outbox.add(sized(kept + n, State::Queued)).unwrap();
-                outbox.update(&id, |d| d.state = State::Delivering);
-                outbox.update(&id, |d| d.attempts += 1);
-                outbox.update(&id, |d| d.state = State::Delivered);
+                let _ = outbox.update_saved(&id, |d| d.state = State::Delivering);
+                let _ = outbox.update_saved(&id, |d| d.attempts += 1);
+                let _ = outbox.update_saved(&id, |d| d.state = State::Delivered);
             }
             let after = (outbox.disk.lock().unwrap().written - start) / changes as u64;
             eprintln!("kept {kept}: before {before} B per change, after {after} B per change");
@@ -1217,7 +1686,7 @@ mod tests {
         for n in 0..3 {
             outbox.add(delivery(n)).unwrap();
         }
-        outbox.update("d-1", |d| d.state = State::Delivered);
+        let _ = outbox.update_saved("d-1", |d| d.state = State::Delivered);
         let journal = journal_path(&path);
         let mut torn = std::fs::read(&journal).unwrap();
         assert!(!torn.is_empty(), "small changes go to the journal");
@@ -1291,7 +1760,7 @@ mod tests {
         // The snapshot's rename fails: a folder that is not empty is in its place.
         std::fs::create_dir_all(path.join("occupied")).unwrap();
         outbox.disk.lock().unwrap().snapshot_next = true;
-        outbox.update("d-0", |d| d.state = State::Delivered);
+        let _ = outbox.update_saved("d-0", |d| d.state = State::Delivered);
         // The change is on disk in the journal, so it is saved; the snapshot waits for a later
         // try, not the next change.
         assert_eq!(outbox.disk.lock().unwrap().saved, outbox.book().changes);
@@ -1317,7 +1786,7 @@ mod tests {
         let outbox = Outbox::default();
         outbox.open(&path);
         outbox.add(delivery(0)).unwrap();
-        outbox.update("d-0", |d| d.state = State::Delivering);
+        let _ = outbox.update_saved("d-0", |d| d.state = State::Delivering);
         assert!(!read_saved(&path).deliveries["d-0"].settled());
         // The older daemon: delivers it and rewrites the snapshot, leaving the journal.
         let mut older = read_saved(&path).deliveries;
@@ -1374,7 +1843,12 @@ mod tests {
             state: State::Queued,
             attempts: 0,
             never_sent: false,
+            resends: 0,
+            resent_at: 0,
             relay_post: None,
+            open_on_peer: false,
+            pin: None,
+            proof: None,
             error: None,
             accepted: None,
             created_at: 0,

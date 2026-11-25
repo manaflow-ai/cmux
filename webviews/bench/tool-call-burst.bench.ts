@@ -18,7 +18,8 @@
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { chromium, type Browser, type CDPSession, type Page } from "playwright";
+import { chromium } from "./browsers";
+import type { Browser, CDPSession, Page } from "playwright";
 import type { EventRecord } from "../src/agent-session/acpmux/direct";
 import { loadTurn, sourceFile } from "../src/agent-session/acpmux/loadFixture";
 import { perfRow, TARGET_MS } from "./perfRow";
@@ -445,13 +446,10 @@ if (import.meta.main) {
     });
     releases.push(() => statics.stop(true));
     const browser = await chromium.launch({
-      ...(process.env.CMUX_CHROME_HEADLESS_SHELL
-        ? { executablePath: process.env.CMUX_CHROME_HEADLESS_SHELL }
-        : { channel: "chrome" }),
       headless: true,
     });
     releases.push(() => browser.close());
-    const url = `http://127.0.0.1:${statics.port}/#endpoint=${encodeURIComponent(`ws://127.0.0.1:${daemon.port}/`)}&token=t&session=${sessionId}`;
+    const url = `http://127.0.0.1:${statics.port}/#endpoint=${encodeURIComponent(`ws://127.0.0.1:${daemon.port}/`)}&token=t&scheme=cmux&session=${sessionId}`;
     for (const pace of PACES) {
       const rounds: Round[] = [];
       for (let index = 0; index < ROUNDS; index += 1) rounds.push(await round(browser, url, pace.gap));

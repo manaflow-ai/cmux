@@ -7,12 +7,20 @@ import Foundation
 /// - `finding`: finding forever;
 /// - `found`: finding for a few seconds, then two Macs;
 /// - `empty`: finding for a few seconds, then no Macs;
-/// - `failed`: the hub can't be reached.
+/// - `failed`: the hub can't be reached;
+/// - `unavailable`: finding for a few seconds, then a sharing Mac and one Mac per reason it
+///   can't be shared (not shared, offline, blocked), whose taps show the alert.
 /// The clock starts when the page appears (`start()`), and Try Again or pull to
 /// refresh replays it.
+///
+/// Mock mode with no demo named (`useMock`): the mock account's Macs, the ones Settings ›
+/// Devices lists, so the two pages agree. Mock mode has no account token, so the real hub said
+/// "Your Macs can't be reached · not signed in" next to Devices' Macs (iOS release bar read-back).
 extension ScreenSharingService {
     enum DemoMode: String, CaseIterable, Sendable {
-        case finding, found, empty, failed
+        case finding, found, empty, failed, unavailable
+        /// The mock account's Macs (`useMock`), listed at once.
+        case mock
     }
 
     /// How long a demo stays in "finding" before its answer.
@@ -33,9 +41,21 @@ extension ScreenSharingService {
         demoMacs = []
     }
 
+    /// Mock mode: lists `macs()` (read on every start and refresh) instead of opening the hub.
+    public func useMock(_ macs: @escaping @MainActor () -> [HubDevice]) {
+        mockMacs = macs
+        demoMode = .mock
+        runDemo(.mock)
+    }
+
     func runDemo(_ mode: DemoMode) {
         demoTask?.cancel()
         demoMacs = []
+        if mode == .mock {
+            demoMacs = Self.hosts(mockMacs?() ?? [])
+            demoDiscovery = .listed
+            return
+        }
         if mode == .failed {
             demoDiscovery = .failed(String(localized: "The network connection was lost."))
             return
@@ -46,6 +66,16 @@ extension ScreenSharingService {
         demoTask = Task { [weak self] in
             do { try await Task.sleep(for: Self.demoFindingTime) } catch { return }
             guard let self else { return }
+            if mode == .unavailable {
+                // The mock workspace `cmux` runs on Aziz's Mac Studio: + › Screen Sharing names it.
+                demoMacs = [
+                    HubDevice(id: "demo-mbp", name: "Aziz's MacBook Pro", platform: .macos, macScreenShared: true, online: true),
+                    HubDevice(id: "demo-studio", name: "Aziz's Mac Studio", platform: .macos, macScreenShared: false, online: true),
+                    HubDevice(id: "demo-mini", name: "mini 1", platform: .macos, macScreenShared: true, online: true),
+                    HubDevice(id: "demo-imac", name: "Office iMac", platform: .macos, macScreenShared: true, online: false),
+                ].sorted(by: Self.listOrder)
+                demoAccess = ["demo-mini": DeviceScope.none]
+            }
             if mode == .found {
                 demoMacs = [
                     HubDevice(id: "demo-mbp", name: "Aziz's MacBook Pro", platform: .macos, macScreenShared: true, online: true),

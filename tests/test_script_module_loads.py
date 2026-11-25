@@ -326,7 +326,7 @@ ONE_OBJECT_PER_FILE = textwrap.dedent('''
 
 # Run in a fresh interpreter: imports each test module in the given order and reports, per file, every sys.modules
 # entry named after a repository module (a stem from argv[3]) that its import added or replaced with a stub (None, a
-# SimpleNamespace, a bare ModuleType with no spec or file). A stub left there is what the next test's `import name`
+# SimpleNamespace, a bare ModuleType with no spec or file), a None entry too: absent before is not None before. A stub left there is what the next test's `import name`
 # gets instead of the real module.
 STUBS_LEFT = textwrap.dedent('''
     import importlib, json, os, sys, types
@@ -335,6 +335,7 @@ STUBS_LEFT = textwrap.dedent('''
         return isinstance(module, types.ModuleType) and (
             getattr(module, "__spec__", None) is not None or getattr(module, "__file__", None))
     left, unimportable = {}, {}
+    MISSING = object()  # a name absent before the import: `.get()`'s None would match a stored None entry
     for rel in order:
         folder = os.path.dirname(os.path.join(root, rel))
         if folder not in sys.path:
@@ -345,7 +346,7 @@ STUBS_LEFT = textwrap.dedent('''
         except BaseException as error:  # a test that needs a Mac library cannot import here
             unimportable[rel] = type(error).__name__ + ": " + str(error)[:200]
         names = sorted(name for name, module in sys.modules.items()
-                       if name in stems and before.get(name) is not module and not real(module))
+                       if name in stems and before.get(name, MISSING) is not module and not real(module))
         if names:
             left[rel] = names
     print(json.dumps({"left": left, "unimportable": unimportable}))
@@ -500,6 +501,23 @@ class ScriptModuleLoadTests(unittest.TestCase):
         self.assertEqual(result["left"], {}, json.dumps(result, indent=1))
         self.assertNotIn("scripts/cmux-next/tests/test_perf_completeness.py", result["unimportable"])
         self.assertLess(len(result["unimportable"]), len(order) // 4, result["unimportable"])
+
+    def test_a_none_entry_left_in_sys_modules_is_a_stub(self):
+        """#41747 review: `sys.modules["ring"] = None` (which makes `import ring` raise) is a stub left behind too, though
+        `before.get("ring")` is also None for a name that was absent."""
+        import tempfile
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / "tests").mkdir()
+            (root / "tests/test_blocks.py").write_text("import sys\nsys.modules['ring'] = None\n")
+            (root / "tests/test_stubs.py").write_text("import sys, types\nsys.modules['hub'] = types.SimpleNamespace()\n")
+            (root / "tests/test_clean.py").write_text("import sys\nsys.modules['ring'] = None\ndel sys.modules['ring']\n")
+            order = ["tests/test_clean.py", "tests/test_blocks.py", "tests/test_stubs.py"]
+            done = subprocess.run([sys.executable, "-c", STUBS_LEFT, str(root), json.dumps(order),
+                                   json.dumps(["ring", "hub"])], cwd=root, capture_output=True, text=True, timeout=60)
+        self.assertEqual(done.returncode, 0, done.stderr[-2000:])
+        result = json.loads(done.stdout.strip().splitlines()[-1])
+        self.assertEqual(result["left"], {"tests/test_blocks.py": ["ring"], "tests/test_stubs.py": ["hub"]})
 
     def test_the_procs_stub_polluter_and_its_victim_pass_in_either_order(self):
         driver = ("import sys, unittest\nsys.path.insert(0, sys.argv[1])\n"

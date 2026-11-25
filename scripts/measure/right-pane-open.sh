@@ -18,6 +18,16 @@ cd "$(git rev-parse --show-toplevel)"
 root="$(pwd)"
 tag="rpopen"
 out="$(mktemp -d)"
+# Remove the scratch folder on every exit (a failed build, a TERM), not only at the end: a leaked one holds two builds.
+# Its worktrees of this attempt (by path, never by name or glob) go first, so git keeps no record of them.
+cleanup_out() {
+  git -C "$root" worktree remove --force "$out/before" 2>/dev/null || true
+  git -C "$root" worktree remove --force "$out/after" 2>/dev/null || true
+  rm -rf -- "$out"
+}
+trap cleanup_out EXIT
+trap 'exit 130' INT
+trap 'exit 143' TERM
 reload_config=(--config bench) reload_args=() bench_args=() app="" skip_build=0 pair=""
 for arg in "$@"; do
   case "$arg" in
@@ -59,10 +69,9 @@ if [[ -n "$pair" ]]; then
       echo "right-pane-open: --pair takes two full commit SHAs, BEFORE,AFTER (got '$pair')" >&2
       exit 2
     fi
-    git cat-file -e "$sha^{commit}" 2>/dev/null || git fetch --quiet origin "$sha" 2>/dev/null || git fetch --quiet https://github.com/manaflow-ai/cmux.git "$sha"
+    git cat-file -e "$sha^{commit}" 2>/dev/null || git fetch --quiet --recurse-submodules=no origin "$sha" 2>/dev/null || git fetch --quiet --recurse-submodules=no https://github.com/manaflow-ai/cmux.git "$sha"
   done
-  # Worktrees of this attempt only, removed on exit by path (never by name or glob).
-  trap 'git -C "$root" worktree remove --force "$out/before" 2>/dev/null || true; git -C "$root" worktree remove --force "$out/after" 2>/dev/null || true' EXIT
+  # Worktrees of this attempt only: cleanup_out removes them on exit by path.
   git worktree add --detach "$out/before" "$before_sha" >/dev/null
   git worktree add --detach "$out/after" "$after_sha" >/dev/null
   before_app="$(build_app "$out/before" "${tag}a")"
@@ -115,5 +124,5 @@ else
   printf '%s %s\n' "$build_id" "$app" >"$last_build"
 fi
 # A fleet step has no LaunchServices session: the bench launches the app binary directly.
-CMUX_BENCH_LAUNCH=direct exec python3 scripts/cmux-next/right-pane-open-bench.py --app "$app" \
+CMUX_BENCH_LAUNCH=direct python3 scripts/cmux-next/right-pane-open-bench.py --app "$app" \
   --json artifacts/right-pane-open.json --md artifacts/right-pane-open.md "$@"

@@ -46,17 +46,41 @@ from __future__ import annotations
 
 import ast
 import re
+import sys
 from pathlib import Path
 from typing import Iterable, Iterator
 
 import yaml
 
-OWN_TOKEN = re.compile(r"\$\{\{[^}]*\b(github\.token|secrets\.GITHUB_TOKEN)\b[^}]*\}\}")
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import gh_expressions  # noqa: E402  (finds each ${{ }}: a regex cuts at a }} in a string)
+
+_OWN_TOKEN_REFERENCE = re.compile(r"\b(github\.token|secrets\.GITHUB_TOKEN)\b", re.IGNORECASE)
+
+
+class _OwnToken:
+    """`github.token` or `secrets.GITHUB_TOKEN` (any case, as GitHub reads contexts) inside some `${{ }}` of a value.
+    gh_expressions finds each expression: `[^}]*` stopped at a `}` in a string literal
+    (`${{ format('{0}}}', github.token) }}`), so the token after it was missed. A `${{` that never ends counts as
+    the token, so a step is judged rather than passed."""
+
+    def search(self, text: str) -> bool:
+        try:
+            found = gh_expressions.contents(text)
+        except gh_expressions.Unterminated:
+            return True
+        return any(_OWN_TOKEN_REFERENCE.search(expression) for expression in found)
+
+
+OWN_TOKEN = _OwnToken()
 SHELL_API = re.compile(r"^(gh)$")
 GH_VERBS = {"api", "run", "pr", "issue", "release", "workflow", "label", "search", "cache"}
 API_TEXT = re.compile(r"api\.github\.com")
 API_URL_VALUE = re.compile(r"github\.api_url|api\.github\.com|\$\{?GITHUB_API_URL\b")
-SCRIPT_PATH = re.compile(r"^(?:\./)?((?:scripts|\.github)/[\w./-]+\.(?:sh|bash|py|js|mjs|cjs|ts))$")
+# Workflows sometimes check out the main-branch copy of a helper under a
+# tooling directory before running it. Keep following that helper for token
+# accounting while resolving it against the repository root.
+SCRIPT_PATH = re.compile(r"^(?:\./)?(?:\.tick-tooling/)?((?:scripts|\.github)/[\w./-]+\.(?:sh|bash|py|js|mjs|cjs|ts))$")
 INTERPRETERS = {"bash", "sh", "python", "python3", "node", "bun", "ruby", "source", "."}
 SEPARATORS = {";", "&&", "||", "|", "(", "$(", "{", "then", "else", "elif", "do", "!", "`", "&", "if", "while",
               "until", "time"}

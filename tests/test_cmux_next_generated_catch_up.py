@@ -12,6 +12,7 @@ import os
 import re
 import shutil
 import subprocess
+import sys
 import tempfile
 import unittest
 from unittest.mock import patch
@@ -26,6 +27,9 @@ _git_fixture_spec = _git_fixture_importlib.spec_from_file_location(
 git_fixture_env = _git_fixture_importlib.module_from_spec(_git_fixture_spec)
 _git_fixture_spec.loader.exec_module(git_fixture_env)
 
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import workflow_jobs  # noqa: E402
+
 ROOT = Path(__file__).resolve().parents[1]
 SCRIPT = ROOT / "scripts/cmux-next/generated_catch_up.py"
 # The trusted key-wise drivers .gitattributes names (scripts/install-git-hooks.sh registers them per clone).
@@ -35,6 +39,10 @@ KEYWISE_DRIVERS = {
     "cmux-baseline-v1": "scripts/merge-baseline.py",
     "cmux-capabilities-v1": "scripts/merge-daemon-capabilities.py",
     "cmux-insertions-v1": "scripts/merge-insertions.py",
+    # The Mac-only exports (settings schema, docs/mdm): a three-way merge, never one side.
+    "cmux-export-v1": "scripts/merge-insertions.py",
+    # Generated files: three-way when clean, else this branch's copy for the rebuild (never `true`).
+    "cmux-generated-v1": "scripts/merge-insertions.py",
 }
 WORKFLOW = ROOT / ".github/workflows/cmux-next-generated-catch-up.yml"
 
@@ -58,7 +66,7 @@ def pr(number, **overrides):
 class GeneratedPaths(unittest.TestCase):
     def setUp(self):
         self.catch_up = load()
-        self.patterns = self.catch_up.generated_patterns((ROOT / ".gitattributes").read_text(encoding="utf-8"))
+        self.patterns = self.catch_up.merge_rules((ROOT / ".gitattributes").read_text(encoding="utf-8"))
 
     def test_the_bundles_and_strings_tables_are_generated(self):
         for path in (
@@ -68,6 +76,8 @@ class GeneratedPaths(unittest.TestCase):
             "Resources/markdown-viewer/webviews-app/chunks/vendor.mjs",
             "webviews/src/agent-session/acpmux/generated/strings.json",
             "webviews/src/pages/settings/generated/strings.json",
+            # Every other generated family (scripts/cmux-next/generated_merge.py), the page router included.
+            "webviews/src/pages/shared/generated/pageRouter.ts",
         ):
             self.assertTrue(self.catch_up.is_generated(path, self.patterns), path)
 
@@ -75,7 +85,9 @@ class GeneratedPaths(unittest.TestCase):
         for path in (
             "webviews/src/agent-session/acpmux/App.tsx",
             "webviews/src/agent-session/acpmux/Localizable.xcstrings",
-            "webviews/src/protocol/generated/types.ts",
+            # Hand-written files inside a generated directory, taken back out by a later `!merge`.
+            "cmux-tui/bindings/java/src/com/cmux/raw/CmuxClient.java",
+            "cmux-tui/crates/cmux-agent-pane-policy/policy.json",
             "Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/AgentPaneModel.swift",
             ".gitattributes",
         ):
@@ -207,7 +219,7 @@ class Workflow(unittest.TestCase):
         job = self.doc["jobs"]["catch-up"]
         # A Blacksmith VM runs one job and is destroyed; no variable can move
         # the write token to a reused mini.
-        self.assertEqual(job["runs-on"], "${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_CLOUD_OVERFLOW_SAVED && fromJSON(vars.RUNNER_POOLS).linux_8 || fromJSON(vars.RUNNER_POOLS).linux_2 }}")
+        self.assertEqual(workflow_jobs.runs_on_cells(job), ["${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || fromJSON(vars.RUNNER_POOLS).linux_4 }}"])
         mint = next(step for step in job["steps"] if step.get("uses", "").startswith("actions/create-github-app-token"))
         self.assertEqual(mint["with"].get("permission-contents"), "write")
         self.assertNotIn("permission-pull-requests", mint["with"])
@@ -308,7 +320,7 @@ class KeyWiseDrivers(unittest.TestCase):
 
     def test_every_keywise_driver_in_gitattributes_is_registered_from_the_base(self):
         named = set(re.findall(r"merge=([\w.-]+)", (ROOT / ".gitattributes").read_text(encoding="utf-8")))
-        self.assertEqual(named - {"cmux-generated-v1"}, set(KEYWISE_DRIVERS))
+        self.assertEqual(named, set(KEYWISE_DRIVERS))
         trusted = self.step("Check out the base's catch-up script")["with"]["sparse-checkout"].split()
         script = self.step("Merge feat-cmux-next")["run"]
         for driver, path in KEYWISE_DRIVERS.items():

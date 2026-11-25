@@ -3,10 +3,11 @@
 // `?mock`) the in-memory mock provider stands in for the app.
 // DESKTOP-FEEL (R139): the shared desktop layer loads first.
 import "../shared/desktop";
+import "../shared/transientMaterial";
 import "../../ui/ui.css";
-import { createPageClient } from "../shared/pageClient";
-import { createMockClient } from "./mockProvider";
+import { createPageClient, BridgePageClient, DEFER_MOUNT_NAME } from "../shared/pageClient";
 import { mountSettingsPage } from "./mount";
+import type { HarnessRow } from "./ops";
 import "./page.css";
 import "./tailwind.css";
 import { installCatalog } from "./strings";
@@ -19,7 +20,29 @@ if (process.env.NODE_ENV !== "production" && !globalThis.__cmuxStrings) {
 
 const search = new URLSearchParams(location.search);
 const bridge = search.has("mock") ? null : createPageClient();
-let mock = bridge ? undefined : createMockClient().client;
+// The mock provider (and its fixtures) is a chunk of its own: the app's page never loads it.
+const createMockClient = bridge ? null : (await import("./mockProvider")).createMockClient;
+let mock = createMockClient?.().client;
+// A first-user journey cell (`?mock&journey=HARNESS:STATE`, scripts/first-user-journey): Agents lists
+// what the mock daemon's cell has, nothing else. Production drops this.
+if (bridge === null && process.env.NODE_ENV !== "production" && search.has("journey")) {
+  const { journeyCell, journeySettingsHarnesses } = await import("../../agent-session/acpmux/journeyFixture");
+  const cell = journeyCell();
+  if (cell && createMockClient) {
+    const created = createMockClient();
+    created.provider.harnesses = {
+      loading: false,
+      problem: null,
+      harnesses: journeySettingsHarnesses(cell) as unknown as HarnessRow[],
+      accounts: [],
+    };
+    mock = created.client;
+  }
+}
 // The dev server and tests can give the mock the app's timing (mockTiming.ts); production drops this.
 if (mock && process.env.NODE_ENV !== "production") mock = (await import("./mockTiming")).withMockTiming(mock, search);
-void mountSettingsPage(document.getElementById("root")!, bridge ?? mock!);
+const mount = () => void mountSettingsPage(document.getElementById("root")!, bridge ?? mock!);
+// A spare that mounts at its claim (PageSpareVariant.unmounted): the bundle is parsed, no React root yet.
+if (bridge instanceof BridgePageClient && (globalThis as Record<string, unknown>)[DEFER_MOUNT_NAME] === true)
+  bridge.whenClaimed(mount);
+else mount();

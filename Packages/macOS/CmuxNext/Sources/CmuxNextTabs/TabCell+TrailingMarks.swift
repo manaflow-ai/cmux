@@ -14,7 +14,7 @@ import QuartzCore
 extension TabCell {
     /// The trailing cluster, right to left (the order above, reversed).
     enum TrailingMark: CaseIterable {
-        case state, audio, loading, theme, machine, profile, presence
+        case state, count, audio, loading, theme, machine, profile, presence
     }
 
     /// Lays the trailing cluster out from `titleEnd` leftward; returns where the title must end.
@@ -32,10 +32,20 @@ extension TabCell {
         let before = Dictionary(uniqueKeysWithValues: statusMarkLayers.map { (ObjectIdentifier($0), $0.opacity) })
         var end = titleEnd
         var spinnerInSlot = false
+        // A busy tab with unread output draws one mark (`TabBusyUnreadMark`): the spinner takes the dot's place.
+        let combined = combinedBusyUnread
         if let statusSlot {
             end = min(end, statusSlot.minX - metrics.titleCloseSpacing)
-            if hasStateMark {
+            if combined != nil {
+                spinnerInSlot = true
+                _ = layoutTrailingSpinner(end: statusSlot.midX + spinnerSide / 2, midY: midY)
+            } else if hasStateMark {
                 _ = placeTrailingStateMark(center: CGPoint(x: statusSlot.midX, y: midY), onPath: onPath)
+                // The spinner handing its place to the dot fades out under it, in the same slot.
+                if spinnerExitsInSlot, spinnerLayer != nil {
+                    spinnerInSlot = true
+                    _ = layoutTrailingSpinner(end: statusSlot.midX + spinnerSide / 2, midY: midY)
+                }
             } else if spinnerLayer != nil {
                 spinnerInSlot = true
                 _ = layoutTrailingSpinner(end: statusSlot.midX + spinnerSide / 2, midY: midY)
@@ -43,7 +53,8 @@ extension TabCell {
         }
         for mark in TrailingMark.allCases {
             switch mark {
-            case .state: if statusSlot == nil { end = layoutTrailingStateMark(end: end, midY: midY, onPath: onPath) }
+            case .state: if statusSlot == nil, combined == nil { end = layoutTrailingStateMark(end: end, midY: midY, onPath: onPath) }
+            case .count: end = layoutCountPill(titleX: titleX, titleEnd: countPillEnd(end, statusSlot: statusSlot, midY: midY), midY: midY)
             case .audio: end = layoutAudioBadge(titleX: titleX, titleEnd: end, midY: midY)
             case .loading: if !spinnerInSlot { end = layoutTrailingSpinner(end: end, midY: midY) }
             case .theme: end = layoutThemeBadge(titleX: titleX, titleEnd: end, midY: midY)
@@ -52,12 +63,21 @@ extension TabCell {
             case .presence: end = layoutPresenceDot(titleX: titleX, titleEnd: end, midY: midY)
             }
         }
+        if let combined { placeCombinedDot(combined, onPath: onPath) }
         // A mark the layout just created (a status arriving under the pointer) has no earlier look to fade from.
         let shown = statusSlot == nil || !statusHidden
         for layer in statusMarkLayers {
             setStatusMark(layer, shown: shown, was: before[ObjectIdentifier(layer)] ?? (shown ? 1 : 0), animated: animated)
         }
         return end
+    }
+
+    /// Where the count pill's slot ends: left of the x's slot even while that slot is empty, so neither the hovered
+    /// x nor a status arriving there moves the pill or the title (`experiments.agentBadges`). A tab whose x shows
+    /// beside its status at rest, or that cannot close, keeps the cluster's own end.
+    private func countPillEnd(_ end: CGFloat, statusSlot: CGRect?, midY: CGFloat) -> CGFloat {
+        guard showsCountPill, statusSlot == nil, !hasStatusMark, item.isClosable, metrics.hoverCloseSwap != .beside else { return end }
+        return min(end, statusSlotRect(pillWidth: backgroundLayer.frame.width, midY: midY).minX - metrics.titleCloseSpacing)
     }
 
     /// The marks the hovered x stands in for: the status glyph or dot, and the loading indicator unless it is leaving.
@@ -102,6 +122,23 @@ extension TabCell {
         return placeStateMark(dot: dot, glyph: glyph, visible: true, onPath: onPath)
     }
 
+    /// The status slot (the x's size) centered at ``TabStripMetrics/statusSlotMidX(pillWidth:placement:)``.
+    func statusSlotRect(pillWidth: CGFloat, midY: CGFloat) -> CGRect {
+        let m = metrics, side = m.closeButtonSize
+        return CGRect(x: pixel(m.statusSlotMidX(pillWidth: pillWidth, placement: m.resolvedStatusMarkPlacement) - side / 2),
+                      y: pixel(midY - side / 2), width: side, height: side)
+    }
+
+    /// The unread dot while the spinner holds its place: a small dot inside the ring (`dotInRing`), else none.
+    private func placeCombinedDot(_ look: TabBusyUnreadMark, onPath: Bool) {
+        guard look == .dotInRing, !showsNeedsYouGlow, let spinner = spinnerLayer?.frame else { removeBadge(onPath: onPath); return }
+        let side = pixel(metrics.badgeSize * 0.6)
+        let badgeLayer = makeBadge()
+        badgeLayer.frame = CGRect(x: pixel(spinner.midX - side / 2), y: pixel(spinner.midY - side / 2), width: side, height: side)
+        badgeLayer.cornerRadius = side / 2
+        badgeLayer.opacity = 1
+    }
+
     /// The loading indicator's side in the cluster, the speaker's size class.
     private var spinnerSide: CGFloat { metrics.iconSize - 2 * Metrics.space1 }
 
@@ -125,13 +162,26 @@ extension TabCell {
 
     /// Draws the one state mark: a status icon set's glyph at `glyph` when one draws, else the
     /// dot at `dot` while `badgeColor` says one shows. Returns the drawn mark's width, nil when none.
+    /// A tab glowing in place of its mark (`showsNeedsYouGlow`) keeps the mark's room and draws none.
     private func placeStateMark(dot: CGRect, glyph: CGRect, visible: Bool, onPath: Bool) -> CGFloat? {
+        if showsNeedsYouGlow {
+            dotFadesIn = false
+            let hasGlyph = layoutStatusGlyph(frame: glyph, visible: false) || statusGlyphLayer != nil
+            removeBadge(onPath: onPath)
+            return visible ? (hasGlyph ? glyph.width : dot.width) : nil
+        }
         if layoutStatusGlyph(frame: glyph, visible: visible) { removeBadge(onPath: onPath); return glyph.width }
         guard visible, badgeColor != nil else { removeBadge(onPath: onPath); return nil }
+        let isNew = self.badgeLayer == nil
         let badgeLayer = makeBadge()
         badgeLayer.frame = dot
         badgeLayer.cornerRadius = dot.width / 2
         badgeLayer.opacity = 1
+        // The dot taking the spinner's place when the work ends fades in as the spinner fades out (`updateSpinner`).
+        if dotFadesIn, !onPath {
+            dotFadesIn = false
+            if isNew { Motion.indicators.set(badgeLayer, "opacity", to: Float(1), fade: .fadeIn, from: Float(0)) }
+        }
         return dot.width
     }
 

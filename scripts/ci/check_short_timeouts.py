@@ -12,6 +12,7 @@ from __future__ import annotations
 import argparse
 import bisect
 import json
+import os
 import re
 import subprocess
 from pathlib import Path
@@ -47,7 +48,7 @@ RUST_TIMEOUT_CALL = re.compile(r"(?:tokio::time::timeout|\.timeout\s*\(|\bwait_t
 # called next to it; a name that also says TIMEOUT, BUDGET or DEADLINE is still judged as one.
 RUST_CONST_DECL = re.compile(r"\b(?:const|static)\s+(\w+)\s*:")
 RUST_GATE_NAME = re.compile(r"TIMEOUT|BUDGET|DEADLINE", re.I)
-RUST_PACE_NAME = re.compile(r"BACKOFF|RETRY|RECONNECT|RESTART|FIRST_WAIT|POLL|INTERVAL|NOTE", re.I)
+RUST_PACE_NAME = re.compile(r"BACKOFF|RETRY|RECONNECT|RESTART|FIRST_WAIT|POLL|INTERVAL|NOTE|PAUSE|EVERY", re.I)
 
 TS_HARD_TIMEOUT = re.compile(
     rf"\b(?:[A-Za-z_]*timeout(?:Ms|_ms)|[A-Za-z_]*deadline)\b\s*(?:\??\s*:\s*[^=,;]+)?(?:=|:)[^;\n]*?({NUM})\b",
@@ -102,6 +103,16 @@ def _value(number: str, unit: str) -> float:
     return value if unit in {"milliseconds", "millis"} else value * 1000
 
 
+def _rust_test_file(rel: str) -> bool:
+    """A Rust file only a test build compiles: ``*_tests.rs``, or any file in a ``tests`` or
+    ``*_tests`` folder (``#[cfg(test)] mod outbound_queue_tests;`` whose cases are files)."""
+
+    if not rel.endswith(".rs"):
+        return False
+    folders = rel.split("/")[:-1]
+    return rel.endswith("_tests.rs") or any(f == "tests" or f.endswith("_tests") for f in folders)
+
+
 def _commented(lines: list[str], line: int) -> bool:
     return any(TIMEOUT_COMMENT.search(lines[i]) for i in (line, line - 1) if 0 <= i < len(lines))
 
@@ -116,7 +127,7 @@ def scan_source(text: str, rel: str) -> list[dict]:
 
     if Path(rel).suffix not in SOURCE_SUFFIXES or not any(rel.startswith(p) for p in PATH_PREFIXES):
         return []
-    if rel.endswith("_tests.rs"):
+    if _rust_test_file(rel):
         return []
     raw_lines = text.splitlines()
     masked = _mask(text)
@@ -182,7 +193,7 @@ def source_files(root: Path) -> Iterable[tuple[str, Path]]:
             if not raw:
                 continue
             path = root / raw
-            if path.suffix in SOURCE_SUFFIXES and not raw.endswith("_tests.rs"):
+            if path.suffix in SOURCE_SUFFIXES and not _rust_test_file(raw):
                 yield raw, path
         return
     for prefix in PATH_PREFIXES:
@@ -193,7 +204,7 @@ def source_files(root: Path) -> Iterable[tuple[str, Path]]:
             if not path.is_file() or path.suffix not in SOURCE_SUFFIXES:
                 continue
             rel = path.relative_to(root).as_posix()
-            if rel.endswith("_tests.rs"):
+            if _rust_test_file(rel):
                 continue
             yield rel, path
 
@@ -238,6 +249,22 @@ def problems(found: dict[str, int], allow: dict) -> list[str]:
         if not isinstance(entry, dict) or not str(entry.get("reason", "")).strip():
             errors.append(f"{key}: allowlist entry needs a non-empty reason")
     return errors
+
+
+GUARD_CHECK_RESULTS_ENV = "CMUX_GUARD_CHECK_RESULTS"
+
+
+def report_guard_checks(errors: list[str]) -> None:
+    """One red guard check per problem line, in the guard runner's "<passed 0|1><TAB><check>" format, so a base
+    red on this step excuses only the problems the base has (a count line changes when a change adds another
+    timeout to the same file). Without it, cmux#42296's new acpmux hub/shutdown.rs timeout landed as "red on the
+    base too" (cmuxterm-hq docs/handbook/base-red-excused-for-ever.md)."""
+    path = os.environ.get(GUARD_CHECK_RESULTS_ENV, "")
+    if not path:
+        return
+    with open(path, "a", encoding="utf-8") as handle:
+        for error in errors:
+            handle.write("0\t" + " ".join(error.split()) + "\n")
 
 
 def update(path: Path, found: dict[str, int], previous: dict) -> None:

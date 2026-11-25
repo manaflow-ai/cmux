@@ -7,7 +7,8 @@
 //! what each terminal [`reads`] names runs, then asks [`warning`] for the
 //! question. Cmd-Shift-T reopens every close, so the undo toast is only for a
 //! close that is costly to get back ([`toast`]; Lawrence 2026-10-12: "this
-//! toast shows up too often").
+//! toast shows up too often"; 2026-11-09: one idle terminal's toast is an
+//! unnecessary dialog).
 
 use serde::{Deserialize, Serialize};
 
@@ -83,33 +84,17 @@ pub fn reopens_free(tab: &ClosingTab) -> bool {
 pub enum Toast {
     Show,
     Skip,
-    /// Shows only if one of these live terminals (indices into the closing
-    /// tabs) runs a program.
-    AskTerminals {
-        terminals: Vec<usize>,
-    },
 }
 
 /// The toast decision for closing `tabs` together: several real tabs in one
-/// gesture, an agent at work, or a new chat's unsent text show it; a
-/// terminal shows it only if it runs a program; one idle tab and tabs that
-/// reopen free never do.
+/// gesture, an agent at work, or a new chat's unsent text show it. One tab
+/// that is not working (an idle terminal, a terminal running a program, a
+/// page) never does: Cmd-Z and Reopen Closed bring it back, and the close's
+/// own question (`app.warnBeforeClosingTab`) is where a program is named.
 pub fn toast(tabs: &[ClosingTab]) -> Toast {
-    let real: Vec<(usize, &ClosingTab)> =
-        tabs.iter().enumerate().filter(|(_, tab)| !reopens_free(tab)).collect();
-    if real.len() >= 2 {
-        return Toast::Show;
-    }
-    let working = |tab: &ClosingTab| tab.agent_at_work || tab.status_working || tab.unsent_draft;
-    if real.iter().any(|(_, tab)| working(tab)) {
-        return Toast::Show;
-    }
-    let terminals: Vec<usize> = real
-        .into_iter()
-        .filter(|(_, tab)| tab.kind == TabKind::Pty)
-        .map(|(index, _)| index)
-        .collect();
-    if terminals.is_empty() { Toast::Skip } else { Toast::AskTerminals { terminals } }
+    let real: Vec<&ClosingTab> = tabs.iter().filter(|tab| !reopens_free(tab)).collect();
+    let working = |tab: &&ClosingTab| tab.agent_at_work || tab.status_working || tab.unsent_draft;
+    if real.len() >= 2 || real.iter().any(working) { Toast::Show } else { Toast::Skip }
 }
 
 /// The close warning settings. Both are required on the wire: the app's

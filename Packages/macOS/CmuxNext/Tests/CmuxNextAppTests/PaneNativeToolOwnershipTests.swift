@@ -79,7 +79,7 @@ import Testing
         second.model.onTabRowToolInvoked = { _, _ in secondCalls += 1 }
         let pane = PaneContentView(stripModel: TabStripModel(tabs: []), reveal: LaunchReveal(deadline: .zero))
         let registry = ActionRegistry.standard()
-        let toolbar = PaneToolbar(registry: { registry }, newTabMenu: { nil })
+        let toolbar = PaneToolbar(registry: { registry })
         pane.toolbar = toolbar
         pane.show(first)
         let owner = pane.nativeToolOwner
@@ -167,12 +167,14 @@ import Testing
         first.model.setTabRowTools([tool])
         second.model.setTabRowTools([tool])
         let pane = PaneContentView(stripModel: TabStripModel(tabs: []), reveal: LaunchReveal(deadline: .zero))
-        let toolbar = PaneToolbar(registry: { ActionRegistry.standard() }, newTabMenu: { nil })
+        let toolbar = PaneToolbar(registry: { ActionRegistry.standard() })
         pane.toolbar = toolbar
         pane.show(first)
-        toolbar.view.show(more: false, lit: false, nativeItems: [tool])
+        toolbar.view.show(nativeItems: [tool])
+        toolbar.view.frame = NSRect(x: 0, y: 0, width: 200, height: 32)
         var presentations = 0
-        toolbar.view.moreButton.presentMenu = { _, _ in presentations += 1 }
+        // The chat's menu is its own button in the row (the pane's "…" that hosted it is gone).
+        try #require(toolbar.view.nativeButtons.first).presentMenu = { _, _ in presentations += 1 }
         let oldRequest = try #require(first.onNativeToolMenuRequested)
 
         pane.show(second)

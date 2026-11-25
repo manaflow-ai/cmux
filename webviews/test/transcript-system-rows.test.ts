@@ -6,7 +6,8 @@
 // (leo-workspace design/transcript-spacing.md rule 2):
 //
 // - consecutive one-line rows are SYSTEM_ROW_PITCH (22) apart centre to centre, whatever their kind
-//   (rule 3): no block gap between a status row, a background turn's line and a tool run;
+//   (rule 3): no block gap between a status row, a background turn's line and a tool run; an opened
+//   run's header and its first command are run-to-child (26) apart;
 // - a reply of one period draws nothing, so nothing sits on its own line under the received line;
 // - "Scheduled check" and "Compaction ended" start their words on the run's text column.
 //
@@ -14,7 +15,7 @@
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "bun:test";
 import path from "node:path";
 import { chromium, type Browser, type Page } from "playwright";
-import { SYSTEM_ROW_PITCH } from "../src/agent-session/acpmux/transcriptSpacing";
+import { SYSTEM_ROW_PITCH, TRANSCRIPT_SPACING_KINDS } from "../src/agent-session/acpmux/transcriptSpacing";
 import { galleryFrame, warmGalleryFrame } from "./support/galleryFrame";
 import { requireBrowserLane } from "./support/requireBrowserLane";
 
@@ -27,6 +28,7 @@ await requireBrowserLane("transcript-system-rows.test.ts", async () => {
     { name: "Catppuccin Mocha", file: "dark" },
   ];
   const LOG = process.env.CMUX_TRANSCRIPT_SPACING_LOG === "1";
+  const RUN_TO_CHILD = TRANSCRIPT_SPACING_KINDS.find((row) => row.id === "run-to-child")!.value;
 
   try {
     await (await chromium.launch({ headless: true })).close();
@@ -95,8 +97,10 @@ await requireBrowserLane("transcript-system-rows.test.ts", async () => {
         return null;
       };
       const rows = [...document.querySelectorAll<HTMLElement>(".acpmux-row")].filter(shown);
-      // A row that draws only punctuation or nothing: Leo's lone ".".
+      // A row that draws only punctuation or nothing: Leo's lone ".". A turn's footer is its icon
+      // buttons alone, with no time since the Codex parity pass (TurnRows.tsx TurnFooter): not bare.
       const bare = rows
+        .filter((row) => !row.querySelector("button"))
         .map((row) => (row.innerText || "").replace(/\s+/g, " ").trim())
         .filter((text) => /^[.\s]*$/.test(text) && rows.length > 0);
       return {
@@ -145,12 +149,16 @@ await requireBrowserLane("transcript-system-rows.test.ts", async () => {
     test(`a reply of one period draws nothing (${theme.file})`, async () => {
       expect((await of(theme)).bare).toEqual([]);
     });
-    for (let index = 1; index < ORDER.length; index += 1)
-      test(`"${ORDER[index - 1]}" to "${ORDER[index]}" is ${SYSTEM_ROW_PITCH}px centre to centre (${theme.file})`, async () => {
+    for (let index = 1; index < ORDER.length; index += 1) {
+      // The opened run's header to its first command keeps the grid base between the header and its
+      // opened body (transcriptSpacing.ts run-to-child, #42247); every other pair is the one-line pitch.
+      const pitch = ORDER[index - 1] === "Ran 2 commands" ? RUN_TO_CHILD : SYSTEM_ROW_PITCH;
+      test(`"${ORDER[index - 1]}" to "${ORDER[index]}" is ${pitch}px centre to centre (${theme.file})`, async () => {
         const { marks } = await of(theme);
         const gap = marks[index]!.centre - marks[index - 1]!.centre;
-        expect(Math.abs(gap - SYSTEM_ROW_PITCH)).toBeLessThanOrEqual(1);
+        expect(Math.abs(gap - pitch)).toBeLessThanOrEqual(1);
       });
+    }
     test(`"Scheduled check" and the compaction start their words on the run's text column (${theme.file})`, async () => {
       const { marks } = await of(theme);
       const run = marks[2]!.left;

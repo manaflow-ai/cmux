@@ -147,17 +147,17 @@ const columns = (row: Element): string[] =>
         ],
   );
 
-test("the four row kinds share one row grammar: icon, sentence, trailing column, chevron last", async () => {
+test("activity rows share icon and sentence columns; completed subagents end at their duration", async () => {
   const { rows } = await fourRows();
   for (const [kind, row] of Object.entries(rows)) {
     const order = columns(row);
     expect({ kind, first: order[0] }).toEqual({ kind, first: "icon" });
-    expect({ kind, last: order.at(-1) }).toEqual({ kind, last: "chevron" });
+    expect({ kind, last: order.at(-1) }).toEqual({ kind, last: kind === "subagent" ? "trail" : "chevron" });
     // The trailing column, when a row has one, sits right before the chevron.
     const trail = order.indexOf("trail");
-    if (trail !== -1) expect({ kind, trail }).toEqual({ kind, trail: order.length - 2 });
-    // Every chevron is the same glyph in the same slot.
-    expect(row.lastElementChild!.matches(".cv-tool__chevron, svg.cv-tool__chevron")).toBe(true);
+    if (trail !== -1) expect({ kind, trail }).toEqual({ kind, trail: order.length - (kind === "subagent" ? 1 : 2) });
+    // Completed subagents have no disclosure chevron.
+    expect(row.lastElementChild!.matches(".cv-tool__chevron, svg.cv-tool__chevron")).toBe(kind !== "subagent");
   }
 });
 
@@ -185,7 +185,7 @@ const drawn = (row: Element): string[] => {
     );
 };
 
-test("each row draws its trailing status or duration before the chevron, and the chevron last", async () => {
+test("expandable rows keep their chevron last; completed subagents omit it", async () => {
   const { container, rows } = await fourRows();
   const doc = container.ownerDocument;
   for (const sheet of ROW_SHEETS) {
@@ -195,11 +195,11 @@ test("each row draws its trailing status or duration before the chevron, and the
   }
   for (const [kind, row] of Object.entries(rows)) {
     const order = drawn(row);
-    // The chevron is drawn last on every row, so it sits on one x at the row's end.
-    expect({ kind, last: order.at(-1) }).toEqual({ kind, last: "chevron" });
+    // A completed subagent ends at its hover duration; expandable rows keep the chevron.
+    expect({ kind, last: order.at(-1) }).toEqual({ kind, last: kind === "subagent" ? "trail" : "chevron" });
     // The trailing column, when a row has one, is drawn right before it, never after.
     const trail = order.indexOf("trail");
-    if (trail !== -1) expect({ kind, trail }).toEqual({ kind, trail: order.length - 2 });
+    if (trail !== -1) expect({ kind, trail }).toEqual({ kind, trail: order.length - (kind === "subagent" ? 1 : 2) });
   }
   // The sends and the subagent line carry a trailing column, so the check above bites on them.
   for (const kind of ["send-message", "acpmux-send", "subagent"])
@@ -247,11 +247,12 @@ test("every message preview is cut by the one rule: one muted span that ellipsiz
 test("the subagent line's duration is in the trailing column, not the sentence", async () => {
   const { rows } = await fourRows();
   const row = rows.subagent!;
-  expect(row.querySelector(".cv-tool__text")!.textContent).toBe("Subagent finished: Audit agent friction");
+  expect(row.querySelector(".cv-tool__text")!.textContent).toBe("Audit agent friction finished");
+  expect(row.querySelector(".cv-tool__chevron")).toBeNull();
   expect(row.querySelector(".cv-tool__trail")!.textContent).toBe("2m 28s");
   // Its name for a screen reader still reads the whole line.
   expect(row.querySelector(".cv-subagent-done")!.getAttribute("aria-label")).toBe(
-    "Subagent finished: Audit agent friction · 2m 28s",
+    "Audit agent friction finished · 2m 28s",
   );
 });
 
@@ -266,7 +267,8 @@ test("a subagent's line with no harness known draws the subagent mark, not the c
 
 // Leo, 2026-11-04: "these all being claude": a subagent of the chat's own family draws its toned
 // subagent mark, not the chat's harness mark on every line.
-test("a subagent of the chat's own family draws its toned subagent mark", async () => {
+test("a subagent of the chat's own family wears the chat's mark with its toned badge, never the sparkle alone", async () => {
+  // Leo, 2026-11-22: "when did we decide to omit the claude/codex or whatever icons and only do the diamonds?"
   const container = await render(
     <SubagentHarnessContext.Provider value="claude">
       <SubagentDoneLine row={subagentRow} />
@@ -274,7 +276,9 @@ test("a subagent of the chat's own family draws its toned subagent mark", async 
   );
   const icon = container.querySelector(".cv-tool__icon")!;
   expect(icon.querySelector('[data-icon="agent.session"]')).toBeNull();
-  expect(icon.querySelector('[data-agent-tone] [data-icon="task.ai"]')).not.toBeNull();
+  expect(icon.querySelector('[data-icon="task.ai"]')).toBeNull();
+  expect(icon.querySelector(".cv-sender-icon[data-badged]")).not.toBeNull();
+  expect(icon.querySelector('[data-badge="diamond"] [data-agent-tone]')).not.toBeNull();
 });
 
 test("a subagent of another family than the chat's draws its harness's mark", async () => {

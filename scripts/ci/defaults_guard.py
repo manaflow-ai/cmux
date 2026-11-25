@@ -43,10 +43,11 @@ never reads it, so a hand-edited copy hides nothing.
 A setting the pull request adds whose default is off (false, null, "off",
 "never", "none", "disabled" or empty) keeps the behavior from before it
 existed (new things ship off), so it passes on its own (Leo 2026-10-21); it
-stays listed. Any other change passes with an independent review receipt on
+stays listed. Any other change passes with a review receipt on
 the head: a comment or review whose first line is
 `Review (<reviewer>): SHIP at <full head sha>` from a member (OWNER, MEMBER or
-COLLABORATOR, a user, not a bot), not a self-review, the grammar
+COLLABORATOR, a user, not a bot), a self-review, a subagent's or another
+agent's on the author's own account included (Leo 2026-11-21), the grammar
 scripts/ci/risk_tier.py reads. The newest verdict naming the head decides, so
 a later BLOCK beats an earlier SHIP, and a push needs a new receipt, except a
 merge of the base: a SHIP at an earlier head is carried when only merges came
@@ -93,6 +94,8 @@ SWIFT_SOURCES = "Packages/macOS/CmuxNext/Sources"
 # The settings exporter's inputs, which the source stamp hashes.
 SETTINGS_SOURCE_DIR = "Packages/macOS/CmuxNext/Sources/CmuxNextSettings"
 SETTINGS_SOURCE_SUFFIXES = (".swift", ".xcstrings")
+SETTINGS_GENERATOR_INPUTS = ("schemas/settings/source", "schemas/settings/generator",
+                             "schemas/settings/retired-keys.json", "scripts/cmux-next/gen-settings-sources.py")
 SETTINGS_EXPORTER_FILES = (
     "Packages/macOS/CmuxNext/Tests/CmuxNextSettingsTests/ManagedPreferencesManifestTests.swift",
     "Packages/macOS/CmuxNext/Tests/CmuxNextSettingsTests/SettingsSchemaExportTests.swift",
@@ -130,8 +133,8 @@ TUNABLE_RE = re.compile(r'\bTunable<[\w.?]+>\s*\.(choice|toggle|number|color|spr
 # An independent review's verdict on the exact head, on a comment's or review's first line:
 # "Review (subagent, correctness first): SHIP at <full head sha>". The grammar, and when a receipt
 # counts, lives in scripts/ci/risk_tier.py (its one copy; risk-tier.yml runs that file alone): a SHIP
-# from the pull request author's own account must name its reviewer agent and who started it, neither
-# of them the description's `Author-agent:` (cmux-ad m25 item 7). Imported where a receipt is read, so
+# counts from any reviewer, the pull request's own agent included (Leo, 2026-11-14: "this is no longer
+# a requirement"). Imported where a receipt is read, so
 # `snapshot` and `source-stamp` run from a checkout that has only this file.
 SCRIPT_DIR = Path(__file__).resolve().parent
 
@@ -734,8 +737,7 @@ def receipt_items(pull: Mapping[str, object]) -> list[tuple[Mapping[str, object]
 
 
 def receipt_line(item: Mapping[str, object], head: str):
-    """The receipt (risk_tier.Receipt) on the item's first line when it names the full head and is not a
-    self-review. Whether a SHIP from the author's own account counts is receipt_verdict's to decide."""
+    """The receipt (risk_tier.Receipt) on the item's first line when it names the full head."""
     first = next((line for line in str(item.get("body") or "").splitlines() if line.strip()), "")
     return grammar().parse(first, head)
 
@@ -743,13 +745,12 @@ def receipt_line(item: Mapping[str, object], head: str):
 def receipt_verdict(pull: Mapping[str, object], head: str,
                     writers: Iterable[str] = (), unchecked: Iterable[str] = ()) -> tuple[str, str] | None:
     """("ship" or "block", reviewer) of the newest receipt naming the full head sha on the first line
-    of a trusted comment or review body; a self-review never counts and a BLOCK wins a tie. The
+    of a trusted comment or review body; a BLOCK wins a tie. The
     cmux-bot App is trusted only when GitHub reports its exact Bot login and immutable node id.
     A user whose association reads as untrusted is trusted when listed in `writers` (repository
     write access, looked up by `repo_writers`). A user in `unchecked` (their lookup failed, so nobody
     knows) counts for a BLOCK only: an unverified receipt can make the guard red, never green. A SHIP
-    from the pull request author's own account counts only as risk_tier.refusal allows (it names
-    a reviewer agent and who started it, neither the description's `Author-agent:`)."""
+    from the pull request author's own account counts like any other (risk_tier.refusal)."""
     writers = {w.lower() for w in writers}
     unchecked = {u.lower() for u in unchecked}
     rules = grammar()
@@ -983,9 +984,9 @@ def signed(verdict: Approval) -> str:
 
 
 def request_command(repo: str | None = None, number: object = None) -> str:
-    """The one command an author lane runs for an independent review it cannot give itself: next-review reviews the
-    head and the cmux-bot App posts the receipt (risk_tier.CMUX_BOT_NODE_ID), so the author neither starts the
-    reviewer nor writes the verdict, and the receipt wakes this check (cmux-next-defaults-guard-review.yml)."""
+    """The one command an author lane runs to have the review service review it (its own review counts too):
+    next-review reviews the head and the cmux-bot App posts the receipt (risk_tier.CMUX_BOT_NODE_ID), and the
+    receipt wakes this check (cmux-next-defaults-guard-review.yml)."""
     return f"router-review {repo or 'OWNER/REPO'} {number or 'N'} --request"
 
 
@@ -1019,14 +1020,15 @@ def comment_body(found: list[Change], verdict: Approval | None, head: str, merge
             who = " or ".join(f"@{o}" for o in verdict.eligible) or "(no eligible call owner)"
             if verdict.blocked:
                 lines.append(f"The newest verdict on this commit is a BLOCK from `{plain(verdict.blocked)}`.")
-            lines.append(f"**Needs a review.** It passes with an independent review receipt on this commit: a comment "
-                         f"or review whose first line is `Review (<reviewer>): SHIP at {head}`, from a member, not a "
-                         "self-review (the newest verdict naming the head decides; a later BLOCK beats an earlier "
+            lines.append(f"**Needs a review.** It passes with a review receipt on this commit: a comment "
+                         f"or review whose first line is `Review (<reviewer>): SHIP at {head}`, from a member, a "
+                         "self-review, a subagent's or another agent's on the author's account included (the newest "
+                         "verdict naming the head decides; a later BLOCK beats an earlier "
                          f"SHIP), or with an approving review on this commit from {who} (the call owners in `{OWNERS}`, "
                          "never the author). A receipt posted as a review re-runs this check; after a plain comment, "
                          "re-run it. The `needs a call` label alone does not pass, and a new push needs a new receipt. "
-                         "Every agent posts as the author's account, and a lane never reviews its own pull request: "
-                         "the author lane asks the review service, whose receipt cmux-bot posts.")
+                         "Every agent posts as the author's account, so the author lane may review its own pull "
+                         "request or start a subagent to; the review service's receipt, which cmux-bot posts, counts too.")
             if verdict.stale:
                 lines.append(f"Earlier approvals on an older commit: {', '.join('@' + s for s in verdict.stale)}.")
             after = next_line(verdict, request or request_command())
@@ -1096,7 +1098,9 @@ def settings_source_stamp(tree: Tree) -> str:
     order, with a blank line between entries and a newline at the end. It is derived for a
     commit, never committed."""
     paths = list(SETTINGS_EXPORTER_FILES) + [
-        path for path in tree.files(SETTINGS_SOURCE_DIR) if PurePosixPath(path).suffix in SETTINGS_SOURCE_SUFFIXES]
+        path for path in tree.files(SETTINGS_SOURCE_DIR) if PurePosixPath(path).suffix in SETTINGS_SOURCE_SUFFIXES] + [
+        # The settings Swift the build generates (SettingsSchemaPlugin, RFD 0048) is not in git: its inputs.
+        path for top in SETTINGS_GENERATOR_INPUTS for path in tree.files(top)]
     paths.sort(key=lambda path: path.encode("utf-8"))
     contents = tree.read_bytes(paths)
     return "\n\n".join(f"{hashlib.sha256(contents[path]).hexdigest()}  {path}" for path in paths) + "\n"
@@ -1175,7 +1179,7 @@ def command_check(args: argparse.Namespace) -> int:
     if needed and not (verdict and verdict.approved):
         who = " or ".join(verdict.eligible) if verdict else "a call owner"
         print(f"::error title=Default changes need a review::{len(needed)} default(s) changed; needs a comment or review "
-              f"whose first line is `Review (<reviewer>): SHIP at {head_sha}` from a member (not a self-review), "
+              f"whose first line is `Review (<reviewer>): SHIP at {head_sha}` from a member (a self-review counts), "
               f"or an approving review on {head_sha[:12]} from {who}. "
               + (next_line(verdict, request) if verdict else f"next: {request}"))
         for login, error in lookup_failed.items():

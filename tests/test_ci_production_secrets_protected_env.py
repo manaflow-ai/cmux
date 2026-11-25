@@ -13,10 +13,12 @@ Stack credentials also requires that ref to be the run's own revision.
 """
 
 import os
-import re
 import sys
 
 import yaml
+
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import workflow_jobs  # noqa: E402
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 WORKFLOWS = os.path.join(ROOT, ".github", "workflows")
@@ -29,7 +31,6 @@ FAILURES = []
 # cmux-tui-pin-*), which holds only the R2 upload credentials.
 ARTIFACT_JOBS = {
     "cmux-tui-artifacts.yml": ["publish", "publish-windows", "publish-tree", "publish-tree-tested", "point-feat-channel", "mark-tree-commits"],
-    "dogfood-artifact-publish.yml": ["publish"],
 }
 ARTIFACT_SECRETS = {
     "CF_R2_ACCESS_KEY_ID",
@@ -38,6 +39,12 @@ ARTIFACT_SECRETS = {
     "CMUX_CEF_R2_ACCESS_KEY_ID",
     "CMUX_CEF_R2_SECRET_ACCESS_KEY",
     "CMUX_CEF_R2_ACCOUNT_ID",
+}
+# mark-tree-commits also signs the Linux release files of commits that share a published tree
+# (scripts/ci/cmux-linux-release-aliases.sh, one step): it runs feat-cmux-next's own code only, as the
+# point-*-channel jobs that hold the same key do.
+ARTIFACT_JOB_EXTRA_SECRETS = {
+    ("cmux-tui-artifacts.yml", "mark-tree-commits"): {"CMUX_WEB_OTA_SIGNING_KEY"},
 }
 
 NIGHTLY_TRACK_ENVIRONMENT = "${{ needs.decide.outputs.environment }}"
@@ -51,7 +58,6 @@ RELEASE_JOBS = {
     "ios-app-store.yml": ["upload-and-validate"],
     "ios-testflight.yml": ["set-testflight-notes", "assign-internal-group"],
     "ios-appstore-upload.yml": ["set-testflight-notes", "assign-internal"],
-    "repair-v0-64-25-helper-rpaths.yml": ["repair"],
     "repair-nightly-appcast-content-types.yml": ["repair"],
     "update-homebrew.yml": ["update-cask"],
 }
@@ -76,7 +82,8 @@ def main():
         document = yaml.load(open(os.path.join(WORKFLOWS, name), encoding="utf-8"), Loader=yaml.BaseLoader)
         for job in jobs:
             definition = document["jobs"].get(job, {})
-            environment = definition.get("environment")
+            # The environment's name as written (workflow_jobs.environment_spec: a string or a mapping's `name`).
+            environment = (workflow_jobs.environment_spec(definition) or {}).get("name")
             if name == "nightly.yml" and environment == NIGHTLY_TRACK_ENVIRONMENT:
                 # nightly.yml picks the environment per track in `decide`:
                 # release-next only for branch nightly-next, release otherwise.
@@ -91,19 +98,21 @@ def main():
     for name, jobs in RELEASE_NEXT_JOBS.items():
         document = yaml.load(open(os.path.join(WORKFLOWS, name), encoding="utf-8"), Loader=yaml.BaseLoader)
         for job in jobs:
-            _check(document["jobs"].get(job, {}).get("environment") == "release-next",
+            spec = workflow_jobs.environment_spec(document["jobs"].get(job) or {}) or {}
+            _check(spec.get("name") == "release-next",
                    f"{name} {job} runs in the release-next environment")
     for name, jobs in ARTIFACT_JOBS.items():
         text = open(os.path.join(WORKFLOWS, name), encoding="utf-8").read()
         document = yaml.load(text, Loader=yaml.BaseLoader)
         for job in jobs:
             definition = document["jobs"].get(job, {})
-            environment = definition.get("environment")
             # A mapping keeps the environment and only sets whether it records a deployment.
-            _check((environment.get("name") if isinstance(environment, dict) else environment) == "artifacts",
+            _check((workflow_jobs.environment_spec(definition) or {}).get("name") == "artifacts",
                    f"{name} {job} runs in the artifacts environment")
-            used = set(re.findall(r"secrets\.([A-Za-z0-9_]+)", yaml.dump(definition)))
-            _check(used <= ARTIFACT_SECRETS, f"{name} {job} uses only R2 upload secrets (found {sorted(used)})")
+            # Every form GitHub accepts; `secrets: inherit` or a computed index reads ALL_SECRETS, never a subset.
+            used = workflow_jobs.secret_names(definition)
+            allowed = ARTIFACT_SECRETS | ARTIFACT_JOB_EXTRA_SECRETS.get((name, job), set())
+            _check(used <= allowed, f"{name} {job} uses only R2 upload secrets (found {sorted(used)})")
     if FAILURES:
         print(f"\n{len(FAILURES)} failure(s)")
         sys.exit(1)

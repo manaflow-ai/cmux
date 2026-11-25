@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
-"""session_real.py: ONE shared bench session of the size of the person who uses the app.
+"""session_real.py: ONE shared bench session of the size of a large session of real use.
 
-His session, read from his one session daemon on 2026-11-10: 826 workspaces, 858 panes, 1600 tabs,
+The size, read from one session daemon on 2026-11-10: 826 workspaces, 858 panes, 1600 tabs,
 798 terminals, 170 agents, 13 clients. Every bench owner uses this script (or the HOME it saved)
 for the `real` session arm; nobody writes a second "800" maker.
 
@@ -17,7 +17,7 @@ bench row talk about the same session. With pick(i, k, n) = "k of n, spread even
 
 PTY limit. macOS has `kern.tty.ptmx_max` PTYs for the whole machine (511 on the bench minis and
 on a default Mac), and the daemon keeps a reserve (PTY_RESERVE 64, pty_reclaim.rs). So 798 shells
-never run at one time, in his session neither: the daemon parks idle ones (`park-tabs`; the tab
+never run at one time, in a real session neither: the daemon parks idle ones (`park-tabs`; the tab
 stays, its shell starts again when its workspace is shown). `make` does the same on purpose:
 the agent terminals and `--live-shells` plain terminals keep a shell, the others are parked. It
 prints the split and the limit; it never makes fewer terminals than asked without an error.
@@ -28,7 +28,7 @@ box; a spinner line and a title at 10 Hz and one output line a second while it w
 its state through the product's own path, the hook helper every cmux-tui terminal exports
 (`$CMUX_TUI_HOOK claude <event>`). So the daemon's agent roster, the sidebar's agent marks and the
 restore rule ("a kept tab whose terminal ran an agent starts again at launch") all see an agent.
-`--agents-working` of them work (the default 8 is a guess of his usual state, written in each
+`--agents-working` of them work (the default 8 is a guess of the usual state, written in each
 result); the others wait at their prompt and print nothing.
 
 Commands (make, counts, agents, clients, measure and map take `--socket <daemon socket>` or
@@ -39,7 +39,7 @@ tagged DEV build; build and launch take `--app <bundle>`; save, install and unin
   agents   start the agent program in every agent terminal (after `make --no-agents`, or after a
            restore: a restored agent terminal has a new shell, or the real CLI that the product's
            "Resume Agents After Restart" started; that CLI is ended by its exact PIDs first)
-  clients  hold N more control connections open, as his 13 clients do, until killed
+  clients  hold N more control connections open, as the session's 13 clients do, until killed
   measure  memory of app + daemon + terminal hosts, process count, PTYs, idle CPU, main wakes/s
   map      the first map: 20 runs each of workspace switch, tab switch, new tab, split, workspace
            close on the app's own clocks (p50 / p95 / max)
@@ -90,6 +90,16 @@ import subprocess
 import sys
 import time
 import uuid
+sys.path.append(os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'cmux-next'))
+sys.path.append(os.path.dirname(os.path.abspath(__file__)))  # made_workspace.py, also when this file is loaded by its path
+try:
+    from safe_log import safe_print  # noqa: E402  (a line in a cleanup path never skips the kill)
+except ImportError:  # a copy of this script outside scripts/: the same helper (scripts/cmux-next/safe_log.py)
+    def safe_print(*args, **kwargs):
+        try:
+            print(*args, **kwargs)
+        except (BrokenPipeError, OSError, ValueError):
+            pass
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 AGENT_PROGRAM = os.path.join(HERE, "session_real_agent.zsh")
@@ -1050,7 +1060,7 @@ def steady_clients(listed):
     """The clients of a `list-clients` reply that stay: not the asking connection, and either named (the app's
     connections and every bench client call `set-client-info`) or connected for STEADY_SECONDS or more. An agent's
     hook call is an unnamed connection for a moment (p50 0.3 s): it is in the daemon's list, and it is not one of
-    the person's clients."""
+    the session's own clients."""
     return [client for client in listed if isinstance(client, dict) and not client.get("self")
             and (client.get("name") or (client.get("connected_seconds") or 0) >= STEADY_SECONDS)]
 
@@ -1278,7 +1288,7 @@ def measure(args):
     wakes_before = soft("debug.hangs", {"clear": True}).get("main_wakes")
     before = {pid: procs.counters(pid) for pid in role}
     started = time.time()
-    time.sleep(args.seconds)
+    time.sleep(args.seconds)  # sleep-ok: window 1, the measured idle window itself
     elapsed = time.time() - started
     hangs = soft("debug.hangs")
     after = {pid: procs.counters(pid) for pid in role}
@@ -1287,7 +1297,7 @@ def measure(args):
     # frame, so its wakes are not in window 1.
     soft("debug.frames", {"action": "start"})
     frame_started = time.time()
-    time.sleep(min(5.0, args.seconds))
+    time.sleep(min(5.0, args.seconds))  # sleep-ok: window 2, the display link's recording window
     frames = soft("debug.frames", {"action": "stop", "raw": True})
     frame_seconds = time.time() - frame_started
     intervals, busy = frames.get("intervals_ms") or [], frames.get("main_ms") or []
@@ -1389,6 +1399,27 @@ class AppDriver:
         keys = {w.get("key"): w.get("name") for w in self.daemon.must("list-workspaces").get("workspaces", [])}
         return {keys.get(w.get("key")): w.get("id") for w in self.topology().get("workspaces") or [] if w.get("id")}
 
+    def settled_step(self, action, timeout=15.0, **args):
+        """`step`, then wait until the app's action budget has the action's committed frame and the topology reads
+        the same twice in a row: the app is at rest before the next timed run."""
+        before = self.last_sequence()
+        reply = self.step(action, **args)
+        deadline = time.monotonic() + timeout
+        committed, last = False, None
+        while time.monotonic() < deadline:
+            if not committed:
+                recent = self.soft("debug.action_budget", {"limit": 16}).get("recent") or []
+                committed = any(r.get("sequence", 0) > before and r.get("id") == action and r.get("commit_ms") is not None
+                                for r in recent)
+            else:
+                now = self.topology()
+                if now == last:
+                    return reply
+                last = now
+            time.sleep(0.2)
+        print(f"session_real: {action} not at rest in {timeout:.0f} s (committed {committed}); going on", flush=True)
+        return reply
+
     def last_sequence(self):
         recent = self.soft("debug.action_budget", {"limit": 4}).get("recent") or []
         return max((r.get("sequence", 0) for r in recent), default=0)
@@ -1398,13 +1429,14 @@ class AppDriver:
         before = self.last_sequence()
         self.soft("debug.hangs", {"clear": True})
         if timer:
-            self.soft(timer, {"action": "start"})
+            # Each row of the timer then has the key window changes of its switch (`timer_key_changes`).
+            self.soft(timer, {"action": "start", "key_changes": True})
         self.soft("debug.frames", {"action": "start"})
-        time.sleep(0.1)  # a few frames at rest before the action
+        time.sleep(0.1)  # sleep-ok: the recording holds a few frames at rest before the action
         started = time.monotonic()
         reply = self.act(action, **args)
         reply_ms = (time.monotonic() - started) * 1000
-        time.sleep(settle)  # the action's frames land
+        time.sleep(settle)  # sleep-ok: the frame recording window after the action (its frames are the row)
         frames = self.soft("debug.frames", {"action": "stop", "raw": True})
         timed = self.soft(timer, {"action": "stop"}) if timer else {}
         hangs = self.soft("debug.hangs")
@@ -1417,6 +1449,8 @@ class AppDriver:
             "commit_ms": own.get("commit_ms"), "budget_id": own.get("id"), "outcome": own.get("outcome"),
             "timer_commit_ms": samples[0].get("commit_ms") if samples else None,
             "timer_late_vsyncs": samples[0].get("late_vsyncs") if samples else None,
+            # No count from a recording whose span ring filled (the row says it): later marks are missing.
+            "timer_key_changes": samples[0].get("key_changes") if samples and not samples[0].get("key_marks_full") else None,
             "frames": len(intervals), "refresh_ms": frames.get("refresh_ms"),
             "max_frame_ms": max(intervals) if intervals else None, "max_main_ms": max(busy) if busy else None,
             "late_frames": sum(1 for i in intervals if frames.get("refresh_ms") and i > frames["refresh_ms"] * 1.5),
@@ -1440,7 +1474,7 @@ class AppDriver:
 def summarize(name, rows, note=""):
     out = {"row": name, "runs": len(rows), "errors": sum(1 for r in rows if r.get("error")), "note": note}
     measured = [r for r in rows if not r.get("error")]  # a failed run is counted in `errors`, not in the times
-    for key in ("commit_ms", "timer_commit_ms", "reply_ms", "max_frame_ms", "max_main_ms", "main_max_gap_ms"):
+    for key in ("commit_ms", "timer_commit_ms", "reply_ms", "max_frame_ms", "max_main_ms", "main_max_gap_ms", "timer_key_changes"):
         out[key] = spread([r.get(key) for r in measured])
     out["late_frames_total"] = sum(r.get("late_frames") or 0 for r in rows)
     out["refresh_ms"] = next((r.get("refresh_ms") for r in rows if r.get("refresh_ms")), None)
@@ -1493,6 +1527,19 @@ def map_faults(asked, rows, runs, failed, skipped, untimed_errors):
     return faults
 
 
+def bench_workspace(app):
+    """The id of a new workspace for map's rows: `workspace.newAtBottom` made it (made_workspace.py reads the answer)."""
+    try:
+        from made_workspace import made_workspace  # noqa: PLC0415  (only map needs it)
+    except ImportError:  # a copy of this script with no made_workspace.py beside it
+        raise SystemExit("session_real: map needs made_workspace.py (scripts/perf-bench) beside this file") from None
+    made = app.act("workspace.newAtBottom")
+    bench = made_workspace(made, app.topology)
+    if not bench:
+        raise SystemExit(f"session_real: workspace.newAtBottom made no workspace: {str(made)[:300]}")
+    return bench
+
+
 def map_rows(args):
     """The first map of the app at this session: 20 runs per action, the app's own clocks."""
     wanted = set(args.rows.split(",")) if args.rows else None
@@ -1516,7 +1563,7 @@ def map_rows(args):
         if wanted and name not in wanted:
             return
         if time.time() > deadline:
-            print(f"SESSION-REAL-ROW-SKIPPED {name}: the time budget of this run ended", flush=True)
+            safe_print(f"SESSION-REAL-ROW-SKIPPED {name}: the time budget of this run ended", flush=True)
             skipped.append(name)
             return
         sampler = None
@@ -1530,7 +1577,7 @@ def map_rows(args):
         try:
             raw[name] = make()
         except (RuntimeError, OSError, ValueError, KeyError) as error:
-            print(f"SESSION-REAL-ROW-FAILED {name}: {type(error).__name__}: {error}", flush=True)
+            safe_print(f"SESSION-REAL-ROW-FAILED {name}: {type(error).__name__}: {error}", flush=True)
             app.unusable.append({"action": name, "error": str(error)})
             failed.append((name, f"{type(error).__name__}: {error}"))
             return
@@ -1546,19 +1593,13 @@ def map_rows(args):
     real = sorted(name for name in ids if name and NAME.match(name))
     if len(real) < 44:
         raise SystemExit(f"session_real: the app shows {len(real)} workspaces of a `make` session; map needs it")
-    made = app.act("workspace.newAtBottom")
-    bench = next((i for i in made.get("created", []) if str(i).startswith("ws_")), None)
-    if not bench:
-        raise SystemExit(f"session_real: workspace.newAtBottom made no workspace: {str(made)[:300]}")
-    app.step("goToWorkspace", workspace=bench)
-    time.sleep(1.5)
+    bench = bench_workspace(app)
+    app.settled_step("goToWorkspace", workspace=bench)
 
     def switch_warm():
         other = ids[real[0]]
-        app.step("goToWorkspace", workspace=other)
-        time.sleep(1.0)
-        app.step("goToWorkspace", workspace=bench)
-        time.sleep(1.0)
+        app.settled_step("goToWorkspace", workspace=other)
+        app.settled_step("goToWorkspace", workspace=bench)
         return [app.timed("goToWorkspace", timer="debug.workspace_switch", workspace=(other, bench)[i % 2]) for i in range(runs)]
 
     cold = cold_targets(real, runs)
@@ -1568,8 +1609,7 @@ def map_rows(args):
 
     def tab_switch():
         app.step("goToWorkspace", workspace=bench)
-        app.step("newSurface")
-        time.sleep(1.5)
+        app.settled_step("newSurface")
         return [app.timed("nextSurface", timer="debug.tab_switch") for _ in range(runs)]
 
     def new_tab():
@@ -2259,8 +2299,8 @@ def main():
 
     p = sub.add_parser("clients")
     target(p)
-    p.add_argument("--count", type=int, default=REAL["clients"] - 1, help="connections to hold (his 13 = the app + 12)")
-    p.add_argument("--total", type=int, default=0, help="hold as many as make the daemon's client list this long (his is 13)")
+    p.add_argument("--count", type=int, default=REAL["clients"] - 1, help="connections to hold (the session's 13 = the app + 12)")
+    p.add_argument("--total", type=int, default=0, help="hold as many as make the daemon's client list this long (the session's is 13)")
     p.add_argument("--seconds", type=float, default=0, help="0 = until killed")
     p.add_argument("--ready-file", help="write the read-back count here (JSON) when the connections are held")
     p.set_defaults(run=clients)

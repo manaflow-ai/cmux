@@ -190,9 +190,13 @@ pub(crate) use topology_ops::split_direction_field;
 mod agent_chat_columns;
 #[cfg(unix)]
 mod agent_chat_notices;
+#[cfg(unix)]
+mod agent_failure_code;
 pub(crate) mod agent_message_pump;
+mod agent_notice_stats;
 pub(crate) mod app_terminals;
 mod cell_pixels;
+pub(crate) mod chat_index;
 mod client_resize;
 mod cloud_conversations;
 mod construct;
@@ -229,6 +233,8 @@ mod pinned_columns;
 #[cfg(unix)]
 mod project_chats;
 mod pty_reclaim;
+mod shell_state_save;
+mod tree_revision;
 mod viewport_scroll;
 mod workspace_name;
 use kitty_reservation::kitty_image_limits_exceed;
@@ -238,6 +244,7 @@ pub use agent_presence::{AgentActivity, AgentPresence};
 pub(crate) use agent_prompts::{
     with_agent_list_replies, with_agent_session, with_kept_session, with_last_reply,
 };
+mod agent_notification_delivery;
 mod agent_types;
 pub use agent_types::{AgentRecord, AgentSource, AgentState};
 use agent_types::{
@@ -255,8 +262,8 @@ mod layout_types;
 mod layout_undo;
 mod lifecycle;
 pub use layout_types::{
-    AppliedLayout, AppliedPane, Direction, LayoutLeafSpec, LayoutSpec, LayoutUndoError,
-    LayoutUndoResult, ViewportWidthError, ZoomMode, ZoomState,
+    AppliedLayout, AppliedPane, Direction, FloatPaneError, FloatPaneOutcome, LayoutLeafSpec,
+    LayoutSpec, LayoutUndoError, LayoutUndoResult, ViewportWidthError, ZoomMode, ZoomState,
 };
 mod layout_undo_commit;
 pub use events::{
@@ -322,9 +329,13 @@ pub(crate) use time::now_ms;
 pub(crate) use crate::state::{PersonalChange, ScreenChange, WorkspaceStatusChange};
 pub(crate) use tab_strip::StripRequest;
 pub(crate) mod creating_input;
+#[cfg(unix)]
+mod holder_late;
 mod loss_causes;
 mod orphan_hosts;
 mod pending_terminals;
+#[cfg(any(unix, windows))]
+pub mod process_census;
 mod startup_adoption_gate;
 mod startup_record;
 mod terminal_adoption;
@@ -346,9 +357,11 @@ mod terminal_live;
 pub(crate) use terminal_live::TerminalProgressFollower;
 mod terminal_move;
 mod terminal_move_topology;
+mod terminal_port_watch;
 mod terminal_progress;
 mod terminal_publisher;
 mod terminal_reap;
+pub(crate) use terminal_port_watch::PortMark;
 mod terminal_tail_pins;
 pub(crate) use terminal_tail_pins::RESERVED_TAIL_KEY_PREFIX;
 #[cfg(unix)]
@@ -402,7 +415,7 @@ use resource_content::ensure_screen_split_public_ids;
 #[cfg(unix)]
 pub(crate) use resource_topology::AgentCLIJobBusy;
 pub(crate) use resource_topology::{
-    BatchCloseOutcome, BatchCloseTarget, CloseReason, PANE_BROWSER_URL_FIELD,
+    BatchCloseOutcome, BatchCloseTarget, CloseReason, PANE_BROWSER_URL_FIELD, PANE_SPLIT_FIT_FIELD,
     PANE_SPLIT_FOCUS_FIELD, RoomClose, SCREEN_CREATE_FOCUS_FIELD, TabSplit,
     WORKSPACE_CREATE_FOCUS_FIELD,
 };
@@ -566,6 +579,9 @@ pub struct Mux {
     /// Clone of the registry's projection spans, read without its lock.
     resource_projection_stats: Arc<crate::diagnostics::ResourceProjectionStats>,
     started_at: Instant,
+    /// The route generations of `state`'s routing tables, read without the session lock
+    /// (`crate::route_table::RouteGenerations`).
+    pub(crate) route_generations: crate::route_table::RouteGenerations,
     pub(crate) state: signaled_mutex::StateMutex,
     subscribers: MuxEventBroadcaster,
     config_reload: Mutex<ConfigReloadState>,
@@ -723,6 +739,10 @@ pub struct Mux {
     /// The chat-index project import's wake (`project_chats.rs`).
     #[cfg(unix)]
     project_chats: project_chats::ProjectChatsWake,
+    /// Every ACP chat acpmux knows, for `chat.list` (`chat_index.rs`).
+    chat_index: chat_index::ChatIndex,
+    /// The editor and app project sources' file watch (`state/project_watch.rs`).
+    pub(crate) project_watch: crate::state::project_watch::ProjectWatch,
     /// Nonterminal notifications remain placement-local. Terminal unread state is keyed by
     /// stable content identity so every view of one terminal shares the same attention marker.
     placement_notifications: Mutex<HashMap<SurfaceId, SurfaceNotification>>,
@@ -742,7 +762,9 @@ pub struct Mux {
     /// The terminals whose live facts changed (`mux/terminal_live.rs`).
     terminal_live: terminal_live::TerminalLiveLog,
     /// Pinned terminals' last lines and their publisher (`terminal-tail-pin-v1`).
-    terminal_tail_pins: terminal_tail_pins::TerminalTailPins,
+    terminal_tail_pins: Arc<terminal_tail_pins::TerminalTailPins>,
+    /// The terminals that printed, for their workspaces' `ports` entries.
+    terminal_port_watch: Arc<terminal_port_watch::TerminalPortWatch>,
     notification_ledger: Mutex<VecDeque<ResourceNotification>>,
     /// Per-client read marks. The shared unread marker above answers "does this terminal need
     /// attention on the shared console"; this map answers "has this client install seen this
@@ -761,8 +783,10 @@ pub struct Mux {
     /// Shared presentation metadata (workspace groups and workspace
     /// presentation fields), replaced after each registry commit.
     presentation: Mutex<Arc<crate::workspace_registry::PresentationSnapshot>>,
-    /// Git HEAD lookups keyed by directory, with the time they were read.
-    git_heads: Mutex<HashMap<String, (Instant, Option<presentation::GitHead>)>>,
+    /// Git HEAD lookups keyed by directory, with their background refresh.
+    git_heads: Arc<presentation::GitHeadCache>,
+    /// One revision of everything `list-workspaces` shows (mux/tree_revision.rs).
+    tree_revision: tree_revision::TreeRevision,
     resource_machine_service: OnceLock<Arc<dyn crate::ResourceMachineService>>,
     journal_kernel: Arc<crate::journal_kernel::JournalKernel>,
     journal_ingress: crate::journal_ingress::JournalIngressSender,
@@ -853,9 +877,15 @@ pub struct Mux {
     /// Lets a start's adoption threads go before the owner says ready: a
     /// creation the crash interrupted waits on its host's adoption.
     startup_adoptions_released: AtomicBool,
-    /// The laps of this owner's open (registry, restore, adoption), until
-    /// the owner's start takes them for `startup-timings.jsonl`.
-    startup_timings: Mutex<Option<crate::startup_timings::StartupTimings>>,
+    /// Terminals the start kept, by host id: for a terminal holder that was
+    /// late (mux/holder_late.rs), until the late thread re-attached or ended
+    /// them, or for the next start (the holder runs the shell and the
+    /// re-attach failed), for the life of this owner. A creation that waits
+    /// on one of them does not hold the start back. A leaf lock.
+    late_holder_terminals: Mutex<HashSet<String>>,
+    /// The laps of this owner's open (registry, restore, adoption), until the owner's start
+    /// takes them, and the start line with the laps after ready (mux/startup_record.rs).
+    startup_timings: startup_record::StartupLaps,
     /// Terminals with a possibly live host and no runtime surface (R41),
     /// keyed by public terminal id (`term_…`, what the tab JSON reads), with
     /// the host terminal id. A leaf lock: nothing else is locked under it.
@@ -1105,17 +1135,6 @@ impl Mux {
         f(&self.state.lock().unwrap())
     }
 
-    /// Run `f` with the session state if its lock is free now; `None`
-    /// instead of waiting while another thread holds it. A poisoned lock is
-    /// still read: its caller (the accept loop) must not stop on it.
-    pub(crate) fn try_with_state<R>(&self, f: impl FnOnce(&State) -> R) -> Option<R> {
-        match self.state.try_lock() {
-            Ok(state) => Some(f(&state)),
-            Err(std::sync::TryLockError::Poisoned(poison)) => Some(f(&poison.into_inner())),
-            Err(std::sync::TryLockError::WouldBlock) => None,
-        }
-    }
-
     pub fn surface_count(&self) -> usize {
         self.state.lock().unwrap().surfaces.len()
     }
@@ -1141,6 +1160,17 @@ impl Mux {
     /// local terminals are reaped after the creator closes the insert race.
     fn reap_if_dead(self: &Arc<Self>, surface: &Arc<Surface>) {
         if surface.is_dead() {
+            // A never-started lazy tab is parked, not reaped
+            // (mux/terminal_respawn/lazy.rs). Its park waits for the end of
+            // its creating request: a park inside the creation is overwritten
+            // when the creation commits the tab and its terminal.
+            #[cfg(unix)]
+            if surface
+                .terminal_host_identity()
+                .is_some_and(|host| self.lazy_never_started(&host.terminal_id))
+            {
+                return;
+            }
             if self.resource_creation_active.load(Ordering::Acquire) {
                 // The reader's exit callback is fenced by the creation
                 // execution lock. It will reap this surface after the public
@@ -1167,40 +1197,31 @@ impl Mux {
             self.remove_surface_after_registry(surface.id);
             return;
         }
+        // The surface's workspace comes from the placement indexes: no walk of the workspace list.
+        // The scan stays for the transient state where the indexes lack the placement.
         let workspace_key = {
             let state = self.state.lock().unwrap();
-            state.workspaces.iter().find_map(|workspace| {
-                workspace
-                    .screens
-                    .iter()
-                    .any(|screen| screen_tabs(&state, screen).contains(&surface.id))
-                    .then(|| workspace.key.clone())
+            let indexed = state
+                .pane_of(surface.id)
+                .and_then(|pane| state.screen_of(pane))
+                .and_then(|(workspace, _)| state.workspaces.get(workspace))
+                .map(|workspace| workspace.key.clone());
+            indexed.or_else(|| {
+                #[cfg(test)]
+                crate::walk_counters::workspace_list_walked(state.workspaces.len());
+                state.workspaces.iter().find_map(|workspace| {
+                    workspace
+                        .screens
+                        .iter()
+                        .any(|screen| screen_tabs(&state, screen).contains(&surface.id))
+                        .then(|| workspace.key.clone())
+                })
             })
         };
         if let Some(workspace_key) = workspace_key {
             let _ = surface.persist_host_workspace(&workspace_key);
         }
     }
-
-    fn sidebar_surface_exited(&self, id: SurfaceId) -> bool {
-        let mut runtime = self.sidebar_plugin.lock().unwrap();
-        if runtime.surface != Some(id) {
-            return false;
-        }
-        runtime.surface = None;
-        runtime.failures = runtime.failures.saturating_add(1);
-        let delay = sidebar_retry_delay(runtime.failures);
-        runtime.last_error = Some("sidebar plugin exited".to_string());
-        runtime.retry_at = Some(Instant::now() + delay);
-        drop(runtime);
-        self.state.lock().unwrap().surfaces.remove(&id);
-        true
-    }
-}
-
-fn sidebar_retry_delay(failures: u32) -> Duration {
-    let shift = failures.saturating_sub(1).min(5);
-    Duration::from_secs(1u64 << shift)
 }
 
 impl Drop for Mux {
@@ -1223,4 +1244,4 @@ impl Drop for Mux {
 }
 
 #[cfg(test)]
-mod tests;
+pub(crate) mod tests;

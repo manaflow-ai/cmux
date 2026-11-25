@@ -3,6 +3,7 @@ import CmuxMobileAuth
 import CmuxMobileDesign
 import CmuxMobileModel
 import CmuxMobileOnboarding
+import CmuxMobileRealtime
 import CmuxSpinner
 import SwiftUI
 import UIKit
@@ -25,7 +26,14 @@ struct AccountPage: View {
     let auth: CmuxMobileAuthModel
     let directory: (any SettingsDeviceDirectory)?
     @State private var methods: SettingsLoad<[SignInMethod]> = .loading
+    /// The account `methods` was loaded for.
+    @State private var methodsUserID: String?
     @State private var confirmsDeletion = false
+    /// Apple's subscription page while the App Store warning is up.
+    @State private var renewingSubscription: URL?
+    /// Delete Account was tapped and the pre-delete check is in flight; its
+    /// task runs from `.task(id:)`, so leaving the page cancels it.
+    @State private var checkingDeletion = false
     @State private var deleting = false
     @State private var deletionError: String?
     /// The sign-in glyph grows with Dynamic Type like the other row icons.
@@ -87,17 +95,19 @@ struct AccountPage: View {
             }
             Section {
                 Button(role: .destructive) {
-                    confirmsDeletion = true
+                    // Set here, before the next render, so a second tap
+                    // cannot start a second check.
+                    checkingDeletion = true
                 } label: {
                     HStack {
                         Text("Delete Account").foregroundStyle(theme.colors.danger).cmuxMobileTextColumn()
-                        if deleting {
+                        if deleting || checkingDeletion {
                             Spacer()
                             CmuxSpinner()
                         }
                     }
                 }
-                .disabled(deleting)
+                .disabled(deleting || checkingDeletion)
                 .accessibilityIdentifier("settings.deleteAccount")
             } footer: {
                 Text("Permanently deletes your account and data across all cmux apps.")
@@ -105,6 +115,7 @@ struct AccountPage: View {
         }
         .settingsPage("Account")
         .task(id: auth.user?.id) { await loadMethods() }
+        .task(id: checkingDeletion) { if checkingDeletion { await askBeforeDeleting() } }
         // An alert, not a confirmation dialog: on iOS 26 a confirmation
         // dialog opens as a popover with no Cancel button, closed only by a
         // tap outside it. Account deletion (Guideline 5.1.1(v)) shows Cancel
@@ -115,10 +126,40 @@ struct AccountPage: View {
         } message: {
             Text("Your cmux account is used by every cmux app (Mac, iPhone and web). Deleting it signs you out everywhere, removes your Macs and phones from the cmux service and permanently deletes your account. This can't be undone.")
         }
+        // Deleting the account does not cancel an App Store subscription
+        // (Guideline 5.1.1(v)): Apple keeps charging until it is cancelled in
+        // the App Store. This alert stands in for the confirmation above, so
+        // its Delete Account deletes.
+        .alert(
+            Text(String(localized: "mobile.account.deleteAppStore.title", defaultValue: "Your subscription keeps renewing", bundle: .module)),
+            isPresented: Binding(get: { renewingSubscription != nil }, set: { if !$0 { renewingSubscription = nil } }),
+            presenting: renewingSubscription
+        ) { manageURL in
+            Button(String(localized: "mobile.account.deleteAppStore.manage", defaultValue: "Manage Subscription", bundle: .module)) {
+                Task { await openAppStoreSubscriptionManagement(fallback: manageURL) }
+            }
+            Button("Delete Account", role: .destructive) { Task { await delete() } }
+            Button("Cancel", role: .cancel) {}
+        } message: { _ in
+            Text(String(localized: "mobile.account.deleteAppStore.message", defaultValue: "Deleting your cmux account doesn't cancel your App Store subscription: cancel it in the App Store. Deletion signs you out everywhere and is permanent.", bundle: .module))
+        }
         .alert("Account not deleted", isPresented: Binding(get: { deletionError != nil }, set: { if !$0 { deletionError = nil } })) {
             Button("OK", role: .cancel) {}
         } message: {
             Text(deletionError ?? "")
+        }
+    }
+
+    /// Delete Account: asks the cmux service whether an App Store
+    /// subscription will keep renewing, then shows the App Store warning or
+    /// the plain confirmation (``AccountDeletionPrompt``).
+    private func askBeforeDeleting() async {
+        let check = await auth.accountDeletionCheck()
+        guard !Task.isCancelled else { return }
+        checkingDeletion = false
+        switch AccountDeletionPrompt(check: check) {
+        case .appStoreSubscriptionWarning(let manageURL): renewingSubscription = manageURL
+        case .confirmation: confirmsDeletion = true
         }
     }
 
@@ -139,7 +180,12 @@ struct AccountPage: View {
     }
 
     private func loadMethods() async {
-        methods = .loading
+        // The page reloads each time it is shown again (a tab switch back to Settings): it keeps
+        // the rows it has instead of swapping them for "Loading" and back, as the Team page does.
+        // Only a first load or another account shows "Loading".
+        let userID = auth.user?.id
+        if case .loaded = methods, methodsUserID == userID {} else { methods = .loading }
+        methodsUserID = userID
         do {
             methods = .loaded(try await auth.signInMethods())
         } catch is CancellationError {
@@ -281,6 +327,12 @@ struct TerminalPage: View {
                 Text("Choose which device controls the shared terminal's size.")
             }
             Section {
+                Toggle(isOn: $settings.terminalFitToPhone) { SettingsLabel("Fit to Phone", symbol: "iphone") }
+                    .accessibilityIdentifier("settings.terminalFitToPhone")
+            } footer: {
+                Text("Off: the phone re-wraps the Mac's terminal at its own width and the Mac keeps its size. On: the Mac's terminal resizes to the phone. Applies to terminals opened next.")
+            }
+            Section {
                 Toggle(isOn: $settings.predictiveEcho) { SettingsLabel("Predictive echo", symbol: "bolt.horizontal") }
                     .accessibilityIdentifier("settings.predictiveEcho")
             } footer: {
@@ -293,6 +345,22 @@ struct TerminalPage: View {
                 .accessibilityIdentifier("settings.terminalJumpToBottom")
             } footer: {
                 Text("Shows a Jump to bottom button above the composer when you scroll up. Full-screen apps such as vim never show it.")
+            }
+            Section {
+                Toggle(isOn: $settings.terminalComposerAutocorrect) {
+                    SettingsLabel("Composer Autocorrect", symbol: "textformat.abc")
+                }
+                .accessibilityIdentifier("settings.terminalComposerAutocorrect")
+            } footer: {
+                Text("Corrects and predicts words in the terminal composer, for talking to an agent in prose. Also in the composer's + menu.")
+            }
+            Section {
+                Toggle(isOn: $settings.terminalChatToggle) {
+                    SettingsLabel("Terminal and Chat Toggle", symbol: "arrow.left.arrow.right")
+                }
+                .accessibilityIdentifier("settings.terminalChatToggle")
+            } footer: {
+                Text("Adds Show Chat and Show Terminal to a Claude Code or Codex tab's menu when both views can open.")
             }
             Section {
                 Toggle(isOn: $settings.wrapCode) { SettingsLabel("Wrap code and diff lines", symbol: "text.word.spacing") }
@@ -309,13 +377,18 @@ struct TerminalPage: View {
 
 struct ComposerPage: View {
     let settings: SettingsStore
+    let voice: VoiceCallPreferences
 
     var body: some View {
         @Bindable var settings = settings
+        @Bindable var voice = voice
         List {
             Section {
                 Toggle(isOn: $settings.dismissKeyboardAfterSend) {
                     SettingsLabel("Dismiss keyboard after sending", symbol: "keyboard.chevron.compact.down")
+                }
+                Toggle(isOn: $settings.swipeDownCollapsesComposer) {
+                    SettingsLabel("Swipe down to collapse", symbol: "chevron.compact.down")
                 }
                 Picker(selection: $settings.followUp) {
                     ForEach(FollowUpBehavior.allCases) { Text($0.title).tag($0) }
@@ -326,6 +399,27 @@ struct ComposerPage: View {
             } footer: {
                 // The Mac's Toggle Prompt Queueing: Send steers either way, as the Mac's Return does.
                 Text("Send steers the running turn. With Queue, a long press on Send can queue a message for after the turn; with Steer, that steers too.")
+            }
+            // Off by default (Leo, 2026-11-22: "im hiding this by default"): voice mode
+            // runs on the user's own OpenAI key, so it shows only for people who turn it on.
+            Section {
+                Picker(selection: $voice.composerVoice) {
+                    ForEach(ComposerVoicePlacement.allCases) { Text($0.title).tag($0) }
+                } label: {
+                    SettingsLabel("Voice Button", symbol: "waveform")
+                }
+                .pickerStyle(.menu)
+                .accessibilityIdentifier("settings.composer.voiceButton")
+                if voice.composerVoice != .off {
+                    NavigationLink(value: SettingsRoute.chiefCalls) {
+                        SettingsLabel("OpenAI API Key", symbol: "key")
+                    }
+                    .accessibilityIdentifier("settings.composer.voiceKey")
+                }
+            } header: {
+                Text("Voice Mode")
+            } footer: {
+                Text("Adds a button that starts voice mode: the agent’s replies are read aloud and what you say is sent. It uses your own OpenAI API key. To dictate into the field, use the keyboard’s microphone.")
             }
         }
         .settingsPage("Composer")
@@ -338,10 +432,19 @@ struct ComposerPage: View {
 struct NotificationsPage: View {
     let settings: SettingsStore
     /// The account's Macs, for per-Mac on and off.
-    var macs: [MacDevice] = []
+    let macs: [MacDevice]
     @State private var permission: NotificationPermission?
     @Environment(\.openURL) private var openURL
     @Environment(\.scenePhase) private var scenePhase
+
+    /// `permission` is the answer the Settings root already read, so the page opens with the
+    /// "Allow notifications" value, its footer and the dimmed sections drawn instead of popping
+    /// in a moment later. `refresh()` still reads the system again when the page appears.
+    init(settings: SettingsStore, macs: [MacDevice] = [], permission: NotificationPermission? = nil) {
+        self.settings = settings
+        self.macs = macs
+        _permission = State(initialValue: permission)
+    }
 
     private var push: Bool { BuildCapabilities.current.push }
 
@@ -457,6 +560,7 @@ struct TransportPage: View {
     #if DEBUG
     @AppStorage(DeveloperOptions.relayOnlyKey) private var relayOnly = false
     @AppStorage(DeveloperOptions.blockUDPKey) private var blockUDP = false
+    @AppStorage(DeveloperOptions.forceRelayKey) private var forceRelay = false
     @AppStorage(DeveloperOptions.browserVideoOnChannelKey) private var browserVideoOnChannel = false
     #endif
 
@@ -481,7 +585,7 @@ struct TransportPage: View {
                         .padding(.vertical, 4)
                         .contentShape(.rect)
                     }
-                    .buttonStyle(.plain)
+                    .buttonStyle(.cmuxPressFill)
                     .accessibilityAddTraits(settings.transport == kind ? .isSelected : [])
                     .accessibilityIdentifier("settings.transport.\(kind.rawValue)")
                 }
@@ -493,12 +597,31 @@ struct TransportPage: View {
                 }
             }
             Section {
-                Toggle(isOn: $settings.ultraOnCellular) {
-                    Text("Ultra mode on cellular")
+                Picker(selection: $settings.ultra) {
+                    ForEach(UltraConnection.allCases) { Text($0.title).tag($0) }
+                } label: {
+                    Text("Ultra mode")
                 }
-                .accessibilityIdentifier("settings.transport.ultraOnCellular")
+                .pickerStyle(.menu)
+                .accessibilityIdentifier("settings.transport.ultra")
             } footer: {
-                Text("On cellular, WireGuard sends repair data so a network that drops packets stays fast. Uses about 2 to 3 times the cellular data. Applies at the next connection.")
+                Text("Auto sends no extra data while the network is clean, and repair data within a round trip of the first lost packet, so a dropped packet costs milliseconds instead of seconds. On cellular, Auto keeps the repair data within the data it protects; Always sends it on every network, at about 2 to 3 times the data. Applies at the next connection.")
+            }
+            Section {
+                Toggle(isOn: $settings.alignKeepalives) {
+                    Text("Align keepalives")
+                }
+                .accessibilityIdentifier("settings.transport.alignKeepalives")
+            } footer: {
+                Text("Sends every connection's keepalive at the same moments, every 10 seconds, so the radio wakes once for all of them instead of for each. Applies at the next connection.")
+            }
+            Section {
+                Toggle(isOn: $settings.agentCLIHybrid) {
+                    Text("Agent CLI Screen Changes")
+                }
+                .accessibilityIdentifier("settings.transport.agentCLIHybrid")
+            } footer: {
+                Text("A terminal running an agent CLI such as Claude Code or Codex, or a plain shell, comes from your Mac as the parts of its screen that changed, at most 10 times a second, instead of everything it writes. Full-screen programs still come as they are. It looks the same and uses less data. Applies when a terminal opens or reconnects.")
             }
             #if !DEBUG
             Section {
@@ -520,6 +643,11 @@ struct TransportPage: View {
                 }
                 .disabled(relayAvailable == false && !blockUDP)
                 .accessibilityIdentifier("settings.transport.blockUDP")
+                // The last resort on its own: cmux's WebSocket relay over HTTPS, at the next connection.
+                Toggle(isOn: $forceRelay) {
+                    Text("Relay via cmux (HTTPS) only")
+                }
+                .accessibilityIdentifier("settings.transport.forceRelay")
                 Toggle(isOn: $browserVideoOnChannel) {
                     Text("Browser video on channel")
                 }
@@ -554,10 +682,8 @@ struct TransportDetails: View {
                     VStack(alignment: .leading, spacing: 4) {
                         Text(verbatim: store.teams.lazy.flatMap(\.macs).first(where: { $0.id == macID })?.name ?? String(localized: "Mac"))
                             .font(theme.type.rowTitle)
-                        Text(verbatim: store.macLinkDiagnostics[macID] ?? "")
-                            .font(theme.type.meta)
-                            .foregroundStyle(theme.colors.label2)
-                            .textSelection(.enabled)
+                        InPlaceSelectionLabel(store.macLinkDiagnostics[macID] ?? "", textStyle: .footnote,
+                                              color: theme.colors.label2.uiColor)
                     }
                     .accessibilityElement(children: .combine)
                 }
@@ -660,6 +786,7 @@ struct Acknowledgement: Sendable {
             Acknowledgement("marked", "MIT", "Markdown in the Feed", "https://github.com/markedjs/marked"),
             Acknowledgement("Temml", "MIT", "Math", "https://github.com/ronkok/Temml"),
             Acknowledgement("highlight.js", "BSD 3-Clause", "Code highlighting", "https://github.com/highlightjs/highlight.js"),
+            Acknowledgement("Geist", "SIL OFL 1.1", "The welcome screen's wordmark and tagline", "https://github.com/vercel/geist-font"),
         ]),
     ]
 }

@@ -237,12 +237,12 @@ struct HomeAgentThreadTests {
     @MainActor @Test func theStoreReadsTheOwnersAgentStartsWhileItRuns() async {
         let source = MockHomeSource(options: .immediate)
         let store = HomeStore(source: source)
-        await source.setStartedAgents(["a1"])
+        await source.setStartedAgents(HomeAgentStarts(peers: ["a1"]))
         store.start()
         defer { store.stop() }
         await waitUntil { store.startedAgents.contains("a1") }
         #expect(store.startedAgents == ["a1"])
-        await source.setStartedAgents(["a2"])
+        await source.setStartedAgents(HomeAgentStarts(peers: ["a2"]))
         await waitUntil { store.startedAgents.contains("a2") }
         #expect(store.startedAgents == ["a1", "a2"])
     }

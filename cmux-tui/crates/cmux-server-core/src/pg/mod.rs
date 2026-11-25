@@ -35,8 +35,6 @@ pub const ADMIN_DATABASE: &str = "postgres";
 pub const SOCKET_GROUP: &str = "cmux-db";
 pub const ADMIN_MAP: &str = "cmuxadmin";
 pub const APPS_MAP: &str = "cmuxapps";
-/// Longest Unix socket path the platforms accept (`sun_path` minus NUL).
-pub const MAX_SOCKET_PATH: usize = 103;
 
 /// How an app gets its database (manifest `database.mode`).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -94,7 +92,7 @@ pub enum PgError {
     /// A path is for another platform or holds a character this plan
     /// refuses to put into a config file or shell command.
     UnsafePath(&'static str),
-    /// `<socket_dir>/.s.PGSQL.<port>` exceeds [`MAX_SOCKET_PATH`] bytes.
+    /// `<socket_dir>/.s.PGSQL.<port>` exceeds [`cmux_unix_socket::PORTABLE_MAX_PATH_BYTES`] bytes.
     SocketPathTooLong(usize),
     BadServiceUser,
     /// `admin_pwfile` is required exactly when the admin does not use peer

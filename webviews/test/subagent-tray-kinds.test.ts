@@ -12,6 +12,7 @@ import path from "node:path";
 import { chromium, type Browser } from "playwright";
 import { galleryFrame, warmGalleryFrame } from "./support/galleryFrame";
 import { requireBrowserLane } from "./support/requireBrowserLane";
+import { RUNNING_TRAY_LIST_LINE } from "../src/agent-session/acpmux/subagents/subagentSelectors";
 
 await requireBrowserLane("subagent-tray-kinds.test.ts", async () => {
   setDefaultTimeout(180_000);
@@ -52,7 +53,8 @@ await requireBrowserLane("subagent-tray-kinds.test.ts", async () => {
         if ((await page.locator(".acpmux-running-tray__head").getAttribute("aria-expanded")) !== "true")
           await page.click(".acpmux-running-tray__head");
         await page.waitForFunction(
-          () => document.querySelectorAll(".acpmux-running-tray__list .acpmux-agent-line").length === 4,
+          ({ RUNNING_TRAY_LIST_LINE }) => document.querySelectorAll(RUNNING_TRAY_LIST_LINE).length === 4,
+          { RUNNING_TRAY_LIST_LINE },
         );
         await page.evaluate(() => {
           for (const animation of document.getAnimations())
@@ -79,9 +81,7 @@ await requireBrowserLane("subagent-tray-kinds.test.ts", async () => {
             })),
           };
         });
-        // The finished subagent is the list's "1 finished" line, not a count in the header (Leo,
-        // 2026-11-12: "why are there ellipses going so fast?").
-        expect(geometry.title).toBe("1 build · 2 waits · 1 command");
+        expect(geometry.title).toBe("1 build · 2 waits · 1 command · 1 subagent done");
         // Five one-row lines fit the list: no scrollbar to take their right edge in. Narrow too: a line
         // stays one row there (Leo, 2026-11-04: "how Claude code just has one lines too").
         expect(geometry.overflow).toBeLessThanOrEqual(0);

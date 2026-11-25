@@ -25,6 +25,7 @@ import argparse, base64, glob, json, os, plistlib, subprocess, sys, tempfile, ti
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from bench_cli_storm import Client  # noqa: E402
+from safe_log import safe_print  # noqa: E402  (a line in a cleanup path never skips the kill)
 
 # openBrowser takes http(s) and file URLs, not data: URLs ("is not a URL cmux can open").
 PAGE_HTML = ("<!doctype html><title>start</title><script>document.title='js-ran-'+(6*7)</script>"
@@ -155,7 +156,8 @@ def main():
         res["new_tab_reply"] = call("action.run", {"action": "newTab", "args": {"name": "cef-helper-check"},
                                                    "focus": True, "origin": "script"})
         res["terminal_pane"] = bool(wait_for(lambda: (focused_pane() or {}).get("kind") == "terminal", 60))
-        time.sleep(1)  # test harness: the shell prompt draws before the next tab opens
+        # The shell prompt has drawn once the focused terminal shows text (best-effort, as before).
+        wait_for(lambda: (rpc("surface.read_text").get("text") or "").strip(), 15)
         res["open_reply"] = call("action.run", {"action": "openBrowser.chromium", "args": {"url": page},
                                                 "focus": True, "origin": "script"})
 
@@ -171,7 +173,9 @@ def main():
             title = wait_for(title_ran, 45)
         res["focused_kind"] = (focused_pane() or {}).get("kind")
         res["title"] = title
-        time.sleep(opts.settle)  # renderers that die do so ~0.6 s after launch; let any crash loop show
+        # sleep-ok: the observation window for a crash loop (renderers that die do so ~0.6 s after launch); a
+        # healthy renderer sends no event that says it will not die
+        time.sleep(opts.settle)
         rows = [(pid, kind_of(cmd), cmd) for pid, cmd in children(proc.pid)]
         renderer_suffix = " Helper (Renderer).app/Contents/MacOS/"
         # Chromium 156 (gpu_process_host.cc) starts the GPU process from the " (GPU)" helper only when SwiftShader
@@ -207,9 +211,9 @@ def main():
     os.makedirs(os.path.dirname(os.path.abspath(opts.json)), exist_ok=True)
     with open(opts.json, "w") as f:
         json.dump(res, f, indent=1)
-    print(json.dumps({k: v for k, v in res.items() if k not in ("processes", "window_png_base64")}, indent=1))
+    safe_print(json.dumps({k: v for k, v in res.items() if k not in ("processes", "window_png_base64")}, indent=1))
     for p in res.get("processes", []):
-        print(f"  {p['pid']:>7} {p['type']:<12} {p['exe']}")
+        safe_print(f"  {p['pid']:>7} {p['type']:<12} {p['exe']}")
     return 0 if res["ok"] else 1
 
 

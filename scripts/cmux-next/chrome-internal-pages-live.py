@@ -26,6 +26,7 @@ import argparse, glob, json, os, plistlib, socket, subprocess, sys, tempfile, ti
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from tag_teardown import TagTeardown  # noqa: E402
 from safe_log import safe_print  # noqa: E402  (a line before a kill never skips the kill)
+from state_wait import wait_stable  # noqa: E402
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--tag", required=True)
@@ -112,6 +113,18 @@ def chromium_url():
     return None
 
 
+def painted_pane(what):
+    """Before a snapshot: the focused pane's content is in and not blank, and its state and the omnibar hold for 0.5 s."""
+    def read():
+        pane = focused_pane() or {}
+        if not pane.get("content_installed") or pane.get("blank") or pane.get("phase") == "loading":
+            return None
+        state = {k: pane.get(k) for k in ("pane", "kind", "selected_tab", "shown_tab", "content_installed", "blank", "phase")}
+        return json.dumps([state, omnibar().get("text")], sort_keys=True)
+    quiet_wait(read, 10)
+    wait_stable(read, what, timeout=10, interval=0.1, reads=5, raise_on_timeout=False)
+
+
 def omnibar(params=None):
     return rpc("debug.omnibar", params) or {}
 
@@ -178,7 +191,7 @@ try:
         rpc("action.run", {"action": "newWindow", "origin": "script"})
     # A fresh launch can open on Home with no workspace: make one, so a pane exists for the New Tab page.
     if not quiet_wait(focused_pane, 15):
-        print("run newTab", rpc("action.run", {"action": "newTab", "origin": "script", "focus": True}), flush=True)
+        safe_print("run newTab", rpc("action.run", {"action": "newTab", "origin": "script", "focus": True}), flush=True)
     wait_for(focused_pane, "a focused pane", 60)
 
     # 1. The New Tab field, no trailing slash.
@@ -187,7 +200,7 @@ try:
                    "a Chromium tab on chrome://extensions", 90)
     check(url == "chrome://extensions/", f"New Tab chrome://extensions loads the canonical URL: {url}")
     if url is None:
-        print(f"note: focused pane {focused_pane()}; chromium tabs {chromium_tabs()}", flush=True)
+        safe_print(f"note: focused pane {focused_pane()}; chromium tabs {chromium_tabs()}", flush=True)
     wait_for(lambda: any((t.get("title") or "") for t in chromium_tabs()), "the extensions page title", 20)
     snapshot("1-extensions-no-slash")
 
@@ -216,7 +229,7 @@ try:
         time.sleep(0.25)  # bounded wait for the reducer to leave editing
     shown = omnibar().get("text")
     check(shown == "chrome://version", f"the omnibar shows chrome://version with its scheme: {shown!r}")
-    time.sleep(1.0)  # paint before the snapshot (screenshot only)
+    painted_pane("the chrome://version pane")  # paint before the snapshot (screenshot only)
     snapshot("2-version")
 
     # 6. The agent path (browser.page.*, the focused tab) on this Chromium page. It marks the tab
@@ -243,7 +256,7 @@ try:
           f"about:history shows cmux's History page, not Chromium's: {chromium_tabs()}")
     shown = omnibar().get("text")
     check(shown in ("history", "cmux://history"), f"the omnibar names the History page: {shown!r}")
-    time.sleep(1.0)
+    painted_pane("the History pane")
     snapshot("4-about-history")
 
     # 5. chrome://settings opens Settings > Browser.
@@ -253,7 +266,7 @@ try:
     check(bool(page), "chrome://settings opens Settings")
     check(not any((t.get("url") or "").startswith("chrome://settings") for t in chromium_tabs()),
           f"no Chromium settings tab: {chromium_tabs()}")
-    time.sleep(1.0)
+    painted_pane("the Settings pane")
     snapshot("5-settings")
 finally:
     rpc("action.run", {"action": "quitEndSessions"})

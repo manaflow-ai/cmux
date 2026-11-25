@@ -94,69 +94,10 @@ use cmux_json::JsonSet as _;
 mod index;
 pub use index::Index;
 
-/// The settings keys (schemas/settings/source/subsessions.json).
-pub const SETTING_ENABLED: &str = "agents.subsessions.enabled";
-pub const SETTING_MAX_CHILDREN: &str = "agents.subsessions.maxChildren";
-pub const SETTING_MAX_DEPTH: &str = "agents.subsessions.maxDepth";
-pub const SETTING_MAX_RUNNING: &str = "agents.subsessions.maxRunning";
-/// `maxRunning`'s default and ceiling until the catalog has its row.
-const MAX_RUNNING_FALLBACK: NumberSetting = NumberSetting { default: 1000, max: 1000 };
-pub const SETTING_ANSWER_QUESTIONS: &str = "agents.subsessions.answerQuestions";
-/// The settings catalog source of those keys: their defaults and ranges have
-/// one definition, shared with the app's Settings.
-const CATALOG_SOURCE: &str =
-    include_str!("../../../../../schemas/settings/source/subsessions.json");
-
-/// One number setting of the catalog: its default and the largest value.
-#[derive(Clone, Copy)]
-pub struct NumberSetting {
-    pub default: u32,
-    pub max: u32,
-}
-
-/// The catalog rows the daemon reads.
-pub struct Catalog {
-    pub enabled: bool,
-    pub answer_questions: bool,
-    pub max_children: NumberSetting,
-    pub max_depth: NumberSetting,
-    pub max_running: NumberSetting,
-}
-
-/// The catalog, parsed once from the embedded source.
-pub fn catalog() -> &'static Catalog {
-    static CATALOG: std::sync::OnceLock<Catalog> = std::sync::OnceLock::new();
-    CATALOG.get_or_init(|| {
-        // crash-allow: the source is a checked-in file embedded with include_str!, so a bad row fails every daemon start in tests/subsessions.rs before it can ship
-        parse_catalog(CATALOG_SOURCE).expect("subsessions.json rows")
-    })
-}
-
-/// The agents.subsessions rows of a settings source file, or None when one is missing.
-fn parse_catalog(source: &str) -> Option<Catalog> {
-    let doc: Value = serde_json::from_str(source).ok()?;
-    let row = |key: &str| -> Option<Value> {
-        doc["lists"]
-            .as_array()
-            .into_iter()
-            .flatten()
-            .flat_map(|l| l["rows"].as_array().into_iter().flatten())
-            .find(|r| r["key"] == key)
-            .cloned()
-    };
-    let get = |v: &Value| v.as_u64().and_then(|n| u32::try_from(n).ok());
-    let number = |key: &str| -> Option<NumberSetting> {
-        let r = row(key)?;
-        Some(NumberSetting { default: get(&r["default"])?, max: get(&r["range"]["max"])? })
-    };
-    Some(Catalog {
-        enabled: row(SETTING_ENABLED)?["default"].as_bool()?,
-        answer_questions: row(SETTING_ANSWER_QUESTIONS)?["default"].as_bool()?,
-        max_children: number(SETTING_MAX_CHILDREN)?,
-        max_depth: number(SETTING_MAX_DEPTH)?,
-        max_running: number(SETTING_MAX_RUNNING).unwrap_or(MAX_RUNNING_FALLBACK),
-    })
-}
+pub use crate::subsession_settings::{
+    Catalog, NumberSetting, SETTING_ANSWER_QUESTIONS, SETTING_ENABLED, SETTING_MAX_CHILDREN,
+    SETTING_MAX_DEPTH, SETTING_MAX_RUNNING, catalog, enabled,
+};
 
 /// Longest short name, in characters.
 const MAX_SHORT_NAME: usize = 40;
@@ -166,19 +107,6 @@ const MAX_REPLY_CHARS: usize = 4000;
 pub const PROVENANCE_KIND: &str = "subsession_message";
 /// The mux record on a parent when a child starts or closes.
 pub const RECORD_KIND: &str = "subsession";
-
-/// Whether sub-session tools are on (settings `agents.subsessions.enabled`,
-/// else the catalog default).
-pub fn enabled() -> bool {
-    match crate::user_settings::read() {
-        crate::user_settings::Settings::Parsed(doc) => {
-            crate::user_settings::value(&doc, SETTING_ENABLED)
-                .and_then(|v| v.as_bool())
-                .unwrap_or(catalog().enabled)
-        }
-        _ => catalog().enabled,
-    }
-}
 
 /// One limit as the settings give it, clamped to 1..=`max` the way the app's
 /// Settings reads it (a fraction rounds down).
@@ -598,7 +526,9 @@ impl Hub {
         // was in flight did not see the child: close it now, not orphaned
         // (and its worktree, dropped unkept, is removed).
         if parent.meta().status == SessionStatus::Closed {
-            let _ = self.kill(&child, false).await;
+            let why =
+                crate::close_why::CloseWhy::by("daemon", "its parent closed while it started");
+            let _ = self.kill_why(&child, false, why).await;
             return Err(RpcError::invalid_params(
                 "the session closed while its sub-session started",
             ));
@@ -651,6 +581,8 @@ impl Hub {
                 peers: req.local,
                 // A child's name is made unique before this (`unique_name`).
                 name: None,
+                // A family lives on one daemon: a child starts beside its parent.
+                redirect: false,
             })
             .await?;
         // Its worktree is made, and its harness spawns, only in the very folder checked.
@@ -696,6 +628,7 @@ impl Hub {
                     false,
                     Some(sub),
                     None,
+                    Default::default(),
                 ))
                 .await?;
             return self.started_reply(parent, pm, fork, &req, &cwd, short, depth, None).await;
@@ -717,6 +650,8 @@ impl Hub {
             subsession: Some(link),
             created_by: Some(super::created_by::agent(&parent.id, pm)),
             lineage: Some(lineage),
+            // The answer of the Mac that started a remote chain (`cmux_tools_answer.rs`).
+            env: super::cmux_tools_answer::inherited(Default::default(), &pm.session_env),
             ..Default::default()
         };
         let probe = admitted.run(self.new_session(request)).await?;
@@ -742,7 +677,8 @@ impl Hub {
             return Err(self.close_refused(&probe, e).await);
         }
         if !Self::race_active(parent, req.race_id.as_deref()) {
-            let _ = self.kill(&probe, false).await;
+            let why = crate::close_why::CloseWhy::by("daemon", "its race ended while it started");
+            let _ = self.kill_why(&probe, false, why).await;
             return Err(Self::race_cancelled());
         }
         let cm = probe.meta();
@@ -1123,6 +1059,18 @@ impl Hub {
         target: &Arc<Session>,
         close: bool,
     ) -> Result<Value, RpcError> {
+        let why = crate::close_why::CloseWhy::by("daemon", "a race or review it ran ended");
+        self.subsession_stop_why(target, close, why).await
+    }
+
+    /// `subsession_stop`, recording who closed each session and why (`close_why.rs`): the
+    /// target takes `why`; each session under it is recorded as closed with its ancestor.
+    pub async fn subsession_stop_why(
+        self: &Arc<Self>,
+        target: &Arc<Session>,
+        close: bool,
+        why: crate::close_why::CloseWhy,
+    ) -> Result<Value, RpcError> {
         if !close {
             // A start or message still waiting for a run slot is stopped too: it never runs.
             if self.waits_for_slot(&target.meta()) {
@@ -1149,7 +1097,15 @@ impl Hub {
             // A family prompt still queued would take a run slot later and open it again.
             self.withdraw_family_prompts(s, "closed");
             if s.meta().status != SessionStatus::Closed {
-                self.kill(s, false).await?;
+                let mut why = why.clone();
+                if s.id != target.id {
+                    why.reason = Some(format!(
+                        "closed with its ancestor {}: {}",
+                        target.id,
+                        why.reason.as_deref().unwrap_or("unrecorded")
+                    ));
+                }
+                self.kill_why(s, false, why).await?;
                 closed.push(Value::String(s.id.clone()));
             }
         }

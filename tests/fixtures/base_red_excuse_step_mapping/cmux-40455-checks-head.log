@@ -1,0 +1,1450 @@
+2026-11-11T18:56:41.5997111Z Current runner version: '2.338.2'
+2026-11-11T18:56:41.6544645Z Prepare all required actions
+2026-11-11T18:56:41.6588809Z Getting action download info
+2026-11-11T18:56:41.7964249Z Download action repository 'actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd' (SHA:de0fac2e4500dabe0009e67214ff5f5447ce83dd)
+2026-11-11T18:56:42.0921652Z A job started hook has been configured by the self-hosted runner administrator
+2026-11-11T18:56:42.1039458Z ##[group]Run '/setup.sh'
+2026-11-11T18:56:42.1062746Z shell: /usr/bin/bash --noprofile --norc -e -o pipefail {0}
+2026-11-11T18:56:42.1063518Z env:
+2026-11-11T18:56:42.1064240Z   BLACKSMITH_RUNNER_MESSAGE_WAIT_MS: 163
+2026-11-11T18:56:42.1064698Z   BLACKSMITH_RUNNER_ACQUIRE_JOB_MS: 429
+2026-11-11T18:56:42.1065160Z   BLACKSMITH_CHECK_RUN_ID: 130738392124
+2026-11-11T18:56:42.1065838Z   BLACKSMITH_JOB_DISPLAY_NAME: cmux-next checks (god files, concurrency, crash safety, l10n)
+2026-11-11T18:56:42.1066551Z   GITHUB_ACTIONS_CACHE_MODE: write
+2026-11-11T18:56:42.1067066Z ##[endgroup]
+2026-11-11T18:56:42.1943979Z Enabling Blacksmith transparent cache
+2026-11-11T18:56:42.2542246Z ##[group]Run actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+2026-11-11T18:56:42.2542732Z with:
+2026-11-11T18:56:42.2543107Z   persist-credentials: false
+2026-11-11T18:56:42.2543400Z   fetch-depth: 2
+2026-11-11T18:56:42.2545848Z   repository: manaflow-ai/cmux
+2026-11-11T18:56:42.2548482Z   token: ***
+2026-11-11T18:56:42.2548738Z   ssh-strict: true
+2026-11-11T18:56:42.2549434Z   ssh-user: git
+2026-11-11T18:56:42.2549666Z   clean: true
+2026-11-11T18:56:42.2549930Z   sparse-checkout-cone-mode: true
+2026-11-11T18:56:42.2550228Z   fetch-tags: false
+2026-11-11T18:56:42.2550494Z   show-progress: true
+2026-11-11T18:56:42.2550742Z   lfs: false
+2026-11-11T18:56:42.2550976Z   submodules: false
+2026-11-11T18:56:42.2551233Z   set-safe-directory: true
+2026-11-11T18:56:42.2551500Z env:
+2026-11-11T18:56:42.2551771Z   CI_CACHE_R2_PUBLIC_URL: https://ci-cache.cmux.com
+2026-11-11T18:56:42.2552123Z   CMUX_NEXT_STYLE_GUARDS: warn
+2026-11-11T18:56:42.2552498Z   CMUX_NEXT_SIDE_ROUTE: glaeda-side-std-xcode-26.6
+2026-11-11T18:56:42.2552941Z   BASH_ENV: ${GITHUB_WORKSPACE:-/nonexistent}/scripts/ci/api_call_log/env.sh
+2026-11-11T18:56:42.2553364Z   BLACKSMITH_RUNNER_MESSAGE_WAIT_MS: 163
+2026-11-11T18:56:42.2553677Z   BLACKSMITH_RUNNER_ACQUIRE_JOB_MS: 429
+2026-11-11T18:56:42.2553995Z   GITHUB_REPO_NAME: manaflow-ai/cmux
+2026-11-11T18:56:42.2554285Z ##[endgroup]
+2026-11-11T18:56:52.7871768Z ##[endgroup]
+2026-11-11T18:56:52.7998996Z ##[group]Run scripts/ci/reset-stale-submodules.sh
+2026-11-11T18:56:52.7999270Z [36;1mscripts/ci/reset-stale-submodules.sh[0m
+2026-11-11T18:56:52.8009119Z shell: /usr/bin/bash -e {0}
+2026-11-11T18:56:52.8009257Z env:
+2026-11-11T18:56:52.8009419Z   CI_CACHE_R2_PUBLIC_URL: https://ci-cache.cmux.com
+2026-11-11T18:56:52.8009583Z   CMUX_NEXT_STYLE_GUARDS: warn
+2026-11-11T18:56:52.8009740Z   CMUX_NEXT_SIDE_ROUTE: glaeda-side-std-xcode-26.6
+2026-11-11T18:56:52.8009954Z   BASH_ENV: ${GITHUB_WORKSPACE:-/nonexistent}/scripts/ci/api_call_log/env.sh
+2026-11-11T18:56:52.8010159Z   BLACKSMITH_RUNNER_MESSAGE_WAIT_MS: 163
+2026-11-11T18:56:52.8010315Z   BLACKSMITH_RUNNER_ACQUIRE_JOB_MS: 429
+2026-11-11T18:56:52.8010461Z   GITHUB_REPO_NAME: manaflow-ai/cmux
+2026-11-11T18:56:52.8010595Z ##[endgroup]
+2026-11-11T18:56:52.8595189Z ##[group]Run set -euo pipefail
+2026-11-11T18:56:52.8608708Z [36;1mset -euo pipefail[0m
+2026-11-11T18:56:52.8608990Z [36;1mpython3 -m venv "$RUNNER_TEMP/checks-venv"[0m
+2026-11-11T18:56:52.8609314Z [36;1m"$RUNNER_TEMP/checks-venv/bin/python" -m pip install --disable-pip-version-check --no-input PyYAML==6.0.3[0m
+2026-11-11T18:56:52.8609661Z [36;1mif ! command -v timeout >/dev/null && command -v gtimeout >/dev/null; then[0m
+2026-11-11T18:56:52.8609932Z [36;1m  ln -s "$(command -v gtimeout)" "$RUNNER_TEMP/checks-venv/bin/timeout"[0m
+2026-11-11T18:56:52.8610129Z [36;1mfi[0m
+2026-11-11T18:56:52.8610285Z [36;1mecho "$RUNNER_TEMP/checks-venv/bin" >> "$GITHUB_PATH"[0m
+2026-11-11T18:56:52.8620029Z shell: /usr/bin/bash -e {0}
+2026-11-11T18:56:52.8620205Z env:
+2026-11-11T18:56:52.8620383Z   CI_CACHE_R2_PUBLIC_URL: https://ci-cache.cmux.com
+2026-11-11T18:56:52.8620572Z   CMUX_NEXT_STYLE_GUARDS: warn
+2026-11-11T18:56:52.8620730Z   CMUX_NEXT_SIDE_ROUTE: glaeda-side-std-xcode-26.6
+2026-11-11T18:56:52.8620970Z   BASH_ENV: ${GITHUB_WORKSPACE:-/nonexistent}/scripts/ci/api_call_log/env.sh
+2026-11-11T18:56:52.8621184Z   BLACKSMITH_RUNNER_MESSAGE_WAIT_MS: 163
+2026-11-11T18:56:52.8621340Z   BLACKSMITH_RUNNER_ACQUIRE_JOB_MS: 429
+2026-11-11T18:56:52.8621488Z   GITHUB_REPO_NAME: manaflow-ai/cmux
+2026-11-11T18:56:52.8621632Z ##[endgroup]
+2026-11-11T18:56:54.8864974Z Successfully installed PyYAML-6.0.3
+2026-11-11T18:56:54.9363186Z ##[group]Run scripts/ci/run-checks-concurrently.sh --start "$RUNNER_TEMP/background-checks" --jobs "$(getconf _NPROCESSORS_ONLN)" <<'CHECKS'
+2026-11-11T18:56:54.9364120Z [36;1mscripts/ci/run-checks-concurrently.sh --start "$RUNNER_TEMP/background-checks" --jobs "$(getconf _NPROCESSORS_ONLN)" <<'CHECKS'[0m
+2026-11-11T18:56:54.9364444Z [36;1m  [no-process-scan][0m
+2026-11-11T18:56:54.9364679Z [36;1m  python3 -I scripts/cmux-next/check-no-process-scan.py "$GITHUB_WORKSPACE"[0m
+2026-11-11T18:56:54.9364906Z [36;1m  [state-roots][0m
+2026-11-11T18:56:54.9365103Z [36;1m  bash scripts/cmux-next/check-state-roots.sh "$GITHUB_WORKSPACE"[0m
+2026-11-11T18:56:54.9365304Z [36;1m  [concurrency][0m
+2026-11-11T18:56:54.9365534Z [36;1m  scripts/cmux-next/check-concurrency.sh "$GITHUB_WORKSPACE/Packages/macOS/CmuxNext"[0m
+2026-11-11T18:56:54.9365776Z [36;1m  [overlay-glass][0m
+2026-11-11T18:56:54.9366022Z [36;1m  python3 -I scripts/cmux-next/check-overlay-glass.py "$GITHUB_WORKSPACE"[0m
+2026-11-11T18:56:54.9366241Z [36;1m  [checks-structure][0m
+2026-11-11T18:56:54.9366416Z [36;1m  python3 tests/test_cmux_next_checks_workflow.py[0m
+2026-11-11T18:56:54.9366592Z [36;1m  [script-tests][0m
+2026-11-11T18:56:54.9366781Z [36;1m  bash scripts/cmux-next/tests/pin-cmux-tui-run-check.test.sh[0m
+2026-11-11T18:56:54.9367024Z [36;1m  bash scripts/cmux-next/tests/pin-cmux-tui-probe.test.sh[0m
+2026-11-11T18:56:54.9367226Z [36;1m  [package-dependency-lists][0m
+2026-11-11T18:56:54.9367424Z [36;1m  python3 scripts/cmux-next/check-package-dependency-lists.py[0m
+2026-11-11T18:56:54.9367683Z [36;1m  python3 scripts/cmux-next/tests/test_check_package_dependency_lists.py[0m
+2026-11-11T18:56:54.9367891Z [36;1m  [tier-routing][0m
+2026-11-11T18:56:54.9368039Z [36;1m  python3 tests/test_cmux_next_route.py[0m
+2026-11-11T18:56:54.9368217Z [36;1m  python3 tests/test_cmux_next_base_tier.py[0m
+2026-11-11T18:56:54.9368400Z [36;1m  python3 tests/test_ci_target_graph.py[0m
+2026-11-11T18:56:54.9368584Z [36;1m  python3 tests/test_ci_swiftpm_build_metrics.py[0m
+2026-11-11T18:56:54.9368820Z [36;1m  python3 tests/test_cmux_next_route_replay.py[0m
+2026-11-11T18:56:54.9369223Z [36;1m  python3 tests/test_ci_cmux_next_compile_revert.py[0m
+2026-11-11T18:56:54.9369449Z [36;1m  python3 tests/test_ci_cmux_next_compile_status.py[0m
+2026-11-11T18:56:54.9369632Z [36;1m  [package-conventions][0m
+2026-11-11T18:56:54.9369805Z [36;1m  ./scripts/lint-ios-package-conventions.sh[0m
+2026-11-11T18:56:54.9369981Z [36;1m  [checks-structure][0m
+2026-11-11T18:56:54.9370163Z [36;1m  python3 tests/test_cmux_next_generated_fold.py[0m
+2026-11-11T18:56:54.9370371Z [36;1m  python3 tests/test_cmux_next_pr_autofix_push_gate.py[0m
+2026-11-11T18:56:54.9370570Z [36;1m  python3 tests/test_run_checks_concurrently.py[0m
+2026-11-11T18:56:54.9370781Z [36;1m  python3 tests/test_cmux_next_release_build_retention.py[0m
+2026-11-11T18:56:54.9371005Z [36;1m  python3 tests/test_cmux_next_dev_release_host_root.py[0m
+2026-11-11T18:56:54.9371214Z [36;1m  python3 tests/test_cmux_next_hybrid_ref_capture.py[0m
+2026-11-11T18:56:54.9371424Z [36;1m  python3 tests/test_cmux_next_dev_release_import_out.py[0m
+2026-11-11T18:56:54.9371631Z [36;1m  python3 tests/test_xcode_build_timeline.py[0m
+2026-11-11T18:56:54.9371825Z [36;1m  python3 tests/test_cmux_next_dev_landing_workflow.py[0m
+2026-11-11T18:56:54.9372019Z [36;1m  python3 tests/test_dev_landing_place.py[0m
+2026-11-11T18:56:54.9372199Z [36;1m  python3 tests/test_cmux_next_dev_cas_seed.py[0m
+2026-11-11T18:56:54.9372395Z [36;1m  python3 tests/test_cmux_next_dev_daily_tree_wait.py[0m
+2026-11-11T18:56:54.9372568Z [36;1m  [script-tests][0m
+2026-11-11T18:56:54.9372747Z [36;1m  bash scripts/cmux-next/tests/pin-cmux-tui-run-fetch.test.sh[0m
+2026-11-11T18:56:54.9372989Z [36;1m  bash scripts/cmux-next/tests/nightly-tree-at-install.test.sh[0m
+2026-11-11T18:56:54.9373213Z [36;1m  bash scripts/cmux-next/tests/fake-clock.test.sh[0m
+2026-11-11T18:56:54.9373569Z [36;1m  bash scripts/cmux-next/tests/preview.test.sh[0m
+2026-11-11T18:56:54.9373759Z [36;1m  python3 tests/test_intent_familiar_warning.py[0m
+2026-11-11T18:56:54.9373951Z [36;1m  python3 tests/test_ci_launch_budget_gate.py[0m
+2026-11-11T18:56:54.9374137Z [36;1m  python3 tests/test_strings_output_encoding.py[0m
+2026-11-11T18:56:54.9374322Z [36;1m  bash tests/test_strip_release_bundle.sh[0m
+2026-11-11T18:56:54.9374557Z [36;1m  # The pre-push gate refuses a push that adds a violation and names the commit in CI.[0m
+2026-11-11T18:56:54.9374807Z [36;1m  python3 tests/test_cmux_next_prepush_gate.py[0m
+2026-11-11T18:56:54.9375034Z [36;1m  # UI font: the system font everywhere, no Inter default (check-ui-font.py).[0m
+2026-11-11T18:56:54.9375252Z [36;1m  python3 tests/test_ui_font.py[0m
+2026-11-11T18:56:54.9375491Z [36;1m  # The perf gate skips its per-frame timings on a window that draws no frames (--frames auto).[0m
+2026-11-11T18:56:54.9375874Z [36;1m  python3 tests/test_cmux_next_perf_gate_unlit.py[0m
+2026-11-11T18:56:54.9376137Z [36;1m  # A base merge pushed while the PR's CI runs gets a warning (scripts/ci/base_merge_warning.py).[0m
+2026-11-11T18:56:54.9376389Z [36;1m  python3 tests/test_base_merge_warning.py[0m
+2026-11-11T18:56:54.9376634Z [36;1m  # A changed input, workflow file or toolchain never reuses a pass (CI_NEXT_JOB_REUSE).[0m
+2026-11-11T18:56:54.9376885Z [36;1m  python3 tests/test_job_input_fingerprint.py[0m
+2026-11-11T18:56:54.9377147Z [36;1m  # Only a pass from this repository's own runs is reused, never a fork's (scripts/ci/job_reuse.py).[0m
+2026-11-11T18:56:54.9377394Z [36;1m  python3 tests/test_job_reuse.py[0m
+2026-11-11T18:56:54.9377558Z [36;1m  python3 tests/test_rebuild_mirror.py[0m
+2026-11-11T18:56:54.9377799Z [36;1m  # The DEV Release app's key changes with every path that can reach it (dev-release-product).[0m
+2026-11-11T18:56:54.9378046Z [36;1m  python3 tests/test_dev_release_product_key.py[0m
+2026-11-11T18:56:54.9378293Z [36;1m  # A reused DEV Release app is trusted and intact, or the job compiles; DEV lane only.[0m
+2026-11-11T18:56:54.9378536Z [36;1m  python3 tests/test_dev_release_product_reuse.py[0m
+2026-11-11T18:56:54.9378817Z [36;1m  # The cmux NEXT Nightly app's key and record namespace: never a DEV key or record.[0m
+2026-11-11T18:56:54.9379063Z [36;1m  python3 tests/test_nightly_release_product_key.py[0m
+2026-11-11T18:56:54.9379320Z [36;1m  # The nightly app's products pack and unpack safely, and nightly.yml keys what it skips.[0m
+2026-11-11T18:56:54.9379579Z [36;1m  python3 tests/test_nightly_release_product_reuse.py[0m
+2026-11-11T18:56:54.9379852Z [36;1m  # The advisory test-compile check: its plan, the lane phase and red only for a compile failure.[0m
+2026-11-11T18:56:54.9380108Z [36;1m  python3 tests/test_ci_compile_test_plan.py[0m
+2026-11-11T18:56:54.9380355Z [36;1m  # A merge goes to the landing gate installed from cmuxterm-hq, never a guard in a checkout.[0m
+2026-11-11T18:56:54.9380597Z [36;1m  python3 tests/test_guard_hooks_from_base.py[0m
+2026-11-11T18:56:54.9380832Z [36;1m  # ci-guards.yml's `ci` group runs for feat-cmux-next too (cmux-next-guards.yml).[0m
+2026-11-11T18:56:54.9381063Z [36;1m  python3 tests/test_feat_ci_guard_group.py[0m
+2026-11-11T18:56:54.9381233Z [36;1m  python3 tests/test_guards_new_reds.py[0m
+2026-11-11T18:56:54.9381408Z [36;1m  python3 tests/test_webviews_test_history.py[0m
+2026-11-11T18:56:54.9381579Z [36;1m  python3 tests/test_app_symbol_map.py[0m
+2026-11-11T18:56:54.9381768Z [36;1m  bash scripts/cmux-next/tests/pin-cmux-tui.test.sh[0m
+2026-11-11T18:56:54.9381984Z [36;1m  bash scripts/cmux-next/tests/bundle-acpmux-alias.test.sh[0m
+2026-11-11T18:56:54.9382221Z [36;1m  bash scripts/cmux-next/tests/pin-cmux-tui-acpmux-only.test.sh[0m
+2026-11-11T18:56:54.9382478Z [36;1m  bash scripts/cmux-next/tests/bundle-cmux-tui-screen-detection.test.sh[0m
+2026-11-11T18:56:54.9382740Z [36;1m  bash scripts/cmux-next/tests/write-daemon-capabilities.test.sh[0m
+2026-11-11T18:56:54.9383054Z [36;1m  bash scripts/cmux-next/tests/pin-cmux-tui-linux-fetch.test.sh[0m
+2026-11-11T18:56:54.9383293Z [36;1m  bash scripts/cmux-next/tests/pin-cmux-tui-host-target.test.sh[0m
+2026-11-11T18:56:54.9383535Z [36;1m  bash scripts/cmux-next/tests/pin-cmux-tui-windows-fetch.test.sh[0m
+2026-11-11T18:56:54.9383842Z [36;1m  python3 tests/test_cmux_next_tree_notify.py[0m
+2026-11-11T18:56:54.9384029Z [36;1m  python3 tests/test_cmux_tui_tree_takeover.py[0m
+2026-11-11T18:56:54.9384217Z [36;1m  python3 tests/test_cmux_next_same_tree_failed.py[0m
+2026-11-11T18:56:54.9384396Z [36;1m  python3 tests/test_idea_ledger.py[0m
+2026-11-11T18:56:54.9384600Z [36;1m  # The INTERNAL iOS builder's trigger decisions and What to Test notes.[0m
+2026-11-11T18:56:54.9384819Z [36;1m  python3 tests/test_ios_internal_builder.py[0m
+2026-11-11T18:56:54.9384995Z [36;1m  python3 tests/test_ios_internal_notes.py[0m
+2026-11-11T18:56:54.9385216Z [36;1m  bash scripts/cmux-next/tests/pin-cmux-tui-resolve-newest.test.sh[0m
+2026-11-11T18:56:54.9385560Z [36;1m  bash scripts/cmux-next/tests/pin-cmux-tui-fallback-key.test.sh[0m
+2026-11-11T18:56:54.9385804Z [36;1m  bash scripts/cmux-next/tests/pin-cmux-tui-dispatch.test.sh[0m
+2026-11-11T18:56:54.9386031Z [36;1m  bash scripts/cmux-next/tests/cmux-tui-tree-claim.test.sh[0m
+2026-11-11T18:56:54.9386258Z [36;1m  bash scripts/cmux-next/tests/request-nightly-next.test.sh[0m
+2026-11-11T18:56:54.9386483Z [36;1m  bash scripts/cmux-next/tests/cef-runtime-pack.test.sh[0m
+2026-11-11T18:56:54.9386706Z [36;1m  bash scripts/cmux-next/tests/continue-nightly-next.test.sh[0m
+2026-11-11T18:56:54.9386933Z [36;1m  bash scripts/cmux-next/tests/wait-dev-daily-tree.test.sh[0m
+2026-11-11T18:56:54.9387158Z [36;1m  bash scripts/cmux-next/tests/reset-stale-submodules.test.sh[0m
+2026-11-11T18:56:54.9387381Z [36;1m  bash scripts/cmux-next/tests/tree-key-v2.test.sh[0m
+2026-11-11T18:56:54.9387586Z [36;1m  bash scripts/cmux-next/tests/tree-key-embeds.test.sh[0m
+2026-11-11T18:56:54.9387798Z [36;1m  bash scripts/cmux-next/tests/tree-publish-v2.test.sh[0m
+2026-11-11T18:56:54.9388009Z [36;1m  bash scripts/cmux-next/tests/embed-cef.test.sh[0m
+2026-11-11T18:56:54.9388209Z [36;1m  bash scripts/cmux-next/tests/ublock-pin.test.sh[0m
+2026-11-11T18:56:54.9388418Z [36;1m  bash scripts/cmux-next/tests/base-autofix-push.test.sh[0m
+2026-11-11T18:56:54.9388638Z [36;1m  bash scripts/cmux-next/tests/base-autofix-land.test.sh[0m
+2026-11-11T18:56:54.9388910Z [36;1m  bash scripts/cmux-next/tests/base-autofix-action-exports.test.sh[0m
+2026-11-11T18:56:54.9389156Z [36;1m  bash scripts/cmux-next/tests/base-autofix-changed.test.sh[0m
+2026-11-11T18:56:54.9389424Z [36;1m  bash scripts/cmux-next/tests/base-autofix-settings-landed.test.sh[0m
+2026-11-11T18:56:54.9389664Z [36;1m  bash scripts/cmux-next/tests/judge-action-exports.test.sh[0m
+2026-11-11T18:56:54.9389900Z [36;1m  bash scripts/cmux-next/tests/publish-bot-head-tree.test.sh[0m
+2026-11-11T18:56:54.9390123Z [36;1m  bash scripts/cmux-next/tests/check-app-ffi-pin.test.sh[0m
+2026-11-11T18:56:54.9390349Z [36;1m  bash scripts/cmux-next/tests/app-ffi-release-paths.test.sh[0m
+2026-11-11T18:56:54.9390576Z [36;1m  bash scripts/cmux-next/tests/stamp-app-ffi-mtimes.test.sh[0m
+2026-11-11T18:56:54.9390797Z [36;1m  bash scripts/cmux-next/tests/cargo-test-selected.test.sh[0m
+2026-11-11T18:56:54.9391027Z [36;1m  bash scripts/cmux-next/tests/daemon-capabilities-fresh.test.sh[0m
+2026-11-11T18:56:54.9391273Z [36;1m  bash scripts/cmux-next/tests/app-capability-references.test.sh[0m
+2026-11-11T18:56:54.9391513Z [36;1m  bash scripts/cmux-next/tests/tagged-launch-acpmux-env.test.sh[0m
+2026-11-11T18:56:54.9391750Z [36;1m  bash scripts/cmux-next/tests/crash-ratchet-tracked.test.sh[0m
+2026-11-11T18:56:54.9391975Z [36;1m  bash scripts/cmux-next/tests/crash-ratchet-v2.test.sh[0m
+2026-11-11T18:56:54.9392187Z [36;1m  bash scripts/cmux-next/tests/check-fleet-only.test.sh[0m
+2026-11-11T18:56:54.9392400Z [36;1m  node --test scripts/lib/reload-shim.test.mjs[0m
+2026-11-11T18:56:54.9392659Z [36;1m  # Version skew: the capability-text lint.[0m
+2026-11-11T18:56:54.9392859Z [36;1m  bash scripts/cmux-next/tests/capability-text.test.sh[0m
+2026-11-11T18:56:54.9393113Z [36;1m  bash scripts/cmux-next/tests/release-compile-derived-data.test.sh[0m
+2026-11-11T18:56:54.9393364Z [36;1m  bash scripts/cmux-next/tests/release-compile-fleet-cas.test.sh[0m
+2026-11-11T18:56:54.9393626Z [36;1m  bash scripts/cmux-next/tests/scheme-compile-derived-data.test.sh[0m
+2026-11-11T18:56:54.9393885Z [36;1m  bash scripts/cmux-next/tests/scheme-compile-browser-import.test.sh[0m
+2026-11-11T18:56:54.9394126Z [36;1m  bash scripts/cmux-next/tests/dev-account-guard.test.sh[0m
+2026-11-11T18:56:54.9394342Z [36;1m  bash scripts/cmux-next/tests/private-bun.test.sh[0m
+2026-11-11T18:56:54.9394567Z [36;1m  bash scripts/cmux-next/tests/check-webviews-bun-version.test.sh[0m
+2026-11-11T18:56:54.9394794Z [36;1m  bash scripts/cmux-next/tests/check-motion.test.sh[0m
+2026-11-11T18:56:54.9395108Z [36;1m  bash scripts/cmux-next/tests/fast-tier.test.sh[0m
+2026-11-11T18:56:54.9395312Z [36;1m  bash scripts/cmux-next/tests/check-scrollbars.test.sh[0m
+2026-11-11T18:56:54.9395530Z [36;1m  bash scripts/cmux-next/tests/check-overlay-glass.test.sh[0m
+2026-11-11T18:56:54.9395753Z [36;1m  bash scripts/cmux-next/tests/check-no-process-scan.test.sh[0m
+2026-11-11T18:56:54.9395981Z [36;1m  bash scripts/cmux-next/tests/check-single-omnibar.test.sh[0m
+2026-11-11T18:56:54.9396199Z [36;1m  bash scripts/cmux-next/tests/check-react-pages.test.sh[0m
+2026-11-11T18:56:54.9396413Z [36;1m  bash scripts/cmux-next/tests/check-no-swiftui.test.sh[0m
+2026-11-11T18:56:54.9396628Z [36;1m  bash scripts/cmux-next/tests/check-default-cursor.test.sh[0m
+2026-11-11T18:56:54.9396842Z [36;1m  bash scripts/cmux-next/tests/check-state-roots.test.sh[0m
+2026-11-11T18:56:54.9397066Z [36;1m  bash scripts/cmux-next/tests/check-dialog-key-hints.test.sh[0m
+2026-11-11T18:56:54.9397294Z [36;1m  bash scripts/cmux-next/tests/check-switch-fetches.test.sh[0m
+2026-11-11T18:56:54.9397518Z [36;1m  bash scripts/cmux-next/tests/check-xcstrings-keys.test.sh[0m
+2026-11-11T18:56:54.9397762Z [36;1m  bash scripts/cmux-next/tests/check-test-notification-centers.test.sh[0m
+2026-11-11T18:56:54.9398022Z [36;1m  python3 scripts/cmux-next/tests/count-swift-code-lines.test.py[0m
+2026-11-11T18:56:54.9398249Z [36;1m  bash scripts/cmux-next/tests/check-app-size.test.sh[0m
+2026-11-11T18:56:54.9398458Z [36;1m  python3 -I scripts/cmux-next/tests/test_bundle_size.py[0m
+2026-11-11T18:56:54.9398659Z [36;1m  bash tests/test_strip_release_bundle_atom_info.sh[0m
+2026-11-11T18:56:54.9398912Z [36;1m  bash scripts/cmux-next/tests/version-surfaces.test.sh[0m
+2026-11-11T18:56:54.9399116Z [36;1m  bash scripts/cmux-next/tests/ratchet-tiers.test.sh[0m
+2026-11-11T18:56:54.9399320Z [36;1m  bash scripts/cmux-next/tests/base-autofix.test.sh[0m
+2026-11-11T18:56:54.9399520Z [36;1m  bash scripts/cmux-next/tests/pr-autofix.test.sh[0m
+2026-11-11T18:56:54.9399714Z [36;1m  bash tests/test_ci_generator_input_freshness.sh[0m
+2026-11-11T18:56:54.9399923Z [36;1m  bash scripts/cmux-next/tests/generated-ownership.test.sh[0m
+2026-11-11T18:56:54.9400135Z [36;1m  bash scripts/ci/tests/cmux-tui-rust-check.test.sh[0m
+2026-11-11T18:56:54.9400331Z [36;1m  bash scripts/ci/tests/cmux-tui-base-red.test.sh[0m
+2026-11-11T18:56:54.9400543Z [36;1m  bash scripts/ci/tests/package-test-lane-suite-args.test.sh[0m
+2026-11-11T18:56:54.9400771Z [36;1m  bash scripts/ci/tests/package-test-lane-sdkroot.test.sh[0m
+2026-11-11T18:56:54.9400982Z [36;1m  bash scripts/ci/tests/ios-sim-fetch-commit.test.sh[0m
+2026-11-11T18:56:54.9401205Z [36;1m  bash scripts/ci/tests/first-turn-cost-count-fallback.test.sh[0m
+2026-11-11T18:56:54.9401435Z [36;1m  bash scripts/ci/tests/first-turn-cost-route-probe.test.sh[0m
+2026-11-11T18:56:54.9401658Z [36;1m  bash scripts/ci/tests/run-webviews-tests-retry.test.sh[0m
+2026-11-11T18:56:54.9401862Z [36;1m  bash scripts/cmux-next/tests/cef-credits.test.sh[0m
+2026-11-11T18:56:54.9402130Z [36;1m  bash scripts/cmux-next/tests/swift-test-summary.test.sh[0m
+2026-11-11T18:56:54.9402342Z [36;1m  bash scripts/cmux-next/tests/cef-license.test.sh[0m
+2026-11-11T18:56:54.9402547Z [36;1m  bash scripts/cmux-next/tests/ensure-cef-store.test.sh[0m
+2026-11-11T18:56:54.9402759Z [36;1m  bash scripts/cmux-next/tests/cef-build-flags.test.sh[0m
+2026-11-11T18:56:54.9402978Z [36;1m  bash scripts/cmux-next/tests/rust-daemon-miss-builds.test.sh[0m
+2026-11-11T18:56:54.9403211Z [36;1m  bash scripts/cmux-next/tests/build-cmux-tui-client.test.sh[0m
+2026-11-11T18:56:54.9403425Z [36;1m  bash scripts/cmux-next/tests/cef-manifest-r2.test.sh[0m
+2026-11-11T18:56:54.9403724Z [36;1m  # The Chromium staleness guard (cmux-next-chromium-staleness.yml) fails a pin 2+ stable majors behind.[0m
+2026-11-11T18:56:54.9404033Z [36;1m  python3 -I tests/test_chromium_staleness.py[0m
+2026-11-11T18:56:54.9404262Z [36;1m  # The herdr-derived agent plugin's vendored manifests match their pin.[0m
+2026-11-11T18:56:54.9404578Z [36;1m  python3 -I scripts/cmux-next/herdr-sync.py check[0m
+2026-11-11T18:56:54.9404783Z [36;1m  python3 -I scripts/cmux-next/tests/test_herdr_sync.py[0m
+2026-11-11T18:56:54.9405032Z [36;1m  # The restore journey names a DEV build's socket and acpmux home by the app's rule.[0m
+2026-11-11T18:56:54.9405282Z [36;1m  python3 -I scripts/cmux-next/tests/test_build_names.py[0m
+2026-11-11T18:56:54.9405537Z [36;1m  # Its view-report rows say what they saw (an unreadable report is not a missing grid).[0m
+2026-11-11T18:56:54.9405790Z [36;1m  python3 -I scripts/cmux-next/tests/test_rj_rows.py[0m
+2026-11-11T18:56:54.9406049Z [36;1m  # Its update to another build installs B with the running copy's identity (rj_update.py).[0m
+2026-11-11T18:56:54.9406307Z [36;1m  python3 -I scripts/cmux-next/tests/test_rj_update.py[0m
+2026-11-11T18:56:54.9406582Z [36;1m  # The fleet sidebar benches emit receipts; this portable test keeps their validator deterministic.[0m
+2026-11-11T18:56:54.9406880Z [36;1m  python3 -I scripts/cmux-next/tests/test_sidebar_perf_validate.py[0m
+2026-11-11T18:56:54.9407107Z [36;1m  bash scripts/cef/tests/test-embedder-step.test.sh[0m
+2026-11-11T18:56:54.9407293Z [36;1m  [web-bundle-key-inputs][0m
+2026-11-11T18:56:54.9407451Z [36;1m  bash tests/test_web_bundle_key_inputs.sh[0m
+2026-11-11T18:56:54.9407608Z [36;1mCHECKS[0m
+2026-11-11T18:56:54.9420680Z shell: /usr/bin/bash -e {0}
+2026-11-11T18:56:54.9420828Z env:
+2026-11-11T18:56:54.9420975Z   CI_CACHE_R2_PUBLIC_URL: https://ci-cache.cmux.com
+2026-11-11T18:56:54.9421157Z   CMUX_NEXT_STYLE_GUARDS: warn
+2026-11-11T18:56:54.9421318Z   CMUX_NEXT_SIDE_ROUTE: glaeda-side-std-xcode-26.6
+2026-11-11T18:56:54.9421544Z   BASH_ENV: ${GITHUB_WORKSPACE:-/nonexistent}/scripts/ci/api_call_log/env.sh
+2026-11-11T18:56:54.9421753Z   BLACKSMITH_RUNNER_MESSAGE_WAIT_MS: 163
+2026-11-11T18:56:54.9421910Z   BLACKSMITH_RUNNER_ACQUIRE_JOB_MS: 429
+2026-11-11T18:56:54.9422057Z   GITHUB_REPO_NAME: manaflow-ai/cmux
+2026-11-11T18:56:54.9422213Z ##[endgroup]
+2026-11-11T18:56:54.9733696Z 157 commands started, 16 at a time
+2026-11-11T18:56:54.9895891Z ##[group]Run base=()
+2026-11-11T18:56:54.9896126Z [36;1mbase=()[0m
+2026-11-11T18:56:54.9896307Z [36;1m[[ "$EVENT_NAME" == pull_request ]] && base=(--base HEAD^1)[0m
+2026-11-11T18:56:54.9896522Z [36;1mset -o pipefail[0m
+2026-11-11T18:56:54.9896686Z [36;1mmkdir -p "$RUNNER_TEMP/ratchet-debt"[0m
+2026-11-11T18:56:54.9896958Z [36;1m# Exit 1 is a god file (warn-only); any other code is a broken check and fails.[0m
+2026-11-11T18:56:54.9897191Z [36;1mrc=0[0m
+2026-11-11T18:56:54.9897564Z [36;1mscripts/cmux-next/check-no-godfiles.sh --only swift ${base[@]+"${base[@]}"} "$GITHUB_WORKSPACE/Packages/macOS/CmuxNext" | tee "$RUNNER_TEMP/ratchet-debt/godfiles-swift.log" || rc=$?[0m
+2026-11-11T18:56:54.9897951Z [36;1mif (( rc == 1 )); then[0m
+2026-11-11T18:56:54.9898228Z [36;1m  echo "::warning title=god files (swift)::over the hard ceiling; warn-only (Lawrence 2026-10-10), see this step's log"[0m
+2026-11-11T18:56:54.9898515Z [36;1melif (( rc != 0 )); then[0m
+2026-11-11T18:56:54.9898692Z [36;1m  exit "$rc"[0m
+2026-11-11T18:56:54.9898894Z [36;1mfi[0m
+2026-11-11T18:56:54.9922483Z shell: /usr/bin/bash -e {0}
+2026-11-11T18:56:54.9922664Z env:
+2026-11-11T18:56:54.9922900Z   CI_CACHE_R2_PUBLIC_URL: https://ci-cache.cmux.com
+2026-11-11T18:56:54.9923147Z   CMUX_NEXT_STYLE_GUARDS: warn
+2026-11-11T18:56:54.9923535Z   CMUX_NEXT_SIDE_ROUTE: glaeda-side-std-xcode-26.6
+2026-11-11T18:56:54.9923799Z   BASH_ENV: ${GITHUB_WORKSPACE:-/nonexistent}/scripts/ci/api_call_log/env.sh
+2026-11-11T18:56:54.9924033Z   BLACKSMITH_RUNNER_MESSAGE_WAIT_MS: 163
+2026-11-11T18:56:54.9924226Z   BLACKSMITH_RUNNER_ACQUIRE_JOB_MS: 429
+2026-11-11T18:56:54.9924391Z   GITHUB_REPO_NAME: manaflow-ai/cmux
+2026-11-11T18:56:54.9924616Z   EVENT_NAME: pull_request
+2026-11-11T18:56:54.9924763Z   GODFILES_WARN_SLACK: 20
+2026-11-11T18:56:54.9924920Z ##[endgroup]
+2026-11-11T18:56:59.0044874Z CmuxNextDaemon/DaemonStore: 2751 lines, 0 fns, over budget on the base too; this change did not grow it
+2026-11-11T18:56:59.3082944Z ##[group]Run base=()
+2026-11-11T18:56:59.3083159Z [36;1mbase=()[0m
+2026-11-11T18:56:59.3083348Z [36;1m[[ "$EVENT_NAME" == pull_request ]] && base=(--base HEAD^1)[0m
+2026-11-11T18:56:59.3083574Z [36;1mset -o pipefail[0m
+2026-11-11T18:56:59.3083768Z [36;1mmkdir -p "$RUNNER_TEMP/ratchet-debt"[0m
+2026-11-11T18:56:59.3084027Z [36;1m# Exit 1 is a god file (warn-only); any other code is a broken check and fails.[0m
+2026-11-11T18:56:59.3084280Z [36;1mrc=0[0m
+2026-11-11T18:56:59.3084674Z [36;1mscripts/cmux-next/check-no-godfiles.sh --only rust ${base[@]+"${base[@]}"} "$GITHUB_WORKSPACE/Packages/macOS/CmuxNext" | tee "$RUNNER_TEMP/ratchet-debt/godfiles-rust.log" || rc=$?[0m
+2026-11-11T18:56:59.3085103Z [36;1mif (( rc == 1 )); then[0m
+2026-11-11T18:56:59.3085403Z [36;1m  echo "::warning title=god files (rust)::over the hard ceiling; warn-only (Lawrence 2026-10-10), see this step's log"[0m
+2026-11-11T18:56:59.3085700Z [36;1melif (( rc != 0 )); then[0m
+2026-11-11T18:56:59.3085886Z [36;1m  exit "$rc"[0m
+2026-11-11T18:56:59.3086018Z [36;1mfi[0m
+2026-11-11T18:56:59.3100388Z shell: /usr/bin/bash -e {0}
+2026-11-11T18:56:59.3100641Z env:
+2026-11-11T18:56:59.3100897Z   CI_CACHE_R2_PUBLIC_URL: https://ci-cache.cmux.com
+2026-11-11T18:56:59.3101194Z   CMUX_NEXT_STYLE_GUARDS: warn
+2026-11-11T18:56:59.3101488Z   CMUX_NEXT_SIDE_ROUTE: glaeda-side-std-xcode-26.6
+2026-11-11T18:56:59.3101899Z   BASH_ENV: ${GITHUB_WORKSPACE:-/nonexistent}/scripts/ci/api_call_log/env.sh
+2026-11-11T18:56:59.3102308Z   BLACKSMITH_RUNNER_MESSAGE_WAIT_MS: 163
+2026-11-11T18:56:59.3102609Z   BLACKSMITH_RUNNER_ACQUIRE_JOB_MS: 429
+2026-11-11T18:56:59.3102901Z   GITHUB_REPO_NAME: manaflow-ai/cmux
+2026-11-11T18:56:59.3103176Z   EVENT_NAME: pull_request
+2026-11-11T18:56:59.3103417Z   GODFILES_WARN_SLACK: 20
+2026-11-11T18:56:59.3114308Z ##[endgroup]
+2026-11-11T18:57:02.3880849Z ##[warning]god file: cmux-tui/crates/cmux-tui-core/src/mux/presentation.rs has 1161 lines, 45 fns (limit 1000 lines, 60 fns; not in baseline: split it)
+2026-11-11T18:57:02.3890397Z ##[warning]god file: cmux-tui/crates/cmux-tui-core/src/server/command_dispatch.rs has 1046 lines, 3 fns (limit 1000 lines, 60 fns; not in baseline: split it)
+2026-11-11T18:57:02.7428287Z ##[warning]over the hard ceiling; warn-only (Lawrence 2026-10-10), see this step's log
+2026-11-11T18:57:02.7573843Z ##[group]Run if [[ "$FULL_CI" != true ]]; then
+2026-11-11T18:57:02.7574262Z [36;1mif [[ "$FULL_CI" != true ]]; then[0m
+2026-11-11T18:57:02.7574716Z [36;1m  echo "Size cap is a batch cadence check; ordinary PRs receive the fast tier only."[0m
+2026-11-11T18:57:02.7575162Z [36;1m  exit 0[0m
+2026-11-11T18:57:02.7575405Z [36;1mfi[0m
+2026-11-11T18:57:02.7575610Z [36;1mbase=()[0m
+2026-11-11T18:57:02.7579535Z [36;1m[[ "$EVENT_NAME" == pull_request ]] && base=(--base HEAD^1)[0m
+2026-11-11T18:57:02.7580233Z [36;1mif [[ "$EVENT_NAME" == push && -n "$BEFORE" && "$BEFORE" != 0000000000000000000000000000000000000000 ]]; then[0m
+2026-11-11T18:57:02.7580773Z [36;1m  git cat-file -e "$BEFORE^{commit}" 2>/dev/null \[0m
+2026-11-11T18:57:02.7581208Z [36;1m    || git fetch --no-tags --quiet --depth=1 origin "$BEFORE" || true[0m
+2026-11-11T18:57:02.7581606Z [36;1m  base=(--base "$BEFORE")[0m
+2026-11-11T18:57:02.7581878Z [36;1mfi[0m
+2026-11-11T18:57:02.7582290Z [36;1mscripts/cmux-next/check-app-size.sh ${base[@]+"${base[@]}"} "$GITHUB_WORKSPACE"[0m
+2026-11-11T18:57:02.7610920Z shell: /usr/bin/bash -e {0}
+2026-11-11T18:57:02.7611223Z env:
+2026-11-11T18:57:02.7611517Z   CI_CACHE_R2_PUBLIC_URL: https://ci-cache.cmux.com
+2026-11-11T18:57:02.7611871Z   CMUX_NEXT_STYLE_GUARDS: warn
+2026-11-11T18:57:02.7612196Z   CMUX_NEXT_SIDE_ROUTE: glaeda-side-std-xcode-26.6
+2026-11-11T18:57:02.7613190Z   BASH_ENV: ${GITHUB_WORKSPACE:-/nonexistent}/scripts/ci/api_call_log/env.sh
+2026-11-11T18:57:02.7613708Z   BLACKSMITH_RUNNER_MESSAGE_WAIT_MS: 163
+2026-11-11T18:57:02.7614026Z   BLACKSMITH_RUNNER_ACQUIRE_JOB_MS: 429
+2026-11-11T18:57:02.7614334Z   GITHUB_REPO_NAME: manaflow-ai/cmux
+2026-11-11T18:57:02.7614626Z   EVENT_NAME: pull_request
+2026-11-11T18:57:02.7614881Z   FULL_CI: false
+2026-11-11T18:57:02.7615136Z   BEFORE: 77c6ec54ea42029127b4aff2746810ea4fc4505a
+2026-11-11T18:57:02.7615457Z ##[endgroup]
+2026-11-11T18:57:02.7677195Z Size cap is a batch cadence check; ordinary PRs receive the fast tier only.
+2026-11-11T18:57:02.7809550Z ##[group]Run scripts/cmux-next/check-no-swift-cli.sh "$GITHUB_WORKSPACE"
+2026-11-11T18:57:02.7810097Z [36;1mscripts/cmux-next/check-no-swift-cli.sh "$GITHUB_WORKSPACE"[0m
+2026-11-11T18:57:02.7823504Z shell: /usr/bin/bash -e {0}
+2026-11-11T18:57:02.7827361Z env:
+2026-11-11T18:57:02.7827629Z   CI_CACHE_R2_PUBLIC_URL: https://ci-cache.cmux.com
+2026-11-11T18:57:02.7828017Z   CMUX_NEXT_STYLE_GUARDS: warn
+2026-11-11T18:57:02.7828380Z   CMUX_NEXT_SIDE_ROUTE: glaeda-side-std-xcode-26.6
+2026-11-11T18:57:02.7828812Z   BASH_ENV: ${GITHUB_WORKSPACE:-/nonexistent}/scripts/ci/api_call_log/env.sh
+2026-11-11T18:57:02.7829240Z   BLACKSMITH_RUNNER_MESSAGE_WAIT_MS: 163
+2026-11-11T18:57:02.7829545Z   BLACKSMITH_RUNNER_ACQUIRE_JOB_MS: 429
+2026-11-11T18:57:02.7829857Z   GITHUB_REPO_NAME: manaflow-ai/cmux
+2026-11-11T18:57:02.7830140Z ##[endgroup]
+2026-11-11T18:57:02.8605312Z check-no-swift-cli: ok
+2026-11-11T18:57:02.8733225Z ##[group]Run scripts/cmux-next/check-no-swift-closed-history.sh "$GITHUB_WORKSPACE"
+2026-11-11T18:57:02.8733687Z [36;1mscripts/cmux-next/check-no-swift-closed-history.sh "$GITHUB_WORKSPACE"[0m
+2026-11-11T18:57:02.8760027Z shell: /usr/bin/bash -e {0}
+2026-11-11T18:57:02.8760514Z env:
+2026-11-11T18:57:02.8799267Z   CI_CACHE_R2_PUBLIC_URL: https://ci-cache.cmux.com
+2026-11-11T18:57:02.8799606Z   CMUX_NEXT_STYLE_GUARDS: warn
+2026-11-11T18:57:02.8799918Z   CMUX_NEXT_SIDE_ROUTE: glaeda-side-std-xcode-26.6
+2026-11-11T18:57:02.8800330Z   BASH_ENV: ${GITHUB_WORKSPACE:-/nonexistent}/scripts/ci/api_call_log/env.sh
+2026-11-11T18:57:02.8800734Z   BLACKSMITH_RUNNER_MESSAGE_WAIT_MS: 163
+2026-11-11T18:57:02.8801014Z   BLACKSMITH_RUNNER_ACQUIRE_JOB_MS: 429
+2026-11-11T18:57:02.8801298Z   GITHUB_REPO_NAME: manaflow-ai/cmux
+2026-11-11T18:57:02.8801561Z ##[endgroup]
+2026-11-11T18:57:03.3941581Z check-no-swift-closed-history: ok
+2026-11-11T18:57:03.4080114Z ##[group]Run python3 -I scripts/cmux-next/check-single-omnibar.py "$GITHUB_WORKSPACE"
+2026-11-11T18:57:03.4080804Z [36;1mpython3 -I scripts/cmux-next/check-single-omnibar.py "$GITHUB_WORKSPACE"[0m
+2026-11-11T18:57:03.4097030Z shell: /usr/bin/bash -e {0}
+2026-11-11T18:57:03.4097315Z env:
+2026-11-11T18:57:03.4097605Z   CI_CACHE_R2_PUBLIC_URL: https://ci-cache.cmux.com
+2026-11-11T18:57:03.4097965Z   CMUX_NEXT_STYLE_GUARDS: warn
+2026-11-11T18:57:03.4098369Z   CMUX_NEXT_SIDE_ROUTE: glaeda-side-std-xcode-26.6
+2026-11-11T18:57:03.4098846Z   BASH_ENV: ${GITHUB_WORKSPACE:-/nonexistent}/scripts/ci/api_call_log/env.sh
+2026-11-11T18:57:03.4099290Z   BLACKSMITH_RUNNER_MESSAGE_WAIT_MS: 163
+2026-11-11T18:57:03.4099604Z   BLACKSMITH_RUNNER_ACQUIRE_JOB_MS: 429
+2026-11-11T18:57:03.4099922Z   GITHUB_REPO_NAME: manaflow-ai/cmux
+2026-11-11T18:57:03.4100222Z ##[endgroup]
+2026-11-11T18:57:04.1397227Z check-single-omnibar: ok
+2026-11-11T18:57:04.1549156Z ##[group]Run base=()
+2026-11-11T18:57:04.1549352Z [36;1mbase=()[0m
+2026-11-11T18:57:04.1549542Z [36;1m[[ "$EVENT_NAME" == pull_request ]] && base=(--base HEAD^1)[0m
+2026-11-11T18:57:04.1549898Z [36;1mpython3 -I scripts/cmux-next/check-react-pages.py ${base[@]+"${base[@]}"} "$GITHUB_WORKSPACE"[0m
+2026-11-11T18:57:04.1563314Z shell: /usr/bin/bash -e {0}
+2026-11-11T18:57:04.1563476Z env:
+2026-11-11T18:57:04.1563652Z   CI_CACHE_R2_PUBLIC_URL: https://ci-cache.cmux.com
+2026-11-11T18:57:04.1563858Z   CMUX_NEXT_STYLE_GUARDS: warn
+2026-11-11T18:57:04.1564042Z   CMUX_NEXT_SIDE_ROUTE: glaeda-side-std-xcode-26.6
+2026-11-11T18:57:04.1564436Z   BASH_ENV: ${GITHUB_WORKSPACE:-/nonexistent}/scripts/ci/api_call_log/env.sh
+2026-11-11T18:57:04.1564685Z   BLACKSMITH_RUNNER_MESSAGE_WAIT_MS: 163
+2026-11-11T18:57:04.1565037Z   BLACKSMITH_RUNNER_ACQUIRE_JOB_MS: 429
+2026-11-11T18:57:04.1565214Z   GITHUB_REPO_NAME: manaflow-ai/cmux
+2026-11-11T18:57:04.1565500Z   EVENT_NAME: pull_request
+2026-11-11T18:57:04.1565685Z ##[endgroup]
+2026-11-11T18:57:04.2184616Z REACT-PAGES: ok, 31 page(s), 6 debt, 5 to review
+2026-11-11T18:57:04.2330275Z ##[group]Run base=()
+2026-11-11T18:57:04.2330576Z [36;1mbase=()[0m
+2026-11-11T18:57:04.2331029Z [36;1m[[ "$EVENT_NAME" == pull_request ]] && base=(--base HEAD^1)[0m
+2026-11-11T18:57:04.2331605Z [36;1mif [[ "$EVENT_NAME" == push && -n "$BEFORE" && "$BEFORE" != 0000000000000000000000000000000000000000 ]]; then[0m
+2026-11-11T18:57:04.2332166Z [36;1m  git cat-file -e "$BEFORE^{commit}" 2>/dev/null \[0m
+2026-11-11T18:57:04.2332622Z [36;1m    || git fetch --no-tags --quiet --depth=1 origin "$BEFORE" || true[0m
+2026-11-11T18:57:04.2333170Z [36;1m  git cat-file -e "$BEFORE^{commit}" 2>/dev/null && base=(--base "$BEFORE")[0m
+2026-11-11T18:57:04.2333581Z [36;1mfi[0m
+2026-11-11T18:57:04.2334023Z [36;1mpython3 -I scripts/cmux-next/check-no-swiftui.py ${base[@]+"${base[@]}"} "$GITHUB_WORKSPACE"[0m
+2026-11-11T18:57:04.2353710Z shell: /usr/bin/bash -e {0}
+2026-11-11T18:57:04.2353990Z env:
+2026-11-11T18:57:04.2354282Z   CI_CACHE_R2_PUBLIC_URL: https://ci-cache.cmux.com
+2026-11-11T18:57:04.2354689Z   CMUX_NEXT_STYLE_GUARDS: warn
+2026-11-11T18:57:04.2355017Z   CMUX_NEXT_SIDE_ROUTE: glaeda-side-std-xcode-26.6
+2026-11-11T18:57:04.2355486Z   BASH_ENV: ${GITHUB_WORKSPACE:-/nonexistent}/scripts/ci/api_call_log/env.sh
+2026-11-11T18:57:04.2355927Z   BLACKSMITH_RUNNER_MESSAGE_WAIT_MS: 163
+2026-11-11T18:57:04.2356254Z   BLACKSMITH_RUNNER_ACQUIRE_JOB_MS: 429
+2026-11-11T18:57:04.2356565Z   GITHUB_REPO_NAME: manaflow-ai/cmux
+2026-11-11T18:57:04.2357221Z   EVENT_NAME: pull_request
+2026-11-11T18:57:04.2357531Z   BEFORE: 77c6ec54ea42029127b4aff2746810ea4fc4505a
+2026-11-11T18:57:04.2357909Z ##[endgroup]
+2026-11-11T18:57:06.5484719Z NO-SWIFTUI: ok, 87 allowlisted file(s) left
+2026-11-11T18:57:06.5732306Z ##[group]Run scripts/ci/run-checks-concurrently.sh --wait "$RUNNER_TEMP/background-checks" no-process-scan
+2026-11-11T18:57:06.5733103Z [36;1mscripts/ci/run-checks-concurrently.sh --wait "$RUNNER_TEMP/background-checks" no-process-scan[0m
+2026-11-11T18:57:06.5780284Z shell: /usr/bin/bash -e {0}
+2026-11-11T18:57:06.5780514Z env:
+2026-11-11T18:57:06.5780712Z   CI_CACHE_R2_PUBLIC_URL: https://ci-cache.cmux.com
+2026-11-11T18:57:06.5780933Z   CMUX_NEXT_STYLE_GUARDS: warn
+2026-11-11T18:57:06.5781126Z   CMUX_NEXT_SIDE_ROUTE: glaeda-side-std-xcode-26.6
+2026-11-11T18:57:06.5781390Z   BASH_ENV: ${GITHUB_WORKSPACE:-/nonexistent}/scripts/ci/api_call_log/env.sh
+2026-11-11T18:57:06.5781646Z   BLACKSMITH_RUNNER_MESSAGE_WAIT_MS: 163
+2026-11-11T18:57:06.5781828Z   BLACKSMITH_RUNNER_ACQUIRE_JOB_MS: 429
+2026-11-11T18:57:06.5782038Z   GITHUB_REPO_NAME: manaflow-ai/cmux
+2026-11-11T18:57:06.5782205Z ##[endgroup]
+2026-11-11T18:57:14.0752040Z 1 checks, 16 at a time: 1 passed, 0 failed
+2026-11-11T18:57:14.0943065Z ##[group]Run python3 -I scripts/cmux-next/check-default-cursor.py "$GITHUB_WORKSPACE"
+2026-11-11T18:57:14.0943448Z [36;1mpython3 -I scripts/cmux-next/check-default-cursor.py "$GITHUB_WORKSPACE"[0m
+2026-11-11T18:57:14.1002220Z shell: /usr/bin/bash -e {0}
+2026-11-11T18:57:14.1002571Z env:
+2026-11-11T18:57:14.1002796Z   CI_CACHE_R2_PUBLIC_URL: https://ci-cache.cmux.com
+2026-11-11T18:57:14.1003030Z   CMUX_NEXT_STYLE_GUARDS: warn
+2026-11-11T18:57:14.1003213Z   CMUX_NEXT_SIDE_ROUTE: glaeda-side-std-xcode-26.6
+2026-11-11T18:57:14.1003468Z   BASH_ENV: ${GITHUB_WORKSPACE:-/nonexistent}/scripts/ci/api_call_log/env.sh
+2026-11-11T18:57:14.1003718Z   BLACKSMITH_RUNNER_MESSAGE_WAIT_MS: 163
+2026-11-11T18:57:14.1003918Z   BLACKSMITH_RUNNER_ACQUIRE_JOB_MS: 429
+2026-11-11T18:57:14.1004094Z   GITHUB_REPO_NAME: manaflow-ai/cmux
+2026-11-11T18:57:14.1004257Z ##[endgroup]
+2026-11-11T18:57:16.8722653Z check-default-cursor: ok
+2026-11-11T18:57:16.8893914Z ##[group]Run scripts/ci/run-checks-concurrently.sh --wait "$RUNNER_TEMP/background-checks" state-roots
+2026-11-11T18:57:16.8894753Z [36;1mscripts/ci/run-checks-concurrently.sh --wait "$RUNNER_TEMP/background-checks" state-roots[0m
+2026-11-11T18:57:16.8906703Z shell: /usr/bin/bash -e {0}
+2026-11-11T18:57:16.8906875Z env:
+2026-11-11T18:57:16.8907053Z   CI_CACHE_R2_PUBLIC_URL: https://ci-cache.cmux.com
+2026-11-11T18:57:16.8907259Z   CMUX_NEXT_STYLE_GUARDS: warn
+2026-11-11T18:57:16.8907506Z   CMUX_NEXT_SIDE_ROUTE: glaeda-side-std-xcode-26.6
+2026-11-11T18:57:16.8907769Z   BASH_ENV: ${GITHUB_WORKSPACE:-/nonexistent}/scripts/ci/api_call_log/env.sh
+2026-11-11T18:57:16.8908014Z   BLACKSMITH_RUNNER_MESSAGE_WAIT_MS: 163
+2026-11-11T18:57:16.8908191Z   BLACKSMITH_RUNNER_ACQUIRE_JOB_MS: 429
+2026-11-11T18:57:16.8908385Z   GITHUB_REPO_NAME: manaflow-ai/cmux
+2026-11-11T18:57:16.8908546Z ##[endgroup]
+2026-11-11T18:57:24.5845627Z 1 checks, 16 at a time: 1 passed, 0 failed
+2026-11-11T18:57:24.5961745Z ##[group]Run python3 -I scripts/cmux-next/check-dialog-key-hints.py "$GITHUB_WORKSPACE"
+2026-11-11T18:57:24.5962135Z [36;1mpython3 -I scripts/cmux-next/check-dialog-key-hints.py "$GITHUB_WORKSPACE"[0m
+2026-11-11T18:57:24.5981174Z shell: /usr/bin/bash -e {0}
+2026-11-11T18:57:24.5981463Z env:
+2026-11-11T18:57:24.5981727Z   CI_CACHE_R2_PUBLIC_URL: https://ci-cache.cmux.com
+2026-11-11T18:57:24.5982070Z   CMUX_NEXT_STYLE_GUARDS: warn
+2026-11-11T18:57:24.5982364Z   CMUX_NEXT_SIDE_ROUTE: glaeda-side-std-xcode-26.6
+2026-11-11T18:57:24.5982807Z   BASH_ENV: ${GITHUB_WORKSPACE:-/nonexistent}/scripts/ci/api_call_log/env.sh
+2026-11-11T18:57:24.5983204Z   BLACKSMITH_RUNNER_MESSAGE_WAIT_MS: 163
+2026-11-11T18:57:24.5983499Z   BLACKSMITH_RUNNER_ACQUIRE_JOB_MS: 429
+2026-11-11T18:57:24.5990390Z   GITHUB_REPO_NAME: manaflow-ai/cmux
+2026-11-11T18:57:24.5990664Z ##[endgroup]
+2026-11-11T18:57:25.6014994Z check-dialog-key-hints: every dialog button shows its key
+2026-11-11T18:57:25.6175261Z ##[group]Run scripts/ci/run-checks-concurrently.sh --wait "$RUNNER_TEMP/background-checks" concurrency
+2026-11-11T18:57:25.6175713Z [36;1mscripts/ci/run-checks-concurrently.sh --wait "$RUNNER_TEMP/background-checks" concurrency[0m
+2026-11-11T18:57:25.6197359Z shell: /usr/bin/bash -e {0}
+2026-11-11T18:57:25.6197538Z env:
+2026-11-11T18:57:25.6197718Z   CI_CACHE_R2_PUBLIC_URL: https://ci-cache.cmux.com
+2026-11-11T18:57:25.6197927Z   CMUX_NEXT_STYLE_GUARDS: warn
+2026-11-11T18:57:25.6198116Z   CMUX_NEXT_SIDE_ROUTE: glaeda-side-std-xcode-26.6
+2026-11-11T18:57:25.6198384Z   BASH_ENV: ${GITHUB_WORKSPACE:-/nonexistent}/scripts/ci/api_call_log/env.sh
+2026-11-11T18:57:25.6198641Z   BLACKSMITH_RUNNER_MESSAGE_WAIT_MS: 163
+2026-11-11T18:57:25.6198816Z   BLACKSMITH_RUNNER_ACQUIRE_JOB_MS: 429
+2026-11-11T18:57:25.6199007Z   GITHUB_REPO_NAME: manaflow-ai/cmux
+2026-11-11T18:57:25.6199170Z ##[endgroup]
+2026-11-11T18:57:25.6357985Z 1 checks, 16 at a time: 1 passed, 0 failed
+2026-11-11T18:57:25.6473100Z ##[group]Run python3 -I scripts/cmux-next/check-webview-factory.py "$GITHUB_WORKSPACE/Packages/macOS/CmuxNext"
+2026-11-11T18:57:25.6473602Z [36;1mpython3 -I scripts/cmux-next/check-webview-factory.py "$GITHUB_WORKSPACE/Packages/macOS/CmuxNext"[0m
+2026-11-11T18:57:25.6485568Z shell: /usr/bin/bash -e {0}
+2026-11-11T18:57:25.6485727Z env:
+2026-11-11T18:57:25.6485899Z   CI_CACHE_R2_PUBLIC_URL: https://ci-cache.cmux.com
+2026-11-11T18:57:25.6486104Z   CMUX_NEXT_STYLE_GUARDS: warn
+2026-11-11T18:57:25.6486294Z   CMUX_NEXT_SIDE_ROUTE: glaeda-side-std-xcode-26.6
+2026-11-11T18:57:25.6486570Z   BASH_ENV: ${GITHUB_WORKSPACE:-/nonexistent}/scripts/ci/api_call_log/env.sh
+2026-11-11T18:57:25.6486897Z   BLACKSMITH_RUNNER_MESSAGE_WAIT_MS: 163
+2026-11-11T18:57:25.6487084Z   BLACKSMITH_RUNNER_ACQUIRE_JOB_MS: 429
+2026-11-11T18:57:25.6487263Z   GITHUB_REPO_NAME: manaflow-ai/cmux
+2026-11-11T18:57:25.6487431Z ##[endgroup]
+2026-11-11T18:57:26.7797960Z check-webview-factory: every web view goes through the engine decision
+2026-11-11T18:57:26.7985528Z ##[group]Run if [[ "$FULL_CI" != true ]]; then
+2026-11-11T18:57:26.7985905Z [36;1mif [[ "$FULL_CI" != true ]]; then[0m
+2026-11-11T18:57:26.7986329Z [36;1m  echo "Crash ratchet is a batch cadence check; ordinary PRs receive the fast tier only."[0m
+2026-11-11T18:57:26.7986767Z [36;1m  exit 0[0m
+2026-11-11T18:57:26.7986956Z [36;1mfi[0m
+2026-11-11T18:57:26.7987293Z [36;1mscripts/cmux-next/check-crash-safety.sh "$GITHUB_WORKSPACE/Packages/macOS/CmuxNext"[0m
+2026-11-11T18:57:26.8008824Z shell: /usr/bin/bash -e {0}
+2026-11-11T18:57:26.8009119Z env:
+2026-11-11T18:57:26.8009386Z   CI_CACHE_R2_PUBLIC_URL: https://ci-cache.cmux.com
+2026-11-11T18:57:26.8009714Z   CMUX_NEXT_STYLE_GUARDS: warn
+2026-11-11T18:57:26.8010016Z   CMUX_NEXT_SIDE_ROUTE: glaeda-side-std-xcode-26.6
+2026-11-11T18:57:26.8010432Z   BASH_ENV: ${GITHUB_WORKSPACE:-/nonexistent}/scripts/ci/api_call_log/env.sh
+2026-11-11T18:57:26.8010834Z   BLACKSMITH_RUNNER_MESSAGE_WAIT_MS: 163
+2026-11-11T18:57:26.8011176Z   BLACKSMITH_RUNNER_ACQUIRE_JOB_MS: 429
+2026-11-11T18:57:26.8011464Z   GITHUB_REPO_NAME: manaflow-ai/cmux
+2026-11-11T18:57:26.8011720Z   FULL_CI: false
+2026-11-11T18:57:26.8011940Z ##[endgroup]
+2026-11-11T18:57:26.8083483Z Crash ratchet is a batch cadence check; ordinary PRs receive the fast tier only.
+2026-11-11T18:57:26.8185416Z ##[group]Run scripts/cmux-next/check-test-notification-centers.sh "$GITHUB_WORKSPACE/Packages/macOS/CmuxNext"
+2026-11-11T18:57:26.8186139Z [36;1mscripts/cmux-next/check-test-notification-centers.sh "$GITHUB_WORKSPACE/Packages/macOS/CmuxNext"[0m
+2026-11-11T18:57:26.8206075Z shell: /usr/bin/bash -e {0}
+2026-11-11T18:57:26.8206331Z env:
+2026-11-11T18:57:26.8206595Z   CI_CACHE_R2_PUBLIC_URL: https://ci-cache.cmux.com
+2026-11-11T18:57:26.8206953Z   CMUX_NEXT_STYLE_GUARDS: warn
+2026-11-11T18:57:26.8207239Z   CMUX_NEXT_SIDE_ROUTE: glaeda-side-std-xcode-26.6
+2026-11-11T18:57:26.8207655Z   BASH_ENV: ${GITHUB_WORKSPACE:-/nonexistent}/scripts/ci/api_call_log/env.sh
+2026-11-11T18:57:26.8208040Z   BLACKSMITH_RUNNER_MESSAGE_WAIT_MS: 163
+2026-11-11T18:57:26.8208327Z   BLACKSMITH_RUNNER_ACQUIRE_JOB_MS: 429
+2026-11-11T18:57:26.8208617Z   GITHUB_REPO_NAME: manaflow-ai/cmux
+2026-11-11T18:57:26.8208879Z ##[endgroup]
+2026-11-11T18:57:27.8704700Z check-test-notification-centers: ok
+2026-11-11T18:57:27.8965324Z ##[group]Run set -o pipefail
+2026-11-11T18:57:27.8965536Z [36;1mset -o pipefail[0m
+2026-11-11T18:57:27.8965701Z [36;1mmkdir -p "$RUNNER_TEMP/ratchet-debt"[0m
+2026-11-11T18:57:27.8965994Z [36;1mscripts/cmux-next/check-l10n.sh "$GITHUB_WORKSPACE" | tee "$RUNNER_TEMP/ratchet-debt/l10n.log"[0m
+2026-11-11T18:57:27.8976555Z shell: /usr/bin/bash -e {0}
+2026-11-11T18:57:27.8976756Z env:
+2026-11-11T18:57:27.8976931Z   CI_CACHE_R2_PUBLIC_URL: https://ci-cache.cmux.com
+2026-11-11T18:57:27.8977128Z   CMUX_NEXT_STYLE_GUARDS: warn
+2026-11-11T18:57:27.8977311Z   CMUX_NEXT_SIDE_ROUTE: glaeda-side-std-xcode-26.6
+2026-11-11T18:57:27.8977568Z   BASH_ENV: ${GITHUB_WORKSPACE:-/nonexistent}/scripts/ci/api_call_log/env.sh
+2026-11-11T18:57:27.8977808Z   BLACKSMITH_RUNNER_MESSAGE_WAIT_MS: 163
+2026-11-11T18:57:27.8977979Z   BLACKSMITH_RUNNER_ACQUIRE_JOB_MS: 429
+2026-11-11T18:57:27.8978158Z   GITHUB_REPO_NAME: manaflow-ai/cmux
+2026-11-11T18:57:27.8978321Z   L10N_STYLE_WARN_MAX: 100
+2026-11-11T18:57:27.8978500Z ##[endgroup]
+2026-11-11T18:57:28.7602027Z ##[warning]Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/Resources/Localizable.xcstrings:agentPane.error.gitPushUnavailable: missing km
+2026-11-11T18:57:28.7626311Z ##[warning]Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/Resources/Localizable.xcstrings:agentPane.error.gitPushUnavailable: missing nb
+2026-11-11T18:57:28.7629392Z needs_review (machine translated): en=2 ar=6711 bs=7449 da=7444 de=6713 es=6715 fr=6710 it=7438 ja=3493 km=7577 ko=6709 nb=7449 pl=7436 pt-BR=7436 ru=7437 th=7444 tr=7436 uk=7443 vi=7631 zh-Hans=6710 zh-Hant=6710
+2026-11-11T18:57:28.7775419Z ##[group]Run scripts/cmux-next/check-module-resources.sh "$GITHUB_WORKSPACE/Packages/macOS/CmuxNext"
+2026-11-11T18:57:28.7775853Z [36;1mscripts/cmux-next/check-module-resources.sh "$GITHUB_WORKSPACE/Packages/macOS/CmuxNext"[0m
+2026-11-11T18:57:28.7808351Z shell: /usr/bin/bash -e {0}
+2026-11-11T18:57:28.7808630Z env:
+2026-11-11T18:57:28.7808903Z   CI_CACHE_R2_PUBLIC_URL: https://ci-cache.cmux.com
+2026-11-11T18:57:28.7809230Z   CMUX_NEXT_STYLE_GUARDS: warn
+2026-11-11T18:57:28.7809521Z   CMUX_NEXT_SIDE_ROUTE: glaeda-side-std-xcode-26.6
+2026-11-11T18:57:28.7809952Z   BASH_ENV: ${GITHUB_WORKSPACE:-/nonexistent}/scripts/ci/api_call_log/env.sh
+2026-11-11T18:57:28.7810346Z   BLACKSMITH_RUNNER_MESSAGE_WAIT_MS: 163
+2026-11-11T18:57:28.7810637Z   BLACKSMITH_RUNNER_ACQUIRE_JOB_MS: 429
+2026-11-11T18:57:28.7810928Z   GITHUB_REPO_NAME: manaflow-ai/cmux
+2026-11-11T18:57:28.7811183Z ##[endgroup]
+2026-11-11T18:57:29.1875941Z check-module-resources: ok
+2026-11-11T18:57:29.2014629Z ##[group]Run set -o pipefail
+2026-11-11T18:57:29.2014832Z [36;1mset -o pipefail[0m
+2026-11-11T18:57:29.2014999Z [36;1mmkdir -p "$RUNNER_TEMP/ratchet-debt"[0m
+2026-11-11T18:57:29.2015330Z [36;1mscripts/cmux-next/check-scrollbars.sh "$GITHUB_WORKSPACE" | tee "$RUNNER_TEMP/ratchet-debt/scrollbars.log"[0m
+2026-11-11T18:57:29.2040177Z shell: /usr/bin/bash -e {0}
+2026-11-11T18:57:29.2040344Z env:
+2026-11-11T18:57:29.2040521Z   CI_CACHE_R2_PUBLIC_URL: https://ci-cache.cmux.com
+2026-11-11T18:57:29.2040822Z   CMUX_NEXT_STYLE_GUARDS: warn
+2026-11-11T18:57:29.2041263Z   CMUX_NEXT_SIDE_ROUTE: glaeda-side-std-xcode-26.6
+2026-11-11T18:57:29.2041518Z   BASH_ENV: ${GITHUB_WORKSPACE:-/nonexistent}/scripts/ci/api_call_log/env.sh
+2026-11-11T18:57:29.2041762Z   BLACKSMITH_RUNNER_MESSAGE_WAIT_MS: 163
+2026-11-11T18:57:29.2041935Z   BLACKSMITH_RUNNER_ACQUIRE_JOB_MS: 429
+2026-11-11T18:57:29.2042116Z   GITHUB_REPO_NAME: manaflow-ai/cmux
+2026-11-11T18:57:29.2042286Z   SCROLLBARS_WARN_MAX: 10
+2026-11-11T18:57:29.2042464Z ##[endgroup]
+2026-11-11T18:57:32.3223283Z ##[warning]Packages/Shared/CmuxMessagesLab/Sources/MessagesLabHome/Cmux/HomePictureViewer.swift:96: forced scroller style; use SystemScrollers.follow/observe: scroll.scrollerStyle = .overlay
+2026-11-11T18:57:32.3232283Z ##[warning]webviews/src/agent-session/acpmux/quickModelColumns.css:203: scrollbar-width makes a custom scrollbar: scrollbar-width: none;
+2026-11-11T18:57:32.3234679Z ##[warning]webviews/src/agent-session/acpmux/quickModelColumns.css:205: ::-webkit-scrollbar makes a custom scrollbar: .acpmux-cols-rail::-webkit-scrollbar { display: none; }
+2026-11-11T18:57:32.3284347Z ##[warning]webviews/src/agent-session/acpmux/modelPicker.css:492: scrollbar-width makes a custom scrollbar: scrollbar-width: none;
+2026-11-11T18:57:32.3288681Z ##[warning]webviews/src/agent-session/acpmux/styles.css:140: scrollbar-width makes a custom scrollbar: .acpmux-menu.acpmux-composer-plus{--popup-scroll-cap:360px;width:min(340px,calc(100vw - 16px));min-width:0;max-height:min(360px,50vh);overflow-y:overlay;scrollbar-width:none;padding-inline-end:calc(var(--ui-popup-padding) + 4px)}
+2026-11-11T18:57:32.3291806Z ##[warning]webviews/src/agent-session/acpmux/styles.css:141: ::-webkit-scrollbar makes a custom scrollbar: .acpmux-menu.acpmux-composer-plus::-webkit-scrollbar{display:none;width:0;height:0}
+2026-11-11T18:57:32.3294020Z ##[warning]webviews/src/agent-session/acpmux/conversation/conversation.css:1955: overflow: scroll; use auto: overflow-x: scroll;
+2026-11-11T18:57:32.3296183Z ##[warning]webviews/src/agent-session/acpmux/conversation/conversation.css:1958: ::-webkit-scrollbar makes a custom scrollbar: .cv-edit-diff__loading-lines::-webkit-scrollbar {
+2026-11-11T18:57:32.3298711Z ##[warning]webviews/src/agent-session/acpmux/conversation/conversation.css:1962: ::-webkit-scrollbar makes a custom scrollbar: .cv-edit-diff__loading-lines::-webkit-scrollbar-thumb,
+2026-11-11T18:57:32.3301118Z ##[warning]webviews/src/agent-session/acpmux/conversation/conversation.css:1963: ::-webkit-scrollbar makes a custom scrollbar: .cv-edit-diff__loading-lines::-webkit-scrollbar-track {
+2026-11-11T18:57:32.3302322Z check-scrollbars: 10 hits are ratchet debt (ceiling 10)
+2026-11-11T18:57:32.3418922Z ##[group]Run scripts/cmux-next/check-motion.sh "$GITHUB_WORKSPACE/Packages/macOS/CmuxNext"
+2026-11-11T18:57:32.3419350Z [36;1mscripts/cmux-next/check-motion.sh "$GITHUB_WORKSPACE/Packages/macOS/CmuxNext"[0m
+2026-11-11T18:57:32.3431023Z shell: /usr/bin/bash -e {0}
+2026-11-11T18:57:32.3431203Z env:
+2026-11-11T18:57:32.3431388Z   CI_CACHE_R2_PUBLIC_URL: https://ci-cache.cmux.com
+2026-11-11T18:57:32.3431604Z   CMUX_NEXT_STYLE_GUARDS: warn
+2026-11-11T18:57:32.3431976Z   CMUX_NEXT_SIDE_ROUTE: glaeda-side-std-xcode-26.6
+2026-11-11T18:57:32.3432251Z   BASH_ENV: ${GITHUB_WORKSPACE:-/nonexistent}/scripts/ci/api_call_log/env.sh
+2026-11-11T18:57:32.3432497Z   BLACKSMITH_RUNNER_MESSAGE_WAIT_MS: 163
+2026-11-11T18:57:32.3432682Z   BLACKSMITH_RUNNER_ACQUIRE_JOB_MS: 429
+2026-11-11T18:57:32.3432857Z   GITHUB_REPO_NAME: manaflow-ai/cmux
+2026-11-11T18:57:32.3433033Z ##[endgroup]
+2026-11-11T18:57:39.5520899Z check-motion: ok
+2026-11-11T18:57:39.5677666Z ##[group]Run scripts/ci/run-checks-concurrently.sh --wait "$RUNNER_TEMP/background-checks" overlay-glass
+2026-11-11T18:57:39.5678240Z [36;1mscripts/ci/run-checks-concurrently.sh --wait "$RUNNER_TEMP/background-checks" overlay-glass[0m
+2026-11-11T18:57:39.5688669Z shell: /usr/bin/bash -e {0}
+2026-11-11T18:57:39.5688824Z env:
+2026-11-11T18:57:39.5688985Z   CI_CACHE_R2_PUBLIC_URL: https://ci-cache.cmux.com
+2026-11-11T18:57:39.5689184Z   CMUX_NEXT_STYLE_GUARDS: warn
+2026-11-11T18:57:39.5689367Z   CMUX_NEXT_SIDE_ROUTE: glaeda-side-std-xcode-26.6
+2026-11-11T18:57:39.5689616Z   BASH_ENV: ${GITHUB_WORKSPACE:-/nonexistent}/scripts/ci/api_call_log/env.sh
+2026-11-11T18:57:39.5689850Z   BLACKSMITH_RUNNER_MESSAGE_WAIT_MS: 163
+2026-11-11T18:57:39.5690021Z   BLACKSMITH_RUNNER_ACQUIRE_JOB_MS: 429
+2026-11-11T18:57:39.5690190Z   GITHUB_REPO_NAME: manaflow-ai/cmux
+2026-11-11T18:57:39.5690359Z ##[endgroup]
+2026-11-11T18:57:39.6150003Z 1 checks, 16 at a time: 1 passed, 0 failed
+2026-11-11T18:57:39.6406146Z ##[group]Run python3 -I scripts/cmux-next/gen-type-scale.py --check
+2026-11-11T18:57:39.6406469Z [36;1mpython3 -I scripts/cmux-next/gen-type-scale.py --check[0m
+2026-11-11T18:57:39.6406714Z [36;1mpython3 -I scripts/cmux-next/check-swift-type-scale.py[0m
+2026-11-11T18:57:39.6417261Z shell: /usr/bin/bash -e {0}
+2026-11-11T18:57:39.6417413Z env:
+2026-11-11T18:57:39.6417575Z   CI_CACHE_R2_PUBLIC_URL: https://ci-cache.cmux.com
+2026-11-11T18:57:39.6417766Z   CMUX_NEXT_STYLE_GUARDS: warn
+2026-11-11T18:57:39.6417940Z   CMUX_NEXT_SIDE_ROUTE: glaeda-side-std-xcode-26.6
+2026-11-11T18:57:39.6418188Z   BASH_ENV: ${GITHUB_WORKSPACE:-/nonexistent}/scripts/ci/api_call_log/env.sh
+2026-11-11T18:57:39.6418414Z   BLACKSMITH_RUNNER_MESSAGE_WAIT_MS: 163
+2026-11-11T18:57:39.6418608Z   BLACKSMITH_RUNNER_ACQUIRE_JOB_MS: 429
+2026-11-11T18:57:39.6418769Z   GITHUB_REPO_NAME: manaflow-ai/cmux
+2026-11-11T18:57:39.6418925Z ##[endgroup]
+2026-11-11T18:57:40.2496147Z check-swift-type-scale: ok (14 raw font sizes and 19 off-scale weights left in the baseline)
+2026-11-11T18:57:40.2604081Z ##[group]Run python3 -I tests/test_layout_grid.py && python3 -I scripts/cmux-next/gen-layout-grid.py --check
+2026-11-11T18:57:40.2604506Z [36;1mpython3 -I tests/test_layout_grid.py && python3 -I scripts/cmux-next/gen-layout-grid.py --check[0m
+2026-11-11T18:57:40.2614431Z shell: /usr/bin/bash -e {0}
+2026-11-11T18:57:40.2614584Z env:
+2026-11-11T18:57:40.2614755Z   CI_CACHE_R2_PUBLIC_URL: https://ci-cache.cmux.com
+2026-11-11T18:57:40.2614954Z   CMUX_NEXT_STYLE_GUARDS: warn
+2026-11-11T18:57:40.2615137Z   CMUX_NEXT_SIDE_ROUTE: glaeda-side-std-xcode-26.6
+2026-11-11T18:57:40.2615395Z   BASH_ENV: ${GITHUB_WORKSPACE:-/nonexistent}/scripts/ci/api_call_log/env.sh
+2026-11-11T18:57:40.2615634Z   BLACKSMITH_RUNNER_MESSAGE_WAIT_MS: 163
+2026-11-11T18:57:40.2615866Z   BLACKSMITH_RUNNER_ACQUIRE_JOB_MS: 429
+2026-11-11T18:57:40.2616044Z   GITHUB_REPO_NAME: manaflow-ai/cmux
+2026-11-11T18:57:40.2616202Z ##[endgroup]
+2026-11-11T18:57:40.3059257Z OK
+2026-11-11T18:57:40.3514233Z ##[group]Run if [[ "$EVENT_NAME" == pull_request ]]; then
+2026-11-11T18:57:40.3514501Z [36;1mif [[ "$EVENT_NAME" == pull_request ]]; then[0m
+2026-11-11T18:57:40.3514745Z [36;1m  git fetch --no-tags --quiet --depth=200 origin "$GITHUB_SHA" || true[0m
+2026-11-11T18:57:40.3515053Z [36;1m  python3 -I scripts/cmux-next/check-ui-font.py --rev HEAD --base HEAD^1[0m
+2026-11-11T18:57:40.3515270Z [36;1melse[0m
+2026-11-11T18:57:40.3515432Z [36;1m  python3 -I scripts/cmux-next/check-ui-font.py --rev HEAD[0m
+2026-11-11T18:57:40.3515654Z [36;1mfi[0m
+2026-11-11T18:57:40.3525604Z shell: /usr/bin/bash -e {0}
+2026-11-11T18:57:40.3525758Z env:
+2026-11-11T18:57:40.3526017Z   CI_CACHE_R2_PUBLIC_URL: https://ci-cache.cmux.com
+2026-11-11T18:57:40.3526216Z   CMUX_NEXT_STYLE_GUARDS: warn
+2026-11-11T18:57:40.3526399Z   CMUX_NEXT_SIDE_ROUTE: glaeda-side-std-xcode-26.6
+2026-11-11T18:57:40.3526646Z   BASH_ENV: ${GITHUB_WORKSPACE:-/nonexistent}/scripts/ci/api_call_log/env.sh
+2026-11-11T18:57:40.3526949Z   BLACKSMITH_RUNNER_MESSAGE_WAIT_MS: 163
+2026-11-11T18:57:40.3527111Z   BLACKSMITH_RUNNER_ACQUIRE_JOB_MS: 429
+2026-11-11T18:57:40.3527279Z   GITHUB_REPO_NAME: manaflow-ai/cmux
+2026-11-11T18:57:40.3527431Z   EVENT_NAME: pull_request
+2026-11-11T18:57:40.3527568Z ##[endgroup]
+2026-11-11T18:58:03.1492008Z ui font: ok
+2026-11-11T18:58:03.1632651Z ##[group]Run python3 -I scripts/cmux-next/gen-motion-scale.py --check
+2026-11-11T18:58:03.1632956Z [36;1mpython3 -I scripts/cmux-next/gen-motion-scale.py --check[0m
+2026-11-11T18:58:03.1642751Z shell: /usr/bin/bash -e {0}
+2026-11-11T18:58:03.1642900Z env:
+2026-11-11T18:58:03.1643067Z   CI_CACHE_R2_PUBLIC_URL: https://ci-cache.cmux.com
+2026-11-11T18:58:03.1643262Z   CMUX_NEXT_STYLE_GUARDS: warn
+2026-11-11T18:58:03.1643440Z   CMUX_NEXT_SIDE_ROUTE: glaeda-side-std-xcode-26.6
+2026-11-11T18:58:03.1643692Z   BASH_ENV: ${GITHUB_WORKSPACE:-/nonexistent}/scripts/ci/api_call_log/env.sh
+2026-11-11T18:58:03.1643933Z   BLACKSMITH_RUNNER_MESSAGE_WAIT_MS: 163
+2026-11-11T18:58:03.1644103Z   BLACKSMITH_RUNNER_ACQUIRE_JOB_MS: 429
+2026-11-11T18:58:03.1644275Z   GITHUB_REPO_NAME: manaflow-ai/cmux
+2026-11-11T18:58:03.1644434Z ##[endgroup]
+2026-11-11T18:58:03.1907082Z ##[group]Run python3 -I scripts/cmux-next/tests/test_motion_inventory.py
+2026-11-11T18:58:03.1907511Z [36;1mpython3 -I scripts/cmux-next/tests/test_motion_inventory.py[0m
+2026-11-11T18:58:03.1907910Z [36;1mpython3 -I scripts/cmux-next/check-motion-tokens.py[0m
+2026-11-11T18:58:03.1908299Z [36;1mpython3 -I scripts/cmux-next/motion-coverage.py > "$RUNNER_TEMP/motion-coverage.json"[0m
+2026-11-11T18:58:03.1908841Z [36;1mpython3 -I -c 'import json,sys; d=json.load(open(sys.argv[1])); print("motion coverage", d["coverage"], {k: v["coverage"] for k, v in d["surfaces"].items()})' "$RUNNER_TEMP/motion-coverage.json"[0m
+2026-11-11T18:58:03.1918594Z shell: /usr/bin/bash -e {0}
+2026-11-11T18:58:03.1918834Z env:
+2026-11-11T18:58:03.1919031Z   CI_CACHE_R2_PUBLIC_URL: https://ci-cache.cmux.com
+2026-11-11T18:58:03.1919299Z   CMUX_NEXT_STYLE_GUARDS: warn
+2026-11-11T18:58:03.1919526Z   CMUX_NEXT_SIDE_ROUTE: glaeda-side-std-xcode-26.6
+2026-11-11T18:58:03.1919880Z   BASH_ENV: ${GITHUB_WORKSPACE:-/nonexistent}/scripts/ci/api_call_log/env.sh
+2026-11-11T18:58:03.1920150Z   BLACKSMITH_RUNNER_MESSAGE_WAIT_MS: 163
+2026-11-11T18:58:03.1920402Z   BLACKSMITH_RUNNER_ACQUIRE_JOB_MS: 429
+2026-11-11T18:58:03.1920622Z   GITHUB_REPO_NAME: manaflow-ai/cmux
+2026-11-11T18:58:03.1920845Z ##[endgroup]
+2026-11-11T18:58:14.7133953Z motion coverage 0.8742 {'apps': 0.0, 'native': 0.9186, 'rust': None, 'webviews': 0.8625}
+2026-11-11T18:58:14.7231294Z ##[group]Run python3 -I scripts/cmux-next/check-surface-roles.py
+2026-11-11T18:58:14.7231808Z [36;1mpython3 -I scripts/cmux-next/check-surface-roles.py[0m
+2026-11-11T18:58:14.7245427Z shell: /usr/bin/bash -e {0}
+2026-11-11T18:58:14.7245671Z env:
+2026-11-11T18:58:14.7245930Z   CI_CACHE_R2_PUBLIC_URL: https://ci-cache.cmux.com
+2026-11-11T18:58:14.7246249Z   CMUX_NEXT_STYLE_GUARDS: warn
+2026-11-11T18:58:14.7246538Z   CMUX_NEXT_SIDE_ROUTE: glaeda-side-std-xcode-26.6
+2026-11-11T18:58:14.7246981Z   BASH_ENV: ${GITHUB_WORKSPACE:-/nonexistent}/scripts/ci/api_call_log/env.sh
+2026-11-11T18:58:14.7247373Z   BLACKSMITH_RUNNER_MESSAGE_WAIT_MS: 163
+2026-11-11T18:58:14.7247670Z   BLACKSMITH_RUNNER_ACQUIRE_JOB_MS: 429
+2026-11-11T18:58:14.7247953Z   GITHUB_REPO_NAME: manaflow-ai/cmux
+2026-11-11T18:58:14.7248211Z ##[endgroup]
+2026-11-11T18:58:14.7414788Z surface roles: copies match schemas/surface-roles/surface-roles.json
+2026-11-11T18:58:14.7514933Z ##[group]Run python3 -I scripts/cmux-next/gen-menu-metrics.py --check
+2026-11-11T18:58:14.7515482Z [36;1mpython3 -I scripts/cmux-next/gen-menu-metrics.py --check[0m
+2026-11-11T18:58:14.7515978Z [36;1mpython3 -I scripts/cmux-next/check-menu-metrics.py "$GITHUB_WORKSPACE"[0m
+2026-11-11T18:58:14.7529755Z shell: /usr/bin/bash -e {0}
+2026-11-11T18:58:14.7529937Z env:
+2026-11-11T18:58:14.7530102Z   CI_CACHE_R2_PUBLIC_URL: https://ci-cache.cmux.com
+2026-11-11T18:58:14.7530309Z   CMUX_NEXT_STYLE_GUARDS: warn
+2026-11-11T18:58:14.7530481Z   CMUX_NEXT_SIDE_ROUTE: glaeda-side-std-xcode-26.6
+2026-11-11T18:58:14.7530726Z   BASH_ENV: ${GITHUB_WORKSPACE:-/nonexistent}/scripts/ci/api_call_log/env.sh
+2026-11-11T18:58:14.7530957Z   BLACKSMITH_RUNNER_MESSAGE_WAIT_MS: 163
+2026-11-11T18:58:14.7531125Z   BLACKSMITH_RUNNER_ACQUIRE_JOB_MS: 429
+2026-11-11T18:58:14.7531285Z   GITHUB_REPO_NAME: manaflow-ai/cmux
+2026-11-11T18:58:14.7531456Z ##[endgroup]
+2026-11-11T18:58:15.3420394Z menu metrics: 186 menu surface file(s) on the grid, 6 still in DEBT
+2026-11-11T18:58:15.3504097Z ##[group]Run python3 -I scripts/cmux-next/gen-protected-folders.py --check
+2026-11-11T18:58:15.3519863Z [36;1mpython3 -I scripts/cmux-next/gen-protected-folders.py --check[0m
+2026-11-11T18:58:15.3529023Z shell: /usr/bin/bash -e {0}
+2026-11-11T18:58:15.3529341Z env:
+2026-11-11T18:58:15.3529500Z   CI_CACHE_R2_PUBLIC_URL: https://ci-cache.cmux.com
+2026-11-11T18:58:15.3529686Z   CMUX_NEXT_STYLE_GUARDS: warn
+2026-11-11T18:58:15.3529852Z   CMUX_NEXT_SIDE_ROUTE: glaeda-side-std-xcode-26.6
+2026-11-11T18:58:15.3530096Z   BASH_ENV: ${GITHUB_WORKSPACE:-/nonexistent}/scripts/ci/api_call_log/env.sh
+2026-11-11T18:58:15.3530316Z   BLACKSMITH_RUNNER_MESSAGE_WAIT_MS: 163
+2026-11-11T18:58:15.3530571Z   BLACKSMITH_RUNNER_ACQUIRE_JOB_MS: 429
+2026-11-11T18:58:15.3530732Z   GITHUB_REPO_NAME: manaflow-ai/cmux
+2026-11-11T18:58:15.3530884Z ##[endgroup]
+2026-11-11T18:58:15.3751336Z ##[group]Run python3 -I scripts/cmux-next/gen-settings-sources.py --check
+2026-11-11T18:58:15.3751692Z [36;1mpython3 -I scripts/cmux-next/gen-settings-sources.py --check[0m
+2026-11-11T18:58:15.3751974Z [36;1mpython3 -I scripts/cmux-next/tests/test_settings_export_keys.py[0m
+2026-11-11T18:58:15.3761156Z shell: /usr/bin/bash -e {0}
+2026-11-11T18:58:15.3761301Z env:
+2026-11-11T18:58:15.3761455Z   CI_CACHE_R2_PUBLIC_URL: https://ci-cache.cmux.com
+2026-11-11T18:58:15.3761642Z   CMUX_NEXT_STYLE_GUARDS: warn
+2026-11-11T18:58:15.3761809Z   CMUX_NEXT_SIDE_ROUTE: glaeda-side-std-xcode-26.6
+2026-11-11T18:58:15.3762053Z   BASH_ENV: ${GITHUB_WORKSPACE:-/nonexistent}/scripts/ci/api_call_log/env.sh
+2026-11-11T18:58:15.3762277Z   BLACKSMITH_RUNNER_MESSAGE_WAIT_MS: 163
+2026-11-11T18:58:15.3762439Z   BLACKSMITH_RUNNER_ACQUIRE_JOB_MS: 429
+2026-11-11T18:58:15.3762600Z   GITHUB_REPO_NAME: manaflow-ai/cmux
+2026-11-11T18:58:15.3762752Z ##[endgroup]
+2026-11-11T18:58:15.6743590Z OK
+2026-11-11T18:58:15.6879208Z ##[group]Run python3 -I scripts/cmux-next/gen-phone-lane-fields.py --check
+2026-11-11T18:58:15.6879722Z [36;1mpython3 -I scripts/cmux-next/gen-phone-lane-fields.py --check[0m
+2026-11-11T18:58:15.6890801Z shell: /usr/bin/bash -e {0}
+2026-11-11T18:58:15.6890965Z env:
+2026-11-11T18:58:15.6891142Z   CI_CACHE_R2_PUBLIC_URL: https://ci-cache.cmux.com
+2026-11-11T18:58:15.6891341Z   CMUX_NEXT_STYLE_GUARDS: warn
+2026-11-11T18:58:15.6891514Z   CMUX_NEXT_SIDE_ROUTE: glaeda-side-std-xcode-26.6
+2026-11-11T18:58:15.6891753Z   BASH_ENV: ${GITHUB_WORKSPACE:-/nonexistent}/scripts/ci/api_call_log/env.sh
+2026-11-11T18:58:15.6891984Z   BLACKSMITH_RUNNER_MESSAGE_WAIT_MS: 163
+2026-11-11T18:58:15.6892150Z   BLACKSMITH_RUNNER_ACQUIRE_JOB_MS: 429
+2026-11-11T18:58:15.6892312Z   GITHUB_REPO_NAME: manaflow-ai/cmux
+2026-11-11T18:58:15.6892476Z ##[endgroup]
+2026-11-11T18:58:15.7166263Z ##[group]Run python3 -I scripts/cmux-next/export-backdrop-art.py --check
+2026-11-11T18:58:15.7166597Z [36;1mpython3 -I scripts/cmux-next/export-backdrop-art.py --check[0m
+2026-11-11T18:58:15.7175846Z shell: /usr/bin/bash -e {0}
+2026-11-11T18:58:15.7175987Z env:
+2026-11-11T18:58:15.7176145Z   CI_CACHE_R2_PUBLIC_URL: https://ci-cache.cmux.com
+2026-11-11T18:58:15.7176331Z   CMUX_NEXT_STYLE_GUARDS: warn
+2026-11-11T18:58:15.7176500Z   CMUX_NEXT_SIDE_ROUTE: glaeda-side-std-xcode-26.6
+2026-11-11T18:58:15.7176771Z   BASH_ENV: ${GITHUB_WORKSPACE:-/nonexistent}/scripts/ci/api_call_log/env.sh
+2026-11-11T18:58:15.7177226Z   BLACKSMITH_RUNNER_MESSAGE_WAIT_MS: 163
+2026-11-11T18:58:15.7177464Z   BLACKSMITH_RUNNER_ACQUIRE_JOB_MS: 429
+2026-11-11T18:58:15.7177641Z   GITHUB_REPO_NAME: manaflow-ai/cmux
+2026-11-11T18:58:15.7177881Z ##[endgroup]
+2026-11-11T18:58:15.7529423Z plans/cmux-next/backdrop-art.json is current
+2026-11-11T18:58:15.7627122Z ##[group]Run bash tests/test_cmux_next_stale_pcm_cleanup.sh
+2026-11-11T18:58:15.7627532Z [36;1mbash tests/test_cmux_next_stale_pcm_cleanup.sh[0m
+2026-11-11T18:58:15.7639561Z shell: /usr/bin/bash -e {0}
+2026-11-11T18:58:15.7639753Z env:
+2026-11-11T18:58:15.7639915Z   CI_CACHE_R2_PUBLIC_URL: https://ci-cache.cmux.com
+2026-11-11T18:58:15.7640107Z   CMUX_NEXT_STYLE_GUARDS: warn
+2026-11-11T18:58:15.7640283Z   CMUX_NEXT_SIDE_ROUTE: glaeda-side-std-xcode-26.6
+2026-11-11T18:58:15.7640614Z   BASH_ENV: ${GITHUB_WORKSPACE:-/nonexistent}/scripts/ci/api_call_log/env.sh
+2026-11-11T18:58:15.7640844Z   BLACKSMITH_RUNNER_MESSAGE_WAIT_MS: 163
+2026-11-11T18:58:15.7641009Z   BLACKSMITH_RUNNER_ACQUIRE_JOB_MS: 429
+2026-11-11T18:58:15.7641174Z   GITHUB_REPO_NAME: manaflow-ai/cmux
+2026-11-11T18:58:15.7641326Z ##[endgroup]
+2026-11-11T18:58:15.7808454Z PASS: missing serialized module scans request the stale retry
+2026-11-11T18:58:15.7874363Z ##[group]Run scripts/ci/run-checks-concurrently.sh --wait "$RUNNER_TEMP/background-checks" script-tests
+2026-11-11T18:58:15.7874805Z [36;1mscripts/ci/run-checks-concurrently.sh --wait "$RUNNER_TEMP/background-checks" script-tests[0m
+2026-11-11T18:58:15.7883413Z shell: /usr/bin/bash -e {0}
+2026-11-11T18:58:15.7883549Z env:
+2026-11-11T18:58:15.7883704Z   CI_CACHE_R2_PUBLIC_URL: https://ci-cache.cmux.com
+2026-11-11T18:58:15.7883885Z   CMUX_NEXT_STYLE_GUARDS: warn
+2026-11-11T18:58:15.7884047Z   CMUX_NEXT_SIDE_ROUTE: glaeda-side-std-xcode-26.6
+2026-11-11T18:58:15.7884275Z   BASH_ENV: ${GITHUB_WORKSPACE:-/nonexistent}/scripts/ci/api_call_log/env.sh
+2026-11-11T18:58:15.7884489Z   BLACKSMITH_RUNNER_MESSAGE_WAIT_MS: 163
+2026-11-11T18:58:15.7884645Z   BLACKSMITH_RUNNER_ACQUIRE_JOB_MS: 429
+2026-11-11T18:58:15.7884800Z   GITHUB_REPO_NAME: manaflow-ai/cmux
+2026-11-11T18:58:15.7884944Z ##[endgroup]
+2026-11-11T19:00:22.5495100Z ok   recovery refuses a run whose marker check is failed (its cmux-tui tree marker check is failure)
+2026-11-11T19:00:22.5587595Z .s....prepush-gate: github_release_download.py is not installed, so a failed release download is not retried through the release-assets API; rerun scripts/install-git-hooks.sh
+2026-11-11T19:00:22.5588605Z .prepush-gate: github_release_download.py is not installed, so a failed release download is not retried through the release-assets API; rerun scripts/install-git-hooks.sh
+2026-11-11T19:00:22.5590280Z prepush-gate: https://github.com/acme/tool/releases/download/1.2.3/tool-linux.zip failed (HTTP Error 504: Gateway Time-out); fetching it through the release-assets API
+2026-11-11T19:00:22.5591236Z .prepush-gate: https://github.com/acme/tool/releases/download/1.2.3/tool-linux.zip failed (HTTP Error 504: Gateway Time-out); fetching it through the release-assets API
+2026-11-11T19:00:22.5695050Z .........::notice title=DEV Release product miss::GET actions/artifacts failed: <urlopen error [Errno 111] Connection refused>
+2026-11-11T19:00:22.5907117Z ##[group]python3 tests/test_cmux_next_same_tree_failed.py: ok, 1s
+2026-11-11T19:00:22.6400604Z # Subtest: a failed shim write leaves the old shim untouched and exits nonzero
+2026-11-11T19:00:22.6400866Z ok 18 - a failed shim write leaves the old shim untouched and exits nonzero
+2026-11-11T19:00:22.6783865Z Automatic merge failed; fix conflicts and then commit the result.
+2026-11-11T19:00:22.7101314Z FAIL /tmp/tmpujvzcpuf/summary-missing.json (live):
+2026-11-11T19:00:22.7101488Z   - harness failures: 1
+2026-11-11T19:00:22.7101685Z   - missing counters (use a candidate build that serves debug.sidebar_perf)
+2026-11-11T19:00:22.7101917Z FAIL /tmp/tmpucywk8ye/summary-fail.json (live):
+2026-11-11T19:00:22.7102094Z   - counters[0].rebuilds=1 > 0
+2026-11-11T19:00:22.7102240Z   - counters[0].list_reloads=1 > 0
+2026-11-11T19:00:22.7102410Z   - counters[0].row_configures=3 > row_patches=2
+2026-11-11T19:00:22.7102582Z   - frames.p99_ms=20 > 16.7 ms
+2026-11-11T19:00:22.7114376Z 129 checks, 16 at a time: 129 passed, 0 failed
+2026-11-11T19:00:22.7194213Z ##[group]Run git submodule update --init --depth 1 --filter=blob:none ghostty-next
+2026-11-11T19:00:22.7194580Z [36;1mgit submodule update --init --depth 1 --filter=blob:none ghostty-next[0m
+2026-11-11T19:00:22.7194873Z [36;1mbash scripts/cmux-next/tests/bundle-ghostty-resources.test.sh[0m
+2026-11-11T19:00:22.7195195Z [36;1m# Ghostty's themes survive the Resources phase in either order (Xcode, the fleet builder).[0m
+2026-11-11T19:00:22.7195496Z [36;1mbash scripts/cmux-next/tests/bundle-resources-layout.test.sh[0m
+2026-11-11T19:00:22.7205072Z shell: /usr/bin/bash -e {0}
+2026-11-11T19:00:22.7205221Z env:
+2026-11-11T19:00:22.7205377Z   CI_CACHE_R2_PUBLIC_URL: https://ci-cache.cmux.com
+2026-11-11T19:00:22.7205558Z   CMUX_NEXT_STYLE_GUARDS: warn
+2026-11-11T19:00:22.7205725Z   CMUX_NEXT_SIDE_ROUTE: glaeda-side-std-xcode-26.6
+2026-11-11T19:00:22.7205959Z   BASH_ENV: ${GITHUB_WORKSPACE:-/nonexistent}/scripts/ci/api_call_log/env.sh
+2026-11-11T19:00:22.7206333Z   BLACKSMITH_RUNNER_MESSAGE_WAIT_MS: 163
+2026-11-11T19:00:22.7206488Z   BLACKSMITH_RUNNER_ACQUIRE_JOB_MS: 429
+2026-11-11T19:00:22.7206650Z   GITHUB_REPO_NAME: manaflow-ai/cmux
+2026-11-11T19:00:22.7206869Z ##[endgroup]
+2026-11-11T19:00:29.5959639Z PASS: the bundle has Ghostty's themes and terminfo whichever order the resource phases run in
+2026-11-11T19:00:29.6256692Z ##[group]Run bash scripts/cmux-next/tests/bundled-terminfo.test.sh
+2026-11-11T19:00:29.6256995Z [36;1mbash scripts/cmux-next/tests/bundled-terminfo.test.sh[0m
+2026-11-11T19:00:29.6266347Z shell: /usr/bin/bash -e {0}
+2026-11-11T19:00:29.6266542Z env:
+2026-11-11T19:00:29.6266695Z   CI_CACHE_R2_PUBLIC_URL: https://ci-cache.cmux.com
+2026-11-11T19:00:29.6266870Z   CMUX_NEXT_STYLE_GUARDS: warn
+2026-11-11T19:00:29.6267031Z   CMUX_NEXT_SIDE_ROUTE: glaeda-side-std-xcode-26.6
+2026-11-11T19:00:29.6267251Z   BASH_ENV: ${GITHUB_WORKSPACE:-/nonexistent}/scripts/ci/api_call_log/env.sh
+2026-11-11T19:00:29.6267464Z   BLACKSMITH_RUNNER_MESSAGE_WAIT_MS: 163
+2026-11-11T19:00:29.6267616Z   BLACKSMITH_RUNNER_ACQUIRE_JOB_MS: 429
+2026-11-11T19:00:29.6267770Z   GITHUB_REPO_NAME: manaflow-ai/cmux
+2026-11-11T19:00:29.6267927Z ##[endgroup]
+2026-11-11T19:00:29.8068235Z PASS: bundled terminfo has ghostty-next capabilities, Pst and cmux's 256-color 8-15 patch
+2026-11-11T19:00:29.8185850Z ##[group]Run scripts/ci/run-checks-concurrently.sh --wait "$RUNNER_TEMP/background-checks" package-conventions
+2026-11-11T19:00:29.8186250Z [36;1mscripts/ci/run-checks-concurrently.sh --wait "$RUNNER_TEMP/background-checks" package-conventions[0m
+2026-11-11T19:00:29.8196163Z shell: /usr/bin/bash -e {0}
+2026-11-11T19:00:29.8196302Z env:
+2026-11-11T19:00:29.8196452Z   CI_CACHE_R2_PUBLIC_URL: https://ci-cache.cmux.com
+2026-11-11T19:00:29.8196668Z   CMUX_NEXT_STYLE_GUARDS: warn
+2026-11-11T19:00:29.8196828Z   CMUX_NEXT_SIDE_ROUTE: glaeda-side-std-xcode-26.6
+2026-11-11T19:00:29.8197054Z   BASH_ENV: ${GITHUB_WORKSPACE:-/nonexistent}/scripts/ci/api_call_log/env.sh
+2026-11-11T19:00:29.8197269Z   BLACKSMITH_RUNNER_MESSAGE_WAIT_MS: 163
+2026-11-11T19:00:29.8197421Z   BLACKSMITH_RUNNER_ACQUIRE_JOB_MS: 429
+2026-11-11T19:00:29.8197578Z   GITHUB_REPO_NAME: manaflow-ai/cmux
+2026-11-11T19:00:29.8197732Z ##[endgroup]
+2026-11-11T19:00:29.8282188Z ##[group]./scripts/lint-ios-package-conventions.sh: failed (exit 1), 20s
+2026-11-11T19:00:29.8339405Z FAIL: convention violations found (ERROR lines above).
+2026-11-11T19:00:29.8339832Z 1 checks, 16 at a time: 0 passed, 1 failed
+2026-11-11T19:00:29.8342270Z ##[error]./scripts/lint-ios-package-conventions.sh
+2026-11-11T19:00:29.8398589Z FAIL: convention violations found (ERROR lines above).
+2026-11-11T19:00:29.8401133Z ##[error]Process completed with exit code 1.
+2026-11-11T19:00:29.8487860Z ##[group]Run python3 scripts/icons/chromium_icons.py --check
+2026-11-11T19:00:29.8488300Z [36;1mpython3 scripts/icons/chromium_icons.py --check[0m
+2026-11-11T19:00:29.8488608Z [36;1mpython3 scripts/icons/build_pack.py --check[0m
+2026-11-11T19:00:29.8488958Z [36;1mpython3 scripts/cmux-next/lint-browser-chrome-icons.py[0m
+2026-11-11T19:00:29.8501097Z shell: /usr/bin/bash -e {0}
+2026-11-11T19:00:29.8501315Z env:
+2026-11-11T19:00:29.8501533Z   CI_CACHE_R2_PUBLIC_URL: https://ci-cache.cmux.com
+2026-11-11T19:00:29.8501806Z   CMUX_NEXT_STYLE_GUARDS: warn
+2026-11-11T19:00:29.8502045Z   CMUX_NEXT_SIDE_ROUTE: glaeda-side-std-xcode-26.6
+2026-11-11T19:00:29.8502400Z   BASH_ENV: ${GITHUB_WORKSPACE:-/nonexistent}/scripts/ci/api_call_log/env.sh
+2026-11-11T19:00:29.8502744Z   BLACKSMITH_RUNNER_MESSAGE_WAIT_MS: 163
+2026-11-11T19:00:29.8502993Z   BLACKSMITH_RUNNER_ACQUIRE_JOB_MS: 429
+2026-11-11T19:00:29.8503230Z   GITHUB_REPO_NAME: manaflow-ai/cmux
+2026-11-11T19:00:29.8503457Z ##[endgroup]
+2026-11-11T19:00:30.0580085Z browser chrome icons: all Chromium
+2026-11-11T19:00:30.0703252Z ##[group]Run python3 tests/test_app_store_rules.py
+2026-11-11T19:00:30.0703485Z [36;1mpython3 tests/test_app_store_rules.py[0m
+2026-11-11T19:00:30.0703825Z [36;1mpython3 tests/test_cmux_next_ios_test_notes_retry.py[0m
+2026-11-11T19:00:30.0704084Z [36;1mpython3 -I scripts/cmux-next/check-app-store-rules.py --source .[0m
+2026-11-11T19:00:30.0716532Z shell: /usr/bin/bash -e {0}
+2026-11-11T19:00:30.0716776Z env:
+2026-11-11T19:00:30.0716995Z   CI_CACHE_R2_PUBLIC_URL: https://ci-cache.cmux.com
+2026-11-11T19:00:30.0717277Z   CMUX_NEXT_STYLE_GUARDS: warn
+2026-11-11T19:00:30.0717525Z   CMUX_NEXT_SIDE_ROUTE: glaeda-side-std-xcode-26.6
+2026-11-11T19:00:30.0717901Z   BASH_ENV: ${GITHUB_WORKSPACE:-/nonexistent}/scripts/ci/api_call_log/env.sh
+2026-11-11T19:00:30.0718228Z   BLACKSMITH_RUNNER_MESSAGE_WAIT_MS: 163
+2026-11-11T19:00:30.0718476Z   BLACKSMITH_RUNNER_ACQUIRE_JOB_MS: 429
+2026-11-11T19:00:30.0718723Z   GITHUB_REPO_NAME: manaflow-ai/cmux
+2026-11-11T19:00:30.0718967Z ##[endgroup]
+2026-11-11T19:00:33.4097430Z ok: cmux-next-ios sources: no App Store review rule broken
+2026-11-11T19:00:33.4241234Z ##[group]Run python3 tests/test_cmux_next_perf_source_guard.py
+2026-11-11T19:00:33.4241555Z [36;1mpython3 tests/test_cmux_next_perf_source_guard.py[0m
+2026-11-11T19:00:33.4241799Z [36;1mpython3 -I scripts/cmux-next/check-perf-source-guard.py[0m
+2026-11-11T19:00:33.4253551Z shell: /usr/bin/bash -e {0}
+2026-11-11T19:00:33.4253728Z env:
+2026-11-11T19:00:33.4253907Z   CI_CACHE_R2_PUBLIC_URL: https://ci-cache.cmux.com
+2026-11-11T19:00:33.4254095Z   CMUX_NEXT_STYLE_GUARDS: warn
+2026-11-11T19:00:33.4254271Z   CMUX_NEXT_SIDE_ROUTE: glaeda-side-std-xcode-26.6
+2026-11-11T19:00:33.4254532Z   BASH_ENV: ${GITHUB_WORKSPACE:-/nonexistent}/scripts/ci/api_call_log/env.sh
+2026-11-11T19:00:33.4254754Z   BLACKSMITH_RUNNER_MESSAGE_WAIT_MS: 163
+2026-11-11T19:00:33.4254917Z   BLACKSMITH_RUNNER_ACQUIRE_JOB_MS: 429
+2026-11-11T19:00:33.4255088Z   GITHUB_REPO_NAME: manaflow-ai/cmux
+2026-11-11T19:00:33.4255260Z ##[endgroup]
+2026-11-11T19:00:34.5370439Z perf source guard: 8269 files, no hits
+2026-11-11T19:00:34.5490200Z ##[group]Run python3 tests/test_cmux_next_fixture_host_names.py
+2026-11-11T19:00:34.5490650Z [36;1mpython3 tests/test_cmux_next_fixture_host_names.py[0m
+2026-11-11T19:00:34.5491006Z [36;1mpython3 -I scripts/cmux-next/check-fixture-host-names.py[0m
+2026-11-11T19:00:34.5507411Z shell: /usr/bin/bash -e {0}
+2026-11-11T19:00:34.5507655Z env:
+2026-11-11T19:00:34.5507886Z   CI_CACHE_R2_PUBLIC_URL: https://ci-cache.cmux.com
+2026-11-11T19:00:34.5508183Z   CMUX_NEXT_STYLE_GUARDS: warn
+2026-11-11T19:00:34.5508435Z   CMUX_NEXT_SIDE_ROUTE: glaeda-side-std-xcode-26.6
+2026-11-11T19:00:34.5508805Z   BASH_ENV: ${GITHUB_WORKSPACE:-/nonexistent}/scripts/ci/api_call_log/env.sh
+2026-11-11T19:00:34.5509159Z   BLACKSMITH_RUNNER_MESSAGE_WAIT_MS: 163
+2026-11-11T19:00:34.5509445Z   BLACKSMITH_RUNNER_ACQUIRE_JOB_MS: 429
+2026-11-11T19:00:34.5509692Z   GITHUB_REPO_NAME: manaflow-ai/cmux
+2026-11-11T19:00:34.5509940Z ##[endgroup]
+2026-11-11T19:00:35.1390361Z Fixture host names: ok (874 fixture files)
+2026-11-11T19:00:35.1478091Z ##[group]Run python3 tests/test_cmux_next_kill_switches.py
+2026-11-11T19:00:35.1478378Z [36;1mpython3 tests/test_cmux_next_kill_switches.py[0m
+2026-11-11T19:00:35.1478630Z [36;1mpython3 -I scripts/cmux-next/check-kill-switches.py[0m
+2026-11-11T19:00:35.1487570Z shell: /usr/bin/bash -e {0}
+2026-11-11T19:00:35.1487707Z env:
+2026-11-11T19:00:35.1487857Z   CI_CACHE_R2_PUBLIC_URL: https://ci-cache.cmux.com
+2026-11-11T19:00:35.1488033Z   CMUX_NEXT_STYLE_GUARDS: warn
+2026-11-11T19:00:35.1488198Z   CMUX_NEXT_SIDE_ROUTE: glaeda-side-std-xcode-26.6
+2026-11-11T19:00:35.1488439Z   BASH_ENV: ${GITHUB_WORKSPACE:-/nonexistent}/scripts/ci/api_call_log/env.sh
+2026-11-11T19:00:35.1488657Z   BLACKSMITH_RUNNER_MESSAGE_WAIT_MS: 163
+2026-11-11T19:00:35.1488814Z   BLACKSMITH_RUNNER_ACQUIRE_JOB_MS: 429
+2026-11-11T19:00:35.1488969Z   GITHUB_REPO_NAME: manaflow-ai/cmux
+2026-11-11T19:00:35.1489116Z ##[endgroup]
+2026-11-11T19:00:37.4120070Z kill switches: ok
+2026-11-11T19:00:37.4226357Z ##[group]Run scripts/ci/run-checks-concurrently.sh --wait "$RUNNER_TEMP/background-checks" checks-structure
+2026-11-11T19:00:37.4226988Z [36;1mscripts/ci/run-checks-concurrently.sh --wait "$RUNNER_TEMP/background-checks" checks-structure[0m
+2026-11-11T19:00:37.4238121Z shell: /usr/bin/bash -e {0}
+2026-11-11T19:00:37.4238301Z env:
+2026-11-11T19:00:37.4238457Z   CI_CACHE_R2_PUBLIC_URL: https://ci-cache.cmux.com
+2026-11-11T19:00:37.4238635Z   CMUX_NEXT_STYLE_GUARDS: warn
+2026-11-11T19:00:37.4238797Z   CMUX_NEXT_SIDE_ROUTE: glaeda-side-std-xcode-26.6
+2026-11-11T19:00:37.4239095Z   BASH_ENV: ${GITHUB_WORKSPACE:-/nonexistent}/scripts/ci/api_call_log/env.sh
+2026-11-11T19:00:37.4239312Z   BLACKSMITH_RUNNER_MESSAGE_WAIT_MS: 163
+2026-11-11T19:00:37.4239468Z   BLACKSMITH_RUNNER_ACQUIRE_JOB_MS: 429
+2026-11-11T19:00:37.4239643Z   GITHUB_REPO_NAME: manaflow-ai/cmux
+2026-11-11T19:00:37.4239873Z ##[endgroup]
+2026-11-11T19:00:37.4459515Z 13 checks, 16 at a time: 13 passed, 0 failed
+2026-11-11T19:00:37.4529745Z ##[group]Run scripts/ci/run-checks-concurrently.sh --wait "$RUNNER_TEMP/background-checks" tier-routing
+2026-11-11T19:00:37.4530155Z [36;1mscripts/ci/run-checks-concurrently.sh --wait "$RUNNER_TEMP/background-checks" tier-routing[0m
+2026-11-11T19:00:37.4539390Z shell: /usr/bin/bash -e {0}
+2026-11-11T19:00:37.4539526Z env:
+2026-11-11T19:00:37.4539679Z   CI_CACHE_R2_PUBLIC_URL: https://ci-cache.cmux.com
+2026-11-11T19:00:37.4539861Z   CMUX_NEXT_STYLE_GUARDS: warn
+2026-11-11T19:00:37.4540026Z   CMUX_NEXT_SIDE_ROUTE: glaeda-side-std-xcode-26.6
+2026-11-11T19:00:37.4540263Z   BASH_ENV: ${GITHUB_WORKSPACE:-/nonexistent}/scripts/ci/api_call_log/env.sh
+2026-11-11T19:00:37.4540480Z   BLACKSMITH_RUNNER_MESSAGE_WAIT_MS: 163
+2026-11-11T19:00:37.4540635Z   BLACKSMITH_RUNNER_ACQUIRE_JOB_MS: 429
+2026-11-11T19:00:37.4540795Z   GITHUB_REPO_NAME: manaflow-ai/cmux
+2026-11-11T19:00:37.4540940Z ##[endgroup]
+2026-11-11T19:00:37.4700610Z cmux-next Release compile (Xcode 26) failed at cccccccccc and last passed at aaaaaaaaaa; the one merge since is #25001 (dddddddddd).
+2026-11-11T19:00:37.4710360Z 7 checks, 16 at a time: 7 passed, 0 failed
+2026-11-11T19:00:37.4785911Z ##[group]Run scripts/ci/run-checks-concurrently.sh --wait "$RUNNER_TEMP/background-checks" package-dependency-lists
+2026-11-11T19:00:37.4786627Z [36;1mscripts/ci/run-checks-concurrently.sh --wait "$RUNNER_TEMP/background-checks" package-dependency-lists[0m
+2026-11-11T19:00:37.4798407Z shell: /usr/bin/bash -e {0}
+2026-11-11T19:00:37.4798624Z env:
+2026-11-11T19:00:37.4798821Z   CI_CACHE_R2_PUBLIC_URL: https://ci-cache.cmux.com
+2026-11-11T19:00:37.4799017Z   CMUX_NEXT_STYLE_GUARDS: warn
+2026-11-11T19:00:37.4799191Z   CMUX_NEXT_SIDE_ROUTE: glaeda-side-std-xcode-26.6
+2026-11-11T19:00:37.4799431Z   BASH_ENV: ${GITHUB_WORKSPACE:-/nonexistent}/scripts/ci/api_call_log/env.sh
+2026-11-11T19:00:37.4799667Z   BLACKSMITH_RUNNER_MESSAGE_WAIT_MS: 163
+2026-11-11T19:00:37.4799835Z   BLACKSMITH_RUNNER_ACQUIRE_JOB_MS: 429
+2026-11-11T19:00:37.4800004Z   GITHUB_REPO_NAME: manaflow-ai/cmux
+2026-11-11T19:00:37.4800161Z ##[endgroup]
+2026-11-11T19:00:37.4910691Z 2 checks, 16 at a time: 2 passed, 0 failed
+2026-11-11T19:00:37.4990300Z ##[group]Run scripts/ci/run-checks-concurrently.sh --wait "$RUNNER_TEMP/background-checks" web-bundle-key-inputs
+2026-11-11T19:00:37.4990826Z [36;1mscripts/ci/run-checks-concurrently.sh --wait "$RUNNER_TEMP/background-checks" web-bundle-key-inputs[0m
+2026-11-11T19:00:37.5001481Z shell: /usr/bin/bash -e {0}
+2026-11-11T19:00:37.5001621Z env:
+2026-11-11T19:00:37.5001774Z   CI_CACHE_R2_PUBLIC_URL: https://ci-cache.cmux.com
+2026-11-11T19:00:37.5001956Z   CMUX_NEXT_STYLE_GUARDS: warn
+2026-11-11T19:00:37.5002120Z   CMUX_NEXT_SIDE_ROUTE: glaeda-side-std-xcode-26.6
+2026-11-11T19:00:37.5002493Z   BASH_ENV: ${GITHUB_WORKSPACE:-/nonexistent}/scripts/ci/api_call_log/env.sh
+2026-11-11T19:00:37.5002715Z   BLACKSMITH_RUNNER_MESSAGE_WAIT_MS: 163
+2026-11-11T19:00:37.5002873Z   BLACKSMITH_RUNNER_ACQUIRE_JOB_MS: 429
+2026-11-11T19:00:37.5003035Z   GITHUB_REPO_NAME: manaflow-ai/cmux
+2026-11-11T19:00:37.5003182Z ##[endgroup]
+2026-11-11T19:00:37.5092692Z 1 checks, 16 at a time: 1 passed, 0 failed
+2026-11-11T19:00:37.5168671Z ##[group]Run bash tests/test_build_web_bundles_from.sh
+2026-11-11T19:00:37.5168886Z [36;1mbash tests/test_build_web_bundles_from.sh[0m
+2026-11-11T19:00:37.5177207Z shell: /usr/bin/bash -e {0}
+2026-11-11T19:00:37.5177346Z env:
+2026-11-11T19:00:37.5177497Z   CI_CACHE_R2_PUBLIC_URL: https://ci-cache.cmux.com
+2026-11-11T19:00:37.5177686Z   CMUX_NEXT_STYLE_GUARDS: warn
+2026-11-11T19:00:37.5177845Z   CMUX_NEXT_SIDE_ROUTE: glaeda-side-std-xcode-26.6
+2026-11-11T19:00:37.5178076Z   BASH_ENV: ${GITHUB_WORKSPACE:-/nonexistent}/scripts/ci/api_call_log/env.sh
+2026-11-11T19:00:37.5178308Z   BLACKSMITH_RUNNER_MESSAGE_WAIT_MS: 163
+2026-11-11T19:00:37.5178475Z   BLACKSMITH_RUNNER_ACQUIRE_JOB_MS: 429
+2026-11-11T19:00:37.5178627Z   GITHUB_REPO_NAME: manaflow-ai/cmux
+2026-11-11T19:00:37.5178777Z ##[endgroup]
+2026-11-11T19:00:37.8743857Z PASS: build-web-bundles.sh --from installs and stamps a prebuilt tree, and refuses an incomplete one or a stale inspector page, and keeps committed files
+2026-11-11T19:00:37.8851341Z ##[group]Run python3 tests/test_web_ota_publication_contract.py
+2026-11-11T19:00:37.8851817Z [36;1mpython3 tests/test_web_ota_publication_contract.py[0m
+2026-11-11T19:00:37.8852177Z [36;1mbash tests/test_web_ota_pointer.sh[0m
+2026-11-11T19:00:37.8865761Z shell: /usr/bin/bash -e {0}
+2026-11-11T19:00:37.8866026Z env:
+2026-11-11T19:00:37.8866263Z   CI_CACHE_R2_PUBLIC_URL: https://ci-cache.cmux.com
+2026-11-11T19:00:37.8866543Z   CMUX_NEXT_STYLE_GUARDS: warn
+2026-11-11T19:00:37.8866803Z   CMUX_NEXT_SIDE_ROUTE: glaeda-side-std-xcode-26.6
+2026-11-11T19:00:37.8867181Z   BASH_ENV: ${GITHUB_WORKSPACE:-/nonexistent}/scripts/ci/api_call_log/env.sh
+2026-11-11T19:00:37.8867548Z   BLACKSMITH_RUNNER_MESSAGE_WAIT_MS: 163
+2026-11-11T19:00:37.8867809Z   BLACKSMITH_RUNNER_ACQUIRE_JOB_MS: 429
+2026-11-11T19:00:37.8868084Z   GITHUB_REPO_NAME: manaflow-ai/cmux
+2026-11-11T19:00:37.8868326Z ##[endgroup]
+2026-11-11T19:00:42.7079446Z web-ota pointer: ok
+2026-11-11T19:00:42.7165571Z ##[group]Run python3 tests/test_cmux_next_generated_catch_up.py
+2026-11-11T19:00:42.7165991Z [36;1mpython3 tests/test_cmux_next_generated_catch_up.py[0m
+2026-11-11T19:00:42.7166211Z [36;1mpython3 tests/test_next_batch.py[0m
+2026-11-11T19:00:42.7166404Z [36;1mpython3 tests/test_next_batch_groups.py[0m
+2026-11-11T19:00:42.7166617Z [36;1mpython3 tests/test_cmux_next_base_autofix_finishes.py[0m
+2026-11-11T19:00:42.7166843Z [36;1mpython3 tests/test_base_autofix_pushed_exports.py[0m
+2026-11-11T19:00:42.7167092Z [36;1mpython3 tests/test_cmux_next_pr_autofix_settings.py[0m
+2026-11-11T19:00:42.7167330Z [36;1mpython3 tests/test_cmux_next_pr_changed_paths.py[0m
+2026-11-11T19:00:42.7167634Z [36;1mpython3 tests/test_pr_capture_check_paths.py[0m
+2026-11-11T19:00:42.7167954Z [36;1mpython3 tests/test_car_guards.py[0m
+2026-11-11T19:00:42.7168249Z [36;1mpython3 tests/test_ci_github_token_budget.py[0m
+2026-11-11T19:00:42.7168725Z [36;1m# Warn-only, exit 0 always: a ::warning for each step that calls the API with the repository[0m
+2026-11-11T19:00:42.7169276Z [36;1m# GITHUB_TOKEN (1,000 requests an hour, shared by every workflow) and has no line in[0m
+2026-11-11T19:00:42.7169576Z [36;1m# .github/github-token-budget.json.[0m
+2026-11-11T19:00:42.7169779Z [36;1mpython3 scripts/ci/github_token_budget_lint.py[0m
+2026-11-11T19:00:42.7179703Z shell: /usr/bin/bash -e {0}
+2026-11-11T19:00:42.7179850Z env:
+2026-11-11T19:00:42.7180015Z   CI_CACHE_R2_PUBLIC_URL: https://ci-cache.cmux.com
+2026-11-11T19:00:42.7180202Z   CMUX_NEXT_STYLE_GUARDS: warn
+2026-11-11T19:00:42.7180361Z   CMUX_NEXT_SIDE_ROUTE: glaeda-side-std-xcode-26.6
+2026-11-11T19:00:42.7180592Z   BASH_ENV: ${GITHUB_WORKSPACE:-/nonexistent}/scripts/ci/api_call_log/env.sh
+2026-11-11T19:00:42.7180806Z   BLACKSMITH_RUNNER_MESSAGE_WAIT_MS: 163
+2026-11-11T19:00:42.7180972Z   BLACKSMITH_RUNNER_ACQUIRE_JOB_MS: 429
+2026-11-11T19:00:42.7181126Z   GITHUB_REPO_NAME: manaflow-ai/cmux
+2026-11-11T19:00:42.7181278Z ##[endgroup]
+2026-11-11T19:00:55.4454548Z export waiter admissions after failed primary read: 1/9
+2026-11-11T19:01:26.4947758Z ##[warning]backend.yml: Dashboard inputs changed since its last deploy calls the GitHub API with the repository GITHUB_TOKEN (1,000 requests an hour shared by every workflow) and has no line in .github/github-token-budget.json. Add one with a reason and its calls per run, or read it from git, the event payload or an App token instead.
+2026-11-11T19:01:26.4950047Z ##[warning]ci-web.yml: Restore the base's webview test history calls the GitHub API with the repository GITHUB_TOKEN (1,000 requests an hour shared by every workflow) and has no line in .github/github-token-budget.json. Add one with a reason and its calls per run, or read it from git, the event payload or an App token instead.
+2026-11-11T19:01:26.4951834Z ##[warning]ci-web.yml: Restore the history calls the GitHub API with the repository GITHUB_TOKEN (1,000 requests an hour shared by every workflow) and has no line in .github/github-token-budget.json. Add one with a reason and its calls per run, or read it from git, the event payload or an App token instead.
+2026-11-11T19:01:26.4953777Z ##[warning]classic-frozen-guard.yml: Check the changed paths against the classic-frozen list calls the GitHub API with the repository GITHUB_TOKEN (1,000 requests an hour shared by every workflow) and has no line in .github/github-token-budget.json. Add one with a reason and its calls per run, or read it from git, the event payload or an App token instead.
+2026-11-11T19:01:26.4955737Z ##[warning]cloud-chat-proof.yml: Install, sign in and launch the published NEXT DEV app calls the GitHub API with the repository GITHUB_TOKEN (1,000 requests an hour shared by every workflow) and has no line in .github/github-token-budget.json. Add one with a reason and its calls per run, or read it from git, the event payload or an App token instead.
+2026-11-11T19:01:26.4957608Z ##[warning]cloud-chat-proof.yml: Resolve the published NEXT DEV release asset calls the GitHub API with the repository GITHUB_TOKEN (1,000 requests an hour shared by every workflow) and has no line in .github/github-token-budget.json. Add one with a reason and its calls per run, or read it from git, the event payload or an App token instead.
+2026-11-11T19:01:26.4959516Z ##[warning]cloud-journey-prod.yml: Open, update or close the red-journey issue calls the GitHub API with the repository GITHUB_TOKEN (1,000 requests an hour shared by every workflow) and has no line in .github/github-token-budget.json. Add one with a reason and its calls per run, or read it from git, the event payload or an App token instead.
+2026-11-11T19:01:26.4961300Z ##[warning]cloud-vm-image-roll.yml: Record the roll calls the GitHub API with the repository GITHUB_TOKEN (1,000 requests an hour shared by every workflow) and has no line in .github/github-token-budget.json. Add one with a reason and its calls per run, or read it from git, the event payload or an App token instead.
+2026-11-11T19:01:26.4963082Z ##[warning]cmux-next-web.yml: Restore the base's webview test history calls the GitHub API with the repository GITHUB_TOKEN (1,000 requests an hour shared by every workflow) and has no line in .github/github-token-budget.json. Add one with a reason and its calls per run, or read it from git, the event payload or an App token instead.
+2026-11-11T19:01:26.4964848Z ##[warning]cmux-next.yml: Place the fast tier's re-run calls the GitHub API with the repository GITHUB_TOKEN (1,000 requests an hour shared by every workflow) and has no line in .github/github-token-budget.json. Add one with a reason and its calls per run, or read it from git, the event payload or an App token instead.
+2026-11-11T19:01:26.4966679Z ##[warning]cmux-rd-release.yml: Attest calls the GitHub API with the repository GITHUB_TOKEN (1,000 requests an hour shared by every workflow) and has no line in .github/github-token-budget.json. Add one with a reason and its calls per run, or read it from git, the event payload or an App token instead.
+2026-11-11T19:01:26.4968374Z ##[warning]cmux-rd-release.yml: Release calls the GitHub API with the repository GITHUB_TOKEN (1,000 requests an hour shared by every workflow) and has no line in .github/github-token-budget.json. Add one with a reason and its calls per run, or read it from git, the event payload or an App token instead.
+2026-11-11T19:01:26.4970174Z ##[warning]cmux-tui-artifacts.yml: Dispatch the image roll calls the GitHub API with the repository GITHUB_TOKEN (1,000 requests an hour shared by every workflow) and has no line in .github/github-token-budget.json. Add one with a reason and its calls per run, or read it from git, the event payload or an App token instead.
+2026-11-11T19:01:26.4972001Z ##[warning]cmux-tui-artifacts.yml: Request the Cloud VM image roll calls the GitHub API with the repository GITHUB_TOKEN (1,000 requests an hour shared by every workflow) and has no line in .github/github-token-budget.json. Add one with a reason and its calls per run, or read it from git, the event payload or an App token instead.
+2026-11-11T19:01:26.4974120Z ##[warning]cmux-vm.yml: Deploy the rollback again calls the GitHub API with the repository GITHUB_TOKEN (1,000 requests an hour shared by every workflow) and has no line in .github/github-token-budget.json. Add one with a reason and its calls per run, or read it from git, the event payload or an App token instead.
+2026-11-11T19:01:26.4976078Z ##[warning]cmux-vm.yml: Image roll commit with a passed check on the same code (short check) calls the GitHub API with the repository GITHUB_TOKEN (1,000 requests an hour shared by every workflow) and has no line in .github/github-token-budget.json. Add one with a reason and its calls per run, or read it from git, the event payload or an App token instead.
+2026-11-11T19:01:26.4977906Z ##[warning]cmux-vm.yml: Record the production smoke and any rollback calls the GitHub API with the repository GITHUB_TOKEN (1,000 requests an hour shared by every workflow) and has no line in .github/github-token-budget.json. Add one with a reason and its calls per run, or read it from git, the event payload or an App token instead.
+2026-11-11T19:01:26.4979679Z ##[warning]cu-driver-eval.yml: earlier results calls the GitHub API with the repository GITHUB_TOKEN (1,000 requests an hour shared by every workflow) and has no line in .github/github-token-budget.json. Add one with a reason and its calls per run, or read it from git, the event payload or an App token instead.
+2026-11-11T19:01:26.4981444Z ##[warning]cu-driver-eval.yml: the last successful run calls the GitHub API with the repository GITHUB_TOKEN (1,000 requests an hour shared by every workflow) and has no line in .github/github-token-budget.json. Add one with a reason and its calls per run, or read it from git, the event payload or an App token instead.
+2026-11-11T19:01:26.4983276Z ##[warning]debug-labs-keys-report.yml: Open or update the Debug and Labs keys issue calls the GitHub API with the repository GITHUB_TOKEN (1,000 requests an hour shared by every workflow) and has no line in .github/github-token-budget.json. Add one with a reason and its calls per run, or read it from git, the event payload or an App token instead.
+2026-11-11T19:01:26.4985177Z ##[warning]ios-review-gate.yml: Download the dispatched run's binary calls the GitHub API with the repository GITHUB_TOKEN (1,000 requests an hour shared by every workflow) and has no line in .github/github-token-budget.json. Add one with a reason and its calls per run, or read it from git, the event payload or an App token instead.
+2026-11-11T19:01:26.4986890Z ##[warning]ios-review-gate.yml: step 1 calls the GitHub API with the repository GITHUB_TOKEN (1,000 requests an hour shared by every workflow) and has no line in .github/github-token-budget.json. Add one with a reason and its calls per run, or read it from git, the event payload or an App token instead.
+2026-11-11T19:01:26.4988735Z ##[warning]nightly-next-rollback-drill.yml: Dispatch the step on nightly-next calls the GitHub API with the repository GITHUB_TOKEN (1,000 requests an hour shared by every workflow) and has no line in .github/github-token-budget.json. Add one with a reason and its calls per run, or read it from git, the event payload or an App token instead.
+2026-11-11T19:01:26.4990579Z ##[warning]nightly.yml: Ask for this build's post-publication run calls the GitHub API with the repository GITHUB_TOKEN (1,000 requests an hour shared by every workflow) and has no line in .github/github-token-budget.json. Add one with a reason and its calls per run, or read it from git, the event payload or an App token instead.
+2026-11-11T19:01:26.4992344Z ##[warning]nightly.yml: Ask for this build's sign run calls the GitHub API with the repository GITHUB_TOKEN (1,000 requests an hour shared by every workflow) and has no line in .github/github-token-budget.json. Add one with a reason and its calls per run, or read it from git, the event payload or an App token instead.
+2026-11-11T19:01:26.4994299Z ##[warning]nightly.yml: Ask the push group for the newest head calls the GitHub API with the repository GITHUB_TOKEN (1,000 requests an hour shared by every workflow) and has no line in .github/github-token-budget.json. Add one with a reason and its calls per run, or read it from git, the event payload or an App token instead.
+2026-11-11T19:01:26.4996136Z ##[warning]nightly.yml: Build the tip while its tree publishes calls the GitHub API with the repository GITHUB_TOKEN (1,000 requests an hour shared by every workflow) and has no line in .github/github-token-budget.json. Add one with a reason and its calls per run, or read it from git, the event payload or an App token instead.
+2026-11-11T19:01:26.4997900Z ##[warning]nightly.yml: Check the run that published calls the GitHub API with the repository GITHUB_TOKEN (1,000 requests an hour shared by every workflow) and has no line in .github/github-token-budget.json. Add one with a reason and its calls per run, or read it from git, the event payload or an App token instead.
+2026-11-11T19:01:26.4999726Z ##[warning]nightly.yml: Download SSH daemon assets for publication calls the GitHub API with the repository GITHUB_TOKEN (1,000 requests an hour shared by every workflow) and has no line in .github/github-token-budget.json. Add one with a reason and its calls per run, or read it from git, the event payload or an App token instead.
+2026-11-11T19:01:26.5001466Z ##[warning]nightly.yml: Download its record calls the GitHub API with the repository GITHUB_TOKEN (1,000 requests an hour shared by every workflow) and has no line in .github/github-token-budget.json. Add one with a reason and its calls per run, or read it from git, the event payload or an App token instead.
+2026-11-11T19:01:26.5003210Z ##[warning]nightly.yml: Download nightly variant artifacts calls the GitHub API with the repository GITHUB_TOKEN (1,000 requests an hour shared by every workflow) and has no line in .github/github-token-budget.json. Add one with a reason and its calls per run, or read it from git, the event payload or an App token instead.
+2026-11-11T19:01:26.5004955Z ##[warning]nightly.yml: Download published variant calls the GitHub API with the repository GITHUB_TOKEN (1,000 requests an hour shared by every workflow) and has no line in .github/github-token-budget.json. Add one with a reason and its calls per run, or read it from git, the event payload or an App token instead.
+2026-11-11T19:01:26.5006681Z ##[warning]nightly.yml: Download the build's dSYMs calls the GitHub API with the repository GITHUB_TOKEN (1,000 requests an hour shared by every workflow) and has no line in .github/github-token-budget.json. Add one with a reason and its calls per run, or read it from git, the event payload or an App token instead.
+2026-11-11T19:01:26.5008469Z ##[warning]nightly.yml: Download the cmux-next source archive calls the GitHub API with the repository GITHUB_TOKEN (1,000 requests an hour shared by every workflow) and has no line in .github/github-token-budget.json. Add one with a reason and its calls per run, or read it from git, the event payload or an App token instead.
+2026-11-11T19:01:26.5010212Z ##[warning]nightly.yml: Download the published feed calls the GitHub API with the repository GITHUB_TOKEN (1,000 requests an hour shared by every workflow) and has no line in .github/github-token-budget.json. Add one with a reason and its calls per run, or read it from git, the event payload or an App token instead.
+2026-11-11T19:01:26.5011944Z ##[warning]nightly.yml: Download verified DMG digests calls the GitHub API with the repository GITHUB_TOKEN (1,000 requests an hour shared by every workflow) and has no line in .github/github-token-budget.json. Add one with a reason and its calls per run, or read it from git, the event payload or an App token instead.
+2026-11-11T19:01:26.5013710Z ##[warning]nightly.yml: Every routing label has an online runner calls the GitHub API with the repository GITHUB_TOKEN (1,000 requests an hour shared by every workflow) and has no line in .github/github-token-budget.json. Add one with a reason and its calls per run, or read it from git, the event payload or an App token instead.
+2026-11-11T19:01:26.5015554Z ##[warning]screen-stream-eval.yml: earlier results calls the GitHub API with the repository GITHUB_TOKEN (1,000 requests an hour shared by every workflow) and has no line in .github/github-token-budget.json. Add one with a reason and its calls per run, or read it from git, the event payload or an App token instead.
+2026-11-11T19:01:26.5017363Z ##[warning]screen-stream-eval.yml: the last successful daily run calls the GitHub API with the repository GITHUB_TOKEN (1,000 requests an hour shared by every workflow) and has no line in .github/github-token-budget.json. Add one with a reason and its calls per run, or read it from git, the event payload or an App token instead.
+2026-11-11T19:01:26.5019141Z ##[warning]thunderdome-label.yml: Add the thunderdome label calls the GitHub API with the repository GITHUB_TOKEN (1,000 requests an hour shared by every workflow) and has no line in .github/github-token-budget.json. Add one with a reason and its calls per run, or read it from git, the event payload or an App token instead.
+2026-11-11T19:01:26.5024281Z no longer spends the token (drop its line from .github/github-token-budget.json): nightly.yml: Report a failed publication
+2026-11-11T19:01:26.5024668Z no longer spends the token (drop its line from .github/github-token-budget.json): nightly.yml: Resolve the attempt
+2026-11-11T19:01:26.5098966Z ##[group]Run python3 tests/test_test_reds.py
+2026-11-11T19:01:26.5099175Z [36;1mpython3 tests/test_test_reds.py[0m
+2026-11-11T19:01:26.5099351Z [36;1mpython3 tests/test_base_red_excuse.py[0m
+2026-11-11T19:01:26.5099534Z [36;1mpython3 tests/test_web_coalesce.py[0m
+2026-11-11T19:01:26.5109960Z shell: /usr/bin/bash -e {0}
+2026-11-11T19:01:26.5110121Z env:
+2026-11-11T19:01:26.5110278Z   CI_CACHE_R2_PUBLIC_URL: https://ci-cache.cmux.com
+2026-11-11T19:01:26.5110459Z   CMUX_NEXT_STYLE_GUARDS: warn
+2026-11-11T19:01:26.5110623Z   CMUX_NEXT_SIDE_ROUTE: glaeda-side-std-xcode-26.6
+2026-11-11T19:01:26.5110849Z   BASH_ENV: ${GITHUB_WORKSPACE:-/nonexistent}/scripts/ci/api_call_log/env.sh
+2026-11-11T19:01:26.5111062Z   BLACKSMITH_RUNNER_MESSAGE_WAIT_MS: 163
+2026-11-11T19:01:26.5111213Z   BLACKSMITH_RUNNER_ACQUIRE_JOB_MS: 429
+2026-11-11T19:01:26.5111368Z   GITHUB_REPO_NAME: manaflow-ai/cmux
+2026-11-11T19:01:26.5111509Z ##[endgroup]
+2026-11-11T19:01:41.8729819Z .not excused: no failed job found on the head to compare with the base
+2026-11-11T19:01:42.1679694Z ....................................................base_red_excuse: https://github.com/manaflow-ai/cmux/releases/download/cmux-app-ffi-1f63d516ecfc798e40d2d031ebfcbb8eb1637e48/SOURCE_SHA failed (HTTP Error 503: Service Unavailable); fetching it through the release-assets API
+2026-11-11T19:01:42.2861482Z ................................base_red_excuse: https://github.com/manaflow-ai/cmux/releases/download/cmux-app-ffi-1f63d516ecfc798e40d2d031ebfcbb8eb1637e48/SOURCE_SHA failed (HTTP Error 502: x); fetching it through the release-assets API
+2026-11-11T19:01:52.9099597Z web subareas: db=true diff_sidecar=true instant=true production_build=true react_apps=true typecheck=true unit_tests=true
+2026-11-11T19:01:52.9347869Z ##[group]Run python3 tests/test_cmux_next_update_dev_daily.py
+2026-11-11T19:01:52.9348213Z [36;1mpython3 tests/test_cmux_next_update_dev_daily.py[0m
+2026-11-11T19:01:52.9348428Z [36;1mpython3 tests/test_cmux_next_classic_to_next.py[0m
+2026-11-11T19:01:52.9357813Z shell: /usr/bin/bash -e {0}
+2026-11-11T19:01:52.9357950Z env:
+2026-11-11T19:01:52.9358101Z   CI_CACHE_R2_PUBLIC_URL: https://ci-cache.cmux.com
+2026-11-11T19:01:52.9358336Z   CMUX_NEXT_STYLE_GUARDS: warn
+2026-11-11T19:01:52.9358498Z   CMUX_NEXT_SIDE_ROUTE: glaeda-side-std-xcode-26.6
+2026-11-11T19:01:52.9358726Z   BASH_ENV: ${GITHUB_WORKSPACE:-/nonexistent}/scripts/ci/api_call_log/env.sh
+2026-11-11T19:01:52.9358938Z   BLACKSMITH_RUNNER_MESSAGE_WAIT_MS: 163
+2026-11-11T19:01:52.9359096Z   BLACKSMITH_RUNNER_ACQUIRE_JOB_MS: 429
+2026-11-11T19:01:52.9359249Z   GITHUB_REPO_NAME: manaflow-ai/cmux
+2026-11-11T19:01:52.9359398Z ##[endgroup]
+2026-11-11T19:01:57.4354695Z ok   test_a_split_workspace_keeps_its_panes
+2026-11-11T19:01:57.4473625Z ##[group]Run if [[ "$EVENT_NAME" != pull_request ]]; then
+2026-11-11T19:01:57.4473890Z [36;1mif [[ "$EVENT_NAME" != pull_request ]]; then[0m
+2026-11-11T19:01:57.4474131Z [36;1m  echo "Pushes run every tier; the replay checks pull request routing only."[0m
+2026-11-11T19:01:57.4474352Z [36;1m  exit 0[0m
+2026-11-11T19:01:57.4474473Z [36;1mfi[0m
+2026-11-11T19:01:57.4474725Z [36;1mif git diff --quiet HEAD^1 HEAD -- scripts/ci/cmux_next_route.py scripts/ci/select_package_tests.py; then[0m
+2026-11-11T19:01:57.4474990Z [36;1m  echo "The router did not change."[0m
+2026-11-11T19:01:57.4475133Z [36;1m  exit 0[0m
+2026-11-11T19:01:57.4475241Z [36;1mfi[0m
+2026-11-11T19:01:57.4475455Z [36;1mpython3 scripts/ci/cmux_next_route_replay.py --base HEAD^1 --limit 30 | tee -a "$GITHUB_STEP_SUMMARY"[0m
+2026-11-11T19:01:57.4485142Z shell: /usr/bin/bash -e {0}
+2026-11-11T19:01:57.4485312Z env:
+2026-11-11T19:01:57.4485458Z   CI_CACHE_R2_PUBLIC_URL: https://ci-cache.cmux.com
+2026-11-11T19:01:57.4485664Z   CMUX_NEXT_STYLE_GUARDS: warn
+2026-11-11T19:01:57.4485818Z   CMUX_NEXT_SIDE_ROUTE: glaeda-side-std-xcode-26.6
+2026-11-11T19:01:57.4486041Z   BASH_ENV: ${GITHUB_WORKSPACE:-/nonexistent}/scripts/ci/api_call_log/env.sh
+2026-11-11T19:01:57.4486248Z   BLACKSMITH_RUNNER_MESSAGE_WAIT_MS: 163
+2026-11-11T19:01:57.4486408Z   BLACKSMITH_RUNNER_ACQUIRE_JOB_MS: 429
+2026-11-11T19:01:57.4486556Z   GITHUB_REPO_NAME: manaflow-ai/cmux
+2026-11-11T19:01:57.4488377Z   GH_TOKEN: ***
+2026-11-11T19:01:57.4488499Z   EVENT_NAME: pull_request
+2026-11-11T19:01:57.4488627Z ##[endgroup]
+2026-11-11T19:01:57.4555823Z The router did not change.
+2026-11-11T19:01:57.4626362Z ##[group]Run set -euo pipefail
+2026-11-11T19:01:57.4626637Z [36;1mset -euo pipefail[0m
+2026-11-11T19:01:57.4626865Z [36;1mif [[ "$EVENT_NAME" != pull_request ]]; then[0m
+2026-11-11T19:01:57.4627255Z [36;1m  exec scripts/cmux-next/check-app-ffi-pin.sh --verify-release --stale-grace 7200[0m
+2026-11-11T19:01:57.4627668Z [36;1mfi[0m
+2026-11-11T19:01:57.4627966Z [36;1mwork="$(/usr/bin/mktemp -d "${RUNNER_TEMP:-/tmp}/app-ffi-pin.XXXXXX")"[0m
+2026-11-11T19:01:57.4628357Z [36;1m/bin/mkdir "$work/home" "$work/code"[0m
+2026-11-11T19:01:57.4628653Z [36;1mexec /usr/bin/env -i PATH=/usr/bin:/bin HOME="$work/home" \[0m
+2026-11-11T19:01:57.4629108Z [36;1m  GIT_CONFIG_NOSYSTEM=1 GIT_CONFIG_GLOBAL=/dev/null GIT_NO_REPLACE_OBJECTS=1 GIT_LFS_SKIP_SMUDGE=1 \[0m
+2026-11-11T19:01:57.4629601Z [36;1m  GIT_CONFIG_COUNT=2 GIT_CONFIG_KEY_0=core.hooksPath GIT_CONFIG_VALUE_0=/dev/null \[0m
+2026-11-11T19:01:57.4630002Z [36;1m  GIT_CONFIG_KEY_1=core.fsmonitor GIT_CONFIG_VALUE_1=false \[0m
+2026-11-11T19:01:57.4630424Z [36;1m  MERGE="$GITHUB_SHA" CODE="$work/code" CHECKOUT="$PWD" /bin/bash -euo pipefail -c '[0m
+2026-11-11T19:01:57.4630757Z [36;1m  cd "$CHECKOUT"[0m
+2026-11-11T19:01:57.4630986Z [36;1m  [[ "$(git rev-parse HEAD)" == "$MERGE" ]] \[0m
+2026-11-11T19:01:57.4631344Z [36;1m    || { echo "error: the checkout HEAD is not the merge commit $MERGE" >&2; exit 1; }[0m
+2026-11-11T19:01:57.4631811Z [36;1m  base="$(git cat-file commit "$MERGE" | awk "\$1 == \"parent\" && !found { print \$2; found = 1 }")"[0m
+2026-11-11T19:01:57.4632218Z [36;1m  base="$(git rev-parse --verify "$base^{commit}")"[0m
+2026-11-11T19:01:57.4632484Z [36;1m  code="$CODE"[0m
+2026-11-11T19:01:57.4632835Z [36;1m  # The blobs as the base commit stores them: no attribute (export-ignore, a filter) applies.[0m
+2026-11-11T19:01:57.4633297Z [36;1m  mkdir -p "$code/scripts/cmux-next" "$code/scripts/ci"[0m
+2026-11-11T19:01:57.4633840Z [36;1m  git cat-file blob "$base:scripts/cmux-next/check-app-ffi-pin.sh" >"$code/scripts/cmux-next/check-app-ffi-pin.sh"[0m
+2026-11-11T19:01:57.4634451Z [36;1m  git cat-file blob "$base:scripts/ci/app_ffi_pin.py" >"$code/scripts/ci/app_ffi_pin.py"[0m
+2026-11-11T19:01:57.4634955Z [36;1m  if ! grep -q -e "--tree)" "$code/scripts/cmux-next/check-app-ffi-pin.sh"; then[0m
+2026-11-11T19:01:57.4635429Z [36;1m    # Only while the base predates --tree (the pull request that adds it).[0m
+2026-11-11T19:01:57.4635868Z [36;1m    echo "note: the base check has no --tree; the checkout copy runs"[0m
+2026-11-11T19:01:57.4636332Z [36;1m    exec scripts/cmux-next/check-app-ffi-pin.sh --verify-release --base "$base"[0m
+2026-11-11T19:01:57.4636701Z [36;1m  fi[0m
+2026-11-11T19:01:57.4636897Z [36;1m  tree="$code/tree"[0m
+2026-11-11T19:01:57.4637171Z [36;1m  git worktree add --quiet --detach "$tree" "$MERGE"[0m
+2026-11-11T19:01:57.4637469Z [36;1m  status=0[0m
+2026-11-11T19:01:57.4637888Z [36;1m  bash "$code/scripts/cmux-next/check-app-ffi-pin.sh" --verify-release --base "$base" --tree "$tree" || status=$?[0m
+2026-11-11T19:01:57.4638592Z [36;1m  git worktree remove --force "$tree" || true[0m
+2026-11-11T19:01:57.4638780Z [36;1m  exit "$status"[0m
+2026-11-11T19:01:57.4638915Z [36;1m'[0m
+2026-11-11T19:01:57.4648704Z shell: /usr/bin/bash -e {0}
+2026-11-11T19:01:57.4649046Z env:
+2026-11-11T19:01:57.4649220Z   CI_CACHE_R2_PUBLIC_URL: https://ci-cache.cmux.com
+2026-11-11T19:01:57.4649480Z   CMUX_NEXT_STYLE_GUARDS: warn
+2026-11-11T19:01:57.4649645Z   CMUX_NEXT_SIDE_ROUTE: glaeda-side-std-xcode-26.6
+2026-11-11T19:01:57.4649818Z   BASH_ENV: 
+2026-11-11T19:01:57.4649940Z   BLACKSMITH_RUNNER_MESSAGE_WAIT_MS: 163
+2026-11-11T19:01:57.4650098Z   BLACKSMITH_RUNNER_ACQUIRE_JOB_MS: 429
+2026-11-11T19:01:57.4650251Z   GITHUB_REPO_NAME: manaflow-ai/cmux
+2026-11-11T19:01:57.4650404Z   EVENT_NAME: pull_request
+2026-11-11T19:01:57.4650534Z ##[endgroup]
+2026-11-11T19:02:00.7082070Z error: the app FFI sources changed since the pinned source cfd79126eb0e27ba0b2ede32fca6f0cc2f781353:
+2026-11-11T19:02:01.4408321Z ##[error]Process completed with exit code 1.
+2026-11-11T19:02:01.4473743Z ##[group]Run python3 scripts/cmux-next/check-daemon-capabilities-fresh.py
+2026-11-11T19:02:01.4474043Z [36;1mpython3 scripts/cmux-next/check-daemon-capabilities-fresh.py[0m
+2026-11-11T19:02:01.4483385Z shell: /usr/bin/bash -e {0}
+2026-11-11T19:02:01.4483519Z env:
+2026-11-11T19:02:01.4483671Z   CI_CACHE_R2_PUBLIC_URL: https://ci-cache.cmux.com
+2026-11-11T19:02:01.4483849Z   CMUX_NEXT_STYLE_GUARDS: warn
+2026-11-11T19:02:01.4484028Z   CMUX_NEXT_SIDE_ROUTE: glaeda-side-std-xcode-26.6
+2026-11-11T19:02:01.4484256Z   BASH_ENV: ${GITHUB_WORKSPACE:-/nonexistent}/scripts/ci/api_call_log/env.sh
+2026-11-11T19:02:01.4484470Z   BLACKSMITH_RUNNER_MESSAGE_WAIT_MS: 163
+2026-11-11T19:02:01.4484625Z   BLACKSMITH_RUNNER_ACQUIRE_JOB_MS: 429
+2026-11-11T19:02:01.4484786Z   GITHUB_REPO_NAME: manaflow-ai/cmux
+2026-11-11T19:02:01.4484930Z ##[endgroup]
+2026-11-11T19:02:01.8006971Z check-daemon-capabilities-fresh: plans/cmux-next/daemon-capabilities.json matches DaemonEndpoint.swift (7 required, 183 optional, 0 unservedByBundledDaemon)
+2026-11-11T19:02:01.8127409Z ##[group]Run python3 -I scripts/cmux-next/check-app-capability-references.py --repo .
+2026-11-11T19:02:01.8127790Z [36;1mpython3 -I scripts/cmux-next/check-app-capability-references.py --repo .[0m
+2026-11-11T19:02:01.8137581Z shell: /usr/bin/bash -e {0}
+2026-11-11T19:02:01.8137720Z env:
+2026-11-11T19:02:01.8137872Z   CI_CACHE_R2_PUBLIC_URL: https://ci-cache.cmux.com
+2026-11-11T19:02:01.8138114Z   CMUX_NEXT_STYLE_GUARDS: warn
+2026-11-11T19:02:01.8138289Z   CMUX_NEXT_SIDE_ROUTE: glaeda-side-std-xcode-26.6
+2026-11-11T19:02:01.8138515Z   BASH_ENV: ${GITHUB_WORKSPACE:-/nonexistent}/scripts/ci/api_call_log/env.sh
+2026-11-11T19:02:01.8138730Z   BLACKSMITH_RUNNER_MESSAGE_WAIT_MS: 163
+2026-11-11T19:02:01.8138887Z   BLACKSMITH_RUNNER_ACQUIRE_JOB_MS: 429
+2026-11-11T19:02:01.8139042Z   GITHUB_REPO_NAME: manaflow-ai/cmux
+2026-11-11T19:02:01.8139188Z ##[endgroup]
+2026-11-11T19:02:05.0130130Z check-app-capability-references: PASS: 200 capabilities referenced; every gated one is defined by the daemon source (322 defined) and listed for the same-tree identify check (190 listed)
+2026-11-11T19:02:05.0305251Z ##[group]Run bash scripts/cmux-next/tests/capability-text.test.sh
+2026-11-11T19:02:05.0305715Z [36;1mbash scripts/cmux-next/tests/capability-text.test.sh[0m
+2026-11-11T19:02:05.0318289Z shell: /usr/bin/bash -e {0}
+2026-11-11T19:02:05.0318521Z env:
+2026-11-11T19:02:05.0318755Z   CI_CACHE_R2_PUBLIC_URL: https://ci-cache.cmux.com
+2026-11-11T19:02:05.0319043Z   CMUX_NEXT_STYLE_GUARDS: warn
+2026-11-11T19:02:05.0319306Z   CMUX_NEXT_SIDE_ROUTE: glaeda-side-std-xcode-26.6
+2026-11-11T19:02:05.0319667Z   BASH_ENV: ${GITHUB_WORKSPACE:-/nonexistent}/scripts/ci/api_call_log/env.sh
+2026-11-11T19:02:05.0320019Z   BLACKSMITH_RUNNER_MESSAGE_WAIT_MS: 163
+2026-11-11T19:02:05.0320275Z   BLACKSMITH_RUNNER_ACQUIRE_JOB_MS: 429
+2026-11-11T19:02:05.0320535Z   GITHUB_REPO_NAME: manaflow-ai/cmux
+2026-11-11T19:02:05.0320770Z ##[endgroup]
+2026-11-11T19:02:06.1758518Z capability-text tests: ok
+2026-11-11T19:02:06.1837317Z ##[group]Run # Sidebar look owner sweep (plans/cmux-next/sidebar-owner.md): every commit since the check landed,
+2026-11-11T19:02:06.1837811Z [36;1m# Sidebar look owner sweep (plans/cmux-next/sidebar-owner.md): every commit since the check landed,[0m
+2026-11-11T19:02:06.1838238Z [36;1m# not only this push's, so a commit from an old hook copy or a cancelled run is still named.[0m
+2026-11-11T19:02:06.1838596Z [36;1m# From where the check widened to the whole sidebar package (Views/ only before; that range swept clean).[0m
+2026-11-11T19:02:06.1838897Z [36;1msidebar_from=342462ca6ee97db1d23f013ad0d58dc942673c82[0m
+2026-11-11T19:02:06.1839080Z [36;1msweep=0[0m
+2026-11-11T19:02:06.1839297Z [36;1m# Commits and trees only (--filter=blob:none): the sweep reads messages and changed paths, and[0m
+2026-11-11T19:02:06.1839624Z [36;1m# the gate's few blobs come on demand. The full fetch of 2000 commits took 2-7 min of the job's[0m
+2026-11-11T19:02:06.1840007Z [36;1m# 10 on a push (401 s measured from a fresh depth-2 clone; blobless: 27 s). Same history as before.[0m
+2026-11-11T19:02:06.1840343Z [36;1mgit fetch --no-tags --quiet --filter=blob:none --deepen=2000 origin "$GITHUB_SHA" || true[0m
+2026-11-11T19:02:06.1840679Z [36;1m# A pull request is judged on its own commits (HEAD^1..HEAD of the merge): a base commit without the[0m
+2026-11-11T19:02:06.1841020Z [36;1m# owner's record is a warning naming it here, and stays an error on every push sweep of the branch.[0m
+2026-11-11T19:02:06.1841260Z [36;1mown=()[0m
+2026-11-11T19:02:06.1841486Z [36;1m# pull_request only: there HEAD is GitHub's merge of the PR into its base; a dispatch runs on a branch tip.[0m
+2026-11-11T19:02:06.1841798Z [36;1m[[ "$EVENT_NAME" == pull_request ]] && own=(--own-range HEAD^1..HEAD)[0m
+2026-11-11T19:02:06.1842054Z [36;1mif git merge-base --is-ancestor "$sidebar_from" HEAD 2>/dev/null; then[0m
+2026-11-11T19:02:06.1842377Z [36;1m  python3 -I scripts/cmux-next/prepush-gate.py --only sidebar --commits "$sidebar_from..HEAD" "${own[@]}" \[0m
+2026-11-11T19:02:06.1842671Z [36;1m    | tee -a "$GITHUB_STEP_SUMMARY" || sweep=$?[0m
+2026-11-11T19:02:06.1842836Z [36;1mfi[0m
+2026-11-11T19:02:06.1842968Z [36;1mif [[ "$EVENT_NAME" != push ]]; then[0m
+2026-11-11T19:02:06.1843191Z [36;1m  python3 -I scripts/cmux-next/prepush-gate.py --base HEAD^1 --head HEAD[0m
+2026-11-11T19:02:06.1843406Z [36;1m  exit "$sweep"[0m
+2026-11-11T19:02:06.1843528Z [36;1mfi[0m
+2026-11-11T19:02:06.1843644Z [36;1mrange="HEAD^1..HEAD"[0m
+2026-11-11T19:02:06.1843844Z [36;1mif [[ -n "$BEFORE" && "$BEFORE" != 0000000000000000000000000000000000000000 ]]; then[0m
+2026-11-11T19:02:06.1844157Z [36;1m  git fetch --no-tags --quiet --filter=blob:none --depth=200 origin "$GITHUB_SHA" "$BEFORE" || true[0m
+2026-11-11T19:02:06.1844474Z [36;1m  if git cat-file -e "$BEFORE^{commit}" 2>/dev/null; then range="$BEFORE..HEAD"; fi[0m
+2026-11-11T19:02:06.1844687Z [36;1mfi[0m
+2026-11-11T19:02:06.1844928Z [36;1mpython3 -I scripts/cmux-next/prepush-gate.py --commits "$range" | tee -a "$GITHUB_STEP_SUMMARY"[0m
+2026-11-11T19:02:06.1845178Z [36;1mexit "$sweep"[0m
+2026-11-11T19:02:06.1854192Z shell: /usr/bin/bash -e {0}
+2026-11-11T19:02:06.1854333Z env:
+2026-11-11T19:02:06.1854486Z   CI_CACHE_R2_PUBLIC_URL: https://ci-cache.cmux.com
+2026-11-11T19:02:06.1854668Z   CMUX_NEXT_STYLE_GUARDS: warn
+2026-11-11T19:02:06.1854834Z   CMUX_NEXT_SIDE_ROUTE: glaeda-side-std-xcode-26.6
+2026-11-11T19:02:06.1855066Z   BASH_ENV: ${GITHUB_WORKSPACE:-/nonexistent}/scripts/ci/api_call_log/env.sh
+2026-11-11T19:02:06.1855282Z   BLACKSMITH_RUNNER_MESSAGE_WAIT_MS: 163
+2026-11-11T19:02:06.1855443Z   BLACKSMITH_RUNNER_ACQUIRE_JOB_MS: 429
+2026-11-11T19:02:06.1855594Z   GITHUB_REPO_NAME: manaflow-ai/cmux
+2026-11-11T19:02:06.1855745Z   EVENT_NAME: pull_request
+2026-11-11T19:02:06.1855891Z   BEFORE: 77c6ec54ea42029127b4aff2746810ea4fc4505a
+2026-11-11T19:02:06.1864801Z ##[endgroup]
+2026-11-11T19:02:29.2844922Z prepush-gate: no new violations (3.6s)
+2026-11-11T19:02:29.3080821Z ##[group]Run failed=()
+2026-11-11T19:02:29.3081003Z [36;1mfailed=()[0m
+2026-11-11T19:02:29.3081117Z [36;1mwarned=()[0m
+2026-11-11T19:02:29.3081320Z [36;1m# `outcome|name`: an empty outcome (a check that never ran) still names its step.[0m
+2026-11-11T19:02:29.3081572Z [36;1mwhile IFS='|' read -r outcome name; do[0m
+2026-11-11T19:02:29.3081756Z [36;1m  [[ -n "$outcome$name" ]] || continue[0m
+2026-11-11T19:02:29.3081933Z [36;1m  [[ "$outcome" == success ]] && continue[0m
+2026-11-11T19:02:29.3082164Z [36;1m  if [[ "$outcome" == failure && "${CMUX_NEXT_STYLE_GUARDS:-}" == warn ]] \[0m
+2026-11-11T19:02:29.3082409Z [36;1m    && grep -qxF -- "$name" <<<"${STYLE_CHECKS:-}"; then[0m
+2026-11-11T19:02:29.3082593Z [36;1m    warned+=("$name")[0m
+2026-11-11T19:02:29.3082752Z [36;1m    continue[0m
+2026-11-11T19:02:29.3082879Z [36;1m  fi[0m
+2026-11-11T19:02:29.3083017Z [36;1m  failed+=("$name (${outcome:-not run})")[0m
+2026-11-11T19:02:29.3083221Z [36;1mdone <<<"$OUTCOMES"[0m
+2026-11-11T19:02:29.3083439Z [36;1m# A push names which reds it added and which the previous tip already had, but every[0m
+2026-11-11T19:02:29.3083751Z [36;1m# red keeps the job red. Turning inherited reds into warnings (0150fc73e3e) made the[0m
+2026-11-11T19:02:29.3084051Z [36;1m# tip's checks job green while its checks were red: base_red_checks.py excused every red[0m
+2026-11-11T19:02:29.3084372Z [36;1m# while the previous tip was still pending, which on a branch with ~100 merges a day is[0m
+2026-11-11T19:02:29.3084666Z [36;1m# nearly always, so new reds landed unseen; and the PR-side comparisons[0m
+2026-11-11T19:02:29.3084968Z [36;1m# (pr_red_checks_comment.py, base_red_excuse.py, next-autoland) read the green tip as[0m
+2026-11-11T19:02:29.3085280Z [36;1m# "green on the base" and charged the base's reds to every open pull request[0m
+2026-11-11T19:02:29.3085556Z [36;1m# (2026-10-30: 252 of 660 open PRs red on four base reds, no autoland merge in 24 h).[0m
+2026-11-11T19:02:29.3085877Z [36;1mif [[ "$EVENT_NAME" == push && "$BEFORE" =~ ^[0-9a-f]{40}$ && ! "$BEFORE" =~ ^0+$ && ${#failed[@]} -gt 0 ]]; then[0m
+2026-11-11T19:02:29.3086148Z [36;1m  current="$RUNNER_TEMP/cmux-next-red-checks.txt"[0m
+2026-11-11T19:02:29.3086414Z [36;1m  printf '%s\n' "${failed[@]}" | sed -E 's/ \((failure|timed_out|cancelled|not run)\)$//' >"$current"[0m
+2026-11-11T19:02:29.3086673Z [36;1m  base_out="$RUNNER_TEMP/cmux-next-base-red.out"[0m
+2026-11-11T19:02:29.3086997Z [36;1m  if python3 scripts/ci/base_red_checks.py --repo "$GITHUB_REPOSITORY" --before "$BEFORE" --current "$current" >"$base_out"; then[0m
+2026-11-11T19:02:29.3087299Z [36;1m    while read -r kind name; do[0m
+2026-11-11T19:02:29.3087465Z [36;1m      [[ -n "$kind$name" ]] || continue[0m
+2026-11-11T19:02:29.3087633Z [36;1m      if [[ "$kind" == BASE_RED ]]; then[0m
+2026-11-11T19:02:29.3087901Z [36;1m        echo "::notice title=cmux-next base red::$name was already red on $BEFORE (or that tip had not finished)"[0m
+2026-11-11T19:02:29.3088217Z [36;1m      else[0m
+2026-11-11T19:02:29.3119106Z [36;1m        echo "::error title=cmux-next new red::$name is new in this push (green on $BEFORE): fix it first, every open pull request inherits it"[0m
+2026-11-11T19:02:29.3119522Z [36;1m      fi[0m
+2026-11-11T19:02:29.3119643Z [36;1m    done <"$base_out"[0m
+2026-11-11T19:02:29.3119778Z [36;1m  else[0m
+2026-11-11T19:02:29.3120027Z [36;1m    echo "::warning title=cmux-next base-red::could not read the previous tip to tell new reds from inherited ones"[0m
+2026-11-11T19:02:29.3120292Z [36;1m  fi[0m
+2026-11-11T19:02:29.3120401Z [36;1mfi[0m
+2026-11-11T19:02:29.3120531Z [36;1mfor name in "${warned[@]+"${warned[@]}"}"; do[0m
+2026-11-11T19:02:29.3120801Z [36;1m  echo "::warning title=cmux-next style guard (warn-only)::$name found issues; see that step's log"[0m
+2026-11-11T19:02:29.3121034Z [36;1mdone[0m
+2026-11-11T19:02:29.3121152Z [36;1mif (( ${#warned[@]} > 0 )); then[0m
+2026-11-11T19:02:29.3121320Z [36;1m  {[0m
+2026-11-11T19:02:29.3122062Z [36;1m    echo "### ${#warned[@]} style guard(s) reported findings (warn-only)"[0m
+2026-11-11T19:02:29.3122256Z [36;1m    echo[0m
+2026-11-11T19:02:29.3122390Z [36;1m    printf -- '- %s\n' "${warned[@]}"[0m
+2026-11-11T19:02:29.3122536Z [36;1m    echo[0m
+2026-11-11T19:02:29.3122665Z [36;1m  } | tee -a "$GITHUB_STEP_SUMMARY"[0m
+2026-11-11T19:02:29.3122812Z [36;1mfi[0m
+2026-11-11T19:02:29.3122927Z [36;1mif (( ${#failed[@]} == 0 )); then[0m
+2026-11-11T19:02:29.3123151Z [36;1m  echo "All blocking cmux-next checks passed." | tee -a "$GITHUB_STEP_SUMMARY"[0m
+2026-11-11T19:02:29.3123361Z [36;1m  exit 0[0m
+2026-11-11T19:02:29.3123466Z [36;1mfi[0m
+2026-11-11T19:02:29.3123667Z [36;1m# One annotation per red check: the red-checks line compares them with the base's run, so a[0m
+2026-11-11T19:02:29.3123965Z [36;1m# new red check is told from a base one (scripts/ci/pr_red_checks_comment.py).[0m
+2026-11-11T19:02:29.3124266Z [36;1mfor name in "${failed[@]}"; do echo "::error title=cmux-next check::red check: ${name% (*}"; done[0m
+2026-11-11T19:02:29.3124634Z [36;1m{[0m
+2026-11-11T19:02:29.3124774Z [36;1m  echo "### ${#failed[@]} cmux-next check(s) failed"[0m
+2026-11-11T19:02:29.3124938Z [36;1m  echo[0m
+2026-11-11T19:02:29.3125064Z [36;1m  printf -- '- %s\n' "${failed[@]}"[0m
+2026-11-11T19:02:29.3125205Z [36;1m  echo[0m
+2026-11-11T19:02:29.3125355Z [36;1m  echo "Each check's own step log has the details."[0m
+2026-11-11T19:02:29.3125537Z [36;1m} | tee -a "$GITHUB_STEP_SUMMARY"[0m
+2026-11-11T19:02:29.3125680Z [36;1mexit 1[0m
+2026-11-11T19:02:29.3135494Z shell: /usr/bin/bash -e {0}
+2026-11-11T19:02:29.3135641Z env:
+2026-11-11T19:02:29.3135803Z   CI_CACHE_R2_PUBLIC_URL: https://ci-cache.cmux.com
+2026-11-11T19:02:29.3135974Z   CMUX_NEXT_STYLE_GUARDS: warn
+2026-11-11T19:02:29.3136136Z   CMUX_NEXT_SIDE_ROUTE: glaeda-side-std-xcode-26.6
+2026-11-11T19:02:29.3136298Z   BASH_ENV: 
+2026-11-11T19:02:29.3136419Z   BLACKSMITH_RUNNER_MESSAGE_WAIT_MS: 163
+2026-11-11T19:02:29.3136581Z   BLACKSMITH_RUNNER_ACQUIRE_JOB_MS: 429
+2026-11-11T19:02:29.3136734Z   GITHUB_REPO_NAME: manaflow-ai/cmux
+2026-11-11T19:02:29.3137844Z   STYLE_CHECKS: God files and types (Swift)
+God files (cmux-tui Rust)
+CmuxNextApp size cap
+No Swift CLI (the cmux CLI is Rust, plans/cmux-next/cli.md)
+No Swift closed history (the daemon owns it, plans/cmux-next/reopen-closed.md 9)
+No process scanning (holders register themselves, plans/cmux-next/pty-holder.md 4)
+Scrollbars thin, one style
+Motion tokens
+Overlays are glass, never solid
+Type scale
+Menu metrics
+Surface roles
+Protected-folder copies
+Settings source copies
+Backdrop art export
+Package conventions lint
+Browser chrome icons
+Dialog buttons show their keys (u2647)
+One omnibar (popups, New Tab and tabs share AddressBarView)
+Pushed commits add no violations
+
+2026-11-11T19:02:29.3139012Z   EVENT_NAME: pull_request
+2026-11-11T19:02:29.3139157Z   BEFORE: 77c6ec54ea42029127b4aff2746810ea4fc4505a
+2026-11-11T19:02:29.3140500Z   GH_TOKEN: ***
+2026-11-11T19:02:29.3140633Z   GITHUB_REPOSITORY: manaflow-ai/cmux
+2026-11-11T19:02:29.3140797Z   GITHUB_API_URL: https://api.github.com
+2026-11-11T19:02:29.3144715Z   OUTCOMES: success|God files and types (Swift)
+success|God files (cmux-tui Rust)
+success|CmuxNextApp size cap
+success|No Swift CLI (the cmux CLI is Rust, plans/cmux-next/cli.md)
+success|No Swift closed history (the daemon owns it, plans/cmux-next/reopen-closed.md 9)
+success|One omnibar (popups, New Tab and tabs share AddressBarView)
+success|React pages are listed (native chrome and Home are Swift)
+success|No new SwiftUI (macOS UI is AppKit)
+success|No process scanning (holders register themselves, plans/cmux-next/pty-holder.md 4)
+success|Default cursor (no pointing hand in app UI)
+success|No literal state roots (per-build isolation S7, cx-is1kf.8)
+success|Dialog buttons show their keys (u2647)
+success|Main-thread concurrency
+success|One web view factory
+success|Crash safety
+success|Tests inject their notification center
+success|String tables (21 languages)
+success|Module resource bundles
+success|Scrollbars thin, one style
+success|Motion tokens
+success|Overlays are glass, never solid
+success|Type scale
+success|Layout grid
+success|UI font (the system font)
+success|Motion scale
+success|Motion and colour tokens
+success|Menu metrics
+success|Surface roles
+success|Protected-folder copies
+success|Settings source copies
+success|Phone lane field allowlist
+success|Backdrop art export
+success|Stale scheme PCM cleanup
+success|Script tests (pin-cmux-tui, embed-cef, ensure-cef store)
+success|Ghostty resources bundle
+success|Bundled terminfo
+failure|Package conventions lint
+success|Browser chrome icons
+success|Capability texts never say update the app
+success|App Store review rules (cmux-next-ios intents, Info.plist)
+success|Perf source guard (no window capture or CATransaction.flush)
+success|No fleet host names in gallery fixtures
+success|Kill switches are declared, tied to a PR and unexpired
+success|Checks job structure
+success|Tier routing
+success|Package dependency lists sorted
+success|Web bundle key inputs
+success|Prebuilt web bundles install and stamp
+success|Web update pointer
+success|Companion workflows
+success|Base-red classifier (per test)
+success|DEV update and classic import scripts
+success|Routing replay (router changes)
+failure|Check the app FFI pin
+success|Daemon capabilities export is fresh
+success|App capability references are listed
+success|Pushed commits add no violations
+
+2026-11-11T19:02:29.3148536Z ##[endgroup]
+2026-11-11T19:02:29.3198997Z ##[warning]Package conventions lint found issues; see that step's log
+2026-11-11T19:02:29.3205347Z ### 1 style guard(s) reported findings (warn-only)
+2026-11-11T19:02:29.3205736Z - Package conventions lint
+2026-11-11T19:02:29.3206795Z ##[error]red check: Check the app FFI pin
+2026-11-11T19:02:29.3214680Z ### 1 cmux-next check(s) failed
+2026-11-11T19:02:29.3214884Z - Check the app FFI pin (failure)
+2026-11-11T19:02:29.3217322Z ##[error]Process completed with exit code 1.
+2026-11-11T19:02:29.3326246Z Post job cleanup.
+2026-11-11T19:02:29.5116560Z A job completed hook has been configured by the self-hosted runner administrator
+2026-11-11T19:02:29.5138439Z ##[group]Run '/job_completed.sh'
+2026-11-11T19:02:29.5150097Z shell: /usr/bin/bash --noprofile --norc -e -o pipefail {0}
+2026-11-11T19:02:29.5150402Z env:
+2026-11-11T19:02:29.5150604Z   BLACKSMITH_RUNNER_MESSAGE_WAIT_MS: 163
+2026-11-11T19:02:29.5150856Z   BLACKSMITH_RUNNER_ACQUIRE_JOB_MS: 429
+2026-11-11T19:02:29.5151135Z   BLACKSMITH_CHECK_RUN_ID: 130738392124
+2026-11-11T19:02:29.5151504Z   BLACKSMITH_JOB_DISPLAY_NAME: cmux-next checks (god files, concurrency, crash safety, l10n)
+2026-11-11T19:02:29.5151874Z   GITHUB_ACTIONS_CACHE_MODE: write
+2026-11-11T19:02:29.5152347Z ##[endgroup]
+2026-11-11T19:02:29.5744818Z Cleaning up orphan processes

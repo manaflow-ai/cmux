@@ -1,6 +1,9 @@
 // cmux-web-test-timeout: 600
 // Jump to latest stands on the composer's center line (Leo, 2026-11-07: "And also the jump to bottom
-// button is still not centered with the composer yet"). The button took the stage's middle (left:
+// button is still not centered with the composer yet"), and again after #48658 moved it to the card's
+// end edge (Leo, 2026-11-22: "why'd the jump to bottom move to the right ... the composer hat hidden
+// bit was the one to move to the right. or left."; jumpPlace.experiment.ts `center` ships, the hat's
+// pill moves aside, hatPillPlace.experiment.ts). The button took the stage's middle (left:
 // 50%) while the composer sits in the column between --cv-inset and --cv-inset-end: once Session Info
 // pushes the column left (a wide pane), or the computer use preview takes the column's end, the
 // button stood up to 164px right of the composer's center. Here, in the real pane, the button's
@@ -15,6 +18,8 @@ import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "
 import { chromium, webkit, type Browser, type BrowserType, type Page } from "playwright";
 import { requireBrowserLane } from "./support/requireBrowserLane";
 import { papercutPane, sessionInfoPushAlways } from "./support/papercutChat";
+import { SESSION_INFO_SHOWN, SESSION_INFO_TOGGLE } from "../src/agent-session/acpmux/session-info/sessionInfoSelectors";
+import { JUMP_LATEST, JUMP_LATEST_SHOWN } from "../src/agent-session/acpmux/transcriptSelectors";
 
 await requireBrowserLane("agent-pane-jump-latest-centered.test.ts", async () => {
   setDefaultTimeout(300_000);
@@ -48,21 +53,24 @@ await requireBrowserLane("agent-pane-jump-latest-centered.test.ts", async () => 
   });
 
   type SessionInfo = "closed" | "open" | "push";
-  type State = { info: SessionInfo; look?: "codex"; scrollbar?: boolean; computerUse?: boolean };
+  type State = { info: SessionInfo; scrollbar?: boolean; computerUse?: boolean };
 
   /// The button's and the composer card's horizontal centers, as drawn.
   const centers = (page: Page) =>
-    page.evaluate(() => {
-      const center = (selector: string) => {
-        const box = document.querySelector(selector)?.getBoundingClientRect();
-        return box ? (box.left + box.right) / 2 : Number.NaN;
-      };
-      return {
-        button: center(".acpmux-jump-latest"),
-        composer: center(".acpmux-main > .acpmux-dock > .acpmux-composer > .acpmux-composer-box"),
-        shown: document.querySelector(".acpmux-jump-latest:not(.acpmux-jump-up)")?.hasAttribute("data-shown") ?? false,
-      };
-    });
+    page.evaluate(
+      ({ JUMP_LATEST }) => {
+        const center = (selector: string) => {
+          const box = document.querySelector(selector)?.getBoundingClientRect();
+          return box ? (box.left + box.right) / 2 : Number.NaN;
+        };
+        return {
+          button: center(".acpmux-jump-latest"),
+          composer: center(".acpmux-main > .acpmux-dock > .acpmux-composer > .acpmux-composer-box"),
+          shown: document.querySelector(JUMP_LATEST)?.hasAttribute("data-shown") ?? false,
+        };
+      },
+      { JUMP_LATEST },
+    );
 
   /// Resolves once no finite animation or transition runs and two more frames have painted.
   const settle = (page: Page) =>
@@ -81,8 +89,8 @@ await requireBrowserLane("agent-pane-jump-latest-centered.test.ts", async () => 
       });
     });
 
-  const panel = (page: Page) => page.locator('aside.acpmux-session-info[data-presence="shown"]');
-  const toggle = (page: Page) => page.locator("button.acpmux-session-info-toggle");
+  const panel = (page: Page) => page.locator(SESSION_INFO_SHOWN);
+  const toggle = (page: Page) => page.locator(SESSION_INFO_TOGGLE);
   /// Session Info offered (Debug Settings `agent.sessionInfo`), then open or closed.
   const sessionInfo = async (page: Page, open: boolean) => {
     await page.evaluate(() =>
@@ -97,9 +105,7 @@ await requireBrowserLane("agent-pane-jump-latest-centered.test.ts", async () => 
   };
 
   const open = async (width: number, state: State) => {
-    const page = await pane!.open({ width, height: 700 }, async (page) => {
-      if (state.look) await page.addInitScript((look) => localStorage.setItem("cmux.composer.look", look), state.look);
-    });
+    const page = await pane!.open({ width, height: 700 });
     if (state.info === "push") await sessionInfoPushAlways(page);
     if (state.info !== "closed") await sessionInfo(page, true);
     if (state.scrollbar)
@@ -115,7 +121,7 @@ await requireBrowserLane("agent-pane-jump-latest-centered.test.ts", async () => 
     await page.evaluate(() => {
       document.querySelector<HTMLElement>(".acpmux-scroll")!.scrollTop = 0;
     });
-    await page.locator(".acpmux-jump-latest:not(.acpmux-jump-up)[data-shown]").waitFor({ timeout: 10_000 });
+    await page.locator(JUMP_LATEST_SHOWN).waitFor({ timeout: 10_000 });
     await settle(page);
     return page;
   };
@@ -127,7 +133,6 @@ await requireBrowserLane("agent-pane-jump-latest-centered.test.ts", async () => 
     { info: "push" },
     { info: "closed", scrollbar: true },
     { info: "push", scrollbar: true },
-    { info: "push", look: "codex" },
     { info: "closed", computerUse: true },
   ];
 

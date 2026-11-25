@@ -40,7 +40,7 @@ public final class TabStripView: NSView {
 
     /// Empty strip space in the window's top row acts as a titlebar (`actsAsTitlebar`).
     public var dragsWindowFromEmptySpace = true
-    /// The + button's tooltip ("New Tab (hold for more)"); nil: none.
+    /// The + button's tooltip ("New Tab"); nil: none.
     public var newTabToolTip: String? {
         get { newTabButton.themedToolTip }
         set { newTabButton.themedToolTip = newValue }
@@ -54,7 +54,6 @@ public final class TabStripView: NSView {
     public var opensNewTabMenuOnPress = false {
         didSet {
             newTabButton.showsChevron = opensNewTabMenuOnPress
-            newTabButton.themedToolTip = opensNewTabMenuOnPress ? Strings.axNewTab : Strings.newTabHoldHint
             applyTokens(animated: false)
         }
     }
@@ -67,11 +66,16 @@ public final class TabStripView: NSView {
     }
     /// The trailing controls' look (`TabTunables.trailingButtons`), applied with the design tokens.
     public internal(set) var trailingButtons = TabTunables.trailingButtons.value
+    /// The Debug looks the cells last drew (`CellLooks`), for change detection.
+    var cellLooks = CellLooks()
     /// The pane-type ⌄ shows: the pane asks for it and the trailing look keeps it.
     var showsTypeChooser: Bool { showsNewTabMenuButton && trailingButtons.showsTypeChooser }
     /// The room between the last tab and the + (Lucas 2026-11-11: the split +'s fill touched the last
     /// tab; then 2 px less, so 2 pt at Default).
-    var newTabLeadingGap: CGFloat { Metrics.space1 }
+    /// The + button's offset after the last tab's slot: the last pill to the button is `Metrics.tabStripEndGap`, the
+    /// strip's leading gap, at every density; the slot's trailing inset and the button's own leading inset (a
+    /// `tabBackgroundInset` each) count toward it, so this can be negative where a density spaces its tabs wider.
+    var newTabLeadingGap: CGFloat { metrics.endGap(scale: window?.backingScaleFactor ?? 2) - 2 * metrics.tabBackgroundInset }
     var newTabControlsWidth: CGFloat {
         guard showsTypeChooser else { return metrics.newTabButtonWidth }
         // Circles: the ⌄ takes the +'s square, so both circles are one diameter. Split: classic's narrower segment.
@@ -82,6 +86,8 @@ public final class TabStripView: NSView {
         }
     }
     var windowControlsInset: CGFloat = 0
+    /// ``naturalWidth`` as the last layout told the strip's superview (``noteNaturalWidth()``).
+    var reportedNaturalWidth: CGFloat = -1
     /// The tabs' top the last layout applied (``computeTabTop()``); a move in the window that changes it lays out again.
     var appliedTabTop: CGFloat?
     /// Called after the strip's pane moved in the window (``updateWindowControlsAvoidance()``): the pane's toolbar
@@ -97,9 +103,29 @@ public final class TabStripView: NSView {
     /// The frame in the window the flush chrome last read, so a move (a canvas pan, a widened window)
     /// reports again with the strip's fresh place.
     var reportedCornerFrame: CGRect?
+    /// The selected folder tab's bounds (in the strip) the flush chrome last read, so a selection or a
+    /// reflow that moves the folder reports again and the shade's hole under it follows.
+    var reportedFolderFrame: CGRect?
     /// The strip is on the card's top row (the flush chrome's ``setRunsIntoCard(_:)``), so its selected
     /// tab may run into the card; true until the chrome first says otherwise.
     var runsIntoCard = true
+    /// The strip is inside the card while the top row's tabs are folders (``setTonedInCard(_:)``): it tones its own
+    /// row (``inCardTone``) and its selected tab is a folder into the content below it.
+    var tonedInCard = false
+    /// The toned strip's shade and tab-row divider, made on first use (`TabStripView+CornerFlush`).
+    var inCardTone: (shade: CAShapeLayer, divider: CAShapeLayer)?
+    /// What ``inCardTone`` was last drawn from: a chrome redraw that changes none of it redraws nothing.
+    var inCardToneDrawn: InCardToneKey?
+    /// The pane's content starts with a toolbar row right under this strip (a browser's omnibar; the pane sets it):
+    /// the tab row's divider leaves this pane out, the window's (`CornerFlushChrome`) and this strip's own in-card one,
+    /// so the tabs and the omnibar read as one surface (Lawrence, 2026-11-13). A change reports to the window root.
+    public var meetsToolbar = false {
+        didSet {
+            guard meetsToolbar != oldValue else { return }
+            reportedCornerFlush = false // the next report reaches the chrome, which redraws the divider
+            reportCornerLead()
+        }
+    }
 
     /// Builds right-click menus from the App's action registry. With no
     /// provider (or a nil menu for a chip), right-clicking a chip opens the
@@ -137,8 +163,8 @@ public final class TabStripView: NSView {
     let windowVisibility = WindowVisibilityObserver()
     /// In a window and not hidden (`syncShown`).
     private(set) var isShownInWindow = false
-    /// The model changed while the strip was out of sight: it syncs once, at rest, when it shows.
-    var modelChangedWhileHidden = false
+    /// When the strip does not follow its model at once (out of sight, a pane that leaves), and the sync it owes then.
+    let syncHold = TabStripSyncHold()
     /// An appearance or scale change came while hidden; applied when shown.
     private var appearanceIsStale = false
     /// Group chips, bands, drag, and optimistic membership.
@@ -158,7 +184,7 @@ public final class TabStripView: NSView {
     /// The trailing controls then show at rest (`tabs.crowdedControls`), since their kept room is
     /// room the tabs could use.
     public internal(set) var isCrowded = false
-    /// ``isCrowded`` changed; the pane's "…" (``PaneToolbarView/strip``) follows it.
+    /// ``isCrowded`` changed; the pane's trailing controls (``PaneToolbarView/strip``) follow it.
     public var onCrowdedChange: ((Bool) -> Void)?
     /// ``TabStripModel/holdsOneTab`` at the last sync: its change lays the pane out again (`syncFromModel`).
     var laidOutOneTab: Bool?
@@ -466,8 +492,7 @@ public final class TabStripView: NSView {
             return
         }
         // What changed while out of sight lands at once in its final place: nobody saw it move.
-        if modelChangedWhileHidden {
-            modelChangedWhileHidden = false
+        if syncHold.takeOwedSync() {
             layOutPaneIfOneTabChanged()
             sync(fromModel: true, animating: false)
         }
@@ -513,11 +538,16 @@ public final class TabStripView: NSView {
         }
         for band in groups.bands.values { band.themeScope = scope }
         applyPinnedDividerColor()
+        updateInCardTone()
+        hoverCard.themeChanged()
     }
 
     /// Debug `tabs.chevronOnHover` (on by default, Lucas 2026-11-12): the ⌄ shows only while the + or the ⌄ is under
     /// the pointer or a new-tab menu is open. It keeps its slot (alpha, not hidden), so nothing moves as it shows.
     func updateChooserReveal() {
+        // A ⌄ in the strip's reveal fades with the + (`tabs.chevronOnHover` off, `tabs.plusButton` hover): its alpha is
+        // the reveal's, so setting it here would show it at rest beside a hidden +.
+        guard HoverReveal.owner(of: newTabMenuButton) == nil else { return }
         let reveal = Self.revealsChooser(onHoverOnly: TabTunables.chevronOnHover.value,
                                          plusHovered: newTabButton.isHovered, chooserHovered: newTabMenuButton.isHovered,
                                          menuOpen: newTabButton.isMenuOpen || newTabMenuButton.isHighlighted,
@@ -565,9 +595,10 @@ public final class TabStripView: NSView {
         super.layout()
         glassView?.frame = bounds
         if glassView == nil { contentView.frame = bounds }
-        let padding = metrics.stripHorizontalPadding
-        // The flush corner (`chrome.cornerFlush`): the first tab starts on the pane's leading edge.
-        let leading = CornerFlush.current.isOn ? 0 : padding
+        // One gap before the first tab and after the last, the pill's top gap on this screen's pixel grid
+        // (`Metrics.tabStripEndGap`, `TabStripMetrics.endGap(scale:)`).
+        let padding = metrics.endGap(scale: window?.backingScaleFactor ?? 2)
+        let leading = padding
         windowControlsInset = computeWindowControlsInset()
         appliedTabTop = computeTabTop()
         let viewport = max(0, bounds.width - leading - padding - windowControlsInset - (model.showsNewTabButton ? newTabLeadingGap + newTabControlsWidth : 0))

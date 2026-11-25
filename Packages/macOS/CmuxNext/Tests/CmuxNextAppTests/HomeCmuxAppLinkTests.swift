@@ -1,3 +1,4 @@
+import CmuxNextActions
 import Foundation
 import MessagesLabHome
 import Testing
@@ -15,6 +16,7 @@ struct HomeCmuxAppLinkTests {
         "cmux-dev-tag://workspace/ws_0123456789abcdef0123456789abcdef",
         "cmux://workspace/ws_0123456789abcdef0123456789abcdef?machine=machine_0123456789abcdef0123456789abcdef",
         "cmux://settings/background",
+        "cmux://settings/start-agent-from-any-app",
     ])
     func appLinks(_ text: String) {
         #expect(URL(string: text)!.isCmuxAppLink)
@@ -30,5 +32,17 @@ struct HomeCmuxAppLinkTests {
     ])
     func notAppLinks(_ text: String) {
         #expect(!URL(string: text)!.isCmuxAppLink)
+    }
+
+    /// Every settings link the app runs is one Home draws, and Home draws no other: a route added to
+    /// DeepLink.settingsRoutes alone would show as plain text, as the welcome's Start Agent from Any App
+    /// link did (cmux#42861, nightly 4359280404201).
+    @Test func everySettingsRouteIsALinkHomeDraws() {
+        #expect(Set(DeepLink.settingsRoutes.keys) == URL.homeSettingsLinkPaths)
+        for path in DeepLink.settingsRoutes.keys {
+            let url = URL(string: "cmux://settings\(path)")!
+            #expect(url.isCmuxAppLink, "\(path)")
+            #expect(DeepLink.settingsAction(for: url, linkScheme: "cmux-dev-x") != nil, "\(path)")
+        }
     }
 }

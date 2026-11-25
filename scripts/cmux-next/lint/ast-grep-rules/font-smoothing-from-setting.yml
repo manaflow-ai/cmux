@@ -1,0 +1,19 @@
+id: font-smoothing-from-setting
+language: swift
+severity: error
+message: "font smoothing follows appearance.fontSmoothing: pass ProcessFontSmoothing.chrome.smoothsStems (or .current), not true or false"
+note: >-
+  AppKit and SwiftUI text take their stem weight from the AppleFontSmoothing default that
+  ProcessFontSmoothing.apply writes at launch (appearance.fontSmoothing). An explicit
+  setShouldSmoothFonts on a context is not reached by that default, so a literal there draws text
+  heavier or lighter than every label beside it. Read ProcessFontSmoothing.chrome for chrome text
+  cmux draws itself (it follows a live change of the setting), ProcessFontSmoothing.current for the
+  launch's AppKit value, or take a ProcessFontSmoothing parameter, as GlyphMask.image does. Ghostty's glyphs live in the ghostty
+  submodule and keep font-thicken.
+ignores:
+  - "**/Vendor/**"
+rule:
+  pattern: '$CONTEXT.setShouldSmoothFonts($VALUE)'
+constraints:
+  VALUE:
+    regex: '^(true|false)$'

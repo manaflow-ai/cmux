@@ -17,6 +17,9 @@ import { subagentProgress } from "./subagentProgress";
 import { subagentDisplayName } from "./subsessions";
 import { namedAction } from "./trayDetail";
 import { waveProps } from "../../../ui/wave";
+import { TurnActionsContext } from "../conversation/turnActions";
+import { ResumeControl } from "./ResumeControl";
+import { canResume } from "./resumeState";
 import {
   SubagentHarnessContext,
   SubagentNavContext,
@@ -31,6 +34,7 @@ import {
   STACK,
 } from "./subagentGroupModel";
 import { Clock } from "../../../ui/Typography";
+import { intl } from "../../../ui/intl";
 
 /// A subagent's avatar: the subagent mark in the agent's tone (another family's harness mark,
 /// AgentIdentity.tsx `foreignHarness`), and its place in the running wave
@@ -53,8 +57,10 @@ export function Avatar({ agent, wave }: { agent: Subagent; wave?: number }) {
   );
 }
 
-/// The group's one line (Leo 2026-10-13): "1 subagent running", "3 subagents done", or the count
-/// and what is still going, "2 subagents, 1 running" (and any failed; done ones once none run).
+/// The group's one line (Leo 2026-10-13): "1 subagent", "3 subagents done", or the count and what
+/// differs, "2 subagents, 1 failed" (and any stopped; done ones once none run). Running is the default
+/// state and the mark already says it, so it is never worded (Leo, 2026-11-23: "it's running or it's
+/// failed or it's done").
 /// Each count takes the pane language's plural form.
 function groupLabel(t: Translate, language: PaneLanguage, agents: readonly Subagent[]): string {
   const n = agents.length;
@@ -62,18 +68,16 @@ function groupLabel(t: Translate, language: PaneLanguage, agents: readonly Subag
   const [runningCount, failed, done] = [count("running"), count("failed"), count("completed")];
   // Stopped by the person (cancelled) or lost by acpmux (disconnected): ended, not failed.
   const stopped = count("cancelled") + count("disconnected");
-  if (n > 0 && runningCount === n) return t("subagents.allRunning", { n });
   if (n > 0 && done === n) return t("subagents.allDone", { n });
   if (n > 0 && failed === n) return t("subagents.allFailed", { n });
   const states = [
-    runningCount > 0 && t("summary.subagents.running", { n: runningCount }),
     failed > 0 && t("summary.subagents.failed", { n: failed }),
     stopped > 0 && t("summary.subagents.stopped", { n: stopped }),
     runningCount === 0 && done > 0 && t("summary.subagents.done", { n: done }),
   ].filter((part): part is string => typeof part === "string");
   const total = t("subagents.count", { n });
   if (states.length === 0) return total;
-  const list = new Intl.ListFormat(language, { type: "unit", style: "short" }).format(states);
+  const list = intl.ListFormat(language, { type: "unit", style: "short" }).format(states);
   return t("subagents.countAndStates", { count: total, states: list });
 }
 
@@ -121,14 +125,18 @@ export function SubagentListRow({ row }: { row: AcpmuxRow }) {
   const open = pane ?? nav;
   const stop = useContext(SubagentStopContext);
   const tones = useContext(AgentTonesContext);
+  const actions = useContext(TurnActionsContext);
   const agent = row.subagents?.[0];
   const now = useNow(agent ? ticking(agent) : false);
   if (!agent) return null;
   const label = STATE_LABEL[agent.state as keyof typeof STATE_LABEL] ?? STATE_LABEL.completed;
   const state = [
-    running(agent) ? (namedAction(t, agent.action, agent.actionShell) ?? t(label)) : t(label),
+    // Running is the avatar's spinner, never a word (Leo, 2026-11-23): a bare shell step says nothing.
+    running(agent) ? namedAction(t, agent.action, agent.actionShell) : t(label),
     ...subagentProgress(t, language, agent, { usage: false }),
-  ].join(" · ");
+  ]
+    .filter(Boolean)
+    .join(" · ");
   const content = (
     <>
       <Avatar agent={agent} />
@@ -167,6 +175,14 @@ export function SubagentListRow({ row }: { row: AcpmuxRow }) {
       <Icon name="disclosure.collapsed" size={12} />
     </button>
   );
+  // A stopped one offers Resume beside its line, as its end line does (ResumeControl.tsx).
+  if (!running(agent) && actions.resumeAgent && canResume(agent, actions.retryCapabilities))
+    return (
+      <div className="cv-subagent-stoppable">
+        {line}
+        <ResumeControl agent={agent} actions={actions} />
+      </div>
+    );
   // An agent a shell call started stops with that call, not through Claude.
   if (!stop || !running(agent) || agent.command) return line;
   return (
@@ -219,6 +235,7 @@ export function StopButton({
 export function SubagentOfRow({ row }: { row: AcpmuxRow }) {
   const t = useT();
   const open = useContext(SubagentNavContext);
+  const actions = useContext(TurnActionsContext);
   const agent = row.subagents?.[0];
   if (!agent) return null;
   // The pill's text goes back to the parent (its parent subagent's view, else the chat's); its ×
@@ -250,6 +267,9 @@ export function SubagentOfRow({ row }: { row: AcpmuxRow }) {
           <Icon name="action.close" size={12} />
         </button>
       </span>
+      {/* The helper's own tab: a stopped one offers Resume here, at its head (Leo, 2026-11-12: "A
+          Resume button in cmux on a stopped helper's row and tab"). */}
+      <ResumeControl agent={agent} actions={actions} />
     </div>
   );
 }

@@ -55,9 +55,10 @@ ran past their class budget with their stacks (debug.hangs over_budget). Fleet (
   cmux-ci run --class exclusive --measurement --label measure --script scripts/measure/split-spring.sh --ref SHA \
     --artifact artifacts/split-spring/report.json --arg=--suite=sidebar-churn [--arg=--trace] [--arg=--gate-p95-ms=8]
 """
-import argparse, csv, glob, json, os, random, shutil, socket, statistics, subprocess, sys, tempfile, threading, time
+import argparse, csv, glob, json, os, random, re, shutil, socket, statistics, subprocess, sys, tempfile, threading, time
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from bench_launch import BenchApp, LaunchError  # noqa: E402
+from state_wait import wait_stable, wait_until  # noqa: E402
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--app", required=True)
@@ -88,6 +89,8 @@ parser.add_argument("--settle-max", type=float, default=90.0, help="--settle-loa
 parser.add_argument("--task-diagnostics", action="store_true",
                     help="record over-budget scheduled tasks with stacks (perturbs the numbers; the report says so)")
 opts = parser.parse_args()
+from bench_launch import require_no_person_mac  # noqa: E402
+require_no_person_mac("sidebar-churn-typing")  # it posts real input (CGEventPost): never on a person's Mac
 OUT = os.path.abspath(opts.out)
 os.makedirs(os.path.join(OUT, "traces"), exist_ok=True)
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -141,6 +144,14 @@ def cli(*args, timeout=120):
     if done.returncode != 0:
         note(f"cli {' '.join(args)[:120]} -> {done.returncode} {(done.stdout + done.stderr).strip()[-200:]}")
     return done
+
+
+def created_id(done):
+    """The id of the workspace that a `workspace create` made, or None. The CLI prints what it made as a record
+    (rows of `key value`), never a bare id: the id is the record's `value.workspace_id` row, as
+    tab-switch-matrix.py reads it. The whole record was taken as the id before."""
+    found = re.search(r"value\.workspace_id\s+(\S+)", done.stdout or "")
+    return found.group(1) if found else None
 
 
 def wait(predicate, seconds, step=0.25):
@@ -302,10 +313,20 @@ def trace_start(pid, name, seconds):
     path = os.path.join(OUT, "traces", f"{name}.trace")
     if os.path.exists(path):
         shutil.rmtree(path)
-    proc = subprocess.Popen(["xcrun", "xctrace", "record", "--template", "Time Profiler", "--attach", str(pid),
-                             "--time-limit", f"{seconds}s", "--output", path, "--no-prompt"],
-                            stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
-    time.sleep(4)  # the recorder attaches
+    log = path + ".log"
+    with open(log, "w") as out:
+        proc = subprocess.Popen(["xcrun", "xctrace", "record", "--template", "Time Profiler", "--attach", str(pid),
+                                 "--time-limit", f"{seconds}s", "--output", path, "--no-prompt"],
+                                stdout=out, stderr=subprocess.STDOUT, text=True)
+
+    def attached():
+        with open(log) as handle:
+            text = handle.read()
+        return proc.poll() is not None or "Ctrl-C to stop" in text or "Starting recording" in text
+    # xctrace prints "Starting recording" / "Ctrl-C to stop the recording" once it is attached and recording.
+    if not wait_until(attached, "xctrace attached", timeout=30, interval=0.1, raise_on_timeout=False) or proc.poll() is not None:
+        with open(log) as handle:
+            note(f"xctrace not confirmed recording: {handle.read()[-400:]}")
     return proc, path
 
 
@@ -465,7 +486,9 @@ def type_keys(count, pid=None, label="warmup"):
         rest = opts.interval - (time.perf_counter() - t0)
         if rest > 0:
             time.sleep(rest)  # one key in flight at a time
-    time.sleep(0.5)  # the last echo lands
+    # The last echo landed: the probe's key-to-frame rows stop growing.
+    wait_stable(lambda: len(probe_rows()), "the probe rows after the last key", timeout=10, interval=0.15, reads=4,
+                raise_on_timeout=False)
     return trips, stalls
 
 
@@ -483,7 +506,10 @@ def phase(name, pid, ids, groups, churn_hz, trace=False, builder=None):
     if churn_hz > 0:
         churn = LargeChurn(builder, ids, opts.status_hz) if opts.session == "large" else Churn(ids, groups, churn_hz)
         churn.start()
-        time.sleep(1.0)  # the churn is running before the first key
+        # The churn is running before the first key: its first op went through.
+        if not wait_until(lambda: sum(churn.ops.values()) > 0, "the churn's first op", timeout=30, interval=0.05,
+                          raise_on_timeout=False):
+            note(f"{name}: the churn made no op in 30 s; typing anyway")
     t0 = time.monotonic()
     trips, stalls = type_keys(opts.samples, pid, name)
     wall = time.monotonic() - t0
@@ -606,7 +632,7 @@ def main():
             ids = list(builder.background)  # STRESS's 59 other workspaces are the ones that rearrange
         else:
             for i in range(opts.workspaces):
-                ref = cli("workspace", "create", "--empty", "--name", f"churn {i:04d}").stdout.strip()
+                ref = created_id(cli("workspace", "create", "--empty", "--name", f"churn {i:04d}"))
                 if ref:
                     made.append(ref)
             by_name = {w.get("name") or w.get("title"): w.get("id") for w in workspaces()}
@@ -623,14 +649,19 @@ def main():
             builder.show(typed_id)
             builder.focus_pane(pane["id"])
         else:
-            typed = cli("workspace", "create", "--name", "typing", "--focus", "--shell", "exec cat").stdout.strip()
+            typed = cli("workspace", "create", "--name", "typing", "--focus", "--shell", "exec cat")
             by_name = {w.get("name") or w.get("title"): w.get("id") for w in workspaces()}
-            typed_id = by_name.get("typing") or typed
+            typed_id = by_name.get("typing") or created_id(typed)
+            if not typed_id:
+                sys.exit(f"the typing workspace was not made: {(typed.stdout + typed.stderr).strip()[-300:]}")
             cli("workspace", typed_id, "focus")
         rpc("debug.mouse", {"x": 900, "y": 450, "action": "hover"})  # the pointer rests over the terminal, not the list
         if opts.input == "real":
             bring_front(app.pid)
-        time.sleep(4)
+        # Until the setup settled: the snapshot's topology (workspaces, focus) reads the same several times in a row.
+        if wait_stable(lambda: json.dumps((rpc("snapshot.get") or {}).get("topology"), sort_keys=True, default=str),
+                       "the app after setup", timeout=30, interval=0.2, reads=5, raise_on_timeout=False) is None:
+            note("the app's topology never settled in 30 s after setup")
         settle_t0 = time.monotonic()
         while opts.settle_load is not None and os.getloadavg()[0] >= opts.settle_load and time.monotonic() - settle_t0 < opts.settle_max:
             time.sleep(2)  # the session's build is a burst of load; the numbers start after it

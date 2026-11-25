@@ -3,6 +3,7 @@ import React, { Fragment, useCallback, useContext, useId, useLayoutEffect, useMe
 import { AgentMark } from "../shared/AgentMark";
 import type { ChatAccountList } from "./chatAccounts";
 import { AddAccountDialog } from "./AddAccountDialog";
+import { ClaudeConnectRow } from "./ClaudeConnectRow";
 import { isModelRouterKind } from "./routerKinds";
 import { SearchIcon } from "./ComposerPickers";
 import { reasoningChoices } from "./composerPickerModel";
@@ -14,6 +15,7 @@ import { useT } from "./i18n";
 import { useChatDisplay } from "./chatDisplay";
 import { resolveHarnessPlacement } from "../../ui/harnessPlacement";
 import { CHAT_COLUMN } from "./modelPickerLayout";
+import { HarnessUpdatesSection } from "./HarnessUpdates";
 import { useOpenSide } from "../../ui/openSide";
 import { OnNewTab } from "./newTabComposer";
 import { useScrollEdges } from "../../ui/scrollEdges";
@@ -75,7 +77,8 @@ export function QuickModelMenu({
   onOpenChange(open: boolean): void;
   /// Holds the chip (the menu's button), where the full picker anchors.
   trigger: React.RefObject<HTMLButtonElement | null>;
-  chip: { "data-menu": string; label: string; title: string };
+  /// `data-tooltip-shortcut`: Switch Model's keycaps, shown after the title (shortcuts.ts).
+  chip: { "data-menu": string; label: string; title: string; "data-tooltip-shortcut"?: string | undefined };
   menu: QuickMenu;
   /// Opens the full picker, searching for `query` when one was typed.
   onMore(query?: string): void;
@@ -817,6 +820,20 @@ export function QuickModelMenu({
         modelRows
       ) : (
         <>
+          {shown?.connect && (
+            // The Claude section's Connect row (ClaudeConnectRow.tsx): the whole row opens the dialog.
+            <MenuItem
+              className="acpmux-quick-item acpmux-quick-connect"
+              disabled={shown.connect.connected}
+              onSelect={() => shown.connect?.onConnect()}
+            >
+              <ClaudeConnectRow
+                name={shown.name}
+                {...(shown.mark ? { mark: shown.mark } : {})}
+                connected={shown.connect.connected}
+              />
+            </MenuItem>
+          )}
           {modelRows}
           {inlineMore && shown && shown.more.length > 0 && (
             <MenuItem
@@ -1060,19 +1077,23 @@ export function QuickModelMenu({
         <MenuPopup
           scroll={families === undefined}
           footer={
-            menu.update && (
-              <div className="acpmux-quick-update">
-                <span>{menu.update.text}</span>
-                <MenuItem
-                  className="acpmux-quick-update-action"
-                  onSelect={() => {
-                    menu.update?.run();
-                    onOpenChange(false);
-                  }}
-                >
-                  {t("harness.update")}
-                </MenuItem>
-              </div>
+            menu.updates ? (
+              <HarnessUpdatesSection updates={menu.updates} onOwnUpdate={() => onOpenChange(false)} />
+            ) : (
+              menu.update && (
+                <div className="acpmux-quick-update">
+                  <span>{menu.update.text}</span>
+                  <MenuItem
+                    className="acpmux-quick-update-action"
+                    onSelect={() => {
+                      menu.update?.run();
+                      onOpenChange(false);
+                    }}
+                  >
+                    {t("harness.update")}
+                  </MenuItem>
+                </div>
+              )
             )
           }
           side={side}
@@ -1084,6 +1105,8 @@ export function QuickModelMenu({
           // A native menu panel cannot draw the harness strip or the More models scroll area.
           // Keep this combined surface inside the window in both directions.
           escapes={!families}
+          // The model menu's fallback list (no columns) resizes as the columns do (cmux#51745).
+          resize={{ id: "composer.modelList" }}
           // ui-allow: 1 to 9 pick a row in place and typing filters the list, as in Claude Code's model menu.
           onKeyDown={keyDown}
         >
@@ -1128,9 +1151,10 @@ export function QuickModelMenu({
                       // While a search shows, no tab is the list's: the matches are every harness's.
                       aria-pressed={!query && entry === shownTab}
                       data-used={ownTab ? used : undefined}
-                      // tooltip-allow: the rail tab draws only the harness's mark (its symbol, else its
-                      // name's initial), never a machine or session initial; its accessible name and
-                      // title identify the harness and whether this chat ran it.
+                      // The rail tab draws only the harness's mark (its symbol, else its name's initial),
+                      // never a machine or session initial; its accessible name and title identify the
+                      // harness and whether this chat ran it.
+                      // tooltip-allow: the rail tab shows only the harness's mark.
                       title={[name, family.note, ownTab ? t("picker.usedHere") : undefined].filter(Boolean).join(" · ")}
                       className="acpmux-quick-rail-tab"
                       // ui-allow: the rail is no row of the menu; ArrowLeft and ArrowRight move along it, so Up and Down stay in the list.

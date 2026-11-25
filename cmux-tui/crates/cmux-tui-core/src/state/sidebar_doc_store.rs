@@ -204,7 +204,43 @@ pub(crate) fn with_doc_mut<T>(
     result
 }
 
+/// Test seam for statement counts: whether this thread reads the document rows now. Whether a
+/// request reads them depends on the process-wide cached copy (one daemon serves one registry, so
+/// one slot keyed by registry and epoch is right in the product), and parallel tests take that
+/// copy for their own registries. A count of a request's statements leaves these reads out, so it
+/// does not depend on what another test did. Only this thread's depth: no other test sees it.
+#[cfg(test)]
+pub(crate) fn reading_rows_on_this_thread() -> bool {
+    READING_ROWS.with(|depth| depth.get() > 0)
+}
+
+#[cfg(test)]
+thread_local! {
+    static READING_ROWS: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
+}
+
+/// Marks this thread as reading the rows until it drops, also on unwind.
+#[cfg(test)]
+struct ReadingRows;
+
+#[cfg(test)]
+impl ReadingRows {
+    fn enter() -> Self {
+        READING_ROWS.with(|depth| depth.set(depth.get() + 1));
+        Self
+    }
+}
+
+#[cfg(test)]
+impl Drop for ReadingRows {
+    fn drop(&mut self) {
+        READING_ROWS.with(|depth| depth.set(depth.get().saturating_sub(1)));
+    }
+}
+
 fn read_rows(connection: &Connection) -> anyhow::Result<Doc> {
+    #[cfg(test)]
+    let _reading = ReadingRows::enter();
     let revision = meta(connection, REVISION_KEY)?.and_then(|v| v.parse().ok()).unwrap_or(0);
     let tables = connection
         .query_row(

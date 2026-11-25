@@ -1,9 +1,14 @@
 import CmuxAgentQuestion
+import CmuxMobileArtifacts
+public import CmuxMobileDesign
 import CmuxMobileDiff
 import CmuxMobileMarkdown
 import CmuxMobileModel
 import Foundation
 import Observation
+#if DEBUG && os(iOS)
+import QuartzCore
+#endif
 
 /// One prompt and everything the agent did for it.
 public struct AgentTurn: Identifiable, Hashable, Sendable, Codable {
@@ -190,6 +195,9 @@ public final class AgentChatStore {
     public private(set) var summary: AgentSessionSummary
     public private(set) var turns: [AgentTurn] = []
     public private(set) var queue: [QueuedPrompt] = []
+    /// Messages with files on their way to the Mac, oldest first: each shows at once with its
+    /// upload's progress until the Mac echoes it (`userMessage`) or it comes back (`promptNotSent`).
+    public private(set) var outgoing: [OutgoingMessage] = []
     public private(set) var availableCommands: [ACPAvailableCommand] = []
     public private(set) var configOptions: [ACPConfigOption] = []
     public private(set) var models: [ACPModelInfo] = []
@@ -208,11 +216,24 @@ public final class AgentChatStore {
     @ObservationIgnored private var sourceHasEarlier = false
     /// An older page is being read (``loadEarlier()``).
     public private(set) var isLoadingEarlier = false
+    /// The main actor's time spent putting older pages in, in all (the scroll-up bench reads it
+    /// per frame: a page that lands costs the frame it lands in).
+    @ObservationIgnored public private(set) var earlierApplyTime: Duration = .zero
     /// The source is still reading the chat's history from the Mac
     /// (``AgentSessionSource/loadsHistory``, then ``AgentSessionEvent/historyLoading(_:)``). With no
     /// turns yet the chat shows a loading state, never the empty new-chat screen; with turns it
     /// shows them (kept from before) and says it is updating.
     public private(set) var isLoadingHistory = false
+    /// The first message this phone is sending has not shown in the transcript yet (New Task):
+    /// the chat still says it is starting. Read live: the source's note goes once the send ends.
+    public var awaitsFirstPrompt: Bool { !hasTurns && source.awaitsFirstPrompt }
+    /// The source can't reach its Mac now (``AgentSessionSource/isOffline``). Read live.
+    public var isOffline: Bool { source.isOffline }
+
+    /// The Mac is starting this chat (``AgentSessionSource/isStarting`` when the store was made):
+    /// read once, so its loading state says so until the history comes, whatever the source
+    /// notes meanwhile (the hub forgets a started session when its history attaches).
+    public let isStarting: Bool
     /// The chat is new: it holds no turns and none are on their way (the empty state shows).
     public var isNewChat: Bool { !hasTurns && !isLoadingHistory }
     /// The title the agent gave the session (`session_info_update`).
@@ -260,8 +281,65 @@ public final class AgentChatStore {
     }
     /// Every subagent seen, nested ones included, in start order.
     public private(set) var subagents: [AgentSubagent] = []
+    /// Every file, folder, link and image the session referenced (`SessionArtifacts.collect`),
+    /// built once per change of what it reads. The collection scans every turn's text, tool
+    /// input and output; the artifacts sheet's body and the composer's `@` picker read it on
+    /// every pass (each streamed chunk, each key typed after `@`), which made each pass
+    /// linear in the chat's length. Reading it observes `turns`, `subagents` and `summary`, so
+    /// a view still updates when they change; an unchanged chat costs three array identity
+    /// checks (Array `==` returns at once for the same storage).
+    public var artifacts: SessionArtifacts {
+        let input = ArtifactsInput(turns: turns, subagents: subagents, cwd: summary.cwd)
+        if let artifactsCache, artifactsCache.input == input { return artifactsCache.value }
+        let value = SessionArtifacts.collect(turns: input.turns, subagents: input.subagents, cwd: input.cwd)
+        artifactsCache = (input, value)
+        return value
+    }
+    private struct ArtifactsInput: Equatable {
+        let turns: [AgentTurn]
+        let subagents: [AgentSubagent]
+        let cwd: String
+    }
+    @ObservationIgnored private var artifactsCache: (input: ArtifactsInput, value: SessionArtifacts)?
+
+    /// The composer's `@` candidates, read without observing the transcript. `artifacts`
+    /// observes `turns`, so the composer re-rendered, and rescanned the whole transcript, on
+    /// every streamed frame while a mention was typed: typing felt the Mac's output. This
+    /// reads the backing storage, untracked, and rescans at most once per
+    /// `mentionRefresh` while the transcript changes; the picker shows the new candidates
+    /// on the next key. `generation` changes whenever `artifacts` does.
+    func mentionArtifacts(now: ContinuousClock.Instant = .now) -> (generation: Int, artifacts: [TerminalArtifact]) {
+        let key = MentionKey(revision: _revision, turns: _turns.count, subagents: _subagents.count, cwd: _summary.cwd)
+        if let cache = mentionCache, cache.key == key || now - cache.at < Self.mentionRefresh {
+            return (cache.generation, cache.artifacts)
+        }
+        #if DEBUG && os(iOS)
+        InputLatencyTrace.shared?.note("mention_scan")
+        #endif
+        let artifacts = SessionArtifacts.collect(turns: _turns, subagents: _subagents, cwd: _summary.cwd).artifacts
+        let generation = (mentionCache?.generation ?? 0) &+ 1
+        mentionCache = (key, now, generation, artifacts)
+        return (generation, artifacts)
+    }
+    /// The longest the `@` candidates lag a changing transcript.
+    static let mentionRefresh: Duration = .seconds(1)
+    private struct MentionKey: Equatable {
+        let revision: Int
+        let turns: Int
+        let subagents: Int
+        let cwd: String
+    }
+    @ObservationIgnored private var mentionCache: (key: MentionKey, at: ContinuousClock.Instant, generation: Int, artifacts: [TerminalArtifact])?
     /// The newest refused intent, shown over the composer until the next send.
     public var clientError: String?
+    /// What the chat says when the Mac refused a send for this phone's Full-access setting
+    /// (acpmux `remote.full_access_required`): the mobile host asks for it only for what makes a
+    /// chat act without asking first (a message to a chat in such a mode, or a switch to one).
+    /// It goes once a later connection says Full access covers this phone (`.fullAccess(true)`).
+    public static let fullAccessOffNotice = "Full access is off for this iPhone, so from it a chat runs only in a mode that asks before changes. Turn it on in Settings > Devices on the Mac."
+    /// ``fullAccessOffNotice`` for a message to a chat whose mode does not ask (the Mac's
+    /// fleet lanes run in Bypass permissions): what to change to send it.
+    public static let fullAccessOffPromptNotice = "Not sent: this chat runs in a mode that doesn't ask before changes, and Full access is off for this iPhone. Turn it on in Settings > Devices on the Mac, or switch the chat to a mode that asks."
     /// The allow option on its way (nil otherwise).
     public private(set) var approvingOptionID: String?
     /// A prompt that was not sent, for the composer to put back (then cleared).
@@ -273,6 +351,12 @@ public final class AgentChatStore {
         public var attachments: [AgentAttachment]
         /// The prompt's acpmux id: sending the same text again reuses it, so the Mac runs it once.
         public var promptID: String?
+
+        public init(text: String, attachments: [AgentAttachment], promptID: String?) {
+            self.text = text
+            self.attachments = attachments
+            self.promptID = promptID
+        }
     }
     /// A returned draft the Mac turned out to have run (its prompt id showed up in the
     /// transcript after the link came back): the composer takes it out again (then clears this).
@@ -306,6 +390,13 @@ public final class AgentChatStore {
     /// Set by the composer when it took its place without motion (the chat opened on its
     /// history): the bottom stack's next height lands at once too (then cleared).
     @ObservationIgnored var placeBottomStackInstantly = false
+    /// Set by the composer when its draft gained or lost a line: the bottom stack's next
+    /// height change moves on `ComposerLineMotion` (then cleared).
+    @ObservationIgnored var lineMotionPending = false
+    #if os(iOS)
+    /// The new-chat entrance (`NewChatEntrance`) plays once per chat: which parts already did.
+    @ObservationIgnored var newChatEntrance = NewChatEntrance.Played()
+    #endif
     private var currentMessageID: String?
     /// Retained output belongs to the failed attempt, even when chunks carry no message ID.
     private var startsNewAttempt = false
@@ -318,10 +409,32 @@ public final class AgentChatStore {
     /// grid card and the subagent screens share them).
     @ObservationIgnored public let diffs = ChatDiffCache()
 
-    public init(source: any AgentSessionSource) {
+    /// Says when a dropped or catching-up chat may show its line (after 10 s);
+    /// its rows stay on screen the whole time.
+    @ObservationIgnored public let quietStatus: QuietStatusGate
+
+    /// The chat's one quiet status line by the composer: nil while live and for the first
+    /// ``QuietStatusGate/threshold`` of an outage (the kept rows show meanwhile), then what it
+    /// waits for. A catch-up says nothing: the kept rows show and the new ones arrive. A chat
+    /// with nothing kept shows its loading state instead (``AgentChatLoadingState``).
+    public var connectionLine: String? {
+        guard quietStatus.isShown, hasTurns, summary.status == .disconnected else { return nil }
+        return "Connecting to \(summary.macName)…"
+    }
+
+    /// Feeds ``quietStatus`` from the link state: the session's own status, or a source that can't
+    /// reach its Mac (``loadingText`` says "Connecting" for either once the bound passes).
+    private func updateQuietStatus() {
+        quietStatus.update(down: summary.status == .disconnected || source.isOffline)
+    }
+
+    public init(source: any AgentSessionSource, quietStatus: QuietStatusGate = QuietStatusGate()) {
         self.source = source
         self.summary = source.summary
         self.isLoadingHistory = source.loadsHistory
+        self.isStarting = source.isStarting
+        self.quietStatus = quietStatus
+        quietStatus.update(down: source.summary.status == .disconnected || source.isOffline)
         let stream = source.events()
         task = Task { [weak self] in
             for await event in stream {
@@ -384,6 +497,13 @@ public final class AgentChatStore {
         if self[keyPath: keyPath] != value { self[keyPath: keyPath] = value }
     }
 
+    /// The session's status, written only when it changes: every reader of `summary`
+    /// (the composer's placeholder and harness name among them) re-renders on a write,
+    /// and the daemon re-sends the same status with each turn event (ask-4a87599079).
+    private func setStatus(_ status: AgentSessionSummary.Status) {
+        if summary.status != status { summary.status = status }
+    }
+
     nonisolated static func openPermission(_ turn: AgentTurn) -> PermissionRecord? {
         for case .permission(let record) in turn.items.reversed() where record.resolution == nil {
             return record
@@ -441,6 +561,7 @@ public final class AgentChatStore {
         chunkFlushes += 1
         for chunk in Self.merged(chunks) { applyEvent(chunk) }
         refreshDerived(lastTurnOnly: true)
+        updateQuietStatus()
     }
 
     nonisolated static func isTextChunk(_ event: AgentSessionEvent) -> Bool {
@@ -474,6 +595,11 @@ public final class AgentChatStore {
 
     // MARK: Intents
 
+    /// The composer's attachments changed: the source may start sending files ahead of Send.
+    public func composerAttachmentsChanged(_ attachments: [AgentAttachment]) {
+        source.prestageAttachments(attachments)
+    }
+
     /// `denyingPermission`: the message is "Reply instead" for the pending
     /// permission (SPEC 6.5): deny it so the agent goes on, and send the
     /// message as guidance. A plain message while a permission waits queues.
@@ -493,11 +619,22 @@ public final class AgentChatStore {
         resendable = nil
         let promptID = resend ?? UUID().uuidString.lowercased()
         keepSent(attachments, promptID: promptID)
+        if !attachments.isEmpty, !outgoing.contains(where: { $0.id == promptID }) {
+            outgoing.append(OutgoingMessage(id: promptID, text: text, attachments: attachments))
+        }
         // One of the agent's own slash commands waits for the turn and runs as its own.
         let steers = steer && !Self.commandWaitsForTurn(text, harness: summary.harness, commands: availableCommands)
+        #if DEBUG && os(iOS)
+        if InputLatencyTrace.isEnabled { sendStarts[promptID] = CACurrentMediaTime() }
+        #endif
         source.send(.prompt(text: text, attachments: attachments, steer: steers,
                             promptID: promptID, resend: resend != nil))
     }
+
+    #if DEBUG && os(iOS)
+    /// When each prompt was sent (`InputLatencyTrace`: `chat_send_acked`, `chat_send_visible`).
+    private var sendStarts: [String: CFTimeInterval] = [:]
+    #endif
 
     /// Whether `text` is one of a Claude agent's own slash commands (`commands`, its
     /// `available_commands_update`: built-ins, skills, plugin commands such as `/loop`), the Mac's
@@ -600,7 +737,7 @@ public final class AgentChatStore {
             } catch {
                 guard let self else { return }
                 if on { self.bookmarkedSeqs.remove(seq) } else { self.bookmarkedSeqs.insert(seq) }
-                self.clientError = (error as? LocalizedError)?.errorDescription ?? String(describing: error)
+                self.clientError = UserFacingError.message(error)
             }
         }
     }
@@ -624,6 +761,43 @@ public final class AgentChatStore {
 
     @ObservationIgnored private var loadedBookmarks = false
     @ObservationIgnored private var loadingBookmarks = false
+
+    /// The person opened a tool output the Mac sent cut (``ACPToolCall/outputCut``): its whole
+    /// record is read and put in place of the cut one, unless a newer update replaced the output
+    /// meanwhile. One read per record at a time (a second ask waits for it). False when the read
+    /// failed: the cut output stays shown, and the person can ask again.
+    @discardableResult
+    public func loadFullOutput(of call: ACPToolCall) async -> Bool {
+        guard let cut = call.outputCut else { return true }
+        let read: Task<ACPToolCallUpdate?, Never>
+        if let reading = fullOutputReads[cut.seq] {
+            read = reading
+        } else {
+            let source = source
+            read = Task { @MainActor in await source.fullToolOutput(cut) }
+            fullOutputReads[cut.seq] = read
+        }
+        let full = await read.value
+        fullOutputReads[cut.seq] = nil
+        guard let full, full.toolCallId == call.id else { return false }
+        placeFullOutput(full, cut: cut)
+        return true
+    }
+
+    @ObservationIgnored private var fullOutputReads: [Int: Task<ACPToolCallUpdate?, Never>] = [:]
+
+    private func placeFullOutput(_ full: ACPToolCallUpdate, cut: ACPToolOutputCut) {
+        var placed = false
+        for index in turns.indices.reversed() where !placed {
+            placed = turns[index].items.placeFullOutput(full, cut: cut)
+        }
+        for index in subagents.indices where !placed {
+            placed = subagents[index].items.placeFullOutput(full, cut: cut)
+        }
+        guard placed else { return }
+        revision &+= 1
+        refreshDerived()
+    }
     /// The transcript asked for the marks (it is on screen): a reconnect reads them if needed.
     @ObservationIgnored private var wantsBookmarks = false
 
@@ -750,6 +924,11 @@ public final class AgentChatStore {
     }
 
     /// Resume (the Mac's Resume over a paused queue): acpmux runs the held prompts again.
+    /// Stops a message's upload: it comes back to the composer (`promptNotSent`).
+    public func cancelSend(promptID: String) {
+        source.send(.cancelSend(promptID: promptID))
+    }
+
     public func resumeQueue() {
         guard queuePaused else { return }
         source.send(.resumeQueue)
@@ -810,7 +989,10 @@ public final class AgentChatStore {
 
     func apply(_ event: AgentSessionEvent) {
         applyEvent(event)
+        spillIfOffScreen()
         refreshDerived()
+        // A record after a reattach can end `.disconnected` without a `.status` event.
+        updateQuietStatus()
     }
 
     private func applyEvent(_ event: AgentSessionEvent) {
@@ -839,8 +1021,16 @@ public final class AgentChatStore {
             currentMessageID = nil
             startsNewAttempt = true
         case .userMessage(let text, let promptId, let turnId, let attachments, let at):
+            #if DEBUG && os(iOS)
+            if let start = sendStarts.removeValue(forKey: promptId), let trace = InputLatencyTrace.shared {
+                // The Mac's echo of the prompt is its ack; the turn draws in the next frame.
+                trace.sample("chat_send_acked", since: start)
+                trace.sampleAtNextFrame("chat_send_visible", since: start)
+            }
+            #endif
             retryRequested = false
             currentMessageID = nil
+            outgoing.removeAll { $0.id == promptId }
             reached(promptId)
             if gapFiller != nil { gapLeftQueue.insert(promptId) }
             // A steer into a running turn shares its id: only the message that opened the turn is its prompt.
@@ -895,7 +1085,7 @@ public final class AgentChatStore {
                 $0.startedAt = at
                 $0.status = .running
             }
-            summary.status = .running
+            setStatus(.running)
         case .retrying(let attempt, let maxAttempts, let status):
             guard let index = turns.indices.last, turns[index].status == .running else { return }
             turns[index].retry = AgentTurn.Retry(attempt: attempt, maxAttempts: maxAttempts, status: status)
@@ -947,7 +1137,7 @@ public final class AgentChatStore {
                 }
             }
             currentMessageID = nil
-            summary.status = .idle
+            setStatus(.idle)
         case .update(let update):
             // The model answered: the retry is over.
             switch update {
@@ -960,11 +1150,11 @@ public final class AgentChatStore {
         case .permissionRequest(let request):
             guard takeOpenAsk(request.id) else { return }
             appendItem(.permission(PermissionRecord(request: request)))
-            summary.status = .waiting
+            setStatus(.waiting)
         case .question(let question):
             guard takeOpenAsk(question.id) else { return }
             appendItem(.question(question))
-            summary.status = .waiting
+            setStatus(.waiting)
         case .permissionDecision(let permissionId, let optionId, let answers):
             approvingOptionID = nil
             decidedAsks.insert(permissionId)
@@ -993,16 +1183,16 @@ public final class AgentChatStore {
                 }
                 return .permission(record)
             }
-            summary.status = turns.last?.status == .running ? .running : .idle
+            setStatus(turns.last?.status == .running ? .running : .idle)
         case .elevationRequest(let ask):
             pendingElevation = ask
             sendingElevation = false
-            summary.status = .waiting
+            setStatus(.waiting)
         case .elevationDecision(let id):
             guard pendingElevation?.id == id else { break }
             pendingElevation = nil
             sendingElevation = false
-            summary.status = turns.last?.status == .running ? .running : .idle
+            setStatus(turns.last?.status == .running ? .running : .idle)
         case .questionAnswered(let questionId, let answer):
             decidedAsks.insert(questionId)
             updateItems { item in
@@ -1010,20 +1200,24 @@ public final class AgentChatStore {
                 question.state = .answered(answer)
                 return .question(question)
             }
-            summary.status = turns.last?.status == .running ? .running : .idle
+            setStatus(turns.last?.status == .running ? .running : .idle)
+        // The daemon re-sends these with every attach and turn; a write of the same value
+        // still re-renders every reader (the composer's model and mode menus).
         case .modelsAvailable(let models, let current):
-            self.models = models
-            currentModelID = current
+            assign(\.models, models)
+            assign(\.currentModelID, current)
         case .modesAvailable(let modes, let current):
-            offeredModes = modes
-            self.modes = ACPMode.phoneChoices(modes, current: current, fullAccess: fullAccess)
-            currentModeID = current
+            assign(\.offeredModes, modes)
+            assign(\.modes, ACPMode.phoneChoices(modes, current: current, fullAccess: fullAccess))
+            assign(\.currentModeID, current)
         case .earlierHistory(let earlier):
             sourceHasEarlier = earlier
             refreshEarlierHistory()
         case .historyLoading(let loading):
             if isLoadingHistory != loading { isLoadingHistory = loading }
         case .earlierPage(let events, let hasEarlier):
+            let start = ContinuousClock.now
+            defer { earlierApplyTime += start.duration(to: .now) }
             isLoadingEarlier = false
             sourceHasEarlier = hasEarlier
             refreshEarlierHistory()
@@ -1033,10 +1227,12 @@ public final class AgentChatStore {
         case .gapPage(let events, let done):
             fillGap(events, done: done)
         case .fullAccess(let on):
-            fullAccess = on
-            modes = ACPMode.phoneChoices(offeredModes, current: currentModeID, fullAccess: on)
+            assign(\.fullAccess, on)
+            // The refusal said Full access was off; a connection that says it is on ends it.
+            if on, clientError == Self.fullAccessOffNotice || clientError == Self.fullAccessOffPromptNotice { clientError = nil }
+            assign(\.modes, ACPMode.phoneChoices(offeredModes, current: currentModeID, fullAccess: on))
         case .status(let status):
-            summary.status = status
+            setStatus(status)
             if status != .disconnected, wantsBookmarks { loadBookmarks() }
             // A dropped link can lose the request before the daemon accepts it, with
             // no error or retry record to clear the in-flight tap on reattach.
@@ -1052,12 +1248,27 @@ public final class AgentChatStore {
             awaitsPermissionReply = false
             retryRequested = false
             clientError = message
+        case .promptUploading(let promptID, let progress):
+            guard let index = outgoing.firstIndex(where: { $0.id == promptID }) else { break }
+            // Steps hop to the main actor one by one: an older one that lands late is dropped.
+            if let shown = outgoing[index].progress, shown.name == progress.name, shown.attempt == progress.attempt,
+               shown.sent > progress.sent, progress.phase == .sending { break }
+            outgoing[index].progress = progress
         case .promptNotSent(let text, let attachments, let promptID, let reason):
+            outgoing.removeAll { $0.id == promptID }
             // The transcript already showed it run: only its reply was lost.
             guard !seenPromptIDs.contains(promptID) else { break }
             clientError = reason
-            returnedDraft = ReturnedDraft(text: text, attachments: attachments, promptID: promptID)
-            resendable = (text, attachments, promptID)
+            if let earlier = returnedDraft {
+                // Several messages came back before the composer took the first: none is lost.
+                // Joined, they are a new message (no single id runs them all once).
+                returnedDraft = ReturnedDraft(text: [earlier.text, text].filter { !$0.isEmpty }.joined(separator: "\n\n"),
+                                              attachments: earlier.attachments + attachments, promptID: promptID)
+                resendable = nil
+            } else {
+                returnedDraft = ReturnedDraft(text: text, attachments: attachments, promptID: promptID)
+                resendable = (text, attachments, promptID)
+            }
         case .subagent(let change):
             applySubagent(change)
         case .batch(let events):
@@ -1075,6 +1286,19 @@ public final class AgentChatStore {
     }
 
     public func subagent(_ id: String) -> AgentSubagent? { subagents.first { $0.id == id } }
+
+    /// How far ahead of the reader older history is read: within this many screens of the
+    /// oldest turn shown, the page before it is asked for (the desktop's transcript reads six
+    /// viewports ahead; a phone's screen holds less, and its source holds one more page ahead).
+    public static let readAheadScreens: Double = 4
+
+    /// The reader is `screensAbove` screens below the oldest turn shown (the list's scroll, each
+    /// step): within ``readAheadScreens``, the page before it is asked for, long before the top
+    /// shows. The source reads one more ahead, so the next ask is answered at once.
+    public func readAhead(screensAbove: Double) {
+        guard screensAbove < Self.readAheadScreens, hasEarlierHistory, !isLoadingEarlier else { return }
+        loadEarlier()
+    }
 
     /// The reader reached the oldest turn shown: the source reads the page before it.
     public func loadEarlier() {
@@ -1153,6 +1377,73 @@ public final class AgentChatStore {
         assign(\.hasEarlierHistory, sourceHasEarlier || turnsOnDisk > 0)
     }
 
+    // MARK: Off screen
+
+    /// The lists showing this chat now (`ChatTranscriptList`), held weakly: a list that goes
+    /// stops counting. Such a list keeps the window itself, knowing where the reader is.
+    @ObservationIgnored private var viewers: [WeakViewer] = []
+    private struct WeakViewer { weak var owner: AnyObject? }
+    /// Set by the store's owner (`boundsMemoryOffScreen`): a chat kept for a tab keeps the
+    /// on-screen window while no list shows it. Off for the stores built for one page of
+    /// history (`prependEarlier`), which must hold every turn they read.
+    @ObservationIgnored private(set) var boundsOffScreen = false
+
+    /// Whether a list shows this chat.
+    public var isShown: Bool { viewers.contains { $0.owner != nil } }
+
+    /// `owner` (a transcript list) shows this chat from now on.
+    public func shown(by owner: AnyObject) {
+        viewers.removeAll { $0.owner == nil || $0.owner === owner }
+        viewers.append(WeakViewer(owner: owner))
+    }
+
+    /// `owner` no longer shows this chat: its window is kept from now on by the store.
+    public func hidden(by owner: AnyObject) {
+        viewers.removeAll { $0.owner == nil || $0.owner === owner }
+        spillIfOffScreen()
+    }
+
+    /// A chat that stays in memory while the person is elsewhere (its tab's store, made for the
+    /// chat, Home and Feed cards) spills like the one on screen: past `windowTrigger` turns the
+    /// oldest go to disk, keeping `windowKeep`, and a memory warning brings it down to
+    /// `pressureKeep`. Opening it shows the same newest turns and scrolling up reads the rest
+    /// back (`loadEarlier`), as after the on-screen spill.
+    public func boundsMemoryOffScreen() { boundsMemoryOffScreen(memoryPressure: .shared) }
+
+    func boundsMemoryOffScreen(memoryPressure: MemoryPressure) {
+        guard !boundsOffScreen else { return }
+        boundsOffScreen = true
+        memoryPressure.register(self) { [weak self] in self?.relieveMemoryPressureOffScreen() }
+    }
+
+    /// The on-screen window (`ChatTranscriptList.spillIfResting`), for a chat no list shows.
+    private func spillIfOffScreen() {
+        guard boundsOffScreen, turns.count > Self.windowTrigger, !isShown else { return }
+        spillOlder(keeping: Self.windowKeep)
+    }
+
+    /// A memory warning, for a chat no list shows (the list's own handler covers the one on
+    /// screen, keeping the turn the reader is on).
+    func relieveMemoryPressureOffScreen() {
+        guard !isShown else { return }
+        spillOlder(keeping: Self.pressureKeep)
+    }
+
+    /// What this chat holds in memory, in bytes of its turns as JSON: the turns shown, the
+    /// spill's turns short of a page, and what it keeps of the turns on disk (their ids, the
+    /// first prompt). One store's own bytes, whatever else the process holds (tests and
+    /// measurements). A new place the chat keeps turns in memory must be counted here, or the
+    /// memory checks stop seeing it.
+    func residentBytes() -> Int {
+        let encoder = JSONEncoder()
+        let shown = (try? encoder.encode(turns))?.count ?? 0
+        let waiting = spill.flatMap { try? encoder.encode($0.rowsInMemory()) }?.count ?? 0
+        let onDisk = spilledTurnIDs.reduce(0) { $0 + $1.utf8.count }
+            + spilledTurns.reduce(0) { $0 + $1.id.utf8.count + 1 }
+            + (spilledFirstPrompt?.utf8.count ?? 0)
+        return shown + waiting + onDisk
+    }
+
     /// Moves the oldest turns to disk, keeping the newest `keeping` and every turn from
     /// `protecting` (the reader's first visible turn) on. A running turn and one with an open
     /// ask, and every turn after it, stay. Scrolling up brings them back (`loadEarlier`).
@@ -1188,6 +1479,8 @@ public final class AgentChatStore {
 
     /// A page of spilled turns (newest first) goes back in front of the shown ones.
     private func restoreSpilled(_ page: [AgentTurn]) {
+        let start = ContinuousClock.now
+        defer { earlierApplyTime += start.duration(to: .now) }
         isLoadingEarlier = false
         turnsOnDisk = page.isEmpty ? 0 : max(0, turnsOnDisk - page.count)
         spilledTurnIDs.subtract(page.map(\.id))
@@ -1562,14 +1855,14 @@ public final class AgentChatStore {
             }
             turns[turns.count - 1] = turn
         case .availableCommands(let commands):
-            availableCommands = commands
+            assign(\.availableCommands, commands)
         case .currentMode(let mode):
-            currentModeID = mode
-            modes = ACPMode.phoneChoices(offeredModes, current: mode, fullAccess: fullAccess)
+            assign(\.currentModeID, mode)
+            assign(\.modes, ACPMode.phoneChoices(offeredModes, current: mode, fullAccess: fullAccess))
         case .configOptions(let options):
-            configOptions = options
+            assign(\.configOptions, options)
         case .usage(let used, let size):
-            usage = (used, size)
+            if usage?.used != used || usage?.size != size { usage = (used, size) }
         case .sessionInfo(let title):
             if let title = title?.trimmingCharacters(in: .whitespacesAndNewlines), !title.isEmpty { sessionTitle = title }
         }
@@ -1638,4 +1931,43 @@ private final class EarlierHistorySource: AgentSessionSource {
     init(summary: AgentSessionSummary) { self.summary = summary }
     func events() -> AsyncStream<AgentSessionEvent> { AsyncStream { $0.finish() } }
     func send(_ intent: AgentClientIntent) {}
+}
+
+extension AgentChatStore {
+    /// What the chat's loading state says. Connecting first: a chat whose start is over but
+    /// whose Mac dropped (a task that never left the phone) waits on the link, not its agent,
+    /// and says so only once ``quietStatus`` shows (10 s); a reconnect inside it reads as loading.
+    public var loadingText: String {
+        if quietStatus.isShown, summary.status == .disconnected || isOffline && !awaitsFirstPrompt {
+            return "Connecting to \(summary.macName)…"
+        }
+        return isStarting || awaitsFirstPrompt ? Self.startingText(summary) : "Loading chat…"
+    }
+
+    /// The loading state's words show. A start says so at once (the person just asked for
+    /// it); a chat catching up or reconnecting shows only its spinner, and its words only after
+    /// ``QuietStatusGate/threshold`` (Leo's quiet-connection rule: no "Loading" sentence for a
+    /// wait that ends in a moment; iOS release bar read-back, 2026-11-22, shot 14).
+    public var loadingTextShows: Bool { isStarting || awaitsFirstPrompt || quietStatus.isShown }
+
+    /// "Starting Claude…"; the Mac's default agent, not named yet, is "Starting chat…".
+    public static func startingText(_ summary: AgentSessionSummary) -> String {
+        summary.harness.isEmpty ? "Starting chat…" : "Starting \(summary.agentName)…"
+    }
+}
+
+/// A message with files the phone is sending (``AgentChatStore/outgoing``).
+public struct OutgoingMessage: Identifiable, Equatable, Sendable {
+    public let id: String
+    public let text: String
+    public let attachments: [AgentAttachment]
+    /// The current file's upload; nil until its first step.
+    public var progress: AgentUploadProgress?
+
+    public init(id: String, text: String, attachments: [AgentAttachment], progress: AgentUploadProgress? = nil) {
+        self.id = id
+        self.text = text
+        self.attachments = attachments
+        self.progress = progress
+    }
 }

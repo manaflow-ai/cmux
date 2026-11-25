@@ -3,6 +3,7 @@ import CmuxNextBridge
 import CmuxNextDaemon
 import CmuxNextSettings
 import CmuxNextSidebar
+import CmuxNextSidebarActions
 
 // Sidebar intents -> daemon commands, applied optimistically to the
 // sidebar model first. Each command goes to the machine daemon that owns
@@ -58,6 +59,15 @@ extension SidebarBridge {
         case let .selectTab(_, tab): revealPinnedTab(tab.rawValue) // shown in this window (cmux#37371)
         // The tab strip's close for that tab, on whichever machine holds it (the palette's Close Tab).
         case let .closeTab(_, tab): PaletteSourcesBridge.TabSource(services: services).closeTab(id: tab.rawValue)
+        // A hover card port row: the workspace's own daemon opens it in a browser tab there (`workspace.open_url`).
+        case let .openPort(id, url, _):
+            guard !model.isPlaceholder(id), let (workspace, daemon) = services.machines.workspace(id: id.rawValue),
+                  let resource = workspace.resourceID?.rawValue else { return }
+            let capability = WorkspaceOpenURLClient.capability
+            guard daemon.supports(capability) else { return services.registry.refuse(daemon.missingCapabilityMessage(capability)) }
+            model.apply(.select(id))
+            services.windows.show(workspaceID: id.rawValue, in: state, from: .thisWindow)
+            command("workspace.open_url", on: daemon, for: intent) { c in try await WorkspaceOpenURLClient(c).open(url, inWorkspace: resource) }
         case .reorder(let ids, let position):
             // A pending edit, as on the personal path: each command's echo shows no step between.
             SidebarDaemonReorder.reorder(ids, to: position, in: model.sections, edit: rows.edits.add(intent), bridge: self)
@@ -74,8 +84,8 @@ extension SidebarBridge {
             // The plain "+" in a local window is the person's New Workspace, as Cmd-N (the Cloud toggle applies); a machine turned
             // off by policy (DisabledFeatures) gets nothing, not a local stand-in (`SidebarBridgeRules.newWorkspace`).
             let named = machine.flatMap { services.machines.daemon(machine: $0.rawValue) }, own = services.machines.daemon(machine: state.machineID)
-            let plan = SidebarBridgeRules().newWorkspace(machine: machine.map { _ in named != nil }, group: group != nil,
-                                                         localWindow: state.machineID == MachineRegistry.localID, windowDaemon: own != nil)
+            let plan = SidebarBridgeRules().newWorkspace(machine: machine.map { _ in named != nil }, group: group != nil, localWindow: state.machineID == MachineRegistry.localID,
+                                                         windowDaemon: own != nil, cloudMachine: machine.flatMap { services.machines.session($0.rawValue) } != nil)
             if plan == .newTab {
                 services.registry.perform("newTab", invocation: ActionInvocation(target: ActionTargetRef(kind: .window, id: state.id), origin: .user))
                 return
@@ -83,10 +93,11 @@ extension SidebarBridge {
             guard let plan, plan != .nothing else { return }
             // A double-click in a group's empty part, or its "+": that group, where `workspaces.newPlacement` puts a
             // new workspace in it (under the default `afterCurrent`: below its shown member, else its end).
-            let daemon = plan == .onMachine ? named : plan == .onWindow ? own : nil
-            let rule = NewWorkspacePlacements.rule(for: state.id, in: services.windows)
-            let slot = group.map { rule.slot(inGroup: $0, members: model.group($0)?.workspaces.map(\.id.rawValue) ?? []) }
-            services.windows.newWorkspace(in: state, on: daemon, at: slot)
+            let daemon = plan == .onMachine ? named : plan == .onWindow ? own : plan == .cloudChat ? services.machines.local : nil // cloudChat: here (cmux#46021)
+            let slot = group.map { NewWorkspacePlacements.rule(for: state.id, in: services.windows).slot(inGroup: $0, members: model.group($0)?.workspaces.map(\.id.rawValue) ?? []) }
+            services.windows.newWorkspace(in: state, on: daemon, at: slot, picksCloud: plan == .cloudChat)
+        case .viewScreen, .shareScreen: // the header's screen button and its menu's View Screen (SidebarScreenIntentActions.bindViewScreen)
+            SidebarScreenIntentActions(perform: { _ = self.services.registry.perform($0, invocation: $1) }).handle(intent, sections: model.sections) { services.openMacScreen(for: $0, in: services.windows.controller(for: state.id)?.focusedPane) }
         case .setColor(let ids, let color):
             model.apply(intent)
             for (daemon, key) in keys(ids) {
@@ -111,11 +122,8 @@ extension SidebarBridge {
             rows.send(rows.edits.add(intent), closes, failed: saveFailed(intent))
         case .switchProfile(let profile):
             services.windows.switchProfile(ProfileID(rawValue: profile.rawValue), in: state)
-        case .newProfile:
-            services.registry.perform("space.new", invocation: ActionInvocation())
-        case .openProfileInNewWindow(let profile):
-            let invocation = ActionInvocation(target: ActionTargetRef(kind: .profile, id: profile.rawValue), origin: .user)
-            services.registry.perform("space.openInNewWindow", invocation: invocation)
+        case .newProfile, .openProfileInNewWindow:
+            SidebarIntentActions(registry: services.registry, remoteRuns: services.cmuxRemote.started).handle(intent, sections: model.sections)
         case .reorderProfile(let profile, let index):
             model.apply(intent)
             let id = ProfileID(rawValue: profile.rawValue)
@@ -208,7 +216,7 @@ extension SidebarBridge {
             .applying(to: sections)
         // A connecting SSH machine keeps its pending row through a resync (cx-gaq9).
         if !model.groupsByComputer { sections = SSHConnectingRows.adding(services.machines, to: sections, window: state.id, windows: services.windows.connectingRowWindows(making: state.id)) }
-        rows.show(sections, shownAt: shownAt)
+        rows.show(SidebarScreenActions(macs: services.macScreenPages.hub?.macScreenAvailability ?? [:], aliases: DaemonService.screenDeviceAliases(in: services.machines.daemons), sharing: services.macScreenPages.hub?.thisDevice?.macScreenShared ?? false).applying(to: sections), shownAt: shownAt)
         model.profiles = SidebarSpaceBar.profiles(services.machines.local, window: state.id, windows: services.windows)
         groupFlow.openPendingEditor()
     }

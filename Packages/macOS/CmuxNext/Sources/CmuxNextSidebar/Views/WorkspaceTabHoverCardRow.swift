@@ -12,8 +12,9 @@ import CmuxNextIcons
 /// stays on the column.
 @MainActor
 final class WorkspaceTabHoverCardRow: NSView {
-    /// How far the row (and its hover fill) reaches past the list's leading and trailing edges.
-    static var fillOutset: CGFloat { Metrics.space2 }
+    /// How far the row (and its hover fill) reaches past the list's leading and trailing edges, in whole points: a
+    /// half point put the list's scroll view off the pixel grid and its rows a point and a half off the icon column.
+    static var fillOutset: CGFloat { HoverCardRowView.iconGap }
 
     private let style: WorkspaceTabHoverCardStyle
     private let icon = NSImageView()
@@ -58,7 +59,7 @@ final class WorkspaceTabHoverCardRow: NSView {
         super.init(frame: .zero)
         wantsLayer = true
         layer?.cornerRadius = SidebarDensityTokens.rowCornerRadius
-        layer?.cornerCurve = .continuous
+        layer?.cornerCurve = Metrics.tabCornerCurve // one curve with the rows and tabs (`TabCornerCurve`)
         icon.imageScaling = .scaleProportionallyDown
         title.lineBreakMode = .byTruncatingTail
         // The line fits itself (`WorkspaceTabHoverCardLine.detail(fitting:font:)`): the place shortens first, and
@@ -98,6 +99,8 @@ final class WorkspaceTabHoverCardRow: NSView {
         let side = WorkspaceHoverCardView.iconSize
         favicon = tab.favicon
         icon.image = tab.favicon.map(faviconImage)
+            // A cmux page's own icon (a Cloud desktop's cloud), as its workspace row draws it (`WorkspaceIcon.page`).
+            ?? tab.pageIcon.map { NSImage.icon($0, size: side) }
             // A site with no favicon (yet): the workspace rows' placeholder globe (`WorkspaceIcon.pagePlaceholder`).
             ?? (tab.host != nil ? NSImage.icon(symbol: WorkspaceIcon.pagePlaceholderSymbol, size: side) : nil)
             ?? tab.brand.flatMap { AgentBrandCatalog.templateImage(brand: $0, size: side) }

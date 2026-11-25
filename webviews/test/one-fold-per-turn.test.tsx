@@ -7,7 +7,7 @@
 // and the replies and the steer it never hides (cmux#37245), and no run line beside them; opened, its
 // run lines draw already open. A turn without a steer folds as before.
 // Gallery: agent-pane.one-fold-per-turn.
-import { afterAll, afterEach, beforeAll, expect, test } from "bun:test";
+import { afterAll, afterEach, beforeAll, beforeEach, expect, test } from "bun:test";
 import { JSDOM } from "jsdom";
 import { act } from "react";
 import type { Root } from "react-dom/client";
@@ -62,6 +62,11 @@ const view = (rows: AcpmuxRow[], family: string | undefined, open = false) =>
 /// A row that folds something away at the top level: the turn's Worked for or a run's line.
 const folds = (rows: AcpmuxRow[]) => rows.filter((shown) => shown.kind === WORKED || shown.kind === "activity");
 
+// The one-fold arms (turnFoldSteered `nested-open`, the default before the in-order fold); the
+// in-order default is turn-fold-in-order.test.ts's.
+beforeEach(() => {
+  globalThis.cmuxExperiments = { "turn-fold-steered": "nested-open" };
+});
 afterEach(() => {
   globalThis.cmuxExperiments = undefined;
 });
@@ -227,7 +232,7 @@ async function renderWorked(rows: readonly AcpmuxRow[]) {
   return labels;
 }
 const workedOf = (rows: AcpmuxRow[]) => {
-  globalThis.cmuxExperiments = { "turn-fold-steered": "header" };
+  globalThis.cmuxExperiments = { "turn-fold-steered": "header", "worked-line": "time" };
   return view(rows, "codex").find((shown) => shown.kind === WORKED)!;
 };
 const withRun = (id: string, run: AcpmuxRow) => steered.map((shown) => (shown.id === id ? run : shown));

@@ -1,8 +1,8 @@
 {
   "version": 1,
   "counts": {
-    "verbs": 862,
-    "mcp": 778
+    "verbs": 892,
+    "mcp": 810
   },
   "nouns": [
     {
@@ -49,6 +49,18 @@
           "id": "accounts.show",
           "mcp": true,
           "mcpTool": "app_accounts_show"
+        }
+      ]
+    },
+    {
+      "noun": "action",
+      "verbs": [
+        {
+          "command": "cmux action customize-reset",
+          "title": "Reset Element to Defaults",
+          "id": "customize.reset",
+          "mcp": true,
+          "mcpTool": "app_action_customize_reset"
         }
       ]
     },
@@ -110,6 +122,13 @@
           "id": "agentPane.editInstructions",
           "mcp": true,
           "mcpTool": "app_agent_edit_instructions"
+        },
+        {
+          "command": "cmux agent forget-computer-use-approval",
+          "title": "Forget a Computer Use Approval",
+          "id": "computerUse.approval.forget",
+          "mcp": true,
+          "mcpTool": "app_agent_forget_computer_use_approval"
         },
         {
           "command": "cmux agent fork-conversation",
@@ -292,6 +311,13 @@
           "id": "agentPane.runInBackground",
           "mcp": true,
           "mcpTool": "app_agent_run_in_background"
+        },
+        {
+          "command": "cmux agent set-computer-use-approval",
+          "title": "Change a Computer Use Approval",
+          "id": "computerUse.approval.set",
+          "mcp": true,
+          "mcpTool": "app_agent_set_computer_use_approval"
         },
         {
           "command": "cmux agent set-effort",
@@ -528,6 +554,13 @@
           "id": "app.command.run",
           "mcp": true,
           "mcpTool": "app_run_command"
+        },
+        {
+          "command": "cmux app run-menu-item",
+          "title": "Run App Menu Item",
+          "id": "app.menu.run",
+          "mcp": true,
+          "mcpTool": "app_run_menu_item"
         },
         {
           "command": "cmux app settings",
@@ -1193,39 +1226,30 @@
       "noun": "chief",
       "verbs": [
         {
-          "command": "cmux chief look-at-screen",
-          "title": "Chief: Look at Screen Now",
-          "id": "chief.screenShare.look",
-          "mcp": true,
-          "mcpTool": "app_chief_look_at_screen"
-        },
-        {
           "command": "cmux chief memory",
           "title": "Chief: Open Memory Inspector",
           "id": "chief.openMemoryInspector",
           "mcp": true,
           "mcpTool": "app_chief_memory"
-        },
+        }
+      ]
+    },
+    {
+      "noun": "closed",
+      "verbs": [
         {
-          "command": "cmux chief share-screen",
-          "title": "Share Screen with Chief",
-          "id": "chief.screenShare.start",
-          "mcp": false,
-          "mcpTool": null
-        },
-        {
-          "command": "cmux chief stop-sharing-screen",
-          "title": "Stop Sharing Screen with Chief",
-          "id": "chief.screenShare.stop",
+          "command": "cmux closed clear",
+          "title": "Clear Recently Closed…",
+          "id": "closed.clear",
           "mcp": true,
-          "mcpTool": "app_chief_stop_sharing_screen"
+          "mcpTool": "app_closed_clear"
         },
         {
-          "command": "cmux chief toggle-screen-share",
-          "title": "Chief: Toggle Screen Sharing",
-          "id": "chief.screenShare.toggle",
-          "mcp": false,
-          "mcpTool": null
+          "command": "cmux closed delete",
+          "title": "Delete Recently Closed Item…",
+          "id": "closed.delete",
+          "mcp": true,
+          "mcpTool": "app_closed_delete"
         }
       ]
     },
@@ -1254,11 +1278,39 @@
           "mcpTool": "app_cloud_apply_machine_config"
         },
         {
+          "command": "cmux cloud archive-session",
+          "title": "Archive Cloud Session",
+          "id": "cloud.team.archive",
+          "mcp": true,
+          "mcpTool": "app_cloud_archive_session"
+        },
+        {
           "command": "cmux cloud bring-back",
           "title": "Bring Back Local",
           "id": "cloudBringBack",
           "mcp": true,
           "mcpTool": "app_cloud_bring_back"
+        },
+        {
+          "command": "cmux cloud chief-computer",
+          "title": "Use Chief’s Own Computer…",
+          "id": "cloud.chiefComputer",
+          "mcp": true,
+          "mcpTool": "app_cloud_chief_computer"
+        },
+        {
+          "command": "cmux cloud computer-control",
+          "title": "Chief Computer Control…",
+          "id": "cloud.computerControl",
+          "mcp": true,
+          "mcpTool": "app_cloud_computer_control"
+        },
+        {
+          "command": "cmux cloud copy-session-link",
+          "title": "Copy Cloud Session Link",
+          "id": "cloud.team.copyLink",
+          "mcp": true,
+          "mcpTool": "app_cloud_copy_session_link"
         },
         {
           "command": "cmux cloud delete-snapshot",
@@ -1366,11 +1418,39 @@
           "mcpTool": "app_cloud_firewall_list"
         },
         {
+          "command": "cmux cloud follow",
+          "title": "Follow",
+          "id": "cloud.team.follow",
+          "mcp": true,
+          "mcpTool": "app_cloud_follow"
+        },
+        {
           "command": "cmux cloud fork-machine",
           "title": "Fork Cloud Machine",
           "id": "palette.cloud.fork",
           "mcp": true,
           "mcpTool": "app_cloud_fork_machine"
+        },
+        {
+          "command": "cmux cloud group-member-remove",
+          "title": "Remove Cloud Group Member",
+          "id": "cloud.group.memberRemove",
+          "mcp": true,
+          "mcpTool": "app_cloud_group_member_remove"
+        },
+        {
+          "command": "cmux cloud group-member-set",
+          "title": "Add Cloud Group Member",
+          "id": "cloud.group.memberSet",
+          "mcp": true,
+          "mcpTool": "app_cloud_group_member_set"
+        },
+        {
+          "command": "cmux cloud group-members",
+          "title": "List Cloud Group Members",
+          "id": "cloud.group.members",
+          "mcp": true,
+          "mcpTool": "app_cloud_group_members"
         },
         {
           "command": "cmux cloud hand-off-machine",
@@ -1548,6 +1628,13 @@
           "mcpTool": "app_cloud_publication_list"
         },
         {
+          "command": "cmux cloud reassign",
+          "title": "Reassign to…",
+          "id": "cloud.team.reassign",
+          "mcp": true,
+          "mcpTool": "app_cloud_reassign"
+        },
+        {
           "command": "cmux cloud rename-machine",
           "title": "Rename Machine…",
           "id": "cloudRenameMachine",
@@ -1590,11 +1677,25 @@
           "mcpTool": "app_cloud_set_network_access"
         },
         {
+          "command": "cmux cloud setup-desktop",
+          "title": "Start Desktop…",
+          "id": "cloudSetupDesktop",
+          "mcp": true,
+          "mcpTool": "app_cloud_setup_desktop"
+        },
+        {
           "command": "cmux cloud setup-github",
           "title": "Set Up GitHub on This Machine",
           "id": "cloudSetupGitHub",
           "mcp": true,
           "mcpTool": "app_cloud_setup_github"
+        },
+        {
+          "command": "cmux cloud show-team-section",
+          "title": "Show Team Section",
+          "id": "cloud.team.showSection",
+          "mcp": true,
+          "mcpTool": "app_cloud_show_team_section"
         },
         {
           "command": "cmux cloud sign-in",
@@ -1632,6 +1733,34 @@
           "mcpTool": "app_cloud_start_session"
         },
         {
+          "command": "cmux cloud team-members",
+          "title": "List Team Members",
+          "id": "cloud.team.members",
+          "mcp": true,
+          "mcpTool": "app_cloud_team_members"
+        },
+        {
+          "command": "cmux cloud team-session",
+          "title": "Show Team Cloud Session",
+          "id": "cloud.team.session",
+          "mcp": true,
+          "mcpTool": "app_cloud_team_session"
+        },
+        {
+          "command": "cmux cloud team-sessions",
+          "title": "List Team Cloud Sessions",
+          "id": "cloud.team.sessions",
+          "mcp": true,
+          "mcpTool": "app_cloud_team_sessions"
+        },
+        {
+          "command": "cmux cloud transfer-local",
+          "title": "Transfer to This Mac",
+          "id": "cloudTransferLocal",
+          "mcp": true,
+          "mcpTool": "app_cloud_transfer_local"
+        },
+        {
           "command": "cmux cloud tunnel-attach",
           "title": "Attach Cloud Tunnel Network",
           "id": "cloudTunnelAttach",
@@ -1651,6 +1780,13 @@
           "id": "cloudTunnelRotateKey",
           "mcp": true,
           "mcpTool": "app_cloud_tunnel_rotate_key"
+        },
+        {
+          "command": "cmux cloud unfollow",
+          "title": "Unfollow",
+          "id": "cloud.team.unfollow",
+          "mcp": true,
+          "mcpTool": "app_cloud_unfollow"
         }
       ]
     },
@@ -1836,6 +1972,18 @@
       ]
     },
     {
+      "noun": "errors",
+      "verbs": [
+        {
+          "command": "cmux errors clear",
+          "title": "Clear Error Journal",
+          "id": "errors.clear",
+          "mcp": true,
+          "mcpTool": "app_errors_clear"
+        }
+      ]
+    },
+    {
       "noun": "extension",
       "verbs": [
         {
@@ -1945,6 +2093,13 @@
           "id": "history.open",
           "mcp": true,
           "mcpTool": "app_history_open"
+        },
+        {
+          "command": "cmux history remove-site",
+          "title": "Remove Site from History…",
+          "id": "history.removeSite",
+          "mcp": true,
+          "mcpTool": "app_history_remove_site"
         },
         {
           "command": "cmux history reopen",
@@ -2120,6 +2275,13 @@
           "mcpTool": "app_home_send"
         },
         {
+          "command": "cmux home setup",
+          "title": "Set Up cmux…",
+          "id": "home.showSetup",
+          "mcp": true,
+          "mcpTool": "app_home_setup"
+        },
+        {
           "command": "cmux home show-hidden",
           "title": "Show Hidden Conversations",
           "id": "home.showHiddenConversations",
@@ -2135,14 +2297,14 @@
         },
         {
           "command": "cmux home switch-view",
-          "title": "Switch Home View",
+          "title": "Switch Chief View",
           "id": "home.switchView",
           "mcp": true,
           "mcpTool": "app_home_switch_view"
         },
         {
           "command": "cmux home tab",
-          "title": "Open Home in Tab",
+          "title": "Open Chief in Tab",
           "id": "home.tab",
           "mcp": true,
           "mcpTool": "app_home_tab"
@@ -2662,6 +2824,13 @@
           "mcpTool": "app_pane_new_column_left"
         },
         {
+          "command": "cmux pane new-floating",
+          "title": "New Floating Pane",
+          "id": "newFloatingPane",
+          "mcp": true,
+          "mcpTool": "app_pane_new_floating"
+        },
+        {
           "command": "cmux pane new-row",
           "title": "New Row",
           "id": "newRow",
@@ -2949,6 +3118,13 @@
           "mcpTool": "app_pane_toggle_canvas_layout"
         },
         {
+          "command": "cmux pane toggle-floating",
+          "title": "Float Pane",
+          "id": "toggleFloatingPane",
+          "mcp": true,
+          "mcpTool": "app_pane_toggle_floating"
+        },
+        {
           "command": "cmux pane toggle-tab-bar",
           "title": "Show Tab Bar",
           "id": "pane.toggleTabBar",
@@ -3188,6 +3364,18 @@
           "id": "remote.removeGroup",
           "mcp": true,
           "mcpTool": "app_remote_remove_group"
+        }
+      ]
+    },
+    {
+      "noun": "room",
+      "verbs": [
+        {
+          "command": "cmux room unpin",
+          "title": "Unpin Workspace from Space",
+          "id": "workspace.unpinFromSpace",
+          "mcp": true,
+          "mcpTool": "app_room_unpin"
         }
       ]
     },
@@ -4122,7 +4310,7 @@
       "verbs": [
         {
           "command": "cmux sidebar add-home",
-          "title": "Add Home to Sidebar",
+          "title": "Add Chief to Sidebar",
           "id": "sidebar.home.add",
           "mcp": true,
           "mcpTool": "app_sidebar_add_home"
@@ -4255,7 +4443,7 @@
         },
         {
           "command": "cmux sidebar remove-home",
-          "title": "Remove Home from Sidebar",
+          "title": "Remove Chief from Sidebar",
           "id": "sidebar.home.remove",
           "mcp": true,
           "mcpTool": "app_sidebar_remove_home"
@@ -4717,6 +4905,13 @@
           "mcpTool": "app_tab_duplicate"
         },
         {
+          "command": "cmux tab duplicate-to-new-split",
+          "title": "Duplicate Tab to New Split",
+          "id": "tab.duplicateToNewSplit",
+          "mcp": true,
+          "mcpTool": "app_tab_duplicate_to_new_split"
+        },
+        {
           "command": "cmux tab hibernate",
           "title": "Hibernate Tab",
           "id": "hibernateTab",
@@ -4827,6 +5022,13 @@
           "id": "tab.moveToSpace",
           "mcp": true,
           "mcpTool": "app_tab_move_to_space"
+        },
+        {
+          "command": "cmux tab move-to-window",
+          "title": "Move Tab to Window…",
+          "id": "tab.moveToWindow",
+          "mcp": true,
+          "mcpTool": "app_tab_move_to_window"
         },
         {
           "command": "cmux tab move-to-workspace",
@@ -5023,6 +5225,13 @@
           "id": "tab.stashToRight",
           "mcp": true,
           "mcpTool": "app_tab_stash_to_right"
+        },
+        {
+          "command": "cmux tab stop-mac-screen-viewing",
+          "title": "Stop Viewing Shared Screen",
+          "id": "macScreen.stopViewing",
+          "mcp": true,
+          "mcpTool": "app_tab_stop_mac_screen_viewing"
         },
         {
           "command": "cmux tab toggle-chat-notifications",
@@ -5264,6 +5473,13 @@
           "mcpTool": "app_terminal_clear_theme"
         },
         {
+          "command": "cmux terminal fix-last-command",
+          "title": "Fix Last Command with Agent",
+          "id": "terminal.fixLastCommand",
+          "mcp": true,
+          "mcpTool": "app_terminal_fix_last_command"
+        },
+        {
           "command": "cmux terminal keep",
           "title": "Keep Terminal Running After Close",
           "id": "terminal.keep",
@@ -5297,6 +5513,13 @@
           "id": "terminal.runLastCommandAgain",
           "mcp": true,
           "mcpTool": "app_terminal_run_last_command_again"
+        },
+        {
+          "command": "cmux terminal send-last-output-to-chat",
+          "title": "Send Last Output to Chat",
+          "id": "terminal.sendLastOutputToChat",
+          "mcp": true,
+          "mcpTool": "app_terminal_send_last_output_to_chat"
         },
         {
           "command": "cmux terminal send-text",
@@ -5468,6 +5691,13 @@
           "id": "workspace.archiveOthersInGroup",
           "mcp": true,
           "mcpTool": "app_workspace_archive_others_in_group"
+        },
+        {
+          "command": "cmux workspace archive-settled",
+          "title": "Archive Settled Chats",
+          "id": "workspace.archiveSettled",
+          "mcp": true,
+          "mcpTool": "app_workspace_archive_settled"
         },
         {
           "command": "cmux workspace archive-unarchive",
@@ -6278,6 +6508,6 @@
   "mcpExempt": {
     "credentials": 7,
     "endsApp": 4,
-    "systemChange": 73
+    "systemChange": 71
   }
 }

@@ -1,15 +1,27 @@
 // Owns the diff viewer's review comments: saving, deleting and submitting them through the host
-// bridge or locally.
+// bridge or locally, and posting a review worktree's drafts to its pull request.
 import type { SelectedLineRange } from "@pierre/diffs";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { lineTextFor, type CommentFileDiff } from "../comments/anchor";
 import {
+  DiffCommentsBridgeError,
   deleteComment as bridgeDeleteComment,
+  postComments as bridgePostComments,
   saveComment as bridgeSaveComment,
   sendComments as bridgeSendComments,
+  sendThreadedComments as bridgeSendThreadedComments,
+  threadComment as bridgeThreadComment,
+  listCommentsAndReview,
 } from "../comments/bridge";
 import { commentSubmissionText, commentsPromptText } from "../comments/format";
-import type { CommentsSendState, DiffCommentRecord, DiffCommentSide } from "../comments/types";
+import type {
+  CommentsPostState,
+  CommentsSendState,
+  DiffCommentRecord,
+  DiffCommentSide,
+  DiffReviewPosted,
+  DiffReviewTarget,
+} from "../comments/types";
 import { fileName, type DiffItem } from "../diff-stream";
 import { type AppAction, type AppState } from "./state";
 import { useSyncedRef } from "./useSyncedRef";
@@ -20,10 +32,30 @@ import { useSyncedRef } from "./useSyncedRef";
  * carry a precomputed `submissionText`; native code pools them per workspace
  * and consumes the pool on TextBox submit. A host that sends to the diff's
  * chat (`canSend`) takes every saved comment as one prompt (`send`) and clears
- * them once the chat took it.
+ * them once the chat took it. A review worktree's (`review`, from the host's list) posts them to
+ * its pull request as one GitHub review (`post`) and clears them once GitHub took it.
  */
 /** One Send as it went out: the comments, their versions, the prompt and its id. */
 type SendBatch = { ids: string[]; versions: Record<string, string>; text: string; opid: string };
+/** One Post as it went out: the comments, their versions and its id. */
+type PostBatch = { ids: string[]; versions: Record<string, string>; opid: string };
+
+/**
+ * The batch a press sends: the repository's unfinished one while every comment in it is listed
+ * unchanged (its id then makes the host apply it once), else a fresh one of every listed comment.
+ */
+function nextBatch<Batch extends { ids: string[]; versions: Record<string, string> }>(
+  pending: Batch | undefined,
+  comments: readonly DiffCommentRecord[],
+  fresh: (ids: string[], versions: Record<string, string>) => Batch,
+): Batch {
+  const listed = new Map(comments.map((comment) => [comment.id, comment.updatedAt]));
+  if (pending != null && pending.ids.every((id) => listed.get(id) === pending.versions[id])) return pending;
+  return fresh(
+    comments.map((comment) => comment.id),
+    Object.fromEntries(comments.map((comment) => [comment.id, comment.updatedAt])),
+  );
+}
 
 export function useDiffComments({
   bridgeAvailable,
@@ -31,29 +63,88 @@ export function useDiffComments({
   dispatch,
   latestState,
   repoRoot,
+  commentsThreads = false,
 }: {
   bridgeAvailable: boolean;
   canSend: boolean;
   dispatch: React.Dispatch<AppAction>;
   latestState: React.MutableRefObject<AppState>;
   repoRoot: string | null;
+  commentsThreads?: boolean;
 }) {
   const activeRepoRoot = useSyncedRef(repoRoot);
   const [sendState, setSendState] = useState<CommentsSendState>("idle");
+  // The pull request this worktree reviews (absent for an ordinary one), and its last post.
+  const [review, setReview] = useState<DiffReviewTarget | undefined>(undefined);
+  const [postState, setPostState] = useState<CommentsPostState>("idle");
+  const [posted, setPosted] = useState<DiffReviewPosted | undefined>(undefined);
+  const [postError, setPostError] = useState<string | undefined>(undefined);
   // Each repository's last send that did not finish, as sent: the chat may have taken it before
   // the host failed to clear its comments, so the next Send there sends that same batch under the
   // same prompt id (acpmux answers a repeated id with its first delivery) while its comments are
-  // listed unchanged; one added or edited since waits for the press after.
-  const pendingSends = useRef(new Map<string, SendBatch>());
+  // listed unchanged; one added or edited since waits for the press after. The original request
+  // payload is retained because the daemon binds the full request fingerprint to the idempotency
+  // key; its versioned clear still leaves edits and deletions in the store.
+  const pendingSends = useRef(new Map<string, SendBatch[]>());
+  // The same for Post: a post GitHub took whose reply was lost is posted again under its opid, which
+  // the host answers with the first post's review instead of a second review on the pull request.
+  // A reopened page has no batch, but makes the same opid from the same drafts (`postOpid`).
+  const pendingPosts = useRef(new Map<string, PostBatch>());
   // The draft save on its way, by draft and message: pressing Comment again on the same text reuses
   // its opid, so the host stores the comment once.
   const draftSave = useRef<{ draft: unknown; message: string; opid: string } | null>(null);
-  // Another repository: its Send starts idle.
-  useEffect(() => setSendState("idle"), [repoRoot]);
+  // Another repository: its Send and Post start idle.
+  useEffect(() => {
+    setSendState("idle");
+    setPostState("idle");
+    setPosted(undefined);
+    setPostError(undefined);
+  }, [repoRoot]);
   const onLoaded = useCallback(
-    (comments: DiffCommentRecord[]) => dispatch({ type: "replace-comments", comments }),
+    (comments: DiffCommentRecord[], loadedReview?: DiffReviewTarget) => {
+      dispatch({ type: "replace-comments", comments });
+      setReview(loadedReview);
+    },
     [dispatch],
   );
+
+  const refreshComments = useCallback(async () => {
+    if (!commentsThreads || !bridgeAvailable || repoRoot == null) {
+      return;
+    }
+    try {
+      const loaded = await listCommentsAndReview(repoRoot);
+      if (activeRepoRoot.current === repoRoot) {
+        onLoaded(loaded.comments, loaded.review);
+      }
+    } catch (error) {
+      console.warn("cmux diff comments refresh failed", error);
+    }
+  }, [activeRepoRoot, bridgeAvailable, commentsThreads, onLoaded, repoRoot]);
+
+  useEffect(() => {
+    if (!commentsThreads || !bridgeAvailable || repoRoot == null) {
+      return;
+    }
+    // Only a thread sent to the agent and still open can gain an answer the page has not written.
+    const awaitingAgent = () =>
+      latestState.current.comments.some((comment) => comment.sentIn != null && comment.resolved !== true);
+    const refresh = () => {
+      if (document.visibilityState === "visible" && awaitingAgent()) {
+        void refreshComments();
+      }
+    };
+    const onFocus = () => refresh();
+    const onVisibilityChange = () => refresh();
+    window.addEventListener("focus", onFocus);
+    document.addEventListener("visibilitychange", onVisibilityChange);
+    const interval = window.setInterval(refresh, 4000);
+    return () => {
+      window.removeEventListener("focus", onFocus);
+      document.removeEventListener("visibilitychange", onVisibilityChange);
+      window.clearInterval(interval);
+    };
+  }, [bridgeAvailable, commentsThreads, latestState, refreshComments, repoRoot]);
 
   const onGutterUtilityClick = (range: SelectedLineRange, context: { item: DiffItem }) => {
     const side: DiffCommentSide = range.side === "deletions" ? "deletions" : "additions";
@@ -140,29 +231,51 @@ export function useDiffComments({
     }
     const targetRepoRoot = repoRoot;
     const listed = new Map(comments.map((comment) => [comment.id, comment.updatedAt]));
-    const pending = pendingSends.current.get(targetRepoRoot);
-    const batch: SendBatch =
-      pending != null && pending.ids.every((id) => listed.get(id) === pending.versions[id])
-        ? pending
-        : {
-            ids: comments.map((comment) => comment.id),
-            versions: Object.fromEntries(comments.map((comment) => [comment.id, comment.updatedAt])),
-            text: commentsPromptText(comments),
-            opid: `diff-comments-${crypto.randomUUID()}`,
-          };
-    pendingSends.current.set(targetRepoRoot, batch);
+    const pending = pendingSends.current.get(targetRepoRoot) ?? [];
+    let batch: SendBatch | undefined;
+    while (pending.length > 0 && batch == null) {
+      const original = pending[0]!;
+      const unchanged = comments.some(
+        (comment) => original.ids.includes(comment.id) && listed.get(comment.id) === original.versions[comment.id],
+      );
+      if (!unchanged) {
+        pending.shift();
+        continue;
+      }
+      batch = original;
+    }
+    if (batch == null) {
+      batch = {
+        ids: comments.map((comment) => comment.id),
+        versions: Object.fromEntries(comments.map((comment) => [comment.id, comment.updatedAt])),
+        text: commentsPromptText(comments),
+        opid: `diff-comments-${crypto.randomUUID()}`,
+      };
+      pending.push(batch);
+    }
+    if (pending.length > 0) pendingSends.current.set(targetRepoRoot, pending);
+    else pendingSends.current.delete(targetRepoRoot);
     setSendState("sending");
-    bridgeSendComments(targetRepoRoot, batch.ids, batch.versions, batch.text, batch.opid)
+    const sendRequest: Promise<string[] | undefined> = commentsThreads
+      ? bridgeSendThreadedComments(targetRepoRoot, batch.ids, batch.opid).then(() => undefined)
+      : bridgeSendComments(targetRepoRoot, batch.ids, batch.versions, batch.text, batch.opid);
+    sendRequest
       .then((cleared) => {
-        pendingSends.current.delete(targetRepoRoot);
+        const outstanding = pendingSends.current.get(targetRepoRoot);
+        if (outstanding?.[0]?.opid === batch.opid) outstanding.shift();
+        if (outstanding?.length) pendingSends.current.set(targetRepoRoot, outstanding);
+        else pendingSends.current.delete(targetRepoRoot);
         // Another repository is shown now: its button is idle; the sent one lists what the host kept
         // when it is shown again.
         if (activeRepoRoot.current !== targetRepoRoot) return setSendState("idle");
+        if (commentsThreads) {
+          void refreshComments();
+          setSendState("idle");
+          return;
+        }
         // Only the comments sent and unchanged since leave, together; one saved or edited while the
         // send was on its way stays for the next send.
-        const current = new Map(latestState.current.comments.map((comment) => [comment.id, comment.updatedAt]));
-        const ids = cleared.filter((id) => current.get(id) === batch.versions[id]);
-        if (ids.length > 0) dispatch({ type: "remove-comments", ids });
+        removeUnchanged(cleared ?? [], batch.versions);
         setSendState("idle");
       })
       .catch((error) => {
@@ -171,16 +284,134 @@ export function useDiffComments({
       });
   };
 
+  const reply = useCallback(
+    (comment: DiffCommentRecord, message: string) => {
+      if (!commentsThreads || !bridgeAvailable || repoRoot == null || message.trim() === "") return;
+      const targetRepoRoot = repoRoot;
+      bridgeThreadComment(targetRepoRoot, comment.id, { reply: message }, `diff-comment-reply-${crypto.randomUUID()}`)
+        .then((updated) => {
+          if (activeRepoRoot.current === targetRepoRoot) dispatch({ type: "upsert-comment", comment: updated });
+        })
+        .catch((error) => console.warn("cmux diff comment reply failed", error));
+    },
+    [activeRepoRoot, bridgeAvailable, commentsThreads, dispatch, repoRoot],
+  );
+
+  const resolve = useCallback(
+    (comment: DiffCommentRecord, resolved: boolean) => {
+      if (!commentsThreads || !bridgeAvailable || repoRoot == null) return;
+      const targetRepoRoot = repoRoot;
+      bridgeThreadComment(targetRepoRoot, comment.id, { resolved }, `diff-comment-resolve-${crypto.randomUUID()}`)
+        .then((updated) => {
+          if (activeRepoRoot.current === targetRepoRoot) dispatch({ type: "upsert-comment", comment: updated });
+        })
+        .catch((error) => console.warn("cmux diff comment resolve failed", error));
+    },
+    [activeRepoRoot, bridgeAvailable, commentsThreads, dispatch, repoRoot],
+  );
+
+  const removeUnchanged = (cleared: readonly string[], versions: Record<string, string>) => {
+    const current = new Map(latestState.current.comments.map((comment) => [comment.id, comment.updatedAt]));
+    const ids = cleared.filter((id) => current.get(id) === versions[id]);
+    if (ids.length > 0) dispatch({ type: "remove-comments", ids });
+  };
+
+  /** Posts every saved comment to the worktree's pull request as one review, as `send` sends. */
+  const post = () => postBatch(false);
+
+  /** `post`; `fresh` skips the unfinished batch, which the host said never reached GitHub. */
+  const postBatch = (fresh: boolean): void => {
+    const comments = latestState.current.comments;
+    if (review == null || !bridgeAvailable || repoRoot == null || comments.length === 0 || postState === "posting") {
+      return;
+    }
+    const targetRepoRoot = repoRoot;
+    // A post that may have reached GitHub is retried under its own opid while any of its drafts is
+    // still listed, edited or not: the host finds the review that opid posted (its marker) instead of
+    // posting the same drafts again under a new one; a draft edited since stays for the next post.
+    const pending = fresh ? undefined : pendingPosts.current.get(targetRepoRoot);
+    const listed = new Set(comments.map((comment) => comment.id));
+    const batch =
+      pending != null && pending.ids.some((id) => listed.has(id))
+        ? pending
+        : nextBatch(undefined, comments, (ids, versions) => ({
+            ids,
+            versions,
+            opid: postOpid(targetRepoRoot, ids, versions),
+          }));
+    pendingPosts.current.set(targetRepoRoot, batch);
+    setPostState("posting");
+    setPostError(undefined);
+    bridgePostComments(targetRepoRoot, batch.ids, batch.versions, batch.opid)
+      .then(({ cleared, ...result }) => {
+        pendingPosts.current.delete(targetRepoRoot);
+        if (activeRepoRoot.current !== targetRepoRoot) return setPostState("idle");
+        // As with a send: a draft edited while the review was on its way stays, with its edit.
+        removeUnchanged(cleared, batch.versions);
+        setPosted(result);
+        setPostState("posted");
+      })
+      .catch((error: unknown) => {
+        console.warn("cmux diff review post failed", error);
+        if (activeRepoRoot.current !== targetRepoRoot) return setPostState("idle");
+        // The host found no review under this opid and none of its drafts unchanged: nothing of it
+        // reached GitHub, so the drafts as they are now go as a new review.
+        if (
+          !fresh &&
+          batch === pending &&
+          error instanceof DiffCommentsBridgeError &&
+          error.reason === "nothing_to_post"
+        ) {
+          pendingPosts.current.delete(targetRepoRoot);
+          setPostState("idle");
+          postBatch(true);
+          return;
+        }
+        // gh's own words say what to fix (a login, a moved head); the drafts stay for the retry.
+        setPostError(error instanceof Error && error.message !== "" ? error.message : undefined);
+        setPostState("failed");
+      });
+  };
+
   return {
+    canPost: review != null && bridgeAvailable,
     canSend: canSend && bridgeAvailable,
+    threaded: commentsThreads && bridgeAvailable,
     editMessage,
     onGutterUtilityClick,
     onLoaded,
+    post,
+    postError,
+    posted,
+    postState,
     remove,
+    refreshComments,
+    reply,
+    resolve,
+    review,
     saveDraft,
     send,
     sendState,
   };
+}
+
+/**
+ * A post's opid, from what it posts: the same drafts at the same versions get the same one, so a
+ * page reopened after a post whose reply was lost retries under its key, and the host finds the
+ * review it may have posted instead of posting it again. Drafts posted are cleared, so the same
+ * drafts never go out as a second review on purpose.
+ */
+function postOpid(repoRoot: string, ids: readonly string[], versions: Record<string, string>): string {
+  const text = [repoRoot, ...[...ids].sort().map((id) => `${id}@${versions[id] ?? ""}`)].join("\n");
+  // Two FNV-1a hashes of the text, 64 bits together: a key, not a secret.
+  const hash = (seed: number) => {
+    let value = seed;
+    for (let index = 0; index < text.length; index += 1) {
+      value = Math.imul(value ^ text.charCodeAt(index), 16777619) >>> 0;
+    }
+    return value.toString(16).padStart(8, "0");
+  };
+  return `diff-review-${hash(2166136261)}${hash(84696351)}`;
 }
 
 function localCommentRecord(input: Omit<DiffCommentRecord, "id" | "createdAt" | "updatedAt">): DiffCommentRecord {

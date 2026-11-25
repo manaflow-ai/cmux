@@ -14,7 +14,9 @@ extension WorkspaceRowView {
                          stackLimit: Int = SidebarRowBadgeStackCap.tunable.defaultValue.limit) {
         let badges = WorkspaceRowBadges(unread: ws.unread, activity: shown.activity, stackLimit: stackLimit,
                                         detailed: shown.detailedStatus || ws.activityFromProgram)
+        needsYouTone = isShowingPlaceholder ? nil : Self.needsYouTone(badges)
         guard style != .trailing, !isShowingPlaceholder else {
+            shownBadges = (ws.id, [])
             rowBadge.configure([], look: .corner)
             return
         }
@@ -23,16 +25,22 @@ extension WorkspaceRowView {
             timeText = time
             timeLabel.setString(time)
         }
-        let corner = style == .corner
+        // The leading icon slot holds one glyph: a leading status mark is the corner badge in any style.
+        let corner = style == .corner || shown.statusLeads
         // One glyph (`corner`) or the stack, in the trailing slot. A stack keeps its chips only
         // when glyphs overlap; a lone glyph is bare (no disc behind the spinner or the unread dot,
         // Lawrence 2026-10-18).
         let states = corner ? badges.first.map { [$0] } ?? [] : badges.stacked
-        rowBadge.configure(states, look: states.count > 1 ? .stack : .plain)
-        rowBadge.themedToolTip = Self.badgeSummary(badges, stacked: !corner)
+        // The same workspace's work just finished: its done glyph settles in once.
+        let previous = shownBadges?.workspace == ws.id ? shownBadges?.states : nil
+        shownBadges = (ws.id, states)
+        let settles = previous.map { WorkspaceRowBadges.settles(from: $0, to: states) } ?? false
+        rowBadge.configure(states, look: states.count > 1 ? .stack : .plain, settles: settles)
+        // What the badges say goes to VoiceOver; the row's hover card shows the same (a1315's cut 3: no tooltip).
+        rowBadge.setAccessibilityHelp(Self.badgeSummary(badges, stacked: !corner))
     }
 
-    /// What the badges say, for the tooltip: the count, then each state, then what the stack left out
+    /// What the badges say, for VoiceOver: the count, then each state, then what the stack left out
     /// (`stacked`; the corner badge shows one glyph and lists every state).
     static func badgeSummary(_ badges: WorkspaceRowBadges, stacked: Bool) -> String? {
         var parts: [String] = []
@@ -54,11 +62,12 @@ extension WorkspaceRowView {
     /// Lawrence 2026-10-20: every row's dot and spinner share one line; msg 11914: whatever else the
     /// row shows (a count, the keycap, the hover close and more) sits left of it,
     /// so a selected row's dot does not move. Never on the leading icon.
+    /// With the status leading (`statusLeads`) the badge and the status draw before the title instead (`leadingStatusMark`).
     func layoutColumnMark(cy: CGFloat, rowWidth: CGFloat, markReplacesStatus: Bool) -> (view: NSView, trailing: CGFloat)? {
         let columns = SidebarStyle.columns(rowWidth: rowWidth)
         let column = columns.trailingCenter()
         let view: NSView
-        if !rowBadge.isHidden {
+        if !statusLeads, !rowBadge.isHidden {
             // The nearest backing pixel, so the last glyph's center stays on the column (a floor moved it up to a point left).
             // With no window the scale is unknown: whole points, on the pixel grid at every scale (a 2x guess put the 10 pt
             // glyph on a half point, off the 1x grid, when a row's width ended 1.5 pt from the edge).
@@ -66,10 +75,10 @@ extension WorkspaceRowView {
             rowBadge.frame = NSRect(x: SidebarStyle.pixelSnapped(column - width + side / 2, scale: scale),
                                     y: SidebarStyle.pixelSnapped(cy - side / 2, scale: scale), width: width, height: side)
             view = rowBadge
-        } else if markReplacesStatus {
+        } else if !statusLeads, markReplacesStatus {
             agentMark.frame = statusGlyphFrame(trailing: column + SidebarStyle.statusGlyphSize / 2, centerY: cy)
             view = agentMark
-        } else if activity.showsGlyph {
+        } else if !statusLeads, activity.showsGlyph {
             activity.frame = statusGlyphFrame(trailing: column + SidebarStyle.statusGlyphSize / 2, centerY: cy)
             view = activity
         } else if !usageWarningMark.isHidden {

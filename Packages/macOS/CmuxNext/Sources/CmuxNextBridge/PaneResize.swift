@@ -12,7 +12,10 @@ public import CmuxNextLayout
 ///   wider / taller and Left / Up narrower / shorter (niri's column width +/-; Lawrence 2026-11-07: "ctrl shift hjkl is
 ///   still unintuitive to me, with regards to splits and columns"). A strip column trades width with the next column
 ///   across its right edge, or the previous one across its left edge for the last column; the columns after them and
-///   the strip's camera stay. One column alone gets wider or narrower on its own; a dock moves its inner edge.
+///   the strip's camera stay. The last column with nothing to trade (beside a full-width column) gets wider or narrower
+///   on its own and the camera keeps it at the window's edge. One column alone beside a docked side dock moves the
+///   dock's inner edge in the arrow's direction, as a split's divider does (2026-11-23); with no docked dock it gets
+///   wider or narrower on its own. A dock moves its inner edge.
 /// Between 2026-11-08 and 2026-11-11 splits grew or shrank the focused pane too, so H on the right pane of a split moved
 /// the divider right. A press steps from the size the screen shows and stops at the size it can show (`shown`): one
 /// equal step, the part step that reaches a pane's minimum or the edge of the strip the window shows, or no change at
@@ -80,14 +83,32 @@ public nonisolated enum PaneResize {
             // A screen whose only column is a dock shows it full width whatever its width (`DockStripGeometry.docks`): no
             // press moves it.
             guard strip[index].dock == nil else { return nil }
-            // A lone column has no neighbor across its edge: it gets wider or narrower on its own.
+            // A lone column beside a docked side dock: the dock's inner edge is the column's one divider, and it follows
+            // the arrow, as a split's divider does (beside a left dock, as the dock focused does). The column keeps its
+            // far edge at the window's edge, so no press leaves an empty area beside it (Lawrence 2026-11-23, "gotta fix
+            // columns stuff": the browser narrowed across its far edge beside Chief's docked chat). A left dock is the
+            // one when both are docked.
+            if let dock = [parts.left, parts.right].compactMap({ $0 }).first(where: { $0.dock?.mode == .docked }) {
+                let delta = parts.left?.id == dock.id ? grow : -grow
+                return stepped(dock.width, by: delta, within: range, shown: shown?.dockWidth(of: dock)).map { .columnWidth(dock.id, $0) }
+            }
+            // A lone column with no docked dock has no neighbor across its edge: it gets wider or narrower on its own.
             return stepped(column.width, by: grow, within: range, shown: shown?.width(of: column)).map { .columnWidth(column.id, $0) }
         }
         // The divider moves right by `delta` in a trade: right for a column that grows across its right edge, left for the
         // last column, which grows across its left edge.
         let isFar = index + 1 < strip.count
         let (left, right) = isFar ? (strip[index], strip[index + 1]) : (strip[index - 1], strip[index])
-        return shown?.trade(left, right, by: isFar ? grow : -grow, in: layout).map { .columnTrade(left.id, $0.left, right.id, $0.right) }
+        guard let shown else { return nil }
+        if let widths = shown.trade(left, right, by: isFar ? grow : -grow, in: layout) {
+            return .columnTrade(left.id, widths.left, right.id, widths.right)
+        }
+        // The last column narrowing beside a column at its widest share (a full-width screen): the trade has no width
+        // to give it, so the last column narrows on its own. The strip keeps it at the window's right edge, so its left
+        // edge, the divider a person sees, still moves right (the camera moves). A column at its own minimum stays
+        // refused: the trade above already stopped there.
+        guard !isFar, grow < 0, stepped(left.width, by: -grow, within: range, shown: shown.width(of: left)) == nil else { return nil }
+        return stepped(column.width, by: grow, within: range, shown: shown.width(of: column)).map { .columnWidth(column.id, $0) }
     }
 
     /// `value` moved by `delta` inside `range` cut to `shown`, from where the screen shows it: a value past what the

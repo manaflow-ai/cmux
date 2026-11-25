@@ -4,17 +4,37 @@ import Foundation
 
 /// Dials Macs through the Rust cmux-mobile-link core (WebRTC or WireGuard).
 public struct FFIMacLinkDialer: MacLinkDialer {
-    public init() {}
+    /// A dev build's `X-Cmux-Build-Space` value (`dev:<slug>`), nil to send none, or the refusal of a
+    /// misconfigured dev build (`CMUXBuildSpaceError`), which dials nothing. The Rust core puts the
+    /// value on every cmux-mobile-api request and the signaling upgrade it makes.
+    let buildSpace: Result<String?, any Error>
 
-    /// Settings → Transport → Ultra Mode on Cellular (`CmuxMobilePreferences.Key.ultraOnCellular`,
-    /// the same `UserDefaults` key; this module does not link CmuxMobileDesign). Rust decides the
-    /// mode from it and the network (`set_cellular_path`).
-    static func ultraOnCellular(_ defaults: UserDefaults = .standard) -> Bool {
-        defaults.bool(forKey: "cmuxMobile.settings.ultraOnCellular")
+    public init(buildSpace: Result<String?, any Error>) {
+        self.buildSpace = buildSpace
+    }
+
+    /// The build space is process state in the Rust core, set before each call that reaches the
+    /// service, like the keepalive setting. Throws, setting nothing, for a misconfigured dev build.
+    private func applyBuildSpaceToCore() throws {
+        setBuildSpace(value: try buildSpace.get())
+    }
+
+    /// Settings → Transport → Ultra mode (`CmuxMobilePreferences.Key.ultra`, the same
+    /// `UserDefaults` key; this module does not link CmuxMobileDesign): "off", "auto" or
+    /// "always". Rust reads anything else as Auto, and caps Auto on cellular (`set_cellular_path`).
+    static func ultra(_ defaults: UserDefaults = .standard) -> String {
+        defaults.string(forKey: "cmuxMobile.settings.ultra") ?? "auto"
     }
 
     public func dial(_ endpoint: LinkEndpoint, transport: TransportKind, accessToken: String) async throws -> any MacLink {
         let observer = StateObserver()
+        // Macs nearby are browsed for once a dial has run (linked or not), never at launch: the Local
+        // Network prompt then never covers the first frame. The core races a nearby Mac's hub with
+        // the service from the next dial on, and a declined prompt costs nothing.
+        defer { LocalLinkBrowser.shared.start() }
+        // Settings → Transport → Align Keepalives, read at each dial like Ultra mode.
+        KeepaliveBeat.applySettingToCore()
+        try applyBuildSpaceToCore()
         do {
             let handle = try await connectWithOptions(
                 baseUrl: endpoint.baseURL.absoluteString,
@@ -24,8 +44,9 @@ public struct FFIMacLinkDialer: MacLinkDialer {
                 macDeviceId: endpoint.macDeviceID,
                 transport: transport.ffi,
                 options: ConnectOptions(relayOnly: endpoint.relayOnly, blockUdp: endpoint.blockUDP,
+                                        forceRelay: endpoint.forceRelay,
                                         noVideoLane: endpoint.browserVideoOnChannel,
-                                        ultraOnCellular: Self.ultraOnCellular()),
+                                        ultra: Self.ultra()),
                 observer: observer
             )
             return FFIMacLink(handle: handle, transport: transport, observer: observer)
@@ -35,7 +56,10 @@ public struct FFIMacLinkDialer: MacLinkDialer {
     }
 
     public func prewarm(baseURL: URL, teamID: String, deviceID: String, accessToken: String) async -> [(String, Double)] {
-        await CmuxMobileLinkFFI.prewarm(baseUrl: baseURL.absoluteString, token: accessToken, teamId: teamID, deviceId: deviceID)
+        // The signaling socket opened here reads the setting at its ticks.
+        KeepaliveBeat.applySettingToCore()
+        guard (try? applyBuildSpaceToCore()) != nil else { return [] }
+        return await CmuxMobileLinkFFI.prewarm(baseUrl: baseURL.absoluteString, token: accessToken, teamId: teamID, deviceId: deviceID)
             .map { ($0.name, $0.millis) }
     }
 
@@ -44,7 +68,8 @@ public struct FFIMacLinkDialer: MacLinkDialer {
     }
 
     public func networkChanged(baseURL: URL, teamID: String, deviceID: String, accessToken: String) async -> [(String, Double)] {
-        await CmuxMobileLinkFFI.networkChanged(baseUrl: baseURL.absoluteString, token: accessToken, teamId: teamID, deviceId: deviceID)
+        guard (try? applyBuildSpaceToCore()) != nil else { return [] }
+        return await CmuxMobileLinkFFI.networkChanged(baseUrl: baseURL.absoluteString, token: accessToken, teamId: teamID, deviceId: deviceID)
             .map { ($0.name, $0.millis) }
     }
 }
@@ -83,6 +108,17 @@ final class FFIMacLink: TimedMacLink, @unchecked Sendable {
 
     var connectedPath: LinkPathKind? { handle.path().kind }
 
+    var peerScope: String { handle.peerScope() }
+
+    var tunnelKeys: TunnelKeys? {
+        let keys = handle.tunnelKeys()
+        return keys.count == 2 ? TunnelKeys(dialer: keys[0], answerer: keys[1]) : nil
+    }
+
+    var receivedAgo: Duration? { .milliseconds(handle.receivedAgoMs()) }
+
+    var trafficAgo: Duration? { .milliseconds(handle.trafficAgoMs()) }
+
     var timings: [(String, Double)] {
         handle.timings().map { ($0.name, $0.millis) }
     }
@@ -96,8 +132,31 @@ final class FFIMacLink: TimedMacLink, @unchecked Sendable {
         do { return try await handle.probe(timeoutMs: millis) } catch let error as CmuxMobileError { throw error.linkError }
     }
 
+    func probeTimeout(floor: Duration) -> Duration {
+        let millis = UInt32(clamping: floor.components.seconds * 1000 + floor.components.attoseconds / 1_000_000_000_000_000)
+        return .milliseconds(handle.probeTimeoutMs(floorMs: millis))
+    }
+
+    func setForegroundProbe(_ on: Bool) {
+        handle.setForegroundProbe(on: on)
+    }
+
     func close() async {
         handle.close()
+    }
+}
+
+extension FFIMacLink: ParkableMacLink {
+    func park(hold: Duration, timeout: Duration) async -> Bool {
+        (try? await handle.park(holdMs: Self.millis(hold), timeoutMs: Self.millis(timeout))) ?? false
+    }
+
+    func resumeParked() -> Bool {
+        handle.resume()
+    }
+
+    private static func millis(_ duration: Duration) -> UInt32 {
+        UInt32(clamping: duration.components.seconds * 1000 + duration.components.attoseconds / 1_000_000_000_000_000)
     }
 }
 
@@ -209,6 +268,7 @@ final class FFIChannel: LinkChannel, @unchecked Sendable {
     private let closeLock = NSLock()
     private var closeInfo: LinkError?
     var closedBy: LinkError? { closeLock.withLock { closeInfo } }
+    var sentBytes: UInt64? { handle.sentBytes() }
 
     init(handle: ChannelHandle) {
         self.handle = handle
@@ -269,6 +329,8 @@ final class StateObserver: LinkObserver, @unchecked Sendable {
                 continuation.yield(.media(state.videoMedia))
             case .disconnected(let reason):
                 continuation.yield(.disconnected(reason: reason))
+            case .suspect(let silentMillis):
+                continuation.yield(.suspect(silentMillis: silentMillis))
             }
         }
     }
@@ -288,6 +350,7 @@ extension LinkPath {
         case .direct: .direct
         case .turn: .turn
         case .turnTls: .turnTLS
+        case .httpsRelay: .httpsRelay
         case .noPath: .noPath
         }
     }
@@ -310,7 +373,7 @@ extension CmuxMobileError {
         case .InvalidArgument(let message): LinkError(code: "invalid_argument", message: message)
         case .Signaling(let message): LinkError(code: "signaling", message: message)
         case .Refused(let code, let message): LinkError(code: code, message: message)
-        case .Timeout: LinkError(code: "timeout", message: "The Mac didn't answer in time.")
+        case .Timeout: LinkError(code: "timeout", message: "link request timed out")
         case .Transport(let message): LinkError(code: "transport", message: message)
         case .Closed(let message): LinkError(code: "closed", message: message)
         }

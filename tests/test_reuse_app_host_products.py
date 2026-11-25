@@ -28,6 +28,7 @@ _git_fixture_spec = _git_fixture_importlib.spec_from_file_location(
     "git_fixture_env", _git_fixture_path.join(_git_fixture_path.dirname(_git_fixture_path.abspath(__file__)), "git_fixture_env.py"))
 git_fixture_env = _git_fixture_importlib.module_from_spec(_git_fixture_spec)
 _git_fixture_spec.loader.exec_module(git_fixture_env)
+import workflow_jobs
 
 
 class ReuseProducts(TestProductHandoff):
@@ -334,11 +335,9 @@ class ReuseProducts(TestProductHandoff):
             "agent-chat/server.ts",
             "agent-chat/src/components/Chat.tsx",
             "scripts/git-hooks/pre-commit",
-            "scripts/benchmark-dev-fleet-warm-slots.py",
             "scripts/check-pbxproj-group-membership.py",
             "scripts/check-pbxproj.sh",
             "scripts/check-test-determinism.py",
-            "scripts/dev-fleet-warm-slot.py",
             "scripts/install-git-hooks.sh",
             "scripts/merge-xcstrings.py",
             "scripts/normalize-pbxproj.py",
@@ -350,9 +349,8 @@ class ReuseProducts(TestProductHandoff):
         # Neighbours that the build does read stay product inputs.
         for path in (
             "scripts/build-diff-sidecar.sh",
-            "scripts/build-cmux-cua.sh",
             "scripts/setup.sh",
-            "skills/cmux-cua/SKILL.md",
+            "skills/cmux-computer-use/SKILL.md",
             ".gitattributes",
         ):
             self.assertTrue(identity.reaches_product(path), path)
@@ -1552,7 +1550,7 @@ class ContractParity(unittest.TestCase):
     def job_env(self, job):
         # As a step sees them: YAML `true` reaches it as the string "true".
         return {name: str(value).lower() if isinstance(value, bool) else str(value)
-                for name, value in job.get("env", {}).items()}
+                for name, value in workflow_jobs.resolve(job).env.items()}
 
     def executed(self, step):
         """What a step runs: its action, and each non-comment line of `run`."""

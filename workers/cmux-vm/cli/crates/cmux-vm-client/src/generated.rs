@@ -2615,6 +2615,12 @@ pub mod types {
             skip_serializing_if = "::std::option::Option::is_none"
         )]
         pub max_run_seconds: ::std::option::Option<i64>,
+        ///Create the VM on this mesh's private network, so it is on the network from its first boot. Needs the mesh:write scope and a mesh of the caller's team (404 otherwise). The VM is reachable only after PUT /v1/meshes/{meshId}/vms/{vmId}, which applies the mesh's access rules; that call is still required, and is faster for a VM created this way. Omit to create the VM on no network.
+        #[serde(
+            rename = "meshId",
+            skip_serializing_if = "::std::option::Option::is_none"
+        )]
+        pub mesh_id: ::std::option::Option<CreateVmRequestMeshId>,
         #[serde(skip_serializing_if = "::std::option::Option::is_none")]
         pub resources: ::std::option::Option<RequestedResources>,
         ///Boot from one of the tenant's snapshots; mutually exclusive with image. Omit both for the base image.
@@ -2666,6 +2672,63 @@ pub mod types {
         }
     }
     impl<'de> ::serde::Deserialize<'de> for CreateVmRequestDisplayName {
+        fn deserialize<D>(deserializer: D) -> ::std::result::Result<Self, D::Error>
+        where
+            D: ::serde::Deserializer<'de>,
+        {
+            ::std::string::String::deserialize(deserializer)?
+                .parse()
+                .map_err(|e: self::error::ConversionError| {
+                    <D::Error as ::serde::de::Error>::custom(e.to_string())
+                })
+        }
+    }
+    ///Create the VM on this mesh's private network, so it is on the network from its first boot. Needs the mesh:write scope and a mesh of the caller's team (404 otherwise). The VM is reachable only after PUT /v1/meshes/{meshId}/vms/{vmId}, which applies the mesh's access rules; that call is still required, and is faster for a VM created this way. Omit to create the VM on no network.
+    #[derive(::serde::Serialize, Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+    #[serde(transparent)]
+    pub struct CreateVmRequestMeshId(::std::string::String);
+    impl ::std::ops::Deref for CreateVmRequestMeshId {
+        type Target = ::std::string::String;
+        fn deref(&self) -> &::std::string::String {
+            &self.0
+        }
+    }
+    impl ::std::convert::From<CreateVmRequestMeshId> for ::std::string::String {
+        fn from(value: CreateVmRequestMeshId) -> Self {
+            value.0
+        }
+    }
+    impl ::std::str::FromStr for CreateVmRequestMeshId {
+        type Err = self::error::ConversionError;
+        fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+            static PATTERN: ::std::sync::LazyLock<::regress::Regex> =
+                ::std::sync::LazyLock::new(|| {
+                    ::regress::Regex::new("^mesh_[0123456789abcdefghjkmnpqrstvwxyz]{26}$").unwrap()
+                });
+            if PATTERN.find(value).is_none() {
+                return Err(
+                    "doesn't match pattern \"^mesh_[0123456789abcdefghjkmnpqrstvwxyz]{26}$\""
+                        .into(),
+                );
+            }
+            Ok(Self(value.to_string()))
+        }
+    }
+    impl ::std::convert::TryFrom<&str> for CreateVmRequestMeshId {
+        type Error = self::error::ConversionError;
+        fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+            value.parse()
+        }
+    }
+    impl ::std::convert::TryFrom<::std::string::String> for CreateVmRequestMeshId {
+        type Error = self::error::ConversionError;
+        fn try_from(
+            value: ::std::string::String,
+        ) -> ::std::result::Result<Self, self::error::ConversionError> {
+            value.parse()
+        }
+    }
+    impl<'de> ::serde::Deserialize<'de> for CreateVmRequestMeshId {
         fn deserialize<D>(deserializer: D) -> ::std::result::Result<Self, D::Error>
         where
             D: ::serde::Deserializer<'de>,
@@ -10717,7 +10780,7 @@ pub mod types {
                 })
         }
     }
-    ///A VM's memory and disk, captured. A VM booted from a snapshot resumes from the captured memory. Whether the guest kernel's random number generator is reseeded, and whether the machine id, hostname and clock change on restore, is not documented by the platform and is not yet verified: assume every VM booted from one snapshot starts with identical RNG state, machine id and hostname, and reseed, regenerate and resync them in the guest when that matters.
+    ///A VM's memory and disk, captured. A VM booted from a snapshot resumes from the captured memory. On the cmux VM image, cmux-host sees the new instance id on the first boot of a restore or fork and, before any role starts, reseeds the kernel RNG, writes a new machine id and SSH host key (the inherited RSA, ECDSA and DSA host keys are removed), makes new per-machine install and WireGuard keys, and drops remote session state; the one-time bind token is spent and removed. The hostname and the clock are not changed. On any other image none of this runs: assume every VM booted from one snapshot starts with identical RNG state, machine id, host keys and hostname, and reseed, regenerate and resync them in the guest when that matters.
     #[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug)]
     pub struct Snapshot {
         #[serde(
@@ -13988,6 +14051,9 @@ pub mod types {
         pub display_name: ::std::string::String,
         ///a string matching the pattern ^[a-z][a-z0-9-]*$
         pub id: VmImageId,
+        ///64 lowercase hex: a digest of every image input but cmux-tui. Two images with one value differ only in cmux-tui. Listed by GET /v1/vm-images when the operator recorded it; absent otherwise and from VM creation receipts.
+        #[serde(skip_serializing_if = "::std::option::Option::is_none")]
+        pub inputs_sha256: ::std::option::Option<::std::string::String>,
         ///a string matching the pattern ^[A-Za-z0-9][A-Za-z0-9._-]*$
         pub revision: VmImageRevision,
     }
@@ -19653,7 +19719,7 @@ impl Client {
     }
     /**Create a VM
 
-    Create a VM. Requires the vm:write scope. Refused with 402 when the tenant's plan does not include VMs and 429 at the tenant's VM quota. Dev/test tenants may not ask for an idle timeout over 300 seconds and default to 300; other tenants default to -1 (never pause for idleness). When no Idempotency-Key is supplied, the API issues a public creationKey and journals the allocation. Save this handle and use it as Idempotency-Key for retries; a separate request without a key is a new intent. GET /v1/vm-creations can recover a lost server-issued handle. Unconfirmed allocations retain quota until reconciliation or verified cancellation. Server-issued handles never expire into permission to allocate again. A retry with the same Idempotency-Key returns the first VM instead of creating another; the same key with a different body is 409. Keys with a resource allowlist cannot create. initialNetwork additionally requires vm:network; proxy destinations must be enabled by the deployment. When initialNetwork is requested, its receipt confirms the accepted policy. A missing receipt means the API does not support that request; do not assume the policy was applied. Another tenant's resource is always 404; a tenant's per-minute rate limit answers 429.
+    Create a VM. Requires the vm:write scope. Refused with 402 when the tenant's plan does not include VMs and 429 at the tenant's VM quota. Dev/test tenants may not ask for an idle timeout over 300 seconds and default to 300; other tenants default to -1 (never pause for idleness). When no Idempotency-Key is supplied, the API issues a public creationKey and journals the allocation. Save this handle and use it as Idempotency-Key for retries; a separate request without a key is a new intent. GET /v1/vm-creations can recover a lost server-issued handle. Unconfirmed allocations retain quota until reconciliation or verified cancellation. Server-issued handles never expire into permission to allocate again. A retry with the same Idempotency-Key returns the first VM instead of creating another; the same key with a different body is 409. Keys with a resource allowlist cannot create. initialNetwork additionally requires vm:network; proxy destinations must be enabled by the deployment. When initialNetwork is requested, its receipt confirms the accepted policy. A missing receipt means the API does not support that request; do not assume the policy was applied. meshId additionally requires mesh:write and names a mesh of the caller's team; the VM joins that mesh's private network at creation and still needs PUT /v1/meshes/{meshId}/vms/{vmId} to become reachable. Another tenant's resource is always 404; a tenant's per-minute rate limit answers 429.
 
     Sends a `POST` request to `/v1/vms`
 
@@ -20896,7 +20962,7 @@ impl Client {
     }
     /**Snapshot a running or paused VM
 
-    Snapshot a running or paused VM. Requires the snapshot:write scope. Each capture is journaled before sending. A key permanently identifies one capture; use a fresh key for a new capture. Retained failures return pendingSnapshotId. Inspect, reconcile or cancel it at /v1/snapshot-creations/:snapshotId; reconcile never captures again. Omitted-key requests are separate captures; recover a lost handle from GET /v1/snapshot-creations. Unknown outcomes retain quota. A VM booted from a snapshot resumes from the captured memory. Whether the guest kernel's random number generator is reseeded, and whether the machine id, hostname and clock change on restore, is not documented by the platform and is not yet verified: assume every VM booted from one snapshot starts with identical RNG state, machine id and hostname, and reseed, regenerate and resync them in the guest when that matters.
+    Snapshot a running or paused VM. Requires the snapshot:write scope. Each capture is journaled before sending. A key permanently identifies one capture; use a fresh key for a new capture. Retained failures return pendingSnapshotId. Inspect, reconcile or cancel it at /v1/snapshot-creations/:snapshotId; reconcile never captures again. Omitted-key requests are separate captures; recover a lost handle from GET /v1/snapshot-creations. Unknown outcomes retain quota. A VM booted from a snapshot resumes from the captured memory. On the cmux VM image, cmux-host sees the new instance id on the first boot of a restore or fork and, before any role starts, reseeds the kernel RNG, writes a new machine id and SSH host key (the inherited RSA, ECDSA and DSA host keys are removed), makes new per-machine install and WireGuard keys, and drops remote session state; the one-time bind token is spent and removed. The hostname and the clock are not changed. On any other image none of this runs: assume every VM booted from one snapshot starts with identical RNG state, machine id, host keys and hostname, and reseed, regenerate and resync them in the guest when that matters.
 
     Sends a `POST` request to `/v1/vms/{vmId}/snapshots`
 

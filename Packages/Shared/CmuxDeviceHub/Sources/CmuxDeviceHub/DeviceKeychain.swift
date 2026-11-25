@@ -4,6 +4,8 @@ import Security
 /// Generic password items under one service (`<bundle id>.device-hub`), for
 /// this device only, never synced. A tagged build has its own bundle id and
 /// so its own items; the Keychain trusts only the app that made an item.
+/// Every call runs with Keychain user interaction off: an item another
+/// signature made is refused (a keychain error), never prompted for.
 public struct DeviceKeychain: Sendable {
     public let service: String
     /// Items in the data-protection keychain (`kSecUseDataProtectionKeychain`),
@@ -21,7 +23,7 @@ public struct DeviceKeychain: Sendable {
         query[kSecReturnData as String] = true
         query[kSecMatchLimit as String] = kSecMatchLimitOne
         var out: CFTypeRef?
-        let status = SecItemCopyMatching(query as CFDictionary, &out)
+        let status = KeychainUserInteraction.withoutUI { SecItemCopyMatching(query as CFDictionary, &out) }
         if status == errSecItemNotFound { return nil }
         guard status == errSecSuccess else { throw DeviceIdentity.Failure.keychain(status) }
         return out as? Data
@@ -29,13 +31,15 @@ public struct DeviceKeychain: Sendable {
 
     /// Adds or replaces the item.
     public func write(_ data: Data, account: String) throws {
-        let update = SecItemUpdate(query(account) as CFDictionary, [kSecValueData as String: data] as CFDictionary)
+        let update = KeychainUserInteraction.withoutUI {
+            SecItemUpdate(query(account) as CFDictionary, [kSecValueData as String: data] as CFDictionary)
+        }
         if update == errSecSuccess { return }
         guard update == errSecItemNotFound else { throw DeviceIdentity.Failure.keychain(update) }
         var add = query(account)
         add[kSecValueData as String] = data
         add[kSecAttrAccessible as String] = kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly
-        let status = SecItemAdd(add as CFDictionary, nil)
+        let status = KeychainUserInteraction.withoutUI { SecItemAdd(add as CFDictionary, nil) }
         guard status == errSecSuccess else { throw DeviceIdentity.Failure.keychain(status) }
     }
 
@@ -46,12 +50,13 @@ public struct DeviceKeychain: Sendable {
         query[kSecReturnAttributes as String] = true
         query[kSecMatchLimit as String] = kSecMatchLimitAll
         var out: CFTypeRef?
-        guard SecItemCopyMatching(query as CFDictionary, &out) == errSecSuccess, let items = out as? [[String: Any]] else { return [] }
+        guard KeychainUserInteraction.withoutUI({ SecItemCopyMatching(query as CFDictionary, &out) }) == errSecSuccess,
+              let items = out as? [[String: Any]] else { return [] }
         return items.compactMap { $0[kSecAttrAccount as String] as? String }
     }
 
     public func delete(_ account: String) throws {
-        let status = SecItemDelete(query(account) as CFDictionary)
+        let status = KeychainUserInteraction.withoutUI { SecItemDelete(query(account) as CFDictionary) }
         guard status == errSecSuccess || status == errSecItemNotFound else { throw DeviceIdentity.Failure.keychain(status) }
     }
 

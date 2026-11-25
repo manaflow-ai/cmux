@@ -1,4 +1,4 @@
-import { RESUME_NOTE_DELAY_MS, useAfterDelay } from "./afterDelay";
+import { RESUME_NOTE_DELAY_MS, useAfterDelay, useLinkDownSaid } from "./afterDelay";
 import type { ChatUnavailable } from "./chatUnavailable";
 import { Spinner } from "./conversation/icons";
 import { relativeTime } from "./conversation/relativeTime";
@@ -30,12 +30,14 @@ export function ChatUnavailableState({
   now = Date.now(),
   onResumeMachine,
   resuming = false,
+  resumeLong = false,
   error,
   onRemove,
   onReconnect,
   onResume,
   onClose,
   noteDelayMs = RESUME_NOTE_DELAY_MS,
+  offlineDelayMs,
   line = false,
 }: {
   unavailable: ChatUnavailable;
@@ -46,6 +48,9 @@ export function ChatUnavailableState({
   now?: number;
   onResumeMachine?(): void;
   resuming?: boolean;
+  /// The resume has run past useCloudChatRecovery's RESUME_SLOW_MS: one line says it is taking longer
+  /// than usual, and Resume machine is enabled again (Resume from Transcript is the other way out).
+  resumeLong?: boolean;
   error?: string;
   onRemove(): void;
   onReconnect(): void;
@@ -55,6 +60,9 @@ export function ChatUnavailableState({
   /// How long a paused machine, and a resume, stay out of sight (afterDelay.ts); the gallery's
   /// settled variants pass 0.
   noteDelayMs?: number;
+  /// How long a machine whose link dropped stays out of sight (afterDelay.ts `LINK_DOWN_SAID_MS`);
+  /// a settled variant (`noteDelayMs` 0) shows it at once.
+  offlineDelayMs?: number;
   /// Over the chat's last-read rows: a line under the header, not the centered state.
   line?: boolean;
 }) {
@@ -65,9 +73,22 @@ export function ChatUnavailableState({
   // shifts nothing when it appears.
   const pausedShown = useAfterDelay(unavailable.reason === "paused", noteDelayMs);
   const resumeSlow = useAfterDelay(resuming, noteDelayMs);
-  // Still loading, or paused for less than the threshold: nothing shows, in the loading layout, until
-  // the chat opens or the wait goes on (then offline or paused, below).
-  if (unavailable.reason === "connecting" || (unavailable.reason === "paused" && !pausedShown))
+  // A machine whose link just dropped: "Reconnecting…" shows only once the drop has lasted past
+  // LINK_DOWN_SAID_MS, the time acpmux takes to notice a dead link and redial it, so a link back on
+  // its own never shows the state (Leo, 2026-11-14: "i also want all our connectivity stuff to shut
+  // the fuck up").
+  const offlineShown = useLinkDownSaid(
+    unavailable.reason === "offline",
+    undefined,
+    offlineDelayMs ?? (noteDelayMs <= 0 ? 0 : undefined),
+  );
+  // Still loading, or paused or offline for less than the threshold: nothing shows, in the loading
+  // layout, until the chat opens or the wait goes on (then offline or paused, below).
+  if (
+    unavailable.reason === "connecting" ||
+    (unavailable.reason === "paused" && !pausedShown) ||
+    (unavailable.reason === "offline" && !offlineShown)
+  )
     return line ? null : (
       <div className="acpmux-empty acpmux-unavailable" data-unavailable="connecting" aria-busy="true" />
     );
@@ -134,7 +155,7 @@ export function ChatUnavailableState({
           type="button"
           className="acpmux-unavailable-action"
           data-action={action.kind}
-          disabled={resuming}
+          disabled={resuming && !resumeLong}
           onClick={action.run}
         >
           {action.label}
@@ -172,6 +193,7 @@ export function ChatUnavailableState({
           </p>
         )}
         {detail && <p className="acpmux-watch-hint">{detail}</p>}
+        {resumeLong && <p className="acpmux-watch-hint">{t("unavailable.resumeSlow")}</p>}
         {actions}
       </div>
     );
@@ -229,6 +251,7 @@ export function ChatUnavailableState({
           </p>
         )}
         {detail && <p className="acpmux-unavailable-detail">{detail}</p>}
+        {resumeLong && <p className="acpmux-unavailable-detail">{t("unavailable.resumeSlow")}</p>}
         {session && (
           <p className="acpmux-unavailable-detail acpmux-unavailable-session">
             {t("unavailable.session", { session: shortSession(session) })}

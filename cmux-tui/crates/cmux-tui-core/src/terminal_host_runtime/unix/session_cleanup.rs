@@ -166,7 +166,7 @@ fn session_groups(session: libc::pid_t) -> Result<Vec<libc::pid_t>, ()> {
         let name = entry.file_name();
         let Some(name) = name.to_str() else { continue };
         let Ok(_pid) = name.parse::<libc::pid_t>() else { continue };
-        let stat = match fs::read_to_string(entry.path().join("stat")) {
+        let stat = match crate::process_resources::stat_line(entry.path().join("stat")) {
             Ok(stat) => stat,
             Err(error) if error.kind() == std::io::ErrorKind::NotFound => continue,
             Err(_) => return Err(()),
@@ -285,5 +285,25 @@ impl HostShared {
             self.group_escalation_failed.store(true, Ordering::Release);
             self.publish_child_wait_predicate(&self.group_escalation_failed);
         }
+    }
+}
+
+#[cfg(all(test, target_os = "linux"))]
+mod tests {
+    use super::{current_session, session_groups};
+
+    /// The groups of a session are read whatever bytes the name of a program
+    /// on the system has. The child is in the session of this test and in a
+    /// group of its own.
+    #[test]
+    fn the_groups_of_a_session_are_read_for_each_program_name() {
+        let child = cmux_tui_platform::CutNameChild::start("session-groups").expect("child");
+        let group = libc::pid_t::try_from(child.id()).ok();
+        let groups = session_groups(current_session());
+        assert!(groups.is_ok(), "the scan of the session gave no answer");
+        assert!(
+            groups.is_ok_and(|groups| group.is_some_and(|group| groups.contains(&group))),
+            "the group of a child of this test is in the session of this test"
+        );
     }
 }

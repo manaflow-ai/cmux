@@ -26,6 +26,7 @@ import argparse, http.server, json, os, plistlib, subprocess, sys, tempfile, thr
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from tag_teardown import TagTeardown  # noqa: E402
+from safe_log import safe_print  # noqa: E402  (a line in a cleanup path never skips the kill)
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--app", required=True, help="the tagged .app")
@@ -233,7 +234,8 @@ def submit(engine, case):
 
 
 def settle(engine, case, since, name):
-    time.sleep(6)  # time for a replayed POST to arrive; the count is the check
+    # sleep-ok: an observation window for a POST that must never come (a replay); absence has no event to wait on
+    time.sleep(6)
     snapshot(name)
     shown = shown_since(engine, case, since)
     print(f"note: {engine}/{case}: shown after the step: {shown or ['nothing (cmux page or blank)']}", flush=True)
@@ -254,13 +256,14 @@ try:
     check(launch() is not None, "the app starts")
     rpc("action.run", {"action": "workspace.selectFirst"})
     rpc("action.run", {"action": "newTab", "origin": "script", "focus": True})
-    time.sleep(1)
+    # Until the new workspace has a focused pane for the tabs.
+    wait_for(lambda: ((rpc("snapshot.get").get("topology") or {}).get("focus") or {}).get("pane"), "the new workspace's pane", 20)
     for engine in ENGINES:
         # duplicate
         tab = submit(engine, "duplicate")
         since = time.monotonic()
         reply = rpc("action.run", {"action": "duplicateTab", "target": f"tab:{tab}", "origin": "script"})
-        print(f"note: {engine}/duplicate: duplicateTab -> {json.dumps(reply)[:200]}", flush=True)
+        safe_print(f"note: {engine}/duplicate: duplicateTab -> {json.dumps(reply)[:200]}", flush=True)
         settle(engine, "duplicate", since, f"{engine}-duplicate")
 
         # hibernate, then wake
@@ -272,7 +275,7 @@ try:
         state = hibernation()
         slept = tab in (state.get("hibernated") or [])
         exemption = (state.get("exemptions") or {}).get(tab)
-        print(f"note: {engine}/hibernate: hibernateTab -> {json.dumps(reply)[:200]}; hibernated={slept} exemption={exemption}", flush=True)
+        safe_print(f"note: {engine}/hibernate: hibernateTab -> {json.dumps(reply)[:200]}; hibernated={slept} exemption={exemption}", flush=True)
         check(not slept and exemption == "form_submission",
               f"{engine}/hibernate: a page that shows a form result does not hibernate (hibernated={slept}, exemption={exemption})")
         since = time.monotonic()
@@ -287,7 +290,7 @@ try:
         time.sleep(2)
         since = time.monotonic()
         reply = rpc("action.run", {"action": "reopenClosedBrowserPanel", "origin": "script"})
-        print(f"note: {engine}/reopen: reopen -> {json.dumps(reply)[:200]}", flush=True)
+        safe_print(f"note: {engine}/reopen: reopen -> {json.dumps(reply)[:200]}", flush=True)
         settle(engine, "reopen", since, f"{engine}-reopen")
 
         # relaunch (after the loop)
@@ -296,7 +299,7 @@ try:
     end("quit")
     launch()
     tabs = rpc("browser.page.tabs", {"all": True}).get("tabs") or []
-    print("note: tabs after relaunch", [(t.get("id"), t.get("url")) for t in tabs], flush=True)
+    safe_print("note: tabs after relaunch", [(t.get("id"), t.get("url")) for t in tabs], flush=True)
     for engine in ENGINES:
         tab = next((t for t in tabs if f"-{engine}-relaunch-{RUN}" in (t.get("url") or "")), None)
         check(tab is not None, f"{engine}/relaunch: the tab comes back")
@@ -307,6 +310,7 @@ try:
         wait_for(lambda: shown_since(engine, "relaunch", since), f"{engine}/relaunch shows a page", 15)
         settle(engine, "relaunch", since, f"{engine}-relaunch")
     # Tabs of the other cases came back too: none of them may send its form on the way.
+    # sleep-ok: an observation window for POSTs that must never come; absence has no event to wait on
     time.sleep(3)
     for engine in ENGINES:
         for case in CASES:

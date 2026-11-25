@@ -679,6 +679,9 @@ struct CodeView: View {
     var highlightLine: Int?
     @State private var wrap = false
     @State private var prepared = PreparedLines()
+    // Code and its line-number gutter grow with Dynamic Type.
+    @ScaledMetric(relativeTo: .footnote) private var codeSize: CGFloat = 13
+    @ScaledMetric(relativeTo: .footnote) private var gutterWidth: CGFloat = 40
 
     struct Source: Hashable {
         let text: String
@@ -696,6 +699,17 @@ struct CodeView: View {
         }
     }
 
+    private func codeLine(_ line: AttributedString) -> NSAttributedString {
+        let result = NSMutableAttributedString()
+        let font = UIFont.monospacedSystemFont(ofSize: codeSize, weight: .regular)
+        for run in line.runs {
+            let color = run.swiftUI.foregroundColor.map { UIColor($0) } ?? .label
+            result.append(NSAttributedString(string: String(line[run.range].characters),
+                                             attributes: [.font: font, .foregroundColor: color]))
+        }
+        return result
+    }
+
     var body: some View {
         let lines = prepared.lines(for: Source(text: text, language: language))
         ScrollViewReader { proxy in
@@ -705,12 +719,15 @@ struct CodeView: View {
                         HStack(alignment: .firstTextBaseline, spacing: 0) {
                             Text("\(index + 1)")
                                 .foregroundStyle(.tertiary)
-                                .frame(width: 40, alignment: .trailing)
+                                .frame(width: gutterWidth, alignment: .trailing)
                                 .padding(.trailing, 12)
-                            Text(lines[index])
+                            InPlaceSelectionLabel(codeLine(lines[index]))
                                 .fixedSize(horizontal: !wrap, vertical: true)
+                                .alignmentGuide(.firstTextBaseline) { _ in
+                                    UIFont.monospacedSystemFont(ofSize: codeSize, weight: .regular).ascender
+                                }
                         }
-                        .font(.system(size: 13, design: .monospaced))
+                        .font(.system(size: codeSize, design: .monospaced))
                         .padding(.vertical, 1)
                         .background(index + 1 == highlightLine ? Color.yellow.opacity(0.15) : .clear)
                         .id(index + 1)
@@ -718,7 +735,6 @@ struct CodeView: View {
                 }
                 .padding(.vertical, 12)
                 .padding(.trailing, 16)
-                .textSelection(.enabled)
             }
             .defaultScrollAnchor(.topLeading)
             .task(id: Source(text: text, language: language)) {

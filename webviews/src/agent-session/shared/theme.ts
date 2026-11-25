@@ -1,42 +1,10 @@
-import { MOTION_MS, MOTION_SEND_MS } from "../../motion/scale.generated";
+import { MOTION_MS, MOTION_SEND_MS, MOTION_SEND_POP_MS } from "../../motion/scale.generated";
 import type { AgentSessionTheme } from "./types";
 import { codeFontFamily } from "../../appearance";
 import { configureThemeSlots } from "../../slots/registry";
+import { AGENT_THEME_VARIABLES } from "./themeVariables";
 
-const cssVariables: Record<keyof AgentSessionTheme, string | null> = {
-  isDark: null,
-  pageBackground: "--agent-page-bg",
-  surfaceBackground: "--agent-surface",
-  surfaceElevatedBackground: "--agent-surface-elevated",
-  inputBackground: "--agent-input-bg",
-  border: "--agent-border",
-  borderStrong: "--agent-border-strong",
-  text: "--agent-text",
-  mutedText: "--agent-muted",
-  softText: "--agent-soft",
-  accent: "--agent-accent",
-  accentSoft: "--agent-accent-soft",
-  litGlyph: "--agent-lit-glyph",
-  accentText: "--agent-accent-text",
-  onAccent: "--agent-on-accent",
-  danger: "--agent-danger",
-  warning: "--agent-warning",
-  success: "--agent-success",
-  highlight: "--agent-highlight",
-  highlightText: "--agent-highlight-text",
-  shadow: "--agent-shadow",
-  palette: null,
-  borders: null,
-  focusRingEnabled: null,
-  toolRunLook: null,
-  turnActionsPlacement: null,
-  motion: null,
-  statusIndicators: null,
-  workingLook: null,
-  slots: null,
-  subagentTray: null,
-  subagentTrayPlacement: null,
-};
+const cssVariables = AGENT_THEME_VARIABLES;
 
 const motionVariables = {
   hover: "--agent-motion-hover",
@@ -92,19 +60,24 @@ export function applyAgentTheme(theme: AgentSessionTheme): void {
   }
   // A sent prompt's motion (`--agent-motion-send`) is the scale's send step, scaled as the host scaled
   // its move step (ui.animationSpeed; 0 with animations off), since the host sends no send duration.
-  // Its fades (`--agent-motion-send-fade`) run that clock while things move; Reduce Motion (Calm mode
-  // too) zeroes the move step but keeps fades, and then the prompt fades on the fade setting and
-  // nothing moves (WebKit may still answer `prefers-reduced-motion: no-preference`).
+  // Its fades (`--agent-motion-send-fade`) run that same clock. The scale's send step is 0 (Leo,
+  // 2026-11-11: "that slow settle animation is just so bad. Like, just do it."), so a sent prompt is
+  // in place at once, Reduce Motion (Calm mode too) included: no fade stands in for the motion.
   const move = theme.motion?.move;
   if (typeof move === "number" && Number.isFinite(move) && move >= 0) {
     const send = Math.round(((move * 1000) / MOTION_MS.standard) * MOTION_SEND_MS);
-    const fadeIn = theme.motion?.fadeIn;
-    const fade = send > 0 || typeof fadeIn !== "number" || !(fadeIn >= 0) ? send : Math.round(fadeIn * 1000);
     root.style.setProperty("--agent-motion-send", `${send}ms`);
-    root.style.setProperty("--agent-motion-send-fade", `${fade}ms`);
+    root.style.setProperty("--agent-motion-send-fade", `${send}ms`);
+    // The sent prompt's pop (conversation.css SEND-POP) on the same scaling: 0 with animations off
+    // or the app's Reduce Motion (its move step is 0), so the prompt is then in place at once.
+    root.style.setProperty(
+      "--agent-motion-send-pop",
+      `${Math.round(((move * 1000) / MOTION_MS.standard) * MOTION_SEND_POP_MS)}ms`,
+    );
   } else {
     root.style.removeProperty("--agent-motion-send");
     root.style.removeProperty("--agent-motion-send-fade");
+    root.style.removeProperty("--agent-motion-send-pop");
   }
   // `ui.animationSpeed: off` reaches the page as an all-zero motion policy. Mark it on the root so
   // CSS animations and transitions that represent loops or third-party surfaces stop as well as

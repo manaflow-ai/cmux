@@ -1,5 +1,6 @@
 use super::*;
 use std::future::pending;
+use std::sync::atomic::AtomicUsize;
 use tokio::sync::mpsc;
 
 type Dial = std::pin::Pin<Box<dyn Future<Output = Result<&'static str, String>> + Send>>;
@@ -13,6 +14,66 @@ fn after(ms: u64, result: Result<&'static str, String>) -> Dial {
 
 fn dead() -> Dial {
     Box::pin(pending())
+}
+
+/// A recovered direct route must get another attempt before the cold-connect
+/// deadline expires, whether the old dial stalled before or during its upgrade.
+#[cfg(target_os = "linux")]
+#[tokio::test]
+async fn a_direct_redial_has_its_own_deadline_through_the_websocket_upgrade() {
+    use tokio::io::{AsyncBufReadExt, BufReader};
+    for during_upgrade in [false, true] {
+        let dir = tempfile::tempdir().unwrap();
+        let socket = dir.path().join("link.sock");
+        let listener = tokio::net::UnixListener::bind(&socket).unwrap();
+        let (entered, stalled) = tokio::sync::oneshot::channel();
+        let server = tokio::spawn(async move {
+            let (stream, _) = listener.accept().await.unwrap();
+            let mut stream = BufReader::new(stream);
+            let mut line = String::new();
+            stream.read_line(&mut line).await.unwrap();
+            if during_upgrade {
+                stream
+                    .get_mut()
+                    .write_all(
+                        b"{\"ok\":true,\"path_state\":\"direct\",\"relay_available\":false}\n",
+                    )
+                    .await
+                    .unwrap();
+                loop {
+                    line.clear();
+                    assert!(stream.read_line(&mut line).await.unwrap() > 0);
+                    if line == "\r\n" {
+                        break;
+                    }
+                }
+            }
+            entered.send(()).unwrap();
+            pending::<()>().await;
+            drop(stream);
+        });
+        let (tx, _rx) = mpsc::channel(8);
+        let peer = Peer::new("redial", "ssh://box", Some("token".into()), Some("peer".into()), tx);
+        peer.set_link_host("inst_b".into());
+        peer.set_link_socket(socket);
+        peer.linked_once.store(true, Ordering::SeqCst);
+        let dial = tokio::spawn(async move { peer.open_direct(Via::Link, None).await.map(|_| ()) });
+        stalled.await.unwrap();
+        tokio::time::pause();
+        tokio::time::advance(Duration::from_secs(5)).await;
+        tokio::task::yield_now().await;
+        let finished = dial.is_finished();
+        if !finished {
+            dial.abort();
+        }
+        server.abort();
+        assert!(
+            finished,
+            "direct redial still waits on the 30-second deadline; upgrade={during_upgrade}"
+        );
+        assert!(dial.await.unwrap().unwrap_err().contains("timed out"));
+        tokio::time::resume();
+    }
 }
 
 #[tokio::test(start_paused = true)]
@@ -255,6 +316,7 @@ async fn configured_tokens_reach_the_peer_over_the_link_while_ssh_is_down() {
         Some("peer-token".into()),
         tx,
     );
+    peer.refuse_early(); // its fake listener is a plain tungstenite accept, as before the early request
     peer.set_link_host("inst_b".into());
     peer.set_link_socket(socket);
     assert_eq!(peer.dial_order(), [Via::Link, Via::Ssh]);
@@ -265,4 +327,177 @@ async fn configured_tokens_reach_the_peer_over_the_link_while_ssh_is_down() {
     assert_eq!(via, Via::Link);
     assert_eq!(opened.presented.as_deref(), Some("peer-token"));
     peer.stop();
+}
+
+/// Relay first, measured on the race itself (paused clock): a black-holed WireGuard endpoint
+/// and an ssh that never logs in, beside a hub relay that opens in 66 ms (its warm open).
+/// Before, the relay was dialed last, two staggers after the dead paths; now it leads and the
+/// remembered path starts beside it, so the black hole costs nothing.
+#[tokio::test(start_paused = true)]
+async fn relay_first_a_black_holed_direct_path_costs_no_more_than_the_relay_open() {
+    const RELAY_OPEN: Duration = Duration::from_millis(66);
+    let started = tokio::time::Instant::now();
+    let before = race(
+        vec![(Via::Wireguard, dead()), (Via::Ssh, dead()), (Via::Hub, after(66, Ok("hub")))],
+        STAGGER,
+    )
+    .await
+    .unwrap();
+    let before_ms = started.elapsed();
+    assert_eq!(before.0, Via::Hub);
+    let started = tokio::time::Instant::now();
+    let now = race_together(
+        vec![(Via::Hub, after(66, Ok("hub"))), (Via::Wireguard, dead()), (Via::Ssh, dead())],
+        2,
+        STAGGER,
+    )
+    .await
+    .unwrap();
+    let after_ms = started.elapsed();
+    assert_eq!(now.0, Via::Hub);
+    eprintln!(
+        "first byte with a black-holed WireGuard endpoint: {} ms direct first, {} ms relay first \
+         (relay open {} ms)",
+        before_ms.as_millis(),
+        after_ms.as_millis(),
+        RELAY_OPEN.as_millis()
+    );
+    assert_eq!(before_ms, 2 * STAGGER + RELAY_OPEN);
+    assert_eq!(after_ms, RELAY_OPEN, "the black hole cost first-byte time");
+}
+
+/// Relay first, the remembered direct path starts beside the relay: when it answers first it
+/// carries, and no later path is dialed at all.
+#[tokio::test(start_paused = true)]
+async fn relay_first_a_live_remembered_path_still_wins_when_it_answers_first() {
+    let ssh_started = Arc::new(std::sync::atomic::AtomicBool::new(false));
+    let flag = ssh_started.clone();
+    let ssh: Dial = Box::pin(async move {
+        flag.store(true, Ordering::SeqCst);
+        Ok("ssh")
+    });
+    let started = tokio::time::Instant::now();
+    let (via, _, _) = race_together(
+        vec![
+            (Via::Hub, after(66, Ok("hub"))),
+            (Via::Wireguard, after(8, Ok("wireguard"))),
+            (Via::Ssh, ssh),
+        ],
+        2,
+        STAGGER,
+    )
+    .await
+    .unwrap();
+    assert_eq!(via, Via::Wireguard);
+    assert_eq!(started.elapsed(), Duration::from_millis(8));
+    assert!(!ssh_started.load(Ordering::SeqCst));
+}
+
+// ---- the opt-in tailnet path (tailnet_carrier.rs, peer_tailnet.rs)
+
+fn tailnet_peer(
+    mode: crate::tailnet_carrier::Mode,
+    calls: &Arc<AtomicUsize>,
+    hint: crate::tailnet::PeerPath,
+) -> Arc<Peer> {
+    use crate::tailnet::{Node, Status};
+    let node = |name: &str, ip: &str, path| Node {
+        path,
+        host_name: name.into(),
+        dns_name: format!("{name}.tail1.ts.net"),
+        os: "linux".into(),
+        login: Some("leo@example.com".into()),
+        tags: vec![],
+        ips: vec![ip.parse().unwrap()],
+        online: true,
+        shared: false,
+    };
+    let status = Status {
+        backend_state: "Running".into(),
+        this: node("mac", "100.64.0.1", crate::tailnet::PeerPath::Unknown),
+        peers: vec![node("box", "100.64.0.2", hint)],
+    };
+    let seen = calls.clone();
+    let snaps = crate::tailnet_carrier::Snapshots::new(Arc::new(move || {
+        seen.fetch_add(1, Ordering::SeqCst);
+        Ok(status.clone())
+    }));
+    let (tx, _rx) = mpsc::channel(8);
+    let peer = Peer::new("box", "ssh://leo@box:7777", Some("t".into()), Some("p".into()), tx);
+    *peer.tailnet.lock().unwrap() = super::super::tailnet_path::State::with(mode, Some(snaps));
+    peer
+}
+
+#[tokio::test]
+async fn the_setting_off_has_no_tailnet_path_and_calls_no_tailscale() {
+    use crate::tailnet::PeerPath;
+    let calls = Arc::new(AtomicUsize::new(0));
+    let peer = tailnet_peer(crate::tailnet_carrier::Mode::Off, &calls, PeerPath::Direct);
+    peer.refresh_tailnet(None).await;
+    tokio::time::sleep(Duration::from_millis(50)).await;
+    assert!(!peer.dial_order().contains(&Via::Tailnet));
+    assert_eq!(calls.load(Ordering::SeqCst), 0);
+}
+
+#[tokio::test]
+async fn a_direct_hint_makes_a_path_that_is_offered_and_derp_is_not_in_direct_only() {
+    use crate::tailnet::PeerPath;
+    use crate::tailnet_carrier::Mode;
+    let calls = Arc::new(AtomicUsize::new(0));
+    let peer = tailnet_peer(Mode::DirectOnly, &calls, PeerPath::Direct);
+    peer.refresh_tailnet(Some(Duration::from_secs(2))).await;
+    assert!(peer.dial_order().contains(&Via::Tailnet), "offered and raced");
+    assert_eq!(calls.load(Ordering::SeqCst), 1);
+
+    let derp = tailnet_peer(Mode::DirectOnly, &calls, PeerPath::Derp);
+    derp.refresh_tailnet(Some(Duration::from_secs(2))).await;
+    assert!(!derp.dial_order().contains(&Via::Tailnet));
+
+    let relayed = tailnet_peer(Mode::On, &calls, PeerPath::Derp);
+    relayed.refresh_tailnet(Some(Duration::from_secs(2))).await;
+    assert!(relayed.dial_order().contains(&Via::Tailnet), "on offers it, in the relayed class");
+}
+
+#[tokio::test]
+async fn a_path_that_stops_being_offered_is_taken_out() {
+    use crate::tailnet::PeerPath;
+    let calls = Arc::new(AtomicUsize::new(0));
+    let peer = tailnet_peer(crate::tailnet_carrier::Mode::DirectOnly, &calls, PeerPath::Direct);
+    peer.refresh_tailnet(Some(Duration::from_secs(2))).await;
+    assert!(peer.dial_order().contains(&Via::Tailnet));
+    peer.apply_tailnet_route(None);
+    assert!(!peer.dial_order().contains(&Via::Tailnet));
+}
+
+#[tokio::test(start_paused = true)]
+async fn a_black_holed_tailnet_path_falls_back_within_the_stagger() {
+    // The tailnet path never answers; the next path starts one stagger later, not after the
+    // black hole's connect deadline.
+    let started = tokio::time::Instant::now();
+    let won = race(vec![(Via::Tailnet, dead()), (Via::Ssh, after(300, Ok("ssh")))], STAGGER).await;
+    let (via, _, failed) = won.expect("ssh opens");
+    assert_eq!(via, Via::Ssh);
+    assert!(failed.is_empty());
+    assert_eq!(started.elapsed(), STAGGER + Duration::from_millis(300));
+}
+
+#[tokio::test]
+async fn lockstep_a_new_client_to_a_server_with_nothing_on_the_tailnet_falls_back() {
+    // An old daemon listens on nothing at its tailnet address: the dial is refused at once.
+    let closed = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let port = closed.local_addr().unwrap().port();
+    drop(closed);
+    let refused = tokio::net::TcpStream::connect(("127.0.0.1", port)).await;
+    assert!(refused.is_err());
+    let won = race(
+        vec![
+            (Via::Tailnet, Box::pin(async { Err("refused".to_owned()) }) as Dial),
+            (Via::Ssh, after(5, Ok("ssh"))),
+        ],
+        STAGGER,
+    )
+    .await;
+    let (via, _, failed) = won.unwrap();
+    assert_eq!(via, Via::Ssh);
+    assert_eq!(failed.len(), 1);
 }

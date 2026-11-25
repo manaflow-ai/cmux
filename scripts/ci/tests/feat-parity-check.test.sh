@@ -55,7 +55,7 @@ printf '[package]\nname = "pinned"\nversion = "0.1.0"\n\n[workspace]\n' >"$W/cra
 printf '[toolchain]\nchannel = "1.90.0"\n' >"$W/crates/pinned/rust-toolchain.toml"
 printf '[toolchain]\nchannel = "1.95.0"\n' >"$W/cmux-tui/rust-toolchain.toml"
 printf '[package]\nname = "off"\nversion = "0.1.0"\n\n[workspace]\n' >"$W/crates/off/Cargo.toml"
-cat >"$W/.github/workflows/swift-packages-linux.yml" <<'YML'
+cat >"$W/.github/workflows/swift-linux-packages.yml" <<'YML'
 jobs:
   packages:
     strategy:
@@ -65,10 +65,16 @@ jobs:
             packages: >-
               Packages/Shared/Port
               Packages/Shared/NoTests
+          - group: one
+            packages: Packages/Shared/Single
+          - group: vendored
+            packages: vendor/sdk-prerelease
     steps:
       - run: echo Packages/Shared/Other
 YML
 touch "$W/Packages/Shared/Port/Tests/.keep" "$W/Packages/Shared/NoTests/Package.swift"
+mkdir -p "$W/Packages/Shared/Single" && touch "$W/Packages/Shared/Single/Package.swift"
+mkdir -p "$W/vendor/sdk-prerelease" && touch "$W/vendor/sdk-prerelease/Package.swift"
 for t in a b; do printf '#!/bin/bash\necho "cpp %s" >> "%s"\n[[ "%s" != "${CPP_RED:-}" ]]\n' "$t" "$TMP/calls" "$t" >"$W/scripts/cmux-next/test-$t-cpp.sh"; done
 printf '#!/bin/bash\necho "run-tests $*" >> "%s"\n' "$TMP/calls" >"$W/web/scripts/run-tests.sh"
 # The web step's bun is the one webviews/package.json pins (scripts/webviews_bun_version.py).
@@ -182,7 +188,7 @@ grep -q '^chromium-host-dispatch.test *FAIL (exit 1)' <<<"$out" || fail "the sum
 rm -rf "$W/scripts/cmux-next/tests"
 rm -f "$TMP/calls"
 
-# swift-portable PKG: swift-packages-linux.yml's build and test, only for a package its matrix lists.
+# swift-portable PKG: swift-linux-packages.yml's build and test, only for a package its matrix lists.
 ARGS=(swift-portable Packages/Shared/Port)
 run CMUX_CI_STEP_KEY=k >/dev/null || fail "swift-portable refused"
 [[ "$(calls)" == "$(printf '%s\n' 'swift 1 build --package-path Packages/Shared/Port --build-tests' 'swift 1 test --package-path Packages/Shared/Port --skip-build --parallel')" ]] || fail "swift-portable: $(calls)"
@@ -194,7 +200,12 @@ rm -f "$TMP/calls"
 ARGS=(swift-portable Packages/Shared/Port)
 rc=0; out=$(run CMUX_CI_STEP_KEY=k FAKE_OS=Darwin) || rc=$?
 [[ "$rc" == 78 ]] || fail "swift-portable on macOS exited $rc, want 78 (no Linux evidence): $out"
-for bad in Packages/Shared/Other Packages/Shared ../Packages/Shared/Port; do
+ARGS=(swift-portable Packages/Shared/Single)
+run CMUX_CI_STEP_KEY=k >/dev/null || fail "swift-portable refused a one-line packages: group"
+ARGS=(swift-portable vendor/sdk-prerelease)
+run CMUX_CI_STEP_KEY=k >/dev/null || fail "swift-portable refused a vendor/ package its matrix lists"
+rm -f "$TMP/calls"
+for bad in Packages/Shared/Other Packages/Shared ../Packages/Shared/Port vendor ../vendor/sdk-prerelease; do
   ARGS=(swift-portable "$bad")
   run CMUX_CI_STEP_KEY=k >/dev/null && fail "swift-portable accepted $bad"
 done
@@ -247,6 +258,66 @@ status=0; out=$(run CMUX_CI_STEP_KEY=k 2>&1) || status=$?
 printf '{"devEngines": {"packageManager": {"name": "bun", "version": "1.4.4"}}}\n' >"$W/webviews/package.json"
 ARGS=(web extra)
 run CMUX_CI_STEP_KEY=k >/dev/null && fail "web accepted an argument"
+# A BASE neither origin nor github.com serves is no verdict (exit 3, the pool poster's setup fault), never
+# exit 1, which the poster reads as the change's red. github.com is pointed at a path that does not exist.
+for mode in clippy-changed react-doctor; do
+  ARGS=("$mode" 0123456789abcdef0123456789abcdef01234567)
+  : >"$TMP/calls"
+  status=0; out=$(run CMUX_CI_STEP_KEY=k GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0="url.file://$TMP/no-such-repo/.insteadOf" GIT_CONFIG_VALUE_0=https://github.com/) || status=$?
+  [[ "$status" == 3 ]] || fail "$mode with an unfetchable BASE must exit 3 (no verdict), got $status: $out"
+  grep -q 'base: cannot fetch' <<<"$out" || fail "$mode did not say BASE is missing: $out"
+  [[ ! -s "$TMP/calls" ]] || fail "$mode ran tools with no BASE: $(calls)"
+done
+# BASE is the base tip; the comparison point is where HEAD meets it, even in a pool worker's depth-1 checkout of HEAD.
+# cmux#53262 (2026-11-24): merge-base found nothing at depth 1, BASE itself stood in, and the panic ratchet charged
+# the branch for a file the base rewrote 20 commits after the branch was cut.
+O="$TMP/origin"
+git_fixture_init "$O" && git -C "$O" config uploadpack.allowAnySHA1InWant true
+oc() { git -C "$O" -c user.email=t@t -c user.name=t commit -q --allow-empty -m "$1"; }
+oc root; for i in 1 2 3; do oc "trunk $i"; done
+fork=$(git -C "$O" rev-parse HEAD)
+git -C "$O" checkout -q -b side; for i in 1 2 3; do oc "side $i"; done
+head=$(git -C "$O" rev-parse HEAD)
+git -C "$O" checkout -q -; for i in $(seq 1 20); do oc "base $i"; done
+tip=$(git -C "$O" rev-parse HEAD)
+P="$TMP/pool"
+git_fixture_init "$P" && git -C "$P" remote add origin "file://$O"
+git -C "$P" fetch -q --no-tags --depth=1 origin "$head" && git -C "$P" checkout -q --detach FETCH_HEAD
+ARGS=(react-doctor "$tip")
+out=$( (cd "$P" && env -i PATH="$TMP/bin:/usr/bin:/bin" HOME="$TMP" CMUX_CI_STEP_KEY=k /bin/bash "$SCRIPT" "${ARGS[@]}") 2>&1) || true
+grep -q "^base: $fork$" <<<"$out" || fail "a depth-1 HEAD must be compared with its merge base $fork, not the tip $tip: $out"
+# clippy-changed: a red clippy step (a compile or manifest red; lints never fail it) already makes the check red,
+# so the panic ratchet, which would lint HEAD and the base again, does not run; a green clippy step runs it.
+C="$TMP/clippy"
+mkdir -p "$C/.github/scripts" "$C/ghostty-next" "$C/cmux-tui/crates/cmux-tailnet" "$C/scripts/ci"
+cat >"$C/.github/scripts/cmux-tui-clippy-changed.py" <<PY
+import os, sys
+open("$TMP/calls", "a").write("clippy-changed " + " ".join(a for a in sys.argv[1:] if a.startswith("--")) + "\\n")
+sys.exit(int(os.environ.get("CLIPPY_RED", "0")) if "--panic-ratchet" not in sys.argv else 0)
+PY
+printf 'import sys\nsys.exit(0)\n' >"$C/.github/scripts/test_cmux_tui_clippy_changed.py"
+: >"$C/.github/scripts/cmux-tui-fmt-changed.py"
+printf 'import sys\nsys.exit(1)\n' >"$C/scripts/ci/cargo_test_verdict.py"
+: >"$C/ghostty-next/build.zig"
+echo 1.24.0 >"$C/cmux-tui/crates/cmux-tailnet/go-version"
+git_fixture_init "$C" && git -C "$C" add -A && git -C "$C" -c user.email=t@t -c user.name=t commit -qm base
+cbase=$(git -C "$C" rev-parse HEAD)
+git -C "$C" -c user.email=t@t -c user.name=t commit -q --allow-empty -m head
+printf '#!/bin/bash\necho "go version go1.24.0 linux/amd64"\n' >"$TMP/bin/go"
+printf '#!/bin/bash\n' >"$TMP/bin/zig"
+chmod +x "$TMP/bin/go" "$TMP/bin/zig"
+ARGS=(clippy-changed "$cbase")
+crun() { (cd "$C" && env -i PATH="$TMP/bin:/usr/bin:/bin" HOME="$TMP" CMUX_CI_STEP_KEY=k "$@" /bin/bash "$SCRIPT" "${ARGS[@]}") 2>&1; }
+: >"$TMP/calls"
+status=0; out=$(crun CLIPPY_RED=1) || status=$?
+[[ "$status" == 1 ]] || fail "clippy-changed with a red clippy step must exit 1, got $status: $out"
+[[ "$(grep -c '^clippy-changed' "$TMP/calls")" == 1 ]] && ! grep -q -- '--panic-ratchet' "$TMP/calls" || fail "the ratchet ran after a red clippy step: $(calls)"
+grep -q '^Rust panic ratchet on changed cmux-tui packages *skip (clippy red)' <<<"$out" || fail "the summary does not say the ratchet was skipped: $out"
+: >"$TMP/calls"
+out=$(crun) || fail "clippy-changed with a green clippy step: $out"
+grep -q -- '--panic-ratchet' "$TMP/calls" || fail "the ratchet did not run after a green clippy step: $(calls)"
+grep -q '^Rust panic ratchet on changed cmux-tui packages *pass' <<<"$out" || fail "no ratchet row: $out"
+rm -f "$TMP/bin/go" "$TMP/bin/zig" "$TMP/calls"
 ARGS=(deploy)
 run CMUX_CI_STEP_KEY=k >/dev/null && fail "accepted an unknown mode"
 [[ -z "$(calls)" ]] || fail "tools ran for a refused request: $(calls)"

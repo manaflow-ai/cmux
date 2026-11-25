@@ -3,22 +3,27 @@
 //! `cmux-chat-index` holds the adapters, root discovery and the merged
 //! index as pure code. This module wires them to the daemon: the login
 //! environment, the guarded-folder refusal, the recorded roots file, one
-//! file-system watcher over the root real paths (FSEvents on macOS, no
-//! polling), and the change feed that `_acpmux/chats_watch` forwards.
+//! file-system watcher over the root real paths (`watch.rs`: FSEvents with a
+//! coalescing latency on macOS, no polling), and the change feed that
+//! `_acpmux/chats_watch` forwards.
 //!
 //! Titles and folders are user data: the cache file is 0600 and nothing
 //! here logs them. Transcripts are read by the adapters only for metadata.
 
 use cmux_json::JsonSet as _;
 
-mod activity;
+pub(crate) mod activity;
 pub(crate) mod brand;
+mod follow;
+#[cfg(target_os = "macos")]
+mod fsevents;
 mod open;
 mod query;
 mod resolve;
 pub mod search;
 mod settings;
 pub(crate) mod sources;
+pub mod terms;
 pub mod text;
 mod watch;
 mod window;
@@ -34,9 +39,7 @@ use cmux_chat_index::{
 use serde_json::{Value, json};
 use tokio::sync::broadcast;
 
-pub use activity::{
-    ActivityCache, ChatActivity, activity_change, changes_activity, session_chat_key,
-};
+pub use activity::{ChatActivity, changes_activity};
 pub use brand::brand_for;
 pub(crate) use open::store_dirs;
 pub use open::{StoreProfile, plan_open, store_profiles};
@@ -162,7 +165,7 @@ impl ChatService {
     fn index_text(&self) {
         let every = ChatQuery { limit: usize::MAX, ..ChatQuery::default() };
         let chats = self.listed_from(&every).unwrap_or_default();
-        self.text.update(&chats, &|entry| transcript_turns(entry).ok());
+        self.text.follow(&chats, &|entry| transcript_turns(entry).ok());
     }
 
     /// What was said in each chat (`text.rs`).
@@ -577,7 +580,8 @@ fn text_path(sources: &ChatSources) -> PathBuf {
 }
 
 /// The text thread reads changed chats this long after a change, so a chat being written is read
-/// once per burst, not per line.
+/// once per burst, not per line (a Claude Code or Codex chat from where its last read ended,
+/// `follow.rs`).
 const TEXT_SETTLE: std::time::Duration = std::time::Duration::from_secs(2);
 
 fn settings_path(sources: &ChatSources) -> PathBuf {
@@ -590,33 +594,31 @@ fn settings_path(sources: &ChatSources) -> PathBuf {
 pub fn transcript_turns(
     entry: &cmux_chat_index::ChatEntry,
 ) -> Result<Vec<cmux_chat_index::transcript::Turn>, cmux_chat_index::transcript::TranscriptError> {
-    use cmux_chat_index::AdapterKind;
-    use cmux_chat_index::transcript::{TranscriptError, Turn, capped};
-    let family = match entry.harness {
-        AdapterKind::ClaudeCode => "claude",
-        AdapterKind::Codex => "codex",
-        kind => {
-            return cmux_chat_index::transcript::read_turns(
-                kind,
-                &entry.source_path,
-                &entry.session_id,
-            );
-        }
+    use cmux_chat_index::transcript::TranscriptError;
+    let Some(family) = follow::family(entry.harness) else {
+        return cmux_chat_index::transcript::read_turns(
+            entry.harness,
+            &entry.source_path,
+            &entry.session_id,
+        );
     };
     // adopt's reader answers an unreadable file with no turns.
     std::fs::File::open(&entry.source_path)
         .map_err(|e| TranscriptError::Unreadable(e.to_string()))?;
     let turns = crate::adopt_replay::read(family, &entry.source_path);
-    Ok(turns
-        .into_iter()
-        .map(|t| Turn {
-            prompt: capped(t.prompt),
-            // No answer yet has no answer time (adopt's reader starts it at the prompt's).
-            answer_at: t.answer_at.filter(|_| !t.answer.is_empty()),
-            answer: capped(t.answer),
-            prompt_at: t.prompt_at,
-        })
-        .collect())
+    Ok(turns.into_iter().map(turn_of).collect())
+}
+
+/// One of adopt's turns as a transcript turn, with the transcript reader's caps.
+fn turn_of(t: crate::adopt_replay::PastTurn) -> cmux_chat_index::transcript::Turn {
+    use cmux_chat_index::transcript::capped;
+    cmux_chat_index::transcript::Turn {
+        prompt: capped(t.prompt),
+        // No answer yet has no answer time (adopt's reader starts it at the prompt's).
+        answer_at: t.answer_at.filter(|_| !t.answer.is_empty()),
+        answer: capped(t.answer),
+        prompt_at: t.prompt_at,
+    }
 }
 
 /// The roots to read under `settings`: none when chats are off; only the
@@ -690,66 +692,13 @@ pub fn change_value(numbered: &SeqChange) -> Value {
     }
 }
 
-impl crate::hub::Hub {
-    /// Starts the chat index once (later calls do nothing). Waits for the
-    /// first scan; `_acpmux/chats` answers `ready: false` until then.
-    pub async fn start_chats(self: &Arc<Self>, sources: ChatSources) -> Result<(), String> {
-        if self.chats.get().is_some() {
-            return Ok(());
-        }
-        let service = tokio::task::spawn_blocking(move || ChatService::start(sources))
-            .await
-            .map_err(|e| format!("chat index start: {e}"))?;
-        let _ = self.chats.set(service.clone());
-        // Taken under the waiters' lock after the set: a later waiter sees the index.
-        let waiters = std::mem::take(&mut *lock(&self.chats_waiters));
-        for waiter in waiters {
-            waiter(&service);
-        }
-        // Settings sent during the first scan went only to the file.
-        tokio::task::spawn_blocking(move || service.reload_settings())
-            .await
-            .map_err(|e| format!("chat settings: {e}"))?;
-        Ok(())
-    }
-
-    /// Applies the app's chat settings; before the index runs, saves them
-    /// for its start. Blocking.
-    pub fn apply_chat_settings(&self, settings: ChatSettings) -> Result<bool, String> {
-        if let Some(service) = self.chats.get() {
-            return service.apply_settings(settings).map(|()| true);
-        }
-        settings
-            .save(&crate::config::home().join("chat-settings.json"))
-            .map_err(|e| format!("save the chat settings: {e}"))?;
-        // The index may have started between the check and the save.
-        match self.chats.get() {
-            Some(service) => {
-                service.reload_settings();
-                Ok(true)
-            }
-            None => Ok(false),
-        }
-    }
-
-    /// Runs `waiter` once the chat index has started: now when it runs.
-    pub fn when_chats_ready(&self, waiter: ChatsWaiter) {
-        let mut waiters = lock(&self.chats_waiters);
-        match self.chats.get() {
-            Some(service) => {
-                drop(waiters);
-                waiter(service);
-            }
-            None => waiters.push(waiter),
-        }
-    }
-
-    pub fn chat_index(&self) -> Option<&Arc<ChatService>> {
-        self.chats.get()
-    }
-}
-
 // What one activity change costs a chat window at 100, 1,000 and 3,000 chats (manual).
 #[cfg(test)]
 #[path = "update_cost_bench.rs"]
 mod update_cost_bench;
+
+// What one appended transcript line costs the chats page's text, god chat and small (manual;
+// it reads Linux's `/proc/self/io`).
+#[cfg(all(test, target_os = "linux"))]
+#[path = "follow_bench.rs"]
+mod follow_bench;

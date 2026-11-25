@@ -5,7 +5,7 @@ import { useT } from "../i18n";
 import { experimentArm } from "../../../experiments/experiment";
 import { hoverActions } from "../../../ui/hoverActions.experiment";
 import { outputWraps, useBlockWrap } from "./blockWrap";
-import { Lines, PreviewMore, WrapButton } from "./BlockParts";
+import { Lines, WrapButton } from "./BlockParts";
 import { lineCount, SIDEWAYS_SCROLLER, usePreview, useSidewaysRef } from "./blockPartsModel";
 import { CopyButton } from "./CopyButton";
 import { ChevronRight } from "./icons";
@@ -13,7 +13,7 @@ import { Markdown } from "./Markdown";
 import { menuPartRef } from "./menuParts";
 import { watchOutputViewport } from "./outputViewport";
 import { OutputMore } from "./toolOutput";
-import { previewedOutput, useOutput } from "./toolOutputModel";
+import { useOutput } from "./toolOutputModel";
 import type { ToolResult } from "./toolResult";
 import { wholeBlocksAfter } from "./markdownCut";
 
@@ -93,7 +93,6 @@ export const ToolOutput = memo(function ToolOutput({
   }
   const [overflows, setOverflows] = useState(false);
   const preview = usePreview(lineCount(raw.text), reveal, overflows);
-  const shown = previewedOutput(raw, preview);
   const markdown = result.lang === "markdown";
   const rendered = markdown && !rawShown;
   const viewport = useCallback(
@@ -120,23 +119,21 @@ export const ToolOutput = memo(function ToolOutput({
             aria-label={t("handoff.tool_output")}
           >
             {/* A cut tail starts at its first whole block: never inside a fence or a span (markdownCut.ts). */}
-            {shown.shown && (
-              <Markdown plainCode>{(shown.cut && wholeBlocksAfter(shown.shown)) || shown.shown}</Markdown>
-            )}
+            {raw.shown && <Markdown plainCode>{(raw.cut && wholeBlocksAfter(raw.shown)) || raw.shown}</Markdown>}
           </div>
         ) : (
           <MonoOutput
-            text={shown.shown ?? ""}
-            cut={shown.cut}
+            text={raw.shown ?? ""}
+            cut={raw.cut}
             preview={preview.attribute}
             lang={result.lang}
             viewport={viewport}
             shaped={shaped}
           />
         )}
-        {/* Show all / Show less is the box's whole bottom row, on its own fill (ExpandRow.tsx). */}
-        <PreviewMore preview={preview} />
-        {!preview.long && <OutputMore output={shown} />}
+        {/* Show all output / Show less, for an output long enough that only its end is drawn, is the
+            box's whole bottom row, on its own fill (ExpandRow.tsx). */}
+        <OutputMore output={raw} />
       </div>
       {markdown && (
         <div className="cv-tool-output__controls" data-find-skip="">

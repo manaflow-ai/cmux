@@ -5,12 +5,14 @@ import SwiftUI
 
 /// The key row (classic cmux iOS's accessory toolbar): pinned at the leading
 /// edge the keyboard key, the joystick and the compose key; then a scroller
-/// of keys that hug their labels, in classic's order, ending in Hide Toolbar.
+/// of keys that hug their labels, in `KeyBarLayout`'s order (classic's, with
+/// the arrows before the agent launchers), ending in Hide Toolbar.
 /// It shows whether or not the keyboard is up. Each key is its own Liquid
 /// Glass cap (classic: `.glass()` / `.prominentGlass()`), in cmux NEXT's
 /// small-radius shape; there is no bar behind them.
 struct TerminalKeyBar: View {
     let model: TerminalModel
+    var layout: KeyBarLayout = .current
     /// Scroller keys clipped at its edges (`KeyBarClipping`): hidden from
     /// accessibility, offered as row actions.
     @State private var clipped = KeyBarClippedKeys()
@@ -24,10 +26,18 @@ struct TerminalKeyBar: View {
             // Its own view, fed only reference types: the per-frame
             // `scrolled` updates below re-evaluate this bar's body, but
             // SwiftUI skips the ~30 glass keys' bodies when their inputs are
-            // unchanged (they were rebuilt every scroll frame: the lag).
-            KeyBarScrollerKeys(model: model, clipped: clipped)
+            // unchanged (they were rebuilt every scroll frame: the lag). The
+            // layout is a plain enum, so it keeps that.
+            KeyBarScrollerKeys(model: model, layout: layout, clipped: clipped)
         }
         .scrollIndicators(.hidden)
+        // At rest a key an edge cuts is not drawn (`KeyBarClipping.isWhole`):
+        // the row ended in a sliver of a key at the trailing edge (iOS release
+        // bar read-back: "no clipped keys"). While the finger scrolls, every
+        // key is drawn.
+        .onScrollPhaseChange { _, phase in
+            if clipped.resting != (phase == .idle) { clipped.resting = phase == .idle }
+        }
         .onScrollGeometryChange(for: CGFloat.self) { geometry in
             geometry.contentOffset.x + geometry.contentInsets.leading
         } action: { _, new in
@@ -81,7 +91,7 @@ struct TerminalKeyBar: View {
         .accessibilityElement(children: .contain)
         .accessibilityLabel("More keys")
         .accessibilityActions {
-            ForEach(KeyBarKey.row.filter { clipped.keys.contains($0) }, id: \.self) { key in
+            ForEach(layout.scroller.filter { clipped.keys.contains($0) }, id: \.self) { key in
                 Button(key.accessibilityLabel) { model.keyBar(key) }
             }
         }
@@ -93,29 +103,50 @@ struct TerminalKeyBar: View {
 @Observable @MainActor
 final class KeyBarClippedKeys {
     private(set) var keys: Set<KeyBarKey> = []
+    /// Keys an edge cuts (not wholly inside the visible bounds).
+    private(set) var cut: Set<KeyBarKey> = []
+    /// The row isn't being scrolled: cut keys are not drawn.
+    var resting = true
 
     func set(_ key: KeyBarKey, clipped: Bool) {
         // Write only on a real change: every write invalidates readers.
         if clipped, !keys.contains(key) { keys.insert(key) }
         if !clipped, keys.contains(key) { keys.remove(key) }
     }
+
+    func set(_ key: KeyBarKey, cut isCut: Bool) {
+        if isCut, !cut.contains(key) { cut.insert(key) }
+        if !isCut, cut.contains(key) { cut.remove(key) }
+    }
+
+    /// Whether `key` is drawn: always while scrolling, at rest only whole.
+    func draws(_ key: KeyBarKey) -> Bool {
+        !(resting && cut.contains(key))
+    }
 }
 
-/// The scroller's keys, in classic's order, ending in Hide Toolbar.
+/// The scroller's keys (`KeyBarLayout`), ending in Hide Toolbar.
 struct KeyBarScrollerKeys: View {
     let model: TerminalModel
+    let layout: KeyBarLayout
     let clipped: KeyBarClippedKeys
 
     var body: some View {
         GlassEffectContainer(spacing: 0) {
             HStack(spacing: TerminalDockMetrics.keySpacing) {
-                ForEach(KeyBarKey.row, id: \.self) { key in
+                ForEach(layout.scroller, id: \.self) { key in
                     KeyBarScrollerKey(key: key, model: model, clipped: clipped)
                 }
             }
             .padding(.trailing, TerminalDockMetrics.horizontalInset)
         }
     }
+}
+
+/// Where a scroller key sits against the row's visible bounds.
+struct KeyBarKeyVisibility: Equatable {
+    var activatable: Bool
+    var whole: Bool
 }
 
 /// One scroller key; it reads only its own clipped flag.
@@ -126,27 +157,35 @@ struct KeyBarScrollerKey: View {
 
     var body: some View {
         let isClipped = clipped.keys.contains(key)
+        let drawn = clipped.draws(key)
         Group {
             if key == .paste {
                 // The system paste control: no "Allow Paste" prompt (Codex QA F14).
+                // It draws its own cap: no glass over it (`PasteKeyCap`).
                 PasteKeyCap(model: model)
                     .frame(width: TerminalDockMetrics.minKeyWidth, height: TerminalDockMetrics.keyRowHeight)
-                    .keyGlass(armed: false)
+                    .clipShape(RoundedRectangle(cornerRadius: KeyRowGlass.cornerRadius, style: .continuous))
             } else {
                 KeyCap(key: key, model: model)
             }
         }
-        .onGeometryChange(for: Bool.self) { proxy in
+        .onGeometryChange(for: KeyBarKeyVisibility.self) { proxy in
             // Measured on iOS 26.5: the scroll view's visible bounds already
             // start after its leading bar (the pinned keys), so a key under
             // them reads as clipped with no offset here.
-            KeyBarClipping().isActivatable(CGRect(origin: .zero, size: proxy.size), in: proxy.bounds(of: .scrollView))
-        } action: { visible in
-            clipped.set(key, clipped: !visible)
+            let frame = CGRect(origin: .zero, size: proxy.size)
+            let visible = proxy.bounds(of: .scrollView)
+            return KeyBarKeyVisibility(activatable: KeyBarClipping().isActivatable(frame, in: visible),
+                                       whole: KeyBarClipping().isWhole(frame, in: visible))
+        } action: { visibility in
+            clipped.set(key, clipped: !visibility.activatable)
+            clipped.set(key, cut: !visibility.whole)
         }
+        .opacity(drawn ? 1 : 0)
+        .animation(.easeOut(duration: 0.15), value: drawn)
         // A key under the pinned keys is neither seen, read nor tapped.
         .accessibilityHidden(isClipped)
-        .allowsHitTesting(!isClipped)
+        .allowsHitTesting(!isClipped && drawn)
     }
 }
 
@@ -189,7 +228,8 @@ struct KeyCap: View {
 
     var body: some View {
         let state = stickyState
-        let locked = state == .locked
+        // Wide shows as a locked key while it is on.
+        let locked = state == .locked || (key == .wide && model.wideOutput)
         let armed = if case .armed = state { true } else { false }
         Button {
             taps += 1
@@ -214,7 +254,7 @@ struct KeyCap: View {
         .buttonRepeatBehavior(key.repeats ? .enabled : .disabled)
         .sensoryFeedback(.impact(weight: .light, intensity: 0.6), trigger: taps)
         .accessibilityLabel(key.accessibilityLabel)
-        .accessibilityValue(locked ? "locked" : armed ? "armed" : "")
+        .accessibilityValue(key == .wide ? (model.wideOutput ? "on" : "off") : locked ? "locked" : armed ? "armed" : "")
         .accessibilityIdentifier("terminal.key.\(key.identifier)")
     }
 }
@@ -250,7 +290,8 @@ struct KeyCapStyle: ButtonStyle {
                     Capsule().fill(Color.cmuxMobileOnAccent).frame(height: 2).padding(.horizontal, 7).padding(.bottom, 2)
                 }
             }
-            .opacity(configuration.isPressed ? 0.7 : 1)
+            .cmuxMobilePressFill(configuration.isPressed,
+                                 in: RoundedRectangle(cornerRadius: KeyRowGlass.cornerRadius, style: .continuous))
             .contentShape(.rect(cornerRadius: KeyRowGlass.cornerRadius, style: .continuous))
     }
 }
@@ -262,6 +303,9 @@ enum KeyRowGlass {
     static let cornerRadius: CGFloat = 8
     /// Space the scroller leaves above and below its keys for the glass's lift on touch.
     static let liftRoom: CGFloat = 8
+    /// Paste's own cap (`PasteKeyCap`): opaque, the tone of a glass key over
+    /// the terminal's black.
+    static let pasteBackground = UIColor(white: 0.2, alpha: 1)
 }
 
 extension View {
@@ -274,6 +318,13 @@ extension View {
 /// The key row's Paste: a `UIPasteControl` that pastes into the terminal
 /// surface. A tap on it is the explicit paste gesture iOS trusts, so it never
 /// raises the "Allow Paste" prompt (Codex QA F14).
+///
+/// iOS draws the control's glyph itself and draws nothing when it cannot
+/// show that glyph plainly: covered by another layer, or with no contrast
+/// to its background. The key drew blank (Leo's screenshot, 2026-11-21)
+/// with a clear background under SwiftUI's glass, which wraps the view in
+/// its own layers. So the control draws its own opaque cap in the glass
+/// keys' tone, with no glass over it.
 struct PasteKeyCap: UIViewRepresentable {
     let model: TerminalModel
 
@@ -281,9 +332,9 @@ struct PasteKeyCap: UIViewRepresentable {
         let configuration = UIPasteControl.Configuration()
         configuration.displayMode = .iconOnly
         configuration.cornerStyle = .medium
-        // The glass behind it is drawn by SwiftUI (`keyGlass`), like every other key.
-        configuration.baseBackgroundColor = .clear
-        configuration.baseForegroundColor = .label
+        // Opaque, near the dark glass keys over the terminal's black.
+        configuration.baseBackgroundColor = KeyRowGlass.pasteBackground
+        configuration.baseForegroundColor = .white
         let control = UIPasteControl(configuration: configuration)
         control.target = model.controller?.surface
         control.accessibilityIdentifier = "terminal.key.paste"

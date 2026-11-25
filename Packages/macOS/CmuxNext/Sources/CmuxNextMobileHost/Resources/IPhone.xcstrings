@@ -400,127 +400,127 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Install cmux on your iPhone and sign in with the same account as this Mac. This Mac then appears under Workspaces."
+            "value": "Install cmux on your iPhone and sign in with the same account as this Mac. This Mac then appears under Workspaces. No cmux on your iPhone yet? It’s in beta: get it through TestFlight."
           }
         },
         "ar": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "ثبّت cmux على جهاز iPhone وسجّل الدخول بالحساب نفسه المستخدم على هذا الـ Mac. سيظهر هذا الـ Mac بعدها ضمن مساحات العمل."
+            "value": "ثبّت cmux على جهاز iPhone وسجّل الدخول بالحساب نفسه المستخدم على هذا الـ Mac. سيظهر هذا الـ Mac بعدها ضمن مساحات العمل. ليس لديك cmux على iPhone بعد؟ إنه في مرحلة تجريبية: احصل عليه عبر TestFlight."
           }
         },
         "bs": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Instalirajte cmux na iPhone i prijavite se istim računom kao na ovom Macu. Ovaj Mac će se zatim pojaviti pod Radnim prostorima."
+            "value": "Instalirajte cmux na iPhone i prijavite se istim računom kao na ovom Macu. Ovaj Mac će se zatim pojaviti pod Radnim prostorima. Još nemate cmux na iPhoneu? U beta je fazi: preuzmite ga putem TestFlighta."
           }
         },
         "da": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Installer cmux på din iPhone, og log ind med samme konto som på denne Mac. Denne Mac vises derefter under Arbejdsområder."
+            "value": "Installer cmux på din iPhone, og log ind med samme konto som på denne Mac. Denne Mac vises derefter under Arbejdsområder. Har du ikke cmux på din iPhone endnu? Den er i beta: hent den via TestFlight."
           }
         },
         "de": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Installiere cmux auf deinem iPhone und melde dich mit demselben Konto wie auf diesem Mac an. Dieser Mac erscheint dann unter „Arbeitsbereiche“."
+            "value": "Installiere cmux auf deinem iPhone und melde dich mit demselben Konto wie auf diesem Mac an. Dieser Mac erscheint dann unter „Arbeitsbereiche“. Noch kein cmux auf deinem iPhone? Es ist in der Beta: Hol es dir über TestFlight."
           }
         },
         "es": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Instala cmux en tu iPhone e inicia sesión con la misma cuenta que en este Mac. Este Mac aparecerá en Espacios de trabajo."
+            "value": "Instala cmux en tu iPhone e inicia sesión con la misma cuenta que en este Mac. Este Mac aparecerá en Espacios de trabajo. ¿Aún no tienes cmux en tu iPhone? Está en beta: consíguelo con TestFlight."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Installez cmux sur votre iPhone et connectez-vous avec le même compte que sur ce Mac. Ce Mac apparaît alors dans Espaces de travail."
+            "value": "Installez cmux sur votre iPhone et connectez-vous avec le même compte que sur ce Mac. Ce Mac apparaît alors dans Espaces de travail. Pas encore cmux sur votre iPhone ? Il est en bêta : obtenez-le via TestFlight."
           }
         },
         "it": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Installa cmux sul tuo iPhone e accedi con lo stesso account di questo Mac. Questo Mac comparirà quindi in Spazi di lavoro."
+            "value": "Installa cmux sul tuo iPhone e accedi con lo stesso account di questo Mac. Questo Mac comparirà quindi in Spazi di lavoro. Non hai ancora cmux sul tuo iPhone? È in beta: scaricalo con TestFlight."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "iPhone に cmux をインストールし、この Mac と同じアカウントでサインインしてください。すると、この Mac がワークスペースに表示されます。"
+            "value": "iPhone に cmux をインストールし、この Mac と同じアカウントでサインインしてください。すると、この Mac がワークスペースに表示されます。iPhoneにまだcmuxがない場合は、ベータ版をTestFlightで入手できます。"
           }
         },
         "km": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "ដំឡើង cmux នៅលើ iPhone របស់អ្នក ហើយចូលដោយប្រើគណនីដូចគ្នានឹង Mac នេះ។ បន្ទាប់មក Mac នេះនឹងបង្ហាញនៅក្រោមកន្លែងធ្វើការ។"
+            "value": "ដំឡើង cmux នៅលើ iPhone របស់អ្នក ហើយចូលដោយប្រើគណនីដូចគ្នានឹង Mac នេះ។ បន្ទាប់មក Mac នេះនឹងបង្ហាញនៅក្រោមកន្លែងធ្វើការ។ មិនទាន់មាន cmux នៅលើ iPhone របស់អ្នកទេ? វាស្ថិតក្នុងកំណែ beta៖ ទាញយកវាតាម TestFlight។"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "iPhone에 cmux를 설치하고 이 Mac과 같은 계정으로 로그인하세요. 그러면 이 Mac이 작업 공간에 표시됩니다."
+            "value": "iPhone에 cmux를 설치하고 이 Mac과 같은 계정으로 로그인하세요. 그러면 이 Mac이 작업 공간에 표시됩니다. iPhone에 아직 cmux가 없나요? 베타 버전을 TestFlight로 받으세요."
           }
         },
         "nb": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Installer cmux på iPhonen og logg på med samme konto som på denne Macen. Denne Macen vises da under Arbeidsområder."
+            "value": "Installer cmux på iPhonen og logg på med samme konto som på denne Macen. Denne Macen vises da under Arbeidsområder. Har du ikke cmux på iPhonen ennå? Den er i beta: hent den via TestFlight."
           }
         },
         "pl": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Zainstaluj cmux na iPhonie i zaloguj się tym samym kontem co na tym Macu. Ten Mac pojawi się wtedy w obszarach roboczych."
+            "value": "Zainstaluj cmux na iPhonie i zaloguj się tym samym kontem co na tym Macu. Ten Mac pojawi się wtedy w obszarach roboczych. Nie masz jeszcze cmux na iPhonie? Jest w wersji beta: pobierz go przez TestFlight."
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Instale o cmux no seu iPhone e entre com a mesma conta deste Mac. Este Mac aparecerá em Espaços de trabalho."
+            "value": "Instale o cmux no seu iPhone e entre com a mesma conta deste Mac. Este Mac aparecerá em Espaços de trabalho. Ainda não tem o cmux no iPhone? Ele está em beta: baixe pelo TestFlight."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Установите cmux на iPhone и войдите в ту же учётную запись, что и на этом Mac. После этого Mac появится в разделе «Рабочие пространства»."
+            "value": "Установите cmux на iPhone и войдите в ту же учётную запись, что и на этом Mac. После этого Mac появится в разделе «Рабочие пространства». Ещё нет cmux на iPhone? Он в бета-версии: установите его через TestFlight."
           }
         },
         "th": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "ติดตั้ง cmux บน iPhone แล้วลงชื่อเข้าใช้ด้วยบัญชีเดียวกับ Mac เครื่องนี้ จากนั้น Mac เครื่องนี้จะแสดงในพื้นที่ทำงาน"
+            "value": "ติดตั้ง cmux บน iPhone แล้วลงชื่อเข้าใช้ด้วยบัญชีเดียวกับ Mac เครื่องนี้ จากนั้น Mac เครื่องนี้จะแสดงในพื้นที่ทำงาน ยังไม่มี cmux บน iPhone ใช่ไหม แอปอยู่ในช่วงเบต้า: ดาวน์โหลดผ่าน TestFlight"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "iPhone’unuza cmux’i yükleyin ve bu Mac’teki hesapla giriş yapın. Bu Mac daha sonra Çalışma Alanları altında görünür."
+            "value": "iPhone’unuza cmux’i yükleyin ve bu Mac’teki hesapla giriş yapın. Bu Mac daha sonra Çalışma Alanları altında görünür. iPhone’unda henüz cmux yok mu? Beta aşamasında: TestFlight üzerinden edin."
           }
         },
         "uk": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Установіть cmux на iPhone і увійдіть у той самий обліковий запис, що й на цьому Mac. Після цього Mac з’явиться в розділі «Робочі простори»."
+            "value": "Установіть cmux на iPhone і увійдіть у той самий обліковий запис, що й на цьому Mac. Після цього Mac з’явиться в розділі «Робочі простори». Ще немає cmux на iPhone? Він у бета-версії: установіть його через TestFlight."
           }
         },
         "vi": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Cài cmux trên iPhone và đăng nhập bằng cùng tài khoản với máy Mac này. Sau đó máy Mac này sẽ xuất hiện trong mục Không gian làm việc."
+            "value": "Cài cmux trên iPhone và đăng nhập bằng cùng tài khoản với máy Mac này. Sau đó máy Mac này sẽ xuất hiện trong mục Không gian làm việc. Chưa có cmux trên iPhone? Ứng dụng đang ở bản beta: tải qua TestFlight."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "在 iPhone 上安装 cmux，并使用与这台 Mac 相同的账户登录。之后这台 Mac 会显示在“工作区”中。"
+            "value": "在 iPhone 上安装 cmux，并使用与这台 Mac 相同的账户登录。之后这台 Mac 会显示在“工作区”中。iPhone 上还没有 cmux？它正在测试中：可通过 TestFlight 获取。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "在 iPhone 上安裝 cmux，並使用與這台 Mac 相同的帳號登入。之後這台 Mac 會顯示在「工作區」中。"
+            "value": "在 iPhone 上安裝 cmux，並使用與這台 Mac 相同的帳號登入。之後這台 Mac 會顯示在「工作區」中。iPhone 上還沒有 cmux？它正在測試中：可透過 TestFlight 取得。"
           }
         }
       }
@@ -1442,138 +1442,7 @@
         }
       }
     },
-"iphone.pair.phoneAccessTitle": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Allow “%1$@” (%2$@) to use this Mac?"
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "السماح لـ «%1$@» (%2$@) باستخدام هذا الـ Mac؟"
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Dozvoliti da „%1$@“ (%2$@) koristi ovaj Mac?"
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Tillade “%1$@” (%2$@) at bruge denne Mac?"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "„%1$@“ (%2$@) erlauben, diesen Mac zu verwenden?"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "¿Permitir que “%1$@” (%2$@) use este Mac?"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Autoriser « %1$@ » (%2$@) à utiliser ce Mac ?"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Consentire a “%1$@” (%2$@) di usare questo Mac?"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "“%1$@”（%2$@）にこの Mac の使用を許可しますか？"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "អនុញ្ញាតឱ្យ “%1$@” (%2$@) ប្រើ Mac នេះឬ?"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "“%1$@” (%2$@)이(가) 이 Mac을 사용하도록 허용하시겠습니까?"
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Vil du tillate at «%1$@» (%2$@) bruker denne Macen?"
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Zezwolić urządzeniu „%1$@” (%2$@) na korzystanie z tego Maca?"
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Permitir que “%1$@” (%2$@) use este Mac?"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Разрешить «%1$@» (%2$@) использовать этот Mac?"
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "อนุญาตให้ “%1$@” (%2$@) ใช้ Mac เครื่องนี้หรือไม่"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "“%1$@” (%2$@) bu Mac’i kullanabilsin mi?"
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Дозволити «%1$@» (%2$@) використовувати цей Mac?"
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Cho phép “%1$@” (%2$@) sử dụng máy Mac này?"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "允许“%1$@”（%2$@）使用这台 Mac 吗？"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "允許「%1$@」（%2$@）使用這台 Mac 嗎？"
-          }
-        }
-      }
-    },
-"iphone.phone.transport.next": {
+    "iphone.phone.transport.next": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -1704,7 +1573,7 @@
         }
       }
     },
-"iphone.phone.transport.ios": {
+    "iphone.phone.transport.ios": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -2486,6 +2355,137 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "中繼 (TURN/TLS)"
+          }
+        }
+      }
+    },
+    "iphone.path.httpsRelay": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Relayed (cmux over HTTPS)"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "عبر مُرحِّل (cmux, HTTPS)"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Preko releja (cmux, HTTPS)"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Videresendt (cmux, HTTPS)"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Über Relay (cmux, HTTPS)"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Retransmitida (cmux, HTTPS)"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Relayée (cmux, HTTPS)"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tramite relay (cmux, HTTPS)"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "中継 (cmux, HTTPS)"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "តាមរយៈការបញ្ជូនត (cmux, HTTPS)"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "중계(cmux, HTTPS)"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Videresendt (cmux, HTTPS)"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Przez przekaźnik (cmux, HTTPS)"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Retransmitida (cmux, HTTPS)"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Через ретранслятор (cmux, HTTPS)"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ผ่านรีเลย์ (cmux, HTTPS)"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Aktarmalı (cmux, HTTPS)"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Через ретранслятор (cmux, HTTPS)"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Qua chuyển tiếp (cmux, HTTPS)"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "中继 (cmux, HTTPS)"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "中繼 (cmux, HTTPS)"
           }
         }
       }
@@ -7071,137 +7071,6 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "選擇「不允許」後，來自此帳號的新要求會在 10 分鐘內被忽略；同時出現過多要求時也會被忽略。"
-          }
-        }
-      }
-    },
-    "iphone.pair.irohBody": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "It can use this Mac’s terminals and agent chats. Remove it in Settings > Mobile to ask again."
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "يمكنه استخدام وحدات الطرفية ومحادثات الوكلاء على هذا الـ Mac. أزله من الإعدادات > الهاتف المحمول لطلب الإذن مجددًا."
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Može koristiti terminale i razgovore s agentima na ovom Macu. Uklonite ga u Postavke > Mobilni uređaji da biste ponovo zatražili dozvolu."
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Den kan bruge terminaler og agentchats på denne Mac. Fjern den under Indstillinger > Mobil for at spørge igen."
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Es kann die Terminals und Agent-Chats dieses Macs verwenden. Entferne es unter Einstellungen > Mobil, damit erneut gefragt wird."
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Puede usar los terminales y chats de agentes de este Mac. Elimínalo en Ajustes > Móvil para volver a solicitar permiso."
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Il peut utiliser les terminaux et les discussions avec les agents de ce Mac. Supprimez-le dans Réglages > Mobile pour demander à nouveau."
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Può usare i terminali e le chat degli agenti di questo Mac. Rimuovilo in Impostazioni > Dispositivi mobili per chiedere di nuovo."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "このMacのターミナルとエージェントチャットを使用できます。もう一度確認するには「設定 > モバイル」で削除してください。"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "វាអាចប្រើស្ថានីយ និងការជជែកជាមួយភ្នាក់ងាររបស់ Mac នេះ។ ដកវាចេញនៅក្នុងការកំណត់ > ទូរសព្ទ ដើម្បីសួរម្តងទៀត។"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "이 Mac의 터미널과 에이전트 채팅을 사용할 수 있습니다. 다시 묻도록 하려면 설정 > 모바일에서 제거하세요."
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Den kan bruke terminalene og agentchattene på denne Macen. Fjern den under Innstillinger > Mobil for å spørre på nytt."
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Może korzystać z terminali i czatów agentów na tym Macu. Usuń go w Ustawienia > Urządzenia mobilne, aby ponownie zapytać."
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Ele pode usar os terminais e chats de agentes deste Mac. Remova-o em Ajustes > Dispositivos móveis para perguntar novamente."
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Он может использовать терминалы и чаты агентов на этом Mac. Удалите его в Настройки > Мобильные устройства, чтобы снова запросить разрешение."
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "อุปกรณ์นี้สามารถใช้เทอร์มินัลและแชทของเอเจนต์บน Mac เครื่องนี้ได้ ลบอุปกรณ์ใน การตั้งค่า > มือถือ เพื่อให้ถามอีกครั้ง"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Bu Mac’in terminallerini ve aracı sohbetlerini kullanabilir. Yeniden sorulması için Ayarlar > Mobil bölümünden kaldırın."
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Він може використовувати термінали та чати агентів на цьому Mac. Видаліть його в Параметри > Мобільні пристрої, щоб знову запитати дозвіл."
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Thiết bị có thể dùng các cửa sổ dòng lệnh và cuộc trò chuyện với tác nhân trên máy Mac này. Xóa thiết bị trong Cài đặt > Di động để hỏi lại."
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "它可以使用这台 Mac 的终端和智能体聊天。在“设置 > 移动设备”中移除它，即可再次询问。"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "它可以使用這部 Mac 的終端機和代理程式聊天。在「設定 > 行動裝置」中移除它，即可再次詢問。"
           }
         }
       }

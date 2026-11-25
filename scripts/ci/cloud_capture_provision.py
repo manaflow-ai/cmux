@@ -9,8 +9,8 @@ account without anyone holding its password:
 2. Set a fresh random password and the operator plan grant `cmuxVmPlan: "pro"` (the key Cloud's
    entitlements read; other metadata on the account is kept).
 3. Check the password signs in (client API) and the grant reads back.
-4. Seal the email and the password to the capture environment's GitHub public key (pinned below,
-   sealed_secrets.py) and write only that ciphertext bundle.
+4. Seal the email and the password to every destination environment's GitHub public key (pinned below,
+   sealed_secrets.py) and write only ciphertext bundles.
 
 The password is generated here, masked in the job log the moment it exists, sent only to Stack over
 TLS, sealed, and dropped. It is never printed, written to disk, put in an environment variable or an
@@ -26,7 +26,9 @@ teams/received.ts answers email_mismatch), so HQ's team invite readback could ne
 made above is created verified; this does the same for one made some other way.
 
 `--target journey` does the same for the Cloud journey's own staging account, sealed to this repository's
-cmux-next-vm-image-dev environment as CMUX_DOGFOOD_STACK_EMAIL and _PASSWORD (TARGETS below).
+cmux-next-vm-image-dev environment as CMUX_DOGFOOD_STACK_EMAIL and _PASSWORD and to the
+cmux-next-cloud-journey environment as CMUX_STAGING_STACK_EMAIL and _PASSWORD (TARGETS below). The latter names
+are staging-only and do not overwrite the production CMUX_DOGFOOD_STACK_* pair.
 
 `--target journey-guest` makes a second staging account (cmux-cloud-capture-guest@manaflow.dev, display name
 "Capture Guest", a profile image), sealed to the same cmux-next-vm-image-dev environment as
@@ -80,8 +82,8 @@ CMUX_DOGFOOD_STACK_EMAIL and _PASSWORD (cloud-journey-prod.yml, backend.yml jour
 production projects), sealed to manaflow-ai/cmux-platform's repository secrets (no environment: its ci.yml job has
 none) as CMUX_DOGFOOD_STACK_* and CMUX_JOURNEY_PROD_STACK_*, which its deploy journeys read.
 
-Runs in .github/workflows/cloud-capture-provision.yml (environment cloud-vm-staging). The bundle is
-stored with `python3 scripts/ci/sealed_secrets.py put BUNDLE`; docs/ci-sealed-secrets.md.
+Runs in .github/workflows/cloud-capture-provision.yml (environment cloud-vm-staging). Bundles are
+stored with `python3 scripts/ci/sealed_secrets.py put BUNDLE_OR_DIRECTORY`; docs/ci-sealed-secrets.md.
 Standard library only, plus the system libsodium.
 """
 from __future__ import annotations
@@ -92,6 +94,7 @@ import os
 import re
 import secrets
 import sys
+from pathlib import Path
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -112,6 +115,18 @@ PLAN_KEY, PLAN = "cmuxVmPlan", "pro"
 COMPANY_TEAM_ID = "d13acd51-c77d-438a-9610-5369455e2a2f"
 
 
+class Destination:
+    """One sealed-secrets destination for a provisioned account."""
+
+    def __init__(self, repo, environment, key_id, key, email_secret, password_secret):
+        self.repo = repo
+        self.environment = environment
+        self.key_id = key_id
+        self.key = key
+        self.email_secret = email_secret
+        self.password_secret = password_secret
+
+
 class Target:
     """One staging test account and where its credential is sealed. A rotated GitHub key changes key_id;
     `put` then refuses the bundle and the pin here is updated. GitHub gives both environments below the same
@@ -119,7 +134,7 @@ class Target:
     `put` checks both against the live key."""
 
     def __init__(self, email, display_name, repo, environment, key_id, key, email_secret, password_secret,
-                 project=STAGING_PROJECT_ID, profile_image_url=None, team_id=None):
+                 project=STAGING_PROJECT_ID, profile_image_url=None, team_id=None, destinations=None):
         self.email, self.display_name, self.project = email, display_name, project
         # The Stack team the account is made a member of on every run; None keeps it out of every team. An account
         # with a team shares that team's machines with its people, so it may never take a carrier fault: cmux-tui
@@ -129,6 +144,9 @@ class Target:
         self.profile_image_url = profile_image_url
         self.repo, self.environment, self.key_id, self.key = repo, environment, key_id, key
         self.email_secret, self.password_secret = email_secret, password_secret
+        self.destinations = tuple(destinations or (
+            Destination(repo, environment, key_id, key, email_secret, password_secret),
+        ))
 
 
 TARGETS = {
@@ -142,7 +160,15 @@ TARGETS = {
     # jobs in that environment see this one.
     "journey": Target("cmux-cloud-capture-journey@manaflow.dev", "cmux cloud journey", "manaflow-ai/cmux",
                       "cmux-next-vm-image-dev", "3380204578043523366", "wOq7reXDAHystKwvJikDgeR+KKcU8k+s8gV/E0CHzVk=",
-                      "CMUX_DOGFOOD_STACK_EMAIL", "CMUX_DOGFOOD_STACK_PASSWORD"),
+                      "CMUX_DOGFOOD_STACK_EMAIL", "CMUX_DOGFOOD_STACK_PASSWORD",
+                      destinations=(
+                          Destination("manaflow-ai/cmux", "cmux-next-vm-image-dev", "3380204578043523366",
+                                      "wOq7reXDAHystKwvJikDgeR+KKcU8k+s8gV/E0CHzVk=",
+                                      "CMUX_DOGFOOD_STACK_EMAIL", "CMUX_DOGFOOD_STACK_PASSWORD"),
+                          Destination("manaflow-ai/cmux", "cmux-next-cloud-journey", "3380204578043523366",
+                                      "phe+RfKRmKGeO9B3rCULM4jdTzJX8aS7LbvGrIoTFWM=",
+                                      "CMUX_STAGING_STACK_EMAIL", "CMUX_STAGING_STACK_PASSWORD"),
+                      )),
     # The journey account's guest: a second staging account for two-account tests (a chat share: one owner, one
     # guest), in the same environment under its own secret names, so the journey's pair is never shadowed.
     "journey-guest": Target("cmux-cloud-capture-guest@manaflow.dev", "Capture Guest", "manaflow-ai/cmux",
@@ -392,13 +418,22 @@ def join_team(stack, user_id, team_id, log=print):
     return action
 
 
+def write_bundles(out, bundles):
+    """Write one legacy bundle or a directory of bundles without ever writing plaintext."""
+    if len(bundles) == 1:
+        sealed_secrets.write_bundle(out, bundles[0])
+        return
+    root = Path(out)
+    root.mkdir(parents=True, exist_ok=True)
+    for index, bundle in enumerate(bundles, 1):
+        sealed_secrets.write_bundle(root / f"bundle-{index:02d}.json", bundle)
+
+
 def provision(stack, out, log=print, lib=None, key_id=None, key=None, make_password=new_password, target=CAPTURE):
-    """Find or create TARGET's account, rotate its password, check it, write the sealed bundle to OUT.
+    """Find or create TARGET's account, rotate its password, check it, write all sealed bundles to OUT.
     Returns "created" or "rotated"."""
     if stack.project_id != target.project:
         raise ProvisionError("the Stack project is not the target's project; refusing to touch it")
-    key_id = target.key_id if key_id is None else key_id
-    key = target.key if key is None else key
     email = target.email
     password = make_password()
     try:
@@ -417,16 +452,24 @@ def provision(stack, out, log=print, lib=None, key_id=None, key=None, make_passw
             raise ProvisionError("the new password did not sign in")
         if target.team_id:
             join_team(stack, user["id"], target.team_id, log)
-        bundle = sealed_secrets.seal_bundle(target.repo, target.environment, key_id, key,
-                                            {target.email_secret: email, target.password_secret: password}, lib)
+        bundles = []
+        for destination in target.destinations:
+            destination_key_id = destination.key_id if key_id is None else key_id
+            destination_key = destination.key if key is None else key
+            bundles.append(sealed_secrets.seal_bundle(
+                destination.repo, destination.environment, destination_key_id, destination_key,
+                {destination.email_secret: email, destination.password_secret: password}, lib))
     finally:
         # Python cannot wipe a str; dropping the only reference is what is possible. The process ends next.
         password = None  # noqa: F841
-    sealed_secrets.write_bundle(out, bundle)
+    write_bundles(out, bundles)
     where = "production" if target.project == PRODUCTION_PROJECT_ID else "staging"
+    destinations = "; ".join(
+        f"{sealed_secrets.where(bundle)[1]} ({', '.join(sorted(bundle['secrets']))}; key_id {bundle['key_id']})"
+        for bundle in bundles
+    )
     log(f"{action} the {where} test account {email}, Stack user id {user['id']} (plan {PLAN}); sealed "
-        f"{target.email_secret} and {target.password_secret} to {sealed_secrets.where(bundle)[1]} "
-        f"(key_id {key_id})")
+        f"{len(bundles)} destination bundle(s): {destinations} (plaintext is never logged)")
     return action
 
 

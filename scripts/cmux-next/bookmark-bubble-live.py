@@ -113,7 +113,7 @@ try:
     if not focus_windows():
         rpc("action.run", {"action": "newWindow", "origin": "script"})
     WINDOW = (quiet_wait(focus_windows, 60) or [{}])[0].get("id")
-    print("open", rpc("action.run", {"action": "openBrowser.webkit", "args": {"url": "https://example.com/"}, "focus": True}), flush=True)
+    safe_print("open", rpc("action.run", {"action": "openBrowser.webkit", "args": {"url": "https://example.com/"}, "focus": True}), flush=True)
     omnibar = lambda: rpc("debug.omnibar", {"window": WINDOW}) or {}
     check(bool(quiet_wait(lambda: "example.com" in (omnibar().get("text") or ""), 60)), "the tab shows example.com")
     main = next((w for w in windows() if w.get("kind") == "main" and w.get("visible")), None)
@@ -141,7 +141,7 @@ try:
     # 1. Opens under the star as a child panel of the browser window.
     bubble = open_bubble("bookmark.addPage")
     first = saved()
-    print("bookmarks after the add", first, flush=True)
+    safe_print("bookmarks after the add", first, flush=True)
     check(len(first) == 1, f"the star bookmarked the page once: {first}")
     if bubble and main:
         check(bubble.get("parent") == main.get("id"), f"the bubble is a child of the browser window: {bubble.get('parent')} vs {main.get('id')}")
@@ -168,7 +168,7 @@ try:
             path = os.path.join(opts.out, f"bubble-{mode}.png")
             result = subprocess.run(["bash", cap, "shot", "--pid", str(app.pid), "--with-popups", "--out", path],
                                     capture_output=True, text=True)
-            print(f"capture {mode} rc={result.returncode} {os.path.exists(path)}", flush=True)
+            safe_print(f"capture {mode} rc={result.returncode} {os.path.exists(path)}", flush=True)
     # 2. The star toggles it.
     rpc("action.run", {"action": "bookmark.addPage", "focus": True})
     check(bool(quiet_wait(lambda: not bubbles(), 5)), "bookmark.addPage again closes the bubble")
@@ -209,18 +209,23 @@ try:
 
     # 5. A star pressed before the page has a title: the name follows the title.
     quiet_wait(lambda: not [w for w in windows() if w.get("kind") == "bookmarks.edit" and w.get("visible")], 5)
-    rpc("action.run", {"action": "openBrowser.webkit", "args": {"url": "https://example.org/"}, "focus": True})
+    opened_org = rpc("action.run", {"action": "openBrowser.webkit", "args": {"url": "https://example.org/"}, "focus": True})
+    org_tab = next((t for t in (opened_org or {}).get("created") or [] if str(t).startswith("tab_")), None)
     # The star needs the page's URL; press it as soon as the tab has one, before the title loads.
     # Press again only while the star refuses (no URL yet): a second accepted press would close it.
     quiet_wait(lambda: "error" not in (rpc("action.run", {"action": "bookmark.addPage", "focus": True}) or {"error": 1}), 20)
     org = lambda: [r.get("title") for r in (rpc("bookmark.list", {"text": "example.org"}) or {}).get("bookmarks") or []]
     early = org()
-    print("example.org bookmark right after the star", early, flush=True)
+    safe_print("example.org bookmark right after the star", early, flush=True)
     check(bool(quiet_wait(bubbles, 5)), "the star opens the bubble on a page still loading")
     late = not any(t and "Example" in t for t in early)
-    print("late title tested" if late else "NOTE late title not tested: the page had its title before the star", flush=True)
+    safe_print("late title tested" if late else "NOTE late title not tested: the page had its title before the star", flush=True)
     quiet_wait(lambda: "example.org" in (omnibar().get("text") or ""), 30)
-    time.sleep(10.0)  # proof only: the page title loads and hops into the open bubble (no title RPC)
+    # The page's title has loaded (browser.page.state), then it hops into the open bubble: the bookmark takes it
+    # when the bubble writes it live, else the second press below saves it.
+    if not (org_tab and quiet_wait(lambda: "Example" in ((rpc("browser.page.state", {"tab": org_tab}) or {}).get("title") or ""), 30)):
+        safe_print(f"NOTE example.org's title not seen in browser.page.state (tab {org_tab}) within 30 s", flush=True)
+    quiet_wait(lambda: any(t and "Example" in t for t in org()), 3)
     rpc("action.run", {"action": "bookmark.addPage", "focus": True})
     quiet_wait(lambda: not bubbles(), 5)
     titles = quiet_wait(lambda: [t for t in org() if t], 10) or org()
@@ -268,7 +273,8 @@ try:
         # The first real click activates the app (a click on the page; the star takes no first mouse).
         bar = ((omnibar().get("pointer") or {}).get("frames") or {}).get("bar") or [300, 30, 300, 24]
         real_click("activate", bar[0] + bar[2] / 2, bar[1] + bar[3] + 150)
-        time.sleep(1.0)  # proof only: activation
+        if not quiet_wait(lambda: (rpc("debug.focus") or {}).get("app_active"), 10):
+            safe_print("NOTE the app did not report itself active within 10 s of the real click", flush=True)
 
         rpc("action.run", {"action": "bookmark.addPage", "focus": True}) if bubbles() else None
         quiet_wait(lambda: not bubbles(), 5)

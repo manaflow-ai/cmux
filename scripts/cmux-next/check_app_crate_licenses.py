@@ -55,12 +55,17 @@ FIRST_PARTY_GPL = {
     "cmux-tasks-core",
     "cmux-bookmarks-core",
     "cmux-cloud-start-core",
+    "cmux-tab-discard",
     "cmux-cloud-config",
+    "cmux-cloud-environment",
+    "cmux-build-space",
     "cmux-cloud-tasks",
     "cmux-cookie-sync",
     "cmux-daemon-conn-core",
     "cmux-daemon-launch-core",
     "cmux-health-core",
+    "cmux-launch-image",
+    "cmux-pane-pictures",
     "cmux-local-auth",
     "cmux-palette-ranker",
     "cmux-remote-browser",
@@ -144,6 +149,13 @@ def check(metadata, root_name):
     return problems
 
 
+def stale_lock_explained(repo, stderr):
+    """True when cargo's STDERR is its stale-lock refusal: cargo-locks.py explain has then printed the cause and
+    the fix."""
+    explain = [sys.executable, str(repo / "scripts/cmux-next/cargo-locks.py"), "explain", "-", "--repo", str(repo)]
+    return subprocess.run(explain, input=stderr, text=True).returncode == 0
+
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--manifest", action="append")
@@ -153,13 +165,14 @@ def main():
     repo = pathlib.Path(__file__).resolve().parents[2]
     problems = []
     for manifest, root in roots:
-        out = subprocess.run(
-            ["cargo", "metadata", "--locked", "--format-version", "1", "--manifest-path", str(repo / manifest)],
-            check=True,
-            capture_output=True,
-            text=True,
-        ).stdout
-        problems += check(json.loads(out), root)
+        command = ["cargo", "metadata", "--locked", "--format-version", "1", "--manifest-path", str(repo / manifest)]
+        result = subprocess.run(command, capture_output=True, text=True)
+        if result.returncode != 0:
+            # A stale lock is named as such (cargo-locks.py explain); any other failure raises as before.
+            if stale_lock_explained(repo, result.stderr):
+                return 1
+            raise subprocess.CalledProcessError(result.returncode, command, result.stdout, result.stderr)
+        problems += check(json.loads(result.stdout), root)
     for p in problems:
         print(f"error: {p}", file=sys.stderr)
     if problems:

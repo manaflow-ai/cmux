@@ -66,15 +66,18 @@ import Testing
         #expect(square == max(0, Metrics.standardWindowCornerRadius - CGFloat(inset)), "fullscreen keeps the windowed radius")
     }
 
-    /// By default the curved main pane is concentric with the window across the gutter, whatever the
-    /// window's radius; `layout.paneCornerRadius` still sets it.
+    /// By default the curved main pane rounds from its tabs (Chrome's tab radius plus the pill's inset),
+    /// at most the window's radius; `layout.paneCornerRadius` still sets it.
     @Test(arguments: [10.0, 16.0, 26.0])
-    func theMainPaneIsConcentricWithTheWindow(window: Double) {
+    func theMainPaneRoundsFromItsTabs(window: Double) {
         defer { load() }
         load()
         let gutter = Metrics.mainPaneGutter
         #expect(gutter > 0, "the default card has a gutter")
-        #expect(Metrics.mainPaneCornerRadius(windowCornerRadius: CGFloat(window)) == max(0, CGFloat(window) - gutter),
+        // Lawrence 2026-11-11, "same roundness as chrome": the card rounds from Chrome's tab radius
+        // plus the pill's inset, so the tabs stay concentric with it, at most the window's radius.
+        #expect(Metrics.mainPaneCornerRadius(windowCornerRadius: CGFloat(window))
+                == min(Metrics.chromeRowCornerRadius(height: Metrics.tabHeight) + Metrics.tabStripCardInset, CGFloat(window)),
                 "a \(window) pt window, \(gutter) pt gutter")
         load(radius: 12)
         #expect(Metrics.mainPaneCornerRadius(windowCornerRadius: CGFloat(window)) == min(12, CGFloat(window)), "the setting wins")
@@ -85,32 +88,16 @@ import Testing
     @Test func theTabsNestInTheWindowConcentricCard() {
         defer { load() }
         load()
-        let card = Metrics.standardWindowCornerRadius - Metrics.mainPaneGutter
+        let card = Metrics.chromeRowConcentricCardRadius(windowCornerRadius: Metrics.standardWindowCornerRadius)
         #expect(Metrics.tabStripCardRadius == card)
-        // At Default the tab takes the workspace row's Codex corner instead (Metrics.tabRowCornerRadius, tabs follow rows).
-        #expect(Metrics.tabCornerRadius == Metrics.tabRowCornerRadius ?? min(max(0, card - Metrics.tabStripCardInset), Metrics.tabHeight / 2))
+        #expect(Metrics.tabCornerRadius == Metrics.chromeRowCornerRadius(height: Metrics.tabHeight), "Chrome's tab radius")
+        #expect(Metrics.tabCornerRadius == min(max(0, card - Metrics.tabStripCardInset), Metrics.tabHeight / 2))
     }
 
-    /// The ⋮ in the card's top-trailing corner is concentric with it: the card's radius less the
-    /// button's inset (it was the 4 pt item radius).
-    @Test func theMoreButtonIsConcentricWithItsCorner() {
-        defer { load() }
-        load()
-        let card = Metrics.standardWindowCornerRadius - Metrics.mainPaneGutter
-        let inset = PaneToolbarView.trailingGap
-        let side = TitlebarBandButton.side
-        #expect(PaneToolbarView.moreCornerRadius(inset: inset) == min(max(0, card - inset), side / 2))
-        let toolbar = PaneToolbarView(frame: NSRect(x: 0, y: 0, width: 160, height: Metrics.tabStripHeight))
-        toolbar.moreButton.hoverStyle = .plate
-        toolbar.show([], more: true, lit: false)
-        toolbar.layoutSubtreeIfNeeded()
-        toolbar.moreButton.updateLayer()
-        #expect(toolbar.moreButton.layer?.cornerRadius == min(max(0, card - inset), side / 2))
-    }
-
-    /// The default top row keeps the gutter at the card's top as at its sides (an even inset), and
-    /// the controls center on the pills' line there.
-    @Test func theCardsTopInsetEqualsItsSideInset() throws {
+    /// The default top row starts its strip under the window's rim (user 2026-11-19: "top padding is not equal to left
+    /// padding for the tab"): the card's top is the rim, not the side gutter, so the one strip padding inside the strip is
+    /// the whole gap above the tabs, as it is beside the first and under them, and the controls center on the pills' line.
+    @Test func theTopRowStripStartsUnderTheWindowsRim() throws {
         defer { load() }
         load()
         #expect(TopRowLineLook.tunable.defaultValue == .concentric)
@@ -128,11 +115,13 @@ import Testing
         let root = NSView(frame: NSRect(x: 0, y: 0, width: 1000, height: 640))
         window.contentView = root
         let gutter = Metrics.mainPaneGutter
-        let side = Metrics.windowEdgeInset(gutter, in: window)
+        let rim = WindowTitlebar.topRowRim(in: window)
         let top = WindowTitlebar.cardTopInset(of: root, minimal: true, gutter: gutter)
-        #expect(top == side, "the card is \(top) pt below the window's top, \(side) pt from its side")
+        #expect(top == rim, "the card is \(top) pt below the window's top, its rim is \(rim)")
         let line = try #require(WindowTitlebar.topRowLine(in: window, look: .concentric))
-        #expect(line.centerY == side + TopRowLine.tabsCenterY(.current, scale: window.backingScaleFactor),
-                "the controls center on the pills, which sit in their strip as in every row")
+        // The pills keep the strip padding above them (from under the rim) as below them, and the controls center on them.
+        let row = PaneChromeMetrics.current, scale = window.backingScaleFactor
+        #expect(line.centerY == rim + row.tabGap(scale: scale) + row.tabHeight / 2,
+                "the controls center on the pills, one strip padding under the window's rim")
     }
 }

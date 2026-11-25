@@ -1,9 +1,12 @@
 //! The daemon's CPU while clients ask for the whole session list over and over (a dogfood
 //! Mac, 2026-10-27): three cmux-tui servers built before #26255 reconnected about once a
 //! second and asked for the full list each time, and the idle daemon spent 30-40% of a
-//! core summarizing, serializing and freeing it. The list guard (`hub/list_guard.rs`)
-//! holds that to a few percent for any client. The real daemon binary runs here, through
-//! its socket, over a few hundred chats with summaries the size of real ones.
+//! core summarizing, serializing and freeing it. A list read now builds only the rows of each
+//! page it sends (`hub/list_guard.rs`), with no shared build and no pace (Leo, 2026-11-12:
+//! "Delete the pacer"), so each read costs the same however many clients ask: what is bounded
+//! is one read's CPU, which holds a client asking once a second to a few percent. The real
+//! daemon binary runs here, through its socket, over a few hundred chats with summaries the
+//! size of real ones.
 #![cfg(unix)]
 
 #[path = "support/daemon_env.rs"]
@@ -21,8 +24,11 @@ use std::time::{Duration, Instant};
 const CHATS: usize = 400;
 /// How long each client runs while the daemon's CPU is measured.
 const WINDOW: Duration = Duration::from_secs(15);
-/// The daemon's CPU allowed while a client asks, in a share of one core.
-const MAX_SHARE: f64 = 0.08;
+/// The daemon's CPU one whole list of `CHATS` may cost, in seconds of one core: a client asking
+/// once a second costs at most 8% of a core, and n clients n times that (no read is shared).
+const MAX_LIST_CPU: f64 = 0.08;
+/// A broken client: a new connection for each list, as fast as it reads them.
+const FAST: &str = "reconnect as fast as it reads";
 
 /// CPU time the process has used, user and system: `/proc` on Linux, `ps` elsewhere.
 fn cpu(pid: u32) -> Duration {
@@ -210,13 +216,18 @@ fn clients_asking_for_the_whole_list_over_and_over_cost_the_daemon_a_few_percent
         ("one connection at 1 Hz", 1, false, keep),
         ("three clients reconnecting at 1 Hz", 3, false, reconnect),
         // A broken client: a new connection for each list, as fast as it reads them.
-        ("reconnect as fast as it reads", 1, true, reconnect),
+        (FAST, 1, true, reconnect),
     ] {
         let (share, lists) = measured(&daemon, clients, fast, ask);
+        let each = share * WINDOW.as_secs_f64() / lists.max(1) as f64;
         report.push((
             name,
-            share,
-            format!("{name}: {:.1}% of a core, {lists} lists", share * 100.0),
+            each,
+            format!(
+                "{name}: {:.1}% of a core, {lists} lists, {:.1} ms of CPU each",
+                share * 100.0,
+                each * 1000.0
+            ),
         ));
     }
     let lines: Vec<&str> = report.iter().map(|r| r.2.as_str()).collect();
@@ -235,7 +246,10 @@ fn clients_asking_for_the_whole_list_over_and_over_cost_the_daemon_a_few_percent
         assert_eq!(row["name"], name.as_str(), "the list after a rename shows it");
         while watcher.line()["params"]["session"]["name"] != name.as_str() {}
     }
-    // A watcher never reads a list that lacks a change it was already told of.
+    // A watch reply is current to its `listSeq`: it never lacks a change whose notice carried a
+    // position at or below it. Notices and replies may go in either order (no reply is read again
+    // or followed by a lag when a notice overtook it); a client keeps the row with the higher
+    // position (`hub/row_log.rs`). Each rename moves the chat to the top: a page of one holds it.
     let socket = daemon.1.clone();
     let renames = std::thread::spawn(move || {
         let mut rpc = Rpc::connect(&socket);
@@ -247,39 +261,37 @@ fn clients_asking_for_the_whole_list_over_and_over_cost_the_daemon_a_few_percent
             std::thread::sleep(Duration::from_millis(50));
         }
     });
-    let (mut told, mut lists) = (String::new(), 0);
+    let (mut told, mut lists) = (Vec::<(u64, String)>::new(), 0);
     while !renames.is_finished() || lists < 3 {
-        // One list, page by page, to the page that holds the renamed chat.
-        let mut params = json!({});
-        'list: loop {
-            watcher.2 += 1;
-            let ask = json!({"jsonrpc": "2.0", "id": watcher.2, "method": "_acpmux/sessions",
-                "params": params});
-            watcher.1.write_all(format!("{ask}\n").as_bytes()).unwrap();
-            loop {
-                let v = watcher.line();
-                let session = &v["params"]["session"];
-                if session["sessionId"] == id(9).as_str()
-                    && let Some(name) = session["name"].as_str()
-                {
-                    told = told.max(name.to_owned());
-                }
-                if v["id"] != watcher.2 {
-                    continue;
-                }
-                let rows = v["result"]["sessions"].as_array().unwrap();
-                if let Some(row) = rows.iter().find(|s| s["sessionId"] == id(9).as_str()) {
-                    let listed = row["name"].as_str().unwrap();
-                    assert!(listed >= told.as_str(), "listed {listed} after a notice of {told}");
-                    break 'list;
-                }
-                let next = &v["result"]["nextCursor"];
-                assert!(next.is_string(), "no page of the list holds the renamed chat");
-                params = json!({"cursor": next});
-                break;
+        watcher.2 += 1;
+        let ask = json!({"jsonrpc": "2.0", "id": watcher.2, "method": "_acpmux/watch",
+            "params": {"enabled": true, "limit": 1}});
+        watcher.1.write_all(format!("{ask}\n").as_bytes()).unwrap();
+        loop {
+            let v = watcher.line();
+            let params = &v["params"];
+            if params["sessionId"] == id(9).as_str()
+                && let (Some(at), Some(name)) =
+                    (params["listSeq"].as_u64(), params["session"]["name"].as_str())
+            {
+                told.push((at, name.to_owned()));
             }
+            if v["id"] != watcher.2 {
+                continue;
+            }
+            let at = v["result"]["listSeq"].as_u64().expect("a watch reply has its listSeq");
+            let rows = v["result"]["sessions"].as_array().unwrap();
+            if let Some(row) = rows.iter().find(|s| s["sessionId"] == id(9).as_str()) {
+                let listed = row["name"].as_str().unwrap();
+                let owed = told.iter().filter(|(seq, _)| *seq <= at).map(|(_, n)| n.as_str()).max();
+                assert!(
+                    owed.is_none_or(|owed| listed >= owed),
+                    "listed {listed} at listSeq {at} after a notice of {owed:?} at or below it"
+                );
+                lists += 1;
+            }
+            break;
         }
-        lists += 1;
     }
     renames.join().unwrap();
     // Pages cut from the shared list by count are the whole list, in order: newest first, ties
@@ -305,11 +317,14 @@ fn clients_asking_for_the_whole_list_over_and_over_cost_the_daemon_a_few_percent
     assert_eq!(paged, whole);
     drop(daemon);
     let _ = std::fs::remove_dir_all(&dir);
-    let over: Vec<&str> = report.iter().filter(|r| r.1 > MAX_SHARE).map(|r| r.0).collect();
+    // No list request waits or is refused (Leo, 2026-11-12: "Delete the pacer"): a broken client
+    // that reads as fast as it can costs what it reads, and each read, its own or any other
+    // client's, stays under the bound.
+    let over: Vec<&str> = report.iter().filter(|r| r.1 > MAX_LIST_CPU).map(|r| r.0).collect();
     assert!(
         over.is_empty(),
-        "over {:.0}% of a core: {over:?}\n  {}",
-        MAX_SHARE * 100.0,
+        "a list of {CHATS} chats over {:.0} ms of CPU: {over:?}\n  {}",
+        MAX_LIST_CPU * 1000.0,
         lines.join("\n  ")
     );
 }

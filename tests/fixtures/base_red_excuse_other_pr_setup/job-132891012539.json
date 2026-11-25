@@ -1,0 +1,244 @@
+{
+  "id": 132891012539,
+  "run_id": 43737949394,
+  "workflow_name": "iOS E2E",
+  "head_branch": "lane/chat-output-scroll-box",
+  "run_url": "https://api.github.com/repos/manaflow-ai/cmux/actions/runs/43737949394",
+  "run_attempt": 2,
+  "node_id": "CR_kwDORDHQWM8AAAAe8Ovtuw",
+  "head_sha": "d1631b27a9049fd96e59da717aa1b988f301aaed",
+  "url": "https://api.github.com/repos/manaflow-ai/cmux/actions/jobs/132891012539",
+  "html_url": "https://github.com/manaflow-ai/cmux/actions/runs/43737949394/job/132891012539",
+  "status": "completed",
+  "conclusion": "failure",
+  "created_at": "2026-11-15T17:15:18Z",
+  "started_at": "2026-11-15T17:15:28Z",
+  "completed_at": "2026-11-15T17:16:52Z",
+  "name": "mac-ios-e2e",
+  "steps": [
+    {
+      "name": "Set up job",
+      "status": "completed",
+      "conclusion": "success",
+      "number": 1,
+      "started_at": "2026-11-15T17:15:29Z",
+      "completed_at": "2026-11-15T17:15:30Z"
+    },
+    {
+      "name": "Set up runner",
+      "status": "completed",
+      "conclusion": "success",
+      "number": 2,
+      "started_at": "2026-11-15T17:15:30Z",
+      "completed_at": "2026-11-15T17:15:31Z"
+    },
+    {
+      "name": "Checkout cmux",
+      "status": "completed",
+      "conclusion": "success",
+      "number": 3,
+      "started_at": "2026-11-15T17:15:31Z",
+      "completed_at": "2026-11-15T17:16:27Z"
+    },
+    {
+      "name": "Select Xcode",
+      "status": "completed",
+      "conclusion": "success",
+      "number": 4,
+      "started_at": "2026-11-15T17:16:27Z",
+      "completed_at": "2026-11-15T17:16:28Z"
+    },
+    {
+      "name": "Install build prerequisites",
+      "status": "completed",
+      "conclusion": "failure",
+      "number": 5,
+      "started_at": "2026-11-15T17:16:28Z",
+      "completed_at": "2026-11-15T17:16:46Z"
+    },
+    {
+      "name": "Ensure iOS simulator runtime",
+      "status": "completed",
+      "conclusion": "skipped",
+      "number": 6,
+      "started_at": "2026-11-15T17:16:46Z",
+      "completed_at": "2026-11-15T17:16:46Z"
+    },
+    {
+      "name": "Materialize CI auth profile",
+      "status": "completed",
+      "conclusion": "skipped",
+      "number": 7,
+      "started_at": "2026-11-15T17:16:46Z",
+      "completed_at": "2026-11-15T17:16:46Z"
+    },
+    {
+      "name": "Refuse a runner that already runs Tailscale",
+      "status": "completed",
+      "conclusion": "skipped",
+      "number": 8,
+      "started_at": "2026-11-15T17:16:46Z",
+      "completed_at": "2026-11-15T17:16:46Z"
+    },
+    {
+      "name": "Join tailnet",
+      "status": "completed",
+      "conclusion": "skipped",
+      "number": 9,
+      "started_at": "2026-11-15T17:16:46Z",
+      "completed_at": "2026-11-15T17:16:46Z"
+    },
+    {
+      "name": "Point the apps at this run's backend",
+      "status": "completed",
+      "conclusion": "skipped",
+      "number": 10,
+      "started_at": "2026-11-15T17:16:46Z",
+      "completed_at": "2026-11-15T17:16:46Z"
+    },
+    {
+      "name": "Configure Mac relay-only policy",
+      "status": "completed",
+      "conclusion": "skipped",
+      "number": 11,
+      "started_at": "2026-11-15T17:16:46Z",
+      "completed_at": "2026-11-15T17:16:46Z"
+    },
+    {
+      "name": "Boot fresh named simulator",
+      "status": "completed",
+      "conclusion": "skipped",
+      "number": 12,
+      "started_at": "2026-11-15T17:16:46Z",
+      "completed_at": "2026-11-15T17:16:46Z"
+    },
+    {
+      "name": "Build and launch Mac app",
+      "status": "completed",
+      "conclusion": "skipped",
+      "number": 13,
+      "started_at": "2026-11-15T17:16:46Z",
+      "completed_at": "2026-11-15T17:16:46Z"
+    },
+    {
+      "name": "Build iOS simulator app",
+      "status": "completed",
+      "conclusion": "skipped",
+      "number": 14,
+      "started_at": "2026-11-15T17:16:46Z",
+      "completed_at": "2026-11-15T17:16:46Z"
+    },
+    {
+      "name": "Configure and verify simulator relay-only policy",
+      "status": "completed",
+      "conclusion": "skipped",
+      "number": 15,
+      "started_at": "2026-11-15T17:16:46Z",
+      "completed_at": "2026-11-15T17:16:46Z"
+    },
+    {
+      "name": "Wait for the per-run backend",
+      "status": "completed",
+      "conclusion": "skipped",
+      "number": 16,
+      "started_at": "2026-11-15T17:16:46Z",
+      "completed_at": "2026-11-15T17:16:46Z"
+    },
+    {
+      "name": "Sign in and pair simulator",
+      "status": "completed",
+      "conclusion": "skipped",
+      "number": 17,
+      "started_at": "2026-11-15T17:16:46Z",
+      "completed_at": "2026-11-15T17:16:46Z"
+    },
+    {
+      "name": "Verify relay policy after launch",
+      "status": "completed",
+      "conclusion": "skipped",
+      "number": 18,
+      "started_at": "2026-11-15T17:16:46Z",
+      "completed_at": "2026-11-15T17:16:46Z"
+    },
+    {
+      "name": "Run iOS E2E",
+      "status": "completed",
+      "conclusion": "skipped",
+      "number": 19,
+      "started_at": "2026-11-15T17:16:46Z",
+      "completed_at": "2026-11-15T17:16:46Z"
+    },
+    {
+      "name": "Upload E2E evidence",
+      "status": "completed",
+      "conclusion": "success",
+      "number": 20,
+      "started_at": "2026-11-15T17:16:46Z",
+      "completed_at": "2026-11-15T17:16:46Z"
+    },
+    {
+      "name": "Stop tagged Mac app",
+      "status": "completed",
+      "conclusion": "success",
+      "number": 21,
+      "started_at": "2026-11-15T17:16:46Z",
+      "completed_at": "2026-11-15T17:16:46Z"
+    },
+    {
+      "name": "Delete simulator",
+      "status": "completed",
+      "conclusion": "success",
+      "number": 22,
+      "started_at": "2026-11-15T17:16:46Z",
+      "completed_at": "2026-11-15T17:16:46Z"
+    },
+    {
+      "name": "Release the backend",
+      "status": "completed",
+      "conclusion": "success",
+      "number": 23,
+      "started_at": "2026-11-15T17:16:46Z",
+      "completed_at": "2026-11-15T17:16:46Z"
+    },
+    {
+      "name": "Remove CI auth profile",
+      "status": "completed",
+      "conclusion": "success",
+      "number": 24,
+      "started_at": "2026-11-15T17:16:46Z",
+      "completed_at": "2026-11-15T17:16:46Z"
+    },
+    {
+      "name": "Post Checkout cmux",
+      "status": "completed",
+      "conclusion": "success",
+      "number": 47,
+      "started_at": "2026-11-15T17:16:46Z",
+      "completed_at": "2026-11-15T17:16:47Z"
+    },
+    {
+      "name": "Complete runner",
+      "status": "completed",
+      "conclusion": "success",
+      "number": 48,
+      "started_at": "2026-11-15T17:16:47Z",
+      "completed_at": "2026-11-15T17:16:47Z"
+    },
+    {
+      "name": "Complete job",
+      "status": "completed",
+      "conclusion": "success",
+      "number": 49,
+      "started_at": "2026-11-15T17:16:47Z",
+      "completed_at": "2026-11-15T17:16:47Z"
+    }
+  ],
+  "check_run_url": "https://api.github.com/repos/manaflow-ai/cmux/check-runs/132891012539",
+  "labels": [
+    "blacksmith-6vcpu-macos-26"
+  ],
+  "runner_id": 9639491,
+  "runner_name": "blacksmith-6vcpu-macos-26-i4ygz6svxmvstkpz",
+  "runner_group_id": 10,
+  "runner_group_name": "blacksmith scale sets - blacksmith-6vcpu-macos-26"
+}

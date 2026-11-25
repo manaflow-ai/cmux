@@ -57,6 +57,16 @@ impl PairingRecord {
 }
 
 /// Every paired peer, unique by install and by key.
+/// The held write lock of a pairing file ([`Pairings::lock`]); dropped, it is free.
+#[derive(Debug)]
+pub struct PairingsLock(std::fs::File);
+
+impl Drop for PairingsLock {
+    fn drop(&mut self) {
+        let _ = self.0.unlock();
+    }
+}
+
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Pairings {
@@ -82,7 +92,48 @@ impl Pairings {
         Ok(pairings)
     }
 
-    /// Write the file at `path` with mode 0600, replacing it atomically.
+    /// Hold the pairing file's write lock: `flock` on `.<file>.lock` next to
+    /// it, shared by every process. Every read, change and save of the file
+    /// runs under it ([`Pairings::update`]), as does moving the file aside.
+    pub fn lock(path: &Path) -> io::Result<PairingsLock> {
+        let name = path.file_name().ok_or_else(|| {
+            io::Error::new(io::ErrorKind::InvalidInput, "the pairing file has no name")
+        })?;
+        // Hidden, and outside the names install archives take (`peers.<install>.json`).
+        let mut lock_name = std::ffi::OsString::from(".");
+        lock_name.push(name);
+        lock_name.push(".lock");
+        let mut options = std::fs::OpenOptions::new();
+        options.read(true).write(true).create(true).truncate(false);
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::OpenOptionsExt;
+            options.mode(0o600).custom_flags(libc::O_NOFOLLOW);
+        }
+        let file = options.open(path.with_file_name(lock_name))?;
+        file.lock()?;
+        Ok(PairingsLock(file))
+    }
+
+    /// Read the file at `path`, apply `change`, save it, all under
+    /// [`Pairings::lock`]: two writers never save over each other, in one
+    /// process or two. Nothing is saved when `change` fails.
+    pub fn update<T>(
+        path: &Path,
+        change: impl FnOnce(&mut Self) -> io::Result<T>,
+    ) -> io::Result<T> {
+        let _lock = Self::lock(path)?;
+        let mut pairings = Self::load(path)?;
+        let out = change(&mut pairings)?;
+        pairings.save(path)?;
+        Ok(out)
+    }
+
+    /// Write the file at `path` with mode 0600, replacing it atomically and
+    /// durably: the synced temporary file is renamed into place and then the
+    /// directory is synced, so once this returns the new file survives a
+    /// crash. A rekey is acknowledged on that (the peer then deletes its old
+    /// key), so a rename still only in the page cache is not enough.
     pub fn save(&self, path: &Path) -> io::Result<()> {
         let text = serde_json::to_string_pretty(self)
             .map_err(|error| io::Error::new(io::ErrorKind::InvalidData, error))?;
@@ -92,7 +143,8 @@ impl Pairings {
         if result.is_err() {
             let _ = std::fs::remove_file(&temporary);
         }
-        result
+        result?;
+        sync_parent(path)
     }
 
     /// Add `record`, replacing a record with the same install or key.
@@ -104,6 +156,45 @@ impl Pairings {
         self.peers.retain(|existing| existing.install != record.install && existing.key() != key);
         self.peers.push(record);
         Ok(())
+    }
+
+    /// Move `install`'s record to `public_key`: its link adopted this machine's node key and
+    /// said so over its old key's session. Refused when `install` has no record or another
+    /// install's record holds the key (a peer never takes over another's pairing); false when
+    /// the record already holds it.
+    /// [`Pairings::rekey`] of `from`'s install, only while its stored record
+    /// is still the one that authenticated the request: the same key
+    /// (`from_key`) and the same identity (`from`). A record that `link peer
+    /// add` replaced or removed meanwhile is never written over.
+    pub fn rekey_from(
+        &mut self,
+        from: &LinkPeer,
+        from_key: &[u8; 32],
+        public_key: &[u8; 32],
+    ) -> io::Result<bool> {
+        let current = self
+            .by_install(&from.install)
+            .ok_or_else(|| io::Error::new(io::ErrorKind::NotFound, "not_paired"))?;
+        if current.key().as_ref() != Some(from_key) || current.peer() != *from {
+            return Err(io::Error::new(io::ErrorKind::PermissionDenied, "pairing_changed"));
+        }
+        self.rekey(&from.install, public_key)
+    }
+
+    pub fn rekey(&mut self, install: &str, public_key: &[u8; 32]) -> io::Result<bool> {
+        if self.by_key(public_key).is_some_and(|record| record.install != install) {
+            return Err(io::Error::new(io::ErrorKind::AlreadyExists, "key_in_use"));
+        }
+        let record = self
+            .peers
+            .iter_mut()
+            .find(|record| record.install == install)
+            .ok_or_else(|| io::Error::new(io::ErrorKind::NotFound, "not_paired"))?;
+        if record.key().as_ref() == Some(public_key) {
+            return Ok(false);
+        }
+        record.public_key = STANDARD.encode(public_key);
+        Ok(true)
     }
 
     /// Remove the record of `install`; true when one existed.
@@ -132,6 +223,21 @@ fn unique_temporary(path: &Path) -> std::path::PathBuf {
     path.with_file_name(format!(".{name}.{}.{serial}.tmp", std::process::id()))
 }
 
+/// Sync the directory holding `path`, so a rename or removal in it survives a crash.
+#[cfg(unix)]
+fn sync_parent(path: &Path) -> io::Result<()> {
+    let dir = match path.parent() {
+        Some(dir) if !dir.as_os_str().is_empty() => dir,
+        _ => Path::new("."),
+    };
+    std::fs::File::open(dir)?.sync_all()
+}
+
+#[cfg(not(unix))]
+fn sync_parent(_path: &Path) -> io::Result<()> {
+    Ok(())
+}
+
 #[cfg(unix)]
 fn write_private(path: &Path, bytes: &[u8]) -> io::Result<()> {
     use std::io::Write;
@@ -148,47 +254,5 @@ fn write_private(path: &Path, bytes: &[u8]) -> io::Result<()> {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    fn record(install: &str, key_byte: u8) -> PairingRecord {
-        PairingRecord {
-            install: install.into(),
-            user: "user_1".into(),
-            team: "team_1".into(),
-            public_key: STANDARD.encode([key_byte; 32]),
-            endpoint: Some("192.168.1.20:51820".parse().unwrap()),
-        }
-    }
-
-    #[test]
-    fn pairings_are_unique_by_install_and_by_key_and_survive_a_reload() {
-        let directory = cmux_unix_socket::short_test_dir("pair");
-        let path = directory.path().join("peers.json");
-        let mut pairings = Pairings::load(&path).unwrap();
-        pairings.upsert(record("inst_a", 1)).unwrap();
-        pairings.upsert(record("inst_b", 2)).unwrap();
-        pairings.upsert(record("inst_c", 1)).unwrap();
-        assert!(pairings.by_install("inst_a").is_none(), "same key replaces the old install");
-        assert_eq!(pairings.by_key(&[1; 32]).unwrap().install, "inst_c");
-        pairings.save(&path).unwrap();
-        assert_eq!(Pairings::load(&path).unwrap(), pairings);
-        #[cfg(unix)]
-        {
-            use std::os::unix::fs::PermissionsExt;
-            let mode = std::fs::metadata(&path).unwrap().permissions().mode() & 0o777;
-            assert_eq!(mode, 0o600);
-        }
-        assert!(pairings.remove("inst_b"));
-        assert!(!pairings.remove("inst_b"));
-    }
-
-    #[test]
-    fn a_record_with_a_bad_key_or_id_is_refused() {
-        let mut pairings = Pairings::default();
-        let mut short = record("inst_a", 1);
-        short.public_key = STANDARD.encode([1u8; 16]);
-        assert!(pairings.upsert(short).is_err());
-        assert!(pairings.upsert(record("../a", 1)).is_err());
-    }
-}
+#[path = "pairing_tests.rs"]
+mod tests;

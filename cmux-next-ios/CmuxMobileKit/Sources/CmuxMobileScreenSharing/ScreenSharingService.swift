@@ -1,5 +1,6 @@
 #if os(iOS)
 public import CmuxDeviceHub
+import enum CmuxMobileModel.UserFacingError
 public import Foundation
 public import Observation
 
@@ -62,6 +63,9 @@ public final class ScreenSharingService {
     var demoMode: DemoMode?
     var demoDiscovery: Discovery?
     var demoMacs: [HubDevice] = []
+    var demoAccess: [String: DeviceScope] = [:]
+    /// Mock mode's Macs (`useMock`).
+    @ObservationIgnored var mockMacs: (@MainActor () -> [HubDevice])?
     @ObservationIgnored var demoTask: Task<Void, Never>?
     #endif
 
@@ -73,6 +77,8 @@ public final class ScreenSharingService {
     public private(set) var hub: DeviceHub?
     /// The viewer on screen: one session at a time from this phone.
     public private(set) var viewer: ScreenSharingViewer?
+    /// Why the tapped Mac can't be shared, shown as an alert over the list (nil: none).
+    public internal(set) var alert: ScreenSharingMacAlert?
     /// The person's viewer choices (input mode, quality, stats), kept on this phone.
     public let preferences: ScreenSharingPreferences
 
@@ -89,18 +95,36 @@ public final class ScreenSharingService {
     /// The last stop()'s sign-out and socket close (tests wait for it).
     @ObservationIgnored private(set) var stopping: Task<Void, Never>?
 
+    /// Share <Mac> (cmuxterm-hq#18912): what carries this phone's signed approval to the Mac, so the
+    /// Mac turns sharing on with nobody at it. Cut 2 of #18912 fills it; until then it is nil and
+    /// the tap says sharing from the iPhone isn't available yet, having signed nothing.
+    @ObservationIgnored public var shareCarrier: ShareCarrier?
+    /// Signs an approval's canonical bytes with this phone's hub key (tests count the calls).
+    @ObservationIgnored var signApproval: @Sendable (DeviceIdentity, String) throws -> String = { try $0.sign(canonical: $1) }
+    /// How long a shared Mac has to show up as sharing in the list before the tap says it didn't.
+    @ObservationIgnored var shareDeadline: Duration = .seconds(30)
+    /// The Mac a Share tap is asking (its row spins; nil: none).
+    public internal(set) var sharing: PendingSelection?
+    @ObservationIgnored var shareTask: Task<Void, Never>?
+    /// Why the last Share tap did not get the Mac sharing, as an alert (nil: none).
+    public internal(set) var shareProblem: ScreenSharingShareProblem?
+
     /// Where the hub is and who this phone is to it.
     public struct Configuration: Sendable {
         public var baseURL: URL
         public var bundleIdentifier: String
         public var deviceName: String
         public var tokens: any DeviceHubAccountTokenProvider
+        /// The signed-in account: the Macs list it last read draws before the next read (nil: none).
+        public var accountID: String?
 
-        public init(baseURL: URL, bundleIdentifier: String, deviceName: String, tokens: any DeviceHubAccountTokenProvider) {
+        public init(baseURL: URL, bundleIdentifier: String, deviceName: String, tokens: any DeviceHubAccountTokenProvider,
+                    accountID: String? = nil) {
             self.baseURL = baseURL
             self.bundleIdentifier = bundleIdentifier
             self.deviceName = deviceName
             self.tokens = tokens
+            self.accountID = accountID
         }
     }
 
@@ -108,13 +132,15 @@ public final class ScreenSharingService {
     public static let developmentHubURL = URL(string: "https://cmux-device-hub-dev.debussy.workers.dev")!
     public static let productionHubURL = URL(string: "https://cmux-device-hub.debussy.workers.dev")!
 
-    /// The hub a build uses: DEBUG builds the dev hub (or `CMUX_MOBILE_DEVICE_HUB_URL`), others production.
-    public static func hubURL(isDebug: Bool, environment: [String: String]) -> URL {
+    /// The hub a build uses: DEBUG builds `CMUX_MOBILE_DEVICE_HUB_URL`, else the tag stack's own hub when the
+    /// build's Cloud backend is a tag's stack (`stackHub`, CloudBackendOverride.deviceHub), else the dev hub;
+    /// others production.
+    public static func hubURL(isDebug: Bool, environment: [String: String], stackHub: URL? = nil) -> URL {
         guard isDebug else { return productionHubURL }
         if let text = environment["CMUX_MOBILE_DEVICE_HUB_URL"], let url = URL(string: text), url.scheme?.hasPrefix("http") == true {
             return url
         }
-        return developmentHubURL
+        return stackHub ?? developmentHubURL
     }
 
     public init(configuration: Configuration, preferences: ScreenSharingPreferences = ScreenSharingPreferences()) {
@@ -129,13 +155,37 @@ public final class ScreenSharingService {
         attach(hub)
     }
 
-    /// The account's Macs, those sharing their screen and online first, then by name.
+    /// The account's Macs and Linux desktops, those sharing their screen and online first, then by
+    /// name. Until the hub's list is read, the ones the last read list held, so the page draws them
+    /// in its first frame instead of "Finding your Macs…" (conn-quiet).
     public var macs: [HubDevice] {
         #if DEBUG
         if demoDiscovery != nil { return demoMacs }
         #endif
+        if discovery == .finding { return Self.hosts(preferences.lastMacs(for: configuration.accountID)) }
         guard let hub else { return [] }
-        return hub.otherDevices.filter { $0.platform == .macos }.sorted(by: Self.listOrder)
+        return Self.hosts(hub.otherDevices)
+    }
+
+    /// The devices in `devices` whose screen this phone can view, in list order: Macs and Linux
+    /// desktops (`DevicePlatform.hostsScreen`), never another iPhone or a device that sent no platform.
+    nonisolated static func hosts(_ devices: [HubDevice]) -> [HubDevice] {
+        devices.filter { $0.platform?.hostsScreen == true }.sorted(by: listOrder)
+    }
+
+    /// Why `mac` can't be shared now, as the list last read it (nil: it can be). Tapping such a
+    /// Mac shows this in an alert instead of asking the hub for a session it would refuse.
+    public func unavailability(of mac: HubDevice) -> ScreenSharingRefusal? {
+        Self.unavailability(of: mac, access: access(to: mac))
+    }
+
+    /// Offline first (a Mac that's off can't say whether it shares), then not shared, then
+    /// blocked for this phone.
+    nonisolated static func unavailability(of mac: HubDevice, access: DeviceScope) -> ScreenSharingRefusal? {
+        if !mac.online { return .hostOffline }
+        if !mac.macScreenShared { return .notShared }
+        if access == .none { return .permissionNone }
+        return nil
     }
 
     /// Sharing and online first, then online, then the rest; by name within each.
@@ -146,6 +196,9 @@ public final class ScreenSharingService {
 
     /// What this phone may do on `mac`'s screen, as the Mac last listed it.
     public func access(to mac: HubDevice) -> DeviceScope {
+        #if DEBUG
+        if demoDiscovery != nil { return demoAccess[mac.id] ?? .ask }
+        #endif
         guard let hub else { return .ask }
         return hub.scope(host: mac.id, viewer: hub.identity.id)
     }
@@ -176,7 +229,7 @@ public final class ScreenSharingService {
                                                  deviceName: configuration.deviceName, platform: .ios, tokens: configuration.tokens)
             } catch {
                 guard !Task.isCancelled else { return }
-                self?.loadStatus = .failed(String(describing: error))
+                self?.loadStatus = .failed(UserFacingError.message(error, fallback: "Screen sharing couldn't start. Try again."))
                 return
             }
             guard let self, !Task.isCancelled else { return }
@@ -191,6 +244,12 @@ public final class ScreenSharingService {
         startTask = nil
         viewer?.close(reason: .signedOut)
         viewer = nil
+        alert = nil
+        pendingSelection = nil
+        endShare()
+        shareProblem = nil
+        // The account's Macs are not the next account's to show.
+        preferences.forgetMacs()
         if let hub {
             hub.onSessionPush = nil
             let alreadySignedOut = signedOut
@@ -257,6 +316,113 @@ public final class ScreenSharingService {
 
     // MARK: Sessions
 
+    /// The viewer to show full screen: one past asking the hub (see `ScreenSharingViewer.shown`).
+    public var viewerOnScreen: ScreenSharingViewer? {
+        guard let viewer, viewer.shown else { return nil }
+        return viewer
+    }
+
+    /// A tap on a Mac drawn from the last read list, before this showing's list was read: it
+    /// goes through (connects, or says why not) once the list is read.
+    public struct PendingSelection: Equatable, Sendable {
+        public var hostID: String
+        public var hostName: String
+        public var scope: SessionScope
+    }
+
+    /// The tap waiting for the list (nil: none). Its row shows it is connecting.
+    public private(set) var pendingSelection: PendingSelection?
+    /// The last screen link's Mac (lowercased id) and its `cmux.rd/1` session: its next connect streams so.
+    @ObservationIgnored private var linkRd: (hostID: String, target: MacScreenRdTarget)?
+
+    /// The list changed or was read: keep it for the next showing and carry out a tap made on a
+    /// Mac from the last list. A Mac gone from the read list says so.
+    public func listChanged() {
+        guard discovery == .listed else {
+            // The list can't be read: the page says why, and a waiting tap does not go through later.
+            if case .failed = discovery { pendingSelection = nil }
+            return
+        }
+        let listed = macs
+        preferences.rememberMacs(listed, for: configuration.accountID)
+        shareListed(listed)
+        guard let pending = pendingSelection else { return }
+        pendingSelection = nil
+        if let mac = listed.first(where: { $0.id.lowercased() == pending.hostID.lowercased() }) {
+            select(mac, scope: pending.scope)
+        } else {
+            alert = ScreenSharingMacAlert(hostID: pending.hostID, hostName: pending.hostName, refusal: .notFound,
+                                          requested: pending.scope)
+        }
+    }
+
+    /// A tap on a Mac in the list: connect, or say in the alert why it can't be shared.
+    public func select(_ mac: HubDevice, scope: SessionScope? = nil) {
+        let scope = scope ?? preferences.defaultScope
+        if discovery == .finding, preferences.lastMacs(for: configuration.accountID).contains(where: { $0.id == mac.id }) {
+            // A Mac drawn from the last read list: its state may be old, so the tap waits for this list.
+            pendingSelection = PendingSelection(hostID: mac.id, hostName: mac.name, scope: scope)
+            return
+        }
+        pendingSelection = nil
+        if let refusal = unavailability(of: mac) {
+            // One thing at a time: a request still waiting for the hub ends, so it can't go full
+            // screen under the alert.
+            leaveUnshownRequest()
+            alert = ScreenSharingMacAlert(hostID: mac.id, hostName: mac.name, refusal: refusal, requested: scope)
+        } else {
+            connect(to: mac, scope: scope)
+        }
+    }
+
+    /// A screen link (`cmux://mac-screen?device=…`): the device `id` connects with `scope` once the
+    /// account's list is read; a device the list doesn't hold says so (the not-found alert), and
+    /// one that can't be shared now says why, as a tap on it in the list would. `name` (the link's
+    /// label) only names the alert until the list does. The session streams over `cmux.rd/1`
+    /// (the joined Mac's share host refuses WebRTC), on `display` (a `CGDirectDisplayID`; nil:
+    /// the main display), with control only when `scope` is `.full`.
+    public func open(deviceID id: String, name: String?, scope: SessionScope, display: String? = nil) {
+        let id = id.lowercased()
+        linkRd = (id, MacScreenRdTarget(displayID: display.flatMap { UInt32($0) }, control: scope == .full))
+        let listedName = (discovery == .listed ? macs : preferences.lastMacs(for: configuration.accountID))
+            .first { $0.id.lowercased() == id }?.name
+        let hostName = listedName ?? name ?? String(localized: "That Mac")
+        guard discovery == .listed else {
+            leaveUnshownRequest()
+            pendingSelection = PendingSelection(hostID: id, hostName: hostName, scope: scope)
+            return
+        }
+        if let mac = macs.first(where: { $0.id.lowercased() == id }) {
+            select(mac, scope: scope)
+        } else {
+            leaveUnshownRequest()
+            alert = ScreenSharingMacAlert(hostID: id, hostName: hostName, refusal: .notFound, requested: scope)
+        }
+    }
+
+    /// An alert's action for the listed Mac `id` (a Mac gone from the list since does nothing).
+    func select(_ id: String, scope: SessionScope) {
+        guard let mac = macs.first(where: { $0.id == id }) else { return }
+        select(mac, scope: scope)
+    }
+
+    /// Check Again: reads the list again, then connects if the Mac can be shared now, or says
+    /// why it still can't. Nothing when a request for that Mac already started meanwhile.
+    /// Cancelled (the page went away) while the list is read: nothing happens after.
+    func checkAgain(_ id: String, scope: SessionScope) async {
+        await refresh()
+        guard !Task.isCancelled, viewer?.hostID != id else { return }
+        select(id, scope: scope)
+    }
+
+    /// The page went away while a request still waited for the hub's first answer: nothing
+    /// would show it, so it ends here instead of going live off screen.
+    public func leaveUnshownRequest() {
+        pendingSelection = nil
+        guard let viewer, !viewer.shown else { return }
+        dismissViewer()
+    }
+
     /// Asks `mac` for a session and puts its viewer on screen.
     @discardableResult
     public func connect(to mac: HubDevice, scope: SessionScope) -> ScreenSharingViewer? {
@@ -266,10 +432,21 @@ public final class ScreenSharingService {
             viewer = current
         } else {
             self.viewer?.close(reason: .viewerDisconnected)
-            viewer = ScreenSharingViewer(hostID: mac.id, hostName: mac.name, hub: hub, preferences: preferences)
+            viewer = ScreenSharingViewer(hostID: mac.id, hostName: mac.name, hostPlatform: mac.platform, hub: hub,
+                                         preferences: preferences)
             viewer.sessionLeft = { [weak self] id in self?.abandoned.insert(id) }
+            viewer.refusedBeforeShown = { [weak self, weak viewer] refusal, requested in
+                guard let self, let viewer, self.viewer === viewer else { return }
+                // A refused request has no session and nothing running: it only leaves the list.
+                self.viewer = nil
+                alert = ScreenSharingMacAlert(hostID: viewer.hostID, hostName: viewer.hostName, refusal: refusal, requested: requested)
+            }
             prepareViewer(viewer)
             self.viewer = viewer
+        }
+        if let link = linkRd, link.hostID == mac.id.lowercased() {
+            linkRd = nil
+            viewer.rd = link.target
         }
         viewer.request(scope)
         return viewer
@@ -301,6 +478,16 @@ public final class ScreenSharingService {
         default: break
         }
     }
+}
+
+/// Why a tapped Mac can't be shared, as a native alert over the list.
+public struct ScreenSharingMacAlert: Identifiable, Equatable, Sendable {
+    public let id = UUID()
+    public let hostID: String
+    public let hostName: String
+    public let refusal: ScreenSharingRefusal
+    /// The scope the tap asked for (Check Again and Try Again ask for it again).
+    public let requested: SessionScope
 }
 
 extension HubDevice {

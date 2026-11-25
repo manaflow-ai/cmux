@@ -25,6 +25,7 @@ import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "
 import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
+import { MOTION_SETTLE_MS } from "../src/motion/scale.generated";
 import { FramesUnsupported, open120Hz } from "./support/frames120";
 import { requireBrowserLane } from "./support/requireBrowserLane";
 
@@ -89,7 +90,7 @@ await requireBrowserLane("turn-end-fold-clock-growth-browser.test.ts", async () 
     if (!built.success) throw new Error(built.logs.map(String).join("\n"));
     const script = await built.outputs[0]!.text();
     const page =
-      `<!doctype html><html style="--cmux-motion-settle:180ms;--cv-fold-duration:180ms">` +
+      `<!doctype html><html style="--cmux-motion-settle:${MOTION_SETTLE_MS}ms;--cv-fold-duration:${MOTION_SETTLE_MS}ms">` +
       `<head><script>${script.replaceAll("</script", "<\\/script")}</script></head>` +
       `<body style="margin:0"><div class="acpmux-scroll" style="height:400px;overflow:auto">` +
       `<div class="acpmux-thread" style="position:relative;height:400px">${rows(BEFORE)}</div></div></body></html>`;

@@ -3,7 +3,9 @@ import { afterAll, beforeAll, expect, setDefaultTimeout, test } from "bun:test";
 import { chromium, type Browser } from "playwright";
 import path from "node:path";
 import { galleryFrame, warmGalleryFrame } from "./support/galleryFrame";
+import { openFinishedTrayRows } from "./support/openRunningTray";
 import { requireBrowserLane } from "./support/requireBrowserLane";
+import { RUNNING_TRAY_LINE } from "../src/agent-session/acpmux/subagents/subagentSelectors";
 
 await requireBrowserLane("subagent-tray-composer-geometry.test.ts", async () => {
   setDefaultTimeout(180_000);
@@ -29,8 +31,10 @@ await requireBrowserLane("subagent-tray-composer-geometry.test.ts", async () => 
     await server?.close();
   });
 
-  for (const width of [760, 300, 200]) {
-    test(`running tray tracks share the composer controls at ${width}px`, async () => {
+  for (const { look, width } of (["codex", "claude"] as const).flatMap((look) =>
+    [760, 300, 200].map((width) => ({ look, width })),
+  )) {
+    test(`running tray tracks share the ${look} composer controls at ${width}px`, async () => {
       const port = (server.httpServer!.address() as { port: number }).port;
       const page = await browser.newPage({
         viewport: { width, height: 520 },
@@ -40,13 +44,18 @@ await requireBrowserLane("subagent-tray-composer-geometry.test.ts", async () => 
       try {
         await page.goto(`http://127.0.0.1:${port}${galleryFrame("agent-pane.subagent-tray", { variant: "geometry" })}`);
         await page.waitForFunction(() => document.documentElement.dataset.galleryReady === "1");
+        if (look === "codex") {
+          await page.evaluate(async () => {
+            const source = "/gallery/src/agent-session/acpmux/composerLook.ts";
+            const { setPreviewComposerLook } = await import(/* @vite-ignore */ source);
+            setPreviewComposerLook("codex");
+          });
+          await page.locator('.acpmux-composer[data-composer-look="codex"]').waitFor();
+        }
         const head = page.locator(".acpmux-running-tray__head");
         if ((await head.getAttribute("aria-expanded")) !== "true") await head.click();
-        // What ended is one "N finished" line under what runs (SubagentTray.tsx `EndedFold`): open it,
-        // so every row is measured.
-        const ended = page.locator('.acpmux-running-tray [data-ended-fold] > button[aria-expanded="false"]');
-        if ((await ended.count()) > 0) await ended.click();
-        await page.locator(".acpmux-running-tray .acpmux-agent-line").first().waitFor();
+        await page.locator(RUNNING_TRAY_LINE).first().waitFor();
+        await openFinishedTrayRows(page);
         const geometry = await page.evaluate(() => {
           const rect = (node: Element | null) => {
             if (!node) return null;
@@ -69,6 +78,7 @@ await requireBrowserLane("subagent-tray-composer-geometry.test.ts", async () => 
           }));
           const composer = document.querySelector<HTMLElement>(".acpmux-composer-box")!;
           return {
+            look: document.querySelector(".acpmux-composer")?.getAttribute("data-composer-look") ?? "claude",
             composer: rect(composer)!,
             plus: rect(document.querySelector(".acpmux-composer-plus")),
             mic: rect(document.querySelector(".acpmux-composer-actions .acpmux-mic"))!,
@@ -81,6 +91,11 @@ await requireBrowserLane("subagent-tray-composer-geometry.test.ts", async () => 
         expect(geometry.rows.map((row) => row.statusText).join(" ")).toMatch(/Done/);
         expect(geometry.rows.map((row) => row.statusText).join(" ")).toMatch(/Cancelled/);
         if (!geometry.stop || !geometry.mic) throw new Error("the running composer must expose Stop and mic controls");
+        expect(geometry.look).toBe(look);
+        // The tray keeps Stop then chevron. Its two physical tracks follow the composer's two
+        // action slots; Codex orders Mic then Stop, while Claude orders Stop then Mic.
+        const innerControl = look === "codex" ? geometry.mic : geometry.stop;
+        const outerControl = look === "codex" ? geometry.stop : geometry.mic;
         const center = (r: { left: number; right: number; top: number; bottom: number }) => ({
           x: (r.left + r.right) / 2,
           y: (r.top + r.bottom) / 2,
@@ -90,7 +105,7 @@ await requireBrowserLane("subagent-tray-composer-geometry.test.ts", async () => 
         expect(geometry.rows.filter((row) => row.stop)).toHaveLength(1);
         within(
           geometry.rows[0]!.leading.left - geometry.rows[0]!.row.left,
-          geometry.composer.right - geometry.mic.right,
+          geometry.composer.right - outerControl.right,
         );
         // The composer may hide + at the narrow fit step; when present, its inset is the
         // leading-row inset the tray follows.
@@ -103,7 +118,7 @@ await requireBrowserLane("subagent-tray-composer-geometry.test.ts", async () => 
           expect(row.scrollWidth).toBeLessThanOrEqual(row.clientWidth + 1);
           within(row.row.left, geometry.composer.left);
           within(row.row.right, geometry.composer.right);
-          within(center(row.chevron).x, center(geometry.mic).x);
+          within(center(row.chevron).x, center(outerControl).x);
           // The state and then the time ("Done · 36s") are one cluster at the line's end, one tray
           // gap apart, and one gap before Stop's track, empty or not, so every time ends on one x
           // (cmux#31492: "8m 56s Done" floated a status track's slack away; Leo, 2026-11-03: "let's
@@ -118,10 +133,10 @@ await requireBrowserLane("subagent-tray-composer-geometry.test.ts", async () => 
           for (const gap of gaps) within(gap, gaps[0]!);
           within(row.stopTrack.left, geometry.rows[0]!.stopTrack.left);
           within(row.chevron.right, geometry.rows[0]!.chevron.right);
-          within(geometry.composer.right - row.chevron.right, geometry.composer.right - geometry.mic.right);
+          within(geometry.composer.right - row.chevron.right, geometry.composer.right - outerControl.right);
           if (row.stop) {
-            within(center(row.stop).x, center(geometry.stop).x);
-            within(row.stop.right, geometry.stop.right);
+            within(center(row.stop).x, center(innerControl).x);
+            within(row.stop.right, innerControl.right);
             within(center(row.stop).y, center(row.time).y);
             within(center(row.chevron).y, center(row.time).y);
             expect(center(row.stop).y).toBeGreaterThanOrEqual(row.row.top - 0.5);

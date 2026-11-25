@@ -3,11 +3,11 @@
 // its block (Leo, 2026-11-07: "what if the whole bottom row area were clickable in this, like, show
 // more show less area? And I mean likewise for the other bits ... my mouse is in the general
 // vicinity, it's in the general height area"): a click anywhere along it (its left edge, middle and
-// right edge) toggles the block, for an edit's diff (in the edited-files card and in a tool row),
-// a Shell block, a file read, a call's output and a long sent prompt. Pointing at it moves nothing
-// ("make sure you don't accidentally ... push out different kinds of layout"), and the edit's diff
-// is one surface: one rim, and the row on the code area's own background ("why is it, like, just
-// this hard line cut off here between the green and then the rest of the card situation?").
+// right edge) toggles the block, for a Shell block and a call's output past the 400 lines drawn of
+// their end (Show all output), a search's files and a long sent prompt. Pointing at it moves nothing
+// ("make sure you don't accidentally ... push out different kinds of layout"). An edit's diff and a
+// file read have no row: past eight lines they scroll in their box (Leo, 2026-11-12: "this is a
+// really useless show all 9 lines").
 //
 // It renders `agent-pane.expand-row` on the gallery stage in Chromium, dark and light.
 // CI fails the file when it cannot launch (requireBrowserLane). Locally:
@@ -17,11 +17,10 @@ import path from "node:path";
 import { chromium, type Browser, type Page } from "playwright";
 import { galleryFrame, warmGalleryFrame } from "./support/galleryFrame";
 import { requireBrowserLane } from "./support/requireBrowserLane";
-import { CARD, ROW, type Block } from "../src/agent-session/acpmux/conversation/ExpandRow.gallery";
+import { BLOCKS, CARD, ROW, type Block } from "../src/agent-session/acpmux/conversation/ExpandRow.gallery";
 
 await requireBrowserLane("expand-row.test.ts", async () => {
   const ENTRY = "agent-pane.expand-row";
-  const BLOCKS: Block[] = ["edited", "diff", "shell", "read", "search", "output", "prompt"];
   setDefaultTimeout(240_000);
   try {
     await (await chromium.launch({ headless: true })).close();
@@ -272,66 +271,6 @@ await requireBrowserLane("expand-row.test.ts", async () => {
               return found;
             }, ROW[block]);
             expect({ variant, masked }).toEqual({ variant, masked: [] });
-          } finally {
-            await page.close();
-          }
-        }
-      });
-    }
-
-    for (const block of ["edited", "diff"] as const) {
-      test(`${theme} ${block}: the diff is one surface, its row on the code area's background`, async () => {
-        for (const variant of [block, `${block}-expanded`]) {
-          const page = await open(variant, theme);
-          try {
-            const surface = await page.evaluate(
-              ({ card, row }) => {
-                const clear = (color: string) => color === "transparent" || /rgba\(.*,\s*0\)$/.test(color);
-                const rim = (element: Element, pseudo?: string) => {
-                  const style = getComputedStyle(element, pseudo);
-                  return (
-                    style.boxShadow !== "none" ||
-                    ["Top", "Right", "Bottom", "Left"].some(
-                      (side) =>
-                        parseFloat(style.getPropertyValue(`border-${side.toLowerCase()}-width`)) > 0 &&
-                        style.getPropertyValue(`border-${side.toLowerCase()}-style`) !== "none" &&
-                        !clear(style.getPropertyValue(`border-${side.toLowerCase()}-color`)),
-                    )
-                  );
-                };
-                const body = document.querySelector(".cv-edit-diff__body")!;
-                const top = document.querySelector(card)!;
-                // Every container from the diff's lines out to its card that paints a fill or a rim.
-                const painted: string[] = [];
-                for (let node: Element | null = body; node; node = node.parentElement) {
-                  const style = getComputedStyle(node);
-                  const fill = !clear(style.backgroundColor) || style.backgroundImage !== "none";
-                  if (fill || rim(node) || rim(node, "::after") || rim(node, "::before"))
-                    painted.push(
-                      `${node.className}${fill ? " fill" : ""}${rim(node) || rim(node, "::after") ? " rim" : ""}`,
-                    );
-                  if (node === top) break;
-                }
-                // The first painted box behind the row and behind the code area.
-                const behind = (element: Element | null) => {
-                  for (let node = element; node; node = node.parentElement) {
-                    const color = getComputedStyle(node).backgroundColor;
-                    if (!clear(color)) return { node: node.className, color };
-                  }
-                  return undefined;
-                };
-                const button = document.querySelector(row)!;
-                return {
-                  painted,
-                  rowFill: getComputedStyle(button).backgroundColor,
-                  seam: JSON.stringify(behind(button)) === JSON.stringify(behind(body)),
-                };
-              },
-              { card: CARD[block], row: ROW[block] },
-            );
-            expect({ variant, painted: surface.painted.length }).toEqual({ variant, painted: 1 });
-            expect(surface.seam).toBe(true);
-            expect(surface.rowFill).toMatch(/transparent|rgba\(.*,\s*0\)$/);
           } finally {
             await page.close();
           }

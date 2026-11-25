@@ -1,6 +1,7 @@
 public import CmuxNextDaemon
 public import CmuxNextSidebar
 public import CmuxNextDesign
+public import CmuxNextIcons
 import Foundation
 
 /// Maps the daemon store's sidebar flattening into sidebar rows: one machine
@@ -44,7 +45,7 @@ public struct SidebarMapping {
               tab.kind == .pty || tab.kind == .remoteTerminal, tab.name?.isEmpty ?? true,
               tab.titleText.isEmpty || TerminalTitle.isBareShell(tab.titleText) || Self.trimmingSlash(tab.titleText) == cwd,
               tab.agent == nil, tab.agentSession == nil else { return false }
-        return label == URL(fileURLWithPath: cwd).lastPathComponent || Self.trimmingSlash(label) == cwd
+        return label == (cwd as NSString).lastPathComponent || Self.trimmingSlash(label) == cwd
     }
 
     /// `title` when `workspace` is unnamed and `label`, the name its face tab `face` gives it, is only its shell's home
@@ -68,11 +69,20 @@ public struct SidebarMapping {
         /// The page's sound (a browser tab playing sound or muted); the row
         /// merges its tabs' (`SidebarWorkspaceAudio.merge`).
         public var audio: SidebarWorkspaceAudio?
+        /// The front tab is a New Tab page whose Send starts a Cloud chat (``AgentCloudStartTitles``), or a Cloud machine's
+        /// desktop: the row's trailing cloud mark.
+        public var startsInCloud = false
+        /// A cmux page's own icon (`cmux://remote-view` of a Cloud machine: the display icon), in place of a favicon:
+        /// a cmux page is no site, so its row never wears the no-favicon globe.
+        public var icon: IconName?
 
-        public init(title: String? = nil, favicon: SidebarFavicon? = nil, audio: SidebarWorkspaceAudio? = nil) {
+        public init(title: String? = nil, favicon: SidebarFavicon? = nil, audio: SidebarWorkspaceAudio? = nil, startsInCloud: Bool = false,
+                    icon: IconName? = nil) {
             self.title = title
             self.favicon = favicon
             self.audio = audio
+            self.startsInCloud = startsInCloud
+            self.icon = icon
         }
     }
 
@@ -244,28 +254,46 @@ public struct SidebarMapping {
         }
     }
 
-    /// Automatic agent names prefer the chat title, then its task gist. Explicit workspace
-    /// and chat names retain their original text; the rendered row label is not naming provenance.
+    /// Automatic agent names prefer the name given to the session (acpmux `displayName`, "Mango"), then the
+    /// chat title, then its task gist. Explicit workspace and chat (tab) names retain their original text and
+    /// win over the given name; the rendered row label is not naming provenance.
     public static func agentRowTitle(workspaceTitle: String, workspaceName: String? = nil,
                                     workspaceNameSource: WorkspaceNameSource = .user, workspaceNameRevision: UInt64 = 0,
-                                    explicitWorkspaceTitle: String? = nil, sessionName: String?, chatTitle: String?,
-                                    explicitChatTitle: String? = nil, taskSummary: String?) -> String {
+                                    explicitWorkspaceTitle: String? = nil, sessionName: String?, displayName: String? = nil,
+                                    formerSessionNames: [String] = [],
+                                    chatTitle: String?, explicitChatTitle: String? = nil, taskSummary: String?) -> String {
         if let explicitWorkspaceTitle, !explicitWorkspaceTitle.isEmpty { return workspaceTitle }
         let originalName = workspaceName ?? workspaceTitle
         // A rename remains authoritative even when the user chose a default-looking name or
         // the session name. Revision zero also supports launcher-named workspaces.
         if workspaceNameSource == .user, workspaceNameRevision > 0 { return workspaceTitle }
         let machineNamed = workspaceNameSource == .auto || WorkspaceModel.isDefaultName(originalName)
-            || originalName == sessionName || originalName == shortSessionName(sessionName)
+            || isSessionNamed(originalName, sessionName: sessionName, displayName: displayName,
+                              formerSessionNames: formerSessionNames)
         guard machineNamed else { return workspaceTitle }
         if let explicitChatTitle, !explicitChatTitle.isEmpty { return explicitChatTitle }
-        for candidate in [chatTitle, taskSummary] {
-            guard let value = candidate?.trimmingCharacters(in: .whitespacesAndNewlines), !value.isEmpty,
-                  value.caseInsensitiveCompare(sessionName ?? "") != .orderedSame,
-                  value.caseInsensitiveCompare(shortSessionName(sessionName) ?? "") != .orderedSame else { continue }
-            return value
-        }
+        if let displayName, !displayName.isEmpty { return displayName }
+        // A real chat title counts even when it reads as the session name: a chat renamed "mango"
+        // is titled "Mango" (`AgentTurnStates.isRenamed`), and skipping it left the row on its old name.
+        if let value = chatTitle?.trimmingCharacters(in: .whitespacesAndNewlines), !value.isEmpty { return value }
+        if let value = taskSummary?.trimmingCharacters(in: .whitespacesAndNewlines), !value.isEmpty,
+           value.caseInsensitiveCompare(sessionName ?? "") != .orderedSame,
+           value.caseInsensitiveCompare(shortSessionName(sessionName) ?? "") != .orderedSame { return value }
         return workspaceTitle
+    }
+
+    /// Whether a workspace's `name` is only a name its agent had: its session name now, its given name, or a name
+    /// it had before a rename (acpmux `formerNames`). Such a workspace was named by its launcher, not forced by a
+    /// person or agent, so it keeps following the agent's name as that changes (Leo, 2026-11-24: "if it wasn't
+    /// manually adjusted and forecd by the user or agent to be a particular way, can keep being like... the main
+    /// one's name. which can change").
+    public static func isSessionNamed(_ name: String, sessionName: String?, displayName: String? = nil,
+                                      formerSessionNames: [String] = []) -> Bool {
+        guard !name.isEmpty else { return false }
+        return ([sessionName, displayName] + formerSessionNames.map(Optional.some)).contains { candidate in
+            guard let candidate, !candidate.isEmpty else { return false }
+            return name == candidate || name == shortSessionName(candidate)
+        }
     }
 
     /// Peers qualify session names for routing; the sidebar already shows the host separately.

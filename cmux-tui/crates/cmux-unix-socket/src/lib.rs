@@ -40,11 +40,24 @@ pub const SUN_PATH_CAPACITY: usize =
 #[cfg(unix)]
 pub const MAX_PATH_BYTES: usize = SUN_PATH_CAPACITY - 1;
 
+/// The longest socket path every platform binds, without the trailing NUL:
+/// macOS's 104-byte `sun_path` less its NUL (Linux allows 107). A path that
+/// every host and client must resolve alike (the app, a daemon and a remote
+/// side computing the same socket path) is checked against this, not
+/// [`MAX_PATH_BYTES`], so a Linux host never picks a path a Mac cannot bind.
+pub const PORTABLE_MAX_PATH_BYTES: usize = 103;
+
 /// True when `path` fits `sun_path`.
 #[cfg(unix)]
 pub fn fits(path: &Path) -> bool {
     use std::os::unix::ffi::OsStrExt;
     path.as_os_str().as_bytes().len() <= MAX_PATH_BYTES
+}
+
+/// True when `path` fits the portable socket path limit (no `sun_path` to measure here).
+#[cfg(not(unix))]
+pub fn fits(path: &Path) -> bool {
+    path.as_os_str().len() <= PORTABLE_MAX_PATH_BYTES
 }
 
 /// `Ok` when `path` fits `sun_path`; otherwise an `InvalidInput` error that

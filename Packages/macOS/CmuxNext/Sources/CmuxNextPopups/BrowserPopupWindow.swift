@@ -77,7 +77,7 @@ public final class BrowserPopupWindow: NSWindow {
     public init(page: any BrowserTab, frame: CGRect, suggestionEngine: OmniboxSuggestionEngine = OmniboxSuggestionEngine(),
                 readOnlyAddress: Bool = false, activeLook: ActiveLookScope?) {
         self.page = page
-        locationBar = OmnibarToolbarView(suggestionEngine: suggestionEngine)
+        locationBar = OmnibarToolbarView(suggestionEngine: suggestionEngine, paneRow: false)
         locationBar.addressBar.isReadOnly = readOnlyAddress
         locationBar.addressBar.setAccessibilityIdentifier(Self.omnibarIdentifier)
         omnibar = OmnibarTabBinding(addressBar: locationBar.addressBar, tab: page)
@@ -167,6 +167,9 @@ public final class BrowserPopupWindow: NSWindow {
             pageView.trailingAnchor.constraint(equalTo: root.trailingAnchor),
             pageView.bottomAnchor.constraint(equalTo: root.bottomAnchor),
         ])
+        // Chrome gives a popup's keyboard to its page; Cmd-L moves it to the omnibar. Unset, AppKit makes the first
+        // key view (the omnibar) first responder when the window shows, with the whole address selected.
+        initialFirstResponder = pageView
         return root
     }
 

@@ -132,11 +132,15 @@ html[data-cmux-page="github"],
 .gh-merge-confirm { display: inline-flex; gap: var(--ds-space-2); }
 .gh-merge-done { color: var(--agent-status-merged); font-weight: 600; font-size: var(--text-control); }
 .gh-merge-failure { flex-basis: 100%; font-size: var(--text-caption); }
+/* What Merge's tooltip said, as text (Chief, 2026-11-21): why it waits, or the commit it merges. */
+.gh-merge-confirm { flex-wrap: wrap; align-items: baseline; }
+.gh-merge-note { flex-basis: 100%; color: var(--page-text-2); font-size: var(--text-caption); }
+.gh-tally-word { color: var(--page-text-2); }
 
 .gh-button {
   padding: var(--ds-space-1) var(--ds-space-3);
   border: 1px solid var(--page-separator);
-  border-radius: 6px;
+  border-radius: var(--ds-radius-control);
   color: var(--page-text);
   background: var(--page-elevated);
   font: inherit;
@@ -154,6 +158,8 @@ html[data-cmux-page="github"],
 
 .gh-failure { margin: 0; color: var(--agent-status-failure); }
 .gh-muted { color: var(--page-text-3); }
+/* No pull request routed: the Moon, the line and a way to find one, a little down the page. */
+.gh-empty { margin-block-start: var(--ds-space-48); }
 
 /* The body: one column, or main and rail side by side on a wide pane. Narrow keeps the DOM order
    (main, then rail), so nothing moves between the two but the columns. */
@@ -316,6 +322,21 @@ html[data-cmux-page="github"],
 .gh-review-comments { margin: var(--ds-space-2) 0 0; padding: 0; list-style: none; display: flex; flex-direction: column; gap: var(--ds-space-2); }
 .gh-review-comment { padding-inline-start: var(--ds-space-3); border-inline-start: 2px solid var(--page-separator); }
 .gh-review-comment-path { color: var(--page-text-2); }
+/* The person's review and thread writes (ReviewBox.tsx, audit fix eight). */
+.gh-review-box { display: flex; flex-direction: column; gap: var(--ds-space-2); margin-block-start: var(--ds-space-3); }
+.gh-review-box-label { color: var(--page-text-2); font-size: var(--text-caption); font-weight: 600; }
+.gh-review-box-text {
+  padding: var(--ds-space-2);
+  border: 1px solid var(--page-separator);
+  border-radius: var(--ds-radius-control);
+  color: var(--page-text);
+  background: var(--page-elevated);
+  font: inherit;
+  font-size: var(--text-control);
+  resize: vertical;
+}
+.gh-review-box-actions { display: flex; flex-wrap: wrap; align-items: baseline; gap: var(--ds-space-2); }
+.gh-thread-actions { margin-block-start: var(--ds-space-1); }
 
 .gh-reviewer-state { flex: none; color: var(--page-text-3); font-size: var(--text-caption); }
 .gh-row[data-review=approved] .gh-reviewer-state { color: var(--agent-status-success); }
@@ -576,3 +597,25 @@ html[data-cmux-page="github"],
 .gh-segment[aria-pressed=true] { color: var(--page-text); background: var(--page-elevated); box-shadow: 0 0 0 1px var(--page-separator); }
 .gh-segment-count { color: var(--page-text-3); font-variant-numeric: tabular-nums; }
 .gh-conversation-order { width: auto; color: var(--page-text-2); font-size: var(--text-caption); }
+
+/* The issues view (GitHubIssues.tsx): one row per issue, its glyph, title, labels and a meta line. */
+.gh-issues-back { width: auto; margin-inline-start: auto; color: var(--page-text-2); font-size: var(--text-caption); }
+.gh-issues-note { margin: var(--ds-space-3) 0; }
+.gh-issue-list { margin-top: var(--ds-space-2); }
+.gh-issue-row {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--ds-space-2);
+  padding: var(--ds-space-2);
+  border-bottom: 1px solid var(--page-separator);
+  font-size: var(--text-body);
+  line-height: var(--text-body--line-height);
+}
+.gh-issue-row:hover { background: var(--page-hover); }
+.gh-issue-row > .gh-glyph { margin-top: calc(var(--ds-space-1) / 2); }
+.gh-issue-main { display: flex; flex: 1; flex-wrap: wrap; align-items: baseline; gap: var(--ds-space-1) var(--ds-space-2); min-width: 0; }
+.gh-issue-title { flex: 0 1 auto; font-weight: 600; white-space: normal; }
+.gh-issue-labels { display: inline-flex; flex-wrap: wrap; gap: var(--ds-space-1); }
+.gh-issue-meta { flex-basis: 100%; font-size: var(--text-caption); }
+.gh-issue-author { color: var(--page-text-2); }
+.gh-issue-comments { display: inline-flex; flex: none; align-items: center; gap: var(--ds-space-1); font-size: var(--text-caption); font-variant-numeric: tabular-nums; }

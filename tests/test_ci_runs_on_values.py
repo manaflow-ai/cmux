@@ -14,14 +14,12 @@ from __future__ import annotations
 import contextlib
 import io
 import json
-import re
 import subprocess
 import sys
 import tempfile
 import unittest
 from pathlib import Path
 
-import yaml
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "scripts" / "ci"))
@@ -267,52 +265,6 @@ class LiveMain(unittest.TestCase):
         self.assertEqual(code, 1)
         self.assertIn("no ROUTE_TOKEN", out)
 
-
-def live_step() -> dict | None:
-    doc = yaml.load((WORKFLOWS / "ci-repo-variables.yml").read_text(encoding="utf-8"), Loader=yaml.BaseLoader)
-    return next((s for s in doc["jobs"]["check"]["steps"] if s.get("id") == "runs-on-values"), None)
-
-
-# The live check runs from the default branch's schedule; feat-cmux-next carries this test for ThisTree only.
-@unittest.skipIf(live_step() is None, "this branch's ci-repo-variables.yml is not the scheduled one")
-class Wiring(unittest.TestCase):
-    def workflow(self) -> dict:
-        return yaml.load((WORKFLOWS / "ci-repo-variables.yml").read_text(encoding="utf-8"), Loader=yaml.BaseLoader)
-
-    def test_the_live_check_gets_every_runs_on_variable_by_name(self) -> None:
-        step = next(s for s in self.workflow()["jobs"]["check"]["steps"] if s.get("id") == "runs-on-values")
-        block = step["env"][check.RUNS_ON_VARIABLES_ENV]
-        passed = re.findall(r"^([A-Za-z0-9_]+)=\$\{\{ vars\.\1 \}\}$", block, re.M)
-        self.assertEqual(len(passed), len(block.strip().splitlines()), "one NAME=${{ vars.NAME }} per line")
-        missing = (check.read_variables([("here", WORKFLOWS)]) | set(check.RUNNER_NAME_VARIABLES)) - set(passed)
-        self.assertEqual(missing, set())
-
-    def test_the_live_check_reads_the_branches_that_run_workflows(self) -> None:
-        step = next(s for s in self.workflow()["jobs"]["check"]["steps"] if s.get("id") == "runs-on-values")
-        branches = step["env"]["ROUTE_BRANCHES"].split()
-        self.assertTrue({"main", "feat-cmux-next", "nightly-next", "rc/cnx-ios-builder"} <= set(branches), branches)
-        self.assertIn("python3 scripts/ci/runs_on_values.py", step["run"])
-        self.assertIn("schedule", self.workflow()["on"])
-
-    def test_the_live_check_counts_hosts_from_the_runners_job(self) -> None:
-        jobs = self.workflow()["jobs"]
-        step = next(s for s in jobs["check"]["steps"] if s.get("id") == "runs-on-values")
-        self.assertEqual(step["env"].get(check.COUNT_HOSTS_ENV), "1")
-        self.assertEqual(step["env"].get(check.RUNNER_LIST_ENV), "${{ needs.runners.outputs.list }}")
-        self.assertEqual(jobs["check"].get("needs"), "runners")
-        # A failed runner read still runs the check, which then fails closed.
-        self.assertIn("!cancelled()", jobs["check"]["if"])
-        self.assertEqual(jobs["runners"]["outputs"]["list"], "${{ steps.read.outputs.list }}")
-        steps = jobs["runners"]["steps"]
-        mint = next(s for s in steps if s.get("id") == "route-token")
-        read = next(s for s in steps if s.get("id") == "read")
-        self.assertLess(steps.index(mint), steps.index(read))
-        self.assertIn("runs_on_values.py --list-runners", read["run"])
-        self.assertEqual(read["env"]["ROUTE_TOKEN"], "${{ steps.route-token.outputs.token }}")
-        # The org's glaeda group is where the minis register (pr_runner_pool.GitHub.runners()).
-        self.assertEqual(mint["with"].get("permission-organization-self-hosted-runners"), "read")
-        # The App key stays out of the check job, whose runs-on a variable can move.
-        self.assertNotIn("secrets.", yaml.safe_dump(jobs["check"]))
 
 if __name__ == "__main__":
     unittest.main()

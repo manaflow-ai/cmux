@@ -20,6 +20,17 @@ sys.path.insert(0, str(ROOT / "scripts" / "ci"))
 import dev_landing_place as place  # noqa: E402
 import dev_release_product_reuse as reuse  # noqa: E402
 
+sys.path.insert(0, str(ROOT / "tests"))
+import workflow_jobs  # noqa: E402
+
+
+def runner(job) -> str:
+    """The job's one runs-on, as written; a matrix nothing resolves, or more than one cell, fails."""
+    cells = workflow_jobs.runs_on_cells(job)
+    if cells is None or len(cells) != 1:
+        raise AssertionError(f"expected one runs-on, got {cells!r}")
+    return cells[0]
+
 
 class WorkflowTests(unittest.TestCase):
     @classmethod
@@ -41,14 +52,14 @@ class WorkflowTests(unittest.TestCase):
                              "a superseded landing still compiles: it warms the next one")
 
     def test_runs_on_takes_the_placement_and_no_placement_skips_the_compile(self):
-        runs_on = self.jobs["dev-landing-compile"]["runs-on"]
+        runs_on = runner(self.jobs["dev-landing-compile"])
         self.assertIn("fromJSON(needs.dev-landing-place.outputs.runs_on)", runs_on)
         self.assertIn("needs.dev-landing-place.outputs.runs_on != ''", self.jobs["dev-landing-compile"]["if"])
         self.assertNotIn("OVERFLOW_LABEL", str(self.jobs["dev-landing-place"]))
         # With no placement at all (the placing job failed), the larger-capacity 6 vCPU label, never 12 vCPU
         # alone: it started nothing from about 02:11Z on 2026-10-28 (tests/test_ci_runs_on_fallback.py).
         self.assertTrue(runs_on.rstrip(" })").endswith("fromJSON(vars.RUNNER_POOLS).macos_26"), runs_on)
-        self.assertIn("needs.dev-landing-place.outputs.runner_label", self.jobs["dev-landing-compile"]["env"]["CMUX_NEXT_RUNNER"])
+        self.assertIn("needs.dev-landing-place.outputs.runner_label", workflow_jobs.resolve(self.jobs["dev-landing-compile"]).env["CMUX_NEXT_RUNNER"])
 
     def test_the_compile_records_its_app_where_the_dev_run_looks(self):
         job = self.jobs["dev-landing-compile"]
@@ -87,11 +98,24 @@ class WorkflowTests(unittest.TestCase):
     def test_a_dev_daily_compile_is_placed_on_the_nearest_cache_first(self):
         job = self.jobs["dev-daily-place"]
         for clause in ("github.event_name == 'workflow_dispatch'", "inputs.dev_daily == true",
-                       "github.repository == 'manaflow-ai/cmux'", "github.run_attempt == 1",
+                       "github.repository == 'manaflow-ai/cmux'",
                        "vars.CMUX_NEXT_DEV_COMPILE_AFFINITY", "!cancelled()"):
             self.assertIn(clause, job["if"])
+        # Every attempt is placed: run 44941204257's rescue re-run (attempt 2, 2026-11-21) skipped placement and fell
+        # to the side label's tail behind about 130 PR jobs.
+        self.assertNotIn("run_attempt", job["if"])
+        place_env = {s.get("id"): s for s in job["steps"]}["place"]["env"]
+        self.assertEqual(place_env["NIGHTLY_LABEL"],
+                         "${{ vars.CI_DEV_COMPILE_NIGHTLY_RUNNER || 'glaeda-nightly-std-xcode-26.6' }}")
+        runs_on = self.jobs["cmux-scheme-compile"]["runs-on"]
+        self.assertIn("needs.dev-daily-place.outputs.runs_on != '' && fromJSON(needs.dev-daily-place.outputs.runs_on)", runs_on)
+        self.assertNotIn("github.run_attempt == 1 && needs.dev-daily-place", runs_on)
+        env_runner = self.jobs["cmux-scheme-compile"]["env"]["CMUX_NEXT_RUNNER"]
+        self.assertNotIn("github.run_attempt == 1 && needs.dev-daily-place", env_runner)
         # Only when the compile runs: its own tree condition, word for word.
         compile_if = self.jobs["cmux-scheme-compile"]["if"]
+        # The label guard (tests/test_ci_label_events_skip_full_ci.py) ends every if; the tree comes before it.
+        compile_if = compile_if[:compile_if.rindex(") && !(github.event_name == 'pull_request'")] + " }}"
         tree = compile_if[compile_if.index("((inputs.same_tree_sha == ''"):].rstrip(" }")[:-2]
         self.assertIn(tree, job["if"])
         # Only a run whose DEV Release app gets built: the Release step's dispatch condition, word for word
@@ -122,7 +146,7 @@ class WorkflowTests(unittest.TestCase):
         # a status function (here !cancelled()) does not get: both jobs must keep one.
         for name in ("cmux-scheme-compile", "dev-daily-place"):
             self.assertIn("!cancelled()", self.jobs[name]["if"], f"{name} must not inherit success() from skipped needs")
-        runs_on, label = compile_job["runs-on"], compile_job["env"]["CMUX_NEXT_RUNNER"]
+        runs_on, label = runner(compile_job), workflow_jobs.resolve(compile_job).env["CMUX_NEXT_RUNNER"]
         pick = "needs.dev-daily-place.outputs.runs_on != '' && fromJSON(needs.dev-daily-place.outputs.runs_on)"
         self.assertIn(pick, runs_on)
         # The label copy is the same expression with the placement's first label for its list.

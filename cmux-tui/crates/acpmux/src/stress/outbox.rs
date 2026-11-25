@@ -26,7 +26,12 @@ fn delivery(id: &str, state: State, at: u64) -> Delivery {
         state,
         attempts: 1,
         never_sent: false,
+        resends: 0,
+        resent_at: 0,
         relay_post: None,
+        open_on_peer: false,
+        pin: None,
+        proof: None,
         error: None,
         accepted: None,
         created_at: at,
@@ -55,8 +60,10 @@ fn outbox_with(dir: &Path, kept: usize) -> (Outbox, PathBuf) {
 fn written_per_change(kept: usize) -> Option<f64> {
     let dir = tempfile::tempdir().unwrap();
     let (outbox, _) = outbox_with(dir.path(), kept);
+    // `update_saved`: the save runs on this thread, where its bytes are counted (`update`
+    // hands the same save to the disk writer's thread).
     let change = |n: u32| {
-        outbox.update("live", |d| {
+        outbox.update_saved("live", |d| {
             d.attempts = n;
             d.state = if n.is_multiple_of(2) { State::Queued } else { State::Delivering };
         })
@@ -101,7 +108,7 @@ fn a_compressed_day_of_sends_stops_growing_on_disk_after_a_day() {
         crate::store::test_clock::advance(minute);
         let id = format!("s-{i:06}");
         outbox.add(delivery(&id, State::Queued, crate::store::now_ms())).unwrap();
-        outbox.update(&id, |d| d.state = State::Delivered);
+        let _ = outbox.update_saved(&id, |d| d.state = State::Delivered);
         if i % every == every - 1 {
             // A snapshot alone, so the sample is the book's size, not where the journal is
             // between two snapshots.
@@ -150,7 +157,7 @@ fn restart_loop_alone() {
             let id = format!("r-{round}-{i}");
             let now = crate::store::now_ms();
             outbox.add(delivery(&id, State::Queued, now)).unwrap();
-            outbox.update(&id, |d| d.state = State::Delivered);
+            let _ = outbox.update_saved(&id, |d| d.state = State::Delivered);
             if i % 8 == 0 {
                 outbox.compact();
             }
@@ -250,4 +257,72 @@ proptest! {
         let total = disk_bytes(dir.path());
         prop_assert!(total <= one_copy * 3 + 65_536, "{} bytes on disk for a {}-byte snapshot", total, one_copy);
     }
+}
+
+/// Hang-watch hq#8669's class (`Outbox::save`, `fsync`): on a slow disk a delivery's change
+/// saved on the tokio worker that made it, so the request that changed it (an ack, an attempt,
+/// a retry) answered only after the sync, and after every other save queued on the disk lock.
+/// With each sync 100 ms slow, 24 deliveries change over and over on a 2-worker runtime; the
+/// p99 of one change's call is what such a request waits. `update_saved` is the old path,
+/// unchanged; `update` hands its save to the disk writer (`disk_writer.rs`).
+#[test]
+fn a_request_waits_no_disk_while_deliveries_change_on_a_slow_disk() {
+    let before = change_p99_on_slow_disk(|outbox, id, n| {
+        outbox.update_saved(id, |d| d.attempts = n);
+    });
+    let after = change_p99_on_slow_disk(|outbox, id, n| {
+        outbox.update(id, |d| d.attempts = n);
+    });
+    eprintln!("outbox change p99 with each sync 100 ms slow: before {before:?}, after {after:?}");
+    let ms = std::time::Duration::from_millis;
+    assert!(before >= ms(100), "the old path no longer waits on the disk: {before:?}");
+    assert!(after < ms(20), "a change waited on the disk: {after:?}");
+}
+
+/// The p99 of a `change` call while 24 deliveries change through it on a 2-worker runtime,
+/// each sync 100 ms slow, for 1.5 s.
+fn change_p99_on_slow_disk(change: fn(&Outbox, &str, u32)) -> std::time::Duration {
+    use std::sync::Arc;
+    use std::time::{Duration, Instant};
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("outbox.json");
+    let outbox = Arc::new(Outbox::default());
+    outbox.open(&path);
+    let now = crate::store::now_ms();
+    for i in 0..24 {
+        outbox.add(delivery(&format!("c-{i}"), State::Delivering, now)).unwrap();
+    }
+    let _slow = crate::config::startup_seams::slow_syncs(dir.path(), Duration::from_millis(100));
+    let runtime =
+        tokio::runtime::Builder::new_multi_thread().worker_threads(2).enable_all().build().unwrap();
+    let mut waits = runtime.block_on(async {
+        let until = Instant::now() + Duration::from_millis(1500);
+        let changers: Vec<_> = (0..24)
+            .map(|i| {
+                let outbox = outbox.clone();
+                tokio::spawn(async move {
+                    let id = format!("c-{i}");
+                    let mut waits = Vec::new();
+                    let mut n = 0;
+                    while Instant::now() < until {
+                        let asked = Instant::now();
+                        change(&outbox, &id, n);
+                        waits.push(asked.elapsed());
+                        n += 1;
+                        tokio::time::sleep(Duration::from_millis(10)).await;
+                    }
+                    waits
+                })
+            })
+            .collect();
+        let mut waits = Vec::new();
+        for changer in changers {
+            waits.extend(changer.await.unwrap());
+        }
+        waits
+    });
+    drop(runtime);
+    assert!(crate::disk_writer::flush(Duration::from_secs(30)));
+    waits.sort();
+    waits[(waits.len() * 99 / 100).min(waits.len() - 1)]
 }

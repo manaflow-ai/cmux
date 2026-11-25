@@ -26,6 +26,9 @@ windows-thin-exe = []
 # It also builds cmux-terminal-client: dx 0.7.10 replays every workspace crate that
 # depends on an edited one, and fails on one its first build never compiled.
 hotpatch = ["cmux-tui-core/hotpatch", "dep:cmux-terminal-client"]
+# Measurement only: the daemon's heap by allocation site (dhat), written to the file
+# CMUX_TUI_DHAT_OUT names when it exits (src/heap_profile.rs). No shipped build enables it.
+dhat-heap = ["dep:dhat"]
 
 # The whole program. src/main.rs stays the crate root (its dispatch tables are
 # where they always were); the cmux-tui binary is a small entry point that
@@ -66,14 +69,28 @@ path = "src/bin/cmux-tui-host.rs"
 [dependencies]
 tempfile = "3"
 cmux-json.workspace = true
+cmux-egress.workspace = true
+cmux-lifeline.workspace = true
+cmux-build-space.workspace = true
 cmux-cloud-client.workspace = true
+# `cmux vm new --provider gcp`'s sizes (args::create_size), the app's create's table, and
+# `cmux vm new --size` headless: the app's size ladder (args.rs CREATE_SIZES).
+cmux-cloud-handlers.workspace = true
+cmux-apps.workspace = true
 cmux-cloud-environment.workspace = true
 cmux-cloud-machine.workspace = true
 cmux-cloud-wire.workspace = true
 # `cmux chat --repo`: the repository spec `cloud new-machine --repo` reads (cli/chat_start/local_repo.rs).
 cmux-cloud-start-core.workspace = true
+cmux-tailnet-join.workspace = true
 ghostty-vt.workspace = true
+cmux-theme-tokens.workspace = true
+png.workspace = true
+# `slides`: a Markdown deck compiled to the deck page (cli/mcp/md_deck.rs); already linked for
+# cmux-conversation, no new crate.
+pulldown-cmark = { version = "0.13", default-features = false }
 cmux-tui-core.workspace = true
+cmux-daemon-launch-core = { path = "../cmux-daemon-launch-core" }
 # The tab a pane shows after a close (close_focus::tab), the app's and the daemon's rule.
 cmux-focus-core.workspace = true
 # The daemon client every SDK user shares (cli/chief/link.rs talks through it).
@@ -83,21 +100,31 @@ cmux-terminal-client = { path = "../cmux-terminal-client", optional = true }
 cmux-git.workspace = true
 cmux-conversation.workspace = true
 cmux-process.workspace = true
+cmux-scope.workspace = true
 # `cmux vm`: the cmux VM API CLI (workers/cmux-vm/cli), linked in process so the
 # bundle needs no cmux-vm binary. Its TLS rides this crate's rustls (ring).
 cmux-vm = { path = "../../../workers/cmux-vm/cli/crates/cmux-vm", default-features = false }
 # `cmux vm token create`'s mint rules, shared with the app (cli/vm.rs `mint_exit`).
 cmux-cloud-config.workspace = true
+# `cmux vm pool`: the CI runner pool surge and idle pause (cli/vm.rs).
+cmux-vm-pool.workspace = true
 cmux-api-compat.workspace = true
 # `cmux settings list|schema|validate`: the settings schema and owner state.
 cmux-config.workspace = true
+# `cmux pack`: theme packs read, checked, compiled and swapped.
+cmux-theme-pack.workspace = true
 cmux-customize.workspace = true
+cmux-customize-recipes.workspace = true
+# `cmux app web-pieces` (cli/app/web_pieces.rs): the signed per-piece switch file of web updates.
+cmux-web-pieces.workspace = true
 cmux-usage-patterns.workspace = true
 # `cmux ext dev`: the manifest validator the daemon runs, and the folder watch.
 cmux-app-manifest.workspace = true
 notify.workspace = true
 # `cmux agent hooks` and the hook paths the Claude wrapper reads.
 cmux-tui-hooks.workspace = true
+# `cmux agent-config`: Claude Code's and Codex's own MCP servers, skills and slash commands.
+cmux-agent-customize.workspace = true
 cmux-tui-cdp.workspace = true
 cmux-tui-machine-agent-protocol.workspace = true
 cmux-tui-machine-protocol.workspace = true
@@ -108,6 +135,7 @@ ratatui.workspace = true
 crossterm = { workspace = true, features = ["serde", "event-stream"] }
 crossbeam-channel.workspace = true
 anyhow.workspace = true
+dhat = { version = "0.3", optional = true }
 bytes.workspace = true
 unicode-width.workspace = true
 unicode-segmentation.workspace = true
@@ -124,8 +152,11 @@ rquickjs.workspace = true
 toml.workspace = true
 base64.workspace = true
 getrandom.workspace = true
+toml_edit.workspace = true
 glob.workspace = true
 libc.workspace = true
+# glibc arena cap at process start (malloc_arenas.rs).
+cmux-tui-platform.workspace = true
 fs4.workspace = true
 smallvec.workspace = true
 zeroize.workspace = true
@@ -146,27 +177,58 @@ ring.workspace = true
 # start (acpmux-build-id docs), so a new stamp does not recompile acpmux.
 acpmux = { path = "../acpmux", default-features = false }
 acpmux-build-id = { path = "../acpmux-build-id" }
+# acpmux's terminal UI, its own crate (acpmux is headless): main installs it at start, so
+# `cmux acp attach` (the app's chat-in-a-terminal-tab, `acp.rs` `chat_tab_command`) and the
+# bundle's `acpmux` symlink open it (acpmux `src/tui_entry.rs`).
+acpmux-tui = { path = "../acpmux-tui" }
+# A device row's kind and glyph (`devices/model.rs`).
+cmux-device-kind = { path = "../cmux-device-kind" }
+
+# The hidden `__computer-use-worker` mode (computer_use_worker.rs): the Linux
+# and Windows Computer Use worker the daemon supervises. macOS runs it in the
+# signed cmux Remote host instead.
+[target.'cfg(not(target_os = "macos"))'.dependencies]
+cmux-computer-use = { workspace = true, features = ["desktop", "server"] }
 
 [target.'cfg(unix)'.dependencies]
+# The browser host and the app host run from this binary, chosen by argv[0]
+# (`cmux-browser-host`, `cmux-app-host` links beside bin/cmux; `main` in
+# src/main.rs): one copy of std, serde and QuickJS instead of three.
+cmux-browser-host = { path = "../cmux-browser-host" }
+# The app's acpmux is this binary (bin/acpmux aliases bin/cmux), so it carries acpmux's shipping
+# hub carrier here (scripts/ci/acpmux-build-features.sh); cmux-remote is below already.
+acpmux = { path = "../acpmux", default-features = false, features = ["hub-carrier"] }
+cmux-app-host = { workspace = true, features = ["engine"] }
 # `cmux carrier dial --service desktop`: the desktop's datagram link (carrier/rd_link.rs).
 cmux-rd-link = { path = "../cmux-rd-link", features = ["net"] }
 cmux-cloud-api.workspace = true
-# `cmux cloud codex-holder` (cli/cloud_codex_holder.rs, unix only).
-cmux-cloud-codex-holder.workspace = true
+# `cmux cloud journey` (cli/cloud_journey.rs): the agent test account's password sign-in.
+cmux-stack-auth.workspace = true
 # `cmux automation` (cli/automation.rs, unix only): the store and the launchd runner use
 # unix files and processes, so the crate does not build for Windows.
 cmux-automations.workspace = true
 cmux-holder.workspace = true
+# `cmux carrier supervise`: the serve socket's lease between supervisors (carrier/supervise.rs).
+cmux-file-lock.workspace = true
+cmux-install-check.workspace = true
+# Projected folders (link/sync_cli/project.rs): the manifest and the stream the machine reads through.
+cmux-projection.workspace = true
 # `cmux vnc`: the RFB client and the zlib compression of its Kitty graphics frames.
 cmux-vnc.workspace = true
 flate2.workspace = true
+# `cmux customize use pr:N` unpacks a published web bundle archive (cli/customize/pr.rs).
+tar.workspace = true
 # `cmux host …`, the machine supervisor and process roles (server.md 5.1).
 cmux-host.workspace = true
+# `cmux app try`: the Screen Sharing helper a live try swaps in is checked against the installed
+# helper's designated requirement, as the share host's staging checks it (cli/app/try_cmd/helper.rs).
+cmux-signed-bundle.workspace = true
 # Reads the enclosing app bundle's Info.plist (app_identity.rs).
 plist = "1.10"
 # The build identity (daemon skew, SSH re-bootstrap). Only this crate reads
 # it, so an edit does not recompile cmux-remote (cmux-build-identity docs).
 cmux-build-identity.workspace = true
+cmux-host-budget.workspace = true
 cmux-remote.workspace = true
 cmux-remote-protocol.workspace = true
 cmux-wg.workspace = true
@@ -202,6 +264,9 @@ windows-sys = { workspace = true, features = ["Win32_System_LibraryLoader"] }
 serde_json.workspace = true
 
 [dev-dependencies]
+cmux-build-space = { workspace = true, features = ["testing"] }
+# cli/ext tests: the fake daemon renders a mount with the real QuickJS app host.
+cmux-app-host = { workspace = true, features = ["engine"] }
 # carrier/rd_link.rs tests: the rd host's own parser reads what the dial sends.
 cmux-rd-proto = { path = "../cmux-rd-proto", features = ["serde"] }
 # tests/carrier_dial.rs: a real relay for `cmux carrier dial`.
@@ -211,7 +276,21 @@ cmux-relay = { path = "../cmux-relay" }
 # Paused-clock tests of the Cloud dial's handshake wait.
 tokio = { workspace = true, features = ["test-util"] }
 cmux-unix-socket = { workspace = true, features = ["test-support"] }
+# tests/terminal_restart_settled.rs: restores a GHOSTSNP READY the way the Mac surface does.
+ghostty-vt-sys = { workspace = true }
+# `read_timeout_or_ended`: a read timeout for a test socket whose peer can have closed first.
+cmux-tui-platform = { workspace = true, features = ["test-support"] }
 rusqlite.workspace = true
+# tests/mobile_link_conditions.rs: the phone's link profiles and shaper.
+cmux-fault.workspace = true
+# tests/composer_send_duress.rs: the phone composer's keyed Send under link duress.
+cmux-composer-send.workspace = true
+# cli/apps_store.rs: what opening a pane cmux draws itself runs (the sidebar and `app.open` share it).
+cmux-layout-reducer.workspace = true
+# cli/catalog_request_tests.rs: a palette request row sends what its CLI verb sends.
+cmux-action-catalog.workspace = true
+# Seeded-secret tests: the gate sends each payload path's request to a local capture server.
+cmux-egress = { workspace = true, features = ["capture"] }
 
 [target.'cfg(target_os = "macos")'.dependencies]
 # `cmux carrier dial`: the device's Noise key in the login Keychain (carrier/noise_key.rs).

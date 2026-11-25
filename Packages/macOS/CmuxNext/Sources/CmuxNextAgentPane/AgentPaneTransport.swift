@@ -45,8 +45,26 @@ import CmuxNextCompat
     /// Runs right before anything reaches the page: a push here, a script call or a picture
     /// (``AgentPaneView/callPageScript(_:arguments:timeout:)``, ``AgentPaneView/pageSnapshot()``). A hidden page
     /// that froze (the app's hibernation) thaws first, so the work runs now instead of waiting on a
-    /// page that runs no script (a push's completion paces the next one).
-    public var beforePageWork: (@MainActor () -> Void)?
+    /// page that runs no script (a push's completion paces the next one). Set exactly while the page is
+    /// frozen: meanwhile other chats' rows are left out, not queued (``AcpmuxPaneSocket/setAsleep(_:)``).
+    public var beforePageWork: (@MainActor () -> Void)? {
+        didSet { syncSight() }
+    }
+    /// How much of the pane anyone can see (its pacer's probe, ``AgentPaneFramePacer/onSightChange``). Unseen: other
+    /// chats' rows are left out until it shows, as for a frozen page. Hidden: its chat's stream is left out too.
+    public var pageSight = AgentPaneSight.seen {
+        didSet { if pageSight != oldValue { syncSight() } }
+    }
+    /// Whether nobody can see the pane (``pageSight``).
+    public var pageUnseen: Bool { pageSight.unseen }
+
+    /// What the page hears now: other chats' rows (``AcpmuxPaneSocket/setAsleep(_:)``) and its chat's stream
+    /// (``AcpmuxPaneSocket/setHidden(_:)``). A frozen page hears neither: any push would thaw it.
+    func syncSight() {
+        let frozen = beforePageWork != nil
+        socket?.setAsleep(frozen || pageSight.unseen)
+        socket?.setHidden(frozen || pageSight.hidden)
+    }
     /// Tests: runs on the main actor after a pass's frames were read off it and before the main
     /// actor decides the next one, where a reconnect can land. Nil in the app.
     var afterAnalyze: (@MainActor () async -> Void)?
@@ -218,6 +236,20 @@ import CmuxNextCompat
     /// Told at each connect whether the pane runs on another cmux install's acpmux (its allows
     /// are refused here: the pane says so).
     public var onOtherInstall: (@MainActor (Bool) -> Void)?
+    /// Told after each local connection's person proof whether the daemon took it: false while
+    /// prompts typed here would reach the agent as an unverified sender's, true once a connection
+    /// proved the person. The pane shows nothing for it (Leo, 2026-11-22).
+    public var onPersonProof: (@MainActor (Bool) -> Void)?
+    /// Gets this launch's person key to the daemon again (the host's full lookup: it hands off a
+    /// daemon an update replaced, then enrolls). True when the lookup finished, so a new
+    /// connection may prove; the transport then reconnects. Nil: the pane only says it is unproven.
+    public var recoverPersonProof: (@MainActor () async -> Bool)?
+    /// Reconnects made for the person proof since one last proved; bounded so a daemon that can
+    /// never take the key does not reconnect the pane forever.
+    var personRecoveries = 0
+    static let personRecoveryReconnects = 3
+    /// The recovery running for the current unproven connection.
+    var personRecovery: Task<Void, Never>?
     /// `_acpmux/markUnread` on the host's socket (Mark as Unread, cx-ncc.78). Replaced in tests.
     public var markUnread: @MainActor (_ sessionId: String) async throws -> Void = { _ in
         throw AcpmuxStatusClient.Failure.closed
@@ -320,6 +352,8 @@ import CmuxNextCompat
             Task { @MainActor [weak self] in self?.arrived(id) }
         }
         self.socket = socket
+        // A page hidden or frozen before this connection opened: its list notices wait for its show too.
+        syncSight()
         onQuestionStateChanged?()
         // cx-fcaq: the local WebSocket goes only to a port the acpmux this app runs listens on.
         if connection.remote == nil, let executable = connection.executable, let port = connection.url.port,
@@ -416,10 +450,18 @@ import CmuxNextCompat
         // A prompt held for the trust answer after a new chat's start takes the start's credit; a Cloud start sent from a
         // folder pick's acceptance (#40957's too-big card) takes the pick's (``grantPicked(_:)`` spent the click). Tickets outlive both.
         if !gestures.isAvailable, let fresh = intent.method == "session/prompt" ? startCredit.take(connection: current, now: gestures.uptime, lifetime: Self.startCreditLifetime)
-            : intent.method == "cloud.startChat" ? pickCredit.take(connection: current, now: gestures.uptime, lifetime: AgentPaneUserGestures.lifetime) : nil {
+            : intent.method == "cloud.startChat" ? pickCredit.take(connection: current, now: gestures.uptime, lifetime: AgentPaneUserGestures.lifetime) : nil,
+            fresh || intent.method != "session/prompt" {
             return fresh ? gestures.reserve(connection: current, intent: intent, paid: true) : nil
         }
-        return gestures.reserve(connection: current, intent: intent, paid: false, personOnly: personOnly)
+        let reserved = gestures.reserve(connection: current, intent: intent, paid: false, personOnly: personOnly)
+        // A Send needs no key press or click (Leo, 2026-11-17: "go remove this"): it always gets its
+        // ticket, which its large attachments' uploads ride on. A credential transfer's (`personOnly`) does not,
+        // nor an automation seed's (``AgentPaneUserGestures/automationSeedWaits``).
+        if reserved == nil, intent.method == "session/prompt", !personOnly, !gestures.automationSeedWaits {
+            return gestures.reserve(connection: current, intent: intent, paid: true)
+        }
+        return reserved
     }
 
     /// `uploads.begin {sessionId, promptId, ticket}`: the upload `upload` of the person's send holds

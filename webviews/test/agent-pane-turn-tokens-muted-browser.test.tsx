@@ -1,7 +1,5 @@
-// The running turn's token count reads quieter than its words (agent-pane-turn-tokens-muted.test.tsx),
-// resolved in Chromium from the real stylesheets under a host theme: "Thinking" in the theme's
-// secondary text, "Working for 35s" in the background activity tone (#27074: 58% of the foreground),
-// "· 679.9K tokens" in its tertiary, in tabular numerals.
+// Both running-line layouts keep their themed words and elapsed time without token amounts,
+// resolved in Chromium from the real stylesheets under a host theme.
 import { describe, expect, setDefaultTimeout, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import path from "node:path";
@@ -31,7 +29,7 @@ await requireBrowserLane("agent-pane-turn-tokens-muted-browser.test.tsx", async 
   const theme =
     "--agent-text: rgb(230, 230, 230); --agent-muted: rgb(160, 160, 170); --agent-soft: rgb(110, 110, 120);";
 
-  describe("the count reads quieter than the line's words", () => {
+  describe("live lines retain their text tone and time without token counters", () => {
     for (const [name, line] of Object.entries(tokenLines))
       test(name, async () => {
         const page = await browser.newPage();
@@ -54,17 +52,18 @@ await requireBrowserLane("agent-pane-turn-tokens-muted-browser.test.tsx", async 
                 probe.remove();
                 return color;
               })(),
-              tokens: style(".cv-worked__tokens").color,
-              sep: style(".cv-worked__sep").color,
-              numerals: style(".cv-worked__tokens").fontVariantNumeric,
+              time: document.querySelector(".cv-worked__time, .cv-worked__label-time")?.textContent,
+              tokens: document.querySelectorAll(".cv-worked__tokens").length,
+              separators: document.querySelectorAll(".cv-worked__sep").length,
+              text: document.querySelector(".cv-worked")?.textContent,
             };
           });
           // The live line keeps the muted token; the line under the work takes the activity tone.
           expect(looks.words).toBe(name.includes("WorkingFor.tsx") ? looks.activity : "rgb(160, 160, 170)");
-          expect(looks.words).not.toBe(looks.tokens);
-          expect(looks.tokens).toBe("rgb(110, 110, 120)");
-          expect(looks.sep).toBe(looks.tokens);
-          expect(looks.numerals).toContain("tabular-nums");
+          expect(looks.time).toBe("35s");
+          expect(looks.tokens).toBe(0);
+          expect(looks.separators).toBe(0);
+          expect(looks.text).not.toMatch(/tokens|679\.9K|out|↓|↑/);
         } finally {
           await page.close();
         }

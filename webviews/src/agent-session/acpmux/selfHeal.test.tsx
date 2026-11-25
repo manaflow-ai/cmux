@@ -9,10 +9,14 @@ import { afterAll, afterEach, beforeAll, expect, jest, setSystemTime, test } fro
 import { JSDOM } from "jsdom";
 import { renderToStaticMarkup } from "react-dom/server";
 import { HostRecoveringLine } from "./HostError";
-import { RECONNECT_LINE_AFTER_MS, hostRecoveryLine, readHostRestoring } from "./hostRetry";
+import { hostPlannedRestart, hostRecoveryLine, readHostRestoring } from "./hostRetry";
 import type { AcpmuxSnapshot } from "./model";
 import { stallTiming } from "./stallLog";
 import { settleReact } from "../../../test/support/domTeardown";
+// Loaded before the file starts, as the app loads it: the module installs the old host's
+// `cmuxAcpmuxComputerUseState` hook on globalThis when it first loads, and a first load inside a
+// test reads as a leaked global (test/support/leakDetector.ts).
+import "./computerUse/computerUseState";
 
 const dom = new JSDOM("<!doctype html>", { url: "http://localhost/" });
 // The page's timers are the test's fake ones (the client's reconnect uses `window.setTimeout`).
@@ -48,7 +52,17 @@ type MockInternals = {
 };
 
 /// One acpmux store behind every socket the pane opens, as one daemon serves every connection.
-type Store = { events: unknown[]; sessions: unknown[]; seq: number; live?: MockInternals & { deaf: boolean } };
+/// `failLagReads`: how many of the pane's next reads of missed records (not the stall check's
+/// one-record read) acpmux fails, as a daemon too busy to answer them does.
+type Store = {
+  events: unknown[];
+  sessions: unknown[];
+  seq: number;
+  failLagReads: number;
+  /// How many of those reads acpmux never answers (a daemon replaced under the bridge drops them).
+  dropLagReads: number;
+  live?: MockInternals & { deaf: boolean };
+};
 
 /// Lets the microtasks a timer queued (the mock's replies, the client's handling of them) run.
 async function settle(): Promise<void> {
@@ -79,7 +93,7 @@ async function harness(options: { slowHandshakeMs: number }) {
   const { forgetTail } = await import("./tailCache");
   const target = mockHost.sessionId!;
   forgetTail(target);
-  const store: Store = { events: [], sessions: [], seq: 0 };
+  const store: Store = { events: [], sessions: [], seq: 0, failLagReads: 0, dropLagReads: 0 };
   let opened = 0;
   class SharedSocket extends MockAcpmuxSocket {
     deaf = false;
@@ -106,6 +120,14 @@ async function harness(options: { slowHandshakeMs: number }) {
       self.answer = async (method, params) => {
         // fixed-wait: a host slow to answer its handshake is the behavior; the test's fake clock moves it.
         if (method === "initialize" && slowMs > 0) await new Promise((resolve) => setTimeout(resolve, slowMs));
+        if (method === "_acpmux/events" && params.limit !== 1 && store.dropLagReads > 0) {
+          store.dropLagReads -= 1;
+          return new Promise(() => {});
+        }
+        if (method === "_acpmux/events" && params.limit !== 1 && store.failLagReads > 0) {
+          store.failLagReads -= 1;
+          throw new Error("acpmux too busy to read the chat's events");
+        }
         return answer(method, params);
       };
       store.live = this as unknown as MockInternals & { deaf: boolean };
@@ -160,7 +182,7 @@ async function harness(options: { slowHandshakeMs: number }) {
     turns.map((k) =>
       (snapshot?.rows ?? []).reduce((sum, row) => sum + (row.text?.split(`answer-${k}.`).length ?? 1) - 1, 0),
     );
-  return { client, target, live, produce, shown, snapshot: () => snapshot, sockets: () => opened };
+  return { client, target, live, produce, shown, store, snapshot: () => snapshot, sockets: () => opened };
 }
 
 /// The scenario: a working chat, its socket goes deaf, acpmux adds four turns, two more after the
@@ -185,6 +207,7 @@ async function wedgedChat(limitMs: number) {
     let recoveredAt: number | undefined;
     let lostAt: number | undefined;
     let lineWhileWedged: string | undefined;
+    let lineBeforeRefusal: string | undefined;
     const due = new Map([
       [1_000, 1],
       [3_000, 2],
@@ -201,9 +224,15 @@ async function wedgedChat(limitMs: number) {
       await time.advance(100);
       // The pane gave the deaf socket up and connects again (App.tsx's line counts from here).
       if (recoveredAt === undefined && lostAt === undefined && run.sockets() > 1) lostAt = time.now();
-      // What the pane's line says while it gets the chat back (App.tsx counts from its lost link).
-      if (lostAt !== undefined && recoveredAt === undefined && time.now() - lostAt >= RECONNECT_LINE_AFTER_MS)
-        lineWhileWedged ??= renderToStaticMarkup(<HostRecoveringLine relinkingSince={lostAt} now={time.now()} />);
+      // What the pane's line says while it gets the chat back. App.tsx marks the link down only when an
+      // attempt fails: the given-up socket alone (the second one in flight) says nothing; once that
+      // reconnect was refused (a third socket asks) the link is down until the chat is back.
+      if (lostAt !== undefined && recoveredAt === undefined) {
+        const down = run.sockets() > 2;
+        const line = renderToStaticMarkup(<HostRecoveringLine linkDown={down} now={time.now()} />);
+        if (down) lineWhileWedged ??= line;
+        else lineBeforeRefusal ??= line;
+      }
       if (recoveredAt === undefined && shown([1])[0]! > 0) recoveredAt = time.now();
       // Back: acpmux's next turns come live on the new connection.
       if (recoveredAt !== undefined && later <= 6 && time.now() - recoveredAt >= (later - 4) * 1_000) produce(later++);
@@ -216,6 +245,7 @@ async function wedgedChat(limitMs: number) {
       missed: counts.filter((count) => count === 0).length,
       duplicates: counts.reduce((sum, count) => sum + Math.max(0, count - 1), 0),
       lineWhileWedged,
+      lineBeforeRefusal,
       sockets: run.sockets(),
     };
   } finally {
@@ -233,7 +263,8 @@ test("a working chat whose stream stops while its socket stays open gets every t
   expect(result.duplicates).toBe(0);
   // Quiet 20 s, the check, a refused reconnect, then a 12 s handshake: well under a minute.
   expect(result.timeToRecoverMs!).toBeLessThan(60_000);
-  // While it came back the pane said so, quietly.
+  // The drop said nothing; the refused reconnect is the transport's word, and then the pane said so, quietly.
+  expect(result.lineBeforeRefusal).toBe("");
   expect(result.lineWhileWedged).toContain("Reconnecting…");
   expect(result.lineWhileWedged).toContain('data-host-recovering="reconnecting"');
   // The deaf socket, the refused one, the slow one: no reconnect loop after it is back.
@@ -298,12 +329,108 @@ test("the host's restore status reads as a quiet line with its elapsed time", ()
   expect(readHostRestoring({ restoring: { waitedMs: "soon" } }, 5)).toBeUndefined();
   expect(readHostRestoring(undefined, 5)).toBeUndefined();
   const restoring = { waitedMs: 12_000, at: 1_000 };
-  expect(hostRecoveryLine({ restoring, now: 4_000 })).toEqual({ kind: "restoring", waitedMs: 15_000 });
-  expect(renderToStaticMarkup(<HostRecoveringLine restoring={restoring} now={4_000} />)).toContain(
-    "Restoring sessions… 0:15",
-  );
-  // A lost link says nothing for its first moment, and leaves the line to the failure past 25 s.
-  expect(hostRecoveryLine({ relinkingSince: 0, now: 500 })).toBeUndefined();
-  expect(hostRecoveryLine({ relinkingSince: 0, now: 2_000 })).toEqual({ kind: "reconnecting" });
-  expect(hostRecoveryLine({ relinkingSince: 0, now: 30_000 })).toBeUndefined();
+  expect(hostRecoveryLine({ linkDown: true, restoring, now: 4_000 })).toEqual({ kind: "restoring", waitedMs: 15_000 });
+  // The time is its own clock element (HostError.tsx `ClockedWords`): the line's text, tags aside.
+  expect(
+    renderToStaticMarkup(<HostRecoveringLine linkDown restoring={restoring} now={4_000} />).replace(/<[^>]+>/g, ""),
+  ).toContain("Restoring sessions… 0:15");
+  // The link down says the quiet chip for as long as it lasts, at any time; up, nothing.
+  expect(hostRecoveryLine({ linkDown: true, now: 0 })).toEqual({ kind: "reconnecting" });
+  expect(hostRecoveryLine({ linkDown: true, now: 30_000 })).toEqual({ kind: "reconnecting" });
+  expect(hostRecoveryLine({ now: 30_000 })).toBeUndefined();
+});
+
+// Leo, 2026-11-14: "i also want all our connectivity stuff to shut the f*** up"; 2026-11-22: "surely we
+// can think of better fixes than random timing which can shift". A daemon restart, an update's handoff
+// or a drop whose reconnect lands is something the person can do nothing about, and it is no down link:
+// no open chat says anything, however long or short it is. Only a failed attempt says it.
+test("a drop, a waiting handshake or a planned restart shows no line; a failed attempt does", () => {
+  for (const now of [0, 1_500, 9_999, 60_000]) expect(hostRecoveryLine({ now })).toBeUndefined();
+  expect(renderToStaticMarkup(<HostRecoveringLine now={60_000} />)).toBe("");
+  // A restore the host reports while the pane is connected is as quiet.
+  expect(hostRecoveryLine({ restoring: { waitedMs: 30_000, at: 0 }, now: 0 })).toBeUndefined();
+  // A planned restart's refusal is not the link down; any other refusal is.
+  expect(hostPlannedRestart({ code: "host_unavailable", details: { reconnecting: true, handoff: true } })).toBe(true);
+  expect(hostPlannedRestart({ code: "host_unavailable", details: { reconnecting: true } })).toBe(false);
+  expect(hostPlannedRestart({ code: "native.not_connected" })).toBe(false);
+  // Down, it is said at once, as one calm line, with the restore's time when the host restores.
+  expect(hostRecoveryLine({ linkDown: true, now: 0 })).toEqual({ kind: "reconnecting" });
+  expect(hostRecoveryLine({ linkDown: true, restoring: { waitedMs: 4_000, at: 0 }, now: 1_000 })).toEqual({
+    kind: "restoring",
+    waitedMs: 5_000,
+  });
+});
+
+test("a refusal the pane says at once is never covered by the quiet Reconnecting line", () => {
+  // Another build's acpmux on the socket: said at once with its Restart, not after 25 s of "Reconnecting…".
+  expect(hostRecoveryLine({ linkDown: true, failureShown: true, now: 2_000 })).toBeUndefined();
+  expect(
+    renderToStaticMarkup(<HostRecoveringLine linkDown failureShown now={2_000} otherwise={<p>the failure line</p>} />),
+  ).toBe("<p>the failure line</p>");
+  // The host's own word that acpmux restores still shows: a refusal without it ends the restore.
+  const restoring = { waitedMs: 13_000, at: 0 };
+  expect(hostRecoveryLine({ linkDown: true, restoring, failureShown: true, now: 1_000 })).toEqual({
+    kind: "restoring",
+    waitedMs: 14_000,
+  });
+});
+
+test("a tab shown again while its lag read still retries keeps its connection and draws the missed turn once", async () => {
+  // Leo, 2026-11-12: "BUT IF I ALREADY TOLD YOU GUYS ABOUT THIS SHIT MANY MANY HOURS AGO WHY IS IT
+  // STILL NOT FIXED YET" (the reconnect that flips the chat and sends the reader to the bottom).
+  // A hidden page that fell behind hears `_acpmux/lagged`; its read of the dropped records retries
+  // for up to ~16 s on a busy acpmux. Showing the tab asks the stall check, which found those same
+  // records older than its grace and rebuilt the whole chat over a hole the read was filling.
+  jest.useFakeTimers();
+  const time = clock(Date.UTC(2026, 10, 12, 18, 0, 0));
+  const { acpWire } = await import("./wire");
+  const run = await harness({ slowHandshakeMs: 0 });
+  const lostBefore = acpWire.stats().reconnects;
+  try {
+    run.live().touch(run.target, { status: "running", indicator: "working" });
+    run.live().emit(run.target, { mux: "turn_started" });
+    await time.advance(100);
+    // The turn's records are shed on the way to the page; acpmux says so.
+    run.live().deaf = true;
+    run.produce(1);
+    run.live().deaf = false;
+    run.store.failLagReads = 5;
+    run.live().deliver({ jsonrpc: "2.0", method: "_acpmux/lagged", params: { sessionIds: [run.target], dropped: 4 } });
+    await time.advance(6_000);
+    expect(run.shown([1])).toEqual([0]);
+    // The tab is shown again while the lag read waits to try again.
+    dom.window.document.dispatchEvent(new dom.window.Event("visibilitychange"));
+    for (let step = 0; step < 300 && run.shown([1])[0] === 0; step++) await time.advance(100);
+    expect(run.shown([1])).toEqual([1]);
+    // No new client, no replaced transcript: the same connection drew it.
+    expect(run.sockets()).toBe(1);
+    expect(acpWire.stats().reconnects).toBe(lostBefore);
+  } finally {
+    run.client.close();
+  }
+});
+
+test("a lag read whose reply never comes holds the stall check off only for its retry budget", async () => {
+  jest.useFakeTimers();
+  const time = clock(Date.UTC(2026, 10, 12, 19, 0, 0));
+  const run = await harness({ slowHandshakeMs: 0 });
+  try {
+    run.live().touch(run.target, { status: "running", indicator: "working" });
+    run.live().emit(run.target, { mux: "turn_started" });
+    await time.advance(100);
+    run.live().deaf = true;
+    run.produce(1);
+    run.live().deaf = false;
+    run.store.dropLagReads = 1;
+    run.live().deliver({ jsonrpc: "2.0", method: "_acpmux/lagged", params: { sessionIds: [run.target], dropped: 4 } });
+    // Past the read's whole retry budget, the next check gives the connection up and gets the turn back.
+    await time.advance(25_000);
+    dom.window.document.dispatchEvent(new dom.window.Event("visibilitychange"));
+    for (let step = 0; step < 300 && run.shown([1])[0] === 0; step++) await time.advance(100);
+    expect(run.shown([1])).toEqual([1]);
+    // The stalled socket, the harness's refused second one, the healthy third: one recovery.
+    expect(run.sockets()).toBe(3);
+  } finally {
+    run.client.close();
+  }
 });

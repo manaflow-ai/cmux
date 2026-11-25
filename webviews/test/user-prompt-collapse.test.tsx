@@ -68,7 +68,7 @@ const { resetTranscriptDisclosure } =
 const { pasteRanges, COLLAPSED_PROMPT_LINES } = await import("../src/agent-session/acpmux/conversation/promptCollapse");
 const { paintFindHighlights } = await import("../src/agent-session/acpmux/conversation/chatFind");
 const { translate } = await import("../src/agent-session/acpmux/i18n");
-// Strings by key (REVIEW.md: tests never pin English copy).
+// Strings by key: tests never pin English copy.
 const MORE = translate("message.more");
 const LESS = translate("message.less");
 const COPY = `.cv-user__actions button[aria-label="${translate("turn.copy")}"]`;
@@ -361,7 +361,8 @@ try {
     // Fifty lines fold under the prompt's one Show more.
     expect(body().classList.contains("is-clamped")).toBe(true);
     expect(toggle()?.textContent).toBe(MORE);
-    expect(host.querySelectorAll("[aria-expanded]")).toHaveLength(1);
+    // The one fold; Save as Prompt's popover button is not a fold.
+    expect(host.querySelectorAll("[aria-expanded]:not(.cv-save-prompt)")).toHaveLength(1);
     copied.length = 0;
     await act(async () => {
       host.querySelector(COPY)!.dispatchEvent(new dom.window.MouseEvent("click", { bubbles: true }));

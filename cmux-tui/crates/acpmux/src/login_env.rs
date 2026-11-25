@@ -64,7 +64,8 @@ fn run_marker() -> String {
 }
 // Older caches could contain machine declarations imported through a shell hook;
 // version 3 caches lack the provider keys (`PROVIDER_KEYS`), so the shell runs once more.
-const CACHE_VERSION: u32 = 4;
+// version 4 caches lack AZURE_* (Foundry's Entra ID sign-in).
+const CACHE_VERSION: u32 = 5;
 
 #[derive(Debug, Default, Clone)]
 struct Imported {
@@ -847,6 +848,24 @@ fn vertex_allowed(key: &str, value: &str, profile: Option<&BTreeMap<String, Stri
         || (profile_switch("CLAUDE_CODE_USE_VERTEX", profile) && !is_secret(key, value))
 }
 
+/// The Azure names a profile's Foundry switch may unlock: the tenant, the client id and the
+/// cloud, never a secret (`AZURE_CLIENT_SECRET`, a certificate password).
+const AZURE_PUBLIC: [&str; 4] =
+    ["AZURE_TENANT_ID", "AZURE_CLIENT_ID", "AZURE_AUTHORITY_HOST", "AZURE_CONFIG_DIR"];
+
+/// Claude Code on Microsoft Foundry without `ANTHROPIC_FOUNDRY_API_KEY` signs in with Entra ID
+/// through Azure's default credential chain, which reads `AZURE_*` (a service principal's
+/// `AZURE_CLIENT_ID`/`AZURE_TENANT_ID`/`AZURE_CLIENT_SECRET`, a workload identity's
+/// `AZURE_FEDERATED_TOKEN_FILE`). Codex's `AZURE_OPENAI_API_KEY` stays Codex's.
+fn azure_allowed(key: &str, value: &str, profile: Option<&BTreeMap<String, String>>) -> bool {
+    key.starts_with("AZURE_")
+        && key != "AZURE_OPENAI_API_KEY"
+        && (person_switch("CLAUDE_CODE_USE_FOUNDRY")
+            || (AZURE_PUBLIC.contains(&key)
+                && !is_secret(key, value)
+                && profile_switch("CLAUDE_CODE_USE_FOUNDRY", profile)))
+}
+
 /// The allow-list: which login-shell variables a child of `family`
 /// (`claude`, `codex`, `gemini`, `muse`, a `PROVIDER_FAMILIES` one, else none) gets. Every other variable stays in the
 /// daemon (GITHUB_TOKEN, GH_TOKEN, NPM_TOKEN, ...), unless the person adds
@@ -864,7 +883,9 @@ fn vertex_allowed(key: &str, value: &str, profile: Option<&BTreeMap<String, Stri
 ///   AWS_SHARED_CREDENTIALS_FILE. With the person's own
 ///   CLAUDE_CODE_USE_VERTEX: GOOGLE_*, CLOUDSDK_*, GCLOUD_*, CLOUD_ML_REGION,
 ///   VERTEX_REGION_* (not secret); with only a profile's switch, the
-///   non-secret ones of those.
+///   non-secret ones of those. With the person's own CLAUDE_CODE_USE_FOUNDRY:
+///   AZURE_* but AZURE_OPENAI_API_KEY (Entra ID sign-in); with only a profile's switch,
+///   AZURE_TENANT_ID, AZURE_CLIENT_ID, AZURE_AUTHORITY_HOST, AZURE_CONFIG_DIR.
 /// - Codex: OPENAI_*, CODEX_*.
 /// - Gemini: GEMINI_* and GOOGLE_* (the CLI/API and Vertex credentials).
 /// - Muse: MUSE_* and META_* (the official CLI and API credentials).
@@ -936,6 +957,7 @@ pub fn allowed_with(
                 || key.ends_with("_TELEMETRY")
                 || aws_allowed(key, profile)
                 || vertex_allowed(key, value, profile)
+                || azure_allowed(key, value, profile)
         }
         Some("codex") => key.starts_with("OPENAI_") || key.starts_with("CODEX_"),
         Some("gemini") => key.starts_with("GEMINI_") || key.starts_with("GOOGLE_"),
@@ -1017,7 +1039,7 @@ const INTERNAL: [&str; 5] = [
 ];
 
 /// Whether a login variable is kept at all (memory and cache): allowed for
-/// some family (its Bedrock or Vertex condition aside), or read by the daemon.
+/// some family (its Bedrock, Vertex or Foundry condition aside), or read by the daemon.
 fn storable(key: &str, value: &str) -> bool {
     INTERNAL.contains(&key)
         || delivered(key)
@@ -1029,6 +1051,7 @@ fn storable(key: &str, value: &str) -> bool {
             "CLAUDE_",
             "DISABLE_",
             "AWS_",
+            "AZURE_",
             "GOOGLE_",
             "CLOUDSDK_",
             "GCLOUD_",
@@ -1056,6 +1079,23 @@ pub fn allowed_var(key: &str) -> Option<String> {
     .then_some(v)
 }
 
+/// Where [`vault_env`] reads the vault env: `vault::env_for_children`, set by the vault's
+/// worker when it starts (only a daemon starts it). The vault is a higher module, so it hands
+/// its reader down here instead of this module calling up into it.
+// test-hook-allow: not a test hook; the vault worker sets it once, and no test does
+static VAULT_ENV: std::sync::OnceLock<fn() -> Vec<(String, String)>> = std::sync::OnceLock::new();
+
+/// Called by the vault's worker (`vault::start_worker`) before it marks the vault active.
+pub(crate) fn set_vault_env(read: fn() -> Vec<(String, String)>) {
+    let _ = VAULT_ENV.set(read);
+}
+
+/// The vault env every local agent of this daemon gets (`vault::env_for_children`). Empty
+/// outside a daemon, as that is.
+pub(crate) fn vault_env() -> Vec<(String, String)> {
+    VAULT_ENV.get().map_or_else(Vec::new, |read| read())
+}
+
 /// Profile and route references must not recover a machine value from the
 /// daemon's inherited environment after the local-only overlay refuses it.
 pub(crate) fn reference_var(key: &str) -> Option<String> {
@@ -1070,7 +1110,7 @@ pub(crate) fn reference_var(key: &str) -> Option<String> {
 /// current local machine declarations it removed; never restore an inherited
 /// value or expose this overlay to remote-origin launches.
 pub(crate) fn restore_machine_tokio(cmd: &mut tokio::process::Command) {
-    cmd.envs(nested_local(crate::vault::env_for_children(), machine::read()));
+    cmd.envs(nested_local(vault_env(), machine::read()));
 }
 
 /// The nested-Claude keys of the local overlay a scrub removed, in the order
@@ -1099,7 +1139,7 @@ fn pairs_for(
     family: Option<&str>,
     profile: Option<&BTreeMap<String, String>>,
 ) -> Vec<(String, String)> {
-    pairs_with(family, profile, crate::vault::env_for_children(), machine::read())
+    pairs_with(family, profile, vault_env(), machine::read())
 }
 
 fn pairs_with(
@@ -1139,6 +1179,11 @@ pub(crate) fn overlay(
     values.into_iter().collect()
 }
 
+/// This machine's delivered `machine.env` under `home`.
+pub(crate) fn machine_env_path(home: &std::path::Path) -> std::path::PathBuf {
+    machine::path(home)
+}
+
 /// Whether an env name may come from a person's or machine's declarations:
 /// never a loader, shell bootstrap, PATH/HOME or `CMUX_`/`ACPMUX_` name.
 pub(crate) fn machine_env_name_allowed(name: &str) -> bool {
@@ -1175,21 +1220,41 @@ pub fn effective_for(
     family: Option<&str>,
     profile: &BTreeMap<String, String>,
 ) -> BTreeMap<String, String> {
+    let (vault, machine) = (vault_env(), machine_values());
+    effective_with(family, profile, daemon_values(), vault, machine)
+}
+
+/// [`effective_for`] over a given daemon env (less `machine.env`'s names), vault entries
+/// (`vault::env_for_children`) and `machine.env` values, as one launch reads them once.
+pub(crate) fn effective_with(
+    family: Option<&str>,
+    profile: &BTreeMap<String, String>,
+    daemon: Vec<(String, String)>,
+    vault: Vec<(String, String)>,
+    machine: BTreeMap<String, String>,
+) -> BTreeMap<String, String> {
     let nested = std::env::var_os("CLAUDECODE").is_some();
-    let (vault, machine) = (crate::vault::env_for_children(), machine::read());
     // A launch's scrub removes the nested keys, then puts back the login
     // values, the vault's and `machine.env`'s (`restore_machine_tokio`).
     let mut restored = nested_overrides(family);
     restored.extend(nested_local(vault.clone(), machine.clone()));
     let local = pairs_with(family, Some(profile), vault, machine);
+    let mut env = layered(daemon, nested, local, restored, profile);
+    // A launch adds the Cloud machine's route where nothing set one; a check sees the same.
+    crate::cloud_model_plane::fill_map(&mut env);
+    env
+}
+
+/// `machine.env`'s values now (`machine.rs`), for [`effective_with`].
+pub(crate) fn machine_values() -> BTreeMap<String, String> {
+    machine::read()
+}
+
+/// The daemon's own env less `machine.env`'s names, for [`effective_with`]; call after
+/// [`machine_values`], which records those names.
+pub(crate) fn daemon_values() -> Vec<(String, String)> {
     let names = machine::names();
-    layered(
-        std::env::vars().filter(|(key, _)| !names.contains(key)),
-        nested,
-        local,
-        restored,
-        profile,
-    )
+    std::env::vars().filter(|(key, _)| !names.contains(key)).collect()
 }
 
 /// `effective_for`'s layering, pure: `daemon` (its nested Claude keys
@@ -1243,6 +1308,8 @@ pub fn apply_tokio_for(
         cmd.env_remove(key);
     }
     cmd.envs(values);
+    // A Cloud machine's model route where nothing above set one (`cloud_model_plane.rs`).
+    crate::cloud_model_plane::fill_tokio(cmd, true);
     if let Some(path) = agent_path() {
         cmd.env("PATH", path);
     }
@@ -1269,6 +1336,9 @@ pub fn apply_remote_tokio(cmd: &mut tokio::process::Command) {
     if let Some(path) = agent_path() {
         cmd.env("PATH", path);
     }
+    // On a Cloud machine its own model route (root-owned, no credential) is the machine's, not
+    // the remote caller's authority: a chat the Mac started there reaches the edge too.
+    crate::cloud_model_plane::fill_tokio(cmd, false);
 }
 
 /// Same, for std's process builder.
@@ -1282,6 +1352,8 @@ pub fn apply_std_for(
         cmd.env_remove(key);
     }
     cmd.envs(values);
+    // A Cloud machine's model route where nothing above set one (`cloud_model_plane.rs`).
+    crate::cloud_model_plane::fill_std(cmd, true);
     if let Some(path) = agent_path() {
         cmd.env("PATH", path);
     }
@@ -1519,9 +1591,8 @@ fn save_cache(fingerprint: &str, login: &[(String, String)], login_path: Option<
         saved_at: Some(now_secs()),
     };
     let Ok(bytes) = serde_json::to_vec_pretty(&cache) else { return };
-    if let Err(e) = crate::config::write_atomic(&cache_path(), &bytes) {
-        tracing::warn!("login env cache: {e:#}");
-    }
+    // A cache: the disk writer (`disk_writer.rs`) writes it and logs a failure.
+    crate::config::write_atomic_later(&cache_path(), bytes);
 }
 
 /// Files created by cloud apply-machine-config and deliver-secrets. Their
@@ -1626,21 +1697,7 @@ fn delivered_names() -> Vec<String> {
     delivered_names_in(&home)
 }
 
-/// The machine files' metadata stamp (never a value), for keys that must
-/// change when a delivery or revocation does (the agent pool's). It covers
-/// the vault too (`vault::stamp`): a pooled agent started before a vault pull,
-/// a hold or a credential change is discarded at its claim.
-pub fn machine_stamp() -> Option<String> {
-    let vault = crate::vault::stamp();
-    match (machine_files_stamp(), vault) {
-        (None, None) => None,
-        (files, vault) => {
-            Some(format!("{}|vault:{}", files.unwrap_or_default(), vault.unwrap_or_default()))
-        }
-    }
-}
-
-fn machine_files_stamp() -> Option<String> {
+pub(crate) fn machine_files_stamp() -> Option<String> {
     let home =
         std::env::var_os("HOME").map(PathBuf::from).or_else(dirs::home_dir).unwrap_or_default();
     machine_files_stamp_in(&home)

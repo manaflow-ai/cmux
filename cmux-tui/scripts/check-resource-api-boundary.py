@@ -1166,6 +1166,7 @@ def _validate_catalog_type(
                 # Settings values are data the settings schema describes, not
                 # the catalog (plans/cmux-next/settings-react.md section 2).
                 "operations.settings.set.params.fields.value",
+                "types.SettingsEdit.fields.value",
                 "operations.settings.schema.result",
                 "operations.settings.list.result.items",
                 "operations.settings.get.result",
@@ -1222,10 +1223,21 @@ def _validate_catalog_type(
                 # passed through unchanged (its turn summaries grow fields).
                 "operations.chief.engine.get.result",
                 "operations.chief.engine.set.result.arguments[0]",
+                # The Chief's automations, owned by optchat-chief and passed
+                # through unchanged (automations.rs, issue 25573).
+                "operations.chief.automation.list.result",
+                "operations.chief.automation.update.result.arguments[0]",
                 # Import from Conductor's dry run, owned by the
                 # cmux-conductor-import crate (plan::Plan) and passed
                 # through unchanged; the app that confirms it reads it.
                 "types.ConductorImportPlanResult.fields.plan.value",
+                # A browser import read: each reader's result is the
+                # cmux-browser-import crate's (bookmarks, history, tabs,
+                # extensions, an engine), in the app's Codable shapes, and
+                # Safari's engine comes from the Mac's NSPreferredWebServices
+                # dictionary, passed as macOS keeps it.
+                "types.BrowserImportReadResult.fields.ok.value",
+                "operations.browser_import.read.params.fields.services.value",
                 # The move from classic cmux: the source, decision, plan and
                 # preview are the cmux-classic-import crate's (source::Source,
                 # plan::Decision, plan::Plan, plan::Preview), passed through
@@ -1626,7 +1638,7 @@ def _operation_catalog(
                 diagnostics, path, text, f"{operation}.params must be an object", operation
             )
             return
-        allowed = {"selectors", "fields", "extra", "constraints", "one_of"}
+        allowed = {"selectors", "fields", "extra", "unknown_params", "constraints", "one_of"}
         if set(value) - allowed or not {"selectors", "fields", "extra"} <= set(value):
             _catalog_diagnostic(
                 diagnostics, path, text, f"{operation}.params has a schema hole", operation
@@ -1634,6 +1646,14 @@ def _operation_catalog(
         if value.get("extra") is not False:
             _catalog_diagnostic(
                 diagnostics, path, text, f"{operation}.params.extra must be false", operation
+            )
+        if "unknown_params" in value and value["unknown_params"] != "refuse":
+            _catalog_diagnostic(
+                diagnostics,
+                path,
+                text,
+                f"{operation}.params.unknown_params must be \"refuse\" when present",
+                operation,
             )
         selector_map = value.get("selectors")
         if not isinstance(selector_map, dict):
@@ -2448,7 +2468,7 @@ def _operation_catalog(
             or client_fields.get("transport", {}).get("type")
             != {"kind": "ref", "name": "ClientTransport"}
             or types.get("ClientTransport")
-            != {"kind": "enum", "values": ["unix", "websocket"]}
+            != {"kind": "enum", "values": ["unix", "websocket", "remote"]}
             or client_fields.get("connected_seconds", {}).get("type")
             != {"kind": "primitive", "name": "decimal"}
             or client_fields.get("attached_terminal_ids", {}).get("type", {}).get("items")

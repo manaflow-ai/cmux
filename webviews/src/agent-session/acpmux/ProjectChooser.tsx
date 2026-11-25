@@ -1,7 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { ChevronIcon } from "./ComposerPickers";
-import type { BrowseRequest } from "./AddProjectPanel";
-import type { BrowseResult } from "./addProjectPanelModel";
+import type { BrowseRequest, BrowseResult } from "./browseProject";
 import { BrowseFailure } from "./BrowseFailure";
 import { browseFailureMessage } from "./browseFailureModel";
 import { useT } from "./i18n";
@@ -179,10 +178,8 @@ export function ProjectChooser({
         type="button"
         className={inline ? "acpmux-project-button" : "acpmux-context-chip acpmux-project-button"}
         aria-label={inline ? `${t("composer.folder")}: ${label}` : t("composer.folder")}
-        aria-haspopup="dialog"
         // tooltip-allow: a truncated project label keeps its full path available.
         title={current}
-        aria-expanded={open}
         {...press}
       >
         {!inline &&
@@ -198,6 +195,7 @@ export function ProjectChooser({
         {!inline && <ChevronIcon />}
       </button>
       <Popover
+        id={press["aria-controls"]}
         open={open}
         onOpenChange={(next) => (next ? show() : close(true))}
         anchor={open ? trigger.current : null}

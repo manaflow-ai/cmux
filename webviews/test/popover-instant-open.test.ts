@@ -211,7 +211,6 @@ const scripts = (dir: string) =>
 /// entrance anywhere under webviews/src fails until it is listed here, so a menu cannot be given
 /// one whatever shape its JSX takes.
 const ENTRANCES: Record<string, { count: number; what: string }> = {
-  "src/agent-session/acpmux/App.tsx": { count: 1, what: "the hand-off error line under the header" },
   "src/agent-session/acpmux/ChatUnavailableState.tsx": {
     count: 3,
     what: "a paused chat's card, its one-line form above a missing chat's kept rows, and its resume spinner into a slot already there (afterDelay.ts)",
@@ -232,11 +231,13 @@ const ENTRANCES: Record<string, { count: number; what: string }> = {
     count: 1,
     what: "a prompt coach card arriving under a turn",
   },
+  "src/agent-session/acpmux/pane/PaneBody.tsx": { count: 1, what: "the hand-off error line under the header" },
   "src/agent-session/acpmux/session-info/useSessionInfo.tsx": { count: 1, what: "the Session Info side panel" },
   "src/agent-session/acpmux/session-info/TasksSection.tsx": { count: 1, what: "an arriving task row" },
   "src/agent-session/acpmux/summary/SummaryCard.tsx": { count: 1, what: "the summary side panel" },
   "src/agent-session/acpmux/summary/SummaryTasks.tsx": { count: 1, what: "an arriving task row" },
   "src/pages/settings/components/ReadOnlyBanner.tsx": { count: 1, what: "a banner at the top of Settings" },
+  "src/pages/settings/components/TryOnBar.tsx": { count: 1, what: "the try-on bar at the top of Settings" },
   "src/ui/presence.ts": { count: 3, what: "usePresence itself (its declaration, props type and value)" },
 };
 
@@ -249,12 +250,16 @@ const entranceCalls = (source: string) => source.match(/\bdata-enter\b["']?\s*[=
 /// keyframes are built.
 const WEB_ANIMATIONS: Record<string, { count: number; what: string }> = {
   "src/agent-session/acpmux/VirtualTranscript.tsx": {
-    count: 5,
-    what: "a cold-opened chat's transcript fades in; a bottom tool fold moves the transcript as one stack, holds the rows under the opened line and cuts what rises at it (#32943); the rows ride the composer field's growth spring",
+    count: 6,
+    what: "a cold-opened chat's transcript fades in; a bottom tool fold moves the transcript as one stack, holds the rows under the opened line and cuts what rises at it (#32943); the rows ride the composer field's growth spring and slide by the room a change above them took",
   },
   "src/agent-session/acpmux/composer/fieldGrowth.ts": {
     count: 2,
     what: "the composer field grows and shrinks on one spring as a draft gains or loses lines; the field, never a menu",
+  },
+  "src/agent-session/acpmux/composer/composerHandover.ts": {
+    count: 3,
+    what: "a started chat's composer, its card and its field glide from where New Tab's drew to their place at the bottom; the composer, never a menu",
   },
   "src/agent-session/acpmux/chatSwitch.ts": {
     count: 1,
@@ -289,18 +294,21 @@ const WEB_ANIMATIONS: Record<string, { count: number; what: string }> = {
     what: "a prompt sent while scrolled up arcs over the composer and tucks behind it",
   },
   "src/agent-session/acpmux/conversation/turnEndFold.ts": {
-    count: 1,
+    count: 2,
     what: "a turn's end folds its work in one motion: the rows that stay slide to their place, copies of the rows it took away fade where they were",
   },
   "src/agent-session/acpmux/conversation/tailGlide.ts": {
     count: 2,
     what: "the rows under a change in a running turn (the live line, a steer, the footer) glide to their new place, and the row above one that glides down shows its new part as the room opens (a clip on the same clock); transcript rows, never a menu",
   },
-  "src/agent-session/acpmux/conversation/turnFold.ts": { count: 1, what: "a turn folds" },
+  "src/agent-session/acpmux/conversation/turnFold.ts": {
+    count: 2,
+    what: "a turn folds: the rows that stay move, and copies of the rows it took away fade on the lead",
+  },
   "src/agent-session/acpmux/session-info/SessionInfoGroup.tsx": { count: 1, what: "Session Info sections slide" },
   "src/agent-session/acpmux/session-info/foldMotion.ts": {
-    count: 1,
-    what: "Session Info Show more / Show less grow and close in place",
+    count: 2,
+    what: "Session Info Show more / Show less grow and close in place; a scrolled list's first row slides to its place on close",
   },
   "src/agent-session/acpmux/newtab/listMotion.ts": { count: 1, what: "New Tab rows move to their new place" },
   "src/agent-session/acpmux/subagents/trayMotion.tsx": {
@@ -320,6 +328,10 @@ const WEB_ANIMATIONS: Record<string, { count: number; what: string }> = {
   "src/ui/motion/useTextSwap.ts": {
     count: 4,
     what: "a running call's words on the Working and activity lines change: the old rise out, the new rise in, the clock slides",
+  },
+  "src/ui/noticeMorph.ts": {
+    count: 1,
+    what: "a toast that changes in place (working, then done) moves its box from the old size to the new; a toast, never a menu",
   },
 };
 
@@ -342,6 +354,7 @@ describe("popovers, menus, tooltips and hover cards open and close in one frame"
 
   test("the scan catches an open animation and a starting style on a popup, and passes its exit fade", () => {
     expect(
+      // motion-allow: scanner fixture, raw literals
       popupEntrances(`
         .ui-popup.acpmux-chat-menu-popover { animation: ui-popup-open 120ms ease-out }
         @media (prefers-reduced-motion: reduce) { :where(.ui-popup) { animation: ui-popup-fade 120ms } }
@@ -350,14 +363,15 @@ describe("popovers, menus, tooltips and hover cards open and close in one frame"
         .ui-menu .ui-menu-item { animation: row-in 80ms }
         .acpmux-mp-refresh-spinner { animation: cmux-spin 900ms linear infinite }`),
     ).toEqual([
-      "2 `.ui-popup.acpmux-chat-menu-popover` starts `animation: ui-popup-open 120ms ease-out`",
-      "3 `:where(.ui-popup)` starts `animation: ui-popup-fade 120ms`",
+      "2 `.ui-popup.acpmux-chat-menu-popover` starts `animation: ui-popup-open 120ms ease-out`", // motion-allow: the scanner's report of the fixture
+      "3 `:where(.ui-popup)` starts `animation: ui-popup-fade 120ms`", // motion-allow: the scanner's report of the fixture
       "4 `.ui-popover[data-starting-style]` draws a starting style to enter from",
     ]);
   });
 
   test("the scan covers popup-named classes and ARIA menus, and passes palettes", () => {
     expect(
+      // motion-allow: scanner fixture, raw literals
       popupEntrances(`
         .nt-edit-add-menu { animation: ui-enter 120ms both }
         .file-tree-context-menu { animation: ui-enter 120ms both }
@@ -369,12 +383,12 @@ describe("popovers, menus, tooltips and hover cards open and close in one frame"
         .lg-palette { animation: ui-enter 120ms both }
         .nt-edit-add-menu-item { animation: row-in 80ms }`),
     ).toEqual([
-      "2 `.nt-edit-add-menu` starts `animation: ui-enter 120ms both`",
-      "3 `.file-tree-context-menu` starts `animation: ui-enter 120ms both`",
-      "4 `.model-dropdown, .color-picker` starts `animation: ui-enter 120ms both`",
-      "5 `[role=listbox]` starts `animation: ui-enter 120ms both`",
+      "2 `.nt-edit-add-menu` starts `animation: ui-enter 120ms both`", // motion-allow: the scanner's report of the fixture
+      "3 `.file-tree-context-menu` starts `animation: ui-enter 120ms both`", // motion-allow: the scanner's report of the fixture
+      "4 `.model-dropdown, .color-picker` starts `animation: ui-enter 120ms both`", // motion-allow: the scanner's report of the fixture
+      "5 `[role=listbox]` starts `animation: ui-enter 120ms both`", // motion-allow: the scanner's report of the fixture
       '6 `[role = "menu"]` starts `animation: ui-enter`',
-      "7 `.x-popover` starts `animation: ui-enter 120ms`",
+      "7 `.x-popover` starts `animation: ui-enter 120ms`", // motion-allow: the scanner's report of the fixture
     ]);
   });
 
@@ -417,6 +431,7 @@ describe("popovers, menus, tooltips and hover cards open and close in one frame"
 
   test("the close scan catches a fade, rise or grow on a popup, tooltip or hover card, in or out", () => {
     expect(
+      // motion-allow: scanner fixture, raw literals
       surfaceMotions(`
         :where(.ui-popup) { transition: opacity var(--ui-popup-close) ease-in }
         .ui-tooltip, .ui-title-tooltip { transition: opacity 120ms ease-out, translate 120ms ease-out }
@@ -429,10 +444,10 @@ describe("popovers, menus, tooltips and hover cards open and close in one frame"
         .acpmux-file-search { transition: opacity 80ms }`),
     ).toEqual([
       "2 `:where(.ui-popup)` transitions `opacity var(--ui-popup-close) ease-in`",
-      "3 `.ui-tooltip, .ui-title-tooltip` transitions `opacity 120ms ease-out`",
-      "3 `.ui-tooltip, .ui-title-tooltip` transitions `translate 120ms ease-out`",
-      "4 `:is(.ui-tooltip, .ui-title-tooltip)[data-ending-style]` transitions `opacity 80ms ease-in`",
-      "5 `.ui-popup[data-ending-style]` starts `animation: out 80ms`",
+      "3 `.ui-tooltip, .ui-title-tooltip` transitions `opacity 120ms ease-out`", // motion-allow: the scanner's report of the fixture
+      "3 `.ui-tooltip, .ui-title-tooltip` transitions `translate 120ms ease-out`", // motion-allow: the scanner's report of the fixture
+      "4 `:is(.ui-tooltip, .ui-title-tooltip)[data-ending-style]` transitions `opacity 80ms ease-in`", // motion-allow: the scanner's report of the fixture
+      "5 `.ui-popup[data-ending-style]` starts `animation: out 80ms`", // motion-allow: the scanner's report of the fixture
       "6 `.x-hovercard` transitions `opacity` over `0.1s`",
     ]);
   });

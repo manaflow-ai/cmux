@@ -65,14 +65,20 @@ async fn seeded_narrow_reads_exclude_peers_and_keep_closed_links() {
         "tools": [{"id": "tool", "description": "x".repeat(4096)}]})
         })
         .collect();
-    hub.apply_peer_notice("remote", peer.generation, crate::peer::PeerNotice::Sessions(rows));
-    // Warm the shared snapshot equally for both paths. No agents or peers are started.
+    hub.apply_peer_notice(
+        "remote",
+        peer.generation,
+        crate::peer::PeerNotice::sessions_from_values(rows),
+    );
+    // Warm the closed rows' cached bytes equally for both paths. No agents or peers are started.
     let _ = read(&hub, "_acpmux/sessions", json!({"limit": 1})).await;
     let (full, before_bytes, before_ms) = read_whole(&hub, "_acpmux/sessions", json!({})).await;
-    assert_eq!(full["sessions"].as_array().unwrap().len(), 3000);
+    // The peer's 1,400 idle rows and its newest closed ones (`peer_closed_bound.rs`).
+    let kept = crate::hub::peer_closed_bound::CLOSED_KEPT;
+    assert_eq!(full["sessions"].as_array().unwrap().len(), 200 + 1400 + kept);
     assert_eq!(
         full["sessions"].as_array().unwrap().iter().filter(|s| s["status"] == "closed").count(),
-        1500
+        100 + kept
     );
     let mut params = json!({"localOnly": true, "excludeStatus": ["closed"], "orderBy": "sessionId", "limit": 64});
     let (mut count, mut bytes, mut ms, mut pages) = (0, 0, 0.0, 0);
@@ -95,7 +101,7 @@ async fn seeded_narrow_reads_exclude_peers_and_keep_closed_links() {
     println!("PERF census bytes={before_bytes}->{bytes} ms={before_ms:.3}->{ms:.3} pages={pages}");
     let (_, watch_bytes, watch_ms) = read(&hub, "_acpmux/watch", json!({"enabled": true})).await;
     let (exact, exact_bytes, exact_ms) =
-        read(&hub, "_acpmux/resolve", json!({"exactSessionId": true, "sessionId": "remote-0"}))
+        read(&hub, "_acpmux/resolve", json!({"exactSessionId": true, "sessionId": "remote-2798"}))
             .await;
     assert_eq!(exact["session"]["status"], "closed");
     assert_eq!(exact["session"]["cwd"], "/remote/work");
@@ -107,4 +113,252 @@ async fn seeded_narrow_reads_exclude_peers_and_keep_closed_links() {
     println!(
         "PERF harness-watch bytes={watch_bytes}->{narrow_bytes} ms={watch_ms:.3}->{narrow_ms:.3}"
     );
+}
+
+/// A hub on a memory store with `closed` closed chats, then `idle` idle ones, the closed ones
+/// newest (each a millisecond apart): a page from the top is closed rows.
+fn seeded(closed: usize, idle: usize) -> Arc<Hub> {
+    let mut cfg = crate::config::Config::default();
+    cfg.store.mode = crate::config::StoreMode::Memory;
+    let store = crate::store::open(&cfg.store, std::path::Path::new("/nonexistent")).unwrap();
+    for i in 0..closed + idle {
+        let status = if i < idle { "idle" } else { "closed" };
+        let meta = json!({"schema": "acpmux.session.v1", "id": format!("s-{i:05}"),
+            "name": format!("chat-{i}"), "harness": "claude", "cwd": "/work",
+            "status": status, "createdAt": 1, "updatedAt": 1_000 + i});
+        store.save(&serde_json::from_value(meta).unwrap()).unwrap();
+    }
+    Hub::new(cfg, store)
+}
+
+/// Leo 2026-11-11, 11,236 chats (10,874 closed): `acpmux ls --limit 5` took 5.4 s, as long as
+/// `--limit 1000`, because a page was cut from a list of every chat's row. A page of five builds
+/// at most its five rows, at 500 chats and at 5,000, and so does the next page and a watch's
+/// first page.
+#[tokio::test]
+async fn a_page_of_five_builds_its_five_rows_not_every_chat() {
+    use std::sync::atomic::Ordering::SeqCst;
+    let mut times = Vec::new();
+    for n in [500_usize, 5_000] {
+        let hub = seeded(n - n / 20, n / 20);
+        let built = || hub.closed_summary_builds.load(SeqCst);
+        let before = built();
+        let all_before = hub.summaries_built.load(SeqCst);
+        let (first, _, ms) = read(&hub, "_acpmux/sessions", json!({"limit": 5})).await;
+        // Every summary, live or closed, not only the closed rows built anew.
+        let all = hub.summaries_built.load(SeqCst) - all_before;
+        assert!(all <= 5, "{n} chats: a page of 5 built {all} summaries");
+        let rows = first["sessions"].as_array().unwrap();
+        assert_eq!(rows.len(), 5);
+        assert_eq!(rows[0]["sessionId"], format!("s-{:05}", n - 1));
+        assert!(rows.iter().all(|r| r["status"] == "closed"));
+        let first_built = built() - before;
+        assert!(first_built <= 5, "{n} chats: a page of 5 built {first_built} closed rows");
+        let before = built();
+        let (second, _, _) = read(
+            &hub,
+            "_acpmux/sessions",
+            json!({"limit": 5, "cursor": first["nextCursor"].clone()}),
+        )
+        .await;
+        assert_eq!(second["sessions"][0]["sessionId"], format!("s-{:05}", n - 6));
+        let second_built = built() - before;
+        assert!(second_built <= 5, "{n} chats: the next page built {second_built} closed rows");
+        let before = built();
+        let (watch, _, _) = read(&hub, "_acpmux/watch", json!({"enabled": true, "limit": 5})).await;
+        assert_eq!(watch["sessions"].as_array().unwrap().len(), 5);
+        let watch_built = built() - before;
+        assert!(watch_built <= 5, "{n} chats: a watch's page of 5 built {watch_built} closed rows");
+        times.push((n, ms));
+    }
+    println!("PERF page-of-5 {times:?} (chats, ms)");
+}
+
+/// A page built from its own rows is the page of every row built and sorted
+/// (`session_list_reply`), byte for byte: every filter, a cursor into this daemon's rows and one
+/// into a peer's, a census, tools, and a chat here and its peer copy updated in the same
+/// millisecond.
+#[tokio::test]
+async fn a_page_of_its_own_rows_is_the_whole_lists_page() {
+    let hub = seeded(40, 12);
+    let (tx, _rx) = tokio::sync::mpsc::channel(8);
+    let peer = crate::peer::Peer::new("remote", "ws://127.0.0.1:9", None, None, tx);
+    hub.peers.lock().unwrap().insert("remote".into(), peer.clone());
+    let rows = (0..30)
+        .map(|i| {
+            // Every third row ties a local chat: the same id, the same millisecond.
+            let (id, at) = if i % 3 == 0 {
+                (format!("s-{:05}", i + 10), 1_010 + i)
+            } else {
+                (format!("r-{i:03}"), 1_000 + i * 2)
+            };
+            json!({"sessionId": id, "name": format!("remote-{i}"), "harness": "claude",
+                "cwd": "/remote", "status": if i % 2 == 0 {"closed"} else {"idle"},
+                "updatedAt": at, "tools": [{"id": "tool", "description": "x".repeat(64)}]})
+        })
+        .collect();
+    hub.apply_peer_notice(
+        "remote",
+        peer.generation,
+        crate::peer::PeerNotice::sessions_from_values(rows),
+    );
+    // The reference: every row built, sorted, and picked as `session_list_reply` picks them.
+    let built = |with_tools: bool| {
+        let mut rows = Vec::new();
+        hub.visit_session_summaries(with_tools, |row| rows.push(row));
+        super::sort_session_summaries(&mut rows);
+        rows
+    };
+    let (full, rows) = (built(true), built(false));
+    let expect = |params: &Value| -> Value {
+        let tools = params.get("withTools") == Some(&Value::Bool(true));
+        let mut params = params.clone();
+        if let Some(p) = params.as_object_mut() {
+            p.remove("withTools");
+        }
+        let all = if tools { full.clone() } else { rows.clone() };
+        super::session_list_reply(all, &params).unwrap()
+    };
+    let mut cases = vec![
+        json!({"limit": 5}),
+        json!({"limit": 1}),
+        json!({"limit": 100_000}),
+        json!({"limit": 3, "status": "idle"}),
+        json!({"limit": 4, "peer": "remote"}),
+        json!({"limit": 7, "localOnly": true}),
+        json!({"limit": 6, "excludeStatus": ["closed"]}),
+        json!({"limit": 2, "withTools": true}),
+        json!({"localOnly": true, "excludeStatus": ["closed"], "orderBy": "sessionId", "limit": 4}),
+        json!({"localOnly": true, "orderBy": "sessionId"}),
+    ];
+    // Each page's next page, through every row, for the plain list and a filtered one.
+    for start in [json!({"limit": 4}), json!({"limit": 3, "status": "closed"})] {
+        let mut params = start;
+        loop {
+            cases.push(params.clone());
+            let next = expect(&params)["nextCursor"].clone();
+            if next.is_null() {
+                break;
+            }
+            params["cursor"] = next;
+        }
+    }
+    // A cursor no row has now (its row moved): the page starts at the first row no newer.
+    cases.push(json!({"limit": 5, "cursor": "k3f5.0000000000000001"}));
+    assert!(cases.len() > 30, "{}", cases.len());
+    for params in cases {
+        let (page, _, _) = read(&hub, "_acpmux/sessions", params.clone()).await;
+        assert_eq!(page, expect(&params), "{params}");
+    }
+}
+
+/// A hub on a memory store like [`seeded`], each row about `row_bytes` wide (its `cwd`), its
+/// closed and idle chats interleaved, newest first, as a lane VM's list is.
+fn seeded_wide(closed: usize, idle: usize, row_bytes: usize) -> Arc<Hub> {
+    let mut cfg = crate::config::Config::default();
+    cfg.store.mode = crate::config::StoreMode::Memory;
+    let store = crate::store::open(&cfg.store, std::path::Path::new("/nonexistent")).unwrap();
+    let total = closed + idle;
+    for i in 0..total {
+        // Every k-th chat is idle, the rest closed.
+        let status = if i * idle / total != (i + 1) * idle / total { "idle" } else { "closed" };
+        let meta = json!({"schema": "acpmux.session.v1", "id": format!("w-{i:05}"),
+            "name": format!("chat-{i}"), "harness": "claude",
+            "cwd": format!("/work/{}", "d".repeat(row_bytes)),
+            "status": status, "createdAt": 1, "updatedAt": 1_000 + i});
+        store.save(&serde_json::from_value(meta).unwrap()).unwrap();
+    }
+    Hub::new(cfg, store)
+}
+
+/// The page path before 2026-11-23 (cmuxterm-hq docs/findings/2026-11-23-acpmux-cli-startup-tax.md),
+/// kept to measure against: every row a `limit=1000` page picks is built, then the page is cut to
+/// its bytes. Returns (pages, rows built, ms) for a whole read.
+fn old_whole_paged_read(hub: &Arc<Hub>) -> (usize, usize, f64) {
+    use crate::hub::list_guard::{cut_page, serialize_in_order};
+    use std::sync::atomic::Ordering::SeqCst;
+    let budget = crate::rpc::REPLY_PAGE_BYTES - (16 << 10);
+    let before = hub.summaries_built.load(SeqCst);
+    let start = Instant::now();
+    let (mut pages, mut params) = (0_usize, json!({"limit": 1000, "localOnly": true}));
+    loop {
+        let (rows, next) = hub.session_page_rows(&params, false).unwrap();
+        let (text, spans, keys) = serialize_in_order(&rows);
+        let page: Value = serde_json::from_str(&cut_page(
+            (text.as_str(), spans.as_slice()),
+            &keys,
+            next,
+            &params,
+            budget,
+        ))
+        .unwrap();
+        pages += 1;
+        match page["nextCursor"].as_str() {
+            Some(cursor) => params["cursor"] = json!(cursor),
+            None => break,
+        }
+    }
+    (
+        pages,
+        (hub.summaries_built.load(SeqCst) - before) as usize,
+        start.elapsed().as_secs_f64() * 1000.0,
+    )
+}
+
+/// docs/findings/2026-11-23-acpmux-cli-startup-tax.md (cmuxterm-hq): a lane VM's whole local
+/// `acpmux ls` (833 chats, 4 KB rows, 512 closed) took 355 ms, 8x one row. `ls` reads pages of
+/// 1000 rows and more; a page's 1 MB holds about 260 of these rows, and the daemon built every
+/// picked row before cutting the page to its bytes, so each page built up to 1000 rows to send
+/// 260, and the whole read built its live rows about twice over (N²/520 rows). The whole read, at
+/// 833 chats and at 3,332, builds each row about once: what it sends.
+#[tokio::test]
+async fn a_whole_paged_read_builds_each_row_once_not_per_page() {
+    use std::sync::atomic::Ordering::SeqCst;
+    let mut times = Vec::new();
+    for (closed, idle) in [(512_usize, 321_usize), (2_048, 1_284)] {
+        let n = closed + idle;
+        let hub = seeded_wide(closed, idle, 4_000);
+        // Warm the closed rows' cache, as a long-running daemon has it.
+        let _ =
+            read_whole(&hub, "_acpmux/sessions", json!({"limit": 1000, "localOnly": true})).await;
+        let before = hub.summaries_built.load(SeqCst);
+        let (mut pages, mut params, mut ids, mut ms) =
+            (0_usize, json!({"limit": 1000, "localOnly": true}), Vec::new(), 0.0);
+        loop {
+            let (page, _, time) = read(&hub, "_acpmux/sessions", params.clone()).await;
+            pages += 1;
+            ms += time;
+            for row in page["sessions"].as_array().unwrap() {
+                ids.push(row["sessionId"].as_str().unwrap().to_owned());
+            }
+            match page["nextCursor"].as_str() {
+                Some(cursor) => params["cursor"] = json!(cursor),
+                None => break,
+            }
+        }
+        let built = (hub.summaries_built.load(SeqCst) - before) as usize;
+        println!(
+            "PERF whole-paged-read chats={n} live={idle} pages={} built={built} ms={ms:.1}",
+            pages
+        );
+        let (old_pages, old_built, old_ms) = old_whole_paged_read(&hub);
+        println!(
+            "PERF whole-paged-read-before chats={n} live={idle} pages={old_pages} \
+             built={old_built} ms={old_ms:.1} (every picked row built, then cut to the page bytes)"
+        );
+        assert_eq!(old_pages, pages, "{n} chats: the old and new paths page alike");
+        times.push((n, built, ms));
+        assert!(pages > 1, "{n} chats: one page; the rows are too narrow to test cutting");
+        let unique: std::collections::HashSet<&String> = ids.iter().collect();
+        assert_eq!(unique.len(), n, "{n} chats: every chat once");
+        assert_eq!(ids.len(), n, "{n} chats: no chat twice");
+        // Each live row is built for the page that sends it; a closed one is its cached bytes.
+        // One more per page: the row a page's bytes stop at may be built and not sent.
+        assert!(
+            built <= idle + pages,
+            "{n} chats ({idle} live): the whole read built {built} rows in {} pages",
+            pages
+        );
+    }
+    println!("PERF whole-paged-read {times:?} (chats, rows built, ms)");
 }

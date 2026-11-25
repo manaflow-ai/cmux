@@ -56,6 +56,14 @@ public final class ConversationStore {
     public private(set) var hasLoadedNewest = false
     public private(set) var typingParticipantIDs: [String] = []
     public private(set) var connection: ConversationConnectionState = .connecting
+    /// The connection has been down for ``connectionQuietDelay`` or more: a header may say so.
+    /// Under it nothing is said, so a blip or the reconnect after the app comes back stays
+    /// silent over the kept rows (Leo, 2026-11-16: "it said "Not connected" at the top but i
+    /// dont think it shoildve said anything").
+    public private(set) var connectionNoticeDue = false
+    /// How long a drop stays unsaid; the iPhone's one connection quiet bound (`QuietStatusGate.threshold`).
+    public var connectionQuietDelay: Duration = .seconds(10)
+    private var connectionNoticeTask: Task<Void, Never>?
     /// Everything from others at or below this seq has been read.
     public private(set) var lastReadSeq = 0
     /// Messages from others after `lastReadSeq` (including ones above the loaded window).
@@ -81,16 +89,50 @@ public final class ConversationStore {
         set { primaryObserver = newValue }
     }
     private var primaryObserver: (@MainActor (ConversationStoreChange) -> Void)?
-    private var observers: [@MainActor (ConversationStoreChange) -> Void] = []
+    private var observers: [(id: Int, observe: @MainActor (ConversationStoreChange) -> Void)] = []
+    private var nextObserverID = 0
 
     /// Additional listeners (a sidebar preview, a window title) beside `onChange`.
-    public func addObserver(_ observer: @escaping @MainActor (ConversationStoreChange) -> Void) {
-        observers.append(observer)
+    /// Returns a token for ``removeObserver(_:)``.
+    @discardableResult
+    public func addObserver(_ observer: @escaping @MainActor (ConversationStoreChange) -> Void) -> Int {
+        nextObserverID += 1
+        observers.append((nextObserverID, observer))
+        return nextObserverID
+    }
+
+    /// Stops a listener ``addObserver(_:)`` added.
+    public func removeObserver(_ token: Int) {
+        observers.removeAll { $0.id == token }
+    }
+
+    /// Whether a screen draws this store now (it set `onChange`): a second screen over the same
+    /// store would take its updates.
+    public var hasPrimaryObserver: Bool { primaryObserver != nil }
+
+    /// Whether a screen that claimed this store (``claimPrimary(_:_:)``) is still alive. A screen
+    /// that left (Home's Chief screen popped) leaves its observer behind, but not itself.
+    public var hasLivePrimaryOwner: Bool { primaryOwner != nil }
+
+    /// The screen that set `onChange` (``claimPrimary(_:)``), so only it gives the updates back.
+    public private(set) weak var primaryOwner: AnyObject?
+
+    /// Sets `onChange` for `owner`.
+    public func claimPrimary(_ owner: AnyObject, _ observer: @escaping @MainActor (ConversationStoreChange) -> Void) {
+        primaryOwner = owner
+        primaryObserver = observer
+    }
+
+    /// Clears `onChange` only while `owner` still holds it (a newer screen keeps its own).
+    public func releasePrimary(_ owner: AnyObject) {
+        guard primaryOwner === owner else { return }
+        primaryOwner = nil
+        primaryObserver = nil
     }
 
     func notify(_ change: ConversationStoreChange) {
         primaryObserver?(change)
-        for observer in observers { observer(change) }
+        for observer in observers { observer.observe(change) }
     }
 
     // MARK: Transcript journal
@@ -335,7 +377,29 @@ public final class ConversationStore {
         newestTask?.cancel()
         localTypingTask?.cancel()
         typingExpiry.values.forEach { $0.cancel() }
+        connectionNoticeTask?.cancel()
         backend.close()
+    }
+
+    /// Starts the quiet wait of a drop; a second drop before it ends keeps the first instant.
+    private func armConnectionNotice() {
+        guard connectionNoticeTask == nil, !connectionNoticeDue else { return }
+        let delay = connectionQuietDelay
+        let clock = clock
+        // An intentional, bounded UI delay on the injected clock; `.connected` cancels it.
+        connectionNoticeTask = Task { [weak self] in
+            do { try await clock.sleep(for: delay) } catch { return }
+            guard !Task.isCancelled, let self, self.connection != .connected else { return }
+            self.connectionNoticeTask = nil
+            self.connectionNoticeDue = true
+            self.notify(.connection)
+        }
+    }
+
+    private func endConnectionNotice() {
+        connectionNoticeTask?.cancel()
+        connectionNoticeTask = nil
+        connectionNoticeDue = false
     }
 
     public var me: ConversationParticipant? { meID.flatMap { info?.participant($0) } }
@@ -364,6 +428,7 @@ public final class ConversationStore {
             if self.info?.background != previousBackground { notify(.background) }
             self.meID = meID
             connection = .connected
+            endConnectionNotice()
             // Unconfirmed reads from the dropped session may never have
             // arrived; the read state that follows hello is authoritative.
             pendingReadSeq = 0
@@ -390,6 +455,7 @@ public final class ConversationStore {
             removeScheduledRow(id: id, clientMessageID: clientMessageID)
         case .disconnected:
             connection = .reconnecting
+            armConnectionNotice()
             notify(.connection)
         case let .readState(state):
             serverRead = state

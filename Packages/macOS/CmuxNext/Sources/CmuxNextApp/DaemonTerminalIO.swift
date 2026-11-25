@@ -51,7 +51,7 @@ nonisolated final class DaemonTerminalIO: TerminalIO {
     var uploadsPasteboardFiles: Bool { fileTransfer.isRemote }
     private let fileTransfer: TerminalFileTransfer
     private let driver: TerminalAttachDriver<TerminalAttachment>
-    private let creatingInput: CreatingTerminalInput?
+    let creatingInput: CreatingTerminalInput? // its `close()`: the person closed the view before its terminal started
     /// The target's surface id for the typing probe (0: not resolved at init, a terminal still being made).
     private let probeSurface: UInt64
     /// The burst bench's grid echo and first-output marks (nil: none; a Release build compiles them out).

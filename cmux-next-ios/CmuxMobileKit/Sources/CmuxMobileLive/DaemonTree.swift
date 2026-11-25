@@ -214,6 +214,7 @@ public struct DaemonTree: Sendable {
                         guard var mapped = Self.tab(tab, id: id, agent: state, pending: agents.pending,
                                                     waitingFor: agents.waitingFor, chatTitles: agents.chatTitles,
                                                     bindings: &agentTabs) else { continue }
+                        if mapped.agentStatus == .working { mapped.workingSince = state?.updatedAt }
                         if let pinned = tab["pinned"] as? Bool { mapped.pinned = pinned }
                         mapped.hasCustomName = (tab["name"] as? String).map { !$0.isEmpty } ?? false
                         mapped.linkIDs = WorkspaceTab.LinkIDs(
@@ -619,6 +620,9 @@ public enum DaemonEvent: Equatable, Sendable {
     /// A notification was posted (`notification`): the tree's markers and the
     /// notification ledger changed. It carries the agent's memory-only texts.
     case notification(NotificationPost)
+    /// A terminal drew output (`surface-output`, one per surface per burst):
+    /// what tells a grid card its screen changed. Never queued.
+    case surfaceOutput(surface: Int)
     case other
 
     public static func parse(_ line: Data) -> DaemonEvent {
@@ -637,6 +641,9 @@ public enum DaemonEvent: Equatable, Sendable {
             return .titleChanged(surface: surface, title: object["title"] as? String ?? "")
         case "notification":
             return .notification(NotificationPost(json: object))
+        case "surface-output":
+            guard let surface = object["surface"] as? Int else { return .other }
+            return .surfaceOutput(surface: surface)
         case "workspace-added", "workspace-closed", "workspace-renamed", "workspace-moved", "workspace-changed",
              "screen-added", "screen-closed", "screen-renamed", "screen-changed",
              "pane-added", "pane-closed", "tab-added", "tab-closed", "tab-renamed", "tab-changed":

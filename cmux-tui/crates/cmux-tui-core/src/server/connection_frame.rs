@@ -8,6 +8,7 @@ mod command_stats_tests;
 #[cfg(unix)]
 mod machine_catalog;
 
+use super::tree_reply_text::TreeReply;
 use super::*;
 use crate::diagnostics::ClientKind;
 
@@ -63,7 +64,12 @@ fn handle_frame(
     // The slow request log's record of this line, from here to its reply written
     // (diagnostics/request_log.rs). It ends on this thread, or travels with the queued request.
     let _slow_log = mux.connection_stats().request_log().map(|log| {
-        log.begin(client, mux.control_clients.log_labels(client), &writer.open, message)
+        let (name, declared) = mux.control_clients.log_labels(client);
+        // The connection of the session's journal plugin has the kind word `plugin`, also when
+        // it declared nothing: one load of the connection's kind for each line.
+        let plugin = writer.kind.get() == ClientKind::Plugin;
+        let kind = if plugin { crate::diagnostics::request_log::Label::plugin() } else { declared };
+        log.begin(client, (name, kind), &writer.open, message)
     });
     if matches!(transport, ClientTransport::Remote) || mux.is_remote_client(client) {
         return remote_relay::handle_frame(mux, client, message, writer);
@@ -104,6 +110,11 @@ fn handle_frame(
     let message: &str = &upgraded;
     // A remote device never names an incognito workspace's objects (#31210).
     if let Some(keep_open) = incognito_remote::refuse_line(mux, client, message, writer) {
+        return keep_open;
+    }
+    // Settings > Agents > Agents Can Change cmux on Read Only: an agent's app-changing line is
+    // refused before any owner sees it (server/agent_app_control.rs).
+    if let Some(keep_open) = agent_app_control::refuse_line(mux, client, message, writer) {
         return keep_open;
     }
     // A host proxy's link for a teammate reaches the shared chat's verbs and nothing else the
@@ -287,6 +298,11 @@ pub(super) fn handle_request_with_cancellation(
     writer: &MessageWriter,
     cancellation: Option<&ConnectionCancellation>,
 ) -> bool {
+    // Freed memory goes back to the system once requests stop (malloc_quiet_trim.rs). The app's
+    // liveness ask (`identify`, `ping`) is no activity: it would wake the trim on every ask.
+    if !request.cmd.answers_before_queue() {
+        cmux_tui_platform::malloc_quiet_trim::note_activity();
+    }
     let commands = mux.connection_stats().commands();
     // What the client says it is, for the counters only (never a trust decision), before its
     // reply: the client's next line already counts under it.
@@ -348,20 +364,27 @@ fn handle_request_uncounted(
     };
     let shutdown_daemon = matches!(&cmd, Command::ShutdownDaemon { .. });
     let (mut reason, mut retryable, mut details) = (None, None, None);
-    // Under `dx serve --hot-patch` every request runs the newest patched code.
-    #[cfg(feature = "hotpatch")]
-    let result = crate::hotpatch::call(
-        handle_command_with_cancellation,
-        (mux, client, cmd, writer, cancellation),
-    )
-    .and_then(|result| result);
-    #[cfg(not(feature = "hotpatch"))]
-    let result = handle_command_with_cancellation(mux, client, cmd, writer, cancellation);
+    let result = if matches!(cmd, Command::ListWorkspaces { known: None, limit: None, after: None })
+        && reads_the_built_tree(mux, client)
+    {
+        // The readers of one build share its tree's text (tree_reply_text.rs). A `known` or
+        // `limit` request answers from its own reply (cmd_workspaces::list_workspaces).
+        cmd_workspaces::list_workspaces_text(mux, writer).map(ReplyData::Tree)
+    } else {
+        run_command(mux, client, cmd, writer, cancellation).map(ReplyData::Value)
+    };
+    let mut tree = None;
     let response = match result {
-        Ok(data) => Response {
+        Ok(reply) => Response {
             id,
             ok: true,
-            data: Some(data),
+            data: match reply {
+                ReplyData::Value(data) => Some(data),
+                ReplyData::Tree(text) => {
+                    tree = Some(text);
+                    None
+                }
+            },
             error: None,
             error_code: None,
             error_delivery: None,
@@ -371,7 +394,8 @@ fn handle_request_uncounted(
                 .or_else(|| cloud_conversations::error_reason(&error));
             retryable = cloud_conversations::error_retryable(&error);
             details = renderer_grant::error_details(&error)
-                .or_else(|| conversations::error_details(&error));
+                .or_else(|| conversations::error_details(&error))
+                .or_else(|| stop_if_idle::error_details(&error));
             let error_code = response_error_code(&error);
             let error_delivery =
                 error.downcast_ref::<DeliveryClassifiedError>().map(|error| error.delivery);
@@ -388,7 +412,11 @@ fn handle_request_uncounted(
     let (response, reason) = remote_relay::redact_response(mux, client, response, reason);
     let details = details.filter(|_| !mux.is_remote_client(client));
     let response_ok = response.ok;
-    let sent = responses::send_response_with_details(writer, response, reason, retryable, details);
+    let sent = match &tree {
+        // A tree reply is a success, which `redact_response` keeps as it is.
+        Some(tree) if response.ok => responses::send_tree_reply(writer, response, tree),
+        _ => responses::send_response_with_details(writer, response, reason, retryable, details),
+    };
     // The reply is out; the request's registry commits (already in the WAL)
     // go to disk now, in one flush that none of them waited for.
     mux.request_registry_flush();
@@ -409,6 +437,37 @@ fn handle_request_uncounted(
         return false;
     }
     sent
+}
+
+/// A command's reply data: a value, or a `list-workspaces` tree as its build's shared text.
+enum ReplyData {
+    Value(Value),
+    Tree(TreeReply),
+}
+
+/// Whether `client`'s `list-workspaces` reply is the tree as its build made it, so the reply can
+/// be written from the build's shared text. The command path changes it only for a remote client
+/// (`remote_relay::intercept`) and a remote device (`incognito_remote::prune_reply`).
+fn reads_the_built_tree(mux: &Mux, client: u64) -> bool {
+    !mux.is_remote_client(client) && !incognito_remote::is_remote_device(mux, client)
+}
+
+fn run_command(
+    mux: &Arc<Mux>,
+    client: u64,
+    cmd: Command,
+    writer: &MessageWriter,
+    cancellation: Option<&ConnectionCancellation>,
+) -> anyhow::Result<Value> {
+    // Under `dx serve --hot-patch` every request runs the newest patched code.
+    #[cfg(feature = "hotpatch")]
+    return crate::hotpatch::call(
+        handle_command_with_cancellation,
+        (mux, client, cmd, writer, cancellation),
+    )
+    .and_then(|result| result);
+    #[cfg(not(feature = "hotpatch"))]
+    handle_command_with_cancellation(mux, client, cmd, writer, cancellation)
 }
 
 fn send_vt_state_command_response(

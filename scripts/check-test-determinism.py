@@ -109,7 +109,14 @@ Detectors (all line/regex heuristics, never an AST):
   echo's arguments, a string or a here-document body (any delimiter) is
   none. A Python loader is a stdlib one or a function of the file's own
   that calls one (json.loads is none); a child script covers its own span,
-  not the rest of its line (review of cmux#41794). The helper is the one
+  not the rest of its line (review of cmux#41794). A load or an opt-out
+  counts only where the parser shows it runs (reviews of cmux#41835 and
+  hq#9831): a source in this shell (not behind env, nice or exec), a git
+  invocation (a subprocess argv starting with git, or a git wrapper), an
+  env passed on with GIT_CONFIG_KEY_n=maintenance.auto and
+  GIT_CONFIG_VALUE_n off, a string a shell runs, an assignment in
+  assignment position; a function's body runs where it is called, never
+  where it is defined. The helper is the one
   place a fixture's git environment is built: it drops what an inherited
   GIT_DIR, GIT_INDEX_FILE, GIT_CONFIG and friends point at (a test run from
   a git hook would otherwise commit into the hook's repository) and turns
@@ -161,6 +168,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import pathlib
 import re
 import sys
@@ -4200,7 +4208,7 @@ _GIT_WRITE_VERB_SET = frozenset(_GIT_WRITE_VERBS[3:-1].split("|"))
 # git's options before its subcommand that take the next word.
 _GIT_GLOBAL_TAKES = frozenset({"-C", "-c", "--git-dir", "--work-tree", "--namespace", "--config-env", "--super-prefix"})
 _MAINTENANCE_OFF = frozenset({"false", "0", "no", "off"})
-_GIT_CONFIG_KEY_MAINTENANCE = re.compile(r"GIT_CONFIG_KEY_\d+=maintenance\.auto")
+_GIT_CONFIG_PAIR = re.compile(r"GIT_CONFIG_(KEY|VALUE)_(\d+)")
 
 
 def _shell_tree():
@@ -4287,28 +4295,234 @@ def _sh_program(values: list[Optional[str]]) -> str:
 
 
 def _sh_ordered(text: str, script):
-    """SCRIPT's commands in the order this shell runs them, with an eval's text in its place; a substitution's
-    commands run in a subshell and a trap's action later, so neither is here."""
-    for cmd in script.commands:
+    """SCRIPT's commands in the order this shell runs them: an eval's text in its place, and a function's body where
+    the function is called, never where it is defined (a function nobody calls runs nothing). Each call runs the
+    definition in effect when it runs: one made later, or replaced since, is not it (hq#9863 review F2). A
+    substitution's commands run in a subshell and a trap's action later, so neither is here."""
+    for cmd, _ in _sh_ordered_calls(text, script, ()):
         yield cmd
-        if _sh_program(_sh_run(text, cmd)[1]) == "eval":
+
+
+def _sh_ordered_calls(text: str, script, callers: tuple):
+    """_sh_ordered's commands, each with the function-call commands it runs inside (outermost first, after CALLERS):
+    their NAME=value words are in its environment (hq#9900 review F1)."""
+    commands = script.commands
+    headers = _sh_function_spans(text, commands)
+    active: dict[str, tuple[int, int]] = {}
+
+    def walk(start: int, end: int, calls: tuple, callers: tuple):
+        k = start
+        while k < end:
+            if k in headers:  # a definition runs nothing; from here on, NAME means this body
+                name, close = headers[k]
+                active[name] = (k, close)
+                k = close + 1
+                continue
+            cmd = commands[k]
+            yield cmd, callers
+            program = _sh_program(_sh_run(text, cmd)[1])
+            if program == "eval":
+                for nested in cmd.scripts:
+                    yield from _sh_ordered_calls(text, nested, callers)
+            name = _sh_called_function(text, cmd)
+            body = active.get(name)
+            if body is not None and name not in calls and len(calls) < 8:
+                yield from walk(body[0] + 1, body[1] + 1, calls + (name,), callers + (cmd,))
+            k += 1
+
+    yield from walk(0, len(commands), (), callers)
+
+
+def _sh_called_function(text: str, cmd) -> str:
+    """The name CMD would call as a shell function: its first word after NAME=value words, reserved words and time
+    (-p). "" when anything else stands before it: env, nice, exec, timeout, command and builtin never run a shell
+    function (`env setup` runs a program named setup from PATH, hq#9863 review F1)."""
+    tree = _shell_tree()
+    words = cmd.words
+    values = [_sh_value(text, word) for word in words]
+    k = 0
+    while k < len(words):
+        if values[k] in tree.KEYWORDS or tree.ASSIGNMENT.match(text, words[k].start):
+            k += 1
+        elif values[k] == "time":
+            k += 1
+            while k < len(words) and values[k] in ("-p", "--"):
+                k += 1
+        else:
+            break
+    return (values[k] or "") if k < len(words) else ""
+
+
+def _sh_function_spans(text: str, commands: list) -> dict[int, tuple[str, int]]:
+    """Each function definition COMMANDS hold, by the index of its header: (NAME, index of the command that closes its
+    { } group). The forms: `NAME()`, `function NAME` on a line of its own, and `function NAME {` / `function NAME()`,
+    which the parser keeps as a command with no words and `function NAME` as data (#41891 review F2). A body that is
+    not a { } group keeps only its header out."""
+    out: dict[int, tuple[str, int]] = {}
+    for index, cmd in enumerate(commands):
+        values = [_sh_value(text, word) for word in cmd.words]
+        data = [_sh_value(text, word) for word in cmd.data]
+        if len(values) == 1 and re.match(r"[ \t]*\([ \t]*\)", text[cmd.words[0].end:]):
+            name = values[0]
+        elif len(values) == 2 and values[0] == "function":
+            name = values[1]
+        elif not values and len(data) == 2 and data[0] == "function":
+            name = data[1]
+        else:
+            continue
+        if not name:
+            continue
+        depth, opened, close = 0, False, None
+        for at in range(index + 1, len(commands)):
+            for word in commands[at].words:  # a { or } counts only where a command starts
+                raw = text[word.start:word.end]
+                if raw == "{":
+                    depth, opened = depth + 1, True
+                elif raw == "}" and opened:
+                    depth -= 1
+                    if depth == 0:
+                        close = at
+                        break
+                else:
+                    break
+            if close is not None or not opened:
+                break
+        out[index] = (name, index if close is None else close)
+    return out
+
+
+def _sh_running(text: str, script, callers: tuple = ()):
+    """Every command that runs, with the function-call commands it runs inside (_sh_ordered_calls): this shell's,
+    each substitution's, and a `sh -c` or eval script's (a subshell and a child keep the caller's environment)."""
+    tree = _shell_tree()
+    for cmd, inside in _sh_ordered_calls(text, script, callers):
+        yield cmd, inside
+        program = _sh_program(_sh_run(text, cmd)[1])
+        if program not in ("eval", "trap"):
             for nested in cmd.scripts:
-                yield from _sh_ordered(text, nested)
+                yield from _sh_running(text, nested, inside)
+        words = cmd.words + cmd.data + [r.target for r in cmd.redirects] + [r.body for r in cmd.redirects if r.body]
+        for word in words:
+            for sub in tree.subs(word.parts):
+                yield from _sh_running(text, sub.script, inside)
+
+
+# Words that leave a builtin (source, .) running in this shell: env, nice, exec, timeout and the rest run a program,
+# and no program is called source (`env source lib.sh` exits 127).
+_SH_IN_SHELL_PREFIXES = frozenset({"builtin", "command", "time"})
+
+
+def _sh_in_shell_run(text: str, cmd) -> tuple[list, list[Optional[str]]]:
+    """CMD's words from its command name on, read through only NAME=value words, reserved words, builtin, command
+    (not -v/-V) and time: ([], []) when anything else stands before the name."""
+    tree = _shell_tree()
+    words = cmd.words
+    values = [_sh_value(text, word) for word in words]
+    k, assigns = 0, True
+    while k < len(words):
+        if values[k] in tree.KEYWORDS or (assigns and tree.ASSIGNMENT.match(text, words[k].start)):
+            k += 1
+            continue
+        if values[k] in _SH_IN_SHELL_PREFIXES:
+            k += 1
+            assigns = False
+            while k < len(words) and values[k] in ("-p", "--"):
+                k += 1
+            if k < len(words) and values[k] in ("-v", "-V"):
+                return [], []
+            continue
+        break
+    return words[k:], values[k:]
+
+
+def _sh_is_fixture_source(text: str, cmd) -> bool:
+    """True when CMD runs `source FILE` or `. FILE` naming git-fixture.sh in this shell."""
+    words, values = _sh_in_shell_run(text, cmd)
+    return len(words) > 1 and values[0] in ("source", ".") and "git-fixture.sh" in _shell_tree().literal(text, words[1])
+
+
+def _sh_pair(text: str, word) -> Optional[tuple[str, Optional[str]]]:
+    """(NAME, value) of a NAME=value WORD by the parser's assignment position, else None."""
+    head = _shell_tree().ASSIGNMENT.match(text, word.start)
+    if head is None or word.start + len(head.group(0)) > word.end:
+        return None
+    return re.match(r"\w+", head.group(0)).group(0), _sh_unquote(text[head.end():word.end])
+
+
+def _sh_prefix(text: str, cmd) -> dict:
+    """The NAME=value words before the command CMD runs (or env's): bash puts them in that command's environment, a
+    function's included, for that command only."""
+    tree = _shell_tree()
+    argv = ["X=" if tree.ASSIGNMENT.match(text, word.start) else tree.name(text, word) or "\0" for word in cmd.words]
+    assigned: list = []
+    tree.unwrap(argv, assigned)
+    return dict(pair for entry in assigned if entry[0] < len(cmd.words) and (len(entry) < 3 or entry[2] is None)
+                for pair in [_sh_pair(text, cmd.words[entry[0]])] if pair is not None)
+
+
+def _sh_env_step(text: str, cmd, exported: dict, variables: dict) -> dict:
+    """The environment CMD's program starts with, given what earlier commands EXPORTED: those, plus CMD's own
+    NAME=value words (before the command, or env's). A command that runs nothing (`K=v`) sets shell variables, which
+    reach a child only once exported; export, and declare/typeset/local with -x, export; local, declare, readonly and
+    typeset without -x export nothing (#41891 review F3). EXPORTED and VARIABLES carry the state to later commands. An
+    argument of any other command (`echo K=v`) is no assignment."""
+    tree = _shell_tree()
+    argv = ["X=" if tree.ASSIGNMENT.match(text, word.start) else tree.name(text, word) or "\0" for word in cmd.words]
+    assigned: list = []
+    run = tree.unwrap(argv, assigned)
+    run = run if isinstance(run, list) else []  # None (runs nothing) or UNRESOLVED (cannot tell): no builtin args
+    # (index, word) or (index, word, spans): spans is set only for a word of an env -S string, which is no word here.
+    own = dict(pair for entry in assigned if entry[0] < len(cmd.words) and (len(entry) < 3 or entry[2] is None)
+               for pair in [_sh_pair(text, cmd.words[entry[0]])] if pair is not None)
+    if not run:
+        for name, value in own.items():
+            variables[name] = value
+            if name in exported:  # an exported variable stays exported with its new value
+                exported[name] = value
+        return {}
+    program = _sh_program([run[0]])
+    if program not in _SH_ASSIGNING_BUILTINS:
+        return {**exported, **own}
+    exporting: Optional[bool] = program == "export"
+    for word in cmd.words[len(argv) - len(run) + 1:]:
+        pair = _sh_pair(text, word)
+        value = _sh_value(text, word) or ""
+        if pair is None and value.startswith("-"):
+            if "n" in value[1:] and program == "export":
+                exporting = None  # export -n: unexport
+            elif "x" in value[1:] and program in ("declare", "typeset", "local"):
+                exporting = True
+            continue
+        name, got = pair if pair is not None else (value, variables.get(value))
+        if pair is not None and program != "local":
+            variables[name] = got
+        if exporting:
+            exported[name] = got
+        elif exporting is None:
+            exported.pop(name, None)
+        elif name in exported and program != "local" and pair is not None:
+            exported[name] = got
+    return {}
+
+
+def _env_pairs_off(env: dict) -> bool:
+    """True when ENV holds GIT_CONFIG_KEY_<n>=maintenance.auto with GIT_CONFIG_VALUE_<n> off."""
+    pairs: dict[str, dict[str, Optional[str]]] = {"KEY": {}, "VALUE": {}}
+    for name, value in env.items():
+        match = _GIT_CONFIG_PAIR.fullmatch(name)
+        if match:
+            pairs[match.group(1)][match.group(2)] = value
+    return _config_pairs_off(pairs)
 
 
 def _sh_source_lines(text: str) -> list[int]:
-    """0-based lines of each `source FILE` or `. FILE` command (through builtin or command) naming git-fixture.sh, in
-    this shell. A source in a string, a comment, an echo's arguments or a here-document is no command."""
+    """0-based lines of each `source FILE` or `. FILE` command naming git-fixture.sh that runs in this shell (through
+    builtin, command or time only). A source in a string, a comment, an echo's arguments, a here-document, a function
+    nobody calls or behind env/nice/exec (no program is called source) loads nothing."""
     script = _sh_parse(text)
     if script is None:
         return []
-    tree = _shell_tree()
-    lines = []
-    for cmd in _sh_ordered(text, script):
-        words, values = _sh_run(text, cmd)
-        if len(words) > 1 and values[0] in ("source", ".") and "git-fixture.sh" in tree.literal(text, words[1]):
-            lines.append(_sh_line(text, cmd))
-    return lines
+    return [_sh_line(text, cmd) for cmd in _sh_ordered(text, script) if _sh_is_fixture_source(text, cmd)]
 
 
 def _sh_git_commands(text: str, script) -> list[tuple[int, str, list[Optional[str]]]]:
@@ -4343,21 +4557,35 @@ def _sh_makes_temp_dir(text: str) -> bool:
 
 
 def _sh_maintenance_off(text: str) -> bool:
-    """True when a git command turns auto maintenance off itself: `git -c maintenance.auto=false`, `git config
-    maintenance.auto false`, or GIT_CONFIG_KEY_<n>=maintenance.auto in its environment. An echo or a string that names
-    the key turns nothing off."""
+    """True when a git command that runs turns auto maintenance off: `git -c maintenance.auto=false`, `git config
+    maintenance.auto false`, or runs with the pair GIT_CONFIG_KEY_<n>=maintenance.auto and GIT_CONFIG_VALUE_<n>=false
+    in its environment (_sh_env_step: its own NAME=value words, env's, or exported before it runs). An echo, a string,
+    a function nobody calls, a local or unexported variable, a pair set after the last git command or
+    GIT_CONFIG_VALUE_<n>=true turns nothing off."""
     script = _sh_parse(text)
     if script is None:
         return False
-    for cmd in _shell_tree().commands(script):
-        if any(_GIT_CONFIG_KEY_MAINTENANCE.fullmatch(_sh_value(text, word) or "") for word in cmd.words):
-            return True
+    exported: dict = {}
+    variables: dict = {}
+    for cmd, callers in _sh_running(text, script):
+        env = _sh_env_step(text, cmd, exported, variables)
         _, values = _sh_run(text, cmd)
-        if _sh_program(values) not in ("git", "git_q"):
-            continue
-        if _git_argv_maintenance_off([value or "" for value in values[1:]]):
+        if callers and _sh_program(values) in ("git", "git_q"):
+            # A function call's NAME=value words are in its body's environment (hq#9900 review F1).
+            inherited: dict = {}
+            for call in callers:
+                inherited.update(_sh_prefix(text, call))
+            env = {**exported, **inherited, **_sh_prefix(text, cmd)}
+        if _sh_program(values) in ("git", "git_q") and (
+                _git_argv_maintenance_off([value or "" for value in values[1:]]) or _env_pairs_off(env)):
             return True
     return False
+
+
+def _config_pairs_off(pairs: dict[str, dict]) -> bool:
+    """True when some GIT_CONFIG_KEY_<n> is maintenance.auto and its GIT_CONFIG_VALUE_<n> is off."""
+    return any(key == "maintenance.auto" and str(pairs["VALUE"].get(n) or "").lower() in _MAINTENANCE_OFF
+               for n, key in pairs["KEY"].items())
 
 
 def _git_argv_maintenance_off(argv: list[str]) -> bool:
@@ -4375,32 +4603,311 @@ def _git_argv_maintenance_off(argv: list[str]) -> bool:
 
 
 def _py_maintenance_off(tree: object) -> bool:
-    """True when the Python code turns auto maintenance off: a git argv (a list, tuple or call's arguments) with
-    `maintenance.auto=false` after -c or `maintenance.auto`, `false` after config, a GIT_CONFIG_KEY_<n> mapped to
-    maintenance.auto, or a shell string that does one of those. A comment, docstring or string naming the key does
-    not."""
+    """True when Python code that runs (_PyCode) turns auto maintenance off: a git invocation (_py_git_argvs) with
+    `-c maintenance.auto=false` or `config maintenance.auto false`, an env it passes on (_py_env_config_pairs) with
+    GIT_CONFIG_KEY_<n>=maintenance.auto and GIT_CONFIG_VALUE_<n> off, or a string a shell runs that does one of those.
+    A comment, a docstring, a print's arguments, a string nobody runs or a function nobody calls does not."""
+    code = _PyCode(tree)
+    if any(_git_argv_maintenance_off(argv) for argv in _py_git_argvs(tree, code)):
+        return True
+    if _py_env_config_off(tree, code):
+        return True
+    for value in _py_shell_strings(tree, code):
+        if "maintenance.auto" in value and _sh_maintenance_off(value):
+            return True
+    return False
+
+
+# Calls that run an argv list: the subprocess functions. A git wrapper is called with git's arguments.
+_PY_ARGV_RUNNERS = frozenset({"run", "call", "check_call", "check_output", "Popen"})
+_PY_GIT_WRAPPERS = frozenset({"git", "_git", "run_git", "git_q"})
+
+
+# Functions a test framework calls by name: unittest's test*/setUp*/tearDown* and load_tests (hq#9900 review F3), pytest's test_*/setup_*/teardown_*, and
+# the dunder methods Python calls itself.
+_PY_FRAMEWORK_CALLED = re.compile(
+    r"(?:test|setUp|tearDown|asyncSetUp|asyncTearDown|setup_|teardown_)\w*|load_tests|__\w+__")
+
+
+class _PyCode:
+    """What of a module runs, and what a name means where it is used.
+
+    Runs: the module's top level, a class body where the class statement runs, and a function's body once something
+    that runs names it (a call, a callback, self.NAME) or a test framework calls it by name (_PY_FRAMEWORK_CALLED). A
+    function nobody calls runs nothing, so its git call, env or import counts for nothing (#41891 review F1). Names
+    resolve in their lexical scope: a function's parameter or local is its own, never a module-level name of the same
+    spelling (hq#9863 review F4)."""
+
+    def __init__(self, tree: object):
+        import ast
+
+        self.scopes = (ast.Module, ast.FunctionDef, ast.AsyncFunctionDef, ast.Lambda, ast.ClassDef)
+        self.parents = {child: node for node in ast.walk(tree) for child in ast.iter_child_nodes(node)}
+        self.locals: dict[object, set] = {}
+        self.values: dict[object, dict[str, list[object]]] = {}
+        declared: dict[object, set] = {}
+        self.module = tree
+        self.globals: dict[object, set] = {}
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Name) and isinstance(node.ctx, (ast.Store, ast.Del)):
+                self.locals.setdefault(self.scope(node), set()).add(node.id)
+            elif isinstance(node, ast.arg):
+                self.locals.setdefault(self.scope(node), set()).add(node.arg)
+            elif isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+                self.locals.setdefault(self.scope(node), set()).add(node.name)
+            elif isinstance(node, (ast.Import, ast.ImportFrom)):
+                self.locals.setdefault(self.scope(node), set()).update(
+                    (alias.asname or alias.name).split(".")[0] for alias in node.names)
+            elif isinstance(node, (ast.Global, ast.Nonlocal)):
+                declared.setdefault(self.scope(node), set()).update(node.names)
+                if isinstance(node, ast.Global):  # the module's NAME, never an enclosing function's (hq#9900 F2)
+                    self.globals.setdefault(self.scope(node), set()).update(node.names)
+            if isinstance(node, (ast.Assign, ast.AnnAssign)) and node.value is not None:
+                for target in (node.targets if isinstance(node, ast.Assign) else [node.target]):
+                    if isinstance(target, ast.Name):
+                        scope = self.scope(target)
+                        scope = tree if target.id in self.globals.get(scope, ()) else scope
+                        self.values.setdefault(scope, {}).setdefault(target.id, []).append(node.value)
+        for scope, names in declared.items():
+            self.locals.get(scope, set()).difference_update(names)
+        self.running = self._running(tree)
+
+    def scope(self, node: object) -> object:
+        """The scope NODE's names live in: its nearest enclosing function, lambda, class or the module. A definition's
+        decorators, bases and defaults belong to the scope around it."""
+        import ast
+
+        child, parent = node, self.parents.get(node)
+        outside = False
+        while parent is not None:
+            if isinstance(parent, ast.arguments) and (child in parent.defaults or child in parent.kw_defaults):
+                outside = True
+            elif isinstance(parent, self.scopes):
+                if outside or child in getattr(parent, "decorator_list", ()) or child in getattr(parent, "bases", ()):
+                    outside = False
+                else:
+                    return parent
+            child, parent = parent, self.parents.get(parent)
+        return node
+
+    def lookup(self, name: str, node: object) -> tuple[object, list[object]]:
+        """(the scope NAME means at NODE, the values assigned to it there)."""
+        import ast
+
+        scope = self.scope(node)
+        inner = scope
+        if name in self.globals.get(scope, ()):
+            return self.module, self.values.get(self.module, {}).get(name, [])
+        while not isinstance(scope, ast.Module):
+            if name in self.locals.get(scope, ()) and (scope is inner or not isinstance(scope, ast.ClassDef)):
+                break
+            scope = self.scope(scope)
+        return scope, self.values.get(scope, {}).get(name, [])
+
+    def resolve(self, node: object) -> list[object]:
+        """The values a Name NODE may hold where it is used ([] for a parameter, which only a caller fills)."""
+        import ast
+
+        return self.lookup(node.id, node)[1] if isinstance(node, ast.Name) else [node]
+
+    def runs(self, node: object) -> bool:
+        return node in self.running
+
+    def _running(self, tree: object) -> set:
+        import ast
+
+        running: set = set()
+        reached: list = []  # function definitions whose def statement runs
+
+        def collect(root: object) -> None:
+            stack = list(ast.iter_child_nodes(root)) if root is not tree else [tree]
+            while stack:
+                node = stack.pop()
+                running.add(node)
+                if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                    stack.extend(node.decorator_list)
+                    stack.extend(node.args.defaults + [d for d in node.args.kw_defaults if d])
+                    reached.append(node)
+                    continue
+                stack.extend(ast.iter_child_nodes(node))
+
+        collect(tree)
+        on: set = set()
+        grew = True
+        while grew:
+            grew = False
+            named = {n.id for n in running if isinstance(n, ast.Name)} | {
+                n.attr for n in running if isinstance(n, ast.Attribute)}
+            for function in list(reached):
+                if function in on:
+                    continue
+                if function.name in named or _PY_FRAMEWORK_CALLED.fullmatch(function.name) or any(
+                        "fixture" in ast.dump(d) for d in function.decorator_list):
+                    on.add(function)
+                    collect(function)
+                    grew = True
+        return running
+
+
+def _py_call_operand(call: object, keywords: tuple = ("args",)) -> Optional[object]:
+    """The command a subprocess call runs: its first argument, or the args= keyword (hq#9863 review F5)."""
+    if call.args:
+        return call.args[0]
+    return next((keyword.value for keyword in call.keywords if keyword.arg in keywords), None)
+
+
+def _py_git_argvs(tree: object, code: Optional[_PyCode] = None) -> list[list[str]]:
+    """git's arguments (constants, "" for anything else) at each git invocation that runs (_PyCode): a subprocess call
+    whose argv list (literal or args=, or a name assigned one in its scope; a *NAME of one is spliced in) starts with
+    git, or a call to a git wrapper (git, run_git, or a function of the module that runs git with its *args)."""
     import ast
 
+    code = code or _PyCode(tree)
+
+    def argv(node: object, seen: frozenset = frozenset()) -> Optional[list[object]]:
+        if isinstance(node, ast.Name):
+            if node.id in seen:  # `cmd = [*cmd, "x"]` names itself
+                return None
+            seen = seen | {node.id}
+            node = next((value for value in code.resolve(node) if isinstance(value, (ast.List, ast.Tuple))), None)
+        if not isinstance(node, (ast.List, ast.Tuple)):
+            return None
+        out: list[object] = []
+        for elt in node.elts:
+            spliced = argv(elt.value, seen) if isinstance(elt, ast.Starred) and isinstance(elt.value, ast.Name) else None
+            out.extend(spliced if spliced is not None else [elt])
+        return out
+
+    def constants(elts: list[object]) -> list[str]:
+        return [elt.value if isinstance(elt, ast.Constant) and isinstance(elt.value, str) else "" for elt in elts]
+
+    def runs_git(call: object) -> Optional[list[str]]:
+        elts = argv(_py_call_operand(call)) if _py_call_name(call) in _PY_ARGV_RUNNERS else None
+        if elts and constants(elts[:1])[0].rsplit("/", 1)[-1] == "git":
+            return constants(elts[1:])
+        return None
+
+    wrappers = set(_PY_GIT_WRAPPERS)
+    for function in ast.walk(tree):
+        if isinstance(function, (ast.FunctionDef, ast.AsyncFunctionDef)) and function.args.vararg is not None:
+            star = function.args.vararg.arg
+            for call in ast.walk(function):
+                if isinstance(call, ast.Call) and runs_git(call) is not None and any(
+                        isinstance(elt, ast.Starred) and isinstance(elt.value, ast.Name) and elt.value.id == star
+                        for elt in (argv(_py_call_operand(call)) or [])):
+                    wrappers.add(function.name)
+    out: list[list[str]] = []
+    for call in ast.walk(tree):
+        if not isinstance(call, ast.Call) or not code.runs(call):
+            continue
+        got = runs_git(call)
+        if got is not None:
+            out.append(got)
+        elif _py_call_name(call) in wrappers:
+            out.append(constants(call.args))
+    return out
+
+
+def _py_env_config_off(tree: object, code: Optional[_PyCode] = None) -> bool:
+    """True when a GIT_CONFIG_KEY_<n>=maintenance.auto / GIT_CONFIG_VALUE_<n>=off pair is in an env code that runs
+    (_PyCode) passes on: a dict given as env=, one assigned (in its scope) to a name given as env=, os.environ.update's,
+    or subscript assignments into such a name or os.environ. A dict nobody passes sets nothing."""
+    import ast
+
+    code = code or _PyCode(tree)
+
+    def is_environ(node: object) -> bool:
+        return isinstance(node, ast.Attribute) and node.attr == "environ" and isinstance(node.value, ast.Name) and (
+            node.value.id == "os")
+
+    passed: set = set()
+    dicts: list[object] = []
     for node in ast.walk(tree):
-        if isinstance(node, (ast.List, ast.Tuple, ast.Call)):
-            elts = node.args if isinstance(node, ast.Call) else node.elts
-            values = [part.value if isinstance(part, ast.Constant) and isinstance(part.value, str) else "" for part in elts]
-            for k, value in enumerate(values):
-                if value == "maintenance.auto" and k + 1 < len(values) and values[k + 1].lower() in _MAINTENANCE_OFF:
-                    return True
-                key, sep, setting = value.partition("=")
-                if sep and key == "maintenance.auto" and setting.lower() in _MAINTENANCE_OFF and k and (
-                        values[k - 1] == "-c"):
-                    return True
-        if isinstance(node, ast.Dict):
-            for key, value in zip(node.keys, node.values):
-                if (isinstance(key, ast.Constant) and isinstance(value, ast.Constant)
-                        and re.fullmatch(r"GIT_CONFIG_KEY_\d+", str(key.value)) and value.value == "maintenance.auto"):
-                    return True
-        for value in _py_strings(node):
-            if "maintenance.auto" in value and _sh_maintenance_off(value):
-                return True
-    return False
+        if isinstance(node, ast.Call) and code.runs(node):
+            for keyword in node.keywords:
+                if keyword.arg == "env":
+                    if isinstance(keyword.value, ast.Name):
+                        scope, values = code.lookup(keyword.value.id, keyword.value)
+                        passed.add((scope, keyword.value.id))
+                        dicts.extend(value for value in values if isinstance(value, ast.Dict))
+                    elif isinstance(keyword.value, ast.Dict):
+                        dicts.append(keyword.value)
+            func = node.func
+            if isinstance(func, ast.Attribute) and func.attr == "update" and is_environ(func.value) and node.args and (
+                    isinstance(node.args[0], ast.Dict)):
+                dicts.append(node.args[0])
+    containers: dict = {}
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Assign) and code.runs(node):
+            for target in node.targets:
+                if not isinstance(target, ast.Subscript):
+                    continue
+                if is_environ(target.value):
+                    where = "os.environ"
+                elif isinstance(target.value, ast.Name) and (
+                        code.lookup(target.value.id, target.value)[0], target.value.id) in passed:
+                    where = (code.lookup(target.value.id, target.value)[0], target.value.id)
+                else:
+                    continue
+                key, value = target.slice, node.value
+                if isinstance(key, ast.Constant) and isinstance(value, ast.Constant):
+                    match = _GIT_CONFIG_PAIR.fullmatch(str(key.value))
+                    if match:
+                        pairs = containers.setdefault(where, {"KEY": {}, "VALUE": {}})
+                        pairs[match.group(1)][match.group(2)] = str(value.value)
+    for node in dicts:
+        pairs = {"KEY": {}, "VALUE": {}}
+        for key, value in zip(node.keys, node.values):
+            if isinstance(key, ast.Constant) and isinstance(value, ast.Constant):
+                match = _GIT_CONFIG_PAIR.fullmatch(str(key.value))
+                if match:
+                    pairs[match.group(1)][match.group(2)] = str(value.value)
+        if _config_pairs_off(pairs):
+            return True
+    return any(_config_pairs_off(pairs) for pairs in containers.values())
+
+
+# Calls that run their first argument as a shell command line: always, or with shell=True.
+_PY_SHELL_CALLS = frozenset({"system", "getoutput", "getstatusoutput", "popen"})
+_PY_SHELL_TRUE_CALLS = frozenset({"run", "call", "check_call", "check_output", "Popen"})
+_SHELLS = frozenset({"sh", "bash", "zsh", "dash"})
+
+
+def _py_shell_strings(tree: object, code: Optional[_PyCode] = None) -> list[str]:
+    """The strings code that runs (_PyCode) hands a shell: the command of os.system/subprocess.getoutput, of a
+    subprocess call with shell=True, or the script after -c in a subprocess call's argv that starts with a shell (each
+    one positional or args=/cmd=/command=, direct or through a name assigned it in its scope). A docstring, a print, a
+    constant or an argv list nobody runs is not one."""
+    import ast
+
+    code = code or _PyCode(tree)
+    resolve = code.resolve
+
+    def strings(node: object) -> list[str]:
+        return [text for value in resolve(node) for text in _py_strings(value)]
+
+    out: list[str] = []
+    for node in ast.walk(tree):
+        if not (isinstance(node, ast.Call) and code.runs(node)):
+            continue
+        operand = _py_call_operand(node, ("args", "cmd", "command"))
+        if operand is None:
+            continue
+        name = _py_call_name(node)
+        shell = any(keyword.arg == "shell" and isinstance(keyword.value, ast.Constant) and keyword.value.value is True
+                    for keyword in node.keywords)
+        if name in _PY_SHELL_CALLS or (name in _PY_SHELL_TRUE_CALLS and shell):
+            out.extend(strings(operand))
+        elif name in _PY_SHELL_TRUE_CALLS:
+            for argv in resolve(operand):
+                if not isinstance(argv, (ast.List, ast.Tuple)) or not argv.elts:
+                    continue
+                values = [(_py_strings(elt) or [""])[0] for elt in argv.elts]
+                if values[0].rsplit("/", 1)[-1] in _SHELLS and "-c" in values[1:]:
+                    at = values.index("-c", 1) + 1
+                    if at < len(argv.elts):
+                        out.extend(strings(argv.elts[at]))
+    return out
 
 
 def _maintenance_off(text: str, path_suffix: str) -> bool:
@@ -4408,12 +4915,8 @@ def _maintenance_off(text: str, path_suffix: str) -> bool:
         return _sh_maintenance_off(text)
     if path_suffix != ".py":
         return False
-    import ast
-
-    try:
-        return _py_maintenance_off(ast.parse(text))
-    except (SyntaxError, ValueError):
-        return False
+    tree = _py_parse(text)
+    return tree is not None and _py_maintenance_off(tree)
 
 
 def detect_git_temp_repo_maintenance(
@@ -4489,17 +4992,15 @@ def _py_loader_names(tree: object) -> frozenset:
 
 
 def _py_loads_git_fixture(tree: object) -> bool:
-    """True when the module imports git_fixture_env or calls a loader (_py_loader_names) whose arguments (or the
-    names they use, followed through their assignments) hold a string naming it."""
+    """True when code that runs (_PyCode: not in a function nobody calls, #41891 review F1) imports git_fixture_env or
+    calls a loader (_py_loader_names) whose arguments (or the names they use, followed through their assignments in
+    their scope) hold a string naming it."""
     import ast
 
-    assigned: dict[str, list[object]] = {}
+    code = _PyCode(tree)
     for node in ast.walk(tree):
-        if isinstance(node, (ast.Assign, ast.AnnAssign)) and node.value is not None:
-            targets = node.targets if isinstance(node, ast.Assign) else [node.target]
-            for target in targets:
-                if isinstance(target, ast.Name):
-                    assigned.setdefault(target.id, []).append(node.value)
+        if not code.runs(node):
+            continue
         if isinstance(node, ast.Import) and any(alias.name.split(".")[-1] == "git_fixture_env" for alias in node.names):
             return True
         if isinstance(node, ast.ImportFrom) and (
@@ -4509,17 +5010,19 @@ def _py_loads_git_fixture(tree: object) -> bool:
             return True
     loaders = _py_loader_names(tree)
     for node in ast.walk(tree):
-        if not isinstance(node, ast.Call) or _py_call_name(node) not in loaders:
+        if not isinstance(node, ast.Call) or _py_call_name(node) not in loaders or not code.runs(node):
             continue
         pending = list(node.args) + [keyword.value for keyword in node.keywords]
-        seen: set[str] = set()
+        seen: set[int] = set()
         while pending:
             for part in ast.walk(pending.pop()):
                 if any("git_fixture_env" in value for value in _py_strings(part)):
                     return True
-                if isinstance(part, ast.Name) and part.id not in seen:
-                    seen.add(part.id)
-                    pending.extend(assigned.get(part.id, []))
+                if isinstance(part, ast.Name):
+                    for value in code.resolve(part):
+                        if id(value) not in seen:
+                            seen.add(id(value))
+                            pending.append(value)
     return False
 
 
@@ -4545,9 +5048,8 @@ def _git_fixture_load_cover(text: str, path_suffix: str) -> Optional[list[_Span]
         return []
     import ast
 
-    try:
-        tree = ast.parse(text)
-    except (SyntaxError, ValueError):
+    tree = _py_parse(text)
+    if tree is None:
         return []
     if _py_loads_git_fixture(tree):
         return None
@@ -4626,11 +5128,68 @@ def _makes_temp_git_repos(code: str, path_suffix: str) -> bool:
 _ENV_BUILD_START = re.compile(r"(?:^[ \t]*(?:self\.)?(\w*env\w*)[ \t]*=(?!=)[ \t]*|[(,\s]env=)(\{|dict\()", re.M | re.I)
 # A whole environment, not a few extra variables: it sets PATH or HOME, or copies os.environ.
 _ENV_WHOLE = re.compile(r"""['"](?:PATH|HOME)['"]\s*:|\b(?:PATH|HOME)\s*=|os\.environ\.items\(\)""")
-# Inherits the importing process's environment (which carries the opt-out), or another env mapping.
-_ENV_INHERITS = re.compile(
-    r"""\*\*\s*(?:os\.environ|[\w.]*env\w*|[\w.]*common\w*)\b|os\.environ\.(?:copy|items)\(\)|^dict\(\s*(?:os\.environ|[\w.]*env\w*)\b""",
-    re.I,
-)
+# The mappings an env literal spreads or copies: `**NAME`, `dict(NAME`, and os.environ's copy or items.
+_ENV_SPREAD = re.compile(r"\*\*\s*([A-Za-z_][\w.]*)|^dict\(\s*([A-Za-z_][\w.]*)")
+_ENV_COPIES_ENVIRON = re.compile(r"os\.environ\.(?:copy|items)\(\)")
+# Calls that return an environment carrying the opt-out (tests/git_fixture_env.py).
+_ENV_FIXTURE_CALLS = frozenset({"fixture_env", "write_env", "without_auto_maintenance"})
+
+
+@lru_cache(maxsize=8)
+def _py_parse(code: str):
+    """CODE's module AST, or None when it does not parse; no SyntaxWarning for a test's odd escapes."""
+    import ast
+    import warnings
+
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        try:
+            return ast.parse(code)
+        except (SyntaxError, ValueError, RecursionError):
+            return None
+
+
+def _env_inherits(expr: str, code: str) -> bool:
+    """True when the env literal EXPR copies os.environ or a mapping that does: a spread name is followed through
+    the module's assignments to it (`self.env = {**os.environ, ...}` for `**h.env`), never judged by its name, so
+    `**payload_env` is a few extra variables, not the parent's environment."""
+    if _ENV_COPIES_ENVIRON.search(expr):
+        return True
+    import ast
+
+    tree = _py_parse(code)
+    assigned: dict[str, list[object]] = {}
+    for node in ast.walk(tree) if tree is not None else ():
+        if isinstance(node, (ast.Assign, ast.AnnAssign)) and node.value is not None:
+            for target in node.targets if isinstance(node, ast.Assign) else [node.target]:
+                ident = target.id if isinstance(target, ast.Name) else target.attr if isinstance(target, ast.Attribute) else None
+                if ident:
+                    assigned.setdefault(ident, []).append(node.value)
+
+    def name_inherits(name: str, seen: set[str]) -> bool:
+        if name in ("os.environ", "environ"):
+            return True
+        ident = name.rsplit(".", 1)[-1]
+        if ident in seen:
+            return False
+        seen.add(ident)
+        return any(value_inherits(value, seen) for value in assigned.get(ident, []))
+
+    def value_inherits(value: object, seen: set[str]) -> bool:
+        for node in ast.walk(value):
+            if isinstance(node, ast.Attribute) and node.attr == "environ" and isinstance(node.value, ast.Name) and (
+                    node.value.id == "os"):
+                return True
+            if isinstance(node, ast.Call) and _py_call_name(node) in _ENV_FIXTURE_CALLS:
+                return True
+            if isinstance(node, (ast.Name, ast.Attribute)) and not isinstance(getattr(node, "ctx", None), ast.Store):
+                if name_inherits(ast.unparse(node), seen):
+                    return True
+        return False
+
+    return any(name_inherits(match.group(1) or match.group(2), set()) for match in _ENV_SPREAD.finditer(expr.strip()))
+
+
 _ENV_DROPS_GIT = re.compile(r"""startswith\(\s*\(?[^)]*['"]GIT_?['"]""")
 _ENV_OPTED_OUT = re.compile(r"\b(?:fixture_env|without_auto_maintenance)\(")
 
@@ -4648,9 +5207,12 @@ def _balanced_span(code: str, start: int) -> str:
     return code[start:]
 
 
-def detect_git_fixture_env_dropped(code_lines: list[str], path_suffix: str) -> list[int]:
-    """0-based lines where a temp-git-repo Python test builds a child env that loses the auto-maintenance opt-out."""
+def detect_git_fixture_env_dropped(code_lines: list[str], path_suffix: str, text: str = "") -> list[int]:
+    """0-based lines where a temp-git-repo Python test builds a child env that loses the auto-maintenance opt-out.
+    A spread is resolved through the module's own assignments (TEXT, the file as written: the comment-stripped view
+    can cut a string at its '#')."""
     code = "\n".join(code_lines)
+    source = text or code
     if not _makes_temp_git_repos(code, path_suffix):
         return []
     hits: list[int] = []
@@ -4662,13 +5224,26 @@ def detect_git_fixture_env_dropped(code_lines: list[str], path_suffix: str) -> l
         expr = _balanced_span(code, match.start(2))
         if not _ENV_WHOLE.search(expr):
             continue
-        if not _ENV_DROPS_GIT.search(expr) and _ENV_INHERITS.search(expr):
+        if not _ENV_DROPS_GIT.search(expr) and _env_inherits(expr, source):
             continue
         target = match.group(1)
         if target and re.search(r"\b(?:fixture_env|without_auto_maintenance)\(\s*(?:self\.)?" + re.escape(target) + r"\s*\)", code):
             continue
         hits.append(code.count("\n", 0, match.start(2)))
     return hits
+
+
+def _py_helper_repo_call_lines(code: str) -> Optional[set[int]]:
+    """0-based lines with a call to a helper that makes a managed repo (init_repo, clone_repo, ...), by the callee's
+    exact name; None when the code does not parse. Its name in a string or a print is no call."""
+    import ast
+
+    tree = _py_parse(code)
+    if tree is None:
+        return None
+    names = {"init_repo", "clone_repo", "git_fixture_init", "git_fixture_clone"}
+    return {line - 1 for node in ast.walk(tree) if isinstance(node, ast.Call) and _py_call_name(node) in names
+            for line in range(node.lineno, (node.end_lineno or node.lineno) + 1)}
 
 
 _HELPER_REPO_CALL = re.compile(r"\b(?:init_repo|clone_repo|git_fixture_init|git_fixture_clone)\b")
@@ -4690,8 +5265,10 @@ def detect_git_bare_repo_unmanaged(code_lines: list[str], path_suffix: str, text
             return sorted({line for line, verb, args in _sh_git_commands(text, script)
                            if verb in ("init", "clone") and {"--bare", "--mirror"} & set(args)})
     hits: list[int] = []
+    # A Python file that does not parse has no helper call it can show (fail closed).
+    helper_lines = (_py_helper_repo_call_lines(text or "\n".join(code_lines)) or set()) if path_suffix == ".py" else None
     for index, line in enumerate(code_lines):
-        if _HELPER_REPO_CALL.search(line):
+        if index in helper_lines if helper_lines is not None else _HELPER_REPO_CALL.search(line):
             continue
         if path_suffix == ".py":
             # An argv list may wrap after the subcommand: look at the next line too while the call is open.
@@ -4711,12 +5288,6 @@ _SH_QUOTED = re.compile(r"'[^']*'|\"(?:\\.|[^\"\\])*\"")
 _EXIT_SIGNALS = frozenset({"EXIT", "SIGEXIT", "0"})
 # Builtins whose NAME=value arguments set a variable in this shell.
 _SH_ASSIGNING_BUILTINS = frozenset({"local", "export", "readonly", "declare", "typeset"})
-
-
-def _sh_fixture_source(text: str, cmd) -> bool:
-    """True when CMD is `source FILE` or `. FILE` naming git-fixture.sh (through builtin or command)."""
-    words, values = _sh_run(text, cmd)
-    return len(words) > 1 and values[0] in ("source", ".") and "git-fixture.sh" in _shell_tree().literal(text, words[1])
 
 
 def _sh_exit_trap(text: str, cmd) -> Optional[tuple[str, object]]:
@@ -4755,7 +5326,7 @@ def detect_git_fixture_exit_trap(code_lines: list[str], path_suffix: str, text: 
     sourced = False
     for cmd in _sh_ordered(text, script):
         if not sourced:
-            sourced = _sh_fixture_source(text, cmd)
+            sourced = _sh_is_fixture_source(text, cmd)
             continue
         trap = _sh_exit_trap(text, cmd)
         if trap and trap[0] == "trap":
@@ -5497,7 +6068,7 @@ def scan_text(rel_posix: str, text: str) -> list[Finding]:
         findings.append(
             Finding(rel_posix, git_line + 1, RULE_GIT_TEMP_REPO_MAINTENANCE, raw_lines[git_line].strip())
         )
-    for env_line in detect_git_fixture_env_dropped(code_lines, suffix):
+    for env_line in detect_git_fixture_env_dropped(code_lines, suffix, text):
         findings.append(Finding(rel_posix, env_line + 1, RULE_GIT_FIXTURE_ENV_DROPPED, raw_lines[env_line].strip()))
     for bare_line in detect_git_bare_repo_unmanaged(code_lines, suffix, text):
         findings.append(Finding(rel_posix, bare_line + 1, RULE_GIT_BARE_REPO_UNMANAGED, raw_lines[bare_line].strip()))
@@ -5982,6 +6553,176 @@ def _self_test() -> int:
             "scripts/ci/tests/temp_repo_echo_names_opt_out.test.sh",
             "echo 'maintenance.auto is on'\nd=$(mktemp -d)\ngit -C \"$d\" init -q\n",
             {RULE_GIT_TEMP_REPO_MAINTENANCE, RULE_GIT_WRITE_WITHOUT_FIXTURE},
+        ),
+        # #41794 review F1: a call whose name merely contains "load" (download, payload) is no loader.
+        (
+            "tests/temp_repo_download_names_helper.py",
+            "import subprocess, tempfile\ndownload('git_fixture_env docs')\npayload('git_fixture_env')\n"
+            "d = tempfile.mkdtemp()\nsubprocess.run(['git', '-C', d, 'init'])\n",
+            {RULE_GIT_TEMP_REPO_MAINTENANCE, RULE_GIT_WRITE_WITHOUT_FIXTURE},
+        ),
+        # #41794 review F2: a string literal never turns the opt-out on, even one that reads as the git command
+        # (a docstring, a print, an echo); only a string a shell runs does.
+        (
+            "scripts/ci/temp_repo_docstring_opt_out.py",
+            "\"\"\"git -c maintenance.auto=false init\"\"\"\nimport subprocess, tempfile\nd = tempfile.mkdtemp()\n"
+            "subprocess.run(['git', '-C', d, 'init'])\n",
+            {RULE_GIT_TEMP_REPO_MAINTENANCE},
+        ),
+        (
+            "scripts/ci/temp_repo_printed_opt_out.py",
+            "import subprocess, tempfile\nprint('git -c maintenance.auto=false init')\nd = tempfile.mkdtemp()\n"
+            "subprocess.run(['git', '-C', d, 'init'])\n",
+            {RULE_GIT_TEMP_REPO_MAINTENANCE},
+        ),
+        (
+            "scripts/ci/tests/temp_repo_echo_opt_out_value.test.sh",
+            "echo maintenance.auto=false\nd=$(mktemp -d)\ngit -C \"$d\" init -q\n",
+            {RULE_GIT_TEMP_REPO_MAINTENANCE, RULE_GIT_WRITE_WITHOUT_FIXTURE},
+        ),
+        # Sweep of the same class: a spread is the parent's environment only when it resolves to os.environ (or a
+        # fixture env), not because its name holds "env"; a helper's name in a string is no helper call.
+        (
+            "scripts/ci/env_spread_named_env.py",
+            "import subprocess, tempfile\npayload_env_docs = {'X': '1'}\nd = tempfile.mkdtemp()\n"
+            "env = {'PATH': '/bin', **payload_env_docs}\n"
+            "subprocess.run(['git', '-c', 'maintenance.auto=false', 'init', d], env=env)\n",
+            {RULE_GIT_FIXTURE_ENV_DROPPED},
+        ),
+        # A caller's keyword arguments (**env) are a few variables, not the parent's environment.
+        (
+            "scripts/ci/env_spread_kwargs.py",
+            "import subprocess, tempfile\nd = tempfile.mkdtemp()\ndef run(**env):\n"
+            "    return subprocess.run(['git', '-c', 'maintenance.auto=false', 'init', d], env={'PATH': '/bin', **env})\n",
+            {RULE_GIT_FIXTURE_ENV_DROPPED},
+        ),
+        (
+            "scripts/ci/bare_repo_name_in_string.py",
+            "import subprocess, tempfile\nd = tempfile.mkdtemp()\n"
+            "subprocess.run(['git', '-c', 'maintenance.auto=false', 'init', '--bare', d]); print('use init_repo')\n",
+            {RULE_GIT_BARE_REPO_UNMANAGED},
+        ),
+        # An opt-out counts only where the parser shows it runs (#41835 review F1-F3, hq#9831 review F1-F3).
+        # 41835 F1: a string or argv list nobody runs is no git call, and a print's arguments are no git argv.
+        (
+            "scripts/ci/temp_repo_unused_hint_argv.py",
+            "import subprocess, tempfile\nHINT = 'git -c maintenance.auto=false init'\n"
+            "ARGV = ['git', '-c', 'maintenance.auto=false', 'init']\nd = tempfile.mkdtemp()\n"
+            "subprocess.run(['git', 'init', d])\n",
+            {RULE_GIT_TEMP_REPO_MAINTENANCE},
+        ),
+        # A call that is not git, given maintenance.auto and false, sets nothing for git.
+        (
+            "scripts/ci/temp_repo_set_option_names_opt_out.py",
+            "import subprocess, tempfile\nset_option('maintenance.auto', 'false')\nd = tempfile.mkdtemp()\n"
+            "subprocess.run(['git', 'init', d])\n",
+            {RULE_GIT_TEMP_REPO_MAINTENANCE},
+        ),
+        # An argv that names itself (`cmd = [*cmd, ...]`) is read once, not followed forever.
+        (
+            "scripts/ci/temp_repo_self_splicing_argv.py",
+            "import subprocess, tempfile\nd = tempfile.mkdtemp()\ndef run(args):\n    args = [*args, 'init', d]\n"
+            "    subprocess.run(['git', *args])\n",
+            {RULE_GIT_TEMP_REPO_MAINTENANCE},
+        ),
+        (
+            "scripts/ci/temp_repo_print_config_args.py",
+            "import subprocess, tempfile\nprint('maintenance.auto', 'false')\nprint('-c', 'maintenance.auto=false')\n"
+            "d = tempfile.mkdtemp()\nsubprocess.run(['git', 'init', d])\n",
+            {RULE_GIT_TEMP_REPO_MAINTENANCE},
+        ),
+        # 41835 F2: GIT_CONFIG_KEY_<n>=maintenance.auto turns nothing off unless GIT_CONFIG_VALUE_<n> is false.
+        (
+            "scripts/ci/tests/temp_repo_config_value_true.test.sh",
+            "d=$(mktemp -d)\nGIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=maintenance.auto GIT_CONFIG_VALUE_0=true git -C \"$d\" init -q\n",
+            {RULE_GIT_TEMP_REPO_MAINTENANCE, RULE_GIT_WRITE_WITHOUT_FIXTURE},
+        ),
+        (
+            "scripts/ci/temp_repo_config_value_true.py",
+            "import subprocess, tempfile\nd = tempfile.mkdtemp()\n"
+            "env = {'GIT_CONFIG_COUNT': '1', 'GIT_CONFIG_KEY_0': 'maintenance.auto', 'GIT_CONFIG_VALUE_0': 'true'}\n"
+            "subprocess.run(['git', 'init', d], env=env)\n",
+            {RULE_GIT_TEMP_REPO_MAINTENANCE},
+        ),
+        # 41835 F3: a function's body runs where it is called; one nobody calls changes no trap state and loads nothing.
+        (
+            "scripts/cmux-next/tests/reraise_never_called_function.test.sh",
+            "tmp=$(mktemp -d)\na='s=$?; (exit \"$s\"); rm -rf \"$tmp\"'\nnever() {\n  a='rm -rf \"$tmp\"'\n}\n"
+            "trap \"$a\" EXIT\n",
+            {RULE_EXIT_TRAP_RERAISE_ORDER},
+        ),
+        (
+            "scripts/ci/tests/temp_repo_source_in_uncalled_function.test.sh",
+            "setup() {\n  source scripts/cmux-next/tests/lib/git-fixture.sh\n}\nd=$(mktemp -d)\ngit -C \"$d\" init -q\n",
+            {RULE_GIT_TEMP_REPO_MAINTENANCE, RULE_GIT_WRITE_WITHOUT_FIXTURE},
+        ),
+        # hq#9831 F1: env runs a program, and no program is called source (exit 127): nothing is loaded.
+        (
+            "scripts/ci/tests/temp_repo_env_source.test.sh",
+            "env source scripts/cmux-next/tests/lib/git-fixture.sh || true\nd=$(mktemp -d)\ngit -C \"$d\" init -q\n",
+            {RULE_GIT_TEMP_REPO_MAINTENANCE, RULE_GIT_WRITE_WITHOUT_FIXTURE},
+        ),
+        # hq#9831 F2: an echo's argument is no assignment, whatever it reads.
+        (
+            "scripts/ci/tests/temp_repo_echo_config_key.test.sh",
+            "echo GIT_CONFIG_KEY_0=maintenance.auto GIT_CONFIG_VALUE_0=false\nd=$(mktemp -d)\ngit -C \"$d\" init -q\n",
+            {RULE_GIT_TEMP_REPO_MAINTENANCE, RULE_GIT_WRITE_WITHOUT_FIXTURE},
+        ),
+        # An opt-out or a load counts by whether and when it runs, not by where it sits in the text (reviews of
+        # #41891 F1-F3 and hq#9863 F1-F5).
+        # #41891 F1: a Python function nobody calls runs nothing: its opt-out and its load count for nothing.
+        (
+            "tests/temp_repo_opt_out_in_uncalled_function.py",
+            "import importlib.util, subprocess, tempfile\nd = tempfile.mkdtemp()\ndef never():\n"
+            "    subprocess.run(['git', '-c', 'maintenance.auto=false', 'init', d])\n"
+            "    importlib.util.spec_from_file_location('git_fixture_env', 'tests/git_fixture_env.py')\n"
+            "subprocess.run(['git', 'init', d])\n",
+            {RULE_GIT_TEMP_REPO_MAINTENANCE, RULE_GIT_WRITE_WITHOUT_FIXTURE},
+        ),
+        # #41891 F2 (hq#9863 F3): `function NAME {` is a definition; its body runs only when called.
+        (
+            "scripts/ci/tests/temp_repo_source_in_uncalled_function_keyword.test.sh",
+            "function setup {\n  source scripts/cmux-next/tests/lib/git-fixture.sh\n}\nd=$(mktemp -d)\ngit -C \"$d\" init -q\n",
+            {RULE_GIT_TEMP_REPO_MAINTENANCE, RULE_GIT_WRITE_WITHOUT_FIXTURE},
+        ),
+        (
+            "scripts/ci/tests/temp_repo_source_in_uncalled_function_keyword_line.test.sh",
+            "function setup { source scripts/cmux-next/tests/lib/git-fixture.sh; }\nd=$(mktemp -d)\ngit -C \"$d\" init -q\n",
+            {RULE_GIT_TEMP_REPO_MAINTENANCE, RULE_GIT_WRITE_WITHOUT_FIXTURE},
+        ),
+        # hq#9863 F1: env runs a program from PATH, never a shell function.
+        (
+            "scripts/ci/tests/temp_repo_env_calls_function.test.sh",
+            "setup() {\n  source scripts/cmux-next/tests/lib/git-fixture.sh\n}\nenv setup || true\nd=$(mktemp -d)\n"
+            "git -C \"$d\" init -q\n",
+            {RULE_GIT_TEMP_REPO_MAINTENANCE, RULE_GIT_WRITE_WITHOUT_FIXTURE},
+        ),
+        # hq#9863 F2: a call before the definition runs nothing (command not found).
+        (
+            "scripts/ci/tests/temp_repo_call_before_definition.test.sh",
+            "setup || true\nsetup() {\n  source scripts/cmux-next/tests/lib/git-fixture.sh\n}\nd=$(mktemp -d)\n"
+            "git -C \"$d\" init -q\n",
+            {RULE_GIT_TEMP_REPO_MAINTENANCE, RULE_GIT_WRITE_WITHOUT_FIXTURE},
+        ),
+        # #41891 F3: local, declare, readonly and typeset export nothing, and a pair exported after the last git
+        # command reaches no git.
+        (
+            "scripts/ci/tests/temp_repo_local_config_pair.test.sh",
+            "f() {\n  local GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=maintenance.auto GIT_CONFIG_VALUE_0=false\n}\nf\n"
+            "d=$(mktemp -d)\ngit -C \"$d\" init -q\n",
+            {RULE_GIT_TEMP_REPO_MAINTENANCE},
+        ),
+        (
+            "scripts/ci/tests/temp_repo_declare_config_pair.test.sh",
+            "declare GIT_CONFIG_COUNT=1\nreadonly GIT_CONFIG_KEY_0=maintenance.auto\ntypeset GIT_CONFIG_VALUE_0=false\n"
+            "d=$(mktemp -d)\ngit -C \"$d\" init -q\n",
+            {RULE_GIT_TEMP_REPO_MAINTENANCE},
+        ),
+        (
+            "scripts/ci/tests/temp_repo_config_pair_after_git.test.sh",
+            "d=$(mktemp -d)\ngit -C \"$d\" init -q\n"
+            "export GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=maintenance.auto GIT_CONFIG_VALUE_0=false\n",
+            {RULE_GIT_TEMP_REPO_MAINTENANCE},
         ),
         # A child script that loads the helper covers its own span, not the rest of its physical line.
         (
@@ -7319,6 +8060,148 @@ def _self_test() -> int:
             "import subprocess, tempfile\nd = tempfile.mkdtemp()\n"
             "subprocess.run(['git', '-c', 'maintenance.auto=false', '-C', d, 'init'])\n",
         ),
+        # A string a shell runs is code: bash -c's script, or a command line with shell=True.
+        (
+            "scripts/ci/temp_repo_opt_out_bash_c.py",
+            "import subprocess, tempfile\nd = tempfile.mkdtemp()\n"
+            "subprocess.run(['bash', '-c', 'git -c maintenance.auto=false init -q \"$0\"', d])\n",
+        ),
+        (
+            "scripts/ci/temp_repo_opt_out_shell_true.py",
+            "import subprocess, tempfile\nd = tempfile.mkdtemp()\n"
+            "subprocess.run(f'git -c maintenance.auto=false init -q {d}', shell=True)\n",
+        ),
+        # The spread is resolved in the file as written: a '#' inside a string does not cut the module short.
+        (
+            "scripts/ci/env_spread_after_hash_string.py",
+            "import os, subprocess, tempfile\nscript = '#!/bin/sh'\nd = tempfile.mkdtemp()\n"
+            "env = {**os.environ, 'GIT_CONFIG_NOSYSTEM': '1'}\n"
+            "subprocess.run(['git', '-c', 'maintenance.auto=false', 'init', d], env={**env, 'PATH': '/bin'})\n",
+        ),
+        # A spread that resolves to os.environ, directly or through an attribute set elsewhere, inherits it.
+        (
+            "scripts/ci/env_spread_from_environ.py",
+            "import os, subprocess, tempfile\nclass H:\n    def __init__(self):\n"
+            "        self.env = {**os.environ, 'PATH': '/bin'}\nh = H()\nbase = dict(os.environ)\n"
+            "d = tempfile.mkdtemp()\nenv = {'PATH': '/bin', **h.env}\nenv2 = {'HOME': d, **base}\n"
+            "subprocess.run(['git', '-c', 'maintenance.auto=false', 'init', d], env=env)\n",
+        ),
+        # What does run still counts: a called function's source and assignments, builtin source, an exported
+        # GIT_CONFIG pair, an env passed to git, a module's own git wrapper.
+        (
+            "scripts/ci/tests/source_in_called_function.test.sh",
+            "setup() {\n  source scripts/cmux-next/tests/lib/git-fixture.sh\n}\nsetup\nd=$(mktemp -d)\n"
+            "git -C \"$d\" init -q\n",
+        ),
+        (
+            "scripts/ci/tests/source_through_builtin.test.sh",
+            "builtin source scripts/cmux-next/tests/lib/git-fixture.sh\nd=$(mktemp -d)\ngit -C \"$d\" init -q\n",
+        ),
+        (
+            "scripts/ci/temp_repo_export_config_pair.sh",
+            "export GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=maintenance.auto GIT_CONFIG_VALUE_0=false\nd=$(mktemp -d)\n"
+            "git -C \"$d\" init -q\n",
+        ),
+        (
+            "scripts/ci/temp_repo_env_config_pair.py",
+            "import subprocess, tempfile\nd = tempfile.mkdtemp()\n"
+            "env = {'GIT_CONFIG_COUNT': '1', 'GIT_CONFIG_KEY_0': 'maintenance.auto', 'GIT_CONFIG_VALUE_0': 'false'}\n"
+            "subprocess.run(['git', 'init', d], env=env)\n",
+        ),
+        (
+            "scripts/ci/temp_repo_opt_out_wrapper.py",
+            "import subprocess, tempfile\nd = tempfile.mkdtemp()\ndef run_it(*args):\n"
+            "    return subprocess.run(['git', *args], check=True)\nrun_it('-c', 'maintenance.auto=false', 'init', d)\n",
+        ),
+        (
+            "scripts/cmux-next/tests/reraise_called_function_ok.test.sh",
+            "tmp=$(mktemp -d)\na='s=$?; (exit \"$s\"); rm -rf \"$tmp\"'\nfix() {\n  a='rm -rf \"$tmp\"'\n}\nfix\n"
+            "trap \"$a\" EXIT\n",
+        ),
+        # What runs still counts, at the point it runs (#41891 F1-F3, hq#9863 F1-F5).
+        (
+            "scripts/ci/tests/source_in_called_function_keyword.test.sh",
+            "function setup {\n  source scripts/cmux-next/tests/lib/git-fixture.sh\n}\nsetup\nd=$(mktemp -d)\n"
+            "git -C \"$d\" init -q\n",
+        ),
+        (
+            "scripts/ci/tests/source_in_called_function_keyword_line.test.sh",
+            "function setup { source scripts/cmux-next/tests/lib/git-fixture.sh; }\nsetup\nd=$(mktemp -d)\n"
+            "git -C \"$d\" init -q\n",
+        ),
+        (
+            "scripts/ci/tests/source_in_called_function_timed.test.sh",
+            "setup() {\n  source scripts/cmux-next/tests/lib/git-fixture.sh\n}\ntime setup\nd=$(mktemp -d)\n"
+            "git -C \"$d\" init -q\n",
+        ),
+        # hq#9863 F2: each call runs the definition active when it runs, not the file's last one.
+        (
+            "scripts/ci/tests/source_in_function_redefined_later.test.sh",
+            "setup() {\n  source scripts/cmux-next/tests/lib/git-fixture.sh\n}\nsetup\nsetup() {\n  :\n}\n"
+            "d=$(mktemp -d)\ngit -C \"$d\" init -q\n",
+        ),
+        (
+            "tests/test_fixture_loaded_in_setup.py",
+            "import importlib.util, subprocess, tempfile\ndef load():\n"
+            "    return importlib.util.spec_from_file_location('git_fixture_env', 'tests/git_fixture_env.py')\n"
+            "class T:\n    def setUp(self):\n        load()\nd = tempfile.mkdtemp()\n"
+            "subprocess.run(['git', '-c', 'maintenance.auto=false', 'init', d])\n",
+        ),
+        # #41891 F3: an exported pair, by declare -x or by export after the assignment, reaches git.
+        (
+            "scripts/ci/temp_repo_declare_x_config_pair.sh",
+            "declare -x GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=maintenance.auto GIT_CONFIG_VALUE_0=false\nd=$(mktemp -d)\n"
+            "git -C \"$d\" init -q\n",
+        ),
+        (
+            "scripts/ci/temp_repo_assign_then_export_config_pair.sh",
+            "GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=maintenance.auto GIT_CONFIG_VALUE_0=false\n"
+            "export GIT_CONFIG_COUNT GIT_CONFIG_KEY_0 GIT_CONFIG_VALUE_0\nd=$(mktemp -d)\ngit -C \"$d\" init -q\n",
+        ),
+        # hq#9863 F4: a module-level `args` is not the function's own *args.
+        (
+            "scripts/ci/temp_repo_opt_out_wrapper_shadowed_args.py",
+            "import subprocess, tempfile\nd = tempfile.mkdtemp()\nargs = ['git', 'init', d]\ndef run_it(*args):\n"
+            "    return subprocess.run(['git', *args], check=True)\nrun_it('-c', 'maintenance.auto=false', 'init', d)\n",
+        ),
+        # hq#9863 F5: the argv or command line given as args=.
+        (
+            "scripts/ci/temp_repo_opt_out_args_keyword.py",
+            "import subprocess, tempfile\nd = tempfile.mkdtemp()\n"
+            "subprocess.run(args=['git', '-c', 'maintenance.auto=false', 'init', d])\n",
+        ),
+        (
+            "scripts/ci/temp_repo_opt_out_args_keyword_shell_true.py",
+            "import subprocess, tempfile\nd = tempfile.mkdtemp()\n"
+            "subprocess.run(args=f'git -c maintenance.auto=false init -q {d}', shell=True)\n",
+        ),
+        (
+            "scripts/ci/temp_repo_opt_out_args_keyword_bash_c.py",
+            "import subprocess, tempfile\nd = tempfile.mkdtemp()\n"
+            "subprocess.run(args=['bash', '-c', 'git -c maintenance.auto=false init -q \"$0\"', d])\n",
+        ),
+        # Review of hq#9900 (the same reader): F1, NAME=value words before a function call are in the environment of
+        # every command in its body.
+        (
+            "scripts/ci/temp_repo_prefix_env_function_call.sh",
+            "f() {\n  git -C \"$d\" init -q\n}\nd=$(mktemp -d)\n"
+            "GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=maintenance.auto GIT_CONFIG_VALUE_0=false f\n",
+        ),
+        # F2: `global NAME` in a nested function is the module's NAME, not the enclosing function's.
+        (
+            "scripts/ci/temp_repo_global_args_in_nested_function.py",
+            "import subprocess, tempfile\nd = tempfile.mkdtemp()\nargs = ['-c', 'maintenance.auto=false', 'init', d]\n"
+            "def outer(*args):\n    def inner():\n        global args\n        subprocess.run(['git', *args])\n"
+            "    inner()\nouter()\n",
+        ),
+        # F3: unittest calls a module's load_tests hook.
+        (
+            "tests/test_load_tests_hook_loads_fixture.py",
+            "import importlib.util, subprocess, tempfile\ndef load_tests(loader, tests, pattern):\n"
+            "    importlib.util.spec_from_file_location('git_fixture_env', 'tests/git_fixture_env.py')\n"
+            "    return tests\nd = tempfile.mkdtemp()\n"
+            "subprocess.run(['git', '-c', 'maintenance.auto=false', 'init', d])\n",
+        ),
         (
             "scripts/ci/temp_repo_opt_out_config.py",
             "import subprocess, tempfile\nd = tempfile.mkdtemp()\ngit('config', 'maintenance.auto', 'false')\n"
@@ -8222,6 +9105,24 @@ def _resolve_roots(repo_root: pathlib.Path, roots: Optional[list[str]]) -> tuple
     return tuple(roots) if roots else DEFAULT_ROOTS
 
 
+GUARD_CHECK_RESULTS_ENV = "CMUX_GUARD_CHECK_RESULTS"
+
+
+def report_guard_checks(active: list[Finding]) -> None:
+    """One red guard check per active (path, rule), in the guard runner's "<passed 0|1><TAB><check>" format.
+
+    guards_new_reds.py compares "<step> :: <check>" entries, so a finding the base also has is excused and a new one
+    is the change's. With only the step's verdict, a base already red on this step excused every new finding
+    (cmux#42416's pages-size-open-bench.sh landed behind test_cargo_locks_explain.py's reds; cmuxterm-hq
+    docs/handbook/base-red-excused-for-ever.md). No line numbers: an edit above a finding must not make it new."""
+    path = os.environ.get(GUARD_CHECK_RESULTS_ENV, "")
+    if not path:
+        return
+    with open(path, "a", encoding="utf-8") as handle:
+        for rel, rule in sorted({(finding.path, finding.rule) for finding in active}):
+            handle.write(f"0\t{rel}: {rule}\n")
+
+
 def main(argv: list[str]) -> int:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument(
@@ -8262,6 +9163,11 @@ def main(argv: list[str]) -> int:
         action="store_true",
         help="run built-in detector fixtures and exit",
     )
+    parser.add_argument(
+        "--guard-checks",
+        action="store_true",
+        help=f"append each active (path, rule) as a red check to ${GUARD_CHECK_RESULTS_ENV} (the guard runner's file)",
+    )
     args = parser.parse_args(argv)
 
     if args.self_test:
@@ -8296,6 +9202,8 @@ def main(argv: list[str]) -> int:
         return 2
 
     active, suppressed = filter_allowlisted(findings, allow)
+    if args.guard_checks:
+        report_guard_checks(active)
 
     if args.json:
         payload = {

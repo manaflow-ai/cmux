@@ -1,4 +1,4 @@
-import CmuxNextDaemon
+public import CmuxNextDaemon
 public import Foundation
 
 /// The cmux-tui CLIs Move to Cloud, Bring Back Local and a chat start run (cmux-tui `link/sync_cli.rs`,
@@ -27,13 +27,33 @@ public nonisolated struct CloudMoveCLI: Sendable {
         public var seedPhase: String?
         public var seedStartedAt: Double?
         public var seedFinishedAt: Double?
+        /// `seed_refused`: the seed plan's code for why the machine can't clone the folder (`not_git`, ...).
+        public var fallbackCode: String?
+        /// `seed_refused` for `seed.needs_github`: the cmux GitHub App's install page for the repository.
+        public var installURL: String?
+        /// `seed_refused`: the bytes a copy of the folder would send; nil when cmux-tui could not read its size.
+        public var copyBytes: Int64?
+        /// `link seed fetch --find-root`: the machine's repository root the chat's folder is in.
+        public var remoteRoot: String?
+        /// A copy past its limits sent a first pass: the files it left on this Mac; nil for a whole copy.
+        public var leftOnMac: Int64?
+        /// `link start-chat plan`'s `cloud.size.locked`: the sizes and the upgrade the platform named (``CloudSizeLocked``).
+        public var sizeLocked: JSONValue?
+        /// `link start-chat plan`'s `seed_refused` for a machine smaller than the size asked (`machine.too_small`): its name.
+        public var machineTitle: String?
+        /// `link start-chat plan`'s refusal the same send may pass later (a busy machine, a rate limit, an
+        /// outage; cmux-platform#1192), as Rust read it: the start card offers Retry. A rate limit's window in seconds.
+        public var retryable = false
+        public var retryAfterS: Int?
 
         public init(ok: Bool, errorCode: String? = nil, error: String? = nil, sessionID: String? = nil, transferID: String? = nil,
                     conflicts: [String] = [], side: String? = nil, updated: Bool = false, build: String? = nil, notOlder: Bool = false,
-                    seedState: String? = nil, seedPhase: String? = nil, seedStartedAt: Double? = nil, seedFinishedAt: Double? = nil) {
+                    seedState: String? = nil, seedPhase: String? = nil, seedStartedAt: Double? = nil, seedFinishedAt: Double? = nil,
+                    fallbackCode: String? = nil, installURL: String? = nil, copyBytes: Int64? = nil) {
             (self.ok, self.errorCode, self.error, self.sessionID, self.transferID) = (ok, errorCode, error, sessionID, transferID)
             (self.conflicts, self.side, self.updated, self.build, self.notOlder) = (conflicts, side, updated, build, notOlder)
             (self.seedState, self.seedPhase, self.seedStartedAt, self.seedFinishedAt) = (seedState, seedPhase, seedStartedAt, seedFinishedAt)
+            (self.fallbackCode, self.installURL, self.copyBytes) = (fallbackCode, installURL, copyBytes)
         }
 
         /// `link machine update`: whether the machine's daemon may have restarted in the run that gave this
@@ -90,16 +110,32 @@ public nonisolated struct CloudMoveCLI: Sendable {
         /// `machine` was made for this send by this plan (the platform's workspace machine it created now): a start
         /// that can't go on deletes it, as one the App made for it. A machine it found or a reservation it bound is never deleted.
         public var madeForSend: Bool = false
+        /// The route the sent create took (the ledger's, from `create-sent --route`); nil: not sent, or sent on the
+        /// relay before routes were kept. A retry takes it: the server keeps each key per caller.
+        public var createRoute: CloudCreateRoute?
+        /// The ledger keeps a sent create's route (this cmux-tui and this app's Rust core both know it). Without it a
+        /// retry could not tell a direct send from a relayed one, so every create of the start is the relay's.
+        public var keepsCreateRoute: Bool = false
 
         public init(machine: String? = nil, newName: String? = nil, createKey: String, tabKey: String,
                     environmentId: String? = nil, setup: CloudStartSetup? = nil, targetPane: String? = nil,
-                    createTeam: String? = nil, createSent: Bool = false, madeForSend: Bool = false) {
+                    createTeam: String? = nil, createSent: Bool = false, madeForSend: Bool = false,
+                    createRoute: CloudCreateRoute? = nil, keepsCreateRoute: Bool = false) {
             (self.machine, self.newName, self.createKey, self.tabKey, self.targetPane) = (machine, newName, createKey, tabKey, targetPane)
             (self.createTeam, self.createSent, self.environmentId, self.setup) = (createTeam, createSent, environmentId, setup)
-            self.madeForSend = madeForSend
+            (self.madeForSend, self.createRoute, self.keepsCreateRoute) = (madeForSend, createRoute, keepsCreateRoute)
         }
 
-        enum CodingKeys: String, CodingKey { case machine, newName, createKey, tabKey, targetPane, createTeam, createSent, environmentId, setup, madeForSend }
+        /// Whether the app's create for this start may go straight to the Cloud API as the person (`ownCreate`):
+        /// only a start the person's own gesture in this app began (`personsOwnRun`), on a ledger that keeps the
+        /// route, and not after the direct route refused this start once (`relayOnly`). The request then picks the
+        /// route (``CloudMachineRequest/createRoute(personsOwnCreate:team:)``): a sent key keeps its first.
+        public func ownCreate(personsOwnRun: Bool, relayOnly: Bool = false) -> Bool { keepsCreateRoute && personsOwnRun && !relayOnly }
+
+        /// The route to record with a send on `route`: nil for a ledger that keeps none (it takes no `--route`).
+        public func recorded(_ route: CloudCreateRoute) -> CloudCreateRoute? { keepsCreateRoute ? route : nil }
+
+        enum CodingKeys: String, CodingKey { case machine, newName, createKey, tabKey, targetPane, createTeam, createSent, environmentId, setup, madeForSend, createRoute, keepsCreateRoute }
 
         public init(from decoder: any Decoder) throws {
             let container = try decoder.container(keyedBy: CodingKeys.self)
@@ -113,6 +149,9 @@ public nonisolated struct CloudMoveCLI: Sendable {
             environmentId = try container.decodeIfPresent(String.self, forKey: .environmentId)
             setup = try container.decodeIfPresent(CloudStartSetup.self, forKey: .setup)
             madeForSend = try container.decodeIfPresent(Bool.self, forKey: .madeForSend) ?? false
+            // A route this app does not know is none: with the create sent, that is the relay (``CloudMachineRequest/createRoute(personsOwnCreate:team:)``).
+            createRoute = try container.decodeIfPresent(String.self, forKey: .createRoute).flatMap(CloudCreateRoute.init(rawValue:))
+            keepsCreateRoute = try container.decodeIfPresent(Bool.self, forKey: .keepsCreateRoute) ?? false
         }
     }
 
@@ -165,20 +204,72 @@ public nonisolated struct CloudMoveCLI: Sendable {
     /// `cmux link start-chat preflight --local FOLDER`, before any machine or lease is made for a start: the refusal of a
     /// folder past the copy's limits, else nil (a pass, and also a check that could not run: the copy counts it again).
     public func startChatPreflight(local: String) async -> StartChatPreflightRefusal? {
+        if case .refused(let refusal) = await startChatPreflightAnswer(local: local) { return refusal }
+        return nil
+    }
+
+    /// The preflight's answer: a refusal, or the bytes the folder's copy will send and the size a machine needs for them.
+    public enum StartChatPreflight: Sendable, Equatable {
+        case refused(StartChatPreflightRefusal)
+        /// `bytes`: what the copy sends (`estimate_bytes`); `size`: the chat size that holds it (`needed_size`), nil past
+        /// the largest. Both nil when the preflight could not read the folder (a cmux-tui that answers no size).
+        case passed(bytes: Int64?, size: CloudChatSize?)
+
+        /// The answer an object names: a refusal (``StartChatPreflightRefusal``), else a pass with its fields.
+        public init(answer: [String: Any]) {
+            if let refusal = StartChatPreflightRefusal(answer: answer) { self = .refused(refusal); return }
+            let bytes = (answer["estimate_bytes"] as? NSNumber)?.int64Value
+            self = .passed(bytes: bytes, size: (answer["needed_size"] as? String).flatMap(CloudChatSize.init(rawValue:)))
+        }
+
+        /// The size to ask the machine's create for (nil: the chat size), or the start's refusal: a folder the largest
+        /// chat size cannot hold is `cloud_folder_too_big` (`folder`: the folder as the person reads it), never a
+        /// partial copy shown as complete.
+        public func size(folder: String) throws -> CloudChatSize? {
+            switch self {
+            case .refused(let refusal): throw refusal
+            case .passed(let bytes?, nil):
+                throw StartChatPreflightRefusal(message: "\(folder) is too big for a Cloud machine", folder: folder, bytes: Double(bytes))
+            case .passed(_, let size): return size
+            }
+        }
+    }
+
+    /// ``startChatPreflight(local:)`` with its size: a pass that could not run is a pass with no size.
+    public func startChatPreflightAnswer(local: String) async -> StartChatPreflight {
         struct Call: Encodable { var verb = "start-chat-preflight"; var local: String }
         guard let read = try? await run(Call(local: local), reading: "reservation"), let object = read.object,
-              let answer = try? JSONSerialization.jsonObject(with: object) as? [String: Any] else { return nil }
-        return StartChatPreflightRefusal(answer: answer)
+              let answer = try? JSONSerialization.jsonObject(with: object) as? [String: Any] else { return .passed(bytes: nil, size: nil) }
+        return StartChatPreflight(answer: answer)
+    }
+
+    /// The start's machine size for the folder `local` (``StartChatPreflight/size(folder:)``), its refusal thrown.
+    public func startChatSize(local: String) async throws -> CloudChatSize? {
+        try await startChatPreflightAnswer(local: local).size(folder: Self.shownFolder(local))
+    }
+
+    /// `local` as the person reads it: under the home folder as `~/…`.
+    public static func shownFolder(_ local: String, home: String = NSHomeDirectory()) -> String {
+        local == home || local.hasPrefix(home + "/") ? "~" + local.dropFirst(home.count) : local
     }
 
     /// `cmux link seed push`: seeds `local` at `remote` from its GitHub remote plus one bundle, else copies it.
-    public func seedPush(socket: String, local: String, remote: String) async throws -> Answer {
-        try await run(["verb": "seed-push", "socket": socket, "local": local, "remote": remote]).answer
+    /// `stderrLine` gets its progress lines (``SeedProgress/feed(_:each:)``).
+    public func seedPush(socket: String, local: String, remote: String, stderrLine: (@Sendable (String) -> Void)? = nil) async throws -> Answer {
+        try await run(["verb": "seed-push", "socket": socket, "local": local, "remote": remote], stderrLine: stderrLine).answer
     }
 
-    /// `cmux link seed pull --or-copy` (Bring Back Local).
-    public func bringBackPull(socket: String, local: String, remote: String) async throws -> Answer {
-        try await run(["verb": "bring-back-pull", "socket": socket, "local": local, "remote": remote]).answer
+    /// `cmux link seed pull --or-copy` (Bring Back Local); `stderrLine` as ``seedPush(socket:local:remote:stderrLine:)``'s.
+    public func bringBackPull(socket: String, local: String, remote: String, stderrLine: (@Sendable (String) -> Void)? = nil) async throws -> Answer {
+        try await run(["verb": "bring-back-pull", "socket": socket, "local": local, "remote": remote], stderrLine: stderrLine).answer
+    }
+
+    /// `cmux link seed fetch --find-root`: the first copy of the machine's folder of a chat at `remote` (its
+    /// repository root, when it is in one) in the new or empty folder `local` (Transfer to This Mac). `adopt` (the
+    /// chat moves here) keeps the sync records on both sides, so the move's pull and Bring Back build on it.
+    public func transferFetch(socket: String, local: String, remote: String, adopt: Bool) async throws -> Answer {
+        struct Call: Encodable { var verb = "transfer-fetch"; var socket: String, local: String, remote: String, adopt: Bool }
+        return try await run(Call(socket: socket, local: local, remote: remote, adopt: adopt)).answer
     }
 
     /// `cmux link agent move`: moves the chat of tab `surface` of the daemon at `from` to the machine daemon at `to`,
@@ -199,13 +290,62 @@ public nonisolated struct CloudMoveCLI: Sendable {
 
     /// `cmux link machine update`: updates the machine's cmux-tui to this app's own pinned build when it is outdated;
     /// `toBundled` whenever it runs another build, with `ifOlder` only when that build is older than this app's.
-    public func machineUpdate(socket: String, toBundled: Bool = false, ifOlder: Bool = false) async throws -> Answer {
+    /// `within`: the run ends (its process killed) after this at most, and answers ``machineUpdateAbandoned``: a chat start's own
+    /// update, which a machine whose updater never takes an older build than it applied kept waiting for its 25-minute outcome while
+    /// the start, and every later update in the app's one queue, waited behind it (2026-11-16).
+    public func machineUpdate(socket: String, toBundled: Bool = false, ifOlder: Bool = false, within: Duration? = nil) async throws -> Answer {
         struct Call: Encodable { var verb = "machine-update"; var socket: String, toBundled: Bool, ifOlder: Bool }
-        return try await run(Call(socket: socket, toBundled: toBundled, ifOlder: ifOlder), reading: "machine-update").answer
+        do {
+            return try await run(Call(socket: socket, toBundled: toBundled, ifOlder: ifOlder), reading: "machine-update", limit: within).answer
+        } catch let error as DaemonError {
+            guard case .timedOut = error, let within else { throw error }
+            return Answer(ok: false, errorCode: Self.machineUpdateAbandoned, error: "the update did not finish within \(within)")
+        }
     }
+
+    /// The error code of a ``machineUpdate(socket:toBundled:ifOlder:within:)`` run ended at its `within` bound: how the update
+    /// ended is unknown, and the machine may still be on its own build.
+    public static let machineUpdateAbandoned = "machine_update_abandoned"
 
     /// `cmux link machine pin`: its output, the Linux build this client pins (``CloudLegacyPin/pin(answer:)``).
     public func machinePin() async -> Data? { try? await output(["verb": "machine-pin"]).stdout }
+
+    /// `cmux inference gateway status --json --team <team>`'s `serves` (Rust `status_answer`): the agents `team`'s inference
+    /// gateway serves now, empty when it is off or offline; nil when the status could not be read (hq#15762). `team` is
+    /// the backend team the start's machines are made in (the install token's): a team's gateway serves only its own
+    /// machines, so the active team's would wave through a start no gateway serves.
+    public func inferenceGatewayServes(team: String) async -> Set<String>? {
+        await inferenceGatewayRead(team: team).serves
+    }
+
+    /// ``inferenceGatewayServes(team:)`` with why a read gave no `serves`: the status's own error code and message,
+    /// or how the run ended (the start gate logs it, so a refused start says which read failed; hq cloud-chat-works).
+    public func inferenceGatewayRead(team: String) async -> (serves: Set<String>?, why: String?) {
+        let result: ProcessResult
+        do { result = try await output(["verb": "inference-gateway-status", "team": team]) } catch { return (nil, "run: \(error)") }
+        guard let answer = (try? JSONSerialization.jsonObject(with: result.stdout)) as? [String: Any] else {
+            return (nil, "exit \(result.status), no JSON answer")
+        }
+        guard answer["ok"] as? Bool == true, let serves = answer["serves"] as? [String] else {
+            let error = answer["error"] as? [String: Any]
+            let code = (error?["code"] as? String) ?? (answer["error_code"] as? String) ?? "-"
+            let message = (error?["message"] as? String) ?? (answer["error"] as? String) ?? ""
+            return (nil, "exit \(result.status) \(code) \(message.prefix(200))")
+        }
+        return (Set(serves), nil)
+    }
+
+    /// What the gateways of TEAMS serve together (nil teams skipped, each asked once), nil when none answers. A start's
+    /// machine can land in either the install token's team or the person's own team: production made every
+    /// cloud-chat-replies-production machine in the personal team while the install token named another (cmuxterm-hq
+    /// probe rows 2026-11-22/23), and a gateway online there was refused as "No Cloud connection serves claude".
+    public func inferenceGatewayServes(teams: [String?]) async -> Set<String>? {
+        var asked: Set<String> = [], serves: Set<String>?
+        for team in teams.compactMap({ $0 }) where asked.insert(team).inserted {
+            if let answer = await inferenceGatewayServes(team: team) { serves = (serves ?? []).union(answer) }
+        }
+        return serves
+    }
 
     /// Rust validates reservation fields; the native app supplies only its trusted origin/team.
     /// `install`: the install token, whose team Rust names the reservation in (the spare warm's, `install_team`).
@@ -222,15 +362,17 @@ public nonisolated struct CloudMoveCLI: Sendable {
         /// The account and the backend team (`team_…`, the install token's) the warm was asked for.
         public var account: String
         public var team: String
+        /// Rust's attempt fence, returned unchanged when the copy completes.
+        public var generation: String?
 
-        public init(machineID: String, account: String, team: String) {
-            (self.machineID, self.account, self.team) = (machineID, account, team)
+        public init(machineID: String, account: String, team: String, generation: String? = nil) {
+            (self.machineID, self.account, self.team, self.generation) = (machineID, account, team, generation)
         }
     }
 
     /// How the App's login copy of a warm ended: installed (Rust keeps it as the start's login receipt), done otherwise
     /// (or given up for good), or abandoned to an account or team switch.
-    public enum SpareWarmEnd: Sendable, Equatable { case installed(String), finished(String), abandoned(String) }
+    public enum SpareWarmEnd: Sendable, Equatable { case installed(String), verified(String), finished(String), abandoned(String) }
 
     /// `cmux link start-chat warm-spare --request JSON`, the session `access` token then the `install` token on stdin:
     /// the person's spare, warmed in the install token's team (Rust's `install_team`, the reservation's). Nil when there is nothing to copy: an answer from
@@ -238,27 +380,65 @@ public nonisolated struct CloudMoveCLI: Sendable {
     /// a start waiting on it goes on, and an abandoned copy is answered again by Rust's next warm.
     /// With `claimed`, it asks no warm: a reserve's or a claim's answer named that machine, and Rust answers the copy onto
     /// it unless a copy onto it is already in flight or given (keyed per machine, cmux-tui `spare_warm`).
+    /// With `ready`, likewise no warm: the platform said that spare became ready, and Rust answers its copy the same way.
     public func startChatWarmSpare(platform: URL, account: String, access: String, install: String, end: SpareWarmEnd? = nil,
-                                   claimed: String? = nil) async -> SpareWarm? {
+                                   claimed: String? = nil, ready: String? = nil, generation: String? = nil,
+                                   scope: [String: String]? = nil, currentScope: [String: String]? = nil) async -> SpareWarm? {
+        var request = Self.spareWarmRequest(platform: platform, account: account, end: end, claimed: claimed, ready: ready)
+        request["generation"] = generation
+        if let scope { request["scope"] = scope }
+        if let currentScope { request["currentScope"] = currentScope }
+        return Self.spareCopy(await spareWarmReply(request, access: access, install: install), account: account)
+    }
+
+    /// A warm's spare as Rust answered it: the machine it names and its team, and the login copy onto it when one is asked
+    /// (``SpareWarm``). Not the owner's (`vm_kind` `team`): never made ready ahead (``CloudSpareReadiness``).
+    public struct WarmedSpare: Sendable, Equatable {
+        public var machineID: String
+        public var team: String?
+        public var copy: SpareWarm?
+    }
+
+    /// ``startChatWarmSpare(platform:account:access:install:end:claimed:ready:generation:scope:currentScope:)``'s warm,
+    /// with the spare it named whether or not a copy is asked; nil with no spare, a teammate's, or a refusal.
+    public func startChatWarmedSpare(platform: URL, account: String, access: String, install: String) async -> WarmedSpare? {
+        let request = Self.spareWarmRequest(platform: platform, account: account, end: nil, claimed: nil)
+        return Self.warmedSpare(await spareWarmReply(request, access: access, install: install), account: account)
+    }
+
+    /// The spare a warm's `reply` names (``WarmedSpare``).
+    static func warmedSpare(_ reply: [String: Any]?, account: String) -> WarmedSpare? {
+        guard let reply, reply["ok"] as? Bool == true, let machine = reply["machine"] as? String, !machine.isEmpty,
+              ((reply["vm_kind"] as? String) ?? "owner") == "owner" else { return nil }
+        return WarmedSpare(machineID: machine, team: reply["team"] as? String, copy: spareCopy(reply, account: account))
+    }
+
+    /// The login copy a warm's `reply` asks for, for `account` only.
+    static func spareCopy(_ reply: [String: Any]?, account: String) -> SpareWarm? {
+        guard let copy = reply?["copy"] as? [String: Any], let machineID = copy["machine"] as? String,
+              copy["account"] as? String == account, let team = copy["team"] as? String else { return nil }
+        return SpareWarm(machineID: machineID, account: account, team: team, generation: copy["generation"] as? String)
+    }
+
+    /// One `warm-spare` call's answer object; nil when it did not run or answer one.
+    private func spareWarmReply(_ request: [String: Any], access: String, install: String) async -> [String: Any]? {
         struct Call: Encodable { var verb = "start-chat-warm-spare"; var request: String }
-        let request = Self.spareWarmRequest(platform: platform, account: account, end: end, claimed: claimed)
         guard let payload = try? JSONSerialization.data(withJSONObject: request, options: [.sortedKeys]),
               let read = try? await run(Call(request: String(decoding: payload, as: UTF8.self)), reading: "reservation",
                                         stdin: Data((access + "\n" + install + "\n").utf8)),
-              let object = read.object, let reply = try? JSONSerialization.jsonObject(with: object) as? [String: Any],
-              let copy = reply["copy"] as? [String: Any], let machineID = copy["machine"] as? String,
-              copy["account"] as? String == account, let team = copy["team"] as? String else { return nil }
-        return SpareWarm(machineID: machineID, account: account, team: team)
+              let object = read.object else { return nil }
+        return try? JSONSerialization.jsonObject(with: object) as? [String: Any]
     }
 
     /// The `warm-spare` request: a warm, the end of its copy (`end`), or the copy a reserve's or claim's machine asks for (`claimed`).
-    static func spareWarmRequest(platform: URL, account: String, end: SpareWarmEnd?, claimed: String?) -> [String: Any] {
+    static func spareWarmRequest(platform: URL, account: String, end: SpareWarmEnd?, claimed: String?, ready: String? = nil) -> [String: Any] {
         var request: [String: Any] = ["platform": platform.absoluteString, "account": account]
         switch end {
         case .installed(let machine): request["installed"] = machine
+        case .verified(let machine): request["verified"] = machine
         case .finished(let machine): request["finished"] = machine
         case .abandoned(let machine): request["abandoned"] = machine
-        case nil: request["claimed"] = claimed
+        case nil: request["claimed"] = claimed; request["ready"] = claimed == nil ? ready : nil
         }
         return request
     }
@@ -287,9 +467,10 @@ public nonisolated struct CloudMoveCLI: Sendable {
 
     /// Whether a warm installed `account`'s `provider` login on `machine` recently and no newer copy onto it is in flight
     /// (Rust's `loginReceipt`): the start then checks and passes no login of its own. False on any failure.
-    public func startChatLoginReceipt(machine: String, account: String, provider: String) async -> Bool {
+    public func startChatLoginReceipt(machine: String, account: String, provider: String, scope: [String: String]? = nil) async -> Bool {
         struct Call: Encodable { var verb = "start-chat-warm-spare"; var request: String }
-        let ask: [String: Any] = ["account": account, "loginReceipt": ["machine": machine, "provider": provider]]
+        var ask: [String: Any] = ["account": account, "loginReceipt": ["machine": machine, "provider": provider]]
+        if let scope { ask["scope"] = scope }
         guard let payload = try? JSONSerialization.data(withJSONObject: ask, options: [.sortedKeys]),
               let read = try? await run(Call(request: String(decoding: payload, as: UTF8.self)), reading: "reservation", stdin: nil),
               let object = read.object, let reply = try? JSONSerialization.jsonObject(with: object) as? [String: Any] else { return false }
@@ -301,6 +482,22 @@ public nonisolated struct CloudMoveCLI: Sendable {
     public func startChatPlan(request: String, access: String? = nil, install: String? = nil) async throws -> (Answer, StartChatPlan) {
         let read = try await run(["verb": "start-chat-plan", "request": request], reading: "start-chat-plan", stdin: access.map { Data(($0 + "\n" + (install.map { $0 + "\n" } ?? "")).utf8) })
         return (read.answer, read.plan ?? StartChatPlan(createKey: "", tabKey: ""))
+    }
+
+    /// A new machine in the cloud environment `environment` (`env_…`, the `/v1/cloud-environments` store): the platform's
+    /// workspace ensure (`cmux link start-chat ensure --environment`), which injects the environment's variables and runs
+    /// its setup. The wire's `cloud.environment.boot` is not live on cmux-api or cmux-platform (`CLOUD_LIVE_OPS`), and it
+    /// reads CloudDO's own table, which holds none of these. `key`'s UUID part is the ensure's workspace and client key, so
+    /// a Retry with the same key gets the same machine; `access` is the person's cmux access token (stdin). The machine's id.
+    public func machineInEnvironment(_ environment: String, key: String, platform: String?, access: String) async throws -> String {
+        var call = ["verb": "start-chat-ensure", "key": String(key.suffix(36)), "environment": environment]
+        call["platform"] = platform
+        let read = try await run(call, reading: "reservation", stdin: Data((access + "\n").utf8))
+        let object = read.object.flatMap { try? JSONDecoder().decode(JSONValue.self, from: $0) }
+        guard read.answer.ok, let id = object?["machine"]?.stringValue else {
+            throw CloudAppOpFailure(code: read.answer.errorCode ?? "cmux.cloud.bad_response", message: read.answer.error ?? "the workspace ensure answered no machine")
+        }
+        return id
     }
 
     /// `cmux link start-chat pin`: the send `key` of `account` runs on `machine`, one the App just made for it.
@@ -330,8 +527,12 @@ public nonisolated struct CloudMoveCLI: Sendable {
         (try await run(["verb": "start-chat-create-begin", "key": key, "account": account, "name": name, "createKey": createKey]).answer, ())
     }
 
-    public func startChatCreateSent(key: String, account: String, team: String, createKey: String) async throws -> (Answer, Void) {
-        (try await run(["verb": "start-chat-create-sent", "key": key, "account": account, "team": team, "createKey": createKey]).answer, ())
+    /// `route`: how the create goes out, kept with its key (``StartChatPlan/recorded(_:)``; nil names none, the relay).
+    /// A key already sent on the other route is refused, before anything goes out.
+    public func startChatCreateSent(key: String, account: String, team: String, createKey: String, route: CloudCreateRoute? = nil) async throws -> (Answer, Void) {
+        var call = ["verb": "start-chat-create-sent", "key": key, "account": account, "team": team, "createKey": createKey]
+        if let route { call["route"] = route.rawValue }
+        return (try await run(call).answer, ())
     }
 
     public func startChatCreateRefused(key: String, account: String, createKey: String) async throws -> (Answer, Void) {
@@ -350,17 +551,13 @@ public nonisolated struct CloudMoveCLI: Sendable {
     /// `cmux link start-chat copy`: copies `local` to a folder of the send's own on the machine `socket` reaches, under the
     /// first of `workRoots` it can write, unless this send's copy already finished there. With the cmux `access` token
     /// (on stdin) it goes through the content-addressed store. The chat's folder there, whether it copied now, and
-    /// whether this Mac's acpmux (home `acpmuxHome`) trusts the chat's folder here.
+    /// whether this Mac's acpmux (home `acpmuxHome`) trusts the chat's folder here. `onSeedRefusal` says what it does
+    /// when the machine can't clone the folder from its git remote.
     public func startChatCopy(key: String, account: String, machine: String, socket: String, local: String, subpath: String,
-                              workRoots: [String], acpmuxHome: String?, access: String? = nil,
+                              workRoots: [String], acpmuxHome: String?, access: String? = nil, onSeedRefusal: SeedRefusal = .copy,
                               stderrLine: (@Sendable (String) -> Void)? = nil) async throws -> (Answer, (chat: String, folder: String, copied: Bool, sourceTrusted: Bool)) {
-        struct Call: Encodable {
-            var verb = "start-chat-copy"
-            var key: String, account: String, machine: String, socket: String, local: String, subpath: String
-            var workRoots: [String], acpmuxHome: String?, store: Bool
-        }
-        let call = Call(key: key, account: account, machine: machine, socket: socket, local: local, subpath: subpath, workRoots: workRoots,
-                        acpmuxHome: acpmuxHome, store: access != nil)
+        let call = StartChatCopyCall(key: key, account: account, machine: machine, socket: socket, local: local, subpath: subpath,
+                                     workRoots: workRoots, acpmuxHome: acpmuxHome, store: access != nil, onSeedRefusal: onSeedRefusal)
         let read = try await run(call, reading: "start-chat-copy", stdin: access.map { Data(($0 + "\n").utf8) }, stderrLine: stderrLine)
         let copy = read.copy
         return (read.answer, (copy?.chat ?? "", copy?.folder ?? "", copy?.copied ?? false, copy?.sourceTrusted ?? false))
@@ -372,6 +569,50 @@ public nonisolated struct CloudMoveCLI: Sendable {
     public func startChatTrust(folder: String, acpmuxHome: String) async -> String? {
         struct Call: Encodable { var verb = "start-chat-trust"; var folder: String, acpmuxHome: String }
         return try? await run(Call(folder: folder, acpmuxHome: acpmuxHome), reading: "start-chat-trust").trust?.level
+    }
+
+    /// What a start copy does when the machine can't clone the folder from its git remote
+    /// (cmux-tui `--on-seed-refusal`): `ask` answers `seed_refused` with the reason and what a copy
+    /// would send, and copies nothing; `copy` copies the folder instead.
+    public enum SeedRefusal: String, Sendable, Encodable {
+        case ask, copy
+    }
+
+    /// `link start-chat copy`'s arguments, as Rust names them (`store`: the cmux access token is on stdin).
+    public static func startChatCopyArguments(key: String, account: String, machine: String, socket: String, local: String, subpath: String,
+                                              workRoots: [String], acpmuxHome: String?, store: Bool, onSeedRefusal: SeedRefusal) -> [String] {
+        let call = StartChatCopyCall(key: key, account: account, machine: machine, socket: socket, local: local, subpath: subpath,
+                                     workRoots: workRoots, acpmuxHome: acpmuxHome, store: store, onSeedRefusal: onSeedRefusal)
+        return Self.withSeedRefusal(CloudMoveCore().call("cli_invocation", call, as: Invocation.self)?.args ?? [], call)
+    }
+
+    /// TRANSITIONAL until CCmuxAppFFI is repinned past cmux-cloud-start-core's `on_seed_refusal`: the pinned release
+    /// names no `--on-seed-refusal`, so the copy's own rule is added here. A library that names it is left as it said.
+    private static func withSeedRefusal<Call: Encodable>(_ args: [String], _ call: Call) -> [String] {
+        guard let copy = call as? StartChatCopyCall, !args.isEmpty, !args.contains("--on-seed-refusal") else { return args }
+        return args + ["--on-seed-refusal", copy.onSeedRefusal.rawValue]
+    }
+
+    /// TRANSITIONAL with ``withSeedRefusal(_:_:)``: the pinned release does not read a refused seed's `fallback_code`,
+    /// `install_url` and `copy_bytes`, so they come from the answer's own JSON line when Rust left them out.
+    private static func withSeedFields(_ answer: Answer, stdout: String) -> Answer {
+        guard answer.fallbackCode == nil || answer.copyBytes == nil || answer.machineTitle == nil else { return answer }
+        struct Fields: Decodable {
+            var fallbackCode: String?, installURL: String?, copyBytes: Int64?, machineTitle: String?
+            enum CodingKeys: String, CodingKey { case fallbackCode = "fallback_code", installURL = "install_url", copyBytes = "copy_bytes", machineTitle = "machine_title" }
+        }
+        let line = stdout.split(whereSeparator: \.isNewline).last { $0.hasPrefix("{") }
+        guard let line, let fields = try? JSONDecoder().decode(Fields.self, from: Data(line.utf8)) else { return answer }
+        var answer = answer
+        (answer.fallbackCode, answer.installURL, answer.copyBytes) = (answer.fallbackCode ?? fields.fallbackCode, answer.installURL ?? fields.installURL, answer.copyBytes ?? fields.copyBytes)
+        answer.machineTitle = answer.machineTitle ?? fields.machineTitle
+        return answer
+    }
+
+    private struct StartChatCopyCall: Encodable {
+        var verb = "start-chat-copy"
+        var key: String, account: String, machine: String, socket: String, local: String, subpath: String
+        var workRoots: [String], acpmuxHome: String?, store: Bool, onSeedRefusal: SeedRefusal
     }
 
     /// What Rust read of one run.
@@ -404,20 +645,25 @@ public nonisolated struct CloudMoveCLI: Sendable {
     /// How Rust says to run a call.
     private struct Invocation: Decodable { var args: [String], timeoutSeconds: Int?, minTimeoutSeconds: Int? }
 
-    private func output<Call: Encodable>(_ call: Call, stdin: Data? = nil, stderrLine: (@Sendable (String) -> Void)? = nil) async throws -> ProcessResult {
+    /// `bound`: a caller's shorter limit for this one run (``machineUpdate(socket:toBundled:ifOlder:within:)``).
+    private func output<Call: Encodable>(_ call: Call, stdin: Data? = nil, stderrLine: (@Sendable (String) -> Void)? = nil,
+                                         bound: Duration? = nil) async throws -> ProcessResult {
         guard let invocation = CloudMoveCore().call("cli_invocation", call, as: Invocation.self) else { throw CloudMoveCLIUnanswered() }
-        let limit = invocation.timeoutSeconds.map { Duration.seconds($0) } ?? max(timeout, .seconds(invocation.minTimeoutSeconds ?? 0))
-        return try await ProcessRunner.run(executable: binary, arguments: invocation.args, environment: nil, stdin: stdin,
+        let own = invocation.timeoutSeconds.map { Duration.seconds($0) } ?? max(timeout, .seconds(invocation.minTimeoutSeconds ?? 0))
+        let limit = bound.map { min($0, own) } ?? own
+        return try await ProcessRunner.run(executable: binary, arguments: Self.withSeedRefusal(invocation.args, call), environment: nil, stdin: stdin,
                                            timeout: limit, stderrLine: stderrLine, clock: ContinuousClock())
     }
 
     private func run<Call: Encodable>(_ call: Call, reading: String = "plain", stdin: Data? = nil,
-                                      stderrLine: (@Sendable (String) -> Void)? = nil) async throws -> Read {
-        let result = try await output(call, stdin: stdin, stderrLine: stderrLine)
+                                      stderrLine: (@Sendable (String) -> Void)? = nil, limit: Duration? = nil) async throws -> Read {
+        let result = try await output(call, stdin: stdin, stderrLine: stderrLine, bound: limit)
         let request = ReadRequest(reading: reading, stdout: String(decoding: result.stdout, as: UTF8.self),
                               stderr: String(decoding: result.stderr, as: UTF8.self), status: result.status)
-        return CloudMoveCore().call("cli_read", request, as: Read.self)
+        var read = CloudMoveCore().call("cli_read", request, as: Read.self)
             ?? Read(answer: Answer(ok: false, errorCode: Self.badAnswer, error: "exit \(result.status)"))
+        read.answer = Self.withSeedFields(read.answer, stdout: request.stdout)
+        return read
     }
 }
 

@@ -15,12 +15,14 @@
 // subagent done") and its failures in red, and a Codex subagent under a Claude chat by its mark.
 // Compare the header's arms (trayHeadKinds.experiment.ts) with the entry's experiment.
 import { agentPaneEntry } from "../../../gallery/format";
+import { pinKindsHead } from "../../../gallery/fixtures/kindsHead";
 import { activity, chat, row, SESSION_ID, session, tool, user } from "../../../gallery/fixtures/acpmux";
 import { minutesAgo, recentRun } from "../../../gallery/clock";
 import type { PlayContext } from "../../../gallery/play";
 import type { AcpmuxSnapshot } from "../model";
 import { SUBAGENTS, type Subagent } from "./subagentFold";
 import { trayHeadKindsLook } from "./trayHeadKinds.experiment";
+import { RUNNING_TRAY_LIST_LINE } from "./subagentSelectors";
 
 function agent(task: string, minutes: number, state: Subagent["state"], fields: Partial<Subagent> = {}): Subagent {
   return {
@@ -111,7 +113,7 @@ async function open(ctx: PlayContext, lines?: number): Promise<void> {
   await ctx.waitFor(() => head(ctx));
   if (head(ctx)!.getAttribute("aria-expanded") !== "true") await ctx.click({ selector: ".acpmux-running-tray__head" });
   await ctx.waitFor(() => {
-    const count = ctx.document.querySelectorAll(".acpmux-running-tray__list .acpmux-agent-line").length;
+    const count = ctx.document.querySelectorAll(RUNNING_TRAY_LIST_LINE).length;
     return lines === undefined ? count > 0 : count === lines;
   });
   // The lines are drawn at once, but the list's box opens on the shared fold (settle curve), whose
@@ -132,10 +134,9 @@ const centre = (rect: DOMRect) => (rect.left + rect.right) / 2;
  *  panel button and chevron on them, and no scrollbar under five lines. */
 function columns(ctx: PlayContext): void {
   const tray = ctx.document.querySelector<HTMLElement>(".acpmux-running-tray")!;
-  const lines = [...tray.querySelectorAll<HTMLElement>(".acpmux-running-tray__list .acpmux-agent-line")];
+  const lines = [...tray.querySelectorAll<HTMLElement>(RUNNING_TRAY_LIST_LINE)];
   const list = tray.querySelector<HTMLElement>(".acpmux-running-tray__list")!;
-  // Under 400px (the tray's container query) each line takes two rows, so five of them scroll. The
-  // "N finished" line is a row of the list too (SubagentTray.tsx `EndedFold`).
+  // Under 400px (the tray's container query) each line takes two rows, so five of them scroll.
   if (
     list.children.length <= 5 &&
     tray.getBoundingClientRect().width > 400 &&
@@ -173,50 +174,53 @@ function title(ctx: PlayContext): string {
   return ctx.find({ selector: ".acpmux-running-tray__title" }).textContent ?? "";
 }
 
-export default agentPaneEntry({
-  id: "agent-pane.subagent-tray-kinds",
-  title: "Running tray header kinds and right column",
-  area: "Agent pane",
-  height: 440,
-  widths: { narrow: 360 },
-  anchors: [{ selector: ".acpmux-header" }, { selector: ".acpmux-composer" }],
-  covers: ["agent-session/acpmux/subagents/SubagentTray.tsx", "agent-session/acpmux/subagents/AgentLine.tsx"],
-  experiment: {
-    definition: trayHeadKindsLook,
-    script: [{ name: "open the tray", run: (ctx) => open(ctx) }],
-  },
-  variants: {
-    "leo-tray": {
-      note: 'Leo\'s tray (2026-11-03): four background commands and a finished subagent, open. Every time ends on one x (the done line\'s "Done · 29m 21s" no longer runs into the empty Stop column), the Stop squares and the chevrons each sit in one column with the header\'s, and the header says "1 build · 2 waits · 1 command", its commands counted by what they do; the finished subagent is the list\'s "1 finished" line.',
-      play: async (ctx) => {
-        await open(ctx, 4);
-        columns(ctx);
-        if (title(ctx) !== "1 build · 2 waits · 1 command") throw new Error(`unexpected header: ${title(ctx)}`);
-      },
-      snapshot: leoTray,
+export default pinKindsHead(
+  agentPaneEntry({
+    id: "agent-pane.subagent-tray-kinds",
+    title: "Running tray header kinds and right column",
+    area: "Agent pane",
+    height: 440,
+    widths: { narrow: 360 },
+    anchors: [{ selector: ".acpmux-header" }, { selector: ".acpmux-composer" }],
+    covers: ["agent-session/acpmux/subagents/SubagentTray.tsx", "agent-session/acpmux/subagents/AgentLine.tsx"],
+    experiment: {
+      definition: trayHeadKindsLook,
+      script: [{ name: "open the tray", run: (ctx) => open(ctx) }],
     },
-    mixed: {
-      note: "Every kind: two subagents running (one Codex, by its mark: in the header's stacked marks, or after the counts when the stack has no room for it), a session the agent started, a test run and a server, a subagent done and one stopped, both on the list's one \"2 finished\" line. The columns hold on every line.",
-      play: async (ctx) => {
-        await open(ctx, 5);
-        columns(ctx);
-        if (title(ctx) !== "2 subagents running · 1 session · 1 test run · 1 server")
-          throw new Error(`unexpected header: ${title(ctx)}`);
-        // A failed line leaves the hat (runningTray.ts `endedInFailure`): no failure count is left to read.
-        if (ctx.document.querySelector(".acpmux-running-tray__failed"))
-          throw new Error("no failure count once failed lines leave");
-        // The Codex mark is one of the header's stacked marks, or after the counts.
-        if (!ctx.document.querySelector('.acpmux-running-tray__head svg[data-agent="openai"]'))
-          throw new Error("the Codex subagent's mark");
+    variants: {
+      "leo-tray": {
+        note: 'Leo\'s tray (2026-11-03): four background commands and a finished subagent, open. Every time ends on one x (the done line\'s "Done · 29m 21s" no longer runs into the empty Stop column), the Stop squares and the chevrons each sit in one column with the header\'s, and the header says "1 build · 2 waits · 1 command · 1 subagent done", its commands counted by what they do.',
+        play: async (ctx) => {
+          await open(ctx, 4);
+          columns(ctx);
+          if (title(ctx) !== "1 build · 2 waits · 1 command · 1 subagent done")
+            throw new Error(`unexpected header: ${title(ctx)}`);
+        },
+        snapshot: leoTray,
       },
-      snapshot: mixed,
-    },
-    folded: {
-      note: "Folded, the header still names the newest work (trayFoldHead.experiment.ts), and its chevron stays in the lines' column.",
-      play: async (ctx) => {
-        await ctx.waitFor(() => head(ctx));
+      mixed: {
+        note: "Every kind: two subagents (one Codex, by its mark: in the header's stacked marks, or after the counts when the stack has no room for it), a session the agent started, a test run and a server, a subagent done and one stopped. The columns hold on every line.",
+        play: async (ctx) => {
+          await open(ctx, 5);
+          columns(ctx);
+          if (title(ctx) !== "2 subagents · 1 session · 1 test run · 1 server · 1 subagent done · 1 stopped")
+            throw new Error(`unexpected header: ${title(ctx)}`);
+          // A failed line leaves the hat (runningTray.ts `endedInFailure`): no failure count is left to read.
+          if (ctx.document.querySelector(".acpmux-running-tray__failed"))
+            throw new Error("no failure count once failed lines leave");
+          // The Codex mark is one of the header's stacked marks, or after the counts.
+          if (!ctx.document.querySelector('.acpmux-running-tray__head svg[data-agent="openai"]'))
+            throw new Error("the Codex subagent's mark");
+        },
+        snapshot: mixed,
       },
-      snapshot: mixed,
+      folded: {
+        note: "Folded, the header still names the newest work (trayFoldHead.experiment.ts), and its chevron stays in the lines' column.",
+        play: async (ctx) => {
+          await ctx.waitFor(() => head(ctx));
+        },
+        snapshot: mixed,
+      },
     },
-  },
-});
+  }),
+);

@@ -5,6 +5,17 @@ import CmuxNextDesign
 /// (`OmnibarFieldEditor`) and is the only `OmnibarFieldSurface`: the effect
 /// applier writes it, nothing else does.
 final class AddressField: ChromeTextField, OmnibarFieldSurface {
+    /// The omnibar's own size, so the base field's density binding sets the same font as the address bar's.
+    override var densityFont: NSFont { OmnibarStyle.font }
+    /// The bar's inks (`OmnibarInk`), not the theme's: the field draws on the bar's fill, glass or card.
+    override var themedTextColor: NSColor { OmnibarStyle.textPrimary } // theme-scoped
+    override var themedPlaceholderColor: NSColor { OmnibarStyle.textSecondary } // theme-scoped
+    /// The theme's caret when it reads on the bar, else the primary ink.
+    override var themedCaretColor: NSColor { // theme-scoped
+        let ink = OmnibarStyle.ink
+        return ink.reads(Palette.caret) ? Palette.caret : ink.primaryColor
+    }
+
     var onFocus: (() -> Void)?
     var onPasteAndGo: (() -> Void)?
     var pasteAndGoTitle: (() -> String?)?
@@ -32,6 +43,9 @@ final class AddressField: ChromeTextField, OmnibarFieldSurface {
         // main thread; with no console session (headless test hosts) that
         // call blocks for seconds to minutes.
         contentType = .URL
+        // The address fades at the field's end; AppKit's hover copy of the whole text drew over the toolbar
+        // (`AddressFieldCell.expansionFrame`).
+        allowsExpansionToolTips = false
     }
 
     @available(*, unavailable)
@@ -130,6 +144,27 @@ final class AddressField: ChromeTextField, OmnibarFieldSurface {
     /// its text and selection, the resting text is written again.
     override func viewDidChangeEffectiveAppearance() {
         super.viewDidChangeEffectiveAppearance()
+        recolor()
+    }
+
+    /// A theme repaint reaches only the views under a scope's roots and windows. The browser
+    /// chrome is out of the window when a tab moves to another pane or window, or while an agent
+    /// drives it off screen; a theme change meanwhile that keeps light or dark brings no
+    /// appearance change on return, and the text kept the old theme's ink on the new theme's bar
+    /// (https://github.com/manaflow-ai/cmux/issues/42436). Recolor on entering a window, as the
+    /// pill does (`OmnibarPillView.viewDidMoveToWindow`).
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        if window != nil { recolor() }
+    }
+
+    /// Re-reads the bar's ink: the text, placeholder and caret (a look change; `AddressBarView.repaintInk`).
+    func repaintInk() {
+        reapplyColors()
+        recolor()
+    }
+
+    private func recolor() {
         if let editor = currentEditor() as? NSTextView {
             performWithTheme {
                 let color = OmnibarStyle.textPrimary
@@ -137,6 +172,7 @@ final class AddressField: ChromeTextField, OmnibarFieldSurface {
                     storage.addAttribute(.foregroundColor, value: color, range: NSRange(location: 0, length: storage.length))
                 }
                 editor.typingAttributes[.foregroundColor] = color
+                editor.insertionPointColor = themedCaretColor
                 editor.selectedTextAttributes = [.backgroundColor: OmnibarStyle.selection]
             }
         } else {
@@ -161,16 +197,29 @@ final class AddressField: ChromeTextField, OmnibarFieldSurface {
             return
         }
         if let storage = editor.textStorage {
+            storage.beginEditing()
             storage.addAttribute(.font, value: font, range: NSRange(location: 0, length: storage.length))
+            storage.endEditing()
         }
         editor.typingAttributes[.font] = font
+        // TextKit 2 keeps the laid-out glyphs at the old size until their layout is invalidated: the typed text kept the
+        // previous density's size after a density change while editing (Lucas 2026-11-16: "after switching densities it
+        // got smaller").
+        if let layout = editor.textLayoutManager {
+            layout.invalidateLayout(for: layout.documentRange)
+            layout.ensureLayout(for: layout.documentRange)
+        }
+        editor.needsDisplay = true
     }
 
     // theme-scoped: called only inside performWithTheme
     private func writeScoped(_ text: String, style: OmnibarPresentation.Style) {
         let font = font ?? OmnibarStyle.font
+        // One read of the bar's ink per write (`OmnibarInk` fits it to every ground the bar shows).
+        let ink = OmnibarStyle.ink
+        let primary = ink.primaryColor
         if let editor = currentEditor() as? NSTextView {
-            let attributes: [NSAttributedString.Key: Any] = [.font: font, .foregroundColor: OmnibarStyle.textPrimary]
+            let attributes: [NSAttributedString.Key: Any] = [.font: font, .foregroundColor: primary]
             editor.textStorage?.setAttributedString(NSAttributedString(string: text, attributes: attributes))
             editor.typingAttributes = attributes
             // The cell draws the placeholder under an empty editor (`EditorAlignedTextFieldCell`).
@@ -180,14 +229,14 @@ final class AddressField: ChromeTextField, OmnibarFieldSurface {
         lastStyle = style
         switch style {
         case .plain:
-            attributedStringValue = NSAttributedString(string: text, attributes: [.font: font, .foregroundColor: OmnibarStyle.textPrimary])
+            attributedStringValue = NSAttributedString(string: text, attributes: [.font: font, .foregroundColor: primary])
         case .compactURL(let url):
             let attributed = NSMutableAttributedString(string: text, attributes: [
                 .font: font,
-                .foregroundColor: OmnibarStyle.textSecondary,
+                .foregroundColor: ink.secondaryColor,
             ])
             let host = BrowserURLDisplay.hostRange(in: text, for: url) ?? NSRange(location: 0, length: (text as NSString).length)
-            attributed.addAttribute(.foregroundColor, value: OmnibarStyle.textPrimary, range: host)
+            attributed.addAttribute(.foregroundColor, value: primary, range: host)
             attributedStringValue = attributed
         }
     }

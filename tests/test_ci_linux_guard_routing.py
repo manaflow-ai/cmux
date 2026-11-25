@@ -311,7 +311,7 @@ class LinuxGuardRoutingTests(unittest.TestCase):
     def test_linux_preflight_skips_when_macos_route_is_false(self):
         block = workflow_job_block("linux-preflight")
         self.assertIn(
-            "if: ${{ (!cancelled() && (github.event_name != 'pull_request' || github.event.pull_request.base.ref != 'feat-cmux-next') && needs.changes.outputs.next_line != 'true' && needs.changes.outputs.macos != 'false') && "
+            "if: ${{ (!cancelled() && (github.event_name != 'pull_request' || !startsWith(github.event.pull_request.base.ref, 'feat-cmux-next')) && needs.changes.outputs.next_line != 'true' && needs.changes.outputs.macos != 'false') && "
             + LABEL_EVENT_GUARD + " }}",
             block,
         )
@@ -359,7 +359,6 @@ class LinuxGuardRoutingTests(unittest.TestCase):
         outputs, groups = route_decision(
             [
                 ".github/workflows/web-complexity.yml",
-                ".github/workflows/web-complexity-trusted.yml",
                 "tests/test_web_complexity_trusted_workflow.py",
             ],
             macos="false",
@@ -474,6 +473,35 @@ class LinuxGuardRoutingTests(unittest.TestCase):
             with self.subTest(path=path):
                 self.assertEqual(route([path]), expected)
 
+    def test_a_shared_test_helper_edit_runs_every_suite_that_imports_it(self):
+        """tests/workflow_jobs.py is imported by the job-list guards, never run by a step. An edit
+        to it alone must still run each of their groups, not only the syntax scan's."""
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / "tests").mkdir()
+            (root / "tests/shared_helper.py").write_text("X = 1\n")
+            (root / "tests/test_direct.py").write_text("import shared_helper\n")
+            (root / "tests/middle.py").write_text("from shared_helper import X\n")
+            (root / "tests/test_through.py").write_text("import os, middle\n")
+            (root / "tests/test_other.py").write_text("import json\n")
+            derived = {
+                "tests/test_direct.py": frozenset({"ci"}),
+                "tests/test_through.py": frozenset({"release-tooling"}),
+                "tests/test_other.py": frozenset({"preflight"}),
+            }
+            self.assertEqual(
+                workflow_guard_groups.import_owners("tests/shared_helper.py", derived, root),
+                {"ci", "release-tooling"},
+            )
+        derived = direct_path_owners(GUARD_WORKFLOW.read_text(encoding="utf-8"))
+        importer = re.compile(r"^\s*(?:from\s+(?:workflow_jobs|job_lists_routing)\s+import\b|import\s+workflow_jobs\b)", re.M)
+        expected = {"quality-determinism"}
+        for path, groups in derived.items():
+            if path.startswith("tests/") and path.endswith(".py") and (ROOT / path).is_file():
+                if importer.search((ROOT / path).read_text(encoding="utf-8")):
+                    expected |= groups
+        self.assertLessEqual(expected, set(groups_for_path("tests/workflow_jobs.py") or GROUPS))
+
     def test_unknown_ci_helper_still_runs_every_guard(self):
         self.assertEqual(
             route(["scripts/ci/future_unknown_helper.py"]),
@@ -505,7 +533,7 @@ class LinuxGuardRoutingTests(unittest.TestCase):
 
     def test_executable_docs_and_unknown_inputs_never_take_docs_shortcut(self):
         for path in (
-            "skills/cmux-cua/AGENTS.md", "docs/cli-contract.md",
+            "skills/cmux-computer-use/AGENTS.md", "docs/cli-contract.md",
             "skills/unknown/SKILL.md", "ghostty", ".gitmodules",
             "scripts/download-prebuilt-ghosttykit.sh", "scripts/ghosttykit-checksums.txt",
             ".github/workflows/ci.yml", "scripts/ci/detect_linux_guard_changes.py",
@@ -530,6 +558,16 @@ class LinuxGuardRoutingTests(unittest.TestCase):
                 result = run_guard_status(results={JOBS["submodule_forward_only"]: outcome})
                 self.assertNotEqual(result.returncode, 0)
                 self.assertIn(f"{JOBS['submodule_forward_only']}: {outcome}", result.stderr)
+        # A feat-cmux-next pull request runs it as the ci/steps.toml step: only there is its skip fine.
+        job = JOBS["submodule_forward_only"]
+        self.assertEqual(run_guard_status(results={job: "skipped"}, event="pull_request",
+                                          base_ref="feat-cmux-next").returncode, 0)
+        for event, base_ref in (("pull_request", "main"), ("push", ""), ("workflow_dispatch", "")):
+            with self.subTest(event=event, base_ref=base_ref):
+                self.assertNotEqual(run_guard_status(results={job: "skipped"}, event=event,
+                                                     base_ref=base_ref).returncode, 0)
+        self.assertNotEqual(run_guard_status(results={job: "failure"}, event="pull_request",
+                                             base_ref="feat-cmux-next").returncode, 0)
 
         for route_name, job in REUSABLE_GUARDS.items():
             for outcome in ("skipped", "failure", "cancelled"):

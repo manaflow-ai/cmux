@@ -348,7 +348,7 @@ test("Starred lands an available provider when the running one is unavailable", 
     ["OpenRouter", null],
   ]);
   await act(async () => providers[1]!.click());
-  // The menu stays open; the pick lands as the button closes it.
+  // The pick lands at once and the menu stays open (#50998); the button closes it.
   expect(cols()).not.toBeNull();
   await act(async () => host.querySelector<HTMLButtonElement>('[data-menu="Model"]')!.click());
   expect(landed).toEqual(["openrouter/deepseek/deepseek-v4-pro"]);
@@ -399,11 +399,11 @@ test("Legacy models name each model's provider and tag", async () => {
     },
   ];
   await mount("opencode/deepseek-v4-pro", { catalog, fixed: false });
-  // The tab's older models follow its "Legacy models" caption in the same column.
+  // The tab's older models follow its own in the same column, with no caption between them (#41212).
   const list = [...cols()!.querySelector('[role="listbox"]')!.children] as HTMLElement[];
-  const caption = list.findIndex((item) => item.textContent === "Legacy models");
-  expect(caption).toBeGreaterThan(0);
-  const rows = list.slice(caption + 1).filter((item) => item.getAttribute("role") === "option");
+  expect(list.some((item) => item.textContent === "Legacy models")).toBe(false);
+  const options = list.filter((item) => item.getAttribute("role") === "option");
+  const rows = options.slice(-2);
   expect(rows.length).toBeGreaterThan(0);
   for (const row of rows) expect(colProvider(row), colName(row)).not.toBe("");
   expect(rows.map(colName).sort()).toEqual(["Kimi K2", "Qwen Coder 2.5"]);

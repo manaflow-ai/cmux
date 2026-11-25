@@ -23,7 +23,7 @@ const cloudMutation = cloudOps.find((o) => o.owner === "cloud:CloudDO" && o.clas
 const cloudRead = cloudOps.find((o) => o.owner === "cloud:CloudDO" && o.class === "read")!.name
 const stayingMutation = "user.ensure"
 
-type Seen = { url: string; method: string; body: string; protocols: string | null }
+type Seen = { url: string; method: string; body: string; protocols: string | null; space: string | null }
 
 /** A stand-in for the platform Worker: records what reached it and answers 299. */
 const fakePlatform = (opts: { throws?: boolean } = {}) => {
@@ -32,7 +32,7 @@ const fakePlatform = (opts: { throws?: boolean } = {}) => {
     fetch: vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
       if (opts.throws) throw new Error("platform down")
       const r = new Request(input as RequestInfo, init)
-      seen.push({ url: r.url, method: r.method, body: await r.text(), protocols: r.headers.get("Sec-WebSocket-Protocol") })
+      seen.push({ url: r.url, method: r.method, body: await r.text(), protocols: r.headers.get("Sec-WebSocket-Protocol"), space: r.headers.get("x-cmux-build-space") })
       return new Response("from platform", { status: 299, headers: { "x-from": "platform" } })
     })
   }
@@ -62,6 +62,22 @@ const requests: ReadonlyArray<readonly [string, () => Request]> = [
   ["inference gateway read", () => new Request(`${ORIGIN}/v1/cloud/inference-gateway`)],
   ["inference gateway set", () => new Request(`${ORIGIN}/v1/cloud/inference-gateway`, { method: "PUT", body: '{"mode":"gateway"}' })],
   ["inference gateway socket", () => new Request(`${ORIGIN}/v1/cloud/inference-gateway/connect`, { headers: { upgrade: "websocket" } })],
+  // A person's own gateway (cmux multiplayer: a shared chat spends its owner's login).
+  ["personal inference gateway read", () => new Request(`${ORIGIN}/v1/cloud/inference-gateway/personal`)],
+  ["personal inference gateway socket", () => new Request(`${ORIGIN}/v1/cloud/inference-gateway/personal/connect`, { headers: { upgrade: "websocket" } })],
+  // File push and SCP, client access, desktop, the state socket and shares: platform-only, and an empty 404 here before they were listed.
+  ["cloud ssh endpoint", () => post(`/v1/cloud/machines/${VM}/ssh-endpoint`, '{"publicKey":"ssh-ed25519 AAAA"}')],
+  ["cloud access", () => post(`/v1/cloud/machines/${VM}/access`, "{}")],
+  ["cloud desktop read", () => new Request(`${ORIGIN}/v1/cloud/machines/${VM}/desktop`)],
+  ["cloud desktop start", () => post(`/v1/cloud/machines/${VM}/desktop`, "{}")],
+  ["cloud state socket", () => new Request(`${ORIGIN}/v1/cloud/machines/${VM}/state`, { headers: { upgrade: "websocket" } })],
+  ["cloud shares list", () => new Request(`${ORIGIN}/v1/cloud/machines/${VM}/shares`)],
+  ["cloud share create", () => post(`/v1/cloud/machines/${VM}/shares`, '{"person":"user_x"}')],
+  ["cloud share revoke", () => new Request(`${ORIGIN}/v1/cloud/machines/${VM}/shares/csh_1`, { method: "DELETE" })],
+  // Cloud apps (RFD 0003): a machine's `cmux app publish|versions|rollback|ls`, sent by its agent to this origin.
+  ["cloud apps list", () => new Request(`${ORIGIN}/v1/cloud/apps`)],
+  ["cloud app create", () => post("/v1/cloud/apps", '{"name":"demo","slug":"demo"}')],
+  ["cloud app version promote", () => post("/v1/cloud/apps/demo/versions", '{"commit":"abc","command":"x","machine":"vm","port":1}', { "idempotency-key": "demo:abc:1" })],
   ["Native network target", () => new Request(`${ORIGIN}/v1/host/network/target`)],
   ["login copy switch", () => new Request(`${ORIGIN}/v1/cloud/harness-login-copy`)],
   // The platform's client config: the app's origins and the backend's capabilities (machine_create.bootstrap).
@@ -71,6 +87,11 @@ const requests: ReadonlyArray<readonly [string, () => Request]> = [
   ["staying op", () => post("/v1/ops", op(stayingMutation))],
   ["health", () => new Request(`${ORIGIN}/v1/health`)]
 ]
+
+/** The rows the cloud surface sends to the platform: every row before the first that stays here. */
+const firstLocal = requests.findIndex(([name]) => name === "staying op")
+if (firstLocal < 1) throw new Error("platform-forward.test: the \"staying op\" row marks the end of the forwarded rows")
+const forwardedRequests = requests.slice(0, firstLocal)
 
 afterEach(() => vi.restoreAllMocks())
 
@@ -100,7 +121,7 @@ describe("PLATFORM_SURFACES", () => {
 
 describe("cloud surface on", () => {
   it("forwards NEXT Cloud's machine routes and CloudDO ops with the body intact", async () => {
-    for (const [name, make] of requests.slice(0, 15)) {
+    for (const [name, make] of forwardedRequests) {
       const platform = fakePlatform()
       const original = make()
       const body = await original.clone().text()
@@ -141,7 +162,7 @@ describe("cloud surface on", () => {
 
   it("stays here and logs when the PLATFORM binding is absent", async () => {
     const log = vi.spyOn(console, "error")
-    for (const [name, make] of requests.slice(0, 15)) {
+    for (const [name, make] of forwardedRequests) {
       const off = await call(make(), {})
       const on = await call(make(), { PLATFORM_SURFACES: "cloud" })
       expect(on.status, name).toBe(off.status)
@@ -202,4 +223,16 @@ describe("entry ticket spend", () => {
     await call(new Request(`${ORIGIN}/v1/health`, { headers: { "Sec-WebSocket-Protocol": `ticket.${ticket}` } }), { PLATFORM: fakePlatform().fetcher, PLATFORM_SURFACES: "cloud", WIRE_TICKET_DO: tickets.ns })
     expect(tickets.spends()).toBe(1)
   })
+
+  /** Build spaces (build-space.ts): a dev build's Cloud request reaches the platform with its space, which the
+   * platform needs to find the build's own install (its UserDO is named `dev:<slug>|<user>`). */
+  it("forwards a dev build's machine route and Cloud op with its build space", async () => {
+    const platform = fakePlatform()
+    const env = { PLATFORM_SURFACES: "cloud", PLATFORM: platform.fetcher }
+    expect((await call(post("/v1/cloud/bind", "{}", { "x-cmux-build-space": "dev:my-tag" }), env)).from).toBe("platform")
+    expect((await call(post("/v1/ops", op(cloudMutation), { "x-cmux-build-space": "dev:my-tag" }), env)).from).toBe("platform")
+    expect((await call(post("/v1/ops", op(cloudMutation)), env)).from).toBe("platform")
+    expect(platform.seen.map((s) => s.space)).toEqual(["dev:my-tag", "dev:my-tag", null])
+  })
 })
+

@@ -1,0 +1,264 @@
+{
+ "title": "Title area: the selected tab's glass and the title area contrast (appearance.titleAreaContrast), over a picture and plain",
+ "settings": {
+  "appearance": {
+   "background": "hokusai-great-wave",
+   "titleAreaTone": "subtleTone"
+  }
+ },
+ "steps": [
+  {
+   "title": "Launch over art",
+   "wait": 4,
+   "shot": false
+  },
+  {
+   "title": "Workspace Glass",
+   "cmux": [
+    "workspace",
+    "new",
+    "--name",
+    "Glass"
+   ],
+   "shot": false
+  },
+  {
+   "title": "Show it",
+   "cmux": [
+    "workspace",
+    "name:Glass",
+    "focus"
+   ],
+   "wait": 2,
+   "shot": false
+  },
+  {
+   "title": "Quiet prompt",
+   "cmux": [
+    "workspace",
+    "name:Glass",
+    "screen",
+    "current",
+    "pane",
+    "current",
+    "tab",
+    "current",
+    "terminal",
+    "current",
+    "write",
+    "--text",
+    "export PS1='$ ' PROMPT='$ '; printf '\\033[2J\\033[3J\\033[H'\n"
+   ],
+   "wait": 1,
+   "shot": false
+  },
+  {
+   "title": "Name the first tab",
+   "cmux": [
+    "workspace",
+    "name:Glass",
+    "screen",
+    "current",
+    "pane",
+    "current",
+    "tab",
+    "current",
+    "rename",
+    "shell"
+   ],
+   "shot": false,
+   "optional": "a name only for the focus step"
+  },
+  {
+   "title": "Browser tab Docs",
+   "cmux": [
+    "tab",
+    "create",
+    "browser",
+    "--url",
+    "https://example.com",
+    "--name",
+    "Docs",
+    "--workspace",
+    "name:Glass"
+   ],
+   "wait": 3,
+   "shot": false
+  },
+  {
+   "title": "Browser tab Notes",
+   "cmux": [
+    "tab",
+    "create",
+    "browser",
+    "--url",
+    "https://example.net",
+    "--name",
+    "Notes",
+    "--workspace",
+    "name:Glass"
+   ],
+   "wait": 3,
+   "shot": false
+  },
+  {
+   "title": "Select the middle tab",
+   "cmux": [
+    "workspace",
+    "name:Glass",
+    "screen",
+    "current",
+    "pane",
+    "current",
+    "tab",
+    "name:Docs",
+    "focus"
+   ],
+   "wait": 2,
+   "shot": false
+  },
+  {
+   "title": "Over art, contrast 1 (default): the selected tab shows the same glass as the content",
+   "wait": 2
+  },
+  {
+   "title": "Over art, contrast 0.5 (softer)",
+   "cmux": [
+    "settings",
+    "set",
+    "appearance.titleAreaContrast",
+    "0.5"
+   ],
+   "wait": 3
+  },
+  {
+   "title": "Over art, contrast 1.5 (stronger)",
+   "cmux": [
+    "settings",
+    "set",
+    "appearance.titleAreaContrast",
+    "1.5"
+   ],
+   "wait": 3
+  },
+  {
+   "title": "Over art, contrast 0: no shade, the selected tab keeps the selection fill",
+   "cmux": [
+    "settings",
+    "set",
+    "appearance.titleAreaContrast",
+    "0"
+   ],
+   "wait": 3
+  },
+  {
+   "title": "Back to the default",
+   "cmux": [
+    "settings",
+    "unset",
+    "appearance.titleAreaContrast"
+   ],
+   "wait": 2,
+   "shot": false
+  },
+  {
+   "title": "Plain window, contrast 1 (default)",
+   "cmux": [
+    "settings",
+    "unset",
+    "appearance.background"
+   ],
+   "wait": 3
+  },
+  {
+   "title": "Plain window, contrast 0.5",
+   "cmux": [
+    "settings",
+    "set",
+    "appearance.titleAreaContrast",
+    "0.5"
+   ],
+   "wait": 3
+  },
+  {
+   "title": "Plain window, contrast 1.5",
+   "cmux": [
+    "settings",
+    "set",
+    "appearance.titleAreaContrast",
+    "1.5"
+   ],
+   "wait": 3
+  },
+  {
+   "title": "Light theme over art, contrast 1",
+   "cmux": [
+    "settings",
+    "set",
+    "appearance.background",
+    "hokusai-great-wave"
+   ],
+   "wait": 1,
+   "shot": false
+  },
+  {
+   "title": "Light theme",
+   "cmux": [
+    "settings",
+    "set",
+    "appearance.theme",
+    "Apple System Colors Light"
+   ],
+   "wait": 2,
+   "shot": false
+  },
+  {
+   "title": "Light over art, contrast 1 (default)",
+   "cmux": [
+    "settings",
+    "unset",
+    "appearance.titleAreaContrast"
+   ],
+   "wait": 3
+  },
+  {
+   "title": "Light over art, contrast 0.5",
+   "cmux": [
+    "settings",
+    "set",
+    "appearance.titleAreaContrast",
+    "0.5"
+   ],
+   "wait": 3
+  },
+  {
+   "title": "Light over art, contrast 1.5",
+   "cmux": [
+    "settings",
+    "set",
+    "appearance.titleAreaContrast",
+    "1.5"
+   ],
+   "wait": 3
+  },
+  {
+   "title": "Light plain, contrast 1",
+   "cmux": [
+    "settings",
+    "unset",
+    "appearance.background"
+   ],
+   "wait": 1,
+   "shot": false
+  },
+  {
+   "title": "Light plain window, contrast 1 (default)",
+   "cmux": [
+    "settings",
+    "unset",
+    "appearance.titleAreaContrast"
+   ],
+   "wait": 3
+  }
+ ]
+}

@@ -5,8 +5,8 @@
  *
  * The bake reads only the lock. Every input is exact: the provider base by
  * fingerprint (kernel release + sha256 of the sorted dpkg list), every apt
- * package by exact version from a dated snapshot mirror, and every program by
- * URL, sha256 and size. A range, a missing digest or an unknown program is a
+ * package by exact version and by its .deb's sha256 and size from a dated
+ * snapshot mirror (apt.ubuntu.debs), and every program by URL, sha256 and size. A range, a missing digest or an unknown program is a
  * validation error, so a lock that would let the bake float never parses.
  */
 import { readFileSync } from "node:fs";
@@ -33,12 +33,15 @@ export const KNOWN_PROGRAMS = [
   "workerd",
   "gh",
   "juicefs",
+  // The compiler cache shared across one person's machines (RFD 0068 item 6). The image only installs it: a
+  // machine's RUSTC_WRAPPER and cache settings come from the platform, and only when the cache is configured.
+  "sccache",
 ] as const;
 /**
  * Programs the lock may carry but does not require yet: their release does not
  * exist, so they are pinned only once it does (cloud-automation.md section 2.2).
  */
-export const OPTIONAL_PROGRAMS = ["cmux-cua", "chrome-for-testing", "cmux-browser-host", "agent-desktop", "cmux-rd"] as const;
+export const OPTIONAL_PROGRAMS = ["cmux-cua", "chrome-for-testing", "cmux-browser-host", "agent-desktop", "cmux-rd", "optchat-chief"] as const;
 export type ProgramName = (typeof KNOWN_PROGRAMS)[number] | (typeof OPTIONAL_PROGRAMS)[number];
 
 /** Role names a program or a lock role may use (vm-image.md 4.3, cloud-automation.md 2.1). */
@@ -97,6 +100,8 @@ export type LockedProgram = Artifact & {
   readonly checksumsName?: string;
   readonly source?: string;
   readonly roles?: readonly RoleName[];
+  /** cmux-rd only: the crate version whose release is not published yet (the pin may trail the crate by that one release); cleared by the PR that pins it. */
+  readonly pendingRelease?: string;
   /** Installed into the store the first time one of its (first-use) roles starts; never baked. */
   readonly firstUse?: boolean;
   /** License and notice files (relative to the store entry) the install must find. */
@@ -114,6 +119,13 @@ export type AptRepo = {
   readonly components: readonly string[];
   readonly packages: Readonly<Record<string, string>>;
 };
+
+/**
+ * One locked Ubuntu .deb: its pool path (the same on the public archive and on every snapshot), sha256 and size,
+ * from the dated snapshot's signed index (apt-debs.ts). The bake fetches the file by content, so an archive that
+ * drops a superseded version moves the fetch to the snapshot instead of failing (bake run 43932356313).
+ */
+export type AptDeb = { readonly path: string; readonly sha256: string; readonly size: number };
 
 export type InputsLock = {
   readonly schema: number;
@@ -137,6 +149,8 @@ export type InputsLock = {
       readonly signedBy: string;
       /** Role -> exact closure installed on first use (relative to the baked set); never baked. */
       readonly firstUse: Readonly<Record<string, Readonly<Record<string, string>>>>;
+      /** `name=version` -> its .deb, for every pin in packages, firstUse and devTree.apt (apt-debs.ts writes it). */
+      readonly debs: Readonly<Record<string, AptDeb>>;
     };
     readonly pgdg: AptRepo & { readonly suite: string; readonly keyUrl: string; readonly keySha256: string; readonly keyFingerprint: string };
   };
@@ -189,6 +203,7 @@ const DEBIAN_VERSION = /^(?:\d+:)?\d[A-Za-z0-9.+~-]*$/;
 const PACKAGE_NAME = /^[a-z0-9][a-z0-9.+-]+$/;
 const NPM_NAME = /^(?:@[a-z0-9][a-z0-9._-]*\/)?[a-z0-9][a-z0-9._-]*$/;
 const APT_SNAPSHOT = /^\d{8}T\d{6}Z$/;
+const POOL_PATH = /^pool\/(?:main|restricted|universe|multiverse)\/[a-z0-9]+\/[a-z0-9][a-z0-9.+-]*\/[A-Za-z0-9.+~_-]+_(?:amd64|all)\.deb$/;
 const RELATIVE_PATH = /^(?!\/)(?!.*(?:^|\/)\.\.(?:\/|$))[A-Za-z0-9._+\/-]+$/;
 const COMMAND_NAME = /^[a-z0-9][a-z0-9._-]*$/;
 
@@ -270,6 +285,10 @@ function checkProgram(index: number, raw: unknown, seen: Set<string>, problems: 
     if (raw.checksumsUrl !== shape.checksumsUrl || raw.checksumsName !== shape.checksumsName) problems.push(`${where}.checksumsUrl: must be ${shape.checksumsUrl} naming ${shape.checksumsName}`);
     if (!Array.isArray(raw.roles) || !raw.roles.includes("desktop")) problems.push(`${where}.roles: cmux-rd is in the desktop role`);
     if (raw.firstUse === true) problems.push(`${where}.firstUse: cmux-rd is baked (its socket unit starts it on the first desktop connection)`);
+  }
+  if (raw.pendingRelease !== undefined) {
+    if (name !== "cmux-rd") problems.push(`${where}.pendingRelease: only cmux-rd has a pending release`);
+    else if (typeof raw.pendingRelease !== "string" || !/^\d+\.\d+\.\d+$/.test(raw.pendingRelease)) problems.push(`${where}.pendingRelease: must be a version X.Y.Z`);
   }
 }
 
@@ -491,6 +510,45 @@ function checkDevTree(raw: unknown, apt: unknown, problems: string[]): void {
   checkArtifact("devTree.rustupInit", raw.rustupInit, problems);
 }
 
+/** Every Ubuntu pin the bake or a first-use install fetches: `name=version` from packages, the first-use closures and devTree.apt. */
+export function ubuntuPins(apt: unknown, devTree: unknown): string[] {
+  const ubuntu = isRec(apt) && isRec(apt.ubuntu) ? apt.ubuntu : {};
+  const sets = [ubuntu.packages, ...(isRec(ubuntu.firstUse) ? Object.values(ubuntu.firstUse) : []), isRec(devTree) ? devTree.apt : undefined];
+  const pins = new Set<string>();
+  for (const set of sets) if (isRec(set)) for (const [name, version] of Object.entries(set)) pins.add(`${name}=${String(version)}`);
+  return [...pins].sort();
+}
+
+/** The start of the .deb file name a pin's pool path must have: name, then the version without its epoch. */
+function debFilePrefix(pin: string): string {
+  const at = pin.indexOf("=");
+  return `${pin.slice(0, at)}_${pin.slice(at + 1).replace(/^\d+:/, "")}_`;
+}
+
+/** apt.ubuntu.debs has exactly one well-formed .deb per pin: a pin with none would make the bake read a live index again. */
+function checkAptDebs(apt: unknown, devTree: unknown, problems: string[]): void {
+  const debs = isRec(apt) && isRec(apt.ubuntu) ? apt.ubuntu.debs : undefined;
+  if (!isRec(debs)) {
+    problems.push("apt.ubuntu.debs: missing (run images/cmux-vm/apt-debs.ts)");
+    return;
+  }
+  const pins = ubuntuPins(apt, devTree);
+  for (const pin of pins) {
+    const deb = debs[pin];
+    const where = `apt.ubuntu.debs[${pin}]`;
+    if (!isRec(deb)) {
+      problems.push(`${where}: missing (run images/cmux-vm/apt-debs.ts)`);
+      continue;
+    }
+    const file = typeof deb.path === "string" ? deb.path.slice(deb.path.lastIndexOf("/") + 1) : "";
+    if (typeof deb.path !== "string" || !POOL_PATH.test(deb.path) || !file.startsWith(debFilePrefix(pin))) problems.push(`${where}.path: must be the pool path of this exact version`);
+    if (typeof deb.sha256 !== "string" || !SHA256.test(deb.sha256)) problems.push(`${where}.sha256: missing or not 64 lowercase hex`);
+    if (typeof deb.size !== "number" || !Number.isInteger(deb.size) || deb.size <= 0) problems.push(`${where}.size: must be a positive integer`);
+  }
+  const wanted = new Set(pins);
+  for (const pin of Object.keys(debs)) if (!wanted.has(pin)) problems.push(`apt.ubuntu.debs[${pin}]: no package pins this version`);
+}
+
 /** Validates a parsed lock. Throws LockError listing every problem; returns the typed lock. */
 export function validateInputsLock(raw: unknown): InputsLock {
   const problems: string[] = [];
@@ -510,6 +568,7 @@ export function validateInputsLock(raw: unknown): InputsLock {
   if (!isRec(raw.tools)) problems.push("tools: missing");
   else checkArtifact("tools.syft", raw.tools.syft, problems);
   if (raw.devTree !== undefined) checkDevTree(raw.devTree, raw.apt, problems);
+  checkAptDebs(raw.apt, raw.devTree, problems);
   if (problems.length > 0) throw new LockError(problems);
   return raw as unknown as InputsLock;
 }
@@ -550,6 +609,8 @@ export type RolesManifest = {
   readonly aptSources: string;
   readonly roles: Readonly<Record<string, RoleManifestEntry>>;
   readonly firstUse: Readonly<Record<string, Readonly<Record<string, string>>>>;
+  /** The .deb of every first-use pin (`name=version`), fetched by content (aptDebFetchCommand). */
+  readonly debs: Readonly<Record<string, AptDeb>>;
 };
 
 /** Programs the bake installs into the store and links into the profile (first-use programs are not). */
@@ -582,7 +643,9 @@ export function rolesManifest(lock: InputsLock): RolesManifest {
     if (name === "browser" && chrome) env.CMUX_BROWSER_HOST_CHROMIUM = `${chrome.storeEntry}/${chrome.bin.chrome}`;
     roles[name] = { default: role.default, firstUse: role.firstUse === true, apt: role.apt, env, programs };
   }
-  return { schema: 1, aptSnapshot: lock.apt.ubuntu.uri, aptSources: ubuntuSourcesFile(lock.apt.ubuntu), roles, firstUse: lock.apt.ubuntu.firstUse };
+  const firstUsePins = new Set(Object.values(lock.apt.ubuntu.firstUse).flatMap((closure) => aptPins(closure)));
+  const debs = Object.fromEntries([...firstUsePins].sort().map((pin) => [pin, lock.apt.ubuntu.debs[pin]]));
+  return { schema: 1, aptSnapshot: lock.apt.ubuntu.uri, aptSources: ubuntuSourcesFile(lock.apt.ubuntu), roles, firstUse: lock.apt.ubuntu.firstUse, debs };
 }
 
 /**
@@ -665,7 +728,12 @@ export function storeEntry(sha256: string): string {
 /** What an install needs from a lock program or a roles.json first-use program. */
 export type InstallableProgram = Pick<LockedProgram, "name" | "version" | "url" | "sha256" | "size" | "format" | "bin" | "fileName" | "checksumsUrl" | "checksumsName" | "notices">;
 
-/** Download, verify (sha256 and size) and unpack one program into its immutable store entry. */
+/**
+ * Download, verify (sha256 and size) and unpack one program into its immutable store entry. The download resumes:
+ * a run the guest's 5-minute exec cap stopped (status 124) leaves its partial file in /tmp/cmux-dl, and the next run
+ * continues it (`curl -C -`) or skips it once it is whole; a whole file whose sha256 is wrong is removed, so the next
+ * run starts over. installStoreProgram runs the command again.
+ */
 export function programInstallCommand(program: InstallableProgram): string {
   const entry = storeEntry(program.sha256);
   const dl = `/tmp/cmux-dl/${program.sha256}`;
@@ -682,8 +750,8 @@ export function programInstallCommand(program: InstallableProgram): string {
   return [
     `mkdir -p /tmp/cmux-dl ${STORE_DIR}`,
     `rm -rf ${stage} && mkdir -p ${stage}`,
-    `curl -fsSL --retry 3 -o ${dl} ${sq(program.url)}`,
-    `${checksums}printf '%s  %s\\n' ${program.sha256} ${dl} | sha256sum -c --quiet -`,
+    `{ test "$(stat -c %s ${dl} 2>/dev/null)" = ${program.size} || curl -fsSL --retry 3 -C - -o ${dl} ${sq(program.url)}; }`,
+    `${checksums}{ printf '%s  %s\\n' ${program.sha256} ${dl} | sha256sum -c --quiet - || { rm -f ${dl}; false; }; }`,
     `test "$(stat -c %s ${dl})" = ${program.size}`,
     program.format === "npm" ? `mv ${dl} ${dl}.tgz` : "true",
     unpack,
@@ -719,6 +787,62 @@ export function profileCommand(lock: InputsLock): string {
     `ln -sfn profiles/${BAKED_GENERATION} ${STORE_ROOT}/.current-new && mv -T ${STORE_ROOT}/.current-new ${CURRENT_LINK}`,
     `ls ${CURRENT_BIN}`,
   ].join(" && ");
+}
+
+/** The public archive: fast, but it serves only the current version of each package. */
+export const UBUNTU_ARCHIVE = "http://archive.ubuntu.com/ubuntu/";
+
+/** `name=version` pins of a package set, sorted. */
+export function aptPins(packages: Readonly<Record<string, string>>): string[] {
+  return Object.entries(packages).map(([name, version]) => `${name}=${version}`).sort();
+}
+
+/** Where a pin's .deb lands in `dir`: its pool file name. */
+export function aptDebFile(dir: string, deb: AptDeb): string {
+  return `${dir}/${deb.path.slice(deb.path.lastIndexOf("/") + 1)}`;
+}
+
+function lockedDeb(debs: Readonly<Record<string, AptDeb>>, pin: string): AptDeb {
+  const deb = debs[pin];
+  if (!deb) throw new Error(`apt.ubuntu.debs has no .deb for ${pin}`);
+  return deb;
+}
+
+/**
+ * Fetch locked .debs into `dir` by content: each from the public archive, else from the dated snapshot (`snapshotUri`,
+ * which serves every version of its date), kept only when its size and sha256 are the lock's. Which mirror answers
+ * changes nothing in the image; a version the archive dropped only costs the slower mirror. Safe to re-run: a file
+ * already in `dir` with the locked sha256 is kept. POSIX sh: the browser role's phases run under dash.
+ */
+export function aptDebFetchCommand(debs: Readonly<Record<string, AptDeb>>, pins: readonly string[], snapshotUri: string, dir: string): string {
+  const log = "/tmp/apt-deb-fetch.log";
+  const fetchDeb = [
+    'fetch_deb() { f="$1"; sha="$2"; size="$3"; shift 3;',
+    `if printf '%s  %s\\n' "$sha" "$f" | sha256sum -c --quiet - >/dev/null 2>&1; then kept=$((kept+1)); return 0; fi;`,
+    'for u in "$@"; do rm -f "$f.part";',
+    `if curl -fsSL --retry 2 --connect-timeout 20 --speed-limit 4096 --speed-time 60 -o "$f.part" "$u" 2>>${log} && [ "$(stat -c %s "$f.part")" = "$size" ] && printf '%s  %s\\n' "$sha" "$f.part" | sha256sum -c --quiet - >/dev/null 2>&1; then`,
+    `mv -f "$f.part" "$f"; case "$u" in ${UBUNTU_ARCHIVE}*) archive=$((archive+1));; *) snapshot=$((snapshot+1));; esac; return 0; fi;`,
+    `echo "apt-deb: $u did not serve the locked file" >>${log}; done; rm -f "$f.part"; return 1; }`,
+  ].join(" ");
+  const snapshot = snapshotUri.endsWith("/") ? snapshotUri : `${snapshotUri}/`;
+  const calls = pins.map((pin) => {
+    const deb = lockedDeb(debs, pin);
+    const urls = [`${UBUNTU_ARCHIVE}${deb.path}`, `${snapshot}${deb.path}`].map(sq).join(" ");
+    return `fetch_deb ${sq(aptDebFile(dir, deb))} ${deb.sha256} ${deb.size} ${urls} || { tail -20 ${log}; echo ${sq(`no mirror served ${pin} with its locked sha256`)}; exit 1; }`;
+  });
+  return [`mkdir -p ${sq(dir)}`, "kept=0; archive=0; snapshot=0", fetchDeb, ...calls, `echo "debs ${pins.length}: kept $kept, archive $archive, snapshot $snapshot"`].join("; ");
+}
+
+/**
+ * Install exactly these pins from their fetched .debs in `dir` with no apt index at all (an empty source list and
+ * lists directory): apt resolves only against these files and the installed set, so it cannot download anything,
+ * and a closure that needs anything else fails here instead of quietly taking it from a mirror.
+ */
+export function aptLocalInstallCommand(debs: Readonly<Record<string, AptDeb>>, pins: readonly string[], dir: string, log: string): string {
+  const files = pins.map((pin) => sq(aptDebFile(dir, lockedDeb(debs, pin)))).join(" ");
+  const empty = "/tmp/cmux-apt-no-index";
+  const noIndex = `-o Dir::Etc::sourcelist=/dev/null -o Dir::Etc::sourceparts=${empty}/parts -o Dir::State::Lists=${empty}/lists -o Dir::Cache::pkgcache= -o Dir::Cache::srcpkgcache=`;
+  return `rm -rf ${empty} && mkdir -p ${empty}/parts ${empty}/lists/partial && { DEBIAN_FRONTEND=noninteractive apt-get ${noIndex} install -y --no-install-recommends ${files} >${log} 2>&1 || { tail -40 ${log}; exit 1; }; } && rm -rf ${empty}`;
 }
 
 export function aptPinArgs(packages: Readonly<Record<string, string>>): string {

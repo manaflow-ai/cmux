@@ -40,6 +40,14 @@
      bar in the theme accent is an option, 0 (off) by default. */
   --cmux-row-focus: color-mix(in srgb, var(--cmux-text, currentColor) 10%, transparent);
   --cmux-row-focus-bar: 0px;
+  /* One transient role for notices, window toasts and recoverable error cards. The values remain
+     sourced from the generated surface-role and design-scale tokens; these aliases prevent drift. The
+     corner is the toast role's (--role-toast-radius, schemas/design-roles). */
+  --transient-surface-veil: var(--surface-toast-veil);
+  --transient-surface-shadow: var(--elevation-2);
+  --transient-surface-gap: var(--ds-space-2);
+  --transient-action-fill: var(--ds-color-accent);
+  --transient-action-ink: var(--ds-color-on-accent);
   /* The one inset between a page's content and the pane edge: headers, scrollers and first-level
      rows start here. A row with a hover pill pads its list by less so its text still lands on it.
      The pane is the page's only container: no page wraps its content in another rounded box. */
@@ -101,25 +109,26 @@ body {
   --ds-radius-lg: 8px; /* popups and small cards */
   --ds-radius-xl: 12px; /* cards and the composer (grid.md's decided 12) */
   --ds-radius-2xl: 16px; /* code blocks (named exception) */
-  --ds-radius-control: 6px;
+  --ds-radius-control: var(--cmux-button-radius, 8px); /* every button: the tab's corner (Metrics.buttonCornerRadius; Lawrence 2026-11-12, buttons round as tabs) */
   --ds-radius-popup: 8px;
   --ds-radius-card: 14px; /* today's card radius; grid.md moves it to 12 after a gallery comparison */
   --ds-radius-composer: 18px; /* today's composer radius; grid.md moves it to 12 after a gallery comparison */
   --ds-radius-menu: var(--cmux-menu-highlight-radius); /* AppKit's menu highlight (menu-metrics) */
-  /* glass chrome (level): chrome docked on the window: panes, the sidebar, bars, rails, side tabs, sticky headers and the minimap */
-  --ds-glass-chrome-tint: 60%;
-  --ds-glass-chrome-blur: blur(20px) saturate(1.4);
+  /* glass chrome (level): chrome docked on the window where no native glass is under the page: panes, bars, rails, side tabs, sticky headers and the minimap; over the App's own window glass the page draws text only (design/glass-system.md, rule 1) */
+  --ds-glass-chrome-tint: 62%;
+  --ds-glass-chrome-blur: blur(20px) saturate(1.6);
   --ds-glass-chrome-radius: 20px;
-  /* glass popover (level): floating surfaces over dense text: popovers, hover cards and link cards, the composer, Session Info, the running tray, viewers and sheets (artTint over art or a see-through window) */
-  --ds-glass-popover-tint: 70%;
+  /* glass popover (level): glass in the page that floats but is not a popup: the composer, Session Info, the running tray, side tabs and viewers (artTint over art or a see-through window) */
+  --ds-glass-popover-tint: 72%;
   --ds-glass-popover-art-tint: 50%;
-  --ds-glass-popover-blur: blur(24px) saturate(1.25);
+  --ds-glass-popover-blur: blur(24px) saturate(1.6);
   --ds-glass-popover-radius: 24px;
-  /* glass menu (level): menus, context menus, pickers and a select's menu over a dense settings row (design/settings.md, Glass) */
-  --ds-glass-menu-tint: 78%;
+  /* glass menu (level): every floating popup, menu, picker and card, web and native (design/surface-materials.md, One floating material); veil is the theme surface the page or the App lays on the App's own glass under it (Swift GlassMenuMaterial reads the same numbers) */
+  --ds-glass-menu-tint: 80%;
+  --ds-glass-menu-veil: 40%;
   --ds-glass-menu-blur: blur(32px) saturate(1.6);
   --ds-glass-menu-radius: 32px;
-  /* glass chip (level): small glass on one line: tooltips, the find pill and chips; the tint is the host's --cmux-tooltip-tint (TooltipSurface.swift), this percentage of the popup surface before the host speaks */
+  /* glass chip (level): small glass on one line: tooltips, the find pill and chips; the tint is the host's contrast-fitted --cmux-tooltip-tint (TooltipSurface.swift), this percentage of the popup surface before the host speaks; the blur and the floor are the native tooltip's (TooltipSurface.blurRadius, minimumTintAlpha) */
   --ds-glass-chip-tint: 60%;
   --ds-glass-chip-blur: blur(24px) saturate(1.6);
   --ds-glass-chip-radius: 24px;
@@ -130,6 +139,36 @@ body {
   --ds-glass-fisheye-tint: 50%;
   --ds-glass-fisheye-frost: blur(2.5px) saturate(1.15);
   --ds-glass-edge: var(--cmux-hairline);
+  /* glass saturation: the one saturation every glass level frosts with (design/glass-system.md, rule 3); the lens and fisheye modes keep their own */
+  --ds-glass-saturation: 1.6;
+  /* glass edge: the one edge of plain glass (design/glass-system.md, rule 4): the host's hairline ring (--glass-edge, the card rim) plus a lit top hairline, the light's share of --cmux-tone-light on each side */
+  --ds-glass-edge-top: 60%;
+  /* glass content: a card in the content layer (.ui-glass-content: a permission ask, a turn error, a Settings card): the theme surface at this share with no backdrop-filter, since it scrolls with the content; near-solid, under the glass rule's 90% cap, so a wallpaper behind a see-through page shows only faintly (design/glass-system.md, rule 2) */
+  --ds-glass-content-tint: 88%;
+  /* glass ink: the secondary ink on glass (design/glass-system.md, rule 5): the theme's text at this share over the glass, so a hint, a placeholder or a detail line keeps 3:1 over the glass laid on pure black, pure white and a busy wallpaper at every floating level, without raising the tint; every glass surface's secondary tokens (--cmux-text-secondary, --agent-muted, the composer placeholder) read it while glass draws; status is the share of a status hue (red, amber, green) in a status word on glass, the rest the theme's text, so the word keeps 3:1 under dark glass on a white page (the page's hues are fitted to the opaque page); chipStatus is that hue share inside a tooltip (a link, a diff count), whose tint the host fits so the text sits at 4.5:1, which leaves a status word no room for more hue; keycap is the ink share of a tooltip's shortcut hint (the keycap on its 10% plate), a step under the text and above the secondary ink so it keeps 3:1 on the fitted tint */
+  --ds-glass-ink-secondary: 68%;
+  --ds-glass-ink-status: 65%;
+  --ds-glass-ink-chip-status: 35%;
+  --ds-glass-ink-keycap: 84%;
+  /* glass underlay: the theme surface a floating glass lays under its tint in a see-through Chromium page where the page cannot blur itself: the menu's 80% over 40% covers 88%, not 93%; in dark the menu's 72% over 57% covers the same 88%, since at 40% it covered 83% and the chat's text read through the Model menu (design/glass-system.md, rule 6) */
+  --ds-glass-underlay: 40%;
+  /* glass material: the neutral glass every neutral overlay role is one of (FloatingGlassStyle.look; schemas/surface-roles): the gray its veil mixes at the role's opacity on each side, and the lit and shaded rims, so the sidebar's cards, group headers and sheets are one material with only their opacities apart */
+  --ds-material-neutral-light: rgb(252 252 252); /* the neutral veil's gray on the light side */
+  --ds-material-neutral-dark: rgb(28 28 28); /* the neutral veil's gray on the dark side */
+  --ds-material-rim-lit: rgb(255 255 255); /* the lit rim: a top edge, and a dark side's bottom edge */
+  --ds-material-rim-shade: rgb(0 0 0); /* the shaded rim: a light side's bottom edge */
+  --ds-transient-dark-veil-alpha: 0.42;
+  --ds-transient-light-veil-alpha: 0.55;
+  --ds-transient-dark-rim-top: 0.3;
+  --ds-transient-dark-rim-bottom: 0.06;
+  --ds-transient-light-rim-top: 0.85;
+  --ds-transient-light-rim-bottom: 0.1;
+  --ds-transient-host-veil: 0.4;
+  --ds-transient-native-tint-strength: 1.25;
+  --ds-transient-web-tint: 80%;
+  --ds-transient-web-tint-dark: 72%;
+  --ds-transient-web-blur: 32px;
+  --ds-transient-web-saturation: 1.6;
   --elevation-1: 0 1px 2px color-mix(in srgb, black 7%, transparent); /* rows, cards and inline surfaces */
   --elevation-2: 0 2px 6px color-mix(in srgb, black 11%, transparent); /* popovers, menus, the palette, hover cards, the composer, sheets and find bars */
   --ds-color-surface: var(--cmux-surface-solid, var(--cmux-app-content, Canvas)); /* the page and pane surface, opaque */
@@ -140,23 +179,57 @@ body {
   --ds-color-hover: var(--cmux-hover, var(--cmux-app-hover, color-mix(in srgb, CanvasText 6%, transparent))); /* a control under the pointer */
   --ds-color-pressed: var(--cmux-pressed, light-dark(color-mix(in srgb, var(--cmux-text, CanvasText) 11%, transparent), color-mix(in srgb, var(--cmux-text, CanvasText) 14%, transparent))); /* a control while pressed: the text over clear (pressedFill 11% light, 14% dark), never the app theme's opaque pressed surface, so a press stays a wash on glass and over a picture */
   --ds-color-selection: var(--cmux-selection, var(--cmux-app-selection, color-mix(in srgb, CanvasText 10%, transparent))); /* a selected row or the checked segment */
-  --ds-color-separator: var(--cmux-separator, var(--cmux-app-separator, color-mix(in srgb, CanvasText 8%, transparent))); /* hairlines and dividers */
+  --ds-color-separator: var(--cmux-separator, var(--cmux-app-separator, color-mix(in srgb, CanvasText 8%, transparent))); /* hairlines inside a page: list rows, cards and fields */
+  --ds-color-divider: var(--cmux-chrome-divider, var(--cmux-sidebar-line, var(--ds-color-separator))); /* a page's chrome line against the window chrome (WebTheme: the separator x the divider strength, the window's sidebar line and split lines); an older app's sidebar line, else the separator */
   --ds-color-focus: var(--cmux-focus-ring-color, currentColor); /* the keyboard focus ring (desktop.css: the host's ring at 48%) */
   --ds-color-accent: var(--cmux-accent, var(--cmux-app-accent, CanvasText)); /* the theme accent: the text colour unless the theme names a hue */
   --ds-color-on-accent: var(--cmux-on-accent, var(--cmux-app-on-accent, Canvas)); /* text and glyphs on the accent */
   --ds-color-attention: var(--cmux-app-warning, light-dark(#a15c00, #f0c674)); /* warnings and needs-you marks */
   --ds-color-danger: var(--cmux-app-danger, light-dark(#c0392b, #ff6b6b)); /* errors and destructive actions */
   --ds-color-success: var(--cmux-app-success, light-dark(#2e7d32, #8ad48a)); /* success and healthy states */
+  /* content surfaces: the page's ink over clear; a page whose ink is another variable sets --ds-surface-ink */
+  --ds-surface-ink: var(--ds-color-fg);
+  --ds-surface-card: color-mix(in srgb, var(--ds-surface-ink) 4%, transparent); /* a container of content in the page: the transcript's tool, edit, error and permission cards, plans, code blocks, tool output, the subagent card */
+  --ds-surface-card-line: color-mix(in srgb, var(--ds-surface-ink) 10%, transparent); /* a container of content in the page: the transcript's tool, edit, error and permission cards, plans, code blocks, tool output, the subagent card */
+  --ds-surface-inset: color-mix(in srgb, var(--ds-surface-ink) 8%, transparent); /* a piece inside a card or inline in text: an icon tile, inline code, a chip, a key cap, a filled secondary control */
+  --ds-surface-hover: color-mix(in srgb, var(--ds-surface-ink) 6%, transparent); /* a control in the page under the pointer: half way from clear to pressed, so it shows over glass and a picture as over an opaque page (the host's chrome hover, ink 4% in light, read ΔL* 2 over a wallpaper) */
+  --ds-surface-control-line: color-mix(in srgb, var(--ds-surface-ink) 16%, transparent); /* the outline of a secondary button at rest; its hover and press take the hover and pressed roles */
+  --ds-surface-hover-layer: linear-gradient(var(--ds-surface-hover), var(--ds-surface-hover)); /* hover over a filled rest */
+  --ds-surface-pressed-layer: linear-gradient(var(--ds-color-pressed), var(--ds-color-pressed)); /* pressed over a filled rest */
+}
+:root[data-borders="none"] {
+  --ds-surface-card-line: transparent;
+  --ds-surface-control-line: transparent;
+}
+@media (prefers-contrast: more) {
+  :root:not([data-borders="none"]) {
+    --ds-surface-card-line: var(--ds-surface-ink);
+    --ds-surface-control-line: var(--ds-surface-ink);
+  }
 }
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme="light"]) {
     --elevation-1: 0 1px 2px color-mix(in srgb, black 12%, transparent);
     --elevation-2: 0 2px 6px color-mix(in srgb, black 16%, transparent);
+    --ds-glass-menu-tint: 72%;
+    --ds-transient-web-tint: 72%;
+    --ds-glass-edge-top: 24%;
+    --ds-glass-content-tint: 86%;
+    --ds-glass-ink-secondary: 68%;
+    --ds-glass-ink-status: 55%;
+    --ds-glass-underlay: 57%;
   }
 }
 :root[data-theme="dark"] {
   --elevation-1: 0 1px 2px color-mix(in srgb, black 12%, transparent);
   --elevation-2: 0 2px 6px color-mix(in srgb, black 16%, transparent);
+  --ds-glass-menu-tint: 72%;
+  --ds-transient-web-tint: 72%;
+  --ds-glass-edge-top: 24%;
+  --ds-glass-content-tint: 86%;
+  --ds-glass-ink-secondary: 68%;
+  --ds-glass-ink-status: 55%;
+  --ds-glass-underlay: 57%;
 }
 @media (prefers-reduced-transparency: reduce) {
   :root {
@@ -166,11 +239,43 @@ body {
     --ds-glass-chip-blur: none;
   }
 }
-:root[data-reduce-transparency] {
+:root:is([data-reduce-transparency], [data-glass="off"]) {
   --ds-glass-chrome-blur: none;
   --ds-glass-popover-blur: none;
   --ds-glass-menu-blur: none;
   --ds-glass-chip-blur: none;
+}
+/* roles (tier 2), from schemas/design-roles/design-roles.json: a component reads these, not --ds-* */
+:root {
+  /* control: a button, field or chip: the tab's corner (Lawrence 2026-11-12, buttons round as tabs) */
+  --role-control-height: var(--ds-control-row); /* 28px */
+  --role-control-radius: var(--ds-radius-control); /* 8px */
+  /* row: a menu or list row's highlight, inside a floating surface's inset */
+  --role-row-height: var(--ds-control-row); /* 28px */
+  --role-row-radius: var(--ds-radius-sm); /* 4px */
+  /* floating: anything that floats over the page: one corner, one inset (the brief's control corner + inset is 12, Leo's pending popup-corner call; flip `row.radius` to `control.radius` here) */
+  --role-floating-inset: var(--ds-space-1); /* 4px */
+  --role-floating-min-height: calc(var(--role-row-height) + (2 * var(--role-floating-inset))); /* 36px */
+  --role-floating-radius: min(var(--role-row-radius) + var(--role-floating-inset), round(down, var(--role-floating-min-height) / 3, 4px)); /* 8px */
+  /* menu (like floating): a context or dropdown menu */
+  --role-menu-inset: var(--ds-space-1); /* 4px */
+  --role-menu-min-height: calc(var(--role-row-height) + (2 * var(--role-menu-inset))); /* 36px */
+  --role-menu-radius: min(var(--role-row-radius) + var(--role-menu-inset), round(down, var(--role-menu-min-height) / 3, 4px)); /* 8px */
+  /* popover (like floating): a popover with rows or a form */
+  --role-popover-inset: var(--ds-space-1); /* 4px */
+  --role-popover-min-height: calc(var(--role-row-height) + (2 * var(--role-popover-inset))); /* 36px */
+  --role-popover-radius: min(var(--role-row-radius) + var(--role-popover-inset), round(down, var(--role-popover-min-height) / 3, 4px)); /* 8px */
+  /* tooltip (like floating): a one-line label with a shortcut hint */
+  --role-tooltip-inset: var(--ds-space-1); /* 4px */
+  --role-tooltip-min-height: var(--ds-control-compact); /* 24px */
+  --role-tooltip-radius: min(var(--role-row-radius) + var(--role-tooltip-inset), round(down, var(--role-tooltip-min-height) / 3, 4px)); /* 8px */
+  /* toast (like floating): a notice in the stack: one line of text at an 8 px inset, about 34 px tall */
+  --role-toast-inset: var(--ds-space-2); /* 8px */
+  --role-toast-min-height: calc(var(--text-body--line-height) + (2 * var(--role-toast-inset))); /* 34px */
+  --role-toast-radius: min(var(--role-control-radius) + var(--role-toast-inset), round(down, var(--role-toast-min-height) / 3, 4px)); /* 8px */
+  /* dialog (like floating): a modal dialog: its buttons at the inset, so the corner is the button's plus the inset */
+  --role-dialog-inset: var(--ds-space-5); /* 24px */
+  --role-dialog-radius: calc(var(--role-control-radius) + var(--role-dialog-inset)); /* 32px */
 }
 /* design-scale:end */
 
@@ -184,19 +289,28 @@ body {
    (ui/Tooltip.tsx), a toolbar hint (ui/Toolbar.tsx) and the title tooltip that replaces WebKit's
    bubble on every first-party page (ui/titleTooltips.ts) all sit on the one tooltip surface
    (--tooltip-*, below; Leo, 2026-10-14): frosted glass under a tint the primary ink reads on, a
-   one-device-pixel separator rim and a small tight shadow, in the caption font. The title is an
-   emphasized first line and an optional detail sits below in dimmer ink. It shows and goes in one
-   frame, with no fade and no rise, as do hover cards (.ui-card, the context window card) on the same
-   surface (Leo, 2026-11-11: "the fade-in, the fade-out, is just so stupid... It's just sluggish.").
-   Truncated text wraps inside the same compact bubble. */
+   one-device-pixel separator rim and a small tight shadow. One look everywhere (Lawrence 2026-11-20,
+   on the composer's "Select effort ⌃⇧M"): regular text at the detail size in the primary ink, then
+   the shortcut's keys on a small keycap plate (.ui-tooltip-hint), and an optional detail line below
+   in dimmer ink; the numbers are the native ones (CmuxNextDesign/Tooltip/TooltipMetrics.swift,
+   test/tooltip-metrics.test.ts holds the two in step). It shows and goes in one frame, with no fade
+   and no rise, as do hover cards (.ui-card, the context window card) on the same surface (Leo,
+   2026-11-11: "the fade-in, the fade-out, is just so stupid... It's just sluggish."). A tooltip is one
+   line, as the native one (Chief, 2026-11-21; TooltipContentView.swift): past the widest tooltip its
+   text ends in an ellipsis. A hover card (.ui-card) wraps. */
 .ui-tooltip,
 .ui-title-tooltip {
   box-sizing: border-box;
   max-width: min(var(--tooltip-max-width), calc(100vw - var(--tooltip-edge) - var(--tooltip-edge)));
-  padding: var(--tooltip-pad-block) var(--tooltip-pad-inline);
+  /* The rim sits inside the box, as the native glass's does: the padding is measured from the box's
+     edge, so a tooltip is as tall as the native one (TooltipMetrics: line height + 2 x padding).
+     Chromium lays out a hairline border (0.5px at 2x) as a whole 1px, hence the max(). */
+  --tooltip-rim-layout-width: max(var(--tooltip-rim-width), 1px);
+  padding: calc(var(--tooltip-pad-block) - var(--tooltip-rim-layout-width))
+    calc(var(--tooltip-pad-inline) - var(--tooltip-rim-layout-width));
   border: var(--tooltip-rim-width) solid
     var(--cmux-separator, color-mix(in srgb, var(--cmux-text, CanvasText) 12%, transparent));
-  border-radius: 5px;
+  border-radius: calc(var(--role-tooltip-radius) * var(--cmux-interface-scale, 1)); /* concentric-allow: a tooltip holds text and a keycap, no buttons; the keycap nests in it */
   background: var(--tooltip-tint);
   -webkit-backdrop-filter: var(--tooltip-blur);
   backdrop-filter: var(--tooltip-blur);
@@ -205,11 +319,26 @@ body {
      needs it. */
   color: var(--cmux-tooltip-ink, var(--cmux-text, CanvasText));
   font-family: var(--font-ui);
-  font-size: var(--text-caption);
-  line-height: var(--text-caption--line-height);
-  /* Wraps between words; only a word wider than the whole tooltip (a long path) breaks. */
+  font-size: var(--tooltip-font-size);
+  line-height: var(--tooltip-line-height);
+  font-weight: var(--weight-regular);
+  /* A hover card's text wraps between words; only a word wider than the whole card (a long path)
+     breaks. A tooltip's never wraps (below). */
   overflow-wrap: break-word;
   pointer-events: none;
+}
+
+/* One line: the text ends in an ellipsis at the widest tooltip, after the floated keycap. */
+.ui-tooltip:not(.ui-card),
+.ui-title-tooltip {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+:is(.ui-tooltip:not(.ui-card), .ui-title-tooltip) .ui-tooltip-text {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 /* Closing: nothing of it draws from the frame its close starts (its content, glass and backdrop),
@@ -239,6 +368,26 @@ body {
   border-color: transparent;
 }
 
+/* A hover card taller than the room it has scrolls in itself (Leo, 2026-11-14, on a "Received 2
+   messages" preview cut after its first message: "this has no transparency at all + is not
+   scrollable"). Its height stops at what its positioner has (Base UI's --available-height) and the
+   window less its edges; past that its content scrolls with the wheel, the trackpad and, from its
+   focused trigger, Page Down and Page Up (ui/Tooltip.tsx), and a scroll that reaches its end never
+   moves the transcript under it. A Tooltip's card (data-tooltip-card) takes the pointer, as a
+   link's card does, so the pointer can rest on it to scroll: Base UI keeps a tooltip open while the
+   pointer is on it. An AnchoredCard's caller decides that itself. */
+.ui-tooltip.ui-card {
+  max-height: min(
+    var(--available-height, 100dvh),
+    calc(100dvh - var(--tooltip-edge) - var(--tooltip-edge))
+  );
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+.ui-tooltip.ui-card[data-tooltip-card] {
+  pointer-events: auto;
+}
+
 .ui-hint {
   border-width: var(--tooltip-rim-width);
   background: var(--tooltip-tint);
@@ -250,10 +399,10 @@ body {
 .ui-title-tooltip {
   position: fixed;
   z-index: var(--layer-tooltip);
-  white-space: pre-line;
 }
 
-/* A shortcut hint after the text, in the secondary ink, at the tooltip's top right. */
+
+/* A detail line under the text, in the secondary ink. */
 .ui-tooltip-detail {
   display: block;
   margin-block-start: var(--tooltip-detail-gap);
@@ -262,13 +411,31 @@ body {
 }
 
 .ui-tooltip-text {
-  font-weight: var(--weight-emphasis);
+  font-weight: var(--weight-regular);
 }
 
+/* The shortcut's keys on a keycap plate (the dialogs' Linear keycap, CmuxDialogKeycapStyle.linearKbd):
+   the text's ink at 10% under the keys in the secondary ink, emphasized at the caption size. It
+   floats to the end of the first line (it comes first in the tooltip) and reaches into the end's
+   padding, so it sits --tooltip-keycap-inset from the tooltip's top, bottom and end and its corner
+   nests in the tooltip's. */
 .ui-tooltip-hint {
   float: inline-end;
-  margin-inline-start: 8px;
+  box-sizing: border-box;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: var(--tooltip-keycap-height);
+  height: var(--tooltip-keycap-height);
+  margin-block-start: calc(var(--tooltip-keycap-inset) - var(--tooltip-pad-block));
+  margin-inline: var(--tooltip-keycap-gap) calc(var(--tooltip-keycap-inset) - var(--tooltip-pad-inline));
+  padding-inline: var(--tooltip-keycap-pad);
+  border-radius: calc(var(--role-tooltip-radius) * var(--cmux-interface-scale, 1) - var(--tooltip-keycap-inset)); /* concentric-allow: nested in the tooltip's corner at its inset */
+  background: color-mix(in srgb, var(--cmux-tooltip-ink, var(--cmux-text, CanvasText)) 10%, transparent);
   color: var(--cmux-text-secondary, color-mix(in srgb, var(--cmux-text, CanvasText) 64%, transparent));
+  font-size: var(--text-caption);
+  font-weight: var(--weight-emphasis);
+  line-height: 1;
   white-space: nowrap;
 }
 
@@ -598,10 +765,18 @@ label:not([for]):has(:is(input, select, textarea):disabled):not(
   --tooltip-rim-width: var(--cmux-hairline);
   --tooltip-shadow: var(--elevation-1);
   --tooltip-max-width: calc(var(--grid-base) * 80);
-  /* Compact overlay scale: all tooltip dimensions stay on the 4px grid and follow interface zoom. */
+  /* TooltipMetrics.swift's numbers, on the 4px grid, following interface zoom: 12/16 text, 4px above
+     and below it, 8px before it, an 8px corner; the keycap 16px tall, 4px in from the top, bottom and
+     end, 4px each side of its keys, 8px after the text. */
   --tooltip-edge: var(--grid-base);
-  --tooltip-pad-block: calc(var(--grid-base) / 2);
+  --tooltip-font-size: var(--text-detail);
+  --tooltip-line-height: var(--text-detail--line-height);
+  --tooltip-pad-block: var(--grid-base);
   --tooltip-pad-inline: calc(var(--grid-base) * 2);
+  --tooltip-keycap-height: calc(var(--grid-base) * 4);
+  --tooltip-keycap-inset: var(--grid-base);
+  --tooltip-keycap-pad: var(--grid-base);
+  --tooltip-keycap-gap: calc(var(--grid-base) * 2);
   --tooltip-detail-gap: calc(var(--grid-base) / 2);
 }
 
@@ -669,8 +844,11 @@ label:not([for]):has(:is(input, select, textarea):disabled):not(
   /* A selection that travels settles on the one spring, run over --cmux-motion-large. */
   --cmux-ease-spring: linear(0, 0.21 6%, 0.53 14%, 0.78 24%, 0.92 34%, 0.985 46%, 1 54.57%, 1);
   /* A sent prompt's one motion: its room, its bubble and the thread's rise. */
-  --cmux-motion-send: 180ms;
+  --cmux-motion-send: 0ms;
   --cmux-ease-send: cubic-bezier(0.16, 1, 0.3, 1);
+  /* A sent prompt's pop: past its size and back (its start: conversation.css cv-send-pop). */
+  --cmux-motion-send-pop: 450ms;
+  --cmux-ease-send-pop: cubic-bezier(0.34, 1.3, 0.64, 1);
   /* A fold or Show more that grows or shrinks decelerates into its new height, never past it. */
   --cmux-motion-settle: 180ms;
   --cmux-ease-settle: cubic-bezier(0.16, 1, 0.3, 1);
@@ -766,7 +944,7 @@ label:not([for]):has(:is(input, select, textarea):disabled):not(
   --grid-queue-trail-center: calc(22px * var(--cmux-interface-scale, 1)); /* Trailing glyph center from the right edge. */
   --grid-composer-block-inset: calc(10px * var(--cmux-interface-scale, 1)); /* Control inset from the top and bottom of a one-line composer. */
   --grid-composer-box: calc(48px * var(--cmux-interface-scale, 1)); /* One-line composer height. */
-  --grid-composer-radius: calc(12px * var(--cmux-interface-scale, 1)); /* Composer corner radius. */
+  --grid-composer-radius: calc(16px * var(--cmux-interface-scale, 1)); /* Composer corner radius, concentric with the + chip: its 8 corner plus the inset. */
   --grid-composer-quiet-row-gap: calc(4px * var(--cmux-interface-scale, 1)); /* Gap below composer box. */
   --grid-composer-quiet-row-height: calc(28px * var(--cmux-interface-scale, 1)); /* Quiet row height. */
   --grid-composer-quiet-row-text: calc(14px * var(--cmux-interface-scale, 1)); /* First quiet chip text at leading glyph left edge. */
@@ -807,7 +985,7 @@ label:not([for]):has(:is(input, select, textarea):disabled):not(
 }
 
 /* The host may also set the app's Reduce Transparency setting on the root element. */
-:root[data-reduce-transparency] {
+:root:is([data-reduce-transparency], [data-glass="off"]) {
   --surface-text-min: 100%;
   --surface-blur: none;
   --tooltip-tint: var(--surface-popup);
@@ -833,6 +1011,23 @@ label:not([for]):has(:is(input, select, textarea):disabled):not(
   ):is(:hover, [data-highlighted]) {
   transition-duration: 0s !important;
 }
+/* MENU-ROW-SNAP (Lawrence 2026-11-17, "fix these hover bugs"): a menu's highlight moves as an
+   NSMenu's does, in one frame both ways. The row the pointer or the arrows leave clears in the
+   frame the next one lights, so two rows are never lit at once and none stays lit after the pointer
+   leaves the menu (the row's own 80 ms fade-out did both). Only the rows of a popup (every menu,
+   combobox and popover list is a .ui-popup); a list on a page keeps its cross-fade. A row's
+   keyframe motion (rowPresence.ts) is an animation, not a transition, so it still runs. */
+.ui-popup
+  :is(
+    .ui-menu-item,
+    .ui-combobox-item,
+    [role="option"],
+    [role="menuitem"],
+    [role="menuitemradio"],
+    [role="menuitemcheckbox"]
+  ) {
+  transition-duration: 0s !important;
+}
 
 /* SYNCED-SPINNERS (user 2026-10-20): the one spinner animation of every page. Clockwise, one
    `--cmux-spinner-period` per turn (the motion-scale block above: the native spinner's turn too,
@@ -842,6 +1037,8 @@ label:not([for]):has(:is(input, select, textarea):disabled):not(
    (test/spinner-period.test.ts). */
 :root {
   --cmux-breath-period: 2.4s;
+  /* The breath's curve: in and out alike, so it never snaps at either end (the Apps skeleton's, now ui/Skeleton's). */
+  --cmux-breath-ease: ease-in-out;
   --cmux-shimmer-period: 2.8s;
 }
 @keyframes cmux-spin {

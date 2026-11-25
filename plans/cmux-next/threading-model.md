@@ -4,6 +4,8 @@ Owner: Performance Lead (PL-blocking, 2026-10-24; the detector's one process-wid
 Performance Lead with PL-arch). Chrome's model is the reference: the UI thread never
 blocks (`base::ScopedBlockingCall`, `base::ThreadRestrictions`), each thread owns its state, work moves
 between threads as messages, and every queue has a bound and a back-pressure rule.
+The short how-to for agents (the seams, `BackgroundWork`, the `NonisolatedNonsendingByDefault` trap, a worked
+conversion): [skills/cmux-architecture/references/main-thread-model.md](../../skills/cmux-architecture/references/main-thread-model.md).
 
 How it is enforced:
 - **Runtime (the real guard).** The checked seams in `CmuxNextCompat/Threading` wrap the blocking primitives
@@ -48,6 +50,12 @@ How it is enforced:
   `await` of an `@MainActor` function. Escape: `// main-hop-allow: <why no scheduler path fits and what bounds
   the work>`. Old hops are not refused; the count only goes down. `guardrails.py --main-thread-counts [REV]`
   prints the hop, scheduler-entry, raw-blocking and checked-seam counts.
+  `main-actor-url-append` also refuses new URL joins without explicit directory hints in main-actor
+  scopes, including a hint removed from a wrapped call. Foundation can call `lstat` to infer the type:
+  supply `.isDirectory`/`.notDirectory` (or `.inferFromPath` when unknown), never `.checkFileSystem` on
+  main. Lexical isolation cannot follow synchronous `nonisolated` helpers back to their main-actor
+  callers: move actual path searches and signature checks onto `BackgroundWork`'s `.files` lane,
+  as `HarnessIconBook` does. An `@concurrent` task alone still blocks the cooperative pool.
 
 ## Threads and queues
 
@@ -72,6 +80,7 @@ and changes both with the code).
 | **cmux-tui daemon (Rust)** request path: `mux-server` accept, one `mux-conn` thread per connection (max 64; over: `server.busy`), `mux-control-dispatch` per connection (terminal creates go to the terminal pool, `wait-for` to a `mux-control-wait` thread, so neither holds it), `mux-line-out` writer; the git lane (`server/git_lane.rs`): one `mux-git` thread per running git request (`git.*`, `diff.comments.*`), which waits for the git child so that no `mux-conn` thread does | Requests, model, snapshots | Socket read on its own thread | default; user-interactive for the three threads of a connection that carries the person's keys to a terminal it can type into (not a read-only viewer; server/input_qos.rs) | Per connection 256 requests / 16 MiB (over: error, not run); `wait-for` and v2 `terminal.wait` workers 8 per connection / 64 per daemon (over: error, not run); git lane: 4 reads (at most 3 of them long: a diff, a file list or search, the branches, a checkpoint list with its candidates, so a short read such as `git.status` has a place) and 2 mutations run at one time in the whole daemon, 512 waiting runs per connection (over: error, not run; a run is one request and the equal reads that share it, 65 at most), equal waiting reads of a connection share one run (the copies of its reply wait for room in the connection's control queue, 10 s at most for all of them and then the connection closes; the wait is on the `mux-git` thread after it gave its place back, so it holds no place; it holds back only that connection's next shared run and its next mutation with the reads behind it; such threads are at most 4 per connection beside the 6 that run git), a mutation keeps its connection's order, a request that still waits when the shutdown or a handoff begins is refused as not executed, a broken connection's waiting reads are dropped and its waiting mutations run; outbound 256 per stream, 4096 per connection (over: the largest stream ends); write timeout 2 s; event bus 4096 per subscriber, then disconnect. Rules D1-D8 in perf-lead.md |
 | **Journal writer** `mux-session-journal-writer` (+ `-fanout`, maintenance, hook workers) | Durable session journal | Disk | not set | `sync_channel(1024)` terminal, `(256)` durable: the producer waits for space; durable wait deadline 30 s |
 | **Agent roster owner** `cmux-agent-roster` (cmux-tui `mux/agent_roster_worker.rs`) | Every fold of the journal into the agent roster, its snapshot saves and plugin roster deltas; a request (agent hook, terminal close, direct report echo) only records its work and wakes it | Disk: its own read-only journal reader, the snapshot save on the journal writer's connection; the roster lock while it applies a page, the registry and state locks while it commits a plugin delta | not set (the default), on purpose: its passes hold locks that request paths take (the roster lock, the journal writer's connection, the registry lock for a plugin delta), and a throttled holder of those locks is a priority inversion that stalls the requests waiting on them (the journal writer's rule below) | One record of requests (the highest sequence asked, the closed terminals, a catch-up flag), taken whole by each pass; a request records in O(1) and never waits; the maintenance tick's catch-up waits for its pass; shutdown waits 2 s |
+| **Session restatement** `session-restate` (cmux-tui `mux/startup_restore/restate_parts.rs`; one thread for each daemon start, it ends after the last part) | The restatement of the session after a start: one scoped registry commit (`session.restate-part`) for each part of at most 8 workspaces, the workspace that the person sees first, then one commit for the terminals that have no view; its laps in the start record | Its turn at the start's adoption gate (after ready, the release of the start's adoptions, or their 2 s wait limit); the registry and state locks for one part, and the disk for that commit; a sleep between steps | not set (the default), on purpose: a part holds the registry and state locks that request paths take (the journal writer's rule) | A part states at most 8 workspaces; no part starts while a locker waits for the registry (5 ms each time, at most 4 times in a row for one part) or while the daemon shuts down, hands off its hosts or ends terminals; after each part the thread sleeps for the time that part held the locks; a part that is not committed keeps only its own workspace out, and the thread stops after 8 workspaces that an error kept out; it holds the mux for a step and for its wait at the gate, not while it sleeps, so a dropped mux ends it |
 | **Effect / terminal work** (`mux/resource_effects.rs` intents through the journal writer; `mux-terminal-work` pool, 8 workers) | Registry commits; terminal jobs | Disk (writer side) | not set | 1024 queued jobs; a job that does not fit runs inline |
 | **Browser event lanes** (cmux-tui `browser/event_lanes.rs`: process-wide pool `browser-events-<n>`, 2 threads; fed by each runtime's router `browser-runtime-events`) | Serving each daemon browser surface's CDP events in order (one lane per surface, at most one thread on it); replaced `browser-surface-<id>-events` (one thread per surface) | Short in-memory locks only: CDP sends are fire-and-forget (`*_detached`); attention, popup adoption and lifecycle registry work pause just their originating lane while its existing command worker runs the effect, preserving event order without occupying the pool | not set (PL-qos) | Per-surface queue `CDP_EVENT_QUEUE_CAPACITY` events / `CDP_EVENT_QUEUE_MAX_BYTES` (over: the route closes); at most one deferred registry effect per route; 32 events per lane turn, then the lane requeues; a panicking handler ends only its lane |
 | **Per-stream lanes** | Not on feat-cmux-next yet (PL-conn, `pl-conn`) | | | Added here when it lands |
@@ -108,7 +117,8 @@ One priority model. Main thread: MainWorkClass (PL-main). Off main: WorkPriority
 
 userInteractive: only the main thread and threads a frame waits for. Today: MainThreadWatchdog, QuitDeadline and
 CrashDeadline threads, LineTransport reader (daemon lines), LocalPTY read queue, TerminalOutputLane queue,
-MetalYUVRenderer. No BackgroundWork lane runs at it.
+MetalYUVRenderer, RemoteDecodePipeline (`cmux.remote-view.decode`, the actor's executor: the next frame on screen
+waits for its decode). No BackgroundWork lane runs at it.
 
 Blocking work never runs on the cooperative pool: a process wait uses AsyncProcess (no thread waits); file I/O uses lane
 .files (serial per priority); a sync system call (getaddrinfo, Security, Launch Services, AX) uses lane .system (6 at
@@ -151,11 +161,7 @@ matches the label's literal text; `<x>` matches an interpolation). Its owner row
   their order; a few small lines per answer, level change or token ask, so no back-pressure; a write to an
   engine that exited fails with EPIPE (no SIGPIPE) and the engine is started again; HandsEngine)
 - Terminal: `com.cmuxterm.next.terminal.output`, `com.cmuxterm.next.localpty.read`, `com.cmuxterm.next.localpty.write`
-- Settings and files: `com.cmuxterm.next.settings.watcher`, `com.cmuxterm.next.settings.file-lock` (the app's
-  waits for the write lock of `cmux-next.json`, which the daemon also takes; user-initiated, serial: it blocks in
-  `flock` only while another writer holds the lock, one wait at a time in call order, and the write is suspended
-  meanwhile, never a caller's thread or the main thread; a write hears `SettingsFileBusy` after 5 s, and a wait
-  given up on before its turn is skipped; SettingsFileLock), `cmux.files.fsevents`, `cmux.files.tree-fsevents`,
+- Settings and files: `com.cmuxterm.next.settings.watcher`, `cmux.files.fsevents`, `cmux.files.tree-fsevents`,
   `com.cmuxterm.home.cache` (the `HomeCache` actor's executor, user-initiated: its file writes block this queue,
   never a pool thread, so the forced quit's last draft write runs with the pool full; CmuxHomeCore, shared with iOS),
   `cmux.chief.movedMarker` (the Chief home's `state/moved.json` vnode watch, utility, serial: event delivery only,
@@ -166,6 +172,12 @@ matches the label's literal text; `<x>` matches an interpolation). Its owner row
   one thread per call: its pipe write blocks only it; it ends when the child has read the request or closed its
   stdin, and a kill at the call's deadline or a cancel closes it, so it never outlives the child; CloudMachineIO),
   `com.cmuxterm.next.remote-fetch`, `cmux.remote-view.render`, `cmux.remote-view.rd-transport`,
+  `cmux.remote-view.decode` (one remote view's decode pipeline actor, user-interactive, serial: it blocks only on
+  a synchronous VideoToolbox decode of one access unit, a few ms; the transport's stream to it is bounded
+  `bufferingNewest(8)`, so a slow decoder loses units and asks for a keyframe instead of queueing),
+  `cmux.backdrop-shader.render` (the living wallpapers' Metal frames, user-initiated, serial: it blocks only on
+  `CAMetalLayer.nextDrawable`, bounded by the layer's one-second timeout; one frame in flight per window, the
+  next is skipped while it is busy, so no back-pressure; BackdropShaderRenderer),
   `cmux.daemon-bridge.stream` (one Cloud desktop session's `link dial --service desktop` bridge socket,
   user-initiated, serial: DispatchIO delivers the stream's bytes here and it blocks on nothing; the rd transport
   reads them in order, a few MB/s of H.264 at most, and the session's end closes it; DaemonBridgeStream),
@@ -174,6 +186,12 @@ matches the label's literal text; `<x>` matches an interpolation). Its owner row
   stop, so no back-pressure; MacScreenRdProcess), `com.cmuxterm.mac-screen.rd-socket` (the viewer's
   Unix socket to `cmux rd connect`, user-initiated: Network delivers the stream's bytes here, it blocks on
   nothing, the decode pipeline reads them; MacScreenUnixStream),
+  `com.cmuxterm.mac-screen.stream-stdin` (one iPhone viewer session's JSON lines into its WebRTC host child
+  in the Screen Sharing helper, user-initiated, serial: its pipe writes block only it; a few signals per
+  session and an exclusion list per window change, so no back-pressure; MacScreenStreamProcess),
+  `com.cmuxterm.mac-screen.stream-host-stdout` and `screen-stream-host-input` (that child's own lines to the
+  app and its input reader thread, in the child process only, never the app: the queue's pipe writes block
+  only it, the thread blocks on its stdin and ends at its end of file; MacScreenStreamChild),
   `cmux.remote-view.mock-host`, `cmux.next.mobile.unix-lane`, `com.cmuxterm.mobile.paired-devices` (the iPhone
   host's paired-phone list and its Keychain seal, utility, serial: its file and Keychain calls block this queue,
   never main; one item per save, read or withdrawal, each from a person's action or an account change, so no back-pressure;
@@ -205,8 +223,13 @@ matches the label's literal text; `<x>` matches an interpolation). Its owner row
   `cmux.next.agent-pane.acpmux-socket-wait` (one person-socket exchange's readiness wait, userInitiated, serial, one
   queue per wait: a dispatch source wakes it, nothing blocks it; it ends at readiness, the daemon's close or the
   caller's cancel),
-  `cmux.agent-activity.socket`, `com.cmuxterm.app.next.chief-settle`, `com.cmuxterm.app.next.tasks.socket`,
-  `cua-helper-v2-reap`, `cua-helper-v2-stdout`, `cmux-remote-device` (one per open channel to cmux Remote's Screen
+  `cmux.agent-activity.socket`, `cmux.acpmux-client`, `cmux.acpmux-client.driver`,
+  `cmux.acpmux-chat-rows` (a pane's chat rows host, AcpmuxChatRowsHost, utility, serial: the page's `chat.rows.*`
+  calls and each batch the driver hands it; it builds the page's one call per batch and hops to main once for it; the
+  page's `taken` is its back-pressure, one batch of at most 64 KiB out at a time, and it blocks only on the client
+  handle's own queue), `com.cmuxterm.app.next.chief-settle`, `com.cmuxterm.app.next.tasks.socket`,
+  `signed-helper-reap` (one per signed Screen Sharing helper launch, SignedHelperLaunch.reap: a blocking waitpid that
+  ends when that helper exits; no back-pressure, one per launch), `cmux-remote-device` (one per open channel to cmux Remote's Screen
   Sharing worker: a blocking read(2) that ends at the channel's EOF; answers and hub pushes go to their waiters, pushes
   bounded at 256, docs/cmux-remote.md)
 - Input: `com.cmuxterm.next.event-source-processes` (``EventSourceProcesses``: the executable path and start time of

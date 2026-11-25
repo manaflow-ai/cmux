@@ -1,6 +1,76 @@
 {
   "sourceLanguage": "en",
   "strings": {
+    "mobile.chief.live.copyDetail": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "Copy Detail"}},
+        "de": {"stringUnit": {"state": "translated", "value": "Detail kopieren"}},
+        "fr": {"stringUnit": {"state": "translated", "value": "Copier le détail"}},
+        "ar": {"stringUnit": {"state": "translated", "value": "نسخ التفاصيل"}},
+        "es": {"stringUnit": {"state": "translated", "value": "Copiar detalle"}},
+        "zh-Hant": {"stringUnit": {"state": "translated", "value": "複製詳細內容"}},
+        "zh-Hans": {"stringUnit": {"state": "translated", "value": "复制详细内容"}},
+        "ko": {"stringUnit": {"state": "translated", "value": "세부 내용 복사"}},
+        "ja": {"stringUnit": {"state": "translated", "value": "詳細をコピー"}}
+      }
+    },
+    "mobile.chief.preview.table": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "Table: %@"}},
+        "de": {"stringUnit": {"state": "translated", "value": "Tabelle: %@"}},
+        "fr": {"stringUnit": {"state": "translated", "value": "Tableau : %@"}},
+        "ar": {"stringUnit": {"state": "translated", "value": "جدول: %@"}},
+        "es": {"stringUnit": {"state": "translated", "value": "Tabla: %@"}},
+        "zh-Hant": {"stringUnit": {"state": "translated", "value": "表格：%@"}},
+        "zh-Hans": {"stringUnit": {"state": "translated", "value": "表格：%@"}},
+        "ko": {"stringUnit": {"state": "translated", "value": "표: %@"}},
+        "ja": {"stringUnit": {"state": "translated", "value": "表: %@"}}
+      }
+    },
+    "mobile.chief.preview.tableUntitled": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "Table"}},
+        "de": {"stringUnit": {"state": "translated", "value": "Tabelle"}},
+        "fr": {"stringUnit": {"state": "translated", "value": "Tableau"}},
+        "ar": {"stringUnit": {"state": "translated", "value": "جدول"}},
+        "es": {"stringUnit": {"state": "translated", "value": "Tabla"}},
+        "zh-Hant": {"stringUnit": {"state": "translated", "value": "表格"}},
+        "zh-Hans": {"stringUnit": {"state": "translated", "value": "表格"}},
+        "ko": {"stringUnit": {"state": "translated", "value": "표"}},
+        "ja": {"stringUnit": {"state": "translated", "value": "表"}}
+      }
+    },
+    "mobile.chief.preview.image": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "Image"}},
+        "de": {"stringUnit": {"state": "translated", "value": "Bild"}},
+        "fr": {"stringUnit": {"state": "translated", "value": "Image"}},
+        "ar": {"stringUnit": {"state": "translated", "value": "صورة"}},
+        "es": {"stringUnit": {"state": "translated", "value": "Imagen"}},
+        "zh-Hant": {"stringUnit": {"state": "translated", "value": "圖片"}},
+        "zh-Hans": {"stringUnit": {"state": "translated", "value": "图片"}},
+        "ko": {"stringUnit": {"state": "translated", "value": "이미지"}},
+        "ja": {"stringUnit": {"state": "translated", "value": "画像"}}
+      }
+    },
+    "mobile.chief.preview.images": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "%lld images"}},
+        "de": {"stringUnit": {"state": "translated", "value": "%lld Bilder"}},
+        "fr": {"stringUnit": {"state": "translated", "value": "%lld images"}},
+        "ar": {"stringUnit": {"state": "translated", "value": "%lld صور"}},
+        "es": {"stringUnit": {"state": "translated", "value": "%lld imágenes"}},
+        "zh-Hant": {"stringUnit": {"state": "translated", "value": "%lld 張圖片"}},
+        "zh-Hans": {"stringUnit": {"state": "translated", "value": "%lld 张图片"}},
+        "ko": {"stringUnit": {"state": "translated", "value": "이미지 %lld개"}},
+        "ja": {"stringUnit": {"state": "translated", "value": "画像 %lld 枚"}}
+      }
+    },
     "mobile.chief.slash.source.chief": {
       "extractionState": "manual",
       "localizations": {
@@ -393,46 +463,46 @@
         "ja": {"stringUnit": {"state": "translated", "value": "Chief はこの返信を完了できませんでした。"}}
       }
     },
-    "mobile.chief.macRetrying": {
+    "mobile.chief.engineMacUnavailable": {
       "extractionState": "manual",
       "localizations": {
-        "en": {"stringUnit": {"state": "translated", "value": "Mac unavailable · Retrying…"}},
-        "de": {"stringUnit": {"state": "translated", "value": "Mac nicht verfügbar · Wird erneut versucht…"}},
-        "fr": {"stringUnit": {"state": "translated", "value": "Mac indisponible · Nouvelle tentative…"}},
-        "ar": {"stringUnit": {"state": "translated", "value": "جهاز Mac غير متاح · جارٍ إعادة المحاولة…"}},
-        "es": {"stringUnit": {"state": "translated", "value": "Mac no disponible · Reintentando…"}},
-        "zh-Hant": {"stringUnit": {"state": "translated", "value": "Mac 無法使用 · 正在重試…"}},
-        "zh-Hans": {"stringUnit": {"state": "translated", "value": "Mac 不可用 · 正在重试…"}},
-        "ko": {"stringUnit": {"state": "translated", "value": "Mac을 사용할 수 없음 · 다시 시도 중…"}},
-        "ja": {"stringUnit": {"state": "translated", "value": "Mac を利用できません · 再試行中…"}}
+        "en": {"stringUnit": {"state": "translated", "value": "Mac unavailable"}},
+        "de": {"stringUnit": {"state": "translated", "value": "Mac nicht verfügbar"}},
+        "fr": {"stringUnit": {"state": "translated", "value": "Mac indisponible"}},
+        "ar": {"stringUnit": {"state": "translated", "value": "جهاز Mac غير متاح"}},
+        "es": {"stringUnit": {"state": "translated", "value": "Mac no disponible"}},
+        "zh-Hant": {"stringUnit": {"state": "translated", "value": "Mac 無法使用"}},
+        "zh-Hans": {"stringUnit": {"state": "translated", "value": "Mac 不可用"}},
+        "ko": {"stringUnit": {"state": "translated", "value": "Mac을 사용할 수 없음"}},
+        "ja": {"stringUnit": {"state": "translated", "value": "Mac を利用できません"}}
       }
     },
-    "mobile.chief.busyRetrying": {
+    "mobile.chief.engineBusy": {
       "extractionState": "manual",
       "localizations": {
-        "en": {"stringUnit": {"state": "translated", "value": "Chief busy · Retrying…"}},
-        "de": {"stringUnit": {"state": "translated", "value": "Chief ausgelastet · Wird erneut versucht…"}},
-        "fr": {"stringUnit": {"state": "translated", "value": "Chief occupé · Nouvelle tentative…"}},
-        "ar": {"stringUnit": {"state": "translated", "value": "Chief مشغول · جارٍ إعادة المحاولة…"}},
-        "es": {"stringUnit": {"state": "translated", "value": "Chief ocupado · Reintentando…"}},
-        "zh-Hant": {"stringUnit": {"state": "translated", "value": "Chief 忙碌中 · 正在重試…"}},
-        "zh-Hans": {"stringUnit": {"state": "translated", "value": "Chief 正忙 · 正在重试…"}},
-        "ko": {"stringUnit": {"state": "translated", "value": "Chief 사용 중 · 다시 시도 중…"}},
-        "ja": {"stringUnit": {"state": "translated", "value": "Chief はビジー状態 · 再試行中…"}}
+        "en": {"stringUnit": {"state": "translated", "value": "Chief busy"}},
+        "de": {"stringUnit": {"state": "translated", "value": "Chief ausgelastet"}},
+        "fr": {"stringUnit": {"state": "translated", "value": "Chief occupé"}},
+        "ar": {"stringUnit": {"state": "translated", "value": "Chief مشغول"}},
+        "es": {"stringUnit": {"state": "translated", "value": "Chief ocupado"}},
+        "zh-Hant": {"stringUnit": {"state": "translated", "value": "Chief 忙碌中"}},
+        "zh-Hans": {"stringUnit": {"state": "translated", "value": "Chief 正忙"}},
+        "ko": {"stringUnit": {"state": "translated", "value": "Chief 사용 중"}},
+        "ja": {"stringUnit": {"state": "translated", "value": "Chief はビジー状態"}}
       }
     },
-    "mobile.chief.modelsRetrying": {
+    "mobile.chief.engineModelsUnavailable": {
       "extractionState": "manual",
       "localizations": {
-        "en": {"stringUnit": {"state": "translated", "value": "Models unavailable · Retrying…"}},
-        "de": {"stringUnit": {"state": "translated", "value": "Modelle nicht verfügbar · Wird erneut versucht…"}},
-        "fr": {"stringUnit": {"state": "translated", "value": "Modèles indisponibles · Nouvelle tentative…"}},
-        "ar": {"stringUnit": {"state": "translated", "value": "النماذج غير متاحة · جارٍ إعادة المحاولة…"}},
-        "es": {"stringUnit": {"state": "translated", "value": "Modelos no disponibles · Reintentando…"}},
-        "zh-Hant": {"stringUnit": {"state": "translated", "value": "模型無法使用 · 正在重試…"}},
-        "zh-Hans": {"stringUnit": {"state": "translated", "value": "模型不可用 · 正在重试…"}},
-        "ko": {"stringUnit": {"state": "translated", "value": "모델을 사용할 수 없음 · 다시 시도 중…"}},
-        "ja": {"stringUnit": {"state": "translated", "value": "モデルを利用できません · 再試行中…"}}
+        "en": {"stringUnit": {"state": "translated", "value": "Models unavailable"}},
+        "de": {"stringUnit": {"state": "translated", "value": "Modelle nicht verfügbar"}},
+        "fr": {"stringUnit": {"state": "translated", "value": "Modèles indisponibles"}},
+        "ar": {"stringUnit": {"state": "translated", "value": "النماذج غير متاحة"}},
+        "es": {"stringUnit": {"state": "translated", "value": "Modelos no disponibles"}},
+        "zh-Hant": {"stringUnit": {"state": "translated", "value": "模型無法使用"}},
+        "zh-Hans": {"stringUnit": {"state": "translated", "value": "模型不可用"}},
+        "ko": {"stringUnit": {"state": "translated", "value": "모델을 사용할 수 없음"}},
+        "ja": {"stringUnit": {"state": "translated", "value": "モデルを利用できません"}}
       }
     },
     "mobile.chief.settingsFailed": {
@@ -533,62 +603,6 @@
         "ja": {"stringUnit": {"state": "translated", "value": "Chief を停止できませんでした。もう一度お試しください。"}}
       }
     },
-    "mobile.chief.outbox.waiting": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {"stringUnit": {"state": "translated", "value": "Sends when connected"}},
-        "de": {"stringUnit": {"state": "translated", "value": "Wird gesendet, sobald eine Verbindung besteht"}},
-        "fr": {"stringUnit": {"state": "translated", "value": "Envoi dès la reconnexion"}},
-        "ar": {"stringUnit": {"state": "translated", "value": "يُرسل عند الاتصال"}},
-        "es": {"stringUnit": {"state": "translated", "value": "Se envía al conectarse"}},
-        "zh-Hant": {"stringUnit": {"state": "translated", "value": "連線後傳送"}},
-        "zh-Hans": {"stringUnit": {"state": "translated", "value": "连接后发送"}},
-        "ko": {"stringUnit": {"state": "translated", "value": "연결되면 전송됨"}},
-        "ja": {"stringUnit": {"state": "translated", "value": "接続時に送信"}}
-      }
-    },
-    "mobile.chief.outbox.photos": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {"stringUnit": {"state": "translated", "value": "Photos"}},
-        "de": {"stringUnit": {"state": "translated", "value": "Fotos"}},
-        "fr": {"stringUnit": {"state": "translated", "value": "Photos jointes"}},
-        "ar": {"stringUnit": {"state": "translated", "value": "الصور"}},
-        "es": {"stringUnit": {"state": "translated", "value": "Fotos"}},
-        "zh-Hant": {"stringUnit": {"state": "translated", "value": "照片"}},
-        "zh-Hans": {"stringUnit": {"state": "translated", "value": "照片"}},
-        "ko": {"stringUnit": {"state": "translated", "value": "사진"}},
-        "ja": {"stringUnit": {"state": "translated", "value": "写真"}}
-      }
-    },
-    "mobile.chief.outbox.retry": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {"stringUnit": {"state": "translated", "value": "Retry"}},
-        "de": {"stringUnit": {"state": "translated", "value": "Erneut versuchen"}},
-        "fr": {"stringUnit": {"state": "translated", "value": "Réessayer"}},
-        "ar": {"stringUnit": {"state": "translated", "value": "إعادة المحاولة"}},
-        "es": {"stringUnit": {"state": "translated", "value": "Reintentar"}},
-        "zh-Hant": {"stringUnit": {"state": "translated", "value": "重試"}},
-        "zh-Hans": {"stringUnit": {"state": "translated", "value": "重试"}},
-        "ko": {"stringUnit": {"state": "translated", "value": "다시 시도"}},
-        "ja": {"stringUnit": {"state": "translated", "value": "再試行"}}
-      }
-    },
-    "mobile.chief.outbox.deleteAll": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {"stringUnit": {"state": "translated", "value": "Delete All"}},
-        "de": {"stringUnit": {"state": "translated", "value": "Alle löschen"}},
-        "fr": {"stringUnit": {"state": "translated", "value": "Tout supprimer"}},
-        "ar": {"stringUnit": {"state": "translated", "value": "حذف الكل"}},
-        "es": {"stringUnit": {"state": "translated", "value": "Eliminar todo"}},
-        "zh-Hant": {"stringUnit": {"state": "translated", "value": "全部刪除"}},
-        "zh-Hans": {"stringUnit": {"state": "translated", "value": "全部删除"}},
-        "ko": {"stringUnit": {"state": "translated", "value": "모두 삭제"}},
-        "ja": {"stringUnit": {"state": "translated", "value": "すべて削除"}}
-      }
-    },
     "mobile.chief.diagnostics": {
       "extractionState": "manual",
       "localizations": {
@@ -601,6 +615,34 @@
         "zh-Hans": {"stringUnit": {"state": "translated", "value": "诊断"}},
         "ko": {"stringUnit": {"state": "translated", "value": "진단"}},
         "ja": {"stringUnit": {"state": "translated", "value": "診断"}}
+      }
+    },
+    "mobile.chief.github.reconnect": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "Reconnect needed"}},
+        "de": {"stringUnit": {"state": "translated", "value": "Erneut verbinden"}},
+        "fr": {"stringUnit": {"state": "translated", "value": "Reconnexion requise"}},
+        "ar": {"stringUnit": {"state": "translated", "value": "مطلوب إعادة الاتصال"}},
+        "es": {"stringUnit": {"state": "translated", "value": "Reconexión necesaria"}},
+        "zh-Hant": {"stringUnit": {"state": "translated", "value": "需要重新連接"}},
+        "zh-Hans": {"stringUnit": {"state": "translated", "value": "需要重新连接"}},
+        "ko": {"stringUnit": {"state": "translated", "value": "다시 연결 필요"}},
+        "ja": {"stringUnit": {"state": "translated", "value": "再接続が必要"}}
+      }
+    },
+    "mobile.chief.github.error": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "GitHub error"}},
+        "de": {"stringUnit": {"state": "translated", "value": "GitHub-Fehler"}},
+        "fr": {"stringUnit": {"state": "translated", "value": "Erreur GitHub"}},
+        "ar": {"stringUnit": {"state": "translated", "value": "خطأ في GitHub"}},
+        "es": {"stringUnit": {"state": "translated", "value": "Error de GitHub"}},
+        "zh-Hant": {"stringUnit": {"state": "translated", "value": "GitHub 錯誤"}},
+        "zh-Hans": {"stringUnit": {"state": "translated", "value": "GitHub 错误"}},
+        "ko": {"stringUnit": {"state": "translated", "value": "GitHub 오류"}},
+        "ja": {"stringUnit": {"state": "translated", "value": "GitHub エラー"}}
       }
     }
   },

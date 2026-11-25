@@ -182,5 +182,20 @@ class CallSiteTests(unittest.TestCase):
         self.assertEqual(self.slept, [], "the redirect retried after the lookup spent the deadline")
 
 
+class WorkflowTests(unittest.TestCase):
+    def test_every_ranged_download_with_a_fallback_has_its_own_step_timeout(self) -> None:
+        # A range that trickles under the stall bound could hold the step past the job's timeout; the job is then
+        # cancelled and the download-artifact fallback (no always()) never runs (Codex review of #42332).
+        import yaml
+        jobs = yaml.safe_load((ROOT / ".github/workflows/nightly.yml").read_text())["jobs"]
+        steps = [(job, step) for job, spec in jobs.items() for step in spec.get("steps") or []
+                 if "download-run-artifact.py" in str(step.get("run", ""))]
+        # Five since #51894 deleted the nightly-next sign stage's download.
+        self.assertGreaterEqual(len(steps), 5)
+        unbounded = [f"{job}: {step.get('name')}" for job, step in steps
+                     if step.get("continue-on-error") and not step.get("timeout-minutes")]
+        self.assertEqual(unbounded, [])
+
+
 if __name__ == "__main__":
     unittest.main()

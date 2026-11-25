@@ -66,6 +66,28 @@ type AuthErrorMessages = {
 };
 
 describe("localized browser auth error page", () => {
+  test("a ChatGPT sign-in for an email that already has an account asks for the usual sign-in, then links", async () => {
+    acceptLanguage = "en";
+    const link = "/handler/chatgpt/link?return_to=%2Fhandler%2Fsign-in";
+    const element = await AuthErrorPage({
+      searchParams: Promise.resolve({ code: "chatgpt-link", after_auth_return_to: link }),
+    });
+    const html = renderToStaticMarkup(element);
+    expect(html).toContain('data-auth-error="chatgptLink"');
+    expect(html).toContain("Sign in once to connect ChatGPT");
+    expect(html).toContain(`href="/handler/sign-in?after_auth_return_to=${encodeURIComponent(link).replace(/%2F/g, "%2F")}"`);
+  });
+
+  test("every locale has the ChatGPT sign-in states", () => {
+    for (const locale of locales) {
+      const messages = messagesByLocale[locale].authError as Record<string, string>;
+      for (const key of ["chatgptLinkTitle", "chatgptLinkBody", "chatgptEmailUnverifiedBody"]) {
+        expect(messages[key]?.length ?? 0).toBeGreaterThan(0);
+        if (locale !== "en") expect(messages[key]).not.toBe((englishMessages.authError as Record<string, string>)[key]);
+      }
+    }
+  });
+
   test("renders safe unverified-email guidance without upstream details", async () => {
     acceptLanguage = "en-US,en;q=0.9";
     const element = await AuthErrorPage({

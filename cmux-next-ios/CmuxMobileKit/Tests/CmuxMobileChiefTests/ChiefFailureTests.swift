@@ -128,7 +128,10 @@ let gatewayOutage = "(turn failed on claude: API Error: 503 no non-exhausted cla
         // The old copy blamed Chief for any of these.
         for problem in [ChiefEngineProblem.macUnreachable, .chiefBusy, .modelsUnavailable] {
             #expect(!problem.loadText.contains("didn't answer. Try again"))
+            // Leo 2026-11-22: "remove them all": the line sits beside Try Again and never narrates retries.
+            #expect(!problem.loadText.contains("Retrying"))
         }
+        #expect(ChiefEngineProblem.macUnreachable.loadText == "Mac unavailable")
     }
 
     @Test func aReplyDeadlineEndsAWaitOnAQuietLink() async throws {
@@ -193,8 +196,7 @@ final class ScriptedChiefMac: @unchecked Sendable {
     func session(_ mac: ScriptedChiefMac, preferences: ChiefPreferences, macID: String?) async throws -> ChiefSession {
         let link = MockMacLink { _, request in mac.respond(request) }
         let client = DaemonClient(channel: try await link.openChannel(service: "chief", args: [:]))
-        let session = ChiefSession(backend: ChiefOfflineBackend(), preferences: preferences,
-                                   outbox: ChiefOutbox(file: nil), clock: ImmediateClock())
+        let session = ChiefSession(backend: ChiefOfflineBackend(), preferences: preferences, clock: ImmediateClock())
         session.macID = macID
         session.use(ChiefDaemonBackend(client: client, preferences: preferences))
         return session

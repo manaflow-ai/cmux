@@ -3,7 +3,7 @@
 //! "You've hit your weekly limit · resets Nov 14, 1pm (UTC)", so every start paid for a machine its
 //! agent could not use). Leo, 2026-11-10: "i already told you to test these".
 //!
-//! The app gives a Claude start the person's own Claude login (`harness_login`). Before the lease it
+//! The app gives a Claude start the person's own Claude login. Before the lease it
 //! asks Anthropic once with that login for the cheapest possible answer (one token of the smallest
 //! model) and hands this module the reply's status and its `anthropic-ratelimit-unified-*` headers,
 //! the same headers Claude Code turns into its `rate_limit_event`. [`check`] reads them: a login
@@ -144,7 +144,7 @@ pub fn limit(probe: &Probe) -> Option<Limit> {
     Some(Limit { window, resets_at })
 }
 
-/// What [`check`] reads: the start's agent (as `harness_login::login_provider` reads it) and model
+/// What [`check`] reads: the start's agent (as [`probes`] reads it) and model
 /// (None: the harness default), the probe's reply when the app made one, and the time now (unix
 /// seconds).
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -157,10 +157,15 @@ pub struct Request {
 }
 
 /// A start refused before its lease: a code and the person's words (what is wrong, and what to do).
+/// `until_at` (`untilAt` in JSON) is when the used-up limit resets ("2026-11-18T03:00:00Z"), when the reply named it: the
+/// app hands it to a caller with the code (a CLI's JSON error), so no caller reads the words.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct Refusal {
     pub code: String,
     pub message: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub until_at: Option<String>,
 }
 
 /// [`check`]'s answer: the refusal (None: start), the limit it read, and until when (unix seconds) the
@@ -174,8 +179,17 @@ pub struct Answer {
 }
 
 /// Whether a start of `harness` asks Anthropic before its lease: a Claude start only.
+/// No agent named is Claude (acpmux's default); otherwise the name's family (`claude-code-acp`,
+/// `/usr/bin/claude`) decides.
 pub fn probes(harness: Option<&str>) -> bool {
-    crate::harness_login::login_provider(harness) == Some(crate::harness_login::Provider::Claude)
+    let Some(harness) = harness.filter(|h| !h.is_empty()) else { return true };
+    harness
+        .rsplit('/')
+        .next()
+        .and_then(|name| {
+            name.split(|c: char| c == '-' || c == '_' || c.is_whitespace()).find(|p| !p.is_empty())
+        })
+        .is_some_and(|family| family.eq_ignore_ascii_case("claude"))
 }
 
 /// The start's answer. A Claude start whose probe reports a used-up limit that has not reset yet,
@@ -205,7 +219,11 @@ pub fn check(request: &Request) -> Answer {
         ),
     };
     Answer {
-        refusal: Some(Refusal { code: CODE.to_owned(), message }),
+        refusal: Some(Refusal {
+            code: CODE.to_owned(),
+            message,
+            until_at: found.resets_at.map(utc_iso),
+        }),
         limit: Some(found),
         fresh_until: found.resets_at.unwrap_or(request.now + SPENT_UNKNOWN_RESET_SECONDS),
     }
@@ -235,6 +253,18 @@ pub fn utc_words(at: i64, now: i64) -> String {
         let name = MONTHS.get(usize::try_from(month - 1).unwrap_or(0)).copied().unwrap_or("Jan");
         format!("{name} {day}, {time} UTC")
     }
+}
+
+/// `at` (unix seconds) as an RFC 3339 UTC time to the second: "2026-11-18T03:00:00Z".
+pub fn utc_iso(at: i64) -> String {
+    let (year, month, day) = civil(at.div_euclid(86_400));
+    let seconds = at.rem_euclid(86_400);
+    format!(
+        "{year:04}-{month:02}-{day:02}T{:02}:{:02}:{:02}Z",
+        seconds / 3600,
+        (seconds % 3600) / 60,
+        seconds % 60
+    )
 }
 
 /// The proleptic Gregorian (year, month 1-12, day 1-31) of `days` since 1970-01-01 (Howard

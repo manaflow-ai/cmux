@@ -350,6 +350,26 @@ impl BuildIdentity {
         })
     }
 
+    /// The app daemon's state directory (`CMUX_TUI_STATE_DIR`) under
+    /// `app_support` (`~/Library/Application Support/cmux-next` for a real
+    /// app): `tags/<tag>/tui` for a kept tag, `builds/<key>/tui` for names
+    /// of the key, `None` for release (cmux-tui's default root) and outside
+    /// any bundle (CmuxNext `BuildIdentity.daemonStateDirectory(appSupport:)`,
+    /// vectors `app_daemon.state_dir`). An untagged channel app that adopted
+    /// the old shared session runs on the default root instead
+    /// ([`Self::legacy_session_marker`]); callers check that first.
+    pub fn daemon_state_dir(&self, app_support: &Path) -> Option<PathBuf> {
+        if self.kind == BuildKind::Unbundled {
+            return None;
+        }
+        match &self.kept {
+            Some(KeptNames { session_tag, .. }) => {
+                session_tag.as_ref().map(|tag| app_support.join("tags").join(tag).join("tui"))
+            }
+            None => Some(app_support.join("builds").join(&self.key).join("tui")),
+        }
+    }
+
     /// This build's directory under `~/Library/Application Support/cmux`
     /// (`app_support` is that `cmux` directory): the directory itself for
     /// NIGHTLY and outside any bundle, else `builds/<key>` below it.
@@ -435,22 +455,9 @@ pub fn path_identity(path: &Path) -> std::borrow::Cow<'_, Path> {
 }
 
 #[cfg(test)]
-mod path_identity_tests {
-    use super::path_identity;
-    use std::path::Path;
+#[path = "build_identity_path_identity_tests.rs"]
+mod path_identity_tests;
 
-    #[test]
-    fn a_moved_state_path_keeps_its_name_from_before_the_move() {
-        let support = Path::new("/Users/a/Library/Application Support");
-        let at = |folder: &str, rest: &str| support.join(folder).join(rest);
-        for rest in ["tags/nightly/tui/terminal-hosts-x", "builds/k1/tui"] {
-            assert_eq!(path_identity(&at("cmux-next", rest)), at("cmux", rest));
-        }
-        for own in [
-            Path::new("/Users/a/.local/state/cmux-tui").to_path_buf(),
-            at("cmux-next", "agent-home"),
-        ] {
-            assert_eq!(path_identity(&own), own);
-        }
-    }
-}
+#[cfg(test)]
+#[path = "build_identity_daemon_state_dir_tests.rs"]
+mod daemon_state_dir_tests;

@@ -2,7 +2,7 @@
 """cmux-next guardrails: refuse new architecture debt in what a push adds; warn on hot paths and owned areas.
 
 Run by the pre-push hook through `prepush-gate.py --pre-push` (and by a plain local `prepush-gate.py`),
-never by CI (Lawrence 2026-10-23: no new CI gates). Only Swift lines the push ADDS under
+never by CI (Lawrence 2026-10-23: no new CI gates, lifted 2026-11-18). Only Swift lines the push ADDS under
 Packages/macOS/CmuxNext/Sources count, plus unchanged lines that become debt because the push changed the
 line that gives them their context (`struct` -> `class` around a static, a view renamed to a `...Row`, an
 edited or deleted deinit in a generic class's body, or a type made generic around the classes in its
@@ -39,7 +39,8 @@ Warnings (never refuse):
             its declaration, trailing on the declaration line, or trailing on the `{` line of a wrapped
             signature); names the bench from scripts/cmux-next/perf-hot-benches.json to run before and after
             on the fleet. A marker the push touches that marks no declaration warns too.
-  owner     the push touches an area in plans/cmux-next/OWNERS.md; names the owner and the doc to read.
+  owner     the push touches an area in plans/cmux-next/OWNERS.md; names the owner and the doc to read. On a
+            local push, the live session holding it now (owner_live.py) is named and sent the push.
 
 `app-size` is a net count over the push, not a per-line rule, in source lines as CI's check-app-size.sh --base
 counts them (count-swift-code-lines.py's lexer: blank and comment lines never count, either way). It refuses
@@ -108,8 +109,10 @@ SWIFT_IOS = tuple(f":(glob){prefix}**/*.swift" for prefix in IOS_SOURCES)
 SHIPPED_BUILD = (".github/workflows/", "scripts/build-sign-upload.sh", "Packages/macOS/CmuxNext/Package.swift")
 SHIPPED_BUILD_SPECS = (".github/workflows", "scripts/build-sign-upload.sh", "Packages/macOS/CmuxNext/Package.swift",
                        ":(glob)**/*.xcconfig", ":(glob)**/project.pbxproj")
+# The shell scripts plist-missing-file reads (and the workflows, above).
+SHELL_SPECS = (":(glob)scripts/**/*.sh",)
 APP = SOURCES + "CmuxNextApp/"
-UPSTREAM = "origin/feat-cmux-next"
+UPSTREAM = "refs/remotes/origin/feat-cmux-next"  # full name, never a local branch `origin/...` (push_range.UPSTREAM)
 OWNERS = "plans/cmux-next/OWNERS.md"
 BENCHES = "scripts/cmux-next/perf-hot-benches.json"
 SKIP_ENV = "CMUX_GUARDRAILS_SKIP_REASON"
@@ -576,7 +579,9 @@ def lex_cache_dir(repo: Path) -> Path | None:
     the .git entry, not a git process (check() runs a fixed number of them)."""
     try:
         dot = repo / ".git"
-        if dot.is_dir():
+        if not dot.exists() and (repo / "objects").is_dir() and (repo / "HEAD").is_file():
+            common = repo  # a clone with no work tree (a bare mirror): REPO is its git dir, the common dir
+        elif dot.is_dir():
             common = dot
         else:
             gitdir = Path(dot.read_text().split("gitdir:", 1)[1].strip())
@@ -589,10 +594,12 @@ def lex_cache_dir(repo: Path) -> Path | None:
 
 
 def in_diff_scope(path: str) -> bool:
-    """PATH is one of check()'s diff pathspecs (SWIFT_SOURCES, SWIFT_TESTS, SWIFT_IOS, SHIPPED_BUILD_SPECS), so its blobs are read
-    while the content diff runs. A path this misses is read after the diff (check()'s late read)."""
+    """PATH is one of check()'s diff pathspecs (SWIFT_SOURCES, SWIFT_TESTS, SWIFT_IOS, SHIPPED_BUILD_SPECS,
+    SHELL_SPECS), so its blobs are read while the content diff runs. A path this misses is read after the diff
+    (check()'s late read)."""
     return ((path.startswith((SOURCES, TESTS, *IOS_SOURCES)) and path.endswith(".swift"))
             or path.startswith(".github/workflows/")
+            or (path.startswith("scripts/") and path.endswith(".sh"))
             or path in ("scripts/build-sign-upload.sh", "Packages/macOS/CmuxNext/Package.swift")
             or path.endswith(".xcconfig") or path.split("/")[-1] == "project.pbxproj")
 
@@ -2023,6 +2030,53 @@ def computing_observation_on_change(version: Version, index: int) -> tuple[bool,
     return memo.get(index, (False, []))
 
 
+# A silenced PlistBuddy read of a plist file: `PlistBuddy -c 'Print :KEY' FILE 2>/dev/null`. On a FILE that is not
+# there, Print writes "File Doesn't Exist, Will Create: FILE" to stdout, so the `$(...)` takes the message as the value
+# (#45226: a Release build's Screen Sharing helper got that name and its mv failed).
+PLIST_PRINT = re.compile(r"PlistBuddy\b.*\bPrint\b")  # unguarded_plist_read then needs `2>/dev/null` in the command
+PLIST_SILENCED = re.compile(r"2>\s*/dev/null")
+PLIST_CONTINUED_LINES = 4  # a command read on through this many `\`-continued lines after its first
+PLIST_FILE = re.compile(r"""PlistBuddy\s+(?:-x\s+)?(?:-c\s+(?:'[^']*'|"[^"]*")\s+)+("[^"]*"|[^\s;|)]+)""")
+SHELL_FUNCTION = re.compile(r"^\s*(?:function\s+)?[\w-]+\s*\(\)\s*\{")
+PLIST_GUARD_LINES = 8  # a `[[ -f FILE ]]` on the line or this many lines above it guards it
+PLIST_ALLOW = re.compile(r"#\s*plist-exists:\s*\S")
+
+
+def shell_code(line: str) -> str:
+    """A shell line as the PlistBuddy rule reads it: a comment line reads as nothing."""
+    return "" if line.lstrip().startswith("#") else line
+
+
+def shell_escape_window(lines: list[str], index: int) -> list[int]:
+    """The line and the one above it, whose `# plist-exists:` comment can escape it."""
+    return [index] + ([index - 1] if index > 0 else [])
+
+
+def unguarded_plist_read(version: Version, index: int) -> tuple[bool, list[int]]:
+    """Whether the silenced Print on line INDEX reads a FILE that no `-f FILE`, `-e FILE` or `-s FILE` test on the
+    line or the PLIST_GUARD_LINES above it checks (and those 1-based lines: a push that deletes the guard makes it
+    new debt). For a function's argument (`"$1"`) the window stops at the read's own function line: a check of
+    `"$1"` in the function above guards nothing here. A commented-out check and a `! -f` test are no check. Stdin reads no file.
+    The command is read on through lines that end in `\\`, so a `2>/dev/null` or the FILE on a continued line counts
+    (and those lines are in the window: an edit there rejudges the read)."""
+    command, last = version.lines[index], index
+    while (command.rstrip().endswith("\\") and last + 1 < len(version.lines)
+           and last - index < PLIST_CONTINUED_LINES):
+        last += 1
+        command = command.rstrip()[:-1] + " " + version.lines[last].lstrip()
+    found = PLIST_FILE.search(command)
+    if (found is None or not PLIST_SILENCED.search(command[found.start():])
+            or found.group(1).strip('"') in ("/dev/stdin", "-")):
+        return False, []
+    start, positional = index, re.search(r"\$\{?[1-9]", found.group(1)) is not None
+    while start > max(0, index - PLIST_GUARD_LINES) and not (positional and SHELL_FUNCTION.search(version.lines[start])):
+        start -= 1
+    window = list(range(start, index + 1))
+    guard = re.compile(r"(?:^|[\s\[(])(?<!!\s)-[fes]\s+" + re.escape(found.group(1)) + r"(?:\s|\]|$)")
+    guarded = any(guard.search(shell_code(version.lines[j])) for j in window)
+    return not guarded, [j + 1 for j in window + list(range(index + 1, last + 1))]
+
+
 RULES = (
     Rule("unchecked-sendable", "`@unchecked Sendable` / `nonisolated(unsafe)` without a safety argument",
          "it switches off the data-race checker; without a written argument nobody can review it",
@@ -2083,6 +2137,15 @@ RULES = (
          None,
          line_rule(r"CMUX_BENCH_HOOKS|--config[= ]bench\b", None),
          scope=SHIPPED_BUILD + (".xcconfig", "project.pbxproj")),
+    Rule("plist-missing-file", "A silenced PlistBuddy `Print` of a plist file nothing checks is there",
+         "on a missing file Print writes \"File Doesn't Exist, Will Create: FILE\" to stdout, and `2>/dev/null || "
+         "true` keeps it: the `$(...)` gets that message as the value (#45226: a Release build's Screen Sharing "
+         "helper was named after it and its mv failed the build)",
+         "check the file first, on the line or in the 8 lines above: `[[ -f \"$plist\" ]] && v=\"$(... \"$plist\" "
+         "2>/dev/null || true)\"`, or `[[ -f \"$1\" ]] || return 0` at the top of a reader function",
+         "# plist-exists: <what made the file just above>",
+         matcher_rule(Matcher(PLIST_PRINT, PLIST_ALLOW, unguarded_plist_read, shell_code, shell_escape_window)),
+         scope=("scripts/", ".github/workflows/")),
     Rule("raw-observation", "A direct `withObservationTracking` outside the tracked wrappers",
          "the test that keeps a local change O(changed items) (NewTabWakesDoNotGrowWithSessionTests) counts only the "
          "trackings the wrappers arm (CmuxNextCompat `ObservationWakes`): an observer on a raw call can read the whole "
@@ -2133,6 +2196,24 @@ RULES = (
          "// index-allow: <why the index is valid here>",
          line_rule(r"\.(clickedRow|clickedColumn|selectedColumn)\b|\bitem\(atRow:|\bselectedRow\(inColumn:",
                    "index-allow:")),
+    Rule("module-strings", "A string read from `bundle: .module` (CMUX-570)",
+         "the app ships English only: the other languages are downloaded packs, read through `Bundle.localizedModule` "
+         "(`Bundle.module.inAppLanguage`, which also applies `app.language`); a lookup in `.module` stays English after the person's pack lands (14 came in "
+         "from feat-cmux-next in the day #45928 was open)",
+         "`bundle: .localizedModule` (the module's Bundle+AppLanguage.swift); in CmuxNextApp, `bundle: .module.inAppLanguage`",
+         "// module-strings-allow: <why this is not a localized string (an image, a resource file)>",
+         line_rule(r"\bbundle:\s*\.module\b(?!\.inAppLanguage)", "module-strings-allow:")),
+    Rule("path-name-by-stat", "A file URL made only to read a path's name "
+         "(`URL(fileURLWithPath: path).lastPathComponent` or `.pathExtension`)",
+         "that initializer runs lstat on the path to learn whether it is a folder before it answers from the "
+         "string. For another machine's folder (`/home/...` in a session row, a remote tab's cwd) macOS sends the "
+         "lstat through its automounter: 7 ms blocked plus 4 ms of automountd and opendirectoryd CPU per call, "
+         "once per session row on the feed's queue (cmux#47592)",
+         "read the name from the string: `(path as NSString).lastPathComponent` / `.pathExtension`; when a URL is "
+         "needed anyway, say what the path is (`URL(fileURLWithPath:isDirectory:)`, `URL(filePath:directoryHint:)`)",
+         "// path-stat-allow: <why this path is always on this Mac's own disk and the call is off every hot path>",
+         line_rule(r"\bURL\(fileURLWithPath:[^()]*\)\.(lastPathComponent|pathExtension)\b",
+                   "path-stat-allow:")),
     Rule("phone-width", "An iPhone layout that assumes a phone's width: a grid with a fixed column count "
          "(`GridItem(...), count: N`, two or more literal `GridItem(.flexible())`) or a literal iPhone screen width "
          "(375, 390, 393, 402, 414, 428, 430, 440) as a width",
@@ -2146,6 +2227,21 @@ RULES = (
          line_rule(r"\bGridItem\(.*\)\s*,\s*count:\s*\d|\[\s*GridItem\(\.flexible\b[^\]]*\bGridItem\(\.flexible\b"
                    r"|\bwidth:\s*(375|390|393|402|414|428|430|440)\b", "width-allow:"),
          scope=IOS_SOURCES),
+    Rule("plus-button", "A + button drawn by hand (the pack's `.actionAdd`, an SF Symbol `plus`, or the bare + path)",
+         "every + is the tab bar's New Tab + (Lawrence 2026-11-15: \"make the new tab plus button the standard for all "
+         "plus buttons (abstract it into a component)\"): a hand-built one drifts in size, weight, ink and hover "
+         "(the sidebar's group + was the pack's 7 pt + beside the tab bar's 9 pt one)",
+         "CmuxNextDesign's `PlusButtonLook` in the control's own view (as `NewTabButtonView` hosts it), "
+         "`SidebarIconButton(plus:)` in the sidebar, `PlusButton(label:)` for a plain button, or "
+         "`PlusButtonLook.drawGlyph(in:center:ink:)` in a `draw(_:)`",
+         "// plus-button-allow: <why this + is not a control (a menu row, a prototype)>",
+         matcher_rule(Matcher(re.compile(
+             r"\.actionAdd\b|\bCGPath\.addGlyph\(|\bNSImage\.addGlyph\("
+             r"|systemSymbolName:\s*\"plus(\.circle|\.square)?(\.fill)?\""
+             r"|\b(TitlebarBandButton|SidebarIconButton|OverflowButton|ClickableButton)\(symbol:\s*\"plus(\.circle)?(\.fill)?\""
+             r"|\.setSymbol\(\"plus(\.circle)?(\.fill)?\"\)|\bImage\(systemName:\s*\"plus(\.circle)?(\.fill)?\"\)"),
+             re.compile(r"//\s*plus-button-allow:\s*\S"),
+             code=lambda line: "" if COMMENT_LINE.match(line) else line.split(" //")[0]))),
     Rule("undo-text-write", "Undo turned on for a text view (`allowsUndo = true`)",
          "AppKit's `string` setter replaces the text without telling the undo manager: a typing action keeps its "
          "range into the old text and Cmd-Z raises NSRangeException (#24912)",
@@ -2205,6 +2301,7 @@ PACKAGE_MANIFEST = "Packages/macOS/CmuxNext/Package.swift"
 # The seams themselves (and Mutex, which reports contended waits) wrap the raw primitives on purpose.
 BLOCKING_SEAMS = (SOURCES + "CmuxNextCompat/Threading/", SOURCES + "CmuxNextCompat/Mutex.swift")
 BLOCKING_ALLOW = re.compile(r"//\s*blocking-allow:\s*\S")
+MAIN_ACTOR_URL_ALLOW = re.compile(r"//\s*main-actor-url-allow:\s*\S")
 FILE_OPS = (r"fileExists|isReadableFile|isWritableFile|isExecutableFile|createDirectory|removeItem|contentsOfDirectory|"
             r"subpathsOfDirectory|enumerator|createFile|contents|contentsEqual|attributesOfItem|attributesOfFileSystem|"
             r"setAttributes|moveItem|copyItem|linkItem|replaceItemAt|destinationOfSymbolicLink|createSymbolicLink|"
@@ -2466,6 +2563,48 @@ def blocking_on_main(changes: list[FileChange], moved: collections.Counter) -> l
     return changed_debt(outside_seams(changes), judge)
 
 
+URL_APPEND = re.compile(r"\.(?:appendingPathComponent\s*\(|appending\s*\(\s*path\s*:)")
+URL_HINT = re.compile(r"(?:^|,)\s*(?:isDirectory\s*:|directoryHint\s*:\s*\.(?:isDirectory|notDirectory|inferFromPath)\b)")
+
+
+def main_actor_url_append(changes: list[FileChange], moved: collections.Counter) -> list[Added]:
+    """Ratchet URL joins whose call spans changed, including a removed hint on a continuation line.
+
+    Mask literals/comments with the shared lexer, then judge each call separately. A hint in a nested
+    argument or a later chained call does not cover this call. Scan each version's isolation once.
+    Synchronous nonisolated helpers still need caller review: lexical isolation is not an executor hop.
+    """
+    def debt(version: Version, changed: list[Added]) -> list[Added]:
+        if not changed or not any("appending" in line for line in version.lines):
+            return []
+        text = observation_text(version)
+        main = main_actor_scope().main_actor_lines(version.lines, version.main_default)
+        touched = {line.number - 1 for line in changed}
+        out = []
+        for call in URL_APPEND.finditer(text.code):
+            start = text.line(call.start())
+            if not main[start] or escaped(version.lines, start, MAIN_ACTOR_URL_ALLOW):
+                continue
+            opening = text.code.index("(", call.start())
+            closing = matching(text.code, opening)
+            stop = text.line(min(closing, len(text.code) - 1))
+            if not any(line in touched for line in range(start, stop + 1)):
+                continue
+            # Keep only top-level arguments: a nested call's directory hint is not this call's hint.
+            arguments, at = [], opening + 1
+            while at < closing:
+                if text.code[at] in "([{":
+                    at = matching(text.code, at) + 1
+                    arguments.append("_")
+                else:
+                    arguments.append(text.code[at])
+                    at += 1
+            if not URL_HINT.search("".join(arguments)):
+                out.append(Added(version.path, start + 1, version.lines[start]))
+        return out
+    return resolve([(debt(*blocking_sides(c)[0]), debt(*blocking_sides(c)[1])) for c in changes])
+
+
 def maybe_blocking_on_main(changes: list[FileChange], moved: collections.Counter) -> list[Added]:
     """Added blocking calls (raw or seam) that may run on main through a caller-isolated async function
     (may_run_on_main): warnings only."""
@@ -2620,6 +2759,13 @@ BLOCKING_RULES = (
          "(`FileManager.checked`, `Data(blockingContentsOf:)`, `.blockingWait()`) are for code that runs off main",
          "// blocking-allow: <why this cannot leave the main thread, and its reviewed allowBlocking reason>",
          blocking_on_main),
+    Rule("main-actor-url-append", "A URL append without `directoryHint`/`isDirectory` in main-actor code",
+         "Foundation may stat the path to infer whether the appended component is a directory; on a slow or network "
+         "volume that synchronous lstat stalls the main actor",
+         "move the lookup off the main actor, and use `appending(path: ..., directoryHint: .isDirectory/.notDirectory)` "
+         "or `appendingPathComponent(_:isDirectory:)` when a main-actor URL must be built",
+         "// main-actor-url-allow: <why this is a non-file URL and cannot probe the filesystem>",
+         main_actor_url_append),
     Rule("raw-blocking", "A raw blocking primitive (file read/write, `.write(to:)`, `FileManager.default.<disk op>`, "
          "`.wait()`, `.sync {`, `waitUntilExit()`, `readToEnd()`, sync XPC, `posix_spawn`, `fork()`) instead of its "
          "checked seam",
@@ -2908,6 +3054,15 @@ def owner_warnings(files: list[str], owners: list[tuple[str, list[str], str, str
     (glob_specificity of its best glob), so a folder row (`cmux-tui/crates/cmux-tui-core/`) never names a second
     owner for a file a narrower row assigns (`cmux-tui/crates/cmux-tui-core/src/holder_runtime/`); rows tied on the
     same glob both name theirs. A file no row matches names no owner: a new crate has none until a row lists it."""
+    out = []
+    for area, owner, doc, hit in owner_hits(files, owners):
+        more = f" and {len(hit) - 1} more" if len(hit) > 1 else ""
+        out.append(f"touches {area} ({hit[0]}{more}): owner {owner}. Read {doc} first; tell the owner what changed.")
+    return out
+
+
+def owner_hits(files: list[str], owners: list[tuple[str, list[str], str, str]]) -> list[tuple[str, str, str, list[str]]]:
+    """(area, owner cell, doc, its files) for each owned area of FILES, by owner_warnings' most-specific-row rule."""
     hits: dict[int, list[str]] = collections.defaultdict(list)
     for path in files:
         scored = [(max(glob_specificity(g) for g in globs if glob_match(path, g)), row)
@@ -2917,12 +3072,64 @@ def owner_warnings(files: list[str], owners: list[tuple[str, list[str], str, str
             for score, row in scored:
                 if score == best:
                     hits[row].append(path)
+    return [(area, owner, doc, hits[row]) for row, (area, _, owner, doc) in enumerate(owners) if hits.get(row)]
+
+
+def load_owner_live():
+    """owner_live.py next to this file: who holds an OWNERS.md area now, and the notice to it."""
+    name = "cmux_next_owner_live"
+    if name in sys.modules:
+        return sys.modules[name]
+    spec = importlib.util.spec_from_file_location(name, Path(__file__).resolve().parent / "owner_live.py")
+    module = importlib.util.module_from_spec(spec)
+    sys.modules[name] = module
+    spec.loader.exec_module(module)
+    return module
+
+
+def owner_route(repo: Path, ranges: list, listing=None, coordinator: str | None = None) -> list[str]:
+    """The push's owned areas, each with the live session that holds it now (owner_live.holder), which gets one
+    notice per area and pushed head. LISTING: owner_live.list_sessions() unless given (tests). Lines for the
+    report; never a refusal, and nothing on CI or without acpmux."""
+    live = load_owner_live()
+    hits: dict[str, tuple[str, str, list[str], str]] = {}
+    for own in ranges:
+        if not own.head:
+            continue
+        try:
+            owners = parse_owners(git(repo, "show", f"{own.head}:{OWNERS}"))
+        except (Exception, SystemExit):
+            continue
+        names = [f for f in git(repo, "diff", "--name-only", own.base, own.head).split("\n") if f] if own.base else []
+        for area, cell, doc, files in owner_hits(names, owners):
+            prev = hits.get(area)
+            hits[area] = (cell, doc, sorted(set(files) | set(prev[2] if prev else [])), own.head)
+    if not hits:
+        return []
+    rows, error = listing if listing is not None else live.list_sessions()
+    if rows is None:
+        return [f"owner: no live holder looked up ({error})"] if error else []
+    try:
+        branch = git(repo, "rev-parse", "--abbrev-ref", "HEAD").strip() or None
+    except (Exception, SystemExit):
+        branch = None
     out = []
-    for row, (area, _, owner, doc) in enumerate(owners):
-        hit = hits.get(row)
-        if hit:
-            more = f" and {len(hit) - 1} more" if len(hit) > 1 else ""
-            out.append(f"touches {area} ({hit[0]}{more}): owner {owner}. Read {doc} first; tell the owner what changed.")
+    for area, (cell, doc, files, head) in hits.items():
+        who, how = live.holder(cell, rows, coordinator)
+        if not who:
+            out.append(f"owner: {area}: {how}. Tag a holder: `acpmux session tag SESSION owns=WORKSTREAM`.")
+            continue
+        fallback = live.is_fallback(how)
+        text = (live.unheld_notice if fallback else live.notice)(area, cell, files, head, branch, doc)
+        # A fallback hears of an unheld area once a UTC day, not every push into it (the coordinator flood of
+        # 2026-11-20); a holder hears of each branch once a UTC day, not each pushed head: on 2026-11-24 one
+        # branch's rebases sent its holder seven notices in 35 s and 20 branches sent 30. The notice names the
+        # branch, so the later heads are a `git log` away. A detached push (no branch) keys on its head.
+        day = time.strftime("day %Y-%m-%d", time.gmtime())
+        key = day if fallback else (f"{branch} {day}" if branch and branch != "HEAD" else head)
+        failed = live.notify(who, area, key, text)
+        out.append(f"owner: {area} is held by {who} ({how}); "
+                   + (f"not told: {failed}" if failed else "told of this push"))
     return out
 
 
@@ -3012,7 +3219,7 @@ def measure(repo: Path, base: str, head: str) -> tuple[list[tuple[Rule, list[Add
     """([(rule, every hit, measurements and warning hits included)], warnings) for what HEAD adds over BASE."""
     # Fixed prefixes: a user's diff.noprefix / diff.srcPrefix would otherwise drop every file from the parse. No
     # inter-hunk context: a user's diff.interHunkContext would join nearby hunks with unchanged lines between them.
-    specs = ["--", SWIFT_SOURCES, SWIFT_TESTS, *SWIFT_IOS, *SHIPPED_BUILD_SPECS]
+    specs = ["--", SWIFT_SOURCES, SWIFT_TESTS, *SWIFT_IOS, *SHIPPED_BUILD_SPECS, *SHELL_SPECS]
     env = {k: v for k, v in os.environ.items() if k not in ("GIT_INDEX_FILE", "GIT_WORK_TREE")}
     # The content diff and the blob read each decompress the same objects: on the slowest real pushes (242 files,
     # load 37) each took 0.7-1 s one after the other. The changed paths come first from a cheap name-only diff, so
@@ -3359,6 +3566,11 @@ def run_push(repo: Path, ranges: list, ratchet: Ratchet | None = None) -> bool:
         if pin:
             print(pin)
             refused = True
+    try:
+        for line in owner_route(repo, ranges):
+            print(line)
+    except Exception as error:  # fail open: a broken route must not stop the push
+        print(f"guardrails: {check_failure('owner-route', error)}")
     text, refuse = ratchet.finish()
     if text:
         print(text)
@@ -3388,7 +3600,10 @@ def main(argv: list[str] | None = None) -> int:
     started = time.monotonic()
     push_range = load_push_range()
     try:
-        own = push_range.given_range(repo, args.base, args.head) if args.base else push_range.own_range(repo, args.head)
+        # A run by hand fetches the shared base first, as a push does (push_range.manual_range); a failed fetch is
+        # in the note describe() prints, so a stale base is named, not used silently.
+        manual = getattr(push_range, "manual_range", None) or push_range.own_range
+        own = push_range.given_range(repo, args.base, args.head) if args.base else manual(repo, args.head)
     except ValueError as error:
         raise SystemExit(f"guardrails: {error}")
     print(f"guardrails: judging {own.describe()}")

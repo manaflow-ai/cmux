@@ -79,14 +79,19 @@ impl Hub {
             return;
         }
         let mut steer: Option<EventRecord> = None;
-        let scanned = self.store.scan_kinds(&session.id, STEER_KINDS, &mut |e: EventRecord| {
-            if e.dir == "mux" && e.msg.get("promptId").and_then(Value::as_str) == Some(prompt_id) {
-                // Queued, run, read, taken back, returned or refused since: settled.
-                steer = (e.kind == "user_message"
-                    && e.msg.get("steer") == Some(&Value::Bool(true)))
-                .then_some(e);
-            }
-            true
+        // Unindexed kinds: the whole log, off the runtime's workers (`qos::off_worker`).
+        let scanned = crate::qos::off_worker(|| {
+            self.scan_for_rebuild(session, STEER_KINDS, &mut |e: EventRecord| {
+                if e.dir == "mux"
+                    && e.msg.get("promptId").and_then(Value::as_str) == Some(prompt_id)
+                {
+                    // Queued, run, read, taken back, returned or refused since: settled.
+                    steer = (e.kind == "user_message"
+                        && e.msg.get("steer") == Some(&Value::Bool(true)))
+                    .then_some(e);
+                }
+                true
+            })
         });
         let Some(steer) = steer.filter(|_| scanned.is_ok()) else { return };
         if !runs_next(&steer.msg) {

@@ -56,6 +56,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import bench_memory as bm  # noqa: E402  (launch, App, sample, end_bundle, wait_gone)
 import bench_power as bp  # noqa: E402  (rpc, wipe_state)
 from safe_log import safe_print  # noqa: E402  (a line before a kill never skips the kill)
+from state_wait import wait_until, wait_stable, StateWaitTimeout  # noqa: E402
 
 PAGE = (b"<!doctype html><title>hover bench</title><body style='font:16px sans-serif'>"
         + b"<h1>Hover preload bench</h1>" + b"<p>" + b"Lorem ipsum dolor sit amet. " * 400 + b"</p></body>")
@@ -123,7 +124,29 @@ def start_vdisplay(hz: float, scratch: str, hold_s: int = 3600) -> tuple[subproc
     if not line.startswith("ready"):
         helper.kill()
         raise SystemExit(f"bench-hover-preload: no virtual display ({line or 'no line'})")
-    time.sleep(2)  # test script: WindowServer settles the new main display before the app opens on it
+    # The new display is the main one in this process's view of WindowServer too, and its bounds hold still, before
+    # the app opens on it. The helper says main=ID even when making it main failed; then only the bounds are waited on.
+    import ctypes
+    import ctypes.util
+
+    class Rect(ctypes.Structure):
+        _fields_ = [("x", ctypes.c_double), ("y", ctypes.c_double), ("w", ctypes.c_double), ("h", ctypes.c_double)]
+    cg = ctypes.CDLL(ctypes.util.find_library("CoreGraphics"))
+    cg.CGMainDisplayID.restype = ctypes.c_uint32
+    cg.CGDisplayBounds.restype = Rect
+    cg.CGDisplayBounds.argtypes = [ctypes.c_uint32]
+    parts = line.split()
+    display = parts[1] if len(parts) > 1 else None
+    main = next((p[len("main="):] for p in parts if p.startswith("main=")), None)
+    if display and main == display and not wait_until(lambda: str(cg.CGMainDisplayID()) == display,
+                                                      f"display {display} as the main display", timeout=10,
+                                                      raise_on_timeout=False):
+        safe_print(f"   vdisplay: display {display} never became main here", file=sys.stderr)
+
+    def bounds():
+        r = cg.CGDisplayBounds(cg.CGMainDisplayID())
+        return (cg.CGMainDisplayID(), r.x, r.y, r.w, r.h)
+    wait_stable(bounds, "the main display's bounds", timeout=10, interval=0.1, reads=5, raise_on_timeout=False)
     return helper, line
 
 
@@ -202,17 +225,24 @@ class Bench:
         return {ws: key for ws, (key, _) in zip(titles, rows[-len(titles):])}
 
     def still(self) -> bool:
-        """The sidebar's rows hold still (no reveal scroll or row motion in flight): two reads 0.3 s apart agree."""
+        """Waits until the sidebar's rows hold still (no reveal scroll or row motion in flight): the same rows at the
+        same heights several reads in a row, up to 10 s. False when they never settled (or there are none)."""
         def frames():
-            return [(r.get("key"), r["window_frame"].get("y")) for r in self.rows()]
-        first = frames()
-        time.sleep(0.3)  # test script: two reads apart
-        return bool(first) and first == frames()
+            got = [(r.get("key"), r["window_frame"].get("y")) for r in self.rows()]
+            if not got:
+                raise RuntimeError("no sidebar rows")
+            return got
+        try:
+            wait_stable(frames, "the sidebar rows", timeout=10, interval=0.1, reads=4)
+            return True
+        except StateWaitTimeout:
+            return False
 
     def hoverable(self, workspaces: list[str]) -> tuple[list[str], list[dict]]:
         """The workspaces whose row the synthetic pointer really hovers (not under the footer, not scrolled off),
         and each refusal with what the app answered."""
-        wait_for(self.still, 10, 0.2)
+        if not self.still():
+            print("   sidebar rows never held still in 10 s", file=sys.stderr)
         kept, refused = [], []
         for workspace in workspaces:
             reply = self.hover_row(workspace)
@@ -503,7 +533,7 @@ def stall_frames(bench: Bench, bundle: str, report: dict, top: int = 40):
 def sweep(bench: Bench, args, report: dict, rows: list[str]):
     if len(rows) < 2:
         report["sweep"] = {"error": f"rows={len(rows)}"}
-        print(f"PERF-HOVER-SWEEP error rows={len(rows)}", flush=True)
+        safe_print(f"PERF-HOVER-SWEEP error rows={len(rows)}", flush=True)
         return
     before = bench.hibernation()
     path, index, step = [], 0, 1
@@ -522,7 +552,8 @@ def sweep(bench: Bench, args, report: dict, rows: list[str]):
         bench.rpc("debug.hangs", {"clear": True, "limit": 0})
     bench.rpc("debug.frames", {"action": "start"})
     moved = bench.rpc("debug.pointer_sweep", {"path": path, "hz": args.hz}, timeout=90)
-    time.sleep(0.5)  # test script: past the dwell, so a pending intent would have fired
+    # sleep-ok: waiting out the hover-intent dwell timer, so a pending intent would have fired (its absence has no event)
+    time.sleep(0.5)
     frames = bench.rpc("debug.frames", {"action": "stop", "raw": True})
     if profile:
         try:
@@ -531,17 +562,17 @@ def sweep(bench: Bench, args, report: dict, rows: list[str]):
             profile.proc.kill()
             frames_of_profile = {"error": repr(error)}
         report["sweep_profile"] = frames_of_profile
-        print(f"PERF-HOVER-PROFILE main_ms={frames_of_profile.get('main_ms')} error={frames_of_profile.get('error')} "
-              f"unmatched_threads={json.dumps(frames_of_profile.get('threads'))}", flush=True)
+        safe_print(f"PERF-HOVER-PROFILE main_ms={frames_of_profile.get('main_ms')} error={frames_of_profile.get('error')} "
+                   f"unmatched_threads={json.dumps(frames_of_profile.get('threads'))}", flush=True)
         for kind in ("self", "inclusive"):
             for ms, name in frames_of_profile.get(kind) or []:
-                print(f"PERF-HOVER-PROFILE {kind} {ms:8.1f} ms  {name}", flush=True)
+                safe_print(f"PERF-HOVER-PROFILE {kind} {ms:8.1f} ms  {name}", flush=True)
     if args.stalls:
         try:
             stall_frames(bench, args.app, report)
         except Exception as error:  # a stall read that fails keeps the sweep's numbers, as a failed profile does
             report["sweep_stalls"] = {"error": repr(error)}
-            print(f"PERF-HOVER-STALLS error={error!r}", flush=True)
+            safe_print(f"PERF-HOVER-STALLS error={error!r}", flush=True)
     main_ms = [float(v) for v in frames.get("main_ms") or []]
     move_ms = [float(v) for v in moved.get("move_ms") or []]
     after = bench.hibernation()
@@ -556,11 +587,11 @@ def sweep(bench: Bench, args, report: dict, rows: list[str]):
               "frames": {k: frames.get(k) for k in (
                   "frames", "refresh_ms", "missed", "p50_ms", "p99_ms", "max_ms", "main_over_8_3_ms")}}
     report["sweep"] = result
-    print(f"PERF-HOVER-SWEEP crossings={len(path)} rows_per_s={result['rows_per_s']} late_moves={result['late_moves']} "
-          f"landed={result['landed']} missing={result['missing_rows']} wakes={woke} restores={restores} "
-          f"refresh_ms={frames.get('refresh_ms')} missed={frames.get('missed')} "
-          f"main={json.dumps(result['main_busy_ms_per_frame'])} move_ms={json.dumps(result['move_ms'])}"
-          + (f" error={moved.get('error')}" if moved.get("error") else ""), flush=True)
+    safe_print(f"PERF-HOVER-SWEEP crossings={len(path)} rows_per_s={result['rows_per_s']} late_moves={result['late_moves']} "
+               f"landed={result['landed']} missing={result['missing_rows']} wakes={woke} restores={restores} "
+               f"refresh_ms={frames.get('refresh_ms')} missed={frames.get('missed')} "
+               f"main={json.dumps(result['main_busy_ms_per_frame'])} move_ms={json.dumps(result['move_ms'])}"
+               + (f" error={moved.get('error')}" if moved.get("error") else ""), flush=True)
 
 
 def click_trials(bench: Bench, args, report: dict, target: str, row: str, tabs: list[str], away: str, hoverable: bool):
@@ -585,7 +616,7 @@ def click_trials(bench: Bench, args, report: dict, target: str, row: str, tabs: 
                     trials.append({"trial": trial, "mode": mode, "error": "row not hoverable"})
                     print(f"PERF-HOVER-CLICK trial={trial} mode={mode} error=row_not_hoverable", flush=True)
                     continue
-                time.sleep(args.dwell_ms / 1000)  # test script: the pointer rests on the row
+                time.sleep(args.dwell_ms / 1000)  # sleep-ok: the dwell under test, the pointer rests on the row this long
             # The first frame: what the commit carrying the switch shows of each page (debug.workspace_switch).
             bench.rpc("debug.workspace_switch", {"action": "start"})
             started = time.perf_counter()
@@ -626,6 +657,18 @@ def click_trials(bench: Bench, args, report: dict, target: str, row: str, tabs: 
           f"first_frame_content={json.dumps(first_frames)}", flush=True)
 
 
+def settled(bench: Bench, pid: int, bundle: str, tabs: list[str], what: str, timeout: float = 30):
+    """The app's process set and the tabs' page phases unchanged for about 2 s: renderers exited or pages loaded.
+    Reads the app's own report only, so no hibernated page is woken and no script call restarts a grace."""
+    def read():
+        phases = bench.hibernation().get("page_phases") or {}
+        return sorted(bm.owned(pid, bundle)), [phases.get(t) for t in tabs]
+    try:
+        wait_stable(read, what, timeout=timeout, interval=0.5, reads=5)
+    except StateWaitTimeout:
+        print(f"   {what}: never settled in {timeout:g} s", file=sys.stderr)
+
+
 def grace(bench: Bench, args, report: dict, pid: int, bundle: str, tabs: list[str], away: str, row: str,
           hoverable: bool):
     bench.hover(None)
@@ -634,19 +677,19 @@ def grace(bench: Bench, args, report: dict, pid: int, bundle: str, tabs: list[st
         report["grace"] = {"error": "pages did not hibernate", "diag": bench.diagnose("grace", tabs)}
         print("PERF-HOVER-GRACE error=not_hibernated", flush=True)
         return
-    time.sleep(5)  # test script: renderers of the discarded pages exit
+    settled(bench, pid, bundle, tabs, "the discarded pages' renderers exiting")
     asleep = bm.sample(pid, bundle, "asleep", 1)
     if not hoverable or not str(bench.hover_row(row).get("row_hovered") or "").endswith(row):
         report["grace"] = {"error": "row not hoverable"}
         print("PERF-HOVER-GRACE error=row_not_hoverable", flush=True)
         return
-    time.sleep(args.dwell_ms / 1000)  # test script: the pointer rests on the row
+    time.sleep(args.dwell_ms / 1000)  # sleep-ok: the dwell under test, the pointer rests on the row this long
     bench.hover(None)
     woke = wait_for(lambda: not bench.asleep(tabs), 20, 0.1)
-    time.sleep(3)  # test script: the woken pages load
+    settled(bench, pid, bundle, tabs, "the woken pages loading")
     awake = bm.sample(pid, bundle, "woken", 1)
     back = wait_for(lambda: bench.asleep(tabs), GRACE_S + args.grace_slack_s, 1)
-    time.sleep(5)  # test script: renderers of the discarded pages exit
+    settled(bench, pid, bundle, tabs, "the discarded pages' renderers exiting")
     again = bm.sample(pid, bundle, "after_grace", 1)
     result = {"woke": bool(woke), "hibernated_again": bool(back),
               "footprint_mb": {"asleep": asleep["total_footprint_mb"], "woken": awake["total_footprint_mb"],
@@ -690,7 +733,7 @@ def main():
     vdisplay, ready = None, None
     if args.vdisplay:
         vdisplay, ready = start_vdisplay(args.vdisplay, tempfile.mkdtemp(prefix="hover-vdisplay-"))
-        print(f"PERF-HOVER-VDISPLAY hz={args.vdisplay} {ready}", flush=True)
+        safe_print(f"PERF-HOVER-VDISPLAY hz={args.vdisplay} {ready}", flush=True)
     pid, sock, scratch = bm.launch(bundle, config, {"CMUX_NEXT_HANG_THRESHOLD_MS": str(int(args.stalls))} if args.stalls else None)
     app = bm.App(bundle, sock)
     bench = Bench(sock, app, pid)
@@ -715,17 +758,17 @@ def main():
         setup = bench.diagnose("setup", target_tabs + sweep_tabs)
         report["setup"] = setup
         if any(state.startswith("no_page") for state in setup["states"]):
-            print("PERF-HOVER-SETUP invalid=pages_not_mounted", flush=True)
+            safe_print("PERF-HOVER-SETUP invalid=pages_not_mounted", flush=True)
             raise SystemExit(3)
         # Which rows the pointer really hovers, found once now, while every page is still live: a probe step that
         # rests past the dwell then wakes nothing, and any hover grace it starts (30 s) ends long before the settle
         # wait below. The pointer aims at each row as drawn when it moves, so a later scroll does not matter.
         keys = bench.row_keys(bench.titles)
         report["row_keys"] = {"mapped": len(keys), "workspaces": len(bench.titles), "by": bench.mapped_by}
-        print(f"PERF-HOVER-ROWKEYS mapped={len(keys)}/{len(bench.titles)} by={bench.mapped_by} sample={json.dumps(dict(list(keys.items())[:2]))}",
-              flush=True)
+        safe_print(f"PERF-HOVER-ROWKEYS mapped={len(keys)}/{len(bench.titles)} by={bench.mapped_by} sample={json.dumps(dict(list(keys.items())[:2]))}",
+                   flush=True)
         if len(keys) < len(bench.titles):
-            print("PERF-HOVER-SETUP invalid=rows_not_mapped", flush=True)
+            safe_print("PERF-HOVER-SETUP invalid=rows_not_mapped", flush=True)
             raise SystemExit(3)
         # The pointer names rows by their sidebar row id; actions keep the daemon id (target, home).
         target_row = keys.get(target) if target else None
@@ -734,15 +777,15 @@ def main():
         why = (refused[0]["reply"].get("why") if refused else None) or {}
         if not kept and isinstance(why, dict) and (why.get("presentation") != "shown" or why.get("list_hidden")):
             # The window opened with its sidebar hidden (a narrow fleet display): show it, then look again.
-            print(f"PERF-HOVER-ROWS sidebar_hidden why={json.dumps(why)}", flush=True)
+            safe_print(f"PERF-HOVER-ROWS sidebar_hidden why={json.dumps(why)}", flush=True)
             report["sidebar_shown_by_bench"] = bench.app.action("toggleSidebar")
             kept, refused = bench.hoverable(([target_row] if target_row else []) + sweep_rows)
         target_hoverable = bool(target_row) and target_row in kept
         report["rows_hoverable"] = len(kept)
         report["target_row_hoverable"] = target_hoverable
         report["rows_refused"] = refused[:5]
-        print(f"PERF-HOVER-ROWS hoverable={len(kept)} refused={len(refused)} target={target_hoverable} "
-              f"first_refused={json.dumps(refused[:2])}", flush=True)
+        safe_print(f"PERF-HOVER-ROWS hoverable={len(kept)} refused={len(refused)} target={target_hoverable} "
+                   f"first_refused={json.dumps(refused[:2])}", flush=True)
         if "sweep" in phases:
             # Every swept page frozen or hibernated first, so a wake would count. The planner discards a few
             # pages per pass after the 30 s timeout: wait in proportion to the page count.
@@ -756,7 +799,7 @@ def main():
             else:
                 report["sweep"] = {"error": "invalid: the swept pages did not all freeze or hibernate first",
                                    "diag": bench.diagnose("sweep", sweep_tabs)}
-                print("PERF-HOVER-SWEEP invalid=not_settled", flush=True)
+                safe_print("PERF-HOVER-SWEEP invalid=not_settled", flush=True)
         if "click" in phases and target:
             click_trials(bench, args, report, target, target_row, target_tabs, home, target_hoverable)
         if "grace" in phases and target:
@@ -771,7 +814,7 @@ def main():
         if args.out:
             with open(args.out, "w") as handle:
                 json.dump(report, handle, indent=1)
-            print(f"bench-hover-preload: wrote {args.out}")
+            safe_print(f"bench-hover-preload: wrote {args.out}")
 
 
 if __name__ == "__main__":

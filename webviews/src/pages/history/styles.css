@@ -49,7 +49,7 @@
   background: transparent;
   color: var(--page-text-2);
   padding: 2px 6px;
-  border-radius: 5px;
+  border-radius: var(--ds-radius-control);
   cursor: default;
 }
 
@@ -80,13 +80,20 @@
   color: var(--page-text-3);
 }
 
-.history-error {
+.history-error,
+.history-pending {
   flex: none;
   margin: 0;
   padding: 8px var(--page-edge);
   border-bottom: 1px solid var(--page-separator);
   color: var(--page-text-2);
   overflow-wrap: anywhere;
+}
+
+/* The list is not complete yet (`pending_kinds`): one quiet line above the rows that came. */
+.history-pending {
+  display: block;
+  color: var(--page-text-3);
 }
 
 /* Narrow panes wrap the filters onto a second row; none is ever hidden. */
@@ -116,9 +123,29 @@
 .history-list {
   flex: 1;
   overflow-y: auto;
-  /* Rows pad their hover pill by 8 px: their text starts on the page edge. */
-  padding: 4px calc(var(--page-edge) - 8px) 18px;
+  /* Rows pad their hover pill by 8 px: their text starts on the page edge. The top and bottom space
+     is the virtualizer's (HistoryPage.tsx `paddingStart`, `paddingEnd`). */
+  padding: 0 calc(var(--page-edge) - 8px);
   outline: none;
+}
+
+/* Windowed: only the headers and rows near the viewport are mounted, each placed at its offset. */
+.history-list-space {
+  position: relative;
+  width: 100%;
+}
+
+.history-list-space > * {
+  position: absolute;
+  top: 0;
+  inset-inline-start: 0;
+  width: 100%;
+  box-sizing: border-box;
+}
+
+/* Its own block, so the title's margins count in the header's measured height. */
+.history-group {
+  display: flow-root;
 }
 
 .history-group-title {
@@ -134,8 +161,6 @@
   gap: 9px;
   padding: 4px 8px;
   border-radius: 6px;
-  content-visibility: auto;
-  contain-intrinsic-size: auto 36px;
 }
 
 .history-row:hover {
@@ -314,4 +339,9 @@
   color: var(--page-text);
   font-weight: var(--weight-emphasis);
   cursor: default;
+}
+
+/* A narrowed time range reads as on, like a selected chip. */
+.history-menu-button.history-range.selected {
+  color: var(--page-text);
 }

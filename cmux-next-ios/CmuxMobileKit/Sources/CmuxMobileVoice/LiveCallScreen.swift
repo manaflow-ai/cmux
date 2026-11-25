@@ -103,7 +103,7 @@ public struct LiveCallScreen: View {
                 LiveCallAvatar(text: avatarText, speaking: session.chiefSpeaking, listening: session.userSpeaking,
                                reduceMotion: reduceMotion)
             }
-            .buttonStyle(.plain)
+            .buttonStyle(.cmuxPressFill)
             .disabled(!session.chiefSpeaking)
             .accessibilityLabel(chiefName)
             .accessibilityHint(session.chiefSpeaking ? LiveCallText.interruptHint : "")
@@ -193,11 +193,7 @@ public struct LiveCallScreen: View {
                 .font(.headline)
                 .foregroundStyle(.white)
                 .multilineTextAlignment(.center)
-            Text(failure.detail)
-                .font(.callout)
-                .foregroundStyle(.secondary)
-                .multilineTextAlignment(.center)
-                .textSelection(.enabled)
+            InPlaceSelectionLabel(failure.detail, textStyle: .callout, color: .secondaryLabel, alignment: .center)
                 .accessibilityIdentifier("chief.call.failure")
             Spacer()
         }
@@ -398,7 +394,7 @@ private struct LiveCallControl: View {
             .frame(maxWidth: .infinity)
             .contentShape(.rect)
         }
-        .buttonStyle(.plain)
+        .buttonStyle(.cmuxPressFill)
         .accessibilityLabel(title)
         .accessibilityValue(tint == nil ? (on ? Text(LiveCallText.on) : Text(LiveCallText.off)) : Text(verbatim: ""))
         .accessibilityIdentifier(identifier)
@@ -443,10 +439,10 @@ public struct LiveCallPill: View {
             .foregroundStyle(.white)
             .padding(.horizontal, 16)
             .padding(.vertical, 9)
-            .background(Color.green, in: .capsule)
+            .cmuxMobilePressBackground(Color.green, in: .capsule)
             .shadow(color: .black.opacity(0.2), radius: 8, y: 2)
         }
-        .buttonStyle(.plain)
+        .buttonStyle(.cmuxPressFillInLabel)
         .accessibilityLabel(LiveCallText.pillAccessibility)
         .accessibilityIdentifier("chief.call.pill")
     }
@@ -482,8 +478,8 @@ extension VoiceCallFailure {
         case .keyMissing, .keyRejected: LiveCallText.failKeyDetail
         case let .quota(message), let .modelUnavailable(message), let .refused(message), let .network(message): message
         case .dropped: LiveCallText.failDroppedDetail
-        case let .server(status, requestID):
-            [LiveCallText.failServerDetail(status: status), requestID.map(LiveCallText.requestID)]
+        case let .server(_, requestID):
+            [LiveCallText.failServerDetail, requestID.map(LiveCallText.requestID)]
                 .compactMap { $0 }.joined(separator: "\n")
         }
     }
