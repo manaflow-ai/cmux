@@ -438,8 +438,8 @@ class GeneratedClientMixin:
     def list_clients(self) -> List[ClientInfo]:
         return self._invoke_command('list-clients', ListClientsRequest())
 
-    def list_notifications(self, *, limit: Union[int, None, MissingType] = MISSING) -> JsonValue:
-        return self._invoke_command('list-notifications', ListNotificationsRequest(limit=limit))
+    def list_notifications(self, *, limit: Union[int, None, MissingType] = MISSING, stats: Union[bool, MissingType] = MISSING) -> JsonValue:
+        return self._invoke_command('list-notifications', ListNotificationsRequest(limit=limit, stats=stats))
 
     def list_personal(self) -> JsonValue:
         return self._invoke_command('list-personal', ListPersonalRequest())
@@ -632,6 +632,9 @@ class GeneratedClientMixin:
 
     def release_surface_size(self, surface: Id) -> EmptyResult:
         return self._invoke_command('release-surface-size', ReleaseSurfaceSizeRequest(surface=surface))
+
+    def release_workspace_names(self) -> ReleaseWorkspaceNamesResult:
+        return self._invoke_command('release-workspace-names', ReleaseWorkspaceNamesRequest())
 
     def reload_config(self) -> ReloadConfigResult:
         return self._invoke_command('reload-config', ReloadConfigRequest())
@@ -1156,6 +1159,7 @@ GeneratedClientMixin.reattach_view.__cmux_command__ = COMMANDS['reattach-view']
 GeneratedClientMixin.register_browser_provider.__cmux_command__ = COMMANDS['register-browser-provider']
 GeneratedClientMixin.release_attached_view_size.__cmux_command__ = COMMANDS['release-attached-view-size']
 GeneratedClientMixin.release_surface_size.__cmux_command__ = COMMANDS['release-surface-size']
+GeneratedClientMixin.release_workspace_names.__cmux_command__ = COMMANDS['release-workspace-names']
 GeneratedClientMixin.reload_config.__cmux_command__ = COMMANDS['reload-config']
 GeneratedClientMixin.remote_host_app.__cmux_command__ = COMMANDS['remote-host-app']
 GeneratedClientMixin.remote_host_call.__cmux_command__ = COMMANDS['remote-host-call']

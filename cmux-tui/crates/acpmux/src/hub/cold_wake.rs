@@ -20,13 +20,17 @@
 //!   whichever is more. A warm chat keeps the 2 s burst window: its cache makes a wake cheap.
 //!   A block, a question and a fire notice still wake at once, and the person's prompt never waits.
 //! - **Compact before delivery.** When a batch opens on a Claude Code chat whose context is at
-//!   least [`COMPACT_ABOVE_TOKENS`], acpmux first tries context surgery (`surgery.rs`: old tool
+//!   least the compaction line ([`DEFAULT_COMPACT_ABOVE_TOKENS`] unless
+//!   `agents.coldWake.compactAboveTokens` or [`ENV_COMPACT_ABOVE`] says otherwise), acpmux first tries context surgery (`surgery.rs`: old tool
 //!   output masked in a copy of the transcript, no model call) when masking alone takes it under
 //!   that line ([`surgery_suffices`]); the batch then goes in to the resumed copy with no
 //!   `/compact`. Otherwise (surgery off, refused or failed) it runs `/compact` at once ([`KIND`]),
 //!   so the compaction's time hides in the window, and the batch goes in after it ends, into the
 //!   compacted context. The compaction reads the cold context once; the batch's turn and every
 //!   turn after it read the summary. Nothing steers into the compaction's turn.
+//!
+//! Tuning: every knob is a setting and an environment variable of the daemon, the variable winning
+//! ([`Knobs`]; the table is in the crate's README, "Tuning compaction").
 //!
 //! The detector is `acpmux::hub::cold_wake` in the daemon's log:
 //! `cold wake batch opened` (with the window, the context and how long it was cold) and
@@ -49,32 +53,82 @@ pub(crate) const COLD_FULL_MS: u64 = 30 * 60_000;
 /// The context below which a cold chat opens no batch: re-reading it uncached costs little, so
 /// its wakes go in as before (a chat with no usage reported yet included).
 pub(crate) const MIN_BATCH_TOKENS: u64 = 20_000;
-/// The context from which a cold batch compacts first. 50K, not 100K: the cold batches measured
-/// on one lane VM over 48 h were 75.9K, 85.3K and 89.2K, none compacted, and each post-idle
-/// wake rewrote 64K-123K tokens into the cache while reading 9.9K from it.
-pub(crate) const COMPACT_ABOVE_TOKENS: u64 = 50_000;
+/// The context from which a cold batch compacts first, by default. 50K, not 100K: the cold
+/// batches measured on one lane VM over 48 h were 75.9K, 85.3K and 89.2K, none compacted, and
+/// each post-idle wake rewrote 64K-123K tokens into the cache while reading 9.9K from it.
+/// `agents.coldWake.compactAboveTokens` (or [`ENV_COMPACT_ABOVE`]) moves it within
+/// [`COMPACT_ABOVE_RANGE`] (Leo, 2026-11-25: "if we know for a fact 50k is beter, if people can
+/// adjust it, fine").
+pub(crate) const DEFAULT_COMPACT_ABOVE_TOKENS: u64 = 50_000;
+/// The range the compaction line is clamped to.
+pub(crate) const COMPACT_ABOVE_RANGE: (u64, u64) = (10_000, 500_000);
 /// Settings > General > Prompt Cache: batch a cold chat's wakes on an interval (on by default).
 pub const SETTING_ENABLED: &str = "agents.coldWake.enabled";
 /// And compact a large cold chat before its batch goes in (on by default; Leo, 2026-11-24: "this
 /// can be toggled but... this as a default seems decent").
 pub const SETTING_COMPACT: &str = "agents.coldWake.compact";
+/// The context (tokens) from which a cold batch compacts first ([`DEFAULT_COMPACT_ABOVE_TOKENS`]).
+pub const SETTING_COMPACT_ABOVE: &str = "agents.coldWake.compactAboveTokens";
+/// `0|1` in the daemon's environment: [`SETTING_ENABLED`], whatever the settings file says.
+pub const ENV_ENABLED: &str = "ACPMUX_COLD_WAKE";
+/// `0|1`: [`SETTING_COMPACT`], whatever the settings file says.
+pub const ENV_COMPACT: &str = "ACPMUX_COLD_WAKE_COMPACT";
+/// A token count: [`SETTING_COMPACT_ABOVE`], whatever the settings file says.
+pub const ENV_COMPACT_ABOVE: &str = "ACPMUX_COLD_COMPACT_ABOVE_TOKENS";
 
-/// The two settings as `doc` (the settings file) has them: (batch, compact first). A missing key, file
-/// or an unreadable file is the default, on; compacting first needs batching on.
-pub(crate) fn settings(doc: Option<&Value>) -> (bool, bool) {
-    let get = |key: &str| {
-        doc.and_then(|d| crate::user_settings::value(d, key))
-            .and_then(|v| v.as_bool())
-            .unwrap_or(true)
-    };
-    let enabled = get(SETTING_ENABLED);
-    (enabled, enabled && get(SETTING_COMPACT))
+/// The cold wake's knobs as the daemon reads them.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) struct Knobs {
+    /// Batch a cold chat's wakes.
+    pub enabled: bool,
+    /// Compact a large cold chat first (needs `enabled`).
+    pub compact: bool,
+    /// The context from which it compacts first.
+    pub compact_above: u64,
 }
 
-fn read_settings() -> (bool, bool) {
+/// An on/off environment value: `1|true|on` or `0|false|off`; anything else (or unset) says
+/// nothing and the settings file decides.
+pub(crate) fn env_flag(value: Option<&str>) -> Option<bool> {
+    match value?.trim().to_ascii_lowercase().as_str() {
+        "1" | "true" | "on" | "yes" => Some(true),
+        "0" | "false" | "off" | "no" => Some(false),
+        _ => None,
+    }
+}
+
+/// The knobs as `doc` (the settings file) and `env` (the daemon's environment) have them, the
+/// environment winning. A missing key, file or an unreadable file is the default: on, at
+/// [`DEFAULT_COMPACT_ABOVE_TOKENS`]; compacting first needs batching on; a line out of
+/// [`COMPACT_ABOVE_RANGE`] is clamped to it, and a non-number is the default.
+pub(crate) fn settings_with(doc: Option<&Value>, env: impl Fn(&str) -> Option<String>) -> Knobs {
+    let get = |key: &str| doc.and_then(|d| crate::user_settings::value(d, key));
+    let flag = |key: &str, var: &str| {
+        env_flag(env(var).as_deref()).or_else(|| get(key).and_then(|v| v.as_bool())).unwrap_or(true)
+    };
+    let enabled = flag(SETTING_ENABLED, ENV_ENABLED);
+    let compact = enabled && flag(SETTING_COMPACT, ENV_COMPACT);
+    let from_env = env(ENV_COMPACT_ABOVE).and_then(|v| v.trim().parse::<f64>().ok());
+    let line = from_env
+        .or_else(|| get(SETTING_COMPACT_ABOVE).and_then(|v| v.as_f64()))
+        .filter(|n| n.is_finite())
+        .map_or(DEFAULT_COMPACT_ABOVE_TOKENS, |n| {
+            n.clamp(COMPACT_ABOVE_RANGE.0 as f64, COMPACT_ABOVE_RANGE.1 as f64) as u64
+        });
+    Knobs { enabled, compact, compact_above: line }
+}
+
+/// The knobs from the settings file alone, the environment unset.
+#[cfg(test)]
+pub(crate) fn settings(doc: Option<&Value>) -> Knobs {
+    settings_with(doc, |_| None)
+}
+
+fn read_settings() -> Knobs {
+    let env = |var: &str| std::env::var(var).ok();
     match crate::user_settings::read() {
-        crate::user_settings::Settings::Parsed(doc) => settings(Some(&doc)),
-        _ => settings(None),
+        crate::user_settings::Settings::Parsed(doc) => settings_with(Some(&doc), env),
+        _ => settings_with(None, env),
     }
 }
 
@@ -109,23 +163,24 @@ pub(crate) fn window_ms(cold_ms: u64, tokens: u64) -> u64 {
     MIN_WINDOW_MS + spread as u64
 }
 
-/// Whether a cold batch of a chat with `tokens` of context compacts first.
-pub(crate) fn compacts(tokens: u64) -> bool {
-    tokens >= COMPACT_ABOVE_TOKENS
+/// Whether a cold batch of a chat with `tokens` of context compacts first, at the compaction line
+/// `line` ([`Knobs::compact_above`]).
+pub(crate) fn compacts(tokens: u64, line: u64) -> bool {
+    tokens >= line
 }
 
 /// Whether surgery's dry run (`surgery.rs`, `dryRun: true`) says masking alone takes the chat
-/// under [`COMPACT_ABOVE_TOKENS`], the line that sends it to `/compact`: then surgery reaches
+/// under `line` ([`Knobs::compact_above`]), the line that sends it to `/compact`: then surgery reaches
 /// what the compaction would, with no model call and nothing summarized away. A chat it leaves
 /// above the line still needs `/compact`, and surgery on top would only add a harness restart
 /// and a second rewritten prefix, so it compacts alone. No estimate (no stored usage) is no.
-pub(crate) fn surgery_suffices(dry: &Result<Value, RpcError>) -> bool {
+pub(crate) fn surgery_suffices(dry: &Result<Value, RpcError>, line: u64) -> bool {
     let Ok(dry) = dry else { return false };
     let masked = dry.get("maskedResults").and_then(Value::as_u64).unwrap_or(0);
     let after = dry.get("tokensAfter").and_then(Value::as_u64);
     dry.get("dryRun").and_then(Value::as_bool) == Some(true)
         && masked > 0
-        && after.is_some_and(|a| a < COMPACT_ABOVE_TOKENS)
+        && after.is_some_and(|a| a < line)
 }
 
 /// Whether a surgery's answer says it applied: anything else (`applied: false`, an error) keeps
@@ -170,8 +225,8 @@ impl Hub {
         }
         let (cold, tokens) = coldness(meta, now)?;
         // Read once per batch opened, not per message: a cold chat opens one per idle stretch.
-        let (enabled, compact) = read_settings();
-        if !enabled {
+        let knobs = read_settings();
+        if !knobs.enabled {
             return None;
         }
         let window = window_ms(cold, tokens);
@@ -179,11 +234,12 @@ impl Hub {
         *batch = Some(Batch { due });
         drop(batch);
         tracing::info!(session = %session.id, window_ms = window, tokens, cold_ms = cold, "cold wake batch opened");
-        if compact && compacts(tokens) {
+        let line = knobs.compact_above;
+        if knobs.compact && compacts(tokens, line) {
             let (hub, s) = (self.clone(), session.clone());
             self.scope.spawn_named(
                 "cold-wake-compact",
-                Box::pin(async move { hub.cold_wake_compact(&s, tokens).await }),
+                Box::pin(async move { hub.cold_wake_compact(&s, tokens, line).await }),
             );
         }
         Some(due)
@@ -201,7 +257,7 @@ impl Hub {
     /// compacted now: no turn, nobody typing, no draft, no Web or phone turn last
     /// (`cache_compact.rs`). A message gathering in the queue does not count: it waits for the
     /// batch anyway.
-    async fn cold_wake_compact(self: &Arc<Self>, session: &Arc<Session>, tokens: u64) {
+    async fn cold_wake_compact(self: &Arc<Self>, session: &Arc<Session>, tokens: u64, line: u64) {
         if !self.can_compact(session).await {
             return;
         }
@@ -221,7 +277,7 @@ impl Hub {
         // Surgery first (`surgery.rs`): it masks old tool output with no model call; `/compact`
         // only when it says no (off, not a stored Claude conversation, nothing to mask, too
         // little to mask) or fails.
-        if self.cold_wake_surgery(session, tokens).await {
+        if self.cold_wake_surgery(session, tokens, line).await {
             self.inbox_review(session);
             return;
         }
@@ -235,12 +291,17 @@ impl Hub {
     }
 
     /// Context surgery in place of a cold batch's `/compact`: a dry run first, then the real one
-    /// when masking alone takes the chat under the compaction line ([`surgery_suffices`]). True
-    /// when it applied: the chat resumed on the masked copy and needs no `/compact`. Called
+    /// when masking alone takes the chat under the compaction line `line`
+    /// ([`surgery_suffices`]). True when it applied: the chat resumed on the masked copy and needs no `/compact`. Called
     /// without the turn lock: surgery takes it itself, and refuses a chat mid-turn.
-    async fn cold_wake_surgery(self: &Arc<Self>, session: &Arc<Session>, tokens: u64) -> bool {
+    async fn cold_wake_surgery(
+        self: &Arc<Self>,
+        session: &Arc<Session>,
+        tokens: u64,
+        line: u64,
+    ) -> bool {
         let dry = self.surgery(session, None, true).await;
-        if !surgery_suffices(&dry) {
+        if !surgery_suffices(&dry, line) {
             tracing::info!(session = %session.id, tokens, outcome = ?dry.as_ref().map_err(|e| &e.message), "cold wake surgery skipped");
             return false;
         }
