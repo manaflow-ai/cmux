@@ -108,6 +108,32 @@ class Check(unittest.TestCase):
 
         self.assertEqual(merged.returncode, 0, merged.stdout)
 
+    def test_adding_back_a_registry_replaced_by_a_directory_fails_and_names_it(self):
+        registry, directory = next(iter(entry_logs.ENTRY_DIRS.items()))
+        self.write(registry, '{"groups": []}\n')
+        self.commit("an older branch kept its copy")
+
+        result = self.run_check()
+
+        self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+        self.assertIn(f"{registry}: added back", result.stdout)
+        self.assertIn(directory, result.stdout)
+
+    def test_a_file_in_a_replacement_directory_passes(self):
+        directory = next(iter(entry_logs.ENTRY_DIRS.values()))
+        self.write(directory + "appearance.new.json", '{"agent": "settable"}\n')
+        self.commit("one more setting")
+
+        self.assertEqual(self.run_check().returncode, 0)
+
+
+class TheDirectories(unittest.TestCase):
+    def test_every_removed_registry_is_gone_and_its_directory_exists(self):
+        for registry, directory in entry_logs.ENTRY_DIRS.items():
+            with self.subTest(registry=registry):
+                self.assertFalse((ROOT / registry).exists(), registry)
+                self.assertTrue(directory.endswith("/") and (ROOT / directory).is_dir(), directory)
+
 
 if __name__ == "__main__":
     unittest.main()
