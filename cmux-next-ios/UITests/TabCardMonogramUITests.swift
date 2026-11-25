@@ -1,7 +1,7 @@
 import XCTest
 
 /// Site monograms on tab cards (taste prototype, Settings → Advanced, off by default): with the
-/// setting on, a browser card with no picture yet shows its site's letter instead of the globe.
+/// setting on, a browser card with no picture yet shows its site's letter instead of the bare page.
 /// Mock data: workspace `ws-cmux`'s Swift docs tab (developer.apple.com) has no picture. Run with
 /// `cmux-next-ios-sim.sh test ui=TabCardMonogramUITests video` for the PR's clip.
 final class TabCardMonogramUITests: XCTestCase {
@@ -22,10 +22,10 @@ final class TabCardMonogramUITests: XCTestCase {
         add(shot)
     }
 
-    /// Off (the default): the same card keeps today's globe, so the monogram is the setting's alone.
+    /// Off (the default): the same card shows the bare page (no glyph), so the monogram is the setting's alone.
     @MainActor
-    func testGridKeepsGlobeWhenOff() throws {
-        expectFace("placeholder", openGrid(monograms: false))
+    func testGridShowsBarePageWhenOff() throws {
+        expectFace("nothing", openGrid(monograms: false))
     }
 
     /// Launches on mock data with the setting as given and opens `ws-cmux`'s tab grid; returns the
