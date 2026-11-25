@@ -7,7 +7,7 @@
 //! Linux only, as a Cloud host is.
 #![cfg(target_os = "linux")]
 
-mod journey_support;
+use crate::journey_support;
 
 use std::fs;
 use std::path::{Path, PathBuf};

@@ -222,6 +222,8 @@ class PostMergeOnlyMatcherTest(unittest.TestCase):
 # uploads stayed behind), so no command matches line for line: the workflow keeps the push, and these steps run
 # its checks on a pull request (CI v2 step 11).
 FOLDED: dict[str, tuple[str, ...]] = {
+    # The push run restores the pinned Bun from the CI cache bucket first (toolchain-r2.sh, #53053).
+    "app-platform.yml": ("app-platform",),
     "cmux-next-ios-kit.yml": ("ios-kit",),
     "ios-reliability-matrix.yml": ("ios-matrix-protocol", "ios-phone-cells"),
 }
