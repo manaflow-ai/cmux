@@ -2217,7 +2217,6 @@ async fn dispatch_request_with_identity(
                 )
                 .with_data(json!({"reason": "stale_generation", "retryable": false})));
             }
-            let prompt_admission = s.prompt_admission.clone().lock_owned().await;
             attach(hub, conn, &s.id);
             if person_asks(conn) {
                 super::lane_parent::person_wrote(hub, &s);
@@ -2572,7 +2571,6 @@ async fn dispatch_request_with_identity(
             let on_accepted = super::felt::time_ack(felt_started, on_accepted);
             let mut opts = crate::hub::PromptOptions {
                 race_guard: None,
-                prompt_admission: Some(prompt_admission),
                 cloud_turn,
                 prompt_id,
                 message_id,

@@ -322,11 +322,6 @@ impl Hub {
         };
         let outcome = match seen {
             Err(mut first) => {
-                // A copy never reaches the queue: it lets the chat's prompt admission go
-                // (#52381) before it waits for the first run. Held, it kept every later prompt
-                // of the chat from its queue for the whole first run, and that run's own queue
-                // never moved on (a burst of doubled sends answered none of them).
-                drop(opts.prompt_admission.take());
                 if let Some(f) = opts.on_accepted.take() {
                     // The first run's turn, once it has one (queued or running): the sender of
                     // this copy then knows the prompt was taken. With none yet, the first run
@@ -511,25 +506,6 @@ impl Hub {
         mut opts: PromptOptions,
         joined: &super::digest::DigestTurn,
     ) -> Result<Value, RpcError> {
-        // Serialize each prompt's setup through queue admission. In particular, resolving an
-        // uploaded block can block in a worker, and a later prompt must not claim the chat while
-        // the earlier one is still on its way to the queue. The guard is let go when the prompt
-        // is accepted (a queued one is accepted inside `queue_slot` and then waits there for the
-        // whole turn ahead of it: held that long, the next prompt would never queue), and at
-        // the latest right after `queue_slot`, before the admitted prompt reads its uploads.
-        let prompt_admission = std::sync::Mutex::new(Some(match opts.prompt_admission.take() {
-            Some(guard) => guard,
-            None => session.prompt_admission.clone().lock_owned().await,
-        }));
-        let admitted = || drop(prompt_admission.lock().unwrap_or_else(|e| e.into_inner()).take());
-        #[cfg(test)]
-        {
-            let seam = self.prompt_admission_seam.lock().unwrap_or_else(|e| e.into_inner()).take();
-            if let Some((arrived, release)) = seam {
-                let _ = arrived.send(());
-                let _ = release.await;
-            }
-        }
         // Stop can arrive during dispatch setup, before session.turn is installed. Keep
         // that epoch through the write checks instead of sampling it after startup.
         let mut cancels = session.cancels.load(Ordering::SeqCst);
@@ -600,7 +576,6 @@ impl Hub {
         let given =
             session.read_meta(|m| m.handle.clone()).filter(|h| crate::session_handle::valid(h));
         let mut accept = |mut v: Value| {
-            admitted();
             if let Some(race_guard) = race_guard.as_ref()
                 && let Err(error) = race_guard()
             {
@@ -683,7 +658,6 @@ impl Hub {
                 // Queue admission is let go first: held, it alone would keep every other prompt
                 // out while this one waits, and `first_work_tests.rs` checks that the first
                 // work's own hold (`inbox.rs`) keeps notices and the delegator right without it.
-                admitted();
                 let _ = arrived.send(());
                 let _ = release.await;
             }
@@ -840,21 +814,11 @@ impl Hub {
         // A prompt the queue already holds (restored after a restart or a move, `queue.rs`
         // `start_restored`) has its place and is not accepted again: it lets the order go
         // before it waits for its turn.
-        if session
-            .restored
-            .lock()
-            .unwrap_or_else(|e| e.into_inner())
-            .iter()
-            .any(|(id, _)| *id == prompt_id)
-        {
-            admitted();
-        }
         let (turn_id, waiting, mut guard, run) =
             match self.queue_slot(session, slot, &mut accept).await {
                 Ok(slot) => slot,
                 Err(done) => return done,
             };
-        admitted();
         // A normal Stop releases the next queued prompt. Its cancellation epoch starts
         // when it acquires the turn; an immediately admitted prompt keeps its entry epoch.
         if waiting {
