@@ -44,7 +44,17 @@ export default pinKindsHead(
     area: "Agent pane",
     height: 420,
     // What the hat shows of an earlier turn's plan after a new message (`earlier-*`; view Compare arms).
-    experiment: { definition: earlierPlanHat, script: [] },
+    experiment: {
+      definition: earlierPlanHat,
+      script: [
+        {
+          name: "Show the composer hat",
+          run: async (ctx) => {
+            await ctx.waitFor(() => ctx.document.querySelector(".acpmux-composer"));
+          },
+        },
+      ],
+    },
     covers: [
       "agent-session/acpmux/subagents/earlierPlanHat.experiment.ts",
       "agent-session/acpmux/conversation/PlanList.tsx",
