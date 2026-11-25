@@ -3667,6 +3667,17 @@ class NoHostTipTests(OneRunRule):
         cron.record_part(cur, "web-ui-flat-grown", {"state": "failed", "worker": LINUX, "tail": ["bench: exit 1"]}, "r")
         self.assertEqual(cur["parts_todo"], [], "a failure of the bench itself is not retried")
 
+    def test_a_sim_chrome_devtools_setup_failure_runs_once_more(self):
+        cur = cron.new_measurement(self.NEW, "tip", ["web-ui-ladder", "web-ui-fidelity"], T0)
+        no_devtools = {"state": "failed", "worker": LINUX, "tail": [
+            "sim-ladder: Chrome printed no DevTools endpoint: unprivileged user namespaces with AppArmor"
+        ]}
+        cron.record_part(cur, "web-ui-ladder", no_devtools, "r")
+        self.assertIn("web-ui-ladder", cur["parts_todo"], "a Chrome setup failure is retried once")
+        self.assertIn("Chrome printed no DevTools endpoint", cur["parts"]["web-ui-ladder"]["setup_retried"])
+        cron.record_part(cur, "web-ui-ladder", no_devtools, "r")
+        self.assertNotIn("web-ui-ladder", cur["parts_todo"], "a second Chrome setup failure ends it")
+
 
 class PendingAndBuildingTests(unittest.TestCase):
     """Review 2 of the host-keyed rows: a pending value is confirmed only by the next tip measurement on its own host,

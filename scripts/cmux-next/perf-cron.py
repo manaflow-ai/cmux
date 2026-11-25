@@ -3993,7 +3993,8 @@ def cmd_run_part(o):
 # "Executable doesn't exist", runs 43809071719 and 43812228014 on 2026-11-16) or refused the job. The commit is not
 # to blame, so record_part runs the part once more (a runner that writes no result at all is NO_RESULT, a yield).
 SETUP_FAILURE_RE = re.compile(r"Executable doesn't exist|Please run the following command to download new browsers"
-                              r"|browserType\.launch(?:Server)?: |The runner refused the job|No space left on device")
+                              r"|browserType\.launch(?:Server)?: |Chrome printed no DevTools endpoint:"
+                              r"|The runner refused the job|No space left on device")
 
 
 def setup_failure(result):
