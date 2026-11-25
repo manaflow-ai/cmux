@@ -230,6 +230,10 @@ impl Unanswered {
     }
 }
 
+pub(super) fn restore_deadline() -> RpcError {
+    RpcError::deadline_exceeded("prompt waiting for journal restore", ANSWER_BOUND)
+}
+
 impl Hub {
     /// Whether the queue holds `prompt_id` already (restored after a restart or a move, or
     /// deferred here): it has its place and takes no admission.
@@ -281,14 +285,25 @@ impl Hub {
             Err(_) => QueueLimits::defaults(),
         };
         let turn_id = uuid::Uuid::now_v7().to_string();
-        // Counted as `queue_slot` counts a prompt that queues, before it goes in.
-        session.queued.fetch_add(1, Ordering::SeqCst);
-        let ((_, _, _), position) = self
-            .enqueue_or_refuse(session, &slot, &turn_id, limits)
-            .map_err(|refused| match refused {
-                Err(e) => e,
-                Ok(v) => RpcError::internal(format!("the queue answered a deferral: {v}")),
-            })?;
+        let position = {
+            // A restore must not start between our check and the queued journal entry.
+            // Its writer can still be finishing the last page after releasing its lease.
+            let _admit = session.admit.lock().unwrap_or_else(|e| e.into_inner());
+            if session.restoring.load(Ordering::SeqCst)
+                || session.restore_token.load(Ordering::SeqCst) != 0
+            {
+                return Err(restore_deadline());
+            }
+            session.queued.fetch_add(1, Ordering::SeqCst);
+            let (_, position) =
+                self.enqueue_or_refuse(session, &slot, &turn_id, limits).map_err(|refused| {
+                    match refused {
+                        Err(e) => e,
+                        Ok(v) => RpcError::internal(format!("the queue answered a deferral: {v}")),
+                    }
+                })?;
+            position
+        };
         // The queue's own from now on, as `restore_queues` makes a prompt it read back: the
         // queue runs it, and a resend of its id waits on its ledger entry.
         let outcome = {
