@@ -1,0 +1,4 @@
+{
+  "agent": "userOnly",
+  "why": "The person chooses the dictation provider and whether recordings leave this Mac; agents do not change that choice."
+}
