@@ -92,18 +92,18 @@ jobs:
         include:
           - agent: claude
             model: stub
-            schedule: "17 * * * *"
+            crons: ["17 * * * *"]
           - agent: claude
             model: real
-            schedule: "47 */6 * * *"
+            crons: ["47 */6 * * *", "47 1-5,7-11,13-17,19-23 * * *"]
           - agent: codex
             model: real
-            schedule: "47 */6 * * *"
+            crons: ["47 */6 * * *"]
           # Codex on the stub every 15 minutes: a fresh machine's Codex must have its code-mode host and make the
           # stub's tool call (2026-11-25: every Cloud Codex tool call failed to spawn the host).
           - agent: codex
             model: stub
-            schedule: "7,22,37,52 * * * *"
+            crons: ["7,22,37,52 * * * *"]
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || contains(fromJSON('["blacksmith-4vcpu-ubuntu-2404","blacksmith-16vcpu-ubuntu-2404"]'), fromJSON(vars.RUNNER_POOLS || '{}').linux_4) && fromJSON(vars.RUNNER_POOLS || '{}').linux_4 || 'blacksmith-4vcpu-ubuntu-2404' }}
     # The cmux-tui build (warm from the rust cache) comes before the journey's own 25 minutes.
     timeout-minutes: 75
@@ -116,9 +116,9 @@ jobs:
     env:
       # A scheduled job's GitHub API waits stop here and fail loud (scripts/ci/gh_budget_wait.sh).
       GH_BUDGET_WAIT_MAX_SECONDS: "900"
-      # Claude: the hourly tick (stub), the six-hourly and gated hourly ticks (real). Codex: its own row's tick (real
-      # six-hourly, stub every 15 minutes). A dispatch runs the row its inputs name.
-      SELECTED: ${{ (github.event_name == 'schedule' && ((matrix.agent == 'claude' && (github.event.schedule == '17 * * * *') == (matrix.model == 'stub')) || (matrix.agent == 'codex' && github.event.schedule == matrix.schedule))) || (github.event_name == 'workflow_dispatch' && inputs.model == matrix.model && inputs.agent == matrix.agent) }}
+      # Each row runs on the ticks its own crons list names (an exact element match, so the 15-minute Codex stub tick
+      # never starts the real Claude canary and spends its quota). A dispatch runs the row its inputs name.
+      SELECTED: ${{ (github.event_name == 'schedule' && contains(matrix.crons, github.event.schedule)) || (github.event_name == 'workflow_dispatch' && inputs.model == matrix.model && inputs.agent == matrix.agent) }}
     steps:
       # This commit's GitHub API wait (scripts/ci/gh_budget_wait.sh): every later gh call, and
       # each github-script step that installs gh_budget_wait.cjs, waits through a rate limit or a
