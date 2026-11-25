@@ -517,11 +517,12 @@ impl Hub {
         // is accepted (a queued one is accepted inside `queue_slot` and then waits there for the
         // whole turn ahead of it: held that long, the next prompt would never queue), and at
         // the latest right after `queue_slot`, before the admitted prompt reads its uploads.
-        let prompt_admission = std::sync::Mutex::new(Some(match opts.prompt_admission.take() {
-            Some(guard) => guard,
-            None => session.prompt_admission.clone().lock_owned().await,
-        }));
-        let admitted = || drop(prompt_admission.lock().unwrap_or_else(|e| e.into_inner()).take());
+        // A lease, never held across an unbounded await (`prompt_admission.rs`).
+        let prompt_admission = match opts.prompt_admission.take() {
+            Some(admission) => admission,
+            None => super::prompt_admission::Admission::take(&session.prompt_admission).await,
+        };
+        let admitted = || prompt_admission.release();
         #[cfg(test)]
         {
             let seam = self.prompt_admission_seam.lock().unwrap_or_else(|e| e.into_inner()).take();

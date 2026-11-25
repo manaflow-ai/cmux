@@ -2119,7 +2119,8 @@ async fn dispatch_request_with_identity(
                 )
                 .with_data(json!({"reason": "stale_generation", "retryable": false})));
             }
-            let prompt_admission = s.prompt_admission.clone().lock_owned().await;
+            let prompt_admission =
+                crate::hub::prompt_admission::Admission::take(&s.prompt_admission).await;
             attach(hub, conn, &s.id);
             if person_asks(conn) {
                 super::lane_parent::person_wrote(hub, &s);

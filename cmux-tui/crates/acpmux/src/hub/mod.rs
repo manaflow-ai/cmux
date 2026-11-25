@@ -129,6 +129,7 @@ mod peer_notice_cost_tests;
 mod phone_floor_tests;
 #[cfg(test)]
 mod prompt_accept_tests;
+pub(crate) mod prompt_admission;
 #[cfg(test)]
 mod remote_table_bench;
 #[cfg(test)]
@@ -869,7 +870,7 @@ pub struct PromptOptions {
     pub race_guard: Option<Arc<dyn Fn() -> Result<(), RpcError> + Send + Sync>>,
     /// Admission guard acquired by the RPC layer before it resolves prompt uploads.
     #[doc(hidden)]
-    pub prompt_admission: Option<tokio::sync::OwnedMutexGuard<()>>,
+    pub prompt_admission: Option<prompt_admission::Admission>,
     /// Native-prepared Cloud turn capability; held in memory until claim/finish only.
     pub cloud_turn: Option<crate::cloud_rewind::CloudTurnEnvelope>,
     /// Client-chosen id (`_meta.acpmux.promptId`); generated when absent.
