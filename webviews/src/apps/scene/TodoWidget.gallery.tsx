@@ -63,11 +63,11 @@ export default componentEntry<Props>({
   load: async () => TodoWidget,
   variants: {
     small: {
-      note: "Small: the count of open items, the list's name in the accent color, the first three items with round checkboxes and how many more.",
+      note: "Small: the count of open items, the list's name in its color (Reminders blue, a hex), the first three items with round checkboxes and how many more.",
       props: { variant: "small" },
     },
     medium: {
-      note: "Medium: count and name on the left; three items and New item on the right, with Reminders' hairlines inset to the text.",
+      note: "Medium: count and name on the left; three items and New item on the right (the SDK's RowList with check rows).",
       props: { variant: "medium" },
     },
     large: {
@@ -75,8 +75,12 @@ export default componentEntry<Props>({
       props: { variant: "large" },
     },
     "large-completed-open": {
-      note: "Large after a click on Completed: the done items, checked and dimmed, with Clear.",
+      note: "Large after a click on Completed: the done items, struck through and dimmed with filled checkboxes, with Clear.",
       props: { variant: "large-completed-open" },
+    },
+    "large-orange": {
+      note: "Large with the list color set to orange and the name to Groceries, Completed open: the name, the filled checkboxes and New item's plus take the list's hex.",
+      props: { variant: "large-orange" },
     },
     "medium-few": {
       note: "Medium with two open items and one done: the done one is out of the list.",
