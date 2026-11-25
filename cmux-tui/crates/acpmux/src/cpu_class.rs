@@ -12,7 +12,8 @@
 //! `dynamic` (opt-in) keeps the terminal's class while the Mac is calm and uses
 //! `PRIO_DARWIN_BG` only during measured contention. It returns to the terminal's class after
 //! clear samples, so a temporary CPU peak cannot strand a chat at background priority. A person's
-//! attended turn stays at the terminal's class for its whole turn.
+//! attended turn stays above background class until its first token, thought, or completed
+//! tool result arrives; subsequent work may yield under pressure.
 //!
 //! `background` was the default until 2026-11-24, and it made NEXT agents slower than terminal
 //! agents: every tool a turn ran (git, tests, builds) inherited throttled disk I/O and waited on
