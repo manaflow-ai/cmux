@@ -90,6 +90,10 @@
       "kind": "publish",
       "why": "push-only teammate cloud journey publication/probe; no pull-request verdict"
     },
+    "platform-fleet-inventory.yml": {
+      "kind": "publish",
+      "why": "posts the fleet's GCE and Freestyle VM lists to cmux-platform-production's inventory route; its push trigger only registers the workflow (#56642), a publication and not a verdict on a change"
+    },
     "cloud-vm-image-graduate.yml": {
       "kind": "publish",
       "why": "a bot: a request file starts a report of the names people added to Cloud VM images, read from the live platform"
