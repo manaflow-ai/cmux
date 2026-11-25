@@ -11,8 +11,6 @@ public enum HomeFirstRunAction: Sendable, Equatable {
     case startAgent
     /// Show or hide the floating Chief pet (`home.toggleChiefPet`).
     case togglePet
-    /// Bring memory from other tools found on this Mac (`chief.importMemories`).
-    case importMemories
 }
 
 /// The empty Chief conversation's first-run panel, the Chief's front page: the Chief's face
@@ -27,9 +25,6 @@ final class HomeFirstRunView: NSView {
     let agent = HomeFirstRunRow(title: HomeStrings.firstRunStartAgent, icon: .agentChat)
     /// Show Chief Pet, or Hide Chief Pet while it shows (`setPetShown`).
     let pet = HomeFirstRunRow(title: HomeStrings.firstRunShowPet, icon: .agentChief)
-    /// "Bring your memory from Claude Code and ChatGPT": in the panel only while the host offers it (`setMemoryOffer`).
-    let memory = HomeFirstRunRow(title: "", icon: .actionDownload)
-    private(set) var memoryOffer: String?
     /// The Chief's face and what it does; out of the layout when it does not fit.
     let hero = HomeFirstRunHero()
     /// The Chief's first-open message, above the hero (`setIntro`); out of the layout until it has text and fits.
@@ -76,7 +71,7 @@ final class HomeFirstRunView: NSView {
     /// card's `apply` changes what shows with the same keys.
     private struct Measured: Equatable {
         var column, scale: CGFloat
-        var intro, memoryOffer: String?
+        var intro: String?
         var prompts: [String]
         var startersLook: HomeStarterChips.Look
         var switching: HomeSwitchKeys?
@@ -101,7 +96,7 @@ final class HomeFirstRunView: NSView {
 
     var rows: [HomeFirstRunRow] { actionRows + agentRows }
     /// The action rows, in panel order.
-    var actionRows: [HomeFirstRunRow] { memoryOffer == nil ? [agent, terminal, pet] : [agent, terminal, memory, pet] }
+    var actionRows: [HomeFirstRunRow] { [agent, terminal, pet] }
 
     /// The theme's colours, kept for agent rows made after the last theme pass.
     private struct Colors {
@@ -132,7 +127,6 @@ final class HomeFirstRunView: NSView {
         terminal.onClick = { [weak self] in self?.onAction(.openTerminal) }
         agent.onClick = { [weak self] in self?.onAction(.startAgent) }
         pet.onClick = { [weak self] in self?.onAction(.togglePet) }
-        memory.onClick = { [weak self] in self?.onAction(.importMemories) }
         stack.orientation = .vertical
         stack.alignment = .centerX
         stack.spacing = 6
@@ -261,20 +255,6 @@ final class HomeFirstRunView: NSView {
         if appearing { intro.animateIn() }
     }
 
-    /// Shows the memory row with `title` ("Bring your memory from Claude Code"), or removes it (nil).
-    func setMemoryOffer(_ title: String?) {
-        guard title != memoryOffer else { return }
-        memoryOffer = title
-        if let title {
-            memory.label.stringValue = title
-            memory.setAccessibilityLabel(title)
-            memory.applyScale(scale)
-        }
-        arrange()
-        applyStoredColors()
-        needsLayout = true
-    }
-
     /// The pet row reads as the change it makes: Hide Chief Pet while the pet shows.
     func setPetShown(_ shown: Bool) {
         let title = shown ? HomeStrings.firstRunHidePet : HomeStrings.firstRunShowPet
@@ -345,7 +325,7 @@ final class HomeFirstRunView: NSView {
         super.layout()
         guard !isHidden else { return }
         let width = max(0, min(Self.maxWidth * scale, bounds.width - 48 * scale))
-        let inputs = Measured(column: width, scale: scale, intro: introText, memoryOffer: memoryOffer,
+        let inputs = Measured(column: width, scale: scale, intro: introText,
                               prompts: starters.prompts, startersLook: starters.look, switching: switchCard.keys, agents: agents)
         if inputs == measured {
             // Nothing the parts are measured from changed (a pane width change around a column that keeps its

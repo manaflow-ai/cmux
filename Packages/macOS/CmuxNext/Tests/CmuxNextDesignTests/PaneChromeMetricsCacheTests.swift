@@ -4,7 +4,7 @@ import CmuxNextDesignTokens
 import Observation
 import Testing
 
-/// `PaneChromeMetrics.current` is cached on its inputs (`PaneChromeMetrics+Cache`): about 21% of a live resize's
+/// `PaneChromeMetrics.current` is kept by `Metrics.memo.paneChrome` (`TokenMemo`, `PaneChromeMetrics+Cache`): about 21% of a live resize's
 /// `ShellWindow.setFrame` re-derived it on every read (other Mac samples, 2026-11-24). The cache must never serve a value
 /// a fresh derivation would not give, and a read answered from it must still register the Observation dependency a view
 /// laid out with it relies on to lay out again when a setting changes.
@@ -48,7 +48,9 @@ import Testing
         #expect(PaneChromeMetrics.current == PaneChromeMetrics.derived, "after the preview the app's value came back")
     }
 
-    @Test func repeatedReadsWithNoChangeDeriveOnce() {
+    @Test func repeatedReadsWithNoChangeDeriveOnce() async {
+        // A change an earlier test made settles on the main queue's next turn (`TokenMemo`); until then reads are fresh.
+        await withCheckedContinuation { continuation in DispatchQueue.main.async { continuation.resume() } }
         _ = PaneChromeMetrics.current
         let derivations = PaneChromeMetrics.derivations
         for _ in 0..<50 { _ = PaneChromeMetrics.current }

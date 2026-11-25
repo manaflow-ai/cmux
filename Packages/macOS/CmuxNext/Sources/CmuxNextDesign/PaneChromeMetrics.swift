@@ -138,10 +138,13 @@ public nonisolated struct PaneChromeMetrics: Equatable, Sendable {
 
     /// The live tokens.
     @MainActor public static var current: PaneChromeMetrics {
-        cachedCurrent { derived }
+        Metrics.memo.paneChrome.value {
+            derivations += 1
+            return derived
+        }
     }
 
-    /// ``current`` worked out from its inputs, without the cache (`PaneChromeMetrics+Cache`).
+    /// ``current`` worked out from its inputs, without the memo (`Metrics.memo`, `TokenMemo`).
     @MainActor static var derived: PaneChromeMetrics {
         PaneChromeMetrics(stripHeight: Metrics.tabStripHeight, tabHeight: Metrics.tabHeight, panePadding: Metrics.stripTopOutset,
                           outlinedContent: Metrics.paneBorder != .none)

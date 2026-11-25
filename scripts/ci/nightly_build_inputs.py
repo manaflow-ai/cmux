@@ -103,9 +103,15 @@ def bundled_paths(root: Path) -> frozenset[str]:
         if phase is None:
             continue
         for build_file_id in detect._pbx_list_ids(phase, "files"):
-            reference_id = detect._pbx_reference_id(
-                detect._pbx_field(build_files[build_file_id], "fileRef")
-            )
+            file_ref = detect._pbx_field(build_files[build_file_id], "fileRef", required=False)
+            if file_ref is None:
+                # A Swift package product (productRef, e.g. the embedded
+                # CmuxNextApp.framework, 81b17999): built from package sources,
+                # which always rebuild, so it bundles no neutral file.
+                if detect._pbx_field(build_files[build_file_id], "productRef", required=False) is None:
+                    raise ValueError(f"build file {build_file_id} has neither fileRef nor productRef")
+                continue
+            reference_id = detect._pbx_reference_id(file_ref)
             reference = references.get(reference_id)
             if reference is None:
                 # A reference from a group or a synchronized folder, which is

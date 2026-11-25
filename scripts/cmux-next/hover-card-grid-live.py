@@ -17,7 +17,9 @@ labels (`DebugCardGrid`). Checks, idle and then working:
 
 Exits 1 when a check fails.
 """
-import argparse, json, os, socket, subprocess, sys, time
+import argparse, json, os, socket, subprocess, sys
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from state_wait import wait_until
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--tag", required=True)
@@ -68,10 +70,21 @@ def selected_row():
     return (main or {}).get("frame", {}).get("height"), row
 
 
+def no_card():
+    """`debug.hover_cards` says no card shows and the coordinator is idle."""
+    c = rpc("debug.hover_cards") or {}
+    return "error" not in c and c.get("card_showing") != "true" and c.get("phase", "idle") == "idle"
+
+
+def terminals():
+    return [word for word in cli("terminal", "list").stdout.split() if word.startswith("term_")]
+
+
 def card(label):
     """Hovers the selected row and returns the shown card's report."""
     rpc("debug.pointer_hover", {"point": [5, 5]})  # off the row first, so the card shows anew
-    time.sleep(0.5)
+    if not wait_until(no_card, f"{label}: the last card to close", timeout=10, raise_on_timeout=False):
+        print(f"{label}: a card still shows (or debug.hover_cards does not answer) 10 s after leaving the row", flush=True)
     height, row = selected_row()
     if not height or not row:
         check(False, f"{label}: a main window with a workspace row")
@@ -116,14 +129,18 @@ def main():
     if shown:
         check_grid(shown, "idle")
 
+    before = set(terminals())
     made = cli("action", "run", "newSurface")
-    check(made.returncode == 0, "open a terminal tab in the selected workspace")
-    time.sleep(2)
-    listed = cli("terminal", "list").stdout.split()
-    terminal = next((word for word in listed if word.startswith("term_")), None)
+    opened = made.returncode == 0 and wait_until(lambda: set(terminals()) - before, "the new terminal tab in `terminal list`",
+                                                 timeout=15, interval=0.2, raise_on_timeout=False)
+    check(bool(opened), "open a terminal tab in the selected workspace")
+    terminal = next(iter(terminals()), None)
     reported = cli("agent", "report", "--terminal", terminal or "", "--state", "working", "--source", "socket")
     check(terminal is not None and reported.returncode == 0, f"report an agent working ({reported.stderr.strip()[-120:]})")
-    time.sleep(1)
+    # The report reaches the sidebar row before the card is hovered (the card's own check says what it shows).
+    if not wait_until(lambda: str((selected_row()[1] or {}).get("activity", "")).startswith("working"),
+                      "the selected row to show the agent working", timeout=10, interval=0.1, raise_on_timeout=False):
+        print("the selected row does not show the agent working 10 s after the report", flush=True)
     shown = card("working")
     if shown:
         glyphs, labels = check_grid(shown, "working")

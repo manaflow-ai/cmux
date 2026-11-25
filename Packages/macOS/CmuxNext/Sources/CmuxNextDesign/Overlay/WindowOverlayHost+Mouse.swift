@@ -96,6 +96,7 @@ extension WindowOverlayHost {
             guard let takenButton, Self.button(of: event) == takenButton else { return false }
             if [.leftMouseUp, .rightMouseUp, .otherMouseUp].contains(event.type) { self.takenButton = nil }
         }
+        clickTrace.overlayTook(event, from: source, panel: panel)
         deliver(event, to: panel, screen: screen)
         return true
     }
@@ -170,6 +171,7 @@ extension WindowOverlayHost {
             // still comes to the panel, which got the down: it goes to the same target.
             forwardTarget = forwardingTarget(for: panel.convertPoint(toScreen: point), in: window)
             forwardButton = Self.button(of: event)
+            if let forwardTarget { clickTrace.forwarded(event, to: forwardTarget) }
             forward(event)
             return true
         case .leftMouseDragged, .rightMouseDragged, .otherMouseDragged:

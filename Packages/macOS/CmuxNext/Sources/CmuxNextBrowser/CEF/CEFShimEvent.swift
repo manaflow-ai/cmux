@@ -73,6 +73,9 @@ nonisolated enum CEFShimEvent: Equatable, Sendable {
     /// prompt is gone (PASSWORD_PROMPT, fork API 20), answered with
     /// `cmux_shim_password_prompt_answer(promptID, …)`.
     case passwordPrompt(browser: Int32, promptID: Int32, json: String)
+    /// A server's 401 asks for a user name and password (AUTH_PROMPT), answered with
+    /// `cmux_shim_auth_continue(token, …)`.
+    case authPrompt(browser: Int32, token: Int32, host: String, realm: String, isSecure: Bool)
     /// The page did not handle a key down (Windows key code): a plain
     /// Escape, or a letter outside editable fields with `shift`.
     case keyUnhandled(browser: Int32, keyCode: Int, shift: Bool)
@@ -197,8 +200,9 @@ nonisolated enum CEFShimEvent: Equatable, Sendable {
         case 49: self = .pageMessage(browser: browser, mainFrame: a == 1, channel: s1, payload: s2)
         case 50: self = .evaluateResult(token: request, status: Int(a), value: s1)
         case 51: self = .statusMessage(browser: browser, text: s1)
-        case 52: self = .jsDialog(browser: browser, token: request, type: Int32(truncatingIfNeeded: a), origin: s1, textJSON: s2)
-        case 53: self = .jsDialogDismissed(browser: browser)
+        case 52: self = .authPrompt(browser: browser, token: request, host: s1, realm: s2, isSecure: a != 0)
+        case 53: self = .jsDialog(browser: browser, token: request, type: Int32(truncatingIfNeeded: a), origin: s1, textJSON: s2)
+        case 54: self = .jsDialogDismissed(browser: browser)
         default: self = .unknown(kind: kind)
         }
     }

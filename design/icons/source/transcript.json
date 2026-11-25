@@ -26,11 +26,19 @@
    "replaces": []
   },
   {
+   "name": "prompt.save",
+   "meaning": "Save a message as a prompt for the / menu",
+   "line": "<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.5\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path d=\"M3.5 5h11M3.5 10h11M3.5 15h6.5\" /><path d=\"M17 12v7M13.5 15.5h7\" /></svg>",
+   "solid": "<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.5\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path d=\"M3.5 5h11M3.5 10h11M3.5 15h6.5\" /><path d=\"M17 12v7M13.5 15.5h7\" /></svg>",
+   "note": "Lines with a plus: add this message to your prompts. Not action.save's download tray, which read as Download beside the Bookmark ribbon (Leo, 2026-11-24: \"save prompt butotn still bad\").",
+   "replaces": []
+  },
+  {
    "name": "action.retry",
    "meaning": "Retry prompt",
-   "line": "<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.25\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><g transform=\"scale(1.5)\"><path d=\"M2.5 8a5.5 5.5 0 1 0 5.5-5.5 6 6 0 0 0-4.12 1.67L2.5 5.56\" />\n    <path d=\"M2.5 2.5v3.06h3.06\" /></g></svg>",
-   "solid": "<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.25\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><g transform=\"scale(1.5)\"><path d=\"M2.5 8a5.5 5.5 0 1 0 5.5-5.5 6 6 0 0 0-4.12 1.67L2.5 5.56\" />\n    <path d=\"M2.5 2.5v3.06h3.06\" /></g></svg>",
-   "note": "Transcript glyph moved onto the shared 24-unit pack grid; preserves the existing action meaning.",
+   "line": "<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.25\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><g transform=\"scale(1.5)\"><path d=\"M3.67 6.1A5 5 0 1 0 8 3.6\" />\n    <path d=\"M10.1 1.5L8 3.6l2.1 2.1\" /></g></svg>",
+   "solid": "<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.25\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><g transform=\"scale(1.5)\"><path d=\"M3.67 6.1A5 5 0 1 0 8 3.6\" />\n    <path d=\"M10.1 1.5L8 3.6l2.1 2.1\" /></g></svg>",
+   "note": "A three-quarter circle with a separate chevron head at the top, so the head never meets the tail (Leo, 2026-11-14: the retry circle arrow touches its tail; just use a proper retry icon).",
    "replaces": []
   },
   {

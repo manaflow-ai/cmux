@@ -1,4 +1,6 @@
+public import CMUXAuthCore
 public import CmuxMobileModel
+import CmuxEgress
 import Foundation
 
 /// One of the user's Cloud Chiefs (`chief.list`, `HomeChief`), the fields the
@@ -62,14 +64,21 @@ public struct ChiefCloudConfig: Sendable, Equatable {
     public var baseURL: URL
     /// Where ``baseURL`` came from (Settings > Developer, the DEBUG readiness receipt).
     public var source: CloudBackendOverride.Source
+    /// The build's cloud data space: a dev build's `X-Cmux-Build-Space` on every request and socket
+    /// upgrade to the Cloud service; a misconfigured dev build's are refused. The app's composition
+    /// root decides it.
+    public var buildSpace: CMUXBuildSpaceState
 
-    public init(baseURL: URL, source: CloudBackendOverride.Source = .build) {
+    public init(baseURL: URL, source: CloudBackendOverride.Source = .build, buildSpace: CMUXBuildSpaceState = .nightly) {
         self.baseURL = baseURL
         self.source = source
+        self.buildSpace = buildSpace
     }
 
+    /// The configured Cloud service, its requests in `buildSpace`.
     public static func current(environment: [String: String] = ProcessInfo.processInfo.environment,
-                               bundle: Bundle = .main, defaults: UserDefaults = .standard) -> ChiefCloudConfig? {
+                               bundle: Bundle = .main, defaults: UserDefaults = .standard,
+                               buildSpace: CMUXBuildSpaceState) -> ChiefCloudConfig? {
         #if DEBUG
         let debug = true
         #else
@@ -78,7 +87,7 @@ public struct ChiefCloudConfig: Sendable, Equatable {
         return CloudBackendOverride.cloudService(environment: environment,
                                                  infoValue: bundle.object(forInfoDictionaryKey: "CmuxMobileCloudAPIBase") as? String,
                                                  defaults: defaults, debug: debug)
-            .map { ChiefCloudConfig(baseURL: $0.url, source: $0.source) }
+            .map { ChiefCloudConfig(baseURL: $0.url, source: $0.source, buildSpace: buildSpace) }
     }
 }
 
@@ -88,11 +97,20 @@ public struct ChiefCloudConfig: Sendable, Equatable {
 struct ChiefCloudHTTP: Sendable {
     let base: URL
     let accessToken: @Sendable (_ forceRefresh: Bool) async throws -> String
-    var session: URLSession = .shared
+    var session: URLSession = CmuxEgress.shared(site: "CmuxMobileChief.CloudChiefs")
+    /// The build's cloud data space: every request and socket upgrade to the Worker carries it, and a
+    /// misconfigured dev build's throw ``CMUXBuildSpaceError`` before they are sent.
+    var buildSpace: CMUXBuildSpaceState = .nightly
+    /// An attachment PUT that moves no byte for this long fails (``ChiefUpload/stall``; tests shorten it).
+    var uploadStall: Duration = ChiefUpload.stall
+    /// The intent, commit and other byte-less attachment requests (``ChiefUpload/request``).
+    var uploadRequestLimit: Duration = ChiefUpload.request
 
     struct Reply: Sendable {
         var status: Int
         var body: Data
+        /// The answer's `ETag` (a direct multipart part names itself by it).
+        var etag: String? = nil
     }
 
     func url(_ path: String) -> URL {
@@ -101,19 +119,12 @@ struct ChiefCloudHTTP: Sendable {
 
     /// `method path` with the bearer; one retry with a fresh token after a 401. `team` names the
     /// Cloud team the request acts in (`x-cmux-team`); without it a session acts in its personal team.
-    func send(_ method: String, _ path: String, body: Data? = nil, team: String? = nil) async throws -> Reply {
+    /// `timeout`: how long the request may take; a request the service holds asks for more than 20 s.
+    func send(_ method: String, _ path: String, body: Data? = nil, team: String? = nil, timeout: TimeInterval = 20) async throws -> Reply {
         var forceRefresh = false
         while true {
             let token = try await accessToken(forceRefresh)
-            var request = URLRequest(url: url(path))
-            request.httpMethod = method
-            request.timeoutInterval = 20
-            request.setValue("Bearer \(token)", forHTTPHeaderField: "authorization")
-            if let team { request.setValue(team, forHTTPHeaderField: "x-cmux-team") }
-            if let body {
-                request.setValue("application/json", forHTTPHeaderField: "content-type")
-                request.httpBody = body
-            }
+            let request = try makeRequest(method, path, token: token, body: body, team: team, timeout: timeout)
             let (data, response) = try await session.data(for: request)
             let status = (response as? HTTPURLResponse)?.statusCode ?? 0
             if status == 401, !forceRefresh {
@@ -124,25 +135,71 @@ struct ChiefCloudHTTP: Sendable {
         }
     }
 
+    /// The request ``send(_:_:body:team:timeout:)`` sends with `token`.
+    func makeRequest(_ method: String, _ path: String, token: String, body: Data? = nil, team: String? = nil,
+                     timeout: TimeInterval = 20) throws -> URLRequest {
+        var request = URLRequest(url: url(path))
+        request.httpMethod = method
+        request.timeoutInterval = timeout
+        request.setValue("Bearer \(token)", forHTTPHeaderField: "authorization")
+        if let team { request.setValue(team, forHTTPHeaderField: "x-cmux-team") }
+        if let body {
+            request.setValue("application/json", forHTTPHeaderField: "content-type")
+            request.httpBody = body
+        }
+        try buildSpace.apply(to: &request)
+        return request
+    }
+
+    /// A `cmux.wire.v1` socket upgrade to `url` with `token`.
+    func socketRequest(_ url: URL, token: String) throws -> URLRequest {
+        var request = URLRequest(url: url)
+        request.setValue("Bearer \(token)", forHTTPHeaderField: "authorization")
+        request.setValue("cmux.wire.v1", forHTTPHeaderField: "Sec-WebSocket-Protocol")
+        try buildSpace.apply(to: &request)
+        return request
+    }
+
     /// A file's bytes to the URL an attachment intent answered with (its `method` and
     /// `headers`). Only the Worker's own URL gets the bearer: a presigned bucket URL is signed
     /// by its query and must not carry one.
-    func upload(_ url: URL, method: String, headers: [String: String], body: Data, toWorker: Bool) async throws -> Reply {
+    ///
+    /// No deadline (a large file on a slow link takes minutes), but no byte moving for
+    /// ``uploadStall`` fails it as ``ChiefUpload/Failure/stalled(hop:sent:seconds:)`` naming `hop`.
+    /// `progress` gets the bytes of `body` sent so far.
+    func upload(_ url: URL, method: String, headers: [String: String], body: Data, toWorker: Bool,
+                hop: String = "PUT", progress: @escaping @Sendable (Int64) -> Void = { _ in }) async throws -> Reply {
         var forceRefresh = false
         while true {
             var request = URLRequest(url: url)
             request.httpMethod = method
             request.timeoutInterval = 60
             for (name, value) in headers { request.setValue(value, forHTTPHeaderField: name) }
-            if toWorker { request.setValue("Bearer \(try await accessToken(forceRefresh))", forHTTPHeaderField: "authorization") }
-            let (data, response) = try await session.upload(for: request, from: body)
-            let status = (response as? HTTPURLResponse)?.statusCode ?? 0
-            if status == 401, toWorker, !forceRefresh {
+            if toWorker {
+                request.setValue("Bearer \(try await accessToken(forceRefresh))", forHTTPHeaderField: "authorization")
+                // A presigned bucket URL gets neither the bearer nor the build space.
+                try buildSpace.apply(to: &request)
+            }
+            let watch = ChiefUpload.Watch(progress: progress)
+            let session = session
+            let sending = request
+            let reply = try await ChiefUpload.watched(hop, watch: watch, stall: uploadStall) {
+                let (data, response) = try await session.upload(for: sending, from: body, delegate: watch)
+                let http = response as? HTTPURLResponse
+                return Reply(status: http?.statusCode ?? 0, body: data, etag: http?.value(forHTTPHeaderField: "etag"))
+            }
+            if reply.status == 401, toWorker, !forceRefresh {
                 forceRefresh = true
                 continue
             }
-            return Reply(status: status, body: data)
+            return reply
         }
+    }
+
+    /// ``send(_:_:body:team:)`` bounded by ``uploadRequestLimit``, failing as `hop`.
+    func sendBounded(_ hop: String, _ method: String, _ path: String, body: Data? = nil) async throws -> Reply {
+        let http = self
+        return try await ChiefUpload.bounded(hop, limit: uploadRequestLimit) { try await http.send(method, path, body: body) }
     }
 
     /// The bearer for a socket upgrade.
