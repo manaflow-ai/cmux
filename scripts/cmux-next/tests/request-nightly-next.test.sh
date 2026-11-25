@@ -75,6 +75,19 @@ while [[ \$# -gt 0 ]]; do
     *) url="\$1"; shift ;;
   esac
 done
+# The build fleet's compile results service (the precheck): a passing record for every commit, unless
+# $TMP/precheck/<sha> names another state, 404 (no record) or down (no answer).
+if [[ "\$url" == https://gh-events.cmux.com/compile-checks/v1/* ]]; then
+  echo "\$url" >> "$TMP/precheck.log"
+  c="\${url#https://gh-events.cmux.com/compile-checks/v1/}"; c="\${c%%\?*}"
+  st=pass; [[ ! -f "$TMP/precheck/\$c" ]] || st="\$(cat "$TMP/precheck/\$c")"
+  case "\$st" in
+    down) printf 000; exit 7 ;;
+    404) printf 404; exit 0 ;;
+  esac
+  printf '{"sha": "%s", "repo": "o/r", "recipe_version": 2, "configuration": "release-onone", "state": "%s"}\n' "\$c" "\$st" > "\${out:-/dev/stdout}"
+  printf 200; exit 0
+fi
 path="\${url#https://files.cmux.com/cmux-tui/}"; path="\${path%%\?*}"
 # A -w read of a path listed in $cdn/TRUNC transfers, reports its status, then
 # fails (curl exit 18, a truncated transfer).
