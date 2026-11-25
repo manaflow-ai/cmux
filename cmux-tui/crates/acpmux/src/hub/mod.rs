@@ -189,6 +189,7 @@ mod launchers;
 pub mod lineage;
 pub(crate) mod list_guard;
 pub(crate) mod list_tee;
+pub(crate) mod op_once;
 mod rows_source;
 // Row 3b's first PR: the source, driven by tests. Its second PR (the tee at v1's append and the
 // chat registry in the daemon's v2 handle) is its first caller in the daemon.
@@ -473,6 +474,7 @@ mod permission_groups;
 mod permissions;
 pub(crate) use permissions::drop_display_lines;
 pub mod cmux_tools_answer;
+pub mod here;
 mod hunk_summary;
 pub mod person;
 pub mod presence;
@@ -1098,6 +1100,8 @@ pub struct Hub {
     pub(crate) link_v2: Arc<crate::link_v2::Shared>,
     /// A test's hold on list requests (`list_guard.rs`).
     pub(crate) list_guard: list_guard::ListGuard,
+    /// `_acpmux/archive` and `_acpmux/rename` run once per `opId` (`op_once.rs`).
+    pub(crate) op_once: op_once::OpOnce,
     /// This daemon's rows in list order, kept as they change (`list_order.rs`).
     pub(super) list_order: list_order::ListOrder,
     /// Client requests every connection serves now, each holding its work slot
@@ -1225,16 +1229,7 @@ pub struct Hub {
     /// The ACP lists kept on disk by earlier probes (`live_models::AcpCache`), read once at
     /// start: by harness, the profile key it was probed under and the list. Each fills
     /// `known_models` for a profile with the same key until its probe answers (`model_probe.rs`).
-    /// The probe's choices (`probed_choices`) ride along, so a restart needs no probe for them.
-    pub(super) acp_cached: StdMutex<
-        HashMap<String, (String, Vec<(String, String)>, Option<crate::live_models::AcpChoices>)>,
-    >,
-    /// When each ACP harness's list was last probed (this run, or the kept file's time): a
-    /// models read probes one older than `live_ages::ACP_MAX_AGE` again (`model_probe.rs`).
-    pub(super) acp_ages: StdMutex<live_ages::LiveAges>,
-    /// The program each live list kept on disk was listed by, as loaded at start: an unchanged
-    /// program is not probed at start (`hub/live_models.rs`).
-    pub(super) live_disk_keys: StdMutex<HashMap<String, crate::live_models::CacheKey>>,
+    pub(super) acp_cached: StdMutex<HashMap<String, (String, Vec<(String, String)>)>>,
     /// The harnesses whose `known_models` entry is that disk copy, not a report of this
     /// daemon's: the probe still runs for them.
     pub(super) acp_from_disk: StdMutex<std::collections::HashSet<String>>,
@@ -1498,6 +1493,8 @@ pub struct Hub {
     pub person: person::PersonGate,
     /// Who has each chat open and who types in it, in memory only (`presence.rs`).
     pub presence: presence::Presence,
+    /// Who is on this machine now, across devices, in memory only (`here.rs`).
+    pub here: here::HereTable,
     /// How long a move may go without its client (`transfer_watch.rs`).
     pub(super) transfer_lease: StdMutex<std::time::Duration>,
     /// The moves one watch ends, or whose begin still makes them (`transfer_watch.rs`).
@@ -1732,6 +1729,7 @@ impl Hub {
             events,
             link_v2: Arc::default(),
             list_guard: Default::default(),
+            op_once: Default::default(),
             list_order: Default::default(),
             requests_in_flight: Default::default(),
             usage_stats: Default::default(),
@@ -1790,8 +1788,6 @@ impl Hub {
             cache_test_save_every_ms: AtomicU64::new(peer_cache::SAVE_EVERY_MS),
             known_models: StdMutex::new(HashMap::new()),
             acp_cached: StdMutex::new(HashMap::new()),
-            acp_ages: StdMutex::new(live_ages::LiveAges::default()),
-            live_disk_keys: StdMutex::new(HashMap::new()),
             acp_from_disk: StdMutex::new(std::collections::HashSet::new()),
             probed_choices: StdMutex::new(HashMap::new()),
             live_models: StdMutex::new(HashMap::new()),
@@ -1921,6 +1917,7 @@ impl Hub {
             web_token: WebToken::new(String::new()),
             person: Default::default(),
             presence: Default::default(),
+            here: Default::default(),
             workflow_index: Default::default(),
             suggestion_gate,
             page_replies: Default::default(),

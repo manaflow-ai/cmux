@@ -39,12 +39,14 @@ fn a_new_from_an_interactive_machine_is_placed_unless_a_host_is_named() {
         }
     }
     let none = json!({"pick": null, "why": "no host has room for this"});
-    // An explicit `--host auto` still stops; only a `new` that named no host starts here,
-    // and not on a held machine.
-    let e = without_pick(&none, false, None).unwrap_err().to_string();
+    // A named host still stops; Auto and a `new` that named no host start here, and not on a
+    // held machine.
+    let e = without_pick(&none, false, false, None).unwrap_err().to_string();
     assert_eq!(e, "no host has room for this");
-    assert_eq!(without_pick(&none, true, None).unwrap(), None);
-    let e = without_pick(&none, true, Some("reserved for sam until x (r)".into()));
+    // Auto falls back here when no host has room, so admission can wait for an added machine.
+    assert_eq!(without_pick(&none, false, true, None).unwrap(), None);
+    assert_eq!(without_pick(&none, true, false, None).unwrap(), None);
+    let e = without_pick(&none, true, false, Some("reserved for sam until x (r)".into()));
     assert!(e.unwrap_err().to_string().ends_with("this machine is reserved for sam until x (r)"));
     assert_eq!(
         no_fleet_host(&none),
