@@ -245963,6 +245963,60 @@
         "zh-Hant": {"stringUnit": {"state": "translated", "value": "帶載入指示的提示條會在原處變成結果；關閉分頁或工作區、封存聊天後會出現「還原」。"}}
       }
     },
+    "settings.experiments.terminalHistory": {
+      "comment": "Settings > Experimental row title: a button on Claude Code and Codex terminal panes that opens the agent's earlier history as a read-only chat.",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {"stringUnit": {"state": "translated", "value": "سجل الوكيل في الطرفية"}},
+        "bs": {"stringUnit": {"state": "translated", "value": "Historija agenta u terminalu"}},
+        "da": {"stringUnit": {"state": "translated", "value": "Agenthistorik i terminal"}},
+        "de": {"stringUnit": {"state": "translated", "value": "Agentenverlauf im Terminal"}},
+        "en": {"stringUnit": {"state": "translated", "value": "Terminal Agent History"}},
+        "es": {"stringUnit": {"state": "translated", "value": "Historial del agente en la terminal"}},
+        "fr": {"stringUnit": {"state": "translated", "value": "Historique de l’agent du terminal"}},
+        "it": {"stringUnit": {"state": "translated", "value": "Cronologia dell’agente nel terminale"}},
+        "ja": {"stringUnit": {"state": "translated", "value": "ターミナルのエージェント履歴"}},
+        "km": {"stringUnit": {"state": "translated", "value": "ប្រវត្តិភ្នាក់ងារក្នុងទែមីណាល់"}},
+        "ko": {"stringUnit": {"state": "translated", "value": "터미널 에이전트 기록"}},
+        "nb": {"stringUnit": {"state": "translated", "value": "Agentlogg i terminal"}},
+        "pl": {"stringUnit": {"state": "translated", "value": "Historia agenta w terminalu"}},
+        "pt-BR": {"stringUnit": {"state": "translated", "value": "Histórico do agente no terminal"}},
+        "ru": {"stringUnit": {"state": "translated", "value": "История агента в терминале"}},
+        "th": {"stringUnit": {"state": "translated", "value": "ประวัติเอเจนต์ในเทอร์มินัล"}},
+        "tr": {"stringUnit": {"state": "translated", "value": "Terminal Ajan Geçmişi"}},
+        "uk": {"stringUnit": {"state": "translated", "value": "Історія агента в терміналі"}},
+        "vi": {"stringUnit": {"state": "translated", "value": "Lịch sử tác tử trong terminal"}},
+        "zh-Hans": {"stringUnit": {"state": "translated", "value": "终端代理历史记录"}},
+        "zh-Hant": {"stringUnit": {"state": "translated", "value": "終端機代理歷史記錄"}}
+      }
+    },
+    "settings.experiments.terminalHistory.help": {
+      "comment": "Settings > Experimental > Terminal Agent History help: what the switch adds to a terminal pane.",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {"stringUnit": {"state": "translated", "value": "تحصل طرفيات Claude Code وCodex على زر يفتح سجلها السابق كمحادثة للقراءة فقط."}},
+        "bs": {"stringUnit": {"state": "translated", "value": "Terminali Claude Code i Codex dobijaju dugme koje otvara njihovu raniju historiju kao chat samo za čitanje."}},
+        "da": {"stringUnit": {"state": "translated", "value": "Claude Code- og Codex-terminaler får en knap, der åbner deres tidligere historik som en skrivebeskyttet chat."}},
+        "de": {"stringUnit": {"state": "translated", "value": "Claude Code- und Codex-Terminals erhalten eine Taste, die ihren früheren Verlauf als schreibgeschützten Chat öffnet."}},
+        "en": {"stringUnit": {"state": "translated", "value": "Claude Code and Codex terminals get a button that opens their earlier history as a read-only chat."}},
+        "es": {"stringUnit": {"state": "translated", "value": "Las terminales de Claude Code y Codex tienen un botón que abre su historial anterior como un chat de solo lectura."}},
+        "fr": {"stringUnit": {"state": "translated", "value": "Les terminaux Claude Code et Codex ont un bouton qui ouvre leur historique antérieur comme une discussion en lecture seule."}},
+        "it": {"stringUnit": {"state": "translated", "value": "I terminali Claude Code e Codex hanno un pulsante che apre la loro cronologia precedente come chat di sola lettura."}},
+        "ja": {"stringUnit": {"state": "translated", "value": "Claude Code と Codex のターミナルに、以前の履歴を読み取り専用のチャットとして開くボタンが表示されます。"}},
+        "km": {"stringUnit": {"state": "translated", "value": "ទែមីណាល់ Claude Code និង Codex មានប៊ូតុងដែលបើកប្រវត្តិមុនៗរបស់វាជាការជជែកសម្រាប់តែអាន។"}},
+        "ko": {"stringUnit": {"state": "translated", "value": "Claude Code 및 Codex 터미널에 이전 기록을 읽기 전용 채팅으로 여는 버튼이 생깁니다."}},
+        "nb": {"stringUnit": {"state": "translated", "value": "Claude Code- og Codex-terminaler får en knapp som åpner den tidligere loggen som en skrivebeskyttet chat."}},
+        "pl": {"stringUnit": {"state": "translated", "value": "Terminale Claude Code i Codex dostają przycisk, który otwiera ich wcześniejszą historię jako czat tylko do odczytu."}},
+        "pt-BR": {"stringUnit": {"state": "translated", "value": "Os terminais do Claude Code e do Codex ganham um botão que abre o histórico anterior como um chat somente leitura."}},
+        "ru": {"stringUnit": {"state": "translated", "value": "В терминалах Claude Code и Codex появляется кнопка, открывающая их прежнюю историю как чат только для чтения."}},
+        "th": {"stringUnit": {"state": "translated", "value": "เทอร์มินัล Claude Code และ Codex จะมีปุ่มที่เปิดประวัติก่อนหน้าเป็นแชทแบบอ่านอย่างเดียว"}},
+        "tr": {"stringUnit": {"state": "translated", "value": "Claude Code ve Codex terminallerinde önceki geçmişi salt okunur bir sohbet olarak açan bir düğme bulunur."}},
+        "uk": {"stringUnit": {"state": "translated", "value": "Термінали Claude Code і Codex отримують кнопку, що відкриває їхню попередню історію як чат лише для читання."}},
+        "vi": {"stringUnit": {"state": "translated", "value": "Terminal Claude Code và Codex có một nút mở lịch sử trước đó dưới dạng cuộc trò chuyện chỉ đọc."}},
+        "zh-Hans": {"stringUnit": {"state": "translated", "value": "Claude Code 和 Codex 终端会多出一个按钮，可将其早前的历史记录作为只读聊天打开。"}},
+        "zh-Hant": {"stringUnit": {"state": "translated", "value": "Claude Code 與 Codex 終端機會多一個按鈕，可將先前的歷史記錄以唯讀聊天開啟。"}}
+      }
+    },
     "settings.experiments.terminalHistoryFind": {
       "comment": "Settings > Experimental row title: Cmd-F in a terminal searches its whole history, not only the screen.",
       "extractionState": "manual",
