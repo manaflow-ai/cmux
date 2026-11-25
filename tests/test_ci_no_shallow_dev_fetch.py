@@ -80,6 +80,8 @@ OWN_REPOSITORY = {
     "scripts/ci/base_red_excuse.py": "git_text fetches only into its own `git init --bare` cache repository under source_cache(), never the caller's clone",
     "scripts/ci/cmux_next_base_merge_carry.py":
         "clean_merge_tree fetches only into a scratch `git init --bare` temporary directory it just made",
+    "scripts/measure/warm-tree.sh": "fetches only into its own `git init --bare` repository under the measurement root",
+    "scripts/measure/git-carry-ready.sh": "run_deepen deepens only its own throwaway borrow clone $d, never the caller's checkout",
     "scripts/measure/agent-loop.sh": "fetch_tree fetches into $tree right after its own `git init` there",
     "scripts/measure/tab-switch.sh":
         "require_submodule_refs fetches only into its own `git init --bare` probe under the step's temp directory",

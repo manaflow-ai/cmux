@@ -21,7 +21,7 @@ pub(super) const NATIVE_DIGESTS: &str = "native-digests.json";
 
 /// [`Hub::import_into`]'s `(live, guarded, replace_durable, defer_finalize, staged)`.
 pub(super) type ImportOptions<'a> = (
-    bool,
+    Live,
     Option<super::transfer_guard::GuardedImport<'a>>,
     bool,
     bool,
@@ -159,7 +159,7 @@ impl Hub {
         bundle: &Path,
         name: Option<String>,
     ) -> Result<Arc<Session>, RpcError> {
-        self.import_into(bundle, name, false, None, false, false, None).await
+        self.import_into(bundle, name, Live::No, None, false, false, None).await
     }
 
     /// `import`; a `live` one (a chat moved here, `transfer_in.rs`) has its queue back before
@@ -171,7 +171,7 @@ impl Hub {
         self: &Arc<Self>,
         bundle: &Path,
         name: Option<String>,
-        live: bool,
+        live: Live,
         guarded: Option<super::transfer_guard::GuardedImport<'_>>,
         replace_durable: bool,
         defer_finalize: bool,
@@ -198,7 +198,7 @@ impl Hub {
         self: &Arc<Self>,
         bundle: &Path,
         name: Option<String>,
-        live: bool,
+        live: Live,
         guarded: Option<super::transfer_guard::GuardedImport<'_>>,
         replace_durable: bool,
         defer_finalize: bool,
@@ -385,8 +385,10 @@ impl Hub {
                 crate::qos::off_worker(|| crate::native::restore_replacing(bundle, &meta))
                     .unwrap_or_default()
             }
-            None if live => crate::qos::off_worker(|| crate::native::restore_linked(bundle, &meta))
-                .unwrap_or_default(),
+            None if matches!(live, Live::Moved(_)) => {
+                crate::qos::off_worker(|| crate::native::restore_linked(bundle, &meta))
+                    .unwrap_or_default()
+            }
             None => {
                 crate::qos::off_worker(|| crate::native::restore(bundle, &meta)).unwrap_or_default()
             }
@@ -430,7 +432,12 @@ impl Hub {
             // The copied log may end in transcript records: say it may have.
             meta.transcript_seq = last;
         }
-        if live {
+        if let Live::Moved(credential) = live {
+            // The login the move brought is the chat's before its queue runs (`end_move` below):
+            // the turn it continues starts signed in. Held in memory only, as `session/new`'s.
+            if let Some(credential) = credential {
+                *session.credential.lock().unwrap_or_else(|e| e.into_inner()) = Some(credential);
+            }
             self.restore_queue(&session);
             // A bundle from a daemon that wrote none moves the chat without them.
             if let Some(v) = std::fs::read(bundle.join(super::composers::BUNDLE_FILE))
@@ -970,6 +977,13 @@ impl Hub {
     }
 }
 
+/// Whether an import is a chat moved here (`transfer_in.rs`), which keeps its queue, composers
+/// and the owner's login its move brought (`agent_credentials.rs`), or a plain import.
+pub(super) enum Live {
+    No,
+    Moved(Option<crate::agent_credentials::AgentCredential>),
+}
+
 #[cfg(test)]
 #[path = "fork_reference_export_tests.rs"]
 mod fork_reference_export_tests;
@@ -1017,7 +1031,8 @@ mod tests {
         std::fs::write(bundle.join("events").join("000001.ndjson"), "not a record\n").unwrap();
         let marker = dir.join("sessions/.agent-0002.durable-transfer-state");
         for attempt in ["first", "retry"] {
-            let failed = hub.import_into(&bundle, None, true, None, true, true, None).await;
+            let failed =
+                hub.import_into(&bundle, None, Live::Moved(None), None, true, true, None).await;
             let failed = failed.err().map(|e| e.message);
             assert!(
                 failed.as_deref().is_some_and(|m| m.starts_with("import events")),

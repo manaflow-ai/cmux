@@ -585,6 +585,7 @@ export function ContextMenu({
                         </button>
                         {item.submenu && subItem === item ? (
                           <div
+                            // one-material-allow: a submenu is a floating menu of its own beside its parent, not a control on the parent's glass; the parent's tree holds it for hover and focus
                             className={cx("ui-popup ui-glass ui-context-menu ui-context-submenu", popupClassName)}
                             role="menu"
                             aria-label={item.ariaLabel ?? (typeof item.label === "string" ? item.label : undefined)}

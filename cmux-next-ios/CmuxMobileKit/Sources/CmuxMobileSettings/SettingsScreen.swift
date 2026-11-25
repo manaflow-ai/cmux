@@ -38,6 +38,7 @@ public struct SettingsScreen<Leading: ToolbarContent>: View {
     private let callPreferences = VoiceCallPreferences.shared
     private let accentTheme = CmuxMobileAccentTheme.shared
     @Bindable private var macTheme = CmuxMobileMacTheme.shared
+    @AppStorage(CmuxMobilePreferences.Key.tabCardMonograms) private var tabCardMonograms = CmuxMobilePreferences.defaultTabCardMonograms
     @State private var confirmsSignOut = false
     @State private var editingTeam: Team?
     /// One device list for the "Devices" count here and the Devices page.
@@ -204,6 +205,11 @@ public struct SettingsScreen<Leading: ToolbarContent>: View {
                     NavigationLink(value: SettingsRoute.transport) {
                         SettingsLabel("Transport", symbol: "antenna.radiowaves.left.and.right", value: transportValue)
                     }
+                    // Experiment (off by default): a tab card with no picture yet shows its site's letter.
+                    Toggle(isOn: $tabCardMonograms) {
+                        SettingsLabel("Site Monograms on Tab Cards", symbol: "textformat.alt")
+                    }
+                    .accessibilityIdentifier("settings.tabCardMonograms")
                 } header: {
                     Text("Advanced")
                 }

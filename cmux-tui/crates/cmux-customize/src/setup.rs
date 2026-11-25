@@ -254,7 +254,7 @@ pub(crate) fn read_parts(dir: &Path, findings: &mut Vec<Finding>) -> Result<Setu
         .into());
     }
     let mut manifest = manifest;
-    inline_files(&mut manifest.settings, dir)?;
+    inline_files(&mut manifest.settings, dir).map_err(|error| unreadable(refusal_text(error)))?;
     let mut files = manifest.files.clone();
     for (path, text) in repo_files(dir, findings) {
         if files.insert(path.clone(), text).is_some() {
@@ -389,7 +389,7 @@ fn strip_value(error: &serde_json::Error) -> String {
 }
 
 /// `setup-OWNER-NAME`, as a profile (and so a library entry) name.
-fn profile_name(id: &str) -> String {
+pub(crate) fn profile_name(id: &str) -> String {
     let mut name: String = format!("setup-{id}")
         .chars()
         .map(|c| if c.is_ascii_alphanumeric() { c.to_ascii_lowercase() } else { '-' })
