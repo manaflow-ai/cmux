@@ -59,9 +59,8 @@ final class FeedInstallPrincipal {
         guard let route = FeedOwnerCall.Route(path: path) else { throw FeedServiceError.badReply }
         let token = try await identity.installToken()
         if let install = Self.install(ofToken: token) { installID = install }
-        let owner = FeedOwnerCall(baseURL: baseURL, credential: { token }, configuration: configuration, machineIO: machineIO(),
-                                  clientVersion: identity.requestHeaders["x-cmux-client-version"])
-        let reply = try await owner.send(route, body)
+        let reply = try await FeedOwnerCall(baseURL: baseURL, credential: { token }, configuration: configuration, machineIO: machineIO(),
+                                            clientVersion: identity.requestHeaders["x-cmux-client-version"]).send(route, body)
         if reply.status == 401 { await identity.invalidate() }
         return try FeedOwnerCall.read(reply)
     }
