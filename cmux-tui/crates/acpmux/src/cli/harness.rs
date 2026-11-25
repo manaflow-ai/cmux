@@ -42,6 +42,7 @@ pub const EXAMPLES: &[(&str, &str)] = &[
     ("opencode", include_str!("../../harnesses/opencode.toml")),
     ("pi", include_str!("../../harnesses/pi.toml")),
     ("gemini", include_str!("../../harnesses/gemini.toml")),
+    ("antigravity", include_str!("../../harnesses/antigravity.toml")),
     ("aider", include_str!("../../harnesses/aider.toml")),
     ("muse", include_str!("../../harnesses/muse.toml")),
     ("muse-terminal", include_str!("../../harnesses/muse-terminal.toml")),
@@ -61,6 +62,7 @@ pub fn example(name: &str) -> Option<&'static str> {
     let id = match name {
         "claude-code" => "claude",
         "gemini-cli" => "gemini",
+        "agy" | "antigravity-cli" => "antigravity",
         "muse-code" => "muse",
         "hermes-agent" => "hermes",
         "aider-terminal" | "terminal" => "aider",
@@ -1084,6 +1086,12 @@ async fn acp_steps(
     for a in spawn.argv.iter_mut() {
         *a = crate::hub::expand_env_value(a, folder, &home, &model);
     }
+    // As the hub's launch does (`hub/spawn.rs`): Antigravity gets a key saved in ~/.gemini/.env.
+    crate::acp_key_auth::fill_key_from_gemini_dotenv(
+        &mut spawn.env,
+        &crate::config::derive_family(id, profile),
+        |k| std::env::var(k).ok(),
+    );
     let mut cmd = match crate::agent::harness_command_ready(id, &spawn, folder, None, None).await {
         Ok(cmd) => cmd,
         Err(e) => {
@@ -1151,6 +1159,8 @@ async fn acp_steps(
         prompt_limit,
         crate::config::derive_family(id, profile) == "codex",
         id,
+        &spawn.env,
+        &crate::config::derive_family(id, profile),
     )
     .await;
     // Stop the harness and everything it started (its own process group),
@@ -1223,6 +1233,8 @@ async fn handshake(
     prompt_limit: Duration,
     codex: bool,
     harness_id: &str,
+    env: &std::collections::BTreeMap<String, String>,
+    env_family: &str,
 ) -> bool {
     let init = json!({
         "protocolVersion": 1,
@@ -1256,6 +1268,33 @@ async fn handshake(
             &format!("protocolVersion {version}{agent}; cmux speaks ACP protocol 1"),
             None,
         );
+    }
+    // An agent signed in by its key says so before its session, as the hub's start does
+    // (`acp_key_auth.rs`).
+    let family = env_family;
+    if let Some(params) = crate::acp_key_auth::authenticate_params(family, &result, |k| {
+        crate::acp_key_auth::launch_var(env, family, k)
+    }) {
+        match wire.call("authenticate", params, opts.timeout).await {
+            Ok(_) => r.push(
+                "authenticate",
+                StepStatus::Pass,
+                crate::acp_key_auth::GEMINI_API_KEY_METHOD,
+                None,
+            ),
+            Err(e) => {
+                r.push(
+                    "authenticate",
+                    StepStatus::Fail,
+                    &e,
+                    Some(format!(
+                        "check {}, or sign in with `acpmux harness login {harness_id}`",
+                        crate::acp_key_auth::GEMINI_API_KEY_ENV
+                    )),
+                );
+                return false;
+            }
+        }
     }
     let new = json!({"cwd": folder.to_string_lossy(), "mcpServers": []});
     let session = match wire.call("session/new", new, opts.timeout).await {
