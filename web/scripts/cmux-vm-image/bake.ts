@@ -123,6 +123,7 @@ import { growToShape, LARGE_IMAGE_SHAPE, type LargeImageRecord, largeImageName, 
 import {
   argValue,
   createVm,
+  createVmRetrying,
   deleteVm,
   firstExec,
   freestyleClient,
@@ -1388,7 +1389,8 @@ async function bakeOn(
   let builder: Awaited<ReturnType<typeof createVm>> | null = null;
   let kept = false;
   try {
-    builder = await createVm(fs, ledger, { name, snapshotId: from, allowUnprefixed: options.promotion || options.prodCopy === true });
+    // A builder create the provider answers with a 5xx is retried (guest.ts createVmRetrying, roll 44172829602).
+    builder = await createVmRetrying(fs, ledger, { name, snapshotId: from, allowUnprefixed: options.promotion || options.prodCopy === true });
     result.builderVmId = builder.vmId;
     // A layer's builder boots its parent: this is what a chain of snapshots costs per link.
     result.builderFirstExecMs = await firstExec(builder.vm, builder.t0);

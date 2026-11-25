@@ -3,6 +3,7 @@
  * ledger (every VM and snapshot id the moment it exists, so cleanup deletes
  * exactly what this run made), and logged guest steps.
  */
+import { randomUUID } from "node:crypto";
 import { appendFileSync, mkdirSync, readFileSync, existsSync } from "node:fs";
 import path from "node:path";
 import { Freestyle } from "freestyle";
@@ -125,7 +126,7 @@ export type CreateTlsRule = {
   transform: Array<{ headers: Record<string, string> }>;
 };
 
-export async function createVm(fs: Freestyle, ledger: Ledger, options: { name: string; snapshotId: string; allowUnprefixed?: boolean; tlsRules?: CreateTlsRule[] }): Promise<{ vm: Vm; vmId: string; createMs: number; t0: number }> {
+export async function createVm(fs: Freestyle, ledger: Ledger, options: { name: string; snapshotId: string; allowUnprefixed?: boolean; tlsRules?: CreateTlsRule[]; metadata?: Record<string, string> }): Promise<{ vm: Vm; vmId: string; createMs: number; t0: number }> {
   assertResourceName(options.name, options.allowUnprefixed);
   const t0 = Date.now();
   const { vm, vmId } = await fs.vms.create({
@@ -138,11 +139,100 @@ export async function createVm(fs: Freestyle, ledger: Ledger, options: { name: s
     // (Lawrence, 2026-10-07). Product machines are created by CloudDO with -1.
     idleTimeoutSeconds: HARNESS_IDLE_TIMEOUT_SECONDS,
     ...(options.tlsRules?.length ? { tls: { rules: options.tlsRules } } : {}),
+    ...(options.metadata ? { metadata: options.metadata } : {}),
   });
   const createMs = Date.now() - t0;
   ledger.record(vmId, "vm", options.name);
   trackLiveVm({ vm, vmId, name: options.name, ledger });
   return { vm, vmId, createMs, t0 };
+}
+
+/**
+ * Waits before each retry of a builder create the provider answered with a server error (HTTP 5xx). Image roll
+ * 44172829602 (2026-11-17) lost a whole bake to one: the app layer's create from the agents layer snapshotted a few
+ * seconds before answered 500 "Internal server error", and the next roll had to start over. 4 tries over 100 s.
+ */
+export const CREATE_SERVER_ERROR_RETRY_DELAYS_MS: readonly number[] = [10_000, 30_000, 60_000];
+
+export type CreateRetryDeps = { sleep?: (ms: number) => Promise<void>; log?: (line: string) => void; delaysMs?: readonly number[]; attemptPrefix?: string };
+
+const serverErrorStatus = (error: unknown): number | undefined => {
+  const status = (error as { status?: unknown } | null)?.status;
+  return typeof status === "number" && status >= 500 && status <= 599 ? status : undefined;
+};
+
+/** The metadata key that names one create attempt, so a VM a failed create made anyway is found by exact match. */
+export const CREATE_ATTEMPT_KEY = "cmux-image-create-attempt";
+
+/**
+ * A server error says nothing about whether the create ran, and a 502 or 504 can answer while the provider still
+ * boots the VM. So the attempt's own VM, found only by its CREATE_ATTEMPT_KEY value (unique to this process and
+ * attempt, so never another run's builder of the same layer slug), is recorded in the ledger and deleted (see
+ * createVmRetrying for when it looks). A failed lookup is logged; the VM's idle
+ * timeout pauses it and the ledger row (when it was found) lets cleanup.ts delete it.
+ */
+async function deleteAttemptVms(fs: Freestyle, ledger: Ledger, name: string, attemptId: string, log: (line: string) => void): Promise<void> {
+  try {
+    const { vms } = await fs.vms.list({ metadata: `${CREATE_ATTEMPT_KEY}:${attemptId}`, limit: 100 });
+    for (const vm of vms) {
+      if (vm.metadata?.[CREATE_ATTEMPT_KEY] !== attemptId || liveVms.has(vm.id)) continue;
+      ledger.record(vm.id, "vm", name);
+      try {
+        await fs.vms.delete(vm.id);
+      } catch (error) {
+        if ((error as { status?: unknown } | null)?.status !== 404) throw error;
+      }
+      ledger.record(vm.id, "vm", name, "deleted");
+      log(`PROVIDER ERROR: deleted ${vm.id}, a VM the failed create of ${name} made anyway`);
+    }
+  } catch (error) {
+    log(`PROVIDER ERROR: could not check for a VM the failed create of ${name} made: ${String(error).slice(0, 200)}`);
+  }
+}
+
+/**
+ * createVm for an image builder: a server error is retried (CREATE_SERVER_ERROR_RETRY_DELAYS_MS), each attempt
+ * tagged with its own CREATE_ATTEMPT_KEY so a VM a failed attempt made is deleted (deleteAttemptVms); any other
+ * error goes to the caller at once. The smoke keeps plain createVm: it replaces an unfinished clone itself
+ * (smoke.ts measureCloneRetrying) and must not fold a retry into its create latency.
+ */
+export async function createVmRetrying(
+  fs: Freestyle,
+  ledger: Ledger,
+  options: { name: string; snapshotId: string; allowUnprefixed?: boolean },
+  deps: CreateRetryDeps = {},
+): Promise<{ vm: Vm; vmId: string; createMs: number; t0: number }> {
+  const delays = deps.delaysMs ?? CREATE_SERVER_ERROR_RETRY_DELAYS_MS;
+  const log = deps.log ?? ((line: string) => console.log(line));
+  const wait = deps.sleep ?? sleep;
+  const run = deps.attemptPrefix ?? randomUUID();
+  // Every failed attempt's tag is checked again at each later lookup and once after the create that worked: a VM a
+  // 502 or 504 still booted can show up after its own attempt's lookup.
+  const failed: string[] = [];
+  const sweep = async () => {
+    for (const id of failed) await deleteAttemptVms(fs, ledger, options.name, id, log);
+  };
+  for (let attempt = 0; ; attempt++) {
+    const attemptId = `${run}-${attempt}`;
+    let created: Awaited<ReturnType<typeof createVm>>;
+    try {
+      created = await createVm(fs, ledger, { ...options, metadata: { [CREATE_ATTEMPT_KEY]: attemptId } });
+    } catch (error) {
+      const status = serverErrorStatus(error);
+      if (status === undefined) throw error;
+      failed.push(attemptId);
+      if (attempt >= delays.length) {
+        await sweep();
+        throw error;
+      }
+      log(`PROVIDER ERROR: create ${options.name} from ${options.snapshotId} answered ${status} (${String(error).slice(0, 200)}); retry ${attempt + 1}/${delays.length} in ${(delays[attempt] / 1000).toFixed(0)}s`);
+      await wait(delays[attempt]);
+      await sweep();
+      continue;
+    }
+    await sweep();
+    return created;
+  }
 }
 
 /** Waits before each retry of a delete the provider answered 5xx: 4 tries over 35 s. */
