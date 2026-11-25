@@ -14,8 +14,9 @@ import CmuxNextTabs
 /// - `menu: "tab"`: the focused pane's selected tab's menu (`PaneController.contextMenu(for: .tab)`), opened
 ///   over the middle of the pane's tab strip.
 /// - `menu: "pane"`: the pane's menu, the one the tab strip's empty space opens (`.emptyStrip`).
-/// - `menu: "paneMore"`: the pane's ⋮ at its tab bar's trailing end (``PaneToolbar``), as its click opens it.
 /// - `menu: "browserMore"`: the page's More menu on glass; `folders` open in place, `dismiss` closes it (no posted keys).
+/// - `menu: "browserProfile"`: the page's toolbar profile menu; `style` (`card`, `cardFlat`, `list`) opens a look of
+///   Settings > Experiments > Browser Profile Card whether it is on or not.
 /// - `menu: "customizations"`: the app menu's cmux > Customizations (``CustomizationsMenu``), a fresh copy of the item
 ///   AppDelegate puts there with the same closures, popped over the window's top left: the menu bar is outside the
 ///   window a clip records (What's New `customizations-menu`). `choose: "Agent Badges"` then flips that switch
@@ -66,14 +67,6 @@ enum DebugObjectMenu {
                 DelayedPopUp(menu: shown, at: at, in: strip).schedule()
                 services.debugFixtures.objectMenu = shown // its folders are walked by their rows
                 answer["menu"] = .string(menu)
-            case "paneMore":
-                // The focused pane's ⋮ at its tab bar's trailing end (tour:terminal-chat-switch-menu), under the ⋮.
-                guard let bar = controller.focusedPane?.view.toolbar?.view, let shown = bar.moreMenu?() else {
-                    return failure("the focused pane shows no ⋮")
-                }
-                DelayedPopUp(menu: shown, at: NSPoint(x: bar.bounds.maxX - 32, y: bar.isFlipped ? bar.bounds.maxY : 0), in: bar).schedule()
-                services.debugFixtures.objectMenu = shown
-                answer["menu"] = .string(menu)
             case "browserMore":
                 guard let entry = page(controller) else { return failure("the focused pane shows no browser page") }
                 entry.chrome?.toolbarButtons.presentGlass(BrowserToolbarHandlers.overflowMenu(
@@ -84,14 +77,15 @@ enum DebugObjectMenu {
                 guard let pane = controller.focusedPane, case .browser(let entry) = pane.currentContent else {
                     return failure("the focused pane shows no browser page")
                 }
-                let shown = BrowserToolbarHandlers.profileMenu(for: entry, services: services)
+                let shown = BrowserToolbarHandlers.profileMenu(forTab: entry.key, services: services, style: // `style`: another look, to compare
+                    params["style"]?.stringValue.flatMap(BrowserProfileMenuStyle.init(rawValue:)))
                 let anchor: NSView = entry.chrome ?? pane.view
                 let at = NSPoint(x: anchor.bounds.maxX - 120, y: anchor.isFlipped ? 40 : anchor.bounds.maxY - 40)
                 DelayedPopUp(menu: shown, at: at, in: anchor).schedule()
                 services.debugFixtures.objectMenu = shown
                 answer["menu"] = .string(menu)
             case "customizations":
-                let item = CustomizationsMenu.item(settings: { [weak services] in services?.settings },
+                let item = CustomizationsMenu.item(registry: services.registry, settings: { [weak services] in services?.settings },
                                                    openAll: { [weak services] in try? services?.settingsWindow.show(section: nil, route: SettingsDeepLink.customizeRoute) })
                 guard let shown = item.submenu, let content = window.contentView else { return failure("no customizations menu") }
                 shown.delegate?.menuNeedsUpdate?(shown) // its rows now, so a later `choose` counts them
@@ -101,7 +95,7 @@ enum DebugObjectMenu {
                 services.debugFixtures.objectMenu = shown
                 answer["menu"] = .string(menu)
             default:
-                return failure("menu is workspace, tab, pane, paneMore, browserProfile, browserMore or customizations")
+                return failure("menu is workspace, tab, pane, browserProfile, browserMore or customizations")
             }
         }
         let folders = params["folders"]?.arrayValue?.compactMap(\.stringValue) ?? []

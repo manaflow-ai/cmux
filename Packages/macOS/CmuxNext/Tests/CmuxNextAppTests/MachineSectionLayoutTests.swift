@@ -222,8 +222,8 @@ import Testing
             }))
         let scripted = PageCallContext(page: PageDescriptor.machines.id, userGesture: false, gestureEvent: nil)
         let op = MachineSectionPageProvider.openJoinedOp
-        // A Linux machine, an offline Mac, a row the section doesn't show, this Mac: refused, even on a click.
-        for row in ["joined:m_lane", "joined:m_off", "joined:m_gone", "local"] {
+        // An offline Mac, a row the section doesn't show, this Mac: refused, even on a click.
+        for row in ["joined:m_off", "joined:m_gone", "local"] {
             await #expect(throws: PageError.self) { try await provider.call(op, params: ["row": .string(row)], context: Self.context) }
         }
         // No click, and no ask of the row waiting: refused.
@@ -243,6 +243,10 @@ import Testing
             try await provider.call(op, params: ["row": "joined:m_mini", "again": true], context: scripted)
         }
         #expect(box.asked == ["m_mini", "m_mini", "m_mini"])
+        // An online joined Linux box dials the same way on a click (its join is its consent).
+        let linux = try await provider.call(op, params: ["row": "joined:m_lane"], context: Self.context)
+        #expect(linux["state"]?.stringValue == "opened")
+        #expect(box.asked == ["m_mini", "m_mini", "m_mini", "m_lane"])
     }
 
     /// acpmux's probe refusals as the page reads them, and the route of a joined Mac among acpmux's.
@@ -251,6 +255,10 @@ import Testing
         #expect(JoinedDialAnswer(refusal: "consent_declined") == .consentDeclined)
         #expect(JoinedDialAnswer(refusal: "service.unknown").json == ["state": "unavailable", "reason": "service.unknown"])
         #expect(JoinedDialAnswer(refusal: nil) == .unavailable("machine.unreachable"))
+        // Only a Mac answers the ask; a Linux box that still asks reads as one to update.
+        #expect(JoinedDialAnswer(refusal: "consent_required", platform: "macOS") == .consentRequired)
+        #expect(JoinedDialAnswer(refusal: "consent_required", platform: "linux") == .unavailable(JoinedDialAnswer.outdated))
+        #expect(JoinedDialAnswer(refusal: "consent_declined", platform: "linux") == .consentDeclined)
         let routes: [[String: Any]] = [["daemonId": "k1", "host": "studio-mini"], ["daemonId": "k2", "host": "Air"],
                                        ["daemonId": "k3", "host": "twin"], ["daemonId": "k4", "host": "twin"]]
         let byPeer = JoinedMachine(id: "m", name: "x", state: .online, meshPeerId: "k2")
@@ -261,6 +269,9 @@ import Testing
         #expect(JoinedMachine(id: "m", name: "twin", state: .online).route(in: routes) == nil)
         #expect(JoinedMachine(id: "m", name: "x", state: .online, platform: "macOS").isMac)
         #expect(!JoinedMachine(id: "m", name: "x", state: .online, platform: "linux").isMac)
+        #expect(JoinedMachine(id: "m", name: "x", state: .online, platform: "linux").opensOverHub)
+        #expect(!JoinedMachine(id: "m", name: "x", state: .offline, platform: "macos").opensOverHub)
+        #expect(!JoinedMachine(id: "m", name: "x", state: .revoked, platform: "linux").opensOverHub)
     }
 
     /// A joined machine with no workspace link of its own has no New Workspace: its row menu is refused.

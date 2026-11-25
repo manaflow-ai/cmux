@@ -94,6 +94,19 @@ public struct WindowViewGeometry {
         return (total, lines.sorted())
     }
 
+    /// The views drawn in both frames whose rect changed since `previous`, each with its old and new rect (window
+    /// coordinates), at most `limit` of them, the largest first: a launch recording's `movedRects`, from which
+    /// launch_shift.py scores a shift by how far each view moved and how much of the window it covered.
+    public func moves(since previous: WindowViewGeometry, limit: Int = 24) -> [(name: String, from: CGRect, to: CGRect)] {
+        var found: [(name: String, from: CGRect, to: CGRect)] = []
+        for (id, now) in entries where now.isVisible {
+            guard let was = previous.entries[id], was.isVisible, was.rect != now.rect else { continue }
+            found.append((now.name, was.rect, now.rect))
+        }
+        func size(_ move: (name: String, from: CGRect, to: CGRect)) -> CGFloat { move.from.union(move.to).width * move.from.union(move.to).height }
+        return Array(found.sorted { size($0) > size($1) }.prefix(limit))
+    }
+
     /// The view drawn in both frames whose edges moved farthest since `previous`, and how far in points (the largest
     /// of its four edges' moves): a row pushed down 32 pt, or a sidebar widened by 40 pt, is a move of 32 or 40. nil
     /// when no drawn view moved. A view that appeared, showed, hid or went away is a change ``changes(since:limit:)``

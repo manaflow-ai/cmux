@@ -7,6 +7,7 @@
 /// message (CloudStartView, cloudStartProgress.ts); the prompt stays in the composer until the chat
 /// opens on the machine.
 
+import { keepCloudLanding, takeCloudLanding, type AutoLanding } from "./autoWhereModel";
 import { shownChatFolder } from "./folderlessCloud";
 import { githubFolderRepo } from "./githubRepos";
 import { isAgentHome } from "./sessionList";
@@ -19,6 +20,7 @@ import type { CloudSize } from "./cloudPlans";
 /// copied and the chat starts in the machine's own home folder (cloudStartFolder).
 export type CloudStart = {
   task: string;
+  autoLanding?: AutoLanding;
   attachments?: ComposerAttachment[];
   cwd?: string;
   home?: boolean;
@@ -355,10 +357,15 @@ export async function startCloudChat(
   const plan = currentCloudPlan();
   const planMax = start.planMax ?? (plan.state === "active" ? plan.maxSize : null);
   if (planMax) params.planMax = planMax;
+  if (start.autoLanding) {
+    keepCloudLanding(start.autoLanding, key);
+    params.autoPlaced = true;
+  }
   try {
     await call("cloud.startChat", params);
     return { ok: true };
   } catch (error) {
+    if (start.autoLanding) takeCloudLanding(key);
     const { code, message, userMessage, retryable, details } = (error ?? {}) as {
       code?: unknown;
       message?: unknown;

@@ -1,3 +1,4 @@
+#if os(iOS)
 import CmuxMobileDesign
 import Testing
 import UIKit
@@ -56,3 +57,4 @@ import UIKit
         #expect(first.light === second.light && first.dark === second.dark)
     }
 }
+#endif

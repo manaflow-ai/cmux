@@ -744,7 +744,8 @@ async fn a_session_resumed_from_stopped_keeps_only_the_new_reply_as_its_last_mes
     c.request(method::MUX_KILL, json!({"sessionId": id, "purge": false})).await.unwrap();
     c.request(method::SESSION_PROMPT, prompt(&id, "second", None)).await.unwrap();
     let events = hub.events(&id, 0, 10_000).unwrap();
-    assert!(!find(&events, "agent_message_chunk.replay").is_empty(), "the load replayed no reply");
+    // The load's replayed reply is kept out of the log (`unread_records.rs`).
+    assert!(find(&events, "agent_message_chunk.replay").is_empty(), "a replayed reply was logged");
     assert_eq!(last(&hub), json!({"role": "agent", "text": "echo: second"}));
 }
 
@@ -765,8 +766,8 @@ async fn a_long_replayed_history_stays_out_of_the_resumed_sessions_last_message(
     assert_eq!(summary["lastMessage"], json!({"role": "agent", "text": "echo: second"}));
 }
 
-/// A test's stand-in harness runs at normal CPU class once its start is over, not at the
-/// product's background default (`cpu_class.rs`). The stand-ins time their turns with short
+/// A test's stand-in harness runs at normal CPU class once its start is over (`cpu_class.rs`; the
+/// product's default too since 2026-11-24, when it was background). The stand-ins time their turns with short
 /// sleeps (a Codex-steer turn polls 300 x 10 ms for a joined prompt), and on a loaded fleet Mac
 /// (load 13 to 21 on 10 performance cores) a background-class stand-in did not end that turn in
 /// 18 to 30 s: this test, the forum's steered rule and the steer race failed only on macOS.

@@ -19,7 +19,15 @@
 //! - DEV builds (`com.cmuxterm.app.debug[.<tag>]`) that name the app's
 //!   control socket (`CMUX_SOCKET_PATH`, the socket its agents reach the app
 //!   on) also stop once connects to that socket fail after the app answered
-//!   at least once: a quit tag build is throwaway. A same-tag DEV rebuilt
+//!   at least once, or when it never answered and its owner app
+//!   (`ACPMUX_OWNER_APP_PID`) is gone (or no owner is named): a quit tag build is
+//!   throwaway. An app quit before the daemon ever connected left 50 such daemons
+//!   on one Mac (28 tagged DEV apps, 2026-11-23). A never-answering socket with a
+//!   live owner is kept (socket control off). The delay is counted from the first
+//!   refused try, so a daemon started before its app listens has the whole hour.
+//!   This stop does not wait for [`Hub::in_use`]: idle sessions and peer links
+//!   never hold a closed tag's daemon, and its hosted agents keep running for a
+//!   relaunch to adopt (`end_agents` is false unless the executable is gone). A same-tag DEV rebuilt
 //!   elsewhere listens on the same socket, so the executable decides even
 //!   while the socket answers. NIGHTLY and Release daemons outlive a quit app
 //!   (remote peers and phones still reach their sessions); only a gone
@@ -107,6 +115,13 @@ pub(crate) fn is_dev_bundle(bundle_id: &str) -> bool {
     bundle_id
         .strip_prefix(DEBUG_BUNDLE_ID)
         .is_some_and(|rest| rest.is_empty() || rest.starts_with('.'))
+}
+
+/// Whether `exe` sits in a DEV build's app bundle.
+pub(crate) fn in_dev_bundle(exe: &Path) -> bool {
+    containing_app_bundle(exe)
+        .and_then(|bundle| bundle_id(&bundle))
+        .is_some_and(|id| is_dev_bundle(&id))
 }
 
 /// Whether `bundle_id` is any cmux app's (`com.cmuxterm.app[.<channel>]`).
@@ -469,6 +484,7 @@ fn fd_path(_file: &std::fs::File) -> Option<PathBuf> {
 }
 
 async fn watch_app(mut app: App, executable: Executable) -> bool {
+    let owner = Owner::from_env();
     let timing = Timing::for_daemon();
     match &app.socket {
         Some(socket) => tracing::info!(
@@ -494,15 +510,25 @@ async fn watch_app(mut app: App, executable: Executable) -> bool {
         };
         let now = Instant::now();
         // A failed task changes nothing.
-        if let Some(reachable) = reachable {
-            answered |= reachable;
-            if !gone(reachable, answered, executable.gone() || app.clone_orphaned()) {
-                absent_since = None;
-            } else if absent_since.is_none() {
-                absent_since = Some(now);
+        let decision = match reachable {
+            Some(reachable) => {
+                answered |= reachable;
+                let (since, decision) = verdict(
+                    app.is_dev(),
+                    reachable,
+                    answered,
+                    owner.as_ref().map(Owner::alive),
+                    executable.gone() || app.clone_orphaned(),
+                    absent_since,
+                    now,
+                    timing,
+                );
+                absent_since = since;
+                decision
             }
-        }
-        match decide(absent_since, now, timing) {
+            None => decide(absent_since, now, timing),
+        };
+        match decision {
             Decision::Exit => {
                 let deleted = executable.gone() || app.clone_orphaned();
                 let installed = if deleted && !app.is_dev() {
@@ -544,9 +570,81 @@ async fn watch_app(mut app: App, executable: Executable) -> bool {
 
 /// Whether the app counts as gone at one try: this build's executable was
 /// deleted or replaced (whatever the socket says: another build of the same
-/// tag may listen there now), or its socket refuses after it answered once.
-pub(crate) fn gone(reachable: bool, answered: bool, executable_gone: bool) -> bool {
-    executable_gone || (!reachable && answered)
+/// tag may listen there now), or its socket refuses and the app is provably
+/// not coming back: it answered once, or it never did and its owner app is gone
+/// (`owner_alive` is `Some(false)`) or was never named (`None`). A refusing
+/// socket whose owner app is alive is an app with socket control off: kept.
+pub(crate) fn gone(
+    reachable: bool,
+    answered: bool,
+    executable_gone: bool,
+    owner_alive: Option<bool>,
+) -> bool {
+    executable_gone || (!reachable && (answered || owner_alive != Some(true)))
+}
+
+/// The run of continuous absence: it starts at the first try that reads gone and ends at the
+/// first that does not.
+pub(crate) fn track(since: Option<Instant>, now: Instant, gone: bool) -> Option<Instant> {
+    match (gone, since) {
+        (false, _) => None,
+        (true, None) => Some(now),
+        (true, Some(_)) => since,
+    }
+}
+
+/// One try of the policy, pure: `dev` is whether the socket counts (a DEV build; any other
+/// channel is stopped only by its executable), the rest as [`gone`]. Returns the new absence
+/// run and what to do.
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn verdict(
+    dev: bool,
+    reachable: bool,
+    answered: bool,
+    owner_alive: Option<bool>,
+    executable_gone: bool,
+    absent_since: Option<Instant>,
+    now: Instant,
+    timing: Timing,
+) -> (Option<Instant>, Decision) {
+    let reachable = reachable || !dev;
+    let since = track(absent_since, now, gone(reachable, answered, executable_gone, owner_alive));
+    (since, decide(since, now, timing))
+}
+
+/// The owner app named in `ACPMUX_OWNER_APP_PID`, held with its start time from the daemon's
+/// start so a later process under a reused pid is not taken for it.
+pub(crate) struct Owner {
+    pid: u32,
+    start: Option<u64>,
+}
+
+impl Owner {
+    fn from_env() -> Option<Self> {
+        let pid = super::owner_exit::owner_pid(
+            std::env::var(super::owner_exit::OWNER_APP_PID_ENV).ok().as_deref(),
+        )?;
+        Some(Self { pid, start: super::owner_exit::process_start(pid) })
+    }
+
+    /// Whether the owner app still runs: no such pid, or one that now has another start time,
+    /// is gone. A pid that cannot be probed, or whose start time cannot be read, is alive.
+    fn alive(&self) -> bool {
+        #[cfg(unix)]
+        {
+            // SAFETY: signal 0 only checks that the process exists.
+            let r = unsafe { libc::kill(self.pid as libc::pid_t, 0) };
+            if r == -1 && std::io::Error::last_os_error().raw_os_error() == Some(libc::ESRCH) {
+                return false;
+            }
+            match (self.start, super::owner_exit::process_start(self.pid)) {
+                (Some(then), Some(now)) => then == now,
+                _ => true,
+            }
+        }
+        #[cfg(not(unix))]
+        true
+    }
 }
 
 /// The app's control socket this daemon was started with (`CMUX_SOCKET_PATH`).
@@ -693,17 +791,81 @@ mod tests {
     }
 
     #[test]
-    fn an_app_that_never_listened_is_gone_only_with_its_bundle() {
-        assert!(!gone(true, true, false), "it answers");
-        assert!(!gone(false, false, false), "it never listened: socket control off");
-        assert!(gone(false, true, false), "it answered once, now refuses");
-        assert!(gone(false, false, true), "its bundle was deleted");
+    fn a_refusing_socket_is_gone_only_when_the_app_is_not_coming_back() {
+        assert!(!gone(true, true, false, Some(false)), "it answers");
+        assert!(
+            !gone(false, false, false, Some(true)),
+            "never listened, owner alive: socket control off"
+        );
+        assert!(gone(false, true, false, Some(true)), "it answered once, now refuses");
+        assert!(gone(false, false, false, Some(false)), "never answered, owner gone");
+        assert!(gone(false, false, false, None), "never answered, no owner named");
+        assert!(gone(false, false, true, Some(true)), "its bundle was deleted");
     }
 
     #[test]
     fn a_gone_executable_is_gone_even_while_the_socket_answers() {
-        assert!(gone(true, true, true), "a same-tag DEV rebuilt elsewhere listens there");
-        assert!(gone(true, false, true));
+        assert!(
+            gone(true, true, true, Some(true)),
+            "a same-tag DEV rebuilt elsewhere listens there"
+        );
+        assert!(gone(true, false, true, None));
+    }
+
+    /// Runs `verdict` once per `(seconds, reachable)` try, as the watch does.
+    fn run(dev: bool, owner_alive: Option<bool>, tries: &[(u64, bool)]) -> Decision {
+        let t0 = Instant::now();
+        let (mut since, mut answered, mut last) = (None, false, Decision::Wait(TIMING.recheck));
+        for &(secs, reachable) in tries {
+            answered |= reachable;
+            (since, last) = verdict(
+                dev,
+                reachable,
+                answered,
+                owner_alive,
+                false,
+                since,
+                t0 + Duration::from_secs(secs),
+                TIMING,
+            );
+        }
+        last
+    }
+
+    #[test]
+    fn a_live_tag_is_never_reaped() {
+        let tries: Vec<(u64, bool)> = (0..20).map(|i| (i * 600, true)).collect();
+        assert!(matches!(run(true, Some(false), &tries), Decision::Wait(_)));
+        assert!(matches!(run(true, None, &tries), Decision::Wait(_)));
+    }
+
+    #[test]
+    fn a_closed_tag_is_reaped_after_the_delay_not_before() {
+        let tries = [(0, true), (600, false), (1200, false), (4199, false)];
+        assert!(matches!(run(true, Some(true), &tries), Decision::Wait(_)), "within the delay");
+        let tries = [(0, true), (600, false), (4200, false)];
+        assert_eq!(run(true, Some(true), &tries), Decision::Exit);
+        // An answer in between restarts the delay.
+        let tries = [(0, true), (600, false), (3000, true), (3600, false), (7000, false)];
+        assert!(matches!(run(true, Some(true), &tries), Decision::Wait(_)));
+    }
+
+    #[test]
+    fn a_never_answered_tag_is_reaped_only_without_its_owner() {
+        let tries = [(0, false), (600, false), (3600, false)];
+        assert_eq!(run(true, Some(false), &tries), Decision::Exit, "owner gone");
+        assert_eq!(run(true, None, &tries), Decision::Exit, "no owner named");
+        assert!(matches!(run(true, Some(true), &tries), Decision::Wait(_)), "owner alive");
+        let early = [(0, false), (600, false), (3599, false)];
+        assert!(matches!(run(true, Some(false), &early), Decision::Wait(_)), "within the delay");
+    }
+
+    #[test]
+    fn other_channels_are_never_reaped_by_their_socket() {
+        let tries = [(0, true), (600, false), (7200, false)];
+        assert!(matches!(run(false, Some(false), &tries), Decision::Wait(_)));
+        let tries = [(0, false), (7200, false)];
+        assert!(matches!(run(false, None, &tries), Decision::Wait(_)));
     }
 
     #[cfg(unix)]

@@ -56,6 +56,7 @@ html[data-cmux-page="changelog"] body {
 /* The enlarged picture: on glass over the page, the picture whole (contain), never cut. */
 .cl-lightbox-backdrop {
   background: color-mix(in srgb, var(--cmux-surface-background, Canvas) 60%, transparent);
+  /* one-material-allow: the lightbox's modal scrim (the dialog above it is the .ui-glass), not a glass surface */
   -webkit-backdrop-filter: var(--surface-blur);
   backdrop-filter: var(--surface-blur);
 }
@@ -263,6 +264,8 @@ html[data-cmux-page="changelog"] {
 
 .cl-updated { margin: 0 0 16px; font-size: var(--text-heading); line-height: var(--text-heading--line-height); font-weight: 600; letter-spacing: var(--text-heading--letter-spacing); }
 .cl-muted { color: var(--page-text-3); }
+.cl-unavailable { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.cl-unavailable > .cl-muted { margin: 0; }
 .cl-error { color: var(--page-text); }
 .cl-empty { padding: 40px; color: var(--page-text-3); }
 
