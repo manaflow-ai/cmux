@@ -59,16 +59,28 @@ function jsonPaths(value: unknown, pattern: RegExp, at: string, out: string[]): 
  * so a member JSON.parse drops (a duplicate key) is still seen.
  */
 function stringLiterals(text: string): Array<{ value: string; line: number; key?: string }> {
+  // One pass: the line is counted forward from the previous literal and the key is the literal just
+  // before this one when only `:` and whitespace sit between them. Slicing and scanning the whole
+  // prefix per literal was quadratic: about 1 s per call on the real 40 KB channel and wrangler files.
   const out: Array<{ value: string; line: number; key?: string }> = [];
+  let line = 1;
+  let scanned = 0;
+  let prev: { raw: string; end: number } | undefined;
   for (const m of text.matchAll(/"(?:[^"\\\n]|\\.)*"/g)) {
     let value: string;
-    try {
-      value = JSON.parse(m[0]) as string;
-    } catch {
-      value = m[0];
-    }
-    const before = text.slice(0, m.index);
-    out.push({ value, line: before.split("\n").length, key: before.match(/"([A-Za-z0-9_]+)"\s*:\s*$/)?.[1] });
+    // With no escape and no control character a literal decodes to its inner text; only the rest need JSON.parse.
+    if (!/[\\\u0000-\u001f]/.test(m[0])) value = m[0].slice(1, -1);
+    else
+      try {
+        value = JSON.parse(m[0]) as string;
+      } catch {
+        value = m[0];
+      }
+    for (let i = text.indexOf("\n", scanned); i !== -1 && i < m.index; i = text.indexOf("\n", i + 1)) line++;
+    scanned = m.index;
+    const key = prev && /^\s*:\s*$/.test(text.slice(prev.end, m.index)) ? prev.raw.match(/^"([A-Za-z0-9_]+)"$/)?.[1] : undefined;
+    out.push({ value, line, key });
+    prev = { raw: m[0], end: m.index + m[0].length };
   }
   return out;
 }
