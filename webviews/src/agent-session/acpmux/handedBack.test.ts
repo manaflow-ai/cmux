@@ -1,4 +1,4 @@
-import { afterEach, expect, test } from "vitest";
+import { afterEach, expect, test } from "bun:test";
 import { noteHandedBack, onHandedBackRecorded, promptRecorded, withoutHandedBack } from "./handedBack";
 
 const heard: string[] = [];
@@ -29,4 +29,19 @@ test("only the replayed words leave the draft; the next message stays", () => {
 
 test("an edited copy is the person's own and stays", () => {
   expect(withoutHandedBack("old one, more", "old two")).toBe("old one, more");
+  // Lumi on #56268: words appended to the restored copy keep the whole draft, not ", more".
+  expect(withoutHandedBack("old one, more", "old one")).toBe("old one, more");
+  expect(withoutHandedBack("so old one", "old one")).toBe("so old one");
+  expect(withoutHandedBack("so old one\n\nold one", "old one")).toBe("so old one");
+});
+
+test("an untouched copy clears on a late ack; an edited one survives it", () => {
+  const drafts: string[] = [];
+  const off = onHandedBackRecorded((back) => drafts.push(withoutHandedBack("old one", back.text)));
+  const offEdited = onHandedBackRecorded((back) => drafts.push(withoutHandedBack("old one, more", back.text)));
+  noteHandedBack("late", { text: "old one", attachments: [] });
+  promptRecorded("late");
+  off();
+  offEdited();
+  expect(drafts).toEqual(["", "old one, more"]);
 });

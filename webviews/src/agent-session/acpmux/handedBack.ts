@@ -33,11 +33,19 @@ export function onHandedBackRecorded(listener: (back: HandedBack) => void): () =
 }
 
 /// `draft` without the handed-back `text`, with the blank lines that joined it to its neighbours.
-/// Unchanged when the person has edited the copy since (then it is theirs, not a replay).
+/// Only a copy that still stands whole on its own lines goes: the restore put it there as its own
+/// block, so words the person typed onto it (`old one, more`) make it theirs and it stays. A match
+/// inside a longer line is never the restored copy.
 export function withoutHandedBack(draft: string, text: string): string {
-  const at = text.trim() ? draft.indexOf(text) : -1;
-  if (at < 0) return draft;
-  const before = draft.slice(0, at).replace(/\n{1,2}$/, "");
-  const after = draft.slice(at + text.length).replace(/^\n{1,2}/, "");
-  return before && after ? `${before}\n\n${after}` : before + after;
+  if (!text.trim()) return draft;
+  for (let at = draft.indexOf(text); at >= 0; at = draft.indexOf(text, at + 1)) {
+    const end = at + text.length;
+    const ownStart = at === 0 || draft[at - 1] === "\n";
+    const ownEnd = end === draft.length || draft[end] === "\n";
+    if (!ownStart || !ownEnd) continue;
+    const before = draft.slice(0, at).replace(/\n{1,2}$/, "");
+    const after = draft.slice(end).replace(/^\n{1,2}/, "");
+    return before && after ? `${before}\n\n${after}` : before + after;
+  }
+  return draft;
 }
