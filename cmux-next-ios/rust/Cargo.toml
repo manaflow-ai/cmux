@@ -33,6 +33,8 @@ cmux-output-paint = { path = "../../cmux-tui/crates/cmux-output-paint" }
 cmux-remote-protocol = { path = "../../cmux-tui/crates/cmux-remote-protocol" }
 cmux-wg = { path = "../../cmux-tui/crates/cmux-wg" }
 cmux-fault = { path = "../../cmux-tui/crates/cmux-fault" }
+# Deadlines counted from the last progress, not the start (cmux-mobile-host: cloud prompts, mailbox round trips).
+cmux-deadline = { path = "../../cmux-tui/crates/cmux-deadline", features = ["tokio"] }
 # The cloud relay a Mac reaches a Cloud (Linux) machine through, in-process in the
 # ios-linux pair bench (cmux-mobile-host/tests/pair_matrix_ios_linux.rs).
 cmux-relay = { path = "../../cmux-tui/crates/cmux-relay" }
