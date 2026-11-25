@@ -130,6 +130,21 @@ grep -q '^0022 .*/.build/cmux-tui-rust-target nextest run -p cmux-tui --test sta
 ! grep -q -- '--no-run' "$TMP/calls" || fail "a test target scope pruned the target: $(cat "$TMP/calls")"
 grep -q 'gate-notice: crate scope: -p cmux-tui --test startup_timings$' <<<"$out" || fail "the test target scope is not in the log: $out"
 rm -f "$TMP/calls"
+# A crate whose tests/ files are modules of one `it` binary (#56677): CRATE:FILE is --test it,
+# except a file with a [[test]] of its own.
+mkdir -p "$TMP/work/cmux-tui/crates/cmux-tui/tests/it"
+: > "$TMP/work/cmux-tui/crates/cmux-tui/tests/it/main.rs"
+printf '[package]\nname = "cmux-tui"\nautotests = false\n\n[[test]]\nname = "it"\npath = "tests/it/main.rs"\n\n[[test]]\nname = "spill_to_cloud"\npath = "tests/spill_to_cloud.rs"\n' \
+  > "$TMP/work/cmux-tui/crates/cmux-tui/Cargo.toml"
+ARGS=(test 'build_step' cmux-tui:startup_timings)
+out=$(run CMUX_CI_STEP_KEY=k) || fail "test with a module of the it binary refused: $out"
+grep -q '^0022 .*/.build/cmux-tui-rust-target nextest run -p cmux-tui --test it --locked --profile ci --no-tests=fail build_step$' "$TMP/calls" || fail "a module of the it binary: $(cat "$TMP/calls")"
+grep -q 'gate-notice: crate scope: -p cmux-tui --test it$' <<<"$out" || fail "the it scope is not in the log: $out"
+rm -f "$TMP/calls"
+ARGS=(test 'spill' cmux-tui:spill_to_cloud)
+run CMUX_CI_STEP_KEY=k >/dev/null || fail "test with a file of its own binary refused"
+grep -q '^0022 .*/.build/cmux-tui-rust-target nextest run -p cmux-tui --test spill_to_cloud --locked --profile ci --no-tests=fail spill$' "$TMP/calls" || fail "a file with its own binary: $(cat "$TMP/calls")"
+rm -f "$TMP/calls" "$TMP/work/cmux-tui/crates/cmux-tui/Cargo.toml" "$TMP/work/cmux-tui/crates/cmux-tui/tests/it/main.rs"
 # 8 crates are the most that a scope takes.
 ARGS=(test 'parked' a,b,c,d,e,f,g,h)
 run CMUX_CI_STEP_KEY=k >/dev/null || fail "test with 8 crates refused"
