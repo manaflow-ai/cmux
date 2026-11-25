@@ -339,8 +339,7 @@ public final class SettingsModels {
         }
         if action == "checkClaudeLogin" {
             await checkClaudeLogin(params["cloud"]?.boolValue == true ? .cloud : .mac,
-                                   machine: params["machine"]?.stringValue, environment: params["environment"]?.stringValue, name: params["machineName"]?.stringValue,
-                                     recoverySession: params["recoverySession"]?.stringValue)
+                                   machine: params["machine"]?.stringValue, environment: params["environment"]?.stringValue, name: params["machineName"]?.stringValue)
             return .object([:])
         }
         if action == "closeKeyPage", let url = params["url"]?.stringValue {
@@ -413,7 +412,8 @@ public final class SettingsModels {
             switch action {
             case "connectClaude":
                 try beginClaudeLogin(target, replacing: claudeReplacement(params, target: target),
-                                     machine: params["machine"]?.stringValue, environment: params["environment"]?.stringValue, name: params["machineName"]?.stringValue)
+                                     machine: params["machine"]?.stringValue, environment: params["environment"]?.stringValue, name: params["machineName"]?.stringValue,
+                                     recoverySession: params["recoverySession"]?.stringValue)
             case "finishClaudeLogin":
                 finishClaudeLogin(target, code: params["code"]?.stringValue ?? "")
             case "cancelClaudeLogin":
