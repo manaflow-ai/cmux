@@ -24,7 +24,7 @@ must be moved onto a new tty. That gives these routes:
 | `reptyr -T` (steal the master) | the master fd, taken out of the emulator with ptrace | ptrace rights over the emulator | Linux |
 | `reptyr PID` / lldb injection (re-point fds) | the program's fds 0-2 move to a new tty | ptrace/task_for_pid over the program | Linux; macOS only as root with SIP off |
 
-## Experiments (Nov 5, scripts in `experiments/live-migrate/`)
+## Experiments (Nov 5, scripts in `experiments/live-migrate/`, now in the private repo)
 
 Test tools: `probe.py` logs its pid, ppid, session, tty, SIGWINCH and SIGHUP
 once a second. `owner.py` is a stand-in emulator: it holds the master, and it

@@ -1,5 +1,6 @@
 public import CMUXAuthCore
 public import CmuxMobileModel
+import CmuxEgress
 import Foundation
 
 /// One of the user's Cloud Chiefs (`chief.list`, `HomeChief`), the fields the
@@ -96,7 +97,7 @@ public struct ChiefCloudConfig: Sendable, Equatable {
 struct ChiefCloudHTTP: Sendable {
     let base: URL
     let accessToken: @Sendable (_ forceRefresh: Bool) async throws -> String
-    var session: URLSession = .shared
+    var session: URLSession = CmuxEgress.shared(site: "CmuxMobileChief.CloudChiefs")
     /// The build's cloud data space: every request and socket upgrade to the Worker carries it, and a
     /// misconfigured dev build's throw ``CMUXBuildSpaceError`` before they are sent.
     var buildSpace: CMUXBuildSpaceState = .nightly
@@ -112,11 +113,12 @@ struct ChiefCloudHTTP: Sendable {
 
     /// `method path` with the bearer; one retry with a fresh token after a 401. `team` names the
     /// Cloud team the request acts in (`x-cmux-team`); without it a session acts in its personal team.
-    func send(_ method: String, _ path: String, body: Data? = nil, team: String? = nil) async throws -> Reply {
+    /// `timeout`: how long the request may take; a request the service holds asks for more than 20 s.
+    func send(_ method: String, _ path: String, body: Data? = nil, team: String? = nil, timeout: TimeInterval = 20) async throws -> Reply {
         var forceRefresh = false
         while true {
             let token = try await accessToken(forceRefresh)
-            let request = try makeRequest(method, path, token: token, body: body, team: team)
+            let request = try makeRequest(method, path, token: token, body: body, team: team, timeout: timeout)
             let (data, response) = try await session.data(for: request)
             let status = (response as? HTTPURLResponse)?.statusCode ?? 0
             if status == 401, !forceRefresh {
@@ -127,11 +129,12 @@ struct ChiefCloudHTTP: Sendable {
         }
     }
 
-    /// The request ``send(_:_:body:team:)`` sends with `token`.
-    func makeRequest(_ method: String, _ path: String, token: String, body: Data? = nil, team: String? = nil) throws -> URLRequest {
+    /// The request ``send(_:_:body:team:timeout:)`` sends with `token`.
+    func makeRequest(_ method: String, _ path: String, token: String, body: Data? = nil, team: String? = nil,
+                     timeout: TimeInterval = 20) throws -> URLRequest {
         var request = URLRequest(url: url(path))
         request.httpMethod = method
-        request.timeoutInterval = 20
+        request.timeoutInterval = timeout
         request.setValue("Bearer \(token)", forHTTPHeaderField: "authorization")
         if let team { request.setValue(team, forHTTPHeaderField: "x-cmux-team") }
         if let body {
