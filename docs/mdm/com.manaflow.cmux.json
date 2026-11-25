@@ -566,13 +566,13 @@
       "type" : "number"
     },
     "agents.cacheCompact.enabled" : {
-      "default" : false,
+      "default" : true,
       "description" : "Compacts an idle Claude chat while its cache is warm, so the next message costs less.",
       "title" : "Compact Before the Cache Expires",
       "type" : "boolean"
     },
     "agents.cacheCompact.minContextPercent" : {
-      "default" : 50,
+      "default" : 30,
       "description" : "Chats using less of their context window than this are left as they are.",
       "maximum" : 95,
       "minimum" : 10,

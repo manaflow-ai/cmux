@@ -20,7 +20,7 @@
 //!   whichever is more. A warm chat keeps the 2 s burst window: its cache makes a wake cheap.
 //!   A block, a question and a fire notice still wake at once, and the person's prompt never waits.
 //! - **Compact before delivery.** When a batch opens on a Claude Code chat whose context is at
-//!   least [`COMPACT_ABOVE_TOKENS`], acpmux first tries context surgery (`surgery.rs`: old tool
+//!   least [`COMPACT_ABOVE_TOKENS`] (`agents.coldWake.compactAboveTokens`), acpmux first tries context surgery (`surgery.rs`: old tool
 //!   output masked in a copy of the transcript, no model call) when masking alone takes it under
 //!   that line ([`surgery_suffices`]); the batch then goes in to the resumed copy with no
 //!   `/compact`. Otherwise (surgery off, refused or failed) it runs `/compact` at once ([`KIND`]),
@@ -53,6 +53,11 @@ pub(crate) const MIN_BATCH_TOKENS: u64 = 20_000;
 /// on one lane VM over 48 h were 75.9K, 85.3K and 89.2K, none compacted, and each post-idle
 /// wake rewrote 64K-123K tokens into the cache while reading 9.9K from it.
 pub(crate) const COMPACT_ABOVE_TOKENS: u64 = 50_000;
+/// The bounds of [`SETTING_COMPACT_ABOVE`]: under [`MIN_BATCH_TOKENS`] no batch opens to compact,
+/// and past a 1M window nothing reaches the line.
+pub(crate) const COMPACT_ABOVE_RANGE: (u64, u64) = (MIN_BATCH_TOKENS, 1_000_000);
+/// The context (tokens) from which a cold batch compacts first, [`COMPACT_ABOVE_TOKENS`] when unset.
+pub const SETTING_COMPACT_ABOVE: &str = "agents.coldWake.compactAboveTokens";
 /// Settings > General > Prompt Cache: batch a cold chat's wakes on an interval (on by default).
 pub const SETTING_ENABLED: &str = "agents.coldWake.enabled";
 /// And compact a large cold chat before its batch goes in (on by default; Leo, 2026-11-24: "this
@@ -71,10 +76,28 @@ pub(crate) fn settings(doc: Option<&Value>) -> (bool, bool) {
     (enabled, enabled && get(SETTING_COMPACT))
 }
 
-fn read_settings() -> (bool, bool) {
+/// [`SETTING_COMPACT_ABOVE`] as `doc` has it, clamped to [`COMPACT_ABOVE_RANGE`]; a missing or
+/// non-number value is [`COMPACT_ABOVE_TOKENS`].
+pub(crate) fn compact_above(doc: Option<&Value>) -> u64 {
+    doc.and_then(|d| crate::user_settings::value(d, SETTING_COMPACT_ABOVE))
+        .and_then(|v| v.as_f64())
+        .filter(|v| v.is_finite())
+        .map_or(COMPACT_ABOVE_TOKENS, |v| {
+            (v.max(0.0) as u64).clamp(COMPACT_ABOVE_RANGE.0, COMPACT_ABOVE_RANGE.1)
+        })
+}
+
+/// (batch, compact first, the compaction line).
+fn read_settings() -> (bool, bool, u64) {
     match crate::user_settings::read() {
-        crate::user_settings::Settings::Parsed(doc) => settings(Some(&doc)),
-        _ => settings(None),
+        crate::user_settings::Settings::Parsed(doc) => {
+            let (enabled, compact) = settings(Some(&doc));
+            (enabled, compact, compact_above(Some(&doc)))
+        }
+        _ => {
+            let (enabled, compact) = settings(None);
+            (enabled, compact, COMPACT_ABOVE_TOKENS)
+        }
     }
 }
 
@@ -109,9 +132,9 @@ pub(crate) fn window_ms(cold_ms: u64, tokens: u64) -> u64 {
     MIN_WINDOW_MS + spread as u64
 }
 
-/// Whether a cold batch of a chat with `tokens` of context compacts first.
-pub(crate) fn compacts(tokens: u64) -> bool {
-    tokens >= COMPACT_ABOVE_TOKENS
+/// Whether a cold batch of a chat with `tokens` of context compacts first, from `line` tokens.
+pub(crate) fn compacts(tokens: u64, line: u64) -> bool {
+    tokens >= line
 }
 
 /// Whether surgery's dry run (`surgery.rs`, `dryRun: true`) says masking alone takes the chat
@@ -119,13 +142,13 @@ pub(crate) fn compacts(tokens: u64) -> bool {
 /// what the compaction would, with no model call and nothing summarized away. A chat it leaves
 /// above the line still needs `/compact`, and surgery on top would only add a harness restart
 /// and a second rewritten prefix, so it compacts alone. No estimate (no stored usage) is no.
-pub(crate) fn surgery_suffices(dry: &Result<Value, RpcError>) -> bool {
+pub(crate) fn surgery_suffices(dry: &Result<Value, RpcError>, line: u64) -> bool {
     let Ok(dry) = dry else { return false };
     let masked = dry.get("maskedResults").and_then(Value::as_u64).unwrap_or(0);
     let after = dry.get("tokensAfter").and_then(Value::as_u64);
     dry.get("dryRun").and_then(Value::as_bool) == Some(true)
         && masked > 0
-        && after.is_some_and(|a| a < COMPACT_ABOVE_TOKENS)
+        && after.is_some_and(|a| a < line)
 }
 
 /// Whether a surgery's answer says it applied: anything else (`applied: false`, an error) keeps
@@ -137,6 +160,16 @@ pub(crate) fn surgery_applied(answer: &Result<Value, RpcError>) -> bool {
 /// Whether a prompt's provenance is a cold batch's compaction.
 pub(crate) fn is_own(provenance: Option<&Value>) -> bool {
     provenance.and_then(|p| p.get("kind")).and_then(Value::as_str) == Some(KIND)
+}
+
+/// Whether a cold batch's compaction (`provenance`) may go ahead of what waits in `session`'s
+/// queue: only the batch waits there (another agent's message or the inbox's notice, each of
+/// which `goes_in_by_itself`, or what waits aside), never a person's prompt. The batch's own
+/// gathered message always waits in the queue (`agent_gather.rs`), so the continuation's "nothing
+/// waits" check (`auto_resume.rs` `check_cut`) refused every cold compaction: 15 of 15 on one lane
+/// VM over 48 h logged `auto_resume.superseded` and none ran.
+pub(crate) fn goes_ahead_of_batch(session: &Session, provenance: Option<&Value>) -> bool {
+    is_own(provenance) && session.queue().iter().all(|q| q.aside() || q.goes_in_by_itself())
 }
 
 /// Whether the running turn is a cold batch's compaction: nothing steers into it.
@@ -170,7 +203,7 @@ impl Hub {
         }
         let (cold, tokens) = coldness(meta, now)?;
         // Read once per batch opened, not per message: a cold chat opens one per idle stretch.
-        let (enabled, compact) = read_settings();
+        let (enabled, compact, line) = read_settings();
         if !enabled {
             return None;
         }
@@ -179,11 +212,11 @@ impl Hub {
         *batch = Some(Batch { due });
         drop(batch);
         tracing::info!(session = %session.id, window_ms = window, tokens, cold_ms = cold, "cold wake batch opened");
-        if compact && compacts(tokens) {
+        if compact && compacts(tokens, line) {
             let (hub, s) = (self.clone(), session.clone());
             self.scope.spawn_named(
                 "cold-wake-compact",
-                Box::pin(async move { hub.cold_wake_compact(&s, tokens).await }),
+                Box::pin(async move { hub.cold_wake_compact(&s, tokens, line).await }),
             );
         }
         Some(due)
@@ -201,7 +234,7 @@ impl Hub {
     /// compacted now: no turn, nobody typing, no draft, no Web or phone turn last
     /// (`cache_compact.rs`). A message gathering in the queue does not count: it waits for the
     /// batch anyway.
-    async fn cold_wake_compact(self: &Arc<Self>, session: &Arc<Session>, tokens: u64) {
+    async fn cold_wake_compact(self: &Arc<Self>, session: &Arc<Session>, tokens: u64, line: u64) {
         if !self.can_compact(session).await {
             return;
         }
@@ -221,7 +254,7 @@ impl Hub {
         // Surgery first (`surgery.rs`): it masks old tool output with no model call; `/compact`
         // only when it says no (off, not a stored Claude conversation, nothing to mask, too
         // little to mask) or fails.
-        if self.cold_wake_surgery(session, tokens).await {
+        if self.cold_wake_surgery(session, tokens, line).await {
             self.inbox_review(session);
             return;
         }
@@ -238,9 +271,14 @@ impl Hub {
     /// when masking alone takes the chat under the compaction line ([`surgery_suffices`]). True
     /// when it applied: the chat resumed on the masked copy and needs no `/compact`. Called
     /// without the turn lock: surgery takes it itself, and refuses a chat mid-turn.
-    async fn cold_wake_surgery(self: &Arc<Self>, session: &Arc<Session>, tokens: u64) -> bool {
+    async fn cold_wake_surgery(
+        self: &Arc<Self>,
+        session: &Arc<Session>,
+        tokens: u64,
+        line: u64,
+    ) -> bool {
         let dry = self.surgery(session, None, true).await;
-        if !surgery_suffices(&dry) {
+        if !surgery_suffices(&dry, line) {
             tracing::info!(session = %session.id, tokens, outcome = ?dry.as_ref().map_err(|e| &e.message), "cold wake surgery skipped");
             return false;
         }

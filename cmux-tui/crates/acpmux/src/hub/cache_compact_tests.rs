@@ -54,14 +54,33 @@ fn on_unless_turned_off() {
 fn it_fires_the_lead_before_the_expiry_only_over_the_threshold() {
     let now = 1_000_000;
     let expires = now + 300_000;
-    assert_eq!(wait_ms(&usage(150_000, 200_000, Some(expires)), 0.5, now), Some(300_000 - LEAD_MS));
-    assert_eq!(wait_ms(&usage(100_000, 200_000, Some(expires)), 0.5, now), Some(270_000), "at it");
-    assert_eq!(wait_ms(&usage(99_999, 200_000, Some(expires)), 0.5, now), None, "under it");
-    assert_eq!(wait_ms(&usage(150_000, 200_000, None), 0.5, now), None, "no cache expiry");
-    assert_eq!(wait_ms(&usage(150_000, 0, Some(expires)), 0.5, now), None, "no window");
+    assert_eq!(
+        wait_ms(&usage(150_000, 200_000, Some(expires)), 0.5, u64::MAX, now),
+        Some(300_000 - LEAD_MS)
+    );
+    assert_eq!(
+        wait_ms(&usage(100_000, 200_000, Some(expires)), 0.5, u64::MAX, now),
+        Some(270_000),
+        "at it"
+    );
+    assert_eq!(
+        wait_ms(&usage(99_999, 200_000, Some(expires)), 0.5, u64::MAX, now),
+        None,
+        "under it"
+    );
+    assert_eq!(
+        wait_ms(&usage(150_000, 200_000, None), 0.5, u64::MAX, now),
+        None,
+        "no cache expiry"
+    );
+    assert_eq!(wait_ms(&usage(150_000, 0, Some(expires)), 0.5, u64::MAX, now), None, "no window");
     let close = usage(150_000, 200_000, Some(now + LEAD_MS - 1));
-    assert_eq!(wait_ms(&close, 0.5, now), None, "too late to run while the cache is warm");
-    assert_eq!(wait_ms(&usage(150_000, 200_000, Some(now + LEAD_MS)), 0.5, now), None);
+    assert_eq!(
+        wait_ms(&close, 0.5, u64::MAX, now),
+        None,
+        "too late to run while the cache is warm"
+    );
+    assert_eq!(wait_ms(&usage(150_000, 200_000, Some(now + LEAD_MS)), 0.5, u64::MAX, now), None);
 }
 
 #[test]
@@ -70,7 +89,10 @@ fn a_one_hour_cache_compacts_three_minutes_before_its_expiry() {
     let hour = now + 3_600_000;
     assert_eq!(lead_ms(3_600_000), LONG_LEAD_MS);
     assert_eq!(lead_ms(300_000), LEAD_MS, "a 5-minute cache keeps its 30 s");
-    assert_eq!(wait_ms(&usage(150_000, 200_000, Some(hour)), 0.5, now), Some(3_600_000 - 180_000));
+    assert_eq!(
+        wait_ms(&usage(150_000, 200_000, Some(hour)), 0.5, u64::MAX, now),
+        Some(3_600_000 - 180_000)
+    );
 }
 
 #[test]
@@ -78,4 +100,29 @@ fn its_prompt_is_acpmuxs_own_not_the_persons() {
     let ours = json!({"kind": KIND});
     assert!(!super::super::inbox::persons_prompt(None, Some(&ours)));
     assert!(super::super::inbox::persons_prompt(None, None));
+}
+
+/// A 1M window (every Claude chat on one lane VM, 2026-11-25): 30% is 300K, which none reached;
+/// the token line compacts from 50K whatever the window.
+#[test]
+fn the_token_line_compacts_a_large_window_the_percent_misses() {
+    let now = 1_000_000;
+    let expires = now + 300_000;
+    let line = settings_min_tokens(None);
+    assert_eq!(line, DEFAULT_MIN_TOKENS);
+    assert_eq!(line, super::super::cold_wake::COMPACT_ABOVE_TOKENS, "the cold batch's line");
+    let big = usage(91_754, 1_000_000, Some(expires));
+    assert_eq!(wait_ms(&big, 0.3, u64::MAX, now), None, "the percent alone: 300K, missed");
+    assert_eq!(wait_ms(&big, 0.3, line, now), Some(300_000 - LEAD_MS), "the token line");
+    assert_eq!(wait_ms(&usage(line - 1, 1_000_000, Some(expires)), 0.3, line, now), None);
+    // Whichever comes first: a small window's share still counts.
+    assert!(wait_ms(&usage(40_000, 100_000, Some(expires)), 0.3, line, now).is_some());
+    let set = json!({"agents": {"cacheCompact": {"minContextTokens": 120_000}}});
+    assert_eq!(settings_min_tokens(Some(&set)), 120_000);
+    let flat = json!({"agents.cacheCompact.minContextTokens": 1});
+    assert_eq!(settings_min_tokens(Some(&flat)), MIN_TOKENS_RANGE.0, "clamped");
+    let high = json!({"agents.cacheCompact.minContextTokens": 5e9});
+    assert_eq!(settings_min_tokens(Some(&high)), MIN_TOKENS_RANGE.1, "clamped");
+    let junk = json!({"agents.cacheCompact.minContextTokens": "x"});
+    assert_eq!(settings_min_tokens(Some(&junk)), DEFAULT_MIN_TOKENS);
 }
