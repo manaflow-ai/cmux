@@ -115,6 +115,7 @@ extension CloudStartChat {
             let pinMachine = plan.machine == nil ? id : nil, key = start.key
             async let pinned: Void = { @MainActor in if let pinMachine { _ = try Self.checked(await cli.startChatPin(key: key, account: text, machine: pinMachine, workspace: workspace)) } }()
             async let routeAhead: String? = { @MainActor in if let pinMachine { await CloudMachineRoute(api: cloud.machineAPI, machineID: pinMachine).report() } else { nil } }()
+            let shown = machines.session(id ?? ""); shown?.waking = asker?.waking; defer { shown?.waking = nil } // the card's "Waking machine" while it settles
             let session: CloudMachineSession
             do { session = try await CloudMove(services: services).machine(invocation, pick: pick) } catch { _ = try? await pinned; _ = await routeAhead; throw error }
             try await pinned

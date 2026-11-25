@@ -5,6 +5,13 @@ import { act, type ReactNode } from "react";
 import type { Root } from "react-dom/client";
 import { settleReact } from "./domTeardown";
 
+/** The label as drawn, excluding the hidden descriptions used by the facts card. */
+export function visibleLabelText(element: Element): string {
+  const label = element.cloneNode(true) as Element;
+  for (const hidden of label.querySelectorAll("[hidden]")) hidden.remove();
+  return label.textContent?.trim() ?? "";
+}
+
 /// Opens `element`'s facts card as keyboard focus does, reads what it shows, then closes it again.
 /// "" when no card opens. The card's popup (Base UI, placed by floating-ui) reads a few window
 /// globals: a page that installed none gets its own window's while the card is open, and keeps them
