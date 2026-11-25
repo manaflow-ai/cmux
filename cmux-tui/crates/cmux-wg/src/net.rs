@@ -719,7 +719,7 @@ impl Driver {
             .flatten();
         let wire_bytes = datagram.len();
         let tap = |received: crate::testing::Received<'_>| {
-            crate::testing::tap_received(local, received, wire_bytes)
+            crate::testing::tap_received(local, received, wire_bytes);
         };
         loop {
             match self.tunn.decapsulate(source, input, &mut self.scratch) {
