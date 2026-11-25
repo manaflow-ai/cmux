@@ -260,6 +260,9 @@ type Drawn = {
   person?: boolean;
   replacesHeader?: boolean;
   copy?: HTMLElement;
+  /// A kept row the swap draws on the other side of a person's message (`landsAcrossPerson`): its copy
+  /// goes where it was, and it comes in at its new place once nothing moving crosses it.
+  crosses?: boolean;
   /// A kept row's picture as drawn at the swap, for the looks that replace it in place.
   snapshot?: HTMLElement;
   clip?: number;
@@ -409,6 +412,7 @@ export function captureTurnEnd(
       ...(header && kept.has(id) && { replacesHeader: true }),
       ...(clip > 0 && { clip, shown: box.bottom - clip }),
       ...((!kept.has(id) || crosses.has(id)) && { copy: ghostOf(node) }),
+      ...(crosses.has(id) && { crosses: true }),
       ...(kept.has(id) && !crosses.has(id) && (replaces || (swapsSubagents && isSubagentNode(node))) && { snapshot: snapshotOf(node, id) }),
     };
   });
@@ -1306,6 +1310,7 @@ export function playTurnEnd(
   const was = new Map(capture.rows.filter((row) => !row.copy).map((row) => [row.id, row]));
   const gone = capture.rows.filter((row) => row.copy);
   const goneByCopy = new Map(gone.map((row) => [row.copy!, row]));
+  const crossed = new Set(gone.filter((row) => row.crosses).map((row) => row.id));
   const moving = new Map<HTMLElement, Moving>();
   const copyMoves = new Map<HTMLElement, Moving>();
   /// Where each row's or copy's motion on the current clock starts (a top in the view, as `tops`),
@@ -1423,7 +1428,10 @@ export function playTurnEnd(
         lowestWas = before.top;
       }
     });
-    const arrives = (node: HTMLElement, index: number) => !was.has(node.dataset.rowId!) && tops[index]! > lowest;
+    // A row drawn across the person's message arrives too, wherever it lands: carried, it ran through
+    // the steer's text as the two swapped places; it holds at no ink until nothing moving crosses it.
+    const arrives = (node: HTMLElement, index: number) =>
+      !was.has(node.dataset.rowId!) && (tops[index]! > lowest || crossed.has(node.dataset.rowId!));
     // The ended turn's own footer (direct.ts `summary-TURN`) comes in with the swap where its live line was,
     // and takes only that line's place, not its work's: a turn that ended on its calls, no answer under
     // them, lost their copy on the fold's first frame, and the view stood blank 108 ms while the rows above
