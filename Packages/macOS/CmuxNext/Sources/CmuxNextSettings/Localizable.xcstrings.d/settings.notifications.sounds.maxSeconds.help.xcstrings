@@ -1,0 +1,138 @@
+{
+  "sourceLanguage" : "en",
+  "strings" : {
+    "settings.notifications.sounds.maxSeconds.help" : {
+      "comment" : "Settings > Notifications > Sounds > Sound Duration: help text",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Sounds cmux plays itself stop after this long. 0 plays the whole sound."
+          }
+        },
+        "ar" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "تتوقف الأصوات التي يشغّلها cmux بنفسه بعد هذه المدة. القيمة 0 تشغّل الصوت كاملًا."
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Zvukovi koje cmux sam reprodukuje zaustavljaju se nakon ovog vremena. 0 reprodukuje cijeli zvuk."
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Lyde, som cmux selv afspiller, stopper efter så lang tid. 0 afspiller hele lyden."
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Töne, die cmux selbst abspielt, enden nach dieser Zeit. 0 spielt den ganzen Ton."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Los sonidos que cmux reproduce por sí mismo se detienen tras este tiempo. 0 reproduce el sonido completo."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Les sons que cmux joue lui-même s’arrêtent après cette durée. 0 joue le son en entier."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "I suoni che cmux riproduce da sé si fermano dopo questo tempo. 0 riproduce il suono intero."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "cmux が自分で再生するサウンドは、この時間で止まります。0 にすると最後まで再生します。"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "សំឡេងដែល cmux ចាក់ដោយខ្លួនឯងឈប់បន្ទាប់ពីរយៈពេលនេះ។ 0 ចាក់សំឡេងទាំងមូល។"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "cmux가 직접 재생하는 사운드는 이 시간이 지나면 멈춥니다. 0이면 끝까지 재생합니다."
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Lyder cmux spiller selv, stopper etter så lang tid. 0 spiller hele lyden."
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Dźwięki odtwarzane przez cmux zatrzymują się po tym czasie. 0 odtwarza cały dźwięk."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Os sons que o cmux toca sozinho param depois desse tempo. 0 toca o som inteiro."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Звуки, которые cmux воспроизводит сам, останавливаются через это время. 0 воспроизводит звук целиком."
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "เสียงที่ cmux เล่นเองจะหยุดหลังจากเวลานี้ 0 คือเล่นจนจบ"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "cmux'un kendi çaldığı sesler bu süreden sonra durur. 0 sesin tamamını çalar."
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Звуки, які cmux відтворює сам, зупиняються через цей час. 0 відтворює звук повністю."
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Âm thanh do cmux tự phát sẽ dừng sau khoảng thời gian này. 0 phát hết âm thanh."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "cmux 自己播放的声音在这段时间后停止。0 表示播放完整声音。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "cmux 自行播放的聲音會在這段時間後停止。0 表示播放完整聲音。"
+          }
+        }
+      }
+    }
+  },
+  "version" : "1.0"
+}
