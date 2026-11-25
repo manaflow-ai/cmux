@@ -263,7 +263,7 @@ final class TabCell {
             updateSpinner()
         }
         if previous?.status != item.status || previous?.blockedKind != item.blockedKind { updateStatusGlyph() }
-        if previous?.machineBadge != item.machineBadge || previous?.machineBadgeIcon != item.machineBadgeIcon { updateMachineBadge() }
+        if previous?.machineBadge != item.machineBadge || previous?.machineBadgeIcon != item.machineBadgeIcon || previous?.machineName != item.machineName { updateMachineBadge() } // its color follows the machine's pick
         if previous?.themeBadge != item.themeBadge { updateThemeBadge() }
         if previous?.profileBadge != item.profileBadge { updateProfileBadge() }
         if previous?.presence != item.presence { updatePresenceDot() }
