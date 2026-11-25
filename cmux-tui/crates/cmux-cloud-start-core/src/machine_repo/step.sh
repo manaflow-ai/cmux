@@ -31,8 +31,14 @@ cm=$(command -v cmux) || { [ -x /opt/cmux/current/bin/cmux ] && cm=/opt/cmux/cur
 # (its edge rule writes the hosts entry), git reaches github.com through the platform, which adds
 # the repository token on the way out. No helper runs and no token ever reaches this machine.
 edge="https://platform.cmux.internal/v1/cloud/git/github.com/"
+# The person's own GitHub login, carried from their Mac (`git-host-tokens-v1`): `cmux github
+# credential` answers it first when it reaches the repository, so that path goes before the edge.
+own="$HOME/.config/cmux/git-hosts/github.com"
+if [ "$github" = 1 ] && [ -f "$own" ] && [ -n "$cm" ]; then creds="$creds cmux-github"; fi
 if [ "$github" = 1 ] && getent hosts platform.cmux.internal >/dev/null 2>&1; then creds="$creds edge"; fi
-if [ "$github" = 1 ] && [ -S /run/cmux-vm-agent/agent.sock ] && [ -n "$cm" ]; then creds="$creds cmux-github"; fi
+if [ "$github" = 1 ] && [ -S /run/cmux-vm-agent/agent.sock ] && [ -n "$cm" ] && ! [ -f "$own" ]; then
+  creds="$creds cmux-github"
+fi
 # Off GitHub: the person's token for this host, sealed to the machine (`cmux gitlab credential`).
 if [ "$github" = 0 ] && [ -f "$HOME/.config/cmux/git-hosts/$host" ] && [ -n "$cm" ]; then creds="cmux-gitlab"; fi
 creds="$creds anonymous"

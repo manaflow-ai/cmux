@@ -194,6 +194,11 @@ pub enum RemoteCapability {
     /// `secrets-v1`: the daemon opens [`SealedSecret`]s sealed to its static
     /// key and writes them (`replace-machine-secrets`).
     SecretsV1,
+    /// `git-host-tokens-v1`: the daemon opens one [`SealedSecret`] (purpose
+    /// `git-host`) and writes it as the person's own token for one git host
+    /// (`~/.config/cmux/git-hosts/<host>`), or removes it
+    /// (`replace-git-host-token`).
+    GitHostTokensV1,
     /// A capability introduced by a newer peer.
     ///
     /// Capabilities are versioned wire strings, so clients must be able to
@@ -430,6 +435,15 @@ pub enum WorkspaceRequest {
     ReplaceMachineSecrets {
         items: Vec<SealedSecret>,
     },
+    /// `git-host-tokens-v1`: the person's own token for `host` (a lowercase
+    /// host with an optional port, `github.com`), sealed with purpose
+    /// `git-host` and named `host`, replaces
+    /// `~/.config/cmux/git-hosts/<host>`; `None` removes it.
+    ReplaceGitHostToken {
+        host: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        item: Option<SealedSecret>,
+    },
 }
 
 /// One value sealed to a daemon's static X25519 key with HPKE (RFC 9180 base
@@ -595,6 +609,11 @@ pub enum WorkspaceResponse {
     },
     MachineSecretsReplaced {
         count: u32,
+    },
+    /// `replace-git-host-token`'s answer: whether the host now has a token.
+    GitHostTokenReplaced {
+        host: String,
+        present: bool,
     },
 }
 
