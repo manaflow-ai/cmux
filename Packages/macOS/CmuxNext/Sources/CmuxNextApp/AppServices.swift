@@ -313,7 +313,7 @@ final class AppServices {
             guard let self, let tab = daemon.store.tab(terminalResource: ResourceID(rawValue: id)) ?? daemon.store.tab(terminal: TerminalID(rawValue: id)),
                   let host = cache.existingTerminal(tab.id)?.session.view else { return nil }
             return (tab.id, host)
-        })
+        }, place: { [weak self] in self?.cmuxRemote.sendComputerUsePreview(session: $0, update: $1) }, controls: { [weak self] in self?.settings?.snapshot.previewFeatures == true })
         // A chat's page made after its agent started using an app gets the card then.
         agentTabs.onTabSession = { [weak router] in router?.replayChats() }
         return router
