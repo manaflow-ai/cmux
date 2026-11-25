@@ -1,3 +1,4 @@
+import CmuxEgress
 import CryptoKit
 public import Foundation
 
@@ -7,7 +8,7 @@ public import Foundation
 public actor BackdropArtDownloads {
     /// The app's downloads, in its Application Support folder.
     public static let shared = BackdropArtDownloads(folder: defaultFolder) { url in
-        let (data, response) = try await URLSession.shared.data(from: url)
+        let (data, response) = try await CmuxEgress.shared(site: "CmuxNextDesign.BackdropArtDownloads").data(from: url)
         guard (response as? HTTPURLResponse)?.statusCode == 200 else { throw URLError(.badServerResponse) }
         return data
     }

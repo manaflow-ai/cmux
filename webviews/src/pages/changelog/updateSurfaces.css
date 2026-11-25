@@ -327,6 +327,8 @@
    button-row card (Leo: "a little more spacing regarding, like, the things in the side"). */
 .wn-card.wn-updated {
   --wn-side: calc(var(--grid-base, 4px) * 3);
+  /* How far a line's descenders reach under its baseline, in its own font size (SF: about 0.22em). */
+  --wn-descender: 0.3em;
   display: flex;
   flex-direction: column;
   padding: 0;
@@ -399,6 +401,13 @@
   }
   .wn-updated:not([data-placement="button"]) :is(.wn-card-title, .wn-card-rest > p) {
     overflow: clip visible;
+  }
+  /* WebKit clips a line it cuts with an ellipsis to its box on both axes, so the trimmed note lost
+     its descenders ("Agent" drew its g cut at the baseline). Its box reaches the descenders' depth
+     below the baseline, and the same negative margin keeps its place in the card. */
+  .wn-updated:not([data-placement="button"]) .wn-card-rest > p {
+    padding-bottom: var(--wn-descender);
+    margin-bottom: calc(-1 * var(--wn-descender));
   }
 }
 /* The look before (gallery): the button under the note, as tall as its rows. */

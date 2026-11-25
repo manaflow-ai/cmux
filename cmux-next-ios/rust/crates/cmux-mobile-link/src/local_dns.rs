@@ -10,6 +10,17 @@
 //!
 //! No sockets here: the caller sends [`query`] to 224.0.0.251:5353 /
 //! [ff02::fb]:5353 on each interface and feeds each reply to [`parse`].
+//!
+//! The Mac's half of the same speed-up for a full browser ([`asks_unicast`],
+//! [`answer`]): NWBrowser's first question is a QU question from port 5353
+//! (RFC 6762 §5.4, unicast response requested). mdns-sd treats it as an
+//! ordinary multicast question: a 10-50 ms shared-record delay, then a
+//! multicast answer dropped if the record went out in the last second (its
+//! §6 rate limit: the Mac's own two announcements, or any other browser's
+//! answer), so the phone waited for its next question, a second or more
+//! later. The host answers such a question itself, by unicast, at once
+//! (`cmux-mobile-host` `local_link.rs`). Measured there:
+//! `nwbrowser_qu_question_first_ad_ms`.
 
 use std::collections::HashMap;
 use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
@@ -21,6 +32,7 @@ const TYPE_PTR: u16 = 12;
 const TYPE_TXT: u16 = 16;
 const TYPE_AAAA: u16 = 28;
 const TYPE_SRV: u16 = 33;
+const TYPE_ANY: u16 = 255;
 const CLASS_IN: u16 = 1;
 
 /// The mDNS group and port.
@@ -38,9 +50,23 @@ pub struct Found {
     pub addresses: Vec<IpAddr>,
 }
 
+/// The class bit that asks for a unicast response in a question (QU), and
+/// flushes the cache in a record (RFC 6762 §5.4, §10.2).
+const CLASS_TOP_BIT: u16 = 0x8000;
+const FLAGS_RESPONSE: [u8; 2] = [0x84, 0x00];
+/// RFC 6762 §10: host-name records (SRV, A, AAAA) live 120 s, others 75 min.
+const HOST_TTL: u32 = 120;
+const OTHER_TTL: u32 = 4500;
+
 /// A PTR question for [`SERVICE_TYPE`] with query id `id` (unicast-response
 /// bit clear: the ephemeral source port alone asks for a unicast answer).
 pub fn query(id: u16) -> Vec<u8> {
+    query_with(id, false)
+}
+
+/// [`query`] with the unicast-response (QU) bit as `unicast_response` says:
+/// what NWBrowser sends first, from port 5353.
+pub fn query_with(id: u16, unicast_response: bool) -> Vec<u8> {
     let mut out = Vec::with_capacity(40);
     out.extend_from_slice(&id.to_be_bytes());
     out.extend_from_slice(&[0, 0, 0, 1, 0, 0, 0, 0, 0, 0]);
@@ -50,8 +76,105 @@ pub fn query(id: u16) -> Vec<u8> {
     }
     out.push(0);
     out.extend_from_slice(&TYPE_PTR.to_be_bytes());
-    out.extend_from_slice(&CLASS_IN.to_be_bytes());
+    let class = if unicast_response { CLASS_IN | CLASS_TOP_BIT } else { CLASS_IN };
+    out.extend_from_slice(&class.to_be_bytes());
     out
+}
+
+/// Whether `packet` is a query with a QU question (unicast response
+/// requested) for [`SERVICE_TYPE`]'s PTR records (or ANY). Malformed: no.
+pub fn asks_unicast(packet: &[u8]) -> bool {
+    let u16_at =
+        |at: usize| -> Option<u16> { Some(u16::from_be_bytes([*packet.get(at)?, *packet.get(at + 1)?])) };
+    let asks = || -> Option<bool> {
+        // Queries only (QR clear), standard opcode.
+        if packet.get(2)? & 0xf8 != 0 {
+            return Some(false);
+        }
+        let service = SERVICE_TYPE.trim_end_matches('.');
+        let mut at = 12;
+        for _ in 0..u16_at(4)? {
+            let (owner, next) = name(packet, at)?;
+            let (kind, class) = (u16_at(next)?, u16_at(next + 2)?);
+            at = next + 4;
+            if class & CLASS_TOP_BIT != 0
+                && class & !CLASS_TOP_BIT == CLASS_IN
+                && (kind == TYPE_PTR || kind == TYPE_ANY)
+                && owner.eq_ignore_ascii_case(service)
+            {
+                return Some(true);
+            }
+        }
+        Some(false)
+    };
+    asks().unwrap_or(false)
+}
+
+/// The full answer to a [`SERVICE_TYPE`] question for one instance, as a
+/// unicast reply to a QU question (RFC 6762 §6): the PTR answer, and the
+/// SRV, TXT and address records as additionals, so the phone resolves the
+/// hub from this one packet. `instance` and `host` are the names the Mac's
+/// mDNS responder registered (`<instance>._cmux-link._tcp.local`,
+/// `<host>.local`, no trailing dot). No cache-flush bit: this reply adds to
+/// what the responder multicasts, it must not evict any of it.
+pub fn answer(
+    instance: &str,
+    host: &str,
+    port: u16,
+    txt: &[(String, String)],
+    addresses: &[IpAddr],
+) -> Vec<u8> {
+    let service = SERVICE_TYPE.trim_end_matches('.');
+    let instance_name = format!("{instance}.{service}");
+    let additionals = 2 + addresses.len();
+    let mut out = Vec::with_capacity(256);
+    out.extend_from_slice(&[0, 0]);
+    out.extend_from_slice(&FLAGS_RESPONSE);
+    out.extend_from_slice(&[0, 0, 0, 1, 0, 0]);
+    out.extend_from_slice(&(additionals as u16).to_be_bytes());
+    let mut ptr = Vec::new();
+    put_name(&mut ptr, &instance_name);
+    put_record(&mut out, service, TYPE_PTR, OTHER_TTL, &ptr);
+    let mut srv = vec![0, 0, 0, 0];
+    srv.extend_from_slice(&port.to_be_bytes());
+    put_name(&mut srv, host);
+    put_record(&mut out, &instance_name, TYPE_SRV, HOST_TTL, &srv);
+    let mut text = Vec::new();
+    for (key, value) in txt {
+        let entry = format!("{key}={value}");
+        let bytes = &entry.as_bytes()[..entry.len().min(255)];
+        text.push(bytes.len() as u8);
+        text.extend_from_slice(bytes);
+    }
+    if text.is_empty() {
+        text.push(0);
+    }
+    put_record(&mut out, &instance_name, TYPE_TXT, OTHER_TTL, &text);
+    for address in addresses {
+        match address {
+            IpAddr::V4(v4) => put_record(&mut out, host, TYPE_A, HOST_TTL, &v4.octets()),
+            IpAddr::V6(v6) => put_record(&mut out, host, TYPE_AAAA, HOST_TTL, &v6.octets()),
+        }
+    }
+    out
+}
+
+fn put_name(out: &mut Vec<u8>, name: &str) {
+    for label in name.trim_end_matches('.').split('.').filter(|l| !l.is_empty()) {
+        let label = &label.as_bytes()[..label.len().min(63)];
+        out.push(label.len() as u8);
+        out.extend_from_slice(label);
+    }
+    out.push(0);
+}
+
+fn put_record(out: &mut Vec<u8>, owner: &str, kind: u16, ttl: u32, rdata: &[u8]) {
+    put_name(out, owner);
+    out.extend_from_slice(&kind.to_be_bytes());
+    out.extend_from_slice(&CLASS_IN.to_be_bytes());
+    out.extend_from_slice(&ttl.to_be_bytes());
+    out.extend_from_slice(&(rdata.len() as u16).to_be_bytes());
+    out.extend_from_slice(rdata);
 }
 
 /// The [`SERVICE_TYPE`] instances a reply describes in full (SRV with a port
@@ -273,6 +396,38 @@ mod tests {
         assert_eq!(name(&q, 12).unwrap().0, "_cmux-link._tcp.local");
         // Our own query is not a reply.
         assert!(parse(&q).is_empty());
+    }
+
+    #[test]
+    fn qu_questions_are_told_apart() {
+        assert!(asks_unicast(&query_with(0, true)));
+        assert!(!asks_unicast(&query_with(0, false)));
+        // A reply is not a question, nor is a QU question for another type.
+        let mut reply = query_with(0, true);
+        reply[2] = 0x84;
+        assert!(!asks_unicast(&reply));
+        let mut other = vec![0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0];
+        super::put_name(&mut other, "_airplay._tcp.local");
+        other.extend_from_slice(&[0, 12, 0x80, 1]);
+        assert!(!asks_unicast(&other));
+        for cut in 0..query_with(0, true).len() {
+            assert!(!asks_unicast(&query_with(0, true)[..cut]));
+        }
+    }
+
+    #[test]
+    fn our_answer_reads_back_in_full() {
+        let txt = vec![("id".to_owned(), "mac-1".to_owned()), ("v".to_owned(), "1".to_owned())];
+        let addresses = vec![IpAddr::from([192, 168, 1, 4]), "fe80::2".parse().unwrap()];
+        let packet = answer("cmux-mac1", "cmux-mac1.local", 7420, &txt, &addresses);
+        let found = parse(&packet);
+        assert_eq!(
+            found,
+            vec![Found { instance: "cmux-mac1._cmux-link._tcp.local".into(), txt, port: 7420, addresses }]
+        );
+        // A response, id 0, no question: what RFC 6762 §6 asks of a unicast
+        // reply to a QU question from port 5353.
+        assert_eq!(&packet[..6], &[0, 0, 0x84, 0, 0, 0]);
     }
 
     #[test]
