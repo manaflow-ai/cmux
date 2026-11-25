@@ -5,6 +5,7 @@
 // .undo, .restore and .reset_group with the person's origin. Pure, so the bar's choices are
 // tested without a page.
 import type { HistoryEntry } from "./appearanceHistory";
+import { UNTRACKED_KEYS } from "./appearanceUndo";
 import { type SchemaRow, schema } from "./schema";
 
 /** One recorded change, newest first in a read. `undoes`: the revision a settings.undo took back. */
@@ -46,6 +47,25 @@ export function nextDurableUndo(entries: readonly DurableEntry[]): DurableEntry 
   return entries.find((entry) => entry.undoes === null && !undone.has(entry.revision)) ?? null;
 }
 
+/** A change of bookkeeping only (what each background mode last showed, the backgrounds shown
+ * before): no look of its own, so it is no step. The page writes it beside a background change and
+ * again when an undo leaves a mode; the bar passes over it, and an undo takes it back on the way. */
+export function isBookkeeping(entry: DurableEntry): boolean {
+  return entry.keys.length > 0 && entry.keys.every((key) => UNTRACKED_KEYS.has(key));
+}
+
+/** The newest revision that is a look's change (bookkeeping passed over), 0 for none. */
+export function newestLookRevision(entries: readonly DurableEntry[] | null): number {
+  return entries?.find((entry) => !isBookkeeping(entry))?.revision ?? 0;
+}
+
+/** What the bar's Undo takes back: the newest change settings.undo would reach that is a look's,
+ * passing over bookkeeping it takes back first. */
+export function nextLookUndo(entries: readonly DurableEntry[]): DurableEntry | null {
+  const undone = new Set(entries.flatMap((entry) => (entry.undoes === null ? [] : [entry.undoes])));
+  return entries.find((entry) => entry.undoes === null && !undone.has(entry.revision) && !isBookkeeping(entry)) ?? null;
+}
+
 /** What the bar's Undo does now: `step`, the page's own step through settings.undo; `foreign`, a newer
  * change by another writer (or one from before this visit) through settings.undo; `memory`, the page's
  * own stack (a step the file does not hold, such as a workspace background, or a host without the
@@ -54,7 +74,7 @@ export type UndoPlan = { kind: "step" } | { kind: "foreign"; pick: DurableEntry 
 
 export function planUndo(top: HistoryEntry | null, entries: readonly DurableEntry[] | null): UndoPlan {
   if (entries === null) return top ? { kind: "memory" } : null;
-  const pick = nextDurableUndo(entries);
+  const pick = nextLookUndo(entries);
   if (top && pick && top.revisions?.includes(pick.revision)) return { kind: "step" };
   if (pick && (!top || pick.revision > (top.head ?? 0))) return { kind: "foreign", pick };
   return top ? { kind: "memory" } : null;

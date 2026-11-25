@@ -18,6 +18,7 @@ import {
   captureThemes,
   changeLabel,
   tracksAppearance,
+  UNTRACKED_KEYS,
   withLinked,
   type AppearanceArea,
   durableLabel,
@@ -26,6 +27,8 @@ import {
   areaResetGroup,
   type DurableEntry,
   isPersonOrigin,
+  isBookkeeping,
+  newestLookRevision,
   newestRevision,
   nextDurableUndo,
   parseDurableHistory,
@@ -1454,7 +1457,8 @@ export class SettingsStore {
     }
     this.durable = parseDurableHistory(reply.value);
     const redo = this.appearance.nextRedo;
-    if (redo?.redoFrom !== undefined && newestRevision(this.durable) > (redo.head ?? 0)) this.appearance.clearRedo();
+    if (redo?.redoFrom !== undefined && newestLookRevision(this.durable) > (redo.head ?? 0))
+      this.appearance.clearRedo();
     this.appearance.changed();
     return this.durable;
   }
@@ -1499,35 +1503,19 @@ export class SettingsStore {
     if (!plan) return false;
     if (plan.kind === "memory") return this.undoFromStack();
     if (plan.kind === "foreign") {
-      const reply = await this.historyWrite("cmux.settings.undo", {});
-      if (!reply.ok || reply.revision === null) return false;
-      const after = await this.refreshDurableHistory();
+      const undone = await this.undoThrough(new Set([plan.pick.revision]), entries!);
+      if (undone.first === null) return false;
       this.appearance.pushUndone({
         label: durableLabel(plan.pick),
         changes: [],
-        redoFrom: reply.revision,
-        head: newestRevision(after),
+        redoFrom: undone.first,
+        head: newestRevision(undone.current),
       });
       return true;
     }
     const step = this.appearance.takeUndo()!;
-    // One settings.undo per entry the step wrote (a preset writes several), while the next undo is
-    // still the step's own: one click takes the whole step back.
-    const own = new Set(step.entry.revisions);
-    let first: number | null = null;
-    let ok = true;
-    let current = entries;
-    for (let index = 0; index < own.size; index += 1) {
-      const reply = await this.historyWrite("cmux.settings.undo", {});
-      if (!reply.ok) {
-        ok = false;
-        break;
-      }
-      first ??= reply.revision;
-      current = await this.refreshDurableHistory();
-      const next = current ? nextDurableUndo(current) : null;
-      if (!next || !own.has(next.revision)) break;
-    }
+    const { first, ok: undoneOk, current } = await this.undoThrough(new Set(step.entry.revisions), entries!);
+    let ok = undoneOk;
     if (first === null) {
       this.appearance.restore("undo", step.entry);
       return false;
@@ -1538,6 +1526,46 @@ export class SettingsStore {
     if (rest.length > 0) ok = (await this.applyAppearance(rest)) && ok;
     this.appearance.changed();
     return ok;
+  }
+
+  /** Takes `targets` back through settings.undo, one per entry: while the next undo is one of them
+   * or bookkeeping (a background mode's memory, written beside a pick and again when an undo leaves
+   * the mode), so one click takes a whole step, or an agent's change, back. `first`: the first
+   * undo's revision, which a Redo restores; null when nothing was undone. */
+  private async undoThrough(
+    targets: ReadonlySet<number>,
+    entries: DurableEntry[],
+  ): Promise<{ first: number | null; ok: boolean; current: DurableEntry[] | null }> {
+    // Bookkeeping is no look: the undo takes its entries back on the way (settings.undo puts the
+    // whole file back), then it is written back as it was, as Undo leaves it on the page's own stack.
+    const kept = [...UNTRACKED_KEYS].map((key) => {
+      const row = this.getSnapshot().rows.get(key);
+      return { key, customized: row?.customized ?? false, value: row?.value };
+    });
+    let first: number | null = null;
+    let current: DurableEntry[] | null = entries;
+    const left = () => {
+      const undone = new Set(current?.flatMap((entry) => (entry.undoes === null ? [] : [entry.undoes])) ?? []);
+      return [...targets].some((revision) => !undone.has(revision));
+    };
+    for (let tries = entries.length + 1; tries > 0 && current && left(); tries -= 1) {
+      const next = nextDurableUndo(current);
+      if (!next || !(targets.has(next.revision) || isBookkeeping(next))) break;
+      const reply = await this.historyWrite("cmux.settings.undo", {});
+      if (!reply.ok) return { first, ok: false, current };
+      first ??= reply.revision;
+      current = await this.refreshDurableHistory();
+    }
+    if (first !== null) {
+      for (const was of kept) {
+        const row = this.getSnapshot().rows.get(was.key);
+        if ((row?.customized ?? false) === was.customized && JSON.stringify(row?.value) === JSON.stringify(was.value))
+          continue;
+        await (was.customized ? this.set(was.key, was.value) : this.reset(was.key));
+      }
+      current = await this.refreshDurableHistory();
+    }
+    return { first, ok: true, current };
   }
 
   /** Redo: puts the last undone step back. A step undone through the durable history comes back

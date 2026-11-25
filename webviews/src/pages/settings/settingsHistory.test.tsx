@@ -29,12 +29,14 @@ describe("the bar's Undo and Redo on the durable history", () => {
     await click(tile);
     expect(undoButton().getAttribute("aria-label")).toBe("Undo: Background → Shuffle Paintings");
 
+    // The pick writes the background and, beside it, the memory of what Off showed: one step.
+    const picked = page.provider.durable.filter((entry) => entry.undoes === null).length;
     await click(undoButton());
-    expect(ops(page.provider, "cmux.settings.undo")).toHaveLength(1);
+    expect(ops(page.provider, "cmux.settings.undo")).toHaveLength(picked);
     // No second, parallel history: the undo writes nothing of its own.
     expect(ops(page.provider, "cmux.settings.reset")).toEqual([]);
     expect(row("appearance.background")?.customized).toBe(false);
-    const undone = page.provider.durable.at(-1)!;
+    const undone = page.provider.durable.find((entry) => entry.undoes !== null)!;
     expect(undone.undoes).not.toBeNull();
     expect(redoButton().getAttribute("aria-label")).toBe("Redo: Background → Shuffle Paintings");
 
@@ -44,8 +46,9 @@ describe("the bar's Undo and Redo on the durable history", () => {
     expect(undoButton().getAttribute("aria-label")).toBe("Undo: Background → Shuffle Paintings");
 
     // The redo is the newest change: Undo takes it back again.
+    const undos = ops(page.provider, "cmux.settings.undo").length;
     await click(undoButton());
-    expect(ops(page.provider, "cmux.settings.undo")).toHaveLength(2);
+    expect(ops(page.provider, "cmux.settings.undo").length).toBeGreaterThan(undos);
     expect(row("appearance.background")?.customized).toBe(false);
   });
 
