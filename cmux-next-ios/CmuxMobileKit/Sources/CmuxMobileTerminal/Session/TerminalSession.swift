@@ -278,6 +278,13 @@ public protocol TerminalSession: AnyObject {
     func returnToLiveScreen()
     /// The session itself, under any session wrapping it (the projection).
     var underlyingSession: AnyObject { get }
+    /// Fit to Phone for the program in the foreground, the projection's one
+    /// exception (``TerminalProjectingSession``): whether the phone claims its
+    /// grid for it now; nil for a session that does not project.
+    var fitsToPhone: Bool? { get }
+    /// The title menu's Fit to Phone: fits the foreground program now (and
+    /// remembers it), or gives the Mac its grid back (and forgets it).
+    func toggleFitToPhone()
     /// One pan of the screen ended: its frame intervals, for a session with a Mac to log
     /// there (`phone-frames`). Others ignore it.
     func reportScrollFrames(_ pan: TerminalPanFrames)
@@ -339,6 +346,10 @@ extension TerminalSession {
 
     public var underlyingSession: AnyObject { self }
     public func reportScrollFrames(_ pan: TerminalPanFrames) {}
+
+    public var fitsToPhone: Bool? { nil }
+
+    public func toggleFitToPhone() {}
 
     public func reportPaint(_ samples: [TerminalPaintTally.Sample]) {}
 
