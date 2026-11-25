@@ -72,8 +72,8 @@ public struct CloudOwnerAPIClient: Sendable {
         let accessToken = accessToken
         var client = CloudDaemon.workerMachines(baseURL: baseURL, accessToken: { try await accessToken() }, teamID: teamID,
                                                    machineIO: machineIO, buildSpace: buildSpace)
-        client.daemon.daemonCall = daemonCall
-        return try await client.daemon.daemon(call, args, timeout: timeout)
+        client.daemonCall = daemonCall
+        return try await client.daemon(call, args, timeout: timeout)
     }
 
     /// The daemon's bound for a call whose own deadline (Rust's) is `deadline`: its answer comes back before the child is killed.

@@ -40,7 +40,7 @@ extension CloudGitHubPicker {
         let args: [String: any Sendable] = ["team": team, "repo": repo]
         // A misconfigured dev build refuses before anything runs.
         guard (try? auth.configuration.buildSpace.check()) != nil,
-              let answer = try? await client.daemon.daemon("owner.github_clone_token", args, timeout: CloudOwnerAPIClient.bound(.seconds(20))) else { return nil }
+              let answer = try? await client.daemon("owner.github_clone_token", args, timeout: CloudOwnerAPIClient.bound(.seconds(20))) else { return nil }
         return CloudGitHubCloneToken.parse(answer)
     }
 }

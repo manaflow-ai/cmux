@@ -49,7 +49,7 @@ struct CloudDaemonRunTests {
     private func api(_ daemon: FakeDaemon?, access: @escaping @Sendable () async throws -> String = { "access" }) -> CloudDaemon {
         var api = CloudDaemon.workerMachines(baseURL: URL(string: "https://owner.standin.invalid") ?? URL(fileURLWithPath: "/"),
                                                 accessToken: access, teamID: { "team_cmux" })
-        if let daemon { api.daemon.daemonCall = { input, _ in try daemon.run(input) } }
+        if let daemon { api.daemonCall = { input, _ in try daemon.run(input) } }
         return api.daemon.runningAs(Self.account)
     }
 
