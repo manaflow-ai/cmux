@@ -73,7 +73,9 @@ const OVERSHOOT: u32 = 4;
 /// A full-size segment.
 const SEGMENT: u32 = 1200;
 /// Acknowledged bytes one delivery-rate sample spans at least: several
-/// segments, so delayed and jittered ACKs average out.
+/// segments, so delayed and jittered ACKs average out. A sample also spans
+/// a quarter of the window: ACKs a busy receiver or a radio bunches read
+/// faster than the path over a few segments.
 const RATE_SPAN: u32 = 8 * SEGMENT;
 /// The least a slow-start round grows the window by, whatever the
 /// delivery rate reads.
@@ -226,20 +228,21 @@ impl DelayWindow {
     }
 
     /// The ACK moved to `ack` at `now`: one delivery-rate sample over the
-    /// last [`RATE_SPAN`] acknowledged bytes.
+    /// last [`RATE_SPAN`] (or a quarter window) of acknowledged bytes.
     fn note_rate(&mut self, ack: u32, now: Instant) {
+        let span = RATE_SPAN.max(self.window / 4);
         if self.ack_times.back().is_some_and(|&(_, last)| !after(ack, last)) {
             return;
         }
         self.ack_times.push_back((now, ack));
         // Keep the newest entry that is still a whole span behind.
-        while self.ack_times.get(1).is_some_and(|&(_, next)| ack.wrapping_sub(next) >= RATE_SPAN) {
+        while self.ack_times.get(1).is_some_and(|&(_, next)| ack.wrapping_sub(next) >= span) {
             self.ack_times.pop_front();
         }
         let Some(&(since, from)) = self.ack_times.front() else { return };
         let bytes = ack.wrapping_sub(from);
         let elapsed = now.saturating_duration_since(since).as_secs_f64();
-        if bytes >= RATE_SPAN && elapsed > 0.0 {
+        if bytes >= span && elapsed > 0.0 {
             self.round_rate = self.round_rate.max(f64::from(bytes) / elapsed);
         }
     }
