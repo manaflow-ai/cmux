@@ -8,7 +8,7 @@
 // stays one line (ToolRow.tsx). Leo, 2026-11-05: "could we potentially do even better?"; the same web
 // draws it on the Mac and the phone.
 import { cornerAction } from "./cornerActions";
-import { useCallback, useMemo, type ReactNode } from "react";
+import { useCallback, useMemo, type ReactNode, type CSSProperties } from "react";
 import { useT } from "../i18n";
 import { callChipHost } from "../chips/host";
 import { FileKindIcon } from "../chips/FileKindIcon";
@@ -17,6 +17,8 @@ import { useMessageScope } from "../chips/messageScope";
 import { isDeniedPath, pathName } from "../chips/paths";
 import { OUTPUT_SCROLL_BOX } from "./blockPartsModel";
 import { CodeLines } from "./CodeBlock";
+// The card is drawn with the diff card's lengths (`.cv-edit-diff`, editDiffBox.ts).
+import { EDIT_DIFF_VARS } from "./editDiffBox";
 import { CopyButton } from "./CopyButton";
 import type { FileCard, ReadPeek, SearchFile, SearchResult } from "./fileResults";
 import { watchOutputViewport } from "./outputViewport";
@@ -83,7 +85,7 @@ function ReadCard({ id, read }: { id: string; read: ReadPeek }) {
     [lines, read.start],
   );
   return (
-    <div id={id} className="cv-edit-diff cv-filepeek">
+    <div id={id} className="cv-edit-diff cv-filepeek" style={EDIT_DIFF_VARS as CSSProperties}>
       <div className="cv-edit-diff__header">
         <FileButton path={read.path} line={read.start} className="cv-filepeek__name" label={read.path}>
           <FileKindIcon path={read.path} className="cv-filepeek__icon" />

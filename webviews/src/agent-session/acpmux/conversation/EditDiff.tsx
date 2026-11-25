@@ -15,6 +15,7 @@ import {
   useState,
   type ComponentType,
   type ReactNode,
+  type CSSProperties,
 } from "react";
 import { editPatch, type TurnFile } from "../diff";
 import { copyTextResult } from "./clipboard";
@@ -27,6 +28,7 @@ import { FindReveal, foldFind } from "./chatFind";
 import { watchOutputViewport } from "./outputViewport";
 import "./outputScrollBox.css";
 import { EditDiffLoading } from "./EditDiffLoading";
+import { EDIT_DIFF_VARS } from "./editDiffBox";
 import { useDiffPainted } from "./editDiffLoadingModel";
 import { loadEditDiffHunks } from "./editDiffModel";
 const EditDiffHunks = lazy(() => loadEditDiffHunks().then((module) => ({ default: module.EditDiffHunks })));
@@ -105,7 +107,12 @@ export function EditDiffFrame({
   const hunks = useRef<HTMLDivElement>(null);
   const painted = useDiffPainted(hunks);
   return (
-    <div className="cv-edit-diff" data-wrap={wrap} data-flat={flat || undefined}>
+    <div
+      className="cv-edit-diff"
+      data-wrap={wrap}
+      data-flat={flat || undefined}
+      style={EDIT_DIFF_VARS as CSSProperties}
+    >
       <div className="cv-edit-diff__header">
         <span
           className="cv-edit-diff__name"
