@@ -518,6 +518,42 @@ fn hub_with_chat(id: &str) -> (Arc<Hub>, Arc<Session>) {
     (hub, session)
 }
 
+#[tokio::test]
+async fn inbox_receipt_during_config_write() {
+    let (hub, session) = hub_with_chat("inbox-config-write");
+    let _writer = hub.config.write().await;
+    let (receipt, mut received) = tokio::sync::mpsc::unbounded_channel();
+    let mut accept = |value| receipt.send(value).unwrap();
+    let blocks = [json!({"type": "text", "text": "build finished"})];
+    let delivery = hub.inbox_accept(
+        &session,
+        &blocks,
+        "test",
+        "during-write",
+        "lane",
+        PromptClass::Fyi,
+        None,
+        None,
+        false,
+        false,
+        None,
+        &mut accept,
+    );
+    tokio::pin!(delivery);
+    let started = tokio::time::Instant::now();
+    let accepted = tokio::select! {
+        receipt = received.recv() => receipt.unwrap(),
+        result = &mut delivery => panic!("inbox finished before receipt: {result:?}"),
+        _ = tokio::time::sleep(std::time::Duration::from_secs(2)) => panic!("no inbox receipt in 2 s with config writer held"),
+    };
+    println!("inbox receipt with config writer held: {:?}", started.elapsed());
+    assert_eq!(accepted["promptId"], "during-write");
+    assert_eq!(accepted["queued"], true);
+    let inbox = session.inbox();
+    assert_eq!(inbox.items.len(), 1);
+    assert_eq!(inbox.items[0].prompt_id, "during-write");
+}
+
 /// Surge admission is a preview (`labs.previewFeatures`): off, the burst that would be held
 /// takes the path it took before the surge inbox, with nothing held or counted.
 #[tokio::test]
