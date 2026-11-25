@@ -7,6 +7,11 @@
 //!       One hill-climb step per `--steps`: change one param of the best set in STATE, measure both
 //!       on the same harness (same corpus, profiles, jitter), keep the change only when it beats the
 //!       best at p50 and p95 and grows no payload; every step is a line in FINDINGS.md.
+//!   cmux-bytes prefetch --folder NAME=PATH ... [--profile ...] [--runs N] [--param K=V ...]
+//!                       [--json OUT] [--table OUT.md]
+//!       What a machine holds before a chat reads: today (the whole folder in fill order) against
+//!       the ranker (likelihood per byte over idle bandwidth, `prefetch_budget` held), as the
+//!       first-turn hit rate and the bytes held but never read, over `--runs` simulated chats.
 //!   cmux-bytes bench-levels PATH    zstd throughput per level on PATH's files
 //!   cmux-bytes install-timer --folders-file FILE [--every 2h]
 //!       Copies this binary to ~/.local/bin/cmux-bytes and writes the systemd user units
@@ -51,10 +56,11 @@ fn main() -> ExitCode {
     let got = match args.first().map(String::as_str) {
         Some("bench") => bench(rest),
         Some("climb") => climb(rest),
+        Some("prefetch") => prefetch(rest),
         Some("bench-levels") => levels(rest),
         Some("install-timer") => install_timer(rest),
         _ => Err(
-            "usage: cmux-bytes bench|climb|bench-levels|install-timer ... (see the file header)"
+            "usage: cmux-bytes bench|climb|prefetch|bench-levels|install-timer ... (see the file header)"
                 .into(),
         ),
     };
@@ -375,6 +381,62 @@ fn bench(args: &[String]) -> Res<bool> {
     if fails > 0 || grew > 0 {
         eprintln!("FAIL: {fails} verify failures, {grew} grown bytes on the new path");
         return Ok(false);
+    }
+    Ok(true)
+}
+
+fn prefetch(args: &[String]) -> Res<bool> {
+    let o = parse(args)?;
+    let mut table = String::from(
+        "| folder | profile | first-turn hit today | first-turn hit new | held never read today | held never read new |\n|---|---|---|---|---|---|\n",
+    );
+    let mut rows = Vec::new();
+    for (name, root) in &o.folders {
+        let (entries, _dirs, _bytes) = harness::walk(root, o.cap);
+        for p in &o.profiles {
+            let r = harness::prefetch_eval(&entries, &o.params, p, o.runs);
+            let _ = writeln!(
+                table,
+                "| {name} | {} | {:.0}% | {:.0}% | {} | {} |",
+                p.name,
+                r.today.first_turn_hit_rate * 100.0,
+                r.new.first_turn_hit_rate * 100.0,
+                mb(r.today.held_never_read_bytes),
+                mb(r.new.held_never_read_bytes),
+            );
+            let side = |h: &cmux_bytes::prefetch::HitStats| {
+                format!(
+                    "{{\"first_turn_hit_rate\":{:.4},\"first_turn_hit_bytes_rate\":{:.4},\"held_never_read_bytes\":{},\"held_bytes\":{},\"first_turn_reads\":{}}}",
+                    h.first_turn_hit_rate,
+                    h.first_turn_hit_bytes_rate,
+                    h.held_never_read_bytes,
+                    h.held_bytes,
+                    h.first_turn_reads
+                )
+            };
+            rows.push(format!(
+                "{{\"folder\":{name:?},\"profile\":{:?},\"today\":{},\"new\":{}}}",
+                p.name,
+                side(&r.today),
+                side(&r.new)
+            ));
+        }
+    }
+    print!("{table}");
+    if let Some(p) = &o.json {
+        let params: Vec<String> =
+            o.params.pairs().iter().map(|(k, v)| format!("{k:?}:{v:?}")).collect();
+        let doc = format!(
+            "{{\"schema\":\"cmux-bytes-prefetch/v1\",\"at\":{:?},\"runs\":{},\"params\":{{{}}},\"rows\":[{}]}}\n",
+            now_utc(),
+            o.runs,
+            params.join(","),
+            rows.join(",")
+        );
+        std::fs::write(p, doc).ctx("write --json")?;
+    }
+    if let Some(p) = &o.table {
+        std::fs::write(p, table).ctx("write --table")?;
     }
     Ok(true)
 }
