@@ -10,6 +10,8 @@
 //!   over http (`HTTPSUpgradeFallback`).
 //! - [`calculator`]: the omnibox calculator row's arithmetic and its answer text
 //!   (`OmniboxCalculator`).
+//! - [`omnibar`]: the omnibar's text rules (`OmnibarRules`) and how it shows an address
+//!   (`BrowserURLDisplay`). The omnibar state machine is still Swift.
 //! - [`links`]: what a link click does (the gesture of a click, the person's
 //!   `browser.links.*` mapping), where Chromium's link requests go (`CEFLinkClicks`) and the one
 //!   decision for every window Chromium wants to open (`CEFWindowPolicy`).
@@ -17,6 +19,7 @@
 pub mod address;
 pub mod calculator;
 pub mod links;
+pub mod omnibar;
 pub mod ops;
 
 #[cfg(test)]
@@ -25,3 +28,5 @@ mod address_tests;
 mod calculator_tests;
 #[cfg(test)]
 mod links_tests;
+#[cfg(test)]
+mod omnibar_tests;

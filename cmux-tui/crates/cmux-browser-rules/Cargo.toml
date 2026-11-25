@@ -13,3 +13,5 @@ workspace = true
 [dependencies]
 serde.workspace = true
 serde_json.workspace = true
+cmux-url-input.workspace = true
+unicode-segmentation.workspace = true

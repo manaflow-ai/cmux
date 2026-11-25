@@ -14,12 +14,27 @@
 //! | `browser_rules_cef_link_placement` | `{disposition, userGesture, click, now, mapping}` | [`LinkPlacement`] |
 //! | `browser_rules_window_placement` | `{request, links}` | [`LinkPlacement`] |
 //! | `browser_rules_window_decide` | `{request, candidates, links}` | [`WindowDecision`] |
+//! | `browser_rules_omnibar_display_text` | `{url?, home}` | the compact address text |
+//! | `browser_rules_omnibar_resting_text` | `{url?, home}` | the host-only resting text |
+//! | `browser_rules_omnibar_editing_text` | `{url?}` | the full address to edit |
+//! | `browser_rules_omnibar_host_range` | `{text, url?}` | a [`Range`] (`NSRange`), or null |
+//! | `browser_rules_omnibar_tilde_path` | `{path, home}` | the path with the home folder as `~` |
+//! | `browser_rules_omnibar_fill_text` | `{row}` | the text an arrowed row puts in the field |
+//! | `browser_rules_omnibar_inline_completion` | `{row, typed, home}` | the completing suffix, or null |
+//! | `browser_rules_omnibar_desired_tld_url` | `{typed, home, allowsChromiumSchemes}` | the Control-Enter URL, or null |
+//! | `browser_rules_omnibar_is_https_upgrade` | `{text, url, home, allowsChromiumSchemes}` | a bool |
+//! | `browser_rules_omnibar_single_line` | `{text}` | the text on one line |
+//! | `browser_rules_omnibar_dropped_text` | `{text}` | the dropped text, cleaned |
+//! | `browser_rules_omnibar_clamped` | `{selection, length}` | the selection [`Range`] within `length` UTF-16 units |
+//! | `browser_rules_omnibar_utf16_length` | `{text}` | the length in UTF-16 units |
 
 use crate::links::{
     self, CefDisposition, ClickMapping, ClickRecord, Gesture, LinkContext, LinkPlacement,
     Modifiers, WebKitLinkClick, WindowCandidate, WindowDecision, WindowRequest,
 };
+use crate::omnibar::{self, Range, Suggestion};
 use crate::{address, calculator};
+use cmux_url_input::TypedInput;
 use serde::Deserialize;
 use serde::de::DeserializeOwned;
 use serde_json::{Value, json};
@@ -100,6 +115,68 @@ struct WindowOpRequest {
     links: LinkContext,
 }
 
+#[derive(Deserialize)]
+struct UrlRequest {
+    #[serde(default)]
+    url: Option<String>,
+    #[serde(default)]
+    home: String,
+}
+
+#[derive(Deserialize)]
+struct HostRangeRequest {
+    text: String,
+    #[serde(default)]
+    url: Option<String>,
+}
+
+#[derive(Deserialize)]
+struct TildeRequest {
+    path: String,
+    #[serde(default)]
+    home: String,
+}
+
+#[derive(Deserialize)]
+struct FillRequest {
+    row: Suggestion,
+}
+
+#[derive(Deserialize)]
+struct CompletionRequest {
+    row: Suggestion,
+    typed: String,
+    #[serde(default)]
+    home: String,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct TldUrlRequest {
+    typed: String,
+    #[serde(default)]
+    home: String,
+    #[serde(default)]
+    allows_chromium_schemes: bool,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct HttpsUpgradeRequest {
+    text: String,
+    url: String,
+    #[serde(default)]
+    home: String,
+    #[serde(default)]
+    allows_chromium_schemes: bool,
+}
+
+#[derive(Deserialize)]
+struct ClampRequest {
+    selection: Range,
+    length: i64,
+}
+
 fn parse<T: DeserializeOwned>(request: Value) -> Result<T, OpError> {
     serde_json::from_value(request).map_err(|error| OpError::Invalid(error.to_string()))
 }
@@ -170,6 +247,60 @@ pub fn call(op: &str, request: Value) -> Result<Value, OpError> {
             let WindowOpRequest { request, candidates, links } = parse(request)?;
             let decision: WindowDecision = links::decide_window(&request, &candidates, &links);
             Ok(encode(&decision))
+        }
+        "browser_rules_omnibar_display_text" => {
+            let UrlRequest { url, home } = parse(request)?;
+            Ok(json!(omnibar::display_text(url.as_deref(), &home)))
+        }
+        "browser_rules_omnibar_resting_text" => {
+            let UrlRequest { url, home } = parse(request)?;
+            Ok(json!(omnibar::resting_text(url.as_deref(), &home)))
+        }
+        "browser_rules_omnibar_editing_text" => {
+            let UrlRequest { url, .. } = parse(request)?;
+            Ok(json!(omnibar::editing_text(url.as_deref())))
+        }
+        "browser_rules_omnibar_host_range" => {
+            let HostRangeRequest { text, url } = parse(request)?;
+            Ok(encode(&omnibar::host_range(&text, url.as_deref())))
+        }
+        "browser_rules_omnibar_tilde_path" => {
+            let TildeRequest { path, home } = parse(request)?;
+            Ok(json!(omnibar::tilde_path(&path, &home)))
+        }
+        "browser_rules_omnibar_fill_text" => {
+            let FillRequest { row } = parse(request)?;
+            Ok(json!(omnibar::fill_text(&row)))
+        }
+        "browser_rules_omnibar_inline_completion" => {
+            let CompletionRequest { row, typed, home } = parse(request)?;
+            Ok(json!(omnibar::inline_completion(&row, &typed, &home)))
+        }
+        "browser_rules_omnibar_desired_tld_url" => {
+            let TldUrlRequest { typed, home, allows_chromium_schemes } = parse(request)?;
+            let resolver = TypedInput { home: &home, allows_chromium_schemes };
+            Ok(json!(omnibar::desired_tld_url(&typed, &resolver)))
+        }
+        "browser_rules_omnibar_is_https_upgrade" => {
+            let HttpsUpgradeRequest { text, url, home, allows_chromium_schemes } = parse(request)?;
+            let resolver = TypedInput { home: &home, allows_chromium_schemes };
+            Ok(json!(omnibar::is_https_upgrade(&text, &url, &resolver)))
+        }
+        "browser_rules_omnibar_single_line" => {
+            let TextRequest { text } = parse(request)?;
+            Ok(json!(omnibar::single_line(&text)))
+        }
+        "browser_rules_omnibar_dropped_text" => {
+            let TextRequest { text } = parse(request)?;
+            Ok(json!(omnibar::dropped_text(&text)))
+        }
+        "browser_rules_omnibar_clamped" => {
+            let ClampRequest { selection, length } = parse(request)?;
+            Ok(encode(&omnibar::clamped(selection, length)))
+        }
+        "browser_rules_omnibar_utf16_length" => {
+            let TextRequest { text } = parse(request)?;
+            Ok(json!(omnibar::utf16_length(&text)))
         }
         other => Err(OpError::UnknownOp(other.to_owned())),
     }
