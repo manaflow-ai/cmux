@@ -37,6 +37,8 @@ def api(path: str) -> object:
             out = subprocess.run(["gh", "api", f"repos/{REPO}/{path}"], capture_output=True, text=True, timeout=180)
             if out.returncode == 0:
                 return json.loads(out.stdout)
+            if "HTTP 404" in out.stderr:
+                return {}  # a workflow file that no longer exists has no runs
             if "retry after" not in out.stderr or not wait:
                 raise RuntimeError(out.stderr.strip()[:300])
             time.sleep(wait)
@@ -85,12 +87,15 @@ def main(argv: list[str]) -> int:
     shas = list(args.shas)
     if args.recent:
         shas += [c["sha"] for c in api(f"commits?sha=feat-cmux-next&per_page={args.recent}")]
-    rows = [measure(s) for s in shas]
+    rows = []
+    for s in shas:
+        r = measure(s)
+        rows.append(r)
+        if not args.json:
+            print(f"{r['sha']}  {r.get('minutes', '-'):>6}  {r.get('path', 'not pointed'):<14} {r.get('run', '')}  {r['subject']}",
+                  flush=True)
     if args.json:
         print(json.dumps(rows, indent=2))
-    else:
-        for r in rows:
-            print(f"{r['sha']}  {r.get('minutes', '-'):>6}  {r.get('path', 'not pointed'):<14} {r.get('run', '')}  {r['subject']}")
     mins = [r["minutes"] for r in rows if "minutes" in r]
     if mins:
         print(f"p50 {statistics.median(mins):.1f} min over {len(mins)} pointed of {len(rows)}", file=sys.stderr)
