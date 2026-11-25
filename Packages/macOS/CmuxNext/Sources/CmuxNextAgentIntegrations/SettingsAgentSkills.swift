@@ -101,7 +101,7 @@ public final class SettingsAgentSkills: PageProvider {
             }
             if let folder = workingFolder() { arguments += ["--cwd", folder.path(percentEncoded: false)] }
             let path = file.path(percentEncoded: false)
-            if let reply = try? await runCLI(cli, arguments, [:]) {
+            if let reply = try? await awaitConcurrently({ [arguments] in try await runCLI(cli, arguments, [:]) }) {
                 refusal = await Self.refusal(reply).map { (path: path, message: $0) }
             } else {
                 // No answer at all is a refusal with no words of its own.
@@ -123,7 +123,7 @@ public final class SettingsAgentSkills: PageProvider {
                 arguments += ["--description", description]
             }
             arguments.append("--json")
-            if let reply = try? await runCLI(cli, arguments, [:]) {
+            if let reply = try? await awaitConcurrently({ [arguments] in try await runCLI(cli, arguments, [:]) }) {
                 if let message = await Self.refusal(reply) {
                     refusal = (path: Self.newCommandPath, message: message)
                 } else {
@@ -161,7 +161,7 @@ public final class SettingsAgentSkills: PageProvider {
         loading = true
         var arguments = ["agent-config", "skills", "list", "--json"]
         if let folder = workingFolder() { arguments += ["--cwd", folder.path(percentEncoded: false)] }
-        let reply = try? await runCLI(cli, arguments, [:])
+        let reply = try? await awaitConcurrently({ [arguments] in try await runCLI(cli, arguments, [:]) })
         guard mine == generation else { return }
         loading = false
         guard let reply, reply.0 == 0, let value = await Self.lastJSON(reply.1), value["skills"]?.arrayValue != nil else {
