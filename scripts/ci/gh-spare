@@ -1,0 +1,91 @@
+#!/usr/bin/env bash
+# gh-spare ARGS...: `gh ARGS...` for a workflow's own failure report, made to outlive an exhausted token.
+#
+# Runs 45548650589 and 45551813915 (2026-11-25) failed, and the report of the failure died on "API rate limit
+# exceeded for installation", so nobody heard. gh-spare runs gh with GH_TOKEN (the job's token); when GitHub
+# refuses it for a rate limit, with each token in GH_SPARE_TOKENS (whitespace separated: the cmux-bot and
+# glaeda-route tokens from .github/actions/spare-issue-tokens, each its own installation and budget). When every
+# token is refused it waits for the earliest reset GitHub reports (GET /rate_limit, which costs no quota), at most
+# GH_SPARE_WAIT_SECONDS in all (default 1800), and goes again. Any other failure is gh's own, returned at once.
+# Past the wait it prints an ::error annotation and a job summary section with GH_SPARE_REPORT (else the gh command
+# it could not run; the runner shows both without any API call) and returns gh's exit code.
+#
+# stdout is gh's stdout; gh's stderr is passed through. Use it where the caller would run `gh issue ...`:
+#   open="$(scripts/ci/gh-spare issue list --label L --state open --json number --jq '.[0].number // empty')"
+#   scripts/ci/gh-spare issue comment "$open" --body-file body.md
+# Test: tests/test_gh_spare.py (ci-guards.yml, preflight).
+set -uo pipefail
+
+wait_budget="${GH_SPARE_WAIT_SECONDS:-1800}"
+started="$(date +%s)"
+read -r -a spares <<< "${GH_SPARE_TOKENS:-}"
+tokens=("${GH_TOKEN:-}")
+for t in "${spares[@]+"${spares[@]}"}"; do
+  [ -n "$t" ] && tokens+=("$t")
+done
+err="$(mktemp)"
+out="$(mktemp)"
+first_err="$(mktemp)"
+trap 'rm -f "$err" "$out" "$first_err"' EXIT
+
+limited() {
+  grep -qiE 'rate limit|secondary rate|abuse detection|HTTP 429' "$err"
+}
+
+attempt=0
+while :; do
+  attempt=$((attempt + 1))
+  rc=1
+  i=0
+  for token in "${tokens[@]}"; do
+    i=$((i + 1))
+    [ -z "$token" ] && [ "$i" -gt 1 ] && continue
+    GH_TOKEN="$token" gh "$@" >"$out" 2>"$err"
+    rc=$?
+    if [ "$rc" -eq 0 ]; then
+      [ "$i" -gt 1 ] && echo "::notice title=gh-spare::gh $1 ${2:-} was rate limited on the job token; sent it with spare token $((i - 1))" >&2
+      cat "$out"
+      exit 0
+    fi
+    if ! limited; then
+      if [ "$i" -eq 1 ]; then
+        cat "$out"
+        cat "$err" >&2
+        exit "$rc"
+      fi
+      # A spare the App cannot use here (no permission, not installed): the next one, and the job token's answer.
+      echo "::warning title=gh-spare::spare token $((i - 1)) could not run gh $1 ${2:-}: $(head -c 200 "$err" | tr '\n' ' ')" >&2
+      cp "$first_err" "$err"
+      continue
+    fi
+    [ "$i" -eq 1 ] && cp "$err" "$first_err"
+  done
+  now="$(date +%s)"
+  left=$((started + wait_budget - now))
+  if [ "$left" -le 0 ]; then
+    cat "$err" >&2
+    report="${GH_SPARE_REPORT:-gh $*}"
+    run_url="${GITHUB_SERVER_URL:-https://github.com}/${GITHUB_REPOSITORY:-}/actions/runs/${GITHUB_RUN_ID:-}"
+    printf '::error title=Failure report not delivered (every GitHub token rate limited)::%s (run %s)\n' "$(printf '%s' "$report" | head -c 3000 | tr '\n' ' ')" "$run_url" >&2
+    [ -n "${GITHUB_STEP_SUMMARY:-}" ] && printf '### Failure report not delivered (every GitHub token rate limited)\n\n%s\n' "$report" >> "$GITHUB_STEP_SUMMARY"
+    exit "$rc"
+  fi
+  # The earliest reset among the tokens' exhausted resources; /rate_limit itself is free.
+  reset=0
+  for token in "${tokens[@]}"; do
+    [ -z "$token" ] && continue
+    r="$(GH_TOKEN="$token" gh api rate_limit --jq '[.resources[] | select(.remaining == 0) | .reset] | min // 0' 2>/dev/null || echo 0)"
+    case "$r" in ''|*[!0-9]*) r=0 ;; esac
+    if [ "$r" -gt 0 ] && { [ "$reset" -eq 0 ] || [ "$r" -lt "$reset" ]; }; then reset="$r"; fi
+  done
+  if [ "$reset" -gt 0 ]; then
+    pause=$((reset - now + 2))
+  else
+    pause=$((60 * attempt))
+    [ "$pause" -gt 300 ] && pause=300
+  fi
+  [ "$pause" -lt 5 ] && pause=5
+  [ "$pause" -gt "$left" ] && pause="$left"
+  echo "::warning title=gh-spare::gh $1 ${2:-}: every token is rate limited; trying again in ${pause} s (attempt ${attempt}, ${left} s left)" >&2
+  sleep "$pause"
+done
