@@ -7233,14 +7233,23 @@ jobs:
           echo "Requested cmux NEXT DEV publication for source run $SOURCE_RUN_ID (manaflow-glaeda-route token)"
 
       # Why: 2026-11-24-request-cmux-next-dev-publish-1.md, note-339
+      # The quota-goblin CI pool's tokens (leo-workspace gh-app-roles push.actions_secrets CI_POOL_TOKEN_*) each
+      # have an hour of their own, so the hand-off tries them before it waits for github.token's reset.
       - name: Dispatch with GITHUB_TOKEN, waiting through a rate limit
         if: steps.app-dispatch.outcome != 'success'
         env:
           GH_TOKEN: ${{ github.token }}
+          POOL_TOKENS: ${{ secrets.CI_POOL_TOKEN_1 }} ${{ secrets.CI_POOL_TOKEN_2 }}
           GH_REPO: ${{ github.repository }}
           SOURCE_RUN_ID: ${{ github.run_id }}
         run: |
           set -uo pipefail
+          for pool in ${POOL_TOKENS:-}; do
+            if GH_TOKEN="$pool" gh workflow run cmux-next-dev-daily.yml --repo "$GH_REPO" --ref main -f "source_run_id=$SOURCE_RUN_ID"; then
+              echo "Requested cmux NEXT DEV publication for source run $SOURCE_RUN_ID (CI pool token)"
+              exit 0
+            fi
+          done
           echo "::warning title=DEV handoff::the manaflow-glaeda-route token did not dispatch; using GITHUB_TOKEN"
           waited=0
           for try in 1 2 3; do
