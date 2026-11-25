@@ -172,8 +172,28 @@ export function useDom() {
       act(async () => {
         element!.dispatchEvent(new window.MouseEvent("click", { bubbles: true }));
       }),
+    /// The card's files as a reader sees them once they click its one row open: each file's path
+    /// and what its name line ends with, its counts or "failed".
+    rows: async () => {
+      const head = host!.querySelector(".acpmux-edited-head");
+      if (head && !host!.querySelector(".acpmux-edited-stack"))
+        await act(async () => {
+          head.dispatchEvent(new window.MouseEvent("click", { bubbles: true }));
+        });
+      return editedRows(host!);
+    },
   };
 }
+
+/// The opened card's files: each stacked diff's path and counts, each plain entry's path and its
+/// failed mark (or nothing).
+export const editedRows = (host: Element) =>
+  [...host.querySelectorAll(".acpmux-edited-section, .acpmux-edited-plain")].map((entry) => [
+    entry.getAttribute("data-path") ?? entry.querySelector(".acpmux-edited-path")?.getAttribute("data-path"),
+    entry.classList.contains("acpmux-edited-section")
+      ? `${entry.querySelector(".cv-edit-diff__add")?.textContent}${entry.querySelector(".cv-edit-diff__del")?.textContent}`
+      : entry.querySelector(".acpmux-edited-failed")?.textContent,
+  ]);
 
 /// The turn's checkpoint, loaded: the repository at `root` (FOLDER), with `files` (paths from the
 /// root) changed.
