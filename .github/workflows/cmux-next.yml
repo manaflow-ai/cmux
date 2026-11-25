@@ -2042,6 +2042,7 @@ jobs:
           python3 -I scripts/cmux-next/tests/test_settings_export_keys.py
           python3 -I scripts/cmux-next/tests/test_settings_section_type_budget.py
           python3 -I scripts/cmux-next/tests/test_settings_swift_out.py
+          python3 -I scripts/cmux-next/tests/test_settings_agent_policy_files.py
 
       # Why: 2026-11-24-checks-40.md, note-151
       - name: Phone lane field allowlist
