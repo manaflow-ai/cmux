@@ -17,7 +17,7 @@ import { FailedCount } from "./FailedCount";
 import { EditDiff } from "./EditDiff";
 import { StepThought, ThoughtRow } from "./ThoughtRow";
 import { ToolRow } from "./ToolRow";
-import { ChevronRight, Magnifier, OpenBook, Pencil, TerminalSquare } from "./icons";
+import { Magnifier, OpenBook, Pencil, TerminalSquare } from "./icons";
 import { isQuietThought, isThought } from "./thoughts";
 import { countsFailed, groupCalls, isRunning, toolGroupLabel, type ToolGroupKind } from "./toolGroups";
 import { RunScroll } from "./RunScroll";
@@ -34,11 +34,12 @@ import { useAnchoredCollapse } from "./useAnchoredCollapse";
 import { scrollListTo } from "./motionOwner";
 import { WriteLabel } from "./WriteLabel";
 import { writeCall } from "./writeLabelModel";
-import { ToolLabel } from "./ToolVerb";
+import { Tick } from "../subagents/trayMotion";
 import { toolFailure } from "./toolFailure";
 import { InlineFailureCause, ToolFailureCause } from "./ToolFailureCause";
 import { failureWord, InStep } from "./toolFailureCauseModel";
 import { firstStepCount, stepProbe } from "./toolGroupRowModel";
+import { DisclosureChevron } from "./DisclosureChevron";
 
 function groupIcon(kind: ToolGroupKind): ReactNode {
   switch (kind) {
@@ -473,8 +474,10 @@ export function ToolGroupRow({
               {/* The group's line reads as words, "Ran 2 commands", its count never pushed out to the
                   verb column its calls' rows share (Leo, 2026-10-29: "Why is there space between ran
                   and two?"). */}
-              <ToolLabel
-                whole
+              {/* A count that grows rolls on its own and new words roll in, on the one text roll
+                  every live label shares (ui/motion/TextRoll.tsx). */}
+              <Tick
+                steadyCounts
                 text={toolGroupLabel(
                   t,
                   kind,
@@ -494,7 +497,7 @@ export function ToolGroupRow({
             <InlineFailureCause failure={failure} />
           </span>
         )}
-        <ChevronRight size={14} className={`cv-tool__chevron cv-rotor${open ? " is-open" : " is-hover"}`} />
+        <DisclosureChevron open={open} />
       </button>
       <WrittenArtifactButtons tools={tools} />
       <ToolFailureCause failure={failure} />
