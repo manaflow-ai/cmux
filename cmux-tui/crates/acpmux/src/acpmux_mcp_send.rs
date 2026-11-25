@@ -45,7 +45,7 @@ const _: () = assert!(CALL_BUDGET.as_millis() < 60_000, "the call must end befor
 pub(super) fn tool() -> Value {
     json!({
         "name": "send",
-        "description": "Message another agent session (or host/name on a peer): the `cmux agent send` front door, not a shell command; for several, batch them in one call with messages. Returns in seconds with promptId and deliveryId (the outbox retries); no reply wait. class question or block: the answering turn comes back to you as a report (same machine), so do not poll; else read replies with last. It steers into a running turn at its next tool step unless steer: false. messages or tag: one result row per recipient.",
+        "description": "Message another agent session (or host/name on a peer): the `cmux agent send` front door, not a shell command; for several, batch them in one call with messages. Returns promptId and deliveryId in seconds (the outbox retries). class question or block: the answer comes back to you as a report, so do not poll; else read replies with last. Steers into a running turn unless steer: false.",
         "inputSchema": {
             "type": "object",
             "properties": {

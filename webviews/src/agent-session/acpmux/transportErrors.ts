@@ -7,6 +7,9 @@ import { translate, type StringKey } from "./i18n";
 const TRANSPORT_TEXT: Record<string, StringKey> = {
   "transport.gesture_required": "transport.gestureRequired",
   "transport.path_outside_roots": "transport.pathOutsideRoots",
+  // A folder or file that is not there: never the generic "The app refused this request."
+  // (a Codex start after a reboot named a wiped folder and read as a dead end).
+  "transport.path_invalid": "transport.pathInvalid",
   "transport.person_required": "transport.personRequired",
   "transport.session_not_in_pane": "transport.sessionNotInPane",
   "transport.intent_invalid": "transport.intentInvalid",
@@ -28,6 +31,19 @@ function refusalCode(error: unknown): unknown {
   const { code, reason } = error as { code?: unknown; reason?: unknown };
   if (typeof code === "string" && code.startsWith("transport.")) return code;
   return (typeof reason === "string" ? DAEMON_REASON_CODE[reason] : undefined) ?? code;
+}
+
+/// The folder a `transport.path_invalid` names as gone (reason `path.missing`, AcpmuxPathPolicy):
+/// the relay's refusal carries it as `detail`, a native reply (`workspace.useFolder`) in `details.path`.
+export function missingFolder(error: unknown): string | undefined {
+  if (typeof error !== "object" || error === null) return undefined;
+  const typed = error as { code?: unknown; reason?: unknown; detail?: unknown; details?: unknown };
+  if (typed.code !== "transport.path_invalid") return undefined;
+  if (typed.reason === "path.missing" && typeof typed.detail === "string" && typed.detail) return typed.detail;
+  const details = typed.details as { reason?: unknown; path?: unknown } | undefined;
+  return details?.reason === "path.missing" && typeof details.path === "string" && details.path
+    ? details.path
+    : undefined;
 }
 
 /// Whether the pane's host or acpmux refused the request with a reason the user should see.
@@ -104,6 +120,8 @@ export function knownRefusalText(
       console.error("agent pane: the host refused a request", error);
       return translate(intentInvalidKey(error, intentInvalid));
     }
+    const missing = missingFolder(error);
+    if (missing) return translate("transport.pathMissing", { path: missing });
     return translate(key);
   }
   return undefined;
