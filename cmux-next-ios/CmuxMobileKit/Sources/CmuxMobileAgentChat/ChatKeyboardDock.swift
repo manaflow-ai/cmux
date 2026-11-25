@@ -67,6 +67,7 @@ final class ChatTranscriptController: UIViewController, UIScrollViewDelegate, Ch
     /// Like the embedded terminal, iOS 26 also needs a gradient fallback:
     /// a bare top edge container alone does not obscure text under the clock.
     private let topFade = TopFadeView()
+    private let bottomScrim = BottomScrimView()
     /// The bottom stack's region (its top to the page's bottom: the stack and, in a tab, the
     /// toolbar under it), registered as the bottom scroll edge's container so rows scrolled
     /// under the composer, its status line or the error capsule blur instead of colliding with
@@ -121,7 +122,9 @@ final class ChatTranscriptController: UIViewController, UIScrollViewDelegate, Ch
     /// SwiftUI's keyboard inset moved. From then on the stack follows the
     /// keyboard's notifications (inside their animation) and, while a drag
     /// dismisses the keyboard, its drawn frame every display frame.
-    private static var layoutGuideStalls = false
+    /// Internal for tests: a test window with no scene has no live keyboard
+    /// layout guide, so a test that posts keyboard frames sets it first.
+    static var layoutGuideStalls = false
     private var lastOffsetY: CGFloat = 0
     /// The jump button's rule (clamped distance, hysteresis; see
     /// `JumpToBottomVisibility`).
@@ -247,6 +250,7 @@ final class ChatTranscriptController: UIViewController, UIScrollViewDelegate, Ch
         let style = look?.interfaceStyle ?? .unspecified
         if overrideUserInterfaceStyle != style { overrideUserInterfaceStyle = style }
         topFade.ground = look?.groundColor
+        bottomScrim.ground = look?.groundColor
     }
 
     override func viewDidLoad() {
@@ -367,6 +371,15 @@ final class ChatTranscriptController: UIViewController, UIScrollViewDelegate, Ch
             let dock = PassthroughView()
             dock.translatesAutoresizingMaskIntoConstraints = false
             dock.addSubview(hosted)
+            // The chat's ground under the composer, down to the keyboard (or the home indicator): the
+            // transcript never shows through the gap between the composer and the keyboard, as in the
+            // ChatGPT and Claude iPhone apps (Leo, 2026-11-23: "they properly darken the [...] space
+            // between the ios composer and the built in keyboard"). It rides the dock guide, so it moves
+            // in the keyboard's own animation and with an interactive dismissal's finger.
+            bottomScrim.isUserInteractionEnabled = false
+            bottomScrim.isAccessibilityElement = false
+            bottomScrim.translatesAutoresizingMaskIntoConstraints = false
+            view.addSubview(bottomScrim)
             view.addSubview(dock)
             dockContainer = dock
             dock.interactiveHeight = 96
@@ -386,6 +399,11 @@ final class ChatTranscriptController: UIViewController, UIScrollViewDelegate, Ch
                 rest,
                 height,
                 dockGuide.bottomAnchor.constraint(equalTo: dock.bottomAnchor),
+                bottomScrim.leadingAnchor.constraint(equalTo: view.leadingAnchor),
+                bottomScrim.trailingAnchor.constraint(equalTo: view.trailingAnchor),
+                bottomScrim.bottomAnchor.constraint(equalTo: view.bottomAnchor),
+                // Fades in over the composer's lower edge; solid from its bottom down.
+                bottomScrim.topAnchor.constraint(equalTo: dockGuide.bottomAnchor, constant: -BottomScrimView.fade),
             ])
             // A downward swipe on the composer takes the keyboard down too.
             let pan = UIPanGestureRecognizer(target: self, action: #selector(dockPanned(_:)))
@@ -450,6 +468,9 @@ final class ChatTranscriptController: UIViewController, UIScrollViewDelegate, Ch
         super.viewDidAppear(animated)
         // The push has landed: warm the rows' first draws now, not under the push animation.
         list.allowWarmUp()
+        #if DEBUG
+        ComposerProof.start(self, screen: "chat")
+        #endif
     }
 
     override func viewDidLayoutSubviews() {
@@ -893,6 +914,11 @@ final class ChatTranscriptController: UIViewController, UIScrollViewDelegate, Ch
             if !Self.layoutGuideStalls, top < self.view.bounds.maxY - 40,
                self.view.keyboardLayoutGuide.layoutFrame.minY > top + 40 {
                 Self.layoutGuideStalls = true
+            }
+            // The latch is process-wide, so a page built before it flipped
+            // (any page but the first one to hear this notification) still
+            // rides the stalled guide: it switches here too.
+            if Self.layoutGuideStalls, self.keyboardPin?.isActive == true {
                 self.keyboardPin?.isActive = false
                 self.fallbackPin?.isActive = true
                 self.view.setNeedsLayout()
@@ -968,7 +994,8 @@ final class ChatTranscriptController: UIViewController, UIScrollViewDelegate, Ch
     }
 
     @objc private func dockPanned(_ pan: UIPanGestureRecognizer) {
-        guard pan.state == .changed else { return }
+        // A drag scrolling a draft taller than the field is the field's scroll, not a dismissal.
+        guard pan.state == .changed, !ChatComposerTextView.isScrollingDraft else { return }
         let t = pan.translation(in: view)
         if t.y > 14, t.y > abs(t.x) * 1.5 {
             surface.composerFocused = false
@@ -1473,6 +1500,64 @@ private final class TopFadeView: UIView {
     private func updateColors() {
         let color = (ground ?? UIColor(Color.cmuxMobileBackground)).resolvedColor(with: traitCollection)
         gradient.colors = [color.cgColor, color.cgColor, color.withAlphaComponent(0).cgColor]
+    }
+}
+
+#if DEBUG
+/// `-cmux-mobile-composer-proof`: the composer's cap and the strip's zero shift
+/// (`ComposerProof`, ComposerHeightCapUITests).
+extension ChatTranscriptController: ComposerProofHost {
+    var proofView: UIView { view }
+    var proofCardFrame: CGRect { surface.drawnStackFrame }
+    var proofField: ComposerReturnTextView? { surface.composerField.view }
+    var proofContentY: CGFloat? { scrollView.convert(CGPoint.zero, to: nil).y }
+    func proofSetText(_ text: String) { surface.text = text }
+    func proofSetAttachments(_ count: Int) {
+        surface.attachments = (0..<count).map { AgentAttachment(kind: .file, name: "proof-\($0).log", byteCount: 4_096) }
+    }
+    func proofSetKeyboard(_ up: Bool) { surface.composerFocused = up }
+}
+#endif
+#endif
+
+#if os(iOS)
+/// Clear at the top, the chat's ground from `fade` down: drawn from the composer's lower edge to the
+/// bottom of the screen, so the strip between the composer and the keyboard is the chat's own ground
+/// instead of transcript rows sliding through it.
+@MainActor
+private final class BottomScrimView: UIView {
+    /// How far above the composer's bottom edge the ground starts to fade in.
+    static let fade: CGFloat = 28
+
+    override class var layerClass: AnyClass { CAGradientLayer.self }
+
+    private var gradient: CAGradientLayer { layer as! CAGradientLayer }
+
+    override init(frame: CGRect) {
+        super.init(frame: frame)
+        registerForTraitChanges([UITraitUserInterfaceStyle.self]) { (view: BottomScrimView, _: UITraitCollection) in
+            view.updateColors()
+        }
+        updateColors()
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) { fatalError("init(coder:) is not supported") }
+
+    override func layoutSubviews() {
+        super.layoutSubviews()
+        let solid = min(Self.fade, bounds.height) / max(bounds.height, 1)
+        gradient.locations = [0, NSNumber(value: Double(solid)), 1]
+    }
+
+    /// The chat look's ground while the chat follows the Mac (``CmuxMobileChatLook/groundColor``).
+    var ground: UIColor? {
+        didSet { if ground != oldValue { updateColors() } }
+    }
+
+    private func updateColors() {
+        let color = (ground ?? UIColor(Color.cmuxMobileBackground)).resolvedColor(with: traitCollection)
+        gradient.colors = [color.withAlphaComponent(0).cgColor, color.cgColor, color.cgColor]
     }
 }
 #endif

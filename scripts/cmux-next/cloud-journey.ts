@@ -128,6 +128,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { appStartDetail } from "./cloud-chat-matrix.ts";
 import { collectGuestDiagnostics, type GuestDiagnostics } from "./cloud-journey-guest-diagnostics.ts";
+import { parseRepoSeed, REPO_SEED_STEP, repoSeedDetail, repoSeedRuns, repoSeedScripts } from "./cloud-journey-repo-seed.ts";
 import { ChatClient, chaosProbeRow, countingTurnScript, feltTurnScript, runChaos } from "./cloud-chaos.ts";
 import { awaitPaused, runWakeEcho, setupProbe, startWithRetry, wakeEchoMarkdown, summarize as wakeEchoSummary, type WakeCycle } from "./cloud-wake-echo.ts";
 import { FAIL_STREAK, parseServerTiming, RESUME_ARMS, type ResumeArm, resumeMarkdown, resumeRouteCall, type ResumeSample, type ResumeStop, runProviderArm, runResumeMatrix, syncRunning } from "./cloud-resume-matrix.ts";
@@ -369,6 +370,18 @@ type Answer = { status: number; body: any; headers?: Headers };
  * socket connection was closed unexpectedly", or ConnectionClosed; Node: UND_ERR_SOCKET, EPIPE). A timeout is not one:
  * the server may still be working on it.
  */
+/**
+ * The client gave up waiting (AbortSignal.timeout): the server may still finish the op. Under an idempotency key
+ * asking again is safe and returns that op's answer; staging's create under its VM cap ran past 60 s and failed
+ * cloud-fork-placement and runnable-link at parent create (runs 45573771511, 45570177493, 45571955695).
+ */
+export function requestTimedOut(error: unknown): boolean {
+  for (let e: any = error, depth = 0; e && depth < 3; e = e.cause, depth++) {
+    if (e.name === "TimeoutError" || /the operation timed out/i.test(String(e.message ?? ""))) return true;
+  }
+  return false;
+}
+
 export function socketDropped(error: unknown): boolean {
   for (let e: any = error, depth = 0; e && depth < 3; e = e.cause, depth++) {
     if (["ECONNRESET", "ConnectionClosed", "UND_ERR_SOCKET", "EPIPE", "ECONNABORTED"].includes(String(e.code ?? ""))) return true;
@@ -505,7 +518,14 @@ export class Api {
   async op(op: string, params: unknown, key?: string, extra: Record<string, string> = {}, timeoutMs = op === "cloud.machine.create" ? CREATE_OP_TIMEOUT_MS : 60_000): Promise<any> {
     let ownerRetried = false;
     for (let attempt = 1; ; attempt++) {
-      const r = await http("POST", `${this.origin}/v1/ops`, { op, params, ...(key ? { idempotency_key: key } : {}) }, { ...this.headers(), ...extra }, timeoutMs, !!key);
+      let r: Answer;
+      try {
+        r = await http("POST", `${this.origin}/v1/ops`, { op, params, ...(key ? { idempotency_key: key } : {}) }, { ...this.headers(), ...extra }, timeoutMs, !!key);
+      } catch (error) {
+        // A keyed op the client stopped waiting on: ask again under the same key, which cannot apply it twice.
+        if (key && attempt < OP_ATTEMPTS && requestTimedOut(error)) { await sleep(2000 * attempt); continue; }
+        throw error;
+      }
       // A provider call cut off mid-way is safe to repeat under the same key; without it a cleanup delete leaks the VM.
       if (key && attempt < OP_ATTEMPTS && opRetryable(r.body)) { await sleep(2000 * attempt); continue; }
       // An owner reset: once more, under the same key so the op cannot apply twice.
@@ -1990,10 +2010,12 @@ export async function machineIdleSeconds(api: Api, machine: string): Promise<num
 
 /**
  * How long the journey waits for an idle pause: the idle policy or the post-chat hold, whichever is longer, plus
- * 300 s for the alarm's re-check. A policy the record does not name gets the 24 h backstop's worth (86400 s).
+ * 300 s for the alarm's re-check. A record that names no policy is a failure now, not a 24 h wait: sizing the wait
+ * from the 24 h backstop hung the walk until the CI job's own timeout killed it, so idleHeldBy never said why.
  */
 export function idlePauseDeadlineMs(policyS: number | null, holdS: number): number {
-  return (Math.max(policyS ?? 86400, holdS) + 300) * 1000;
+  if (policyS === null) throw new Error("cloud.machine.get names no idle policy for this machine (idle_seconds and idle_policy.idle_seconds both unset), so there is no pause to wait for");
+  return (Math.max(policyS, holdS) + 300) * 1000;
 }
 
 /** Test-side bounded wait on a machine field (the product never polls; this is the harness). */
@@ -4689,6 +4711,17 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
     probeExtra.failure_facts = facts;
     J.record({ step: "failure facts", status: "skip", ms: Date.now() - t0, detail: `read before any delete: ${JSON.stringify(facts)}` });
   };
+  // The send's Chrome trace (Perfetto): printed and saved on a green or red run, once, never a step, so tracing can
+  // never fail the journey. CMUX_JOURNEY_SEND_TRACE_SETTLE_MS=0 (the fake's runs, cloud-journey-fake.ts) skips the
+  // settle: no platform spans land there.
+  let sendTraceSaved = false;
+  const saveSendTraceOnce = async () => {
+    if (reuse || sendTraceSaved) return;
+    sendTraceSaved = true;
+    const settle = process.env.CMUX_JOURNEY_SEND_TRACE_SETTLE_MS === "0" ? async () => {} : sleep;
+    await saveSendTrace(api, sendTrace.id, firstTextEpoch(J.firstText, createSentAt), outDir, Date.now, settle)
+      .catch((e) => console.log(`send trace ${sendTrace.id}: ${String((e as Error)?.message ?? e).slice(0, 200)}`));
+  };
   // This run's install (install token step), revoked at cleanup.
   let journeyInstall: string | null = null;
   // Delete what this run made, pass, fail or cancel. A create whose reply was lost leaves `machine`
@@ -5161,6 +5194,30 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
         if (r.code !== 0 || !r.stdout.includes("journey-ok")) throw new Error(`exit ${r.code} ${r.stdout.slice(-200)} ${r.stderr.slice(-200)}`);
         return { value: null, detail: r.stdout.trim().split("\n").join(" ") };
       });
+      // A chat opened with a folder: how long git_seed takes to ready the repository on this machine, cloned from
+      // GitHub and borrowed from a warm mirror (cloud-journey-repo-seed.ts). Opt-in: each run pulls the repo once.
+      const seedRuns = repoSeedRuns(process.env.CMUX_JOURNEY_REPO_SEED_RUNS);
+      for (let run = 1; run <= seedRuns; run++) {
+        await J.step(seedRuns > 1 ? `${REPO_SEED_STEP} ${run}/${seedRuns}` : REPO_SEED_STEP, async () => {
+          // Clone and borrow as two execs, each with the exec route's whole 300 s (cloud-journey-repo-seed.ts).
+          const s = repoSeedScripts(`/tmp/cmux-seed-probe-${process.pid}-${run}`);
+          const c = await exec(s.clone, 300_000);
+          let r = c;
+          let out = c.stdout;
+          try {
+            if (parseRepoSeed(c.stdout).clone?.code === "0") {
+              r = await exec(s.borrow, 300_000);
+              out += `\n${r.stdout}`;
+            }
+          } finally {
+            await exec(s.cleanup, 60_000).catch(() => undefined);
+          }
+          console.log(out.split("\n").filter((l) => l.startsWith("@@seed")).join("\n"));
+          const { ok, detail } = repoSeedDetail(parseRepoSeed(out));
+          if (!ok) throw new Error(`exit ${r.code} ${detail} ${r.stderr.slice(-200)}`);
+          return { value: null, detail };
+        });
+      }
       // A person's own create that no spare serves: the create above asks the chat start size and claims a ready spare,
       // so without this cell no run shows that a cold create boots at the size it asked for (cmux-platform#1513: every
       // image create asks the VM API for the size it was admitted at). One machine at COLD_CREATE_SIZE, its size read on
@@ -5696,7 +5753,7 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
           if (modelStub || gatewayStub) {
             sendText = await J.step("stub file in the chat's folder", async () => {
               const info = await exec(`${GUEST}"$c" acp session info ${shq(session)} --fields cwd 2>&1`, 45_000);
-              const cwd = /^cwd\t(\/\S*)$/m.exec(info.stdout)?.[1] ?? "";
+              const cwd = /^(?:cwd\t)?(\/\S*)$/m.exec(info.stdout)?.[1] ?? "";
               if (!cwd) throw new Error(`no cwd for ${session}: ${info.stdout.trim().slice(-200)}`);
               const w = await exec(journeyReadFileCommand(cwd, nonce), 45_000);
               const file = /@@file (\S+)/.exec(w.stdout)?.[1];
@@ -6296,10 +6353,7 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
       const hops = Object.entries(hopDurations(got.trace)).map(([h, ms]) => `${h} ${ms}`).join(", ");
       return { value: null, detail: `${got.trace.trace} ${got.trace.path ?? "?"} ${got.trace.total_ms} ms: ${hops}${slow ? `; slowest 24 h p50 ${slow.hop} ${slow.p50_ms} ms (p95 ${slow.p95_ms ?? "-"})` : ""}` };
     }).catch(() => undefined);
-    // The send's Chrome trace (Perfetto): printed and saved, never a step, so tracing can never fail the journey.
-    // CMUX_JOURNEY_SEND_TRACE_SETTLE_MS=0 (the fake's runs, cloud-journey-fake.ts) skips the settle: no platform spans land there.
-    const settle = process.env.CMUX_JOURNEY_SEND_TRACE_SETTLE_MS === "0" ? async () => {} : sleep;
-    if (!reuse) await saveSendTrace(api, sendTrace.id, firstTextEpoch(J.firstText, createSentAt), outDir, Date.now, settle).catch((e) => console.log(`send trace ${sendTrace.id}: ${String((e as Error)?.message ?? e).slice(0, 200)}`));
+    await saveSendTraceOnce();
     // A step that failed without ending the run (the key probe, a chaos fault, the handoff record): its facts first.
     await readGuestDiagnostics("before-cleanup");
     await readFailureFacts();
@@ -6314,6 +6368,8 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
   } catch {
     // The failed step is recorded. What the machine says, then the journey-only checks the failure cut off; cleanup below.
     await readFailureFacts();
+    // A red run is the one whose trace matters most: save it before cleanup deletes the machine.
+    await saveSendTraceOnce();
     await runJourneyOnly?.().catch(() => undefined);
   } finally {
     await finishJourney(cleanup, firstTextObserver, onSignal);
