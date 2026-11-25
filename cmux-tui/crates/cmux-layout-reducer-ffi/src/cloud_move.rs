@@ -3,7 +3,7 @@
 //! defaults and the disk, observes its main-actor state, and asks here what each means.
 
 use cmux_cloud_start_core::moves::{
-    autosize, cli, folder, ledger, pin, place, priority, progress, seed, targets, wait,
+    autosize, cli, folder, ledger, pin, place, priority, progress, seed, settle, targets, wait,
 };
 // Busy overflow (#52335) on its own line so base edits to the list above do not conflict.
 use cmux_cloud_start_core::moves::placement;
@@ -370,6 +370,12 @@ pub(crate) fn respond(operation: &[u8], request: &[u8]) -> Result<Vec<u8>, i32> 
         }
         // The waits' rules.
         b"cloud_move_deadlines" => to_value(wait::DEADLINES)?,
+        b"cloud_move_settle" => {
+            // One machine's transient states for every caller that needs it running (ask-259986a6c4).
+            let mut look: settle::SettleLook = read(request)?;
+            look.killed |= settle::killed(std::env::var(settle::KILL_SWITCH).ok().as_deref());
+            to_value(settle::settle(look))?
+        }
         b"cloud_move_link_look" => {
             let look: wait::LinkLook = read(request)?;
             let (done, cleared) = wait::link_look(look);
