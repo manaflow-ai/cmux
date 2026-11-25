@@ -14,20 +14,36 @@
 //! - `blobs/<sha256 hex>`: the bytes;
 //! - `index`: one record per name, `<hash> <size> <mtime_ns> <part> <path>` each ended by a NUL
 //!   (a path may hold a newline), appended as blobs land; a later record wins, and the file is
-//!   rewritten with only live names when the dead ones outnumber them.
+//!   rewritten with only live names when the dead ones outnumber them;
+//! - `cold/<sha256 hex>-<bytes>.zst`: a blob nobody read for [`COLD_AFTER`], zstd-compressed
+//!   ([`Content::age`]). A read thaws it back into `blobs/`; one still unread [`DELETE_AFTER`]
+//!   after its last read is deleted unless a pin covers it. A blob's file mtime is its last read
+//!   (kept to the hour), so the ages outlive the daemon.
 
-use std::collections::{BTreeMap, HashMap};
+use std::collections::{BTreeMap, HashMap, HashSet};
 use std::fs;
 use std::io::Write as _;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Mutex, MutexGuard, PoisonError};
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use sha2::Digest as _;
 
 /// The free bytes the store leaves on its disk by default: room for the upper layer, a build and
 /// a pin ([`super::pin::DEFAULT_PIN_RESERVE`]) beside it.
 pub const DEFAULT_CONTENT_FLOOR: u64 = 8 * 1024 * 1024 * 1024;
+/// How long a blob stays unread before it goes cold (compressed, off the hot tier).
+pub const COLD_AFTER: Duration = Duration::from_secs(3 * 24 * 60 * 60);
+/// How long after its last read a cold blob is deleted, unless a pin covers it (the reaper's
+/// orphan grace, `crate::reap::ORPHAN_GRACE`).
+pub const DELETE_AFTER: Duration = Duration::from_secs(14 * 24 * 60 * 60);
+/// The most blobs one aging pass compresses; the rest wait for the next pass.
+pub const MAX_COLD_PER_PASS: usize = 4096;
+/// How stale a blob's on-disk read time may get before a read writes it again.
+const READ_AT_SLACK: u64 = 60 * 60;
+/// The zstd level cold blobs are written at.
+const COLD_LEVEL: i32 = 3;
 
 /// A blob's identity: the SHA-256 of its bytes.
 pub(super) type Hash = [u8; 32];
@@ -49,38 +65,133 @@ struct Inner {
     blobs: HashMap<Hash, (u64, u64)>,
     order: BTreeMap<u64, Hash>,
     tick: u64,
+    /// Each hot blob's last read, in seconds since the epoch.
+    read_at: HashMap<Hash, u64>,
+    /// The cold blobs: their bytes, the bytes their compressed file takes, and their last read.
+    cold: HashMap<Hash, Cold>,
     /// Records in the index file, live or not.
     records: usize,
     index: Option<fs::File>,
 }
 
+#[derive(Clone, Copy, Debug)]
+struct Cold {
+    bytes: u64,
+    stored: u64,
+    read_at: u64,
+}
+
 impl Inner {
-    fn touch(&mut self, hash: Hash) {
-        let Some(entry) = self.blobs.get_mut(&hash) else { return };
+    /// Marks `hash` used now; returns the read time it had.
+    fn touch(&mut self, hash: Hash) -> Option<u64> {
+        let entry = self.blobs.get_mut(&hash)?;
         self.order.remove(&entry.1);
         self.tick += 1;
         entry.1 = self.tick;
         self.order.insert(self.tick, hash);
+        self.read_at.insert(hash, now_secs())
     }
 
-    fn add(&mut self, hash: Hash, bytes: u64) {
+    fn add(&mut self, hash: Hash, bytes: u64, read_at: u64) {
         self.tick += 1;
         if let Some((_, old)) = self.blobs.insert(hash, (bytes, self.tick)) {
             self.order.remove(&old);
         }
         self.order.insert(self.tick, hash);
+        self.read_at.insert(hash, read_at);
     }
 
     fn forget(&mut self, hash: &Hash) {
         if let Some((_, tick)) = self.blobs.remove(hash) {
             self.order.remove(&tick);
         }
+        self.read_at.remove(hash);
     }
+
+    fn holds(&self, hash: &Hash) -> bool {
+        self.blobs.contains_key(hash) || self.cold.contains_key(hash)
+    }
+}
+
+fn now_secs() -> u64 {
+    secs_of(SystemTime::now())
+}
+
+fn secs_of(time: SystemTime) -> u64 {
+    time.duration_since(UNIX_EPOCH).unwrap_or_default().as_secs()
+}
+
+/// What one aging pass ([`Content::age`]) found and did.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, serde::Serialize)]
+pub struct AgeReport {
+    /// Held after the pass: hot blobs and their bytes.
+    pub hot_blobs: u64,
+    pub hot_bytes: u64,
+    /// Held after the pass: cold blobs, their bytes, and what their compressed files take.
+    pub cold_blobs: u64,
+    pub cold_bytes: u64,
+    pub cold_stored_bytes: u64,
+    /// This pass: blobs that went cold, their bytes, and the disk that saved.
+    pub went_cold_blobs: u64,
+    pub went_cold_bytes: u64,
+    pub went_cold_saved_bytes: u64,
+    /// This pass: cold blobs deleted, their bytes, and the disk that freed.
+    pub deleted_blobs: u64,
+    pub deleted_bytes: u64,
+    pub deleted_stored_bytes: u64,
+    /// Old enough to age, kept: under a pin, or still linked from the cache (in use).
+    pub kept_pinned: u64,
+    pub kept_linked: u64,
+    /// Old enough to go cold, left for the next pass ([`MAX_COLD_PER_PASS`]).
+    pub deferred: u64,
+}
+
+impl AgeReport {
+    /// The disk the store takes after the pass.
+    #[must_use]
+    pub fn held_bytes(&self) -> u64 {
+        self.hot_bytes + self.cold_stored_bytes
+    }
+
+    /// The disk this pass gave back.
+    #[must_use]
+    pub fn aged_out_bytes(&self) -> u64 {
+        self.went_cold_saved_bytes + self.deleted_stored_bytes
+    }
+}
+
+/// When blobs go cold and are deleted.
+#[derive(Clone, Copy, Debug)]
+pub struct Aging {
+    pub cold_after: Duration,
+    pub delete_after: Duration,
+    pub max_cold: usize,
+}
+
+impl Default for Aging {
+    fn default() -> Self {
+        Self { cold_after: COLD_AFTER, delete_after: DELETE_AFTER, max_cold: MAX_COLD_PER_PASS }
+    }
+}
+
+fn cold_name(hash: &Hash, bytes: u64) -> String {
+    format!("{}-{bytes}.zst", hex(hash))
+}
+
+/// A cold file's hash and bytes, from its name.
+pub(crate) fn parse_cold(name: &str) -> Option<(Hash, u64)> {
+    let (hash, rest) = name.strip_suffix(".zst")?.split_once('-')?;
+    Some((unhex(hash)?, rest.parse().ok()?))
+}
+
+fn mtime_secs(meta: &fs::Metadata) -> u64 {
+    meta.modified().map(secs_of).unwrap_or(0)
 }
 
 /// The store of one projection's state folder.
 pub(super) struct Content {
     blobs: PathBuf,
+    cold: PathBuf,
     index_file: PathBuf,
     floor: AtomicU64,
     temp: AtomicU64,
@@ -91,7 +202,7 @@ fn hex(hash: &Hash) -> String {
     hash.iter().map(|byte| format!("{byte:02x}")).collect()
 }
 
-fn unhex(text: &str) -> Option<Hash> {
+pub(crate) fn unhex(text: &str) -> Option<Hash> {
     if text.len() != 64 {
         return None;
     }
@@ -146,10 +257,11 @@ impl Content {
         use std::os::unix::fs::MetadataExt as _;
         let blobs = dir.join("blobs");
         fs::create_dir_all(&blobs).ok()?;
+        let cold = dir.join("cold");
         let index_file = dir.join("index");
         let mut inner = Inner::default();
         // Blobs, oldest written first, so the least recently used go first again.
-        let mut found: Vec<(i64, Hash, u64)> = fs::read_dir(&blobs)
+        let mut found: Vec<(i64, Hash, u64, u64)> = fs::read_dir(&blobs)
             .ok()?
             .filter_map(Result::ok)
             .filter_map(|entry| {
@@ -161,12 +273,26 @@ impl Content {
                 };
                 let meta = entry.metadata().ok()?;
                 let written = meta.mtime().saturating_mul(1_000_000_000) + meta.mtime_nsec();
-                meta.is_file().then_some((written, hash, meta.len()))
+                meta.is_file().then_some((written, hash, meta.len(), mtime_secs(&meta)))
             })
             .collect();
         found.sort_unstable();
-        for (_, hash, bytes) in found {
-            inner.add(hash, bytes);
+        for (_, hash, bytes, read_at) in found {
+            inner.add(hash, bytes, read_at);
+        }
+        for entry in fs::read_dir(&cold).into_iter().flatten().filter_map(Result::ok) {
+            let name = entry.file_name();
+            let Some((hash, bytes)) = name.to_str().and_then(parse_cold) else {
+                let _ = fs::remove_file(entry.path());
+                continue;
+            };
+            let Ok(meta) = entry.metadata() else { continue };
+            if inner.blobs.contains_key(&hash) {
+                // Thawed, and the daemon stopped before the cold copy went.
+                let _ = fs::remove_file(entry.path());
+                continue;
+            }
+            inner.cold.insert(hash, Cold { bytes, stored: meta.len(), read_at: mtime_secs(&meta) });
         }
         let bytes = fs::read(&index_file).unwrap_or_default();
         for piece in bytes.split_inclusive(|byte| *byte == 0) {
@@ -177,9 +303,11 @@ impl Content {
                 inner.names.insert(name, hash);
             }
         }
-        inner.names.retain(|_, hash| inner.blobs.contains_key(hash));
+        let Inner { names, blobs: hot, cold: frozen, .. } = &mut inner;
+        names.retain(|_, hash| hot.contains_key(hash) || frozen.contains_key(hash));
         let store = Self {
             blobs,
+            cold,
             index_file,
             floor: AtomicU64::new(DEFAULT_CONTENT_FLOOR),
             temp: AtomicU64::new(0),
@@ -225,21 +353,27 @@ impl Content {
     /// Whether the store holds `name`'s bytes, by the index alone.
     pub(super) fn has(&self, name: &Name) -> bool {
         let inner = self.lock();
-        inner.names.get(name).is_some_and(|hash| inner.blobs.contains_key(hash))
+        inner.names.get(name).is_some_and(|hash| inner.holds(hash))
     }
 
     /// `name`'s bytes, checked against their hash (a damaged blob is dropped, never served).
     pub(super) fn get(&self, name: &Name) -> Option<(Hash, Vec<u8>)> {
-        let hash = {
+        let (hash, was) = {
             let mut inner = self.lock();
             let hash = *inner.names.get(name)?;
+            if let Some(cold) = inner.cold.get(&hash).copied() {
+                drop(inner);
+                return self.thaw(name, hash, cold);
+            }
             if !inner.blobs.contains_key(&hash) {
                 inner.names.remove(name);
                 return None;
             }
-            inner.touch(hash);
-            hash
+            (hash, inner.touch(hash))
         };
+        if was.is_some_and(|was| now_secs().saturating_sub(was) > READ_AT_SLACK) {
+            self.mark_read(&hash);
+        }
         let bytes = fs::read(self.blob_path(&hash)).ok();
         match bytes {
             Some(bytes) if hash_of(&bytes) == hash => Some((hash, bytes)),
@@ -251,6 +385,31 @@ impl Content {
                 None
             }
         }
+    }
+
+    /// Writes now as blob `hash`'s last read on disk (its mtime), for the next daemon's aging.
+    fn mark_read(&self, hash: &Hash) {
+        if let Ok(file) = fs::File::options().write(true).open(self.blob_path(hash)) {
+            let _ = file.set_modified(SystemTime::now());
+        }
+    }
+
+    /// A cold blob read again: decompressed back into `blobs/`, checked against its hash.
+    fn thaw(&self, name: &Name, hash: Hash, cold: Cold) -> Option<(Hash, Vec<u8>)> {
+        let path = self.cold.join(cold_name(&hash, cold.bytes));
+        let bytes = fs::read(&path).ok().and_then(|packed| zstd::decode_all(&packed[..]).ok());
+        let Some(bytes) = bytes.filter(|bytes| hash_of(bytes) == hash) else {
+            let mut inner = self.lock();
+            inner.cold.remove(&hash);
+            inner.names.remove(name);
+            drop(inner);
+            let _ = fs::remove_file(&path);
+            return None;
+        };
+        // `put` keeps it hot again (room by the floor) and drops the cold copy; with no room it
+        // stays cold, and the read is served all the same.
+        let _ = self.put(name.clone(), &bytes);
+        Some((hash, bytes))
     }
 
     /// Hard-links blob `hash` at `to` (a file of the same disk); false when it is gone.
@@ -289,9 +448,12 @@ impl Content {
                 let _ = fs::remove_file(&temp);
                 return None;
             }
-            inner.add(hash, size);
+            inner.add(hash, size, now_secs());
         }
         let mut inner = self.lock();
+        if let Some(cold) = inner.cold.remove(&hash) {
+            let _ = fs::remove_file(self.cold.join(cold_name(&hash, cold.bytes)));
+        }
         if !inner.blobs.contains_key(&hash) {
             // Evicted between the check and here: nothing kept.
             return None;
@@ -325,5 +487,140 @@ impl Content {
     /// The blobs held now and their bytes.
     pub(super) fn bytes(&self) -> u64 {
         self.lock().blobs.values().map(|(bytes, _)| *bytes).sum()
+    }
+
+    /// One aging pass at `now`: hot blobs unread for `aging.cold_after` go cold (compressed into
+    /// `cold/`), cold blobs unread for `aging.delete_after` are deleted. Blobs `pinned` names
+    /// are never aged; a hot blob the cache still links (its file has more than one link) is in
+    /// use and stays hot. Bounded by `aging.max_cold` compressions.
+    pub(super) fn age(&self, now: SystemTime, aging: &Aging, pinned: &HashSet<Name>) -> AgeReport {
+        use std::os::unix::fs::MetadataExt as _;
+        let now = secs_of(now);
+        let cold_before = now.saturating_sub(aging.cold_after.as_secs());
+        let delete_before = now.saturating_sub(aging.delete_after.as_secs());
+        let mut report = AgeReport::default();
+        let (pins, old, dead) = {
+            let inner = self.lock();
+            let pins: HashSet<Hash> =
+                pinned.iter().filter_map(|name| inner.names.get(name).copied()).collect();
+            let mut old: Vec<(u64, Hash, u64)> = inner
+                .read_at
+                .iter()
+                .filter(|(_, at)| **at <= cold_before)
+                .filter_map(|(hash, at)| Some((*at, *hash, inner.blobs.get(hash)?.0)))
+                .collect();
+            old.sort_unstable();
+            let dead: Vec<(Hash, Cold)> = inner
+                .cold
+                .iter()
+                .filter(|(_, cold)| cold.read_at <= delete_before)
+                .map(|(hash, cold)| (*hash, *cold))
+                .collect();
+            (pins, old, dead)
+        };
+        let mut compressed = 0;
+        for (read_at, hash, bytes) in old {
+            if pins.contains(&hash) {
+                report.kept_pinned += 1;
+                continue;
+            }
+            let from = self.blob_path(&hash);
+            if fs::metadata(&from).is_ok_and(|meta| meta.nlink() > 1) {
+                report.kept_linked += 1;
+                continue;
+            }
+            if compressed == aging.max_cold {
+                report.deferred += 1;
+                continue;
+            }
+            compressed += 1;
+            let Some(stored) = self.freeze(&hash, bytes, read_at) else { continue };
+            let mut inner = self.lock();
+            if inner.read_at.get(&hash) != Some(&read_at) {
+                // Read while it was being compressed: it stays hot.
+                drop(inner);
+                let _ = fs::remove_file(self.cold.join(cold_name(&hash, bytes)));
+                continue;
+            }
+            inner.forget(&hash);
+            inner.cold.insert(hash, Cold { bytes, stored, read_at });
+            drop(inner);
+            let _ = fs::remove_file(&from);
+            report.went_cold_blobs += 1;
+            report.went_cold_bytes += bytes;
+            report.went_cold_saved_bytes += bytes.saturating_sub(stored);
+        }
+        let mut gone = HashSet::new();
+        for (hash, cold) in dead {
+            if pins.contains(&hash) {
+                report.kept_pinned += 1;
+                continue;
+            }
+            let mut inner = self.lock();
+            if inner.cold.get(&hash).is_none_or(|now| now.read_at != cold.read_at) {
+                continue;
+            }
+            inner.cold.remove(&hash);
+            drop(inner);
+            let _ = fs::remove_file(self.cold.join(cold_name(&hash, cold.bytes)));
+            gone.insert(hash);
+            report.deleted_blobs += 1;
+            report.deleted_bytes += cold.bytes;
+            report.deleted_stored_bytes += cold.stored;
+        }
+        let mut inner = self.lock();
+        if !gone.is_empty() {
+            inner.names.retain(|_, hash| !gone.contains(hash));
+            self.rewrite(&mut inner);
+        }
+        report.hot_blobs = inner.blobs.len() as u64;
+        report.hot_bytes = inner.blobs.values().map(|(bytes, _)| *bytes).sum();
+        report.cold_blobs = inner.cold.len() as u64;
+        report.cold_bytes = inner.cold.values().map(|cold| cold.bytes).sum();
+        report.cold_stored_bytes = inner.cold.values().map(|cold| cold.stored).sum();
+        report
+    }
+
+    /// Writes blob `hash`'s compressed copy into `cold/`, its mtime its last read; the bytes
+    /// the copy takes, or `None` when it could not be written.
+    fn freeze(&self, hash: &Hash, bytes: u64, read_at: u64) -> Option<u64> {
+        fs::create_dir_all(&self.cold).ok()?;
+        let raw = fs::read(self.blob_path(hash)).ok()?;
+        if raw.len() as u64 != bytes {
+            return None;
+        }
+        let packed = zstd::encode_all(&raw[..], COLD_LEVEL).ok()?;
+        let temp = self.cold.join(format!(
+            "tmp-{}-{}",
+            std::process::id(),
+            self.temp.fetch_add(1, Ordering::Relaxed)
+        ));
+        let to = self.cold.join(cold_name(hash, bytes));
+        let written = fs::write(&temp, &packed)
+            .and_then(|()| {
+                fs::File::options()
+                    .write(true)
+                    .open(&temp)?
+                    .set_modified(UNIX_EPOCH + Duration::from_secs(read_at))
+            })
+            .and_then(|()| fs::rename(&temp, &to));
+        if written.is_err() {
+            let _ = fs::remove_file(&temp);
+            return None;
+        }
+        Some(packed.len() as u64)
+    }
+
+    /// Sets `name`'s last read (tests and the harness: a store whose reads happened days ago).
+    #[cfg(test)]
+    pub(super) fn set_read_at(&self, name: &Name, at: SystemTime) {
+        let mut inner = self.lock();
+        let Some(hash) = inner.names.get(name).copied() else { return };
+        if let Some(read_at) = inner.read_at.get_mut(&hash) {
+            *read_at = secs_of(at);
+        }
+        if let Some(cold) = inner.cold.get_mut(&hash) {
+            cold.read_at = secs_of(at);
+        }
     }
 }
