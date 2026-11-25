@@ -64,7 +64,7 @@
         {
           "key": "agents.cacheCompact.minContextTokens",
           "name": "cacheCompactMinTokens",
-          "note": "The context (tokens) from which the timer compacts a chat, whatever its window; it arms at this or at agents.cacheCompact.minContextPercent, whichever is reached first. A percent alone never fired on a 1M-token window: 30% is 300K, past the 178.5K where Claude Code autocompacts. 60000 by default. ACPMUX_CACHE_COMPACT_MIN_CONTEXT_TOKENS=N in the acpmux daemon's environment overrides it (clamped to the same range).",
+          "note": "The context (tokens) from which the timer compacts a chat, whatever its window; it arms at this or at agents.cacheCompact.minContextPercent, whichever is reached first. A percent alone never fired on a 1M-token window: 30% is 300K, past the 178.5K where Claude Code autocompacts. Over this floor an expected-cost rule decides (cache_compact.rs pays: P(wake) x (context - compacted) x write price beats the warm read plus the summary's output), so below about 30K nothing compacts. 20000 by default. ACPMUX_CACHE_COMPACT_MIN_CONTEXT_TOKENS=N in the acpmux daemon's environment overrides it (clamped to the same range).",
           "title": {
             "key": "settings.agents.cacheCompact.minTokens",
             "text": "Or Above Context Used (Tokens)"
@@ -80,7 +80,7 @@
             "step": 5000,
             "unit": "count"
           },
-          "default": 60000,
+          "default": 20000,
           "keywords": [
             "cache",
             "compact",
