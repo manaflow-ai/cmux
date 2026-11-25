@@ -244,8 +244,20 @@ struct CloudGitHubReposTests {
         let completion = try #require(CloudGitHubCompletion(url: url, scheme: "cmux-dev-x"))
         #expect(completion.params == ["state": state, "code": "abc", "installation_id": "42", "setup_action": "install"])
         #expect(completion.team == "team_0123456789abcdef0123")
-        #expect(completion.idempotencyKey == "complete:" + String(state.suffix(40)))
+        // The console's key for the same redirect (dashboard integration-callback.test.ts pins 9f146c4dbeb30218 too).
+        #expect(completion.idempotencyKey == "complete:" + String(state.suffix(40)) + ":9f146c4dbeb30218")
         #expect(completion.error == nil)
+        // #55104: another redirect of the same state (the code-less update, a new installation) is its own completion,
+        // never `idempotency.conflict`; the same redirect again is the same completion.
+        // One #require per line: a #require nested in another's argument is a recursive macro expansion,
+        // which fails the test build.
+        let updateURL = try #require(URL(string: "\(link)?state=\(state)&installation_id=42&setup_action=update"))
+        let update = try #require(CloudGitHubCompletion(url: updateURL, scheme: "cmux-dev-x"))
+        let otherInstallURL = try #require(URL(string: "\(link)?state=\(state)&code=abc&installation_id=43&setup_action=install"))
+        let otherInstall = try #require(CloudGitHubCompletion(url: otherInstallURL, scheme: "cmux-dev-x"))
+        #expect(Set([completion.idempotencyKey, update.idempotencyKey, otherInstall.idempotencyKey]).count == 3)
+        #expect(try #require(CloudGitHubCompletion(url: url, scheme: "cmux-dev-x")).idempotencyKey == completion.idempotencyKey)
+        #expect(completion.idempotencyKey.count <= 128)
         // Another build's scheme, another path, no signed state: not a completion.
         #expect(CloudGitHubCompletion(url: url, scheme: "cmux") == nil)
         let otherPath = try #require(URL(string: "cmux-dev-x://integration/other?state=\(state)"))
