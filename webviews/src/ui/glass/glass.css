@@ -806,6 +806,19 @@
   --surface-sheet-title-font: var(--weight-emphasis) var(--text-title)/var(--text-title--line-height) var(--font-ui);
   --surface-sheet-body-font: var(--weight-regular) var(--text-body)/var(--text-body--line-height) var(--font-ui);
   --surface-sheet-enter: var(--cmux-motion-micro) var(--cmux-ease-out);
+  --surface-prompt-radius: 14px; /* prompts that float over every app (a device asking to see or control this Mac, the join consent, Computer use acting as me): the theme's tint at a denser veil, since any app's pixels show through */
+  --surface-prompt-veil: light-dark(color-mix(in srgb, var(--glass-surface) 80%, transparent), color-mix(in srgb, var(--glass-surface) 74%, transparent));
+  --surface-prompt-rim-top: light-dark(color-mix(in srgb, var(--ds-material-rim-lit) 85%, transparent), color-mix(in srgb, var(--ds-material-rim-lit) 30%, transparent));
+  --surface-prompt-rim-bottom: light-dark(color-mix(in srgb, var(--ds-material-rim-shade) 10%, transparent), color-mix(in srgb, var(--ds-material-rim-lit) 6%, transparent));
+  --surface-prompt-material: floating;
+  --surface-prompt-fill: var(--surface-prompt-veil);
+  --surface-prompt-stroke: var(--surface-hairline);
+  --surface-prompt-elevation: var(--elevation-2);
+  --surface-prompt-pad: var(--ds-space-4);
+  --surface-prompt-gap: var(--ds-space-3);
+  --surface-prompt-title-font: var(--weight-emphasis) var(--text-title)/var(--text-title--line-height) var(--font-ui);
+  --surface-prompt-body-font: var(--weight-regular) var(--text-body)/var(--text-body--line-height) var(--font-ui);
+  --surface-prompt-enter: var(--cmux-motion-micro) var(--cmux-ease-out);
   --surface-tooltip-radius: var(--ds-radius-popup); /* tooltips: the frost (TooltipSurface), the popup surface at the least alpha that keeps 4.5:1 over a blur */
   --surface-tooltip-material: floating;
   --surface-tooltip-fill: color-mix(in srgb, var(--glass-surface) var(--ds-transient-web-tint), transparent);
