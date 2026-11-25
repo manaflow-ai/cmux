@@ -490,7 +490,9 @@ export function createFollowChase(arm: FollowMotionArm): FollowChase {
     // (covered by another workspace), so nobody saw the chase start. It lands before this frame
     // paints instead of sliding in from where it was held: one block that arrived while away, with
     // nothing after it to move the rows, drew 79 px off on the first frame back (#41252).
-    if (performance.now() - askedAt >= FRAMELESS_MS) {
+    // A send's rise is never frameless: the reader just pressed Return and watches it, and the send's
+    // own render is the long task that held this frame (see `shift`).
+    if (!arrival?.sent && performance.now() - askedAt >= FRAMELESS_MS) {
       stop();
       return;
     }
@@ -727,7 +729,15 @@ export function createFollowChase(arm: FollowMotionArm): FollowChase {
       if (thread && thread !== node) stop();
       // No frame ran since one was asked for FRAMELESS_MS ago: nobody sees the chase, so the rows
       // move at once, and what it held lands with them. One frame running again ends it.
-      if (frameless || (frame !== undefined && performance.now() - askedAt >= FRAMELESS_MS)) {
+      // Not a send's own rows, nor a move while their rise plays (the thinking row measured a pass
+      // later): their commits are themselves the long tasks that held the frame (130-168 ms on a
+      // runner with 14 of 16 cores busy), and the reader is watching, so landing them at once drew
+      // the whole rise in one paint (agent-pane.send-rise: 118-230 px in the first frame).
+      if (
+        !sent &&
+        !arrival?.sent &&
+        (frameless || (frame !== undefined && performance.now() - askedAt >= FRAMELESS_MS))
+      ) {
         stop();
         thread = node;
         if (!frameless) {
@@ -828,8 +838,18 @@ export function createFollowChase(arm: FollowMotionArm): FollowChase {
                 span: popRiseMs(node) > 0 ? Math.abs(x) : undefined,
               }
             : timed && arrived && arrivalLook(node)
-              ? { from: x, at: 0, duration: arrivalStepMs(x, scale, left) / 1000, ease: arrivalEase, sent: false }
+              ? {
+                  from: x,
+                  at: 0,
+                  duration: arrivalStepMs(x, scale, left) / 1000,
+                  ease: arrivalEase,
+                  sent: false,
+                }
               : undefined;
+      // A send's step that starts now counts its frames from now: the frame already asked for came
+      // late because these rows' own commit held it (148 ms under load), and crediting that lateness
+      // let its first step move 44 px of a 178 px rise (RISE_FRAME_SHARE per frame it covered).
+      if (arrival?.sent && arrival.at === 0) painted = undefined;
       draw();
       cancelRecheck();
       if (frame === undefined) {

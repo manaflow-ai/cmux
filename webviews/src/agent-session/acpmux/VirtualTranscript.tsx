@@ -1926,7 +1926,9 @@ function TranscriptView({
   /// The last update asked of `drawn` from an effect or a callback: whether React ran it yet, and what it
   /// gave. Ran, and what it gave is what is drawn, nothing asked waits: a report equal to what is
   /// drawn changes nothing, so `flushDrawn` asks nothing (`askDrawn`).
-  const drawnAsk = useRef<{ ran: boolean; result?: DrawnHeights }>({ ran: false });
+  const drawnAsk = useRef<{ ran: boolean; result?: DrawnHeights }>({
+    ran: false,
+  });
   /// `setDrawn(update)`, noted in `drawnAsk`.
   const askDrawn = useCallback((update: (current: DrawnHeights) => DrawnHeights) => {
     const ask: { ran: boolean; result?: DrawnHeights } = { ran: false };
@@ -3784,7 +3786,10 @@ function TranscriptView({
     // 13 px when the first older page landed (bench/settled-page.bench.ts chat_switch, stream). Rows that grow
     // keep the room as it was: taken from it, each streamed token moved every row above it (workspace_switch).
     const reserved = gone
-      ? { reserve: Math.max(gone.room, gone.end - (placed.totalHeight - placedOrigin)), state: undefined }
+      ? {
+          reserve: Math.max(gone.room, gone.end - (placed.totalHeight - placedOrigin)),
+          state: undefined,
+        }
       : olderReserve(olderRoom.current, {
           sessionId,
           rows,
@@ -5005,6 +5010,17 @@ function TranscriptView({
             // With the send pop on, the send's own rows rise on the pop's clock instead of at once, in
             // either arm (SEND-RISE, Leo, 2026-11-22: "the chat transcript above doesn't quite smoothly
             // account for things"). The pop's own rise only: off, a page's own send clock still lands at once.
+            // The clock starts over when the send's first rows land (`sendRowsPending`), so a page that
+            // drew them late still rises on the whole clock instead of landing them at once. Before
+            // `rising` reads it: after, rows a loaded page drew 350-600 ms after Return read the clock
+            // the press set as spent and moved 140-175 px in one frame (agent-pane.send-rise, quick/settle).
+            if (sentRows && sendRowsPending.current) {
+              sendRowsPending.current = false;
+              sendClockUntil.current = Math.max(
+                sendClockUntil.current,
+                now + Math.max(sendMotionMs(node), sendRiseMs(node)),
+              );
+            }
             const rising = sentRows && now < sendClockUntil.current && popRiseMs(node) > 0;
             const atOnce =
               dockMoved ||
@@ -5022,15 +5038,6 @@ function TranscriptView({
             tailAnchor = chaseAnchor.current?.id;
             // A send's own rows rise on the send motion, one clock with the bubble's entrance, while
             // that motion plays; rows landing after it arrive on the arrival step.
-            // The clock starts over when the send's first rows land (`sendRowsPending`), so a page that
-            // drew them late still rises on the whole clock instead of landing them at once.
-            if (sentRows && sendRowsPending.current) {
-              sendRowsPending.current = false;
-              sendClockUntil.current = Math.max(
-                sendClockUntil.current,
-                now + Math.max(sendMotionMs(node), sendRiseMs(node)),
-              );
-            }
             const sentClock = sentRows && (sends !== seenSends.current || now < sendClockUntil.current);
             chaseFollow(node, layout, rows, below, atOnce, held, arrived, sentClock && !steered);
             // In a send's window the steady arm's live line moves with the rows it chases: its own glide
@@ -5767,7 +5774,12 @@ function TranscriptView({
     // height also holds the thread's own padding).
     const next = Math.max(0, Math.floor(room - Math.max(0, node.scrollHeight - node.clientHeight)));
     if (next >= room - 0.5) return;
-    setRoomGone({ sessionId, firstId: first.id, room: next, end: next + measured.layout.totalHeight - room });
+    setRoomGone({
+      sessionId,
+      firstId: first.id,
+      room: next,
+      end: next + measured.layout.totalHeight - room,
+    });
   };
   // After the placement pass above: its offset is the one this reads, and the state it sets renders
   // again before the frame paints.
