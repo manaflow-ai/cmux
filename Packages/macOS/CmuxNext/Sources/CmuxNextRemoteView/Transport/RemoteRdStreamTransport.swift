@@ -201,10 +201,18 @@ public nonisolated final class RemoteRdStreamTransport: RemoteViewStreamSource, 
         requestKeyframe(stream: 0)
     }
 
-    /// The decode time rides the next feedback to the host (its median, `decode_us`).
+    /// The decode time rides the next feedback to the host (its median, `decode_us`) and
+    /// fills the stage ledger's Decode.
     public func noteDecoded(frame: UInt32, decodeMicros: UInt32, decodedAtMicros: UInt64) {
         queue.async { [self] in
-            try? engine.core.noteDecode(stream: 0, micros: decodeMicros)
+            _ = try? engine.core.noteFrameDecoded(stream: 0, frame: frame, decodeMicros: decodeMicros, decodedAtMicros: decodedAtMicros)
+        }
+    }
+
+    /// The picture reached the glass: the stage ledger's Present and Total.
+    public func notePresented(frame: UInt32, presentedAtMicros: UInt64) {
+        queue.async { [self] in
+            _ = try? engine.core.noteFramePresented(stream: 0, frame: frame, presentedAtMicros: presentedAtMicros)
         }
     }
 
@@ -293,6 +301,10 @@ public nonisolated final class RemoteRdStreamTransport: RemoteViewStreamSource, 
         Self.logger.info(
             "host: \(stats.kbps, privacy: .public) kbps, encode p50 \(stats.encodeMsP50, format: .fixed(precision: 1), privacy: .public) ms, cpu \(stats.cpuPercent, format: .fixed(precision: 0), privacy: .public)%, loss \(stats.lossPercent, format: .fixed(precision: 1), privacy: .public)%, frames \(stats.frames, privacy: .public), keyframes \(stats.keyframes, privacy: .public)"
         )
+        // The per-stage table (cmux.rd-stage-ledger/1), on the same 5 s cadence.
+        if let ledger = engine.core.stageLedger() {
+            Self.logger.info("stage ledger: \(ledger, privacy: .public)")
+        }
     }
 
     private static let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "remote-view-rd")
@@ -318,6 +330,10 @@ public nonisolated final class RemoteRdStreamTransport: RemoteViewStreamSource, 
                     state.withLock { state in
                         if let cursor = state.cursorFeed.receive(shape: shape) { state.cursors?.yield(cursor) }
                     }
+                }
+                // Clock probes only when the host lists `clock` (an older host refuses them).
+                if case let .welcome(welcome) = control, welcome.caps?.contains(RemoteRdHello.clockCap) == true {
+                    _ = try? engine.core.enableClock()
                 }
                 engine.handshake.receive(control)
                 handleUpstream(control)

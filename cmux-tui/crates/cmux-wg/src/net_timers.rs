@@ -60,6 +60,7 @@ impl Driver {
             self.tunn.format_handshake_initiation(&mut self.scratch, true)
         {
             self.underlay.send(packet);
+            self.initiated_at = Some(Instant::now());
             self.handshake_retry.on_initiation(Instant::now(), false);
             self.schedule.on_activity(Instant::now());
         }
@@ -109,6 +110,7 @@ impl Driver {
             self.tunn.format_handshake_initiation(&mut self.scratch, false)
         {
             self.underlay.send(packet);
+            self.initiated_at = Some(Instant::now());
             // `false` sends only when no handshake is in progress.
             self.handshake_retry.on_initiation(Instant::now(), true);
             self.schedule.on_activity(Instant::now());
@@ -131,6 +133,9 @@ impl Driver {
         };
         if let TunnResult::WriteToNetwork(packet) = result {
             self.underlay.send(packet);
+            if !fresh {
+                self.initiated_at = Some(Instant::now());
+            }
         }
         self.schedule.on_activity(Instant::now());
     }
@@ -167,7 +172,8 @@ impl Driver {
         let sample = self.underlay.take_loss();
         let resent = self.pacer.take_resent();
         let was_on = auto.is_on();
-        if !auto.observe(Instant::now(), sample, resent) {
+        let changed = auto.observe(Instant::now(), sample, resent);
+        if !changed {
             return;
         }
         if !was_on && auto.is_on() {
@@ -256,10 +262,36 @@ impl Driver {
             // gives up; a keepalive alone does not.
             let retry = classify(packet) == DatagramClass::WireGuardInitiation;
             self.underlay.send(packet);
+            if let Some(keepalive) = &mut self.quiet_keepalive {
+                keepalive.sent(Instant::now());
+            }
             if retry {
                 self.handshake_retry.on_initiation(Instant::now(), false);
                 self.schedule.on_activity(Instant::now());
             }
+        }
+        self.send_quiet_keepalive();
+    }
+
+    /// The persistent keepalive: an empty data datagram once an interval has
+    /// passed with nothing sent through the session, so a NAT binding never
+    /// sees a longer gap than the configured interval. Anything else the
+    /// tunnel sends (a TCP segment, a probe, a `reach`) holds it as well, so
+    /// it is not sent then. Not while held (its peer is suspended on
+    /// purpose), and not without a session: unlike boringtun's, it never
+    /// starts a handshake.
+    fn send_quiet_keepalive(&mut self) {
+        let now = Instant::now();
+        let Some(keepalive) = &mut self.quiet_keepalive else { return };
+        if !keepalive.due(self.tunn.stats().1, now)
+            || self.stack.hold().is_some()
+            || self.tunn.time_since_last_handshake().is_none()
+        {
+            return;
+        }
+        if let TunnResult::WriteToNetwork(packet) = self.tunn.encapsulate(&[], &mut self.scratch) {
+            self.underlay.send(packet);
+            keepalive.sent(now);
         }
     }
 }
