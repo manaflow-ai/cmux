@@ -203,10 +203,6 @@
       "kind": "publish",
       "why": "a scheduled eval of the live Chief, a score and not a verdict on a change"
     },
-    "gallery-advisory.yml": {
-      "kind": "check",
-      "why": "advisory gallery pictures, off pull requests since #48517 (2026-11-21); gates nothing, listed in merge_tier.post_merge too"
-    },
     "gateway-e2e.yml": {
       "kind": "publish",
       "why": "a manual trip against the live development backend with its stack credentials, started only by an edit of .github/gateway-e2e/request or a dispatch; a probe of a live system"
