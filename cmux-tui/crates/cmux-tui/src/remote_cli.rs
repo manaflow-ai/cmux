@@ -29,10 +29,9 @@ use cmux_remote::identity::{
     KnownDaemonAuth, MAX_INVITATION_URI_BYTES, credential_free_route_hint, default_state_dir,
 };
 use cmux_remote::provider::{
-    Dialer, IrohPathMode, MachinePipeDialer, NoTailnetHints, ProviderError, ROUTING_DIRECT_ADDRS,
-    ROUTING_NODE_ID, ROUTING_RELAY_URL, RelayCredentialSource, SocksDialer, SshProvider,
-    SshProviderConfig, SupportedClientAuthModes, TailnetCarrierMode, WireGuardDialer,
-    sanitized_route,
+    Dialer, IrohPathMode, MachinePipeDialer, ProviderError, ROUTING_DIRECT_ADDRS, ROUTING_NODE_ID,
+    ROUTING_RELAY_URL, RelayCredentialSource, SocksDialer, SshProvider, SshProviderConfig,
+    SupportedClientAuthModes, TailnetCarrierMode, WireGuardDialer, sanitized_route,
 };
 use cmux_remote::secure_directory::{DirectoryAccess, ensure_secure_directory};
 use cmux_remote_protocol::{
@@ -930,7 +929,8 @@ fn start_connected_inner(mut flags: ConnectFlags) -> anyhow::Result<ConnectedRun
         direct_dialer,
         flags.carrier,
         tailnet_mode,
-        Arc::new(NoTailnetHints),
+        // Off reads nothing; on, tailscaled's LocalAPI through its cached snapshot.
+        cmux_remote::provider::hints_for_mode(tailnet_mode),
     )?);
     let explicit_route = flags.route.take();
     let explicit_route_for_refresh = explicit_route.clone();

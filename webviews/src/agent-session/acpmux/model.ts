@@ -7,6 +7,7 @@ import { nextStepCardHeight, permissionCardHeight } from "./permissions/cardHeig
 import { freshMeasureContext } from "./measureContext";
 import type { SentFrom } from "./conversation/sentFromHarness";
 import type { PeerLinkDetail } from "./linkState";
+import type { ComposerStatus } from "./composerStatusModel";
 import { BUBBLE } from "./transcriptSpacing";
 import {
   footerAfter,
@@ -393,6 +394,11 @@ export type QueuedPrompt = {
   /// acpmux's ask to resume a failed subagent (subagents/retryState.ts `subagentRetryNotice`): its
   /// row names the subagent instead of drawing the prompt's text.
   retry?: SubagentRetryNotice;
+  /// acpmux's own prompt to the chat's agent, by its provenance kind (`surge_digest`,
+  /// `subagent_retry`, `auto_resume`, ...; acpmux `QueuedPromptSummary.origin` `acpmux`,
+  /// hub/queue_origin.rs). Not the person's: it draws apart from their steer rows, with none of
+  /// their actions (ComposerQueue.tsx `SystemNotes`; Leo, 2026-11-24).
+  system?: string;
   /// Another agent's message the person's Stop holds (acpmux `queue_paused` with `reason: "stop"`,
   /// hub/cancel.rs): it waits until the person's next turn completes or the queue is resumed, not
   /// for the turn to end, and its card says so (conversation/QueuedMessageCard.tsx).
@@ -1373,8 +1379,8 @@ export type AcpmuxSnapshot = {
   peerResources?: Record<string, MachineResources>;
   /// The open chat is a fork: the seq of its `forked` event, where the copied history ends (cx-ncc.61).
   forkedAtSeq?: number;
-  /// The chat's held surge, its newest snapshot (conversation/surgeHold.ts): the composer hat's one
-  /// row for it (SurgeHoldRow.tsx).
+  /// The chat's held surge, its newest snapshot (conversation/surgeHold.ts): Session Info's Background
+  /// tasks row (session-info/agentSide.ts).
   surge?: SurgeHold;
   summary?: {
     sessionId: string;
@@ -1408,6 +1414,10 @@ export type AcpmuxSnapshot = {
     machine?: string;
     peer?: string;
     hostKind?: "local" | "cloud";
+    /// The composer footer's status dot items and quiet facts, as acpmux decided them
+    /// (`composerStatus`, acpmux `protocol/composer_status.rs`); absent from an older acpmux. Read
+    /// through composerStatusModel.ts `readComposerStatus`, which takes a null field as absent.
+    composerStatus?: ComposerStatus;
     /// Where an Auto chat stands (acpmux `autoSession`, autoSession/autoSession.ts): unset from an
     /// acpmux without Auto, and the pane then offers and draws nothing of it.
     autoSession?: AutoSession;
