@@ -560,13 +560,16 @@ final class ChatTranscriptList: NSObject, UICollectionViewDelegate, UICollection
     private let dataSource: UICollectionViewDiffableDataSource<Int, String>
     /// The rows by id and their environment, for the cells.
     private let lookup: ChatRowLookup
+    // In place: a write to one row goes to the lookup's own dictionary. A get/set pair copied the
+    // whole dictionary for every row written (O(rows shown) per row weighed: #47189 r7b,
+    // eachChunkFitsAFrame's loop grew with the rows shown).
     private var rows: [String: ChatRow] {
-        get { lookup.rows }
-        set { lookup.rows = newValue }
+        _read { yield lookup.rows }
+        _modify { yield &lookup.rows }
     }
     private var revisions: ChatRowRevisions {
-        get { lookup.revisions }
-        set { lookup.revisions = newValue }
+        _read { yield lookup.revisions }
+        _modify { yield &lookup.revisions }
     }
     private var shownIDs: [String] = []
     /// `shownIDs` as a set (a chunk's growth checks its rows against it).

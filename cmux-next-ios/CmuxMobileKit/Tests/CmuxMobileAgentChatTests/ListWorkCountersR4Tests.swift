@@ -164,7 +164,21 @@ import UIKit
         func store() -> AgentChatStore { running ? Self.runningLongStore(600) : ListWorkCountersTests.finishedLongStore(600) }
         let (whole, wholeWindow) = Self.openNow(store(), windowed: false)
         await Self.fill(whole, wholeWindow)
-        let (grown, grownWindow) = Self.openNow(store())
+        // Growth driven here: each one after at least one off-main layout landed, so every growth
+        // takes landed rows in place (the guard covers them, not by chance).
+        let grown = SubagentTranscriptHost(store: store(), subagentID: "s")
+        grown.growsByItself = false
+        let grownWindow = UIWindow(frame: CGRect(x: 0, y: 0, width: 393, height: 852))
+        grownWindow.rootViewController = grown
+        grownWindow.isHidden = false
+        ChatTranscriptSourceTests.settle(grownWindow)
+        let deadline = Date().addingTimeInterval(30)
+        while !grown.filled, Date() < deadline {
+            let landed = grown.list.layoutsMadeOffMain
+            while grown.list.layoutsMadeOffMain == landed, Date() < deadline { await Self.frame(grownWindow) }
+            grown.growOnce()
+            await Self.frame(grownWindow)
+        }
         await Self.fill(grown, grownWindow)
         #expect(grown.list.growthsWithLandings > 0 || grown.chunks == 0,
                 "no growth took landed rows in place (\(grown.chunks) chunks): the guard did not cover landings")
@@ -220,6 +234,38 @@ import UIKit
         window.isHidden = true
         #expect(host.filled, "every chunk came in: \(summary)")
         #expect(worst <= 8, "a chunk took \(String(format: "%.1f", worst)) ms on the main thread: \(summary)")
+    }
+
+    /// A growth's cost is its chunk's, not the rows already shown: the main thread's time per row
+    /// weighed on the last growth of a 2000-item transcript is within 3x the first's (+0.01 ms).
+    /// A get/set row dictionary copied every row on each row weighed (#47189 r7b: the loop rose
+    /// from 6 to 35 ms over the growths). A timing proxy: a dictionary's copies are not countable.
+    @Test func aGrowthCostsItsChunkNotTheRowsShown() async {
+        let host = SubagentTranscriptHost(store: ListWorkCountersTests.finishedLongStore(), subagentID: "s")
+        host.growsByItself = false
+        let window = UIWindow(frame: CGRect(x: 0, y: 0, width: 393, height: 852))
+        window.rootViewController = host
+        window.isHidden = false
+        ChatTranscriptSourceTests.settle(window)
+        func ms(_ d: Duration) -> Double { Double(d.components.seconds) * 1000 + Double(d.components.attoseconds) / 1e15 }
+        var perRow: [Double] = []
+        var shown: [Int] = []
+        let deadline = Date().addingTimeInterval(30)
+        while !host.filled, Date() < deadline {
+            for _ in 0..<3 { await Self.frame(window) }
+            let loop = host.list.sectionTimes["loop"] ?? .zero
+            let weighed = host.list.rowsWeighed
+            guard host.growOnce() else { break }
+            let rows = host.list.rowsWeighed - weighed
+            if rows > 0 { perRow.append(ms((host.list.sectionTimes["loop"] ?? .zero) - loop) / Double(rows)) }
+            shown.append(host.list.layout.items.count)
+        }
+        window.isHidden = true
+        guard let first = perRow.first, let last = perRow.last, perRow.count >= 3 else {
+            Issue.record("too few growths: \(perRow.count)"); return
+        }
+        #expect(last <= first * 3 + 0.01,
+                "ms per row weighed rose from \(String(format: "%.4f", first)) to \(String(format: "%.4f", last)) as the rows shown grew \(shown)")
     }
 
     // MARK: The Subagents list (#47189 r3: subagents-list-60)

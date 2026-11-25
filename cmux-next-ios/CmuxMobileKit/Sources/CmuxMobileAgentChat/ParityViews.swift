@@ -170,6 +170,7 @@ struct SubagentsScreen: View {
                     // Plain values only: SwiftUI compares them and skips the rows that did not change.
                     SubagentRow(name: entry.agent.name, subtitle: subtitle(entry.agent), state: entry.agent.state,
                                 startedAt: entry.agent.startedAt, endedAt: entry.agent.endedAt, depth: entry.depth)
+                        .equatable()
                 }
                 .buttonStyle(.cmuxPressFill)
             }
@@ -230,7 +231,7 @@ struct SubagentElapsed: View {
     }
 }
 
-struct SubagentRow: View {
+struct SubagentRow: View, Equatable {
     let name: String
     let subtitle: String
     let state: AgentSubagent.State
@@ -241,6 +242,14 @@ struct SubagentRow: View {
     /// Body evaluations (tests: per change, the changed rows only).
     @Environment(\.renderProbe) private var probe
     #endif
+
+    /// Every input the row draws from (the DEBUG probe is a test's counter, not something drawn).
+    /// SwiftUI compares rows by this, so a wrapper it cannot compare (the probe's environment
+    /// value) does not make every row on screen evaluate again on each change (#47189 r7b).
+    nonisolated static func == (a: Self, b: Self) -> Bool {
+        a.name == b.name && a.subtitle == b.subtitle && a.state == b.state && a.startedAt == b.startedAt
+            && a.endedAt == b.endedAt && a.depth == b.depth
+    }
 
     var body: some View {
         #if DEBUG

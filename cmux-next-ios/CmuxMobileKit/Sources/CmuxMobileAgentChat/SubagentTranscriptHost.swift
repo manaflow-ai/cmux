@@ -129,7 +129,25 @@ final class SubagentTranscriptHost: UIViewController, UIScrollViewDelegate {
     /// Every row of the transcript is shown (the open's window has grown to all of it).
     var filled: Bool { list.source.window?.complete ?? true }
 
+    #if DEBUG
+    /// Off: the window grows only by `growOnce` (tests that time each growth, or wait for landed
+    /// rows before one).
+    var growsByItself = true
+
+    /// One chunk in, now (tests). False once every row is shown.
+    @discardableResult
+    func growOnce() -> Bool {
+        guard let window = list.source.window, window.grow() else { return false }
+        chunks += 1
+        list.sourceRowsChanged()
+        return true
+    }
+    #endif
+
     private func fill() {
+        #if DEBUG
+        guard growsByItself else { return }
+        #endif
         guard filling == nil, let window = list.source.window, !window.complete else { return }
         filling = Task { @MainActor [weak self] in
             while !Task.isCancelled {
