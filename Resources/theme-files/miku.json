@@ -14,6 +14,7 @@
 
   // The terminal theme and its own colors: teal accent and cursor, pink and teal in the palette.
   "appearance.theme": "Soft Blue",
+  "appearance.appTheme": "followTerminal",
   "colors": {
     "background": "#0b1d1f",
     "foreground": "#e6f7f5",
@@ -31,10 +32,10 @@
   // the top of this file.
   "appearance.background": "schedule",
   "appearance.backgroundSchedule": {
-    "06:00": "aero-lagoon",
+    "06:00": "monet-cliff-pourville",
     "10:00": "van-gogh-almond-blossom",
     "14:00": "monet-water-lilies",
-    "18:00": "aero-aurora",
+    "18:00": "hokusai-great-wave",
     "22:00": "grimshaw-silver-moonlight"
   },
   "appearance.backgroundRotation": "15m",
