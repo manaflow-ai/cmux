@@ -1173,7 +1173,7 @@ pub struct Hub {
     /// Leased peers by name, with the generation of the peer each lease
     /// started (`peer_lease.rs`); never saved. Look up a peer Arc briefly, then release this and
     /// the `peers` lock before taking `remote_sessions` or a per-peer writer gate.
-    pub(super) peer_leases: StdMutex<HashMap<String, u64>>,
+    pub(super) peer_leases: peer_table::PeerTable<u64>,
     /// Per-peer cache writers; held through the write so removal cannot be followed by an older
     /// snapshot landing on disk. Each holds what it last left on disk (`peer_cache_disk.rs`), so
     /// a save writes only what changed. Entries are removed with the peer.
@@ -1767,7 +1767,7 @@ impl Hub {
             mesh_read_parts: Default::default(),
             mesh_read_flights: Default::default(),
             child_tags: Default::default(),
-            peer_leases: StdMutex::new(HashMap::new()),
+            peer_leases: peer_table::PeerTable::named("peer_leases"),
             peer_cache_writers: StdMutex::new(HashMap::new()),
             cache_write_gate: Arc::new(StdMutex::new(())),
             #[cfg(test)]

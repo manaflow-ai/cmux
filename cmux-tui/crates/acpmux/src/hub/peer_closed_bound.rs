@@ -243,6 +243,38 @@ mod tests {
         assert_eq!(rows, ["s1"]);
     }
 
+    #[test]
+    fn wedge_peer_listing_does_not_wait_for_a_lease_waiting_on_the_registry_writer() {
+        let (hub, peer) = hub_with_peer("vm");
+        hub.peer_leases.lock().unwrap().insert("vm".into(), peer.generation);
+        let writer = hub.peers.lock().unwrap();
+        let (held_tx, held_rx) = std::sync::mpsc::channel();
+        let mutation = {
+            let hub = hub.clone();
+            std::thread::spawn(move || {
+                // Lease changes hold this fence while awaiting the registry, as lease_peer
+                // and end_peer_lease do. Publish only after acquiring both in that order.
+                let mut leases = hub.peer_leases.lock().unwrap();
+                held_tx.send(()).unwrap();
+                let _registry = hub.peers.lock().unwrap();
+                leases.insert("vm".into(), peer.generation);
+            })
+        };
+        held_rx.recv_timeout(std::time::Duration::from_secs(2)).unwrap();
+        let (tx, rx) = std::sync::mpsc::channel();
+        let reader = {
+            let hub = hub.clone();
+            std::thread::spawn(move || tx.send(hub.peers()).unwrap())
+        };
+        let result = rx.recv_timeout(std::time::Duration::from_secs(2));
+        drop(writer);
+        mutation.join().unwrap();
+        reader.join().unwrap();
+        let rows = result.expect("peer listing waited on the lease-to-registry lock chain");
+        let row = rows.iter().find(|row| row["name"] == "vm").expect("the registered peer");
+        assert_eq!(row["leased"], true, "the published lease annotation remains visible");
+    }
+
     /// Leo's daemon, 2026-11-25: every tokio worker parked on the peer registry's mutex, because
     /// a peer's list notice took it and, still holding it, waited on the rows writer lock. A
     /// lookup of any peer by name (an outbox attempt, a key route) then waited for every row

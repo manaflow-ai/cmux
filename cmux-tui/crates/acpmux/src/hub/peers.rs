@@ -630,9 +630,9 @@ impl Hub {
     }
 
     pub fn peers(&self) -> Vec<Value> {
-        // Read before `peers` is locked (lock order: `peer_leases`, then `peers`).
-        let leased: std::collections::HashSet<String> =
-            self.peer_leases.lock().unwrap_or_else(|e| e.into_inner()).keys().cloned().collect();
+        // A lease writer can wait on the registry and rows fences. Listing uses its last
+        // published state; cache persistence and mutations still take the lease fence.
+        let leased = self.peer_leases.load();
         // Released before the rows are counted, so this read takes `peers` and
         // `remote_sessions` separately and never in the reverse nested order.
         let (listed, brokers): (Vec<(String, Value)>, std::collections::HashSet<String>) = {
@@ -645,7 +645,7 @@ impl Hub {
             .into_iter()
             .map(|(name, mut s)| {
                 s.set("sessions", json!(counts.get(&name).copied().unwrap_or(0)));
-                if leased.contains(&name) {
+                if leased.contains_key(&name) {
                     s.set("leased", Value::Bool(true));
                 }
                 if brokers.contains(&name) {
