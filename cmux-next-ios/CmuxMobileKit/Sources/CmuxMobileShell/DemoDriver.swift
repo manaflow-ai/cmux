@@ -26,7 +26,7 @@ struct DemoDriver {
     let shell: ShellModel
 
     /// The demos `run(_:)` knows.
-    nonisolated static let names: Set<String> = ["drawer", "settings", "settings-bottom", "settings-middle", "states", "retry-workspaces", "retry-first-launch", "retry-first-launch-offline", "retry-first-launch-failed", "retry-refresh-failed", "retry-offline", "retry-workspaces-updating", "retry-home-updating", "retry-chat-updating", "retry-feed", "retry-terminal", "retry-home-offline", "retry-home-failed", "retry-home-unreachable-empty", "retry-home-asleep-empty", "editor", "rubber", "workspaces", "workspaces-reopen", "chief", "chief-parity", "chief-open", "chief-settings", "home-showcase", "live", "workspace-new", "connect-mac", "connect-mac-no-account", "connect-mac-elsewhere", "relay-only", "approve", "disclosure-chat", "kbd-chat", "offline-send", "offline-held", "kbd-tab", "kbd-new", "kbd-feed", "kbd-empty", "kbd-chat-empty", "ws-terminal-idle", "ws-terminal-reattach", "ws-terminal-composer", "ws-terminal-kbd-toggles", "ws-terminal-armed", "large-preview", "large-preview-low-space", "voice-chat", "voice-terminal", "workspace-open-top-left", "new-message", "new-message-mac-only", "new-message-forward", "live-terminal", "chief-list", "chief-list-placed", "chief-list-cloud-only", "switcher-retry", "switcher-retry-chat"]
+    nonisolated static let names: Set<String> = ["drawer", "settings", "settings-bottom", "settings-middle", "states", "retry-workspaces", "retry-first-launch", "retry-first-launch-offline", "retry-first-launch-failed", "retry-refresh-failed", "retry-offline", "retry-workspaces-updating", "retry-home-updating", "retry-chat-updating", "retry-feed", "retry-terminal", "retry-home-offline", "retry-home-failed", "retry-home-unreachable-empty", "retry-home-asleep-empty", "editor", "rubber", "workspaces", "workspaces-reopen", "chief", "chief-parity", "chief-open", "chief-settings", "home-showcase", "live", "workspace-new", "connect-mac", "connect-mac-no-account", "connect-mac-elsewhere", "relay-only", "approve", "disclosure-chat", "kbd-chat", "offline-send", "offline-held", "kbd-tab", "kbd-new", "kbd-feed", "kbd-empty", "kbd-chat-empty", "ws-terminal-idle", "ws-terminal-reattach", "ws-terminal-drop-back", "ws-terminal-composer", "ws-terminal-kbd-toggles", "ws-terminal-armed", "large-preview", "large-preview-low-space", "voice-chat", "voice-terminal", "workspace-open-top-left", "new-message", "new-message-mac-only", "new-message-forward", "live-terminal", "chief-list", "chief-list-placed", "chief-list-cloud-only", "switcher-retry", "switcher-retry-chat"]
 
     func run(_ name: String) async {
         try? await Task.sleep(for: .seconds(1.2))
@@ -210,6 +210,7 @@ struct DemoDriver {
             guard let model = shell.terminalTabs.model(forTabID: "t-zsh") else { return }
             model.demoConnection(.reattaching(mac: "Demo Mac"))
             model.reconnect = { [weak model] in model?.demoConnection(.attached) }
+        case "ws-terminal-drop-back": await workspaceTerminalDropAndBack()
         case "ws-terminal-composer":
             // The zsh tab with a draft in the composer, for gallery captures
             // of its states: CMUX_MOBILE_DEMO_COMPOSER=short (one line),
@@ -439,6 +440,36 @@ struct DemoDriver {
         toggle("burst")
         await pause(1.5)
         KeyboardPinTrace.note("done")
+    }
+
+    /// The zsh tab with output on it, then its link drops past the quiet bound and comes back by
+    /// itself (no Reconnect tap): the page keeps its rows the whole time, the title pill says the Mac
+    /// is offline only after `QuietStatusGate.threshold`, and output flows again once attached.
+    /// A clip of the iOS reconnect path (TerminalDropAndBackUITests records it with `video`).
+    private func workspaceTerminalDropAndBack() async {
+        shell.store.requestOpen(tabID: "t-zsh", in: "ws-cmux")
+        shell.tab = .workspaces
+        await pause(1.0)
+        if let ws = shell.store.workspace(id: "ws-cmux") { shell.workspacesPath = [ws] }
+        await pause(2.0)
+        guard let model = shell.terminalTabs.model(forTabID: "t-zsh") else { return }
+        model.composerText = "ls -la"
+        model.send()
+        mark("attached, output drawn")
+        await pause(3.0)
+        mark("link drops")
+        model.demoConnection(.reattaching(mac: "Demo Mac"))
+        await pause(3.0)
+        model.demoConnection(.offline(mac: "Demo Mac"))
+        await pause(10.0)
+        mark("link back")
+        model.demoConnection(.reattaching(mac: "Demo Mac"))
+        await pause(0.6)
+        model.demoConnection(.attached)
+        await pause(1.5)
+        model.composerText = "echo back online"
+        model.send()
+        mark("output after reconnect")
     }
 
     private func pause(_ seconds: Double) async {
