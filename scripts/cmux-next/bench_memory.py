@@ -934,6 +934,26 @@ class FakeChats:
                     if paths:
                         return paths[0]
             time.sleep(1)  # test script: waiting for the app's acpmux to listen
+        # Say why, so a fleet step's log answers it: which acpmux processes run (the bundle's
+        # and any other), and the newest acpmux daemon.log tails under ~/.acpmux.
+        for pid, ppid, cmd in process_table():
+            if "acpmux" in cmd or "cmux-files-host" in cmd:
+                mark = "bundle" if in_bundle(cmd, bundle) is not None else "other"
+                print(f"   bench-memory: acpmux process ({mark}) pid={pid} ppid={ppid} {cmd[:300]}",
+                      file=sys.stderr, flush=True)
+        import pwd
+        logs = set()
+        for home in {pwd.getpwuid(os.getuid()).pw_dir, os.path.expanduser("~")}:
+            root = os.path.join(home, ".acpmux")
+            builds = os.path.join(root, "builds")
+            logs.add(os.path.join(root, "daemon.log"))
+            logs.update(os.path.join(builds, name, "daemon.log") for name in (os.listdir(builds) if os.path.isdir(builds) else []))
+        logs = sorted((p for p in logs if os.path.isfile(p)), key=os.path.getmtime, reverse=True)[:2]
+        for path in logs:
+            with open(path, "rb") as handle:
+                handle.seek(max(0, os.path.getsize(path) - 4000))
+                tail = handle.read().decode("utf-8", "replace")
+            print(f"   bench-memory: tail of {path}:\n{tail}", file=sys.stderr, flush=True)
         raise SystemExit("bench-memory: the app's acpmux opened no socket within 90 s")
 
     def workspace_ids(self) -> set[str]:
