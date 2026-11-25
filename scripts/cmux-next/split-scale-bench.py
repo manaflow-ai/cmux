@@ -521,11 +521,14 @@ def cef_tracker(run):
 
 
 def cef_delta(before, after):
-    """The round's change in each counter `CEF_FIELDS` names; nothing that did not move."""
+    """The round's change in each counter `CEF_FIELDS` names; nothing that did not move. A counter either read lacks
+    (a failed `debug.cef`) is left out, so a lost read never shows the running total as one round's change."""
     delta = {}
     for name, value in after.items():
-        if isinstance(value, (int, float)) and any(name.startswith(f) for f in CEF_FIELDS):
-            moved = round(value - (before.get(name) or 0), 4)
+        start = before.get(name)
+        if (isinstance(value, (int, float)) and isinstance(start, (int, float))
+                and any(name.startswith(f) for f in CEF_FIELDS)):
+            moved = round(value - start, 4)
             if moved:
                 delta[name] = moved
     return delta
