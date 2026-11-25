@@ -428,6 +428,8 @@
         "sidebar.showSpaces",
         "sidebar.showProfileControl",
         "sidebar.showSearchButton",
+        "sidebar.showLiveToggle",
+        "presence.live",
         "sidebar.showNewWorkspaceChooser",
         "sidebar.workspacesAsTabs",
         "sidebar.chromeGroups",
