@@ -539,7 +539,7 @@ public final class TerminalModel {
                 // Nothing changed on the Mac (an inline program's input reaches into the
                 // history, the link dropped): the person feels it did not clear.
                 modelLog.error("clear-history failed: \(String(describing: error), privacy: .public)")
-                UINotificationFeedbackGenerator().notificationOccurred(.error)
+                CmuxMobileTheme.standard.haptics.notify(.error)
             }
         }
     }
