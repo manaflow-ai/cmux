@@ -1,4 +1,3 @@
-import CoreGraphics
 import Foundation
 import Testing
 @testable import CmuxVNC
@@ -206,11 +205,17 @@ struct VNCKeysymTests {
 }
 
 struct AuthenticationTests {
-    @Test func vncDESKnownAnswer() {
-        // DES-ECB with key 0e86ceceeef64e26 ("password", each byte's bits
-        // reversed), computed independently with `openssl enc -des-ecb`.
-        let response = VNCPasswordResponse(password: "password", challenge: Array(0 ..< 16)).bytes
-        #expect(response == hex("b866924125c8eebb9debc1db61c538e2"))
+    // OpenSSL DES-ECB over bytes 0...15 with the first eight UTF-8 password
+    // bytes bit-reversed and zero-padded. Exercises both challenge blocks.
+    @Test(arguments: [
+        ("", "491e890de9ace932838a49792f2213f3"),
+        ("v", "136289336fd73274f0b2f69202229f46"),
+        ("password", "b866924125c8eebb9debc1db61c538e2"),
+        ("password123", "b866924125c8eebb9debc1db61c538e2"),
+        ("a🌍12345", "0e674da292a0e84a3c34f90b9dad0f9c"),
+    ])
+    func vncDESKnownAnswer(password: String, ciphertext: String) {
+        #expect(VNCPasswordResponse(password: password, challenge: Array(0 ..< 16)).bytes == hex(ciphertext))
     }
 
     @Test func modularExponentiationSmall() throws {
@@ -231,7 +236,12 @@ struct AuthenticationTests {
         let padding = (0 ..< 128).map { UInt8($0) }
         let response = try #require(auth.response(username: "bob", password: "pw", privateKey: [6], padding: padding))
         #expect(response.clientPublicKey == [8])
-        #expect(response.encryptedCredentials.count == 128)
+        // OpenSSL AES-128-ECB with MD5([13]) as the key.
+        #expect(response.encryptedCredentials == hex(
+            "bc22f01689cef4ad73569b9f5640440293e7a58bbe8574e58747d333418a74a5" +
+            "00e6cbcdfb86078ff9ff67b5704c80893de99f7e8759b80386835a0a70765ced" +
+            "ec92af137626c99b58af257891c1495b4453bd9c231f0f3abb3978118c933432" +
+            "35b95f663073a68504b7cf88713f659aa7ad77245a8274055f4db7c627ebf3a0"))
         let credentials = AppleDHAuthentication.credentials(username: "bob", password: "pw", padding: padding)
         #expect(Array(credentials[0 ..< 4]) == Array("bob".utf8) + [0])
         #expect(Array(credentials[64 ..< 67]) == Array("pw".utf8) + [0])
