@@ -128,6 +128,14 @@ final class ExternalOpenController {
         let onHome = { leavesHome && controller.showsHomeWorkspace }
         if controller.focusedPane == nil || onHome(), !controller.showOpenableWorkspace() { createWorkspaceForPending(in: controller) }
         guard let pane = controller.focusedPane, !onHome() else { return pending.append(route) }
+        // Routes parked for a pane run first, in order, once one can take them: a cold launch's open
+        // that missed the content flushes was otherwise parked for good (screenshot-into-chat "lost").
+        // Not from Home, where a parked non-link route would park again under a deep link.
+        if !pending.isEmpty, !controller.showsHomeWorkspace {
+            let routes = pending + [route]
+            pending = []
+            return routes.forEach(perform)
+        }
         if case .deepLink(let url) = route {
             // The user clicked it in another app: their run, which brings
             // cmux forward. Agent links are addresses published in public
@@ -160,14 +168,18 @@ final class ExternalOpenController {
         Task { [weak self] in
             do {
                 _ = try await windows.createWorkspace(WorkspaceSpawn(), into: target)
+                self?.creatingWorkspace = false
+                // The window may still show Home or not have mounted the workspace's pane: run the queue
+                // (it shows the made workspace; its first pane's mount runs the rest).
+                self?.flush()
             } catch {
                 logger.error("create workspace for an opened file failed: \(String(describing: error), privacy: .public)")
+                self?.creatingWorkspace = false
             }
-            self?.creatingWorkspace = false
         }
     }
 
-    /// A window installed its content: run what waited for one.
+    /// A window installed its content, or a workspace made for the queue was created: run what waited for one.
     func flush() {
         guard !pending.isEmpty, services.windows.active?.focusedPane != nil else { return }
         let routes = pending

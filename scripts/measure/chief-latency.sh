@@ -206,9 +206,9 @@ summarize() {
     --out "$work/$side.json" --md "$work/$side.md")" || return 1
   echo "CHIEF-LAT-SUMMARY $line"
 }
-summarize before "$before" "${before_dirs[@]}" || status=1
+summarize before "$before" ${before_dirs[@]+"${before_dirs[@]}"} || status=1
 if [[ -n "$after" ]]; then
-  summarize after "$after" "${after_dirs[@]}" || status=1
+  summarize after "$after" ${after_dirs[@]+"${after_dirs[@]}"} || status=1
   python3 -I "$measure/chief_latency.py" compare "$work/before.json" "$work/after.json" \
     --md "$work/table.md" --json "$work/compare.json" || status=1
 else

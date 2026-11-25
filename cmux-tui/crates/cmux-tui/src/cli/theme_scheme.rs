@@ -5,7 +5,8 @@
 //! works with cmux quit.
 //!
 //! - `import FILE [--name N] [--from F] [--replace]`: reads a base16 YAML,
-//!   iTerm2 `.itermcolors`, Windows Terminal JSON or Ghostty theme file and
+//!   iTerm2 `.itermcolors`, Windows Terminal JSON, VS Code color theme
+//!   (JSON with comments) or Ghostty theme file and
 //!   installs it as the Ghostty theme `N` (default: the scheme's own name,
 //!   else the file's) in the user's themes folder, where Ghostty and every
 //!   cmux theme picker find it. A shipped theme is never shadowed.
@@ -42,8 +43,9 @@ use super::{GlobalArgs, OutputMode};
 const USAGE: &str = "\
 cmux theme: 16-color schemes in and out of cmux.
   cmux theme import FILE [--name N] [--from F] [--replace]
-      install a base16 .yaml, iTerm2 .itermcolors, Windows Terminal .json or Ghostty
-      theme as the Ghostty theme N (default: the scheme's name, else the file's)
+      install a base16 .yaml, iTerm2 .itermcolors, Windows Terminal .json, VS Code
+      color theme .json (comments allowed) or Ghostty theme as the Ghostty theme N
+      (default: the scheme's name, else the file's)
   cmux theme export NAME [--format F] [--output FILE]   an installed theme as F (default base16)
   cmux theme convert FILE --to F [--from F] [--output FILE]
   cmux theme from-image PATH (PNG or PPM) [--name N] [--appearance dark|light] [--format F] [--output FILE] [--replace]
@@ -51,7 +53,7 @@ cmux theme: 16-color schemes in and out of cmux.
   cmux theme new --canvas C --accent A [--name N] [--appearance dark|light] [--format F] [--output FILE] [--replace]
       a whole theme from two colors (#rrggbb): every color derives from them, text keeps WCAG AA. --name installs it
   cmux theme formats
-Formats: ghostty, base16, iterm2, windows-terminal.";
+Formats: ghostty, base16, iterm2, windows-terminal, vscode.";
 
 /// Most bytes of an image `from-image` reads (a 4K PNG wallpaper fits).
 const MAX_IMAGE_BYTES: u64 = 64 * 1024 * 1024;
@@ -139,10 +141,9 @@ fn theme_file_request(rest: &[String]) -> Option<Result<super::theme_file::Reque
     let takes = match verb.as_str() {
         verb if super::theme_file::VERBS.contains(&verb) => true,
         "export" => positional() == 0 || args.iter().any(|w| w == "--save" || w == "--use"),
-        "import" => args
-            .iter()
-            .find(|word| !word.starts_with('-'))
-            .is_some_and(|file| super::theme_file::is_theme_file(Path::new(file))),
+        "import" => args.iter().find(|word| !word.starts_with('-')).is_some_and(|file| {
+            super::theme_file::is_theme_file(Path::new(file)) && !is_vscode_theme(file)
+        }),
         "-h" | "--help" | "help" => {
             return Some(Err(format!("{}\n\n{USAGE}", super::theme_file::USAGE)));
         }
@@ -151,10 +152,20 @@ fn theme_file_request(rest: &[String]) -> Option<Result<super::theme_file::Reque
     takes.then(|| super::theme_file::parse(rest))
 }
 
+/// Whether `file` reads as a VS Code color theme, which `import` installs as
+/// a terminal scheme even when its keys (`name`, `colors`) could be a cmux
+/// theme file's.
+fn is_vscode_theme(file: &str) -> bool {
+    std::fs::read_to_string(file)
+        .is_ok_and(|text| SchemeFormat::detect(file, &text) == SchemeFormat::VsCode)
+}
+
 fn format_flag(value: Option<&String>, flag: &str) -> Result<SchemeFormat, String> {
     let value = value.ok_or_else(|| format!("{flag} needs a format\n\n{USAGE}"))?;
     SchemeFormat::from_name(value).ok_or_else(|| {
-        format!("unknown format {value:?}: one of ghostty, base16, iterm2, windows-terminal")
+        format!(
+            "unknown format {value:?}: one of ghostty, base16, iterm2, windows-terminal, vscode"
+        )
     })
 }
 
@@ -262,7 +273,8 @@ fn default_name(scheme: &Scheme, file: &Path) -> String {
     }
     let stem = match file.extension().and_then(|e| e.to_str()).map(str::to_ascii_lowercase) {
         Some(ext)
-            if ["yaml", "yml", "itermcolors", "json", "conf", "theme"].contains(&ext.as_str()) =>
+            if ["yaml", "yml", "itermcolors", "json", "jsonc", "conf", "theme"]
+                .contains(&ext.as_str()) =>
         {
             file.file_stem()
         }

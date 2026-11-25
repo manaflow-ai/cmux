@@ -19,6 +19,8 @@ import {
 } from "./mockFixture";
 import { mockGitCommit, mockGitDiff, mockGitPush, mockGitStatus } from "./mockGit";
 import { mockFileSearch } from "./mockFiles";
+import { dataUrlImageSize } from "./conversation/imageEntries";
+import { sampleAgentHome, type AgentHome } from "./session-info/carriedSectionModel";
 import { lightTurn, loadTurn, streamedReply, streamedTool } from "./loadFixture";
 import {
   journeyCell,
@@ -270,6 +272,12 @@ export type LoadStreamOptions = {
     elapsedMs: number;
     maxGapMs: number;
     maxScheduleOffsetMs: number;
+    /// This chunk's time (`performance.now()`), the one before it and its due time (the chunk before's
+    /// with no fixed schedule), so a reader can take the maxima over a window of its own (a bench's
+    /// typing window) instead of the run's.
+    atMs: number;
+    previousAtMs: number;
+    dueAtMs: number;
   }) => void;
 };
 
@@ -309,6 +317,13 @@ export class MockAcpmuxSocket {
   /// Folder profiles the user enabled (`_acpmux/harness_enable`), by id.
   private enabledProfiles = new Set<string>();
   private bookmarks = new Map<string, Set<number>>();
+  /// Saved prompts by lower-cased name, as acpmux keeps them (prompts.rs), without its limits.
+  private prompts = new Map<string, { name: string; text: string; source: "saved"; updatedAt: number }>();
+  /// Stashed drafts by chat, newest first, as acpmux keeps them (stash.rs), without its limits.
+  private stash = new Map<string, { id: string; text: string; attachments: unknown[]; at: number }[]>();
+  private stashSerial = 0;
+  /** Session Info's Carried memory (`_acpmux/agent_home`): sample files and proposals, settled by resolve. */
+  private agentHome: AgentHome | undefined;
   private handoffs = new MockHandoffs(
     () => this.sessions,
     (source, harness) => {
@@ -348,6 +363,8 @@ export class MockAcpmuxSocket {
   /// A new chat opens in the project of the session the reader last opened.
   private attached = sessionId;
   private closed = false;
+  /// The list watch is on: off (`_acpmux/watch {enabled: false}`), only the attached chat's changes are told.
+  private watching = true;
   /// Prompts run one at a time, as the daemon queues them.
   private queue: Promise<unknown> = Promise.resolve();
   /// Prompts sent and not yet finished; one sent while another runs is reported queued.
@@ -536,6 +553,8 @@ export class MockAcpmuxSocket {
       } else await this.delay(options.chunkMs);
       if (options.stopped?.() || this.closed) break;
       const now = performance.now();
+      const previousAtMs = previous;
+      const dueAtMs = options.fixedSchedule ? nextChunkAt : previous;
       maxGapMs = Math.max(maxGapMs, now - previous);
       previous = now;
       if (options.fixedSchedule) {
@@ -561,7 +580,16 @@ export class MockAcpmuxSocket {
           },
         });
       }
-      options.progress?.({ deltas, toolLines, elapsedMs: now - started, maxGapMs, maxScheduleOffsetMs });
+      options.progress?.({
+        deltas,
+        toolLines,
+        elapsedMs: now - started,
+        maxGapMs,
+        maxScheduleOffsetMs,
+        atMs: now,
+        previousAtMs,
+        dueAtMs,
+      });
       if (options.toolEvery > 0 && deltas % options.toolEvery === 0) {
         this.emit(target, { update: streamedTool(turn, tools) });
         tools += 1;
@@ -756,8 +784,11 @@ export class MockAcpmuxSocket {
           typeof params.harness === "string" ? params.harness : undefined,
           typeof params.model === "string" ? params.model : undefined,
         );
+      // `enabled: false` is acpmux's per-connection pause (server/interest.rs): no other chat's change
+      // until a watch turns it on again; it answers no list (server/list_reply.rs `watch`).
       case "_acpmux/watch":
-        return { sessions: this.sessions };
+        this.watching = params.enabled !== false;
+        return this.watching ? { sessions: this.sessions } : {};
       // A session this daemon lists (mockFixture.ts `mockResolvable`), by link, id or HOST/NAME.
       case "_acpmux/resolve": {
         const query = String(params.query ?? "").trim();
@@ -901,6 +932,95 @@ export class MockAcpmuxSocket {
           else marks.delete(Number(params.seq));
         this.bookmarks.set(target, marks);
         return { sessionId: target, bookmarks: [...marks].sort((a, b) => a - b) };
+      }
+      case "_acpmux/prompts_list":
+        return {
+          prompts: [...this.prompts.values()].sort((a, b) =>
+            a.name.localeCompare(b.name, undefined, { sensitivity: "base" }),
+          ),
+        };
+      case "_acpmux/prompts_save": {
+        const name = String(params.name ?? "").trim();
+        const text = String(params.text ?? "");
+        if (!name || !text.trim()) throw Object.assign(new Error("name and text are required"), { code: -32602 });
+        const prompt = { name, text, source: "saved" as const, updatedAt: Date.now() };
+        this.prompts.set(name.toLowerCase(), prompt);
+        return { prompt };
+      }
+      case "_acpmux/prompts_delete":
+        return {
+          removed: this.prompts.delete(
+            String(params.name ?? "")
+              .trim()
+              .toLowerCase(),
+          ),
+        };
+      case "_acpmux/stash_list":
+        return {
+          drafts: (this.stash.get(String(params.chat)) ?? []).map((draft) => ({
+            ...draft,
+            attachments: draft.attachments.map((chip) => {
+              const { data: _data, text: _text, ...light } = chip as Record<string, unknown>;
+              return light;
+            }),
+          })),
+        };
+      case "_acpmux/stash_push": {
+        const chat = String(params.chat ?? "");
+        const attachments = Array.isArray(params.attachments) ? params.attachments : [];
+        const text = String(params.text ?? "");
+        if (!chat || (!text.trim() && !attachments.length))
+          throw Object.assign(new Error("the draft is empty"), { code: -32602 });
+        const draft = { id: `stash-${++this.stashSerial}`, text, attachments, at: Date.now() };
+        const rest = (this.stash.get(chat) ?? []).filter((entry) => entry.id !== params.replaces);
+        this.stash.set(chat, [draft, ...rest].slice(0, 5));
+        return { draft };
+      }
+      case "_acpmux/stash_get": {
+        const draft = this.stash.get(String(params.chat))?.find((entry) => entry.id === params.id);
+        if (!draft) throw Object.assign(new Error("no stashed draft with that id"), { code: -32004 });
+        return { draft };
+      }
+      case "_acpmux/stash_drop": {
+        const list = this.stash.get(String(params.chat)) ?? [];
+        const rest = list.filter((entry) => entry.id !== params.id);
+        this.stash.set(String(params.chat), rest);
+        return { removed: rest.length !== list.length };
+      }
+      case "_acpmux/stash_move": {
+        const from = String(params.chat);
+        const to = String(params.to);
+        if (from === to) return { moved: 0 };
+        const kept = this.stash.get(to) ?? [];
+        const source = this.stash.get(from) ?? [];
+        const moving = source.filter((entry) => !kept.some((own) => own.id === entry.id));
+        this.stash.set(to, [...moving, ...kept].slice(0, 5));
+        this.stash.delete(from);
+        return { moved: moving.length, ids: source.map((entry) => entry.id) };
+      }
+      // Session Info's Carried memory (acpmux agent_home.rs): sample files and two proposals; a
+      // resolve settles the ones it names, as the daemon would, and refuses an id it does not hold.
+      case "_acpmux/agent_home": {
+        this.agentHome ??= sampleAgentHome(Date.now(), 2);
+        return this.agentHome;
+      }
+      case "_acpmux/agent_home_resolve": {
+        this.agentHome ??= sampleAgentHome(Date.now(), 2);
+        const held = new Set(this.agentHome.proposals.map((proposal) => proposal.id));
+        const ids = (value: unknown) => (Array.isArray(value) ? value.map(String) : []);
+        const accepted = ids(params.accept).filter((id) => held.has(id));
+        const dropped = ids(params.drop).filter((id) => held.has(id) && !accepted.includes(id));
+        const refused = [...ids(params.accept), ...ids(params.drop)]
+          .filter((id) => !held.has(id))
+          .map((id) => ({ id, reason: "unknown proposal" }));
+        const settled = new Set([...accepted, ...dropped]);
+        const revision = (this.agentHome.revision ?? 0) + (accepted.length > 0 ? 1 : 0);
+        this.agentHome = {
+          ...this.agentHome,
+          revision,
+          proposals: this.agentHome.proposals.filter((proposal) => !settled.has(proposal.id)),
+        };
+        return { accepted, dropped, refused, revision };
       }
       // The memory inbox's Accept and Dismiss (acpmux hub/memory.rs): writes nothing here, and logs
       // the `memory_resolved` record the daemon would, with only the offer's facts still open.
@@ -1140,8 +1260,11 @@ export class MockAcpmuxSocket {
           .filter((block: Record<string, unknown>) => block?.type === "image" && typeof block.data === "string")
           .map((block: Record<string, string>) => {
             const id = `image-${this.promptImages.size + 1}`;
-            this.promptImages.set(id, { mimeType: block.mimeType ?? "image/png", data: block.data! });
-            return { id, mimeType: block.mimeType ?? "image/png", ...(block.name ? { name: block.name } : {}) };
+            const mimeType = block.mimeType ?? "image/png";
+            this.promptImages.set(id, { mimeType, data: block.data! });
+            // Its pixel size, as acpmux records it (hub/image_size.rs).
+            const size = dataUrlImageSize(`data:${mimeType};base64,${block.data}`);
+            return { id, mimeType, ...(block.name ? { name: block.name } : {}), ...size };
           });
         const queued = this.pending > 0 && promptId !== undefined;
         // A queued prompt's record names its images too, so its row shows them (ComposerQueue.tsx).
@@ -1358,6 +1481,8 @@ export class MockAcpmuxSocket {
     if (index < 0) return;
     const changed = { ...this.sessions[index], ...fields, ...(moved ? { updatedAt: Date.now() } : {}) };
     this.sessions[index] = changed;
+    // A paused watch hears only the chat it attached, as acpmux's (server/mod.rs `deliver`).
+    if (!this.watching && target !== this.attached) return;
     this.deliver({ jsonrpc: "2.0", method: "_acpmux/session_changed", params: { kind: "updated", session: changed } });
   }
 

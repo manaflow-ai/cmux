@@ -9,10 +9,3 @@ export class DriverError extends Error {
     super(message)
   }
 }
-
-/** One root command's answer (cx-kvmz). */
-export interface GuestExecResult {
-  readonly exitCode: number
-  readonly stdout: string
-  readonly stderr: string
-}
