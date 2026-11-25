@@ -17,6 +17,8 @@ import { Spinner } from "../../../agent-session/acpmux/conversation/icons";
 import type { Strings } from "../i18n";
 import { FAMILY_BRAND, FAMILY_CLI, type AccountFamily, type SignInView } from "./accountSignIn";
 import { useSignInStrings } from "./strings";
+import { experimentArm } from "../../../experiments/experiment";
+import { chatgptSignedInLook } from "./chatgptSignedIn.experiment";
 import "./signIn.css";
 
 export type SignInLook = "inline" | "sheet" | "strip";
@@ -38,6 +40,8 @@ export type DeviceSignInCardProps = {
   onInstall?(): void;
   /** Claude's page showed a code to paste back: sends it once. */
   onSubmitCode?(code: string): void;
+  /** The ChatGPT signed-in arm to draw (gallery, tests); otherwise `chatgptSignedInLook`'s running arm. */
+  chatgptArm?: "plan" | "account" | "row";
 };
 
 /** The action a state shows first (tests and the gallery read it). */
@@ -194,6 +198,7 @@ function PasteField({
       <input
         className="field signin-paste-field"
         aria-label={strings.t("signIn.code.label")}
+        placeholder={strings.t("signIn.code.label")}
         type="password"
         autoComplete="off"
         autoCorrect="off"
@@ -217,12 +222,135 @@ function StateGlyph({ view }: { view: SignInView }) {
   return null;
 }
 
+/** Where ChatGPT plan usage is managed (OpenAI's Sign in with ChatGPT guidance links here). */
+export const CHATGPT_USAGE_URL = "https://chatgpt.com/settings/usage";
+
+/** The ChatGPT mark on its own tile: white on black in light, black on white in dark (OpenAI's brand rule). */
+function ChatGPTTile({ size, badge }: { size: number; badge?: boolean }) {
+  return (
+    <span className="signin-chatgpt-tile" data-size={size} aria-hidden="true">
+      <AgentMark agent="chatgpt" size={Math.round(size * 0.6)} tint />
+      {badge ? (
+        <span className="signin-chatgpt-badge">
+          <StatusGlyph name="done" size={12} />
+        </span>
+      ) : null}
+    </span>
+  );
+}
+
+/** A ChatGPT account that just signed in, in one of `chatgptSignedInLook`'s arms. Every arm names the
+ *  plan as ChatGPT's, links to its usage page and ends with one solid action (`done`). */
+function ChatGPTSignedIn({
+  account,
+  look,
+  arm,
+  titleId,
+  strings,
+  onDone,
+}: {
+  account: string | null;
+  look: "inline" | "sheet";
+  arm: "plan" | "account" | "row";
+  titleId: string;
+  strings: Strings;
+  onDone?(): void;
+}) {
+  const manage = (
+    <a
+      className="ui-button ui-btn signin-manage"
+      data-variant="subtle"
+      data-size="sm"
+      href={CHATGPT_USAGE_URL}
+      target="_blank"
+      rel="noreferrer"
+      data-sign-in-action="manage"
+    >
+      {strings.t("signIn.plan.manage")}
+    </a>
+  );
+  const done = (label: string) => (
+    <Button
+      size="sm"
+      variant="solid"
+      className="signin-action"
+      data-sign-in-action="done"
+      disabled={!onDone}
+      onClick={onDone}
+    >
+      {label}
+    </Button>
+  );
+  const tile = look === "sheet" ? 32 : 28;
+  if (arm === "row") {
+    return (
+      <div className="signin-chatgpt" data-arm="row">
+        <ChatGPTTile size={tile} />
+        <span className="signin-chatgpt-who">
+          <span className="signin-title" id={titleId}>
+            {strings.t("signIn.plan.signedInWith")}
+          </span>
+          {account ? <span className="signin-chatgpt-account selectable">{account}</span> : null}
+        </span>
+        <span className="signin-actions">
+          {manage}
+          {done(strings.t("signIn.done"))}
+        </span>
+      </div>
+    );
+  }
+  if (arm === "account") {
+    return (
+      <div className="signin-chatgpt" data-arm="account">
+        <header className="signin-head">
+          <ChatGPTTile size={tile} badge />
+          <span className="signin-chatgpt-who">
+            <span className="signin-title selectable" id={titleId}>
+              {account ?? strings.t("signIn.signedInPlain")}
+            </span>
+            <span className="signin-chatgpt-sub">{strings.t("signIn.plan.signedInWith")}</span>
+          </span>
+        </header>
+        <p className="signin-chatgpt-body">{strings.t("signIn.plan.body")}</p>
+        <span className="signin-actions">
+          {manage}
+          {done(strings.t("signIn.done"))}
+        </span>
+      </div>
+    );
+  }
+  return (
+    <div className="signin-chatgpt" data-arm="plan">
+      <header className="signin-head">
+        <ChatGPTTile size={tile} />
+        <span className="signin-title" id={titleId}>
+          {strings.t("signIn.plan.title")}
+        </span>
+      </header>
+      <p className="signin-chatgpt-body">{strings.t("signIn.plan.body")}</p>
+      <output className="signin-line" aria-live="polite">
+        <StatusGlyph name="done" size={14} />
+        <span className="selectable">
+          {account ? strings.format("signIn.signedIn", account) : strings.t("signIn.signedInPlain")}
+        </span>
+      </output>
+      <span className="signin-actions">
+        {manage}
+        {done(strings.t("signIn.plan.gotIt"))}
+      </span>
+    </div>
+  );
+}
+
 export function DeviceSignInCard(props: DeviceSignInCardProps) {
   const { family, view, look = "inline" } = props;
   const strings = useSignInStrings();
   const titleId = useId();
   const [code, setCode] = useState("");
-  const title = strings.t(TITLE_KEY[family]);
+  const [runningArm] = useState(() => experimentArm(chatgptSignedInLook));
+  const chatgptArm = props.chatgptArm ?? runningArm;
+  // Once signed in the card names the account's provider: "Sign In to ..." would read as undone.
+  const title = view.state === "signedIn" ? FAMILY_BRAND[family] : strings.t(TITLE_KEY[family]);
   const line = statusLine(strings, family, view);
   const shown = view.state === "waiting" && view.way.kind === "code" ? view.way.code : null;
   const pasting = view.state === "waiting" && view.way.kind === "paste";
@@ -270,10 +398,25 @@ export function DeviceSignInCard(props: DeviceSignInCardProps) {
     );
   }
 
-  const body = (
+  const chatgpt = family === "codex" && view.state === "signedIn";
+  const body = chatgpt ? (
+    <ChatGPTSignedIn
+      account={view.account}
+      look={look}
+      arm={chatgptArm}
+      titleId={titleId}
+      strings={strings}
+      onDone={props.onDone}
+    />
+  ) : (
     <>
       <header className="signin-head">
-        <ProviderMark family={family} size={look === "sheet" ? 28 : 16} />
+        {family === "codex" ? (
+          // The same black ChatGPT tile the signed-in card ends on (OpenAI's brand rule), at the row's size inline.
+          <ChatGPTTile size={look === "sheet" ? 32 : 20} />
+        ) : (
+          <ProviderMark family={family} size={look === "sheet" ? 28 : 16} />
+        )}
         <span className="signin-title" id={titleId}>
           {title}
         </span>

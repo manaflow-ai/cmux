@@ -1,11 +1,11 @@
 #!/usr/bin/env python3
 """Latest wins for nightly-next: drop an older nightly run that holds a concurrency group the tip waits on.
 
-nightly.yml keeps nightly-next pushes (and the loop's retries) in nightly-build-nightly-next-push and the sign
-stages in nightly-build-nightly-next-sign, never cancelling a started run. GitHub keeps one newer run pending
+nightly.yml keeps nightly-next pushes (and the loop's retries) in nightly-build-nightly-next-push, never
+cancelling a started run. GitHub keeps one newer run pending
 per group and replaces it with each newer push. So an older run whose remaining jobs wait on a runner label
 that stopped serving holds the group for hours, and every tip run behind it is replaced while pending and
-never starts (2026-11-10/11: push runs 42925854615 and 42929616529 and sign run 42930383771 held them; tip
+never starts (2026-11-10/11: push runs 42925854615 and 42929616529 held it; tip
 runs 42945365476, 42947517129 and 42948266530 were each replaced with no jobs). Leo, 2026-11-11: "aren't
 there things we can just be like 'ok just get this one in asap'", and 2026-11-06: nothing queues.
 
@@ -13,15 +13,14 @@ The rule. A run is dropped when main's delivery_workflows.superseded_unstarted()
 rule the queue janitor and the agents' cancel guard read), or when all of these hold (holder_superseded()):
   1. it holds a shared group (group_of()) and every job of its current attempt but the light control and
      decide ones (LIGHT_JOBS) is queued with no runner, or skipped (build_started() is None);
-  2. it is not the tip's push run (a sign stage's head is the tip when its push run dispatched it, not the
-     build it signs, so the sign group is judged by 3 alone);
+  2. it is not the tip's push run;
   3. the newest run GitHub keeps pending in its group waits on it with no jobs: the tip's push run or loop
-     retry for the push group, the sign stage of a later push run for the sign group (group_waiter());
+     retry (group_waiter());
   4. nothing in it has moved for READY_WAIT (5 min), over the stuck-job read's 3 min, so a job about to get
      a runner gets it first.
 LIGHT_JOBS, build_started(), attempt_jobs() and waited_since() come from main's delivery_workflows.py, read at
 run time (--rules), so the light-job list and the started rule have one definition. A run with any build,
-sign or publish job started is never cancelled, nor is the tip's push run or the newest sign stage.
+sign or publish job started is never cancelled, nor is the tip's push run.
 
 Before each cancel the open pull requests at its head, the tip, the waiting runs and the run are read again,
 and its jobs last of all; anything unread keeps the run. At most MAX_CANCELS a run, never a force-cancel.
@@ -60,16 +59,15 @@ STATUSES = ("pending", "queued", "in_progress")
 HOLDER_STATUSES = frozenset({"queued", "in_progress"})
 WAITER_STATUSES = frozenset({"pending"})  # what GitHub shows for a run waiting on its group
 PAGE, MAX_PAGES = 100, 3
-MAX_CANCELS = 2  # one push holder and one sign holder
+MAX_CANCELS = 1  # the push group has one holder
 READY_WAIT = dt.timedelta(minutes=5)
 SETTLE_MAX = dt.timedelta(minutes=6)
 SETTLE_NO_WAITER = dt.timedelta(seconds=45)  # the push's nightly run may not be listed yet
 CHAIN_MAX = 12  # re-dispatches after one push: about 12 x (queue + SETTLE_MAX), over an hour of a holder going stale
 SELF = "nightly-next-supersede.yml"
 SHA = re.compile(r"[0-9a-f]{40}")
-# nightly.yml's run-name for the dispatches its group expression puts in the push and sign groups.
+# nightly.yml's run-name for the dispatches its group expression puts in the push group.
 RETRY_TITLE = re.compile(r"^Retry nightly-next \([12] of 2\)$")
-SIGN_TITLE = re.compile(r"^Sign nightly-next run ([0-9]+) attempt [0-9]+$")
 
 
 class Unreadable(Exception):
@@ -109,12 +107,12 @@ def _repo(run: Mapping[str, Any]) -> str:
 
 
 def group_of(run: Mapping[str, Any]) -> str | None:
-    """"push" or "sign" for a run in a shared group of the nightly.yml on nightly-next, else None.
+    """"push" for a run in the shared group of the nightly.yml on nightly-next, else None.
 
     Only nightly.yml runs whose head_branch is nightly-next count: they run that branch's nightly.yml, whose
     group expression keys these groups. main's nightly.yml keys main's push runs by run id, and nightly-sign.yml
-    keys per source run, so neither is ever a holder or a waiter (live titles: 42952791964 "Sign nightly-next
-    run 42950072283 attempt 1", 42941668554 "Retry nightly-next (1 of 2)")."""
+    keys per source run, so neither is ever a holder or a waiter (live title: 42941668554 "Retry nightly-next
+    (1 of 2)")."""
     if _file_name(run.get("path")) != WORKFLOW or run.get("head_branch") != BRANCH:
         return None
     titles = [str(run.get(key) or "") for key in ("display_title", "name")]
@@ -123,17 +121,6 @@ def group_of(run: Mapping[str, Any]) -> str | None:
     if run.get("event") == "workflow_dispatch":
         if any(RETRY_TITLE.match(title) for title in titles):
             return "push"
-        if any(SIGN_TITLE.match(title) for title in titles):
-            return "sign"
-    return None
-
-
-def sign_source(run: Mapping[str, Any]) -> int | None:
-    """The push run a sign stage signs (from its run name), or None."""
-    for key in ("display_title", "name"):
-        match = SIGN_TITLE.match(str(run.get(key) or ""))
-        if match:
-            return int(match.group(1))
     return None
 
 
@@ -143,17 +130,13 @@ JobsOf = Callable[[Mapping[str, Any]], "Sequence[Mapping[str, Any]] | None"]
 def group_waiter(run: Mapping[str, Any], runs: Iterable[Mapping[str, Any]], jobs_of: JobsOf, tip: str,
                  ) -> tuple[Mapping[str, Any] | None, str]:
     """(the newer run waiting on `run`'s group, why), or (None, why not). The waiter is the newest run pending in
-    the same group and head repository, on attempt 1, created after `run`, with no jobs (one read): at the tip
-    for the push group, signing a later push run for the sign group."""
+    the same group and head repository, on attempt 1, created after `run`, with no jobs (one read), at the tip."""
     group = group_of(run)
     if group is None:
         return None, "it holds no shared nightly-next group"
     created, repo = _time(run.get("created_at")), _repo(run)
     if created is None or not repo:
         return None, "its creation or head repository could not be read"
-    mine = sign_source(run) if group == "sign" else None
-    if group == "sign" and mine is None:
-        return None, "the push run its sign stage signs could not be read"
     waiting = []
     for other in runs:
         if (other.get("id") == run.get("id") or group_of(other) != group or _repo(other) != repo
@@ -162,13 +145,11 @@ def group_waiter(run: Mapping[str, Any], runs: Iterable[Mapping[str, Any]], jobs
         when = _time(other.get("created_at"))
         if when is None or when <= created:
             continue
-        if group == "push" and str(other.get("head_sha") or "").lower() != tip:
-            continue
-        if group == "sign" and (sign_source(other) or 0) <= (mine or 0):
+        if str(other.get("head_sha") or "").lower() != tip:
             continue
         waiting.append((when, other))
     if not waiting:
-        return None, f"no newer run {'at the tip ' + tip[:12] + ' ' if group == 'push' else ''}waits on its {group} group"
+        return None, f"no newer run at the tip {tip[:12]} waits on its {group} group"
     other = max(waiting, key=lambda pair: pair[0])[1]  # GitHub keeps one pending run per group
     theirs = jobs_of(other)
     if theirs is None:
@@ -365,7 +346,7 @@ def sweep(rules: ModuleType, api: Api, *, dry_run: bool, log: Callable[[str], No
                       and run.get("id") not in done),
                      key=lambda run: (str(run.get("created_at") or ""), run.get("id") or 0))
     if not holders:
-        log("nightly-next supersede: no run holds the push or sign group")
+        log("nightly-next supersede: no run holds the push group")
         return None
     later: dt.timedelta | None = None
     tip_listed = any(group_of(run) == "push" and str(run.get("head_sha") or "").lower() == tip for run in runs)

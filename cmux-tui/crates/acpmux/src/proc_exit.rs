@@ -34,6 +34,7 @@ struct Watcher {
 /// The process-wide watcher, started at the first [`watch`]; `Err` when this host has no exit
 /// event (no pidfd, an old kernel), said once in the log.
 fn watcher() -> io::Result<&'static Watcher> {
+    // test-hook-allow: holds no hook; the process's one exit watcher, each call armed by its own pid, so no test replaces another's
     static WATCHER: OnceLock<Result<Watcher, String>> = OnceLock::new();
     let made = WATCHER.get_or_init(|| {
         let queue = imp::Queue::new().map_err(|e| e.to_string())?;

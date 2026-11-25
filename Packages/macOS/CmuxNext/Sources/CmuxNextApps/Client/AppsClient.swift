@@ -1,4 +1,5 @@
 public import Foundation
+public import CmuxNextActions
 public import Observation
 
 /// Why a change was not sent.
@@ -36,10 +37,15 @@ public final class AppsClient {
     /// An `apps-list` of the current connection landed: until then no app is
     /// known, and surfaces show why instead of "not installed".
     public private(set) var hasList = false
+    /// The toolbar band's app items (`apps.toolbar.list`), listed again on each `apps-changed`; empty
+    /// while no app contributes or the supervisor is unreachable (AppsClient+Toolbar.swift).
+    public internal(set) var toolbarItems: [AppToolbarContribution] = []
     /// The bundled package directory per app id (``AppPlatformResources/bundledDirectories(using:)``):
     /// where icons and scene images are when the supervisor sent no `bundle_dir`.
     public private(set) var bundledDirectories: [String: URL] = [:]
     @ObservationIgnored let transport: any AppsTransport
+    /// The apps' command shortcuts in a registry's binding table (``followKeyBindings(in:)``).
+    @ObservationIgnored public internal(set) var keyBindings: AppKeyBindings?
     @ObservationIgnored var mounts: [String: AppMount] = [:]
     @ObservationIgnored private var nextKey = 0
     @ObservationIgnored var nextLog = 1
@@ -47,6 +53,7 @@ public final class AppsClient {
     /// Mount, unmount and user events go out one after another, in order.
     @ObservationIgnored var tail: Task<Void, Never>?
     @ObservationIgnored private var listing: Task<Void, Never>?
+    @ObservationIgnored var toolbarListing: Task<Void, Never>?
     /// Pages that also hear supervisor events (``observeEvents(owner:_:)``); dropped once their owner is gone.
     @ObservationIgnored private var eventListeners: [(owner: WeakOwner, listener: @MainActor (AppsTransportEvent) -> Void)] = []
     /// The availability epoch the client last connected for (one `connected()` per epoch).
@@ -207,6 +214,19 @@ public final class AppsClient {
         }
     }
 
+    /// Starts a palette or keyboard app command and converts transport errors
+    /// into the action work that the registry reports to the person.
+    @MainActor public func runAsAction(app: AppRecord, command: AppRecord.Command, arguments: AppJSON = .object([:]), origin: AppOrigin) -> ActionWork {
+        Task {
+            do throws(AppsClientError) {
+                _ = try await run(app: app.id, op: command.op, args: arguments, origin: origin)
+                return nil
+            } catch {
+                return ActionWorkFailure(error.description)
+            }
+        }
+    }
+
     // MARK: Supervisor events
 
     func handle(_ event: AppsTransportEvent) {
@@ -261,6 +281,7 @@ public final class AppsClient {
             self?.hasList = true
             self?.remountListedFailures()
         }
+        refreshToolbar()
     }
 
     private func connected() {
@@ -274,6 +295,8 @@ public final class AppsClient {
 
     private func disconnected() {
         listing?.cancel()
+        toolbarListing?.cancel()
+        toolbarItems = []
         hasList = false
         let reason = AppsStrings.unavailable(unavailableReason ?? .notConnected)
         for mount in mounts.values { mount.model.status = .disconnected(reason) }

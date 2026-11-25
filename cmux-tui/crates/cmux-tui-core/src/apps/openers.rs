@@ -104,7 +104,8 @@ impl Supervisor {
             let mut inner = self.inner.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
             match opener_locked(&inner, &url) {
                 Some((app, export))
-                    if inner.safe_mode.is_none() && self.config.host_binary.is_some() =>
+                    if !super::safe_mode_bisect::held_off(&inner, &app)
+                        && self.config.host_binary.is_some() =>
                 {
                     let answered = app.clone();
                     let respond: Responder = Box::new(move |result| {

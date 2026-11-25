@@ -14,7 +14,10 @@ extension AgentTabStore {
         let watch = AgentChatHeaderWatch(state: { [weak self] in
             guard let self else { return AgentPaneHeaderState() }
             let chat = resolve(provisional, machine: scoped.machine)
-            return toggles.headerState(chat: chat, store: record(for: resolvedKey(scoped))?.store, pullRequest: gitLinkScoped?(resolvedKey(scoped))?.isLocal == true ? pullRequest : nil)
+            var state = toggles.headerState(chat: chat, store: record(for: resolvedKey(scoped))?.store, pullRequest: gitLinkScoped?(resolvedKey(scoped))?.isLocal == true ? pullRequest : nil)
+            state.placeData = placeState(resolvedKey(scoped)) // read here, so every step of a move pushes
+            state.evacuateData = evacuateState()
+            return state
         }, push: { [weak self] state in
             guard let view = self?.existingView(provisional, machine: scoped.machine) else { return }
             AgentPaneHeaderState.push(state, to: view)
@@ -36,7 +39,7 @@ extension AgentTabStore {
         }, openSide: { [weak self] chat, fork in // the tracker (AgentSidePanes) asks RightColumnPlacement; the app opens there
             guard let self else { return }; AgentSidePanes.chat(chat).open(fork, chat: resolve(provisional, machine: scoped.machine), hooks: .init(pane: { [weak self] in self?.locateScoped(self?.resolvedKey(AgentTabKey(machine: scoped.machine, key: $0)) ?? AgentTabKey(machine: scoped.machine, key: $0)).map { "\(ObjectIdentifier($0.daemon).hashValue):\($0.pane.rawValue)" } }, column: { [weak self] in self?.rightColumnScoped(self?.resolvedKey(AgentTabKey(machine: scoped.machine, key: $0)) ?? AgentTabKey(machine: scoped.machine, key: $0)) ?? .init() }) { [weak self] _, _, created, finished in // openOnRight decides again in its turn (RightColumnTurns)
                 self?.openOnRight(of: provisional, machine: scoped.machine, splitRight: AgentSidePanes.chat(chat).takeSplitRight(fork), open: { [weak self] pane, daemon, split in guard let self else { throw CancellationError() }; return try open(in: pane, of: daemon, session: fork, split: split) }, created: { key, _ in created(key) }, finished: { _ in finished() }) ?? false })
-        }, openRight: { [weak self] session in guard let self else { return false }; return self.openRightScoped?(self.resolvedKey(scoped), session, nil) ?? false
+        }, openRight: { [weak self] session in guard let self else { return false }; return self.openRightScoped?(self.resolvedKey(scoped), session, nil, nil) ?? false
         }, openTab: { [weak self] session, destination in self?.openFork(session, at: destination, beside: provisional, machine: scoped.machine) ?? false }, openSubagent: { [weak self] in self?.openSubagent($1, of: $0, focus: $2, beside: provisional, machine: scoped.machine) ?? false }, showsSubagent: { [weak self] title, tone, keepingTitle, mark in guard let self else { return }; SubagentTabTitles.shared.show(title, inTab: resolve(provisional, machine: scoped.machine), tone: tone, keepingTitle: keepingTitle, mark: mark) }, showsSubagentFacts: { [weak self] facts in guard let self else { return }; SubagentTabTitles.shared.showFacts(facts, inTab: resolve(provisional, machine: scoped.machine)) }, openProcess: { [weak self] viewer in guard let self else { return false }; return openProcess?(resolve(provisional, machine: scoped.machine), viewer) ?? false }, newChat: { [weak self] in self?.openNewTabColumn(beside: provisional, machine: scoped.machine, cwd: $0, split: false) ?? false }, sideTabs: { [weak self] in
             guard let self else { return nil }
             let chat = resolve(provisional, machine: scoped.machine)
@@ -75,7 +78,7 @@ extension AgentTabStore {
             if toggle { toggles.toggle(id, cwd: cwd, extra: extra, chat: chat, store: store, actions: actions) }
             else { toggles.open(id, cwd: cwd, extra: extra, chat: chat, store: store, actions: actions) }
         }
-        model.header?.shown = { watch.current } // the palette's switches: the page's last state, no watch armed
+        model.header?.shown = { watch.current }; model.header?.revealInSession = { [weak self] session, reveal in guard let self, let shown = tab(showing: session, host: record(for: resolvedKey(scoped))?.record.host, where: { key, _ in self.subagentTabIsBeside(self.resolve(provisional, machine: scoped.machine), key, machine: scoped.machine) }) ?? tab(showing: session, host: record(for: resolvedKey(scoped))?.record.host) else { return false }; revealTurn(reveal, in: shown, machine: scoped.machine); return true }; model.header?.openRightRevealing = { [weak self] session, reveal in guard let self else { return false }; return openRightScoped?(resolvedKey(scoped), session, nil, reveal) ?? false } // the palette's switches: the page's last state, no watch armed; Needs you's another chat's ask (AgentPaneAskOpen): the tab Show Session (else Jump to workspace) shows, else the one opened on the right, scrolls to the asking turn and asks about it
         model.chatMenuItems = actions.menuItems
         model.sessionMenuItems = actions.sessionMenuItems
         model.onSearchWeb = actions.searchWeb
@@ -99,7 +102,18 @@ extension AgentTabStore {
             // openOnRight decides again in its turn (RightColumnTurns): the decision that placed it is the one passed to created.
             place: { [weak self] chat, _, created, finished in self?.openOnRight(of: chat, machine: machine, origin: focus ? .user : .script, open: { [weak self] pane, daemon, split in guard let self else { throw CancellationError() }; let tab = try open(in: pane, of: daemon, session: session, split: split); revealTurn(AgentSubagentPanes.reveal(agent), in: tab.key, machine: daemon.machineID); return tab }, // the reveal is on the tab before its first show (view(for:) adopts the spare from it), not once the store answered
                 created: { [weak self] key, decision in let scoped = AgentTabKey(machine: machine ?? "", key: key); created(key); SubagentTabTitles.shared.bind(agent, of: session, toTab: key) { [weak self] in self?.locateScoped(AgentTabKey(machine: scoped.machine, key: $0)) != nil }; if case .tab(.some) = decision, !focus { self?.selectInPaneScoped(scoped) } }, finished: finished) ?? false },
-            column: { [weak self] in self?.rightColumnScoped(self?.tabKey($0, machine: machine) ?? AgentTabKey(machine: "", key: $0)) ?? .init() }, again: { [weak self] request in _ = self?.openSubagent(request.agent, of: session, focus: request.focus, asked: request.asked, beside: request.chat, machine: machine) })) }
+            column: { [weak self] in self?.rightColumnScoped(self?.tabKey($0, machine: machine) ?? AgentTabKey(machine: "", key: $0)) ?? .init() }, again: { [weak self] request in _ = self?.openSubagent(request.agent, of: session, focus: request.focus, asked: request.asked, beside: request.chat, machine: machine) }, watchUser: AgentSubagentPanes.watchUser)) }
+
+    /// A subagent's line under a chat row in the sidebar: opens `agent`'s pane beside chat tab `tab` with focus, through
+    /// the tracker the chat's own subagent cards use (``openSubagent(_:of:focus:asked:beside:machine:)``). False when the
+    /// tab shows no session.
+    @discardableResult
+    func openSubagentFromSidebar(_ agent: String, title: String?, chat tab: TabModel) -> Bool {
+        let key = tabKey(of: tab)
+        guard let session = session(of: key.key, machine: key.machine) ?? tab.agentSession?.session else { return false }
+        SubagentTabTitles.shared.name(agent, of: session, title: title)
+        return openSubagent(agent, of: session, focus: true, beside: key.key, machine: key.machine.isEmpty ? nil : key.machine)
+    }
 
     private func subagentTabIsBeside(_ source: String, _ candidate: String, machine: String? = nil) -> Bool { // AgentSubagentPanes.isBeside
         let at = { (found: (pane: PaneID, daemon: DaemonService)?) in found.map { (pane: $0.pane, owner: ObjectIdentifier($0.daemon)) } }

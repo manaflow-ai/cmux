@@ -381,7 +381,7 @@ class GraphQLReadTests(unittest.TestCase):
         gh = FakeGitHub()
         gh.add("hello")
         self.assertEqual([c["body"] for c in pr_status.list_comments(gh, "o/r", 7)], ["hello"])
-        # a test that patches http_api with its fake (test_defaults_guard) still reads the fake, never GraphQL
+        # a test that patches http_api with its fake (as a caller's test does) still reads the fake, never GraphQL
         saved = pr_status.http_api
         pr_status.http_api = gh
         try:

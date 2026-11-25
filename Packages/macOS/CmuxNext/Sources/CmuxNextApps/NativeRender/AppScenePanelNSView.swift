@@ -24,6 +24,7 @@ final class AppScenePanelNSView: AppSceneNodeNSView {
     }
 
     override var childHost: NSView { content }
+    override var hostsChildrenInSelf: Bool { false }
 
     private var isCard: Bool { node.string("style") == "card" }
     private var spacing: CGFloat { node.number("spacing").map { CGFloat($0) } ?? Metrics.space2 }
