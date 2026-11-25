@@ -1815,6 +1815,15 @@ class WebviewsChecksGate(unittest.TestCase):
         self.findings({"typecheck": red + red.replace(":350:", ":351:")}, "the merge")
         self.assertEqual(self.gate(base).returncode, 1)
 
+    def test_a_vite_config_stack_frame_matches_the_base_across_temp_names(self):
+        merge = ("error: Failed to resolve vite config\n"
+                 "    at markdownHost (file:///r/webviews/node_modules/.vite-temp/"
+                 "vite.config.ts.timestamp-1795525836293-8f8fc7091050a8.mjs:3240:23)\n")
+        base = merge.replace("1795525836293-8f8fc7091050a8", "1795525901234-0a1b2c3d4e5f60")
+        new, old = self.module.compare(merge, base)
+        self.assertEqual(new, [])
+        self.assertTrue(old)
+
     def test_a_type_error_keys_on_file_code_and_message_not_line_or_frame(self):
         output = ("\x1b[31m  x typescript(TS2339): Property 'muted' does not exist on type 'Row'.\x1b[0m\n"
                   "     ,-[test/composer-row-layout.test.ts:350:22]\n"
@@ -1943,6 +1952,14 @@ class WebviewsChecksGate(unittest.TestCase):
     # and its log keeps only `##[warning]MESSAGE`, so a new finding printed as that raw line names no file.
     UNUSED = ("::warning file=src/agent-session/acpmux/ModelPicker.tsx,line={line},endLine={line},col=34,"
               "endColumn=52,title=eslint(no-unused-expressions)::Expected expression to be used\n")
+
+    def test_a_vite_config_stack_differing_only_by_its_temp_bundle_name_is_the_base_one(self):
+        def stack(stamp: str) -> str:
+            return ("failed to load config from /w/webviews/vite.config.ts\n"
+                    f"    at markdownHost (file:///w/webviews/node_modules/.vite-temp/vite.config.ts.timestamp-{stamp}.mjs:3240:23)\n")
+        new, old = self.module.compare(stack("1795534024051-bd9bea275ee978"), stack("1795533990112-0a1b2c3d4e5f60"))
+        self.assertEqual(new, [])
+        self.assertEqual(len(old), 2)
 
     def test_an_annotation_finding_that_only_moved_lines_is_the_base_one(self):
         merge = self.UNUSED.format(line=803) + "Found 1 warning and 0 errors.\n"
