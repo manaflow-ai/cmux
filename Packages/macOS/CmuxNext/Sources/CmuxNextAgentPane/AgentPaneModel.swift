@@ -182,9 +182,8 @@ public final class AgentPaneModel {
     /// the Send goes without it. False: not such a reservation.
     func releaseLeftCloudReservation(_ key: String) async -> Bool {
         guard cloudReservationsLeft.remove(key) != nil else { return false }
-        if let onCloudReservation,
-           let release = AgentPaneCloudReservationRequest(method: "cloud.releaseReservation", params: ["composeKey": key]) {
-            _ = await onCloudReservation(release)
+        if let onCloudReservation {
+            _ = await onCloudReservation(.release(composeKey: key))
         }
         return true
     }
@@ -914,9 +913,8 @@ public final class AgentPaneModel {
             let reply = await onCloudReservation(request)
             let dropped = cloudReserveOut?.key == composeKey && cloudReserveOut?.dropped == true
             if cloudReserveOut?.key == composeKey { cloudReserveOut = nil }
-            if dropped, reply["ok"] as? Bool == true,
-               let late = AgentPaneCloudReservationRequest(method: "cloud.releaseReservation", params: ["composeKey": composeKey]) {
-                _ = await onCloudReservation(late)
+            if dropped, reply["ok"] as? Bool == true {
+                _ = await onCloudReservation(.release(composeKey: composeKey))
                 if cloudReservationComposeKey == composeKey { cloudReservationComposeKey = nil }
                 cloudReservationsLeft.remove(composeKey)
                 return AgentPaneReply.failure(code: "unavailable_now", message: "unavailable_now")

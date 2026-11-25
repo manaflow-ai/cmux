@@ -45,7 +45,7 @@ struct AgentPaneGitHubRequestTests {
     }
 
     @Test func thePageHostServesThem() {
-        for method in AgentPaneGitHubRequest.methods {
+        for method in ["github.status", "github.connect", "github.repos.list", "github.repos.checkout", "repo.clone"] {
             #expect(AgentPageOps.method(for: AgentPageOps.namespace + method) == method)
         }
         #expect(AgentPaneRequest.gitHub(.repos(query: "secret")).description == "github.repos.list")

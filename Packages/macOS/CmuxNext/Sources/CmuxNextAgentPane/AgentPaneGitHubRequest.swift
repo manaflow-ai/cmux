@@ -22,49 +22,6 @@ public nonisolated enum AgentPaneGitHubRequest: Equatable, Sendable {
     /// Clone a credential-free HTTPS URL on this Mac, without creating a worktree.
     case cloneURL(url: String, key: String)
 
-    public static let methods: Set<String> = ["github.status", "github.connect", "github.repos.list", "github.repos.checkout", "repo.clone"]
-
-    /// The page's params, checked; nil for anything else. `query` is the picker's search text, or null.
-    init?(method: String, params: [String: Any]?) {
-        switch method {
-        case "github.status": self = .status
-        case "github.connect":
-            switch params?["repo"] {
-            case nil, is NSNull: self = .connect(repo: nil)
-            case let repo as String where CloudGitHubRepos.isFullName(repo): self = .connect(repo: repo)
-            default: return nil
-            }
-        case "github.repos.list":
-            let query = params?["query"]
-            if query == nil || query is NSNull {
-                self = .repos(query: nil)
-            } else if let text = query as? String, text.utf8.count <= 1024, !text.contains("\0") {
-                self = .repos(query: text)
-            } else {
-                return nil
-            }
-        case "repo.clone":
-            guard let url = params?["url"] as? String, url.utf8.count <= 4096, !url.contains("\0"),
-                  let key = params?["idempotency_key"] as? String, AgentPaneGitWrite.isKey(key) else { return nil }
-            self = .cloneURL(url: url, key: key)
-        case "github.repos.checkout":
-            guard let repo = params?["repo"] as? String, CloudGitHubRepos.isFullName(repo),
-                  let key = params?["idempotency_key"] as? String, AgentPaneGitWrite.isKey(key) else { return nil }
-            var candidates: [String] = []
-            switch params?["candidates"] {
-            case nil, is NSNull: break
-            case let list as [Any]:
-                for item in list.prefix(AgentPaneGitHubCheckout.maximumCandidates) {
-                    guard let path = item as? String, path.hasPrefix("/"), !path.contains("\0"), path.utf8.count <= 4096 else { return nil }
-                    candidates.append(path)
-                }
-            default: return nil
-            }
-            self = .checkout(repo: repo, candidates: candidates, key: key)
-        default: return nil
-        }
-    }
-
     public var method: String {
         switch self {
         case .status: "github.status"

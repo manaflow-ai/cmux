@@ -65,8 +65,8 @@ public nonisolated struct AgentPageOps {
             "chat.unsentPrompt.put", "chat.unsentPrompt.remove", "chat.unsentPrompts.get", "chat.rows.open", "chat.rows.close", "chat.rows.page", "chat.rows.blob", "chat.rows.taken",
         ].map { ($0, $0) })
         for action in AgentPaneIMessageAction.allCases { methods["imessage.\(action.rawValue)"] = "imessage.\(action.rawValue)" }
-        for method in AgentPaneReplyRequest.methods.union(AgentPaneEnvironmentRequest.methods).union(AgentPaneCloudMachineRequest.methods).union(AgentPaneCloudRepositoryRequest.methods)
-            .union(AgentPaneCloudEnvironmentRequest.methods).union(AgentPaneGitHubRequest.methods).union(AgentPaneCloudReservationRequest.methods).union(AgentPaneCloudTurnRewind.methods).union(AgentProjectPaletteRequest.methods) { methods[method] = method }
+        for method in AgentPaneReplyRequest.methods.union(AgentPaneEnvironmentRequest.methods).union(AgentPaneCloudMachineRequest.methods).union(AgentPaneRequest.rustHostOpMethods)
+            .union(AgentPaneCloudTurnRewind.methods).union(AgentProjectPaletteRequest.methods) { methods[method] = method }
         methods["handshake"] = "ready"
         methods["session.persist"] = "chat.persistSession"
         return methods

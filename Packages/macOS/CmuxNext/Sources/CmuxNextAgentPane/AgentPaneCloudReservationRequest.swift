@@ -5,7 +5,6 @@ import os
 
 /// Transparent native envelope; shared web owns compose lifetime and Rust owns the API calls.
 public nonisolated struct AgentPaneCloudReservationRequest: Equatable, Sendable {
-    public static let methods: Set<String> = ["cloud.reserve", "cloud.releaseReservation"]
     public let release: Bool
     public let params: JSONValue
     public let composeKey: String?
@@ -20,23 +19,21 @@ public nonisolated struct AgentPaneCloudReservationRequest: Equatable, Sendable 
     /// `auto`): only the log line says so. Never forwarded to Rust.
     public let auto: Bool
 
-    init?(method: String, params: [String: Any]?) {
-        var object = params ?? [:]
-        let replaces = object.removeValue(forKey: "replacesChat")
-        let atOpen = object.removeValue(forKey: "atOpen")
-        let auto = object.removeValue(forKey: "auto")
-        if let atOpen, !(atOpen is Bool) { return nil }
-        if let auto, !(auto is Bool) { return nil }
-        if let replaces, !((replaces as? String).map { !$0.isEmpty && $0.count <= 128 } ?? false) { return nil }
-        guard Self.methods.contains(method),
-              let data = try? JSONSerialization.data(withJSONObject: object),
-              let params = try? JSONDecoder().decode(JSONValue.self, from: data) else { return nil }
-        release = method == "cloud.releaseReservation"
+    /// Rust decodes the page's message (``AgentPaneRequest/rustHostOp(method:params:)``): `params` comes without
+    /// the host's own three keys.
+    init(release: Bool, params: JSONValue, composeKey: String?, replacesChat: String?, atOpen: Bool, auto: Bool) {
+        self.release = release
         self.params = params
-        composeKey = params["composeKey"]?.stringValue
-        replacesChat = replaces as? String
-        self.atOpen = atOpen as? Bool ?? false
-        self.auto = auto as? Bool ?? false
+        self.composeKey = composeKey
+        self.replacesChat = replacesChat
+        self.atOpen = atOpen
+        self.auto = auto
+    }
+
+    /// The release of the reservation `composeKey` names, as the page would send it.
+    static func release(composeKey: String) -> Self {
+        Self(release: true, params: .object(["composeKey": .string(composeKey)]), composeKey: composeKey, replacesChat: nil,
+             atOpen: false, auto: false)
     }
 
     /// Supplies only the native client's trusted platform and human-session credentials to Rust. `install` is the

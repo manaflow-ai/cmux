@@ -124,20 +124,8 @@ extension AgentPaneRequest {
             self = AgentPaneIMessageAction(rawValue: String(method.dropFirst("imessage.".count))).map(Self.imessage) ?? .unsupported(method)
             return
         }
-        if AgentPaneCloudReservationRequest.methods.contains(method) {
-            self = AgentPaneCloudReservationRequest(method: method, params: params).map(Self.cloudReservation) ?? .unsupported(method)
-            return
-        }
-        if AgentPaneCloudEnvironmentRequest.methods.contains(method) {
-            self = AgentPaneCloudEnvironmentRequest(method: method, params: params).map(Self.cloudEnvironment) ?? .unsupported(method)
-            return
-        }
-        if AgentPaneCloudRepositoryRequest.methods.contains(method) {
-            self = AgentPaneCloudRepositoryRequest(method: method, params: params).map(Self.cloudRepository) ?? .unsupported(method)
-            return
-        }
-        if AgentPaneGitHubRequest.methods.contains(method) {
-            self = AgentPaneGitHubRequest(method: method, params: params).map(Self.gitHub) ?? .unsupported(method)
+        if Self.rustHostOpMethods.contains(method) {
+            self = Self.rustHostOp(method: method, params: params)
             return
         }
         switch method {

@@ -20,7 +20,9 @@ public nonisolated struct WindowRules: Sendable {
         return decoded
     }
 
-    private func callData(_ operation: String, _ data: Data) -> Data? {
+    /// One JSON call with the request already encoded (a page's own message): the answer's bytes, nil when the
+    /// FFI does not answer.
+    public func callData(_ operation: String, _ data: Data) -> Data? {
         var capacity = 4096
         for _ in 0..<2 {
             var output = [UInt8](repeating: 0, count: capacity); var outputLength = 0
