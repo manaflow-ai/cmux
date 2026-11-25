@@ -167,6 +167,16 @@ fn the_named_api_passes_the_gate() {
     assert!(cmux_egress::check("unrelated-cloud-journey-test.org", "test").is_err());
 }
 
+#[test]
+fn start_size_is_the_spare_shape_unless_killed() {
+    // The platform's CHAT_START_SHAPE (2 vCPU, 4 GiB, 20 GiB): the only size its Scaler claims a warm spare for.
+    assert_eq!(start_size(None), (2, 4_096, 20_480));
+    assert_eq!(start_size(Some("1")), (2, 4_096, 20_480));
+    for kill in ["0", "false", " OFF "] {
+        assert_eq!(start_size(Some(kill)), NO_SPARE_SIZE, "{kill}");
+    }
+}
+
 fn machine(
     id: &str,
     name: &str,

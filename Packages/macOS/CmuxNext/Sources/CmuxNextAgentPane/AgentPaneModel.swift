@@ -508,6 +508,7 @@ public final class AgentPaneModel {
         transport.roots = { [weak self] in self?.roots() ?? [] }
         transport.gestureRoots = { [weak self] in self?.gestureRoots() ?? [] }
         transport.primaryRoot = { [weak self] in self?.primaryRoot() }
+        transport.inheritedFolders = { [weak self] in self?.inheritedFolders() ?? [] }
         transport.agentHome = { [weak self] in self?.startFolders.answer?.agentHomeFill ?? self?.workspaceAgentHome?() }
         if let sessionId { transport.sessions.add(sessionId) }
         transport.requestModeConfirmation = { [weak self] asked, answer in
