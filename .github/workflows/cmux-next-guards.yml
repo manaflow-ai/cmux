@@ -132,6 +132,7 @@ jobs:
             /scripts/
             /.github/
             /tests/
+            /.gitmodules
       # A router failure leaves the output empty, and the checks run.
       - name: Route the pull request (scripts/ci/fast_check_route.py)
         id: route
@@ -210,6 +211,7 @@ jobs:
             /scripts/
             /tests/
             /.github/
+            /.gitmodules
 
       - name: Discard the half-written checkout before the retry
         if: steps.checkout.outcome == 'failure'
