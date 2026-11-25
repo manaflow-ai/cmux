@@ -5,7 +5,7 @@
 #
 #   cmux-ci run --class exclusive --measurement --label measure --script scripts/measure/screen-share-vs-pair.sh \
 #     --ref SHA --target-worker cmux20 --artifact artifacts/screen-share-vs-pair/report.tgz --timeout 3600 \
-#     --arg=mode=run --arg=partner=cmux17 [--arg=loss=1] [--arg=source=screen] [--arg=fps-trials=3] [--arg=trials=10]
+#     --arg=mode=run --arg=partner=cmux17 [--arg=loss=1] [--arg=profile=ultra] [--arg=source=screen] [--arg=fps-trials=3] [--arg=trials=10]
 #
 # mode=probe  prints this Mac's name and LAN address and whether `ssh -o BatchMode=yes` reaches the partner by
 #             each name it tries (NAME, NAME.local, partner-ip=IP when given). Exit 0 when one does, 1 when none.
@@ -15,16 +15,20 @@
 #             datagrams the host drops after its loss meter counts them sent (no shaper, no sudo); the leg's
 #             --link is `loss<PCT>` then, else `wired`. report.tgz holds run.jsonl (the --out file, which
 #             cmuxterm-hq's screen_share_fast_receipt.py extract reads), run.log and probe.txt.
+#             profile=standard|ultra is --encode-profile (default: none sent, the host runs standard); with
+#             profile=ultra the leg is labelled `pair-job-ultra`, so a first p50 from any two reachable Macs is
+#             read as not-the-wired-pair unless the pair is cmux20 -> cmux17.
 # Exit: 0 measured, 1 the run failed, 2 bad arguments, 3 the partner is unreachable or the tools did not build.
 set -uo pipefail
 cd "$(git rev-parse --show-toplevel)"
-mode="" partner="" partner_ip="" loss=0 source=screen fps_trials=3 trials=10
+mode="" partner="" partner_ip="" loss=0 profile= source=screen fps_trials=3 trials=10
 for arg in "$@"; do
   case "$arg" in
     mode=probe|mode=run) mode="${arg#mode=}" ;;
     partner=*) partner="${arg#partner=}" ;;
     partner-ip=*) partner_ip="${arg#partner-ip=}" ;;
     loss=*) loss="${arg#loss=}" ;;
+    profile=standard|profile=ultra) profile="${arg#profile=}" ;;
     source=screen|source=synthetic) source="${arg#source=}" ;;
     fps-trials=*) fps_trials="${arg#fps-trials=}" ;;
     trials=*) trials="${arg#trials=}" ;;
@@ -71,14 +75,15 @@ scripts/measure/screen-stream-eval.sh tools-only=1 >"$work/tools.log" 2>&1 \
   && tar -xzf artifacts/screen-stream-eval/tools.tar.gz -C "$work" \
   || { tail -40 "$work/tools.log"; cp "$work/tools.log" "$work/run.log"; pack; exit 3; }
 
-link=wired loss_args=()
+link=wired loss_args=() profile_args=() label=pair-job
+[[ -n "$profile" ]] && { profile_args=(--encode-profile "$profile"); label="pair-job-$profile"; }
 if [[ "$loss" != 0 ]]; then
   link="loss${loss}" loss_args=(--host-test-loss "$loss")
 fi
 python3 -I cmux-tui/crates/cmux-rd-host/scripts/screen-share-vs.py run \
   --host "$self" --viewer "$target" --host-ip "$self_ip" --local-mac "$self" --via ssh \
-  --tools "$work/tools" --stacks cmux --source "$source" --link "$link" ${loss_args[@]+"${loss_args[@]}"} \
-  --fps-trials "$fps_trials" --trials "$trials" --label "pair-job" --rev "$(git rev-parse HEAD)" \
+  --tools "$work/tools" --stacks cmux --source "$source" --link "$link" ${loss_args[@]+"${loss_args[@]}"} ${profile_args[@]+"${profile_args[@]}"} \
+  --fps-trials "$fps_trials" --trials "$trials" --label "$label" --rev "$(git rev-parse HEAD)" \
   --out "$work/run.jsonl" 2>&1 | tee "$work/run.log"
 rc=${PIPESTATUS[0]}
 echo "SSVP done rc=$rc host=$self viewer=$partner link=$link at=$(date -u +%Y-%m-%dT%H:%M:%SZ)"
