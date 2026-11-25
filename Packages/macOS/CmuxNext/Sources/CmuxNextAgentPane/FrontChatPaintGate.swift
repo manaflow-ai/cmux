@@ -12,8 +12,9 @@ public enum FrontChatPaintGate {
     nonisolated static let marks: Set<String> = ["agent_pane.painted", "agent_pane.newtab_painted"]
 
     public static func make(after firstFrame: FirstFrameGate, backstop: Duration = .milliseconds(1500),
-                            timings: AgentPaneLaunchTimings = .shared) -> FirstFrameGate {
-        let gate = FirstFrameGate(backstop: DemandTimer(owner: "FrontChatPaintGate.backstop"))
+                            timings: AgentPaneLaunchTimings = .shared,
+                            timer: DemandTimer = DemandTimer(owner: "FrontChatPaintGate.backstop")) -> FirstFrameGate {
+        let gate = FirstFrameGate(backstop: timer)
         timings.listen { name in
             guard marks.contains(name) else { return }
             MainDelivery().run { gate.open() }
