@@ -66,6 +66,8 @@ public struct CloudMachine: Sendable, Hashable, Identifiable, Codable {
         public var cpu: Int?
         public var memoryMb: Int?
         public var storageMb: Int?
+        /// The protocol's `size.disk_mb` (CloudMachineSize): the disk allocation a NEXT record carries.
+        public var diskMb: Int?
     }
 
     /// Diagnostics from the idle auto-pause cron, timestamps in epoch milliseconds.
