@@ -63,6 +63,16 @@ import { subagentRowsFrom, type SubagentRows } from "../subagents/subagentRows";
 type Summary = NonNullable<AcpmuxSnapshot["summary"]>;
 type Held = { session?: string; keys: ReadonlySet<string> };
 
+/// The reader's click on a Worked for held open at its turn's end (`heldWorked`): the hold without
+/// it, and the fold named in `letGo`, so the pass the click asks for does not hold it open again over
+/// the work leaving the view. Undefined when the fold is not held.
+export function letGoHeldWorked<T extends Held & { letGo?: ReadonlySet<string> }>(held: T, id: string): T | undefined {
+  if (!held.keys.has(id)) return undefined;
+  const keys = new Set(held.keys);
+  keys.delete(id);
+  return { ...held, keys, letGo: new Set(held.letGo).add(id) };
+}
+
 /// What `turnRowsShownFrom` reads of AcpmuxPane: the values its `turnRowsShown` memo closes over.
 export interface TurnRowsShownDeps {
   chatPresentation: Presentation;

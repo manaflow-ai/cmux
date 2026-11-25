@@ -4,7 +4,11 @@
 // view followed the latest row (Lucas, 2026-11-24).
 import { afterAll, beforeAll, expect, test } from "bun:test";
 import type { AcpmuxRow } from "../src/agent-session/acpmux/model";
-import { turnRowsShownFrom, type TurnRowsShownDeps } from "../src/agent-session/acpmux/pane/useTurnActions";
+import {
+  letGoHeldWorked,
+  turnRowsShownFrom,
+  type TurnRowsShownDeps,
+} from "../src/agent-session/acpmux/pane/useTurnActions";
 
 const liveTurnArmsBefore = globalThis.cmuxExperiments;
 beforeAll(() => {
@@ -74,9 +78,9 @@ function pane() {
     );
   /// App.tsx `toggleActivity` on a held Worked for.
   const click = (id: string) => {
-    const keys = new Set(heldWorked.current.keys);
-    keys.delete(id);
-    heldWorked.current = { ...heldWorked.current, keys, letGo: new Set(heldWorked.current.letGo).add(id) };
+    const letGo = letGoHeldWorked(heldWorked.current, id);
+    expect(letGo).toBeDefined();
+    heldWorked.current = letGo!;
   };
   return { view, heldWorked, shown, click };
 }
