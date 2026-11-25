@@ -85,6 +85,30 @@ struct HomeSidebarHeaderTests {
         #expect(home.rim.superview === home.panel && home.rim.frame == home.panel.bounds)
     }
 
+    /// The panel's fill is a shade, not a colour: at a low window opacity the desktop shows through it
+    /// as through the rest of the window (the user, 2026-11-23: "the background needs to blend on low
+    /// opacity/transprency"). Over an opaque surface it is still the surface 5 % toward black (dark). Under
+    /// `legibleCover` the surface tops the cover up, so the list's text stays readable ("being able to read them").
+    @Test(arguments: [true, false])
+    func thePanelFillBlendsWithTheWindow(_ dark: Bool) throws {
+        let surface = NSColor(srgbRed: 0.1, green: 0.2, blue: 0.3, alpha: 0.5)
+        let shade = 1 - (dark ? 0.95 : 1 - 0.74 * 0.08)
+        // Over an opaque window, or one that covers enough: a black shade only.
+        for cover in [1, 0.9, HomeSidebarGlass.legibleCover] {
+            let tint = try #require(HomeSidebarGlass(surface: surface, cover: cover, dark: dark).tint.usingColorSpace(.sRGB))
+            #expect(tint.redComponent == 0 && tint.greenComponent == 0 && tint.blueComponent == 0, "cover \(cover)")
+            #expect(abs(tint.alphaComponent - shade) < 0.0001, "cover \(cover)")
+        }
+        // Over a thin window: the panel covers `legibleCover` (and the shade), never all; the surface's hue.
+        for cover in [0, 0.3, 0.5, 0.6] {
+            let tint = try #require(HomeSidebarGlass(surface: surface, cover: cover, dark: dark).tint.usingColorSpace(.sRGB))
+            let total = 1 - (1 - Double(tint.alphaComponent)) * (1 - cover)
+            #expect(abs(total - (1 - (1 - shade) * (1 - HomeSidebarGlass.legibleCover))) < 0.0001, "cover \(cover): \(total)")
+            #expect(tint.alphaComponent < 1)
+            #expect(tint.blueComponent > tint.greenComponent && tint.greenComponent > tint.redComponent, "cover \(cover): not the surface's hue")
+        }
+    }
+
     /// The field's text is centred on the row (Leo 2026-10-19, "vertically they need to all be
     /// centered"): an unbezeled search cell draws its line from the frame's top, so the field is
     /// one text line tall and centred in its capsule, on the buttons' centre line.

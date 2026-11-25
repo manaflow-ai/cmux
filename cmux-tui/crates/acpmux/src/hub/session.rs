@@ -186,8 +186,6 @@ pub struct Session {
     pub(super) turn: StdMutex<Option<TurnInfo>>,
     /// When the person left it and the recap made meanwhile (`away_recap.rs`).
     pub(super) away: StdMutex<super::away_recap::Away>,
-    /// Whether a person started the running turn, and the summary request (`rolling_summary.rs`).
-    pub(super) rolling: StdMutex<super::rolling_summary::Rolling>,
     /// The person's corrections and the prompt coach's offer (`prompt_coach.rs`).
     pub(super) coach: OnFirstUse<StdMutex<crate::prompt_coach::Coach>>,
     /// The turn `finish_turn` took and has not ended yet: a shutdown settles it if its end does
@@ -520,6 +518,8 @@ pub struct Session {
     /// The running turn's finished command calls, bounded, that its last reply's claims are
     /// checked against when it ends (`claim_check.rs`).
     pub(super) claim_runs: StdMutex<super::claim_check::ClaimRuns>,
+    /// The running turn's prefetched files and the reads of them since (`prefetch.rs`).
+    pub(super) prefetch: StdMutex<Option<super::prefetch::PrefetchTurn>>,
     /// Its command calls while its harness's sandbox refuses them, newest last and bounded
     /// (`harness_sandbox.rs`): one that completes ends the failure. Empty otherwise.
     pub(super) harness_sandbox_calls: StdMutex<std::collections::VecDeque<String>>,
@@ -568,6 +568,9 @@ pub struct Session {
     /// The last start refused because its harness cannot keep the chat's policy, while nothing it
     /// depends on changed (`policy_mode.rs` `RefusalLatch`): no wake or request starts it again.
     pub(super) policy_refusal: super::policy_mode::RefusalLatch,
+    /// The harness exited while it started, with the same error again: starts fail with it
+    /// until a bounded, doubling window passed (`launch_backoff.rs`).
+    pub(super) launch_backoff: super::launch_backoff::LaunchBackoff,
     /// The agent's own requests (a file read, a terminal, a permission) whose task has not
     /// ended: the idle exit waits for none of them, it keeps the agent (`idle.rs`).
     pub(super) agent_requests: std::sync::atomic::AtomicUsize,
@@ -597,7 +600,7 @@ pub struct Session {
     pub(super) processes: OnFirstUse<StdMutex<processes::ProcessTable>>,
     /// Tool calls that run `gh pr create`, and the URL each printed so far, until they end
     /// (`pull_requests.rs`).
-    pub(super) pr_creates: StdMutex<std::collections::HashMap<String, Option<String>>>,
+    pub(super) pr_creates: StdMutex<super::pull_requests::Creates>,
     /// Tool calls that run `gh pr merge` or `gh pr close`, and what each settles, until they end
     /// (`pull_requests.rs`).
     pub(super) pr_closes:
@@ -706,6 +709,7 @@ impl Session {
     pub(crate) fn person_wrote(&self) {
         self.person.store(true, Ordering::SeqCst);
         self.policy_refusal.clear();
+        self.launch_backoff.clear();
     }
 
     /// Fence untagged compaction metadata for this live session. Claude's
