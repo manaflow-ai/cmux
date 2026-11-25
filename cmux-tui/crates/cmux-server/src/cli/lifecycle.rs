@@ -385,11 +385,35 @@ pub fn uninstall(ctx: &Context<'_>, args: &Args) -> Result<Output> {
         ));
     }
     let layout = mutating_layout(ctx, false)?;
-    let svc = services(ctx, &layout)?;
+    let mut svc = services(ctx, &layout)?;
     // One service command at a time, for the whole uninstall, store and
     // state removal included (Services::lock).
     let _service_lock = svc.lock()?;
     let session = super::session_service::installed(&svc);
+    // A session service is checked, renewed and stopped as the session unit
+    // cmux renders, not the store's unit (the same file name).
+    svc.session = super::session_service::installed_host(ctx, &svc);
+    // Uninstall ends the session's terminals: in one of them, it would end
+    // its own shell, and itself (SIGHUP), halfway through.
+    if let (Some(host), Some(socket)) = (&svc.session, &ctx.terminal_socket) {
+        use crate::service::TerminalSession;
+        match crate::service::terminal_session(socket, &host.session) {
+            TerminalSession::Other => {}
+            TerminalSession::This => {
+                return Err(Error::rejected(format!(
+                    "this command runs in a terminal of session {:?}, and uninstall ends that session's terminals (this one too, before it could finish); nothing was changed. Run it from a terminal outside that session (another app's terminal, or a plain ssh login)",
+                    host.session
+                )));
+            }
+            TerminalSession::Unknown => {
+                return Err(Error::rejected(format!(
+                    "this command runs in a cmux terminal whose daemon listens on {} (not a default socket path), so cmux cannot tell whether it is a terminal of session {:?}, whose terminals uninstall ends (this one too, before it could finish); nothing was changed. Run it from a terminal outside cmux (another app's terminal, or a plain ssh login)",
+                    socket.display(),
+                    host.session
+                )));
+            }
+        }
+    }
     // A unit cmux did not write (or one systemd loads from elsewhere): stop,
     // disable, remove and purge nothing, not even the store or state a
     // service of that name might use.

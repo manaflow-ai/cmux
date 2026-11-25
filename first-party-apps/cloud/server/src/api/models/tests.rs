@@ -65,20 +65,26 @@ fn fields_the_catalog_lacks_reach_the_app() {
             "capabilities": ["terminal", "agent_session"],
             "provider_operations": ["snapshot", "resize"],
             "disk_health": {
+                "state": "healthy",
                 "free_mb": 4096, "used_mb": 12288, "total_mb": 16384,
                 "floor_mb": 1024, "top_users": [{ "path": "/home/cmux", "used_mb": 2048 }],
                 "observed_at": 1_700_000_000_000i64
             },
             "idlePause": idle,
+            "origin": { "kind": "person", "label": "Surge" },
         }),
     );
     let machine = decode(source.clone());
     assert!(machine.has_capability("agent_session"));
     assert!(!machine.has_capability("provider_secret"));
     let encoded = encode(&machine);
-    for key in ["platform", "capabilities", "provider_operations", "disk_health", "idlePause"] {
+    for key in
+        ["platform", "capabilities", "provider_operations", "disk_health", "idlePause", "origin"]
+    {
         assert_eq!(encoded[key], source[key], "{key}");
     }
+    // `origin` is a catalog field now (CloudMachine.origin): it rides the record.
+    assert_eq!(machine.record.origin.as_ref().map(|o| o.label.as_str()), Some("Surge"));
 
     // The older names read as the ones the app reads (cmux-cloud-machine `from_next`).
     let older = decode(with(
@@ -96,6 +102,7 @@ fn fields_the_catalog_lacks_reach_the_app() {
     assert!(plain.get("provider_operations").is_none());
     assert!(plain.get("disk_health").is_none());
     assert!(plain.get("idlePause").is_none());
+    assert!(plain.get("origin").is_none());
 }
 
 #[test]
@@ -119,6 +126,31 @@ fn the_extra_fields_never_shadow_a_catalog_field() {
         );
     }
     assert_eq!(catalog["pause_reason"], "idle");
+}
+
+#[test]
+fn disk_health_state_is_computed_by_the_relay() {
+    let warning = decode(with(
+        record("vm-warning", "1"),
+        json!({
+            "disk_health": {
+                "free_mb": 1024, "used_mb": 15360, "total_mb": 16384,
+                "floor_mb": 1024, "top_users": [], "observed_at": 1_700_000_000_000i64
+            }
+        }),
+    ));
+    assert_eq!(encode(&warning)["disk_health"]["state"], "warning");
+
+    let invalid = decode(with(
+        record("vm-invalid", "1"),
+        json!({
+            "disk_health": {
+                "free_mb": 12000, "used_mb": 8000, "total_mb": 16384,
+                "floor_mb": 1024, "top_users": [], "observed_at": 1_700_000_000_000i64
+            }
+        }),
+    ));
+    assert_eq!(encode(&invalid)["disk_health"]["state"], "unknown");
 }
 
 #[test]

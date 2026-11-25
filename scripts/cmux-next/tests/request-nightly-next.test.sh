@@ -111,6 +111,11 @@ cat > "$TMP/bin/gh" <<STUB
 #!/usr/bin/env bash
 printf '%s\n' "\$*" >> "$TMP/gh.log"
 if [[ "\$1 \$2" == "run list" ]]; then
+  # \$TMP/gh-runs-json (a run list as JSON) is filtered by the call's own --jq.
+  if [[ -f "$TMP/gh-runs-json" && " \$* " == *" --json status,conclusion,event "* ]]; then
+    q=""; prev=""; for a in "\$@"; do [[ "\$prev" == --jq ]] && q="\$a"; prev="\$a"; done
+    jq -r "\$q" "$TMP/gh-runs-json"; exit 0
+  fi
   [[ -f "$TMP/gh-runs" ]] || exit 1
   cat "$TMP/gh-runs"; exit 0
 fi
@@ -368,7 +373,8 @@ git -C "$src" config uploadpack.allowAnySHA1InWant true
 git -C "$src" update-ref refs/heads/feat-cmux-next "$other"
 shallow="$TMP/shallow"
 git_q clone -q --no-local --depth=1 "file://$src" "$shallow"
-real_git=$(command -v git)
+# The git binary, never a wrapper on PATH that would exec this shim again (tests/real_git.py).
+real_git=$(python3 "$ROOT/tests/real_git.py") || exit 2
 mkdir -p "$TMP/gitbin"
 cat > "$TMP/gitbin/git" <<STUB
 #!/usr/bin/env bash
@@ -809,6 +815,23 @@ RUN_ID=128 request --tree-ready "$pending"
 [[ "$status" == 0 ]] && ! backfilled && dispatched "$pending" \
   || fail "an unreadable job list must not count the run as starved:" "$out" "$(cat "$TMP/gh.log")"
 rm -f "$TMP/gh-starved" "$TMP/gh-active-runs"
+# A coalesced tip: its only run succeeded and built nothing (its tree is still a
+# 404), so it counts as no run and the tip is backfilled (2026-11-23: the tick
+# walked past coalesced tips and cut commits 40-87 min old). A failed or running
+# run still counts.
+echo 0 > "$TMP/gh-runs"
+echo '[{"status":"completed","conclusion":"success","event":"push"}]' > "$TMP/gh-runs-json"
+RUN_ID=129 request --tree-ready "$pending"
+[[ "$status" == 0 ]] && backfilled && ! dispatched "$pending" \
+  || fail "a tip whose only run succeeded without a tree must be backfilled:" "$out" "$(cat "$TMP/gh.log")"
+# A green backfill dispatch that published nothing is not re-dispatched every tick.
+for run in '{"status":"completed","conclusion":"failure","event":"push"}' '{"status":"in_progress","conclusion":null,"event":"push"}' \
+           '{"status":"completed","conclusion":"success","event":"workflow_dispatch"}'; do
+  echo "[$run]" > "$TMP/gh-runs-json"
+  RUN_ID=130 request --tree-ready "$pending"
+  [[ "$status" == 0 ]] && ! backfilled || fail "a tip run $run must still count (no backfill):" "$out" "$(cat "$TMP/gh.log")"
+done
+rm -f "$TMP/gh-runs-json"
 echo 1 > "$TMP/gh-runs"
 request --tree-ready "$pending"
 [[ "$status" == 0 ]] && dispatched "$pending" || fail "the building tip with the line and an active run must be requested:" "$out" "$(cat "$TMP/gh.log")"

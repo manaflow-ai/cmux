@@ -114,6 +114,9 @@ final class NewTabSparePool {
     /// At launch: follow the key main window; park in the first visible one.
     func start() {
         services.agentTabs.recycle = { [weak self] view in self?.recycle(view) ?? false }
+        services.agentTabs.poolRole = { [weak self] view in self?.role(of: view) }
+        // A closed page whose release never came left the window: the census closes it when no tab holds it.
+        returns.onExpired = { [weak tabs = services.agentTabs] in tabs?.scheduleOrphanSweep() }
         // The first page of a new workspace (Cmd-N, an empty window's New Tab page) adopts the
         // spare too, so a cold Cmd-N shows a page that already loaded (cx-ec99).
         services.agentTabs.takeSpare = { [weak self] refill in
@@ -130,11 +133,11 @@ final class NewTabSparePool {
             guard let self else { return nil }
             guard let spare = slot.peek,
                   let window = self.services.keyWindowSource().flatMap(self.mainWindow) ?? self.target else {
-                AgentPaneSpareOutcome.empty.trace()
+                AgentPaneSpareOutcome.empty.trace(into: services.agentTabs.retirer.sources)
                 return nil
             }
             guard spare.model.servesExistingChat else {
-                AgentPaneSpareOutcome.unready.trace()
+                AgentPaneSpareOutcome.unready.trace(into: services.agentTabs.retirer.sources)
                 return nil
             }
             return take(for: window, size: nil, refill: .afterPaint)?.view
@@ -317,9 +320,14 @@ final class NewTabSparePool {
         return true
     }
     private let returns = AgentPaneSpareReturns()
+    /// Why the pool holds `view` (``AgentPageLiveness``): its spare, or a closed page waiting for its tab's release.
+    func role(of view: AgentPaneView) -> AgentPageRole? {
+        if slot.all.contains(where: { $0 === view }) { return .spare }
+        return returns.holds(view) ? .returning : nil
+    }
     private func refusal(of view: AgentPaneView) -> String? {
         pressured ? "memory pressure" : view.model.neverPooled ? "another machine's page" : !slot.shouldWarm ? "slot full" : view.model.newTab == nil ? "became a chat"
-            : view.model.userTouched ? "touched by \(view.model.touchedBy ?? "?")" : target == nil ? "no target window" : nil
+            : view.model.userTouched ? "touched by \(view.model.touchedBy ?? view.model.hostTouch.by ?? "?")" : target == nil ? "no target window" : nil
     }
     /// A closed tab's page the pool can take back waits for `recycle` in the parking view, inside its window (`AgentPaneSpareReturns`).
     func keepInWindow(_ view: NSView) -> Bool {

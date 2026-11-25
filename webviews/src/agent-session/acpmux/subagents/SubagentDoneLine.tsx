@@ -28,7 +28,7 @@
 //
 // The saved report-disclosure look keeps its inline Markdown report. Its row toggles the report;
 // the agent name opens the agent's view (doneReport.experiment.ts).
-import { useContext, useId, useLayoutEffect, useRef, useState } from "react";
+import { useContext, useId, useLayoutEffect, useRef, useState, type ReactNode } from "react";
 import { experimentArm } from "../../../experiments/experiment";
 import { Menu, MenuButton, MenuItem, MenuPopup } from "../../../ui/Menu";
 import { AgentTag } from "../conversation/AgentTag";
@@ -36,6 +36,7 @@ import { TranscriptActivityRowShell } from "../conversation/TranscriptActivityRo
 import { spanDuration } from "../conversation/turns";
 import { ChevronRight, Retry } from "../conversation/icons";
 import { TurnActionsContext } from "../conversation/turnActions";
+import { headerToggleClick } from "../conversation/headerToggle";
 import { ReactionMark } from "../conversation/ReactionMark";
 import { useT, type StringKey } from "../i18n";
 import { Icon } from "../icons/Icon";
@@ -72,6 +73,7 @@ import { useWholeReport, type WholeReport } from "./wholeReport";
 import { WholeReportBody } from "./WholeReportBody";
 import { SubagentChipPreview } from "./SubagentPreview";
 import "./SubagentDoneLine.css";
+import { Described } from "../chips/FactsHoverCard";
 
 const DONE_LABEL: Record<string, StringKey> = {
   completed: "subagents.ended.completed",
@@ -194,8 +196,8 @@ function DoneLine({
   const shown = note?.version === row.version ? note : undefined;
   const openLabel = t("subagents.open", { name });
   // A failed line in the quiet looks (Leo, 2026-11-03: "this ui is pretty awkward looking"): its
-  // title in plain text and its reason muted, red only on its mark; the grid arm also lines its
-  // columns up from row to row: mark | title | short reason | Retry | time.
+  // title in plain text, its reason after it in red and a red dot on its mark (cmux#54927); the
+  // grid arm also lines its columns up from row to row: mark | title, reason | Retry | time.
   const failed = agent.state === "failed" && !waiting;
   const report = waiting ? undefined : doneReport(agent);
   const localReport = !open && compact && report !== undefined;
@@ -208,6 +210,9 @@ function DoneLine({
       ...(phase.kind === "failed" && phase.gaveUp ? [t("retry.retriedOut", { of: phase.gaveUp.of })] : []),
       ...(error ? [shortReason(error)] : []),
     ].join(" · ") || t("subagents.state.failed");
+  // The quiet line opens the subagent's view from anywhere on it, as a tool row opens.
+  const quietOpen = quiet ? open : undefined;
+  const cutFailure = error !== undefined && shortReason(error) !== error.trim();
   const run = () => {
     if (!retryAgent || shown?.busy) return;
     setNote({ version: row.version, busy: true });
@@ -217,16 +222,20 @@ function DoneLine({
     );
   };
   const restartButton = restart && controls.line.includes("restart") && (
-    <button
-      type="button"
-      className="cv-iconbtn cv-iconbtn--compact cv-subagent-restart"
-      aria-label={t("subagents.restart")}
-      title={t("subagents.restart")}
-      data-tooltip-detail={t("subagents.restartDetail")}
-      onClick={() => restart(agent)}
-    >
-      <Retry size={14} />
-    </button>
+    <Described text={t("subagents.restartDetail")}>
+      {(described) => (
+        <button
+          {...described}
+          type="button"
+          className="cv-iconbtn cv-iconbtn--compact cv-subagent-restart"
+          aria-label={t("subagents.restart")}
+          title={t("subagents.restart")}
+          onClick={() => restart(agent)}
+        >
+          <Retry size={14} />
+        </button>
+      )}
+    </Described>
   );
   // Resume where acpmux can start it again, else Restart: one control on the line.
   const lineButton = resumed.button || restartButton;
@@ -328,18 +337,23 @@ function DoneLine({
     <div className="cv-tools">
       <TranscriptActivityRowShell
         className="cv-tool cv-subagent-done-row"
+        // The pointer's wider target: its trailing time and chevron open the view too.
+        onClick={quietOpen ? headerToggleClick(() => quietOpen(agent.id)) : undefined}
         attributes={{
           "data-state": waiting ? "retrying" : agent.state,
           ...(look && { "data-look": look }),
           ...(compact && { "data-report-look": "compact" }),
         }}
       >
-        {/* No control itself: only its name opens the view (the chip below). */}
-        <div
+        {/* A quiet failed line that opens the view is that control, edge to edge, and lifts as
+            every tool row does (cmux#52916); any other line is no control itself: only its name
+            opens the view (the chip below). */}
+        <LineControl
           className="cv-tool cv-bgtask cv-subagent-done cv-agent-activity__control"
           data-state={waiting ? "retrying" : agent.state}
           {...(agent.stopReason && { "data-reason": agent.stopReason })}
           aria-label={whole}
+          onOpen={quietOpen ? () => quietOpen(agent.id) : undefined}
         >
           <span className="cv-tool__icon">
             <AgentIdentity
@@ -350,20 +364,12 @@ function DoneLine({
             />
           </span>
           {quiet ? (
-            // tooltip-allow: the line cuts its title and reason; its whole text, the failure included
-            <span className="cv-tool__text cv-subagent-failed__text" title={whole}>
-              {open ? (
-                <SubagentChipPreview agent={agent} name={name}>
-                  <AgentTag
-                    name={name}
-                    className="cv-subagent-failed__title"
-                    ariaLabel={openLabel}
-                    onClick={() => open(agent.id)}
-                  />
-                </SubagentChipPreview>
-              ) : (
-                <span className="cv-subagent-failed__title">{name}</span>
-              )}
+            // What it was asked to do and why it failed, in the line itself: no chip, no ring and
+            // no hover card over the row above (cmux#52916, on "Subagent  Failed" with a ringed
+            // chip and a "Failed · 0s" card). The whole failure shows only where the line cuts it.
+            // tooltip-allow: the line cuts the failure to its first sentence; its whole text
+            <span className="cv-tool__text cv-subagent-failed__text" title={cutFailure ? whole : undefined}>
+              <span className="cv-subagent-failed__title">{name}</span>
               {reason && <span className="cv-subagent-failed__reason">{reason}</span>}
             </span>
           ) : (
@@ -389,7 +395,7 @@ function DoneLine({
               )}
             </span>
           )}
-        </div>
+        </LineControl>
         {inline}
         {shown?.key && <output className="cv-subagent-done__note">{t(shown.key)}</output>}
         {resumed.note}
@@ -489,5 +495,28 @@ function ReportPreview({ report, onOpenView }: { report: WholeReport; onOpenView
         </button>
       )}
     </div>
+  );
+}
+
+/// A done line's words: a button that opens the subagent's view when `onOpen` is given, else a
+/// plain box (its name chip is then the control).
+function LineControl({
+  onOpen,
+  children,
+  ...attributes
+}: {
+  onOpen?: () => void;
+  children: ReactNode;
+  className: string;
+  "aria-label": string;
+  "data-state": string;
+  "data-reason"?: string;
+}) {
+  return onOpen ? (
+    <button type="button" {...attributes} onClick={onOpen}>
+      {children}
+    </button>
+  ) : (
+    <div {...attributes}>{children}</div>
   );
 }

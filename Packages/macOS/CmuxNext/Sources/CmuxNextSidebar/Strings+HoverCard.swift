@@ -16,6 +16,16 @@ extension Strings {
         count == 1 ? String(localized: "sidebar.hoverCard.commands.one", defaultValue: "1 command", bundle: .localizedModule)
             : String(format: String(localized: "sidebar.hoverCard.commands.other", defaultValue: "%d commands", bundle: .localizedModule), count)
     }
+    /// "desktop-helper on studio-mac": who made a workspace and where (`WorkspaceHoverCardOrigin`).
+    static func originOnHost(_ creator: String, _ host: String) -> String {
+        String(format: String(localized: "sidebar.hoverCard.origin.onHost", defaultValue: "%1$@ on %2$@", bundle: .module), creator, host)
+    }
+    /// "Made by desktop-helper · studio-mac": the one-line byline of a workspace's creator.
+    static func originMadeBy(_ creator: String) -> String {
+        String(format: String(localized: "sidebar.hoverCard.origin.madeBy", defaultValue: "Made by %@", bundle: .module), creator)
+    }
+    /// The creator's name for a script that ran in no acpmux session.
+    static var originScript: String { String(localized: "sidebar.hoverCard.origin.script", defaultValue: "Script", bundle: .module) }
     /// A blank browser tab's (about:blank) title in the hover card's tab rows.
     static var hoverCardNewTab: String { String(localized: "sidebar.hoverCard.tab.newTab", defaultValue: "New Tab", bundle: .localizedModule) }
     static var hoverCardKindTerminal: String { String(localized: "sidebar.hoverCard.tab.kind.terminal", defaultValue: "Terminal", bundle: .localizedModule) }
@@ -32,14 +42,6 @@ extension Strings {
     static var hoverCardGroupAgents: String { String(localized: "sidebar.hoverCard.tab.group.agents", defaultValue: "Agents", bundle: .localizedModule) }
     static var hoverCardGroupPages: String { String(localized: "sidebar.hoverCard.tab.group.pages", defaultValue: "Pages", bundle: .localizedModule) }
     static var hoverCardGroupOther: String { String(localized: "sidebar.hoverCard.tab.group.other", defaultValue: "Other", bundle: .localizedModule) }
-    /// An agent chat's next action under its rolling summary ("Next: Open the PR").
-    nonisolated static func summaryNext(_ next: String) -> String {
-        String(format: String(localized: "sidebar.hoverCard.summaryNext", defaultValue: "Next: %@", bundle: .localizedModule), next)
-    }
-    /// An expanded row's line: the rolling summary, then its next action.
-    nonisolated static func summaryWithNext(_ summary: String, _ next: String) -> String {
-        String(format: String(localized: "sidebar.row.summaryWithNext", defaultValue: "%1$@ → %2$@", bundle: .localizedModule), summary, next)
-    }
     /// The summary header's running count ("2 running").
     static func hoverCardRunning(_ value: Int) -> String {
         String(localized: "sidebar.hoverCard.tab.running", defaultValue: "\(value) running", bundle: .localizedModule)

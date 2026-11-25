@@ -5,6 +5,109 @@
 use super::*;
 
 wire_enum! {
+    CloudVmEventEmitParamsKind {
+        AgentStarted = "agent.started",
+        AgentFinished = "agent.finished",
+        AgentNeedsInput = "agent.needs_input",
+        Notification = "notification",
+        BrowserLeaseChanged = "browser.lease.changed",
+        CuaSessionStarted = "cua.session.started",
+        CuaSessionEnded = "cua.session.ended",
+        ServicePortOpened = "service.port.opened",
+        ServicePortClosed = "service.port.closed",
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct CloudVmEventEmitParams {
+    pub machine: MachineId,
+    pub kind: CloudVmEventEmitParamsKind,
+    pub at: i64,
+    pub data: Value,
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct CloudVmEventEmitResult {
+    pub delivered: bool,
+}
+
+wire_errors! {
+    /// The error codes cloud.vm.event.emit declares.
+    CloudVmEventEmitError {
+        AuthForbidden = "auth.forbidden",
+        AuthUnauthenticated = "auth.unauthenticated",
+        CloudMachineNotFound = "cloud.machine.not_found",
+        CloudRateLimited = "cloud.rate_limited",
+        ValidationInvalid = "validation.invalid",
+    }
+}
+
+wire_op! {
+    /// Read the bound VM's current receiving identities and daemon/SSH permissions, joined to original live install grants, team policy and Native service rules. The lease is at most 120 seconds and never outlives an included grant; admit_until, when present, lets the receiver keep this policy through a failed renewal for at most one hour after checked_at. This hidden VM-only read does not activate a listener or mint a dial credential. VM installs only (kind vm, grant vm-self, its own bound machine).
+    CloudVmNetworkPolicyOp {
+        name: "cloud.vm.network_policy",
+        class: Read,
+        idempotency: Forbidden,
+        owner: "cloud:CloudDO",
+        risk: "read",
+        principals: [Install],
+        params: CloudVmNetworkPolicyParams,
+        result: CloudVmNetworkPolicyView,
+        error: CloudVmNetworkPolicyError,
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct CloudVmNetworkPolicyParams {
+    pub machine: MachineId,
+}
+
+wire_errors! {
+    /// The error codes cloud.vm.network_policy declares.
+    CloudVmNetworkPolicyError {
+        AuthForbidden = "auth.forbidden",
+        AuthUnauthenticated = "auth.unauthenticated",
+        CloudMachineNotFound = "cloud.machine.not_found",
+        CloudRateLimited = "cloud.rate_limited",
+        ValidationInvalid = "validation.invalid",
+    }
+}
+
+wire_op! {
+    /// Record the bound VM's receiver incarnation. read takes only machine and phase; begin needs expected generation and a 32-hex attempt ID; ready/end need expected generation. Begin/ready require running; retirement remains available through park. Retries preserve terminal state. No idempotency key: every call rechecks current VM authority instead of replaying a response. VM installs only (kind vm, grant vm-self, own bound machine). Listener and token consumers require separate wiring.
+    CloudVmReceiverLifecycleOp {
+        name: "cloud.vm.receiver.lifecycle",
+        class: Mutation,
+        idempotency: None,
+        owner: "cloud:CloudDO",
+        risk: "execute",
+        principals: [Install],
+        params: CloudVmReceiverLifecycleParams,
+        result: CloudVmReceiverLifecycleResult,
+        error: CloudVmReceiverLifecycleError,
+    }
+}
+
+wire_enum! {
+    CloudVmReceiverLifecycleParamsPhase {
+        Read = "read",
+        Begin = "begin",
+        Ready = "ready",
+        End = "end",
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct CloudVmReceiverLifecycleParams {
+    pub machine: MachineId,
+    pub phase: CloudVmReceiverLifecycleParamsPhase,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub expected: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub attempt: Option<String>,
+}
+
+wire_enum! {
     CloudVmReceiverLifecycleResultPhase {
         Idle = "idle",
         Starting = "starting",
@@ -784,111 +887,4 @@ pub struct FeedAdoptParams {
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct FeedAdoptResult {
     pub item: FeedItem,
-}
-
-wire_errors! {
-    /// The error codes feed.adopt declares.
-    FeedAdoptError {
-        AuthForbidden = "auth.forbidden",
-        AuthUnauthenticated = "auth.unauthenticated",
-        FeedAdoptCancelled = "feed.adopt_cancelled",
-        FeedClosed = "feed.closed",
-        FeedFull = "feed.full",
-        FeedMoving = "feed.moving",
-        FeedRateLimited = "feed.rate_limited",
-        IdempotencyConflict = "idempotency.conflict",
-        OwnerMoved = "owner.moved",
-        RevisionConflict = "revision.conflict",
-        SelectorNotFound = "selector.not_found",
-        ValidationInvalid = "validation.invalid",
-    }
-}
-
-wire_op! {
-    /// Handoff abort: a daemon's local feed owner withdraws `feed.adopt` with key `adopt:<item>`. Not adopted: a tombstone refuses a later adopt with that key and the reply is cancelled true. Adopted: cancelled false with the cloud item.
-    FeedAdoptCancelOp {
-        name: "feed.adopt.cancel",
-        class: Mutation,
-        idempotency: Required,
-        owner: "cloud:FeedDO",
-        risk: "mutate-own",
-        principals: [Install],
-        params: FeedAdoptCancelParams,
-        result: FeedAdoptCancelResult,
-        error: FeedAdoptCancelError,
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct FeedAdoptCancelParams {
-    pub key: String,
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct FeedAdoptCancelResult {
-    pub cancelled: bool,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub item: Option<FeedItem>,
-}
-
-wire_errors! {
-    /// The error codes feed.adopt.cancel declares.
-    FeedAdoptCancelError {
-        AuthForbidden = "auth.forbidden",
-        AuthUnauthenticated = "auth.unauthenticated",
-        FeedClosed = "feed.closed",
-        FeedFull = "feed.full",
-        FeedMoving = "feed.moving",
-        FeedRateLimited = "feed.rate_limited",
-        IdempotencyConflict = "idempotency.conflict",
-        OwnerMoved = "owner.moved",
-        RevisionConflict = "revision.conflict",
-        SelectorNotFound = "selector.not_found",
-        ValidationInvalid = "validation.invalid",
-    }
-}
-
-wire_op! {
-    /// Answer an open request (the user only, origin user). The first answer wins; a closed item is refused with feed.closed.
-    FeedAnswerOp {
-        name: "feed.answer",
-        class: Mutation,
-        idempotency: Required,
-        owner: "cloud:FeedDO",
-        risk: "mutate-own",
-        principals: [Session, Install],
-        params: FeedAnswerParams,
-        result: FeedAnswerResult,
-        error: FeedAnswerError,
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct FeedAnswerParams {
-    pub item: FeedItemId,
-    pub answer: Value,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub device: Option<String>,
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct FeedAnswerResult {
-    pub item: FeedItem,
-}
-
-wire_errors! {
-    /// The error codes feed.answer declares.
-    FeedAnswerError {
-        AuthForbidden = "auth.forbidden",
-        AuthUnauthenticated = "auth.unauthenticated",
-        FeedClosed = "feed.closed",
-        FeedFull = "feed.full",
-        FeedMoving = "feed.moving",
-        FeedRateLimited = "feed.rate_limited",
-        IdempotencyConflict = "idempotency.conflict",
-        OwnerMoved = "owner.moved",
-        RevisionConflict = "revision.conflict",
-        SelectorNotFound = "selector.not_found",
-        ValidationInvalid = "validation.invalid",
-    }
 }

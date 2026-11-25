@@ -100,6 +100,8 @@ pub(crate) struct Part {
     /// its name here.
     pub from: String,
     pub from_name: String,
+    /// The sender's given handle (`fromDisplayName`): the digest's lines read it first.
+    pub display_name: Option<String>,
     pub class: Class,
     pub received_at: u64,
     pub text: String,
@@ -159,18 +161,18 @@ pub(crate) fn render(digest_id: &str, parts: &[Part]) -> Rendered {
     if !asks.is_empty() {
         text.push_str("\n\n## Blocks and questions");
         for part in asks {
-            let (class, name, id) = (part.class.as_str(), &part.from_name, &part.prompt_id);
+            let (class, name, id) = (part.class.as_str(), shown(part), &part.prompt_id);
             text.push_str(&format!("\n\n[{class}] from {name}, promptId {id}{}\n", times(part)));
             body(&mut text, part);
         }
     }
     // Senders (addresses) in the order of their oldest result, folded ones included, each named
     // as its newest result names it.
-    let mut senders: Vec<(&str, &str)> = Vec::new();
+    let mut senders: Vec<(&str, String)> = Vec::new();
     for part in order.iter().filter(|p| p.class == Class::Result) {
         match senders.iter_mut().find(|(from, _)| *from == part.from) {
-            Some(sender) => sender.1 = part.from_name.as_str(),
-            None => senders.push((part.from.as_str(), part.from_name.as_str())),
+            Some(sender) => sender.1 = shown(part),
+            None => senders.push((part.from.as_str(), shown(part))),
         }
     }
     if !senders.is_empty() {
@@ -188,7 +190,7 @@ pub(crate) fn render(digest_id: &str, parts: &[Part]) -> Rendered {
     if !fyis.is_empty() {
         text.push_str("\n\n## FYIs\n");
         for part in fyis {
-            let (name, id, line) = (&part.from_name, &part.prompt_id, one_line(&part.text));
+            let (name, id, line) = (shown(part), &part.prompt_id, one_line(&part.text));
             text.push_str(&format!("\n- {name} (promptId {id}){}: {line}", times(part)));
         }
     }
@@ -287,6 +289,11 @@ fn takes(q: &QueuedPrompt, unclaimed: &[(String, String)]) -> bool {
     digestible(q) && !unclaimed.iter().any(|(id, _)| *id == q.prompt_id)
 }
 
+/// How the digest's text names `part`'s sender: its given name first (`Mango · HOST/NAME`).
+fn shown(part: &Part) -> String {
+    crate::prompt_provenance::display_label(part.display_name.as_deref(), &part.from_name)
+}
+
 /// The renderer's part of a waiting prompt.
 fn part_of(q: &QueuedPrompt) -> Part {
     let name = q.run.agent.clone().unwrap_or_default();
@@ -297,6 +304,8 @@ fn part_of(q: &QueuedPrompt) -> Part {
         prompt_id: q.prompt_id.clone(),
         from: from.map_or_else(|| name.clone(), str::to_owned),
         from_name: name,
+        display_name: crate::prompt_provenance::display_name_of(q.run.provenance.as_ref())
+            .map(str::to_owned),
         class: q.run.class.unwrap_or(Class::Result),
         received_at: q.queued_at,
         // Its words: the part's header names its sender, so not a cmux envelope's own header.

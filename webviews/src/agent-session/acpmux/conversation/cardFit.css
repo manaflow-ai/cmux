@@ -1,0 +1,72 @@
+/* One layout rule for every chat card or row with text and trailing buttons (Leo, 2026-11-22:
+   "overlapping text via the buttosn when the pane is small. ok, so simply prepare for this scenario
+   beforehand and lay things out better. below the potentially long text, etc. or make the thing
+   bigger. whatever. and be able to shrink down to icons."). Measured on the card's own width, never
+   the window's, since a card sits in a split pane, beside a panel, or in a popup:
+   - wide: the text and its actions share one row, the actions at the end;
+   - under 360px: the actions move to their own line under the text, at its start;
+   - under 260px: a labelled action shrinks to its icon. Its words stay in the button, cut to
+     nothing, so its accessible name is unchanged and the page tooltip (ui/titleTooltips.ts, which
+     shows a `title` only when the control's own words are cut) names it on hover.
+   Text never runs under a button: it truncates with an ellipsis, its whole text on hover.
+
+   Markup:
+     <div class="cv-fit">                      the card (a block box; inline-size containment)
+       <div class="cv-fit-row">                the line
+         <div class="cv-fit-text">…</div>      what may be long
+         <div class="cv-fit-actions">          the buttons
+           <button title="Undo" aria-label="Undo"><Icon/><span class="cv-fit-label">Undo</span></button>
+   test/chat-card-fit.test.ts checks every card that uses it at 240, 320, 420 and 640px. */
+.cv-fit {
+  container-type: inline-size;
+}
+.cv-fit-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  column-gap: var(--ds-space-3);
+  row-gap: var(--ds-space-1);
+  min-width: 0;
+}
+.cv-fit-text {
+  flex: 1 1 0;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.cv-fit-actions {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: var(--ds-space-1);
+  min-width: 0;
+  max-width: 100%;
+  margin-inline-start: auto;
+}
+.cv-fit-actions > * {
+  flex: none;
+}
+.cv-fit-label {
+  min-width: 0;
+  white-space: nowrap;
+}
+@container (max-width: 359.98px) {
+  .cv-fit-row > .cv-fit-text {
+    flex-basis: 100%;
+  }
+  .cv-fit-row > .cv-fit-actions {
+    margin-inline-start: 0;
+    flex-wrap: wrap;
+  }
+}
+@container (max-width: 259.98px) {
+  .cv-fit-actions .cv-fit-label {
+    display: inline-block;
+    width: 0;
+    overflow: hidden;
+  }
+  .cv-fit-actions :is(button, a):has(> .cv-fit-label) {
+    gap: 0;
+  }
+}

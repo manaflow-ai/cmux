@@ -15,7 +15,11 @@
 //!   wifi to cellular move with an OS event, the phone side opens a new socket and the relay
 //!   answers whichever address spoke last; call `rebind` too so the host also sees a new address;
 //! - **one-way loss** ([`UdpShaper::one_way_loss`]): every datagram one way is dropped for a while;
-//! - **a step** ([`UdpShaper::set_profile`]): the link's numbers change from now.
+//! - **a step** ([`UdpShaper::set_profile`]): the link's numbers change from now;
+//! - **internet down** ([`UdpShaper::internet_down`]): the phone's second path, through the
+//!   internet ([`UdpShaper::open_internet_path`], a second relay to its own upstream such as a
+//!   STUN or TURN server), blackholes every datagram either way, while the LAN path (the relay's
+//!   own address) keeps the profile's numbers. Both paths share the radio link.
 //!
 //! Each direction draws from its own stream of the seed, so one seed is one link.
 
@@ -76,16 +80,25 @@ struct Air {
     free_at: [Instant; 2],
     dark: Option<(Instant, Instant)>,
     cut: [Option<Instant>; 2],
+    /// The internet path is dead: everything on it is dropped.
+    internet_down: bool,
 }
 
 impl Air {
-    fn blocked(&self, index: usize, at: Instant) -> bool {
+    fn blocked(&self, index: usize, at: Instant, internet: bool) -> bool {
         self.dark.is_some_and(|(from, until)| from <= at && at < until)
             || lane(&self.cut, index).is_some_and(|until| at < until)
+            || (internet && self.internet_down)
     }
 
     /// When a datagram handed over now arrives, or `None` when it never does.
-    fn schedule(&mut self, bytes: usize, index: usize, rng: &mut Rng) -> Option<Instant> {
+    fn schedule(
+        &mut self,
+        bytes: usize,
+        index: usize,
+        rng: &mut Rng,
+        internet: bool,
+    ) -> Option<Instant> {
         let now = Instant::now();
         let down = index == 1;
         // Draw before deciding, so a fault never shifts the stream for the datagrams after it.
@@ -102,7 +115,7 @@ impl Air {
         }
         let left = start + self.profile.serialize(bytes, down);
         *lane_mut(&mut self.free_at, index) = left;
-        if gone || self.blocked(index, left) {
+        if gone || self.blocked(index, left, internet) {
             return None;
         }
         Some(left + self.profile.one_way() + Duration::from_millis(jitter))
@@ -110,7 +123,10 @@ impl Air {
 }
 
 struct Shared {
-    air: Mutex<Air>,
+    /// One radio link: both paths share it.
+    air: Arc<Mutex<Air>>,
+    /// This relay is the internet path, not the LAN.
+    internet: bool,
     near: Arc<UdpSocket>,
     far: Mutex<Arc<UdpSocket>>,
     /// The phone side's address: whichever spoke last.
@@ -132,6 +148,39 @@ pub struct UdpShaper {
     seed: u64,
 }
 
+/// Spawns one path's relay tasks on `scope` (readers and deliveries); returns its down queue.
+fn spawn_path(
+    scope: &Arc<Scope>,
+    shared: &Arc<Shared>,
+    mut up_rng: Rng,
+    down_rng: Arc<Mutex<Rng>>,
+    far: Arc<UdpSocket>,
+) -> Queue {
+    let (up, up_queue) = mpsc::unbounded_channel();
+    let (down, down_queue) = mpsc::unbounded_channel();
+    scope
+        .spawn_until_cancelled("udp shaper up deliver", deliver(shared.clone(), Way::Up, up_queue));
+    scope.spawn_until_cancelled(
+        "udp shaper down deliver",
+        deliver(shared.clone(), Way::Down, down_queue),
+    );
+    scope.spawn_until_cancelled("udp shaper up read", {
+        let shared = shared.clone();
+        async move {
+            let mut buffer = vec![0_u8; 64 * 1024];
+            while let Ok((n, from)) = shared.near.recv_from(&mut buffer).await {
+                *lock(&shared.phone) = Some(from);
+                let datagram = buffer.get(..n).unwrap_or_default().to_vec();
+                if !hand_over(&shared, Way::Up, datagram, &mut up_rng, &up) {
+                    return;
+                }
+            }
+        }
+    });
+    read_far(scope, shared.clone(), down.clone(), down_rng, far, 0);
+    down
+}
+
 impl UdpShaper {
     /// A relay on a free loopback port to the host's `upstream` UDP port, with `profile`'s link.
     pub async fn start(
@@ -144,9 +193,17 @@ impl UdpShaper {
         let far = Arc::new(UdpSocket::bind("127.0.0.1:0").await?);
         trace.note(format!("udp shaper {} v{} seed {seed}", profile.name, profile.version));
         let now = Instant::now();
+        let air = Air {
+            profile,
+            free_at: [now, now],
+            dark: None,
+            cut: [None, None],
+            internet_down: false,
+        };
         let shared = Arc::new(Shared {
-            air: Mutex::new(Air { profile, free_at: [now, now], dark: None, cut: [None, None] }),
-            near: near.clone(),
+            air: Arc::new(Mutex::new(air)),
+            internet: false,
+            near,
             far: Mutex::new(far.clone()),
             phone: Mutex::new(None),
             upstream,
@@ -157,33 +214,40 @@ impl UdpShaper {
         let mut root = Rng::new(seed);
         let up_rng = root.split(1);
         let down_rng = Arc::new(Mutex::new(root.split(2)));
-        let (up, up_queue) = mpsc::unbounded_channel();
-        let (down, down_queue) = mpsc::unbounded_channel();
-        scope.spawn_until_cancelled(
-            "udp shaper up deliver",
-            deliver(shared.clone(), Way::Up, up_queue),
-        );
-        scope.spawn_until_cancelled(
-            "udp shaper down deliver",
-            deliver(shared.clone(), Way::Down, down_queue),
-        );
-        scope.spawn_until_cancelled("udp shaper up read", {
-            let shared = shared.clone();
-            let mut rng = up_rng;
-            async move {
-                let mut buffer = vec![0_u8; 64 * 1024];
-                while let Ok((n, from)) = shared.near.recv_from(&mut buffer).await {
-                    *lock(&shared.phone) = Some(from);
-                    let datagram = buffer.get(..n).unwrap_or_default().to_vec();
-                    if !hand_over(&shared, Way::Up, datagram, &mut rng, &up) {
-                        return;
-                    }
-                }
-            }
+        let down = spawn_path(&scope, &shared, up_rng, down_rng.clone(), far);
+        Ok(Self { shared, down, down_rng, scope, trace: trace.clone(), seed })
+    }
+
+    /// Opens the phone's second path, through the internet to `upstream` (a STUN or TURN
+    /// server, a relay), on a free loopback port, and returns where the phone side sends. It
+    /// shares the radio link with the LAN path and dies with [`UdpShaper::internet_down`].
+    pub async fn open_internet_path(&self, upstream: SocketAddr) -> std::io::Result<SocketAddr> {
+        let near = Arc::new(UdpSocket::bind("127.0.0.1:0").await?);
+        let far = Arc::new(UdpSocket::bind("127.0.0.1:0").await?);
+        let addr = near.local_addr()?;
+        let shared = Arc::new(Shared {
+            air: self.shared.air.clone(),
+            internet: true,
+            near,
+            far: Mutex::new(far.clone()),
+            phone: Mutex::new(None),
+            upstream,
+            counting: Counting::default(),
+            generation: watch::channel(0).0,
         });
-        let shaper = Self { shared, down, down_rng, scope, trace: trace.clone(), seed };
-        shaper.read_far(far, 0);
-        Ok(shaper)
+        let mut root = Rng::new(self.seed);
+        let up_rng = root.split(3);
+        let down_rng = Arc::new(Mutex::new(root.split(4)));
+        spawn_path(&self.scope, &shared, up_rng, down_rng, far);
+        self.trace.note(format!("udp shaper internet path {addr}"));
+        Ok(addr)
+    }
+
+    /// The internet path dies now (and stays dead): every datagram on it, either way, is
+    /// dropped. The LAN path keeps flowing.
+    pub fn internet_down(&self) {
+        self.trace.note("fault udp internet-down");
+        lock(&self.shared.air).internet_down = true;
     }
 
     /// Where the phone side sends.
@@ -259,37 +323,49 @@ impl UdpShaper {
             generation = *value;
         });
         self.trace.note(format!("fault udp rebind {addr}"));
-        self.read_far(far, generation);
+        read_far(
+            &self.scope,
+            self.shared.clone(),
+            self.down.clone(),
+            self.down_rng.clone(),
+            far,
+            generation,
+        );
         Ok(addr)
     }
+}
 
-    fn read_far(&self, far: Arc<UdpSocket>, generation: u64) {
-        let shared = self.shared.clone();
-        let down = self.down.clone();
-        let rng = self.down_rng.clone();
-        let mut changed = self.shared.generation.subscribe();
-        self.scope.spawn_until_cancelled("udp shaper down read", async move {
-            let mut buffer = vec![0_u8; 64 * 1024];
-            loop {
-                let received = tokio::select! {
-                    received = far.recv_from(&mut buffer) => received,
-                    _ = changed.wait_for(|now| *now != generation) => return,
-                };
-                let Ok((n, from)) = received else { return };
-                if from != shared.upstream {
-                    continue;
-                }
-                let datagram = buffer.get(..n).unwrap_or_default().to_vec();
-                let queued = {
-                    let mut rng = lock(&rng);
-                    hand_over(&shared, Way::Down, datagram, &mut rng, &down)
-                };
-                if !queued {
-                    return;
-                }
+/// Reads the host's datagrams on `far` until a rebind replaces it (`generation` moves on).
+fn read_far(
+    scope: &Arc<Scope>,
+    shared: Arc<Shared>,
+    down: Queue,
+    rng: Arc<Mutex<Rng>>,
+    far: Arc<UdpSocket>,
+    generation: u64,
+) {
+    let mut changed = shared.generation.subscribe();
+    scope.spawn_until_cancelled("udp shaper down read", async move {
+        let mut buffer = vec![0_u8; 64 * 1024];
+        loop {
+            let received = tokio::select! {
+                received = far.recv_from(&mut buffer) => received,
+                _ = changed.wait_for(|now| *now != generation) => return,
+            };
+            let Ok((n, from)) = received else { return };
+            if from != shared.upstream {
+                continue;
             }
-        });
-    }
+            let datagram = buffer.get(..n).unwrap_or_default().to_vec();
+            let queued = {
+                let mut rng = lock(&rng);
+                hand_over(&shared, Way::Down, datagram, &mut rng, &down)
+            };
+            if !queued {
+                return;
+            }
+        }
+    });
 }
 
 impl Drop for UdpShaper {
@@ -305,7 +381,7 @@ fn hand_over(shared: &Shared, way: Way, datagram: Vec<u8>, rng: &mut Rng, queue:
     let counting = &shared.counting;
     lane(&counting.datagrams, index).fetch_add(1, Ordering::SeqCst);
     lane(&counting.bytes, index).fetch_add(datagram.len() as u64, Ordering::SeqCst);
-    let at = lock(&shared.air).schedule(datagram.len(), index, rng);
+    let at = lock(&shared.air).schedule(datagram.len(), index, rng, shared.internet);
     match at {
         Some(at) => queue.send((at, datagram)).is_ok(),
         None => {
@@ -328,7 +404,7 @@ async fn deliver(
         let next = waiting.peek().map(|Reverse((at, _, _))| *at);
         let due = async {
             match next {
-                Some(at) => tokio::time::sleep_until(at).await,
+                Some(at) => crate::timer::sleep_until(at).await,
                 None => std::future::pending().await,
             }
         };
@@ -340,7 +416,7 @@ async fn deliver(
             }
             () = due => {
                 let Some(Reverse((_, _, datagram))) = waiting.pop() else { continue };
-                if lock(&shared.air).blocked(way.lane(), Instant::now()) {
+                if lock(&shared.air).blocked(way.lane(), Instant::now(), shared.internet) {
                     lane(&shared.counting.dropped, way.lane()).fetch_add(1, Ordering::SeqCst);
                     continue;
                 }
@@ -483,6 +559,29 @@ mod tests {
         let took = ping(&socket, Duration::from_secs(2)).await.unwrap();
         assert!(fast < Duration::from_millis(100), "{fast:?}");
         assert!(took >= Duration::from_millis(300), "{took:?}");
+    }
+
+    #[tokio::test]
+    async fn internet_down_blackholes_the_internet_path_and_leaves_the_lan() {
+        let (lan_host, _) = echo_host().await;
+        let (internet_host, internet_seen) = echo_host().await;
+        let shaper = UdpShaper::start(lan_host, profile("internet-down-lan-up"), 1, &Trace::new())
+            .await
+            .unwrap();
+        let internet_addr = shaper.open_internet_path(internet_host).await.unwrap();
+        let lan = phone(&shaper).await;
+        let internet = UdpSocket::bind("127.0.0.1:0").await.unwrap();
+        internet.connect(internet_addr).await.unwrap();
+        ping(&lan, Duration::from_secs(2)).await.unwrap();
+        ping(&internet, Duration::from_secs(2)).await.unwrap();
+        shaper.internet_down();
+        assert!(ping(&internet, Duration::from_millis(300)).await.is_none());
+        assert_eq!(internet_seen.lock().unwrap().len(), 1);
+        let took = ping(&lan, Duration::from_secs(2)).await.unwrap();
+        assert!(took >= Duration::from_millis(4), "{took:?}");
+        assert!(took < Duration::from_millis(200), "{took:?}");
+        // The internet path's drops are its own: the LAN counters show none.
+        assert_eq!(shaper.counters().up_dropped, 0);
     }
 
     #[tokio::test]

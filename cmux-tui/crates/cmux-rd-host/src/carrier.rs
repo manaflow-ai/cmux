@@ -215,10 +215,37 @@ impl<S: Read + Write + AsRawFd> Carrier for SocketCarrier<'_, S> {
     }
 }
 
+/// Selected by the authenticated offer/answer before either media protocol starts.
+/// Only an omitted field selects legacy; unknown or null values fail deserialization.
+#[cfg(feature = "link")]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub enum LinkMode {
+    #[default]
+    Legacy,
+    Wg,
+}
+#[cfg(feature = "link")]
+impl<'de> serde::Deserialize<'de> for LinkMode {
+    fn deserialize<D: serde::Deserializer<'de>>(decoder: D) -> Result<Self, D::Error> {
+        let marker = <String as serde::Deserialize>::deserialize(decoder)?;
+        match marker.as_str() {
+            "rd_wg/1" => Ok(Self::Wg),
+            _ => Err(serde::de::Error::custom("unsupported peer_carrier")),
+        }
+    }
+}
+
 /// A device hub session's secure link (cmux-rd-link's UDP driver).
 #[cfg(feature = "link")]
 pub struct LinkCarrier {
     pub net: cmux_rd_link::net::Net,
+    wg: Option<crate::wg_carrier::Negotiation>,
+    barrier: Option<std::sync::mpsc::Receiver<()>>,
+    delivered: bool,
+    fallback: Option<cmux_rd_proto::app_line::CarrierFallback>,
+    terminal_emitted: bool,
+    outer_established: bool,
+    connected_emitted: bool,
     /// Path changes for the caller (the pane's path badge, the congestion controller).
     pub paths: Vec<cmux_rd_link::EndpointEvent>,
     /// The current path's round trip, retained between path events.
@@ -247,13 +274,15 @@ impl Carrier for LinkCarrier {
     }
 
     fn fds(&self) -> Vec<RawFd> {
-        vec![self.net.event_fd()]
+        let mut fds = vec![self.net.event_fd()];
+        fds.extend(self.wg.as_ref().and_then(crate::wg_carrier::Negotiation::fd));
+        fds
     }
 
     fn receive(&mut self, out: &mut Vec<Incoming>) -> Result<(), String> {
         use cmux_rd_link::net::NetEvent;
         use cmux_rd_link::{EndpointEvent, Event};
-        for event in self.net.events() {
+        for event in self.events() {
             match event {
                 NetEvent::Endpoint(EndpointEvent::Link(Event::Datagram(d))) => {
                     out.push(Incoming::Datagram(d));
@@ -281,11 +310,28 @@ impl Carrier for LinkCarrier {
     }
 
     fn send_datagram(&mut self, datagram: &[u8]) -> io::Result<()> {
-        self.net.send_datagram(datagram.to_vec());
-        Ok(())
+        if self.terminal_emitted {
+            return Err(io::Error::new(io::ErrorKind::NotConnected, "carrier closed"));
+        }
+        if let Some(wg) = &self.wg {
+            wg.send(datagram)
+        } else {
+            self.net.send_datagram(datagram.to_vec());
+            Ok(())
+        }
     }
 
     fn send_datagram_frame(&mut self, datagrams: Vec<Vec<u8>>, droppable: bool) -> io::Result<()> {
+        if self.terminal_emitted {
+            return Err(io::Error::new(io::ErrorKind::NotConnected, "carrier closed"));
+        }
+        if self.wg.is_some() {
+            // The WG overlay owns its own media scheduler; keep the frame's datagram order.
+            for datagram in datagrams {
+                self.send_datagram(&datagram)?;
+            }
+            return Ok(());
+        }
         self.net.send_datagram_frame(datagrams, droppable);
         Ok(())
     }
@@ -298,6 +344,162 @@ impl Carrier for LinkCarrier {
         let record = serde_json::to_vec(control).map_err(io::Error::other)?;
         self.net.send_control(record);
         Ok(())
+    }
+}
+
+#[cfg(feature = "link")]
+impl LinkCarrier {
+    pub fn new(
+        net: cmux_rd_link::net::Net,
+        role: crate::wg_carrier::Role,
+        mode: LinkMode,
+    ) -> io::Result<Self> {
+        Ok(Self {
+            net,
+            wg: match mode {
+                LinkMode::Legacy => None,
+                LinkMode::Wg => Some(crate::wg_carrier::Negotiation::new(role)?),
+            },
+            barrier: None,
+            delivered: false,
+            fallback: None,
+            terminal_emitted: false,
+            outer_established: false,
+            connected_emitted: false,
+            paths: Vec::new(),
+            rtt_us: None,
+        })
+    }
+
+    pub fn media_ready(&self) -> bool {
+        self.connected_emitted
+            && !self.terminal_emitted
+            && self.wg.as_ref().is_none_or(|wg| wg.state(false) == crate::wg_carrier::State::Ready)
+    }
+    pub fn max_datagram(&self) -> usize {
+        self.wg.as_ref().map_or(
+            1152 - cmux_rd_link::SEAL_OVERHEAD,
+            crate::wg_carrier::Negotiation::max_datagram,
+        )
+    }
+    pub fn wire_name(&self) -> &'static str {
+        if self.wg.is_some() {
+            "rd_wg"
+        } else {
+            "link"
+        }
+    }
+    pub fn retry_ready(&self) -> bool {
+        self.fallback.is_some()
+    }
+    pub fn take_fallback(&mut self) -> Option<cmux_rd_proto::app_line::CarrierFallback> {
+        self.fallback.take()
+    }
+    pub fn invalidate(&mut self) {
+        self.terminal_emitted = true;
+        if let Some(wg) = &mut self.wg {
+            wg.invalidate();
+        }
+        self.connected_emitted = false;
+        self.fallback = None;
+    }
+
+    /// Owns both event streams; WG ciphertext can never leak to the media decoder.
+    pub fn events(&mut self) -> Vec<cmux_rd_link::net::NetEvent> {
+        use crate::wg_carrier::State;
+        use cmux_rd_link::net::NetEvent;
+        use cmux_rd_link::{EndpointEvent, Event};
+        if self.terminal_emitted {
+            return Vec::new();
+        }
+        if self.wg.is_none() {
+            let events = self.net.events();
+            for event in &events {
+                match event {
+                    NetEvent::Endpoint(EndpointEvent::Link(Event::Established)) => {
+                        self.connected_emitted = true
+                    }
+                    NetEvent::Endpoint(EndpointEvent::Link(Event::Closed))
+                    | NetEvent::Failed(_) => {
+                        self.connected_emitted = false;
+                        self.terminal_emitted = true;
+                    }
+                    _ => {}
+                }
+            }
+            return events;
+        }
+        let now = std::time::Instant::now();
+        let sender = self.net.sender();
+        let mut events = Vec::new();
+        for event in self.net.events() {
+            let Some(wg) = self.wg.as_mut() else { break };
+            match event {
+                NetEvent::Endpoint(EndpointEvent::Link(Event::Established)) => {
+                    self.outer_established = true;
+                    wg.begin(now);
+                }
+                NetEvent::Endpoint(EndpointEvent::Link(Event::Control(record))) => {
+                    if !wg.accept(&record, now) {
+                        // A terminal control can never coexist with a transport retry.
+                        if matches!(
+                            serde_json::from_slice::<Control>(&record),
+                            Ok(Control::Stop | Control::Ended { .. } | Control::Refused { .. })
+                        ) {
+                            self.invalidate();
+                        }
+                        events
+                            .push(NetEvent::Endpoint(EndpointEvent::Link(Event::Control(record))));
+                    }
+                }
+                NetEvent::Endpoint(EndpointEvent::Link(Event::Datagram(datagram))) => {
+                    wg.inject(datagram)
+                }
+                closed @ (NetEvent::Endpoint(EndpointEvent::Link(Event::Closed))
+                | NetEvent::Failed(_)) => {
+                    self.invalidate();
+                    self.terminal_emitted = true;
+                    events.push(closed);
+                }
+                other => events.push(other),
+            }
+        }
+        let Some(wg) = self.wg.as_mut() else { return events };
+        wg.tick(&sender, now);
+        if wg.ack_sent() && self.barrier.is_none() {
+            self.barrier = Some(self.net.control_barrier());
+        }
+        if let Some(barrier) = &self.barrier {
+            if matches!(barrier.try_recv(), Ok(())) {
+                self.delivered = true;
+            }
+        }
+        let state = wg.state(self.delivered);
+        let mut decrypted = Vec::new();
+        wg.receive(&mut decrypted);
+        match state {
+            State::Ready => {
+                if self.outer_established && !self.connected_emitted {
+                    self.connected_emitted = true;
+                    wg.commit();
+                    events.push(NetEvent::Endpoint(EndpointEvent::Link(Event::Established)));
+                }
+                events.extend(
+                    decrypted
+                        .into_iter()
+                        .map(|d| NetEvent::Endpoint(EndpointEvent::Link(Event::Datagram(d)))),
+                );
+            }
+            State::Retry(reason) => self.fallback = Some(crate::wg_carrier::fallback(reason)),
+            State::Failed if !self.terminal_emitted => {
+                self.terminal_emitted = true;
+                events.push(NetEvent::Failed(
+                    "WG carrier failed or fallback was not acknowledged".into(),
+                ));
+            }
+            _ => {}
+        }
+        events
     }
 }
 
@@ -328,11 +530,71 @@ pub fn turn_servers(setups: &[TurnSetup]) -> Vec<cmux_rd_link::net::TurnServer> 
         .collect()
 }
 
+#[cfg(test)]
+#[cfg(feature = "link")]
+mod wg_transport_tests;
+
+/// Public STUN servers a session asks when its hub ticket names none. The hub hands out
+/// STUN and TURN only with the cmux relay (a plan that includes it, workers/device-hub
+/// `mintTurn`), so without it both ends gathered host candidates alone, and two machines with
+/// no shared network (a Mac at home, a cloud VM) had nothing to punch through with. A STUN
+/// server only tells each side its public address; no session traffic goes through it.
+#[cfg(feature = "link")]
+pub const FALLBACK_STUN: [&str; 2] = ["stun.cloudflare.com:3478", "stun.l.google.com:19302"];
+
+/// The link's STUN servers: the ticket's `names`, resolved now (IPv4), or, when it names none
+/// and the session is not relay only, [`FALLBACK_STUN`] resolving off the session's path
+/// (for [`cmux_rd_link::net::Net::add_stun_later`]), so a slow resolver never delays a start.
+#[cfg(feature = "link")]
+pub fn stun_servers(
+    names: &[String],
+    relay_only: bool,
+) -> (Vec<SocketAddr>, Option<cmux_rd_link::net::Later<SocketAddr>>) {
+    if !names.is_empty() || relay_only {
+        return (resolve_ipv4(names.iter().map(String::as_str)), None);
+    }
+    let found = std::sync::Arc::new(std::sync::Mutex::new(None));
+    let slot = std::sync::Arc::clone(&found);
+    let spawned = std::thread::Builder::new().name("cmux-rd-stun".into()).spawn(move || {
+        let servers = resolve_ipv4(FALLBACK_STUN.into_iter());
+        *slot.lock().unwrap_or_else(|e| e.into_inner()) = Some(servers);
+    });
+    if spawned.is_err() {
+        return (Vec::new(), None);
+    }
+    let later: cmux_rd_link::net::Later<SocketAddr> =
+        Box::new(move || found.lock().unwrap_or_else(|e| e.into_inner()).take());
+    (Vec::new(), Some(later))
+}
+
+/// Each `host:port` resolved to its first IPv4 address; an unresolvable one is skipped.
+#[cfg(feature = "link")]
+fn resolve_ipv4<'a>(names: impl Iterator<Item = &'a str>) -> Vec<SocketAddr> {
+    names
+        .filter_map(|s| std::net::ToSocketAddrs::to_socket_addrs(s).ok()?.find(SocketAddr::is_ipv4))
+        .collect()
+}
+
 #[cfg(all(test, feature = "link"))]
 mod path_tests {
     use super::*;
     use cmux_rd_link::net::{Net, NetConfig};
     use cmux_rd_link::{EndpointEvent, KeyPair, Role, Route};
+
+    #[test]
+    fn a_ticket_without_stun_falls_back_to_public_stun_unless_relay_only() {
+        // The ticket's servers resolve now and nothing comes later.
+        let (now, later) = stun_servers(&["127.0.0.1:3478".to_owned()], false);
+        assert_eq!(now, vec!["127.0.0.1:3478".parse::<SocketAddr>().expect("addr")]);
+        assert!(later.is_none());
+        // None in the ticket: the fallback resolves off the start path.
+        let (now, later) = stun_servers(&[], false);
+        assert!(now.is_empty());
+        assert!(later.is_some(), "a ticket with no STUN still gets a reflexive candidate");
+        // Relay only never asks a STUN server.
+        let (now, later) = stun_servers(&[], true);
+        assert!(now.is_empty() && later.is_none());
+    }
 
     fn carrier() -> LinkCarrier {
         let net = Net::start(NetConfig {
@@ -346,7 +608,7 @@ mod path_tests {
             relay_only: false,
         })
         .expect("link");
-        LinkCarrier { net, paths: Vec::new(), rtt_us: None }
+        LinkCarrier::new(net, crate::wg_carrier::Role::Host, LinkMode::Legacy).expect("carrier")
     }
 
     fn path(route: Option<Route>, rtt_us: Option<u64>) -> EndpointEvent {

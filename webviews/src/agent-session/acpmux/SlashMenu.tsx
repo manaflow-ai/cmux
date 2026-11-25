@@ -5,7 +5,8 @@ import { useComposerListBox } from "./backdropLayerModel";
 import { BoltIcon } from "./BoltIcon";
 import { COMPOSER_LABELS } from "./composerModel";
 import { useT } from "./i18n";
-import { isFastCommand, shownName, type SlashCommand, type SlashMatch } from "./slashCommands";
+import { Icon } from "./icons/Icon";
+import { shownName, type SlashCommand, type SlashMatch, isFastCommand } from "./slashCommands";
 import {
   SLASH_MAX_VIEWPORT_PX,
   SLASH_ROW_PX,
@@ -16,9 +17,10 @@ import {
 
 /**
  * The composer's `/` list, the one New Tab's box and the agent chat's composer both open: one line
- * per command: its name (its typed letters bold) and, dim at its end, where it comes from (cmux, a
- * skill, a prompt, an extension) when the list holds more than one source. The highlighted row also
- * shows its arguments and what it does; every other row says what it does to a screen reader only.
+ * per command: its name (its typed letters bold), what it does in the quiet second tone, and, dim at
+ * its end, where it comes from (cmux, a skill, a prompt, an extension) when the list holds more than
+ * one source. The highlighted row also shows its arguments (Leo 2026-11-22, bringing descriptions
+ * back on every row: "when you do /, it's ... lonely when you see a field of empty" names).
  * At most 8 rows show before it scrolls (styles.css, slashViewport.ts). Its layer (backdropLayer.tsx
  * ComposerListLayer) stands it beside the box on the side with room, in the box's corners; in the
  * host's native panel past the window's edge, where a pane is too short for a few rows, a row reads
@@ -31,7 +33,10 @@ export function SlashMenu({
   fast,
   onHover,
   onPick,
+  mark = "/",
 }: {
+  /** What the rows' names start with: the typed menu's own mark (`/`, Codex's `$`, the plugins' `@`). */
+  mark?: "/" | "$" | "@";
   matches: SlashMatch[];
   active: number;
   empty: string;
@@ -111,9 +116,11 @@ export function SlashMenu({
         ? t("composer.slashSkill")
         : command.source === "prompt"
           ? t("composer.slashPrompt")
-          : command.source === "extension"
-            ? (command.extension ?? "cmux")
-            : "cmux";
+          : command.source === "saved"
+            ? t("composer.slashSaved")
+            : command.source === "extension"
+              ? (command.extension ?? "cmux")
+              : "cmux";
   // A tag every row shares tells no row apart: the tags show only for a list of more than one source.
   const tagged = new Set(matches.map(sourceTag)).size > 1;
 
@@ -123,8 +130,9 @@ export function SlashMenu({
       listRef={list}
       shellRef={escape}
       items={matches}
-      getKey={(match) => `${match.command.source ?? "agent"}:${match.command.name}`}
-      textValue={(match) => shownName(match.command)}
+      // The text a row writes too: an extension's `/browser-use` and the built-in Browser Use row share a name.
+      getKey={(match) => `${match.command.source ?? "agent"}:${match.command.name}:${match.command.insert ?? ""}`}
+      textValue={(match) => match.command.label ?? shownName(match.command)}
       label={t(COMPOSER_LABELS.commands)}
       autoFocus={false}
       activeIndex={active}
@@ -136,10 +144,9 @@ export function SlashMenu({
       rowClassName="acpmux-slash-row"
       empty={<div className="acpmux-slash-empty">{empty}</div>}
       window={virtual ? view : undefined}
-      itemAttributes={(match, index) => ({
+      itemAttributes={(_, index) => ({
         "aria-posinset": String(index + 1),
         "aria-setsize": String(matches.length),
-        "aria-description": index === active ? undefined : describe(match) || undefined,
       })}
       onScroll={
         virtual
@@ -152,10 +159,11 @@ export function SlashMenu({
             }
           : undefined
       }
-      renderItem={(match, index) => {
+      // The row's own `highlighted`, not `active`: a renderItem that read `active` would change with
+      // every highlight move (a scroll moves it), and every drawn row would draw again.
+      renderItem={(match, _index, highlighted) => {
         // The harness's /fast reads as ChatGPT's Fast row: bolt, name, current mode.
         const fastRow = isFastCommand(match.command);
-        const highlighted = index === active;
         const fastName = t("picker.tierFast");
         return (
           <>
@@ -164,8 +172,26 @@ export function SlashMenu({
                 <BoltIcon size={14} />
               </span>
             )}
+            {match.command.icon && (
+              <span className="acpmux-mention-icon" aria-hidden="true">
+                {match.command.image ? (
+                  <img
+                    className="acpmux-tool-image"
+                    src={match.command.image}
+                    width={14}
+                    height={14}
+                    alt=""
+                    draggable={false}
+                  />
+                ) : (
+                  <Icon name={match.command.icon} size={14} />
+                )}
+              </span>
+            )}
             <span className="acpmux-slash-name">
-              {fastRow ? (
+              {match.command.label ? (
+                match.command.label
+              ) : fastRow ? (
                 // The typed letters stay bold where the shown name spells the command (English).
                 fastName.toLowerCase() === match.command.name.toLowerCase() ? (
                   <Highlighted name={fastName} ranges={match.ranges} />
@@ -174,7 +200,8 @@ export function SlashMenu({
                 )
               ) : (
                 <>
-                  /<Highlighted name={shownName(match.command)} ranges={match.ranges} />
+                  {mark}
+                  <Highlighted name={shownName(match.command)} ranges={match.ranges} />
                 </>
               )}
             </span>
@@ -184,12 +211,12 @@ export function SlashMenu({
                 <span className="acpmux-slash-hint">{match.command.hint}</span>
               </>
             )}
-            {tagged && sourceTag(match) && (
+            {!match.command.label && tagged && sourceTag(match) && (
               <span className="acpmux-slash-source" data-popup-skip>
                 {sourceTag(match)}
               </span>
             )}
-            {highlighted && (
+            {describe(match) && (
               <span className="acpmux-slash-description" data-popup-detail>
                 {describe(match)}
               </span>
