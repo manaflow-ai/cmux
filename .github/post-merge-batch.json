@@ -159,6 +159,11 @@
         "swift": "fast tier (Swift entries, build fleet)"
       }
     },
+    "tooling-tests": {
+      "workflow": "cmux-next-tooling-tests-batch.yml",
+      "paths": [],
+      "jobs": {"tooling-tests": "tooling-tests"}
+    },
     "tip-test-compile": {
       "workflow": "cmux-next-tip-test-compile.yml",
       "paths": [
