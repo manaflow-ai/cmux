@@ -8,7 +8,8 @@
 //!
 //! A pod is not a new isolation mechanism. On a pool VM it is:
 //! - one systemd slice, `cmux-pod-<id>.slice`, holding everything the pod runs;
-//! - one directory, the pod root, bound read-write at `/pod`;
+//! - one directory, the pod root, the only writable place besides a private
+//!   `/tmp` (bound at its own path, named by `CMUX_POD_ROOT`);
 //! - every process started inside bubblewrap (`bwrap`), the same sandbox the
 //!   lane VMs' `sandbox` bootstrap step already installs for Claude Code.
 //!
@@ -34,7 +35,7 @@ use cmux_tui_machine_protocol::{
 use serde::{Deserialize, Serialize};
 
 mod systemd;
-pub use systemd::{CommandRunner, SystemdPodRuntime};
+pub use systemd::{CommandRunner, LocalRunner, SystemdPodRuntime};
 
 /// Label that pins a pod to one pool host.
 pub const LABEL_HOST: &str = "cmux.pool.host";

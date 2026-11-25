@@ -16,6 +16,40 @@ pub trait CommandRunner: Send + Sync {
     async fn run(&self, host: &str, argv: &[String], stdin: &[u8]) -> Result<ExecOutput, String>;
 }
 
+/// Runs commands on this machine: the runner a pool VM's own agent uses.
+pub struct LocalRunner {
+    /// The one host name this runner answers for.
+    pub host: String,
+}
+
+#[async_trait]
+impl CommandRunner for LocalRunner {
+    async fn run(&self, host: &str, argv: &[String], stdin: &[u8]) -> Result<ExecOutput, String> {
+        use tokio::io::AsyncWriteExt as _;
+        if host != self.host {
+            return Err(format!("{host} is not this machine ({})", self.host));
+        }
+        let (program, args) = argv.split_first().ok_or("empty argv")?;
+        let mut child = tokio::process::Command::new(program)
+            .args(args)
+            .stdin(std::process::Stdio::piped())
+            .stdout(std::process::Stdio::piped())
+            .stderr(std::process::Stdio::piped())
+            .kill_on_drop(true)
+            .spawn()
+            .map_err(|e| format!("{program}: {e}"))?;
+        if let Some(mut input) = child.stdin.take() {
+            input.write_all(stdin).await.map_err(|e| format!("{program} stdin: {e}"))?;
+        }
+        let out = child.wait_with_output().await.map_err(|e| format!("{program}: {e}"))?;
+        Ok(ExecOutput {
+            exit_code: out.status.code().unwrap_or(-1),
+            stdout: out.stdout,
+            stderr: out.stderr,
+        })
+    }
+}
+
 /// Pods as systemd slices of the pool user's manager (`systemctl --user`).
 pub struct SystemdPodRuntime<X> {
     runner: X,
@@ -85,6 +119,7 @@ impl<X: CommandRunner> SystemdPodRuntime<X> {
     }
 
     pub fn exec_argv(&self, pod: &PodSpec, request: &ExecRequest) -> Vec<String> {
+        let root = self.root(pod);
         let mut out = argv(&[
             "systemd-run",
             "--user",
@@ -92,6 +127,9 @@ impl<X: CommandRunner> SystemdPodRuntime<X> {
             "--collect",
             "--wait",
             "--pipe",
+            // systemd-run expands `$VAR` in the command by default, which would
+            // rewrite the caller's argv (`$$` arrives as `$`). systemd 254+.
+            "--expand-environment=no",
             &format!("--slice={}", Self::slice(pod)),
         ]);
         for (key, value) in &request.env {
@@ -112,11 +150,16 @@ impl<X: CommandRunner> SystemdPodRuntime<X> {
             "/proc",
             "--tmpfs",
             "/tmp",
+            // Same path inside and out: the root is read-only, so a new
+            // mount point like /pod cannot be made, and files and exec agree.
             "--bind",
-            &self.root(pod),
-            "/pod",
+            &root,
+            &root,
+            "--setenv",
+            "CMUX_POD_ROOT",
+            &root,
             "--chdir",
-            request.cwd.as_deref().unwrap_or("/pod"),
+            request.cwd.as_deref().unwrap_or(&root),
             "--",
             &request.program,
         ]));
