@@ -931,10 +931,14 @@ if [[ "$mode" == pair-e2e ]]; then
   # A tagged dev Mac's hostd registers in the build space dev:<tag> (CMUX_BUILD_SPACE, #43648), and a
   # phone lists only the Macs of its own space: the plain Demo build (no CMUX_MOBILE_DEV_TAG) is in the
   # default space, lists 0 Macs, refuses the Mac's code ("pairing code for a space this account is not
-  # in") and never asks to pair. So the phone gets the Mac's tag as its dev tag (not its bundle id, which
-  # the rig installs by): both are in dev:<tag>, as a hand-off's same-tag Mac and iPhone are.
+  # in") and never asks to pair. So the phone gets the Mac's tag as its dev tag: both are in dev:<tag>, as a
+  # hand-off's same-tag Mac and iPhone are. It is that tag's app too (`dev.cmux.mobile.<tag>`, as a
+  # hand-off's): the tagged Mac's dev auto-approve pairs only its own tag's phone (IPhoneDevAutoApprove),
+  # the one way a phone pairs with no person since the QR code went (#48532). The rig installs by the
+  # bundle id the build reports (CFBundleIdentifier, below).
   mac_tag="iospair-$(git rev-parse --short=8 HEAD)-$$"
   build_settings+=("CMUX_MOBILE_DEV_TAG=.$mac_tag")
+  build_settings+=("CMUX_MOBILE_TAG=.$mac_tag")
 fi
 if [[ "$mode" == try ]]; then
   # The cmux Dev app: device only. No CMUX_MOBILE_DEV_TAG (Demo's is empty), so no build space: the
