@@ -111,7 +111,7 @@ impl HostedForum {
         let _ = rustls::crypto::ring::default_provider().install_default();
         let headers = cmux_build_space::headers()
             .map_err(|_| "The hosted forum is off: this build's space is unusable.".to_owned())?;
-        let http = reqwest::Client::builder()
+        let http = cmux_egress::client_builder("acpmux::hub::forum_hosted")
             .default_headers(headers)
             .redirect(reqwest::redirect::Policy::none())
             .user_agent(concat!("acpmux/", env!("CARGO_PKG_VERSION")))

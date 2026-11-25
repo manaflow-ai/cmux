@@ -22,6 +22,7 @@ cmux-message-preview.workspace = true
 cmux-mobile-link.workspace = true
 # Mac output to phone paint (src/output_paint.rs): its ring and window math.
 cmux-output-paint.workspace = true
+cmux-egress.workspace = true
 cmux-rd-core.workspace = true
 # This Mac's interface table, for which interfaces a session uses (src/netwatch.rs).
 cmux-transport.workspace = true

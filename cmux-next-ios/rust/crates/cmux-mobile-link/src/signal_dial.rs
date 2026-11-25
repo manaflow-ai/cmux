@@ -55,20 +55,28 @@ where
 /// The raced TCP connect for `request`'s host (module docs).
 ///
 /// # Errors
-/// A URL with no host, a failed lookup, or the race's last error.
+/// A URL with no host, a host docs/privacy.md does not list (the egress gate, in enforce
+/// mode), a failed lookup, or the race's last error.
 pub async fn connect_tcp(request: &Request) -> Result<TcpStream, tungstenite::Error> {
     let (host, port) = host_port(request)?;
+    // The egress gate (docs/privacy.md) before DNS: this raw dial is one of its sites.
+    cmux_egress::check(&host, "cmux_mobile_link::signal_dial").map_err(|refused| {
+        tungstenite::Error::Io(io::Error::new(io::ErrorKind::PermissionDenied, refused))
+    })?;
     let addresses: Vec<SocketAddr> = tokio::net::lookup_host((host.as_str(), port)).await?.collect();
     Ok(connect_remembered(&LAST_GOOD, &host, port, &addresses, TcpStream::connect).await?)
 }
 
-/// `tokio_tungstenite::connect_async(request)`, its TCP connect raced and remembered.
-pub(crate) async fn connect_async(
+/// A gated `tokio_tungstenite::connect_async(request)`, its TCP connect raced and remembered:
+/// the host passes the egress gate as `site` first.
+pub(crate) async fn dial_ws(
     request: Request,
+    site: &'static str,
 ) -> Result<
     (WebSocketStream<MaybeTlsStream<TcpStream>>, tungstenite::handshake::client::Response),
     tungstenite::Error,
 > {
+    let request = cmux_egress::ws::checked(request, site)?;
     let stream = connect_tcp(&request).await?;
     tokio_tungstenite::client_async_tls_with_config(request, stream, None, None).await
 }

@@ -118,7 +118,7 @@ impl ForumOwner {
         let Ok(headers) = cmux_build_space::headers() else {
             return Self { forum: Err("build_space"), runtime: OnceLock::new() };
         };
-        let http = reqwest::Client::builder()
+        let http = cmux_egress::client_builder("cmux_tui_core::server::forum_routed")
             .default_headers(headers)
             .redirect(reqwest::redirect::Policy::none())
             .user_agent(concat!("cmux-tui/", env!("CARGO_PKG_VERSION")))

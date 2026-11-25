@@ -71,7 +71,9 @@ fn now() -> u64 {
 impl Tokens {
     pub fn new(source: TokenSource) -> Self {
         cmux_mobile_link::install_crypto_provider();
-        Self { source, cached: Mutex::new(None), refused: Mutex::new(None), http: reqwest::Client::new() }
+        // Through the egress gate (docs/privacy.md): the Stack API is a listed host.
+        let http = cmux_egress::client("cmux_mobile_host::auth").expect("HTTP client builds");
+        Self { source, cached: Mutex::new(None), refused: Mutex::new(None), http }
     }
 
     /// A current access token, refreshed 60 s before it expires.

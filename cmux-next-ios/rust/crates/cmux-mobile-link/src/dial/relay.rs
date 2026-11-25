@@ -244,10 +244,13 @@ impl RelayCarrier {
         if let Some(space) = &endpoint.build_space {
             headers.insert(crate::build_space::HEADER, header(space.as_str())?);
         }
-        let (socket, _) = tokio::time::timeout(JOIN_WAIT, tokio_tungstenite::connect_async(request))
-            .await
-            .map_err(|_| RelayFailure::Timeout)?
-            .map_err(classify)?;
+        let (socket, _) = tokio::time::timeout(
+            JOIN_WAIT,
+            cmux_egress::ws::connect_async(request, "cmux_mobile_link::dial::relay"),
+        )
+        .await
+        .map_err(|_| RelayFailure::Timeout)?
+        .map_err(classify)?;
         let expected = uuid::Uuid::parse_str(peer_device).ok().map(|id| PeerId(*id.as_bytes()));
         Ok(Self::run(socket, expected))
     }

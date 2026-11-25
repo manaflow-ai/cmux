@@ -86,7 +86,7 @@ let package = Package(
             swiftSettings: [.swiftLanguageMode(.v5)],
             linkerSettings: [.linkedFramework("Security"), .linkedFramework("SystemConfiguration")]
         ),
-        .target(name: "CmuxMobileTransport", dependencies: [.target(name: "CmuxMobileLinkFFI", condition: .when(platforms: [.iOS]))]),
+        .target(name: "CmuxMobileTransport", dependencies: [.product(name: "CmuxEgress", package: "CmuxEgress"), .target(name: "CmuxMobileLinkFFI", condition: .when(platforms: [.iOS]))]),
         // Markdown: native block renderer for transcripts, WKWebView renderer (pooled) for the Feed and math.
         .target(name: "CmuxMobileMarkdown", dependencies: ["CmuxMobileDesign", "CmuxMobileModel"], resources: [.copy("Resources/web")]),
         // Diff model (line + word diff, unified parser) and the GitHub-mobile-style viewer.
