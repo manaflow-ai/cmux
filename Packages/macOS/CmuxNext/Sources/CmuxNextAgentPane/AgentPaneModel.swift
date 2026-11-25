@@ -602,7 +602,7 @@ public final class AgentPaneModel {
         switch request {
         // Boot traffic, and a request the host refused (it changed nothing), leave it untouched.
         case .ready, .reconnect, .uiPointerReport, .framePacing, .renderRate, .checkpointAvailability, .commandAvailability, .painted, .launchSettle, .inputEchoed, .clientReady, .newTabInputReady, .newTabContext, .newTabWarm, .unsupported,
-             .transportOpen, .transportSend, .transportClose, .transportGesture, .transportGestureRelease, .chatsPage, .quickFloatingState, .quickContext,
+             .transportOpen, .transportSend, .transportClose, .transportAck, .transportGesture, .transportGestureRelease, .chatsPage, .quickFloatingState, .quickContext,
              .tabRowTools, .tabRowToolsSet, .tabRowToolsOpenMenu, .sessionInfo, .sessionInfoOverlays, .sessionInfoPinch, .hostGlass, .toastAvoidance, .toast, .projectIcon, .completeFolder, .agentAvatar, .miniSubject, .chiefFace, .harnessSymbol, .attachmentSourceIcon, .environment(.list), .cloudMachine(.list), .cloudMachine(.freshList), .cloudMachine(.recoveryList), .cloudMachine(.prewarm),
              .sandboxState, .subagentShown, .dictationSources: break
         // The composer reports whether its harness takes audio on every mount (dictation.ts), and the
@@ -1011,7 +1011,7 @@ public final class AgentPaneModel {
                 return AgentPaneReply.failure(code: "open_failed", message: error.localizedDescription)
             }
         case .gitWrite(let write): return await AgentPaneGitWriteReply.reply(to: write, in: self)
-        case .git, .invalidGit, .githubRepository, .gitStage, .gitPullRequest, .transportOpen, .transportSend, .transportGesture, .transportGestureRelease, .transportClose, .harnessUpdate, .harnessRestart:
+        case .git, .invalidGit, .githubRepository, .gitStage, .gitPullRequest, .transportOpen, .transportSend, .transportGesture, .transportGestureRelease, .transportClose, .transportAck, .harnessUpdate, .harnessRestart:
             return await AgentPaneTransportReply.reply(to: request, in: self)
         case .turnUndo(let undo): return await AgentPaneTurnUndo.reply(to: undo, in: self)
         case .invalidTurnUndo: return await AgentPaneTurnUndo.reply(to: nil, in: self)

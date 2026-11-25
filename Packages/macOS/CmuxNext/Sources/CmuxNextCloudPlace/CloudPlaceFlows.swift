@@ -1,5 +1,6 @@
 import CmuxNextCloud
 import CmuxNextCompat
+import CmuxNextWakeups
 public import Foundation
 public import Observation
 
@@ -97,6 +98,13 @@ public final class CloudPlaceFlows {
     public internal(set) var evacuation: Evacuation?
     /// Each running move's trigger and direction, to record who moved it once it landed.
     @ObservationIgnored private var started: [String: (auto: Bool, evacuate: Bool, toCloud: Bool)] = [:]
+    /// Bumped once per change in the hybrid start drivers' folder; `placeJSON` reads it, so the header re-reads `start`.
+    public private(set) var startRevision = 0
+    /// The cmux-tui sessions folder (`CMUX_TUI_STATE_DIR`) the hybrid start drivers write under; nil reads no `start`.
+    @ObservationIgnored private var startState: URL?
+    /// Each session's `start` as of a revision, so a header read costs one FFI read per Show, not per read.
+    @ObservationIgnored private var starts: [String: (revision: Int, start: Any?)] = [:]
+    @ObservationIgnored private var startWatch: Task<Void, Never>?
     @ObservationIgnored private let core: Core
     @ObservationIgnored private let defaults: UserDefaults
     @ObservationIgnored private let modesKey: String
@@ -292,11 +300,50 @@ public final class CloudPlaceFlows {
         return (answer["next"] as? String).flatMap(Next.init(rawValue:)) ?? .go
     }
 
+    // MARK: A hybrid start's state (RFD 0078 "the start")
+
+    /// Reads each chat's hybrid start from the drivers under `state` (Rust's `cloud_hybrid_start`), re-read
+    /// once per Show: a driver renames its `<session>.show` into `hybrid-start/` after each one, so a folder
+    /// watch there wakes once per state and nothing polls.
+    public func watchStarts(state: URL?) {
+        guard state != startState || (state != nil && startWatch == nil) else { return }
+        startState = state
+        startWatch?.cancel()
+        startWatch = nil
+        startRevision &+= 1 // what was read under another folder (or none) is stale
+        guard let state else { return }
+        // The drivers' folder sits beside the sessions folder (cmux-cloud-start-core `hybrid_show`).
+        let folder = state.deletingLastPathComponent().appending(path: "hybrid-start", directoryHint: .isDirectory)
+        startWatch = Task { @MainActor [weak self] in
+            for await _ in await FolderChanges(folders: [folder]).events() {
+                guard let self else { return }
+                startRevision &+= 1
+            }
+        }
+    }
+
+    /// The session's `start` (`{cloud, reason?, sinceMs?}`), as Rust reads its driver's newest Show; nil with none.
+    func start(of session: String) -> Any? {
+        let revision = startRevision
+        if let kept = starts[session], kept.revision == revision { return kept.start }
+        var start: Any?
+        if let startState, let request = try? JSONSerialization.data(withJSONObject: ["stateDir": startState.path, "session": session]),
+           let reply = core("cloud_hybrid_start", request),
+           let answer = try? JSONSerialization.jsonObject(with: reply) as? [String: Any],
+           let value = answer["start"] as? [String: Any], JSONSerialization.isValidJSONObject(value) {
+            start = value
+        }
+        starts[session] = (revision, start)
+        return start
+    }
+
     // MARK: The chat's place, for pane.tabState
 
-    /// `place: {mode, at, cloudName?, move?, blocked?, holders?}` for the chat header, as JSON; nil with no session.
+    /// `place: {mode, at, cloudName?, move?, blocked?, holders?, start?}` for the chat header, as JSON; nil with no session.
     /// `blocked` and `holders` are Rust's answer (`cloud_move_place_control`, `priority::control`) to `control`'s facts.
-    public func placeJSON(session: String?, onCloud: Bool, cloudName: String?, control: ControlFacts? = nil) -> Data? {
+    /// `starts`: the sessions folder whose hybrid start drivers say `start` (watched from the first read on).
+    public func placeJSON(session: String?, onCloud: Bool, cloudName: String?, control: ControlFacts? = nil, starts state: URL? = nil) -> Data? {
+        if let state { watchStarts(state: state) }
         guard let session else { return nil }
         var place: [String: Any] = ["mode": mode(of: session, onCloud: onCloud), "at": onCloud ? "cloud" : "local"]
         if let cloudName { place["cloudName"] = cloudName }
@@ -306,6 +353,7 @@ public final class CloudPlaceFlows {
             if let blocked = answer["blocked"] { place["blocked"] = blocked }
             if let holders = answer["holders"] { place["holders"] = holders }
         }
+        if let start = start(of: session) { place["start"] = start }
         return try? JSONSerialization.data(withJSONObject: place, options: [.sortedKeys])
     }
 
