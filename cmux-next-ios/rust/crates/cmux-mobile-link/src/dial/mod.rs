@@ -1112,7 +1112,7 @@ mod tests {
                 channel.send(Bytes::from(vec![round; 1000])).await.unwrap();
                 match tokio::time::timeout(std::time::Duration::from_secs(5), channel.recv()).await {
                     Ok(Some(ChannelEvent::Data(bytes))) => {
-                        assert_eq!(&bytes[..], &[round; 1000][..], "{label}")
+                        assert_eq!(&bytes[..], &[round; 1000][..], "{label}");
                     }
                     other => panic!("{label}: unexpected {other:?}"),
                 }
