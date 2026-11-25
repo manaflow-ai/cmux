@@ -117,7 +117,7 @@ class ScriptTests(unittest.TestCase):
         out = run(["bash", str(STEPS / "last-good-mobile-host.sh"), "x86_64"], self.tmp, env)
         self.assertEqual((out.returncode, out.stdout), (1, ""))
 
-    def bundle_tree(self, host_status: int) -> Path:
+    def bundle_tree(self, host_status: int, screen_status: int = 0) -> Path:
         """A tree with the bundle step script and stubs: the background joins and the phase scripts."""
         tree = self.tmp / "tree"
         (tree / "scripts/ci/nightly-steps").mkdir(parents=True)
@@ -126,7 +126,8 @@ class ScriptTests(unittest.TestCase):
         for name in ("app-bundle-chief-and-mobile-host.sh", "stale-part.sh", "last-good-mobile-host.sh"):
             shutil.copy(STEPS / name, tree / "scripts/ci/nightly-steps" / name)
         (tree / "scripts/ci/background_build.py").write_text(
-            "import sys\nsys.exit(%d if sys.argv[-1] == 'mobile-host' else 0)\n" % host_status)
+            "import sys\nsys.exit({'mobile-host': %d, 'screen-sharing-helper': %d}.get(sys.argv[-1], 0))\n"
+            % (host_status, screen_status))
         for name in ("bundle-optchat-chief.sh", "bundle-mobile-host.sh", "bundle-screen-sharing-helper.sh"):
             stub = tree / "scripts/cmux-next" / name
             stub.write_text(f'#!/usr/bin/env bash\necho "{name} ${{CMUX_NEXT_MOBILE_HOST_BIN:-}}" >> "$RUNNER_TEMP/bundled"\n')
@@ -168,6 +169,26 @@ class ScriptTests(unittest.TestCase):
         out = self.bundle(self.bundle_tree(1), NIGHTLY_COMPONENT_GATES="block")
         self.assertNotEqual(out.returncode, 0)
         self.assertNotIn("bundle-mobile-host.sh", self.bundled())
+
+    def test_a_failed_screen_helper_ships_without_it(self) -> None:
+        out = self.bundle(self.bundle_tree(0, screen_status=1))
+        self.assertEqual(out.returncode, 0, out.stderr)
+        self.assertNotIn("bundle-screen-sharing-helper.sh", self.bundled())
+        self.assertIn("bundle-mobile-host.sh /host", self.bundled())
+        self.assertIn("::warning title=Nightly stale part::cmux-screen-sharing: the Screen Sharing helper failed "
+                      "to build; the nightly ships without Screen Sharing", out.stdout)
+        self.assertEqual((self.tmp / "nightly-stale-parts").read_text().split("\t")[0], "cmux-screen-sharing")
+
+    def test_block_restores_the_screen_helper_hold(self) -> None:
+        out = self.bundle(self.bundle_tree(0, screen_status=1), NIGHTLY_COMPONENT_GATES="block")
+        self.assertNotEqual(out.returncode, 0)
+        self.assertNotIn("bundle-screen-sharing-helper.sh", self.bundled())
+
+    def test_architecture_check_lets_a_missing_screen_helper_through(self) -> None:
+        text = (STEPS / "prepare-verify-binary-architectures.sh").read_text()
+        soft = text.index("this nightly carries no Screen Sharing helper")
+        self.assertLess(soft, text.index("nightly-next is missing Contents/Library/<app> Helper.app"))
+        self.assertIn('[ ! -e "${helpers[0]}" ] && [ "${NIGHTLY_COMPONENT_GATES:-}" != block ]', text)
 
     def test_publish_gate_notes_a_red_webview_check_instead_of_refusing(self) -> None:
         text = (STEPS / "publish-final-gate.sh").read_text()
