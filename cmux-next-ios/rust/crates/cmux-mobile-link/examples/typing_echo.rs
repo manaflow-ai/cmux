@@ -41,8 +41,9 @@ use std::time::Duration;
 use bytes::Bytes;
 use cmux_mobile_link::dial::{self, SessionEvents};
 use cmux_mobile_link::testing::{
-    FakeOptions, FakeSignaling, LinkProfile, RadioModel, TestTurn, radio_wakes, set_link_profile,
-    set_radio_model, set_turn_answer_delay, shape_downlink, shape_uplink, shaped_counts,
+    FakeOptions, FakeSignaling, LinkProfile, PeriodicLoss, RadioModel, TestTurn, radio_wakes,
+    set_link_profile, set_periodic_loss, set_radio_model, set_turn_answer_delay, shape_downlink,
+    shape_uplink, shaped_counts,
 };
 use cmux_mobile_link::{ChannelEvent, DialOptions, Lane, LinkConfig, SignalingClient, TransportKind};
 use tokio::time::{Instant, sleep_until};
@@ -62,6 +63,7 @@ struct Args {
     foreground_probe: bool,
     idle_air_gap_ms: Option<u64>,
     air_floor_ms: Option<u64>,
+    periodic_loss: Option<PeriodicLoss>,
 }
 
 fn args() -> Args {
@@ -80,6 +82,7 @@ fn args() -> Args {
         foreground_probe: false,
         idle_air_gap_ms: None,
         air_floor_ms: None,
+        periodic_loss: None,
     };
     let mut iter = std::env::args().skip(1);
     while let Some(flag) = iter.next() {
@@ -99,6 +102,9 @@ fn args() -> Args {
             "--foreground-probe" => parsed.foreground_probe = value == "on",
             "--idle-air-gap-ms" => parsed.idle_air_gap_ms = value.parse().ok(),
             "--air-floor-ms" => parsed.air_floor_ms = value.parse().ok(),
+            // PERIOD_MS:BURST_MS:PERCENT, e.g. 15000:300:40 for a Starlink-like
+            // reconfiguration every 15 s (RFD 0142 O5).
+            "--periodic-loss" => parsed.periodic_loss = PeriodicLoss::parse(&value),
             other => eprintln!("ignoring unknown flag {other}"),
         }
     }
@@ -150,6 +156,7 @@ async fn main() {
             ..RadioModel::lte()
         }));
     }
+    set_periodic_loss(args.periodic_loss);
     // The TURN server is a round trip away, as a real one is: its answers to
     // the client's Allocate, Refresh, CreatePermission and ChannelBind wait
     // that long (the profile's RTT unless --turn-answer-ms says otherwise).
@@ -319,7 +326,7 @@ async fn main() {
          \"dial_ms\":{dialed_ms:.0},\"typing_from_ms\":{:.0},\"keys_on_input_lane\":{on_input_stream},\
          \"keys_sent\":{seq},\"echoed\":{},\"echo_ms\":{{\"p50\":{:.1},\"p95\":{:.1},\"p99\":{:.1},\"max\":{:.1}}},\
          \"turn_answer_ms\":{turn_answer_ms},\"threshold_ms\":{},\"over_threshold\":{},\"datagrams\":[{delivered},{dropped}],\
-         \"final_path\":\"{path:?}\",\"radio\":{},\"radio_tail_ms\":{},\"foreground_probe\":{},\"idle_air_gap_ms\":{},\"air_floor_ms\":{},\"radio_wakes\":{wakes},\"first_key_ms\":{first_key},\"spikes\":[{}]}}",
+         \"final_path\":\"{path:?}\",\"radio\":{},\"radio_tail_ms\":{},\"foreground_probe\":{},\"idle_air_gap_ms\":{},\"air_floor_ms\":{},\"periodic_loss\":{},\"radio_wakes\":{wakes},\"first_key_ms\":{first_key},\"spikes\":[{}]}}",
         args.profile,
         args.row,
         args.seconds,
@@ -337,6 +344,12 @@ async fn main() {
         args.foreground_probe,
         args.idle_air_gap_ms.map_or("null".to_string(), |ms| ms.to_string()),
         args.air_floor_ms.map_or("null".to_string(), |ms| ms.to_string()),
+        args.periodic_loss.map_or("null".to_string(), |loss| format!(
+            "\"{}:{}:{}\"",
+            loss.period.as_millis(),
+            loss.burst.as_millis(),
+            loss.loss_percent
+        )),
         spikes.join(","),
     );
     std::process::exit(0);

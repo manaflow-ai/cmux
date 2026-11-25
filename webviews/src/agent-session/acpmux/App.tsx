@@ -1002,7 +1002,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   const paneRenderStart = acpmuxPerf.enabled ? performance.now() : 0;
   acpmuxPerf.render("pane");
   const t = useT();
-  const { scrollToBottomOnSend, newChatsIn, emptyChatComposerPosition } = useComposerSettings();
+  const { scrollToBottomOnSend, newChatsIn, emptyChatComposerPosition, cloudLeaseOnOpen } = useComposerSettings();
   const scrollToBottomOnSendRef = useRef(scrollToBottomOnSend);
   scrollToBottomOnSendRef.current = scrollToBottomOnSend;
   /// A new chat's Run as (hq#3367): Persistent is the chat as before; Sandboxed runs the
@@ -4939,6 +4939,15 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     cloudShownView.current = view;
     // eslint-disable-next-line react-hooks/exhaustive-deps -- the retry is made once (useState); the cancel reads only refs
   }, [snapshot.sessionId, newTabGeneration, cloudTypingPrewarm, cloudReservation]);
+  /// A composer that opens with Cloud already its target (remembered, or New Tab on a Cloud pane) leases its
+  /// machine now, not at the first key (CLOUD_LEASE_ON_OPEN, cloudComposeReservation.ts `opened`). Again per
+  /// shown page: a pooled spare's lease the host refused is asked once more when a tab takes that page.
+  const cloudOpenEligible = cloudPicked && cloudOfferable;
+  useEffect(() => {
+    if (!cloudLeaseOnOpen || !cloudOpenEligible || runModePicked.current) return;
+    newChatPrewarm.abandon();
+    cloudReservation.opened(cloudReserveReplaces);
+  }, [cloudLeaseOnOpen, cloudOpenEligible, cloudReserveReplaces, newTabGeneration, cloudReservation, newChatPrewarm]);
   /// The person picked another place to run after a Cloud start failed: its card goes.
   useEffect(() => {
     if (sandbox.mode !== "cloud") {

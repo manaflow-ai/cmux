@@ -116,6 +116,7 @@ This file indexes every entry in `scripts/measure/`. Registered benches wrap som
 | `omnibar-click.sh` | Omnibar mouse-down to the frame that shows focus. | - | 2026-10-27 | active |
 | `hover-preload.sh` | Pointer sweep over sidebar rows: hover preload wakes and cost. | - | 2026-11-07 | active |
 | `chat-open.sh` | Sidebar click to first content for a chat. | - | 2026-11-03 | active |
+| `action-trace.sh` | Each user action's spans (launch, send to first token paint, chat switch, new chat) against its speed-of-light floor, from the daemon's Chrome trace (`CMUX_TRACE_FILE`): the trace JSON and one `ACTION-GAP name dur_us floor_us gap_us` line per span; `--burn=N` for duress. | Leo 2026-11-25, speed of light | 2026-11-25 | active |
 | `pane-compile-cef.sh` | Whether the agent pane's ES-module code cache is consumed on a reload in cmux NEXT's CEF, its compiles and FCP (`--build-at=SHA` per arm). | - | 2026-11-23 | active |
 | `right-pane-open.sh` | Click to first content for every right-side open of a chat. | - | 2026-11-07 | active |
 | `fork-open.sh` | Fork Conversation to a usable fork, for every Fork To destination. | - | 2026-11-07 | active |
