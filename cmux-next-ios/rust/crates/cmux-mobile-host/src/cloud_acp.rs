@@ -410,7 +410,7 @@ impl Adapter {
             if let Reply::Simple { surface: waiting, kind: Simple::Prompt, .. } = pending.reply
                 && waiting == surface
             {
-                let _ = (&pending.deadline, now); // TEMP: fix reverted
+                pending.deadline.progressed_at(now);
             }
         }
         let (method, field) = match event.get("event").and_then(Value::as_str) {
