@@ -1,5 +1,7 @@
 public import Foundation
+#if canImport(os)
 import os
+#endif
 
 /// Synchronous inbound authority for one enrolled Mac tuple, key and generation.
 /// The current directory is swapped under one lock; admission never waits for networking.

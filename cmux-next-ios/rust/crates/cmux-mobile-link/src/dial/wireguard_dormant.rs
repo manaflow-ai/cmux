@@ -428,7 +428,7 @@ impl Lease {
 
     /// Run once the link exists: the lease learns how it closes, and an older
     /// link ends when the peer resumes the tunnel with a new one.
-    pub(super) fn on_link(&self) -> super::super::OnLink {
+    pub(super) fn on_link(&self) -> crate::dial::OnLink {
         let closed = Arc::clone(&self.closed);
         let mut generation = self.keeper.generation.subscribe();
         generation.mark_unchanged();

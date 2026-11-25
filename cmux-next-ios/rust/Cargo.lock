@@ -626,6 +626,7 @@ dependencies = [
  "cmux-rd-core",
  "cmux-rd-engine",
  "cmux-rd-proto",
+ "cmux-relay-snapshot",
  "cmux-tab-snapshots",
  "cmux-terminal-projection",
  "cmux-transport",
@@ -675,6 +676,7 @@ dependencies = [
  "cmux-mobile-link",
  "cmux-rd-core",
  "cmux-rd-proto",
+ "cmux-relay-snapshot",
  "cmux-remote-protocol",
  "cmux-terminal-projection",
  "cmux-transport",
@@ -794,6 +796,7 @@ dependencies = [
  "md-5",
  "sha1",
  "snow",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -802,6 +805,17 @@ version = "0.1.0"
 dependencies = [
  "serde",
  "serde_json",
+]
+
+[[package]]
+name = "cmux-relay-snapshot"
+version = "0.1.0"
+dependencies = [
+ "aes-gcm",
+ "hkdf",
+ "p256",
+ "rand_core 0.6.4",
+ "sha2",
 ]
 
 [[package]]

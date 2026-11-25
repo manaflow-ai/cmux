@@ -536,6 +536,7 @@
     "param:_acpmux/prewarm#model",
     "param:_acpmux/prewarm#release",
     "param:_acpmux/prewarm#reserveHome",
+    "param:_acpmux/prewarm#shapes",
     "param:_acpmux/prewarm#wait",
     "param:_acpmux/prewarm#workspaceId",
     "param:_acpmux/process/background#sessionId",
@@ -633,6 +634,13 @@
     "param:_acpmux/subsession/limits#maxRunning",
     "param:_acpmux/subsession/limits#sessionId",
     "param:_acpmux/subsession/limits#workspaceId",
+    "param:_acpmux/sync/pull#vv",
+    "param:_acpmux/sync/push#delta",
+    "param:_acpmux/turn_frames#index",
+    "param:_acpmux/turn_frames#look",
+    "param:_acpmux/turn_frames#sessionId",
+    "param:_acpmux/turn_frames#sinceSeq",
+    "param:_acpmux/turn_frames#turnId",
     "param:_acpmux/turn_shots#sessionId",
     "param:_acpmux/turn_shots#turnId",
     "param:_acpmux/typing#on",
@@ -767,6 +775,9 @@
     ],
     "attach-hold-v1": [
       "method:_acpmux/attach"
+    ],
+    "autocloud-fill-v1": [
+      "notify:_acpmux/fill"
     ],
     "btw-guest-v1": [
       "method:_acpmux/btw"
@@ -1148,6 +1159,10 @@
       "method:_acpmux/start_mode",
       "notify:_acpmux/start_mode_changed"
     ],
+    "state-sync-v1": [
+      "method:_acpmux/sync/pull",
+      "method:_acpmux/sync/push"
+    ],
     "subagent-list-v1": [
       "method:_acpmux/subagents"
     ],
@@ -1219,6 +1234,9 @@
       "method:trigger/chat.ensure",
       "method:trigger/chat.send",
       "method:trigger/chat.status"
+    ],
+    "turn-frames-v1": [
+      "method:_acpmux/turn_frames"
     ],
     "turn-retry-v1": [
       "method:_acpmux/retry"
