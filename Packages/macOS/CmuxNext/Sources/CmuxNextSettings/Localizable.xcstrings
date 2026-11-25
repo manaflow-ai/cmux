@@ -18888,6 +18888,402 @@
         }
       }
     },
+    "settings.appearance.appFont.system": {
+      "comment": "Settings > Appearance > App Font: the default, the system font.",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "النظام"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sistemski"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "System"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "System"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "System"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sistema"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Système"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sistema"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "システム"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ប្រព័ន្ធ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "시스템"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "System"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Systemowa"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sistema"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Системный"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ระบบ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sistem"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Системний"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hệ thống"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "系统"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "系統"
+          }
+        }
+      }
+    },
+    "settings.appearance.appFont.help": {
+      "comment": "Settings > Appearance > App Font: help text.",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "خط واجهة cmux: الدردشة والإعدادات وكل صفحة. تحتفظ الطرفيات بخطها الخاص."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Font interfejsa cmux: chat, Postavke i svaka stranica. Terminali zadržavaju svoj."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Skrifttypen i cmux' brugerflade: chat, Indstillinger og hver side. Terminaler beholder deres egen."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Die Schrift der cmux-Oberfläche: Chat, Einstellungen und jede Seite. Terminals behalten ihre eigene."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The font of cmux's interface: chat, Settings and every page. Terminals keep their own."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La fuente de la interfaz de cmux: el chat, Ajustes y cada página. Los terminales conservan la suya."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La police de l'interface de cmux : le chat, les Réglages et chaque page. Les terminaux gardent la leur."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Il font dell'interfaccia di cmux: chat, Impostazioni e ogni pagina. I terminali mantengono il proprio."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux のインターフェイス(チャット、設定、各ページ)のフォント。ターミナルは独自のフォントを使います。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ពុម្ពអក្សរនៃចំណុចប្រទាក់ cmux៖ ការជជែក ការកំណត់ និងគ្រប់ទំព័រ។ ស្ថានីយរក្សាពុម្ពអក្សររបស់ខ្លួន។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux 인터페이스의 글꼴: 채팅, 설정 및 모든 페이지. 터미널은 자체 글꼴을 유지합니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Skriften i cmux-grensesnittet: chat, Innstillinger og hver side. Terminaler beholder sin egen."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Czcionka interfejsu cmux: czat, Ustawienia i każda strona. Terminale zachowują własną."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A fonte da interface do cmux: chat, Ajustes e todas as páginas. Os terminais mantêm a sua."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Шрифт интерфейса cmux: чат, Настройки и все страницы. У терминалов свой шрифт."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "แบบอักษรของอินเทอร์เฟซ cmux: แชท การตั้งค่า และทุกหน้า เทอร์มินัลใช้แบบอักษรของตัวเอง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux arayüzünün yazı tipi: sohbet, Ayarlar ve her sayfa. Terminaller kendi yazı tiplerini korur."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Шрифт інтерфейсу cmux: чат, Налаштування та кожна сторінка. Термінали зберігають власний."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Phông chữ của giao diện cmux: trò chuyện, Cài đặt và mọi trang. Terminal giữ phông chữ riêng."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux 界面的字体:聊天、设置和每个页面。终端保留各自的字体。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux 介面的字體:聊天、設定和每個頁面。終端機保留各自的字體。"
+          }
+        }
+      }
+    },
+    "settings.appearance.appFont": {
+      "comment": "Settings > Appearance: the row for the font of cmux's whole interface.",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "خط التطبيق"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Font aplikacije"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Appens skrifttype"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "App-Schrift"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "App Font"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fuente de la app"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Police de l'app"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Font dell'app"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "アプリのフォント"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ពុម្ពអក្សរកម្មវិធី"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "앱 글꼴"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Appens skrift"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Czcionka aplikacji"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fonte do app"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Шрифт приложения"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "แบบอักษรของแอป"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Uygulama Yazı Tipi"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Шрифт застосунку"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Phông chữ ứng dụng"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "应用字体"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "App 字體"
+          }
+        }
+      }
+    },
     "settings.appearance.appTheme": {
       "extractionState": "manual",
       "localizations": {
@@ -250678,6 +251074,270 @@
         "vi": {"stringUnit": {"state": "translated", "value": "Cuộc trò chuyện vẫn hiển thị phía sau các thông báo và hàng “Cần bạn nhập” phía trên ô soạn thảo."}},
         "zh-Hans": {"stringUnit": {"state": "translated", "value": "在输入框上方的通知和“需要你的输入”行后面，对话依然可见。"}},
         "zh-Hant": {"stringUnit": {"state": "translated", "value": "在輸入框上方的通知和「需要你的輸入」列後面，對話依然可見。"}}
+      }
+    },
+    "settings.experiments.appFontChrome.help": {
+      "comment": "Settings > Experiments > App Font in Native Chrome: help text.",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يستخدم الشريط الجانبي وعلامات التبويب وشريط العنوان خط التطبيق أيضًا. يتغير بعض النص بعد إعادة تشغيل cmux."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bočna traka, kartice i naslovna traka također koriste font aplikacije. Dio teksta se mijenja nakon ponovnog pokretanja cmuxa."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sidepanelet, fanerne og titellinjen bruger også appens skrifttype. Noget tekst ændres først, når cmux genstartes."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Seitenleiste, Tabs und Titelleiste nutzen ebenfalls die App-Schrift. Manche Texte ändern sich erst nach einem Neustart von cmux."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The sidebar, tabs and titlebar draw in the App Font too. Some text changes after cmux restarts."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La barra lateral, las pestañas y la barra de título también usan la fuente de la app. Parte del texto cambia tras reiniciar cmux."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La barre latérale, les onglets et la barre de titre utilisent aussi la police de l'app. Certains textes changent après le redémarrage de cmux."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Anche la barra laterale, le schede e la barra del titolo usano il font dell'app. Parte del testo cambia dopo il riavvio di cmux."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "サイドバー、タブ、タイトルバーもアプリのフォントで表示します。一部のテキストは cmux の再起動後に変わります。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "របារចំហៀង ផ្ទាំង និងរបារចំណងជើងក៏ប្រើពុម្ពអក្សរកម្មវិធីដែរ។ អត្ថបទខ្លះផ្លាស់ប្ដូរបន្ទាប់ពី cmux ចាប់ផ្ដើមឡើងវិញ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "사이드바, 탭, 제목 막대도 앱 글꼴로 표시됩니다. 일부 텍스트는 cmux를 다시 시작한 후에 바뀝니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sidefeltet, fanene og tittellinjen bruker også appens skrift. Noe tekst endres etter at cmux startes på nytt."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pasek boczny, karty i pasek tytułu też używają czcionki aplikacji. Część tekstu zmienia się po ponownym uruchomieniu cmux."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A barra lateral, as abas e a barra de título também usam a fonte do app. Parte do texto muda após reiniciar o cmux."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Боковая панель, вкладки и заголовок окна тоже используют шрифт приложения. Часть текста меняется после перезапуска cmux."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "แถบด้านข้าง แท็บ และแถบชื่อเรื่องใช้แบบอักษรของแอปด้วย ข้อความบางส่วนจะเปลี่ยนหลังจากเริ่ม cmux ใหม่"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kenar çubuğu, sekmeler ve başlık çubuğu da Uygulama Yazı Tipini kullanır. Bazı metinler cmux yeniden başlatıldıktan sonra değişir."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Бічна панель, вкладки й заголовок вікна теж використовують шрифт застосунку. Частина тексту змінюється після перезапуску cmux."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Thanh bên, các tab và thanh tiêu đề cũng dùng phông chữ ứng dụng. Một số văn bản thay đổi sau khi khởi động lại cmux."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "侧边栏、标签页和标题栏也使用应用字体。部分文字在重新启动 cmux 后才会改变。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "側邊欄、分頁和標題列也使用 App 字體。部分文字在重新啟動 cmux 後才會改變。"
+          }
+        }
+      }
+    },
+    "settings.experiments.appFontChrome": {
+      "comment": "Settings > Experiments: native chrome (sidebar, tabs, titlebar) draws in the App Font too.",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "خط التطبيق في الواجهة الأصلية"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Font aplikacije u izvornom okviru"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Appens skrifttype i den native ramme"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "App-Schrift in nativen Bedienelementen"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "App Font in Native Chrome"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fuente de la app en la interfaz nativa"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Police de l'app dans l'interface native"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Font dell'app nell'interfaccia nativa"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ネイティブ UI にアプリのフォント"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ពុម្ពអក្សរកម្មវិធីក្នុងផ្ទៃដើម"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "네이티브 UI에 앱 글꼴 적용"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Appens skrift i det native rammeverket"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Czcionka aplikacji w natywnym interfejsie"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fonte do app na interface nativa"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Шрифт приложения в нативном интерфейсе"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "แบบอักษรของแอปในส่วนติดต่อแบบเนทีฟ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Yerel arayüzde Uygulama Yazı Tipi"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Шрифт застосунку в нативному інтерфейсі"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Phông chữ ứng dụng trong giao diện gốc"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "原生界面使用应用字体"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "原生介面使用 App 字體"
+          }
+        }
       }
     },
     "settings.experiments.attachmentTypeIcons": {

@@ -432,6 +432,14 @@ pub struct TunnelKeys {
     pub answerer: String,
 }
 
+/// The WireGuard overlay a link rides, for its own datagram ports (viewport sync, 7424).
+#[derive(Clone)]
+pub struct Overlay {
+    pub net: std::sync::Arc<cmux_wg::WgNet>,
+    /// The other side's overlay address.
+    pub peer_ip: std::net::IpAddr,
+}
+
 /// A dialed or answered transport.
 pub struct Dialed {
     pub stream: Box<dyn LinkStream>,
@@ -456,6 +464,8 @@ pub struct Dialed {
     pub reliable: bool,
     /// The tunnel's static keys (WireGuard); `None` on WebRTC.
     pub tunnel_keys: Option<TunnelKeys>,
+    /// The tunnel's overlay (WireGuard links only).
+    pub overlay: Option<Overlay>,
 }
 
 /// A negotiated media carrier; the link starts its core once it runs (the
@@ -662,6 +672,8 @@ pub struct Connected {
     pub resumed: bool,
     /// The tunnel's static keys (WireGuard); `None` on WebRTC.
     pub tunnel_keys: Option<TunnelKeys>,
+    /// The WireGuard overlay this link rides (`None` on WebRTC).
+    pub overlay: Option<Overlay>,
 }
 
 /// Phone side: dial `mac` over `kind` and run a link on the result.
@@ -757,6 +769,7 @@ async fn connect_on(
         webrtc_media: dialed.webrtc_media,
         resumed: false,
         tunnel_keys: dialed.tunnel_keys,
+        overlay: dialed.overlay,
     })
 }
 
@@ -804,6 +817,7 @@ pub async fn resume(
         webrtc_media: dialed.webrtc_media,
         resumed: true,
         tunnel_keys: dialed.tunnel_keys,
+        overlay: dialed.overlay,
     })
 }
 
@@ -910,6 +924,7 @@ pub async fn answer(
             webrtc_media: dialed.webrtc_media,
             resumed,
             tunnel_keys: dialed.tunnel_keys,
+            overlay: dialed.overlay,
         });
     }
     let link =
@@ -934,6 +949,7 @@ pub async fn answer(
         webrtc_media: dialed.webrtc_media,
         resumed: false,
         tunnel_keys: dialed.tunnel_keys,
+        overlay: dialed.overlay,
     })
 }
 
