@@ -569,7 +569,7 @@ fn send(
     // acpmux took it, but took is not in: a chat still starting its agent, running a turn or
     // holding its queue after a failed turn keeps it in its queue, out of the transcript. The
     // receipt says where it waits and why, never a bare `delivered` (a mid-start send on
-    // air-blue, 2026-11-25, said delivered and never showed).
+    // a Mac, 2026-11-25, said delivered and never showed).
     if result["state"] == "delivered"
         && let Some(prompt_id) = sent.message["id"].as_str()
         && let Ok(in_queue) = acp::in_queue(&chat, prompt_id, socket.as_deref())

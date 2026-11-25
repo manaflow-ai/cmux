@@ -393,7 +393,7 @@ fn ended(status: &str, failure: Value) -> Ended {
     }
 }
 
-/// air-blue 2026-11-25: a turn that failed after 325 s printed `chat.turn_failed` "the turn ended
+/// A NIGHTLY, 2026-11-25: a turn that failed after 325 s printed `chat.turn_failed` "the turn ended
 /// failed" with no reason. The reason acpmux recorded now rides the turn end into the error.
 #[test]
 fn a_failed_turn_says_why_it_failed() {

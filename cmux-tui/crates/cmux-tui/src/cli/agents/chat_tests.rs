@@ -310,7 +310,7 @@ fn reads_of_one_acpmux_share_one_connection() {
     assert_eq!(requests.load(Ordering::SeqCst), 5);
 }
 
-/// air-blue 2026-11-25: a failed turn read back as `turn_end status:failed text:""`. Its turn end
+/// A NIGHTLY, 2026-11-25: a failed turn read back as `turn_end status:failed text:""`. Its turn end
 /// now carries what acpmux recorded: the error (stderr tail included), code and recovery.
 #[test]
 fn a_failed_turn_end_carries_its_cause() {
@@ -360,7 +360,7 @@ fn a_turn_failure_prefers_error_text_reads_objects_masks_and_caps() {
     assert!(turn_failure(&json!({"status": "completed"})).is_empty());
 }
 
-/// air-blue 2026-11-25: a `chat send` while the agent was still starting answered `delivered`,
+/// A NIGHTLY, 2026-11-25: a `chat send` while the agent was still starting answered `delivered`,
 /// then the first turn failed, paused the queue, and the message never ran. A prompt still in
 /// acpmux's queue answers `queued`, with what it waits for.
 #[test]
