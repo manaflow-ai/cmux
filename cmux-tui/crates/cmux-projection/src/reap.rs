@@ -213,8 +213,18 @@ pub fn verdict(
     now: SystemTime,
     grace: Duration,
 ) -> Option<Why> {
-    let record = state::read(state);
-    if let Some(record) = &record {
+    record_verdict(state, state::read(state).as_ref(), chats, mounted, now, grace)
+}
+
+fn record_verdict(
+    state: &Path,
+    record: Option<&state::Record>,
+    chats: &Chats,
+    mounted: bool,
+    now: SystemTime,
+    grace: Duration,
+) -> Option<Why> {
+    if let Some(record) = record {
         if let Some(released) = &record.released {
             return Some(released.why.into());
         }
@@ -224,7 +234,8 @@ pub fn verdict(
             return Some(Why::BroughtBack);
         }
         if let Some(detached) = &record.detached {
-            return detached_verdict(detached, chats, mounted, now, grace);
+            let why = detached_verdict(detached, chats, mounted, now, grace)?;
+            return detached_layer_empty(state).then_some(why);
         }
     }
     if !chats.knows() {
@@ -247,8 +258,23 @@ pub fn verdict(
     }
 }
 
+/// A chat ID supplied with detach is a notification address. Its disappearance never
+/// authorizes discarding unsaved files or deletions. Only the first upper entry and the
+/// whiteouts file length are needed, regardless of the number of changes.
+fn detached_layer_empty(state: &Path) -> bool {
+    let empty = match fs::read_dir(state.join("upper")) {
+        Ok(mut entries) => entries.next().is_none(),
+        Err(error) => error.kind() == io::ErrorKind::NotFound,
+    };
+    empty
+        && match fs::symlink_metadata(state.join("whiteouts")) {
+            Ok(meta) => meta.is_file() && meta.len() == 0,
+            Err(error) => error.kind() == io::ErrorKind::NotFound,
+        }
+}
+
 /// A detached projection (the folder was removed from its chat, its edits kept for Bring Back):
-/// kept while the chat that removed it is live, freed with it once it is archived, and an orphan
+/// eligible for cleanup only if its layer is empty and the chat is archived, or as an orphan
 /// only past the grace when no chat on this machine is that chat (or the Mac named none). Never by
 /// its folder: a removed folder has no chat running in it, and its edits are still wanted.
 fn detached_verdict(
@@ -334,17 +360,37 @@ fn projections(
     report: &mut Report,
 ) {
     for (name, state) in folders(dir, limits.max_scan) {
-        let Some(why) = verdict(&state, chats, live.mounted(&name), now, limits.orphan_grace)
-        else {
+        let record = state::read(&state);
+        let Some(why) = record_verdict(
+            &state,
+            record.as_ref(),
+            chats,
+            live.mounted(&name),
+            now,
+            limits.orphan_grace,
+        ) else {
             continue;
         };
         if !take(left, report) {
             continue;
         }
-        let at = state::read(&state).map(|record| record.at);
-        let freed = live.end(&name, at.as_deref(), why == Why::Orphan, &mut || {
-            free_projection(&state, at.as_deref(), why)
-        });
+        let detached =
+            record.as_ref().is_some_and(|r| r.detached.is_some() && r.released.is_none())
+                && matches!(why, Why::Orphan | Why::Archived);
+        // Detach already unmounted this projection. Another chat may have reused its path.
+        let at = record.as_ref().filter(|_| !detached).map(|r| r.at.as_path());
+        let mut changed = false;
+        let freed = live
+            .end(&name, at, detached || why == Why::Orphan, &mut || {
+                // Under the daemon's mount lock: a re-add, edit, and second detach could all have
+                // happened since the pass chose this entry.
+                if detached && (state::read(&state) != record || !detached_layer_empty(&state)) {
+                    changed = true;
+                    return Ok(0);
+                }
+                free_projection(&state, at, why)
+            })
+            .filter(|_| !changed);
         match freed {
             Some(freed) => note(report, &state, why, freed),
             // Mounted since the verdict: it is in use again.
