@@ -34,6 +34,8 @@ pub mod codes {
     pub const NOT_BOUND: &str = "cmux.cloud.not_bound";
     /// `cloud.machine.paused`.
     pub const MACHINE_PAUSED: &str = "cmux.cloud.machine_paused";
+    /// `cloud.billing.off`: payments are not open for this deployment.
+    pub const BILLING_OFF: &str = "cmux.cloud.billing_off";
     /// `cloud.migration.unavailable`.
     pub const MIGRATION_UNAVAILABLE: &str = "cmux.cloud.migration_unavailable";
     /// `cloud.machine.not_classic`.
@@ -129,6 +131,7 @@ const WIRE_CODES: &[(&str, &str)] = &[
     ("cloud.machine.not_bound", codes::NOT_BOUND),
     ("cloud.machine.paused", codes::MACHINE_PAUSED),
     ("cloud.migration.unavailable", codes::MIGRATION_UNAVAILABLE),
+    ("cloud.billing.off", codes::BILLING_OFF),
     ("cloud.machine.not_classic", codes::NOT_CLASSIC),
     ("cloud.upgrade.failed", codes::UPGRADE_FAILED),
     ("cloud.rate_limited", codes::RATE_LIMITED),

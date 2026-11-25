@@ -21,10 +21,17 @@ impl Translator {
                             .and_then(Value::as_bool)
                             == Some(true);
                         let suggestions = prompt_suggestions::enabled_in_settings() && !for_agent;
+                        let mut request = initialize_request(suggestions);
+                        if self.stop_condition.load(std::sync::atomic::Ordering::Relaxed) {
+                            request.set_path(&["hooks", "Stop"], json!([{"hookCallbackIds": [super::hook_callback::STOP_CALLBACK], "timeout": 5}]));
+                        }
+                        if self.plugin_hook_home.get().is_some() {
+                            super::hook_callback::add_tool_hooks(&mut request);
+                        }
                         let mut lines = vec![json!({
                             "type": "control_request",
                             "request_id": format!("init-{}", id),
-                            "request": initialize_request(suggestions)
+                            "request": request
                         })];
                         lines.extend(self.suggestion_init(id, suggestions));
                         // Ultracode and fast mode survive a respawn on the live channel

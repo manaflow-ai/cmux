@@ -58,6 +58,8 @@ pub const ACTION_BUDGET: std::time::Duration =
 pub const LANE_WAIT: std::time::Duration =
     std::time::Duration::from_secs(GH_TIMEOUT.as_secs() + 2 * LINK_SLACK.as_secs() + 5);
 /// How many actions one peer (by name, across reconnects) may have running on the Mac at once.
+/// Measured: one `gh` process each on the Mac, 29.5 MB max RSS for `gh --version` alone (gh
+/// 2.45), within the Mac client's WAITING_MAX of 8.
 pub const OWNER_SLOTS: usize = 4;
 
 /// The slots of the actions of the peer named `peer`: one budget per name for the life of this
@@ -471,21 +473,33 @@ async fn execute(
 /// GitHub token in this daemon's env removed, so `keyring` means the keyring), or only `token`;
 /// github.com whatever `GH_HOST` the daemon has.
 pub(crate) fn login_env(gh: &mut std::process::Command, token: Option<&str>) {
-    gh.env(SHIM_REFUSAL_ENV, "1")
-        .env("GH_PROMPT_DISABLED", "1")
-        .env("GH_NO_UPDATE_NOTIFIER", "1")
-        .env("GH_HOST", "github.com")
-        // `gh` prints its HTTP traffic with these set; it has no business doing so here.
-        .env_remove("GH_DEBUG")
-        .env_remove("DEBUG")
-        .env_remove("GH_TOKEN")
-        .env_remove("GITHUB_TOKEN")
-        .env_remove("GH_ENTERPRISE_TOKEN")
-        .env_remove("GITHUB_ENTERPRISE_TOKEN");
+    gh.envs(LOGIN_SET);
+    for name in LOGIN_REMOVED {
+        gh.env_remove(name);
+    }
     if let Some(token) = token {
         gh.env("GH_TOKEN", token);
     }
 }
+
+/// What [`login_env`] sets: no prompt, no update notice, github.com, and the shim's refusal.
+pub(crate) const LOGIN_SET: [(&str, &str); 4] = [
+    (SHIM_REFUSAL_ENV, "1"),
+    ("GH_PROMPT_DISABLED", "1"),
+    ("GH_NO_UPDATE_NOTIFIER", "1"),
+    ("GH_HOST", "github.com"),
+];
+
+/// What [`login_env`] removes: every GitHub token in this daemon's env, and `gh`'s HTTP tracing
+/// (it has no business printing its traffic here).
+pub(crate) const LOGIN_REMOVED: [&str; 6] = [
+    "GH_DEBUG",
+    "DEBUG",
+    "GH_TOKEN",
+    "GITHUB_TOKEN",
+    "GH_ENTERPRISE_TOKEN",
+    "GITHUB_ENTERPRISE_TOKEN",
+];
 
 /// The Mac's gate for `peer`'s request, before anything is spawned: `enabled` is that peer's
 /// saved `githubBroker`, and `slots` bound how many of its actions run at once.

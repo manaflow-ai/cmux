@@ -7,7 +7,9 @@ GitHub closes an issue from "Fixes #N" only when the pull request merges into th
 
 import importlib.util
 import json
+import os
 import pathlib
+import subprocess
 import sys
 import tempfile
 import unittest
@@ -175,6 +177,56 @@ class RunTests(unittest.TestCase):
             path = pathlib.Path(tmp) / "event.json"
             path.write_text(json.dumps(event(merged=False)))
             self.assertEqual(CLOSES.main(["--event", str(path), "--repo", REPO]), 0)
+
+
+class BackfillTests(unittest.TestCase):
+    LOG = (
+        "aaa\x00ci: newer (#30)\n\nFixes #7 and closes #8\n\x1e\n"
+        "bbb\x00no pull request here\n\nFixes #9\n\x1e\n"
+        "ccc\x00docs: names nothing (#20)\n\nSee #9\n\x1e\n"
+        "ddd\x00fix: older (#10)\n\nFixes #10, fixes manaflow-ai/other#5, resolves #6\n\x1e\n"
+    )
+
+    def test_each_squash_commit_that_names_an_issue_oldest_first(self):
+        plans = CLOSES.plans_from_log(self.LOG, REPO)
+        self.assertEqual([(p.pull, p.sha, p.issues) for p in plans], [(10, "ddd", [6]), (30, "aaa", [7, 8])])
+        self.assertEqual(plans[0].comment, "Fixed on feat-cmux-next by #10 (ddd).")
+
+    def test_a_reverted_pull_request_closes_nothing(self):
+        log = 'eee\x00Revert "fix: older (#10)" (#40)\n\nThis reverts ddd.\n\x1e\n' + self.LOG
+        self.assertEqual([p.pull for p in CLOSES.plans_from_log(log, REPO)], [30])
+
+    def test_main_since_reads_the_ref_and_dry_run_never_closes(self):
+        github = FakeGitHub({6: {"state": "open"}, 7: {"state": "open"}, 8: {"state": "open"}})
+        original_read, original_github = CLOSES.read_log, CLOSES.GitHub
+        seen = []
+        CLOSES.read_log = lambda ref, since: seen.append((ref, since)) or self.LOG
+        CLOSES.GitHub = lambda repo: github
+        try:
+            self.assertEqual(CLOSES.main(["--since", "2026-09-01", "--repo", REPO, "--dry-run"]), 0)
+        finally:
+            CLOSES.read_log, CLOSES.GitHub = original_read, original_github
+        self.assertEqual(seen, [("origin/feat-cmux-next", "2026-09-01")])
+        self.assertFalse([c for c in github.calls if c[0] == "close"])
+
+    def test_read_log_reads_squash_commits(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            run_git = lambda *a: subprocess.run(["git", "-C", tmp, "-c", "user.name=t", "-c", "user.email=t@t", *a],
+                                                check=True, capture_output=True)
+            run_git("init", "-q")
+            run_git("commit", "-q", "--allow-empty", "-m", "fix: one (#5)", "-m", "Fixes #4")
+            cwd = os.getcwd()
+            os.chdir(tmp)
+            try:
+                plans = CLOSES.plans_from_log(CLOSES.read_log("HEAD", "2000-01-01"), REPO)
+            finally:
+                os.chdir(cwd)
+        self.assertEqual([(p.pull, p.issues) for p in plans], [(5, [4])])
+
+    def test_backfill_closes_only_open_issues(self):
+        github = FakeGitHub({6: {"state": "open"}, 7: {"state": "closed"}, 8: {"state": "open"}})
+        closed = [n for p in CLOSES.plans_from_log(self.LOG, REPO) for n in CLOSES.run(p, github, dry_run=False)]
+        self.assertEqual(closed, [6, 8])
 
 
 class WorkflowTests(unittest.TestCase):

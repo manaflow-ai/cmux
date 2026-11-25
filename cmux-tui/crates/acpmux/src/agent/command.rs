@@ -151,9 +151,16 @@ fn build_harness_command(
             "{name} is a terminal harness without ACP; open it with `cmux harness run {name}`"
         ));
     }
+    let mut plugin_hooks = false;
     let owned = if let (true, Some((session_id, session_name))) = (claude_session, session) {
-        let (extra, prompt) =
-            crate::agent_tools::claude_args_for(false, &profile.env, &owned.1, session_id, cwd);
+        let (extra, prompt, hooks) = crate::agent_tools::claude_args_and_hooks_for(
+            false,
+            &profile.env,
+            &owned.1,
+            session_id,
+            cwd,
+        );
+        plugin_hooks = hooks;
         let named = claude_name_args(&profile.env, &owned.1, session_name);
         let mut args = owned.1;
         // acpmux's own servers' instructions, which they then leave out: in the system prompt
@@ -386,6 +393,8 @@ fn build_harness_command(
     crate::cwd_pin::CwdPin::pin(crate::cwd_pin::CwdPin::current(), &mut cmd);
     // Only its own session's credential: never acpmux's, a preset's or a Chief's.
     crate::launch_credential::apply(&mut cmd, session.map(|(id, _)| id));
+    // And its own chat secrets, never another chat's (`chat_secrets.rs`).
+    crate::chat_secrets::apply(&mut cmd, session.map(|(id, _)| id));
     crate::harness_limits::lift_claude(&mut cmd, profile, session.is_some(), !remote_environment);
     // A Chief turn or compactor (fresh process per turn): one sticky
     // subrouter account, so its prompt cache stays readable (subrouter_session.rs).
@@ -459,9 +468,22 @@ fn build_harness_command(
         (false, Some((id, _))) => crate::claude_auth::forget(id),
         _ => {}
     }
+    // The compiler cache on a Cloud VM (`sccache_env.rs`): last, so a value the profile, the
+    // login shell or this daemon's env gives wins, and a RUSTC_WRAPPER of theirs turns it off.
+    #[cfg(unix)]
+    {
+        let env = command_env_with(&cmd, !remote_environment);
+        crate::sccache_env::apply(&mut cmd, &env);
+    }
     #[cfg(target_os = "linux")]
     if remote_environment {
         crate::linux_sandbox::scrub_loader_env(&mut cmd);
+    }
+    // The hosted and direct translators take the hook home from this launch. Only the
+    // selected local plugin enables its callbacks, regardless of inherited or profile env.
+    cmd.env_remove(crate::bg_hook::HOME_ENV);
+    if plugin_hooks && !remote_environment {
+        cmd.env(crate::bg_hook::HOME_ENV, crate::config::home());
     }
     Ok((cmd, codex))
 }
@@ -671,7 +693,6 @@ mod tests {
 
     use super::*;
 
-    /// A Claude session is launched under its acpmux name (`--name`), so Claude
     /// A daemon started by a bounded command holds its `CMUX_DEADLINE`: an agent it starts
     /// must not, or the fleet's orphan reaper ends the agent once the bound passes.
     #[test]
@@ -690,6 +711,7 @@ mod tests {
         }
     }
 
+    /// A Claude session is launched under its acpmux name (`--name`), so Claude
     /// Code's peer list says what `acpmux ls` says; with cmux's tools off too.
     #[test]
     fn a_claude_session_is_launched_under_its_acpmux_name() {
