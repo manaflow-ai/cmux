@@ -43,7 +43,9 @@ struct AgentPaneCloudEnvironmentSettingsPartTests {
             #expect(sent.isEmpty)
         }
         _ = try await call(part, "cloud.environment.update", patch, gesture: true)
-        #expect(sent == ["update"])
+        _ = try await call(part, "cloud.environment.create",
+                           .object(["environment": .object(["name": .string("docs")])]), gesture: true)
+        #expect(sent == ["update", "create"])
     }
 
     @Test func theRunnersFailureKeepsItsCodeAndAnUnknownMethodSendsNothing() async throws {

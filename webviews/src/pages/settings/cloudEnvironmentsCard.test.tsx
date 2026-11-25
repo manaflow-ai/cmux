@@ -125,3 +125,37 @@ test("a failed read says so, and Refresh reads again", async () => {
   );
   page.unmount();
 });
+
+test("an older list reply that lands after a newer one does not overwrite it", async () => {
+  const page = await open();
+  await click(
+    card(page.container).querySelector<HTMLButtonElement>(
+      `[data-environment="${mockDefaultEnvironment.id}"] [data-environment-action="edit"]`,
+    )!,
+  );
+  await settle();
+  // The read the editor's close starts stalls and answers a stale, empty list; Refresh's answers at once.
+  let answerStale: (rows: unknown) => void = () => {};
+  let reads = 0;
+  const fresh = page.provider.cloudEnvironments.run.bind(page.provider.cloudEnvironments);
+  page.provider.cloudEnvironments.run = (call) => {
+    if (call.method === "cloud.environment.list" && reads++ === 0)
+      return new Promise((resolve) => {
+        answerStale = resolve;
+      });
+    return fresh(call);
+  };
+  await click(sheetCancel());
+  await settle();
+  await click(card(page.container).querySelector<HTMLButtonElement>('[data-environments="refresh"]')!);
+  await settle();
+  expect(reads).toBe(2);
+  expect(card(page.container).querySelectorAll("[data-environment]")).toHaveLength(2);
+  await act(async () => {
+    answerStale([]);
+  });
+  await settle();
+  expect(card(page.container).querySelector("[data-environments-empty]")).toBeNull();
+  expect(card(page.container).querySelectorAll("[data-environment]")).toHaveLength(2);
+  page.unmount();
+});

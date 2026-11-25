@@ -6,7 +6,7 @@
 // platform's `/v1/cloud-environments`, as the composer's do (#47676: the card used to call CloudDO's
 // `cloud.environment.*`, which no deployment serves). The list is read when the card mounts, on Refresh and
 // when the editor closes; it does not poll.
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { EnvironmentSheet } from "../../cloud/EnvironmentSheet";
 import type { CloudEnvironment, EnvironmentClient } from "../../cloud/environmentModel";
 import { EnvironmentStore } from "../../cloud/environmentStore";
@@ -58,13 +58,19 @@ export function CloudEnvironmentsCard() {
   const [editor] = useState(() => new EnvironmentStore(client));
   const [listing, setListing] = useState<Listing>({ kind: "loading" });
   const [busy, setBusy] = useState(false);
+  // Only the newest read lands: Refresh during the read the editor's close starts must not let the older reply
+  // overwrite the newer list.
+  const generation = useRef(0);
   const refresh = useCallback(async () => {
+    const mine = ++generation.current;
+    let next: Listing;
     try {
-      setListing({ kind: "listed", environments: orderedEnvironments(await client.list()) });
+      next = { kind: "listed", environments: orderedEnvironments(await client.list()) };
     } catch (failure) {
       // Cloud is off by policy, or the person is signed out: the card explains instead of listing.
-      setListing(failureCode(failure) === "cloud_disabled" ? { kind: "unavailable" } : { kind: "failed" });
+      next = failureCode(failure) === "cloud_disabled" ? { kind: "unavailable" } : { kind: "failed" };
     }
+    if (mine === generation.current) setListing(next);
   }, [client]);
   // The list on mount, and again each time the editor closes (a save or a new environment shows at once).
   useEffect(() => {
