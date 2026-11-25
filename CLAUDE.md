@@ -8,6 +8,8 @@ Maintainers: team-specific workflow notes live in the maintainers' private docs.
 **On your own machine** (Claude, Codex or another agent a contributor runs): the code rules below all apply to
 you. Run checks this way:
 
+These commands describe the contributor path; maintainer agents use the maintainer workflow for equivalent worktree, check, and merge operations.
+
 - Build on the Mac you're on, in a tagged build, never over the installed cmux: `./scripts/setup.sh` once, then
   `CMUX_DEV_BACKEND_MODE=local ./scripts/reload.sh --tag <your-tag>`. Python under `scripts/` and `tests/`
   runs directly (`python3 tests/test_x.py`); `cmux-tui/` takes a focused `cargo test` there
