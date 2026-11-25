@@ -674,12 +674,17 @@ class WorkflowShape(unittest.TestCase):
         gates_job = job(workflow())
         steps = gates_job["steps"]
         gates = steps.index(step_named(steps, "Fast gates on the merge"))
-        total = 0
+        # A runner takes one side of each pool split (#55973's mirror checkout runs only on a pool VM, the
+        # actions/checkout only off one), so the bound that matters is the shared steps plus the longer side.
+        pool = NOT_POOL.removeprefix("!")
+        sides = {"shared": 0, NOT_POOL: 0, pool: 0}
         for step in steps[:gates]:
             with self.subTest(step=step["name"]):
                 self.assertIn("timeout-minutes", step)
-                total += int(step["timeout-minutes"])
-        self.assertLessEqual(total, 40)
+                condition = str(step.get("if", "")).removeprefix("${{ ").removesuffix(" }}")
+                sides[condition if condition in (NOT_POOL, pool) else "shared"] += int(step["timeout-minutes"])
+        self.assertGreater(sides[NOT_POOL], 0)  # the split is real: a rename that hides one side fails here
+        self.assertLessEqual(sides["shared"] + max(sides[NOT_POOL], sides[pool]), 40)
         # Node never comes from GitHub's node-versions releases (setup-node's download): the tool cache or nodejs.org.
         node = step_named(steps, "Setup Node")
         self.assertNotIn("uses", node)
@@ -735,6 +740,10 @@ class WorkflowShape(unittest.TestCase):
         for step in steps:
             # The pinned toolchain restores (scripts/ci/toolchain-r2.sh) are best-effort too: a miss is setup's download.
             if "toolchain-r2.sh\" restore " in str(step.get("run", "")):
+                continue
+            # So are the Bun package cache restores (#55346): a stalled or failed download falls through to a cold
+            # install, which the later steps' own outcomes judge; a cache miss is never a verdict.
+            if str(step.get("uses", "")).startswith(("actions/cache@", "actions/cache/restore@")):
                 continue
             if step.get("continue-on-error") is True and not any(r in step["name"] for r in receipt_steps):
                 with self.subTest(gated=step["name"]):
