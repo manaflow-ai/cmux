@@ -1,0 +1,137 @@
+{
+  "sourceLanguage" : "en",
+  "strings" : {
+    "settingsPage.theme.file.invalidName" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Use a name without / = # or quotes, not starting with a dot."
+          }
+        },
+        "ar" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "استخدم اسمًا بدون / أو = أو # أو علامات اقتباس، ولا يبدأ بنقطة."
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Koristite naziv bez / = # ili navodnika, koji ne počinje tačkom."
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Brug et navn uden / = # eller anførselstegn, der ikke starter med punktum."
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Verwende einen Namen ohne / = # oder Anführungszeichen, der nicht mit einem Punkt beginnt."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Usa un nombre sin / = # ni comillas que no empiece por un punto."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Utilisez un nom sans / = # ni guillemets, qui ne commence pas par un point."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Usa un nome senza / = # o virgolette, che non inizi con un punto."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "/ = # や引用符を含まず、ドットで始まらない名前にしてください。"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ប្រើឈ្មោះដែលគ្មាន / = # ឬសញ្ញាសម្រង់ ហើយមិនចាប់ផ្តើមដោយចំណុច។"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "/ = # 또는 따옴표가 없고 마침표로 시작하지 않는 이름을 사용하십시오."
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Bruk et navn uten / = # eller anførselstegn, som ikke starter med punktum."
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Użyj nazwy bez / = # i cudzysłowów, niezaczynającej się od kropki."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Use um nome sem / = # ou aspas, que não comece com ponto."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Используйте название без / = # и кавычек, не начинающееся с точки."
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ใช้ชื่อที่ไม่มี / = # หรือเครื่องหมายคำพูด และไม่ขึ้นต้นด้วยจุด"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "/ = # veya tırnak içermeyen ve noktayla başlamayan bir ad kullanın."
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Використайте назву без / = # і лапок, що не починається з крапки."
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Dùng tên không có / = # hoặc dấu ngoặc kép, không bắt đầu bằng dấu chấm."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "请使用不含 / = # 或引号且不以点开头的名称。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "請使用不含 / = # 或引號且不以點開頭的名稱。"
+          }
+        }
+      }
+    }
+  },
+  "version" : "1.0"
+}

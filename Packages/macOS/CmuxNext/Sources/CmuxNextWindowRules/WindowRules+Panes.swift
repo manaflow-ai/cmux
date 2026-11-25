@@ -97,4 +97,11 @@ extension WindowRules {
         struct Reply: Decodable { var text: String }
         return call("window_panes_shell_quote", TextRequest(text: path), as: Reply.self)?.text
     }
+
+    /// Go to Directory's input for a terminal: Ctrl-U, `cd -- PATH`, Return; nil for an empty
+    /// path, one with a control character, or when the FFI does not answer.
+    public func goToDirectoryInput(_ path: String) -> String? {
+        struct Reply: Decodable { var text: String? }
+        return call("window_panes_go_to_directory", TextRequest(text: path), as: Reply.self)?.text
+    }
 }

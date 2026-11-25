@@ -9,17 +9,22 @@ import UIKit
 @MainActor
 @Observable
 final class TabZoomDriver {
-    private(set) var state = TabZoomState()
+    private(set) var state = TabZoomState(motion: TabZoomDriver.variant)
+    /// The transition's taste (`-tabs-transition NAME`), read once per launch.
+    nonisolated static let variant = TabTransitionVariant.fromEnvironment()
     /// The cards' close buttons and titles (their own clock after 0.96).
     private(set) var chrome = CardChrome()
     @ObservationIgnored var onSettle: ((TabZoomState.Phase) -> Void)?
+    /// The zoom just turned toward the page (a tap, a reversal, a pinch
+    /// released that way). Called in the same update as the change, before
+    /// the page's content is held for the flight, so what the page lands
+    /// with (its toolbar insets) is set before it moves, not after it lands.
+    @ObservationIgnored var onHeadingToPage: (() -> Void)?
     @ObservationIgnored private var link: CADisplayLink?
     @ObservationIgnored private var lastTimestamp: CFTimeInterval?
     @ObservationIgnored private lazy var proxy = DisplayLinkProxy { [weak self] link in self?.tick(link) }
 
-    /// Card-width travel (points) for the reversal jump; set by the screen.
-    @ObservationIgnored var span: Double = 244
-    func go(toOverview: Bool) { mutate { [span] in $0.go(toOverview: toOverview, span: span) } }
+    func go(toOverview: Bool) { mutate { $0.go(toOverview: toOverview) } }
     func openNewTab(spring: ZoomSpring = .newTab) { mutate { $0.openNewTab(spring: spring) } }
     func beginInteraction() { mutate { $0.beginInteraction() } }
     func updateInteraction(progress: Double, velocity: Double) { mutate { $0.updateInteraction(progress: progress, velocity: velocity) } }
@@ -53,7 +58,9 @@ final class TabZoomDriver {
     private func mutate(_ change: (inout TabZoomState) -> Void) {
         let before = state.phase
         let curveBefore = state.curve
+        let targetBefore = state.target
         change(&state)
+        if state.target == 0, targetBefore == 1, state.phase == .animating { onHeadingToPage?() }
         if state.phase == .animating, state.curve != nil, curveBefore == nil, before == .page || before == .overview {
             buildFrame = true
         }
