@@ -273,6 +273,9 @@ fn merge_for_report(
     (joined, refused, missing)
 }
 
+/// The reason a measured row reads `failed` when its gate wrote no line.
+const NO_MEASURE: &str = "the gate did not report a measure";
+
 /// The report, and whether it stops the run: a row the home refused, a line with no registered
 /// name, or a measured row with no measure. The report names each in its rows or `errors`.
 fn report_value(
@@ -294,7 +297,7 @@ fn report_value(
             measured_row(row, measure)
         } else if row.measured && measures_requested && missing_set.contains(row.name) {
             json!({ "name": row.name, "pr": row.pr, "done_when": row.done_when,
-                "status": "failed", "reason": "the gate did not report a measure",
+                "status": "failed", "reason": NO_MEASURE,
                 "small_p95": Value::Null, "god_p95": Value::Null })
         } else if row.measured {
             json!({ "name": row.name, "pr": row.pr, "done_when": row.done_when,
@@ -343,8 +346,14 @@ pub fn print_report(measure_files: &[PathBuf], output: Option<&Path>) -> Result<
     print_report_with_mode(measure_files, output, true)
 }
 
-/// Write the report, then fail if it holds a refused row, an unnamed line or a missing measure:
-/// no one line keeps the report from being written.
+/// Write the report, then fail if it holds a refused row or an unnamed line: no one line keeps the
+/// report from being written.
+///
+/// A gate that reported no measure is that gate's red, not the home's: its row reads `failed` with
+/// the reason, the line goes to stderr, and the exit stays 0. The quality report's last step fails
+/// the job on every `failed` row, and NOW counts a home that exits non-zero as blind
+/// (`quality.v2_home_blind_h`), so one red gate (v2.pr04.chat_stopped_reader, run 45590353660)
+/// must not hide every other row.
 pub fn print_report_with_mode(
     measure_files: &[PathBuf],
     output: Option<&Path>,
@@ -357,7 +366,26 @@ pub fn print_report_with_mode(
     } else {
         println!("{text}");
     }
-    if stops { Err(stop_reasons(&value)) } else { Ok(()) }
+    if !stops {
+        return Ok(());
+    }
+    if home_stops(&value) {
+        return Err(stop_reasons(&value));
+    }
+    eprintln!("v2 bench: wrote every row; red gates: {}", stop_reasons(&value));
+    Ok(())
+}
+
+/// Whether the report holds a stop of the home's own: an `errors` line, or a `failed` row for any
+/// reason but a gate that reported no measure.
+fn home_stops(value: &Value) -> bool {
+    let errors = value["errors"].as_array().is_some_and(|errors| !errors.is_empty());
+    errors
+        || value["rows"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .any(|row| row["status"] == "failed" && row["reason"] != NO_MEASURE)
 }
 
 #[cfg(test)]
@@ -1630,6 +1658,31 @@ mod unreadable_line_tests {
 
     fn status_of<'a>(value: &'a Value, name: &str) -> &'a Value {
         value["rows"].as_array().unwrap().iter().find(|row| row["name"] == name).unwrap()
+    }
+
+    /// A gate with no measure fails its row and the job's last step, but the home writes every row
+    /// and exits 0 (run 45590353660: one red gate read as a blind home).
+    #[test]
+    fn a_missing_measure_writes_every_row_and_exits_zero() {
+        let skip = GATE_ROWS.iter().find(|row| row.measured).unwrap();
+        let mut lines = String::new();
+        for row in GATE_ROWS.iter().filter(|row| row.measured && row.name != skip.name) {
+            lines.push_str(&format!("{}\n", in_bound_line(row)));
+        }
+        let measures = tempfile::NamedTempFile::new().unwrap();
+        fs::write(measures.path(), &lines).unwrap();
+        let output = tempfile::NamedTempFile::new().unwrap();
+        print_report_with_mode(&[measures.path().to_path_buf()], Some(output.path()), true)
+            .expect("a red gate is not the home's stop");
+        let value: Value = serde_json::from_str(&fs::read_to_string(output.path()).unwrap())
+            .expect("the report is written");
+        let row = status_of(&value, skip.name);
+        assert_eq!(row["status"], "failed");
+        assert_eq!(row["reason"], NO_MEASURE);
+        for other in GATE_ROWS.iter().filter(|row| row.measured && row.name != skip.name) {
+            assert_eq!(status_of(&value, other.name)["status"], "ok", "{}", other.name);
+        }
+        assert!(report(&[measures.path().to_path_buf()]).is_err(), "report() stays strict");
     }
 
     /// One malformed line, one that is not JSON and one with no registered name among good
