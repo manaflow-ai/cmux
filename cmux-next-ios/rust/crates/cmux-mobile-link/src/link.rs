@@ -1176,12 +1176,11 @@ impl Link {
                             .filter(|_| !link.inner.suspect_flag.load(Ordering::Relaxed));
                         if let Some(at) = suspect_at
                             && at <= now
+                            && link.inner.parked_until().is_none()
                         {
-                            if link.inner.parked_until().is_none() {
-                                link.inner.raise_suspect(base + interval);
-                                // The watchdog sleeps on an idle link: wake it to probe.
-                                link.inner.unanswered_changed.notify_one();
-                            }
+                            link.inner.raise_suspect(base + interval);
+                            // The watchdog sleeps on an idle link: wake it to probe.
+                            link.inner.unanswered_changed.notify_one();
                         }
                         let wake = suspect_at.filter(|at| *at > now).map_or(due, |at| at.min(due));
                         tokio::select! {

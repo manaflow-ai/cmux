@@ -151,8 +151,14 @@ impl PathWatch {
     }
 
     /// The round trip of probe `id`'s answer, if it is the one outstanding.
+    /// The answer also says the path is not silent. It is the path's own
+    /// probe coming back, not other traffic, so it does not stand in for the
+    /// next routine ping (`skip_proven_ping`).
     pub fn answer(&mut self, config: &ProbeConfig, id: u64, now: Instant) -> Option<u64> {
-        config.answer(&mut self.probe, id, now)
+        let rtt_us = config.answer(&mut self.probe, id, now)?;
+        self.unanswered_since = None;
+        self.heard_since_ping = false;
+        Some(rtt_us)
     }
 
     /// The path's step at `now`. `current` is whether the selector sends on
@@ -357,6 +363,17 @@ mod tests {
             assert_eq!(step(&mut watch, &mut id, secs(at)), None, "skipped at {at} s");
         }
         assert!(step(&mut watch, &mut id, secs(30)).is_some(), "the round trip refresh");
+    }
+
+    #[test]
+    fn the_answer_to_its_own_ping_does_not_stand_in_for_the_next() {
+        let start = Instant::now();
+        let mut watch = PathWatch::default();
+        let mut id = 0;
+        let ping = step(&mut watch, &mut id, start).expect("the first ping");
+        watch.heard(); // the pong's datagram is heard before it is matched
+        watch.answer(&ProbeConfig::default(), ping, start).expect("answered");
+        assert!(step(&mut watch, &mut id, start + Duration::from_secs(5)).is_some());
     }
 
     #[test]

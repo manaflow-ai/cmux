@@ -338,8 +338,7 @@ impl Paths {
         let config = self.probes;
         let Some(entry) = self.entries.iter_mut().find(|entry| entry.id == id) else { return };
         if let Some(rtt_us) = entry.watch.answer(&config, probe, now) {
-            // An answer also says the path is not silent.
-            entry.watch.heard();
+            // `answer` also says the path is not silent.
             let _ = self.selector.on_probe(id, ProbeOutcome::Answered { rtt_us });
         }
     }
