@@ -174,8 +174,8 @@ enum ClassicImportStrings {
                defaultValue: "SSH terminals open without their old scrollback.", bundle: .module.inAppLanguage)
     }
     static var tabsStay: String {
-        String(localized: "classicImport.toast.tabsStay",
-               defaultValue: "Markdown and file preview tabs stay in classic cmux.", bundle: .module.inAppLanguage)
+        String(localized: "classicImport.toast.otherTabsStay",
+               defaultValue: "Simulator and project tabs, and tabs whose file is gone, stay in classic cmux.", bundle: .module.inAppLanguage)
     }
 
     /// What opened, then what stayed in classic and why.

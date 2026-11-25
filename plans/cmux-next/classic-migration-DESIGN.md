@@ -56,13 +56,17 @@ upgrade again never duplicate or lose anything.
 | `customColor` | Workspace color (`workspace.update`) | `#RRGGBB`. |
 | `isPinned` | Workspace pin (`workspace-pin-v1`) | |
 | Split tree (`horizontal`/`vertical`, `dividerPosition`) | Split `right`/`down`, ratio | Unchanged from the import (blueprint builder). |
-| Pane `panelIds` | Pane tabs in order | Selected tab is not kept (known gap). |
+| Pane `panelIds`, `selectedPanelId` | Pane tabs in order, the selected one selected in every window | 2026-11-24: the selection is kept (it was decoded and dropped before). |
 | Terminal panel | Terminal tab in its folder; local scrollback replayed once | Running commands do not restart. |
 | Browser panel | Browser tab on its URL | Back/forward history, zoom, profile do not come over. |
 | Claude/Codex session | Agent chat resuming it (acpmux adopt) | Local only; SSH ones stay terminals. |
 | SSH workspace | Workspace on the SSH host's daemon | 20 s connect limit per host. |
 | Cloud VM workspace | Not migrated | Recorded as skipped; toast says so. |
-| Markdown / file preview / canvas | Dropped / tabs in one pane | Toast names dropped tabs. |
+| Markdown / file preview | Markdown page / code editor page on the file; an image, PDF or media file keeps its browser preview | 2026-11-24. Local workspaces only, while the file exists; otherwise left, and the toast says so. |
+| Simulator, project, sidebar tool panels; canvas | Dropped / tabs in one pane | Toast names dropped tabs. |
+| Panel `isPinned` | Tab pin (`tab.pin`), pinned tabs first | 2026-11-24. |
+| `focusedPanelId` | The workspace's remembered focused pane in every window (`restoredPane`) | 2026-11-24. |
+| `customDescription`, `taskStatusOverride` | Workspace description (`workspace-description-v1`), task lane (`workspace-status-v1`) | 2026-11-24; at most 4096 characters; an unknown lane is left out. |
 | `cmux.json`, shortcuts, link prefs | `cmux-next.json`, bindings, prefs | Existing one-time imports. |
 | Selected workspace per window | Revealed in window 1 | |
 
@@ -201,8 +205,10 @@ cmux-next nightly under their bundle ID. The legacy-identity jobs (`nightly.yml`
 
 - Shared UserDefaults domain on downgrade: a key cmux-next writes with a type classic reads
   differently could misbehave in classic. Not audited key by key.
-- Selected tab per pane, browser back/forward history and profile, canvas positions, workspace
-  descriptions, status/log entries, notifications and unread state do not come over.
+- Browser back/forward history and profile, canvas positions, status/log entries, checklists, per-terminal
+  font size, text box drafts, notifications and unread state do not come over. (Selected tab, focused pane,
+  pinned tabs, markdown and file preview tabs, descriptions and task lanes do since 2026-11-24:
+  `ClassicUpgradeParityTests`.)
 - The per-arch stable feeds (5, Stable step 2) are published but not yet seen by a real classic
   stable install; the staging check (step 3) must confirm it.
 - Groups need a daemon with state resources; an older daemon brings workspaces over loose.

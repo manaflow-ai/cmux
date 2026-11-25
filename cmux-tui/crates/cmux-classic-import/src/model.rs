@@ -113,6 +113,13 @@ pub struct Workspace {
     pub color: Option<String>,
     pub pinned: bool,
     pub group_id: Option<String>,
+    /// The person's description of it (`customDescription`).
+    #[serde(default)]
+    pub description: Option<String>,
+    /// The task lane the person pinned it to (`taskStatusOverride`): `todo`,
+    /// `working`, `needs-attention`, `review` or `done`; none is automatic.
+    #[serde(default)]
+    pub task_status: Option<String>,
 }
 
 impl Workspace {
@@ -163,7 +170,16 @@ pub struct Agent {
     pub working_directory: Option<String>,
 }
 
-/// A terminal or browser tab.
+/// A file a classic markdown or file preview tab showed.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct File {
+    /// The file's absolute path on this Mac.
+    pub path: String,
+    /// A markdown viewer (`markdown`); else a file preview (`filePreview`).
+    pub markdown: bool,
+}
+
+/// A terminal, browser, markdown or file preview tab.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Tab {
     pub working_directory: Option<String>,
@@ -174,6 +190,12 @@ pub struct Tab {
     pub agent: Option<Agent>,
     /// The terminal's saved scrollback text, with its colors.
     pub scrollback: Option<String>,
+    /// A markdown or file preview tab's file; none for a terminal or page.
+    #[serde(default)]
+    pub file: Option<File>,
+    /// Pinned in its pane (`isPinned`).
+    #[serde(default)]
+    pub pinned: bool,
 }
 
 /// A pane and its tabs, in classic's order.
@@ -181,6 +203,9 @@ pub struct Tab {
 pub struct Pane {
     pub tabs: Vec<Tab>,
     pub selected_tab: usize,
+    /// The pane classic focused in its workspace (`focusedPanelId` is one of its tabs).
+    #[serde(default)]
+    pub focused: bool,
 }
 
 /// A split's axis.
@@ -214,7 +239,7 @@ impl Layout {
                     .get(pane.selected_tab)
                     .and_then(|chosen| tabs.iter().position(|tab| tab == chosen))
                     .unwrap_or(0);
-                Some(Layout::Pane(Pane { tabs, selected_tab: selected }))
+                Some(Layout::Pane(Pane { tabs, selected_tab: selected, focused: pane.focused }))
             }
             Layout::Split { orientation, ratio, first, second } => {
                 match (first.keeping(keep), second.keeping(keep)) {
@@ -247,6 +272,7 @@ impl Layout {
                     })
                     .collect(),
                 selected_tab: pane.selected_tab,
+                focused: pane.focused,
             }),
             Layout::Split { orientation, ratio, first, second } => Layout::Split {
                 orientation: *orientation,
@@ -304,6 +330,8 @@ mod tests {
             url: None,
             agent: None,
             scrollback: None,
+            file: None,
+            pinned: false,
         }
     }
 
@@ -321,15 +349,23 @@ mod tests {
         let layout = Layout::Split {
             orientation: Orientation::Vertical,
             ratio: 0.3,
-            first: Box::new(Layout::Pane(Pane { tabs: vec![tab("/drop")], selected_tab: 0 })),
+            first: Box::new(Layout::Pane(Pane {
+                tabs: vec![tab("/drop")],
+                selected_tab: 0,
+                focused: false,
+            })),
             second: Box::new(Layout::Pane(Pane {
                 tabs: vec![tab("/drop"), tab("/a"), tab("/b")],
                 selected_tab: 2,
+                focused: true,
             })),
         };
         let kept =
             layout.keeping(&|tab| tab.working_directory.as_deref() != Some("/drop")).unwrap();
-        assert_eq!(kept, Layout::Pane(Pane { tabs: vec![tab("/a"), tab("/b")], selected_tab: 1 }));
+        assert_eq!(
+            kept,
+            Layout::Pane(Pane { tabs: vec![tab("/a"), tab("/b")], selected_tab: 1, focused: true })
+        );
         assert_eq!(layout.keeping(&|_| false), None);
     }
 }

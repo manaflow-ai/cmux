@@ -11,8 +11,8 @@ use serde_json::{Map, Value};
 
 use crate::limits::{self, Budget, objects, strings};
 use crate::model::{
-    Agent, Group, Layout, MAX_KEY_BYTES, Orientation, Pane, Rect, Remote, Snapshot, Tab, Window,
-    Workspace,
+    Agent, File, Group, Layout, MAX_KEY_BYTES, Orientation, Pane, Rect, Remote, Snapshot, Tab,
+    Window, Workspace,
 };
 use crate::names::{self, non_empty, text, trim_spaces};
 
@@ -304,20 +304,23 @@ fn workspace(
             tab(panel, || checkpoints.take(id)).map(|tab| (id, tab))
         })
         .collect();
-    // Panels nothing here can show (markdown, file preview) stay in classic.
+    // Panels nothing here can show (a simulator, a project, a sidebar tool)
+    // stay in classic, as does a markdown or file preview tab with no file.
     let left_out_panels = panels.iter().any(|panel| {
         !matches!(
             panel.get("type").and_then(Value::as_str).unwrap_or("terminal"),
-            "terminal" | "browser"
-        )
+            "terminal" | "browser" | "markdown" | "filePreview"
+        ) || (matches!(panel.get("type").and_then(Value::as_str), Some("markdown" | "filePreview"))
+            && file(panel).is_none())
     });
     // A snapshot can name a panel twice; the first wins.
     let mut by_id: HashMap<&str, &Tab> = HashMap::new();
     for (id, tab) in &entries {
         by_id.entry(id).or_insert(tab);
     }
+    let focused = text(value, &["focusedPanelId", "focused_panel_id"]);
     let layout = match value.get("layout").and_then(Value::as_object) {
-        Some(layout_value) => layout(layout_value, &by_id, &mut HashSet::new()),
+        Some(layout_value) => layout(layout_value, &by_id, &mut HashSet::new(), focused),
         None => {
             let mut seen = HashSet::new();
             let tabs = entries
@@ -325,7 +328,7 @@ fn workspace(
                 .filter(|(id, _)| seen.insert(*id))
                 .map(|(_, tab)| tab.clone())
                 .collect();
-            Layout::Pane(Pane { tabs, selected_tab: 0 })
+            Layout::Pane(Pane { tabs, selected_tab: 0, focused: false })
         }
     };
     Workspace {
@@ -341,12 +344,41 @@ fn workspace(
         group_id: non_empty(value, &["groupId", "group_id"])
             .filter(|id| id.len() <= MAX_KEY_BYTES)
             .map(str::to_string),
+        description: non_empty(value, &["customDescription", "custom_description"])
+            .map(trim_spaces)
+            .filter(|text| !text.is_empty())
+            .map(|text| text.chars().take(MAX_DESCRIPTION_CHARS).collect()),
+        task_status: non_empty(value, &["taskStatusOverride", "task_status_override"])
+            .filter(|status| TASK_STATUSES.contains(status))
+            .map(str::to_string),
     }
+}
+
+/// The longest description cmux NEXT keeps, in characters (classic drew at most as many).
+const MAX_DESCRIPTION_CHARS: usize = 4096;
+
+/// Classic's task lanes (`WorkspaceTaskStatus`), the same names in cmux NEXT.
+const TASK_STATUSES: [&str; 5] = ["todo", "working", "needs-attention", "review", "done"];
+
+/// The file a markdown or file preview panel shows: an absolute path.
+fn file(panel: &Map<String, Value>) -> Option<File> {
+    let (field, markdown) = match panel.get("type").and_then(Value::as_str)? {
+        "markdown" => ("markdown", true),
+        "filePreview" => ("filePreview", false),
+        _ => return None,
+    };
+    let path = panel
+        .get(field)
+        .and_then(Value::as_object)
+        .and_then(|viewer| text(viewer, &["filePath", "file_path"]))
+        .filter(|path| path.starts_with('/'))?;
+    Some(File { path: path.to_string(), markdown })
 }
 
 /// A terminal or browser panel as a tab; none for a panel nothing here can
 /// show. Old snapshots name no type.
 fn tab(panel: &Map<String, Value>, checkpoint: impl FnOnce() -> Option<String>) -> Option<Tab> {
+    let pinned = flag(panel, &["isPinned", "is_pinned"]);
     match panel.get("type").and_then(Value::as_str).unwrap_or("terminal") {
         "terminal" => {
             let terminal = panel.get("terminal").and_then(Value::as_object);
@@ -368,6 +400,8 @@ fn tab(panel: &Map<String, Value>, checkpoint: impl FnOnce() -> Option<String>) 
                 url: None,
                 agent,
                 scrollback: own.map(str::to_string).or_else(checkpoint),
+                file: None,
+                pinned,
             })
         }
         "browser" => {
@@ -380,6 +414,20 @@ fn tab(panel: &Map<String, Value>, checkpoint: impl FnOnce() -> Option<String>) 
                 url: Some(url.to_string()),
                 agent: None,
                 scrollback: None,
+                file: None,
+                pinned,
+            })
+        }
+        "markdown" | "filePreview" => {
+            let file = file(panel)?;
+            Some(Tab {
+                working_directory: None,
+                title: text(panel, &["customTitle"]).map(str::to_string),
+                url: None,
+                agent: None,
+                scrollback: None,
+                file: Some(file),
+                pinned,
             })
         }
         _ => None,
@@ -464,6 +512,7 @@ fn layout<'a>(
     value: &'a Map<String, Value>,
     panels: &HashMap<&str, &Tab>,
     placed: &mut HashSet<&'a str>,
+    focused: Option<&str>,
 ) -> Layout {
     if value.get("type").and_then(Value::as_str) == Some("split") {
         let split = value.get("split").and_then(Value::as_object).unwrap_or(value);
@@ -476,7 +525,12 @@ fn layout<'a>(
             .find_map(|name| split.get(*name).and_then(Value::as_f64))
             .unwrap_or(0.5);
         let mut side = |name: &str| {
-            layout(split.get(name).and_then(Value::as_object).unwrap_or(&EMPTY), panels, placed)
+            layout(
+                split.get(name).and_then(Value::as_object).unwrap_or(&EMPTY),
+                panels,
+                placed,
+                focused,
+            )
         };
         let first = side("first");
         let second = side("second");
@@ -510,5 +564,6 @@ fn layout<'a>(
     let selected = text(pane, &["selectedPanelId", "selected_panel_id"])
         .and_then(|chosen| resolved.iter().position(|(id, _)| *id == chosen))
         .unwrap_or(0);
-    Layout::Pane(Pane { tabs, selected_tab: selected })
+    let focused = focused.is_some_and(|chosen| resolved.iter().any(|(id, _)| *id == chosen));
+    Layout::Pane(Pane { tabs, selected_tab: selected, focused })
 }
