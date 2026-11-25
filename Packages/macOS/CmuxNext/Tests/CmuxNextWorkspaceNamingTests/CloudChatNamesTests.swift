@@ -203,5 +203,7 @@ struct CloudChatNamesTests {
         #expect(AgentTurnStateStore.plainName("\u{202E}evil\u{202C}\r\n\tname  ") == "evil name")
     }
 
-    private final class Changed: @unchecked Sendable { var fired = false }
 }
+
+/// Set from `withObservationTracking`'s `@Sendable` onChange, so it lives outside the `@MainActor` suite.
+private final class Changed: @unchecked Sendable { var fired = false }
