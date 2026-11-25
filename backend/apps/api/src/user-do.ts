@@ -549,7 +549,7 @@ export class UserDO extends OwnerDO<UserState> {
     const u = this.existing()?.currentState.user
     return Boolean(u && u.id === entity && u.email_verified === true && isCompanyEmail(u.email))
   }
-  async stackUserOf(entity: string): Promise<string | null> { const u = this.existing()?.currentState.user; return u && u.id === entity ? u.stack_user_id : null } // CloudDO: the owner's Stack user id (cloud-coderouter-edge.ts)
+  async stackUserOf(entity: string): Promise<string | null> { const u = this.existing()?.currentState.user; return u && u.id === entity ? u.stack_user_id : null } // CloudDO: the owner's Stack user id
   /** TeamDO's identity check only: an active daemon's public key, scoped to its existing team and grant. */
   async serverKey(entity: string, install: string, grant: string, team: string): Promise<JsonWebKey | null> {
     const engine = this.existing()

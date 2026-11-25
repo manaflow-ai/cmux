@@ -86,7 +86,6 @@
 				cmux-cli-path/zsh-agent/.zshrc,
 				cmux-themes,
 				cmux.entitlements,
-				coderouter-cli.json,
 				feed-tui,
 				ghostty,
 				ghostty/terminfo/78/xterm-ghostty,
