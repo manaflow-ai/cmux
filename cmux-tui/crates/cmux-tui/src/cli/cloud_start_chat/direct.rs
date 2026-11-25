@@ -595,3 +595,7 @@ impl Cloud for Api {
             .map(|v| (name.to_owned(), v))
     }
 }
+
+#[cfg(test)]
+#[path = "direct_seeded_tests.rs"]
+mod seeded_tests;

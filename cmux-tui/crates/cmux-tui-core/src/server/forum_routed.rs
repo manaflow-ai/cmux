@@ -114,6 +114,11 @@ impl ForumOwner {
             return Self::not_set_up();
         };
         let url = var(URL_ENV).unwrap_or_else(|| cmux_forum_hosted::DEVELOPMENT_BASE_URL.into());
+        Self::at(url, &team, &key)
+    }
+
+    /// The forum at `url` for `team`, signing with the agent key `key`.
+    fn at(url: String, team: &str, key: &str) -> Self {
         let _ = rustls::crypto::ring::default_provider().install_default();
         let Ok(headers) = cmux_build_space::headers() else {
             return Self { forum: Err("build_space"), runtime: OnceLock::new() };
@@ -128,7 +133,7 @@ impl ForumOwner {
             return Self { forum: Err("http_client"), runtime: OnceLock::new() };
         };
         let transport = AnyTransport::new(cmux_forum_hosted::HttpTransport::new(url, http));
-        Self::new(transport, &team, &key)
+        Self::new(transport, team, key)
     }
 
     /// Runs `call` to its end on the owner's runtime, within [`CALL_TIMEOUT`].
@@ -444,3 +449,27 @@ fn comment_json(comment: &Comment, thread: u64) -> Value {
 #[cfg(test)]
 #[path = "forum_routed_tests.rs"]
 mod tests;
+
+/// Seeded secrets on the wire (cmux_egress::capture): the agent key rides only in the token
+/// exchange's `Authorization`, the team only in `x-cmux-team`. tests/egress_seeded.json names this
+/// test for `cmux_tui_core::server::forum_routed`.
+#[cfg(test)]
+#[test]
+fn seeded_secrets_ride_only_where_the_forum_needs_them() {
+    cmux_egress::capture::install().unwrap();
+    let key = "cfk_SEEDforumRoutedKey-7d20";
+    let team = "SEEDroutedTeam-35fe";
+    let owner = ForumOwner::at(cmux_forum_hosted::DEVELOPMENT_BASE_URL.to_owned(), team, key);
+    // The capture server answers `200 {}`: the exchange decodes no token and the call ends.
+    let _ = run(&owner, "forum.snapshot", ForumRequest::Snapshot { space: None });
+    let sent = cmux_egress::capture::requests_to("cmux-platform-development.debussy.workers.dev");
+    assert!(!sent.is_empty(), "the exchange reached the capture server");
+    let places = cmux_egress::capture::leaks(key);
+    assert!(!places.is_empty(), "{sent:?}");
+    assert!(
+        places.iter().all(|p| p.ends_with(" /v1/forum/token: header authorization")),
+        "{places:?}"
+    );
+    let places = cmux_egress::capture::leaks(team);
+    assert!(places.iter().all(|p| p.ends_with(": header x-cmux-team")), "{places:?}");
+}
