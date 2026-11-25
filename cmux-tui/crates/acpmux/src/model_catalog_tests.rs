@@ -208,3 +208,41 @@ fn a_model_error_names_its_model() {
     );
     assert_eq!(model_named_in("stream disconnected"), None);
 }
+
+#[test]
+fn a_sustained_overload_moves_opus_and_fable_to_the_newest_sonnet() {
+    let c = claude();
+    for running in
+        ["claude-opus-5-5", "opus", "claude-fable-5-2", "fable", "fable-5.2", "claude-opus-4-8"]
+    {
+        assert_eq!(
+            capacity_fallback(&c, running).as_deref(),
+            Some("claude-sonnet-5-5"),
+            "{running}"
+        );
+    }
+    // Claude Code's `default` is the catalog's default model (Opus).
+    assert_eq!(capacity_fallback(&c, "default").as_deref(), Some("claude-sonnet-5-5"));
+    // The context-window suffix stays: a chat past 200K tokens keeps its window.
+    assert_eq!(capacity_fallback(&c, "opus[1m]").as_deref(), Some("claude-sonnet-5-5[1m]"));
+}
+
+#[test]
+fn a_small_or_unknown_model_has_no_capacity_fallback() {
+    let c = claude();
+    for running in ["claude-sonnet-5-5", "sonnet", "claude-haiku-5-5", "haiku", "m1", ""] {
+        assert_eq!(capacity_fallback(&c, running), None, "{running}");
+    }
+    // Codex's models are in no fallback family.
+    assert_eq!(capacity_fallback(&codex(), "gpt-6.2-sol"), None);
+}
+
+#[test]
+fn same_model_reads_aliases_as_their_ids() {
+    let c = claude();
+    assert!(same_model(Some(&c), "sonnet", "claude-sonnet-5-5"));
+    assert!(same_model(Some(&c), "claude-opus-5-5", "opus"));
+    assert!(!same_model(Some(&c), "opus", "claude-sonnet-5-5"));
+    assert!(!same_model(Some(&c), "opus[1m]", "opus"));
+    assert!(same_model(None, "m1", "m1"));
+}

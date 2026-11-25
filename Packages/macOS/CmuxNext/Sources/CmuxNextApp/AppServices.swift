@@ -243,7 +243,7 @@ final class AppServices {
         RestartToUpdatePaletteRows(staged: { [weak self] in self?.updater.restartableUpdate.map { ($0.title, $0.version) } }).install(into: palette, registry: registry)
         return palette
     }()  // first read in init (no IUO)
-    private(set) lazy var previews: TabPreviewSource = TabPreviewSource(cache: cache, pages: pages)  // first read in init (no IUO)
+    private(set) lazy var previews: TabPreviewSource = TabPreviewSource(cache: cache, pages: pages, images: launchImages) { [weak self] in self?.madeAgentTabs?.existingView($0) }  // first read in init (no IUO)
     /// CPU and memory for the hover cards and `resources` (sampled on demand).
     private(set) lazy var resources: AppResourceSource = AppResourceSource(services: self)  // first read in init (no IUO)
     let presentation = ContentPresentationScheduler()
@@ -325,7 +325,7 @@ final class AppServices {
     private(set) lazy var keybindingsFile = KeybindingsFileService(services: self)
     /// App platform (DEV prototype): registry, JavaScriptCore app host, App Store.
     private(set) lazy var apps = AppsService(services: self)
-    private(set) lazy var sidebarCustomization = SidebarCustomizationService(client: apps.client) { [weak self] in self?.apps.client.presence.isPresented($0) == true }
+    private(set) lazy var sidebarCustomization = SidebarCustomizationService(client: apps.client, lookGlyph: { [weak self] in self?.settings?.fileRoot.value(at: ThinkingGlyphSetting().configPath) }) { [weak self] in self?.apps.client.presence.isPresented($0) == true }
     /// The Tasks page and its mirror of the local Tasks owner (plans/cmux-next/tasks.md).
     private(set) lazy var tasks = TasksPageService(services: self)
     /// Phone tabs: iOS simulators, Android emulators and real phones, recordings, feedback to Chief
@@ -625,7 +625,8 @@ final class AppServices {
         // Before the updater's What's New tracker writes its record: an install that ran before
         // never sees the Browser tip (AgentPaneFeatureTipRecords.settleInstall).
         AgentPaneFeatureTipRecords().settleInstall(launchedBefore: WhatsNewSeenStore(defaults: .standard).hasRecord)
-        updater = UpdaterService(work: work)
+        let crashRecovery = CrashRecoveryService(bundleID: environment.launch.bundleID, marksRun: environment.marksRun); self.crashRecovery = crashRecovery
+        updater = UpdaterService(pausesAutomaticUpdates: AutomaticUpdatePause.app && !crashRecovery.recovery.isSafeRestart, work: work) // a restart loop still fetches its fix
         registry = ActionRegistry.standard(runTiming: SignpostActionRunTiming(monitor: actionBudget), warmingOn: mainWork, symbolOverride: NSImage.packOverride)
         DaemonService.launchMark = { DebugTimings.markLaunch($0) }  // before any daemon service starts
         self.mainWork = mainWork
@@ -638,7 +639,6 @@ final class AppServices {
         self.contextMenus = contextMenus
         popups = BrowserPopupWindows(contextMenus: contextMenus, activeLook: activeLook)
         self.environment = environment; self.agentPaneEnvironment = agentPaneEnvironment
-        crashRecovery = CrashRecoveryService(bundleID: environment.launch.bundleID, marksRun: environment.marksRun)
         // After the run marker's handlers: Sentry calls them after its report.
         crashReporting = AppCrashReporting(environment: environment)
         DebugTimings.markLaunch("services.crash_reporting")
@@ -671,7 +671,7 @@ final class AppServices {
         }
         cache.findTab = { [weak self] key in self?.remoteLocalhost.tab(id: key) }
         cache.onRelease = { [weak self] key in
-            self?.home.releaseTabView(key)
+            self?.home.releaseTabView(key); self?.previews.pictures.forget(key)  // and its kept pane pictures
             self?.madeAgentTabs?.releaseIfGone(key)
             self?.cache.pageRequests.closedHistories.save(self?.cache.existingBrowser(key)?.tab)
         }
@@ -790,6 +790,7 @@ final class AppServices {
         }
         _ = dragSession  // built here, as before
         _ = previews  // built here, as before
+        cache.onConceal = { [weak self] key in self?.previews.chats.willLeaveScreen(key) }  // its last picture (#51768)
         _ = remoteTerminals  // built here, as before
         remoteTerminals.start()
         WorkspaceClose.willClose = { [weak self] workspace in guard let self else { return }; remoteTerminals.workspaceClosing(workspace); incognitoChats.closing(workspace, self); keyRouter.creationInputCoordinator.drop(closing: workspace.screens.flatMap(\.panes)) }
