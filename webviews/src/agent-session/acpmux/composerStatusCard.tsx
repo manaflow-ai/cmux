@@ -1,6 +1,6 @@
 // The one seam between the composer status dot (ComposerStatusDot.tsx) and the pane's shared hover
 // card pieces: the glass card (ui/Tooltip.tsx AnchoredCard, its see-through blur), the hover bridge and
-// its timings (ui/hoverIntent.ts), the warm tooltip group, focus after Escape, and the key hint (ui/KeyHint). The dot
+// its timings (ui/hoverIntent.ts), the warm tooltip group, focus after Escape, and the key hint. The dot
 // imports none of them directly, so a change to how cards look or hover lands here once.
 import type { ReactNode, Ref } from "react";
 import { AnchoredCard } from "../../ui/Tooltip";

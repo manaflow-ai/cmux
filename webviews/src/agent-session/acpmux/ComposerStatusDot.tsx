@@ -557,7 +557,7 @@ export function ComposerStatusDot({
             </dl>
           ) : null}
           <div className="acpmux-status-hint" data-shown={state === "pinned" ? "" : undefined}>
-            <KeyHint keys={ESC} />
+            <KeyHint keys={ESC} aria-hidden="true" />
             {t("contextScreen.close")}
           </div>
         </div>
