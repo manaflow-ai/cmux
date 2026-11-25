@@ -130,6 +130,31 @@
           ]
         },
         {
+          "key": "experiments.composerCustomizer",
+          "note": "Taste prototype (Leo 2026-11-24, ask-6cba5e7e10): a Customize button centered under the agent chat composer, shown while the pointer is over the composer or it has focus. A click opens the app's Customizations menu at the button (CmuxNextSettingsWindow CustomizationsMenu: every Experiments and Labs switch grouped, with checkmarks, then All Customizations...), the same menu as cmux > Customizations (webviews useExperimentSwitch(\"composerCustomizer\"), acpmux/ComposerCustomizer.tsx; page method customizations.menu). This switch is one of its rows, so it turns itself off from there. Off by default; off keeps today's composer.",
+          "title": {
+            "key": "settings.experiments.composerCustomizer",
+            "text": "Customize Button Under the Composer"
+          },
+          "help": {
+            "key": "settings.experiments.composerCustomizer.help",
+            "text": "Point at the chat box for a Customize button that lists every experiment and Labs switch."
+          },
+          "kind": "toggle",
+          "default": false,
+          "keywords": [
+            "experiments",
+            "experimental",
+            "prototype",
+            "customize",
+            "customizations",
+            "composer",
+            "labs",
+            "toggle",
+            "menu"
+          ]
+        },
+        {
           "key": "experiments.agentBadges",
           "note": "Taste build 5 (2026-11-19): agent counts and status on the tab strip and the sidebar, drawn natively (CmuxNextTabs TabCell+CountPill, CmuxNextSidebar WorkspaceRowView+AgentPill; DesignSettings.agentBadges). An agent chat tab shows a neutral count pill (unread plus a pending approval) in a slot always as wide as \"99+\", so no tab moves; a sidebar row shows one tinted status pill (Running, Needs approval, Done) in a slot as wide as the widest label. Off by default; off keeps today's marks.",
           "title": {
@@ -305,6 +330,32 @@
           ]
         },
         {
+          "key": "experiments.threadMinimapRestReveal",
+          "note": "The agent chat's prompt rail, where it would cover the text (narrow panes), reveals only for a pointer that rests 140 ms on the pane-edge strip with no button down, and takes no pointer while a press that began in the text is down, so a selection drag along the edge keeps selecting (webviews threadMinimap/railIntent.ts, reveal.experiment.ts, useExperimentSwitch(\"threadMinimapRestReveal\")). Off by default (Leo's UI merge hold, 2026-11-24); off keeps the earlier reveal on touch.",
+          "title": {
+            "key": "settings.experiments.threadMinimapRestReveal",
+            "text": "Prompt Rail Waits for a Resting Pointer"
+          },
+          "help": {
+            "key": "settings.experiments.threadMinimapRestReveal.help",
+            "text": "In narrow chats the prompt rail opens only when the pointer rests on the edge, never while you select text."
+          },
+          "kind": "toggle",
+          "default": false,
+          "keywords": [
+            "experiments",
+            "experimental",
+            "prototype",
+            "prompt",
+            "rail",
+            "minimap",
+            "scroll",
+            "hover",
+            "select",
+            "copy"
+          ]
+        },
+        {
           "key": "experiments.terminalHistory",
           "note": "A local Claude Code or Codex terminal pane with a known session ID shows an \"Earlier history — open as chat\" button that opens the agent's whole transcript as a read-only, paginated chat tab (TerminalHistoryButton, PaneController.showTerminalHistoryLink, DesignSettings.experiment(\"terminalHistory\")). Off by default (Leo's UI merge hold, 2026-11-24); off draws no button, so the terminal pane is unchanged. Applies from the next tab switch.",
           "title": {
@@ -377,6 +428,30 @@
             "resuming",
             "quiet",
             "cloud"
+          ]
+        },
+        {
+          "key": "experiments.forum",
+          "note": "Taste prototype: the team's hosted agent forum as a page in the app (webviews/src/pages/forum, gallery pages.forum; data from cmux-tui/crates/cmux-forum-hosted). Off by default; off shows no Forum entry anywhere.",
+          "title": {
+            "key": "settings.experiments.forum",
+            "text": "Forum"
+          },
+          "help": {
+            "key": "settings.experiments.forum.help",
+            "text": "Read and answer your team's forum in the app: threads from people and their agents, with search and a reply box."
+          },
+          "kind": "toggle",
+          "default": false,
+          "keywords": [
+            "experiments",
+            "experimental",
+            "prototype",
+            "forum",
+            "threads",
+            "questions",
+            "agents",
+            "team"
           ]
         }
       ]

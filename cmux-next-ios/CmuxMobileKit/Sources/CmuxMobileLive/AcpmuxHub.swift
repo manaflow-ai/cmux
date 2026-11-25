@@ -229,7 +229,8 @@ public final class AcpmuxHub {
             let page = try await Self.reply(connection, pageID, "_acpmux/watch", timeout: requestTimeout)
             let first = (rows: try AcpmuxConnection.pageRows(page), cursor: try AcpmuxConnection.nextCursor(page))
             guard !(await connection.isClosed), self.connection === connection else { return }
-            let firstIDs = applyFirstPage(first.rows, whole: first.cursor == nil)
+            let firstPage = applyFirstPage(first.rows, whole: first.cursor == nil)
+            let firstIDs = firstPage.ids
             let next = sessions
             isReady = true
             lastError = nil
@@ -243,7 +244,9 @@ public final class AcpmuxHub {
                 "capabilities": .number(Double(capabilities.count)),
             ], detail: capabilities.sorted().joined(separator: ","))
             for source in liveSources { source.linkUp() }
-            onWatchEvent?(.sessionsLoaded(Array(next.values)))
+            if firstPage.changed {
+                onWatchEvent?(.sessionsLoaded(Array(next.values)))
+            }
             if let cursor = first.cursor {
                 restOfList = Task { [weak self] in
                     await self?.readRest(after: cursor, on: connection, firstPage: firstIDs, timeout: requestTimeout)
@@ -548,11 +551,14 @@ public final class AcpmuxHub {
             }
         case "_acpmux/session_changed":
             guard let value = params["session"], let session = AcpmuxSession(value) else { return }
+            let kind = params["recordKind"]?.stringValue ?? params["kind"]?.stringValue ?? ""
+            let changed = kind == "purged" || sessions[session.id] != session
             sessions[session.id] = session
             toldSinceWatch.insert(session.id)
-            let kind = params["recordKind"]?.stringValue ?? params["kind"]?.stringValue ?? ""
             let seq = Int(params["seq"]?.numberValue ?? 0)
-            onWatchEvent?(.sessionChanged(session, recordKind: kind, seq: seq))
+            if changed {
+                onWatchEvent?(.sessionChanged(session, recordKind: kind, seq: seq))
+            }
             if params["kind"]?.stringValue == "permission_resolved" { onWatchEvent?(.permissionResolved(sessionID: session.id)) }
             if params["kind"]?.stringValue == "purged" {
                 sessions[session.id] = nil
@@ -791,6 +797,20 @@ public final class AcpmuxSessionSource: AgentSessionSource {
     }
 
     public func events() -> AsyncStream<AgentSessionEvent> {
+        let (head, rest) = makeEvents(holdHead: false)
+        assert(head.isEmpty)
+        return rest
+    }
+
+    /// The kept replay as the head, applied by the store in its init so a kept chat's first
+    /// frame has its turns (before, the store took them one main-actor hop later and the first
+    /// frame could be "Loading chat…").
+    public func eventsWithHead() -> (head: [AgentSessionEvent], rest: AsyncStream<AgentSessionEvent>) {
+        makeEvents(holdHead: true)
+    }
+
+    private func makeEvents(holdHead: Bool) -> (head: [AgentSessionEvent], rest: AsyncStream<AgentSessionEvent>) {
+        var head: [AgentSessionEvent] = []
         let (stream, continuation) = AsyncStream<AgentSessionEvent>.makeStream(bufferingPolicy: .unbounded)
         // Flushing can exhaust the cache: decide whether to resync afterwards.
         flushOpenChunk()
@@ -798,7 +818,7 @@ public final class AcpmuxSessionSource: AgentSessionSource {
             guard let hub else {
                 continuation.yield(.clientError("Reconnect to load this chat."))
                 continuation.finish()
-                return stream
+                return (head, stream)
             }
             let source = hub.source(sessionID: sessionID, summary: summary)
             let upstream = source.events()
@@ -808,13 +828,14 @@ public final class AcpmuxSessionSource: AgentSessionSource {
                 continuation.finish()
             }
             continuation.onTermination = { _ in task.cancel() }
-            return stream
+            return (head, stream)
         }
         // A reader made after the attach caught up starts current in the same batch.
-        if !replay.events.isEmpty {
-            continuation.yield(.batch(attached ? replay.events + [.historyLoading(false)] : replay.events))
-        } else if attached {
-            continuation.yield(.historyLoading(false))
+        let first: AgentSessionEvent? = !replay.events.isEmpty
+            ? .batch(attached ? replay.events + [.historyLoading(false)] : replay.events)
+            : attached ? .historyLoading(false) : nil
+        if let first {
+            if holdHead { head = [first] } else { continuation.yield(first) }
         }
         let id = UUID()
         continuations[id] = continuation
@@ -825,7 +846,7 @@ public final class AcpmuxSessionSource: AgentSessionSource {
                 self?.readerLeft()
             }
         }
-        return stream
+        return (head, stream)
     }
 
     /// A reader's stream ended (its chat closed, or ``dropKept()`` ended it): with no reader left,
