@@ -142,8 +142,12 @@ impl DirectRunner<'_> {
         else {
             return refused(error("usage.invalid", "cloud exec needs --target and --command"));
         };
-        let Some(machine) = target.strip_prefix("machine:") else {
-            return refused(error("usage.invalid", "cloud exec takes --target machine:ID"));
+        let Some(machine) = target.strip_prefix("machine:").or_else(|| target.strip_prefix("vm:"))
+        else {
+            return refused(error(
+                "usage.invalid",
+                "cloud exec takes --target machine:ID or vm:ID",
+            ));
         };
         match self.cloud.exec(machine, command, EXEC_TIMEOUT_MS) {
             Ok(answer) => answered(answer),
@@ -154,7 +158,10 @@ impl DirectRunner<'_> {
     /// The machine `--name` or `--target` names, made or started, once it runs with a host.
     fn machine(&mut self, args: &[String]) -> Result<Row, Value> {
         let row = if let Some(target) = flag(args, "--target") {
-            let id = target.strip_prefix("machine:").unwrap_or(target);
+            let id = target
+                .strip_prefix("machine:")
+                .or_else(|| target.strip_prefix("vm:"))
+                .unwrap_or(target);
             self.cloud.get(id)?
         } else if let Some(name) = flag(args, "--name") {
             let found =
