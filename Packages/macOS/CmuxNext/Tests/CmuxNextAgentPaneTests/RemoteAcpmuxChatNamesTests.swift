@@ -8,7 +8,8 @@ import Testing
 /// summary, never a child's, to the app with the tab's host (``RemoteAcpmuxWire/ChatNoted``).
 @Suite(.timeLimit(.minutes(1))) struct RemoteAcpmuxChatNamesTests {
     nonisolated final class FakeClient: AgentSessionRemoteClient {
-        let isReadOnly = false
+        let isReadOnly: Bool
+        init(readOnly: Bool = false) { isReadOnly = readOnly }
         let handler = Mutex<(@Sendable (AgentSessionRemoteEvent) -> Void)?>(nil)
 
         func attach(_ page: AgentSessionPage, events handler: @escaping @Sendable (AgentSessionRemoteEvent) -> Void) async throws -> Data {
@@ -81,6 +82,21 @@ import Testing
         wire.send(#"{"jsonrpc":"2.0","id":1,"method":"_acpmux/attach","params":{"sessionId":"sub"}}"#) { _ in }
         try await Self.waitUntil { frames.reply(1) != nil }
         #expect(noted.all.isEmpty)
+    }
+
+    /// A Cloud VM names this Mac's tabs only while the Cloud API says it is the person's own: a teammate's VM (or one whose
+    /// owner answer is gone) notes nothing, and a read-only view of a chat never does.
+    @Test func onlyThePersonsOwnMachineInAnAttachNotesTheChat() async throws {
+        for (owned, readOnly, notes) in [(true, false, 2), (false, false, 0), (true, true, 0)] {
+            let noted = Noted(), frames = Frames()
+            let wire = RemoteAcpmuxWire(client: FakeClient(readOnly: readOnly), session: "sub", host: "install:vm",
+                                        chatNoted: noted.chatNoted, chatOwned: { owned })
+            try await wire.open(onFrame: { frames.append($0) }, onClose: { _, _ in })
+            wire.send(#"{"jsonrpc":"2.0","id":1,"method":"_acpmux/attach","params":{"sessionId":"sub"}}"#) { _ in }
+            try await Self.waitUntil { frames.reply(1) != nil }
+            if notes > 0 { try await Self.waitUntil { noted.all.count == notes } } else { try await Task.sleep(for: .milliseconds(100)) }
+            #expect(noted.all.count == notes, "owned \(owned), read-only \(readOnly)")
+        }
     }
 
     private static func waitUntil(_ condition: @Sendable () -> Bool) async throws {

@@ -154,7 +154,7 @@ extension AgentTurnStateStore {
     /// The icon that session set for itself, drawn once per icon (``HarnessIconArtwork/art(_:)``, the harness
     /// icons' drawing); nil when it set none or cannot be drawn.
     func iconArt(for ref: AgentSessionRef) -> HarnessIconLookup.Art? {
-        guard let record = named(ref), let spec = record.identity?.icon else { return nil }
+        guard let record = local(ref), let spec = record.identity?.icon else { return nil } // never a remote chat's (cmux#55668)
         if let drawn = record.iconArt { return drawn }
         let drawn = HarnessIconArtwork.art(spec)
         record.iconArt = .some(drawn)

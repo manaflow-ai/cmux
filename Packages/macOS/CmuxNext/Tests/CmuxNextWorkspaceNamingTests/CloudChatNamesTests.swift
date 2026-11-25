@@ -1,4 +1,4 @@
-import CmuxNextBridge
+@testable import CmuxNextBridge
 import CmuxNextDaemon
 import CmuxNextWorkspaceNaming
 import Foundation
@@ -100,6 +100,39 @@ struct CloudChatNamesTests {
         let reader = Self.reader(turns) { $0 === macTab ? cloudChat : nil }
         #expect(reader.label(workspace, front: macTab, work: nil) == "Fix the flaky login test")
         #expect(reader.front(macTab) == .chat(userName: nil, title: "Fix the flaky login test", generatedTitle: "Fix the flaky login test"))
+    }
+
+    /// Another machine's summary is untrusted: its names are kept as plain one-line text, capped, and its icon (inline
+    /// image bytes this Mac would decode) is never read.
+    @Test func aRemoteChatsNamesArePlainTextAndItsIconIsNeverRead() {
+        let turns = Self.turns()
+        let ref = AgentSessionRef(host: Self.cloudHost, session: "acp_cloud")
+        let spoof = "Fix login\u{202E}gpj.exe\u{200B}\nrm -rf ~\u{0007}"
+        turns.noteRemote(["sessionId": "acp_cloud", "title": spoof, "titleSource": "generated", "displayName": "Mango\u{2066}\u{0000}",
+                          "formerNames": ["old\u{2028}name"],
+                          "icon": ["kind": "image", "mime": "image/png", "data": "iVBORw0KGgo=", "source": "session"]],
+                         host: Self.cloudHost)
+        for name in [turns.title(for: ref), turns.generatedTitle(for: ref), turns.displayName(for: ref)] + turns.formerNames(for: ref) {
+            let name = name ?? ""
+            #expect(!name.unicodeScalars.contains { [.control, .format, .lineSeparator, .paragraphSeparator].contains($0.properties.generalCategory) },
+                    "\(name.debugDescription) keeps a control or invisible character")
+        }
+        #expect(turns.displayName(for: ref) == "Mango")
+        #expect(turns.formerNames(for: ref) == ["old name"])
+        #expect(turns.generatedTitle(for: ref)?.contains("gpj.exe") == true)
+        #expect(turns.iconArt(for: ref) == nil, "a remote chat's icon is never decoded here")
+
+        turns.noteRemote(["sessionId": "acp_cloud", "title": String(repeating: "a", count: 100_000), "titleSource": "generated"], host: Self.cloudHost)
+        #expect((turns.title(for: ref)?.count ?? 0) <= AgentTurnStateStore.remoteNameLimit)
+        // A joined emoji keeps its joiner.
+        #expect(AgentTurnStateStore.plainName("👩\u{200D}💻 ship it") == "👩\u{200D}💻 ship it")
+    }
+
+    @Test func aRemoteSessionIdThatIsTooLongOrCarriesControlsIsNeverNoted() {
+        let turns = Self.turns()
+        turns.noteRemote(["sessionId": String(repeating: "x", count: 300), "title": "t"], host: Self.cloudHost)
+        turns.noteRemote(["sessionId": "a\u{0000}b", "title": "t"], host: Self.cloudHost)
+        #expect(turns.remoteRecordCount == 0)
     }
 
     private final class Changed: @unchecked Sendable { var fired = false }
