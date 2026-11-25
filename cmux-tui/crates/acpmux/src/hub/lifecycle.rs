@@ -451,7 +451,7 @@ impl Hub {
                 None => match self
                     .pool_claimed_name(&id)
                     .filter(|n| !sessions.values().any(|s| s.read_meta(|m| m.name == *n)))
-                    .filter(|n| !self.evicted.any_meta(|m| m.name == *n))
+                    .filter(|n| !self.evicted.any_keys(|m| m.name == *n))
                 {
                     Some(n) => n,
                     None => unique_name_among(&sessions, &self.evicted.names(), agent),

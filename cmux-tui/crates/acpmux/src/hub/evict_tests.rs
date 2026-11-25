@@ -256,3 +256,26 @@ async fn a_chat_with_an_inbound_item_queued_stays() {
     drop(extra);
     assert_eq!(hub.kept_for_test("s0"), None);
 }
+
+/// An evicted chat holds its keys and its rows packed against a shared row, not its metadata
+/// and two whole rows: at n=1,000 that came to 27 kB a chat, about what its session held.
+#[tokio::test]
+async fn an_evicted_row_holds_a_fraction_of_its_rows_and_reads_back_whole() {
+    let hub = hub_with(20);
+    let texts: Vec<(Arc<str>, Arc<str>)> = (0..20)
+        .map(|i| {
+            let session = hub.session_get(&format!("s{i}")).unwrap();
+            (hub.own_row_text(&session, false), hub.own_row_text(&session, true))
+        })
+        .collect();
+    std::thread::sleep(std::time::Duration::from_millis(2));
+    assert_eq!(hub.evict_idle_chats(), 20);
+    for (i, (list, full)) in texts.iter().enumerate() {
+        let row = hub.evicted.get(&format!("s{i}")).unwrap();
+        assert_eq!(row.row_text(false), *list, "s{i}'s list row reads back whole");
+        assert_eq!(row.row_text(true), *full, "s{i}'s full row reads back whole");
+        assert_eq!(row.keys.name, format!("chat-{i}"));
+        let whole = list.len() + full.len();
+        assert!(row.rows_held() * 4 < whole, "s{i} holds {} of {whole} bytes", row.rows_held());
+    }
+}

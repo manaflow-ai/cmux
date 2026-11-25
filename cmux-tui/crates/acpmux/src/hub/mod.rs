@@ -3470,14 +3470,19 @@ impl Hub {
     /// The daemon calls it after metadata loads and before startup releases spawns.
     #[cfg(unix)]
     pub fn sweep_session_tmp(&self) {
-        let mut metas: Vec<_> = self.sessions().iter().map(|session| session.meta()).collect();
+        let mut metas: Vec<(String, SessionStatus)> = self
+            .sessions()
+            .iter()
+            .map(|session| session.read_meta(|m| (m.id.clone(), m.status)))
+            .collect();
         // An evicted chat keeps its folder as it did in memory (`evict.rs`).
-        metas.extend(self.evicted.rows().iter().map(|row| row.meta.clone()));
-        let known: std::collections::HashSet<&str> = metas.iter().map(|m| m.id.as_str()).collect();
+        metas.extend(self.evicted.rows().iter().map(|row| (row.keys.id.clone(), row.keys.status)));
+        let known: std::collections::HashSet<&str> =
+            metas.iter().map(|(id, _)| id.as_str()).collect();
         let closed: std::collections::HashSet<&str> = metas
             .iter()
-            .filter(|m| m.status == SessionStatus::Closed)
-            .map(|m| m.id.as_str())
+            .filter(|(_, status)| *status == SessionStatus::Closed)
+            .map(|(id, _)| id.as_str())
             .collect();
         // A session whose record did not list still has its folder.
         let stored = |id: &str| {

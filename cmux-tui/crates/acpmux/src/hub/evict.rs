@@ -23,29 +23,140 @@ pub(crate) const EVICT_IDLE_ENV: &str = "ACPMUX_EVICT_IDLE_SECS";
 /// How many chats one pass evicts at most, so a pass after a long sleep stays short.
 const EVICT_AT_ONCE: usize = 256;
 
-/// One evicted chat: what the whole-set reads and a list page need without its session.
+/// One evicted chat: what the whole-set reads and a list page need without its session, about
+/// 1 kB. Its whole metadata stays in the store: a chat's is ~11 kB (most of it the cmux guidance
+/// every chat carries), and kept here it cost about what the session it replaced did (dhat,
+/// n=1,000: 27 kB a row against 30 kB a session).
 pub(crate) struct Evicted {
-    pub(super) meta: SessionMeta,
+    pub(super) keys: EvictedKeys,
     /// Its list row (no tools) and full row (with tools), serialized when it left.
-    list: Arc<str>,
-    full: Arc<str>,
+    list: PackedRow,
+    full: PackedRow,
+}
+
+/// What a whole-set read or a create's check matches an evicted chat by: the fields of its
+/// metadata they read, nothing else.
+pub(crate) struct EvictedKeys {
+    pub(super) id: String,
+    pub(super) name: String,
+    pub(super) status: SessionStatus,
+    pub(super) updated_at: u64,
+    /// Its `session.alias` tag's value.
+    pub(super) alias: Option<String>,
+    pub(super) handle: Option<String>,
+    pub(super) former_names: Vec<String>,
+    pub(super) create_key: Option<String>,
+    pub(super) agent_session_id: Option<String>,
+}
+
+impl EvictedKeys {
+    pub(super) fn of(m: &SessionMeta) -> Self {
+        Self {
+            id: m.id.clone(),
+            name: m.name.clone(),
+            status: m.status,
+            updated_at: m.updated_at,
+            alias: m.tags.get("session.alias").map(|tag| tag.value.clone()),
+            handle: m.handle.clone(),
+            former_names: m.former_names.clone(),
+            create_key: m.create_key.clone(),
+            agent_session_id: m.agent_session_id.clone(),
+        }
+    }
+}
+
+/// A list row's bytes, packed against the tier's shared row ([`Tier::row_dict`]): rows have the
+/// same keys and mostly the same values, so each keeps little more than what differs (a 3.5 kB
+/// row is a few hundred bytes). Unpacked when a list page reads it.
+enum PackedRow {
+    Packed {
+        dict: Arc<RowDict>,
+        len: u32,
+        bytes: Box<[u8]>,
+    },
+    /// Kept as it is when packing failed, or did not make it smaller.
+    Plain(Arc<str>),
+}
+
+/// The zstd level rows are packed at: an eviction packs two rows, a list page unpacks them.
+const ROW_LEVEL: i32 = 3;
+
+/// The shared row, prepared once for packing and for unpacking: a list page unpacks every
+/// evicted row it shows, and loading the raw row into each unpack cost more than the unpack.
+pub(crate) struct RowDict {
+    pack: zstd::dict::EncoderDictionary<'static>,
+    unpack: zstd::dict::DecoderDictionary<'static>,
+}
+
+impl RowDict {
+    fn new(row: &[u8]) -> Self {
+        Self {
+            pack: zstd::dict::EncoderDictionary::copy(row, ROW_LEVEL),
+            unpack: zstd::dict::DecoderDictionary::copy(row),
+        }
+    }
+}
+
+impl PackedRow {
+    fn pack(text: Arc<str>, dict: &Arc<RowDict>) -> Self {
+        let packed = u32::try_from(text.len()).ok().and_then(|len| {
+            let mut packer = zstd::bulk::Compressor::with_prepared_dictionary(&dict.pack).ok()?;
+            let bytes = packer.compress(text.as_bytes()).ok()?;
+            (bytes.len() < text.len()).then_some((len, bytes))
+        });
+        match packed {
+            Some((len, bytes)) => {
+                Self::Packed { dict: dict.clone(), len, bytes: bytes.into_boxed_slice() }
+            }
+            None => Self::Plain(text),
+        }
+    }
+
+    fn text(&self) -> Arc<str> {
+        match self {
+            Self::Plain(text) => text.clone(),
+            Self::Packed { dict, len, bytes } => {
+                let unpacked = zstd::bulk::Decompressor::with_prepared_dictionary(&dict.unpack)
+                    .and_then(|mut d| d.decompress(bytes, *len as usize))
+                    .ok()
+                    .and_then(|raw| String::from_utf8(raw).ok());
+                // It packed bytes that were a string; nothing else can come back.
+                unpacked.map(Into::into).unwrap_or_else(|| "null".into())
+            }
+        }
+    }
+
+    /// Bytes it holds besides the shared row.
+    #[cfg(test)]
+    fn held(&self) -> usize {
+        match self {
+            Self::Plain(text) => text.len(),
+            Self::Packed { bytes, .. } => bytes.len(),
+        }
+    }
 }
 
 impl Evicted {
     pub(super) fn id(&self) -> &str {
-        &self.meta.id
+        &self.keys.id
     }
 
     pub(super) fn updated_at(&self) -> u64 {
-        self.meta.updated_at
+        self.keys.updated_at
     }
 
     pub(super) fn status(&self) -> SessionStatus {
-        self.meta.status
+        self.keys.status
     }
 
     pub(super) fn row_text(&self, with_tools: bool) -> Arc<str> {
-        if with_tools { self.full.clone() } else { self.list.clone() }
+        if with_tools { self.full.text() } else { self.list.text() }
+    }
+
+    /// Bytes its rows hold besides the shared row.
+    #[cfg(test)]
+    pub(super) fn rows_held(&self) -> usize {
+        self.list.held() + self.full.held()
     }
 }
 
@@ -58,6 +169,8 @@ pub(crate) struct Tier {
     pub(super) rehydrations: AtomicU64,
     /// The last pass stopped at [`EVICT_AT_ONCE`]: due chats remain that nothing kept.
     pub(super) more_due: AtomicBool,
+    /// The row every evicted row is packed against ([`PackedRow`]): the first one evicted.
+    row_dict: StdMutex<Option<Arc<RowDict>>>,
 }
 
 impl Default for Tier {
@@ -69,6 +182,7 @@ impl Default for Tier {
             evictions: AtomicU64::new(0),
             rehydrations: AtomicU64::new(0),
             more_due: AtomicBool::new(false),
+            row_dict: StdMutex::new(None),
         }
     }
 }
@@ -93,9 +207,25 @@ impl Tier {
         self.lock().len()
     }
 
+    /// The shared row rows are packed against, `first` when there is none yet.
+    fn row_dict(&self, first: &str) -> Arc<RowDict> {
+        let mut dict = self.row_dict.lock().unwrap_or_else(|e| e.into_inner());
+        dict.get_or_insert_with(|| Arc::new(RowDict::new(first.as_bytes()))).clone()
+    }
+
+    /// `session`'s row for this tier: its keys and both list rows, packed.
+    fn row_of(&self, meta: &SessionMeta, list: Arc<str>, full: Arc<str>) -> Evicted {
+        let dict = self.row_dict(&list);
+        Evicted {
+            keys: EvictedKeys::of(meta),
+            list: PackedRow::pack(list, &dict),
+            full: PackedRow::pack(full, &dict),
+        }
+    }
+
     /// How many evicted chats are not closed: they count as live, as they did in memory.
     pub(super) fn live_len(&self) -> usize {
-        self.lock().values().filter(|row| row.meta.status != SessionStatus::Closed).count()
+        self.lock().values().filter(|row| row.keys.status != SessionStatus::Closed).count()
     }
 
     pub(super) fn contains(&self, id: &str) -> bool {
@@ -111,19 +241,19 @@ impl Tier {
         self.lock().values().cloned().collect()
     }
 
-    /// Whether any evicted chat's metadata answers `pred`: the whole-set reads' other half.
-    pub(super) fn any_meta(&self, mut pred: impl FnMut(&SessionMeta) -> bool) -> bool {
-        self.lock().values().any(|row| pred(&row.meta))
+    /// Whether any evicted chat's keys answer `pred`: the whole-set reads' other half.
+    pub(super) fn any_keys(&self, mut pred: impl FnMut(&EvictedKeys) -> bool) -> bool {
+        self.lock().values().any(|row| pred(&row.keys))
     }
 
     /// Every evicted chat's name: the taken names a new chat's name avoids.
     pub(super) fn names(&self) -> Vec<String> {
-        self.lock().values().map(|row| row.meta.name.clone()).collect()
+        self.lock().values().map(|row| row.keys.name.clone()).collect()
     }
 
-    /// The ids of the evicted chats whose metadata answers `pred`.
-    pub(super) fn ids_where(&self, mut pred: impl FnMut(&SessionMeta) -> bool) -> Vec<String> {
-        self.lock().values().filter(|row| pred(&row.meta)).map(|row| row.meta.id.clone()).collect()
+    /// The ids of the evicted chats whose keys answer `pred`.
+    pub(super) fn ids_where(&self, mut pred: impl FnMut(&EvictedKeys) -> bool) -> Vec<String> {
+        self.lock().values().filter(|row| pred(&row.keys)).map(|row| row.keys.id.clone()).collect()
     }
 }
 
@@ -175,7 +305,7 @@ impl Hub {
             .map(|(_, id)| id);
         let bare = !key.contains('/');
         let ids = self.evicted.ids_where(|m| {
-            let alias = m.tags.get("session.alias").map(|tag| tag.value.as_str());
+            let alias = m.alias.as_deref();
             qualified == Some(m.id.as_str())
                 || m.id.starts_with(key)
                 || m.name.starts_with(key)
@@ -189,9 +319,9 @@ impl Hub {
         }
     }
 
-    /// Brings back every evicted chat whose metadata answers `pred` (a create's id, key, name or
+    /// Brings back every evicted chat whose keys answer `pred` (a create's id, key, name or
     /// adopted session: the checks that pick or refuse it read the map).
-    pub(super) fn rehydrate_where(&self, pred: impl FnMut(&SessionMeta) -> bool) {
+    pub(super) fn rehydrate_where(&self, pred: impl FnMut(&EvictedKeys) -> bool) {
         if self.evicted.len() == 0 {
             return;
         }
@@ -328,7 +458,7 @@ impl Hub {
         self.meta_barrier(&session).map_err(|e| format!("meta barrier: {}", e.message))?;
         let list = self.own_row_text(&session, false);
         let full = self.own_row_text(&session, true);
-        let row = Arc::new(Evicted { meta: session.meta(), list, full });
+        let row = Arc::new(session.read_meta(|m| self.evicted.row_of(m, list, full)));
         let id = session.id.clone();
         // The other long-lived handles let go first: the chat activity's (rebuilt on its next read).
         self.chat_activity_cache.drop_built();
