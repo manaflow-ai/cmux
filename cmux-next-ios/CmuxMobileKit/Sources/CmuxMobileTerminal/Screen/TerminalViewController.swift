@@ -188,6 +188,12 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
         return pan
     }()
     var tuiPanStartX: CGFloat = 0
+    /// Until when output still pans to the cursor's column: input pans before
+    /// its echo arrives, so the echo (a typed character, Enter's new line, a
+    /// paste) pans again when it is drawn (Wide, task: pan follows typing).
+    private var followColumnUntil: CFTimeInterval = 0
+    /// How long after input its echo still pans to the cursor.
+    static let followColumnWindow: CFTimeInterval = 1.0
     /// The Mac's columns as of the bytes fed so far (``TerminalSessionEvent/hostGrid(columns:rows:)``,
     /// taken in feed order); nil until the first, then the session's value.
     var appliedHostColumns: Int?
@@ -925,7 +931,10 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
                 if InputLatencyTrace.isEnabled, model.connectionState.isAttached, !inputRefused {
                     let now = CACurrentMediaTime()
                     if echoMeter.step != .idle, now - echoStart > 2 { echoMeter = TerminalFirstEcho() }
-                    if echoMeter.sent(data) { echoStart = now }
+                    if echoMeter.sent(data) {
+                        echoStart = now
+                        InputLatencyTrace.shared?.beginKey("terminal_key_echo")
+                    }
                 }
                 #endif
             } else {
@@ -1588,27 +1597,40 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
         // The frame kept for a cold launch has no cursor: it is not where
         // typing goes until the live screen is back (R3-4). The glyph under
         // it stays (V8 claim 8).
-        let cursor = hidingCursor ? surface.visibleCursorCell.map { surface.convert($0, to: view) } : nil
         let host: UIView = model.isTUI ? tuiClip : scrollView
-        let rows = TerminalStillPlan.rowsClip(bounds: view.bounds, topInset: model.isTUI ? tuiClip.frame.minY : scrollView.contentInset.top,
-                                              composerTop: bottomStack.frame.minY)
-            .intersection(host.convert(host.bounds, to: view))
+        // Composed as at rest (keyboard down, composer at one line): rows that
+        // ride the keyboard up are drawn back down to the resting stack top,
+        // so a kept frame never carries the keyboard's gap (`TerminalStillPlan.placement`).
+        let place = TerminalStillPlan.placement(bounds: view.bounds, topInset: model.isTUI ? tuiClip.frame.minY : scrollView.contentInset.top,
+                                                composerTop: bottomStack.frame.minY, restingComposerTop: restingStackTop)
+        // The rows above the host's top that the shift brings into the still
+        // are read from the surface too (a TUI's top rows clipped while the
+        // keyboard is up); the host still bounds the sides and the bottom.
+        let hostFrame = host.convert(host.bounds, to: view)
+        let readable = CGRect(x: hostFrame.minX, y: view.bounds.minY - place.shift, width: hostFrame.width,
+                              height: max(0, hostFrame.maxY - view.bounds.minY + place.shift))
+        let source = place.source.intersection(readable)
+        let rows = source.isNull ? source : source.offsetBy(dx: 0, dy: place.shift)
+        // The frame kept for a cold launch has no cursor: it is not where
+        // typing goes until the live screen is back (R3-4). The glyph under
+        // it stays (V8 claim 8).
+        let cursor = hidingCursor ? surface.visibleCursorCell.map { surface.convert($0, to: view).offsetBy(dx: 0, dy: place.shift) } : nil
         var capture = TerminalPageCapture(bounds: view.bounds, scale: Self.snapshotScale, surface: nil, fallback: nil,
                                           surfaceClip: rows.isNull ? .zero : rows, surfaceFrame: .null, cursor: cursor,
                                           background: terminalBackground)
         guard !rows.isNull, !rows.isEmpty, surface.isDescendant(of: host) else { return capture }
-        let clip = view.convert(rows, to: surface)
+        let clip = view.convert(source, to: surface)
         if let copy = surface.presentedCopy(clip: clip) {
             // The surface drawn from the frame Ghostty presented: the render
             // server's copy of a live Metal surface came out black on the rig (V5-6).
             capture.surface = copy
-            capture.surfaceFrame = surface.convert(copy.frame, to: view)
+            capture.surfaceFrame = surface.convert(copy.frame, to: view).offsetBy(dx: 0, dy: place.shift)
         } else if let presented = surface.presentedImage(clip: clip) {
             // The copy failed (an unexpected surface format): the frame
             // rendered here, on the main thread, as before the copy.
             sizingLog.notice("still: presented copy failed, rendered on the main thread")
             capture.fallback = presented.image
-            capture.surfaceFrame = surface.convert(presented.frame, to: view)
+            capture.surfaceFrame = surface.convert(presented.frame, to: view).offsetBy(dx: 0, dy: place.shift)
         } else {
             sizingLog.notice("still: no presented frame; background only")
         }
@@ -2616,6 +2638,9 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
             surface.scrollToActiveArea()
         }
         if scrollbar.total == 0 { scrollbar = (surface.grid.rows, 0, surface.grid.rows) }
+        // The echo of what was just typed: show the cursor's new column, unless
+        // a finger is panning the page sideways.
+        if CACurrentMediaTime() < followColumnUntil, !sidewaysPanActive { followCursorColumn() }
         updateDocument()
         continueAfterBatch()
     }
@@ -3123,6 +3148,7 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
     /// the output again and jump to the prompt if the user scrolled away.
     /// (Output alone never moves someone who scrolled up; typing does.)
     private func revealCursorForInput() {
+        followColumnUntil = CACurrentMediaTime() + Self.followColumnWindow
         followCursorColumn()
         guard cell.height > 0, !model.isTUI else { return }
         fling?.stop()
@@ -4984,7 +5010,9 @@ extension TerminalViewController: @MainActor UIGestureRecognizerDelegate {
         let layout = hostLayout
         let x = model.isTUI ? tuiPanX : scrollView.contentOffset.x
         let last = cell.width > 0 ? Int(floor((x + layout.viewportWidth) / cell.width)) : 0
-        return "cols=\(surface.grid.columns) phone=\(layout.phoneColumns) panX=\(Int(x)) maxPanX=\(Int(layout.maxPanX)) lastCol=\(last) tui=\(model.isTUI)"
+        let first = cell.width > 0 ? Int(floor(x / cell.width)) : 0
+        let cursor = cell.width > 0 ? surface.visibleCursorCell.map { Int(floor(($0.minX - surface.gridPadding.x) / cell.width)) } : nil
+        return "cols=\(surface.grid.columns) phone=\(layout.phoneColumns) panX=\(Int(x)) maxPanX=\(Int(layout.maxPanX)) firstCol=\(first) lastCol=\(last) cursorCol=\(cursor ?? -1) tui=\(model.isTUI)"
     }
     #endif
 
@@ -5021,6 +5049,15 @@ extension TerminalViewController: @MainActor UIGestureRecognizerDelegate {
             view.setNeedsLayout()
             view.layoutIfNeeded()
         }
+    }
+
+    /// A finger is moving the page sideways (the full-screen app's pan, or the
+    /// primary screen's horizontal drag): output does not pan under it.
+    private var sidewaysPanActive: Bool {
+        if model.isTUI {
+            return [.began, .changed].contains(tuiHorizontalPan.state)
+        }
+        return scrollView.isDragging || scrollView.isDecelerating
     }
 
     /// Typing pans just far enough to show the cursor's column.
