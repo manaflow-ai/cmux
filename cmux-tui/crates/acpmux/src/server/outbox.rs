@@ -676,6 +676,10 @@ async fn deliver(hub: &Arc<Hub>, id: &str) {
         let ready = hub.outbox.peer_ready.notified();
         tokio::pin!(ready);
         ready.as_mut().enable();
+        // `peer_ready` is one signal for every peer: this delivery's own peer's count, read
+        // with it armed, tells whether a ready was this peer's (`Outbox::note_peer_ready`). A
+        // target that names no peer (no `/`) never wakes on one.
+        let ready_seen = own_ready_count(&hub.outbox, &delivery.target);
         // The same for the hub's gate opening (`mesh_gate.rs` `Gate::opened`): a delivery the
         // hub carries is tried the moment the hub takes a post again (RFD 0086 item 2).
         let opened = hub.mesh.gate().opened.notified();
@@ -946,16 +950,50 @@ async fn deliver(hub: &Arc<Hub>, id: &str) {
                     None => own,
                 };
                 let sleep = tokio::time::sleep(wait);
+                tokio::pin!(sleep);
                 let on_ready = !delivery.projection_only() && wake_on_ready;
                 let on_open = !delivery.projection_only() && (by_hub || behind_gate);
-                tokio::select! {
-                    () = sleep => {}
-                    () = ready, if on_ready => {}
-                    () = opened, if on_open => {}
+                loop {
+                    tokio::select! {
+                        () = &mut sleep => break,
+                        () = &mut opened, if on_open => break,
+                        () = &mut ready, if on_ready => {
+                            // `peer_ready` is one signal for every peer. Another peer's link
+                            // coming back leaves this one's as it was: waking for it retried
+                            // (and ssh-carried, and journaled) every queued delivery at once on
+                            // each link flap anywhere. Only this target's own peer, ready or
+                            // listed since the wait was armed and up now, ends it; a target
+                            // naming an unknown peer or none, or one whose peer was up all along
+                            // (`Next::Unsent` without an outage), waits its own delay (review of
+                            // #53719, F1). Re-armed before the look, so a ready in between is not
+                            // missed.
+                            ready.set(hub.outbox.peer_ready.notified());
+                            ready.as_mut().enable();
+                            if own_ready_since(&hub.outbox, ready_seen.as_ref())
+                                && hub.peer_down_for(&delivery.target).is_none()
+                            {
+                                break;
+                            }
+                        }
+                    }
                 }
             }
         }
     }
+}
+
+/// `target`'s own peer and how many times its link was ready or listed so far
+/// (`Outbox::note_peer_ready`), read as a delivery arms its `peer_ready` wait. None for a target
+/// that names no peer (no `/`): no peer's ready is its own.
+fn own_ready_count(outbox: &crate::hub::outbox::Outbox, target: &str) -> Option<(String, u64)> {
+    let (peer, rest) = target.split_once('/')?;
+    (!peer.is_empty() && !rest.is_empty()).then(|| (peer.to_owned(), outbox.peer_ready_count(peer)))
+}
+
+/// Whether the peer [`own_ready_count`] read was ready or listed again since: a `peer_ready`
+/// that was another peer's leaves it false.
+fn own_ready_since(outbox: &crate::hub::outbox::Outbox, seen: Option<&(String, u64)>) -> bool {
+    seen.is_some_and(|(peer, count)| outbox.peer_ready_count(peer) != *count)
 }
 
 /// Peer `peer`'s link `link` is ready, and its journals took back what this daemon kept of them

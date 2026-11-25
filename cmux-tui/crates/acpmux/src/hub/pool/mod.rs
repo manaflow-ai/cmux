@@ -48,6 +48,7 @@ mod auth;
 mod held;
 pub(crate) mod policy;
 mod reaper;
+mod reserved;
 mod spare;
 mod start;
 use held::{TapSlot, holding_inbound, holding_tap};
@@ -371,36 +372,6 @@ impl Drop for ReaperClaim<'_> {
     }
 }
 
-#[cfg(test)]
-mod reaper_claim_tests {
-    use super::*;
-
-    /// Before: a reaper that panicked left the flag set, so no reaper ever ran again and idle
-    /// pooled harnesses were never ended. After: the claim clears it as the task unwinds.
-    #[tokio::test]
-    async fn a_reaper_that_panics_gives_its_claim_back() {
-        let flag: &'static AtomicBool = Box::leak(Box::new(AtomicBool::new(true)));
-        let died = tokio::spawn(async move {
-            let _claim = ReaperClaim { flag, held: true };
-            panic!("reaper died");
-        })
-        .await;
-        assert!(died.is_err());
-        assert!(!flag.load(Ordering::SeqCst), "a dead reaper still holds the pool's claim");
-    }
-
-    /// A reaper that released its claim on the normal exit never clears a successor's.
-    #[test]
-    fn a_released_claim_leaves_a_successors_claim_alone() {
-        let flag = AtomicBool::new(true);
-        let mut claim = ReaperClaim { flag: &flag, held: true };
-        claim.release();
-        flag.store(true, Ordering::SeqCst);
-        drop(claim);
-        assert!(flag.load(Ordering::SeqCst));
-    }
-}
-
 fn internal(e: impl std::fmt::Display) -> RpcError {
     RpcError::internal(e.to_string())
 }
@@ -456,6 +427,9 @@ impl Hub {
                 }
                 if v.hinted {
                     roles.push("hinted");
+                }
+                if v.reserved {
+                    roles.push("reserved");
                 }
                 if v.spare {
                     roles.push("spare");
@@ -1143,7 +1117,7 @@ impl Hub {
             reported
         };
         if let Some(target) = p.target.take() {
-            let _ = target.send(session.inbound_tx.clone());
+            let _ = target.send(session.inbound_tx().clone());
         }
         let child = p.child.clone();
         *session.child.lock().await = Some(child.clone());
@@ -1471,4 +1445,34 @@ async fn end_pooled_host(record: &HostRecord) {
     let nonce = record.start_nonce.clone();
     let _ = tokio::task::spawn_blocking(move || agent_host::end_left_behind(&nonce)).await;
     agent_host::remove_artifacts(&dir, record);
+}
+
+#[cfg(test)]
+mod reaper_claim_tests {
+    use super::*;
+
+    /// Before: a reaper that panicked left the flag set, so no reaper ever ran again and idle
+    /// pooled harnesses were never ended. After: the claim clears it as the task unwinds.
+    #[tokio::test]
+    async fn a_reaper_that_panics_gives_its_claim_back() {
+        let flag: &'static AtomicBool = Box::leak(Box::new(AtomicBool::new(true)));
+        let died = tokio::spawn(async move {
+            let _claim = ReaperClaim { flag, held: true };
+            panic!("reaper died");
+        })
+        .await;
+        assert!(died.is_err());
+        assert!(!flag.load(Ordering::SeqCst), "a dead reaper still holds the pool's claim");
+    }
+
+    /// A reaper that released its claim on the normal exit never clears a successor's.
+    #[test]
+    fn a_released_claim_leaves_a_successors_claim_alone() {
+        let flag = AtomicBool::new(true);
+        let mut claim = ReaperClaim { flag: &flag, held: true };
+        claim.release();
+        flag.store(true, Ordering::SeqCst);
+        drop(claim);
+        assert!(flag.load(Ordering::SeqCst));
+    }
 }

@@ -1,14 +1,14 @@
 #!/usr/bin/env python3
 """Fetch the browsers xbench.py compares, as vendor-signed copies in a worker cache.
 
-  fetch_browsers.py [--cache DIR] NAME...   NAME: chrome edge helium ardia dia slack claude codex t3code cmux-nightly
+  fetch_browsers.py [--cache DIR] NAME...   NAME: chrome edge helium ardia dia slack claude codex t3code zed cmux-nightly
 
 Prints one `NAME=BUNDLE` line per browser it has. Each copy comes from the
 vendor's own DMG (Chrome: Google's universal DMG; Edge: Microsoft's stable universal DMG; Helium and Ardia: their
 latest GitHub release; Dia: diabrowser.com; cmux-nightly: the nightly-next
 appcast's DMG). The agent apps rivals.py compares come the same way: Slack's universal DMG (slack.com),
 Claude's universal zip (its RELEASES.json feed), Codex's DMG (OpenAI's download), T3 Code's arm64 DMG (its
-latest GitHub release). Each must pass `codesign --verify --deep --strict` and is made
+latest GitHub release), Zed's arm64 DMG (its latest stable GitHub release; previews are pre-releases). Each must pass `codesign --verify --deep --strict` and is made
 read-only, so an updater cannot replace it mid-run. Never the installed apps.
 """
 from __future__ import annotations
@@ -76,6 +76,8 @@ def source(name: str) -> tuple[str, str]:
         return time.strftime("%Y-%m-%d"), "https://persistent.oaistatic.com/codex-app-prod/Codex.dmg"
     if name == "t3code":
         return github_dmg("pingdotgg/t3code", r"-arm64\.dmg$")
+    if name == "zed":
+        return github_dmg("zed-industries/zed", r"^Zed-aarch64\.dmg$")
     if name == "cmux-nightly":
         feed = get("https://files-next.cmux.com/nightly-next/appcast-arm64.xml").decode()
         url = re.search(r'enclosure url="([^"]+\.dmg)"', feed).group(1)
