@@ -73,6 +73,68 @@ struct FocusHistoryBracketShortcutRoutingTests {
         }
     }
 
+    /// With no Dock focused, both shortcuts fall through to the main window's
+    /// TabManager; the default workspace-only scope doesn't limit either one.
+    @Test("Focus Last Surface and Focus Last Workspace shortcuts toggle in the main area")
+    @MainActor
+    func focusLastSurfaceAndWorkspaceShortcutsToggleInMainArea() async throws {
+        try await AppContextSerialGate.withExclusiveAppContext {
+            try Self.withHarness { harness in
+                let firstWorkspace = harness.firstWorkspace
+                let pane = try #require(firstWorkspace.bonsplitController.allPaneIds.first)
+                let firstPanelId = try #require(firstWorkspace.focusedPanelId)
+                let secondPanelId = try #require(firstWorkspace.newTerminalSurface(inPane: pane, focus: true)?.id)
+                firstWorkspace.focusPanel(firstPanelId)
+                FocusSurfaceBroadcaster.shared.flush()
+                firstWorkspace.focusPanel(secondPanelId)
+                FocusSurfaceBroadcaster.shared.flush()
+
+                let lastSurface = Self.customShortcut(key: "y")
+                let lastWorkspace = Self.customShortcut(key: "u")
+                KeyboardShortcutSettings.setShortcut(lastSurface, for: .focusHistoryLastSurface)
+                KeyboardShortcutSettings.setShortcut(lastWorkspace, for: .focusHistoryLastWorkspace)
+
+                #expect(Self.dispatch(lastSurface, in: harness))
+                FocusSurfaceBroadcaster.shared.flush()
+                #expect(firstWorkspace.focusedPanelId == firstPanelId)
+
+                let secondWorkspace = harness.tabManager.addWorkspace(select: true, eagerLoadTerminal: false)
+                #expect(Self.dispatch(lastWorkspace, in: harness))
+                FocusSurfaceBroadcaster.shared.flush()
+                #expect(harness.tabManager.selectedTabId == firstWorkspace.id)
+                #expect(firstWorkspace.focusedPanelId == firstPanelId)
+
+                #expect(Self.dispatch(lastWorkspace, in: harness))
+                #expect(harness.tabManager.selectedTabId == secondWorkspace.id)
+            }
+        }
+    }
+
+    /// The History menu's entrypoint for Focus Last Surface, with no Dock focused.
+    @Test("Focus Last Surface's menu action toggles the main area with no Dock focused")
+    @MainActor
+    func focusLastSurfaceMenuActionTogglesMainArea() async throws {
+        try await AppContextSerialGate.withExclusiveAppContext {
+            try Self.withHarness { harness in
+                let workspace = harness.firstWorkspace
+                let pane = try #require(workspace.bonsplitController.allPaneIds.first)
+                let firstPanelId = try #require(workspace.focusedPanelId)
+                let secondPanelId = try #require(workspace.newTerminalSurface(inPane: pane, focus: true)?.id)
+                workspace.focusPanel(firstPanelId)
+                FocusSurfaceBroadcaster.shared.flush()
+                workspace.focusPanel(secondPanelId)
+                FocusSurfaceBroadcaster.shared.flush()
+
+                #expect(harness.appDelegate.performFocusHistoryLastSurfaceShortcut(preferredWindow: harness.window))
+                FocusSurfaceBroadcaster.shared.flush()
+                #expect(workspace.focusedPanelId == firstPanelId)
+                #expect(harness.appDelegate.performFocusHistoryLastSurfaceShortcut(preferredWindow: harness.window))
+                FocusSurfaceBroadcaster.shared.flush()
+                #expect(workspace.focusedPanelId == secondPanelId)
+            }
+        }
+    }
+
     // MARK: - Harness (main-area sibling of DockShortcutRoutingTests.withHarness)
 
     struct Harness {
@@ -143,6 +205,10 @@ struct FocusHistoryBracketShortcutRoutingTests {
 
     fileprivate static func commandBracketShortcut(_ key: String) -> AppStoredShortcut {
         AppStoredShortcut(key: key, command: true, shift: false, option: false, control: false)
+    }
+
+    fileprivate static func customShortcut(key: String) -> AppStoredShortcut {
+        AppStoredShortcut(key: key, command: true, shift: false, option: true, control: true)
     }
 
     @MainActor

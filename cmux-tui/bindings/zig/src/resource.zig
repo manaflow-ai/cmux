@@ -14755,7 +14755,9 @@ const FakeCancelDelivery = enum {
     malformed_known_item,
 };
 
-const fake_delayed_stream_wait_ms: u64 = 15;
+// Well above the stream test's request timeout so a loaded CI host (the
+// persistent cmux-linux pool) cannot reorder the two.
+const fake_delayed_stream_wait_ms: u64 = 200;
 
 const fake_layout_json =
     "{\"version\":1," ++
@@ -17914,7 +17916,9 @@ test "wait cancel false drains the raced response before reuse" {
     defer shared.deinit();
     const connection = try fakeConnection(std.testing.allocator, &shared);
     var client = Client.init(std.testing.allocator, connection, .{
-        .timeout_ms = 2,
+        // The cancel and the raced reply must finish inside this budget too;
+        // 2 ms failed on a loaded persistent CI host.
+        .timeout_ms = 50,
     });
     defer client.deinit();
     const session_id = try SessionId.parse(
@@ -20388,7 +20392,7 @@ test "acknowledged public stream survives beyond request timeout" {
         std.testing.allocator,
         &control_shared,
     );
-    const request_timeout_ms: u32 = 2;
+    const request_timeout_ms: u32 = 50;
     var client = Client.init(std.testing.allocator, connection, .{
         .timeout_ms = request_timeout_ms,
         .stream_factory = .{

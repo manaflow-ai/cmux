@@ -683,7 +683,7 @@ def main(argv: Sequence[str] | None = None, env: Mapping[str, str] | None = None
     parser.add_argument("--owned-fallback", action="store_true",
                         help="print the first owned pool CI_OWNED_POOL_SLOTS configures for the Xcode pin and "
                              "--owned-classes (no API read), or nothing; cmux-next-dev-daily.yml's verify and "
-                             "tip-dmg-build take it when every Blacksmith macOS 26 label shows dead")
+                             "tip-dmg-build take it while every Blacksmith macOS 26 label is taking a breather")
     parser.add_argument("--owned-classes", default="",
                         help="comma-separated owned classes (std, light, xl) an auto pick may name or wait on "
                              "(default: all); cmux-next-dev-daily.yml keeps its download-bound jobs off light")
@@ -789,7 +789,7 @@ def main(argv: Sequence[str] | None = None, env: Mapping[str, str] | None = None
                 if fleet:
                     owned = min(fleet, key=lambda item: simple_pool_picker.owned_order(item.label))
                     choice = simple_pool_picker.Choice(
-                        owned.label, f"{choice.label} is dead or stalled; waits on the owned label instead",
+                        owned.label, f"{choice.label} is busy for now; waits on the owned label instead",
                         owned.xcode_app, True)
         print(f"pool pick: {choice.label or 'default'} ({choice.reason})", file=sys.stderr)
         print(choice.label or args.variable or SMALL_RUNNER)

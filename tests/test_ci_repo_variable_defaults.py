@@ -298,7 +298,7 @@ def self_test_gate_matcher(errors: list[str]) -> None:
 
 def self_test_pool_reads(errors: list[str]) -> None:
     fork = ("github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != "
-            "github.repository && 'blacksmith-32vcpu-ubuntu-2404' || ")
+            "github.repository && 'ubuntu-24.04' || ")
     good = "${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || " + fork + "fromJSON(vars.RUNNER_POOLS).linux }}"
     bad = "${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || fromJSON(vars.RUNNER_POOLS).linux }}"
     for text, expected in ((good, True), (bad, False)):
