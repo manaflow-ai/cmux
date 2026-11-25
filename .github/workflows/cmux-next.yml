@@ -260,6 +260,8 @@ on:
       - tests/test_cmux_next_dev_landing_workflow.py
       - tests/test_dev_landing_place.py
       - scripts/ci/dev_landing_place.py
+      - tests/test_dev_build_stop.py
+      - scripts/dev-build.py
       - scripts/cmux-next/dev-cas-holder.sh
       - scripts/cmux-next/dev_cas_seed.py
       - tests/test_cmux_next_dev_cas_seed.py
@@ -641,6 +643,8 @@ on:
       - tests/test_cmux_next_dev_landing_workflow.py
       - tests/test_dev_landing_place.py
       - scripts/ci/dev_landing_place.py
+      - tests/test_dev_build_stop.py
+      - scripts/dev-build.py
       - scripts/cmux-next/dev-cas-holder.sh
       - scripts/cmux-next/dev_cas_seed.py
       - tests/test_cmux_next_dev_cas_seed.py
@@ -1553,6 +1557,7 @@ jobs:
             python3 tests/test_xcode_build_timeline.py
             python3 tests/test_cmux_next_dev_landing_workflow.py
             python3 tests/test_dev_landing_place.py
+            python3 tests/test_dev_build_stop.py
             python3 tests/test_cmux_next_dev_cas_seed.py
             python3 tests/test_cmux_next_dev_daily_tree_wait.py
             [script-tests]
@@ -2066,6 +2071,7 @@ jobs:
           python3 -I scripts/cmux-next/tests/test_settings_export_keys.py
           python3 -I scripts/cmux-next/tests/test_settings_section_type_budget.py
           python3 -I scripts/cmux-next/tests/test_settings_swift_out.py
+          python3 -I scripts/cmux-next/tests/test_settings_agent_policy_files.py
 
       # The phone daemon lane's per-command field allowlist, generated from the daemon's request
       # Why: docs/ci/cmux-next-workflow-notes.md#note-151
@@ -4891,7 +4897,18 @@ jobs:
         env:
           CMUX_METRICS_WEB_CACHE_OUTCOME: ${{ steps.web-bundle-cache.outcome }}
           CMUX_METRICS_WEB_CACHE_HIT: ${{ steps.web-bundle-r2.outputs.cache-hit == 'true' && 'true' || steps.web-bundle-cache.outputs.cache-hit }}
-        run: python3 ../../../scripts/ci/swiftpm_build_metrics.py --role daemon-test --output-dir "$RUNNER_TEMP/cmux-next-build-metrics" -- swift build --build-tests
+          # Fleet-built test bundles for this commit (scripts/ci/fleet-test-products.py), off unless
+          # vars.CI_FAST_TIER_PRODUCTS_FLEET is 1. The generated-files checks need the whole build, so a job
+          # that folds them builds here as before; so does any job the fleet has no products for.
+          CMUX_SWIFT_TEST_PRODUCTS: ${{ vars.CI_FAST_TIER_PRODUCTS_FLEET == '1' && env.CMUX_NEXT_FOLD_GENERATED != 'true' && 'fleet' || 'build' }}
+          CMUX_FLEET_CONTROLLER: ${{ vars.CMUX_FLEET_CONTROLLER }}
+          CMUX_PR_NUMBER: ${{ github.event.pull_request.number }}
+        run: |
+          if [[ "$CMUX_SWIFT_TEST_PRODUCTS" == fleet ]]; then
+            python3 ../../../scripts/ci/fleet-test-products.py Packages/macOS/CmuxNext && exit 0
+            echo "::warning title=Fleet test products::none for this commit; building them on this Mac"
+          fi
+          python3 ../../../scripts/ci/swiftpm_build_metrics.py --role daemon-test --output-dir "$RUNNER_TEMP/cmux-next-build-metrics" -- swift build --build-tests
 
       - name: Upload the test build measurement and log
         continue-on-error: true
