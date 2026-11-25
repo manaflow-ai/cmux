@@ -1184,8 +1184,14 @@ Phone opens odd channel ids, Mac even. Services exposed by `cmux-mobile-host`
   default); off, the phone's stock look (2026-11-13 to 11-22 the chrome stayed stock). Since 2026-11-17 its agent chat takes `chat` (below). One JSON frame now and on every change, nothing before the
   Mac app sent its first one: `{"theme": {"background", "foreground", "palette": [8 or
   16 "#rrggbb"], "selection_background"?, "selection_foreground"?, "cursor"?, "accent",
-  "accent_color"?, "background_opacity"}, "wallpaper": {"id", "bytes", "tint_opacity"} |
-  null}`. `id` is the SHA-256 of the picture (hex). The phone derives the
+  "accent_color"?, "background_opacity", "background_blur"?}, "wallpaper": {"id", "bytes", "tint_opacity"} |
+  null}`. Since 2026-11-22 `wallpaper` is what the Mac shows behind its windows' content: the
+  background chosen in cmux, else the Ghostty `background-image`, else, in a see-through window
+  (`background_opacity` < 1), the desktop picture under the window's tint; null only for an opaque
+  window with no picture. The phone draws it under the terminals too, which are then see-through
+  (`background-opacity = 0` on the phone's surfaces, as on the Mac), and blurs it by
+  `background_blur` (Ghostty's encoding: a radius in points, -1 regular and -2 clear Liquid Glass;
+  omitted for 0). `id` is the SHA-256 of the picture (hex). The phone derives the
   palette itself (`ThemeTokens.derive`, the Mac's own code) and keeps the last frame, so
   the accent is the same at launch and offline. Since 2026-11-13 a
   frame may also carry `"terminal": ["key = value", ...]`: the Mac's terminal theme, its
