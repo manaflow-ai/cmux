@@ -33,7 +33,7 @@ pub(super) fn tools() -> Vec<Value> {
     vec![
         json!({
             "name": WAIT,
-            "description": "Wait until other sessions (any on this machine or a peer, not only ones you started) end their turn or need an answer, and return each one's state and last reply. Returns on the first unless all is true; a call blocks at most 50 s, so call again while timedOut. Use it after send instead of polling last or info, or acpmux wait in a shell.",
+            "description": "Wait until other sessions (any on this machine or a peer, not only ones you started) end their turn or need an answer, and return each one's state and last reply. Returns on the first unless all is true; a call blocks at most 50 s, so call again while timedOut. Use it after send instead of polling.",
             "inputSchema": {
                 "type": "object",
                 "properties": {

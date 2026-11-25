@@ -38,6 +38,9 @@ pub enum SourceKind {
     Ci,
     /// A team roster: many people, each with their own plan.
     Team,
+    /// Another agent client's workspaces on this computer (T3 Code): its projects, thread
+    /// worktrees and the native Claude Code / Codex transcripts its threads ran.
+    AgentClient,
 }
 
 /// The source a plan was read from.
@@ -185,7 +188,7 @@ pub struct ChatRef {
 pub enum CarryKind {
     /// `.zshrc`, `.bashrc`, `.profile`, `.inputrc`, `.tmux.conf`, starship, aliases.
     Shell,
-    /// Shell history.
+    /// Shell history. Unchecked by default: it can hold tokens typed on a command line.
     ShellHistory,
     /// `.gitconfig` (identity, aliases; never a credential helper's store).
     GitConfig,

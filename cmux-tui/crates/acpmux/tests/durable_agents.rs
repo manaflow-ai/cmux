@@ -19,6 +19,8 @@ mod bg_caller_restart;
 mod bg_replaced_binary;
 #[path = "durable_agents/caller_identity_restart.rs"]
 mod caller_identity_restart;
+#[path = "durable_agents/carried_overload.rs"]
+mod carried_overload;
 #[path = "durable_agents/carried_restart.rs"]
 mod carried_restart;
 #[cfg(target_os = "linux")]
@@ -46,6 +48,8 @@ mod late_hello_adoption;
 mod loop_panic;
 #[path = "durable_agents/lost_link_turn.rs"]
 mod lost_link_turn;
+#[path = "durable_agents/overload_duress.rs"]
+mod overload_duress;
 #[path = "durable_agents/queue_edit_parts.rs"]
 mod queue_edit_parts;
 #[path = "durable_agents/queue_restore.rs"]

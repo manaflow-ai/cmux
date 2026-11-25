@@ -3,7 +3,7 @@
 // handed the composer new functions that do the same thing and drew it again for nothing. Each `on*`
 // function prop is replaced by one function per prop name that calls the latest one passed, so a
 // `memo` around the component sees the same handler until the prop comes or goes.
-import { useRef } from "react";
+import { useEffect, useRef } from "react";
 
 type Handler = (...args: unknown[]) => unknown;
 
@@ -30,4 +30,38 @@ export function useStableHandlers<P extends object>(props: P, callTime: readonly
     stable[key] = handler;
   }
   return stable as P;
+}
+
+/// Counts, under `name.prop:KEY` in acpmuxPerf's renders, each prop of a memoized component whose
+/// identity changed since the last render of its parent: the props that draw it again. Inert until a
+/// debug call turns measurement on (`cmuxAcpmuxDebug.renders()`), so a test can name what churned.
+export function usePropChurn(name: string, props: object, enabled: boolean, count: (key: string) => void): void {
+  const last = useRef<Record<string, unknown> | undefined>(undefined);
+  // Compared after each render, in an effect with no dependencies: a ref written while rendering makes
+  // the React Compiler skip the hook.
+  useEffect(() => {
+    const now = props as Record<string, unknown>;
+    const before = last.current;
+    last.current = now;
+    if (enabled && before) countChurn(name, before, now, count);
+  });
+}
+
+function countChurn(
+  name: string,
+  before: Record<string, unknown>,
+  now: Record<string, unknown>,
+  count: (key: string) => void,
+): void {
+  for (const key of new Set([...Object.keys(before), ...Object.keys(now)])) {
+    const was = before[key];
+    const is = now[key];
+    if (Object.is(was, is)) continue;
+    count(`${name}.prop:${key}`);
+    // An object prop names the members that changed too (`snapshot.summary`), one level down.
+    if (was && is && typeof was === "object" && typeof is === "object" && !Array.isArray(was))
+      for (const member of new Set([...Object.keys(was), ...Object.keys(is)]))
+        if (!Object.is((was as Record<string, unknown>)[member], (is as Record<string, unknown>)[member]))
+          count(`${name}.prop:${key}.${member}`);
+  }
 }

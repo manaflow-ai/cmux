@@ -90,6 +90,14 @@ async function render(items: AcpmuxActivity[]) {
 
 const texts = () => [...host.querySelectorAll(".cv-tool__text")];
 
+test("an already-adopted Codex MCP search names its saved query", async () => {
+  const item = claude("old", "search", { query: "transcript labels" });
+  item.tool = { ...item.tool!, title: "repo: search" };
+  await render([item]);
+  expect(texts()[0]?.textContent).toContain("transcript labels");
+  expect(mcpCall({ ...item.tool, title: "Search: explanatory prose" })).toBeUndefined();
+});
+
 for (const [harness, call] of [
   ["Claude", claude],
   ["Codex", codex],
@@ -107,6 +115,23 @@ for (const [harness, call] of [
     expect(text?.textContent).toStartWith("Check the pr_state PR");
     expect(text?.querySelector(".cv-tool__detail")?.textContent?.trim()).toBe("#33316 merged at 4c1e9a0");
     expect(text?.querySelector(".cv-tool__failed")).toBeNull();
+  });
+
+  test(`${harness}: normalized descriptions keep distinct calls readable in flight and after completion`, async () => {
+    const first = call("a", "lookup", { query: "old query", description: "Argument description" });
+    const second = call("b", "lookup", { query: "another query" });
+    first.tool = { ...first.tool!, description: "Read the first issue" };
+    second.tool = { ...second.tool!, description: "Read the next issue", status: "in_progress" };
+    await render([first, second]);
+    expect(texts().map((node) => node.textContent)).toEqual(["Read the first issue", "Read the next issue"]);
+    expect(texts().every((node) => !node.querySelector("code, pre"))).toBe(true);
+  });
+
+  test(`${harness}: a running lookup with no description names its search input`, async () => {
+    const item = call("lookup", "lookup", { pattern: "retry_limit" });
+    item.tool = { ...item.tool!, status: "in_progress" };
+    await render([item]);
+    expect(texts()[0]?.textContent).toContain("retry_limit");
   });
 
   test(`${harness}: a condensed tool's failed status shows the Failed mark`, async () => {
