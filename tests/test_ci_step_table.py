@@ -521,6 +521,9 @@ class StepResultsTest(unittest.TestCase):
             def do_GET(self) -> None:
                 auth = self.headers.get("Authorization", "")
                 seen.append((self.command, self.path, auth))
+                if self.path.startswith("/github/") and self.headers.get("User-Agent", "").startswith("Python-urllib"):
+                    # Cloudflare in front of gh-events.cmux.com: 403, error code 1010, for Python's default agent.
+                    return self.answer(403, b"error code: 1010")
                 if self.path.startswith("/token"):
                     Handler.minted += 1
                     ok = auth == "bearer req-secret" and "audience=cmux-ci-step-results" in self.path

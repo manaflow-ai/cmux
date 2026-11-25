@@ -77,6 +77,7 @@ TOOL_TIMEOUT = 180
 CONTROLLER = "http://100.89.225.106:18765"
 PUBLIC_CONTROLLER = "https://gh-events.cmux.com"  # the controller's public listener (hq build-fleet/cmd/controller)
 OIDC_AUDIENCE = "cmux-ci-step-results"
+USER_AGENT = "cmux-ci-steps/1"
 STEP_KEY_VERSION = 1
 AUDIT_PERCENT = 5
 # A run that reads one of these depends on the event, not only on the tree: it is never reused.
@@ -335,9 +336,12 @@ class StepResults:
             self.error = f"{what} {'HTTP ' + str(code) if code else 'failed'}: {str(reason)[:160]}"
 
     def headers(self) -> dict[str, str]:
-        """A fresh OIDC token per call: one lives minutes, and a job's writes come at its end."""
+        """A fresh OIDC token per call: one lives minutes, and a job's writes come at its end.
+
+        Always a named User-Agent: Cloudflare in front of gh-events.cmux.com refuses Python's default
+        one ("Python-urllib/3.x") with 403, error code 1010, before the controller sees the request."""
         if not self.oidc:
-            return {}
+            return {"User-Agent": USER_AGENT}
         url, bearer = self.oidc
         sep = "&" if "?" in url else "?"
         req = urllib.request.Request(f"{url}{sep}audience={OIDC_AUDIENCE}", headers={"Authorization": f"bearer {bearer}"})
@@ -345,7 +349,7 @@ class StepResults:
             token = json.loads(resp.read()).get("value") or ""
         if not token:
             raise ValueError("the OIDC token request returned no token")
-        return {"Authorization": f"Bearer {token}"}
+        return {"Authorization": f"Bearer {token}", "User-Agent": USER_AGENT}
 
     @classmethod
     def from_env(cls, env: dict[str, str]) -> "StepResults | None":
