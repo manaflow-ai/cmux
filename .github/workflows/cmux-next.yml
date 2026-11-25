@@ -159,6 +159,7 @@ on:
       - scripts/cmux-next/quarantine.json
       - scripts/cmux-next/tests/fast-tier.test.sh
       - scripts/cmux-next/fast-tier-cache-key.sh
+      - scripts/ci/fast_tier_current_base.py
       - scripts/ci/e2e_warm_derived_data.py
       - scripts/cmux-next/lib/**
       - scripts/cmux-next/clear-stale-scheme-build-state.sh
@@ -537,6 +538,7 @@ on:
       - scripts/cmux-next/quarantine.json
       - scripts/cmux-next/tests/fast-tier.test.sh
       - scripts/cmux-next/fast-tier-cache-key.sh
+      - scripts/ci/fast_tier_current_base.py
       - scripts/ci/e2e_warm_derived_data.py
       - scripts/cmux-next/lib/**
       - scripts/cmux-next/clear-stale-scheme-build-state.sh
@@ -811,13 +813,7 @@ jobs:
 
   # feat-cmux-next push CI is the Swift app build only (Lawrence, 2026-10-10): its
   # Why: docs/ci/cmux-next-workflow-notes.md#note-11
-  # Its Linux control jobs (this one, the placements, release-compile-fast-admission, dev-landing-place) take
-  # cmux-linux, the persistent runner pool, on a push's or same-repo PR's attempt 1 (cmuxterm-hq decisions/junctions.md:
-  # one label for every own-branch Linux job). They took cmux-gcp-pr-control-jit-x64, one-job JIT VMs, until that label
-  # queued 1,860 jobs (oldest about 2 h, 2026-11-21) while the pool had about 300 runners idle. compile-status and its
-  # handoff stay on that label: each holds a statuses write App token (# ephemeral-required on its runs-on).
-  # Not cmux-gcp-nightly-jit-x64: on 2026-11-20 these jobs filled it (333 queued) and the nightly's own
-  # pick-nightly-app-runner waited behind them; that label serves nightly runs only. A re-run falls through to the pools.
+  # Why: docs/ci/cmux-next-workflow-notes.md#note-pr-control-pool
   push-head-preflight:
     # Why: docs/ci/cmux-next-workflow-notes.md#note-87
     if: ${{ !cancelled() && (inputs.same_tree_sha == '') && !(github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' || github.event.action == 'unlabeled') && !contains(fromJSON('["full-ci","ready-to-land"]'), github.event.label.name)) }}
@@ -2426,64 +2422,7 @@ jobs:
             ${{ steps.daemon-capabilities-fresh.outcome }}|Daemon capabilities export is fresh
             ${{ steps.app-capability-references.outcome }}|App capability references are listed
             ${{ steps.pushed-commits.outcome }}|Pushed commits add no violations
-        run: |
-          failed=()
-          warned=()
-          # `outcome|name`: an empty outcome (a check that never ran) still names its step.
-          while IFS='|' read -r outcome name; do
-            [[ -n "$outcome$name" ]] || continue
-            [[ "$outcome" == success ]] && continue
-            if [[ "$outcome" == failure && "${CMUX_NEXT_STYLE_GUARDS:-}" == warn ]] \
-              && grep -qxF -- "$name" <<<"${STYLE_CHECKS:-}"; then
-              warned+=("$name")
-              continue
-            fi
-            failed+=("$name (${outcome:-not run})")
-          done <<<"$OUTCOMES"
-          # Why: docs/ci/cmux-next-workflow-notes.md#note-397
-          if [[ "$EVENT_NAME" == push && "$BEFORE" =~ ^[0-9a-f]{40}$ && ! "$BEFORE" =~ ^0+$ && ${#failed[@]} -gt 0 ]]; then
-            current="$RUNNER_TEMP/cmux-next-red-checks.txt"
-            printf '%s\n' "${failed[@]}" | sed -E 's/ \((failure|timed_out|cancelled|not run)\)$//' >"$current"
-            base_out="$RUNNER_TEMP/cmux-next-base-red.out"
-            if python3 scripts/ci/base_red_checks.py --repo "$GITHUB_REPOSITORY" --before "$BEFORE" --current "$current" >"$base_out"; then
-              while read -r kind name; do
-                [[ -n "$kind$name" ]] || continue
-                if [[ "$kind" == BASE_RED ]]; then
-                  echo "::notice title=cmux-next base red::$name was already red on $BEFORE (or that tip had not finished)"
-                else
-                  echo "::error title=cmux-next new red::$name is new since $BEFORE (green there): fix it first, every open pull request inherits it"
-                fi
-              done <"$base_out"
-            else
-              echo "::warning title=cmux-next base-red::could not read the previous tip to tell new reds from inherited ones"
-            fi
-          fi
-          for name in "${warned[@]+"${warned[@]}"}"; do
-            echo "::warning title=cmux-next style guard (warn-only)::$name found issues; see that step's log"
-          done
-          if (( ${#warned[@]} > 0 )); then
-            {
-              echo "### ${#warned[@]} style guard(s) reported findings (warn-only)"
-              echo
-              printf -- '- %s\n' "${warned[@]}"
-              echo
-            } | tee -a "$GITHUB_STEP_SUMMARY"
-          fi
-          if (( ${#failed[@]} == 0 )); then
-            echo "All blocking cmux-next checks passed." | tee -a "$GITHUB_STEP_SUMMARY"
-            exit 0
-          fi
-          # One annotation per red check: the red-checks line compares them with the base's run, so a
-          # new red check is told from a base one (scripts/ci/pr_red_checks_comment.py).
-          for name in "${failed[@]}"; do echo "::error title=cmux-next check::red check: ${name% (*}"; done
-          {
-            echo "### ${#failed[@]} cmux-next check(s) failed"
-            echo
-            printf -- '- %s\n' "${failed[@]}"
-            echo
-            echo "Each check's own step log has the details."
-          } | tee -a "$GITHUB_STEP_SUMMARY"
-          exit 1
+        run: bash scripts/ci/cmux_next_checks_verdict.sh
 
   # Reports a same-tree cmux-tui that nothing will publish, in red, at once.
   # Why: docs/ci/cmux-next-workflow-notes.md#note-32
@@ -3462,6 +3401,14 @@ jobs:
           submodules: false
           clean: false
           fetch-depth: 2
+
+      # Why: docs/ci/cmux-next-workflow-notes.md#note-fast-tier-current-base
+      - name: Build on the base's current tip
+        if: ${{ env.CMUX_FAST_TIER_FLEET != 'report' && github.event_name == 'pull_request' && (vars.CI_FAST_TIER_CURRENT_BASE || '1') != '0' }}
+        continue-on-error: true
+        env:
+          BASE_REF: ${{ github.base_ref }}
+        run: python3 -I scripts/ci/fast_tier_current_base.py --base-ref "$BASE_REF" --summary "$GITHUB_STEP_SUMMARY"
 
       # Why: docs/ci/cmux-next-workflow-notes.md#note-202
       - name: Drop stale submodule checkouts (self-hosted reused workspace)
