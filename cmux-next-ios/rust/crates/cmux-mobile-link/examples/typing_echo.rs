@@ -31,6 +31,9 @@
 //! `first_key_ms` is the echo of each burst's first key;
 //! `--foreground-probe on` starts the phone's link with its foreground
 //! probe on, as the app does with a terminal on screen.
+//! `--prewake-lead-ms L` calls `Link::prewake` L ms before each burst's
+//! first key, as the app does when the keyboard takes focus or a finger
+//! touches down (RFD 0142 T2).
 //! Prints one JSON line: echo percentiles and the keys whose echo took more
 //! than the profile's RTT plus 50 ms.
 
@@ -63,6 +66,7 @@ struct Args {
     foreground_probe: bool,
     idle_air_gap_ms: Option<u64>,
     air_floor_ms: Option<u64>,
+    prewake_lead_ms: Option<u64>,
     periodic_loss: Option<PeriodicLoss>,
 }
 
@@ -82,6 +86,7 @@ fn args() -> Args {
         foreground_probe: false,
         idle_air_gap_ms: None,
         air_floor_ms: None,
+        prewake_lead_ms: None,
         periodic_loss: None,
     };
     let mut iter = std::env::args().skip(1);
@@ -102,6 +107,7 @@ fn args() -> Args {
             "--foreground-probe" => parsed.foreground_probe = value == "on",
             "--idle-air-gap-ms" => parsed.idle_air_gap_ms = value.parse().ok(),
             "--air-floor-ms" => parsed.air_floor_ms = value.parse().ok(),
+            "--prewake-lead-ms" => parsed.prewake_lead_ms = value.parse().ok(),
             // PERIOD_MS:BURST_MS:PERCENT, e.g. 15000:300:40 for a Starlink-like
             // reconfiguration every 15 s (RFD 0142 O5).
             "--periodic-loss" => parsed.periodic_loss = PeriodicLoss::parse(&value),
@@ -261,6 +267,9 @@ async fn main() {
     let mut firsts = std::collections::HashSet::new();
     let mut burst_at = next;
     let mut in_burst = 0u64;
+    // When the next pre-wake is due, and how many were sent.
+    let mut prewake_at: Option<Instant> = None;
+    let mut prewakes = 0u64;
     // A fixed rate, never catching up: a stalled send shows as a gap in
     // sent_ms, not as a burst.
     while next < end {
@@ -278,11 +287,22 @@ async fn main() {
                 in_burst = 0;
                 burst_at += Duration::from_secs_f64(every);
                 next = next.max(burst_at);
+                // None for a burst past the end: the loop sends none of its keys.
+                prewake_at = args
+                    .prewake_lead_ms
+                    .filter(|_| burst_at < end)
+                    .map(|lead| burst_at - Duration::from_millis(lead));
             }
         }
         let now = Instant::now();
         while next < now {
             next += interval;
+        }
+        if let Some(at) = prewake_at.take()
+            && at > now
+        {
+            sleep_until(at).await;
+            prewakes += u64::from(link.prewake());
         }
         sleep_until(next).await;
     }
@@ -326,7 +346,7 @@ async fn main() {
          \"dial_ms\":{dialed_ms:.0},\"typing_from_ms\":{:.0},\"keys_on_input_lane\":{on_input_stream},\
          \"keys_sent\":{seq},\"echoed\":{},\"echo_ms\":{{\"p50\":{:.1},\"p95\":{:.1},\"p99\":{:.1},\"max\":{:.1}}},\
          \"turn_answer_ms\":{turn_answer_ms},\"threshold_ms\":{},\"over_threshold\":{},\"datagrams\":[{delivered},{dropped}],\
-         \"final_path\":\"{path:?}\",\"radio\":{},\"radio_tail_ms\":{},\"foreground_probe\":{},\"idle_air_gap_ms\":{},\"air_floor_ms\":{},\"periodic_loss\":{},\"radio_wakes\":{wakes},\"first_key_ms\":{first_key},\"spikes\":[{}]}}",
+         \"final_path\":\"{path:?}\",\"radio\":{},\"radio_tail_ms\":{},\"foreground_probe\":{},\"idle_air_gap_ms\":{},\"air_floor_ms\":{},\"periodic_loss\":{},\"prewake_lead_ms\":{},\"prewakes\":{prewakes},\"radio_wakes\":{wakes},\"first_key_ms\":{first_key},\"spikes\":[{}]}}",
         args.profile,
         args.row,
         args.seconds,
@@ -350,6 +370,7 @@ async fn main() {
             loss.burst.as_millis(),
             loss.loss_percent
         )),
+        args.prewake_lead_ms.map_or("null".to_string(), |ms| ms.to_string()),
         spikes.join(","),
     );
     std::process::exit(0);

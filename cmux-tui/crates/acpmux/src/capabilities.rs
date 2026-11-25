@@ -511,6 +511,9 @@ pub const CAPABILITIES: &[Capability] = &[
             method::MUX_TEAM_ACK,
         ],
     },
+    // A listen on another member's agent address: open, list, close, and read what it receives
+    // (`server/team.rs` `listen`), under the same team-messaging gate.
+    Capability { id: "team-listen-v1", wire: &[method::MUX_TEAM_LISTEN] },
     // A chat's sign-in before a send, by session or target (`hub/session_auth.rs`).
     Capability { id: "session-auth-v1", wire: &[method::MUX_SESSION_AUTH] },
     // Owner-captured Cloud turns: prepare reserves a stable id before the native bridge mints
@@ -613,6 +616,9 @@ pub const CAPABILITIES: &[Capability] = &[
     // A turn's before and after picture of the chat's page, for its edited-files card
     // (`hub/turn_shots.rs`).
     Capability { id: "turn-shots-v1", wire: &[method::MUX_TURN_SHOTS] },
+    // A turn's frames of the chat's page as it formed, for the frames strip and the live preview
+    // window (`hub/turn_frames.rs`, RFD 0151).
+    Capability { id: "turn-frames-v1", wire: &[method::MUX_TURN_FRAMES] },
     // A wrap-up card's Try it on, Keep and Revert (`customize_run.rs`).
     Capability { id: "customize-run-v1", wire: &[method::MUX_CUSTOMIZE_RUN] },
     // `acp.session.fork` with `subagentId` (a subagent's own conversation as a chat of its own),
