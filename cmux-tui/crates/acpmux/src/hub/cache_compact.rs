@@ -4,11 +4,19 @@
 //!
 //! The chat's `usage_update`s carry when its prompt cache lapses (`_meta.acpmux.cacheExpiresAt`,
 //! `claude_stdio/prompt_cache.rs`). With Settings > General > Prompt Cache's "Compact Before the
-//! Cache Expires" on (`agents.cacheCompact.enabled`, off by default: a compaction is a model call
-//! that counts toward usage), each such update arms one timer for the session, [`lead_ms`] before
+//! Cache Expires" on (`agents.cacheCompact.enabled`, on by default since 2026-11-24; only an
+//! explicit `false` turns it off), each such update arms one timer for the session, [`lead_ms`] before
 //! that expiry, while the context is at least `agents.cacheCompact.minContextPercent` of its
 //! window. When it fires, the chat runs Claude Code's `/compact` as acpmux's own prompt
 //! ([`KIND`]), which reads the still-warm cache.
+//!
+//! Why on, at 30% (Leo, 2026-11-24: "we need to be compacting arguably BEFORE cache expires...",
+//! "this can be toggled but... this as a default seems decent."): off by default, nothing fired in
+//! 48 h on one lane VM, and every wake after a 55+ min idle rewrote its whole context (60K-123K
+//! tokens; the cache read only the shared ~10K prefix). Over 67 warm compactions (mean 146K
+//! tokens before), one read about 12K from cache and wrote about 23K: about 40% of the cold
+//! rewrite it saves, so it pays once more than ~40% of idle chats are woken again. Most contexts
+//! there were 60-100K, which a 50% threshold on a 200K window misses and 30% catches.
 //!
 //! It fires only when the chat is idle as the idle reaper judges it (no turn running or
 //! starting, nothing queued, no permission, question, secret or continuation waiting, no
@@ -27,6 +35,18 @@
 //! (a turn's own updates, a new expiry, none for a compacted context), and so does a completed
 //! compaction (a person's `/compact` reports no usage after it, yet its cache is new); it holds
 //! only weak references, so a dropped session or hub ends it at its deadline without effect.
+//!
+//! Tuning: [`ENV_ENABLED`] (`0|1`) and [`ENV_MIN_CONTEXT`] (a percent) in the daemon's
+//! environment beat the two settings (the crate's README, "Tuning compaction").
+//!
+//! The idle reaper (`idle.rs`) stops a harness after its idle period (2 min by default), long
+//! before the timer's deadline, and a compaction into the respawned harness runs cold: on one
+//! lane VM every measured `/compact` into a resumed harness read about 3K and wrote about 131K
+//! tokens, 570-1,833 s after the last request, well inside the 1 h TTL. So the reaper asks
+//! first ([`Hub::cache_compact_before_reap`]): a session due to sleep with this timer armed
+//! compacts now, into the live harness while its cache is warm, and sleeps on a later pass. The
+//! timer's entry goes as it is taken, so a compaction its gates refuse (a draft, a Web turn
+//! last) keeps the harness up for at most one more idle period, never for good.
 //!
 //! A turn of [`KIND`] that fails is not continued by `auto_resume.rs` (`turns.rs`): the next
 //! turn's usage arms the timer again, and a continuation would be a model call nobody asked for.
@@ -59,31 +79,59 @@ pub(crate) fn lead_ms(left_ms: u64) -> u64 {
 /// The armed timers: session id -> (generation, the task).
 static TIMERS: std::sync::LazyLock<StdMutex<TimerMap>> = std::sync::LazyLock::new(Default::default);
 static GENERATION: AtomicU64 = AtomicU64::new(0);
-type TimerMap = HashMap<String, (u64, tokio::task::AbortHandle)>;
+/// session id -> (generation, the task, the cache expiry it was armed for, the context share).
+type TimerMap = HashMap<String, (u64, tokio::task::AbortHandle, u64, f64)>;
 pub const SETTING_ENABLED: &str = "agents.cacheCompact.enabled";
 pub const SETTING_MIN_CONTEXT: &str = "agents.cacheCompact.minContextPercent";
-const DEFAULT_MIN_CONTEXT: f64 = 50.0;
+/// `0|1` in the daemon's environment: [`SETTING_ENABLED`], whatever the settings file says.
+pub const ENV_ENABLED: &str = "ACPMUX_CACHE_COMPACT";
+/// A percent: [`SETTING_MIN_CONTEXT`], whatever the settings file says.
+pub const ENV_MIN_CONTEXT: &str = "ACPMUX_CACHE_COMPACT_MIN_CONTEXT_PERCENT";
+const DEFAULT_MIN_CONTEXT: f64 = 30.0;
 const MIN_CONTEXT_RANGE: (f64, f64) = (10.0, 95.0);
 
-/// The Settings keys as the daemon reads them: None when off (the default, a missing or
-/// unreadable file included), else the context share (0-1) a chat must reach.
+/// The Settings keys as the daemon reads them, the settings file alone.
+#[cfg(test)]
 pub(crate) fn settings_threshold(doc: Option<&Value>) -> Option<f64> {
-    let doc = doc?;
-    let get = |key: &str| crate::user_settings::value(doc, key);
-    if get(SETTING_ENABLED).and_then(|v| v.as_bool()) != Some(true) {
+    settings_threshold_with(doc, |_| None)
+}
+
+/// The Settings keys and their environment overrides (`env`, which wins) as the daemon reads
+/// them: None when off (only an explicit `agents.cacheCompact.enabled: false` or
+/// `ACPMUX_CACHE_COMPACT=0`), else the context share (0-1) a chat must reach. No document (no
+/// settings file) is the defaults: on, at [`DEFAULT_MIN_CONTEXT`].
+pub(crate) fn settings_threshold_with(
+    doc: Option<&Value>,
+    env: impl Fn(&str) -> Option<String>,
+) -> Option<f64> {
+    let get = |key: &str| doc.and_then(|doc| crate::user_settings::value(doc, key));
+    let enabled = super::super::cold_wake::env_flag(env(ENV_ENABLED).as_deref())
+        .or_else(|| get(SETTING_ENABLED).and_then(|v| v.as_bool()));
+    if enabled == Some(false) {
         return None;
     }
-    let percent = get(SETTING_MIN_CONTEXT)
-        .and_then(|v| v.as_f64())
+    let percent = env(ENV_MIN_CONTEXT)
+        .and_then(|v| v.trim().parse::<f64>().ok())
+        .or_else(|| get(SETTING_MIN_CONTEXT).and_then(|v| v.as_f64()))
         .filter(|n| n.is_finite())
         .map_or(DEFAULT_MIN_CONTEXT, |n| n.clamp(MIN_CONTEXT_RANGE.0, MIN_CONTEXT_RANGE.1));
     Some(percent / 100.0)
 }
 
 fn read_threshold() -> Option<f64> {
+    let env = |var: &str| std::env::var(var).ok();
     match crate::user_settings::read() {
-        crate::user_settings::Settings::Parsed(doc) => settings_threshold(Some(&doc)),
-        _ => None,
+        crate::user_settings::Settings::Parsed(doc) => settings_threshold_with(Some(&doc), env),
+        crate::user_settings::Settings::Missing => settings_threshold_with(None, env),
+        // A file that exists but cannot be parsed may hold an explicit `false`: arm nothing until
+        // it reads again rather than override what it may say (unless the environment says on).
+        crate::user_settings::Settings::Unreadable(_) => {
+            if super::super::cold_wake::env_flag(env(ENV_ENABLED).as_deref()) == Some(true) {
+                settings_threshold_with(None, env)
+            } else {
+                None
+            }
+        }
     }
 }
 
@@ -144,15 +192,38 @@ impl Hub {
     /// Ends `session`'s armed timer, if one is.
     fn cache_compact_disarm(id: &str) {
         let mut timers = TIMERS.lock().unwrap_or_else(|e| e.into_inner());
-        if let Some((_, timer)) = timers.remove(id) {
+        if let Some((_, timer, ..)) = timers.remove(id) {
             timer.abort();
         }
+    }
+
+    /// The idle reaper is about to stop `session`'s harness (`idle.rs` `idle_exit`): when its
+    /// timer is armed, the timer ends and the compaction runs now, into the live harness, on a
+    /// task of its own; true keeps the harness up for it (module docs). False when no timer is
+    /// armed (off, under the threshold, no cache expiry, or already compacted) or the hub is
+    /// gone.
+    pub(in crate::hub) fn cache_compact_before_reap(&self, session: &Arc<Session>) -> bool {
+        let Some(hub) = self.hub_ref.get().and_then(std::sync::Weak::upgrade) else {
+            return false;
+        };
+        let armed = {
+            let mut timers = TIMERS.lock().unwrap_or_else(|e| e.into_inner());
+            timers.remove(&session.id)
+        };
+        let Some((_, timer, expires, used)) = armed else { return false };
+        timer.abort();
+        tracing::info!(session = %session.id, "cache compaction runs before the idle stop");
+        let session = session.clone();
+        self.scope.spawn_until_cancelled("cache-compact-before-reap", async move {
+            hub.cache_compact_fire(&session, expires, used).await;
+        });
+        true
     }
 
     /// A live (not replayed) `usage_update` of `session`: arms its timer again (module docs).
     fn cache_compact_on_usage(self: &Arc<Self>, session: &Arc<Session>, update: &Value) {
         let mut timers = TIMERS.lock().unwrap_or_else(|e| e.into_inner());
-        if let Some((_, timer)) = timers.remove(&session.id) {
+        if let Some((_, timer, ..)) = timers.remove(&session.id) {
             timer.abort();
         }
         let Some(threshold) = read_threshold() else { return };
@@ -172,7 +243,7 @@ impl Hub {
             // insert); a dropped session or hub leaves nothing behind.
             let own = {
                 let mut timers = TIMERS.lock().unwrap_or_else(|e| e.into_inner());
-                let own = timers.get(&id).is_some_and(|(g, _)| *g == generation);
+                let own = timers.get(&id).is_some_and(|(g, ..)| *g == generation);
                 if own {
                     timers.remove(&id);
                 }
@@ -184,7 +255,7 @@ impl Hub {
             let (Some(hub), Some(session)) = (hub.upgrade(), weak.upgrade()) else { return };
             hub.cache_compact_fire(&session, expires, used).await;
         });
-        timers.insert(session.id.clone(), (generation, task.abort_handle()));
+        timers.insert(session.id.clone(), (generation, task.abort_handle(), expires, used));
     }
 
     /// Whether `session` may be compacted now: idle as the reaper judges it, nobody typing, no
