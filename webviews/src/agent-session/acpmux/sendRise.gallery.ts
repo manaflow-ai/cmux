@@ -27,7 +27,7 @@ const ARMS: Record<Arm, string> = {
   none: "Before: the rows above jump into the bubble's room in the frame of the send, while it pops.",
 };
 
-/// The frame (ms from the first sample) after which `key` no longer moves.
+/// The frame (ms from the first sample) after which `key` no longer moves; 0 when it never moved.
 function restAt(frames: readonly ReturnType<typeof sendWindow>[number][], key: "prev" | "sent" | "thinking") {
   let at = 0;
   for (let index = 1; index < frames.length; index += 1) {
@@ -57,9 +57,20 @@ function sendWith(arm: Arm, lines: number) {
       if (index < lines) await ctx.press("Shift+Enter");
     }
     await pause(400);
-    Object.assign(doc.defaultView!, { cmuxAcpmuxMockSlowMethod: "session/prompt", cmuxAcpmuxMockSlowMs: 40 });
-    const frames = sample(doc, "rise line 1 of");
+    // The agent's reply ends the send's window (sendWindow), so it comes after the sample: a 40 ms
+    // reply on a loaded runner cut the window mid-motion and the rows "rested" early or never moved.
+    Object.assign(doc.defaultView!, { cmuxAcpmuxMockSlowMethod: "session/prompt", cmuxAcpmuxMockSlowMs: 2000 });
+    const win = doc.defaultView!;
+    const frameAt = () => new Promise<number>((resolve) => win.requestAnimationFrame(resolve));
+    // Long enough for a send a loaded runner holds a few hundred ms to still play whole inside it.
+    const frames = sample(doc, "rise line 1 of", 1800);
+    // The sampler's first frame (its t = 0) and one after it, before the send: on a loaded runner the
+    // first frame can come after an 80 ms timer, and a sample that starts mid-motion misses its start.
+    const start = await frameAt();
+    await frameAt();
     await pause(80);
+    // The rests are timed from the press, so a late frame only makes them later, never early.
+    const pressedAt = win.performance.now() - start;
     await ctx.press("Enter");
     const window = sendWindow(await frames.done);
     let prevJump = 0;
@@ -78,8 +89,9 @@ function sendWith(arm: Arm, lines: number) {
     data.riseFrames = JSON.stringify(window);
     data.risePrevJump = String(Math.round(prevJump * 10) / 10);
     data.risePrevTravel = String(Math.round(prevTravel * 10) / 10);
-    data.risePrevRest = String(restAt(window, "prev"));
-    data.riseSentRest = String(restAt(window, "sent"));
+    const sincePress = (at: number) => (at > 0 ? Math.round(at - pressedAt) : 0);
+    data.risePrevRest = String(sincePress(restAt(window, "prev")));
+    data.riseSentRest = String(sincePress(restAt(window, "sent")));
   };
 }
 

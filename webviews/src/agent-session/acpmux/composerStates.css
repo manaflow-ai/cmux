@@ -36,9 +36,9 @@
   --agent-motion-send-fade-root: var(--agent-motion-send-fade);
   --agent-ease-send: var(--cmux-ease-send, cubic-bezier(0.16, 1, 0.3, 1));
   /* SEND-RISE: the clock and curve the thread rises on into a sent prompt's room (followChase.ts
-     `sendRiseMs`). The send step's own (0: the rows land at once) unless the send pop is on, below. */
-  --agent-motion-send-rise: var(--agent-motion-send);
-  --agent-ease-send-rise: var(--agent-ease-send);
+     `sendRiseMs`). Unset unless the send pop is on (below): the readers then fall back to the node's
+     own `--agent-motion-send` and send curve. Declared here as `var(--agent-motion-send)` it resolved
+     on this element, so a pane that sets its own send clock (SEND-SLIM, a gallery's) read the root's. */
   /* Core Animation's easeOut, which the native fades use. */
   --agent-ease-out: var(--cmux-ease-out, cubic-bezier(0, 0, 0.58, 1));
 }

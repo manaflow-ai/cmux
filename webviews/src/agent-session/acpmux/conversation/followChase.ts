@@ -763,8 +763,15 @@ export function createFollowChase(arm: FollowMotionArm): FollowChase {
       // A move during a step (the arrived row's measured height a pass later) keeps that step's end,
       // longer only as its frames need, so a second pass never starts the motion over.
       const left = arrival ? (arrival.duration - arrival.at) * 1000 : undefined;
-      // The steady arm times only a send's rise: an arrived row joins the drift.
-      const timed = !held && (arm === "blocks" || arm === "spring" || (arm === "steady" && sent)) && x !== 0;
+      // The steady arm times only a send's rise: an arrived row joins the drift. With the send pop on,
+      // a move that raises the rows while the rise plays (the thinking row measured a pass after the
+      // send's rows) joins the rise too: dropped to the drift, it ended the rise early and the rows
+      // rested 175 ms before the bubble (SEND-RISE, agent-pane.send-rise pop-3-lines). Off, the
+      // send step's 0 rise lands at once, so the drift keeps it as before.
+      const joinsRise =
+        arm === "steady" && !sent && arrival?.sent === true && moved < 0 && sendRiseMsOf(node, scale) > 0;
+      const timed =
+        !held && (arm === "blocks" || arm === "spring" || (arm === "steady" && (sent || joinsRise))) && x !== 0;
       // A send's rows, or any move that raises the rows while a send's step plays, rise on the send
       // motion to that step's end (one motion with the bubble's entrance, `sendEase`).
       const sending = sent || (arrival?.sent === true && moved < 0);
