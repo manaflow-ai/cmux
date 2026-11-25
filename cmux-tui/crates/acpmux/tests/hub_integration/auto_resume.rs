@@ -24,6 +24,9 @@ mod storm_429;
 #[path = "auto_resume_overload_storm.rs"]
 mod overload_storm;
 
+#[path = "auto_resume_529_chaos.rs"]
+mod chaos_529;
+
 #[path = "auto_resume_limits.rs"]
 mod limits;
 
@@ -32,6 +35,9 @@ mod retry;
 
 #[path = "auto_resume_refused.rs"]
 mod refused;
+
+#[path = "auto_resume_race.rs"]
+mod race;
 
 /// Every event kind of a session, oldest first.
 fn kinds(hub: &Hub, id: &str) -> Vec<String> {
