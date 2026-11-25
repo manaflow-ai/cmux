@@ -1,6 +1,6 @@
 // l10n-allow-file: gallery fixtures (prompts, subagent tasks, commands), not shipped UI.
 // The composer hat's `groups` header (trayFoldHead.experiment.ts, trayHeadKinds.ts `trayHeadGroups`,
-// HeadSummary.tsx) and its leading column (trayColumn.experiment.ts). Leo, 2026-11-24 00:18Z: "for one
+// HeadSummary.tsx) on the composer's columns. Leo, 2026-11-24 00:18Z: "for one
 // at least now the alignment becomes... maybe awkward? against the (currently fixing, ignore the
 // outline) attachment + button. lucas raised that. ... the background command type delineation was my
 // doing anyways. the simplest view is just... subagents. other background things. boom. waits, etc,
@@ -11,8 +11,9 @@
 // Two groups: subagents, then everything else backgrounded. In words while they fit ("3 subagents · 2
 // tasks in background"), then shorter ("3 subagents · 2 tasks"), then each group's mark and number;
 // a lone item reads its name. Waiting and failed follow only when they need the person. The lines
-// under it keep every item's own mark. Compare the arms side by side, and the two columns against the
-// composer's +, at 280, 400 and 900 px.
+// under it keep every item's own mark. The header's first mark centres on the composer's +, its words
+// start where the prompt's do (cmux#56151: the plan bar's Claude mark sat right of the +, its words
+// right of the placeholder). Compare the arms side by side at 280, 400 and 900 px.
 import { agentPaneEntry } from "../../../gallery/format";
 import { activity, chat, row, user, tool } from "../../../gallery/fixtures/acpmux";
 import { minutesAgo, recentRun } from "../../../gallery/clock";
@@ -83,6 +84,26 @@ const loneAgent = chat(
   { isWorking: true },
 );
 
+/** cmux#56151's hat: a six-step plan at step four, one Claude subagent done, "4 of 6 · Verify in tagged
+ *  dev build · 1 subagent done". Its first mark centres on the +, its words start at the prompt's. */
+const planAndDone = chat(
+  [
+    user("Fix the composer hat's alignment", 14),
+    row("plan", 13.9, {
+      plan: [
+        { content: "Read the hat's column rules", status: "completed" },
+        { content: "Find the doubled offset", status: "completed" },
+        { content: "Fix and add a test", status: "completed" },
+        { content: "Run the gallery", status: "completed" },
+        { content: "Verify in tagged dev build", status: "in_progress" },
+        { content: "Open the PR and merge", status: "pending" },
+      ],
+    }),
+    row(SUBAGENTS, 12, { subagents: [agent("Measure every row over the composer", 8, "completed")] }),
+  ],
+  { isWorking: true, turnStartedAtMs: minutesAgo(14) },
+);
+
 /** Fourteen subagents over three harnesses and six commands of four kinds: still two groups. */
 const burst = chat(
   [
@@ -128,16 +149,24 @@ function groupsHold(ctx: PlayContext, kinds: readonly string[]): void {
   if (time && time.scrollWidth > time.clientWidth + 0.5) throw new Error("the time is clipped");
 }
 
-/** In the `glyph` column the hat's first mark starts on the composer +'s ink (within a pixel). */
-function columnHolds(ctx: PlayContext, column: "glyph" | "chip"): void {
-  const mark = head(ctx)?.querySelector<HTMLElement>("[data-kind] svg, [data-kind] img, .acpmux-lineage__icon");
+/// The header's first mark centres on the + button, its words start at the prompt's (cmux#56151).
+function columnHolds(ctx: PlayContext): void {
+  const mark = head(ctx)?.querySelector<HTMLElement>(
+    "[data-kind] svg, [data-kind] .cv-sender-icon__main, .acpmux-lineage__icon svg",
+  );
+  const words = head(ctx)?.querySelector<HTMLElement>(".acpmux-running-tray__kind-text");
   const plus = ctx.document.querySelector<HTMLElement>(PLUS_PICKER);
+  const prompt = ctx.document.querySelector<HTMLElement>(".acpmux-composer-box .acpmux-md-placeholder");
   if (!mark || !plus) return;
-  const plusBox = plus.getBoundingClientRect();
-  const glyph = plus.querySelector("svg")?.getBoundingClientRect() ?? plusBox;
-  const left = mark.getBoundingClientRect().left;
-  const want = column === "glyph" ? glyph.left : plusBox.left;
-  if (Math.abs(left - want) > 1.5) throw new Error(`the hat's mark starts at ${left}, the + ${column} at ${want}`);
+  const centre = (box: DOMRect) => box.left + box.width / 2;
+  const markAt = centre(mark.getBoundingClientRect());
+  const plusAt = centre(plus.getBoundingClientRect());
+  if (Math.abs(markAt - plusAt) > 0.75) throw new Error(`the hat's mark centres at ${markAt}, the + at ${plusAt}`);
+  if (!words || !prompt) return;
+  const wordsAt = words.getBoundingClientRect().left;
+  const promptAt = prompt.getBoundingClientRect().left;
+  if (Math.abs(wordsAt - promptAt) > 0.75)
+    throw new Error(`the hat's words start at ${wordsAt}, the prompt at ${promptAt}`);
 }
 
 const show = async (ctx: PlayContext) => {
@@ -155,30 +184,29 @@ export default agentPaneEntry({
     "agent-session/acpmux/subagents/SubagentTray.tsx",
     "agent-session/acpmux/subagents/HeadSummary.tsx",
     "agent-session/acpmux/subagents/trayHeadKinds.ts",
-    "agent-session/acpmux/subagents/trayColumn.experiment.ts",
     "agent-session/acpmux/subagents/subagents.css",
   ],
   experiment: { definition: trayFoldHeadLook, script: [{ name: "show the header", run: (ctx) => show(ctx) }] },
   keywords: ["composer hat", "running tray", "background tasks", "subagents", "alignment"],
   variants: {
     mixed: {
-      note: "The default: 3 subagents · 2 tasks in background, then the failed one's 1 in red; the done one needs nothing. Narrow, 3 subagents · 2 tasks, then the two marks and numbers. The hat's mark starts on the + glyph's column.",
+      note: "The default: 3 subagents · 2 tasks in background, then the failed one's 1 in red; the done one needs nothing. Narrow, 3 subagents · 2 tasks, then the two marks and numbers. The hat's mark centres on the +, its words at the prompt's.",
       play: async (ctx) => {
         await show(ctx);
         groupsHold(ctx, ["agents", "background", "failed"]);
-        columnHolds(ctx, "glyph");
+        columnHolds(ctx);
       },
       snapshot: mixed,
-      experiments: { "subagent-tray-fold-head": "groups", "subagent-tray-column": "glyph" },
+      experiments: { "subagent-tray-fold-head": "groups" },
     },
-    "mixed-chip-column": {
-      note: "The same hat on the old column, the + chip's outer edge, to compare against the + (Lucas's point).",
+    "plan-and-done": {
+      note: "cmux#56151: 4 of 6 · Verify in tagged dev build · 1 subagent done. The plan's mark centres on the +, its words start at the prompt's, the panel button and the chevron sit over Stop and the mic.",
       play: async (ctx) => {
         await show(ctx);
-        columnHolds(ctx, "chip");
+        columnHolds(ctx);
       },
-      snapshot: mixed,
-      experiments: { "subagent-tray-fold-head": "groups", "subagent-tray-column": "chip" },
+      snapshot: planAndDone,
+      experiments: { "subagent-tray-fold-head": "groups" },
     },
     "mixed-marks": {
       note: "The `group-marks` arm: the two groups as marks and numbers at every width; hover a group for its names.",
@@ -187,13 +215,13 @@ export default agentPaneEntry({
         groupsHold(ctx, ["agents", "background", "failed"]);
       },
       snapshot: mixed,
-      experiments: { "subagent-tray-fold-head": "group-marks", "subagent-tray-column": "glyph" },
+      experiments: { "subagent-tray-fold-head": "group-marks" },
     },
     "mixed-kinds-before": {
-      note: "Before: the `summary` arm, a kind per command (subagents, servers, tests ...), on the chip column.",
+      note: "Before: the `summary` arm, a kind per command (subagents, servers, tests ...).",
       play: show,
       snapshot: mixed,
-      experiments: { "subagent-tray-fold-head": "summary", "subagent-tray-column": "chip" },
+      experiments: { "subagent-tray-fold-head": "summary" },
     },
     "lone-command": {
       note: "One background wait: its name, never a bare 1.",
@@ -202,7 +230,7 @@ export default agentPaneEntry({
         groupsHold(ctx, ["background"]);
       },
       snapshot: loneCommand,
-      experiments: { "subagent-tray-fold-head": "groups", "subagent-tray-column": "glyph" },
+      experiments: { "subagent-tray-fold-head": "groups" },
     },
     "lone-subagent": {
       note: "One subagent: its mark and its task.",
@@ -211,7 +239,7 @@ export default agentPaneEntry({
         groupsHold(ctx, ["agents"]);
       },
       snapshot: loneAgent,
-      experiments: { "subagent-tray-fold-head": "groups", "subagent-tray-column": "glyph" },
+      experiments: { "subagent-tray-fold-head": "groups" },
     },
     burst: {
       note: "Fourteen subagents over three harnesses and six commands of four kinds: still 14 subagents · 6 tasks in background, never a dozen kinds.",
@@ -220,13 +248,13 @@ export default agentPaneEntry({
         groupsHold(ctx, ["agents", "background"]);
       },
       snapshot: burst,
-      experiments: { "subagent-tray-fold-head": "groups", "subagent-tray-column": "glyph" },
+      experiments: { "subagent-tray-fold-head": "groups" },
     },
     "burst-kinds-before": {
       note: "Before, on the same work: a kind per harness and per command kind.",
       play: show,
       snapshot: burst,
-      experiments: { "subagent-tray-fold-head": "summary", "subagent-tray-column": "chip" },
+      experiments: { "subagent-tray-fold-head": "summary" },
     },
   },
 });
