@@ -540,6 +540,7 @@
         "experiments.composerCustomizer",
         "experiments.agentBadges",
         "experiments.agentBadgesBeam",
+        "experiments.terminalAgentMark",
         "experiments.menuStyleV2",
         "experiments.menuRowStates",
         "experiments.toastsV2",
