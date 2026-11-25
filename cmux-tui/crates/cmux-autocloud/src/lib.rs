@@ -659,7 +659,7 @@ async fn attach(link: &Link, session: &str) -> Result<Vec<Value>> {
         deadline,
         link.request(
             "_acpmux/attach",
-            json!({"sessionId": session, "limit": 400, "visible": true}),
+            json!({"sessionId": session, "limit": 400, "visible": true, "fill": true}),
         ),
     )
     .await??;
