@@ -398,7 +398,7 @@ class WorkflowShape(unittest.TestCase):
     def test_concurrency_per_pull_request(self):
         concurrency = workflow()["concurrency"]
         # One group per pull request; a foreign label's event takes a group of its own
-        # (tests/test_ci_label_events_skip_full_ci.py, docs/ci/cmux-next-workflow-notes.md#note-561).
+        # (tests/test_ci_label_events_skip_full_ci.py, docs/ci/cmux-next-workflow-notes/2026-11-25-land-tier.md).
         self.assertTrue(concurrency["group"].endswith(
             "|| format('fast-gates-{0}', github.event.pull_request.number || inputs.pr) }}"), concurrency["group"])
         self.assertIs(concurrency["cancel-in-progress"], True)

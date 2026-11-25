@@ -27,7 +27,7 @@ name: cmux-next guards
 # runs in the 24 h to 2026-11-05 08:24Z were red with the base's reds alone.
 on:
   pull_request:
-    # Why: docs/ci/cmux-next-workflow-notes.md#note-561
+    # Why: docs/ci/cmux-next-workflow-notes/2026-11-25-land-tier.md
     types: [opened, synchronize, reopened, ready_for_review, labeled, unlabeled]
     branches: [feat-cmux-next]
     # docs-only paths: BEGIN (scripts/ci/docs_only_paths.py --sync writes this block; edit DOCS_ONLY_PATHS there)
@@ -1337,7 +1337,7 @@ jobs:
       contents: read
     outputs:
       base_red: ${{ steps.decide.outputs.base_red }}
-      # Why: docs/ci/cmux-next-workflow-notes.md#note-561
+      # Why: docs/ci/cmux-next-workflow-notes/2026-11-25-land-tier.md
       tier: ${{ steps.tier.outputs.tier }}
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2

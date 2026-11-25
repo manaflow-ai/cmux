@@ -39,7 +39,7 @@ name: cmux-next fast gates
 on:
   pull_request:
     branches: [feat-cmux-next]
-    # Why: docs/ci/cmux-next-workflow-notes.md#note-561
+    # Why: docs/ci/cmux-next-workflow-notes/2026-11-25-land-tier.md
     types: [opened, synchronize, reopened, ready_for_review, labeled, unlabeled]
   workflow_dispatch:
     inputs:
@@ -243,7 +243,7 @@ jobs:
       contents: read
     outputs:
       fast_gates: ${{ steps.route.outputs.fast_gates }}
-      # Why: docs/ci/cmux-next-workflow-notes.md#note-561
+      # Why: docs/ci/cmux-next-workflow-notes/2026-11-25-land-tier.md
       tier: ${{ steps.tier.outputs.tier }}
     steps:
       - name: Checkout the merge commit's router (trees only)
@@ -671,7 +671,7 @@ jobs:
           # The route skipped the gates: the pull request touches none of their inputs.
           ROUTED_OUT: ${{ needs.fast-check-route.outputs.fast_gates == 'false' }}
           RECEIPT_AUDIT: ${{ needs.receipt.outputs.audit }}
-          # Why: docs/ci/cmux-next-workflow-notes.md#note-561
+          # Why: docs/ci/cmux-next-workflow-notes/2026-11-25-land-tier.md
           TIER: ${{ needs.fast-check-route.outputs.tier }}
           RECEIPT_RUN: ${{ needs.receipt.outputs.run_url }}
           RECEIPT_PRODUCER: ${{ needs.receipt.outputs.producer }}
