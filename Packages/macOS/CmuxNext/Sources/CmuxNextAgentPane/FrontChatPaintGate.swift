@@ -8,7 +8,8 @@ public import CmuxNextWakeups
 /// on the 2026-11-24/25 nightlies that navigation came 300-700 ms after its browser when those steps ran beside it,
 /// 50-90 ms when they had run before it (research:startup:2026-11-25).
 @MainActor
-public enum FrontChatPaintGate {
+public struct FrontChatPaintGate {
+    public init() {}
     nonisolated static let marks: Set<String> = ["agent_pane.painted", "agent_pane.newtab_painted"]
 
     public static func make(after firstFrame: FirstFrameGate, backstop: Duration = .milliseconds(1500),
