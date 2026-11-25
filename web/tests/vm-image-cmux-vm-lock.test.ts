@@ -81,6 +81,18 @@ describe("images/cmux-vm/inputs.lock.json", () => {
     expect(claude?.url).toBe(`https://downloads.claude.ai/claude-code-releases/${pin}/linux-x64/claude`);
   });
 
+  test("codex ships with the code-mode host it spawns next to itself, and the install refuses an entry without it", () => {
+    // Codex 0.160 runs every tool through codex-code-mode-host from its own folder. The plain musl
+    // tarball has codex alone, so Cloud chats failed every tool call: failed to spawn code-mode host
+    // /opt/cmux/store/<sha>/codex-code-mode-host. The codex-package tarball carries both.
+    const codex = readInputsLock().programs.find((p) => p.name === "codex")!;
+    expect(codex.url).toBe(`https://github.com/openai/codex/releases/download/rust-v${codex.version}/codex-package-x86_64-unknown-linux-musl.tar.gz`);
+    expect(codex.bin.codex).toBe("bin/codex");
+    const install = programInstallCommand(codex);
+    expect(install).toContain(`test -x /opt/cmux/store/${codex.sha256}.partial/bin/codex-code-mode-host`);
+    expect(install.indexOf("codex-code-mode-host")).toBeLessThan(install.indexOf("chmod -R a-w"));
+  });
+
   test("acpmux is cmux-tui under its own name (argv0 dispatch), checked by version and by a session list", async () => {
     // Automation agent steps run `acpmux run`; cmux-tui runs acpmux when argv0 is `acpmux`.
     const lock = readInputsLock();
@@ -557,11 +569,10 @@ describe("cmux-rd (the cmux.rd/1 Linux host, role desktop; release cmux-rd-v<V> 
     }
   });
 
-  test("0.2.8 is pinned from release cmux-rd-v0.2.8 (#49894, run 45005880299) by URL, sha256, size and checksums.txt, baked in role desktop", () => {
+  test("0.2.9 is pinned from release cmux-rd-v0.2.9 (#50463, run 45160613949) by URL, sha256, size and checksums.txt, baked in role desktop", () => {
     const pinned = readInputsLock().programs.find((p) => p.name === "cmux-rd")!;
-    expect(pinned).toMatchObject({ ...cmuxRdReleaseShape("0.2.8"), sha256: "cb62708f01683dc5b18da85f98c2dc8dc5e847598ab957c1d4f3b49cff5d230b", size: 9785324 });
-    // 0.2.9 (the own-display fix, #50463) is the release after it; the 0.2.9 pin PR clears this, as #50100 did for 0.2.8.
-    expect(pinned.pendingRelease).toBe("0.2.9");
+    expect(pinned).toMatchObject({ ...cmuxRdReleaseShape("0.2.9"), sha256: "09e4120d8428b2e7ce626e14dbbbb74e29f0a36c2ce5b4080c958fca4496305e", size: 10234313 });
+    expect(pinned.pendingRelease).toBeUndefined();
     expect(pinned.firstUse).toBeUndefined();
     expect(bakedPrograms(readInputsLock()).map((p) => p.name)).toContain("cmux-rd");
   });
@@ -621,5 +632,29 @@ describe("cmux-rd (the cmux.rd/1 Linux host, role desktop; release cmux-rd-v<V> 
     expect(problemsOf(withRd({ checksumsUrl: undefined, checksumsName: undefined })).some((p) => p.startsWith(`programs[${at}].checksumsUrl: must be`))).toBe(true);
     expect(problemsOf(withRd({ roles: ["cua"] }))).toContain(`programs[${at}].roles: cmux-rd is in the desktop role`);
     expect(problemsOf(withRd({ firstUse: true })).some((p) => p.includes("cmux-rd is baked"))).toBe(true);
+  });
+});
+
+describe("the Antigravity CLI (agy) in the store", () => {
+  // Leo 2026-11-25: "we'll want to set up antigravity/antigravity cli and opencode capable".
+  test("is baked as `agy` (acpmux runs `agy acp`) for both architectures, version-checked", () => {
+    const lock = parseInputsLock(lockText);
+    const agy = bakedPrograms(lock).find((p) => p.name === "agy");
+    expect(agy).toBeDefined();
+    expect(agy!.format).toBe("tar.gz");
+    expect(agy!.bin).toEqual({ agy: "antigravity" });
+    expect(agy!.versionArgs).toEqual(["--version"]);
+    expect(agy!.expect).toBe(agy!.version);
+    expect(agy!.url).toContain(`/antigravity-cli/${agy!.version}-`);
+    expect(agy!.otherArches?.aarch64?.url).toContain(`/antigravity-cli/${agy!.version}-`);
+    expect(programChecksCommand(lock)).toContain("agy --version");
+  });
+
+  test("its own updater is off in login shells and the systemd user manager", async () => {
+    const { agyProfileScript, agyUserEnvironment, AGY_PROFILE_PATH, AGY_USER_ENV_PATH } = await import("../scripts/cmux-vm-image/bake");
+    expect(AGY_PROFILE_PATH).toStartWith("/etc/profile.d/");
+    expect(AGY_USER_ENV_PATH).toStartWith("/etc/environment.d/");
+    expect(agyProfileScript()).toContain("\nexport AGY_CLI_DISABLE_AUTO_UPDATE=1\n");
+    expect(agyUserEnvironment()).toContain("\nAGY_CLI_DISABLE_AUTO_UPDATE=1\n");
   });
 });

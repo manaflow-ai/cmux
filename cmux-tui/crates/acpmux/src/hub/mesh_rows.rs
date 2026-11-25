@@ -54,6 +54,7 @@ impl Hub {
                         model: model.as_deref().and_then(heartbeat_meta),
                         agent_session_id: m.agent_session_id.as_deref().and_then(heartbeat_meta),
                         host_build: host_build.as_deref().and_then(heartbeat_meta),
+                        handle: crate::mesh::heartbeat_handle(m.handle.as_deref(), &s.id),
                         team_address: team_enabled
                             .then(|| {
                                 m.tags
@@ -68,6 +69,11 @@ impl Hub {
                                     .map(|tag| tag.value.clone())
                             })
                             .flatten(),
+                        former_names: crate::mesh::heartbeat_former_names(
+                            &m.former_names,
+                            &m.succeeds,
+                        ),
+                        roles: crate::mesh::heartbeat_roles(&m.roles),
                     };
                     (rank(m.status), m.updated_at, row)
                 })

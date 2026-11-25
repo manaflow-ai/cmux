@@ -30,6 +30,16 @@ impl Needle {
                 words.push(word);
             }
         }
+        Self::of_words(words)
+    }
+
+    /// The plain words of a query with operators (`terms.rs`, a quoted phrase one word, already
+    /// lowercased); an error for none or for more than [`MAX_QUERY`] characters in all.
+    pub fn of_words(words: Vec<String>) -> Result<Self, String> {
+        let words: Vec<String> = words.iter().map(|word| fold(word)).collect();
+        if words.iter().map(|word| word.chars().count()).sum::<usize>() > MAX_QUERY {
+            return Err(format!("query is longer than {MAX_QUERY} characters"));
+        }
         if words.is_empty() {
             return Err("query has no words; list chats with _acpmux/chats".to_owned());
         }

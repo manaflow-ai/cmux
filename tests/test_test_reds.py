@@ -729,6 +729,20 @@ class ReportedFailuresAreAllNamed(unittest.TestCase):
         broken = ["failures:", "    a::one", "    a::two", "some output", "test result: FAILED. 0 passed; 2 failed"]
         self.assertTrue(self.unnamed(*broken))
 
+    def test_nested_cargo_counts_stay_in_their_own_invocation(self):
+        parent = "test result: FAILED. 0 passed; 2 failed; 0 ignored"
+        child = "test result: FAILED. 0 passed; 1 failed; 0 ignored"
+        lines = ["running 2 tests", "test outer::one ... FAILED", "test outer::two ... FAILED",
+                 "running 1 test", "test child::one ... FAILED", child, parent]
+        self.assertEqual(self.unnamed(*lines), [])
+        # Neither invocation can borrow the other's unused names to cover a missing identity.
+        child_short = lines.copy()
+        child_short[-2] = child.replace("1 failed", "2 failed")
+        self.assertEqual(self.unnamed(*child_short), [child_short[-2]])
+        parent_short = lines.copy()
+        parent_short[-1] = parent.replace("2 failed", "3 failed")
+        self.assertEqual(self.unnamed(*parent_short), [parent_short[-1]])
+
     def test_the_recorded_fixtures_name_every_failure_they_report(self):
         for path in sorted(FIXTURES.glob("*.log")):
             with self.subTest(fixture=path.name):
@@ -905,6 +919,55 @@ def bun_invocation(results=(), recap=(), fail=None):
     if recap:
         out += [f"{len(recap)} test{'s' if len(recap) != 1 else ''} failed:", *(f"(fail) {t}" for t in recap)]
     return out + [" 0 pass", f" {len(results) if fail is None else fail} fail"]
+
+
+class SubtestParamsKeepAnOffendersIdentity(unittest.TestCase):
+    """cmuxterm-hq, 2026-11-22: main was red on `Skills tests / Skill policy tests` (tests/test_py39_names.py,
+    `test_every_stdlib_name_3_9_lacks_is_read_behind_a_guard`, one assertEqual of every offender against []), and PRs
+    that added new offenders (`tools/lane-gh-broker/test_state.py: sys.stdlib_module_names`, ...) read as the same red:
+    one test name on both sides. hq's list-style lints now report each offender as its own subTest; this replays that
+    run and holds the key: a subTest's message and parameters are part of a unittest failure's identity, so a new
+    offender inside a test the base already fails is a new failing item (hq docs/handbook/excuse-key-drops-identity.md,
+    "A test that holds many findings")."""
+
+    TEST = "test_every_stdlib_name_3_9_lacks_is_read_behind_a_guard (__main__.UnderPython39.test_every_stdlib_name_3_9_lacks_is_read_behind_a_guard)"
+    OLD = "tools/fleet-reconcilers/test_hold_fences.py"
+    NEW = "tools/lane-gh-broker/test_state.py"
+
+    def run_log(self, *paths):
+        lines = [*step("python3 tests/test_py39_names.py -v")]
+        for path in paths:
+            lines += ["=" * 70, f"FAIL: {self.TEST} (path='{path}')", "-" * 70,
+                      "Traceback (most recent call last):",
+                      '  File "/w/tests/test_py39_names.py", line 690, in test_every_stdlib_name_3_9_lacks_is_read_behind_a_guard',
+                      "    self.fail(...)",
+                      f"AssertionError: Python 3.9 lacks these names and nothing guards the read: {path}:1: tomllib"]
+        lines += ["-" * 70, "Ran 9 tests in 12.000s", f"FAILED (failures={len(paths)})",
+                  "##[error]Process completed with exit code 1."]
+        return log(*lines)
+
+    def test_each_subtest_is_its_own_failing_test(self):
+        found = reds.read(self.run_log(self.OLD, self.NEW))
+        self.assertEqual(found.failed, {f"{self.TEST} (path='{self.OLD}')", f"{self.TEST} (path='{self.NEW}')"})
+        self.assertEqual(found.truncated, [])
+        self.assertEqual(reds.failed_names([f"FAIL: {self.TEST} [msg only]"]), {f"{self.TEST} [msg only]"})
+        self.assertEqual(reds.failed_names([f"FAIL: {self.TEST} [m] (n=1)  "]), {f"{self.TEST} [m] (n=1)"})
+        self.assertEqual(reds.failed_names([f"FAIL: {self.TEST}"]), {self.TEST})
+
+    def test_a_new_offender_in_a_test_the_base_fails_is_refused(self):
+        verdict = reds.classify(self.run_log(self.OLD, self.NEW), self.run_log(self.OLD), "Skill policy tests")
+        self.assertTrue(verdict.own, verdict.reasons)
+        self.assertIn(f"(path='{self.NEW}')", verdict.reasons[0])
+        self.assertEqual(verdict.shared, [f"{self.TEST} (path='{self.OLD}')"])
+
+    def test_the_base_offender_alone_is_excused(self):
+        verdict = reds.classify(self.run_log(self.OLD), self.run_log(self.OLD), "Skill policy tests")
+        self.assertFalse(verdict.own, verdict.reasons)
+
+    def test_a_fixed_offender_does_not_excuse_a_new_one(self):
+        # The count alone was not enough: the base's offender fixed and a new one added is one failure on each side.
+        verdict = reds.classify(self.run_log(self.NEW), self.run_log(self.OLD), "Skill policy tests")
+        self.assertTrue(verdict.own, verdict.reasons)
 
 
 class UnnamedFailuresAreReadOnceForEveryConsumer(unittest.TestCase):

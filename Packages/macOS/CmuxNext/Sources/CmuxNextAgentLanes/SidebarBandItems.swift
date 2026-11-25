@@ -22,17 +22,19 @@ public struct SidebarBandItems {
         .searchChats: "agentPane.searchChats",
         .chief: ChiefSidebar.openAction,
         .automations: "automations.show",
+        .forum: "forum.show",
     ]
 
     /// Presentation of every built-in, app and workspace item in `layout` (a closed workspace dimmed); `registered` says
     /// whether an action exists. Notifications carries `unread`, Home (built-in or app) a dot for `homeUnread` (its
     /// unread conversations, ``HomeService/unreadConversations``), the Chief its status (`ChiefSidebar`) and the
-    /// picture `chiefFavicon` (its worn upload's, ``ChiefSidebarPictures``), and each
+    /// Chief item the picture `chiefFavicon` (its worn upload's, ``ChiefSidebarPictures``), and each
     /// built-in carries its action's `shortcut` for its tooltip. The update
-    /// notice is the footer's pill, never an item control (SIDEBAR-FOOTER-MINIMAL). `showsStore` false hides the App Store.
+    /// notice is the footer's pill, never an item control (SIDEBAR-FOOTER-MINIMAL). `showsStore` false hides the App Store,
+    /// `showsForum` false the Forum.
     public static func info(for layout: SidebarLayoutDocument, registered: (ActionID) -> Bool,
                          unread: Int = 0,
-                         homeUnread: Int = 0, showsStore: Bool = true,
+                         homeUnread: Int = 0, showsStore: Bool = true, showsForum: Bool = false,
                          app: (String) -> SidebarItemInfo = { SidebarItemInfo.fallback(for: .app($0)) },
                          shortcut: (ActionID) -> String? = { _ in nil },
                          workspace: (LayoutItemRef) -> SidebarItemInfo? = { _ in nil },
@@ -43,16 +45,16 @@ public struct SidebarBandItems {
             if item.ref.kind == LayoutItemRef.workspaceKind { infos[item.id] = workspace(item.ref) ?? .closedWorkspace(item); continue }
             if item.ref.kind == LayoutItemRef.appKind {
                 var info = app(item.ref.value)
-                if SidebarBuiltIn.firstParty(appID: item.ref.value) == .home { ChiefSidebar.shared.decorateHome(&info, homeUnread: homeUnread, picture: chiefFavicon) }
+                if SidebarBuiltIn.firstParty(appID: item.ref.value) == .home { ChiefSidebar.shared.decorateHome(&info, homeUnread: homeUnread) }
                 infos[item.id] = info
                 continue
             }
             guard let builtIn = item.ref.builtIn else { continue }
-            var info = builtIn.defaultInfo(showsStore: showsStore)
+            var info = builtIn.defaultInfo(showsStore: showsStore, showsForum: showsForum)
             info.isMissing = !(builtInActions[builtIn].map(registered) ?? false)
             info.shortcut = builtInActions[builtIn].flatMap(shortcut)
             if builtIn == .notifications { info.badge = unread > 0 ? unread : nil } else if builtIn == .home {
-                ChiefSidebar.shared.decorateHome(&info, homeUnread: homeUnread, picture: chiefFavicon)
+                ChiefSidebar.shared.decorateHome(&info, homeUnread: homeUnread)
             } else if builtIn == .chief {
                 ChiefSidebar.shared.decorate(&info)
                 info.favicon = chiefFavicon

@@ -37,6 +37,25 @@ From the design references repository (private: ids only).
   terminal, and replaces the stopped chat with a View Only chat of that session right after the terminal. That
   one hand-off loads the chat once. Every swap after it is a tab selection.
 
+## Same turn, both ways
+
+A swap lands at the same turn in the other view. The person's prompts are the pivot: both views show them, so
+each prompt's row in the terminal pairs the two.
+
+- The chat names its prompts (oldest first) and the turn in view: the prompt at or above its resting row
+  (`webviews/.../conversation/togglePlace.ts`). The terminal hands over its whole screen, one line per scrollbar
+  row, and its viewport's top.
+- Rust pairs them (`cmux-window-rules` `tabs::place`). It finds the newest prompt first, each one above the next.
+  A row the harness marked as a prompt (`> `, `› `) wins over a reply line that starts with the same words.
+- To the terminal, the turn's prompt row scrolls to the viewport's top (`scroll_to_row`). If the screen lost that
+  prompt, the nearest older one it still has is used.
+- To the chat, the newest prompt at or above the terminal's top row is placed at the top of the view
+  (VirtualTranscript `placeNow`). This is one cut, with no glide, while the chat is still hidden.
+- Either face at its latest brings the other to its latest. When both are already at their latest, the swap asks
+  nothing of the page and stays a plain tab selection.
+- The face about to show moves before it shows, so the first frame is already in place. The page gets 60 ms to
+  answer. If it misses that, the view shows where it is.
+
 ## Placement
 
 - Native Swift chrome: the pane toolbar's trailing slot (`CmuxNextTabs/PaneTerminalChatToggleView`, in

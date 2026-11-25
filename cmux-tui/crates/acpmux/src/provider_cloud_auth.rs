@@ -39,6 +39,12 @@
 //! probe's path with a 404 before it checks the machine token (cmux-platform `ProviderRoute.ts`
 //! `providerTarget`), which the probe takes as unknown, so the key method is offered. A 400, 401
 //! or 403 there would make the probe call the key unusable and bring the refusal back.
+//!
+//! Antigravity (`agy acp`, 1.5.17) is served as Gemini: the same base URL and key, which it reads
+//! only once told to (`acp_key_auth.rs` sends its `authenticate` with `gemini-api-key` when the
+//! launch has a key, so the team's placeholder too). Its own sign-in is its token files, not
+//! Gemini CLI's (`harness_health/agent_files.rs`); its pin is `CMUX_ANTIGRAVITY_AUTH`, its choice
+//! `agent-auth/antigravity`.
 
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::path::PathBuf;
@@ -52,6 +58,8 @@ use crate::codex_cloud_auth::{Inputs, PLACEHOLDER_KEY};
 pub enum Provider {
     Gemini,
     Grok,
+    /// Google Antigravity's `agy`, on Gemini's gateway route (module docs).
+    Antigravity,
 }
 
 impl Provider {
@@ -60,6 +68,7 @@ impl Provider {
         match family {
             "gemini" => Some(Provider::Gemini),
             "grok" => Some(Provider::Grok),
+            "antigravity" => Some(Provider::Antigravity),
             _ => None,
         }
     }
@@ -68,13 +77,34 @@ impl Provider {
         match self {
             Provider::Gemini => "gemini",
             Provider::Grok => "grok",
+            Provider::Antigravity => "antigravity",
         }
     }
 
-    fn agent(self) -> crate::agent_login::Agent {
+    /// The program that is the agent itself (`launches_itself`).
+    fn program(self) -> &'static str {
         match self {
-            Provider::Gemini => crate::agent_login::Agent::Gemini,
-            Provider::Grok => crate::agent_login::Agent::Grok,
+            Provider::Antigravity => "agy",
+            other => other.name(),
+        }
+    }
+
+    /// The agent has its own sign-in in `store` ([`Provider::store`]).
+    fn signed_in(self, inputs: &Inputs<'_>, store: &std::path::Path) -> bool {
+        match self {
+            Provider::Gemini => {
+                crate::agent_login::signed_in_at(crate::agent_login::Agent::Gemini, store)
+            }
+            Provider::Grok => {
+                crate::agent_login::signed_in_at(crate::agent_login::Agent::Grok, store)
+            }
+            // The ACP server's token, or the `agy` CLI's (`harness_health/agent_files.rs`).
+            Provider::Antigravity => [
+                store.join("antigravity-acp/acp_token.json"),
+                inputs.home.join(".gemini/antigravity-cli/antigravity-oauth-token"),
+            ]
+            .iter()
+            .any(|f| std::fs::metadata(f).is_ok_and(|m| m.is_file() && m.len() > 0)),
         }
     }
 
@@ -82,13 +112,14 @@ impl Provider {
         match self {
             Provider::Gemini => "CMUX_GEMINI_AUTH",
             Provider::Grok => "CMUX_GROK_AUTH",
+            Provider::Antigravity => "CMUX_ANTIGRAVITY_AUTH",
         }
     }
 
     /// The env names whose value is a key of the person's own.
     fn key_vars(self) -> &'static [&'static str] {
         match self {
-            Provider::Gemini => &["GEMINI_API_KEY", "GOOGLE_API_KEY"],
+            Provider::Gemini | Provider::Antigravity => &["GEMINI_API_KEY", "GOOGLE_API_KEY"],
             Provider::Grok => &["XAI_API_KEY", "GROK_CODE_XAI_API_KEY"],
         }
     }
@@ -96,7 +127,7 @@ impl Provider {
     /// The env names that point the agent somewhere of the person's choosing.
     fn endpoint_vars(self) -> &'static [&'static str] {
         match self {
-            Provider::Gemini => &["GOOGLE_GEMINI_BASE_URL"],
+            Provider::Gemini | Provider::Antigravity => &["GOOGLE_GEMINI_BASE_URL"],
             Provider::Grok => {
                 &["GROK_MODELS_BASE_URL", "GROK_MODELS_LIST_URL", "GROK_XAI_API_BASE_URL"]
             }
@@ -111,6 +142,9 @@ impl Provider {
                 own("GEMINI_CLI_HOME").unwrap_or_else(|| inputs.home.to_owned()).join(".gemini")
             }
             Provider::Grok => own("GROK_HOME").unwrap_or_else(|| inputs.home.join(".grok")),
+            Provider::Antigravity => {
+                own("GEMINI_HOME").unwrap_or_else(|| inputs.home.join(".gemini"))
+            }
         }
     }
 
@@ -120,7 +154,7 @@ impl Provider {
         let origin = origin.trim_end_matches('/');
         let pair = |k: &str, v: String| (k.to_owned(), v);
         match self {
-            Provider::Gemini => vec![
+            Provider::Gemini | Provider::Antigravity => vec![
                 pair("GOOGLE_GEMINI_BASE_URL", origin.to_owned()),
                 pair("GEMINI_API_KEY", PLACEHOLDER_KEY.to_owned()),
             ],
@@ -174,7 +208,7 @@ pub struct Providers {
 impl Providers {
     fn serves(self, provider: Provider) -> bool {
         match provider {
-            Provider::Gemini => self.gemini,
+            Provider::Gemini | Provider::Antigravity => self.gemini,
             Provider::Grok => self.xai,
         }
     }
@@ -221,7 +255,7 @@ where
         };
     if !pinned && !chosen {
         let store = provider.store(inputs);
-        if crate::agent_login::signed_in_at(provider.agent(), &store) {
+        if provider.signed_in(inputs, &store) {
             return Mode::Own("login");
         }
         let own = |k: &str| match var(k) {
@@ -231,11 +265,16 @@ where
         if provider.key_vars().iter().any(|k| own(k)) {
             return Mode::Own("key");
         }
-        let switched = provider == Provider::Gemini
-            && (["GOOGLE_GENAI_USE_VERTEXAI", "GOOGLE_GENAI_USE_GCA"]
+        let google_switch = || {
+            ["GOOGLE_GENAI_USE_VERTEXAI", "GOOGLE_GENAI_USE_GCA"]
                 .iter()
                 .any(|k| var(k).is_some_and(|v| v.trim().eq_ignore_ascii_case("true")))
-                || gemini_selects_another(&store));
+        };
+        let switched = match provider {
+            Provider::Gemini => google_switch() || gemini_selects_another(&store),
+            Provider::Antigravity => google_switch(),
+            Provider::Grok => false,
+        };
         if switched || provider.endpoint_vars().iter().any(|k| var(k).is_some()) {
             return Mode::Own("endpoint");
         }
@@ -318,7 +357,7 @@ impl LaunchEnv {
                 true,
             );
         }
-        let vault = crate::vault::env_for_children();
+        let vault = crate::login_env::vault_env();
         let machine = crate::login_env::machine_values();
         let daemon = crate::login_env::daemon_values().into_iter().collect();
         LaunchEnv::new(
@@ -401,7 +440,7 @@ pub async fn probe_providers(origin: String) -> Option<Providers> {
 
 async fn fetch_providers(origin: &str) -> Option<Providers> {
     let _ = rustls::crypto::ring::default_provider().install_default();
-    let client = reqwest::Client::builder()
+    let client = crate::happy_dial::http_client()
         // timeout: the Cloud gateway's provider probe, before a Gemini or Grok start
         .timeout(PROBE_DEADLINE)
         .redirect(reqwest::redirect::Policy::none())
@@ -425,12 +464,12 @@ fn parse_providers(body: &serde_json::Value) -> Option<Providers> {
     Some(Providers { gemini: body.get("gemini")?.as_bool()?, xai: body.get("xai")?.as_bool()? })
 }
 
-/// Whether `argv` starts the agent itself (`gemini`, `grok`), not a launcher that picks its
+/// Whether `argv` starts the agent itself (`gemini`, `grok`, `agy`), not a launcher that picks its
 /// provider on its own.
 pub fn launches_itself(provider: Provider, argv: &[String]) -> bool {
     argv.first()
         .and_then(|program| std::path::Path::new(program).file_name())
-        .is_some_and(|name| name == provider.name())
+        .is_some_and(|name| name == provider.program())
 }
 
 #[cfg(test)]
@@ -523,7 +562,7 @@ mod tests {
             ])
         );
         // Every name a team launch sets is one a sign-in never sees.
-        for p in [Provider::Gemini, Provider::Grok] {
+        for p in [Provider::Gemini, Provider::Grok, Provider::Antigravity] {
             for (k, _) in p.team_env("https://o") {
                 assert!(crate::agent_login::MODEL_PLANE_ENV.contains(&k.as_str()), "{k}");
             }
@@ -568,6 +607,57 @@ mod tests {
             mode(&m, Provider::Gemini, &[("CMUX_GEMINI_AUTH", "own")], Some(BOTH)).await,
             Mode::Own("env")
         );
+    }
+
+    #[tokio::test]
+    async fn antigravity_takes_geminis_route_and_keeps_its_own_sign_in() {
+        let m = machine("owner");
+        // Team: Gemini's base URL and placeholder key, served when the gateway serves Gemini.
+        let got = mode(&m, Provider::Antigravity, &[], Some(BOTH)).await;
+        assert_eq!(got, Mode::Team(Provider::Gemini.team_env("https://coderouter.cmux.internal")));
+        let xai_only = Providers { gemini: false, xai: true };
+        assert_eq!(
+            mode(&m, Provider::Antigravity, &[], Some(xai_only)).await,
+            Mode::Own("not-served")
+        );
+        // Gemini CLI's sign-in is not Antigravity's.
+        std::fs::create_dir_all(m.home.join(".gemini")).unwrap();
+        std::fs::write(m.home.join(".gemini/oauth_creds.json"), "{}").unwrap();
+        assert_eq!(
+            mode(&m, Provider::Antigravity, &[], Some(BOTH)).await,
+            team(Provider::Antigravity)
+        );
+        // Its own token files are; GEMINI_HOME moves the ACP server's.
+        let acp = m.root.join("gemini-home/antigravity-acp");
+        std::fs::create_dir_all(&acp).unwrap();
+        std::fs::write(acp.join("acp_token.json"), r#"{"t":"x"}"#).unwrap();
+        let home = m.root.join("gemini-home").to_string_lossy().into_owned();
+        assert_eq!(
+            mode(&m, Provider::Antigravity, &[("GEMINI_HOME", &home)], Some(BOTH)).await,
+            Mode::Own("login")
+        );
+        let cli = m.home.join(".gemini/antigravity-cli");
+        std::fs::create_dir_all(&cli).unwrap();
+        std::fs::write(cli.join("antigravity-oauth-token"), "tok").unwrap();
+        assert_eq!(mode(&m, Provider::Antigravity, &[], Some(BOTH)).await, Mode::Own("login"));
+        // A key of its own, its pin and its endpoint keep own too.
+        let m = machine("owner");
+        for var in [
+            ("GEMINI_API_KEY", "real-key-123"),
+            ("CMUX_ANTIGRAVITY_AUTH", "own"),
+            ("GOOGLE_GEMINI_BASE_URL", "https://proxy.example.test"),
+            ("GOOGLE_GENAI_USE_VERTEXAI", "true"),
+        ] {
+            assert!(
+                matches!(mode(&m, Provider::Antigravity, &[var], Some(BOTH)).await, Mode::Own(_)),
+                "{var:?}"
+            );
+        }
+        // Only `agy` itself, by family `antigravity`.
+        let argv = |w: &[&str]| w.iter().map(|s| (*s).to_owned()).collect::<Vec<_>>();
+        assert!(launches_itself(Provider::Antigravity, &argv(&["/home/u/.local/bin/agy", "acp"])));
+        assert!(!launches_itself(Provider::Antigravity, &argv(&["gemini", "--experimental-acp"])));
+        assert_eq!(Provider::for_family("antigravity"), Some(Provider::Antigravity));
     }
 
     #[tokio::test]

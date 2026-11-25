@@ -4,7 +4,8 @@ import { ChevronRight } from "../conversation/icons";
 import { mcpTitleName } from "../conversation/mcpCalls";
 import { ShellBlock } from "../conversation/ShellBlock";
 import { toolIcon } from "../conversation/toolRowModel";
-import { permissionDiffs, shellCommand } from "../direct";
+import { permissionDiffs } from "../permissionMessage";
+import { shellCommand } from "../toolActivity";
 import { useT, type StringKey } from "../i18n";
 import { SHORTCUT_ACTIONS, useShortcut, withShortcut } from "../shortcuts";
 import { errorMessage } from "../transportErrors";
@@ -61,8 +62,9 @@ const record = (value: unknown) =>
   value && typeof value === "object" && !Array.isArray(value) ? (value as Record<string, unknown>) : undefined;
 const text = (value: unknown) => (typeof value === "string" && value.trim() ? value : undefined);
 
-/// What one request asks, as its row names it: a verb and the command, path, address or pattern
-/// the call carries (in the code face), else the agent's title for it.
+/// What one request asks, as its row names it: what the call does in the agent's words when it
+/// says (acpmux's `summary`, a shell call's description), else a verb and the command, path,
+/// address or pattern the call carries (in the code face), else the agent's title for it.
 function askOf(item: PermissionGroupItem, fallback: string) {
   const request = record(item.request);
   const subject = record(request?.subject);
@@ -75,7 +77,9 @@ function askOf(item: PermissionGroupItem, fallback: string) {
   const paths = (Array.isArray(tool?.locations) ? tool.locations : [])
     .map((location) => text(record(location)?.path))
     .filter((path): path is string => path !== undefined);
-  const command = kind === "execute" ? text(shellCommand(input)) : undefined;
+  // acpmux's copy drops the line it put before a subagent's command to name the caller.
+  const command = kind === "execute" ? (text(item.command) ?? text(shellCommand(input))) : undefined;
+  const summary = text(item.summary);
   const path = paths[0] ?? text(input?.file_path) ?? text(input?.path);
   const named =
     kind === "execute"
@@ -91,15 +95,16 @@ function askOf(item: PermissionGroupItem, fallback: string) {
     tool,
     kind,
     // The title already says what the call does ("Edit upload.sh"): no verb before it.
-    verb: named !== undefined ? verbs[kind ?? ""] : undefined,
+    verb: summary === undefined && named !== undefined ? verbs[kind ?? ""] : undefined,
     subject:
+      summary ??
       named ??
       (typeof tool?.title === "string" ? mcpTitleName(tool.title) : undefined) ??
       text(subjectCommand?.title) ??
       requestTitle ??
       text(tool?.title) ??
       fallback,
-    code: named !== undefined,
+    code: summary === undefined && named !== undefined,
     command,
     cwd: text(input?.cwd),
     scope:

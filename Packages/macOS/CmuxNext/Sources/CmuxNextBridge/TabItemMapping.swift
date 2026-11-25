@@ -124,7 +124,8 @@ public struct TabItemMapping {
         }
         if isBrowser { return .browser }
         if tab.dead { return .terminalDead }
-        if let brand = tab.agentBrand { return .agentMark(brand) }
+        // A terminal's agent (a hook's report) is a terminal agent: its mark sits on the rounded square.
+        if let brand = tab.agentBrand { return .terminalAgentMark(brand) }
         return .terminal
     }
 

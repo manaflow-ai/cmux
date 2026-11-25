@@ -3,11 +3,14 @@
 use cmux_chat_index::{AdapterKind, IndexedChat};
 use serde_json::Value;
 
+use super::terms::Terms;
+
 /// `{query, harness, folder, account, limit, cursor}`; every field optional.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ChatQuery {
-    /// Case-insensitive text in the title or the folder.
-    pub text: Option<String>,
+    /// The query's words (each in the title or the folder, any case) and its operators
+    /// (`since:7d`, `harness:codex`, `in:cmux`, `title:x`, `-word`; `terms.rs`).
+    pub terms: Terms,
     pub harness: Option<AdapterKind>,
     /// The folder or a folder inside it.
     pub folder: Option<String>,
@@ -92,7 +95,7 @@ fn key_hash(chat: &IndexedChat) -> u64 {
 impl Default for ChatQuery {
     fn default() -> Self {
         Self {
-            text: None,
+            terms: Terms::default(),
             harness: None,
             folder: None,
             account: None,
@@ -107,6 +110,11 @@ impl ChatQuery {
     pub const MAX_LIMIT: usize = 5000;
 
     pub fn from_params(params: &Value) -> Result<Self, String> {
+        Self::from_params_at(params, chrono::Utc::now().timestamp_millis())
+    }
+
+    /// `from_params` with `since:7d` and the like counted back from `now_ms`.
+    pub fn from_params_at(params: &Value, now_ms: i64) -> Result<Self, String> {
         let text_of = |key: &str| -> Result<Option<String>, String> {
             match params.get(key) {
                 None | Some(Value::Null) => Ok(None),
@@ -135,9 +143,11 @@ impl ChatQuery {
                 ChatCursor::parse(&c).ok_or_else(|| format!("cursor {c:?} is not a cursor"))?
             }
         };
+        let terms = text_of("query")?.map(|q| Terms::parse(&q, now_ms)).unwrap_or_default();
         Ok(Self {
-            text: text_of("query")?.map(|q| q.to_lowercase()),
-            harness,
+            // The param names the harness when both do.
+            harness: harness.or(terms.harness),
+            terms,
             folder: text_of("folder")?.map(|f| f.trim_end_matches('/').to_owned()),
             account: text_of("account")?,
             limit,
@@ -162,12 +172,29 @@ impl ChatQuery {
                 return false;
             }
         }
-        if let Some(text) = &self.text {
-            let hit = |field: Option<&str>| field.is_some_and(|f| f.to_lowercase().contains(text));
-            if !hit(entry.title.as_deref()) && !hit(entry.cwd.as_deref()) {
-                return false;
-            }
+        let terms = &self.terms;
+        if terms.since_ms.is_some_and(|since| entry.updated_ms < since)
+            || terms.before_ms.is_some_and(|before| entry.updated_ms >= before)
+        {
+            return false;
         }
-        true
+        if terms.words.is_empty()
+            && terms.exclude.is_empty()
+            && terms.title.is_empty()
+            && terms.folder.is_empty()
+        {
+            return true;
+        }
+        let lower = |field: Option<&str>| field.map(str::to_lowercase).unwrap_or_default();
+        let (title, cwd) = (lower(entry.title.as_deref()), lower(entry.cwd.as_deref()));
+        let either = |word: &String| title.contains(word.as_str()) || cwd.contains(word.as_str());
+        terms.words.iter().all(either)
+            && !terms.exclude.iter().any(either)
+            && terms.title.iter().all(|word| title.contains(word.as_str()))
+            && terms.folder.iter().all(|word| cwd.contains(word.as_str()))
     }
 }
+
+#[cfg(test)]
+#[path = "query_tests.rs"]
+mod tests;

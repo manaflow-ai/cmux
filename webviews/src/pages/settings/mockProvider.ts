@@ -7,6 +7,9 @@
 // `createMockClient` connects a page client to it over the protocol's in-memory transport
 // pair, so the page's calls cross the real envelope (call/ok/err/sub/ev).
 import { runMockAgentKeys } from "./mockAgentKeys";
+import { mockAutocloudState, runMockAutocloud } from "./mockAutocloud";
+import { mockHubState, runMockHub } from "./mockHub";
+import { mockConnectionsState, runMockConnections } from "./mockConnections";
 import { mockModels, runMockModels } from "./mockModels";
 import { mockAllotments, runMockAllotment } from "./mockAllotments";
 import { createMockPair } from "../../protocol/adapters/mock";
@@ -21,6 +24,7 @@ import { Session, type EventSourceContext } from "../../protocol/session";
 import {
   settingsPageActions,
   type BrowserProfile,
+  type ComputerUseApproval,
   type HostLists,
   type AccountsCmux,
   type AccountsRow,
@@ -36,6 +40,7 @@ import {
   type CloudEnvironmentsRun,
   type CloudEnvironmentsState,
   type SharesState,
+  type KeysState,
   type TailnetState,
   type DevicesRun,
   type DevicesRunResult,
@@ -45,7 +50,11 @@ import {
   type HarnessesState,
   type ProviderAccount,
   type IntegrationsRun,
+  type AgentToolsCardRun,
+  type AgentToolsCardState,
   type IntegrationsState,
+  type McpServersRun,
+  type McpServersState,
   type Diagnostic,
   type Domains,
   type ListRow,
@@ -56,40 +65,45 @@ import {
   type SnapshotResult,
   type ThemeOverride,
   type WorkspaceBackground,
-  type ComputerUseApproval,
-  type KeysState,
-  type AgentToolsCardRun,
-  type AgentToolsCardState,
-  type McpServersRun,
-  type McpServersState,
   type CustomizeTryOn,
   type LibraryListing,
   type LibraryRun,
   type ModelsRun,
   type ModelsState,
+  type AgentMcpRun,
+  type AgentMcpState,
+  type AllotmentSet,
+  type AllotmentView,
+  type AgentSkillsRun,
+  type AgentSkillsState,
+  type AgentHooksRun,
+  type AgentHooksState,
   type AgentConfigAgent,
   type AgentConfigRun,
   type AgentConfigState,
-  type AgentSkillsRun,
-  type AgentSkillsState,
-  type AgentMcpRun,
-  type AgentMcpState,
-  type AgentHooksRun,
-  type AgentHooksState,
   type AccountsRunReply,
-  type AllotmentSet,
-  type AllotmentView,
+  type AgentSkillRow,
+  type HubRun,
+  type HubState,
   type DoctorReport,
   type DoctorRun,
   type LibraryAnswer,
-  type AgentSkillRow,
+  type AutocloudAction,
+  type AutocloudState,
+  type ConnectionsRun,
+  type ConnectionsState,
+  type ArchivedRun,
+  type ArchivedState,
+  type ChecklistFact,
+  type PreviousBuild,
 } from "./ops";
-import { rowsByKey, schema } from "./schema";
+import { rowsByKey, schema, hostRowsByKey } from "./schema";
 import { withEdits, type ThemeEditMap } from "../../theme/themeEdits";
 import { validate } from "./validate";
 import { MockAgents } from "./mockAgents";
 import { mockChannels } from "./mockChannels";
 import { mockThemeColors } from "./mockThemes";
+import { mockChecklist } from "./mockChecklist";
 import { mockLibrary, runLibrary } from "./mockLibrary";
 import { mockEmptyDoctor, runDoctor } from "./mockDoctor";
 import { mockAgentConfig, runAgentConfigMock } from "./mockAgentConfig";
@@ -130,6 +144,13 @@ export type MockOptions = {
   doctorRefusal?: string;
   /** A customization being tried on (`cmux customize try`); absent: none. */
   tryOn?: CustomizeTryOn;
+  /** Updates > App Update's Go Back to Previous Build (null: nothing kept); default none. */
+  previousBuild?: PreviousBuild | null;
+  /** The host's refusal of that row's Go Back; default none (it runs). */
+  previousBuildRefusal?: string;
+  /** Writes of these keys the daemon refuses with this reason and details (a json row's
+   * `accepted.problems`, as cmux-config's refusal carries them). */
+  refusals?: Record<string, { message: string; details: Record<string, unknown> }>;
 };
 
 /** This Mac joined to a team with the one-line join, every consent switch off. */
@@ -170,6 +191,16 @@ export const mockDomains: Domains = {
     "Tokyo Night",
   ],
   font_families: ["Berkeley Mono", "Iosevka", "JetBrains Mono", "Menlo", "SF Mono"],
+  ui_font_families: [
+    "Avenir Next",
+    "Georgia",
+    "Helvetica Neue",
+    "Iosevka",
+    "JetBrains Mono",
+    "Menlo",
+    "New York",
+    "SF Pro",
+  ],
   sounds: ["default", "Basso", "Funk", "Glass", "Ping", "Submarine", "none"],
   recent_fonts: ["JetBrains Mono"],
 };
@@ -266,10 +297,13 @@ export class MockSettingsProvider {
   domains: Domains | null;
   /** The theme file the mock picker returns for `cmux.settings.theme.import`; null: the person left it. */
   importable: GhosttyTheme | null = null;
+  /** The sound name the mock open panel imports for `cmux.settings.sound.import`; null: the person left it. */
+  importableSound: string | null = null;
   private readonly importTokens = new Map<string, GhosttyTheme>();
   private readonly chatFolders: ListRow["folders"];
   private actionRan: boolean;
   private readonly failing: Partial<Record<string, string>>;
+  private readonly refusals: NonNullable<MockOptions["refusals"]>;
   private readonly values = new Map<string, unknown>();
   private readonly managed: Map<string, { value: unknown } & ManagedInfo>;
   private readonly changed = new Set<EventSourceContext>();
@@ -298,9 +332,12 @@ export class MockSettingsProvider {
     this.diagnostics = options.diagnostics ?? [];
     this.domains = options.domains === undefined ? mockDomains : options.domains;
     this.failing = options.failing ?? {};
+    this.refusals = options.refusals ?? {};
     this.actionRan = options.actionRan ?? true;
     this.connected = options.connected ?? true;
     this.tryOn = options.tryOn ?? null;
+    this.previousBuild = options.previousBuild ?? null;
+    this.previousBuildRefusal = options.previousBuildRefusal ?? null;
     if (options.settingsFile !== undefined) this.host = { ...this.host, settings_file: options.settingsFile };
     if (options.themeOverrides) this.host = { ...this.host, theme_overrides: options.themeOverrides };
     if (options.devicesJoin) this.host = { ...this.host, devices_join: options.devicesJoin };
@@ -329,6 +366,7 @@ export class MockSettingsProvider {
       "cmux.settings.preview": () => ({}),
       "cmux.settings.preview.end": () => ({}),
       "cmux.settings.sound.play": () => ({}),
+      "cmux.settings.sound.import": (params) => this.importSound(params.key as string),
       "cmux.settings.host.lists": async () => {
         if (this.holdHost) await this.holdHost;
         return this.host;
@@ -625,6 +663,11 @@ export class MockSettingsProvider {
       "cmux.settings.art.search": () => ({ results: this.museumArt }),
       "cmux.settings.art.use": () => ({ id: "" }),
       "cmux.settings.app_update.run": () => ({}),
+      "cmux.settings.app_update.previous": () => this.previousBuild,
+      "cmux.settings.app_update.rollback": () => {
+        if (this.previousBuildRefusal) throw new ProtocolError("cmux.page.refused", this.previousBuildRefusal);
+        return {};
+      },
       "cmux.settings.web_updates.check": () => ({}),
       "cmux.settings.web_updates.rollback": () => ({}),
       "cmux.settings.language.relaunch": () => ({}),
@@ -652,6 +695,28 @@ export class MockSettingsProvider {
       "cmux.settings.tailnet.start": () => this.stepTailnet("start"),
       "cmux.settings.tailnet.login": () => this.stepTailnet("login"),
       "cmux.settings.tailnet.logout": () => this.stepTailnet("logout"),
+      "cmux.settings.tailnet.joinVM": (params) => {
+        const vm = String((params as { vm?: unknown }).vm ?? "");
+        this.tailnetSteps.push(`joinVM:${vm}`);
+        if (String((params as { key?: unknown }).key ?? "").includes("OTHER")) {
+          return {
+            ok: false,
+            vm,
+            error:
+              "the VM is already on another tailnet (https://headscale.other.example); nothing changed. Run again with --switch to add yours as a second profile.",
+          };
+        }
+        return {
+          ok: true,
+          vm,
+          node: { dnsName: `${vm}.ts.net`, ips: ["100.64.0.7"], tags: ["tag:cmux"], online: true },
+        };
+      },
+      "cmux.settings.tailnet.leaveVM": (params) => {
+        const vm = String((params as { vm?: unknown }).vm ?? "");
+        this.tailnetSteps.push(`leaveVM:${vm}`);
+        return { ok: true, vm };
+      },
       "cmux.settings.customize.run": (params) => {
         const verb = String((params as { verb?: unknown }).verb ?? "");
         if (verb === "status") return { try_on: this.tryOn };
@@ -660,7 +725,12 @@ export class MockSettingsProvider {
         return { settled: [] };
       },
       "cmux.settings.shares.list": () => this.shares,
+      "cmux.settings.archived.list": () => this.archived,
+      "cmux.settings.archived.run": (params) => this.runArchived(params as ArchivedRun),
       "cmux.settings.customize.library": (params) => this.runLibrary(params as LibraryRun),
+      "cmux.settings.customize.checklist": (params) => ({
+        checklist: mockChecklist(this.values, (params as { has?: ChecklistFact[] }).has ?? []),
+      }),
       "cmux.settings.keys.list": () => this.keys,
       "cmux.settings.keys.answer": (params) => this.answerKey(params as { request_id?: unknown; value?: unknown }),
       "cmux.settings.keys.decline": (params) =>
@@ -934,6 +1004,28 @@ export class MockSettingsProvider {
         this.agentHooks = { ...state, listing: { ...listing, hooks } };
         return this.agentHooks;
       },
+      "cmux.settings.autocloud.state": () => this.autocloud,
+      "cmux.settings.autocloud.run": (params) => {
+        const run = params as AutocloudAction;
+        if (run.action !== "refresh" && run.action !== "preview") this.autocloudRuns.push(run);
+        const { answer, state } = runMockAutocloud(this.autocloud, run);
+        this.autocloud = state;
+        return answer;
+      },
+      "cmux.settings.hub.state": () => this.hub,
+      "cmux.settings.hub.run": (params) => {
+        const run = params as HubRun;
+        if (run.action !== "refresh") this.hubRuns.push(run);
+        this.hub = runMockHub(this.hub, run);
+        return {};
+      },
+      "cmux.settings.connections.state": () => this.connections,
+      "cmux.settings.connections.run": (params) => {
+        const run = params as ConnectionsRun;
+        if (run.action !== "refresh") this.connectionsRuns.push(run);
+        this.connections = runMockConnections(this.connections, run);
+        return {};
+      },
       "cmux.settings.mcp.state": () => this.mcpServers,
       "cmux.settings.mcp.run": (params) => {
         const run = params as McpServersRun;
@@ -998,6 +1090,7 @@ export class MockSettingsProvider {
       "cmux.settings.preview",
       "cmux.settings.preview.end",
       "cmux.settings.sound.play",
+      "cmux.settings.sound.import",
       "cmux.settings.host.lists",
       "cmux.settings.devices.remove",
       "cmux.settings.devices.full_access",
@@ -1032,7 +1125,10 @@ export class MockSettingsProvider {
       "cmux.settings.customize.run",
       "cmux.settings.shares.list",
       "cmux.settings.customize.library",
+      "cmux.settings.customize.checklist",
       "cmux.settings.shares.revoke",
+      "cmux.settings.archived.list",
+      "cmux.settings.archived.run",
       "cmux.settings.keys.list",
       "cmux.settings.keys.answer",
       "cmux.settings.keys.decline",
@@ -1041,11 +1137,19 @@ export class MockSettingsProvider {
       "cmux.settings.tailnet.start",
       "cmux.settings.tailnet.login",
       "cmux.settings.tailnet.logout",
+      "cmux.settings.tailnet.joinVM",
+      "cmux.settings.tailnet.leaveVM",
       "cmux.settings.integrations.state",
       "cmux.settings.integrations.run",
       "cmux.settings.agentTools.state",
       "cmux.settings.agentTools.run",
       "cmux.settings.mcp.state",
+      "cmux.settings.autocloud.state",
+      "cmux.settings.autocloud.run",
+      "cmux.settings.hub.state",
+      "cmux.settings.hub.run",
+      "cmux.settings.connections.state",
+      "cmux.settings.connections.run",
       "cmux.settings.agentSkills.state",
       "cmux.settings.agentSkills.run",
       "cmux.settings.mcp.run",
@@ -1073,6 +1177,8 @@ export class MockSettingsProvider {
       "cmux.settings.art.search",
       "cmux.settings.art.use",
       "cmux.settings.app_update.run",
+      "cmux.settings.app_update.previous",
+      "cmux.settings.app_update.rollback",
       "cmux.settings.web_updates.check",
       "cmux.settings.web_updates.rollback",
       "cmux.settings.language.relaunch",
@@ -1185,6 +1291,12 @@ export class MockSettingsProvider {
     if (!("name" in run)) return { code: "customize.library", message: `unknown verb "${run.verb}"` };
     this.libraryRuns.push(run);
     if (this.libraryRefusal) return { code: "customize.library", message: this.libraryRefusal };
+    const code = this.library.entries.find((item) => item.name === run.name)?.code;
+    if (run.verb === "on" && code && !code.web) {
+      const lines = code.needs_build?.join("; ");
+      const why = lines ? `needs a build: ${lines}` : "it needs a build";
+      return { code: "customize.library", message: `${run.name} has nothing that applies to a running cmux; ${why}` };
+    }
     const next = runLibrary(this.library, run);
     if (!next) return { code: "customize.library", message: `there is no library entry "${run.name}"` };
     this.library = next;
@@ -1280,6 +1392,22 @@ export class MockSettingsProvider {
   shares: SharesState = mockShares(Date.now());
   /** Every share the page revoked, in order (tests). */
   shareRevokes: string[] = [];
+
+  /** Settings > Sidebar > Archived Workspaces: two archived workspaces (one in a group) and a link. */
+  archived: ArchivedState = mockArchived();
+  /** Every archived-row action the page ran, in order (tests). */
+  archivedRuns: ArchivedRun[] = [];
+
+  /** Open leaves the row (it stays archived); Restore and Delete take it out of the list. */
+  private runArchived(run: ArchivedRun): { error?: string } {
+    const rows = this.archived.rows ?? [];
+    if (!rows.some((row) => row.kind === run.kind && row.id === run.id))
+      throw new ProtocolError(ProtocolErrorCode.invalidParams, "archived.not_found");
+    this.archivedRuns.push(run);
+    if (run.action !== "open")
+      this.archived = { ...this.archived, rows: rows.filter((row) => !(row.kind === run.kind && row.id === run.id)) };
+    return {};
+  }
 
   private revokeShare(id: string): { share_id: string; state: string } {
     const share = this.shares.shares?.find((row) => row.share_id === id);
@@ -1639,6 +1767,10 @@ export class MockSettingsProvider {
   switchHold: Promise<void> | null = null;
   /** The way back the host answers with (Nightly's: the fixture runs a Dev build). */
   channelSwitch: ChannelSwitch | null = null;
+  /** Updates > App Update's Go Back to Previous Build; null: nothing kept. */
+  previousBuild: PreviousBuild | null = null;
+  /** Why the host refuses that row's Go Back; null: it runs. */
+  previousBuildRefusal: string | null = null;
   /** The build the card's Go Back asked for. */
   wentBack: string | null = null;
   /** The build the card's last Switch asked for. */
@@ -1765,6 +1897,21 @@ export class MockSettingsProvider {
   /** When set, Remove keeps the entry and the host says why (`note`), as for an entry with
    * settings cmux could not put back. */
   agentToolsKeeps: string | null = null;
+
+  /** Settings > Automations as the app serves it (`SettingsAutomationsCloud.state`). */
+  autocloud: AutocloudState = mockAutocloudState();
+  /** Every Automations action but refresh and preview, in order. */
+  autocloudRuns: AutocloudAction[] = [];
+
+  /** Settings > Integrations as the app serves it (`SettingsIntegrationsHub.state`). */
+  hub: HubState = mockHubState();
+  /** Every Integrations gesture but refresh, in order (the key a Link sent included). */
+  hubRuns: HubRun[] = [];
+
+  /** Settings > Connections as the app serves it (`SettingsConnections.state`). */
+  connections: ConnectionsState = mockConnectionsState();
+  /** Every Connections gesture but refresh, in order (a pasted key included). */
+  connectionsRuns: ConnectionsRun[] = [];
 
   /** The person's saved MCP servers as the app serves them (`SettingsMcpServers.state`). */
   mcpServers: McpServersState = {
@@ -2513,7 +2660,13 @@ export class MockSettingsProvider {
         [...this.managed].map(([key, { source, reason, team }]) => [key, { source, reason, team: team ?? null }]),
       ),
       diagnostics: this.diagnostics,
-      domains: this.domains ?? { themes: null, font_families: null, sounds: null, recent_fonts: null },
+      domains: this.domains ?? {
+        themes: null,
+        font_families: null,
+        ui_font_families: null,
+        sounds: null,
+        recent_fonts: null,
+      },
     };
   }
 
@@ -2561,7 +2714,7 @@ export class MockSettingsProvider {
   }
 
   private guard(key: string): void {
-    if (!rowsByKey.has(key)) throw new ProtocolError("cmux.settings.invalid", `unknown setting ${key}`);
+    if (!hostRowsByKey.has(key)) throw new ProtocolError("cmux.settings.invalid", `unknown setting ${key}`);
     const managed = this.managed.get(key);
     if (managed) {
       throw new ProtocolError("cmux.settings.managed", managed.reason, {
@@ -2572,13 +2725,25 @@ export class MockSettingsProvider {
 
   private set(key: string, value: unknown): MutationResult {
     this.guard(key);
-    const reason = validate(rowsByKey.get(key)!, value, this.domains ?? undefined);
+    const refusal = this.refusals[key];
+    if (refusal) throw new ProtocolError("cmux.settings.invalid", refusal.message, { details: refusal.details });
+    const reason = validate(hostRowsByKey.get(key)!, value, this.domains ?? undefined);
     if (reason) throw new ProtocolError("cmux.settings.invalid", `${key}: ${reason}`, { details: { key, value } });
     this.values.set(key, value);
     // The host keeps the fonts written lately (RecentFonts.swift).
     if (this.domains && rowsByKey.get(key)?.kind === "font_family" && typeof value === "string")
       this.domains = { ...this.domains, recent_fonts: recentAfterPick(this.domains.recent_fonts, value) };
     return this.commit([key], "user");
+  }
+
+  /** Custom Sound…: the host copies the picked file into its sounds folder, lists it, and sets `key`. */
+  private importSound(key: string): { name: string | null } {
+    const name = this.importableSound;
+    if (name === null) return { name: null };
+    if (this.domains && !this.domains.sounds.includes(name))
+      this.domains = { ...this.domains, sounds: [...this.domains.sounds, name].sort() };
+    this.set(key, name);
+    return { name };
   }
 
   private reset(key: string): MutationResult {
@@ -2967,6 +3132,18 @@ export function mockShares(now: number): SharesState {
         guests: [],
         invitees: [],
       },
+    ],
+  };
+}
+
+/** Archived rows as the app lists them, in sidebar order. */
+export function mockArchived(): ArchivedState {
+  return {
+    available: true,
+    rows: [
+      { kind: "workspace", id: "ws-archived-1", title: "Fix the flaky login test", group: null, machine: "This Mac" },
+      { kind: "workspace", id: "ws-archived-2", title: "Release notes draft", group: "Docs", machine: "This Mac" },
+      { kind: "item", id: "itm-archived-link", title: "Design review", group: null, machine: null },
     ],
   };
 }

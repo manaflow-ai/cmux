@@ -8,7 +8,7 @@ import { MachineList } from "../src/pages/cloud/MachineList";
 import { MockCloudProvider } from "../src/pages/cloud/mockProvider";
 import { CloudStore } from "../src/pages/cloud/store";
 import { formatString, type Strings } from "../src/pages/shared/i18n";
-import { requireBrowserLane } from "./support/requireBrowserLane";
+import { probeEngineOrSkip, requireBrowserLane } from "./support/requireBrowserLane";
 
 await requireBrowserLane("cloud-sidebar-layout.test.tsx", async () => {
   const css = readFileSync(new URL("../src/pages/cloud/styles.css", import.meta.url), "utf8");
@@ -16,10 +16,15 @@ await requireBrowserLane("cloud-sidebar-layout.test.tsx", async () => {
     readFileSync(new URL("../src/pages/cloud/Localizable.xcstrings", import.meta.url), "utf8"),
   );
   const store = new CloudStore(new MockCloudProvider());
+  // WebKit runs where it launches; where it cannot and the lane is not required, it skips (probeEngineOrSkip).
+  const engines = [
+    chromium,
+    ...((await probeEngineOrSkip("cloud-sidebar-layout webkit", "webkit", webkit)) ? [webkit] : []),
+  ];
   const browsers: Browser[] = [];
   beforeAll(async () => {
     await store.start();
-    for (const engine of [chromium, webkit]) browsers.push(await engine.launch({ headless: true }));
+    for (const engine of engines) browsers.push(await engine.launch({ headless: true }));
   });
   afterAll(async () => {
     store.stop();

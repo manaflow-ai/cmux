@@ -412,3 +412,7 @@ mod untrusted_mint_tests;
 #[cfg(all(test, unix))]
 #[path = "connection_panic_tests.rs"]
 mod connection_panic_tests;
+
+#[cfg(all(test, unix))]
+#[path = "page_relay_events_tests.rs"]
+mod page_relay_events_tests;

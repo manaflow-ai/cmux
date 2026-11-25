@@ -21,8 +21,6 @@ struct BrowserChromeTabHooks {
         let bar = chrome.addressBar
         if let engine = state.suggestionEngine, engine !== bar.suggestionEngine { bar.suggestionEngine = engine }
         bar.tabKey = state.tabKey
-        if bar.shownProfileBadge != state.profileBadge { bar.setProfileBadge(state.profileBadge) }
-        bar.profileBadgeMenu = state.profileBadgeMenu
         bar.machineBadgeMenu = state.machineBadgeMenu
         bar.onBookmarkStar = state.onBookmarkStar
         bar.onPageURLChange = state.onPageURLChange
@@ -30,6 +28,7 @@ struct BrowserChromeTabHooks {
         bar.setBookmarkStar(state.bookmarkStar)
         let buttons = chrome.toolbarButtons
         if buttons.profileName != state.profileName { buttons.profileName = state.profileName }
+        if buttons.profileBadge != state.profileBadge { buttons.profileBadge = state.profileBadge }
         buttons.onPress = state.onToolbarPress
         // The tab's toolbar sources (its own downloads, media, pins, hints) with no render: the switch binds the
         // toolbar next (`toolbarButtons.bind(_:modes:)`), which observes and renders them once.
