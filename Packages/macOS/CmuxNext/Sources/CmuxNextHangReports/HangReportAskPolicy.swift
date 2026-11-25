@@ -32,7 +32,7 @@ public nonisolated struct HangReportAskPolicy: Sendable {
     ///   - settingOn: `diagnostics.hangReports` is on in the file.
     ///   - consented: This Mac holds the person's consent record.
     ///   - invited: The one-time invitation was shown before on this Mac (any answer).
-    ///   - telemetryOptIn: The anonymous telemetry choice (on until the person turns it off).
+    ///   - telemetryOptIn: The anonymous telemetry choice (off until the person turns it on).
     /// - Returns: What to do now.
     public func decision(settingOn: Bool, consented: Bool, invited: Bool, telemetryOptIn: Bool) -> Decision {
         if settingOn { return consented ? .send : .confirm }

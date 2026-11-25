@@ -49,4 +49,8 @@ public nonisolated struct ChiefHomeSessionHost: AgentPaneHostProviding {
         await fallback.restartAcpmux(owner: owner)
     }
 
+    public func acpmuxAnswers() -> AsyncStream<Void>? {
+        fallback.acpmuxAnswers()
+    }
+
 }
