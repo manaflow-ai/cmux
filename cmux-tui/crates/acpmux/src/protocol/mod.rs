@@ -348,6 +348,7 @@ pub fn registry() -> Vec<MethodDecl> {
         untyped(method::MUX_RETENTION, Request),
         untyped(method::MUX_COLD_ARCHIVE, Request),
         untyped(method::MUX_AUTO_SESSION_SET, Request),
+        untyped(method::MUX_AUTO_SESSION_MOVE, Request),
         untyped(method::MUX_CHAT_MOVE, Request),
         untyped(method::MUX_AUTO_SESSION_LEFTOVER, Request),
         untyped(method::MUX_AUTO_SESSION_WAKE, Request),
