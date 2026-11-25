@@ -40,3 +40,7 @@ max = 0
 metric = "frame_ms"
 stat = "p95"
 max = 16.7
+
+[sim]
+only = ["CmuxMobileLiveTests/ReconnectChainTimingTests"]
+covers = "the app's reconnect chain at the same 40 ms one-way latency; the sim does not time typed echo, which only this headless run measures"

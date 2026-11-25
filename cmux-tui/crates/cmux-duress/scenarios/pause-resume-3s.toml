@@ -37,3 +37,7 @@ max = 0
 metric = "frame_ms"
 stat = "p95"
 max = 16.7
+
+[sim]
+only = ["CmuxMobileLiveTests/ReconnectChainTimingTests"]
+covers = "the app's reconnect chain (socket resume, attach, replay) against its 3-round-trip budget; headless covers the backlog's catch-up in frames"

@@ -45,3 +45,7 @@ max = 0
 [[check]]
 metric = "dropped_frames"
 max = 0
+
+[sim]
+only = ["CmuxMobileLiveTests/ReconnectChainTimingTests"]
+covers = "the app's socket resume after an address change; the sim does not model the 30-60 s reset cadence, which only this headless run replays"
