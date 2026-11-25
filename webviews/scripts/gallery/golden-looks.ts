@@ -5,8 +5,11 @@
 // from the base and its head.
 //
 //   bun run golden:looks [--looks cmux,claude] [--schemes light,dark] [--out DIR] [--window 1280x2000]
-//     [--setup DIR ...] [--native DIR] [--every] [--preview] [--video DIR]
+//     [--setup DIR ...] [--native DIR] [--every] [--preview] [--video DIR] [--settings appearance,chat]
 //
+// --settings also captures the golden Settings page (looks.golden.settings.<section>, src/gallery/golden/settings.ts)
+// per look, scheme and section, each section whole, as DIR/<look>-settings-<section>-<scheme>.png, and puts them in
+// the look's row of the sheet.
 // --video also records DIR/looks.webm: every look and scheme in turn, its name over the window, the chat
 // scrolled from the first prompt to the composer (a demo of the looks to post or send).
 // --setup adds a look from any setup folder (a look's own repo, ~/src/my-look), beside the built-in ones.
@@ -38,6 +41,7 @@ const { values } = parseArgs({
     preview: { type: "boolean", default: false },
     scale: { type: "string", default: "1" },
     video: { type: "string" },
+    settings: { type: "string" },
   },
 });
 const webviews = path.resolve(import.meta.dir, "../..");
@@ -157,6 +161,55 @@ for (const look of looks)
     }
   }
 
+// --settings: the golden Settings page per look, scheme and section, in its own stage at the window's width; the stage
+// grows until the section's scroller shows it whole.
+const { GOLDEN_SETTINGS_SECTIONS } = await import("../../src/gallery/golden/look");
+const settingsSections = (values.settings ?? "")
+  .split(",")
+  .filter((section): section is (typeof GOLDEN_SETTINGS_SECTIONS)[number] =>
+    (GOLDEN_SETTINGS_SECTIONS as readonly string[]).includes(section),
+  );
+if (values.settings && settingsSections.length === 0)
+  throw new Error(`golden: --settings takes ${GOLDEN_SETTINGS_SECTIONS.join(", ")}`);
+const settingsShots: { look: string; scheme: string; section: string; file: string }[] = [];
+async function loadSettings(look: (typeof looks)[number], scheme: "light" | "dark", section: string, tall: number) {
+  const query = new URLSearchParams({
+    entry: `looks.golden.settings.${section}`,
+    variant: look.id,
+    colorScheme: scheme,
+  });
+  await page.setViewportSize({ width, height: tall });
+  for (let attempt = 1; ; attempt += 1) {
+    try {
+      await page.goto(`http://127.0.0.1:${port}/gallery/frame.html?${query}`);
+      await page.waitForSelector('html[data-gallery-ready="1"]', { timeout: 120_000 });
+      break;
+    } catch (error) {
+      if (attempt >= 4) throw error;
+      console.log(`golden: settings ${look.id} ${scheme} loads again (${String(error).split("\n")[0]})`);
+    }
+  }
+  await page.evaluate(() => document.fonts.ready.then(() => undefined));
+  // The page's tallest scroller is the section: how much more it holds than it shows.
+  return page.evaluate(() =>
+    Math.max(0, ...[...document.querySelectorAll("*")].map((node) => node.scrollHeight - node.clientHeight)),
+  );
+}
+for (const look of settingsSections.length ? looks : [])
+  for (const scheme of schemes)
+    for (const section of settingsSections) {
+      let tall = height;
+      for (let pass = 0; pass < 4; pass += 1) {
+        const more = await loadSettings(look, scheme, section, tall);
+        if (more <= 2 || tall >= MAX_HEIGHT) break;
+        tall = Math.min(MAX_HEIGHT, tall + more + 8);
+      }
+      const file = path.join(out, `${look.id}-settings-${section}-${scheme}.png`);
+      await page.screenshot({ path: file, animations: "disabled" });
+      settingsShots.push({ look: look.id, scheme, section, file });
+      console.log(`golden: ${file} (${width}x${tall})`);
+    }
+
 // The sheet: one row per look, its schemes side by side (and the native captures when given).
 const nativeDir = values.native ? path.resolve(values.native) : undefined;
 const native = nativeDir && existsSync(nativeDir) ? new Set(readdirSync(nativeDir)) : new Set<string>();
@@ -179,11 +232,17 @@ const rows = looks.map((look) => {
             ),
           ]
         : []),
+      ...settingsSections.map((section) => {
+        const shot = settingsShots.find(
+          (candidate) => candidate.look === look.id && candidate.scheme === scheme && candidate.section === section,
+        );
+        return cell(`${scheme}, Settings: ${section}`, shot && dataUrl(shot.file));
+      }),
     ];
   });
   return `<section><h2>${escape(look.title)}</h2><p>${escape(look.note)}</p><div class=row>${cells.join("")}</div></section>`;
 });
-const columns = schemes.length * (nativeDir ? 2 : 1);
+const columns = schemes.length * ((nativeDir ? 2 : 1) + settingsSections.length);
 const sheet = `<!doctype html><meta charset=utf-8><style>
   body { margin: 0; padding: 24px; background: #8a8a8a; font: 14px -apple-system, system-ui, sans-serif; color: #111; }
   section { margin-bottom: 28px; }

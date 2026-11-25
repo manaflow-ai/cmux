@@ -98,4 +98,29 @@ import Testing
         handoff.restore()
         #expect(updater.savedForRelaunch == nil, "a relaunch that did not happen left its save for the next quit")
     }
+
+    /// ask-ad4a68e740 (Leo, 2026-11-25: the restart closes slowly, "the end to end proess be fast"): the pages are
+    /// pictured at the Restart to Update click, while the click's feed read and pre-warm run, and the relaunch uses
+    /// that save, so its windows do not wait on screen for a second one.
+    @Test func theClickPicturesThePagesSoTheRelaunchUsesThem() async {
+        _ = NSApplication.shared
+        let updater = Self.updater()
+        let handoff = UpdateWindowHandoff(unsaved: QuitUnsavedRegistry())
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 240, height: 160), styleMask: [.borderless], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        window.orderFront(nil)
+        defer { window.orderOut(nil) }
+        var saves = 0, paused = 0
+        handoff.savesBeforeLeaving = { saves += 1 }
+        handoff.pausesPictures = { paused += 1 }
+        handoff.attach(to: updater)
+        updater.picturesAtClick?()
+        #expect(handoff.hide())
+        await updater.savedForRelaunch?.value
+        for _ in 0..<20 where window.isVisible { await Task.yield() }
+        #expect(saves == 1, "the relaunch saved the pages again instead of using the click's save")
+        #expect(paused == 1, "the running picture saver kept saving from windows off screen")
+        #expect(!window.isVisible)
+        handoff.restore()
+    }
 }
