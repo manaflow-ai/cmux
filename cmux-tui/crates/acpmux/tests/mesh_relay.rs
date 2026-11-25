@@ -14,8 +14,8 @@ const HERMETIC: daemon_env::Process = daemon_env::Process::stand_in();
 use acpmux::config::{Config, StoreMode};
 use acpmux::hub::Hub;
 use acpmux::mesh::{
-    Ack, AckState, Capacity, ControlHook, Heartbeat, HeartbeatReply, HubError, InMessage, Kind,
-    MeshHub, Mode, OutMessage, Receipt, RefuseControl, Sender, SessionRow, Target,
+    Ack, AckState, Capacity, Heartbeat, HeartbeatReply, HubError, InMessage, Kind, MeshHub, Mode,
+    OutMessage, Receipt, Sender, SessionRow, Target,
 };
 use acpmux::mesh_control::{
     Command as ControlCommand, ControlRequest, MeshControlRelay, Recipient, submit,
