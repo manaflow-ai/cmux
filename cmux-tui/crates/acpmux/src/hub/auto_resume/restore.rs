@@ -302,8 +302,9 @@ impl Hub {
             } else {
                 delays.clone()
             };
-            // A capacity outage or a rate limit never uses its attempts up (`super::waits_it_out`).
-            let unbounded = super::waits_it_out(reason, &delays);
+            // A capacity outage, a rate limit or a refused connection never uses its attempts
+            // up (`super::waits_it_out`).
+            let unbounded = super::waits_it_out(reason, &error, &delays);
             let delay = if unbounded {
                 Some(super::capacity_wait(done, &delays, &session.id))
             } else {

@@ -156,11 +156,6 @@ path = "tests/test_crash_ratchet_compare.py"
 lane = "linux-guard"
 
 [[test]]
-path = "tests/test_rust_panic_ratchet_base_broken.py"
-lane = "manual"
-reason = "No workflow step runs it (lane derived by --write). Run it yourself: python3 tests/test_rust_panic_ratchet_base_broken.py"
-
-[[test]]
 path = "tests/test_dead_code_stripping.py"
 lane = "linux-guard"
 
@@ -506,6 +501,10 @@ path = "tests/test_needs_verdict.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_network_allowlist.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_new_tab_startup_bench.py"
 lane = "manual"
 reason = "No workflow step runs it (lane derived by --write). Run it yourself: python3 tests/test_new_tab_startup_bench.py"
@@ -761,6 +760,11 @@ lane = "manual"
 reason = "Run by the lane that changes rust-live.py (kept manual under the 2026-10-23 no-new-CI rule, since lifted): python3 tests/test_rust_live_app_handoff.py; needs only python3 and sleep."
 
 [[test]]
+path = "tests/test_rust_panic_ratchet_base_broken.py"
+lane = "manual"
+reason = "No workflow step runs it (lane derived by --write). Run it yourself: python3 tests/test_rust_panic_ratchet_base_broken.py"
+
+[[test]]
 path = "tests/test_same_tree_reuse.py"
 lane = "manual"
 reason = "No new CI tests (Lawrence 2026-10-23, lifted 2026-11-18). Checks that every pull-request job in scripts/ci/same_tree_reuse.json reuses a same-tree pass or is denied with a reason, and that scripts/ci/same_tree_reuse.py keys, decides and writes receipts as the workflows call it; run python3 tests/test_same_tree_reuse.py yourself after changing same_tree_reuse.py, its map or a workflow it covers (a few seconds, no build)."
@@ -923,6 +927,10 @@ path = "tests/test_testbox_source_mtimes.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_testflight_build_checkers.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_tour_requirements.py"
 lane = "linux-guard"
 
@@ -988,6 +996,11 @@ lane = "linux-guard"
 [[test]]
 path = "tests/test_verify_local.py"
 lane = "linux-guard"
+
+[[test]]
+path = "tests/test_view_shell_patch_compile.py"
+lane = "manual"
+reason = "No workflow step runs it (lane derived by --write). Run it yourself: python3 tests/test_view_shell_patch_compile.py"
 
 [[test]]
 path = "tests/test_vm_scp.py"
