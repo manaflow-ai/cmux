@@ -244,6 +244,8 @@ impl Hub {
             )
         };
         self.start_auto_evacuate().await;
+        // Enrollment turned on since: its timer starts (`owner_return.rs`).
+        self.start_owner_return().await;
         // Every row, closed ones too, reads the new usage warning thresholds.
         self.events.changed(None);
         // A new `stalledTurnEndMs` moves the stalled turns' deadlines (`stalled_turn.rs`).

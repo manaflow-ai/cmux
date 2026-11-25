@@ -976,9 +976,15 @@ fn run(global: &GlobalArgs, mut start: Start) -> i32 {
         Ok(route) => route,
         Err(error) => return usage_failure(&error, global.output),
     };
-    let route = match route {
-        Route::Here => auto_place::route(global, &start),
-        route => route,
+    // A machine Auto placed the chat on (not one the person named) yields it to its owner
+    // (`--placed-by autoCloud`, acpmux `hub/owner_return.rs`).
+    let (route, auto_placed) = match route {
+        Route::Here => {
+            let route = auto_place::route(global, &start);
+            let placed = matches!(route, Route::Peer(_));
+            (route, placed)
+        }
+        route => (route, false),
     };
     if route == Route::Here && start.from_folder.is_some() {
         return usage_failure(&UsageError::new(FROM_FOLDER_CLOUD_ONLY), global.output);
@@ -1044,7 +1050,12 @@ fn run(global: &GlobalArgs, mut start: Start) -> i32 {
         },
         // As a chat here starts, with the peer named; its tab shows here.
         Route::Peer(peer) => match peer_words(&global_words(global), &start, &peer) {
-            Ok(words) => super::agents::run_if_requested(&words).unwrap_or(2),
+            Ok(mut words) => {
+                if auto_placed {
+                    placed_by_autocloud(&mut words);
+                }
+                super::agents::run_if_requested(&words).unwrap_or(2)
+            }
             Err(error) => usage_failure(&error, global.output),
         },
         Route::Joined(machine) => joined::run(global, &start, &machine),
@@ -1277,6 +1288,14 @@ pub(super) fn peer_words(
     let checked: Vec<&str> = words.iter().skip(prefix.len() + 3).map(String::as_str).collect();
     super::agents::chat_control::parse_new(&checked)?;
     Ok(words)
+}
+
+/// `--placed-by autoCloud` among `agents chat new`'s flags (before a `--` prompt): the chat's
+/// meta says AutoCloud placed it (acpmux `autocloud_enroll::PLACED_BY_AUTOCLOUD`).
+fn placed_by_autocloud(words: &mut Vec<String>) {
+    let at = words.iter().position(|w| w == "--peer").map_or(words.len(), |i| i + 2);
+    let at = at.min(words.len());
+    words.splice(at..at, ["--placed-by", "autoCloud"].map(str::to_owned));
 }
 
 /// `agents chat new …` with this start's settings, after the same globals.
