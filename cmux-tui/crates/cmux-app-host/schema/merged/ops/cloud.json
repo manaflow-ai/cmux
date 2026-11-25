@@ -184,6 +184,11 @@
       "risk": "mutate-shared",
       "digest": "386f1c6f21f27cb0"
     },
+    "cloud.machine.fork": {
+      "source": "local",
+      "class": "mutation",
+      "digest": "2c91c140d5cebeff"
+    },
     "cloud.machine.get": {
       "source": "cloud",
       "owner": "cloud:CloudDO",

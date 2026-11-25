@@ -561,6 +561,9 @@ pub async fn deliver(
     if let Some(relayed) = crate::claude_inbox_relay::deliver(peer.pid, socket, &frames).await {
         return relayed;
     }
+    // No relay: this delivery may be held. With agents.claudeCodeInboxRelay on, every Claude
+    // Code session started from now on runs one; off, the daemon logs how to add it.
+    crate::desktop_link::ensure_inbox_relay_once();
     write_frames(socket, &frames).await
 }
 

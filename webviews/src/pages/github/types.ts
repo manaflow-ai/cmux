@@ -24,6 +24,17 @@ export const GitHubOps = {
   checks: "cmux.github.checks.read",
   /** `{url, runs}` → `{rerun}`: re-runs those Actions runs' failed jobs; needs the person's click. */
   rerun: "cmux.github.checks.rerun",
+  /** `{url, event, body, head?}` → `{submitted}`: the person's review (COMMENT, APPROVE,
+   *  REQUEST_CHANGES); an approval or a request for changes is never said by the App. Needs a click. */
+  reviewSubmit: "cmux.github.review.submit",
+  /** `{url, thread, body}` → `{done}`: a reply on a review thread the page showed. Needs a click. */
+  threadReply: "cmux.github.thread.reply",
+  /** `{url, thread, resolved}` → `{done}`: resolves (or reopens) a review thread the page showed. Needs a click. */
+  threadResolve: "cmux.github.thread.resolve",
+  /** `{repo}` → `{issues}`: the repository's issues, newest activity first, pull requests left out. */
+  issues: "cmux.github.issues.list",
+  /** `{url}` → `{issue, comments}`: one issue and its comments, as GitHub's REST API sends them. */
+  issue: "cmux.github.issue.details",
 } as const;
 
 /** One job of the CI dashboard (GitHubChecks.swift). */
@@ -74,7 +85,19 @@ export interface ReviewComment {
   url: string | null;
   /** Whether its thread is resolved; null when the read did not reach its thread. */
   resolved?: boolean | null;
+  /** Its thread's id, what a reply or a resolve names; null when the read did not reach its thread. */
+  thread?: string | null;
 }
+
+/** A review or a thread write's progress: `what` is `review` or the thread's id. */
+export type WriteState =
+  | { phase: "idle" }
+  | { phase: "sending"; what: string }
+  | { phase: "sent"; what: string }
+  | { phase: "failed"; what: string; message: string; personOnly?: boolean };
+
+/** The verdicts a review may carry, GitHub's names. */
+export type ReviewEvent = "COMMENT" | "APPROVE" | "REQUEST_CHANGES";
 
 /** A comment or a review in the conversation. */
 export interface ConversationEntry {
@@ -150,4 +173,63 @@ export function routedPullRequest(hash: string): { url: string; repo: string; nu
   const address = new URLSearchParams(route.slice("/pull?".length)).get("url");
   const match = address ? /^https:\/\/github\.com\/([\w.-]+\/[\w.-]+)\/pull\/([1-9]\d{0,9})$/.exec(address) : null;
   return match ? { url: address!, repo: match[1]!, number: Number(match[2]) } : undefined;
+}
+
+/** A label as GitHub's issues API sends it (`color`: six hex digits, or empty). */
+export interface GitHubIssueLabel {
+  name: string;
+  color?: string;
+}
+
+/** One issue, GitHub's REST fields the host passes through (GitHubPageProvider.issueFields). */
+export interface GitHubIssue {
+  number: number;
+  title: string;
+  state: "open" | "closed";
+  /** `completed`, `not_planned`, `reopened`, or null. */
+  state_reason?: string | null;
+  labels: GitHubIssueLabel[];
+  user?: { login: string } | null;
+  /** How many comments it has. */
+  comments: number;
+  /** ISO 8601. */
+  created_at?: string;
+  updated_at: string;
+  html_url: string;
+  body?: string | null;
+}
+
+/** One comment on an issue. */
+export interface GitHubIssueComment {
+  user?: { login: string } | null;
+  body?: string | null;
+  created_at: string;
+  html_url: string;
+}
+
+/** The repository whose issues a route lists (`#/issues?repo=<owner/name>`), else undefined. */
+export function routedIssues(hash: string): { repo: string } | undefined {
+  const route = hash.startsWith("#") ? hash.slice(1) : hash;
+  if (!route.startsWith("/issues?")) return undefined;
+  const repo = new URLSearchParams(route.slice("/issues?".length)).get("repo");
+  return repo && /^[\w.-]+\/[\w.-]+$/.test(repo) ? { repo } : undefined;
+}
+
+/** The issue a route names (`#/issue?url=<address>`), else undefined. */
+export function routedIssue(hash: string): { url: string; repo: string; number: number } | undefined {
+  const route = hash.startsWith("#") ? hash.slice(1) : hash;
+  if (!route.startsWith("/issue?")) return undefined;
+  const address = new URLSearchParams(route.slice("/issue?".length)).get("url");
+  const match = address ? /^https:\/\/github\.com\/([\w.-]+\/[\w.-]+)\/issues\/([1-9]\d{0,9})$/.exec(address) : null;
+  return match ? { url: address!, repo: match[1]!, number: Number(match[2]) } : undefined;
+}
+
+/** The route of a repository's issue list. */
+export function issuesRoute(repo: string): string {
+  return `#/issues?${new URLSearchParams({ repo })}`;
+}
+
+/** The route of one issue. */
+export function issueRoute(url: string): string {
+  return `#/issue?${new URLSearchParams({ url })}`;
 }

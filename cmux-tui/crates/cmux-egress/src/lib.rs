@@ -27,6 +27,9 @@
 
 #![forbid(unsafe_code)]
 
+#[cfg(feature = "capture")]
+pub mod capture;
+
 use std::collections::BTreeSet;
 use std::error::Error;
 use std::fmt;
@@ -187,12 +190,26 @@ fn label_matches(pattern: &str, label: &str) -> bool {
     glob(pattern.as_bytes(), label.as_bytes())
 }
 
+/// A host that never reaches a third party by name: an IP literal, a dotless name (resolved by
+/// the person's own search domains), a reserved suffix, or a private-network suffix (tailnet,
+/// `.internal`, `.lan`).
 fn is_local(host: &str) -> bool {
     host.parse::<IpAddr>().is_ok()
         || host == "localhost"
-        || [".localhost", ".test", ".example", ".invalid", ".local", ".home.arpa"]
-            .iter()
-            .any(|suffix| host.ends_with(suffix))
+        || (!host.is_empty() && !host.contains('.'))
+        || [
+            ".localhost",
+            ".test",
+            ".example",
+            ".invalid",
+            ".local",
+            ".home.arpa",
+            ".ts.net",
+            ".internal",
+            ".lan",
+        ]
+        .iter()
+        .any(|suffix| host.ends_with(suffix))
         || host == "example.com"
         || host.ends_with(".example.com")
 }
@@ -286,6 +303,10 @@ impl Resolve for Gate {
         if let Err(refused) = check(name.as_str(), self.site) {
             return Box::pin(async move { Err(Box::new(refused) as Box<dyn Error + Send + Sync>) });
         }
+        #[cfg(feature = "capture")]
+        if let Some(addr) = capture::redirect(name.as_str()) {
+            return Box::pin(async move { Ok(Box::new(std::iter::once(addr)) as Addrs) });
+        }
         if let Some(inner) = &self.inner {
             return inner.resolve(name);
         }
@@ -295,6 +316,15 @@ impl Resolve for Gate {
             Ok(Box::new(addrs.into_iter()) as Addrs)
         })
     }
+}
+
+/// A builder with the capture CA trusted when capture is on (feature `capture`).
+fn trusting_capture(builder: reqwest::ClientBuilder) -> reqwest::ClientBuilder {
+    #[cfg(feature = "capture")]
+    if let Some(root) = capture::root() {
+        return builder.add_root_certificate(root);
+    }
+    builder
 }
 
 fn install_crypto_provider() {
@@ -307,7 +337,7 @@ fn install_crypto_provider() {
 /// set on the builder is resolved (and checked) in place of the target.
 pub fn client_builder(site: &'static str) -> reqwest::ClientBuilder {
     install_crypto_provider();
-    reqwest::Client::builder().dns_resolver(Arc::new(Gate::new(site)))
+    trusting_capture(reqwest::Client::builder().dns_resolver(Arc::new(Gate::new(site))))
 }
 
 /// [`client_builder`] with the gate in front of `resolver` instead of the
@@ -317,14 +347,21 @@ pub fn client_builder_with(
     resolver: impl Resolve + 'static,
 ) -> reqwest::ClientBuilder {
     install_crypto_provider();
-    reqwest::Client::builder().dns_resolver(Arc::new(Gate::wrapping(site, resolver)))
+    trusting_capture(
+        reqwest::Client::builder().dns_resolver(Arc::new(Gate::wrapping(site, resolver))),
+    )
 }
 
 /// [`client_builder`] for reqwest's blocking client (feature `blocking`).
 #[cfg(feature = "blocking")]
 pub fn blocking_client_builder(site: &'static str) -> reqwest::blocking::ClientBuilder {
     install_crypto_provider();
-    reqwest::blocking::Client::builder().dns_resolver(Arc::new(Gate::new(site)))
+    let builder = reqwest::blocking::Client::builder().dns_resolver(Arc::new(Gate::new(site)));
+    #[cfg(feature = "capture")]
+    if let Some(root) = capture::root() {
+        return builder.add_root_certificate(root);
+    }
+    builder
 }
 
 /// A gated `reqwest::Client::new()`: a client with reqwest's defaults whose
@@ -420,6 +457,7 @@ mod tests {
         assert_eq!(verdict("a.b.atlassian.net"), Verdict::Unlisted);
         assert_eq!(verdict("cmux-api-preview-42.debussy.workers.dev"), Verdict::Listed);
         assert_eq!(verdict("other-42.debussy.workers.dev"), Verdict::Unlisted);
+        assert_eq!(verdict("ts.net.evil-gate-test.org"), Verdict::Unlisted);
     }
 
     #[test]
@@ -431,6 +469,11 @@ mod tests {
             "app.localhost",
             "x.test",
             "example.com",
+            "mac-mini",
+            "http://devbox:3000/",
+            "mac.tail1234.ts.net",
+            "git.corp.internal",
+            "nas.lan",
         ] {
             assert_eq!(verdict(host), Verdict::Local, "{host}");
         }
