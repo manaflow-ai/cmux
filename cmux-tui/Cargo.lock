@@ -213,6 +213,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "acpmux-team-space"
+version = "1.0.0"
+dependencies = [
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "acpmux-tui"
 version = "1.0.0"
 dependencies = [
@@ -232,14 +240,6 @@ dependencies = [
  "tokio",
  "unicode-width",
  "uuid",
-]
-
-[[package]]
-name = "acpmux-team-space"
-version = "1.0.0"
-dependencies = [
- "serde",
- "serde_json",
 ]
 
 [[package]]
@@ -1422,6 +1422,7 @@ dependencies = [
  "anyhow",
  "clap",
  "cmux-cloud-config",
+ "cmux-egress",
  "cmux-process",
  "cmux-scope",
  "crossterm",

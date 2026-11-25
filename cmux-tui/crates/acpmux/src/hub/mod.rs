@@ -466,7 +466,7 @@ mod hunk_summary;
 pub mod person;
 pub mod presence;
 mod processes;
-mod pull_requests;
+pub(crate) mod pull_requests;
 pub(crate) mod purge_tombstones;
 pub(crate) use crate::questions;
 mod remote_cwd;
