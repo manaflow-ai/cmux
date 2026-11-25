@@ -38,6 +38,9 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{Duration, Instant};
 use tokio::sync::{mpsc, watch};
 
+/// Internal marker for a preset selected by the receiving daemon for a default mesh start.
+pub(crate) const APPROVED_DEFAULT_PRESET_FIELD: &str = "meshApprovedDefaultPreset";
+
 #[path = "mesh_control_ledger.rs"]
 mod control_ledger;
 use control_ledger::{Claim, ControlLedger};
@@ -632,6 +635,68 @@ fn capped_start(
     params
 }
 
+/// A hub-started default chat may use the receiving daemon's approved default preset. The
+/// preset stays local to that daemon, so its approval is never carried as a remote claim.
+async fn approved_default_preset(
+    hub: &Arc<Hub>,
+    mut params: serde_json::Value,
+    cap: crate::config::PermissionPolicy,
+) -> serde_json::Value {
+    let field = |key: &str| {
+        params
+            .pointer(&format!("/_meta/acpmux/{key}"))
+            .filter(|value| !value.is_null())
+            .or_else(|| params.get(key).filter(|value| !value.is_null()))
+    };
+    // An explicit harness, preset, mode, policy or spawn shape is the caller's choice. Keep it
+    // intact, including an explicit preset that is not approved.
+    if ["preset", "mode", "model", "effort", "policy", "env", "route", "adopt"]
+        .into_iter()
+        .any(|key| field(key).is_some())
+    {
+        return params;
+    }
+    let harness = field("harness").and_then(serde_json::Value::as_str);
+    let cfg = hub.config.read().await;
+    let Some(default_head) = cfg.default_harness.as_deref() else {
+        return params;
+    };
+    let Ok(default_profile) = cfg.resolve_harness(default_head) else {
+        return params;
+    };
+    if let Some(harness) = harness
+        && cfg.resolve_harness(harness).ok().as_deref() != Some(default_profile.as_str())
+    {
+        return params;
+    }
+    let default_family = cfg.family(&default_profile);
+    let matches_default = |name: &str, preset: &crate::config::Preset| {
+        let Ok(profile) = cfg.resolve_harness(&preset.harness) else {
+            return false;
+        };
+        profile == default_profile
+            && (name == default_head
+                || default_family.as_deref().is_some_and(|family| name == family))
+    };
+    let Some((name, preset)) = cfg.presets.iter().find(|(name, preset)| {
+        matches_default(name, preset)
+            && preset.mode_approved()
+            && preset.policy.is_none_or(|policy| {
+                crate::mesh_relay_config::policy_reach(policy)
+                    <= crate::mesh_relay_config::policy_reach(cap)
+            })
+    }) else {
+        return params;
+    };
+    let Some(meta) = params.pointer_mut("/_meta/acpmux").and_then(serde_json::Value::as_object_mut)
+    else {
+        return params;
+    };
+    meta.insert("preset".into(), serde_json::Value::String(name.clone()));
+    meta.insert(APPROVED_DEFAULT_PRESET_FIELD.into(), serde_json::Value::Bool(true));
+    params
+}
+
 /// What runs a control message (start, resume or stop a session). The hub grants nothing: a hook
 /// first checks the stamped sender daemon against the owner's `meshRelay.controlFrom` allowlist,
 /// then acts through requests on a connection of `Origin::Peer` (`server::mesh_relay::
@@ -893,7 +958,9 @@ async fn run_control(
             {
                 return Some(Ack::refused("mesh control start cannot forward to another daemon"));
             }
-            capped_start(without_unsent_answer(params, message), cap)
+            let params = without_unsent_answer(params, message);
+            let params = approved_default_preset(hub, params, cap).await;
+            capped_start(params, cap)
         }
         "resume" => serde_json::json!({}),
         // A peer's stop carries its closer's reason and outcome and the host the hub stamped
@@ -1409,6 +1476,59 @@ mod tests {
             capped_start(start(json!("approve-all")), P::ApproveAll),
             start(json!("approve-all"))
         );
+    }
+
+    #[tokio::test]
+    async fn a_default_mesh_start_uses_the_receiving_daemons_approved_preset() {
+        use crate::config::{PermissionPolicy, Preset, StoreMode};
+
+        let mut config: crate::config::Config = serde_json::from_value(json!({
+            "harnesses": {"fake": {"argv": ["fake"], "family": "fake"}},
+            "defaultHarness": "fake",
+            "permissionPolicy": "ask"
+        }))
+        .unwrap();
+        config.store.mode = StoreMode::Memory;
+        let mut preset = Preset {
+            harness: "fake".into(),
+            model: None,
+            effort: None,
+            policy: None,
+            env: Default::default(),
+            args: Vec::new(),
+            system_prompt_sha256: None,
+            description: None,
+            mode: Some("auto".into()),
+            mode_approval: None,
+        };
+        preset.apply_mode_approval(Some(true)).unwrap();
+        config.presets.insert("fake".into(), preset);
+        let store =
+            crate::store::open(&config.store, std::path::Path::new("/nonexistent")).unwrap();
+        let hub = Hub::new(config, store);
+
+        let params = approved_default_preset(
+            &hub,
+            json!({"cwd": "/work", "_meta": {"acpmux": {}}}),
+            PermissionPolicy::Ask,
+        )
+        .await;
+        assert_eq!(params["_meta"]["acpmux"]["preset"], "fake");
+        assert_eq!(params["_meta"]["acpmux"][APPROVED_DEFAULT_PRESET_FIELD], true);
+        let start = crate::hub::start_gate::StartMode::of(&params, &hub.config.read().await)
+            .expect("approved preset supplies the mode");
+        assert_eq!(start.mode, "auto");
+        assert!(start.preset_approved);
+
+        let explicit = json!({
+            "cwd": "/work",
+            "_meta": {"acpmux": {"preset": "caller-choice"}}
+        });
+        assert_eq!(
+            approved_default_preset(&hub, explicit.clone(), PermissionPolicy::Ask).await,
+            explicit
+        );
+        hub.shutdown_all().await;
     }
 
     #[test]
