@@ -20,6 +20,7 @@
 mod colors;
 pub mod contrast;
 pub mod motion;
+pub mod frame_tone;
 pub mod render;
 pub mod slots;
 pub mod two_tone;

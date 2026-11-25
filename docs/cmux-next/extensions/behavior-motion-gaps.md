@@ -15,7 +15,7 @@ the profiles lane goes here first, then into a PR.
 | Surface | Expressible today? | Missing piece |
 | --- | --- | --- |
 | A prop change animates (spring, timed curve, design-token springs) | Yes: `.animation(m)`, runtime 1.4.0, web and native renderers | Done here: one Rust contract `cmux.motion/1` (`cmux-app-host/src/motion.rs`, `cmux_extension_sdk::motion`) normalizes it on every batch, so both renderers read the same value |
-| Enter and exit transitions of a node | Yes: `.transition(opacity slide scale move pop)` | A transition takes no timing: it always uses the renderer's own spring. A `{kind, motion}` form would let a profile match another app's panel timing |
+| Enter and exit transitions of a node | Yes: `.transition(opacity slide scale move pop)` | Done here: `.transition({kind, motion})` times the move and fade with a motion token, spring or timed curve on both renderers; `cmux.motion/1` sends a transition without a motion as the bare kind, so it keeps the renderer's own springs |
 | Looping effects (pulse, breathe, spin, ...) | Yes: `.loop({effect, period, amount})` | The native renderer clamps `amount` to [0, 10], so a counterclockwise `spin` (negative amount, as ABI.md says) turns clockwise on macOS. Fix it in `Motion+AppScene.swift` |
 | Particles and choreographed glyphs | Yes: `Particles({preset})`, `cmux.particles/1` (validated in Rust) | None found |
 | Named motion presets shared by an app's nodes | Partly: the look carries them (a theme file's `motion.presets`, `{duration, bounce}` springs read and clamped in Rust by `cmux_extension_sdk::motion_profile`); an extension still passes a JS constant to `.animation()` | `.animation("presetName")` does not resolve a look preset yet: each app host runs in its own process and does not read the active look. `MotionProfile::preset_animation` already gives a preset's `cmux.motion/1` spring for that step |
@@ -53,7 +53,7 @@ not written its gaps down. When the lane that adopts it finds one, it adds a row
    applies the answer to its chrome, and `.animation("presetName")` resolves a look preset.
 5. `cmux.pane/1` open arguments and results, so a pane can return a value (panel flows).
 6. Scene state that survives a hot reload.
-7. Timed transitions (`{kind, motion}`).
+7. Timed transitions (`{kind, motion}`) (landed).
 
 ## The `motion` block (for agents)
 
