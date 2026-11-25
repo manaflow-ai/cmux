@@ -172,7 +172,9 @@ final class LandscapeUITests: XCTestCase {
     func testE_WideMarkdownTableScrollsSideways() {
         let app = XCUIApplication()
         app.launchEnvironment["CMUX_MOBILE_MOCK_AUTH"] = "1"
-        app.launchArguments += ["-cmuxMobile.setupComplete", "YES", "-cmux-mobile-demo", "disclosure-chat"]
+        // The keyboard closes on send, so nothing has to drag the transcript to put it away.
+        app.launchArguments += ["-cmuxMobile.setupComplete", "YES", "-cmux-mobile-demo", "disclosure-chat",
+                                "-cmuxMobile.settings.dismissKeyboardAfterSend", "YES"]
         app.launch()
         defer { app.terminate() }
 
@@ -192,8 +194,9 @@ final class LandscapeUITests: XCTestCase {
         let first = app.staticTexts["mac-studio"].firstMatch
         XCTAssertTrue(first.waitForExistence(timeout: 30), "the table's cells arrive\n\(app.debugDescription)")
         _ = app.buttons["Stop"].firstMatch.waitForNonExistence(timeout: 20)
-        // Dismiss the keyboard so the table has the screen.
-        app.swipeDown()
+        // No swipeDown here: a drag down on the transcript scrolls it back to older messages
+        // (step 224a96b3 landed on the subagent table), and the list drops the off-screen
+        // table's cells from the tree, so its header was never found.
         settle(0.5)
 
         XCUIDevice.shared.orientation = .landscapeLeft
@@ -207,8 +210,11 @@ final class LandscapeUITests: XCTestCase {
 
         let header = app.staticTexts["Run"].firstMatch
         let end = app.staticTexts["END-COLUMN"].firstMatch
+        // The turn may leave the list above its end: back to the newest message.
+        let jump = app.buttons["Jump to bottom"].firstMatch
+        if !header.waitForExistence(timeout: 3), jump.exists { jump.tap(); settle(1.0) }
         XCTAssertTrue(header.waitForExistence(timeout: 10), "the table's first header\n\(app.debugDescription)")
-        if !header.isHittable { app.swipeUp() }
+        if !header.isHittable, jump.exists { jump.tap(); settle(1.0) }
         let width = app.windows.firstMatch.frame.width
         let headerBefore = header.frame
         let endBefore = end.exists ? end.frame : .null
