@@ -152,7 +152,7 @@ impl Hub {
                     text: text.to_owned(),
                     details: None,
                     fire: false,
-                    tool_notice: tool_notice_of(Some(provenance)),
+                    tool_notice: notice_of(Some(provenance), text),
                     noticed: false,
                     read: false,
                     answer: None,
@@ -197,8 +197,16 @@ fn foldable(m: &Message<'_>) -> bool {
     !m.has_session && (m.fire || m.class.urgent())
 }
 
+/// A notice folds by its condition (`notice_read::condition_key`): a repeat whose counts moved
+/// ("9 queued", then "12 queued") is the same alarm, so it starts no new turn. A message with no
+/// notice folds only when repeated word for word.
 fn fold_key(m: &Message<'_>) -> String {
-    format!("{}\n{}\n{}", m.from.trim(), m.title.unwrap_or("").trim(), m.text.trim())
+    match m.title.map(str::trim).filter(|t| !t.is_empty()) {
+        Some(title) => {
+            format!("{}\n{}", m.from.trim(), crate::notice_read::condition_key("", title))
+        }
+        None => format!("{}\n\n{}", m.from.trim(), m.text.trim()),
+    }
 }
 
 /// The verdict on `m` at `now` (Unix ms); `None` when it cannot be read: it wakes as before.

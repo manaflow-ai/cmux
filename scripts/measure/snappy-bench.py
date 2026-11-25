@@ -12,6 +12,13 @@ watches every frame:
   shifts_per_send     layout shifts from the keydown to the first token's frame      (target: 0)
   send_first_token    Enter keydown to the first frame with reply text (the mock's reply: the page's own floor)
   chat_switch_paint   a chat's workspace shown to the first frame with its rows     (target: under 16 ms)
+  shifts_per_transition  one counter of layout shifts over every turn transition    (target: 0)
+                      (shadow-leo for Leo, 2026-11-25: "count layout shifts across every turn transition (send, steer,
+                      compaction) in one counter"; Leo: "layout shifts and awkward looking animations"): each send,
+                      each mid-turn send (--transitions of them: Enter while a turn runs, a steer where the agent
+                      steers, else the queued prompt until its row paints and 1 s after) and each compaction
+                      (--transitions /compact runs, until the note ends and 0.5 s after)
+                      and each prompt sent while a /compact runs (until its row paints and 1 s after)
 Duress (Leo's rule: test under duress):
   none          a 4-turn chat
   long-session  a 1000-turn chat (the mock's loadSeed)
@@ -50,7 +57,23 @@ def pct(values, q):
     return round(values[lo] + (values[hi] - values[lo]) * (k - lo), 1)
 
 
-def rows_of(sends, switches):
+def transition_rows(sends, transitions):
+    """The one shift counter: every send's shifts and every other transition's (mid-turn sends, compactions)."""
+    counted = lambda rows: [r.get("shifts") for r in rows if not r.get("error") and isinstance(r.get("shifts"), (int, float))]
+    every = counted(sends) + counted(transitions)
+    out = {
+        "transitions": len(every),
+        "failed_transitions": sum(1 for t in transitions if t.get("error")),
+        "shifts_per_transition_mean": round(sum(every) / len(every), 3) if every else None,
+        "shifts_per_transition_max": max(every) if every else None,
+    }
+    for kind in ("mid-turn", "compaction", "mid-compaction"):
+        some = counted([t for t in transitions if t.get("kind") == kind])
+        out[f"shifts_per_{kind.replace('-', '_')}_mean"] = round(sum(some) / len(some), 3) if some else None
+    return out
+
+
+def rows_of(sends, switches, transitions=()):
     """The snappy-bench/v1 rows of a set of sends (the probe's results, or the perf watch's send spans)."""
     ok = [s for s in sends if not s.get("error")]
     paint = [s.get("userPaintMs") for s in ok]
@@ -68,6 +91,7 @@ def rows_of(sends, switches):
         "shifts_per_send_max": max(shifts) if shifts else None,
         "send_first_token_p50_ms": pct(token, 0.5),
         "send_first_token_p95_ms": pct(token, 0.95),
+        **transition_rows(ok, transitions),
         "chat_switch_paint_p50_ms": pct(switch, 0.5),
         "chat_switch_paint_p95_ms": pct(switch, 0.95),
         "chat_switches": len(switch),
@@ -90,6 +114,9 @@ def cron_rows(reports):
         row(base + "send_first_token", r["send_first_token_p50_ms"], r["send_first_token_p95_ms"], "ms", None, 20.0)
         row(base + "chat_switch_paint", r["chat_switch_paint_p50_ms"], r["chat_switch_paint_p95_ms"], "ms", FRAME_MS, 4.0)
         row(base + "failed_sends", r["failed_sends"], r["failed_sends"], "sends", 0, 0.5)
+        if r.get("transitions"):
+            row(base + "shifts_per_transition", r["shifts_per_transition_mean"], r["shifts_per_transition_max"], "shifts", 0, 0.5)
+            row(base + "failed_transitions", r["failed_transitions"], r["failed_transitions"], "transitions", 0, 0.5)
     return out
 
 
@@ -100,10 +127,11 @@ def git_sha():
         return None
 
 
-def report_of(duress, surface, mode, sends, switches, **extra):
+def report_of(duress, surface, mode, sends, switches, transitions=(), **extra):
     return {"schema": SCHEMA, "at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()), "sha": git_sha(),
             "host": socket.gethostname().split(".")[0], "platform": "mac", "surface": surface, "mode": mode,
-            "duress": duress, "rows": rows_of(sends, switches), "sendList": sends, "switchList": switches, **extra}
+            "duress": duress, "rows": rows_of(sends, switches, transitions), "sendList": sends, "switchList": switches,
+            "transitionList": list(transitions), **extra}
 
 
 def summarize(path, since_s=None):
@@ -151,6 +179,7 @@ parser.add_argument("--out")
 parser.add_argument("--duress", default=",".join(DURESS))
 parser.add_argument("--sends", type=int, default=12)
 parser.add_argument("--switches", type=int, default=8)
+parser.add_argument("--transitions", type=int, default=4, help="mid-turn sends and compactions, each, per duress")
 parser.add_argument("--tabs", type=int, default=12)
 parser.add_argument("--cpu-load", action="store_true", help="recorded only: the fleet entry starts the load")
 parser.add_argument("--summarize", metavar="PERF_WATCH_JSONL")
@@ -288,6 +317,69 @@ def send(page, marker):
     return page.js("window.__snappyProbe.result()") or {"error": "no result"}
 
 
+def mid_turn(page, marker):
+    """Enter while a turn runs: a turn started (its first token seen), then `marker` sent into it, its shifts watched
+    from the Enter to 1 s after `marker`'s row paints (a steer's row now, a queued prompt's when it dequeues)."""
+    send(page, f"{marker}-turn")
+    page.clear()
+    page.focus_end()
+    page.type(marker)
+    time.sleep(0.25)
+    page.js("window.__snappyProbe.watchArm('mid-turn')")
+    page.enter()
+    painted = wait(lambda: page.js(f"window.__snappyProbe.seen({json.dumps(marker)})"), 30, step=0.1)
+    time.sleep(1.0)
+    out = page.js("window.__snappyProbe.watchResult()") or {"error": "no result"}
+    if not painted:
+        out["error"] = "the mid-turn prompt's row never painted"
+    return out
+
+
+def compaction(page):
+    """/compact: its shifts from the Enter to 0.5 s after its note ends. A first Return that picks the command in the
+    slash menu leaves `/compact` in the composer: a second sends it."""
+    page.focus_end()
+    page.type("/compact")
+    time.sleep(0.25)
+    page.js("window.__snappyProbe.watchArm('compaction')")
+    page.enter()
+    if not wait(lambda: page.running() or page.js("window.__snappyProbe.compacted()"), 1.5, step=0.1):
+        page.enter()
+    ended = wait(lambda: page.js("window.__snappyProbe.compacted()"), 30, step=0.1)
+    time.sleep(0.5)
+    out = page.js("window.__snappyProbe.watchResult()") or {"error": "no result"}
+    if not ended:
+        out["error"] = "no compaction note ended"
+    return out
+
+
+def mid_compaction(page, marker):
+    """A prompt sent while /compact runs (shadow-leo for Leo: "a message sent mid-compaction shifts layout"): /compact
+    sent, its note seen running, then `marker` sent into it; shifts from that Enter to 1 s after `marker`'s row paints."""
+    page.focus_end()
+    page.type("/compact")
+    time.sleep(0.25)
+    page.enter()
+    if not wait(lambda: page.running(), 1.5, step=0.05):
+        page.enter()
+    # A running compaction draws as the turn's live line ("Compacting conversation…", Thinking.tsx data-compacting),
+    # a note only once a steer or reply comes after it.
+    running = wait(lambda: page.js("document.querySelector('[data-compacting], .cv-compaction[data-state=running]') !== null"),
+                   5, step=0.03)
+    page.focus_end()
+    page.type(marker)
+    page.js("window.__snappyProbe.watchArm('mid-compaction')")
+    page.enter()
+    painted = wait(lambda: page.js(f"window.__snappyProbe.seen({json.dumps(marker)})"), 30, step=0.1)
+    time.sleep(1.0)
+    out = page.js("window.__snappyProbe.watchResult()") or {"error": "no result"}
+    if not running:
+        out["error"] = "no compaction note ran"
+    elif not painted:
+        out["error"] = "the prompt sent mid-compaction never painted"
+    return out
+
+
 def switch_once(st, page, here, there):
     """`there`'s workspace shown, then `here`'s again: `here`'s page from turning visible to its first frame with rows."""
     st.show(there)
@@ -351,6 +443,24 @@ try:
                 page.clear()
             except RuntimeError as error:
                 say("after the send:", str(error)[:160])
+        transitions = []
+        for index in range(opts.transitions):
+            for kind, run in (("mid-turn", lambda: mid_turn(page, f"snappy-{duress}-mid-{index}")), ("compaction", lambda: compaction(page)),
+                              ("mid-compaction", lambda: mid_compaction(page, f"snappy-{duress}-midc-{index}"))):
+                try:
+                    row = run()
+                except RuntimeError as error:
+                    row = {"kind": kind, "error": str(error)[:300]}
+                    page = agent_page(app, pane)
+                    page.js(PROBE)
+                row["kind"] = kind
+                transitions.append(row)
+                say(json.dumps(row))
+                try:
+                    page.idle()
+                    page.clear()
+                except RuntimeError as error:
+                    say(f"after the {kind}:", str(error)[:160])
         switches = []
         if opts.switches:
             other = other or chat(app, st)[0]
@@ -363,7 +473,7 @@ try:
         if duress == "offline":
             page.devtools("Network.emulateNetworkConditions", {"offline": False, "latency": 0, "downloadThroughput": -1,
                                                                "uploadThroughput": -1})
-        report = report_of(duress, "local", "active", sends, switches, app=os.path.basename(opts.app), **extra)
+        report = report_of(duress, "local", "active", sends, switches, transitions, app=os.path.basename(opts.app), **extra)
         reports.append(report)
         say(duress, json.dumps(report["rows"]))
 finally:
