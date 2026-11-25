@@ -161,7 +161,11 @@ impl Hub {
     /// The replica, opened on first use beside the store.
     pub fn synced(&self) -> &Synced {
         self.synced.get_or_init(|| {
-            let root = self.store.session_path("_").and_then(|p| p.parent().map(Path::to_path_buf));
+            // `<home>/sessions/_` -> `<home>`: beside the sessions folder, never inside it.
+            let root = self
+                .store
+                .session_path("_")
+                .and_then(|p| p.parent().and_then(Path::parent).map(Path::to_path_buf));
             Synced::open(root.map(|r| r.join(FILE)))
         })
     }
