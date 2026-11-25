@@ -290,6 +290,12 @@ jobs:
         if: ${{ !cancelled() && matrix.group == 'ci' }}
         run: python3 tests/test_egress_gate.py
 
+      # Every egress gate site has a test that sends planted secrets through the real client to cmux-egress's
+      # capture server and finds them in no request (tests/egress_seeded.json; its todo count may only go down).
+      - name: Validate every egress gate site has a seeded-secret test
+        if: ${{ !cancelled() && matrix.group == 'ci' }}
+        run: python3 tests/test_egress_seeded.py
+
       - name: Validate the PR perf section check
         if: ${{ !cancelled() && matrix.group == 'ci' }}
         run: python3 tests/test_pr_perf_section_check.py
@@ -354,6 +360,14 @@ jobs:
       - name: Require the R2 public URL wherever the R2 cache actions run
         if: ${{ !cancelled() && matrix.group == 'ci' }}
         run: python3 tests/test_ci_r2_cache_public_url.py
+
+      # scripts/ci/vm-image-qcow2.sh (RFD 0100 step 6): a tiny raw image and rootfs tarball become a qcow2 whose
+      # sha256 file verifies. qemu-img is not on every runner image; the test skips its conversions without it.
+      - name: Validate the VM image qcow2 export
+        if: ${{ !cancelled() && matrix.group == 'ci' }}
+        run: |
+          command -v qemu-img >/dev/null || timeout 120 sudo -n apt-get install -y -qq qemu-utils >/dev/null 2>&1 || true
+          python3 tests/test_ci_vm_image_qcow2.py
 
       - name: Validate macOS jobs select a pinned Xcode
         if: ${{ !cancelled() && matrix.group == 'ci' }}
@@ -568,12 +582,6 @@ jobs:
         if: ${{ !cancelled() && matrix.group == 'preflight' }}
         run: python3 tests/test_ci_test_execution_registry.py
 
-      - name: Validate dev-fleet warm-slot lifecycle
-        if: ${{ !cancelled() && matrix.group == 'preflight' }}
-        run: |
-          python3 tests/test_dev_fleet_warm_slot.py
-          python3 tests/test_benchmark_dev_fleet_warm_slots.py
-
       - name: Test review fabric contracts
         if: ${{ !cancelled() && matrix.group == 'preflight' }}
         run: python3 tests/test_review_fabric.py
@@ -755,23 +763,15 @@ jobs:
         if: ${{ !cancelled() && matrix.group == 'ci' }}
         run: ./tests/test_testbox_target_prune.sh
 
-      - name: The retired Testbox approve helper approves nothing
-        if: ${{ !cancelled() && matrix.group == 'ci' }}
-        run: ./tests/test_testbox_approve.sh
-
       - name: Validate Testbox setup identity marker
         if: ${{ !cancelled() && matrix.group == 'ci' }}
         run: ./tests/test_testbox_setup_identity.sh
-
-      - name: The Testbox demo stops its box and cancels its run on every failure
-        if: ${{ !cancelled() && matrix.group == 'ci' }}
-        run: ./tests/test_testbox_demo_cleanup.sh
 
       # -x follows each `# shellcheck source=` (repo-root relative), so a test that sources
       # scripts/cmux-next/tests/lib/git-fixture.sh lints with it instead of failing SC1091.
       - name: Lint the Testbox lane helpers
         if: ${{ !cancelled() && matrix.group == 'ci' }}
-        run: shellcheck -x scripts/blacksmith-bounded-command.sh scripts/blacksmith-cmux-tui-testbox-stage.sh scripts/blacksmith-testbox-cleanup.sh scripts/blacksmith-testbox-keepalive.sh scripts/blacksmith-testbox-busy.sh tests/test_testbox_keepalive_busy.sh scripts/blacksmith-testbox-target-prune.sh scripts/blacksmith-testbox-release.sh tests/test_testbox_target_prune.sh scripts/ci/install-actionlint.sh tests/test_ci_actionlint_download.sh tests/test_testbox_setup_identity.sh scripts/blacksmith-testbox-demo.sh scripts/blacksmith-testbox-approve.sh tests/test_testbox_approve.sh tests/test_testbox_demo_cleanup.sh
+        run: shellcheck -x scripts/blacksmith-bounded-command.sh scripts/blacksmith-cmux-tui-testbox-stage.sh scripts/blacksmith-testbox-cleanup.sh scripts/blacksmith-testbox-keepalive.sh scripts/blacksmith-testbox-busy.sh tests/test_testbox_keepalive_busy.sh scripts/blacksmith-testbox-target-prune.sh tests/test_testbox_target_prune.sh scripts/ci/install-actionlint.sh tests/test_ci_actionlint_download.sh tests/test_testbox_setup_identity.sh
 
       - name: Test the actionlint downloader without a network outage
         if: ${{ !cancelled() && matrix.group == 'ci' }}

@@ -12,6 +12,7 @@
 //! - [`link_stat`]: the phone's path report (`link_stat` on the signaling socket).
 //! - [`path_report`]: one log line per path change and per 10 s (path, srtt).
 //! - [`names`]: the link's capability names, declared once (PROTOCOL.md "Capabilities").
+//! - [`local`], [`local_hub`]: nearby links with no internet (mDNS ad policy, the Mac's local hub).
 //! - [`reconnect`]: the reconnect decision as one pure step (a port of `LinkMachine.swift`).
 
 pub mod api;
@@ -20,12 +21,16 @@ pub mod class_queue;
 pub mod classes;
 pub mod dial;
 pub mod frame;
+pub mod hub;
 pub mod hybrid;
 pub mod keepalive;
 pub mod key_echo;
 pub mod link;
 pub mod link_stat;
 mod liveness;
+pub mod local;
+pub mod local_dns;
+pub mod local_hub;
 pub mod media;
 pub mod names;
 pub mod path_report;

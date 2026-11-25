@@ -390,6 +390,8 @@ const KNOWN_CODES: &[&str] = &[
     "mesh.forbidden",
     "mesh.bad_request",
     "mesh.unknown_recipient",
+    // A message to a machine the hub revoked: gone for good (`hub/transfer_pull.rs`).
+    "mesh.recipient_revoked",
     "mesh.ambiguous",
     "mesh.conflict",
     "mesh.idempotency_conflict",

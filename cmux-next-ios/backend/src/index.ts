@@ -23,12 +23,14 @@ import { hasIcon, mergePrefs, openStore, PUSH_KINDS, type Device, type Prefs, ty
 import { StoreSchemaError } from "./store-mysql.ts"
 import { userHubName, type Attachment, type HubOwner, type Ingress } from "./team-hub.ts"
 import { RELAY_SUBPROTOCOL, relayRoomName } from "./link-relay.ts"
+import { HUB_SUBPROTOCOL, hubRoomName } from "./hub-relay.ts"
 import { isRegion, netcheckRoomName, parseNetcheck, relayPlacement } from "./placement.ts"
 import { Timing, timingFor } from "./timing.ts"
 import { WorkerEntrypoint } from "cloudflare:workers"
 
 export { TeamHub } from "./team-hub.ts"
 export { LinkRelay } from "./link-relay.ts"
+export { HubRelay } from "./hub-relay.ts"
 export { ConnectivityAlertDesk } from "./connectivity-alerts.ts"
 
 const CLOUD_MACHINE = /^vm_[a-z0-9]{20}$/
@@ -438,6 +440,32 @@ const routes = async (req: Request, env: Env, ctx: ExecutionContext): Promise<Re
     // Echo only cmux-relay.v1; the bearer subprotocol is never selected (it would echo the token back).
     if ((req.headers.get("sec-websocket-protocol") ?? "").split(",").some((p) => p.trim() === RELAY_SUBPROTOCOL)) headers.set("x-cmux-relay-subprotocol", "1")
     return t.span("relay", room.fetch("https://link-relay/join", { headers }))
+  }
+
+  const hubPath = path.match(/^\/v1\/hub\/([^/]+)$/)
+  if (hubPath && method === "GET") {
+    // The three-way hub (RFD 0142 R6, PROTOCOL.md "Three-way hub"): the session's sources (the owner's Mac and VM,
+    // both registered as kind mac) upload, the owner's viewers download the newest copy once. Only the owner's own
+    // registered devices join; everything past the clear header is sealed end to end, so the room is per owner.
+    if (req.headers.get("upgrade")?.toLowerCase() !== "websocket") return fail(426, "upgrade_required", "expected a WebSocket upgrade")
+    if (env.HUB_RELAY_MODE === "off") return fail(503, "hub_off", "the cmux hub is turned off")
+    const sessionId = decodeURIComponent(hubPath[1]!).toLowerCase()
+    const deviceId = (url.searchParams.get("deviceId") ?? "").toLowerCase()
+    const role = url.searchParams.get("role") ?? ""
+    if (!UUID.test(sessionId) || !UUID.test(deviceId)) throw new HttpError(400, "bad_request", "sessionId and deviceId must be UUIDs")
+    if (role !== "mac" && role !== "vm" && role !== "viewer") throw new HttpError(400, "bad_request", "role must be mac, vm or viewer")
+    let kind = await t.span("hub", userHub(env, caller).hubDevice(who, deviceId))
+    if (!kind) {
+      const device = await withStore(env, ctx, (s) => s.getDevice(space, deviceId))
+      if (device && device.ownerUserId === me) kind = device.kind === "mac" ? "mac" : "phone"
+    }
+    if (!kind) throw new HttpError(403, "not_owner", "register this device first")
+    if (role !== "viewer" && kind !== "mac") throw new HttpError(403, "not_a_source", "only a Mac or VM device can be a hub source")
+    const room = env.HUB_RELAY.get(env.HUB_RELAY.idFromName(hubRoomName(me, space, sessionId)), caller.hint ? { locationHint: caller.hint } : undefined)
+    const headers = new Headers({ upgrade: "websocket", "x-cmux-hub-device": deviceId, "x-cmux-hub-role": role, "x-cmux-hub-session": sessionId })
+    // The capability handshake: a hub client offers cmux-hub.v1 and this relay echoes it (never the bearer entry).
+    if ((req.headers.get("sec-websocket-protocol") ?? "").split(",").some((p) => p.trim() === HUB_SUBPROTOCOL)) headers.set("x-cmux-hub-subprotocol", "1")
+    return t.span("relay", room.fetch("https://hub-relay/join", { headers }))
   }
 
   if (path === "/v1/me/bootstrap" && method === "POST") {

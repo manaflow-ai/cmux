@@ -1808,6 +1808,14 @@ a Return that fails after the text was written says `submit failed after the tex
 both, with `expect_foreground` and `paste:true`, so a reply typed where the screen is not in view
 never answers an approval or question, a running turn or a new agent session.
 
+With `send-typed-submit-v1`, a `submit` after typed text (`paste:false`, a non-empty `text` or `bytes`)
+writes Return 250 ms after the text, still in the same request; after a paste the PTY writer's paste
+pacing holds Return until the program read it, and a bare `submit` writes Return at once. The gap is
+past an agent TUI's paste-burst window (Codex joins unbracketed characters arriving within about
+120 ms into one paste, and took a Return right behind typed text for a newline). The phone sends a
+one-line draft for a full-screen program this way, as one keyed request, instead of the text and a
+separate Return. A server without the capability writes Return right after the text.
+
 With `send-key-v1`, `key` names this input (the phone uses a UUID per batch). The daemon remembers
 the keys it applied, daemon-wide, for 10 minutes (at most the last 1024); a `send` with a key it
 already applied returns the same success reply and writes nothing, with `text` or `bytes`, `surface`
@@ -9572,7 +9580,7 @@ Protocol v7 adds `mode`. `mode:"bytes"`, including the default when the field is
 
 Servers advertising the `attach-initial-size` capability accept paired `cols` and `rows`. The pair records the attaching client's initial viewer-size claim before initial state is generated. Supplying only one dimension is an error. Clients must not send either field to a server that omits the capability, including an older protocol-v7 server.
 
-Servers advertising `terminal-resume-v1` keep a bounded (4 MiB) per-terminal output ring keyed by a monotonic byte offset, plus an opaque `generation` string that changes whenever the stream is not a pure byte continuation (terminal recreated, resize, color change). A client that sets `terminal-resume-v1` in `set-client-info`, or sends `resume_offset`, receives `offset` (the stream position after the frame) and `generation` on `vt-state`, `output`, `resized`, and `colors-changed` frames. To resume after a drop the client re-attaches with `resume_offset` and `resume_generation` (both or neither; otherwise an error). If the generation matches and the range is still held, the response carries `resume:"exact"` and `through`, no `vt-state` is sent and no reset is needed: the first event is an `output` frame with `resume:"exact"` holding exactly the bytes after `resume_offset` (possibly empty). Otherwise the reply is the normal attach (`vt-state` with full replay) plus `resume:"gap"`, and the client replaces its mirror as today. Servers without the capability ignore nothing: clients must not send the fields to them.
+Servers advertising `terminal-resume-v1` keep a bounded (4 MiB) per-terminal output ring keyed by a monotonic byte offset, plus an opaque `generation` string that changes whenever the stream is not a pure byte continuation (terminal recreated, resize, color change). A client that sets `terminal-resume-v1` in `set-client-info`, or sends `resume_offset`, receives `offset` (the stream position after the frame) and `generation` on `vt-state`, `output`, `resized`, and `colors-changed` frames. To resume after a drop the client re-attaches with `resume_offset` and `resume_generation` (both or neither; otherwise an error). If the generation matches and the range is still held, the response carries `resume:"exact"` and `through`, no `vt-state` is sent and no reset is needed: the first event is an `output` frame with `resume:"exact"` holding exactly the bytes after `resume_offset` (possibly empty). Otherwise the reply is the normal attach (`vt-state` with full replay) plus `resume:"gap"`, and the client replaces its mirror as today. Servers without the capability ignore nothing: clients must not send the fields to them. Servers advertising `terminal-resume-bounded-v1` also take `resume_max_bytes` with `resume_offset`: when more bytes than that are missing the reply is the `"gap"` attach (one screen replay) instead of an `"exact"` one, so a client back from a long time away is not sent megabytes of output it will never show. A client sets it to the size of its last replay, so it always gets the cheaper of the two.
 
 Servers advertising `attach-identity-v1` accept paired `expected_generation`
 and `expected_terminal_id`. Both must match before any stream or lease is
@@ -9796,6 +9804,7 @@ Params:
 | `rows` | `uint16` | default null | `attach-initial-size` capability; paired with `cols`, clamped to at least 1 |
 | `resume_offset` | `uint64` | default null | `terminal-resume-v1`; paired with `resume_generation`; PTY bytes mode only |
 | `resume_generation` | `string` | default null | `terminal-resume-v1`; the `generation` the client last saw on an output frame |
+| `resume_max_bytes` | `uint64` | default null | `terminal-resume-bounded-v1`; with `resume_offset`: an exact resume only when at most this many bytes are missing, else the replay with `resume:"gap"` |
 | `snapshot_local_history` | `bool` | default false | `terminal-snapshot-local-history-v1`; only with `snapshot` |
 | `snapshot_images` | `bool` | default false | Ignored: the former `terminal-snapshot-images-v1`; GHOSTSNP carries the images |
 | `replay_history_rows` | `uint32` | default null (whole history) | `attach-replay-history-rows-v1`; bytes mode without `snapshot` |
@@ -11626,7 +11635,7 @@ acpmux, or `transfer.incomplete`) also forgets the receive.
 
 ### agent-transfer-begin
 
-`{id, cmd:"agent-transfer-begin", surface, interrupt?, ask_first?}` freezes the chat of
+`{id, cmd:"agent-transfer-begin", surface, interrupt?, ask_first?, begin_token?}` freezes the chat of
 an agent tab of this store (the session comes from the tab's store record,
 as `agent-session-attach`; any other surface is `agent_transfer.unknown_tab`)
 and answers `{transfer_id, source_session, manifest}` (`source_session` as
@@ -11656,6 +11665,16 @@ A begin of a chat that is already in a move is `agent_transfer.refused`
 (acpmux's `transfer.moving`) with `error_details: {transfer_id}`, the id of
 that move, so a pump that lost its begin answer can commit or abort the move
 it began. Only that refusal carries details.
+
+`begin_token` (`agent-transfer-begin-token-v1`; 1 to 128 of `[A-Za-z0-9_-]`,
+else `agent_transfer.bad_request`) is the client's own mark for this begin.
+acpmux keeps it beside the move's bundle, which a restart keeps while the
+move runs, and the `transfer.moving` refusal of a later begin hands it back
+as `error_details: {transfer_id, begin_token}`. A pump that lost its begin
+answer and recorded the token first can tell the frozen move is its own (it
+learned no transfer id, so it asked no target to receive it) and abort it at
+once instead of waiting out the source's lease (`cmux link agent move`). A
+move begun without a token, or by an older acpmux, hands back none.
 
 ### agent-transfer-source
 

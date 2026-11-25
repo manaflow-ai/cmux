@@ -22,6 +22,7 @@ import { addListener, createListenerTable, githubChangeOf, GithubPushCoalescer, 
 import { github, githubScopesOf, ProviderError, providerForOp, providers, scopesToRequest, type Credential, type Http } from "./integrations/providers.ts"
 import { OwnerDO, type ReadResult } from "./owner-do.ts"
 import type { DeliverResult, TargetItem } from "./do-outbox.ts"
+import { claimGitHubDelivery, createGitHubDeliveryTable, finishGitHubDelivery } from "./ingress/github-deliveries.ts"
 import { isAgentGatewayPrincipal, resolveConnectionPrincipal } from "./agent-gateway-principal.ts"
 
 export type { ExternalReply, ProviderEvent } from "./integrations/external.ts"
@@ -73,6 +74,7 @@ export class ConnectionDO extends OwnerDO<ConnectionsState> {
     ghUser.createGithubUserTokenTable(sql)
     createListenerTable(sql)
     createConfigurePageTable(sql)
+    createGitHubDeliveryTable(sql)
   }
 
   protected read(state: ConnectionsState, op: string, _params: unknown, principal: Principal): ReadResult {
@@ -602,16 +604,29 @@ export class ConnectionDO extends OwnerDO<ConnectionsState> {
 
   /**
    * A verified provider webhook for one of this team's connections. Inactive
-   * connections drop it. Dedupe happens in the SchedulerDO per trigger
-   * (`deliver:<automation>:<trigger>:<connection>:<delivery>`), so a failed
-   * forward can be redelivered by the provider.
+   * connections drop it. A GitHub delivery runs once per connection by its
+   * `X-GitHub-Delivery` GUID, with the body digest as the replay check
+   * (github-deliveries.ts); a failed attempt stays open, so GitHub's redelivery
+   * runs again. Dedupe of what already ran happens in the SchedulerDO per trigger
+   * (`deliver:<automation>:<trigger>:<connection>:<delivery>`).
    */
-  async ingest(entity: string, connection: string, event: ProviderEvent): Promise<{ status: "forwarded" | "dropped"; runs: number }> {
+  async ingest(entity: string, connection: string, event: ProviderEvent, digest?: string): Promise<{ status: "forwarded" | "dropped" | "duplicate"; runs: number }> {
     const bound = this.boundRow()
     if (!bound || bound.entity !== entity) return { status: "dropped", runs: 0 }
     const engine = this.bind(entity)
     const arrived = engine.currentState.connections[connection]
     if (!arrived || arrived.account?.key !== event.account) return { status: "dropped", runs: 0 }
+    if (event.provider !== "github" || !digest) return this.ingestArrived(entity, connection, arrived, event)
+    const sql = this.ctx.storage.sql
+    const claim = claimGitHubDelivery(sql, connection, event.delivery_id, digest, Date.now())
+    if (claim === "duplicate" || claim === "replayed") return { status: "duplicate", runs: 0 }
+    const r = await this.ingestArrived(entity, connection, arrived, event)
+    finishGitHubDelivery(sql, connection, event.delivery_id)
+    return r
+  }
+
+  private async ingestArrived(entity: string, connection: string, arrived: Connection, event: ProviderEvent): Promise<{ status: "forwarded" | "dropped"; runs: number }> {
+    const engine = this.bind(entity)
     // The App installation's own lifecycle reaches a connection in any live status, so an unsuspend
     // restores the connection its suspension marked; every other event needs an active connection.
     if (event.provider === "github") this.githubInstallationEvent(arrived, event)

@@ -142,7 +142,6 @@ on:
       - "cmux-tui/crates/acpmux/docs/send-admission.md"
       - "cmux-tui/crates/acpmux/docs/tailnet.md"
       - "cmux-tui/crates/acpmux/docs/tool-permission-rules.md"
-      - "cmux-tui/crates/acpmux/docs/tui-rendering.md"
       - "cmux-tui/crates/acpmux/skills/acpmux/SKILL.md"
       - "cmux-tui/crates/acpmux/skills/cmux-chat/SKILL.md"
       - "cmux-tui/crates/acpmux/skills/cmux-rich-output/SKILL.md"

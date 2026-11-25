@@ -60,6 +60,11 @@ final class ShellModel {
     /// `comparisonTypeMismatch` when the nested stack joins this path.
     var workspacesPath: [Workspace] = [] {
         didSet {
+            if let workspace = workspacesPath.last {
+                let id = store.resolvedWorkspaceID(workspace.id)
+                lastWorkspace.save(id)
+                if lastWorkspaceID != id { lastWorkspaceID = id }
+            }
             updateInteractiveOpen()
             updateShownMacs()
         }
@@ -145,6 +150,10 @@ final class ShellModel {
     var settingsScrollTarget: String?
     /// Where the user was, kept across launches (design/terminal P10).
     @ObservationIgnored let lastOpen: LastOpenMemory
+    /// The workspace last visited, kept when the user backs out to the list.
+    @ObservationIgnored let lastWorkspace: LastWorkspaceMemory
+    /// The same id, observed: the list's mark follows it the moment a visit saves it.
+    private(set) var lastWorkspaceID: String?
     /// A launch restore still waiting for its workspace to be listed.
     @ObservationIgnored private var pendingRestore: LastOpenLocation?
     /// One launch restore per model.
@@ -165,8 +174,11 @@ final class ShellModel {
         let surface: Int
     }
 
-    init(store: AppStore, auth: CmuxMobileAuthModel, settings: SettingsStore, sidebar: SidebarModel, lastOpen: LastOpenMemory = .standard) {
+    init(store: AppStore, auth: CmuxMobileAuthModel, settings: SettingsStore, sidebar: SidebarModel,
+         lastOpen: LastOpenMemory = .standard, lastWorkspace: LastWorkspaceMemory = .standard) {
         self.lastOpen = lastOpen
+        self.lastWorkspace = lastWorkspace
+        self.lastWorkspaceID = lastWorkspace.load()
         self.store = store
         self.auth = auth
         // New Message names this account and its team by the Cloud's own ids, derived from the project.
@@ -780,10 +792,8 @@ final class ShellModel {
     /// The banner over Workspaces: no network first, then the live link (SPEC 7.4).
     var banner: ConnectionBannerState? {
         #if DEBUG
-        // Layout captures only: `-cmux-mobile-banner-demo pairing|pairing-reset|reconnecting|signed-out`.
+        // Layout captures only: `-cmux-mobile-banner-demo offline|pairing|pairing-reset|signed-out`.
         switch Self.bannerDemo {
-        case "connected"?: return .connected
-        case "reconnecting"?: return .reconnecting(to: "Mac Studio")
         case "offline"?: return .connectionFailed
         case "no-network"?: return .offline
         case "pairing"?: return .waitingForPairing(on: "Mac Studio")

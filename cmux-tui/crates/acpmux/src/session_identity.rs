@@ -68,7 +68,7 @@ impl SessionReceipt {
 }
 
 /// A create/resolve reply's stable id, qualified for subsequent requests on this daemon.
-pub(crate) fn routed_id(session: &Value) -> anyhow::Result<String> {
+pub fn routed_id(session: &Value) -> anyhow::Result<String> {
     let id = session["sessionId"]
         .as_str()
         .filter(|id| !id.is_empty())

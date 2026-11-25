@@ -430,3 +430,26 @@ fn a_viewer_with_no_route_yet_sleeps_between_retries_instead_of_spinning() {
     // 50 ms doubling to the 250 ms cap: 0, 50, 150, 350, 600, 850 ms.
     assert!(polls <= 8, "{polls} polls in one second with no route");
 }
+
+/// The route that finished the handshake carries the session from that moment
+/// (RFD 0164 B10): no round trip waiting for a probe with every datagram on
+/// every path, relay included.
+#[test]
+fn the_route_that_finished_the_handshake_carries_the_session_at_once() {
+    let mut pair = Pair::new();
+    let world = World { lan_works: false, wan_works: true, relay_works: true };
+    while !(pair.viewer.link().is_established() && pair.host.link().is_established()) {
+        assert!(pair.now < 2_000_000, "the link never came up");
+        pair.run(&world, 10);
+    }
+    let chosen = |events: &[EndpointEvent]| {
+        events.iter().any(|e| matches!(e, EndpointEvent::PathChanged { route: Some(_), .. }))
+    };
+    assert!(chosen(&pair.viewer_events), "viewer: no path at Established");
+    assert!(chosen(&pair.host_events), "host: no path at Established");
+    assert_eq!(pair.host.send_datagram(b"frame").unwrap().len(), 1, "host sprays media");
+    assert_eq!(pair.viewer.send_datagram(b"input").unwrap().len(), 1, "viewer sprays input");
+    // Probes still rank the paths: the direct path holds against the relay.
+    pair.run(&world, 3_000);
+    assert_eq!(pair.viewer_path(), Some(PathKind::DirectWan));
+}

@@ -11,6 +11,7 @@ import { newTabIconColumn } from "../agent-session/acpmux/newtab/iconColumn.expe
 import { homeCardGlow } from "../agent-session/acpmux/newtab/homeCardGlow.experiment";
 import { hoverActions } from "../ui/hoverActions.experiment";
 import { pastePlaceholderLook } from "../agent-session/acpmux/composer/pastePlaceholder.experiment";
+import { attachStripSize } from "../agent-session/acpmux/composer/attachStrip.experiment";
 import { toolErrorLook } from "../agent-session/acpmux/conversation/toolError.experiment";
 import { tableActionsPlace } from "../agent-session/acpmux/conversation/tableActions.experiment";
 import { expandRowLook } from "../agent-session/acpmux/conversation/expandRow.experiment";
@@ -37,6 +38,7 @@ import { threadMinimapHeight } from "../agent-session/acpmux/threadMinimap/heigh
 import { threadMinimapGutter } from "../agent-session/acpmux/threadMinimap/gutter.experiment";
 import { threadMinimapRestTick } from "../agent-session/acpmux/threadMinimap/restTick.experiment";
 import { threadMinimapLit } from "../agent-session/acpmux/threadMinimap/lit.experiment";
+import { threadMinimapCutover } from "../agent-session/acpmux/threadMinimap/cutover.experiment";
 import { threadMinimapMark } from "../agent-session/acpmux/threadMinimap/mark.experiment";
 import { threadMinimapWave } from "../agent-session/acpmux/threadMinimap/wave.experiment";
 import { threadMinimapIncoming } from "../agent-session/acpmux/threadMinimap/incoming.experiment";
@@ -94,6 +96,7 @@ import { liveBackground } from "../ui/liveBackground/liveBackground.experiment";
 import { composerPlusCommands } from "../agent-session/acpmux/composerPlusCommands.experiment";
 import { composerPlusReturnHint } from "../agent-session/acpmux/composerPlusReturnHint.experiment";
 import { promptSuggestionLook } from "../agent-session/acpmux/promptSuggestionLook.experiment";
+import { composerControlsAnchor } from "../agent-session/acpmux/composerControlsAnchor.experiment";
 import { cmuxLinkLook } from "../agent-session/acpmux/chips/cmuxLinkLook.experiment";
 import { sentPasteJoin } from "../agent-session/acpmux/conversation/sentPasteJoin.experiment";
 import { sentMessageLook } from "../agent-session/acpmux/conversation/sentMessageLook.experiment";
@@ -163,6 +166,7 @@ export const EXPERIMENTS: readonly Experiment[] = [
   homeCardGlow,
   threadMinimapLit,
   threadMinimapMark,
+  threadMinimapCutover,
   threadMinimapWave,
   threadMinimapIncoming,
   threadMinimapReplies,
@@ -230,6 +234,7 @@ export const EXPERIMENTS: readonly Experiment[] = [
   composerPlusCommands,
   composerPlusReturnHint,
   promptSuggestionLook,
+  composerControlsAnchor,
   cloudStartComposerLook,
   cmuxLinkLook,
   sentPasteJoin,
@@ -241,6 +246,7 @@ export const EXPERIMENTS: readonly Experiment[] = [
   planUsageLook,
   emojiShortcodeLook,
   pastePlaceholderLook,
+  attachStripSize,
   sendStopMorph,
   stopPresence,
   sendMenuLook,

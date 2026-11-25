@@ -12,6 +12,13 @@ name: pr pipeline
 # Adding a check: add a step to ci/steps.toml. No new workflow, no router edit.
 on:
   workflow_call:
+    inputs:
+      # The table's jobs the change routes, a JSON list (pr-router.yml's `table` output). Empty: every job runs
+      # its routed steps (a job with none routed prints so and passes).
+      jobs:
+        required: false
+        type: string
+        default: ""
 
 permissions: {}
 
@@ -22,9 +29,10 @@ env:
 jobs:
   linux:
     name: linux
+    if: ${{ inputs.jobs == '' || contains(fromJSON(inputs.jobs), 'linux') }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || vars.CI_OVERFLOW_LINUX || 'cmux-linux' }}
     # Above setup (10 min), the tool downloads (3 min), the waves of the slowest step (6 min; steps two at
-    # once on 2 CPUs) and the `alone` steps (coderouter 6 min, the cmux_next_ daemon tests 65 min), with room for
+    # once on 2 CPUs) and the `alone` steps (ci-artifact-worker and coderouter 6 min each, the cmux_next_ daemon tests 65 min), with room for
     # the checkout, so a slow step is reported by the runner, not cut here.
     timeout-minutes: 170
     permissions:
@@ -58,5 +66,45 @@ jobs:
         with:
           name: fixit-compile-${{ github.job }}-${{ github.run_attempt }}
           path: ${{ runner.temp }}/fixit-compile
+          if-no-files-found: ignore
+          retention-days: 3
+
+  # The `web-browser` job: the browser suites (Playwright and real Chrome), on their own warm Linux VM so a
+  # webview change never waits behind the linux job's guards, and a change that routes no browser step starts no
+  # runner here. Each step installs the browser engines it launches (`playwright install --with-deps`, apt through
+  # sudo, which the pool's runners grant as they did for ci-web.yml's jobs).
+  web-browser:
+    name: web-browser
+    if: ${{ inputs.jobs == '' || contains(fromJSON(inputs.jobs), 'web-browser') }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || vars.CI_OVERFLOW_LINUX || 'cmux-linux' }}
+    # Setup (10 min), the tool downloads (3 min), the web-browser steps two at once, each wave as long as its slowest
+    # step, then each `alone` step (tests/test_ci_step_table.py holds this).
+    timeout-minutes: 60
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout the merge commit and the base tip
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+          fetch-depth: 2
+      - name: List the changed paths
+        run: |
+          if git rev-parse -q --verify 'HEAD^2' >/dev/null; then
+            git diff --name-only --no-renames -z 'HEAD^1' HEAD > "$RUNNER_TEMP/changed-paths.txt"
+            echo "PATHS_FILE=$RUNNER_TEMP/changed-paths.txt" >> "$GITHUB_ENV"
+            tr -cd '\0' < "$RUNNER_TEMP/changed-paths.txt" | wc -c
+          else
+            echo "::notice::No merge commit to diff: every web-browser step runs."
+          fi
+      - name: Run the routed web-browser steps (ci/steps.toml)
+        run: ci/run run --job web-browser ${PATHS_FILE:+--paths-file "$PATHS_FILE"}
+      # The real-daemon pane checks' measurements (the agent-pane-real-acpmux step writes $RUNNER_TEMP/agent-pane-real-acpmux).
+      - name: Upload the agent pane measurements
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: agent-pane-real-acpmux-attempt${{ github.run_attempt }}
+          path: ${{ runner.temp }}/agent-pane-real-acpmux
           if-no-files-found: ignore
           retention-days: 3
