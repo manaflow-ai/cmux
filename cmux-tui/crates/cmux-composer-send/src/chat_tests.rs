@@ -1143,3 +1143,152 @@ fn an_upload_taking_chunks_keeps_its_prompt_and_a_stalled_one_gives_up() {
     assert!(outbox.expire(t0 + ms(39_999)).is_empty());
     assert_eq!(outbox.expire(t0 + ms(40_000)).len(), 1, "no chunk for the hold: a stall");
 }
+
+// A send's quiet window and the Mac's "not now" (Leo, 2026-11-24: "10s timeout for messages being
+// sendsble is a shame. if it's making good progress, it shiukd be allowed to keep going?").
+
+#[test]
+fn a_send_that_keeps_making_progress_is_never_failed_by_a_fixed_ten_seconds() {
+    let t0 = Instant::now();
+    let mut outbox = outbox();
+    assert_eq!(DEFAULT_HOLD, Duration::from_secs(30), "a quiet window, not the old fixed 10 s");
+    outbox.push("a", "first", vec![], false, t0, t0);
+    outbox.push("b", "second", vec![], false, t0, t0);
+    assert_eq!(outbox.next_request(t0).unwrap().id, "a", "a is under way; b waits its turn");
+    // Something is heard from the Mac every 20 s (more than the old 10 s apart): b is moving.
+    for step in 1..=6u64 {
+        let at = t0 + Duration::from_secs(20 * step);
+        outbox.progressed(at);
+        assert!(
+            outbox.expire(at + Duration::from_secs(19)).is_empty(),
+            "step {step}: still moving"
+        );
+    }
+    // Quiet for the whole 30 s window: only now is it given back.
+    let quiet = t0 + Duration::from_secs(20 * 6 + 30);
+    assert!(outbox.expire(quiet - ms(1)).is_empty());
+    let back: Vec<_> = outbox.expire(quiet).into_iter().map(|d| d.id).collect();
+    assert_eq!(back, vec!["b"]);
+}
+
+#[test]
+fn a_not_now_refusal_is_retried_with_backoff_and_never_given_back() {
+    let t0 = Instant::now();
+    let mut outbox = outbox();
+    outbox.push("p", "hi", vec![], false, t0, t0);
+    outbox.next_request(t0).unwrap();
+    outbox.wrote("p");
+    let mut now = t0;
+    let mut waits = Vec::new();
+    // A just-restarted acpmux answers "not now" nine times over a minute and a half.
+    for _ in 0..9 {
+        let step = outbox.refusal("p", true, now).expect("held");
+        let Refusal::Retry { retry_in, .. } = step else {
+            panic!("a not-now is not final: {step:?}")
+        };
+        waits.push(retry_in.as_secs());
+        assert_eq!(outbox.look("p", now), PromptLook::Retrying);
+        assert_eq!(outbox.retry_in("p", now), Some(retry_in));
+        assert_eq!(outbox.next_request(now + retry_in - ms(1)), None, "waits its backoff");
+        assert!(outbox.expire(now + retry_in).is_empty(), "not given back");
+        now += retry_in;
+        let again = outbox.next_request(now).expect("goes again");
+        assert_eq!(again.id, "p");
+        assert!(again.resend, "an attempt was written before");
+        outbox.wrote("p");
+    }
+    assert_eq!(waits, vec![1, 2, 4, 8, 16, 30, 30, 30, 30], "1 s doubling, capped at 30 s");
+    assert!(now - t0 > Duration::from_secs(10), "well past the old fixed 10 s");
+    assert_eq!(
+        outbox.answered("p"),
+        Some(done("p", PromptOutcome::Sent, "hi")),
+        "and it was taken"
+    );
+}
+
+#[test]
+fn only_a_real_refusal_fails_and_a_not_now_that_never_ends_is_final_after_the_patience() {
+    let t0 = Instant::now();
+    let mut outbox = outbox();
+    outbox.push("real", "a", vec![], false, t0, t0);
+    outbox.next_request(t0).unwrap();
+    assert_eq!(
+        outbox.refusal("real", false, t0),
+        Some(Refusal::Final(done("real", PromptOutcome::Refused, "a")))
+    );
+    assert_eq!(outbox.look("real", t0), PromptLook::Failed);
+
+    outbox.push("busy", "b", vec![], false, t0, t0);
+    let mut now = t0;
+    loop {
+        outbox.next_request(now).map(|_| outbox.wrote("busy"));
+        match outbox.refusal("busy", true, now).unwrap() {
+            Refusal::Retry { retry_in, .. } => now += retry_in,
+            Refusal::Final(done) => {
+                assert_eq!(done.outcome, PromptOutcome::Refused);
+                assert!(now - t0 >= REFUSAL_PATIENCE, "only after {REFUSAL_PATIENCE:?}");
+                break;
+            }
+        }
+        assert!(now - t0 < REFUSAL_PATIENCE + Duration::from_secs(60), "ends");
+    }
+}
+
+#[test]
+fn a_transient_refusal_is_told_by_origin_code_or_reason() {
+    for (origin, code, reason) in [
+        (Some("native"), None, None),
+        (None, Some("timed_out"), None),
+        (None, None, Some("session.starting")),
+        (None, None, Some("hub.busy")),
+        (None, Some("not_ready"), None),
+        (None, None, Some("Restarting")),
+        (None, None, Some("host.unavailable")),
+        (None, None, Some("draining")),
+    ] {
+        assert!(is_transient_refusal(origin, code, reason), "{origin:?} {code:?} {reason:?}");
+    }
+    for (origin, code, reason) in [
+        (None, None, None),
+        (Some("acpmux"), Some("-32602"), Some("prompt.invalid")),
+        (None, None, Some("remote.full_access_required")),
+        (None, Some("permission_denied"), Some("permission.person_required")),
+    ] {
+        assert!(!is_transient_refusal(origin, code, reason), "{origin:?} {code:?} {reason:?}");
+    }
+}
+
+#[test]
+fn the_macs_resend_notices_drive_the_look_and_the_end() {
+    let t0 = Instant::now();
+    let mut outbox = outbox();
+    outbox.push("p", "hi", vec![], false, t0, t0);
+    outbox.next_request(t0).unwrap();
+    outbox.wrote("p");
+    let retrying = ResendState::parse("retrying", Some(4_000)).unwrap();
+    assert_eq!(retrying, ResendState::Retrying { retry_in: Some(ms(4_000)) });
+    assert_eq!(outbox.resend_notice("p", retrying, t0 + ms(10)), None);
+    assert_eq!(outbox.look("p", t0 + ms(10)), PromptLook::Retrying);
+    assert_eq!(outbox.retry_in("p", t0 + ms(10)), Some(ms(4_000)));
+    assert_eq!(
+        outbox.next_request(t0 + Duration::from_secs(60)),
+        None,
+        "the Mac's outbox resends it"
+    );
+    assert_eq!(
+        outbox.resend_notice("p", ResendState::parse("sent", None).unwrap(), t0 + ms(5_000)),
+        None
+    );
+    assert_eq!(outbox.look("p", t0 + ms(5_000)), PromptLook::Sent);
+    assert_eq!(outbox.resend_notice("p", ResendState::Accepted, t0 + ms(5_001)), None);
+    assert_eq!(outbox.retry_in("p", t0 + ms(5_001)), None);
+    assert_eq!(ResendState::parse("bogus", None), None);
+
+    outbox.push("q", "no", vec![], false, t0, t0);
+    outbox.next_request(t0).unwrap();
+    assert_eq!(
+        outbox.resend_notice("q", ResendState::Refused, t0),
+        Some(done("q", PromptOutcome::Refused, "no")),
+        "a refusal for good fails it"
+    );
+}
