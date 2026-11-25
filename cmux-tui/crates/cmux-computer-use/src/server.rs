@@ -19,7 +19,11 @@
 //! - Lifecycle: `session/attach` holds its connection open for the agent's
 //!   life (the bridge's); when the last one of a session closes (the agent's
 //!   process exited or crashed), the session ends as with `session/end`, so
-//!   its cursor never lingers. `session/idle {session, prefix?}` ends the
+//!   its cursor never lingers. A session that calls with no attach (the
+//!   `cmux computer-use call` CLI, one process per call; a relayed remote
+//!   call) keeps its state between its calls, so the element ids one call
+//!   showed act in the next, and ends once idle or crowded out
+//!   ([`detached`]). `session/idle {session, prefix?}` ends the
 //!   Computer Use of a session whose agent turn ended (the daemon and
 //!   acpmux send it), keeping its approvals.
 //! - Hot upgrade (the worker's, [`serve_replaceable`]): once the worker's executable was
@@ -41,6 +45,7 @@ use crate::engine::{CallContext, Engine, ToolOutput, set_key};
 use crate::policy::OriginKind;
 use crate::wire;
 
+pub mod detached;
 pub mod lanes;
 #[cfg(unix)]
 #[path = "server/unix.rs"]
@@ -82,6 +87,8 @@ struct Shared {
     connections: Mutex<Vec<Weak<dyn Stream>>>,
     /// Open `session/attach` connections per session.
     attached: Mutex<std::collections::HashMap<String, usize>>,
+    /// Sessions that call with no open attach, ended once idle ([`detached`]).
+    detached: Mutex<detached::Detached>,
     /// The worker's watch on its own executable (hot upgrade); None in cmux Remote.
     swap: Option<Arc<crate::replaced::Swap>>,
 }
@@ -133,6 +140,7 @@ fn serve_on(
         lanes: lanes::Lanes::new(),
         connections: Mutex::new(Vec::new()),
         attached: Mutex::new(std::collections::HashMap::new()),
+        detached: Mutex::new(detached::Detached::default()),
         swap,
     });
     let accept = {
@@ -382,6 +390,22 @@ impl Outbox {
     }
 }
 
+/// `session` calls now: a detached one (no open attach) is kept until idle,
+/// and the detached sessions idle or crowded out end, each on its own lane
+/// after its calls in flight ([`detached::Detached::touch`]).
+fn end_idle_detached(shared: &Arc<Shared>, session: &str) {
+    let ended = {
+        let attached = lock(&shared.attached);
+        lock(&shared.detached)
+            .touch(session, std::time::Instant::now(), |s| attached.get(s).is_some_and(|n| *n > 0))
+    };
+    for session in ended {
+        let engine = Arc::clone(&shared.engine);
+        let ended = session.clone();
+        shared.lanes.submit(&session, move || engine.end_session(&ended));
+    }
+}
+
 /// A call's context from its request. `origin` is the bridge's (the only
 /// client that holds the secret); a remote origin only ever narrows what the
 /// policy allows, and a missing one is a local agent.
@@ -435,6 +459,7 @@ fn handle(
                 return fail("invalid_request", "name is required".into());
             };
             let arguments = request.get("arguments").cloned().unwrap_or_else(|| json!({}));
+            end_idle_detached(shared, &ctx.session);
             let (engine, stream, writer) =
                 (Arc::clone(&shared.engine), Arc::clone(stream), Arc::clone(writer));
             let session = ctx.session.clone();
@@ -448,6 +473,7 @@ fn handle(
             let (engine, stream, writer) =
                 (Arc::clone(&shared.engine), Arc::clone(stream), Arc::clone(writer));
             let session = ctx.session.clone();
+            lock(&shared.detached).forget(&session);
             shared.lanes.submit(&session, move || {
                 let _ticket = ticket;
                 engine.end_session(&ctx.session);
