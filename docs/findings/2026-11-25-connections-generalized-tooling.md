@@ -61,6 +61,8 @@ Run: `bun run services/conversation-sim/connection-bench.ts --drops 5
 --duplicate-rate 0 --output artifacts/connection-bench.jsonl`.
 Duress: local process-owned simulator, five forced drops, latency scale 3,
 send failure rate 0.2, history failure rate 0.1, duplicate delivery disabled.
-Measured receipt: `dropsObserved=5`, `reconnectLatencyP95Ms=495.68`,
-`laggedReconnects=0`, `replayedEvents=7`, `duplicateEvents=0`,
+Measured receipt: `dropsObserved=5`, `reconnectLatencyP95Ms=595.54`,
+`laggedReconnects=0`, `replayedEvents=5`, `duplicateEvents=0`,
 `idempotentSend=true`, `historyRecovered=true`, `pass=true`.
+The implementation was at commit `bcb3d5cbab43aaddd1fbfee50e6d1df80cd57cf0`
+on `gcp-codex-lane-11.us-west1-c.c.manaflow-437420.internal`.

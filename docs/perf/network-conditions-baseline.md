@@ -11,7 +11,7 @@ The command and goal definitions live in
 
 | surface | command | goal | result |
 |---|---|---|---|
-| conversation WebSocket | `bun run services/conversation-sim/connection-bench.ts --drops 5 --latency-scale 3 --fail-rate 0.2 --history-fail-rate 0.1 --duplicate-rate 0` | every drop observed, end-to-end forced-drop-to-replay reconnect p95 ≤ 3 s, no lagged replay, idempotent send, history retry recovery | dropsObserved=5; reconnectLatencyP95Ms=495.68 ms; laggedReconnects=0; replayedEvents=7; duplicateEvents=0; idempotentSend=true; historyRecovered=true; pass=true |
+| conversation WebSocket | `bun run services/conversation-sim/connection-bench.ts --drops 5 --latency-scale 3 --fail-rate 0.2 --history-fail-rate 0.1 --duplicate-rate 0` | every drop observed, end-to-end forced-drop-to-replay reconnect p95 ≤ 3 s, no lagged replay, idempotent send, history retry recovery | dropsObserved=5; reconnectLatencyP95Ms=595.54 ms; laggedReconnects=0; replayedEvents=5; duplicateEvents=0; idempotentSend=true; historyRecovered=true; pass=true |
 
 The baseline of record for the cmux NEXT phone surfaces under bad links, from
 `scripts/measure/ios-network-conditions.sh` (the cmux-fault link shaper, seeded and deterministic).
