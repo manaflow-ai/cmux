@@ -115,7 +115,7 @@
 
 .cr-badge {
   padding: 0 6px;
-  border-radius: 4px;
+  border-radius: var(--ds-radius-sm);
   border: 1px solid var(--page-separator);
   color: var(--page-text-2);
   font-size: var(--text-detail);
