@@ -14,6 +14,7 @@ path=${2:-wg-tcp}
 bytes=${3:-200000000}
 args=(--path "$path" --seconds 1 --fps 1 --bulk-bytes "$bytes" "${@:4}")
 out=$(mktemp -d)
+trap 'rm -rf "$out"' EXIT
 strace -c -f -o "$out/strace" "$bench" "${args[@]}" >"$out/json" 2>"$out/stderr" || true
 "$bench" "${args[@]}" >"$out/json2" 2>/dev/null || true
 python3 -I - "$out" "$bytes" "${DATAGRAMS:-0}" <<'PY'
