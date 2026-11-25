@@ -17,7 +17,14 @@ blocked every publish):
   re-run spends the same quota and fails the same way. The tree is published
   by the next push of the key, or by cmux-tui-tree-request.yml once the quota
   resets. One failed job that is not quota-only makes the run a real failure,
-  and the hand-off goes ahead.
+  and the hand-off goes ahead; and
+- an owner whose build leg failed on a Rust compile error hands nothing off
+  (compile_error_failure): the deferred run builds the same tree key, the same
+  source, and fails on the same rustc error. 2026-11-23 and 11-24, while
+  feat-cmux-next did not compile, re-runs rebuilt all three targets and the
+  daemon tests for about 75 runner-min each and failed on the same E0599 and
+  E0062. The run stays red and names the error; the next push of a new key
+  builds it.
 
 The hand-off is never silent (2026-11-13: an owner's hand-off read "API rate
 limit exceeded for installation" on its first call, ended as a warning in a
@@ -90,6 +97,18 @@ ADOPT_JOB_NAME = "write the commit manifest from the published tree"
 ADOPT_JOB_RAN = frozenset({"success", "failure"})
 # Jobs that only follow a failure: they never make an owner's failure their own.
 REPORTING_JOBS = frozenset({"report an unpublished cmux-tui tree to cmux-next"})
+# A build leg's job name ("build-linux / build x86_64-unknown-linux-musl", "build / build aarch64-apple-darwin").
+BUILD_LEG_MARK = " / build "
+# rustc's coded error and cargo's verdict on it: the source does not compile, and a re-run of the same tree fails the
+# same way.
+RUSTC_ERROR = re.compile(r"\berror\[E(\d{4})\]")
+COULD_NOT_COMPILE = re.compile(r"\berror: could not compile `")
+# Codes a broken cache or toolchain on the runner can raise (a crate or its metadata missing or unreadable): a re-run
+# on a clean runner can pass, so these are no evidence the source is broken.
+RUNNER_CODES = frozenset({"0460", "0461", "0462", "0463", "0464", "0514", "0519", "0523", "0786"})
+# rustc killed or starved by the runner: also ends in "could not compile", and a re-run can pass.
+RUNNER_FAULT = re.compile(r"signal: 9\b|SIGKILL|SIGSEGV|out of memory|No space left on device|\bKilled\b|"
+                          r"memory allocation of \d+ bytes failed", re.IGNORECASE)
 GLAEDA_BUDGET = Path(os.environ.get("GLAEDA_GH_DIR") or Path.home() / ".cache" / "glaeda" / "gh") / "budget.json"
 
 
@@ -184,6 +203,23 @@ def quota_only_failure(jobs: Sequence[Mapping[str, Any]], log_of: Callable[[Mapp
     """True when the run has failed jobs and every one of them failed only on GitHub's quota."""
     failed = failed_jobs(jobs)
     return bool(failed) and all(job_quota_only(job, log_of(job)) for job in failed)
+
+
+def job_compile_error(job: Mapping[str, Any], log_text: str | None) -> bool:
+    """A failed build leg failed on a Rust compile error: rustc named a coded error that is not a runner's cache or
+    toolchain fault, cargo said it could not compile, and the runner did not kill or starve rustc. An unreadable log
+    (None) is no evidence."""
+    if log_text is None or BUILD_LEG_MARK not in (job.get("name") or ""):
+        return False
+    codes = set(RUSTC_ERROR.findall(log_text))
+    return (bool(codes - RUNNER_CODES) and bool(COULD_NOT_COMPILE.search(log_text))
+            and not RUNNER_FAULT.search(log_text))
+
+
+def compile_error_failure(jobs: Sequence[Mapping[str, Any]], log_of: Callable[[Mapping[str, Any]], str | None]) -> bool:
+    """True when a failed build leg failed on a Rust compile error. One is enough: the tree is published only with
+    every target, and that leg fails again on any re-run of the same source."""
+    return any(job_compile_error(job, log_of(job)) for job in failed_jobs(jobs) if BUILD_LEG_MARK in (job.get("name") or ""))
 
 
 def order_candidates(artifacts: Iterable[Mapping[str, Any]], self_run: int) -> list[tuple[int, int, str, Mapping[str, Any]]]:
@@ -319,16 +355,25 @@ def rerun_published(repo: str, run_id: int, key: str) -> None:
 def handoff(repo: str, run_id: int, key: str) -> None:
     jobs = _list(f"repos/{repo}/actions/runs/{run_id}/jobs?filter=latest&per_page=100", "jobs")
 
+    logs: dict[Any, str | None] = {}
+
     def log_of(job: Mapping[str, Any]) -> str | None:
+        if job["id"] in logs:
+            return logs[job["id"]]
         result = _gh("api", f"repos/{repo}/actions/jobs/{job['id']}/logs")
         if result.returncode != 0:
             print(f"::warning::could not read the log of job {job['id']} ({job.get('name')}): {result.stderr.strip()}")
-            return None
-        return result.stdout
+        logs[job["id"]] = result.stdout if result.returncode == 0 else None
+        return logs[job["id"]]
 
     if quota_only_failure(jobs, log_of):
         print(f"::warning title=tree hand-off skipped::run {run_id} failed only on GitHub's rate limit or "
               f"attestation; a re-run would spend the same quota. Tree {key} is left for the next push of the key.")
+        return
+    if compile_error_failure(jobs, log_of):
+        print(f"::warning title=tree hand-off skipped::run {run_id} failed on a Rust compile error in a build leg; a "
+              f"run that deferred tree {key} builds the same source and fails the same way. The next push of a new "
+              "key builds it; a person can still re-run a run by hand (gh run rerun RUN).")
         return
     artifacts = _list(f"repos/{repo}/actions/artifacts?name=cmux-tui-tree-deferred-{key}&per_page=100", "artifacts")
     candidates = order_candidates(artifacts, run_id)

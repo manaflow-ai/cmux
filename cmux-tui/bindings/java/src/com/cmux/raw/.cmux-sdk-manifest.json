@@ -12,8 +12,8 @@
     },
     {
       "path": "ActivitySnapshot.java",
-      "sha256": "04419a7b4fd3d610114d725f947e061e6084ac3929651f830f28a421e726a0f2",
-      "size": 4759
+      "sha256": "d4282dee3fdbf4251e69d5481781fbd03af8b7ec29e9f49f33024739d32f5c16",
+      "size": 7130
     },
     {
       "path": "ActivitySubscribeResult.java",
@@ -787,8 +787,8 @@
     },
     {
       "path": "Commands.java",
-      "sha256": "abec1d967af78c06bdd75102a35e671e78c67b51fccc52ad4458762bee0ced6b",
-      "size": 86932
+      "sha256": "f79b5035645a76f6245ed5e4a9c32fba429d4af039eb3f522b91c760c06e5991",
+      "size": 87231
     },
     {
       "path": "ComputerUseApprovalsRequest.java",
@@ -942,8 +942,8 @@
     },
     {
       "path": "ConversationInboxOpRequest.java",
-      "sha256": "bed0fa7ae8f6ce55f8c5a223d78fe506ca20eaa8c67fc64ec403642b27140dfc",
-      "size": 2852
+      "sha256": "0257ad93b9c6c04608af84a099da93a0c2300a0f65d4c566f2bf434383da3eae",
+      "size": 3453
     },
     {
       "path": "ConversationInboxOpResult.java",
@@ -1502,8 +1502,8 @@
     },
     {
       "path": "GeneratedCmuxClient.java",
-      "sha256": "0e5d12972327b7c67766e8257add3bc11fc38f2607b35db0b042dee55d0bb7e8",
-      "size": 74284
+      "sha256": "6b8d2a194c992b21af5c2daea7b09ca4153e68dcfb93e4a2a2a5796ddb834944",
+      "size": 74521
     },
     {
       "path": "GetBlobRequest.java",
@@ -1812,8 +1812,8 @@
     },
     {
       "path": "ListNotificationsRequest.java",
-      "sha256": "bdff23eca2ccce2d1fc61e308bcb25efd2a3734da304028aaf08c085619ff087",
-      "size": 2010
+      "sha256": "bf10eb733d2cf249b260510966d61c14953adfafb943e9637c6e235a24d77242",
+      "size": 2654
     },
     {
       "path": "ListPersonalRequest.java",
@@ -1872,8 +1872,13 @@
     },
     {
       "path": "ListWorkspacesRequest.java",
-      "sha256": "9ac5c7e1db81d743a1c1721f7792dff13a9cdfa123f32db991ae7942714754c8",
-      "size": 3243
+      "sha256": "aa3aff4864993d5ec445bd319aa2537308e497a9dc49b57c164b3ba2819e4cc6",
+      "size": 3894
+    },
+    {
+      "path": "ListWorkspacesSince.java",
+      "sha256": "fab2edd7d67aa3d008b3e17cb82782d2833881d308e51153e9d8b2061c41675c",
+      "size": 2533
     },
     {
       "path": "LivePane.java",
@@ -2282,7 +2287,7 @@
     },
     {
       "path": "Protocol.java",
-      "sha256": "b4a17bcaf6dd080853cb89bc59d48aa924450872dc0b4aa1533f979962262c1c",
+      "sha256": "18621c9739f7ae2b3e1c5e035f80fe98dd3a9d6e4de2fbdda4a144bf27782117",
       "size": 8511
     },
     {
@@ -2364,6 +2369,16 @@
       "path": "ReleaseSurfaceSizeRequest.java",
       "sha256": "3be2c7d9957c6ed54bf4536a09ed0f540a6762d301db09a7a7adb9ae95e533ad",
       "size": 2107
+    },
+    {
+      "path": "ReleaseWorkspaceNamesRequest.java",
+      "sha256": "1cd7e3e448f03bce5f165c5c40f67c065b7c712a03c652338a2d04c81043ab65",
+      "size": 1441
+    },
+    {
+      "path": "ReleaseWorkspaceNamesResult.java",
+      "sha256": "dfc06f278763f1e604cc822207194ca1f7faf046a52be9c7dabd0eb48a3b04bd",
+      "size": 3033
     },
     {
       "path": "ReloadConfigRequest.java",
@@ -3592,8 +3607,8 @@
     },
     {
       "path": "Tree.java",
-      "sha256": "82f354b323ea37be045a65e0d8ef7035ff3caf57db3ff124e90db719f3a14b31",
-      "size": 8014
+      "sha256": "00f5a6327515942c4e81d04cf4e4eb754fc77f04fc981fbc34349e78d39c382f",
+      "size": 11734
     },
     {
       "path": "TreeChangedEvent.java",
@@ -3832,7 +3847,7 @@
     }
   ],
   "format": 1,
-  "ir_sha256": "fec2a53560ff6992b48ee32a81df797ac404a8bc55f1661d1e11f96aaf2032c0",
+  "ir_sha256": "b78fea3142c415dfd279b2371c233d5c3927cf9113fe109686884610a4fed8f2",
   "language": "java",
   "mux_protocol": 12,
   "schema_version": 2
