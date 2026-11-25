@@ -524,18 +524,13 @@ SIDE_WORKFLOW_PATHS = frozenset({
     ".github/workflows/agent-brands.yml",  # feat-cmux-next only
     ".github/workflows/app-host-test-rerun.yml",
     ".github/workflows/auth-refresh-tests.yml",
-    ".github/workflows/billing.yml",
+    ".github/workflows/billing.yml",  # feat-cmux-next: ios-billing still takes the billing pool picker
     ".github/workflows/billing-nightly.yml",  # calls billing.yml (ios-billing); feat-cmux-next has its own
     ".github/workflows/cloud-command-deadlines.yml",
     ".github/workflows/cloud-machine-tests.yml",
-    ".github/workflows/cloud-task-local-tests.yml",
     ".github/workflows/app-platform.yml",  # feat-cmux-next only
     ".github/workflows/cmux-next-base-autofix.yml",  # feat-cmux-next only
     ".github/workflows/cmux-next-batch.yml",  # feat-cmux-next only
-    # Main's Cua Driver SDK, dev helper and remote browser host publishers: their unsigned build
-    # takes the side label on attempt 1 of the dispatch (run 43645667029 sat on a Blacksmith queue).
-    ".github/workflows/cmux-next-cua-driver-sdk-publish.yml",
-    ".github/workflows/cmux-next-cua-helper-dev-sign.yml",
     # feat-cmux-next only; its Computer Use helper check takes the side label on attempt 1.
     ".github/workflows/cmux-next-cua-helper-identity.yml",
     ".github/workflows/cmux-next-frame-pacing.yml",  # feat-cmux-next only
@@ -543,9 +538,6 @@ SIDE_WORKFLOW_PATHS = frozenset({
     # feat-cmux-next only; its ci-web.yml call's react-apps-base-check reads vars.CI_LINUX_GATE_OWNED_RUNNER.
     ".github/workflows/cmux-next-post-merge.yml",
     ".github/workflows/cmux-next-pr-autofix.yml",  # feat-cmux-next only
-    # feat-cmux-next only; its ci-web.yml call's react-apps-base-check reads vars.CI_LINUX_GATE_OWNED_RUNNER.
-    ".github/workflows/cmux-next-post-merge.yml",
-    ".github/workflows/cmux-next-remote-browser-host-publish.yml",
     # feat-cmux-next only; its zsh git HEAD watcher job takes the side label on attempt 1.
     ".github/workflows/cmux-next-shell-integration.yml",
     ".github/workflows/cmux-next-terminal.yml",  # feat-cmux-next only
@@ -562,7 +554,6 @@ SIDE_WORKFLOW_PATHS = frozenset({
     ".github/workflows/cmux-rd-windows.yml",
     ".github/workflows/cmux-tui-artifacts.yml",
     ".github/workflows/cmux-tui.yml",
-    ".github/workflows/iroh-v2.yml",
     # The post-publication canary's Mac job takes the side label on attempt 1.
     ".github/workflows/nightly-next-canary.yml",
     # The post-publish launch smoke's Mac job takes the side label on attempt 1.
@@ -570,7 +561,6 @@ SIDE_WORKFLOW_PATHS = frozenset({
     ".github/workflows/nightly-next-launch-smoke.yml",
     ".github/workflows/macos-cross-parity.yml",
     ".github/workflows/relay-tls.yml",
-    ".github/workflows/reload-build.yml",
     ".github/workflows/remote-daemon.yml",
     ".github/workflows/terminal-hang-diagnostics.yml",
     # Its full-text job takes the side label on attempt 1 (on both branches).
