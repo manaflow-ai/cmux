@@ -1,6 +1,60 @@
 {
   "sourceLanguage": "en",
   "strings": {
+    "settings.labs.previousBuild": {
+      "comment": "Settings > Advanced > Labs: toggle that shows the Go Back to Previous Build row on the Updates card",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "Go Back to Previous Build"}},
+        "ar": {"stringUnit": {"state": "needs_review", "value": "العودة إلى الإصدار السابق"}},
+        "bs": {"stringUnit": {"state": "needs_review", "value": "Vrati se na prethodnu verziju"}},
+        "da": {"stringUnit": {"state": "needs_review", "value": "Gå tilbage til forrige build"}},
+        "de": {"stringUnit": {"state": "needs_review", "value": "Zum vorherigen Build zurückkehren"}},
+        "es": {"stringUnit": {"state": "needs_review", "value": "Volver a la compilación anterior"}},
+        "fr": {"stringUnit": {"state": "needs_review", "value": "Revenir à la version précédente"}},
+        "it": {"stringUnit": {"state": "needs_review", "value": "Torna alla build precedente"}},
+        "ja": {"stringUnit": {"state": "needs_review", "value": "以前のビルドに戻す"}},
+        "km": {"stringUnit": {"state": "needs_review", "value": "ត្រឡប់ទៅកំណែមុន"}},
+        "ko": {"stringUnit": {"state": "needs_review", "value": "이전 빌드로 되돌리기"}},
+        "nb": {"stringUnit": {"state": "needs_review", "value": "Gå tilbake til forrige versjon"}},
+        "pl": {"stringUnit": {"state": "needs_review", "value": "Wróć do poprzedniej wersji"}},
+        "pt-BR": {"stringUnit": {"state": "needs_review", "value": "Voltar para a versão anterior"}},
+        "ru": {"stringUnit": {"state": "needs_review", "value": "Вернуться к предыдущей сборке"}},
+        "th": {"stringUnit": {"state": "needs_review", "value": "ย้อนกลับไปยังบิลด์ก่อนหน้า"}},
+        "tr": {"stringUnit": {"state": "needs_review", "value": "Önceki sürüme geri dön"}},
+        "uk": {"stringUnit": {"state": "needs_review", "value": "Повернутися до попередньої збірки"}},
+        "vi": {"stringUnit": {"state": "needs_review", "value": "Quay lại bản dựng trước"}},
+        "zh-Hans": {"stringUnit": {"state": "needs_review", "value": "返回上一个版本"}},
+        "zh-Hant": {"stringUnit": {"state": "needs_review", "value": "返回上一個版本"}}
+      }
+    },
+    "settings.labs.previousBuild.help": {
+      "comment": "Settings > Advanced > Labs > Go Back to Previous Build: what the toggle does. Updates is the name of the Settings card.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "Show the build cmux kept before the last update on the Updates card, with a button to go back to it."}},
+        "ar": {"stringUnit": {"state": "needs_review", "value": "اعرض الإصدار الذي احتفظ به cmux قبل آخر تحديث في بطاقة التحديثات، مع زر للعودة إليه."}},
+        "bs": {"stringUnit": {"state": "needs_review", "value": "Prikaži verziju koju je cmux zadržao prije posljednjeg ažuriranja na kartici Ažuriranja, s dugmetom za povratak na nju."}},
+        "da": {"stringUnit": {"state": "needs_review", "value": "Vis det build, cmux gemte før den seneste opdatering, på kortet Opdateringer med en knap til at gå tilbage til det."}},
+        "de": {"stringUnit": {"state": "needs_review", "value": "Zeigt auf der Karte „Updates“ den Build, den cmux vor dem letzten Update behalten hat, mit einer Taste zum Zurückkehren."}},
+        "es": {"stringUnit": {"state": "needs_review", "value": "Muestra en la tarjeta Actualizaciones la compilación que cmux guardó antes de la última actualización, con un botón para volver a ella."}},
+        "fr": {"stringUnit": {"state": "needs_review", "value": "Affiche sur la carte Mises à jour la version que cmux a conservée avant la dernière mise à jour, avec un bouton pour y revenir."}},
+        "it": {"stringUnit": {"state": "needs_review", "value": "Mostra nella scheda Aggiornamenti la build che cmux ha conservato prima dell’ultimo aggiornamento, con un pulsante per tornarci."}},
+        "ja": {"stringUnit": {"state": "needs_review", "value": "前回のアップデート前に cmux が保持したビルドを「アップデート」カードに表示し、そのビルドに戻すボタンを付けます。"}},
+        "km": {"stringUnit": {"state": "needs_review", "value": "បង្ហាញកំណែដែល cmux បានរក្សាទុកមុនការធ្វើបច្ចុប្បន្នភាពចុងក្រោយ នៅលើកាតបច្ចុប្បន្នភាព ជាមួយប៊ូតុងដើម្បីត្រឡប់ទៅវាវិញ។"}},
+        "ko": {"stringUnit": {"state": "needs_review", "value": "마지막 업데이트 전에 cmux가 보관한 빌드를 업데이트 카드에 표시하고, 그 빌드로 되돌리는 버튼을 제공합니다."}},
+        "nb": {"stringUnit": {"state": "needs_review", "value": "Vis versjonen cmux beholdt før siste oppdatering på Oppdateringer-kortet, med en knapp for å gå tilbake til den."}},
+        "pl": {"stringUnit": {"state": "needs_review", "value": "Pokazuje na karcie Aktualizacje wersję zachowaną przez cmux przed ostatnią aktualizacją, z przyciskiem powrotu do niej."}},
+        "pt-BR": {"stringUnit": {"state": "needs_review", "value": "Mostra no cartão Atualizações a versão que o cmux guardou antes da última atualização, com um botão para voltar a ela."}},
+        "ru": {"stringUnit": {"state": "needs_review", "value": "Показывает на карточке «Обновления» сборку, сохранённую cmux перед последним обновлением, с кнопкой возврата к ней."}},
+        "th": {"stringUnit": {"state": "needs_review", "value": "แสดงบิลด์ที่ cmux เก็บไว้ก่อนการอัปเดตครั้งล่าสุดบนการ์ดอัปเดต พร้อมปุ่มสำหรับย้อนกลับไปใช้"}},
+        "tr": {"stringUnit": {"state": "needs_review", "value": "cmux’un son güncellemeden önce sakladığı sürümü Güncellemeler kartında, ona geri dönmek için bir düğmeyle gösterir."}},
+        "uk": {"stringUnit": {"state": "needs_review", "value": "Показує на картці «Оновлення» збірку, яку cmux зберіг перед останнім оновленням, із кнопкою повернення до неї."}},
+        "vi": {"stringUnit": {"state": "needs_review", "value": "Hiển thị bản dựng cmux đã giữ lại trước lần cập nhật gần nhất trên thẻ Cập nhật, kèm nút để quay lại bản đó."}},
+        "zh-Hans": {"stringUnit": {"state": "needs_review", "value": "在“更新”卡片上显示 cmux 在上次更新前保留的版本，并提供返回该版本的按钮。"}},
+        "zh-Hant": {"stringUnit": {"state": "needs_review", "value": "在「更新」卡片上顯示 cmux 在上次更新前保留的版本，並提供返回該版本的按鈕。"}}
+      }
+    },
     "settings.sidebar.showLiveToggle": {
       "comment": "Settings > Appearance > Sidebar: title of the toggle that shows the footer Live button.",
       "extractionState": "manual",
@@ -196317,138 +196371,6 @@
         }
       }
     },
-    "notifications.sound.choose.message": {
-      "comment": "Open panel message when choosing a notification sound file; keep ~/Library/Sounds as is",
-      "extractionState": "manual",
-      "localizations": {
-        "ar": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "اختر صوتًا للإشعارات. ينسخه cmux إلى ~/Library/Sounds."
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Odaberite zvuk za obavještenja. cmux ga kopira u ~/Library/Sounds."
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Vælg en lyd til notifikationer. cmux kopierer den til ~/Library/Sounds."
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Wähle einen Ton für Mitteilungen. cmux kopiert ihn nach ~/Library/Sounds."
-          }
-        },
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Choose a sound for notifications. cmux copies it to ~/Library/Sounds."
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Elige un sonido para las notificaciones. cmux lo copia a ~/Library/Sounds."
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Choisissez un son pour les notifications. cmux le copie dans ~/Library/Sounds."
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Scegli un suono per le notifiche. cmux lo copia in ~/Library/Sounds."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "通知のサウンドを選択してください。cmux が ~/Library/Sounds にコピーします。"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "ជ្រើសរើសសំឡេងសម្រាប់ការជូនដំណឹង។ cmux ចម្លងវាទៅ ~/Library/Sounds។"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "알림 사운드를 선택하세요. cmux가 ~/Library/Sounds에 복사합니다."
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Velg en lyd for varsler. cmux kopierer den til ~/Library/Sounds."
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Wybierz dźwięk powiadomień. cmux skopiuje go do ~/Library/Sounds."
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Escolha um som para as notificações. O cmux o copia para ~/Library/Sounds."
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Выберите звук для уведомлений. cmux скопирует его в ~/Library/Sounds."
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "เลือกเสียงสำหรับการแจ้งเตือน cmux จะคัดลอกไปที่ ~/Library/Sounds"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Bildirimler için bir ses seçin. cmux onu ~/Library/Sounds konumuna kopyalar."
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Виберіть звук для сповіщень. cmux скопіює його до ~/Library/Sounds."
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Chọn âm thanh cho thông báo. cmux sẽ sao chép vào ~/Library/Sounds."
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "选择通知声音。cmux 会将其复制到 ~/Library/Sounds。"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "選擇通知聲音。cmux 會將其拷貝到 ~/Library/Sounds。"
-          }
-        }
-      }
-    },
     "notifications.sound.choose.prompt": {
       "comment": "Open panel button that picks the notification sound file",
       "extractionState": "manual",
@@ -196577,138 +196499,6 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "使用聲音"
-          }
-        }
-      }
-    },
-    "notifications.sound.refusal.importFailed": {
-      "comment": "Refusal when copying a notification sound failed: %@ is the file name; keep ~/Library/Sounds as is",
-      "extractionState": "manual",
-      "localizations": {
-        "ar": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "تعذّر نسخ %@ إلى ~/Library/Sounds."
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Nije moguće kopirati %@ u ~/Library/Sounds."
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Kunne ikke kopiere %@ til ~/Library/Sounds."
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "%@ konnte nicht nach ~/Library/Sounds kopiert werden."
-          }
-        },
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Could not copy %@ to ~/Library/Sounds."
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "No se pudo copiar %@ a ~/Library/Sounds."
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Impossible de copier %@ dans ~/Library/Sounds."
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Impossibile copiare %@ in ~/Library/Sounds."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "%@ を ~/Library/Sounds にコピーできませんでした。"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "មិនអាចចម្លង %@ ទៅ ~/Library/Sounds បានទេ។"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "%@을(를) ~/Library/Sounds에 복사할 수 없습니다."
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Kunne ikke kopiere %@ til ~/Library/Sounds."
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Nie można skopiować %@ do ~/Library/Sounds."
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Não foi possível copiar %@ para ~/Library/Sounds."
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Не удалось скопировать %@ в ~/Library/Sounds."
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "คัดลอก %@ ไปที่ ~/Library/Sounds ไม่ได้"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "%@, ~/Library/Sounds konumuna kopyalanamadı."
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Не вдалося скопіювати %@ до ~/Library/Sounds."
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Không thể sao chép %@ vào ~/Library/Sounds."
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "无法将 %@ 复制到 ~/Library/Sounds。"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "無法將 %@ 拷貝到 ~/Library/Sounds。"
           }
         }
       }
@@ -238845,6 +238635,268 @@
         }
       }
     },
+    "settings.experiments.expandedEditsEstimate": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Expanded Edits Estimate"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Schätzung für aufgeklappte Änderungen"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Estimation des modifications développées"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تقدير التعديلات الموسّعة"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Estimación de ediciones expandidas"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "展開編輯的高度估計"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "展开编辑的高度估计"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "펼친 편집 높이 추정"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "展開した編集の高さ推定"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Procjena proširenih izmjena"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Estimat for udvidede ændringer"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Stima delle modifiche espanse"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ការប៉ាន់ស្មានការកែដែលបានពង្រីក"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Estimat for utvidede endringer"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Szacowanie rozwiniętych zmian"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Estimativa de edições expandidas"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Оценка развёрнутых правок"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "การประมาณการแก้ไขที่ขยาย"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Genişletilmiş Düzenleme Tahmini"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Оцінка розгорнутих правок"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ước tính chỉnh sửa mở rộng"
+          }
+        }
+      }
+    },
+    "settings.experiments.expandedEditsEstimate.help": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Agent chat places the rows under an expanded Edited files group at its real height, so no gap opens under it."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Der Agent-Chat platziert die Zeilen unter einer aufgeklappten Gruppe bearbeiteter Dateien auf ihrer echten Höhe, sodass darunter keine Lücke entsteht."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Le chat d’agent place les lignes sous un groupe de fichiers modifiés développé à sa hauteur réelle, sans laisser d’espace vide dessous."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تضع دردشة الوكيل الصفوف أسفل مجموعة الملفات المعدّلة الموسّعة عند ارتفاعها الحقيقي، فلا تظهر فجوة تحتها."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "El chat del agente coloca las filas bajo un grupo de archivos editados expandido a su altura real, para que no quede un hueco debajo."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "代理聊天依展開的「已編輯檔案」群組的實際高度擺放其下方的列，不會留下空隙。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "代理聊天按展开的“已编辑文件”组的实际高度放置其下方的行，不会留下空隙。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "에이전트 채팅이 펼친 편집 파일 그룹을 실제 높이로 계산해 그 아래 행을 배치하므로 빈 공간이 생기지 않습니다."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "エージェントチャットは展開した「編集したファイル」グループを実際の高さで扱い、その下の行を配置するので、下に隙間ができません。"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chat agenta postavlja redove ispod proširene grupe izmijenjenih datoteka na njenu stvarnu visinu, pa ispod nje nema praznine."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Agentchatten placerer rækkerne under en udvidet gruppe af ændrede filer ved dens reelle højde, så der ikke opstår et hul under den."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La chat dell’agente posiziona le righe sotto un gruppo di file modificati espanso alla sua altezza reale, così sotto non resta uno spazio vuoto."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ការជជែករបស់ភ្នាក់ងារដាក់ជួរនៅក្រោមក្រុមឯកសារដែលបានកែដែលពង្រីក តាមកម្ពស់ពិតរបស់វា ដូច្នេះគ្មានចន្លោះទទេនៅខាងក្រោម។"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Agentchatten plasserer radene under en utvidet gruppe med endrede filer ved den faktiske høyden, så det ikke oppstår et tomrom under den."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Czat agenta umieszcza wiersze pod rozwiniętą grupą edytowanych plików na jej rzeczywistej wysokości, więc pod nią nie powstaje przerwa."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "O chat do agente posiciona as linhas sob um grupo expandido de arquivos editados na altura real dele, para que não surja um espaço vazio abaixo."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Чат агента размещает строки под развёрнутой группой изменённых файлов с учётом её настоящей высоты, поэтому под ней не появляется пустое место."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "แชทของเอเจนต์จัดวางแถวใต้กลุ่มไฟล์ที่แก้ไขซึ่งขยายอยู่ตามความสูงจริง จึงไม่เกิดช่องว่างด้านล่าง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ajan sohbeti, genişletilmiş Düzenlenen dosyalar grubunun altındaki satırları grubun gerçek yüksekliğine göre yerleştirir; böylece altında boşluk açılmaz."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Чат агента розміщує рядки під розгорнутою групою змінених файлів з урахуванням її справжньої висоти, тож під нею не з’являється порожнього місця."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chat của tác nhân đặt các hàng bên dưới nhóm tệp đã sửa đang mở rộng theo đúng chiều cao thật, nên không có khoảng trống bên dưới."
+          }
+        }
+      }
+    },
     "settings.experiments.menuStyleV2": {
       "comment": "Settings > Experimental row title: the second version of cmux's menu look.",
       "extractionState": "manual",
@@ -253788,6 +253840,270 @@
         "vi": {"stringUnit": {"state": "translated", "value": "Biểu tượng loại tệp đính kèm"}},
         "zh-Hans": {"stringUnit": {"state": "translated", "value": "附件类型图标"}},
         "zh-Hant": {"stringUnit": {"state": "translated", "value": "附件類型圖示"}}
+      }
+    },
+    "settings.experiments.cloudDiskBar": {
+      "comment": "Settings > Experiments: the Cloud Disk Bar taste prototype row",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud Disk Bar"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "شريط قرص السحابة"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Traka diska u oblaku"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Diskbjælke i skyen"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud-Datenträgerleiste"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Barra de disco en la nube"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Barre de disque cloud"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Barra del disco cloud"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "クラウドのディスクバー"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "របារថាសពពក"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "클라우드 디스크 막대"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Diskstolpe i skyen"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pasek dysku w chmurze"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Barra de disco na nuvem"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Полоса диска в облаке"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "แถบดิสก์คลาวด์"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bulut disk çubuğu"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Смуга диска в хмарі"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Thanh ổ đĩa đám mây"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "云端磁盘条"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "雲端磁碟列"
+          }
+        }
+      }
+    },
+    "settings.experiments.cloudDiskBar.help": {
+      "comment": "Settings > Experiments: the Cloud Disk Bar taste prototype row",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud machine cards show disk use as a bar split into system, project and caches."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تعرض بطاقات أجهزة السحابة استخدام القرص كشريط مقسّم إلى النظام والمشروع وذاكرات التخزين المؤقت."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kartice mašina u oblaku prikazuju upotrebu diska kao traku podijeljenu na sistem, projekat i keš."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kort for skymaskiner viser diskforbrug som en bjælke opdelt i system, projekt og cache."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud-Maschinenkarten zeigen die Datenträgernutzung als Leiste, aufgeteilt in System, Projekt und Caches."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Las tarjetas de máquinas en la nube muestran el uso del disco como una barra dividida en sistema, proyecto y cachés."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Les cartes des machines cloud affichent l’utilisation du disque sous forme de barre répartie entre système, projet et caches."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Le schede delle macchine cloud mostrano l’uso del disco come una barra divisa in sistema, progetto e cache."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "クラウドマシンのカードに、ディスク使用量をシステム、プロジェクト、キャッシュに分けたバーで表示します。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "កាតម៉ាស៊ីនពពកបង្ហាញការប្រើថាសជារបារ ដែលចែកជាប្រព័ន្ធ គម្រោង និងឃ្លាំងសម្ងាត់។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "클라우드 머신 카드에 디스크 사용량을 시스템, 프로젝트, 캐시로 나눈 막대로 표시합니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kort for skymaskiner viser diskbruk som en stolpe delt i system, prosjekt og hurtigbuffer."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Karty maszyn w chmurze pokazują użycie dysku jako pasek podzielony na system, projekt i pamięć podręczną."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Os cartões das máquinas na nuvem mostram o uso do disco como uma barra dividida em sistema, projeto e caches."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Карточки облачных машин показывают использование диска полосой, разделённой на систему, проект и кэши."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "การ์ดเครื่องคลาวด์แสดงการใช้ดิสก์เป็นแถบที่แบ่งเป็นระบบ โปรเจกต์ และแคช"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bulut makine kartları disk kullanımını sistem, proje ve önbellek olarak bölünmüş bir çubukla gösterir."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Картки хмарних машин показують використання диска смугою, поділеною на систему, проєкт і кеші."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Thẻ máy đám mây hiển thị dung lượng đĩa đã dùng dưới dạng thanh chia thành hệ thống, dự án và bộ nhớ đệm."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "云端机器卡片以条形显示磁盘用量，分为系统、项目和缓存。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "雲端機器卡片以長條顯示磁碟用量，分為系統、專案與快取。"
+          }
+        }
       }
     },
     "settings.experiments.attachmentTypeIcons.help": {
@@ -276318,1050 +276634,530 @@
         }
       }
     },
-    "settings.experiments.expandedEditsEstimate": {
+    "settings.notifications.sounds.maxSeconds": {
+      "comment": "Settings > Notifications > Sounds > Sound Duration: how long a sound plays, in seconds",
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Expanded Edits Estimate"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Schätzung für aufgeklappte Änderungen"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Estimation des modifications développées"
+            "value": "Sound Duration"
           }
         },
         "ar": {
           "stringUnit": {
-            "state": "translated",
-            "value": "تقدير التعديلات الموسّعة"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Estimación de ediciones expandidas"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "展開編輯的高度估計"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "展开编辑的高度估计"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "펼친 편집 높이 추정"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "展開した編集の高さ推定"
+            "state": "needs_review",
+            "value": "مدة الصوت"
           }
         },
         "bs": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Procjena proširenih izmjena"
+            "state": "needs_review",
+            "value": "Trajanje zvuka"
           }
         },
         "da": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Estimat for udvidede ændringer"
+            "state": "needs_review",
+            "value": "Lydens varighed"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tondauer"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Duración del sonido"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Durée du son"
           }
         },
         "it": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Stima delle modifiche espanse"
+            "state": "needs_review",
+            "value": "Durata del suono"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "サウンドの長さ"
           }
         },
         "km": {
           "stringUnit": {
-            "state": "translated",
-            "value": "ការប៉ាន់ស្មានការកែដែលបានពង្រីក"
+            "state": "needs_review",
+            "value": "រយៈពេលសំឡេង"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "사운드 길이"
           }
         },
         "nb": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Estimat for utvidede endringer"
+            "state": "needs_review",
+            "value": "Lydens varighet"
           }
         },
         "pl": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Szacowanie rozwiniętych zmian"
+            "state": "needs_review",
+            "value": "Czas trwania dźwięku"
           }
         },
         "pt-BR": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Estimativa de edições expandidas"
+            "state": "needs_review",
+            "value": "Duração do som"
           }
         },
         "ru": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Оценка развёрнутых правок"
+            "state": "needs_review",
+            "value": "Длительность звука"
           }
         },
         "th": {
           "stringUnit": {
-            "state": "translated",
-            "value": "การประมาณการแก้ไขที่ขยาย"
+            "state": "needs_review",
+            "value": "ระยะเวลาของเสียง"
           }
         },
         "tr": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Genişletilmiş Düzenleme Tahmini"
+            "state": "needs_review",
+            "value": "Ses Süresi"
           }
         },
         "uk": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Оцінка розгорнутих правок"
+            "state": "needs_review",
+            "value": "Тривалість звуку"
           }
         },
         "vi": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Ước tính chỉnh sửa mở rộng"
+            "state": "needs_review",
+            "value": "Thời lượng âm thanh"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "声音时长"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "聲音長度"
           }
         }
       }
     },
-    "settings.experiments.expandedEditsEstimate.help": {
+    "settings.notifications.sounds.maxSeconds.help": {
+      "comment": "Settings > Notifications > Sounds > Sound Duration: help text",
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Agent chat places the rows under an expanded Edited files group at its real height, so no gap opens under it."
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Der Agent-Chat platziert die Zeilen unter einer aufgeklappten Gruppe bearbeiteter Dateien auf ihrer echten Höhe, sodass darunter keine Lücke entsteht."
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Le chat d’agent place les lignes sous un groupe de fichiers modifiés développé à sa hauteur réelle, sans laisser d’espace vide dessous."
+            "value": "Sounds cmux plays itself stop after this long. 0 plays the whole sound."
           }
         },
         "ar": {
           "stringUnit": {
-            "state": "translated",
-            "value": "تضع دردشة الوكيل الصفوف أسفل مجموعة الملفات المعدّلة الموسّعة عند ارتفاعها الحقيقي، فلا تظهر فجوة تحتها."
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "El chat del agente coloca las filas bajo un grupo de archivos editados expandido a su altura real, para que no quede un hueco debajo."
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "代理聊天依展開的「已編輯檔案」群組的實際高度擺放其下方的列，不會留下空隙。"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "代理聊天按展开的“已编辑文件”组的实际高度放置其下方的行，不会留下空隙。"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "에이전트 채팅이 펼친 편집 파일 그룹을 실제 높이로 계산해 그 아래 행을 배치하므로 빈 공간이 생기지 않습니다."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "エージェントチャットは展開した「編集したファイル」グループを実際の高さで扱い、その下の行を配置するので、下に隙間ができません。"
+            "state": "needs_review",
+            "value": "تتوقف الأصوات التي يشغّلها cmux بنفسه بعد هذه المدة. القيمة 0 تشغّل الصوت كاملًا."
           }
         },
         "bs": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Chat agenta postavlja redove ispod proširene grupe izmijenjenih datoteka na njenu stvarnu visinu, pa ispod nje nema praznine."
+            "state": "needs_review",
+            "value": "Zvukovi koje cmux sam reprodukuje zaustavljaju se nakon ovog vremena. 0 reprodukuje cijeli zvuk."
           }
         },
         "da": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Agentchatten placerer rækkerne under en udvidet gruppe af ændrede filer ved dens reelle højde, så der ikke opstår et hul under den."
+            "state": "needs_review",
+            "value": "Lyde, som cmux selv afspiller, stopper efter så lang tid. 0 afspiller hele lyden."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Töne, die cmux selbst abspielt, enden nach dieser Zeit. 0 spielt den ganzen Ton."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Los sonidos que cmux reproduce por sí mismo se detienen tras este tiempo. 0 reproduce el sonido completo."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Les sons que cmux joue lui-même s’arrêtent après cette durée. 0 joue le son en entier."
           }
         },
         "it": {
           "stringUnit": {
-            "state": "translated",
-            "value": "La chat dell’agente posiziona le righe sotto un gruppo di file modificati espanso alla sua altezza reale, così sotto non resta uno spazio vuoto."
+            "state": "needs_review",
+            "value": "I suoni che cmux riproduce da sé si fermano dopo questo tempo. 0 riproduce il suono intero."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux が自分で再生するサウンドは、この時間で止まります。0 にすると最後まで再生します。"
           }
         },
         "km": {
           "stringUnit": {
-            "state": "translated",
-            "value": "ការជជែករបស់ភ្នាក់ងារដាក់ជួរនៅក្រោមក្រុមឯកសារដែលបានកែដែលពង្រីក តាមកម្ពស់ពិតរបស់វា ដូច្នេះគ្មានចន្លោះទទេនៅខាងក្រោម។"
+            "state": "needs_review",
+            "value": "សំឡេងដែល cmux ចាក់ដោយខ្លួនឯងឈប់បន្ទាប់ពីរយៈពេលនេះ។ 0 ចាក់សំឡេងទាំងមូល។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux가 직접 재생하는 사운드는 이 시간이 지나면 멈춥니다. 0이면 끝까지 재생합니다."
           }
         },
         "nb": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Agentchatten plasserer radene under en utvidet gruppe med endrede filer ved den faktiske høyden, så det ikke oppstår et tomrom under den."
+            "state": "needs_review",
+            "value": "Lyder cmux spiller selv, stopper etter så lang tid. 0 spiller hele lyden."
           }
         },
         "pl": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Czat agenta umieszcza wiersze pod rozwiniętą grupą edytowanych plików na jej rzeczywistej wysokości, więc pod nią nie powstaje przerwa."
+            "state": "needs_review",
+            "value": "Dźwięki odtwarzane przez cmux zatrzymują się po tym czasie. 0 odtwarza cały dźwięk."
           }
         },
         "pt-BR": {
           "stringUnit": {
-            "state": "translated",
-            "value": "O chat do agente posiciona as linhas sob um grupo expandido de arquivos editados na altura real dele, para que não surja um espaço vazio abaixo."
+            "state": "needs_review",
+            "value": "Os sons que o cmux toca sozinho param depois desse tempo. 0 toca o som inteiro."
           }
         },
         "ru": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Чат агента размещает строки под развёрнутой группой изменённых файлов с учётом её настоящей высоты, поэтому под ней не появляется пустое место."
+            "state": "needs_review",
+            "value": "Звуки, которые cmux воспроизводит сам, останавливаются через это время. 0 воспроизводит звук целиком."
           }
         },
         "th": {
           "stringUnit": {
-            "state": "translated",
-            "value": "แชทของเอเจนต์จัดวางแถวใต้กลุ่มไฟล์ที่แก้ไขซึ่งขยายอยู่ตามความสูงจริง จึงไม่เกิดช่องว่างด้านล่าง"
+            "state": "needs_review",
+            "value": "เสียงที่ cmux เล่นเองจะหยุดหลังจากเวลานี้ 0 คือเล่นจนจบ"
           }
         },
         "tr": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Ajan sohbeti, genişletilmiş Düzenlenen dosyalar grubunun altındaki satırları grubun gerçek yüksekliğine göre yerleştirir; böylece altında boşluk açılmaz."
+            "state": "needs_review",
+            "value": "cmux'un kendi çaldığı sesler bu süreden sonra durur. 0 sesin tamamını çalar."
           }
         },
         "uk": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Чат агента розміщує рядки під розгорнутою групою змінених файлів з урахуванням її справжньої висоти, тож під нею не з’являється порожнього місця."
+            "state": "needs_review",
+            "value": "Звуки, які cmux відтворює сам, зупиняються через цей час. 0 відтворює звук повністю."
           }
         },
         "vi": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Chat của tác nhân đặt các hàng bên dưới nhóm tệp đã sửa đang mở rộng theo đúng chiều cao thật, nên không có khoảng trống bên dưới."
+            "state": "needs_review",
+            "value": "Âm thanh do cmux tự phát sẽ dừng sau khoảng thời gian này. 0 phát hết âm thanh."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux 自己播放的声音在这段时间后停止。0 表示播放完整声音。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux 自行播放的聲音會在這段時間後停止。0 表示播放完整聲音。"
           }
         }
       }
     },
-    "settings.experiments.forum": {
+    "notifications.sound.refusal.copyFailed": {
+      "comment": "Refusal when copying a notification sound into cmux's sounds folder failed: %@ is the file name",
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Forum"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Forum"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Forum"
+            "value": "Could not copy %@ into cmux's sounds folder."
           }
         },
         "ar": {
           "stringUnit": {
-            "state": "translated",
-            "value": "المنتدى"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Foro"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "論壇"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "论坛"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "포럼"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "フォーラム"
+            "state": "needs_review",
+            "value": "تعذّر نسخ %@ إلى مجلد أصوات cmux."
           }
         },
         "bs": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Forum"
+            "state": "needs_review",
+            "value": "Nije moguće kopirati %@ u cmux mapu zvukova."
           }
         },
         "da": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Forum"
+            "state": "needs_review",
+            "value": "Kunne ikke kopiere %@ til cmux' lydmappe."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ konnte nicht in den Tonordner von cmux kopiert werden."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "No se pudo copiar %@ a la carpeta de sonidos de cmux."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Impossible de copier %@ dans le dossier des sons de cmux."
           }
         },
         "it": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Forum"
+            "state": "needs_review",
+            "value": "Impossibile copiare %@ nella cartella dei suoni di cmux."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ を cmux のサウンドフォルダにコピーできませんでした。"
           }
         },
         "km": {
           "stringUnit": {
-            "state": "translated",
-            "value": "វេទិកា"
+            "state": "needs_review",
+            "value": "មិនអាចចម្លង %@ ទៅថតសំឡេងរបស់ cmux បានទេ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ 파일을 cmux 사운드 폴더에 복사할 수 없습니다."
           }
         },
         "nb": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Forum"
+            "state": "needs_review",
+            "value": "Kunne ikke kopiere %@ til lydmappen til cmux."
           }
         },
         "pl": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Forum"
+            "state": "needs_review",
+            "value": "Nie można skopiować %@ do folderu dźwięków cmux."
           }
         },
         "pt-BR": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Fórum"
+            "state": "needs_review",
+            "value": "Não foi possível copiar %@ para a pasta de sons do cmux."
           }
         },
         "ru": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Форум"
+            "state": "needs_review",
+            "value": "Не удалось скопировать %@ в папку звуков cmux."
           }
         },
         "th": {
           "stringUnit": {
-            "state": "translated",
-            "value": "ฟอรัม"
+            "state": "needs_review",
+            "value": "คัดลอก %@ ไปยังโฟลเดอร์เสียงของ cmux ไม่ได้"
           }
         },
         "tr": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Forum"
+            "state": "needs_review",
+            "value": "%@ cmux'un ses klasörüne kopyalanamadı."
           }
         },
         "uk": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Форум"
+            "state": "needs_review",
+            "value": "Не вдалося скопіювати %@ до теки звуків cmux."
           }
         },
         "vi": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Diễn đàn"
+            "state": "needs_review",
+            "value": "Không thể sao chép %@ vào thư mục âm thanh của cmux."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "无法将 %@ 复制到 cmux 的声音文件夹。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "無法將 %@ 複製到 cmux 的聲音資料夾。"
           }
         }
       }
     },
-    "settings.experiments.forum.help": {
+    "notifications.sound.choose.keepsCopy": {
+      "comment": "Open panel message when choosing a notification sound file",
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Read and answer your team's forum in the app: threads from people and their agents, with search and a reply box."
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Lies und beantworte das Forum deines Teams in der App: Threads von Personen und ihren Agenten, mit Suche und Antwortfeld."
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Lisez le forum de votre équipe et répondez-y dans l’app : fils de discussion des personnes et de leurs agents, avec recherche et zone de réponse."
+            "value": "Choose a sound for notifications. cmux keeps its own copy."
           }
         },
         "ar": {
           "stringUnit": {
-            "state": "translated",
-            "value": "اقرأ منتدى فريقك وأجب عليه داخل التطبيق: سلاسل من الأشخاص ووكلائهم، مع البحث ومربع للرد."
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Lee y responde el foro de tu equipo en la app: hilos de personas y sus agentes, con búsqueda y un cuadro de respuesta."
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "在 App 中閱讀並回覆團隊論壇：來自成員及其代理的討論串，含搜尋與回覆框。"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "在 App 中阅读并回复团队论坛：来自成员及其代理的讨论串，含搜索和回复框。"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "앱에서 팀 포럼을 읽고 답하세요. 사람과 에이전트의 스레드, 검색과 답장 상자를 제공합니다."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "アプリでチームのフォーラムを読んで返信できます。人とそのエージェントのスレッド、検索、返信欄があります。"
+            "state": "needs_review",
+            "value": "اختر صوتًا للإشعارات. يحتفظ cmux بنسخة خاصة به."
           }
         },
         "bs": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Čitajte i odgovarajte na forum svog tima u aplikaciji: niti ljudi i njihovih agenata, s pretragom i poljem za odgovor."
+            "state": "needs_review",
+            "value": "Odaberite zvuk za obavještenja. cmux čuva vlastitu kopiju."
           }
         },
         "da": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Læs og besvar dit teams forum i appen: tråde fra personer og deres agenter, med søgning og et svarfelt."
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Leggi e rispondi al forum del tuo team nell’app: discussioni di persone e dei loro agenti, con ricerca e casella di risposta."
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "អាន និងឆ្លើយវេទិការបស់ក្រុមអ្នកនៅក្នុងកម្មវិធី៖ ខ្សែសន្ទនាពីមនុស្ស និងភ្នាក់ងាររបស់ពួកគេ មានការស្វែងរក និងប្រអប់ឆ្លើយតប។"
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Les og svar på teamets forum i appen: tråder fra personer og agentene deres, med søk og et svarfelt."
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Czytaj forum zespołu i odpowiadaj na nim w aplikacji: wątki od ludzi i ich agentów, z wyszukiwaniem i polem odpowiedzi."
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Leia e responda ao fórum da sua equipe no app: tópicos de pessoas e seus agentes, com busca e uma caixa de resposta."
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Читайте форум команды и отвечайте в нём прямо в приложении: темы от людей и их агентов, с поиском и полем ответа."
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "อ่านและตอบฟอรัมของทีมในแอป: เธรดจากผู้คนและเอเจนต์ของพวกเขา พร้อมการค้นหาและช่องตอบกลับ"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Ekibinizin forumunu uygulamada okuyup yanıtlayın: kişilerden ve ajanlarından gelen konular, arama ve yanıt kutusuyla."
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Читайте форум команди й відповідайте в ньому прямо в застосунку: теми від людей та їхніх агентів, з пошуком і полем відповіді."
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Đọc và trả lời diễn đàn của nhóm ngay trong ứng dụng: các chủ đề từ mọi người và tác nhân của họ, có tìm kiếm và ô trả lời."
-          }
-        }
-      }
-    },
-    "settings.experiments.terminalAgentMark": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Terminal Agent Marks"
+            "state": "needs_review",
+            "value": "Vælg en lyd til notifikationer. cmux gemmer sin egen kopi."
           }
         },
         "de": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Agent-Markierungen im Terminal"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Marques d’agent dans le terminal"
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "علامات الوكلاء في الطرفية"
+            "state": "needs_review",
+            "value": "Wähle einen Ton für Mitteilungen. cmux behält eine eigene Kopie."
           }
         },
         "es": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Marcas de agente en el terminal"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "終端機代理標記"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "终端代理标记"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "터미널 에이전트 표시"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "ターミナルのエージェントマーク"
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Oznake agenata u terminalu"
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Agentmærker i terminalen"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Contrassegni agente nel terminale"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "សញ្ញាភ្នាក់ងារក្នុងទែមីណាល់"
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Agentmerker i terminalen"
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Oznaczenia agentów w terminalu"
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Marcas de agente no terminal"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Значки агентов в терминале"
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "เครื่องหมายเอเจนต์ในเทอร์มินัล"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Terminal Ajan İşaretleri"
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Позначки агентів у терміналі"
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Dấu tác nhân trong terminal"
-          }
-        }
-      }
-    },
-    "settings.experiments.terminalAgentMark.help": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "An agent running in a terminal tab shows its icon on a rounded square, so it stands apart from an agent chat."
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Ein Agent in einem Terminal-Tab zeigt sein Symbol auf einem abgerundeten Quadrat, sodass er sich von einem Agent-Chat abhebt."
+            "state": "needs_review",
+            "value": "Elige un sonido para las notificaciones. cmux guarda su propia copia."
           }
         },
         "fr": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Un agent exécuté dans un onglet de terminal affiche son icône sur un carré arrondi, pour le distinguer d’un chat d’agent."
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "يعرض الوكيل الذي يعمل في علامة تبويب طرفية أيقونته على مربع بزوايا مستديرة، ليتميّز عن دردشة الوكيل."
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Un agente que se ejecuta en una pestaña de terminal muestra su icono sobre un cuadrado redondeado, para distinguirlo de un chat de agente."
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "在終端機分頁中執行的代理會將圖示顯示在圓角方塊上，以便與代理聊天區分。"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "在终端标签页中运行的代理会将图标显示在圆角方块上，以便与代理聊天区分。"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "터미널 탭에서 실행 중인 에이전트는 둥근 사각형 위에 아이콘을 표시해 에이전트 채팅과 구분됩니다."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "ターミナルタブで動くエージェントは角丸の四角にアイコンを表示し、エージェントチャットと区別できます。"
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Agent koji radi u kartici terminala prikazuje svoju ikonu na zaobljenom kvadratu, pa se razlikuje od chata agenta."
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "En agent, der kører i en terminalfane, viser sit ikon på en afrundet firkant, så den skiller sig ud fra en agentchat."
+            "state": "needs_review",
+            "value": "Choisissez un son pour les notifications. cmux en garde sa propre copie."
           }
         },
         "it": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Un agente in esecuzione in una scheda del terminale mostra la sua icona su un quadrato arrotondato, per distinguerlo da una chat dell’agente."
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "ភ្នាក់ងារដែលដំណើរការក្នុងផ្ទាំងទែមីណាល់ បង្ហាញរូបតំណាងរបស់វានៅលើការ៉េជ្រុងមូល ដើម្បីឲ្យខុសពីការជជែករបស់ភ្នាក់ងារ។"
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "En agent som kjører i en terminalfane, viser ikonet sitt på en avrundet firkant, så den skiller seg ut fra en agentchat."
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Agent działający w karcie terminala pokazuje swoją ikonę na zaokrąglonym kwadracie, aby odróżniał się od czatu agenta."
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Um agente em execução em uma aba de terminal mostra seu ícone sobre um quadrado arredondado, para se diferenciar de um chat de agente."
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Агент, работающий во вкладке терминала, показывает свой значок на скруглённом квадрате, чтобы отличаться от чата агента."
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "เอเจนต์ที่ทำงานในแท็บเทอร์มินัลจะแสดงไอคอนบนสี่เหลี่ยมมุมมน เพื่อให้แยกออกจากแชทของเอเจนต์"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Terminal sekmesinde çalışan bir ajan, simgesini yuvarlatılmış bir kare üzerinde gösterir; böylece ajan sohbetinden ayrışır."
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Агент, що працює у вкладці термінала, показує свій значок на заокругленому квадраті, щоб вирізнятися з-поміж чату агента."
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Tác nhân chạy trong tab terminal hiển thị biểu tượng trên một hình vuông bo góc, để phân biệt với chat của tác nhân."
-          }
-        }
-      }
-    },
-    "settings.sessions.keepAwakeWhenLocked": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Keep Agents Running While Locked"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Agenten bei gesperrtem Mac weiterlaufen lassen"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Garder les agents actifs pendant le verrouillage"
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "إبقاء الوكلاء قيد التشغيل أثناء القفل"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Mantener los agentes activos con el Mac bloqueado"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "鎖定時保持代理執行"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "锁定时保持代理运行"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "잠금 상태에서도 에이전트 계속 실행"
+            "state": "needs_review",
+            "value": "Scegli un suono per le notifiche. cmux ne conserva una copia."
           }
         },
         "ja": {
           "stringUnit": {
-            "state": "translated",
-            "value": "ロック中もエージェントを動かし続ける"
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Neka agenti rade dok je zaključano"
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Hold agenter kørende, mens Mac er låst"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Mantieni attivi gli agenti con il Mac bloccato"
+            "state": "needs_review",
+            "value": "通知のサウンドを選択してください。cmux は専用のコピーを保存します。"
           }
         },
         "km": {
           "stringUnit": {
-            "state": "translated",
-            "value": "បន្តដំណើរការភ្នាក់ងារពេលចាក់សោ"
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Hold agenter i gang mens Mac er låst"
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Agenci działają przy zablokowanym Macu"
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Manter agentes em execução com o Mac bloqueado"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Агенты работают при заблокированном Mac"
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "ให้เอเจนต์ทำงานต่อขณะล็อก"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Kilitliyken Ajanları Çalışır Tut"
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Агенти працюють, коли Mac заблоковано"
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Giữ tác nhân chạy khi khóa máy"
-          }
-        }
-      }
-    },
-    "settings.sessions.keepAwakeWhenLocked.help": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "While your Mac is locked, it stays awake for an agent that is working, even on battery, for up to 2 hours. Closing the lid on battery still puts it to sleep."
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Während dein Mac gesperrt ist, bleibt er für einen arbeitenden Agenten bis zu 2 Stunden wach, auch im Akkubetrieb. Das Schließen des Deckels im Akkubetrieb versetzt ihn weiterhin in den Ruhezustand."
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Lorsque votre Mac est verrouillé, il reste éveillé jusqu’à 2 heures pour un agent au travail, même sur batterie. Fermer l’écran sur batterie le met toujours en veille."
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "أثناء قفل جهاز Mac، يظل مستيقظًا لوكيل يعمل، حتى على البطارية، لمدة تصل إلى ساعتين. إغلاق الغطاء على البطارية لا يزال يضعه في وضع السكون."
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Mientras tu Mac está bloqueado, sigue activo hasta 2 horas para un agente que está trabajando, incluso con batería. Cerrar la tapa con batería lo sigue poniendo en reposo."
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Mac 鎖定時，若有代理正在工作，即使使用電池也會保持喚醒最多 2 小時。使用電池時闔上螢幕仍會進入睡眠。"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Mac 锁定时，若有代理正在工作，即使使用电池也会保持唤醒最多 2 小时。使用电池时合上盖子仍会进入睡眠。"
+            "state": "needs_review",
+            "value": "ជ្រើសសំឡេងសម្រាប់ការជូនដំណឹង។ cmux រក្សាច្បាប់ចម្លងផ្ទាល់ខ្លួន។"
           }
         },
         "ko": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Mac이 잠겨 있는 동안 작업 중인 에이전트가 있으면 배터리 사용 중에도 최대 2시간 동안 깨어 있습니다. 배터리 사용 중 덮개를 닫으면 여전히 잠자기 상태가 됩니다."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Mac がロックされている間も、作業中のエージェントがあればバッテリー駆動中でも最大 2 時間スリープしません。バッテリー駆動中に蓋を閉じるとスリープします。"
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Dok je vaš Mac zaključan, ostaje budan za agenta koji radi, čak i na bateriji, do 2 sata. Zatvaranje poklopca na bateriji ga i dalje uspavljuje."
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Mens din Mac er låst, forbliver den vågen for en agent, der arbejder, også på batteri, i op til 2 timer. Lukker du låget på batteri, går den stadig i dvale."
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Mentre il Mac è bloccato, resta attivo fino a 2 ore per un agente al lavoro, anche a batteria. Chiudere il coperchio a batteria lo mette comunque in stop."
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "ពេល Mac របស់អ្នកត្រូវបានចាក់សោ វានៅភ្ញាក់សម្រាប់ភ្នាក់ងារដែលកំពុងធ្វើការ សូម្បីតែប្រើថ្ម រហូតដល់ 2 ម៉ោង។ ការបិទគម្របពេលប្រើថ្មនៅតែធ្វើឲ្យវាដេក។"
+            "state": "needs_review",
+            "value": "알림 사운드를 선택하세요. cmux가 자체 사본을 보관합니다."
           }
         },
         "nb": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Mens Mac-en er låst, holder den seg våken for en agent som jobber, også på batteri, i opptil 2 timer. Lukker du lokket på batteri, går den fortsatt i dvale."
+            "state": "needs_review",
+            "value": "Velg en lyd for varsler. cmux beholder sin egen kopi."
           }
         },
         "pl": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Gdy Mac jest zablokowany, pozostaje wybudzony dla pracującego agenta, nawet na baterii, przez maksymalnie 2 godziny. Zamknięcie pokrywy na baterii nadal go usypia."
+            "state": "needs_review",
+            "value": "Wybierz dźwięk powiadomień. cmux zachowa własną kopię."
           }
         },
         "pt-BR": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Enquanto o Mac está bloqueado, ele permanece ativo para um agente que está trabalhando, mesmo na bateria, por até 2 horas. Fechar a tampa na bateria ainda o coloca em repouso."
+            "state": "needs_review",
+            "value": "Escolha um som para as notificações. O cmux guarda uma cópia própria."
           }
         },
         "ru": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Пока Mac заблокирован, он не засыпает ради работающего агента до 2 часов, даже от батареи. Если закрыть крышку при работе от батареи, Mac всё равно уснёт."
+            "state": "needs_review",
+            "value": "Выберите звук для уведомлений. cmux сохранит собственную копию."
           }
         },
         "th": {
           "stringUnit": {
-            "state": "translated",
-            "value": "ขณะที่ Mac ล็อกอยู่ เครื่องจะไม่พักสำหรับเอเจนต์ที่กำลังทำงาน แม้ใช้แบตเตอรี่ นานสูงสุด 2 ชั่วโมง การปิดฝาขณะใช้แบตเตอรี่ยังคงทำให้เครื่องพัก"
+            "state": "needs_review",
+            "value": "เลือกเสียงสำหรับการแจ้งเตือน cmux จะเก็บสำเนาไว้เอง"
           }
         },
         "tr": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Mac'iniz kilitliyken, çalışan bir ajan için pil gücünde bile 2 saate kadar uyanık kalır. Pil gücündeyken kapağı kapatmak onu yine uyutur."
+            "state": "needs_review",
+            "value": "Bildirimler için bir ses seçin. cmux kendi kopyasını saklar."
           }
         },
         "uk": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Поки Mac заблоковано, він не засинає заради агента, що працює, до 2 годин, навіть від батареї. Якщо закрити кришку під час роботи від батареї, Mac однаково засне."
+            "state": "needs_review",
+            "value": "Виберіть звук для сповіщень. cmux зберігає власну копію."
           }
         },
         "vi": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Khi máy Mac bị khóa, máy vẫn thức cho tác nhân đang làm việc, kể cả khi dùng pin, tối đa 2 giờ. Gập nắp khi dùng pin vẫn đưa máy vào chế độ ngủ."
+            "state": "needs_review",
+            "value": "Chọn âm thanh cho thông báo. cmux giữ một bản sao riêng."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "选择通知声音。cmux 会保留一份自己的副本。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "選擇通知聲音。cmux 會保留一份自己的副本。"
           }
         }
       }

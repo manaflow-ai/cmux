@@ -119,9 +119,6 @@ public final class SidebarView: NSView {
             needsLayout = true
         }
     }
-    /// The Restoring sessions card's Details (app health's popover). The sidebar draws no health line (Leo,
-    /// 2026-11-11: "slow indicator on the bottom left is uselsss"; 2026-11-22, ask-eacfb2ec1f: "we dont need it. ever.").
-    public var onHealthDetails: (() -> Void)?
     let priorityBellDot = CALayer()
     var priority: SidebarPriorityPanel?
     /// Pointer over the sidebar (or a tab drag over it): titlebar buttons show.
