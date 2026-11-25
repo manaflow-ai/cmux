@@ -149,6 +149,34 @@
           ]
         },
         {
+          "key": "agentPane.display.chatListStatusPills",
+          "note": "A taste prototype (Taste Board #19, winner and finalist list rows): a small status pill (Running, Needs you, Done, Failed) at the end of each live chat's row in All Chats (webviews newtab/AllChatsList.tsx ChatStatusPill), from the state the row already has; idle and indexed rows show none. Off by default: the rows are as before.",
+          "title": {
+            "key": "settings.agentPane.display.chatListStatusPills",
+            "text": "Status Pills in All Chats"
+          },
+          "help": {
+            "key": "settings.agentPane.display.chatListStatusPills.help",
+            "text": "Shows Running, Needs you, Done or Failed as a small pill on each live chat in All Chats."
+          },
+          "kind": "toggle",
+          "default": false,
+          "keywords": [
+            "agent",
+            "chat",
+            "all chats",
+            "list",
+            "status",
+            "pill",
+            "badge",
+            "running",
+            "needs you",
+            "done",
+            "failed",
+            "toggle"
+          ]
+        },
+        {
           "key": "agentPane.display.pinnedPlan",
           "note": "The running turn's task list pinned under its latest message (webviews conversation/turns.ts). Off by default: the composer's hat shows it (subagents/SubagentTray.tsx plan; Leo, 2026-11-03).",
           "title": {

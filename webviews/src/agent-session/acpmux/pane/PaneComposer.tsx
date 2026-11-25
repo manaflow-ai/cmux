@@ -20,6 +20,7 @@ import { postNative } from "../native";
 import { knownRefusalText } from "../transportErrors";
 import { INSTALL_COMMANDS } from "../harnesses/harnessRows";
 import { heldPick } from "../newtab/draftFolder";
+import { startThenSend } from "./firstSend";
 import { cloudSendAgent, cloudStartModePick } from "../cloudModePick";
 import { rememberStartedProject } from "../newtab/startedProject";
 import { writePersistedDraft } from "../composerDraft";
@@ -1324,14 +1325,16 @@ export function drawPaneComposer({
                 ) {
                   throw new Error("watch.notTakenOver");
                 }
-                if (projectDraft && !snapshot.sessionId)
-                  // The chat's start is part of this send: a trust refusal there asks the folder's
-                  // question, keeps this prompt (with its send's gesture) and sends it after Trust
-                  // (cx-nn3e P0b; the prompt was lost when only the start ran again).
-                  await callNative("chat.new", {
+                const pick = heldPick(snapshot);
+                // The chat's start is part of this send: a trust refusal there asks the folder's
+                // question, keeps this prompt (with its send's gesture) and sends it after Trust
+                // (cx-nn3e P0b; the prompt was lost when only the start ran again). A held pick's
+                // start waits for this prompt, so the prompt goes with it (firstSend.ts).
+                const start = () =>
+                  callNative("chat.new", {
                     cwd: projectDraft,
                     peer: directClient.current?.newChatPeer(),
-                    ...heldPick(snapshot),
+                    ...pick,
                   }).then(
                     (started) => {
                       if (started) rememberStart();
@@ -1363,6 +1366,8 @@ export function drawPaneComposer({
                         ...(gesture ? { gesture } : {}),
                       }),
                   );
+                // A new chat has no bridged session to take over: its start, then (or with) the prompt.
+                if (projectDraft && !snapshot.sessionId) return startThenSend(start, deliver, Boolean(pick.harness));
                 if (!snapshot.summary?.bridged) return deliver();
                 // The app that ran the bridged session is gone: the chat is taken over and the message
                 // stays in the composer. It is not sent again here, since its send gesture is spent;

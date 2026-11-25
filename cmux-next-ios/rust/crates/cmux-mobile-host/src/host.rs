@@ -346,6 +346,12 @@ async fn run_with_changes(
         tracing::warn!("test signals on (SIGUSR1 media black hole, SIGUSR2 media kill)");
         crate::media_session::spawn_test_signals();
     }
+    // The LAN direct path (lan.rs): runs whether or not signaling is up, so a
+    // phone on this Mac's network reaches it with the internet down.
+    let _lan =
+        crate::lan::start(Arc::clone(&services), config.include_loopback, config.session_exposure.clone())
+            .await
+            .map(AbortTask);
     let mut backoff = Duration::from_secs(1);
     loop {
         control::emit(&Event::Connecting);
@@ -715,7 +721,7 @@ async fn answer_session(
     kind: TransportKind,
     context: AnswerContext,
 ) {
-    let mut peer = Peer {
+    let peer = Peer {
         device_id: first.from.clone(),
         session_id: first.session_id.clone(),
         video: None,
@@ -769,6 +775,19 @@ async fn answer_session(
         tracing::info!(session_id, ?kind, phone = peer.device_id, timings = %timeline.summary(), "link resumed");
         return;
     }
+    serve_link(connected, kind, peer, timeline, context.services).await;
+}
+
+/// Serve a link that is up (answered through signaling, or accepted on the
+/// LAN mesh, `lan.rs`) until it closes.
+pub(crate) async fn serve_link(
+    connected: dial::Connected,
+    kind: TransportKind,
+    mut peer: Peer,
+    timeline: Timeline,
+    service_config: Arc<ServiceConfig>,
+) {
+    let session_id = peer.session_id.clone();
     let path = *connected.path.borrow();
     peer.route =
         Some(crate::services::LinkRoute { path: connected.path.clone(), peer: connected.peer.clone() });
@@ -826,7 +845,7 @@ async fn answer_session(
             &peer.device_id,
             video.clone(),
             Arc::clone(&auth),
-            context.services.pairing.is_some(),
+            service_config.pairing.is_some(),
             connected.link.closed_state(),
         )),
         _ => None,
@@ -856,19 +875,14 @@ async fn answer_session(
         }
         // In open order: a channel opened after `auth` waits for it. One
         // `auth` runs at a time per link.
-        if incoming.service == "auth" && context.services.pairing.is_some() && !auth.try_begin() {
+        if incoming.service == "auth" && service_config.pairing.is_some() && !auth.try_begin() {
             tokio::spawn(services::refuse(incoming, "busy", "this iPhone's pairing is already running"));
             continue;
         }
-        if incoming.service == "auth" && context.services.pairing.is_none() {
+        if incoming.service == "auth" && service_config.pairing.is_none() {
             auth.begin();
         }
-        tokio::spawn(services::serve(
-            Arc::clone(&context.services),
-            peer.clone(),
-            Arc::clone(&auth),
-            incoming,
-        ));
+        tokio::spawn(services::serve(Arc::clone(&service_config), peer.clone(), Arc::clone(&auth), incoming));
     }
     let reason = connected.link.closed().await;
     path_watch.abort();

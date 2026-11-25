@@ -7,6 +7,7 @@ import { claudeTranscriptModelsProgram, transcriptModels } from "./cloud-journey
 import { ensureBenchCommand, ensureBenchMarkdown, parseEnsureBench } from "./cloud-journey";
 import { execProbe, execProbeCommand, execProbeHop, execProbeMarkdown, machineStopFields, markRanOnGuest, EXEC_PROBE_NONCES, type ExecProbeRun } from "./cloud-journey";
 import { Api, clientPlatformOrigin, Journey, preclaimDeployFields, preclaimGuestFacts, preclaimHoldMinutes, preclaimMetMarkdown, preclaimRefillImage, preclaimRefillToReady, runPreclaimBurst, runPreclaimChat, warmSpareRefusal } from "./cloud-journey";
+import { saveSendTrace, SEND_TRACE_SETTLE_MS } from "./cloud-journey";
 import { claudeLoginPrograms, credentialSeen, judgeStubCredentials, launchCredentialStartProgram, loginBearer, loginPathAfterClaim, loginPrograms, MODEL_PLANE_PLACEHOLDER, startsOnLaunchCredential, preclaimPublicMeta, preclaimPublicStep, stubCodexAuth, validLogin, INSTALLER_SWIFT, JOURNEY_STUB_SCRIPT, MODEL_STUB_PY, newReds, probeRow, readEnvFile, readyMs, resolveBackend, scrub, summaryMarkdown, swiftRawString } from "./cloud-journey";
 import { oidcSignIn, waitOwnerKind, waitPreflight, CODEX_STUB_CONFIG, OWNER_KIND_PROGRAM, PREFLIGHT_PROBE } from "./cloud-journey";
 import { directExec, settleBackground, keyProbeCommand, keyProbeDetail, keyProbeStatus, parseKeyProbe, KEY_PROBE_PY } from "./cloud-journey";
@@ -555,10 +556,12 @@ describe("cloud journey: leaked machine sweep", () => {
     expect(ids([
       { id: "vm_running", name: `cloud journey auto ${old}`, status: "running" },
       { id: "vm_paused_gw", name: `cloud journey auto ${old} gateway`, status: "paused" },
+      { id: "vm_move_b", name: `cloud journey auto ${old} move B`, status: "running" },
+      { id: "vm_cold", name: `cloud journey auto ${old} cold`, status: "paused" },
       { id: "vm_young", name: `cloud journey auto ${young}`, status: "paused" },
       { id: "vm_gone", name: `cloud journey auto ${old}`, status: "deleted" },
       { id: "vm_deleting", name: `cloud journey auto ${old}`, status: "deleting" },
-    ])).toEqual(["vm_running", "vm_paused_gw"]);
+    ])).toEqual(["vm_running", "vm_paused_gw", "vm_move_b", "vm_cold"]);
     // Just inside the bound is a concurrent run's machine; just past it is leaked.
     const edge = { id: "vm_edge", name: `cloud journey auto ${tagAt(now - STALE_JOURNEY_MS)}`, status: "paused" };
     expect(ids([edge])).toEqual([]);
@@ -598,6 +601,8 @@ describe("cloud journey: leaked machine sweep", () => {
       { id: "vm_named", name: `my cloud journey auto ${old}`, status: "paused" },
       { id: "vm_bad", name: "cloud journey auto jr-!!", status: "paused" },
       { id: "vm_tiny", name: "cloud journey auto jr-zz", status: "paused" },
+      { id: "vm_tiny_sfx", name: "cloud journey auto jr-zz move B", status: "paused" },
+      { id: "vm_glued", name: `cloud journey auto ${old}x`, status: "paused" },
       { id: "vm_future", name: `cloud journey auto ${tagAt(now + 3600_000)}`, status: "paused" },
       null,
     ])).toEqual([]);
@@ -3238,6 +3243,7 @@ for line in f:
     send({'jsonrpc': '2.0', 'id': m['id'], 'result': {'sessionId': 's-1'} if m['method'] == 'session/new' else {}})
 open(out, 'w').write(json.dumps(seen))
 `;
+  const traceId = "0af7651916cd43dd8448eb211c80319c";
   const runPrompted = (accept: boolean) => {
     const home = mkdtempSync("/tmp/jp-");
     try {
@@ -3245,7 +3251,7 @@ open(out, 'w').write(json.dumps(seen))
       writeFileSync(join(home, "fake.py"), FAKE_ACPMUX_PROMPT);
       const token = "sk-ant-oat01-journeystub-abc123";
       const prompt = "Say \"hi\" and it's done";
-      const program = launchCredentialStartProgram("journey-jr-1", "claude/claude-sonnet-5-5", "CLAUDE_CODE_OAUTH_TOKEN", token, prompt);
+      const program = launchCredentialStartProgram("journey-jr-1", "claude/claude-sonnet-5-5", "CLAUDE_CODE_OAUTH_TOKEN", token, prompt, traceId);
       expect(program.split("\n")[0]).not.toContain(token);
       const sock = join(home, ".cmux/acpmux/acpmux.sock");
       const script = `python3 -I fake.py ${sock} seen.json ${accept ? 1 : 0} & for i in $(seq 50); do [ -S ${sock} ] && break; sleep 0.1; done\n${program}\nrc=$?\nwait\nexit $rc`;
@@ -3265,6 +3271,13 @@ open(out, 'w').write(json.dumps(seen))
     expect(seen[2].params.prompt).toEqual([{ type: "text", text: prompt }]);
     expect(seen[2].params._meta.acpmux).toMatchObject({ steer: false, resend: false });
     expect(seen[2].params._meta.acpmux.promptId).toMatch(/^[0-9a-f-]{36}$/);
+    // The send's W3C trace id rides the prompt (cmux#55505 perf_trace.rs reads params._meta.traceId).
+    expect(seen[2].params._meta.traceId).toBe("0af7651916cd43dd8448eb211c80319c");
+  });
+  test("a trace id that is not 32 lowercase hex never reaches the program", () => {
+    const program = launchCredentialStartProgram("s", "claude", "CLAUDE_CODE_OAUTH_TOKEN", "sk-ant-oat01-x", "hi", "x'; rm -rf /; '");
+    expect(program).toContain("trace = None");
+    expect(program).not.toContain("rm -rf");
   });
   test("a refused first prompt is a red after the session started, never a second start", { timeout: 30_000 }, () => {
     const { r, seen } = runPrompted(false);
@@ -3407,5 +3420,23 @@ describe("guestTimed", () => {
     expect(ms).toBeGreaterThanOrEqual(0);
     expect(guestDetail(ms)).toContain("on the guest");
     expect(guestDetail(null)).toBe("");
+  });
+});
+
+describe("send trace after the first token", () => {
+  test("waits ~5 s after the first token, saves send-trace.json, and a 404 only prints", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "journey-send-trace-"));
+    try {
+      const waited: number[] = [];
+      const events = [{ name: "api", ph: "X", ts: 1, dur: 45_000, args: { trace_id: "a", hop: "api", floor_ms: 30 } }];
+      const ok = await saveSendTrace({ raw: async () => ({ status: 200, body: events, text: "" }) as any }, "a".repeat(32), 1_000, dir, () => 2_000, async (ms) => { waited.push(ms); });
+      expect(ok).toBe(true);
+      expect(waited).toEqual([SEND_TRACE_SETTLE_MS - 1_000]);
+      expect(JSON.parse(readFileSync(join(dir, "send-trace.json"), "utf8"))).toEqual(events);
+      const gone = await saveSendTrace({ raw: async () => ({ status: 404, body: {}, text: "" }) as any }, "b".repeat(32), null, dir, () => 0, async () => {});
+      expect(gone).toBe(false);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
   });
 });
