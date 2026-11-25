@@ -84,8 +84,6 @@ OWN_REPOSITORY = {
     "scripts/measure/tab-switch.sh":
         "require_submodule_refs fetches only into its own `git init --bare` probe under the step's temp directory",
     "scripts/measure/screen-stream-eval/rd-netem-linux.py": "build fetches each commit into a fresh `git init` temp directory",
-    "cmux-tui/scripts/sync_bench.py":
-        "fetch_repo and build_here fetch only into repositories they `git init` under the bench root",
     "scripts/cmux-next/swift-logic-pr-status.py":
         "merge_base and swift_trees fetch only into `git init --bare` repositories partial_repo just made in its work dir",
     "webviews/src/agent-session/acpmux/session-info/commandRules.ts":

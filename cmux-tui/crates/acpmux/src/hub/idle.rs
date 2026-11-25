@@ -6,7 +6,8 @@
 //! runs or waits, nothing is queued, no permission or question is pending, no
 //! start holds its spawn lock, no background command or subagent runs, and
 //! nothing was logged for `idle_child` (2 min, `IDLE_CHILD`;
-//! `ACPMUX_IDLE_CHILD_SECS`). A client attached to it, the open chat on screen
+//! `ACPMUX_IDLE_CHILD_SECS`; 30 s for background work while the sr2 model pool sheds,
+//! `pool_pressure.rs`). A client attached to it, the open chat on screen
 //! included, does not keep it awake: the chat stays where it is and only the
 //! agent goes. Its harness is then stopped through `detach_child`: the record
 //! and the agent session id stay, so the next prompt resumes it
@@ -42,6 +43,23 @@ use futures::StreamExt as _;
 
 /// How many due harnesses one idle pass ends at once (`stop_idle_children`).
 const IDLE_EXITS_AT_ONCE: usize = 16;
+
+/// How long an agent marked to restart when quiet (`Session::respawn_when_quiet`) logs nothing
+/// before the idle pass ends it. While it is at work each pass that finds it busy starts the
+/// period again, so a marked agent costs at most one gate check (and census) per period.
+const QUIET_RESPAWN: std::time::Duration = std::time::Duration::from_secs(30);
+
+/// [`QUIET_RESPAWN`]; debug builds read `ACPMUX_TEST_QUIET_RESPAWN_MS` (the integration tests'
+/// seam). Release builds have no seam.
+pub(super) fn quiet_respawn() -> std::time::Duration {
+    #[cfg(debug_assertions)]
+    if let Some(ms) =
+        std::env::var("ACPMUX_TEST_QUIET_RESPAWN_MS").ok().and_then(|v| v.parse::<u64>().ok())
+    {
+        return std::time::Duration::from_millis(ms);
+    }
+    QUIET_RESPAWN
+}
 
 /// One agent request on its way to its answer (`Session::agent_requests`): counted from when the
 /// inbound loop reads it until its task ends.
@@ -124,6 +142,51 @@ impl Hub {
             && !session.meta().keeps_unstored_awake()
     }
 
+    /// A Claude chat kept awake as unstored (`SessionMeta::keeps_unstored_awake`) whose
+    /// conversation is in its Claude store after all is stored: its flags clear, so it sleeps
+    /// and its next wake resumes it (`claude_resume_refusal` finds it). Claude writes a
+    /// conversation as it streams, so a first turn that worked and then failed (a 429, a
+    /// sign-out) is usually stored; only a turn ending Ok cleared the flags, and such a chat
+    /// stayed awake until the daemon stopped (one for 14 h). One Claude never stored stays awake.
+    pub(super) async fn confirm_claude_stored(&self, session: &Session) {
+        let meta = session.meta();
+        if !meta.keeps_unstored_awake() {
+            return;
+        }
+        let Some(sid) = meta.agent_session_id.clone() else { return };
+        let profile = {
+            let cfg = self.config.read().await;
+            super::resolve::session_profile(&cfg, &meta.harness, &meta.cwd, meta.remote_origin)
+        };
+        let Ok(profile) = profile else { return };
+        let store = meta.claude_store(&profile.env);
+        let cwd = meta.cwd.clone();
+        let probe = sid.clone();
+        let stored = tokio::task::spawn_blocking(move || {
+            crate::adopt::claude_session_exists_near(&store, &probe, &cwd)
+        })
+        .await
+        .unwrap_or(false);
+        if !stored {
+            return;
+        }
+        let cleared = {
+            let mut m = session.meta.lock().unwrap_or_else(|e| e.into_inner());
+            // A new conversation started meanwhile is not this one.
+            let same = m.agent_session_id.as_deref() == Some(sid.as_str());
+            let clear = same && m.claude_unstored;
+            if clear {
+                m.claude_unstored = false;
+                m.claude_unstored_work = false;
+            }
+            clear
+        };
+        if cleared {
+            tracing::info!(session = %session.id, agent_session = %sid, "an unstored Claude conversation is in its store: it may sleep");
+            self.save_meta(session);
+        }
+    }
+
     /// What a host this daemon starts does once no daemon controls it (`agent_host::OrphanExit`;
     /// its servers come from `LaunchServers::orphan_exit`): it waits [`crate::agent_host::ORPHAN_IDLE`], or this daemon's
     /// own idle period when that is longer, and never ends while idle hibernation is off
@@ -159,6 +222,15 @@ impl Hub {
         self.idle_wake.notify_one();
     }
 
+    /// The agent of `session` restarts once nothing runs in it (`Session::respawn_when_quiet`):
+    /// its host moves as a host below this build's level does (`host_level.rs` `host_moves`),
+    /// after [`quiet_respawn`] with nothing logged, under every gate an idle exit has, the census
+    /// of what runs under it included, and its next prompt starts it again.
+    pub(super) fn respawn_when_quiet(self: &Arc<Self>, session: &Session) {
+        session.respawn_when_quiet.store(true, Ordering::SeqCst);
+        self.wake_idle_reaper();
+    }
+
     /// A child was published: make sure the reaper runs and sees it.
     pub(super) fn wake_idle_reaper(self: &Arc<Self>) {
         if !self.idle_reaper.swap(true, Ordering::SeqCst) {
@@ -184,6 +256,11 @@ impl Hub {
                     (Some(a), Some(b)) => Some(a.min(b)),
                     (a, b) => a.or(b),
                 };
+                // The same task evicts idle chats from memory (`evict.rs`).
+                let next = match (next, hub.next_evict_deadline()) {
+                    (Some(a), Some(b)) => Some(a.min(b)),
+                    (a, b) => a.or(b),
+                };
                 (next, clock)
             };
             match next {
@@ -201,6 +278,7 @@ impl Hub {
                 hub.settle_stalled_turns(stalled);
             }
             hub.stop_idle_children().await;
+            hub.evict_idle_chats();
         }
     }
 
@@ -244,8 +322,9 @@ impl Hub {
         futures::stream::iter(due)
             .for_each_concurrent(IDLE_EXITS_AT_ONCE, |session| {
                 let moving = self.host_moves(&session);
+                let pressed = !moving && self.pool_pressure_sleeps(&session);
                 let idle = period(&session);
-                self.idle_exit(session, idle, now, moving)
+                self.idle_exit(session, idle, now, moving, pressed)
             })
             .await;
     }
@@ -253,8 +332,16 @@ impl Hub {
     /// One due session of [`Self::stop_idle_children`]: its harness exits when it is still idle,
     /// nothing but its MCP servers runs under it, and nothing moved its deadline meanwhile.
     /// `moving`: its host is below this build's level and moves onto the installed one
-    /// (`host_level.rs`), after `idle`, its shorter period.
-    async fn idle_exit(&self, session: Arc<Session>, idle: u64, now: u64, moving: bool) {
+    /// (`host_level.rs`), after `idle`, its shorter period. `pressed`: it sleeps sooner while the
+    /// sr2 pool sheds (`pool_pressure.rs`), logged as cause `pool-pressure`.
+    async fn idle_exit(
+        &self,
+        session: Arc<Session>,
+        idle: u64,
+        now: u64,
+        moving: bool,
+        pressed: bool,
+    ) {
         if session.last_active.load(Ordering::Relaxed).saturating_add(idle) > now {
             return;
         }
@@ -266,14 +353,24 @@ impl Hub {
         let busy = session.turn_lock.try_lock().is_err()
             || session.spawn_lock.try_lock().is_err()
             || session.harness_use.try_write().is_err();
-        // A recap the person will want is asked before the process goes (`away_recap.rs`).
-        if busy || !self.idle_eligible(&session) || self.recap_before_sleep(&session) {
+        // An unstored conversation Claude stored after all no longer holds it awake.
+        if !busy {
+            self.confirm_claude_stored(&session).await;
+        }
+        // A recap the person will want is asked before the process goes (`away_recap.rs`), and
+        // an armed cache compaction runs now, into this live harness, while its cache is warm:
+        // one into the respawned harness rewrites the whole context (`cache_compact.rs`).
+        if busy
+            || !self.idle_eligible(&session)
+            || self.recap_before_sleep(&session)
+            || self.cache_compact_before_reap(&session)
+        {
             self.touch(&session);
             return;
         }
         // Its MCP servers, read before the leases: the configs are files (`idle_census.rs`).
         let Some(child) = session.child.lock().await.clone() else { return };
-        let sidecars = self.sidecars(&child).await;
+        let sidecars = self.sidecars(&session, &child).await;
         // Held until the harness is ended: no turn, start, mode change, fork or stop
         // begins meanwhile, and one that already began keeps the harness up.
         let turn = session.turn_lock.try_lock();
@@ -321,6 +418,8 @@ impl Hub {
         // every gate read again. An exit the drain handles is no hibernation's (the mark is
         // set after it).
         let seen = session.last_active.load(Ordering::SeqCst);
+        // Read before the agent ends: its end clears the mark (`settle_profile_respawn`).
+        let quiet = session.respawn_when_quiet.load(Ordering::SeqCst);
         Self::drain_inbound(&session).await;
         if session.last_active.load(Ordering::SeqCst) != seen
             || seen.saturating_add(idle) > self.clock_now()
@@ -338,7 +437,15 @@ impl Hub {
         drop((turn, using, spawning));
         tracing::info!(
             session = %session.id,
-            cause = if moving { "host-level" } else { "idle" },
+            cause = if pressed {
+                "pool-pressure"
+            } else if !moving {
+                "idle"
+            } else if quiet {
+                "restart-when-quiet"
+            } else {
+                "host-level"
+            },
             idle_secs = idle_for / 1_000_000_000,
             exit_ms = u64::try_from(began.elapsed().as_millis()).unwrap_or(u64::MAX),
             "hibernated: no turn, nothing queued, no question pending, nothing but its MCP \
@@ -383,6 +490,8 @@ impl Hub {
         session.meta.lock().unwrap_or_else(|e| e.into_inner()).hibernated_ms =
             crate::store::now_ms().max(1);
         self.save_meta(session);
+        // Its `cmux` server, which the daemon runs (`mcp_gateway.rs`), goes with the harness.
+        crate::mcp_gateway::hibernated(&session.id);
         true
     }
 
@@ -615,7 +724,7 @@ impl Hub {
     }
 
     /// What holds `session` at work, or None when nothing does.
-    fn at_work(&self, session: &Session) -> Option<SessionAtWork> {
+    pub(super) fn at_work(&self, session: &Session) -> Option<SessionAtWork> {
         let turn = self.turn_at_work(session);
         let subagents =
             session.subagents.lock().unwrap_or_else(|e| e.into_inner()).background_running();
@@ -623,7 +732,9 @@ impl Hub {
         let processes = self.running_processes(session) + self.bg_running_count(session);
         // A move off this machine not yet committed or aborted: the chat stays frozen here until
         // its watch settles it, so a pause now would strand it mid-move.
-        let moving = session.moving().is_some() && session.meta().moved_to.is_none();
+        // Auto's own freeze is no move: a chat another holder runs has no work here.
+        let moving = session.moving().is_some_and(|mark| mark != super::AUTO_AWAY)
+            && session.meta().moved_to.is_none();
         if !(turn || subagents > 0 || below || processes > 0 || moving) {
             return None;
         }

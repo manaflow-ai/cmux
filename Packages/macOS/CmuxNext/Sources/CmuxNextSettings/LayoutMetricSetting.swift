@@ -25,6 +25,9 @@ public nonisolated struct LayoutMetricSetting: Sendable, Hashable {
                                                             comfortable: 7)
     public static let titlebarHeight = LayoutMetricSetting(name: "titlebarHeight", range: titlebarHeightRange, compact: titlebarHeightPlaceholder,
                                                            comfortable: 40)
+    /// Center-to-center spacing for the Space buttons in either sidebar placement.
+    public static let spaceButtonSpacing = LayoutMetricSetting(name: "spaceButtonSpacing", range: spaceButtonSpacingRange,
+                                                               compact: spaceButtonSpacingPlaceholder, comfortable: 32)
     /// The workspace row height, shared with tabs and browser controls through `Metrics.chromeRowHeight`.
     /// Unset, the app density supplies it. Explicit tab sizing still takes precedence for tabs.
     public static let sidebarRowHeight = LayoutMetricSetting(name: "sidebarRowHeight", range: sidebarRowHeightRange, compact: sidebarRowHeightPlaceholder,
@@ -77,7 +80,9 @@ public nonisolated struct LayoutMetricSetting: Sendable, Hashable {
                                                             toolbarButtonSize, toolbarButtonGap, toolbarButtonCornerRadius, toolbarButtonActiveFill,
                                                             headerDivider, spacingScale, composerPadding, composerMinHeight]
 
-    public static let all: [LayoutMetricSetting] = [sidebarWidth, sidebarRowHeight, columnGap, dividerThickness, dividerHitWidth, titlebarHeight] + tabBar + tabWidths
+    public static let all: [LayoutMetricSetting] = [
+        sidebarWidth, sidebarRowHeight, spaceButtonSpacing, columnGap, dividerThickness, dividerHitWidth, titlebarHeight,
+    ] + tabBar + tabWidths
         + proportions
 
     /// A tab strip width whose comfortable value is the shared token's; its range and compact value (the

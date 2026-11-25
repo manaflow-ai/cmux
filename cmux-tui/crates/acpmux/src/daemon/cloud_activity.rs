@@ -66,6 +66,16 @@
 //! settles, and at the first look after, is `unknown` too ([`Tracker::startup`]): a pause never
 //! lands under a tool this daemon did not see start (wake kind 5, cmuxterm-hq RFD 0017).
 //!
+//! Each line also carries `"turn_end": 1` (version [`TURN_END_VERSION`], capability
+//! `activity-turn-end`): this daemon's promise that `turns` 0 means nothing is pending. No turn
+//! runs or is queued, no permission or question waits, no continuation is pending, and no
+//! background task, process, subagent or sub-session is at work (the count is
+//! [`crate::hub::Hub::sessions_at_work`], which covers each). So a pause right when the count
+//! drops to 0 loses nothing, and the Cloud may pause at turn end instead of after its 60 s
+//! window, on the machines whose pause policy asks for it (cmux-platform `turn_end`). A daemon
+//! older than this field sends no `turn_end`, and the agent then advertises no capability, so
+//! the Cloud keeps its usual window.
+//!
 //! A machine without the agent's socket (every machine that is not a Cloud machine) sends nothing.
 
 use crate::hub::{Hub, SessionAtWork};
@@ -80,6 +90,8 @@ use tokio::io::AsyncWriteExt;
 /// How often a line goes in any case. The agent keeps a count for 90 s
 /// (cmux-host `cloud/wire.rs` `ACP_ACTIVITY_TTL_MS`), so two lines can be lost before it forgets.
 pub(super) const RENEW: Duration = Duration::from_secs(20);
+/// The `turn_end` field's version: 1 promises that a count of 0 means nothing pending (module doc).
+pub(super) const TURN_END_VERSION: u64 = 1;
 /// A line must not hold this loop on a dead socket.
 const SEND_TIMEOUT: Duration = Duration::from_secs(2);
 
@@ -273,7 +285,7 @@ impl Tracker {
         self.sent = Some((turns, self.last_action));
         self.sent_phases = phases;
         self.sent_person_prompt = self.person_prompt;
-        let mut activity = json!({"turns": turns});
+        let mut activity = json!({"turns": turns, "turn_end": TURN_END_VERSION});
         if let Some(at) = self.last_action {
             activity.set("last_agent_action_at", json!(at));
         }
@@ -328,11 +340,14 @@ async fn agent_socket_appears(path: &Path) {
     if path.exists() {
         return;
     }
-    let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
+    // A coalescing slot of one (RFD 0124 R4): each wake looks at the path again, so one waiting
+    // stands for any number more. An unbounded channel kept one per event in the folder (`/run`
+    // off a Cloud machine, for the daemon's whole life) until the next look.
+    let (tx, mut rx) = tokio::sync::mpsc::channel(1);
     let Ok(mut watcher) =
         notify::recommended_watcher(move |event: notify::Result<notify::Event>| {
             if !matches!(&event, Ok(e) if e.kind.is_access()) {
-                let _ = tx.send(());
+                let _ = tx.try_send(());
             }
         })
     else {
@@ -359,6 +374,16 @@ async fn agent_socket_appears(path: &Path) {
     }
 }
 
+/// Auto mode's machine side (`auto_session/machine.rs`), once the agent's Auto mode socket is
+/// there (an agent older than Auto mode has none). It waits for the store to assign this
+/// machine a chat; until then it changes nothing.
+async fn auto_mode(hub: Arc<Hub>) {
+    use crate::auto_session::machine;
+    let cloud = machine::MachineCloud::here();
+    agent_socket_appears(cloud.socket()).await;
+    machine::serve(hub, Arc::new(cloud), machine::chats_root()).await
+}
+
 /// Follows this daemon's own sessions and reports how many are at work while the Cloud agent's
 /// socket is there.
 pub(super) async fn activity_loop(hub: Arc<Hub>) {
@@ -366,6 +391,10 @@ pub(super) async fn activity_loop(hub: Arc<Hub>) {
     // Off a Cloud machine nothing reads the report: no renew tick and no resume subscription (it
     // keeps the hub's resume tick running) until the agent's socket appears (cmux-ad m9).
     agent_socket_appears(&path).await;
+    // The agent is here. On a Cloud machine, Auto mode's side starts with it.
+    if crate::cloud_host::is_cloud_vm() {
+        hub.scope.spawn_until_cancelled("auto-mode-machine", auto_mode(hub.clone()));
+    }
     let mut events = hub.subscribe();
     let mut resumes = hub.subscribe_resumes();
     let mut person_prompts = hub.subscribe_person_prompts();

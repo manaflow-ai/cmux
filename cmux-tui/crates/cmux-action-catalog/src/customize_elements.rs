@@ -123,7 +123,7 @@ pub static ELEMENTS: &[CustomizeElement] = &[
         title: COMPOSER,
         surface: "chatComposer",
         menus: &[],
-        settings: &["agentPane.composerRing", "agentPane.showDictation", "agentPane.spellChecking", "agentPane.showContextUsage", "agentPane.attachmentView", "appearance.metrics.composerPadding", "appearance.metrics.composerMinHeight"],
+        settings: &["agentPane.composerRing", "agentPane.showDictation", "agentPane.spellChecking", "agentPane.composerVimKeys", "agentPane.showContextUsage", "agentPane.attachmentView", "appearance.metrics.composerPadding", "appearance.metrics.composerMinHeight"],
         tokens: &["elevatedBackground", "textPrimary", "textPlaceholder", "focusRing", "accent"],
     },
     CustomizeElement {
