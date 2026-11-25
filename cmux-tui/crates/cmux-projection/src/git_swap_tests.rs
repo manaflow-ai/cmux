@@ -259,17 +259,24 @@ fn unpushed_commits_survive_the_swap() {
 
 #[test]
 fn a_sealed_projection_does_not_swap_its_git_folder() {
-    let repo = repo(1, 1024);
-    let Some(p) = mount(&repo.mac) else { return };
-    let projected = p.at.path().join(".git");
-    let local = p.state.path().join(LOCAL_DIR);
-    std::fs::create_dir_all(&local).unwrap();
-    assert!(std::fs::metadata(&projected).unwrap().is_dir());
+    let mac = tempfile::tempdir().unwrap();
+    std::fs::create_dir(mac.path().join(".git")).unwrap();
+    let (manifest, disk) = project(mac.path());
+    let state = tempfile::tempdir().unwrap();
+    let meta = state.path().metadata().unwrap();
+    let overlay =
+        Overlay::open(Arc::new(manifest), state.path(), Arc::new(disk), (meta.uid(), meta.gid()))
+            .unwrap();
+    let git = overlay.lookup(overlay.root(), ".git").unwrap().ino;
+    let target = tempfile::tempdir().unwrap();
 
-    p.overlay.seal();
-    assert_eq!(p.overlay.swap_to_link(".git", &local), Err(libc::EROFS));
-    assert!(std::fs::metadata(&projected).unwrap().is_dir());
-    assert!(!std::fs::symlink_metadata(&projected).unwrap().file_type().is_symlink());
+    overlay.seal();
+    assert_eq!(overlay.swap_to_link(".git", target.path()), Err(libc::EROFS));
+    assert_eq!(overlay.lookup(overlay.root(), ".git").unwrap().ino, git);
+    assert_eq!(
+        state.path().join("upper/.git").symlink_metadata().unwrap_err().kind(),
+        std::io::ErrorKind::NotFound
+    );
 }
 
 #[test]
