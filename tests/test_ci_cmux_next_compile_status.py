@@ -455,8 +455,8 @@ class StatusMapping(unittest.TestCase):
         self.assertEqual(self.output, "")
 
     def test_a_superseded_push_with_the_service_down_ends_green(self):
-        """2026-11-24-compile-status-down-superseded.md: 14:50Z five feat-cmux-next pushes the preflight had found superseded (so FALLBACK
-        false) failed this job in about a minute on "results service down, HTTP 000", each a base red. The branch
+        """2026-11-24-compile-status-down-superseded.md: at 14:50Z five feat-cmux-next pushes the preflight had
+        found superseded (so FALLBACK false) failed this job in about a minute on "results service down, HTTP 000", each a base red. The branch
         moved on, so the newer tip's check covers the commit: a no-verdict status, and the job ends green."""
         newer = "b" * 40
         for probe in ("530", "000"):
