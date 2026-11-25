@@ -271,7 +271,10 @@ extension SidebarMapping {
         row.detail = detail(tabs: tabs, indicator: indicator.state, agentTab: agentTab, front: front,
                             notification: row.notificationText)
         row.detail.origin = Self.origin(workspace.createdBy)
-        row.subagents = Self.subagents(tabs)
+        // Only the row's own chat lists its subagents: another chat open in this workspace has a row of its own,
+        // often nested under this one, which lists its own. Gathering every chat's here showed a nested chat's
+        // subagents twice, once under its parent and once under itself (Leo, 2026-11-25 screenshot).
+        row.subagents = Self.subagents(agentTab.map { [$0] } ?? [])
         return row
     }
 
