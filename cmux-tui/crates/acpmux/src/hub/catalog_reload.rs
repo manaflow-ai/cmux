@@ -94,6 +94,7 @@ impl Hub {
                 default_permission_mode,
                 remote_daemon,
                 lane_gh_broker,
+                lane_gh_carrier,
                 direct_port,
                 notify_command,
                 disk_low_bytes,
@@ -191,6 +192,9 @@ impl Hub {
             current.remote_daemon = remote_daemon;
             // The next broker stream reads it (`hub_carrier_broker.rs`).
             current.lane_gh_broker = lane_gh_broker;
+            // The daemon starts the carrier forward once, at its start (`server/machine_enroll.rs`);
+            // a restart applies a change.
+            current.lane_gh_carrier = lane_gh_carrier;
             // The carrier binds its direct port at its start (`hub_carrier_direct.rs`); a
             // restart applies a change.
             current.direct_port = direct_port;
