@@ -206,7 +206,7 @@ const GROUPS: &[Group] = &[
             verb("file-read", "{target} --path /FILE", "Read a file", "ファイルを読む"),
             verb(
                 "file-write",
-                "{target} --path /FILE --contents TEXT",
+                "{target} --path /FILE --contents TEXT|--contents-file FILE",
                 "Write text to a file",
                 "ファイルにテキストを書き込む",
             ),
