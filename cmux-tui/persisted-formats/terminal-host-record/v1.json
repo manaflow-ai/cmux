@@ -1,0 +1,7 @@
+{
+  "record_version": 1,
+  "terminal_id": "0123456789ab4def8123456789abcdef",
+  "incarnation": "fedcba98765443218fedcba987654321",
+  "endpoint": "@ENDPOINT@",
+  "owner_token": "1111111111111111111111111111111111111111111111111111111111111111"
+}

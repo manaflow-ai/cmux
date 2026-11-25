@@ -25,6 +25,7 @@ import {
   type CloudIntroAccountUser,
   type CloudIntroPassStore,
 } from "./cloudIntroPasses";
+import { checkoutIdempotencyKey } from "./checkoutIdempotency";
 import { isStripeBillingConfigured, stripe as defaultStripe } from "./stripe";
 
 /**
@@ -113,16 +114,25 @@ async function createPassCheckout(
   const client = (dependencies.stripe ?? defaultStripe)();
   const renewOnPlus = cloudIntroRenewChosen(request.nextUrl.searchParams.get(CLOUD_INTRO_RENEW_PARAM));
   const customerId = await (dependencies.customerId ?? personalCustomerId)(user.id);
-  const session = await client.checkout.sessions.create(
-    cloudIntroCheckoutParams({
-      origin: requestOrigin(request),
-      stackUserId: user.id,
-      priceId: await resolveCloudIntroPrice(client),
-      renewOnPlus,
-      customerId,
-      email: user.primaryEmail ?? null,
+  const params = cloudIntroCheckoutParams({
+    origin: requestOrigin(request),
+    stackUserId: user.id,
+    priceId: await resolveCloudIntroPrice(client),
+    renewOnPlus,
+    customerId,
+    email: user.primaryEmail ?? null,
+  });
+  // A repeated identical request reuses its session, so it is one card attempt, not two.
+  const session = await client.checkout.sessions.create(params, {
+    idempotencyKey: checkoutIdempotencyKey({
+      scope: "cloud-intro",
+      subjectId: user.id,
+      plan: CLOUD_INTRO_CHECKOUT_PLAN,
+      interval: "once",
+      params,
+      now: dependencies.now?.().getTime(),
     }),
-  );
+  });
   if (!session.id || !session.url) throw new Error("Stripe Checkout Session did not include an id and URL");
   // The started checkout counts as one of the account's card attempts.
   await store.recordCheckout({

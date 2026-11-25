@@ -10,6 +10,9 @@ import { Button } from "../../../ui/Button";
 import { Icon } from "../icons";
 import { Input } from "../../../ui/Input";
 import { useSettingsState, useStore } from "../context";
+import { revealRow } from "../keyboard";
+import { joinConsentKey } from "../search";
+import { Highlight } from "./Highlight";
 import { Select } from "../editors/Select";
 import { Switch } from "../editors/ToggleEditor";
 import type {
@@ -26,7 +29,9 @@ import type {
 } from "../ops";
 import { WithFacts } from "../../../agent-session/acpmux/chips/FactsHoverCard";
 
-export function DevicesCard() {
+/** `focus` is the route's focused key: a join consent switch's (`devices.join.control`) is revealed,
+ * scrolled to with its switch focused. */
+export function DevicesCard({ focus = null }: { focus?: string | null }) {
   const store = useStore();
   const { devices, host } = useSettingsState();
   const join = host?.devices_join ?? null;
@@ -39,8 +44,8 @@ export function DevicesCard() {
   );
   return (
     <div className="devices" data-card="devices" ref={mounted}>
-      {devices && <DevicesBody state={devices} join={join} />}
-      {!devices && join && <JoinGroup join={join} />}
+      {devices && <DevicesBody state={devices} join={join} focus={focus} />}
+      {!devices && join && <JoinGroup join={join} focus={focus} />}
       <RemoteHostsExperiment />
     </div>
   );
@@ -49,9 +54,22 @@ export function DevicesCard() {
 /**
  * This Mac joined to a team with the one-line join: what it joined as, and its Screen sharing and
  * Control switches, off until the person turns one on here (the host takes an on only from the
- * person's own click, then over a line acpmux proves as the person; off always works).
+ * person's own click, then over a line acpmux proves as the person; off always works). Each switch's row
+ * is the place a deep link or Settings search opens (`devices.join.<surface>`, Swift `SettingsPageAnchor`):
+ * the focused one is revealed. In search results only the matching switches show (`only`), with the
+ * query marked, and neither the joined line nor Turn All Off.
  */
-function JoinGroup({ join }: { join: DevicesJoinState }) {
+export function JoinGroup({
+  join,
+  focus = null,
+  only = null,
+  query = "",
+}: {
+  join: DevicesJoinState;
+  focus?: string | null;
+  only?: ReadonlySet<string> | null;
+  query?: string;
+}) {
   const store = useStore();
   const [setting, setSetting] = useState<string | null>(null);
   // The host's refusal of the last switch press itself (not the person's own click): shown, never silent.
@@ -65,41 +83,54 @@ function JoinGroup({ join }: { join: DevicesJoinState }) {
     <section className="group" data-devices-group="join">
       <h3 className="group-title">{join.title}</h3>
       <div className="rows">
-        <div className="row">
-          <div className="row-label">
-            <div className="row-title" data-devices-join="">
-              {join.joined}
+        {!only && (
+          <div className="row">
+            <div className="row-label">
+              <div className="row-title" data-devices-join="">
+                {join.joined}
+              </div>
+              <div className="row-help">{join.help}</div>
             </div>
-            <div className="row-help">{join.help}</div>
           </div>
-        </div>
-        {join.switches.map((item) => (
-          <div className="row" key={item.surface} data-devices-join-consent={item.surface}>
-            <div className="row-main">
-              <div className="row-label">
-                <div className="row-title" id={`${titleId}-${item.surface}`}>
-                  {item.title}
+        )}
+        {join.switches
+          .filter((item) => !only || only.has(joinConsentKey(item.surface)))
+          .map((item) => (
+            <div
+              className="row"
+              key={item.surface}
+              data-devices-join-consent={item.surface}
+              data-row-key={joinConsentKey(item.surface)}
+              tabIndex={-1}
+              ref={focus === joinConsentKey(item.surface) ? revealRow : undefined}
+            >
+              <div className="row-main">
+                <div className="row-label">
+                  <div className="row-title" id={`${titleId}-${item.surface}`}>
+                    <Highlight text={item.title} query={query} />
+                  </div>
+                  <div className="row-help">
+                    <Highlight text={item.help} query={query} />
+                  </div>
                 </div>
-                <div className="row-help">{item.help}</div>
-              </div>
-              <div className="row-control">
-                <Switch
-                  checked={item.on}
-                  disabled={join.busy || !join.known || setting !== null}
-                  labelId={`${titleId}-${item.surface}`}
-                  onToggle={(on) => {
-                    setSetting(item.surface);
-                    setRefusal(null);
-                    void store
-                      .setJoinConsent(item.surface, on)
-                      .then(setRefusal)
-                      .finally(() => setSetting(null));
-                  }}
-                />
+                <div className="row-control">
+                  <Switch
+                    checked={item.on}
+                    disabled={join.busy || !join.known || setting !== null}
+                    labelId={`${titleId}-${item.surface}`}
+                    onToggle={(on) => {
+                      setSetting(item.surface);
+                      setRefusal(null);
+                      void store
+                        .setJoinConsent(item.surface, on)
+                        .then(setRefusal)
+                        .finally(() => setSetting(null));
+                    }}
+                  />
+                </div>
               </div>
             </div>
-          </div>
-        ))}
+          ))}
         {errors.map((error) => (
           <div className="row" key={error}>
             <div className="row-help" role="alert">
@@ -107,7 +138,7 @@ function JoinGroup({ join }: { join: DevicesJoinState }) {
             </div>
           </div>
         ))}
-        {join.revoke_all && (
+        {join.revoke_all && !only && (
           <div className="row">
             <div className="row-control">
               {/* Off always works, from any input: turning every switch off needs no record to be read. */}
@@ -165,7 +196,15 @@ function Status({ tone, children }: { tone: DevicesTone; children: ReactNode }) 
   );
 }
 
-function DevicesBody({ state, join }: { state: DevicesState; join: DevicesJoinState | null }) {
+function DevicesBody({
+  state,
+  join,
+  focus,
+}: {
+  state: DevicesState;
+  join: DevicesJoinState | null;
+  focus: string | null;
+}) {
   const [error, run] = useRun();
   const { labels } = state;
   const header = (
@@ -208,7 +247,7 @@ function DevicesBody({ state, join }: { state: DevicesState; join: DevicesJoinSt
     return (
       <>
         {header}
-        {join && <JoinGroup join={join} />}
+        {join && <JoinGroup join={join} focus={focus} />}
       </>
     );
   return (
@@ -222,7 +261,7 @@ function DevicesBody({ state, join }: { state: DevicesState; join: DevicesJoinSt
           </div>
         </section>
       )}
-      {join && <JoinGroup join={join} />}
+      {join && <JoinGroup join={join} focus={focus} />}
       {state.sharing && <SharingGroup sharing={state.sharing} labels={labels} />}
       <section className="group" data-devices-group="others">
         <h3 className="group-title">{labels.othersSection}</h3>
