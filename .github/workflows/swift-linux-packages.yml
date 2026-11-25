@@ -99,14 +99,10 @@ jobs:
             packages: Packages/Shared/CmuxEgress
           - group: CmuxIrohTransport
             packages: Packages/Shared/CmuxIrohTransport
-          - group: CmuxVNC
-            packages: Packages/Shared/CmuxVNC
           - group: CmuxVisibleRows
             packages: Packages/Shared/CmuxVisibleRows
           - group: CmuxPhonePush
             packages: Packages/macOS/CmuxPhonePush
-          - group: CmuxUpdater
-            packages: Packages/macOS/CmuxUpdater
     steps:
       # A reused pool workspace can hold a repository the container cannot read (an alternate on the VM's git
       # mirror, a broken index: "index cache-tree records empty sub-tree"); drop it and check out fresh.
@@ -127,10 +123,10 @@ jobs:
         with:
           persist-credentials: false
 
-      # python3 for the lane's watchdog; CmuxMobilePairedMac links the system SQLite, and the image
-      # ships only its runtime.
-      - name: Install python3 and SQLite headers
-        run: apt-get update -qq && apt-get install -y -qq --no-install-recommends python3 libsqlite3-dev
+      # python3 for the lane's watchdog; CmuxMobilePairedMac links the system SQLite and CmuxVNC the system
+      # zlib, and the image ships only their runtimes.
+      - name: Install python3, SQLite and zlib headers
+        run: apt-get update -qq && apt-get install -y -qq --no-install-recommends python3 libsqlite3-dev zlib1g-dev
 
       - name: Cache key
         id: key

@@ -15,7 +15,8 @@ it. This script finds that class in two places:
              it with full-ci; a new one also needs the diff check below.
          A registry entry either names the workflow that runs the whole package on its pull requests
          (`run_by`, checked: it triggers on pull_request and runs `swift test --package-path DIR`
-         with no filter) or says why no PR check runs it (`not_run`).
+         with no filter, or with `--filter` naming only that target) or says why no PR check runs it
+         (`not_run`).
   diff   (--base REV) a CmuxNext test target the change adds that no fast-tier.json swift entry
          covers fails unless the pull request carries full-ci: without one, the first run of its
          tests is the tip suite on feat-cmux-next. A new test file in an existing CmuxNext target
@@ -155,8 +156,9 @@ def load_registry(root: Path) -> list[dict]:
     return entries
 
 
-def runs_whole_package_on_pr(root: Path, workflow: str, package: str) -> str | None:
-    """None when `workflow` runs `swift test --package-path PACKAGE` (no filter) on pull requests, else why not."""
+def runs_whole_package_on_pr(root: Path, workflow: str, package: str, target: str = "") -> str | None:
+    """None when `workflow` runs `swift test --package-path PACKAGE` on pull requests, with no filter or with
+    `--filter TARGET` (the package's other targets run elsewhere, such as Linux), else why not."""
     try:
         text = (root / workflow).read_text(encoding="utf-8")
     except OSError:
@@ -166,10 +168,12 @@ def runs_whole_package_on_pr(root: Path, workflow: str, package: str) -> str | N
     for line in text.splitlines():
         if line.lstrip().startswith("#"):
             continue
-        if "swift test" in line and re.search(rf"--package-path\s+\"?{re.escape(package)}\"?(\s|$)", line) \
-                and "--filter" not in line:
-            return None
-    return f"{workflow} has no `swift test --package-path {package}` line without a --filter"
+        if "swift test" in line and re.search(rf"--package-path\s+\"?{re.escape(package)}\"?(\s|$)", line):
+            filters = re.findall(r"--filter\s+\"?([^\s\"]+)", line)
+            if not filters or (target and filters == [target]):
+                return None
+    return (f"{workflow} has no `swift test --package-path {package}` line without a --filter"
+            + (f" or with --filter {target}" if target else ""))
 
 
 def runners(root: Path) -> dict[Target, str]:
@@ -208,7 +212,7 @@ def check_tree(root: Path) -> list[str]:
             errors.append(f"{REGISTRY}: {target.package} {target.name} already runs in {covered[target]}:"
                           " remove the entry")
         elif entry.get("run_by"):
-            why = runs_whole_package_on_pr(root, entry["run_by"], target.package)
+            why = runs_whole_package_on_pr(root, entry["run_by"], target.package, target.name)
             if why:
                 errors.append(f"{REGISTRY}: {target.package} {target.name}: run_by {why}")
     for target in targets:
