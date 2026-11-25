@@ -20,7 +20,7 @@ extension JoinConsentServices {
     static let askShownKey = "cmux.join.consentAskShown"
 
     static func app(_ services: AppServices) -> JoinConsentServices {
-        let cli = SSHService.bundledCLI
+        let cli = SSHService.bundledCLI?.onPlatform(of: services.environment.terminalEnvironment)
         #if DEBUG
         let fixtures = services.debugFixtures
         #endif

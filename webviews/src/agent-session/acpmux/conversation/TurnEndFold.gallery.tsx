@@ -4,7 +4,9 @@
 // overarching fold at the very end"). Run the turn: its calls arrive one by one, each in sight, a
 // short note between two runs on its own row; then the answer lands and the work folds under
 // "Worked for" on the house settle (turnEndFold.ts). The arms compare how the rows that fold go
-// (`data-turn-end-fold`): `fade`, shipped, fades each where it was while the answer and the rows
+// (`data-turn-end-fold`): `wipe` (the fold matrix's pick, scripts/fold-matrix.ts) slides nothing:
+// an edge runs down from the Worked for line, the new frame above it and the old below; `snapshot`
+// cross-dissolves the two frames in place; `fade`, shipped, fades each where it was while the answer and the rows
 // above slide to the folded line; `tuck` slides them up under the line as they fade; `stagger` fades
 // them from the last up. `live` stops before the end: the work in sight, nothing folded. The `-long`
 // states run a longer turn (a third run of calls) whose fold moves the answer far: it still ends with
@@ -13,6 +15,11 @@
 // exit before the move (exitLead.ts, design/chat-fold-motion.md; Leo, 2026-11-21: "we must hide text
 // faster and sooner"): `lead-none`, before, the copies fading on the move's own clock; `fade` is the
 // shipped 40 ms lead; `lead-quick`, a whole quick step of lead.
+// The variants for Leo's "gash" (2026-11-22: "the big fold we do for claude is not good looking enough. it
+// looks like a gash collapsing. you need to figure out more and more variations to deal with things."):
+// `crossfade`, `morph`, `cascade`, `glide`, `spring`, `wait` and `dissolve` (turnEndFold.ts `TurnEndLook`),
+// each short and `-long`; the motion-path looks `sheet`, `capped`, `viscous`, `water`, `edge` and `anchored` the same way. The dev setting `turn-end-fold-look` picks one in the running pane;
+// scripts/fold-variants-record.ts records and measures each in the big Claude turn.
 import { useEffect, useMemo, useRef, useState } from "react";
 import { componentEntry } from "../../../gallery/format";
 import type { Play } from "../../../gallery/play";
@@ -272,5 +279,35 @@ export default componentEntry<{ variant: Variant; long?: boolean; lead?: ExitLea
     "lead-none": { props: { variant: "fade", lead: "none" }, play: runToFold },
     "lead-quick": { props: { variant: "fade", lead: "quick" }, play: runToFold },
     "lead-none-long": { props: { variant: "fade", long: true, lead: "none" }, play: runToFold },
+    crossfade: { props: { variant: "crossfade" }, play: runToFold },
+    "crossfade-long": { props: { variant: "crossfade", long: true }, play: runToFold },
+    morph: { props: { variant: "morph" }, play: runToFold },
+    "morph-long": { props: { variant: "morph", long: true }, play: runToFold },
+    cascade: { props: { variant: "cascade" }, play: runToFold },
+    "cascade-long": { props: { variant: "cascade", long: true }, play: runToFold },
+    glide: { props: { variant: "glide" }, play: runToFold },
+    "glide-long": { props: { variant: "glide", long: true }, play: runToFold },
+    spring: { props: { variant: "spring" }, play: runToFold },
+    "spring-long": { props: { variant: "spring", long: true }, play: runToFold },
+    wait: { props: { variant: "wait" }, play: runToFold },
+    "wait-long": { props: { variant: "wait", long: true }, play: runToFold },
+    dissolve: { props: { variant: "dissolve" }, play: runToFold },
+    "dissolve-long": { props: { variant: "dissolve", long: true }, play: runToFold },
+    sheet: { props: { variant: "sheet" }, play: runToFold },
+    "sheet-long": { props: { variant: "sheet", long: true }, play: runToFold },
+    capped: { props: { variant: "capped" }, play: runToFold },
+    "capped-long": { props: { variant: "capped", long: true }, play: runToFold },
+    viscous: { props: { variant: "viscous" }, play: runToFold },
+    "viscous-long": { props: { variant: "viscous", long: true }, play: runToFold },
+    water: { props: { variant: "water" }, play: runToFold },
+    "water-long": { props: { variant: "water", long: true }, play: runToFold },
+    edge: { props: { variant: "edge" }, play: runToFold },
+    "edge-long": { props: { variant: "edge", long: true }, play: runToFold },
+    anchored: { props: { variant: "anchored" }, play: runToFold },
+    "anchored-long": { props: { variant: "anchored", long: true }, play: runToFold },
+    wipe: { props: { variant: "wipe" }, play: runToFold },
+    "wipe-long": { props: { variant: "wipe", long: true }, play: runToFold },
+    snapshot: { props: { variant: "snapshot" }, play: runToFold },
+    "snapshot-long": { props: { variant: "snapshot", long: true }, play: runToFold },
   },
 });

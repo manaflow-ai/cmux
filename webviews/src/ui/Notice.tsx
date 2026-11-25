@@ -14,7 +14,7 @@
 // it when it can be dismissed. Native calls forward into the same card through the host's cards
 // (toolCards) rather than drawing their own.
 import { Checkbox } from "@base-ui/react/checkbox";
-import { useId, useRef, type KeyboardEvent, type ReactNode } from "react";
+import { useId, type KeyboardEvent, type ReactNode, useRef } from "react";
 import { Spinner } from "../agent-session/acpmux/conversation/Spinner";
 import { Button } from "./Button";
 import { cx } from "./cx";
@@ -166,6 +166,7 @@ export function Notice({
       ref={card}
       id={id}
       className={cx("ui-notice ui-glass", className)}
+      data-surface-role={kind === "toast" ? "toast" : "card"}
       data-kind={kind}
       data-placement={placement}
       data-state={state}

@@ -6,7 +6,6 @@ import Foundation
 /// (the CmuxNextApp size cap, scripts/cmux-next/check-app-size.sh).
 enum RemoteStrings {
     // Remote-terminal tab placeholder (plans/cmux-next/data-model.md 1.4).
-    static func placeholderReconnecting(_ machine: String) -> String { String(format: String(localized: "remote.terminal.reconnecting", defaultValue: "Reconnecting to %@…", table: "Remote", bundle: .module.inAppLanguage), machine) }
     /// The one-list sidebar's pending row of an SSH machine that is connecting (cx-gaq9).
     static func sidebarConnecting(_ machine: String) -> String { String(format: String(localized: "remote.sidebar.connecting", defaultValue: "Connecting to %@…", table: "Remote", bundle: .module.inAppLanguage), machine) }
     static func placeholderOffline(_ machine: String) -> String { String(format: String(localized: "remote.terminal.offline", defaultValue: "%@ is offline", table: "Remote", bundle: .module.inAppLanguage), machine) }

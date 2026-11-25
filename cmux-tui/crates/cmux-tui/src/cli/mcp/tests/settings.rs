@@ -4,9 +4,17 @@ use super::*;
 fn settings_tools_are_discoverable_without_the_app() {
     let mut server = Server::new(Fake { fail_apps: true, ..Fake::default() }, None);
     let tools = server.list();
-    for name in
-        ["settings_list", "settings_get", "settings_set", "settings_reset", "settings_unset"]
-    {
+    for name in [
+        "settings_list",
+        "settings_get",
+        "settings_set",
+        "settings_reset",
+        "settings_unset",
+        "settings_history",
+        "settings_undo",
+        "settings_restore",
+        "settings_reset_group",
+    ] {
         assert_eq!(tools.iter().filter(|tool| tool["name"] == name).count(), 1, "{name}");
     }
 }
@@ -216,4 +224,82 @@ fn settings_get_redacts_tokens_in_all_url_schemes() {
         assert_eq!(result["structuredContent"]["value_redacted"], true, "{result}");
         assert!(!result.to_string().contains("fixture-secret-937"));
     }
+}
+
+/// Undo, restore and reset_group always declare origin mcp: the owner then
+/// refuses a change that touches a user-only row (settings.agent_refused).
+#[test]
+fn settings_recovery_tools_force_mcp_origin() {
+    let mut server = Server::new(Fake::default(), None);
+    for (name, operation, arguments, field) in [
+        ("settings_undo", "settings.undo", json!({"idempotency_key": "undo-1"}), None),
+        (
+            "settings_restore",
+            "settings.restore",
+            json!({"revision": "12", "idempotency_key": "restore-1"}),
+            Some(("revision", json!("12"))),
+        ),
+        (
+            "settings_reset_group",
+            "settings.reset_group",
+            json!({"group": "editor.editorText", "idempotency_key": "group-1"}),
+            Some(("group", json!("editor.editorText"))),
+        ),
+    ] {
+        let key = arguments["idempotency_key"].clone();
+        let result = call(&mut server, name, arguments);
+        assert_eq!(result["isError"], false, "{name}: {result}");
+        let sent = server.backend.sent.borrow();
+        let request = &sent.last().unwrap()["request"];
+        assert_eq!(request["operation"], operation);
+        assert_eq!(request["params"]["origin"], "mcp");
+        assert_eq!(request["idempotency_key"], key);
+        if let Some((field, value)) = field {
+            assert_eq!(request["params"][field], value, "{name}");
+        }
+    }
+}
+
+#[test]
+fn settings_recovery_tools_refuse_bad_arguments_without_sending() {
+    let mut server = Server::new(Fake::default(), None);
+    for (name, arguments) in [
+        ("settings_restore", json!({})),
+        ("settings_restore", json!({"revision": "twelve"})),
+        ("settings_reset_group", json!({})),
+        ("settings_reset_group", json!({"group": "nope"})),
+        ("settings_undo", json!({"origin": "user"})),
+        ("settings_history", json!({"key": "appearance.theme"})),
+    ] {
+        let result = call(&mut server, name, arguments);
+        assert_eq!(result["isError"], true, "{name}: {result}");
+    }
+    assert!(server.backend.sent.borrow().iter().all(|sent| sent["kind"] != "resource"));
+}
+
+/// The history lists changed keys, never values; keys outside the schema
+/// (raw configuration) do not cross the MCP boundary.
+#[test]
+fn settings_history_lists_schema_keys_only() {
+    let mut server = Server::new(
+        Fake {
+            resource_result: Some(json!({"entries": [
+                {"revision": "9", "at": "1700000000000", "origin": "cli",
+                 "keys": ["editor.tabSize", "secretStore.token"], "undoes": "8",
+                 "before": "raw-secret"}
+            ]})),
+            ..Fake::default()
+        },
+        None,
+    );
+    let result = call(&mut server, "settings_history", json!({}));
+    assert_eq!(result["isError"], false, "{result}");
+    let entry = &result["structuredContent"]["entries"][0];
+    assert_eq!(entry["revision"], "9");
+    assert_eq!(entry["undoes"], "8");
+    assert_eq!(entry["keys"], json!(["editor.tabSize"]));
+    assert!(!result.to_string().contains("raw-secret"));
+    assert!(!result.to_string().contains("secretStore"));
+    let sent = server.backend.sent.borrow();
+    assert_eq!(sent.last().unwrap()["request"]["operation"], "settings.history");
 }
