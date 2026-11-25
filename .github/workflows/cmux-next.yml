@@ -5238,7 +5238,7 @@ jobs:
         continue-on-error: true
         timeout-minutes: 10
         env:
-          CMUX_BASE_EXPORTS_REGENERATE_ACTIONS: scripts/cmux-next/regenerate-action-exports-linux.sh
+          CMUX_BASE_EXPORTS_REGENERATE_ACTIONS: scripts/cmux-next/regenerate-action-exports-catalog-linux.sh
           CMUX_BASE_EXPORTS_REGENERATE_SETTINGS: scripts/cmux-next/regenerate-settings-exports-linux.sh
         run: |
           set -euo pipefail
@@ -5265,7 +5265,7 @@ jobs:
         continue-on-error: true
         timeout-minutes: 10
         env:
-          CMUX_BASE_EXPORTS_REGENERATE_ACTIONS: ${{ github.workspace }}/scripts/cmux-next/regenerate-action-exports-linux.sh
+          CMUX_BASE_EXPORTS_REGENERATE_ACTIONS: ${{ github.workspace }}/scripts/cmux-next/regenerate-action-exports-catalog-linux.sh
           CMUX_BASE_EXPORTS_REGENERATE_SETTINGS: ${{ github.workspace }}/scripts/cmux-next/regenerate-settings-exports-linux.sh
         run: |
           set -euo pipefail
