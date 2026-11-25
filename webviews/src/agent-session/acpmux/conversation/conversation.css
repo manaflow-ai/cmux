@@ -2412,6 +2412,9 @@ pre.cv-math-source {
      Motion (0 with animations off). */
   --cmux-scroller-fade-in: var(--agent-motion-in, 120ms);
   --cmux-scroller-fade-out: var(--agent-motion-move, 180ms);
+  /* Transcript arrivals follow Claude Code's softer standard step. Reuse the host-scaled move token
+     so speed, minimal-motion and reduced-motion gates still apply to the shared arrival clock. */
+  --agent-motion-arrive: var(--agent-motion-move, var(--cmux-motion-standard, 180ms));
 }
 /* Where Session Info lies over the chat, the transcript leaves its box out (session-info/chatCut.ts):
    nothing scrolls behind its glass, so it never flickers under a scroll (Leo, 2026-11-03). Only the
@@ -6779,7 +6782,7 @@ a.cv-sha:focus-visible {
 }
 
 /* R104: a block that appears while the reply streams, and a row that arrives live (a reply, a
- * tool call, a status line), fade in and rise 4px on the shared fade-in token. `translate` and
+ * tool call, a status line), fade in on the shared standard token. `translate` and
  * `opacity` never move layout, so nothing below shifts. Reduce Motion keeps the fade without the
  * rise (cv-enter-fade, below); ui.animationSpeed off turns both off (the token is 0). */
 /* A row that comes in only fades, at its place (Leo, 2026-11-09: "these animations all slosh around
@@ -8761,7 +8764,7 @@ article.acpmux-row:not(:has(> :not(.acpmux-row__gap))) {
 .cv-needs-input-glyph.is-answered {
   align-self: center;
   margin-inline-end: var(--ds-space-2);
-  animation: cv-needs-input-answered var(--cmux-motion-standard, 180ms) var(--cmux-ease-out) both;
+  animation: cv-needs-input-answered var(--agent-motion-arrive, 80ms) var(--cmux-ease-out) both;
 }
 @keyframes cv-needs-input-answered {
   from {

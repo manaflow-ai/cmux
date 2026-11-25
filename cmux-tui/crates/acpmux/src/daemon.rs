@@ -54,6 +54,8 @@ mod cloud_activity;
 // A restart request that execs in place with `acpmux.v2` `start` (Unix only).
 #[cfg(unix)]
 pub(crate) mod handoff;
+#[cfg(all(test, unix))]
+pub(crate) use cloud_activity::probe as cloud_activity_probe;
 // Connect to the daemon, or start one and connect (the client side).
 mod connect;
 use connect::*;
