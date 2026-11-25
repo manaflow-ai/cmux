@@ -2839,6 +2839,7 @@ mod tests {
             spawn: "s1".into(),
             ids: vec!["a1".into(), "a2".into()],
             queued: vec!["a2".into()],
+            queued_ahead: 0,
             limit: None,
             engine: None,
             peer: None,
