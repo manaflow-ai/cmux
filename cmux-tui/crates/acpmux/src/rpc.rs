@@ -958,6 +958,15 @@ pub mod method {
     pub const MUX_SECRET_REQUEST: &str = "_acpmux/secret_request";
     pub const MUX_SECRET_SUBMIT: &str = "_acpmux/secret_submit";
     pub const MUX_SECRET_RUN: &str = "_acpmux/secret_run";
+    /// Secrets for one chat only (`chat_secrets.rs`): the person's connection sets them,
+    /// `{sessionId, secrets: {NAME: value}, ttlSeconds?}` -> `{sessionId, names, applied}`; its
+    /// agent restarts on them. Held in memory only, never written, never answered back.
+    pub const MUX_CHAT_SECRETS_SET: &str = "_acpmux/chat_secrets_set";
+    /// Drops a chat's secrets: `{sessionId}` -> `{sessionId, cleared, applied}`; the person's.
+    pub const MUX_CHAT_SECRETS_CLEAR: &str = "_acpmux/chat_secrets_clear";
+    /// A chat's secret names and seconds left, never a value: `{sessionId}` ->
+    /// `{sessionId, secrets: [{name, expiresInSeconds}]}`.
+    pub const MUX_CHAT_SECRETS_LIST: &str = "_acpmux/chat_secrets_list";
     /// An agent asks to run one command as root (`hub/elevation.rs`); the person's card
     /// answers with `secret_submit`, the password, and the daemon runs sudo itself.
     pub const MUX_ELEVATION_REQUEST: &str = "_acpmux/elevation_request";

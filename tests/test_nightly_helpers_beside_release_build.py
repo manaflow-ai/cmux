@@ -400,8 +400,6 @@ class NightlyInputsTests(unittest.TestCase):
 
 
 FALLBACK = ROOT / "scripts/ci/nightly-steps/mobile-host-fallback.sh"
-# A Mach-O 64-bit arm64 executable header: what `file` reads to call it Mach-O.
-MACHO_ARM64 = bytes.fromhex("cffaedfe0c000001000000000200000000000000000000000000000000000000")
 
 
 class MobileHostFallbackTests(unittest.TestCase):
@@ -413,34 +411,14 @@ class MobileHostFallbackTests(unittest.TestCase):
         self.tmp = tempfile.TemporaryDirectory()
         self.addCleanup(self.tmp.cleanup)
         self.base = Path(self.tmp.name)
-        self.cache = self.base / "cache"
         self.out = self.base / "out/cmux-mobile-host"
 
-    def host(self, key, mtime, body=MACHO_ARM64):
-        path = self.cache / key / "arm64/cmux-mobile-host"
-        path.parent.mkdir(parents=True)
-        path.write_bytes(body + key.encode())
-        path.with_name("cmux-mobile-host.ref").write_text(f"key={key}\n")
-        os.utime(path, (mtime, mtime))
-        return path
-
     def fallback(self, appcast):
-        env = {**os.environ, "CMUX_NEXT_MOBILE_HOST_CACHE": str(self.cache), "RUNNER_TEMP": str(self.base),
+        env = {**os.environ, "RUNNER_TEMP": str(self.base),
                "CMUX_MOBILE_HOST_FALLBACK_APPCAST": appcast}
         return subprocess.run(["bash", str(FALLBACK), "arm64", str(self.out)], env=env, capture_output=True, text=True)
 
-    def test_the_newest_cached_host_is_bundled(self):
-        self.host("old0000000000000", 1_000_000)
-        newest = self.host("new0000000000000", 2_000_000)
-        self.host("junk000000000000", 3_000_000, body=b"not a binary")
-        result = self.fallback("file:///nonexistent/appcast.xml")
-        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
-        self.assertEqual(self.out.read_bytes(), newest.read_bytes())
-        ref = self.out.with_name("cmux-mobile-host.ref").read_text()
-        self.assertIn("fallback=cache", ref)
-        self.assertIn("key=new0000000000000", ref)
-
-    def test_no_cache_and_no_published_dmg_fails(self):
+    def test_no_published_dmg_fails(self):
         appcast = self.base / "appcast.xml"
         appcast.write_text("<rss><channel><item></item></channel></rss>")
         result = self.fallback(appcast.as_uri())
@@ -448,14 +426,10 @@ class MobileHostFallbackTests(unittest.TestCase):
         self.assertIn("no DMG", result.stderr)
         self.assertFalse(self.out.exists())
 
-    def test_nightly_next_falls_back_and_release_stays_strict(self):
-        jobs = yaml.safe_load(nightly_text())["jobs"]
-        for job in ("build-nightly-app", "nightly-next-one"):
-            step = next(s for s in jobs[job]["steps"] if s.get("name") == BUNDLE)
-            self.assertEqual(step.get("env", {}).get("CMUX_MOBILE_HOST_FALLBACK"), "1", job)
-            self.assertIn("mobile-host-fallback.sh", step["run"])
-        self.assertNotIn("CMUX_MOBILE_HOST_FALLBACK", (ROOT / ".github/workflows/release.yml").read_text())
-
+    def test_the_published_host_is_tried_only_after_this_macs_last_good_one(self):
+        script = (ROOT / "scripts/ci/nightly-steps/app-bundle-chief-and-mobile-host.sh").read_text()
+        self.assertLess(script.index("last-good-mobile-host.sh"), script.index("mobile-host-fallback.sh"))
+        self.assertIn('[ "${NIGHTLY_COMPONENT_GATES:-}" != block ] || exit 1', script)
 
 if __name__ == "__main__":
     unittest.main()

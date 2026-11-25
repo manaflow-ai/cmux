@@ -19,20 +19,31 @@ phase_env=(SRCROOT="$PWD" CONFIGURATION=Release ARCHS="$archs"
 python3 scripts/ci/background_build.py join --state "$state" optchat-chief
 env "${phase_env[@]}" CMUX_NEXT_OPTCHAT_CHIEF_BIN="${CMUX_NEXT_OPTCHAT_CHIEF_PENDING_BIN:?}" \
   CMUX_NEXT_REQUIRE_OPTCHAT_CHIEF=1 scripts/cmux-next/bundle-optchat-chief.sh
-# The iPhone host compiles cmux-next-ios/rust: an iOS change that breaks it must not stop the Mac
-# NIGHTLY (Leo, 11-25: "build broke on an iOS change that left a field out of the phone link
-# code are we able to decouple"). With CMUX_MOBILE_HOST_FALLBACK=1 (nightly.yml's nightly-next
-# jobs; release.yml leaves it unset and stays strict) a failed build bundles the newest earlier
-# host instead (mobile-host-fallback.sh) and says so; the iOS break stays red on base CI.
+# The iPhone host does not hold the nightly (Leo, 2026-11-25: "are we able to decouple"): a failed build
+# bundles the newest host this Mac built before (the last good artifact), or none, and says so as a stale
+# part; the app still launches, and Settings > Mobile says iPhone connections are unavailable without it.
+# NIGHTLY_COMPONENT_GATES=block (a repository variable) restores the old hold.
+host_bin="${CMUX_NEXT_MOBILE_HOST_PENDING_BIN:?}"
 if ! python3 scripts/ci/background_build.py join --state "$state" mobile-host; then
-  [[ "${CMUX_MOBILE_HOST_FALLBACK:-}" == 1 ]] || exit 1
-  why="cmux-mobile-host did not compile at this commit (an iOS or phone-link change); this NIGHTLY carries the newest earlier host"
-  echo "::warning title=iPhone host from an earlier build::$why"
-  bash scripts/ci/nightly-steps/mobile-host-fallback.sh "$archs" "${CMUX_NEXT_MOBILE_HOST_PENDING_BIN:?}"
-  [[ -z "${GITHUB_STEP_SUMMARY:-}" ]] || { echo "### $why"; sed 's/^/    /' "$CMUX_NEXT_MOBILE_HOST_PENDING_BIN.ref"; } >> "$GITHUB_STEP_SUMMARY"
+  [ "${NIGHTLY_COMPONENT_GATES:-}" != block ] || exit 1
+  host_bin="$(scripts/ci/nightly-steps/last-good-mobile-host.sh "${archs// /-}" || true)"
+  if [ -n "$host_bin" ]; then
+    bash scripts/ci/nightly-steps/stale-part.sh cmux-mobile-host \
+      "the iPhone host failed to build; bundled the last good one ($(tr '\n' ' ' < "$host_bin.ref" 2>/dev/null || echo "$host_bin"))"
+  elif bash scripts/ci/nightly-steps/mobile-host-fallback.sh "$archs" "${CMUX_NEXT_MOBILE_HOST_PENDING_BIN:?}"; then
+    # No earlier build on this Mac (a fresh runner): the published NIGHTLY's copy keeps iPhone connections.
+    host_bin="$CMUX_NEXT_MOBILE_HOST_PENDING_BIN"
+    bash scripts/ci/nightly-steps/stale-part.sh cmux-mobile-host \
+      "the iPhone host failed to build; bundled the published NIGHTLY's ($(tr '\n' ' ' < "$host_bin.ref"))"
+  else
+    bash scripts/ci/nightly-steps/stale-part.sh cmux-mobile-host \
+      "the iPhone host failed to build and neither this Mac nor the published NIGHTLY has one; the nightly ships without iPhone connections"
+  fi
 fi
-env "${phase_env[@]}" CMUX_NEXT_MOBILE_HOST_BIN="${CMUX_NEXT_MOBILE_HOST_PENDING_BIN:?}" \
-  CMUX_NEXT_REQUIRE_MOBILE_HOST=1 scripts/cmux-next/bundle-mobile-host.sh
+if [ -n "$host_bin" ]; then
+  env "${phase_env[@]}" CMUX_NEXT_MOBILE_HOST_BIN="$host_bin" \
+    CMUX_NEXT_REQUIRE_MOBILE_HOST=1 scripts/cmux-next/bundle-mobile-host.sh
+fi
 python3 scripts/ci/background_build.py join --state "$state" screen-sharing-helper
 env "${phase_env[@]}" CMUX_NEXT_SCREEN_HELPER_BIN="${CMUX_NEXT_SCREEN_HELPER_PENDING_BIN:?}" \
   CMUX_NEXT_REQUIRE_SCREEN_HELPER=1 scripts/cmux-next/bundle-screen-sharing-helper.sh
