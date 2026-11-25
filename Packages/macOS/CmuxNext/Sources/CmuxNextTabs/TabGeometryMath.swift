@@ -1,24 +1,15 @@
 public import CoreGraphics
+import CmuxNextDesignTokens
 
-/// Drag reorder math.
+/// Drag reorder math, asked of Rust (cmux-layout-reducer `drop_rules`, op `drop_tab_insertion`).
 public struct TabReorderMath {
     public init() {}
     /// Index at which a dragged tab lands among `otherWidths` (the tabs of its
-    /// group in order, without the dragged tab). Picks the slot whose leading
-    /// edge is nearest to the dragged tab's leading edge.
+    /// group in order, without the dragged tab): the slot whose leading edge is
+    /// nearest to the dragged tab's leading edge.
     public static func insertionIndex(draggedMinX: CGFloat, groupStart: CGFloat, otherWidths: [CGFloat]) -> Int {
-        var best = 0
-        var bestDistance = CGFloat.infinity
-        var edge = groupStart
-        for index in 0...otherWidths.count {
-            let distance = abs(edge - draggedMinX)
-            if distance < bestDistance {
-                bestDistance = distance
-                best = index
-            }
-            if index < otherWidths.count { edge += otherWidths[index] }
-        }
-        return best
+        let request = TabDropWire.Insertion(draggedMinX: draggedMinX, groupStart: groupStart, otherWidths: otherWidths)
+        return DropRules.call("drop_tab_insertion", request, as: TabDropWire.Index.self)?.index ?? 0
     }
 }
 

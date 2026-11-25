@@ -345,6 +345,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
                 "CmuxNextBridge",
                 "CmuxNextDaemon",
                 "CmuxNextDaemonService",
+                "CmuxNextDesignTokens",
                 "CmuxNextLayout",
                 "CmuxNextSidebar",
                 "CmuxNextWakeups",

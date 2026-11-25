@@ -1,4 +1,5 @@
 public import CoreGraphics
+import CmuxNextDesignTokens
 
 /// Where a dragged tab lands relative to groups.
 public struct TabGroupDropResolution: Equatable, Sendable {
@@ -13,7 +14,9 @@ public struct TabGroupDropResolution: Equatable, Sendable {
     }
 }
 
-/// Pure drop math for tabs and whole groups over a strip that has groups.
+/// Drop math for tabs and whole groups over a strip that has groups, asked of
+/// Rust (cmux-layout-reducer `drop_rules`, ops `drop_tab_over_groups` and
+/// `drop_group_over_groups`, with their table tests).
 ///
 /// `entries` are the unpinned layout slots in display order without the
 /// dragged item (chips included, the drop gap excluded). Only their widths,
@@ -21,21 +24,11 @@ public struct TabGroupDropResolution: Equatable, Sendable {
 /// `start`, because the real slots still contain the dragged item's space.
 public struct TabGroupDropMath {
     public init() {}
-    /// Resolves index and group membership for a dragged tab probed at
-    /// `draggedMinX`.
-    ///
-    /// The probe is the card's leading edge for a reorder within one strip,
-    /// and the pointer for a tab dropped from elsewhere, so that drop lands
-    /// after a tab once the pointer passes its midpoint.
-    ///
-    /// The candidate edge nearest to the probe wins. A position between two
-    /// members of a group (or right after its chip) is inside it. A position
-    /// after a group's last member is ambiguous; the tab stays in its current
-    /// membership until the probe passes the group edge by `hysteresis`, so
-    /// it does not flicker in and out at the boundary. A last member narrower
-    /// than twice `hysteresis` leaves no room for that, so membership changes
-    /// only at the next slot. Positions inside a collapsed group are never
-    /// chosen.
+    /// Index and group membership for a dragged tab probed at `draggedMinX`
+    /// (the card's leading edge for a reorder within one strip, the pointer for
+    /// a tab dropped from elsewhere). The nearest valid edge wins; a group's
+    /// trailing edge keeps the current membership within `hysteresis`;
+    /// positions inside a collapsed group are never chosen.
     public static func resolveTab(
         entries: [TabLayoutSlot],
         start: CGFloat,
@@ -43,79 +36,21 @@ public struct TabGroupDropMath {
         currentGroup: TabGroupID?,
         hysteresis: CGFloat
     ) -> TabGroupDropResolution {
-        var bestK = 0
-        var bestDistance = CGFloat.infinity
-        var bestEdge = start
-        var edge = start
-        for k in 0...entries.count {
-            if isValidPosition(k, entries) {
-                let distance = abs(edge - draggedMinX)
-                if distance < bestDistance {
-                    bestDistance = distance
-                    bestK = k
-                    bestEdge = edge
-                }
-            }
-            if k < entries.count { edge += entries[k].width }
-        }
-        let index = entries[..<bestK].count { !$0.isGroupChip }
-        let left = bestK > 0 ? entries[bestK - 1] : nil
-        let right = bestK < entries.count ? entries[bestK] : nil
-        return TabGroupDropResolution(
-            index: index,
-            groupID: membership(left: left, right: right, offset: draggedMinX - bestEdge, current: currentGroup, hysteresis: hysteresis)
+        let request = TabDropWire.OverGroups(
+            entries: entries, start: start, draggedMinX: draggedMinX, currentGroup: currentGroup, hysteresis: hysteresis
         )
-    }
-
-    /// Positions before a collapsed member are inside a collapsed group.
-    static func isValidPosition(_ k: Int, _ entries: [TabLayoutSlot]) -> Bool {
-        guard k < entries.count else { return true }
-        return !entries[k].isCollapsed
-    }
-
-    static func membership(
-        left: TabLayoutSlot?,
-        right: TabLayoutSlot?,
-        offset: CGFloat,
-        current: TabGroupID?,
-        hysteresis: CGFloat
-    ) -> TabGroupID? {
-        guard let left, let group = left.groupID else { return nil }
-        if left.isGroupChip { return group }
-        if left.isCollapsed { return nil }
-        if let right, right.groupID == group, !right.isGroupChip { return group }
-        // Trailing edge of an expanded group: ambiguous, apply hysteresis.
-        let threshold = current == group ? hysteresis : -hysteresis
-        return offset < threshold ? group : nil
-    }
-
-    /// Movable units: an ungrouped tab, or a chip with all its members.
-    public struct Unit: Equatable, Sendable {
-        public var width: CGFloat
-        public var tabCount: Int
-    }
-
-    public static func units(_ entries: [TabLayoutSlot]) -> [Unit] {
-        var units: [Unit] = []
-        var currentGroup: TabGroupID?
-        for entry in entries {
-            let tabs = entry.isGroupChip ? 0 : 1
-            if let group = entry.groupID, group == currentGroup, !entry.isGroupChip, !units.isEmpty {
-                units[units.count - 1].width += entry.width
-                units[units.count - 1].tabCount += tabs
-            } else {
-                units.append(Unit(width: entry.width, tabCount: tabs))
-                currentGroup = entry.groupID
-            }
+        guard let landing = DropRules.call("drop_tab_over_groups", request, as: TabDropWire.TabLanding.self) else {
+            return TabGroupDropResolution(index: 0, groupID: nil)
         }
-        return units
+        return TabGroupDropResolution(index: landing.index, groupID: landing.group.map { TabGroupID($0) })
     }
 
     /// Unit index for a whole group whose leading edge is at `draggedMinX`,
-    /// and the matching tab insertion index among the entries' tabs.
+    /// and the matching tab insertion index among the entries' tabs. A unit is
+    /// an ungrouped tab, or a chip with all its members.
     public static func resolveGroup(entries: [TabLayoutSlot], start: CGFloat, draggedMinX: CGFloat) -> (unitIndex: Int, tabIndex: Int) {
-        let units = units(entries)
-        let unitIndex = TabReorderMath.insertionIndex(draggedMinX: draggedMinX, groupStart: start, otherWidths: units.map(\.width))
-        return (unitIndex, units[..<unitIndex].reduce(0) { $0 + $1.tabCount })
+        let request = TabDropWire.OverGroups(entries: entries, start: start, draggedMinX: draggedMinX, currentGroup: nil, hysteresis: 0)
+        guard let landing = DropRules.call("drop_group_over_groups", request, as: TabDropWire.GroupLanding.self) else { return (0, 0) }
+        return (landing.unitIndex, landing.tabIndex)
     }
 }
