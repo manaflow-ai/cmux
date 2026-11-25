@@ -96,7 +96,7 @@ class Workflow(unittest.TestCase):
                 for step in steps:
                     if step.startswith(("Checkout", "Check configuration")):
                         continue
-                    self.assertIn("if: steps.config.outputs.ready == 'true'", step, step.splitlines()[0])
+                    self.assertRegex(step, r"if: (\$\{\{ \()?steps\.config\.outputs\.ready == 'true'", step.splitlines()[0])
 
     def test_delivery_covers_both_environments_of_the_app_store_app(self) -> None:
         block = self.jobs["apple-delivery"]
@@ -172,6 +172,27 @@ class Script(unittest.TestCase):
         code, output, _, _ = self.run_config({"HAS_A": "true"}, broken)
         self.assertEqual((code, output), (1, "ready=false\n"))
 
+    def test_gh_retries_a_transient_failure(self) -> None:
+        import subprocess
+        calls = []
+        def run(argv, **_kw):
+            calls.append(argv)
+            if len(calls) == 1:
+                raise subprocess.CalledProcessError(1, argv, output="", stderr="HTTP 502: Bad Gateway")
+            return subprocess.CompletedProcess(argv, 0, stdout=" ok \n", stderr="")
+        with mock.patch.object(nightly.subprocess, "run", side_effect=run), mock.patch.object(nightly.time, "sleep"):
+            self.assertEqual(nightly._gh("api", "x"), "ok")
+        self.assertEqual(len(calls), 2)
+
+    def test_gh_failure_names_gh_stderr(self) -> None:
+        import subprocess
+        def run(argv, **_kw):
+            raise subprocess.CalledProcessError(1, argv, output="", stderr="HTTP 403: API rate limit exceeded")
+        with mock.patch.object(nightly.subprocess, "run", side_effect=run), mock.patch.object(nightly.time, "sleep"):
+            with self.assertRaises(subprocess.CalledProcessError) as caught:
+                nightly._gh("api", "x")
+        self.assertIn("rate limit exceeded", str(caught.exception))
+
     def test_red_jobs(self) -> None:
         needs = {"suite": {"result": "success"}, "apple-api": {"result": "failure"},
                  "storekit": {"result": "skipped"}, "apple-delivery": {"result": "cancelled"}}
@@ -185,8 +206,10 @@ class Script(unittest.TestCase):
 
     def run_alert(self, needs: dict, open_issue: str, slack: bool = True, notify=None):
         calls: list[tuple[str, ...]] = []
-        def gh(*args: str) -> str:
+        def gh(*args: str, tries: int = 3) -> str:
             calls.append(args)
+            if args[0] == "issue" and args[1] != "list":
+                self.assertEqual(tries, 1, f"a write is never retried: {args[:2]}")
             return open_issue if args[:2] == ("issue", "list") else ""
         posted: list[str] = []
         with mock.patch.dict(os.environ, {"NEEDS": json.dumps(needs), "RUN_URL": "https://run"}), \
