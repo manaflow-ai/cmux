@@ -1,0 +1,138 @@
+{
+  "sourceLanguage" : "en",
+  "strings" : {
+    "composer.cliOnly.model" : {
+      "comment" : "Agent pane composer note: bare /model, which needs Claude Code's terminal; {command} is its name without the slash",
+      "extractionState" : "manual",
+      "localizations" : {
+        "ar" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "يعمل ‎/{command}‎ فقط في طرفية Claude Code. غيّر النموذج من منتقي النماذج أدناه."
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "/{command} radi samo u terminalu Claude Codea. Promijenite model u biraču modela ispod."
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "/{command} virker kun i Claude Codes terminal. Skift model med modelvælgeren nedenfor."
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "/{command} funktioniert nur im Terminal von Claude Code. Wechsle das Modell mit der Modellauswahl unten."
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "/{command} works only in Claude Code's terminal. Change the model with the model picker below."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "/{command} solo funciona en la terminal de Claude Code. Cambia el modelo con el selector de modelos de abajo."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "/{command} ne fonctionne que dans le terminal de Claude Code. Changez de modèle avec le sélecteur de modèle ci-dessous."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "/{command} funziona solo nel terminale di Claude Code. Cambia modello con il selettore di modelli qui sotto."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "/{command} は Claude Code のターミナルでのみ使えます。モデルは下のモデル選択で変更してください。"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "/{command} ដំណើរការតែក្នុង terminal របស់ Claude Code ប៉ុណ្ណោះ។ ប្តូរម៉ូដែលដោយប្រើកម្មវិធីជ្រើសម៉ូដែលខាងក្រោម។"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "/{command}은(는) Claude Code 터미널에서만 작동합니다. 아래 모델 선택기에서 모델을 바꾸세요."
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "/{command} fungerer bare i terminalen til Claude Code. Bytt modell med modellvelgeren nedenfor."
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "/{command} działa tylko w terminalu Claude Code. Zmień model w selektorze modeli poniżej."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "/{command} só funciona no terminal do Claude Code. Troque o modelo no seletor de modelos abaixo."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "/{command} работает только в терминале Claude Code. Смените модель в списке моделей ниже."
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "/{command} ใช้ได้เฉพาะในเทอร์มินัลของ Claude Code เปลี่ยนโมเดลได้ที่ตัวเลือกโมเดลด้านล่าง"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "/{command} yalnızca Claude Code terminalinde çalışır. Modeli aşağıdaki model seçiciden değiştirin."
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "/{command} працює лише в терміналі Claude Code. Змініть модель у списку моделей нижче."
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "/{command} chỉ hoạt động trong terminal của Claude Code. Đổi mô hình bằng bộ chọn mô hình bên dưới."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "/{command} 只能在 Claude Code 的终端中使用。请用下方的模型选择器更换模型。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "/{command} 只能在 Claude Code 的終端機中使用。請用下方的模型選擇器更換模型。"
+          }
+        }
+      }
+    }
+  },
+  "version" : "1.0"
+}
