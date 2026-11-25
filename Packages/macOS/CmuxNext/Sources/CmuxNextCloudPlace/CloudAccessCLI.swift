@@ -1,80 +1,100 @@
-import CmuxNextAgentPane
 import CmuxNextCloud
+public import CmuxNextCompat
 import CmuxNextDaemon
-import Foundation
+public import Foundation
 
 /// `cmux link access` (cmux-tui `link/access_cli.rs`, spec "Access requests"): a moved chat's file
 /// and secret requests for this Mac (``CloudAccessAsks``) and the folders it was granted. Each command prints a
 /// last stdout line `{"ok":...,"error":...,"error_code":...}`; the app reads only that line.
-nonisolated struct CloudAccessCLI: Sendable {
+public nonisolated struct CloudAccessCLI: Sendable {
     /// One file the machine's agent asks for, as `triage` lists it with this Mac's view of it. Every
     /// field but ``session`` (which the app checks against its own ledger) is the CLI's report about
     /// a path the machine named.
-    struct FileAsk: Sendable, Equatable {
-        var requestID: String
-        var session: String
+    public struct FileAsk: Sendable, Equatable {
+        public var requestID: String
+        public var session: String
         /// The path asked for, absolute on this Mac.
-        var path: String
-        var reason: String?
-        var shareable: Bool
+        public var path: String
+        public var reason: String?
+        public var shareable: Bool
         /// Where the path leads (canonical); nil when it can't be shared.
-        var target: String?
+        public var target: String?
         /// Whether the item is a folder; nil when it can't be read.
-        var folder: Bool?
+        public var folder: Bool?
         /// The folder "Always" would share; nil when none may be.
-        var alwaysFolder: String?
+        public var alwaysFolder: String?
+
+        public init(requestID: String, session: String, path: String, reason: String?, shareable: Bool, target: String?, folder: Bool?, alwaysFolder: String?) {
+            self.requestID = requestID; self.session = session; self.path = path; self.reason = reason; self.shareable = shareable
+            self.target = target; self.folder = folder; self.alwaysFolder = alwaysFolder
+        }
     }
 
     /// One secret the machine's agent asks the person for, by name, as `triage` lists it. The name
     /// matches the machine daemon's rule (else it is dropped, never answered).
-    struct SecretAsk: Sendable, Equatable {
-        var requestID: String
-        var session: String
-        var name: String
-        var reason: String?
+    public struct SecretAsk: Sendable, Equatable {
+        public var requestID: String
+        public var session: String
+        public var name: String
+        public var reason: String?
+
+        public init(requestID: String, session: String, name: String, reason: String?) {
+            self.requestID = requestID; self.session = session; self.name = name; self.reason = reason
+        }
     }
 
     /// The person's answer to one ask, naming again what the card showed.
-    enum How: Sendable, Equatable {
+    public enum How: Sendable, Equatable {
         case allow(path: String, target: String)
         case always(path: String, target: String, folder: String)
         /// What the person typed for secret `name`: it goes to `answer` on stdin only. Swift can't
         /// wipe a `String`, so the copies here and in the stdin `Data` are freed, not zeroed.
-        case shareSecret(name: String, value: AgentPaneToolCard.Entered)
+        case shareSecret(name: String, value: EnteredText)
         case deny
     }
 
-    struct Answer: Sendable, Equatable {
-        var ok: Bool
-        var errorCode: String?
-        var error: String?
+    public struct Answer: Sendable, Equatable {
+        public var ok: Bool
+        public var errorCode: String?
+        public var error: String?
         /// `triage`: the file and secret asks left for the person.
-        var asks: [FileAsk] = []
-        var secrets: [SecretAsk] = []
+        public var asks: [FileAsk] = []
+        public var secrets: [SecretAsk] = []
         /// `triage`'s per-request errors and `sync`'s failed copies.
-        var failures = 0
+        public var failures = 0
         /// `upload`: where each file went on the machine, in the order given.
-        var uploaded: [String] = []
+        public var uploaded: [String] = []
         /// `upload`: each file's upload id, in the same order (``removeUploads(socket:remoteRoot:ids:)``).
-        var uploadIDs: [String] = []
+        public var uploadIDs: [String] = []
+
+        public init(ok: Bool, errorCode: String? = nil, error: String? = nil, asks: [FileAsk] = [], secrets: [SecretAsk] = [],
+                    failures: Int = 0, uploaded: [String] = [], uploadIDs: [String] = []) {
+            self.ok = ok; self.errorCode = errorCode; self.error = error; self.asks = asks; self.secrets = secrets
+            self.failures = failures; self.uploaded = uploaded; self.uploadIDs = uploadIDs
+        }
     }
 
-    let binary: URL
-    var timeout: Duration = .seconds(120)
+    public let binary: URL
+    public var timeout: Duration = .seconds(120)
+
+    public init(binary: URL, timeout: Duration = .seconds(120)) {
+        self.binary = binary
+        self.timeout = timeout
+    }
     /// Upload replies contain paths/errors, never file bytes. Retain enough for the legacy
     /// multi-file reply as well as diagnostics, without reading all of a long transfer's heartbeats.
-    static let uploadOutputTailBytes = 4 * 1024 * 1024
+    public static let uploadOutputTailBytes = 4 * 1024 * 1024
     /// An upload's stdout may stay silent this long: longer than the CLI's 60 s socket deadline.
-    static let uploadIdle: Duration = .seconds(90)
+    public static let uploadIdle: Duration = .seconds(90)
 
     /// `triage`: answers what needs no person and lists the rest, for the chats `sessions` only.
-    func triage(socket: String, machine: String, sessions: [String]) async throws -> Answer {
+    public func triage(socket: String, machine: String, sessions: [String]) async throws -> Answer {
         try await run(["link", "access", "triage", "--socket", socket, "--machine", machine] + sessions.flatMap { ["--session", $0] })
     }
 
     /// `answer`: the person's answer to request `request` of chat `session`. A secret's value goes on
     /// stdin, never in the arguments, and no remote root goes with it (nothing is copied).
-    func answer(socket: String, machine: String, session: String, request: String, remoteRoot: String, how: How) async throws -> Answer {
+    public func answer(socket: String, machine: String, session: String, request: String, remoteRoot: String, how: How) async throws -> Answer {
         let chat = ["link", "access", "answer", "--socket", socket, "--machine", machine, "--session", session, "--request", request]
         switch how {
         case .allow(let path, let target): return try await run(chat + ["--remote-root", remoteRoot, "--allow", path, "--target", target])
@@ -89,7 +109,7 @@ nonisolated struct CloudAccessCLI: Sendable {
     /// Each file goes in its own call under an id of this app's (``Answer/uploadIDs``), so any count
     /// of files is taken, and a failure or a cancel removes every file of this upload from the
     /// machine, the partial one and those already sent, before it answers.
-    func upload(socket: String, remoteRoot: String, files: [String]) async throws -> Answer {
+    public func upload(socket: String, remoteRoot: String, files: [String]) async throws -> Answer {
         var sent = Answer(ok: true)
         for file in files {
             let answer: Answer
@@ -134,7 +154,7 @@ nonisolated struct CloudAccessCLI: Sendable {
     /// Removes uploads `ids` (each one's own folder) from the machine, trying every id and throwing
     /// after them all when any stayed. It runs outside a cancelled caller's task (ProcessRunner reaps
     /// a stopped child first), so the files are gone before a cancel answers.
-    func removeUploads(socket: String, remoteRoot: String, ids: [String]) async throws {
+    public func removeUploads(socket: String, remoteRoot: String, ids: [String]) async throws {
         var removedAll = true
         for id in ids {
             let arguments = ["link", "access", "upload-cancel", "--socket", socket, "--remote-root", remoteRoot, "--upload-id", id]
@@ -145,12 +165,12 @@ nonisolated struct CloudAccessCLI: Sendable {
     }
 
     /// `sync`: copies chat `session`'s granted folders on the machine again.
-    func sync(socket: String, machine: String, session: String) async throws -> Answer {
+    public func sync(socket: String, machine: String, session: String) async throws -> Answer {
         try await run(["link", "access", "sync", "--socket", socket, "--machine", machine, "--session", session])
     }
 
     /// `revoke --all`: ends chat `session`'s grants; with `socket`, also deletes their read-only copies there.
-    func revoke(socket: String?, machine: String, session: String) async throws -> Answer {
+    public func revoke(socket: String?, machine: String, session: String) async throws -> Answer {
         try await run(["link", "access", "revoke", "--machine", machine, "--session", session] + (socket.map { ["--socket", $0] } ?? []) + ["--all"])
     }
 
