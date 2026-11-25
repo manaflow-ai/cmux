@@ -1193,6 +1193,21 @@ export type LibraryCode = {
   note?: string;
 };
 
+/** One entry at standup (`cmux customize library standup`): what it is, on or off, the last word
+ * on it and its link, all worded by the CLI. */
+export type StandupLine = {
+  name: string;
+  /** `pr`, `branch`, `sha`, `dir`, `fork`, `setup` or `recipe`. */
+  kind: string;
+  on: boolean;
+  title: string;
+  status: string;
+  link?: string;
+};
+
+/** The standup report: code first, then repos, then recipes; `text` is the Markdown to copy. */
+export type Standup = { lines: StandupLine[]; on: number; text: string };
+
 /** Two or more entries that are on set the same key or file; the highest one's value is in use. */
 export type LibraryConflict = { kind: string; key: string; winner: string; losers: string[] };
 
@@ -1204,6 +1219,7 @@ export type LibraryListing = { entries: LibraryEntry[]; conflicts: LibraryConfli
  * `doctor-open`, which the host runs itself: it reveals or opens the finding's `path`. */
 export type LibraryRun =
   | { verb: "list" }
+  | { verb: "standup" }
   | { verb: "on" | "off" | "remove"; name: string }
   | { verb: "order"; name: string; position: string }
   | DoctorRun;
@@ -1216,9 +1232,8 @@ export type DoctorRun =
   | { verb: "doctor-recover" };
 
 /** A fix the CLI runs (`open` has no CLI verb: the host opens the path). `restore` puts back the
- * last version of a broken file that loaded, the broken text moved aside first; `follow-default` drops
- * the person's value of a setting so it follows the default (a copy of the settings file is kept). */
-export type DoctorFixKind = "off" | "remove" | "restore" | "follow-default";
+ * last version of a broken file that loaded, the broken text moved aside first. */
+export type DoctorFixKind = "off" | "remove" | "restore";
 
 /** The report's way back (`cmux customize doctor recover`): the layers it turns off, whether it
  * turns the web-dev overlay off, the generation it puts back; `said` is the plan in one sentence. */
@@ -1250,8 +1265,7 @@ export type DoctorFindingKind =
   | "unknown-key"
   | "wrong-folder"
   | "old-build"
-  | "override"
-  | "not-default";
+  | "override";
 
 /** One fix of a finding; the first is the main one, and every `remove` has `confirm: true`. */
 export type DoctorFix = { kind: "open" | DoctorFixKind | (string & {}); label: string; confirm: boolean };
@@ -1290,6 +1304,8 @@ export type DoctorFixed = { id: string; kind: DoctorFixKind; kept: string | null
  * error envelope (`code`, `message`). */
 export type LibraryAnswer = {
   library?: LibraryListing;
+  /** `standup`: every entry as one line (`cmux customize library standup`). */
+  standup?: Standup;
   doctor?: DoctorReport;
   fixed?: DoctorFixed;
   recovered?: DoctorRecovered;
