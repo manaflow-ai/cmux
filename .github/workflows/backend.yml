@@ -184,13 +184,28 @@ jobs:
         # 40 to 100 s and 0.5 s cases ran past their 20 s bound (runs 45159322542, 45166603179, 45168037835,
         # 45172851459). Measured on shard 2/6 pinned to 4 CPUs, 2026-11-23: 15 workers: 416 s, 2 files failed;
         # 4 workers: 451 s, 228/228 passed. Even at 4, 6 shards still hit start and hook timeouts (45172479573), so:
-        # 12 shards of at most 3 workers. A load timeout on a busy VM is not the code's: the shard runs once more and
-        # that run decides; a real failure fails both, and the first run's log stays above.
+        # 12 shards of at most 3 workers. A load timeout on a busy VM is not the code's: the files that failed run once
+        # more and that run decides; a real failure fails both, and the first run's log stays above.
+        # The retry runs only the failed files, one at a time when 6 or fewer. Rerunning the whole shard on the same
+        # slow host (cmux-runner-pool-h*, where bun install takes 33 to 40 s against 1 to 4 s and a shard 1150 to 2160 s
+        # against about 190 s) timed out a different set of files the second time: shard 4/12 of run 45595544453
+        # failed 3 files, then 2 others; 5/12 and 7/12 of run 45588309799 the same (cmux#56145). A file alone is far
+        # from its bounds.
+        # With no failed file in the report (an unhandled error, a crash before the report), the whole shard reruns.
         run: |
           n=$(nproc); [ "$n" -gt 3 ] && n=3
-          bun run test --shard=${{ matrix.shard }}/12 --maxWorkers="$n" && exit 0
-          echo "::warning::api-workerd shard ${{ matrix.shard }}/12 failed once; running it again (a load timeout on a packed runner, or a real failure that fails again)"
-          bun run test --shard=${{ matrix.shard }}/12 --maxWorkers="$n"
+          report="$RUNNER_TEMP/api-workerd-${{ matrix.shard }}.json"
+          VITEST_JSON_OUT="$report" bun run test --shard=${{ matrix.shard }}/12 --maxWorkers="$n" && exit 0
+          failed=(); while IFS= read -r f; do failed+=("$f"); done < <(node -e 'for (const f of require(process.argv[1]).testResults) if (f.status === "failed") console.log(f.name)' "$report" 2>/dev/null || true)
+          if [ "${#failed[@]}" -eq 0 ]; then
+            echo "::warning::api-workerd shard ${{ matrix.shard }}/12 failed once with no failed file in its report; running the whole shard again"
+            bun run test --shard=${{ matrix.shard }}/12 --maxWorkers="$n"
+            exit
+          fi
+          w=1; [ "${#failed[@]}" -gt 6 ] && w="$n"
+          echo "::warning::api-workerd shard ${{ matrix.shard }}/12 failed once in ${#failed[@]} files; running those again with $w worker(s) (a load timeout on a packed runner, or a real failure that fails again)"
+          printf '  %s\n' "${failed[@]}"
+          bun run test --maxWorkers="$w" "${failed[@]}"
 
   test:
     # Runs after the API Worker shards whatever they end with, and fails on a red shard (its last step), so the
