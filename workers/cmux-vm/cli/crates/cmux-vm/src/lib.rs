@@ -769,6 +769,23 @@ async fn execute(
         }
         _ => stored_token(cli.config.is_some(), env, cli.json, stderr)?,
     };
+    // A stored token that is expired or about to be renews itself from the
+    // default config file's key; an explicit key or config file never does.
+    let stored = match stored {
+        Some(token)
+            if cli.config.is_none()
+                && !["CMUX_VM_API_KEY", "CMUX_VM_CONFIG"]
+                    .iter()
+                    .any(|name| env(name).is_some_and(|value| !value.is_empty())) =>
+        {
+            let (token, warnings) = token::renew_if_due(token, env, token::now_unix()).await;
+            for warning in &warnings {
+                error::report_warning(warning, cli.json, stderr);
+            }
+            Some(token)
+        }
+        other => other,
+    };
     let (client, settings) = authenticated(
         cli.base_url.as_deref(),
         cli.team.as_deref(),

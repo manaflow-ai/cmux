@@ -68,7 +68,7 @@ impl Settings {
             // which may carry far more than the token's scopes and budget.
             return Err(CliError::unauthenticated(match left {
                 Some(_) => format!(
-                    "the stored VM token {} expired at {}: run `cmux vm token create`, or set CMUX_VM_API_KEY",
+                    "the stored VM token {} expired at {}: run `cmux vm token create`, or set CMUX_VM_API_KEY (a team API key as \"apiKey\" in the default config file renews it by itself)",
                     token.key_id, token.expires_at
                 ),
                 None => format!(
@@ -121,6 +121,18 @@ impl Settings {
             warnings,
         })
     }
+}
+
+/// The default config file's `apiKey` and `baseUrl`, for minting a renewed
+/// agent token ([`crate::token::renew_if_due`]). `None` when there is no such
+/// file or key, or the file cannot be read.
+pub(crate) fn default_credential(
+    env: &dyn Fn(&str) -> Option<String>,
+) -> Option<(String, Option<String>)> {
+    let path = default_config_path(&|name: &str| env(name).filter(|v| !v.is_empty()))
+        .filter(|path| path.is_file())?;
+    let file: ConfigFile = serde_json::from_str(&std::fs::read_to_string(path).ok()?).ok()?;
+    Some((file.api_key.filter(|key| !key.is_empty())?, file.base_url))
 }
 
 enum ConfigError {
@@ -193,6 +205,7 @@ mod tests {
             scopes: vec![],
             max_vms: None,
             max_usd_per_hour: None,
+            ttl_seconds: None,
         }
     }
 

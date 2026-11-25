@@ -39,6 +39,9 @@ pub use cmux_cloud_config::agent_key::{
     DEFAULT_MAX_USD_PER_HOUR, DEFAULT_MAX_VMS, DEFAULT_TTL_SECONDS,
 };
 pub const MAX_TTL_SECONDS: u64 = *cmux_cloud_config::agent_key::TTL_SECONDS.end();
+const MIN_TTL_SECONDS: u64 = *cmux_cloud_config::agent_key::TTL_SECONDS.start();
+/// A stored token with less than this left is renewed ([`renew_if_due`]).
+pub const RENEW_WITHIN_SECONDS: i64 = 15 * 60;
 
 /// A stored token. `key` is the secret; nothing prints it.
 #[derive(Clone, Serialize, Deserialize, PartialEq)]
@@ -57,6 +60,10 @@ pub struct StoredToken {
     pub max_vms: Option<u32>,
     #[serde(default)]
     pub max_usd_per_hour: Option<f64>,
+    /// The lifetime it was minted with, so a renewal asks for the same one.
+    /// Absent in files written before renewal existed (the default applies).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub ttl_seconds: Option<u64>,
 }
 
 impl std::fmt::Debug for StoredToken {
@@ -104,6 +111,11 @@ impl StoredToken {
                 .as_u64()
                 .and_then(|n| u32::try_from(n).ok()),
             max_usd_per_hour: created["maxUsdPerHour"].as_f64(),
+            ttl_seconds: text("expiresAt")
+                .as_deref()
+                .and_then(parse_rfc3339)
+                .and_then(|at| u64::try_from(at - now_unix()).ok())
+                .map(|ttl| ttl.clamp(MIN_TTL_SECONDS, MAX_TTL_SECONDS)),
         })
     }
 
@@ -559,6 +571,121 @@ pub fn refuse_if_one_is_stored(
     }
 }
 
+/// The stored token, renewed when it is expired or has under
+/// [`RENEW_WITHIN_SECONDS`] left and a credential that may mint is at hand:
+/// the default config file's `apiKey` (an agent key cannot mint, so the
+/// service refuses one and the token is left as it was). The new key has the
+/// same scopes, VM count, budget, team, service and lifetime. The old key is
+/// never revoked (that would delete its VMs); it simply expires. Never an
+/// error: the returned warnings say what happened (never a key), and without
+/// a credential or on a failed mint the token comes back unchanged, so an
+/// expired one is refused as before.
+pub async fn renew_if_due(
+    token: StoredToken,
+    env: &dyn Fn(&str) -> Option<String>,
+    now_unix: i64,
+) -> (StoredToken, Vec<String>) {
+    if token
+        .seconds_left(now_unix)
+        .is_none_or(|left| left > RENEW_WITHIN_SECONDS)
+    {
+        return (token, Vec::new());
+    }
+    let Some((key, base)) = crate::config::default_credential(env) else {
+        return (token, Vec::new());
+    };
+    // The credential goes only to the service that minted the token.
+    let issuer = token.issuer();
+    let base = base.unwrap_or_else(|| cmux_vm_client::DEFAULT_BASE_URL.to_owned());
+    if base.trim_end_matches('/') != issuer.trim_end_matches('/') {
+        return (token, Vec::new());
+    }
+    match renew(&token, &key, &issuer, env, now_unix).await {
+        Ok(Some(renewed)) => {
+            let warning = format!(
+                "the stored VM token {} {}; renewed it as {} (expires {}); the old key was not revoked, and its VMs end when it expires",
+                token.key_id,
+                if token.seconds_left(now_unix).is_some_and(|left| left > 0) {
+                    "was about to expire"
+                } else {
+                    "had expired"
+                },
+                renewed.key_id,
+                renewed.expires_at
+            );
+            (renewed, vec![warning])
+        }
+        Ok(None) => (token, Vec::new()),
+        Err(error) => {
+            let warning = format!(
+                "could not renew the stored VM token {}: {}",
+                token.key_id,
+                error.message()
+            );
+            (token, vec![warning])
+        }
+    }
+}
+
+async fn renew(
+    token: &StoredToken,
+    key: &str,
+    issuer: &str,
+    env: &dyn Fn(&str) -> Option<String>,
+    now_unix: i64,
+) -> Result<Option<StoredToken>, CliError> {
+    // The create lock: one process mints, the others read its result.
+    let _lock = lock_store(env)?;
+    let current = match load(env) {
+        Ok(Some(current)) => current,
+        // Revoked or broken meanwhile: nothing to renew.
+        _ => return Ok(None),
+    };
+    // Another process renewed it while this one waited for the lock.
+    if current.key_id != token.key_id
+        && current
+            .seconds_left(now_unix)
+            .is_some_and(|left| left > RENEW_WITHIN_SECONDS)
+    {
+        return Ok(Some(current));
+    }
+    let params: serde_json::Map<String, Value> = [
+        ("name", Some(json!("cmux vm token"))),
+        (
+            "ttlSeconds",
+            Some(json!(current.ttl_seconds.unwrap_or(DEFAULT_TTL_SECONDS))),
+        ),
+        ("maxVms", current.max_vms.map(|n| json!(n))),
+        ("maxUsdPerHour", current.max_usd_per_hour.map(|n| json!(n))),
+    ]
+    .into_iter()
+    .filter_map(|(name, value)| value.map(|value| (name.to_owned(), value)))
+    .collect();
+    let body: types::CreateAgentKeyRequest = request_body(
+        cmux_cloud_config::agent_key::body(&params)
+            .map_err(|refusal| CliError::usage(refusal.message))?,
+    )?;
+    let client = cmux_vm_client::authenticated_raw_client(
+        issuer,
+        key,
+        current.team_id.as_deref(),
+        concat!("cmux-vm/", env!("CARGO_PKG_VERSION")),
+    )
+    .map_err(|e| CliError::usage(e.to_string()))?;
+    // Never retried, as in `create`: a lost answer leaves one unheld key that
+    // expires within its TTL.
+    let created = fetch_body(client.agents_create_agent_key(None, &body)).await?;
+    match keep(
+        &created,
+        current.team_id.clone(),
+        current.base_url.clone(),
+        env,
+    ) {
+        Ok(renewed) => Ok(Some(renewed)),
+        Err(error) => Err(revoke_unkept(&client, &created, error).await),
+    }
+}
+
 /// `token create`: mint with `client` (which must not hold an agent key) and store.
 pub async fn create(
     client: &Client,
@@ -865,6 +992,7 @@ mod tests {
             scopes: Vec::new(),
             max_vms: None,
             max_usd_per_hour: None,
+            ttl_seconds: None,
         };
         assert_eq!(token.issuer_for(None).unwrap(), "https://vm.cmux.dev");
         assert_eq!(
@@ -919,6 +1047,7 @@ mod tests {
             scopes: Vec::new(),
             max_vms: None,
             max_usd_per_hour: None,
+            ttl_seconds: None,
         };
         let at = parse_rfc3339(&token.expires_at).unwrap();
         assert_eq!(token.status(at - 60), ("is", crate::exit::OK));
@@ -946,6 +1075,7 @@ mod tests {
             scopes: Vec::new(),
             max_vms: None,
             max_usd_per_hour: None,
+            ttl_seconds: None,
         };
         save(&token, &env).unwrap();
         let refused = refuse_if_one_is_stored(&env, now_unix()).unwrap_err();
@@ -1043,6 +1173,7 @@ mod tests {
             scopes: Vec::new(),
             max_vms: None,
             max_usd_per_hour: None,
+            ttl_seconds: None,
         };
         save(&token, &env).unwrap();
         let client =
