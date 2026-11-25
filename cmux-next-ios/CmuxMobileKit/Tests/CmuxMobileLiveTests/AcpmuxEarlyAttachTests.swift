@@ -7,7 +7,7 @@ import Testing
 /// A chat open when the link comes up writes its `_acpmux/attach` right behind `initialize` and
 /// the first watch page, before either answered (`AcpmuxHub+EarlyAttach.swift`), and opens
 /// correctly on every Mac: one that folds `alsoKinds` in, one from before it that serves the sudo
-/// card's kinds (its early page is not used, the chat attaches again as before), and one that
+/// card's kinds (its early page is kept; the sudo cards are read after it), and one that
 /// serves neither.
 @MainActor
 @Suite(.timeLimit(.minutes(2))) struct AcpmuxEarlyAttachTests {
@@ -23,7 +23,9 @@ import Testing
     }
 
     /// A Mac's acpmux whose `initialize` lists `capabilities`; `folds` says it takes `alsoKinds`.
-    nonisolated static func mac(_ wire: Wire, capabilities: [String]) -> MockMacLink {
+    /// `live`: a turn the agent finishes right after the first attach's page, streamed on it.
+    /// `card`: the chat holds an open sudo card inside its newest page (seq 3).
+    nonisolated static func mac(_ wire: Wire, capabilities: [String], live: Bool = false, card: Bool = false) -> MockMacLink {
         MockMacLink { _, data in
             guard let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
                   let method = object["method"] as? String else { return [] }
@@ -38,7 +40,19 @@ import Testing
                 return [reply(#"{"sessions":[{"sessionId":"s1","name":"Fix","harness":"codex","cwd":"/tmp/w","status":"idle"}]}"#)]
             case "_acpmux/attach":
                 let history = (0..<Chat.turns).flatMap(Chat.turnRecords).joined(separator: ",")
-                return [reply(#"{"session":{"sessionId":"s1","status":"idle","pending":[]},"hasMore":false,"lastSeq":\#(Chat.turns * 5),"events":[\#(history)]}"#)]
+                let page = reply(#"{"session":{"sessionId":"s1","status":"idle","pending":[]},"hasMore":false,"lastSeq":\#(Chat.turns * 5),"events":[\#(history)]}"#)
+                // A re-attach from the page's end (an early page that lacked the sudo cards)
+                // reads only what came after it: nothing here.
+                if let after = (object["params"] as? [String: Any])?["afterSeq"] as? Int, after >= Chat.turns * 5 {
+                    return [reply(#"{"session":{"sessionId":"s1","status":"idle","pending":[]},"hasMore":false,"lastSeq":\#(Chat.turns * 5),"events":[]}"#)]
+                }
+                guard live, wire.attaches.count == 1 else { return [page] }
+                let stream = Chat.turnRecords(Chat.turns).map { Data(#"{"jsonrpc":"2.0","method":"_acpmux/event","params":\#($0)}"#.utf8) }
+                return [page] + stream
+            case "_acpmux/events":
+                let kinds = (object["params"] as? [String: Any])?["kinds"] as? [String] ?? []
+                guard card, kinds.contains("elevation_request") else { return [reply(#"{"events":[],"hasMore":false}"#)] }
+                return [reply(#"{"events":[\#(Self.card)],"hasMore":false}"#)]
             default:
                 return [reply("{}")]
             }
@@ -48,12 +62,12 @@ import Testing
     /// Opens chat s1 cold: the chat is on screen before the link is up, and the pairing passes
     /// only once the Mac read an attach (or after 5 s, which the old order needed: its attach
     /// waited for `initialize`'s answer, held behind the pairing).
-    static func coldOpen(capabilities: [String]) async throws -> (Wire, AgentChatStore, AcpmuxHub, attachBeforePairing: Bool) {
+    static func coldOpen(capabilities: [String], live: Bool = false, card: Bool = false, turns: Int = Chat.turns) async throws -> (Wire, AgentChatStore, AcpmuxHub, attachBeforePairing: Bool) {
         let wire = Wire()
         let hub = AcpmuxHub()
         let source = hub.source(sessionID: "s1", summary: Chat.summary)
         let store = AgentChatStore(source: source)
-        let channel = try await Self.mac(wire, capabilities: capabilities).openChannel(service: "acpmux", args: [:])
+        let channel = try await Self.mac(wire, capabilities: capabilities, live: live, card: card).openChannel(service: "acpmux", args: [:])
         let before = SawAttach()
         await hub.bind(channel, until: {
             var end = AwakeDeadline(.seconds(5))
@@ -63,11 +77,14 @@ import Testing
             before.saw = wire.methods.contains("_acpmux/attach")
             return true
         })
-        await Chat.waitUntil { store.turns.count == Chat.turns }
+        await Chat.waitUntil { store.turns.count == turns }
         return (wire, store, hub, before.saw)
     }
 
     final class SawAttach: @unchecked Sendable { var saw = false }
+
+    /// An open sudo card (acpmux `hub/elevation.rs`), at a seq inside the chat's newest page.
+    nonisolated static let card = #"{"sessionId":"s1","seq":3,"at":1,"dir":"mux","kind":"elevation_request","msg":{"secretId":"e1","decisionNonce":"n1","personInstance":"i1","argv":["true"],"reason":"r","host":"h"}}"#
 
     static let elevation = AcpmuxSessionSource.elevationCapability
     static let folds = AcpmuxHub.alsoKindsCapability
@@ -85,17 +102,41 @@ import Testing
     }
 
     /// A Mac from before `alsoKinds` that serves the sudo card: its early page left those kinds
-    /// out, so the chat attaches again with them, as it always did, and opens.
-    @Test func anOlderMacWithSudoCardsAttachesAgainWithItsKinds() async throws {
+    /// out. The page is kept; the chat attaches again with them from the page's end (it widens
+    /// the stream and reads nothing older), and reads only the sudo-card records, not the page.
+    @Test func anOlderMacWithSudoCardsKeepsThePageAndReadsOnlyItsCards() async throws {
         let (wire, store, hub, early) = try await Self.coldOpen(capabilities: [Self.elevation])
         defer { withExtendedLifetime(hub) {} }
         #expect(early)
         await Chat.waitUntil { wire.attaches.count == 2 }
         #expect(wire.attaches.count == 2)
         let again = try #require(wire.attaches.last)
-        #expect(again["alsoKinds"] == nil)
+        #expect(again["afterSeq"] as? Int == Chat.turns * 5)
+        #expect(again["maxBytes"] == nil)
         #expect((again["kinds"] as? [String])?.suffix(2) == ["elevation_request", "elevation_decision"])
+        #expect(wire.methods.contains("_acpmux/events"))
         #expect(store.turns.count == Chat.turns)
+    }
+
+    /// The same Mac with a sudo card open inside the drawn page: the page is drawn before the
+    /// follow-up answers, and the card, older than the page's last record, still shows.
+    @Test func anOlderMacsSudoCardInsideTheDrawnPageShows() async throws {
+        let (wire, store, hub, _) = try await Self.coldOpen(capabilities: [Self.elevation], card: true)
+        defer { withExtendedLifetime(hub) {} }
+        await Chat.waitUntil { store.pendingElevation != nil }
+        #expect(store.pendingElevation?.id == "e1")
+        #expect(wire.attaches.count == 2)
+        #expect(store.turns.count == Chat.turns)
+    }
+
+    /// A turn the agent streams after the early page, before the pairing passed, is shown: the
+    /// chat holds it until the page is applied, as it does during any attach.
+    @Test func aTurnStreamedBeforeTheLinkIsReadyIsKept() async throws {
+        let (wire, store, hub, early) = try await Self.coldOpen(capabilities: [Self.elevation, Self.folds], live: true, turns: Chat.turns + 1)
+        defer { withExtendedLifetime(hub) {} }
+        #expect(early)
+        #expect(wire.attaches.count == 1)
+        #expect(store.turns.count == Chat.turns + 1)
     }
 
     /// A Mac from before both: the early page reads what a later attach would, and is used.

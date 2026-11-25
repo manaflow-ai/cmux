@@ -62,7 +62,7 @@
 set -euo pipefail
 trap 'echo "ios-network-conditions.sh: line $LINENO exited $? ($BASH_COMMAND)" >&2' ERR
 
-before="" after="" mode=links duress_profiles="lte,lossy-3" n=5 profiles="" surfaces="terminal,chat" scales="1x,10x,100x" seed=0 relay="" away="1m,10m,1h,8h" loads="idle,busy"
+before="" after="" mode=links duress_profiles="lte,lossy-3" n=5 profiles="" surfaces="terminal,chat" scales="1x,10x,100x" seed=0 relay="" away="1m,10m,1h,8h" loads="idle,busy" test=""
 for kv in "$@"; do
   case "$kv" in
     before=*) before="${kv#*=}" ;;
@@ -77,9 +77,11 @@ for kv in "$@"; do
     relay=*) relay="${kv#*=}" ;;
     away=*) away="${kv#*=}" ;;
     loads=*) loads="${kv#*=}" ;;
-    *) echo "ios-network-conditions.sh: unknown arg '$kv' (before=, after=, mode=, duress_profiles=, n=, profiles=, surfaces=, scales=, seed=, relay=, away=, loads=)" >&2; exit 2 ;;
+    test=*) test="${kv#*=}" ;;
+    *) echo "ios-network-conditions.sh: unknown arg '$kv' (before=, after=, mode=, duress_profiles=, n=, profiles=, surfaces=, scales=, seed=, relay=, away=, loads=, test=)" >&2; exit 2 ;;
   esac
 done
+[[ -z "$test" || "$test" =~ ^[a-z0-9_]+$ ]] || { echo "ios-network-conditions.sh: test=NAME (one bench test)" >&2; exit 2; }
 [[ -z "$before" || "$before" =~ ^[0-9a-f]{40}$ ]] || { echo "ios-network-conditions.sh: before= is a 40-character SHA" >&2; exit 2; }
 [[ -z "$after" || "$after" =~ ^[0-9a-f]{40}$ ]] || { echo "ios-network-conditions.sh: after= is a 40-character SHA" >&2; exit 2; }
 [[ "$mode" == links || "$mode" == duress || "$mode" == background ]] || { echo "ios-network-conditions.sh: mode=links, mode=duress or mode=background" >&2; exit 2; }
@@ -170,6 +172,9 @@ bench() {
   [[ "$mode" != background && "$surface" == chat ]] && filter=(--skip chat_background_catch_up_after_time_away)
   [[ "$mode" == background && "$surface" == terminal ]] && filter=(--exact background_catch_up_after_time_away)
   [[ "$mode" == background && "$surface" == chat ]] && filter=(--exact chat_background_catch_up_after_time_away)
+  # test=NAME: only that chat bench (a chat run otherwise walks every one of them, past an hour
+  # under duress with every profile).
+  [[ -n "$test" && "$surface" == chat ]] && filter=(--exact "$test")
   # One target directory for every leg: the dependencies build once.
   (cd "$tree/cmux-tui" && CARGO_TARGET_DIR="${IOS_NETCOND_TARGET_DIR:-$work/target}" \
     NETCOND_PROFILES="$profiles" NETCOND_SCALES="$scales" NETCOND_RUNS="$n" NETCOND_SEED_BASE="$seed" NETCOND_RELAY="$relay" \

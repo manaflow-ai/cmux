@@ -69,6 +69,51 @@ fn a_resume_from_a_frame_past_the_kept_ones_needs_a_keyframe() {
 }
 
 #[test]
+fn a_scrolling_screen_reaches_the_viewer_frame_by_frame() {
+    // A document scrolled both ways under a status row that changes every frame, with
+    // inverse and styled blanks: every frame leaves the viewer showing the real screen.
+    let (cols, rows) = (24u16, 8u16);
+    let blank = Grid::blank(cols, rows);
+    let doc: Vec<String> = (0..60).map(|n| format!("line {n} {}", "x".repeat(n % 7))).collect();
+    let at = |top: usize, tick: usize| {
+        let mut grid = Grid::blank(cols, rows);
+        for (y, slot) in grid.cells.iter_mut().enumerate() {
+            let mut line = Line::new();
+            if y + 1 == usize::from(rows) {
+                line.push(&format!("status {tick}"), Style::fg(174).with(crate::INVERSE));
+            } else if let Some(text) = doc.get(top + y) {
+                line.push(text, Style::fg((top + y) as u8));
+            }
+            *slot = line.into_row(usize::from(cols));
+        }
+        grid
+    };
+    let mut stream = HybridStream::new(cols, rows);
+    let mut shown = Overlay::new(cols, rows);
+    let mut top = 0usize;
+    let path = [3i32, 3, 3, -3, -3, 1, 1, 0, 7, -2, -9, 2, 2, 2, 0, 5];
+    for (tick, step) in path.iter().cycle().take(64).enumerate() {
+        top = top.saturating_add_signed(*step as isize).min(50);
+        let real = at(top, tick / 2);
+        if let Some(frame) = stream.update(&real, tick as u64) {
+            shown.apply_delta(&Delta::decode(&frame.data).unwrap(), &blank);
+        }
+        let cells = usize::from(cols) * usize::from(rows);
+        assert_eq!(shown.compose(&blank).parity(&real), (cells, cells), "tick {tick}");
+        assert_eq!(stream.shown().parity(&real), (cells, cells), "tick {tick}");
+    }
+    // On a plain scroll the ranked shifts find the frame the full search finds.
+    let mut a = HybridStream::new(cols, rows);
+    a.update(&at(10, 0), 0).unwrap();
+    let fast = a.update(&at(13, 0), 1).unwrap();
+    let mut over = Overlay::new(cols, rows);
+    over.apply_delta(&over.delta(&blank, &at(10, 0), 0, 0), &blank);
+    let slow = over.delta(&blank, &at(13, 0), 0, 1).encode();
+    assert_eq!(Delta::decode(&fast.data).unwrap().shift, 3);
+    assert_eq!(fast.data, slow);
+}
+
+#[test]
 fn a_resize_starts_over() {
     let mut stream = HybridStream::new(20, 4);
     stream.update(&screen(&["one"]), 0).unwrap();
