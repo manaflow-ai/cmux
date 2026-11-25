@@ -352,8 +352,12 @@ fn machine_list_relays_disk_health_to_the_app() {
     );
 
     let page = s.handle(&Request::new("cloud.machine.list", json!({}))).expect("list");
-    assert_eq!(page["machines"][0]["disk_health"], disk_health);
-    assert_eq!(record(&s, &vm(9))["disk_health"], disk_health);
+    // The relay adds the disk bar: 12 of 16 GB used, no split reported.
+    let mut relayed = disk_health.clone();
+    relayed["bar"] = page["machines"][0]["disk_health"]["bar"].clone();
+    assert_eq!(relayed["bar"]["label"], "12 / 16 GB");
+    assert_eq!(page["machines"][0]["disk_health"], relayed);
+    assert_eq!(record(&s, &vm(9))["disk_health"], relayed);
 }
 
 #[test]
