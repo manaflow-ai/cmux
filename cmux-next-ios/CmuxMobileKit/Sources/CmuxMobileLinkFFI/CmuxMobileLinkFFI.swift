@@ -8989,6 +8989,228 @@ public func FfiConverterTypeClassicCleanupPlan_lower(_ value: ClassicCleanupPlan
 }
 
 
+/**
+ * What a hint does: resume the machine now, or skip it for `reason`.
+ */
+public struct CloudWakeAnswer: Equatable, Hashable {
+    public var resume: Bool
+    public var reason: String?
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(resume: Bool, reason: String?) {
+        self.resume = resume
+        self.reason = reason
+    }
+
+    
+
+    
+}
+
+#if compiler(>=6)
+extension CloudWakeAnswer: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeCloudWakeAnswer: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> CloudWakeAnswer {
+        return
+            try CloudWakeAnswer(
+                resume: FfiConverterBool.read(from: &buf), 
+                reason: FfiConverterOptionString.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: CloudWakeAnswer, into buf: inout [UInt8]) {
+        FfiConverterBool.write(value.resume, into: &buf)
+        FfiConverterOptionString.write(value.reason, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeCloudWakeAnswer_lift(_ buf: RustBuffer) throws -> CloudWakeAnswer {
+    return try FfiConverterTypeCloudWakeAnswer.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeCloudWakeAnswer_lower(_ value: CloudWakeAnswer) -> RustBuffer {
+    return FfiConverterTypeCloudWakeAnswer.lower(value)
+}
+
+
+/**
+ * A hint as the phone forwards it: the raw signal (`focus`, `terminal`, `unlock`) and the
+ * facts its models hold.
+ */
+public struct CloudWakeHint: Equatable, Hashable {
+    public var v: UInt32
+    public var machine: String
+    public var signal: String
+    /**
+     * The hidden setting (default off).
+     */
+    public var enabled: Bool
+    /**
+     * The phone may call Cloud (signed in).
+     */
+    public var allowed: Bool
+    /**
+     * The machine's status was read.
+     */
+    public var loaded: Bool
+    public var status: String?
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(v: UInt32, machine: String, signal: String, 
+        /**
+         * The hidden setting (default off).
+         */enabled: Bool, 
+        /**
+         * The phone may call Cloud (signed in).
+         */allowed: Bool, 
+        /**
+         * The machine's status was read.
+         */loaded: Bool, status: String?) {
+        self.v = v
+        self.machine = machine
+        self.signal = signal
+        self.enabled = enabled
+        self.allowed = allowed
+        self.loaded = loaded
+        self.status = status
+    }
+
+    
+
+    
+}
+
+#if compiler(>=6)
+extension CloudWakeHint: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeCloudWakeHint: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> CloudWakeHint {
+        return
+            try CloudWakeHint(
+                v: FfiConverterUInt32.read(from: &buf), 
+                machine: FfiConverterString.read(from: &buf), 
+                signal: FfiConverterString.read(from: &buf), 
+                enabled: FfiConverterBool.read(from: &buf), 
+                allowed: FfiConverterBool.read(from: &buf), 
+                loaded: FfiConverterBool.read(from: &buf), 
+                status: FfiConverterOptionString.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: CloudWakeHint, into buf: inout [UInt8]) {
+        FfiConverterUInt32.write(value.v, into: &buf)
+        FfiConverterString.write(value.machine, into: &buf)
+        FfiConverterString.write(value.signal, into: &buf)
+        FfiConverterBool.write(value.enabled, into: &buf)
+        FfiConverterBool.write(value.allowed, into: &buf)
+        FfiConverterBool.write(value.loaded, into: &buf)
+        FfiConverterOptionString.write(value.status, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeCloudWakeHint_lift(_ buf: RustBuffer) throws -> CloudWakeHint {
+    return try FfiConverterTypeCloudWakeHint.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeCloudWakeHint_lower(_ value: CloudWakeHint) -> RustBuffer {
+    return FfiConverterTypeCloudWakeHint.lower(value)
+}
+
+
+/**
+ * How a hint wake ended, for the wake log.
+ */
+public struct CloudWakeOutcome: Equatable, Hashable {
+    /**
+     * `used` (input followed; `ms` from the resume's answer to it) or `false` (no input within
+     * the bound; `ms` awake).
+     */
+    public var tag: String
+    public var signal: String
+    public var ms: UInt64
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(
+        /**
+         * `used` (input followed; `ms` from the resume's answer to it) or `false` (no input within
+         * the bound; `ms` awake).
+         */tag: String, signal: String, ms: UInt64) {
+        self.tag = tag
+        self.signal = signal
+        self.ms = ms
+    }
+
+    
+
+    
+}
+
+#if compiler(>=6)
+extension CloudWakeOutcome: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeCloudWakeOutcome: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> CloudWakeOutcome {
+        return
+            try CloudWakeOutcome(
+                tag: FfiConverterString.read(from: &buf), 
+                signal: FfiConverterString.read(from: &buf), 
+                ms: FfiConverterUInt64.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: CloudWakeOutcome, into buf: inout [UInt8]) {
+        FfiConverterString.write(value.tag, into: &buf)
+        FfiConverterString.write(value.signal, into: &buf)
+        FfiConverterUInt64.write(value.ms, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeCloudWakeOutcome_lift(_ buf: RustBuffer) throws -> CloudWakeOutcome {
+    return try FfiConverterTypeCloudWakeOutcome.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeCloudWakeOutcome_lower(_ value: CloudWakeOutcome) -> RustBuffer {
+    return FfiConverterTypeCloudWakeOutcome.lower(value)
+}
+
+
 public struct ComposerSendDone: Equatable, Hashable {
     public var seq: UInt64
     public var outcome: ComposerSendOutcome
@@ -13052,6 +13274,98 @@ public func FfiConverterTypeChatUploadState_lower(_ value: ChatUploadState) -> R
 }
 
 
+// Note that we don't yet support `indirect` for enums.
+// See https://github.com/mozilla/uniffi-rs/issues/396 for further discussion.
+/**
+ * What to do about a machine a hint woke when its idle check comes due.
+ */
+
+public enum CloudWakeIdle: Equatable, Hashable {
+    
+    /**
+     * Ask again this much later.
+     */
+    case wait(checkAfterMs: UInt64
+    )
+    /**
+     * Pause it (script-originated); the wake was false.
+     */
+    case pause(outcome: CloudWakeOutcome
+    )
+    /**
+     * Nothing more to do.
+     */
+    case done
+
+
+
+
+
+}
+
+#if compiler(>=6)
+extension CloudWakeIdle: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeCloudWakeIdle: FfiConverterRustBuffer {
+    typealias SwiftType = CloudWakeIdle
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> CloudWakeIdle {
+        let variant: Int32 = try readInt(&buf)
+        switch variant {
+        
+        case 1: return .wait(checkAfterMs: try FfiConverterUInt64.read(from: &buf)
+        )
+        
+        case 2: return .pause(outcome: try FfiConverterTypeCloudWakeOutcome.read(from: &buf)
+        )
+        
+        case 3: return .done
+        
+        default: throw UniffiInternalError.unexpectedEnumCase
+        }
+    }
+
+    public static func write(_ value: CloudWakeIdle, into buf: inout [UInt8]) {
+        switch value {
+        
+        
+        case let .wait(checkAfterMs):
+            writeInt(&buf, Int32(1))
+            FfiConverterUInt64.write(checkAfterMs, into: &buf)
+            
+        
+        case let .pause(outcome):
+            writeInt(&buf, Int32(2))
+            FfiConverterTypeCloudWakeOutcome.write(outcome, into: &buf)
+            
+        
+        case .done:
+            writeInt(&buf, Int32(3))
+        
+        }
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeCloudWakeIdle_lift(_ buf: RustBuffer) throws -> CloudWakeIdle {
+    return try FfiConverterTypeCloudWakeIdle.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeCloudWakeIdle_lower(_ value: CloudWakeIdle) -> RustBuffer {
+    return FfiConverterTypeCloudWakeIdle.lower(value)
+}
+
+
 
 public enum CmuxMobileError: Swift.Error, Equatable, Hashable, Foundation.LocalizedError {
 
@@ -15753,6 +16067,30 @@ fileprivate struct FfiConverterOptionTypeChatPromptRequest: FfiConverterRustBuff
 #if swift(>=5.8)
 @_documentation(visibility: private)
 #endif
+fileprivate struct FfiConverterOptionTypeCloudWakeOutcome: FfiConverterRustBuffer {
+    typealias SwiftType = CloudWakeOutcome?
+
+    public static func write(_ value: SwiftType, into buf: inout [UInt8]) {
+        guard let value = value else {
+            writeInt(&buf, Int8(0))
+            return
+        }
+        writeInt(&buf, Int8(1))
+        FfiConverterTypeCloudWakeOutcome.write(value, into: &buf)
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> SwiftType {
+        switch try readInt(&buf) as Int8 {
+        case 0: return nil
+        case 1: return try FfiConverterTypeCloudWakeOutcome.read(from: &buf)
+        default: throw UniffiInternalError.unexpectedOptionalTag
+        }
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
 fileprivate struct FfiConverterOptionTypeComposerSendDone: FfiConverterRustBuffer {
     typealias SwiftType = ComposerSendDone?
 
@@ -17212,6 +17550,57 @@ public func classicCleanupVersion() -> Int64  {
 })
 }
 /**
+ * Decides one hint. On `resume`, run the resume and tell [`cloud_wake_resumed`].
+ */
+public func cloudWakeHint(hint: CloudWakeHint) -> CloudWakeAnswer  {
+    return try!  FfiConverterTypeCloudWakeAnswer_lift(try! rustCall() {
+    uniffi_cmux_mobile_link_ffi_fn_func_cloud_wake_hint(
+        FfiConverterTypeCloudWakeHint_lower(hint),$0
+    )
+})
+}
+/**
+ * The idle check of a machine a hint woke, with its status now.
+ */
+public func cloudWakeIdle(machine: String, status: String?) -> CloudWakeIdle  {
+    return try!  FfiConverterTypeCloudWakeIdle_lift(try! rustCall() {
+    uniffi_cmux_mobile_link_ffi_fn_func_cloud_wake_idle(
+        FfiConverterString.lower(machine),
+        FfiConverterOptionString.lower(status),$0
+    )
+})
+}
+/**
+ * The person used `machine` (sent a prompt in its chat): a hint wake it had is `used`, once.
+ */
+public func cloudWakeInput(machine: String) -> CloudWakeOutcome?  {
+    return try!  FfiConverterOptionTypeCloudWakeOutcome.lift(try! rustCall() {
+    uniffi_cmux_mobile_link_ffi_fn_func_cloud_wake_input(
+        FfiConverterString.lower(machine),$0
+    )
+})
+}
+/**
+ * The hint's resume answered; accepted: the idle check is due in the returned ms.
+ */
+public func cloudWakeResumed(machine: String, ok: Bool) -> UInt64?  {
+    return try!  FfiConverterOptionUInt64.lift(try! rustCall() {
+    uniffi_cmux_mobile_link_ffi_fn_func_cloud_wake_resumed(
+        FfiConverterString.lower(machine),
+        FfiConverterBool.lower(ok),$0
+    )
+})
+}
+/**
+ * The wake hint's protocol version the phone sends (`WAKE_HINT_VERSION`).
+ */
+public func cloudWakeVersion() -> UInt32  {
+    return try!  FfiConverterUInt32.lift(try! rustCall() {
+    uniffi_cmux_mobile_link_ffi_fn_func_cloud_wake_version($0
+    )
+})
+}
+/**
  * The folder (in the app's own container) where the LAN direct path keeps
  * this phone's key and what each Mac told it; `None` turns the path off.
  * Call once at launch, before `connect`.
@@ -17768,6 +18157,21 @@ private let initializationResult: InitializationResult = {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_cmux_mobile_link_ffi_checksum_func_classic_cleanup_version() != 33020) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_cmux_mobile_link_ffi_checksum_func_cloud_wake_hint() != 36428) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_cmux_mobile_link_ffi_checksum_func_cloud_wake_idle() != 47657) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_cmux_mobile_link_ffi_checksum_func_cloud_wake_input() != 1920) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_cmux_mobile_link_ffi_checksum_func_cloud_wake_resumed() != 44344) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_cmux_mobile_link_ffi_checksum_func_cloud_wake_version() != 59133) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_cmux_mobile_link_ffi_checksum_func_set_lan_memory_dir() != 45946) {
