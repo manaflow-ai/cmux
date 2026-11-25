@@ -143,8 +143,12 @@ extension LiveCoordinator {
     }
 
     private func observe(_ session: MacSession) {
-        let (seen, seenMedia) = withObservationTracking {
-            (session.link.phase, session.link.media)
+        // What a change is compared against, read in the same main-actor turn as the tracking
+        // below (so the same values): onChange cannot use the tracking's own result, which is
+        // still being declared when the closure is written.
+        let seen = session.link.phase, seenMedia = session.link.media
+        withObservationTracking {
+            _ = (session.link.phase, session.link.media)
         } onChange: { [weak self, weak session] in
             Task { @MainActor [weak self, weak session] in
                 guard let self, let session, self.sessions[session.macID] === session else { return }
@@ -241,7 +245,7 @@ extension LiveCoordinator {
             ConnectTimeline.shared.mark("daemon_channel_open")
             let firstWindow = ListFirstWindow.honors(macID, defaults: .standard)
             return PreparedLink(auth: auth, daemon: .success(await WorkspaceSync.prepare(channel, deviceID: deviceID, deviceName: deviceName,
-                                                                                         firstWindow: firstWindow)))
+                                                                                         firstWindow: firstWindow, macID: macID)))
         } catch {
             return PreparedLink(auth: auth, daemon: .failure(error as? LinkError ?? LinkError(code: "daemon", message: LinkController.reason(error))))
         }

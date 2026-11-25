@@ -120,6 +120,32 @@ extension DaemonLauncher {
         return .keep(decision?["keep"] as? String ?? "no decision")
     }
 
+    /// The launch decision for the local owner `identity`: ``versionDecision(running:bundled:)``,
+    /// and a restart too when the owner is the bundled build but runs from an executable whose file
+    /// is gone (`executableGone`: its `cli_path` has no file). Such an owner outlived the bundle it started from (a deleted or
+    /// replaced copy of the app, such as a probe's per-run install): its build matches, so the
+    /// version rule kept it, but every sibling it resolves at run time is gone with the bundle. Its
+    /// app host is one (`cmux-app-host` beside its executable, cmux-tui-core `apps/host.rs`), so
+    /// every apps request, the Cloud machine list among them, failed with "this daemon has no app
+    /// host" until the person restarted the daemon by hand.
+    public static func launchDecision(running identity: DaemonIdentity, bundled: DaemonBuildStamp?,
+                                      executableGone: (DaemonIdentity) -> Bool = DaemonLauncher.runsGoneExecutable)
+        -> DaemonVersionDecision {
+        let decision = versionDecision(running: DaemonBuildStamp(identity: identity), bundled: bundled)
+        guard case .keep = decision, let bundled, executableGone(identity) else { return decision }
+        let running = DaemonBuildStamp(identity: identity)
+        let from = running.id ?? running.commit ?? "unknown"
+        let to = bundled.id ?? bundled.commit ?? "unknown"
+        return .restart(running: "\(from) (executable gone)", bundled: to)
+    }
+
+    /// Whether the owner's own binary (`cli_path` in `identify`, the path it started from) has no
+    /// file any more. False when the owner does not report one (older than `daemon-build-v1`).
+    public static func runsGoneExecutable(_ identity: DaemonIdentity) -> Bool {
+        guard let path = identity.cliPath else { return false }
+        return !FileManager.checked.fileExists(atPath: path)
+    }
+
     /// After an update the app finds the daemon an older app started: hand
     /// it off to the bundled build so the update reaches it. A bundled binary first premigrates the
     /// registry beside the running daemon, in the background: the call returns
@@ -141,7 +167,7 @@ extension DaemonLauncher {
         } else {
             bundled = try? await bundledBuild()
         }
-        let decision = Self.versionDecision(running: DaemonBuildStamp(identity: identity), bundled: bundled)
+        let decision = Self.launchDecision(running: identity, bundled: bundled)
         guard case .restart(let running, let target) = decision else { return decision }
         let logger = Logger(subsystem: "com.cmuxterm.next", category: "daemon")
         if configuration.binaryIsBundled {
