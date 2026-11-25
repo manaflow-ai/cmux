@@ -10,7 +10,8 @@
 //!   program) and whether the close earns an undo toast.
 //! - [`tabs`]: what a new tab or pane opens and where (its kind, the browser
 //!   open plan, a split's plan), tab moves, numbers, duplicates, restarts and
-//!   icons; [`tabs::panes`] the pane and terminal tables.
+//!   icons; [`tabs::panes`] the pane and terminal tables; [`tabs::strip`]
+//!   the strip's close, move and next-tab commands.
 //! - [`chat`]: where an agent chat, a tool opened from it and a column action
 //!   go (the chat dock, the strip, the column target), and the agent chat
 //!   handlers' rules ([`chat::agent`]).
