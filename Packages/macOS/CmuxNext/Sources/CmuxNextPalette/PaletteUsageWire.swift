@@ -2,7 +2,8 @@ package import Foundation
 
 /// Decodes the daemon's `palette-usage-v1` values into the palette's
 /// history mirror. Values are the daemon's; nothing here computes a score.
-nonisolated package enum PaletteUsageWire {
+nonisolated package struct PaletteUsageWire {
+    package nonisolated init() {}
     /// One `PaletteUsageRow` / `PaletteUsagePick` (decimal fields are strings).
     private struct Row: Decodable {
         var key: String
