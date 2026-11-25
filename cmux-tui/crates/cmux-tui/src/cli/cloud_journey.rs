@@ -36,6 +36,8 @@ use serde_json::{Value, json};
 
 use super::{GlobalArgs, OutputMode};
 
+#[path = "cloud_journey/capsule.rs"]
+pub(super) mod capsule;
 #[path = "cloud_journey/repo.rs"]
 mod repo;
 
@@ -94,6 +96,8 @@ pub(super) struct Args {
     pub machine_config: Option<PathBuf>,
     /// `--keep`: the machine is the migrated project's, so it stays.
     pub keep: bool,
+    /// `cmux repro run --cloud`: replay a repro capsule instead of the chat (capsule.rs).
+    pub capsule: Option<capsule::CapsuleJob>,
 }
 
 /// `Some(exit code)` when `args` is `cloud journey …`.
@@ -130,6 +134,7 @@ pub(super) fn parse(words: &[String]) -> Result<Args, String> {
         repo: None,
         machine_config: None,
         keep: false,
+        capsule: None,
     };
     let mut it = words.iter();
     while let Some(word) = it.next() {
@@ -584,7 +589,10 @@ async fn journey(global: &GlobalArgs, args: &Args) -> Result<i32, String> {
         meta: vec![
             ("tag", tag.clone()),
             ("team", args.team.clone().unwrap_or_else(|| "(personal)".into())),
-            ("agent", "claude".into()),
+            (
+                "agent",
+                if args.capsule.is_some() { "none (repro capsule)" } else { "claude" }.into(),
+            ),
             (
                 "driver",
                 concat!("cmux cloud journey (Rust, cmux-tui ", env!("CARGO_PKG_VERSION"), ")")
@@ -674,7 +682,10 @@ async fn journey(global: &GlobalArgs, args: &Args) -> Result<i32, String> {
 
     // create machine
     let t0 = Instant::now();
-    let machine_name = format!("cloud journey auto {tag}");
+    let machine_name = match &args.capsule {
+        Some(job) => format!("repro capsule {} {tag}", job.capsule.id),
+        None => format!("cloud journey auto {tag}"),
+    };
     let create_key = cmux_cloud_client::client_key();
     let params = CloudMachineCreateParams {
         name: Some(machine_name.clone()),
@@ -875,6 +886,11 @@ async fn chat_steps(
             j.fail("first exec", t0, &error);
             return Err(());
         }
+    }
+
+    // A repro capsule's replays take the chat's place (capsule.rs).
+    if let Some(job) = &args.capsule {
+        return capsule::capsule_steps(j, &mut exec, job, machine_id).await;
     }
 
     // clone repo, machine config: a moved project's journey (repo.rs).
