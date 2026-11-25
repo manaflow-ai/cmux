@@ -387,8 +387,17 @@ impl HubCarrier {
     }
 
     /// Serve one offer stream from `from`: read its candidates, answer ours, and open toward
-    /// them; a connection that opens goes to [`super::Incoming`] as the responder.
-    pub(crate) async fn serve_offer(self: Arc<Self>, io: tokio::io::DuplexStream) {
+    /// them; a connection that opens goes to [`super::Incoming`] as the responder. Boxed as
+    /// `Send`: accepting the punched link reads it through the mux that served this offer, a
+    /// cycle rustc cannot prove `Send` through an opaque `async fn`.
+    pub(crate) fn serve_offer(
+        self: Arc<Self>,
+        io: tokio::io::DuplexStream,
+    ) -> std::pin::Pin<Box<dyn std::future::Future<Output = ()> + Send>> {
+        Box::pin(self.serve_offer_now(io))
+    }
+
+    async fn serve_offer_now(self: Arc<Self>, io: tokio::io::DuplexStream) {
         let Some(port) = self.direct.punch.listen_port() else { return };
         let ours = Offer { candidates: self.direct.punch.candidates() };
         let (read, mut write) = tokio::io::split(io);
