@@ -291,11 +291,13 @@ pub(crate) async fn host_health(
     host: &str,
 ) -> Result<Value, RpcError> {
     let to = Target { host: Some(host.to_owned()), ..Target::default() };
-    let deadline = tokio::time::Instant::now() + HEALTH_WAIT;
-    let answer = ask_once(mesh, to, host, "", health_body(), deadline).await.map_err(|e| match e {
-        Asked::Gone(e) => hub_error(host, "", e),
-        Asked::Failed(e) => e,
-    });
+    // Capped at HEALTH_WAIT in total, progress or not: placement never waits on a slow machine.
+    let mut wait = IdleDeadline::<tokio::time::Instant>::new(HEALTH_WAIT, Some(HEALTH_WAIT));
+    let answer =
+        ask_once(mesh, to, host, "", health_body(), &mut wait).await.map_err(|e| match e {
+            Asked::Gone(e) => hub_error(host, "", e),
+            Asked::Failed(e) => e,
+        });
     health_of(answer)
 }
 

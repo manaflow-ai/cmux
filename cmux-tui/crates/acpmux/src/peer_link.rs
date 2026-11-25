@@ -626,6 +626,7 @@ impl<S: tokio::io::AsyncWrite + Unpin> HeardStream<S> {
     /// Write out what a write left behind (`early`).
     fn drain(&mut self, cx: &mut std::task::Context<'_>) -> std::task::Poll<std::io::Result<()>> {
         use std::task::Poll;
+        use tokio::io::AsyncWrite as _;
         while !self.pending.is_empty() {
             match std::pin::Pin::new(&mut self.inner).poll_write(cx, &self.pending) {
                 Poll::Ready(Ok(0)) => {
