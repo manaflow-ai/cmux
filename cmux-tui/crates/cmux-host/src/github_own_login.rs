@@ -20,8 +20,9 @@ use std::time::{Duration, Instant};
 
 use zeroize::Zeroizing;
 
+use crate::cloud::github::TokenAsk;
 use crate::github_cli::{
-    GitOp, Minted, Refused, TokenAsk, credential_get, parse_credential_input, repo_from,
+    GitOp, Minted, Refused, credential_get, parse_credential_input, repo_from,
 };
 
 /// The host the carried login is for.
