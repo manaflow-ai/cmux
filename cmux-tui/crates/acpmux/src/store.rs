@@ -30,6 +30,8 @@ mod kind_heads;
 mod kind_index;
 mod sealed_segments;
 mod segment_starts;
+#[cfg(test)]
+pub(crate) use kind_heads::KEYED_KINDS;
 mod segment_table;
 pub use kind_heads::KindHead;
 pub use kind_index::{DIR as KIND_INDEX_DIR, INDEXED_KINDS, carry_copy as carry_kind_index};
@@ -49,26 +51,6 @@ pub(crate) use meta_parts::to_writer_without_parts;
 mod shared_value;
 mod text_index;
 pub use shared_value::{SharedRows, SharedText, SharedValue};
-
-/// A chat's rolling summary (`hub/rolling_summary.rs`): one short line on where it stands and
-/// the next action, kept current after each turn a person started (or one that ended on a
-/// `wrap_up`). The sidebar and the chat header draw it.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, schemars::JsonSchema)]
-#[serde(rename_all = "camelCase")]
-pub struct RollingSummary {
-    /// Where the chat stands, one or two short sentences.
-    pub text: String,
-    /// The next action, for the person or the agent; absent when there is none.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    #[schemars(default)]
-    pub next: Option<String>,
-    /// Who wrote it: `wrap_up` (the agent's own recap and ask, no model call) or `model`.
-    pub source: String,
-    /// The chat's turn count it covers.
-    pub turn: u64,
-    /// When it was written, Unix ms.
-    pub at: u64,
-}
 
 /// The plan the person last approved in a chat (`hub/plan_build.rs` `approved_plan`): Claude
 /// Code's ExitPlanMode, or a Grok, Cursor or Gemini plan approval, answered with an allow. The
@@ -568,10 +550,6 @@ pub struct SessionMeta {
     /// None until the first recap.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub away_recap: Option<AwayRecap>,
-    /// The chat's rolling summary and next action (`hub/rolling_summary.rs`); None until the
-    /// first turn that makes one.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub rolling_summary: Option<RollingSummary>,
     /// The plan the person last approved (`hub/plan_build.rs` `approved_plan`); None until one.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub approved_plan: Option<ApprovedPlan>,
@@ -744,6 +722,10 @@ pub struct SessionMeta {
     /// `total_cost_usd`), which the next turn's cost is measured from.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub harness_cost_usd: Option<f64>,
+    /// What this session's tasks cost so far, model and compute (`hub/turn_cost.rs`): the
+    /// `sessionCostUsd` its last priced turn carried. A fork starts its own.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub task_cost_usd: Option<f64>,
     /// The pull requests this session's `gh pr create` calls printed (`hub/pull_requests.rs`),
     /// once each, oldest first. A fork starts with none.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
@@ -1825,6 +1807,11 @@ pub trait Store: Send + Sync {
     /// Called with a chat's id when its log seals a segment (rolls over to the next), under the
     /// store's writers' lock: it may only note the id and wake a worker. Set once.
     fn on_segment_sealed(&self, _hook: SealHook) {}
+    /// Called with a chat's id each time its log grows past another [`GROWN_EVERY`] bytes
+    /// (`hub/pack_as_it_grows.rs`), on the appending thread after the write, outside the store's
+    /// writers' and segment's locks (the caller's append lock may be held): it may only note the
+    /// id and wake a worker. Set once.
+    fn on_log_grown(&self, _hook: SealHook) {}
     fn delete(&self, id: &str) -> Result<()>;
     fn session_dir(&self, _id: &str) -> Option<PathBuf> {
         None
@@ -1957,6 +1944,7 @@ pub(crate) use journal_store::open_with_journal;
 pub(crate) use journal_store::{DISK_RESERVE, set_test_free};
 mod log_sync;
 mod segment_writer;
+pub use segment_writer::GROWN_EVERY;
 use segment_writer::SegmentWriter;
 pub mod open_logs;
 #[cfg(test)]
@@ -2014,10 +2002,14 @@ pub struct LocalStore {
     rehydrate_hook: std::sync::OnceLock<RehydrateHook>,
     /// [`Store::on_segment_sealed`].
     seal_hook: std::sync::OnceLock<SealHook>,
+    /// [`Store::on_log_grown`].
+    grow_hook: std::sync::OnceLock<SealHook>,
     /// The parts files written or read (`store/meta_parts.rs`).
     parts: meta_parts::PartsMemo,
     /// The segments' record heads a keyed scan read (`store/kind_heads.rs`).
     kind_heads: kind_heads::KindHeads,
+    /// The copies of segments' indexed kinds the reads checked (`store/kind_index.rs`).
+    kind_index_checks: kind_index::Checked,
     /// Each segment's first seq, once read (`store/segment_starts.rs`).
     pub(crate) segment_starts: segment_starts::SegmentStarts,
     segment_table: segment_table::SegmentTable,
@@ -2058,8 +2050,10 @@ impl LocalStore {
             cold_tag: format!("{}x{}", std::process::id(), uuid::Uuid::now_v7().simple()),
             rehydrate_hook: Default::default(),
             seal_hook: Default::default(),
+            grow_hook: Default::default(),
             parts: Default::default(),
             kind_heads: Default::default(),
+            kind_index_checks: Default::default(),
             segment_starts: Default::default(),
             segment_table: Default::default(),
             #[cfg(test)]
@@ -3008,6 +3002,10 @@ impl Store for LocalStore {
         let _ = self.seal_hook.set(hook);
     }
 
+    fn on_log_grown(&self, hook: SealHook) {
+        let _ = self.grow_hook.set(hook);
+    }
+
     fn seal(&self) {
         *self.sealed.write().unwrap_or_else(std::sync::PoisonError::into_inner) = true;
     }
@@ -3103,6 +3101,7 @@ impl Store for LocalStore {
             w.retire();
         }
         self.kind_heads.forget(id);
+        self.kind_index_checks.forget(id);
         self.segment_starts.forget(id);
         self.segment_table.forget(id);
         let dir = self.dir(id);
@@ -3218,6 +3217,8 @@ fn is_zero(v: &u64) -> bool {
 
 #[cfg(test)]
 mod head_tests;
+#[cfg(test)]
+mod no_rolling_summary_tests;
 
 #[cfg(all(test, unix))]
 mod journal_meta_tests;

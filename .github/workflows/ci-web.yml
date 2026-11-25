@@ -354,7 +354,7 @@ jobs:
   webviews-typecheck:
     needs: web-subarea-scope
     if: ${{ inputs.web == 'true' && needs.web-subarea-scope.outputs.react_apps == 'true' }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-16vcpu-ubuntu-2404' || !startsWith(vars.LINUX_RUNNER, 'blacksmith-') && vars.LINUX_RUNNER || vars.CI_CLOUD_OVERFLOW_SAVED && fromJSON(vars.RUNNER_POOLS).linux_32 || fromJSON(vars.RUNNER_POOLS).linux_16 }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-16vcpu-ubuntu-2404' || 'cmux-linux' }}
     # The merge's type check, and on a red the base's (a worktree of the merge parent).
     timeout-minutes: 15
     outputs:
@@ -565,7 +565,10 @@ jobs:
   # CMUX_REAL_ACPMUX=1, which fails a file that cannot run instead of skipping it.
   agent-pane-real-acpmux:
     needs: web-subarea-scope
-    if: ${{ inputs.web == 'true' && needs.web-subarea-scope.outputs.agent_pane == 'true' && (inputs.only == '' || inputs.only == 'agent-pane-real-acpmux') }}
+    # A feat-cmux-next pull request runs this job's commands as the ci/steps.toml step `agent-pane-real-acpmux` (pr-pipeline.yml's
+    # web-browser job); a push, dispatch, the post-merge batch and a pull request into any other base still run them
+    # here. Web status counts the skip as fine only on such a pull request.
+    if: ${{ inputs.web == 'true' && needs.web-subarea-scope.outputs.agent_pane == 'true' && (inputs.only == '' || inputs.only == 'agent-pane-real-acpmux') && (github.event_name != 'pull_request' || github.base_ref != 'feat-cmux-next') }}
     name: Agent pane on real acpmux
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && (vars.CI_FORK_LINUX_RUNNER || 'ubuntu-24.04') || 'cmux-linux' }}
     timeout-minutes: 30
@@ -610,7 +613,9 @@ jobs:
           add-rust-environment-hash-key: false
           cache-bin: false
           shared-key: agent-pane-real-acpmux
-          save-if: ${{ github.ref == 'refs/heads/feat-cmux-next' || github.base_ref == 'feat-cmux-next' }}
+          # A feat-cmux-next push saves; a pull request restores only. `|| github.base_ref == 'feat-cmux-next'` saved a
+          # copy per pull request that only that pull request reads: 114 entries, 53 GB written in 6 h (2026-11-24, RFD 0148 row 19).
+          save-if: ${{ github.ref == 'refs/heads/feat-cmux-next' }}
           workspaces: cmux-tui -> target
 
       - name: Build acpmux
@@ -657,7 +662,10 @@ jobs:
 
   web-instant-navigation:
     needs: web-subarea-scope
-    if: ${{ inputs.web == 'true' && needs.web-subarea-scope.outputs.instant == 'true' && (inputs.only == '' || inputs.only == 'web-instant-navigation') }}
+    # A feat-cmux-next pull request runs this job's commands as the ci/steps.toml step `web-instant-navigation` (pr-pipeline.yml's
+    # web-browser job); a push, dispatch, the post-merge batch and a pull request into any other base still run them
+    # here. Web status counts the skip as fine only on such a pull request.
+    if: ${{ inputs.web == 'true' && needs.web-subarea-scope.outputs.instant == 'true' && (inputs.only == '' || inputs.only == 'web-instant-navigation') && (github.event_name != 'pull_request' || github.base_ref != 'feat-cmux-next') }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && (vars.CI_FORK_LINUX_RUNNER || 'ubuntu-24.04') || 'cmux-linux' }}
     timeout-minutes: 10
     defaults:
@@ -772,11 +780,14 @@ jobs:
     # 44258208231 hit the limit on small runners, still testing. A fork's run reads no variables, so
     # its arms come first. The anchor hands these minutes to Test webviews, whose retry deadline is
     # measured from them.
+    # A dispatch (the post-merge batch tick, the full suite of the base) gets 45: the ticks of 11-22 to 11-24 ran 8
+    # shards to the 90 minute limit, 100% red (about 5,760 shard minutes a day), because a red base never turns
+    # green by waiting; the retry deadline follows these minutes, so a red file stays red and the tick ends sooner.
     # actions: read: a pull request's shard downloads the files that passed at its previous head (an artifact).
     permissions:
       contents: read
       actions: read
-    timeout-minutes: &webview-shard-minutes ${{ github.repository_owner != 'manaflow-ai' && 90 || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 90 || contains(fromJSON(vars.RUNNER_POOLS).linux_4, '-2vcpu-') && 150 || 90 }}
+    timeout-minutes: &webview-shard-minutes ${{ github.repository_owner != 'manaflow-ai' && 90 || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 90 || contains(fromJSON(vars.RUNNER_POOLS).linux_4, '-2vcpu-') && 150 || github.event_name == 'workflow_dispatch' && 45 || 90 }}
     name: react-apps-check (${{ matrix.shard }})
     strategy:
       fail-fast: false
@@ -2531,9 +2542,9 @@ jobs:
           }
           results.update({job: needs[job]["result"] for job in sorted(required)})
           may_skip = {job for job, is_required in required.items() if not is_required}
-          # A feat-cmux-next pull request runs it as the ci/steps.toml step (pr-pipeline.yml): the job skips.
+          # A feat-cmux-next pull request runs these as ci/steps.toml steps (pr-pipeline.yml): the jobs skip.
           if os.environ.get("WEB_EVENT") == "pull_request" and os.environ.get("WEB_BASE_REF") == "feat-cmux-next":
-              may_skip.add("web-typecheck")
+              may_skip.update({"web-typecheck", "web-instant-navigation", "agent-pane-real-acpmux"})
           exit_with_verdict(results, "Web status", may_skip)
           for job, is_required in sorted(required.items()):
               print(f"{job}: required={str(is_required).lower()} result={needs[job]['result']}")

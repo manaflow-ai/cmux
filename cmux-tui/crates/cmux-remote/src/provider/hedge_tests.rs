@@ -197,3 +197,78 @@ fn v6_first_puts_ipv6_first_even_when_the_resolver_put_ipv4_first() {
     );
     assert_eq!(super::v6_first(&[a("192.0.2.1:443")]), vec![a("192.0.2.1:443")]);
 }
+
+/// A dual-stack peer whose IPv6 is black-holed: the first dial waits out the dead IPv6 socket
+/// for one stagger; the next goes to the remembered IPv4 address at once.
+#[tokio::test(start_paused = true)]
+async fn a_reconnect_starts_at_the_address_that_won_last_time() {
+    use std::net::SocketAddr;
+
+    use cmux_braid_path::LastGood;
+
+    let v6: SocketAddr = "[2001:db8::1]:443".parse().unwrap();
+    let v4: SocketAddr = "192.0.2.1:443".parse().unwrap();
+    let memory = LastGood::new(Duration::from_secs(60));
+    let dial = |address: SocketAddr| async move {
+        if address.is_ipv6() {
+            std::future::pending::<()>().await;
+        }
+        tokio::time::sleep(ms(25)).await;
+        Ok::<_, io::Error>(address)
+    };
+    for expected in [425, 25, 25] {
+        let began = Instant::now();
+        let won = super::connect_remembered(
+            &memory,
+            "Relay.example",
+            443,
+            &[v4, v6],
+            0,
+            HedgePolicy::INTERNET,
+            dial,
+        )
+        .await
+        .unwrap();
+        assert_eq!(won, v4);
+        assert_eq!(began.elapsed(), ms(expected));
+    }
+    assert_eq!(memory.get(&("relay.example".to_owned(), 443)).unwrap().target, v4);
+}
+
+#[tokio::test(start_paused = true)]
+async fn a_preferred_prefix_dials_first_and_the_last_good_route_still_leads() {
+    use std::net::SocketAddr;
+    use std::sync::{Arc, Mutex};
+
+    use cmux_braid_path::LastGood;
+
+    let tailnet: SocketAddr = "100.64.0.3:443".parse().unwrap();
+    let v6: SocketAddr = "[2001:db8::1]:443".parse().unwrap();
+    let memory = LastGood::new(Duration::from_secs(60));
+    for (winner, expected_first) in [(tailnet, tailnet), (v6, tailnet), (tailnet, v6)] {
+        let tried = Arc::new(Mutex::new(Vec::new()));
+        let log = Arc::clone(&tried);
+        let dial = move |address: SocketAddr| {
+            log.lock().unwrap().push(address);
+            async move {
+                if address != winner {
+                    std::future::pending::<()>().await;
+                }
+                Ok::<_, io::Error>(address)
+            }
+        };
+        let won = super::connect_remembered(
+            &memory,
+            "peer",
+            443,
+            &[tailnet, v6],
+            1,
+            HedgePolicy::INTERNET,
+            dial,
+        )
+        .await
+        .unwrap();
+        assert_eq!(won, winner);
+        assert_eq!(tried.lock().unwrap()[0], expected_first);
+    }
+}
