@@ -41,8 +41,42 @@ export const renderPane = pane(() =>
 )
 ```
 
-Rules: one pane per extension; it opens with no arguments; keep what must survive a reload in
-`cmux.storage` (scope `storage:local`), not in a global.
+Rules: one pane per extension; keep what must survive a reload in `cmux.storage` (scope
+`storage:local`), not in a global.
+
+## Open it with arguments and get a result (a panel flow)
+
+Another view of the same extension (a section, a command, a widget) opens the pane with arguments
+and waits for what it returns. `cmux.app.openPane(args)` needs the person's gesture (call it from the
+click's handler before any `await`, or pass `{ gesture }`), opens the tab, and resolves
+`{ result, dismissed }`:
+
+- the pane calls `ctx.close(result)`: `{ result, dismissed: false }` (the tab stays open; closing
+  it is the person's);
+- the person closes the tab, or another `openPane` replaces this one: `{ result: null, dismissed: true }`.
+
+In the pane, `ctx.args` is the open's arguments (`null` when the person opened it from the
+palette), `ctx.onOpen(fn)` runs with them on each open, and `ctx.onClose(fn)` runs when the pane
+goes. An open while the pane is showing mounts it again with the new arguments. `args` and
+`result` are JSON objects of at most 16 KiB.
+
+```ts
+import { Button, pane, section, Text, VStack } from "cmux-extension-sdk"
+
+export const renderSection = section((ctx) =>
+  Button("Pick an issue", async () => {
+    const { result, dismissed } = await cmux.app.openPane({ repo: "acme/web" })
+    if (!dismissed) await cmux.notify({ title: `Picked ${result.id}` })
+  })
+)
+
+export const renderPane = pane((ctx) =>
+  VStack([
+    Text(ctx.args ? `Issues in ${ctx.args.repo}` : "Issues"),
+    Button("#42", () => ctx.close({ id: 42 })),
+  ])
+)
+```
 
 ```sh
 cmux ext dev --once --json
