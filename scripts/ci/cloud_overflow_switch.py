@@ -97,7 +97,7 @@ CLOUD_PREFIX = pr_runner_pool.EPHEMERAL_PREFIX  # "blacksmith-"
 # alone queued past 5 minutes at 21:59Z, 22:13Z, 22:53Z and 23:30Z while the
 # other sizes started jobs, and each time the whole fleet failed over.
 PROBE_LABELS = ("blacksmith-4vcpu-ubuntu-2404", "blacksmith-16vcpu-ubuntu-2404")
-# Every x64 Linux label a RUNNER_POOLS pool can point at (members and release valve,
+# Every x64 Linux label a RUNNER_POOLS pool can point at (its declared members,
 # runner_pools.allowed(); tests/test_ci_runner_pools.py), decision probes first. The others are probed for
 # CI_CLOUD_LABEL_HEALTH only and never decide overflow: on 2026-11-18 linux_16 and linux_32 sat on
 # blacksmith-32vcpu-ubuntu-2404 from about 23:12Z with nothing starting there, because no probe asked for it
