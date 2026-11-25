@@ -369,6 +369,10 @@ def stop(p):
         p.kill()
 
 
+# Not benched: Cursor (`cursor-agent acp`). Its model traffic is Cursor's own RPC protocol to
+# CURSOR_API_ENDPOINT (default api2.cursor.sh), not a public model API a stand-in can answer, so a
+# raw-vs-acpmux timing here would measure Cursor's servers, not the client side.
+
 # The model each harness runs, on both sides: acpmux gets it as `_meta.acpmux.model`, raw
 # as its own flag or config. A real model id, so each harness builds the prompt it builds for
 # a real chat (the stand-in answers any id).
