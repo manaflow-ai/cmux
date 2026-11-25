@@ -9,7 +9,8 @@ finds every place the code makes an HTTP client or socket by hand:
 
   rust   reqwest::Client::new() / ::builder() (and blocking), reqwest::get(), Client::builder(), tungstenite's
          connect_async*, ureq
-  swift  URLSession(configuration:), URLSession(), URLSession.shared, NWConnection(, .webSocketTask(
+  swift  (the Swift gate is Packages/Shared/CmuxEgress: CmuxEgress.session/shared/websocket/connection)
+         URLSession(configuration:), URLSession(), URLSession.shared, NWConnection(, .webSocketTask(
 
 GATES are the gate's own files, where the one real client is made. Every other site is listed in UNGATED
 (tests/egress_ungated.json), file by file with a count per form. The list may only shrink: a new site fails (make
@@ -36,21 +37,29 @@ from test_outbound_hosts import DOC, SCAN, listed  # noqa: E402
 
 ROOT = Path(__file__).resolve().parents[1]
 UNGATED = ROOT / "tests" / "egress_ungated.json"
-# The gate's own sources: the only place a raw client may be made (Rust: cmux-egress; Swift next).
-GATES: tuple[str, ...] = ("cmux-tui/crates/cmux-egress/",)
+# The gate's own sources: the only place a raw client may be made (Rust: cmux-egress; Swift: CmuxEgress).
+GATES: tuple[str, ...] = ("cmux-tui/crates/cmux-egress/", "Packages/Shared/CmuxEgress/Sources/")
 # The `connects` hosts the Rust gate lets through, generated from docs/privacy.md (--write).
 GATE_HOSTS = ROOT / "cmux-tui" / "crates" / "cmux-egress" / "hosts.txt"
+# The same hosts as Swift, for the Swift gate (Packages/Shared/CmuxEgress).
+GATE_HOSTS_SWIFT = ROOT / "Packages" / "Shared" / "CmuxEgress" / "Sources" / "CmuxEgress" / "EgressHosts.swift"
 FORMS = {
     ".rs": {
         "reqwest-client": r"reqwest::(?:blocking::)?Client(?:Builder)?::(?:new|builder)\(",
         "reqwest-get": r"reqwest::(?:blocking::)?get\(",
         "client-builder": r"(?<![\w:])Client::builder\(\)",
-        "ws-connect": r"\bconnect_async(?:_with_config|_tls_with_config)?\(",
+        # cmux_egress::ws:: is the gate's own WebSocket connect.
+        "ws-connect": r"(?<!cmux_egress::ws::)\bconnect_async(?:_with_config|_tls_with_config)?\(",
         "ureq": r"\bureq::",
     },
     ".swift": {
-        "urlsession": r"\bURLSession\((?:configuration|\))",
+        # `\s*`: the initializer split over lines, `URLSession(\n    configuration:`, is one too.
+        "urlsession": r"\bURLSession\(\s*(?:configuration|\))",
         "urlsession-shared": r"\bURLSession\.shared\b",
+        # A defaulted parameter or stored property: `session: URLSession = .shared` is the shared session too.
+        "urlsession-default": r"\bURLSession\s*=\s*\.shared\b",
+        # The shared session passed by its short name: `Client(session: .shared)`.
+        "urlsession-shared-arg": r"\b[sS]ession:\s*\.shared\b",
         "nwconnection": r"\bNWConnection\(",
         "websocket-task": r"\.webSocketTask\(",
     },
@@ -116,6 +125,11 @@ def gate_hosts_text(doc: str) -> str:
             "python3 tests/test_egress_gate.py --write\n" + "".join(f"{h}\n" for h in hosts))
 
 
+def swift_gate_hosts() -> list[str]:
+    """The hosts EgressHosts.swift (hand-kept data, no generated header) lists, in file order."""
+    return re.findall(r'^\s+"([^"]+)",\s*$', GATE_HOSTS_SWIFT.read_text(), re.M)
+
+
 def summary(files: dict[str, dict[str, int]]) -> dict:
     by_lang: dict[str, int] = {}
     for rel, forms in files.items():
@@ -141,6 +155,13 @@ class EgressGate(unittest.TestCase):
         self.assertEqual(GATE_HOSTS.read_text(), gate_hosts_text(DOC.read_text()),
                          "cmux-egress/hosts.txt differs from docs/privacy.md's connects rows: run --write")
 
+    def test_the_swift_gate_lets_through_exactly_the_doc_hosts(self):
+        rows, _ = listed(DOC.read_text())
+        want = sorted(h for h, (kind, _) in rows.items() if kind == "connects")
+        self.assertEqual(swift_gate_hosts(), want,
+                         "CmuxEgress/EgressHosts.swift differs from docs/privacy.md's connects rows: edit it to match "
+                         "(it is hand-kept, sorted, one host per line)")
+
     def test_the_counts_are_the_sum(self):
         data = json.loads(UNGATED.read_text())
         self.assertEqual({k: data.get(k) for k in ("ungated", "file_count", "by_language")}, summary(data["files"]),
@@ -150,13 +171,22 @@ class EgressGate(unittest.TestCase):
 class Matcher(unittest.TestCase):
     def test_forms_are_found(self):
         rs = ('let a = reqwest::Client::builder().build();\nlet b = reqwest::blocking::Client::new();\n'
-              'let c = Client::builder().build();\nlet d = reqwest::get(u);\nconnect_async(req);\n')
+              'let c = Client::builder().build();\nlet d = reqwest::get(u);\nconnect_async(req);\n'
+              'cmux_egress::ws::connect_async(req, "s");\ncmux_egress::client_builder("s");\n')
         self.assertEqual(sites_in(rs, "cmux-tui/crates/x/src/a.rs"),
                          {"reqwest-client": 2, "client-builder": 1, "reqwest-get": 1, "ws-connect": 1})
         sw = ('let s = URLSession(configuration: c)\nURLSession.shared.data(for: r)\nNWConnection(to: e, using: p)\n'
               'session.webSocketTask(with: u)\n')
         self.assertEqual(sites_in(sw, "Packages/macOS/CmuxNext/Sources/X/A.swift"),
                          {"urlsession": 1, "urlsession-shared": 1, "nwconnection": 1, "websocket-task": 1})
+        # The shared session by its short name: a defaulted parameter, a stored property, an argument.
+        sw = ('init(session: URLSession = .shared) {}\nvar session: URLSession = .shared\n'
+              'func f(session: sending URLSession = .shared) {}\nlet c = Client(session: .shared)\n')
+        self.assertEqual(sites_in(sw, "Packages/macOS/CmuxNext/Sources/X/A.swift"),
+                         {"urlsession-default": 3, "urlsession-shared-arg": 1})
+        # The initializer split over lines.
+        sw = 'session = URLSession(\n    configuration: c,\n    delegate: d,\n    delegateQueue: nil\n)\n'
+        self.assertEqual(sites_in(sw, "Packages/macOS/CmuxNext/Sources/X/A.swift"), {"urlsession": 1})
 
     def test_comments_and_test_modules_are_skipped(self):
         self.assertEqual(sites_in("// reqwest::Client::new()\n#[cfg(test)]\nmod tests {\n fn t() { "

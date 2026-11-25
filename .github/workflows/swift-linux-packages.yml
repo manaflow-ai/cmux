@@ -29,6 +29,7 @@ on:
     paths:
       - Packages/**
       - vendor/stack-auth-swift-sdk-prerelease/**
+      - cmux-next-ios/CmuxMobileKit/**
       - scripts/ci/swift-linux-packages.txt
       - scripts/ci/package-test-lane.sh
       - scripts/ci/swift-test-debug-info.sh
@@ -71,14 +72,16 @@ jobs:
             packages: Packages/Shared/CmuxSentryTelemetry
           - group: mobile-core
             packages: >-
-              Packages/Shared/CMUXMobileCore
+              Packages/Shared/CmuxHomeCore
               Packages/Shared/CmuxTheme
-              Packages/iOS/CmuxMobilePairedMac
-              Packages/iOS/CmuxMobileShellModel
           # Other SDK suites need a local Stack backend; these use URLProtocol fixtures.
           - group: stack-auth
             packages: vendor/stack-auth-swift-sdk-prerelease
             test_filter: RefreshLifecycleTests|RefreshDeadlineTests|RefreshTransportTimingTests|RateLimitRetryTests|PublishableKeyOptionalTests|TokenRefreshAlgorithmTests/[a-zA-Z]*Fresh
+          # The cmux-next iPhone app's modules that need no UI framework (the manifest's CMUX_SWIFTPM_TARGET_LINUX
+          # shape); cmux-next-ios-kit.yml skips their test targets on the Mac.
+          - group: ios-kit
+            packages: cmux-next-ios/CmuxMobileKit
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
@@ -93,7 +96,7 @@ jobs:
         id: key
         run: |
           set -euo pipefail
-          inputs="$({ find Packages vendor/stack-auth-swift-sdk-prerelease -type d \( -name .build -o -name .git -o -name node_modules \) -prune -o \
+          inputs="$({ find Packages vendor/stack-auth-swift-sdk-prerelease cmux-next-ios -type d \( -name .build -o -name .git -o -name node_modules \) -prune -o \
               -type f \( -name Package.swift -o -name Package.resolved \) -print0
             printf '%s\0' scripts/ci/swift-linux-packages.txt scripts/ci/swift-test-debug-info.sh; } |
             LC_ALL=C sort -z | xargs -0 sha256sum | sha256sum | cut -d ' ' -f1)"
@@ -110,6 +113,7 @@ jobs:
           path: |
             Packages/**/.build
             vendor/stack-auth-swift-sdk-prerelease/.build
+            cmux-next-ios/CmuxMobileKit/.build
           key: swift-linux-packages-${{ steps.key.outputs.week }}-${{ steps.key.outputs.toolchain }}-${{ runner.arch }}-${{ matrix.group }}-${{ steps.key.outputs.inputs }}
           restore-keys: |
             swift-linux-packages-${{ steps.key.outputs.week }}-${{ steps.key.outputs.toolchain }}-${{ runner.arch }}-${{ matrix.group }}-
@@ -168,4 +172,5 @@ jobs:
           path: |
             Packages/**/.build
             vendor/stack-auth-swift-sdk-prerelease/.build
+            cmux-next-ios/CmuxMobileKit/.build
           key: swift-linux-packages-${{ steps.key.outputs.week }}-${{ steps.key.outputs.toolchain }}-${{ runner.arch }}-${{ matrix.group }}-${{ steps.key.outputs.inputs }}

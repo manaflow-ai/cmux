@@ -103,6 +103,18 @@ pub fn main(args: Vec<OsString>, invocation: Invocation) -> Result<()> {
     if args.first().is_some_and(|a| a == crate::bg_hook::HOOK_ARG) {
         return crate::bg_hook::main(args.get(1).map(std::path::PathBuf::from));
     }
+    // `cmux github` for an agent session on a machine added from a Mac (`github_lane_mint.rs`):
+    // git's credential helper and the `gh` shim the session's env names. No runtime, no daemon
+    // start; stdout is git's or gh's alone.
+    #[cfg(unix)]
+    if args.first().is_some_and(|a| a == crate::github_lane_mint::CLI_ARG) {
+        crate::install_github_source();
+        let rest: Vec<String> =
+            args[1..].iter().map(|a| a.to_string_lossy().into_owned()).collect();
+        let code = cmux_host::github_cli::run(&rest);
+        // crash-allow: git and gh read this exit code (a helper's refusal, gh's own status); no runtime or daemon runs yet
+        std::process::exit(i32::from(code));
+    }
     // A Codex start's PreToolUse hook in a filling checkout (`codex_repo_gate.rs`): no runtime.
     if args.first().is_some_and(|a| a == crate::codex_repo_gate::HOOK_ARG) {
         return crate::codex_repo_gate::main();
@@ -330,6 +342,7 @@ async fn async_main(parsed: Parsed) -> Result<()> {
         Some(Command::Gh { args }) => crate::cli::gh_shim::run(args).await,
         Some(Command::PrWait(args)) => crate::cli::pr_wait::run(args, json_out).await,
         Some(Command::Ci(ci)) => crate::cli::ci_wait::run(ci, json_out).await,
+        Some(Command::RunAsk { file }) => crate::run_ask::run_cli(file).await,
         // Before anything that reads or writes the home: this runs as root.
         #[cfg(target_os = "linux")]
         Some(Command::DaemonEnroll { person_key_fd }) => {
@@ -531,6 +544,13 @@ async fn async_main(parsed: Parsed) -> Result<()> {
                 Err(e) => errors::exit_with(&e, json_out),
             }
         }
+        Some(Command::Channel(command)) => {
+            let json_out = cli.json;
+            match crate::cli::channel::run(command, json_out).await {
+                Ok(()) => Ok(()),
+                Err(e) => errors::exit_with(&e, json_out),
+            }
+        }
         Some(Command::WhoElse(args)) => {
             let json_out = cli.json;
             match crate::cli::who_else::run(args, json_out).await {
@@ -541,6 +561,13 @@ async fn async_main(parsed: Parsed) -> Result<()> {
         Some(Command::Ledger(args)) => {
             let json_out = cli.json;
             match crate::cli::ledger::run(args, json_out).await {
+                Ok(()) => Ok(()),
+                Err(e) => errors::exit_with(&e, json_out),
+            }
+        }
+        Some(Command::Scorecard(args)) => {
+            let json_out = cli.json;
+            match crate::cli::scorecard::run(args, json_out).await {
                 Ok(()) => Ok(()),
                 Err(e) => errors::exit_with(&e, json_out),
             }
@@ -617,6 +644,10 @@ async fn async_main(parsed: Parsed) -> Result<()> {
             Ok(())
         }
         // No daemon: what this binary serves (`capabilities.rs`).
+        Some(Command::SubForkJob) => match crate::placement::sub_fork_run::job_main().await {
+            Ok(()) => Ok(()),
+            Err(e) => errors::exit_with(&e, cli.json),
+        },
         Some(Command::TriggerChat { protocol, principal_fd }) => {
             match crate::cli::trigger_chat::run(&protocol, principal_fd).await {
                 Ok(()) => Ok(()),
