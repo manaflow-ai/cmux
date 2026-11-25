@@ -105,12 +105,18 @@
   text-align: end;
 }
 
+/* A bar and its even-pace mark (PlanUsageBar). */
+.acpmux-plan-usage-meter {
+  position: relative;
+  display: block;
+  margin-top: var(--ds-space-1);
+}
+
 .acpmux-plan-usage-bar {
   appearance: none;
   display: block;
   width: 100%;
   height: var(--popover-progress-height, var(--ds-space-1));
-  margin-top: var(--ds-space-1);
   border: 0;
   border-radius: 999px;
   background: color-mix(in srgb, var(--agent-text) 14%, transparent);
@@ -126,6 +132,29 @@
 .acpmux-plan-usage-bar::-moz-progress-bar {
   border-radius: inherit;
   background: var(--popover-progress-fill, var(--agent-accent));
+}
+
+/* Ahead of even pace: the bar takes the theme's warning color. */
+.acpmux-plan-usage-meter[data-ahead] .acpmux-plan-usage-bar::-webkit-progress-value {
+  background: var(--agent-warning);
+}
+.acpmux-plan-usage-meter[data-ahead] .acpmux-plan-usage-bar::-moz-progress-bar {
+  background: var(--agent-warning);
+}
+
+/* The even-pace mark: a hairline-thin tick a little taller than the bar, in the text color. */
+.acpmux-plan-usage-pace {
+  position: absolute;
+  top: 50%;
+  width: 2px;
+  height: var(--ds-space-2);
+  border-radius: 999px;
+  background: var(--agent-text);
+  transform: translate(-50%, -50%);
+  pointer-events: none;
+}
+.acpmux-plan-usage-pace:dir(rtl) {
+  transform: translate(50%, -50%);
 }
 
 /* Codex's layout: rows with the share left, a hairline over Manage usage, no bars. */
@@ -144,7 +173,7 @@
 .acpmux-plan-usage[data-look="compact"] .acpmux-plan-usage-rows {
   gap: var(--ds-space-1);
 }
-.acpmux-plan-usage[data-look="compact"] .acpmux-plan-usage-row .acpmux-plan-usage-bar {
+.acpmux-plan-usage[data-look="compact"] .acpmux-plan-usage-row .acpmux-plan-usage-meter {
   flex: none;
   width: 72px;
   margin-top: 0;

@@ -96,9 +96,10 @@ impl Mux {
         let mut state = self.lock_state_pinned(&registry).unwrap();
         self.resolve_resource_path_in_state(&state, &registry, ResourceTarget::Session, &selectors)
             .map_err(anyhow::Error::new)?;
-        // A retry carries the same fields (the fingerprint), so the same source.
-        let name_source =
-            crate::resource_name::NameSource::for_requested_workspace_name(name.as_deref());
+        // A retry carries the same fields (the fingerprint), so the same source. The name a
+        // `workspace.create` caller gives (CLI and MCP `--name`) is its own, pinned (#56422).
+        let (name_source, name_revision) =
+            crate::resource_name::NameSource::for_created_workspace(name.as_deref(), true);
         let reserved_name = name.unwrap_or_else(|| self.default_workspace_name(&state));
         let proposed_intent = json!({
             "workspace_public_id":WorkspacePublicId::random()?,
@@ -165,7 +166,7 @@ impl Mux {
             key: key.clone(),
             name: name.clone(),
             name_source,
-            name_revision: 0,
+            name_revision,
             screens: Vec::new(),
             active_screen: 0,
         };
@@ -203,7 +204,7 @@ impl Mux {
             registry.session_id().as_str(),
             &public_id,
             &name,
-            (name_source, 0),
+            (name_source, name_revision),
             index,
             focus,
         ));
@@ -214,7 +215,7 @@ impl Mux {
             key: key.clone(),
             name: name.clone(),
             name_source,
-            name_revision: 0,
+            name_revision,
             group_key: self.session.clone(),
         };
         let mut desired = self.registry_projection(&state);
